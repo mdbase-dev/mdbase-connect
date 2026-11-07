@@ -164,7 +164,8 @@ impl HttpSyncTransport {
             )
         })?;
         if !status.is_success() {
-            return Err(MirrorError::new(
+            return Err(MirrorError::refused(
+                status.as_u16(),
                 value
                     .pointer("/error/code")
                     .and_then(Value::as_str)
@@ -382,6 +383,17 @@ impl HttpSyncTransport {
                 None,
             )
             .await?;
+        if matches!(
+            status.state,
+            FileTransferState::Aborted | FileTransferState::Expired
+        ) {
+            // This transfer ID can never commit; a re-plan uploads with a new one.
+            return Err(MirrorError::refused(
+                409,
+                "file_transfer_expired",
+                "This file upload is no longer open.",
+            ));
+        }
         let part_count = request.size.div_ceil(part_size).max(1);
         let (received, mut uploaded) = validate_upload_progress(
             status,

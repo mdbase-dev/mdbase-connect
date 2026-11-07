@@ -24,6 +24,8 @@ impl DirectoryMirror {
             batch: None,
             last_completed_plan: None,
             last_synced_at: None,
+            retry_epoch: 0,
+            stuck: None,
         });
         if state.batch.is_some() {
             return Err(MirrorError::new(
@@ -80,6 +82,7 @@ impl DirectoryMirror {
             plan_fingerprint: batch.plan.fingerprint.clone(),
             phase,
             failure,
+            stuck: state.stuck.clone(),
         })
     }
 

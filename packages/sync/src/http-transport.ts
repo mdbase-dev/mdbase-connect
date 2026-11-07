@@ -161,6 +161,10 @@ export class HttpSyncTransport<Frontmatter extends JsonObject = JsonObject> impl
       "GET",
       `transfers/${encodeURIComponent(request.transfer_id)}`
     );
+    // This transfer ID can never commit now; the executor plans again with a new one.
+    if (status?.state === "aborted" || status?.state === "expired") {
+      throw new SyncError("file_transfer_expired", "This file upload is no longer open.", 409);
+    }
     if (
       status?.protocol_version !== 1
       || status.type !== "file_transfer_status"
@@ -295,7 +299,13 @@ export class HttpSyncTransport<Frontmatter extends JsonObject = JsonObject> impl
       ...(body === undefined ? {} : { body: JSON.stringify(body) })
     });
     const value = await response.json();
-    if (!response.ok) throw new SyncError(value?.error?.code ?? "sync_failed", value?.error?.message ?? "Sync request failed.");
+    if (!response.ok) {
+      throw new SyncError(
+        value?.error?.code ?? "sync_failed",
+        value?.error?.message ?? "Sync request failed.",
+        response.status
+      );
+    }
     return value as Result;
   }
 }

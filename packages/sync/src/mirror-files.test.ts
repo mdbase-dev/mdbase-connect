@@ -31,6 +31,8 @@ import {
   type MirrorFileSystem,
   type MirrorState
 } from "./mirror.js";
+import { portableMirrorRuntime } from "./mirror-state.js";
+import { SyncError } from "./sync-error.js";
 import type { SyncTransport } from "./sync-types.js";
 
 const utf8 = new TextEncoder();
@@ -409,6 +411,67 @@ function record(recordId: string, path: string, body: string): SyncSnapshotRecor
     types: [],
     document: body
   };
+}
+
+/**
+ * Refuses uploads of chosen paths like the hosted authority: an answer is
+ * stored under its transfer ID and replayed for every retry of that ID. A
+ * refusal without a status is a transport failure and stores nothing.
+ */
+class RefusingTransport extends FileTransport {
+  readonly applied: Array<[path: string, transferId: string]> = [];
+  private readonly refusals = new Map<string, { code: string; status?: number; times: number }>();
+  private readonly answers = new Map<string, SyncError>();
+
+  refuse(path: string, code: string, times: number, status?: number): void {
+    this.refusals.set(path, { code, times, ...(status === undefined ? {} : { status }) });
+  }
+
+  attempts(path: string): string[] {
+    return this.uploadCalls.filter((call) => call.path === path).map((call) => call.transfer_id);
+  }
+
+  override async uploadFile(request: OpenFileUploadRequest, source: AsyncIterable<Uint8Array>) {
+    const refusal = this.refusals.get(request.path);
+    const answer = this.answers.get(request.transfer_id);
+    if (answer || refusal && refusal.times > 0) {
+      this.uploadCalls.push(structuredClone(request));
+      if (answer) throw answer;
+      refusal!.times -= 1;
+      if (refusal!.status === undefined) {
+        throw Object.assign(new Error("connection reset"), { code: "sync_transport_failed" });
+      }
+      const error = new SyncError(refusal!.code, `${request.path} refused`, refusal!.status);
+      this.answers.set(request.transfer_id, error);
+      throw error;
+    }
+    const before = this.events.length;
+    const receipt = await super.uploadFile(request, source);
+    if (this.events.length > before) this.applied.push([request.path, request.transfer_id]);
+    return receipt;
+  }
+}
+
+/** Three new local images, uploaded in one batch. */
+function refusalFixture() {
+  const transport = new RefusingTransport();
+  transport.mode = "read_write";
+  const fileSystem = new BinaryFileSystem();
+  const stateStore = new MemoryMirrorStateStore();
+  const clock = { now: Date.parse("2026-11-01T00:00:00.000Z") };
+  for (const name of ["a", "b", "c"]) fileSystem.files.set(`assets/${name}.png`, utf8.encode(`local ${name}`));
+  const target = new WritableDirectoryMirror(transport.replicaId, transport, {
+    fileSystem,
+    stateStore,
+    blobStore: new MemoryMirrorBlobStore(),
+    selectiveSync: { file_classes: ["image"], excluded_folders: [] },
+    runtime: { ...portableMirrorRuntime, now: () => new Date(clock.now).toISOString() }
+  });
+  return { transport, fileSystem, stateStore, clock, target };
+}
+
+function expectUploadedOnce(transport: RefusingTransport, paths: string[]): void {
+  expect(transport.applied.map(([path]) => path).sort()).toEqual(paths);
 }
 
 function mirror(
@@ -1470,6 +1533,91 @@ describe("portable collection file mirror", () => {
     expect((await stateStore.read())?.batch).toBeUndefined();
     expect((await target.status()).state).toBe("up_to_date");
   });
+
+  it.each(["stale_file_revision", "path_occupied", "file_transfer_expired"])(
+    "re-plans a %s refusal with fresh IDs for unapplied work, then succeeds",
+    async (code) => {
+      const { transport, stateStore, target } = refusalFixture();
+      transport.refuse("assets/b.png", code, 1, 409);
+
+      expect((await target.sync()).status).toBe("stale");
+      const dropped = (await stateStore.read())!;
+      expect(dropped.batch).toBeUndefined();
+      expect(dropped.retry_epoch).toBe(1);
+      expect(transport.applied.map(([path]) => path)).not.toContain("assets/b.png");
+
+      expect((await target.sync()).status).toBe("applied");
+      expectUploadedOnce(transport, ["assets/a.png", "assets/b.png", "assets/c.png"]);
+      const [refused, retried] = transport.attempts("assets/b.png");
+      expect(retried).toBeDefined();
+      expect(retried).not.toBe(refused);
+      expect(await target.status()).toMatchObject({ state: "up_to_date", conflicts: [] });
+      expect((await stateStore.read())!.stuck).toBeUndefined();
+    }
+  );
+
+  it("sets a persistently refused file aside only when repeated and old, and keeps syncing the rest", async () => {
+    const { transport, fileSystem, stateStore, clock, target } = refusalFixture();
+    transport.refuse("assets/b.png", "provider_internal_error", 1, 500);
+
+    for (let attempt = 1; attempt <= 10; attempt += 1) {
+      if (attempt === 10) clock.now += 59 * 60 * 1000;
+      expect((await target.sync()).status).toBe("failed");
+      const state = (await stateStore.read())!;
+      expect(state.batch?.phase).toBe("blocked");
+      expect(state.stuck).toMatchObject({ code: "provider_internal_error", attempts: attempt });
+    }
+    expect(new Set(transport.attempts("assets/b.png")).size).toBe(1);
+
+    clock.now += 60 * 1000;
+    expect((await target.sync()).status).toBe("stale");
+    expect((await target.sync()).status).toBe("attention");
+    expect((await target.sync()).status).toBe("attention");
+
+    expectUploadedOnce(transport, ["assets/a.png", "assets/c.png"]);
+    expect(transport.attempts("assets/b.png")).toHaveLength(11);
+    expect(fileSystem.files.get("assets/b.png")).toEqual(utf8.encode("local b"));
+    expect(await target.status()).toMatchObject({
+      state: "attention",
+      conflicts: [{ entity: "file", path: "assets/b.png", kind: "rejected" }]
+    });
+    expect((await target.status()).conflicts).toHaveLength(1);
+    expect((await stateStore.read())!.stuck).toBeUndefined();
+  });
+
+  it("sets a file over the size limit aside at once without blocking other files", async () => {
+    const { transport, fileSystem, target } = refusalFixture();
+    transport.refuse("assets/b.png", "file_too_large", 1, 429);
+
+    expect((await target.sync()).status).toBe("stale");
+    expect((await target.sync()).status).toBe("attention");
+    expect((await target.sync()).status).toBe("attention");
+
+    expectUploadedOnce(transport, ["assets/a.png", "assets/c.png"]);
+    expect(transport.attempts("assets/b.png")).toHaveLength(1);
+    expect(fileSystem.files.get("assets/b.png")).toEqual(utf8.encode("local b"));
+    expect((await target.status()).conflicts).toMatchObject([{ path: "assets/b.png", kind: "rejected" }]);
+  });
+
+  it.each([undefined, 503])(
+    "keeps the batch and its IDs after transport failures and recent refusals (status %s)",
+    async (status) => {
+      const { transport, stateStore, target } = refusalFixture();
+      transport.refuse("assets/b.png", "provider_unavailable", 12, status);
+
+      for (let attempt = 0; attempt < 12; attempt += 1) {
+        expect((await target.sync()).status).toBe("failed");
+        expect((await stateStore.read())!.batch?.phase).toBe("blocked");
+      }
+      expect(new Set(transport.attempts("assets/b.png")).size).toBe(1);
+      expect((await target.status()).conflicts).toEqual([]);
+      if (status !== undefined) return;
+      expect((await stateStore.read())!.stuck).toBeUndefined();
+      expect((await target.sync()).status).toBe("applied");
+      expectUploadedOnce(transport, ["assets/a.png", "assets/b.png", "assets/c.png"]);
+      expect(new Set(transport.attempts("assets/b.png")).size).toBe(1);
+    }
+  );
 
   it("retains a stale writable file mutation and the user's bytes for resolution", async () => {
     const transport = new FileTransport();

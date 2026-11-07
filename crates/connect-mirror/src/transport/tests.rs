@@ -322,3 +322,90 @@ async fn stalled_authority_request_returns_a_typed_transport_timeout() {
     server.abort();
     assert!(server.await.unwrap_err().is_cancelled());
 }
+
+#[tokio::test]
+async fn refusals_carry_their_status_and_a_closed_transfer_is_expired() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let authority_id = Uuid::new_v4();
+    let transfer_id = Uuid::new_v4();
+    let refuse = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let open_refuse = refuse.clone();
+    let file_root = format!("/v1/authorities/{authority_id}/files");
+    let app = Router::new()
+        .route(
+            &format!("{file_root}/uploads"),
+            post(move || {
+                let refuse = open_refuse.clone();
+                async move {
+                    if refuse.load(Ordering::SeqCst) {
+                        return (
+                            StatusCode::CONFLICT,
+                            Json(serde_json::json!({
+                                "error": { "code": "stale_file_revision", "message": "The file changed." }
+                            })),
+                        )
+                            .into_response();
+                    }
+                    open_retry_upload(State(RetryUploadState {
+                        transfer_id,
+                        object_url: String::new(),
+                        prepare_attempts: Arc::default(),
+                        upload_attempts: Arc::default(),
+                    }))
+                    .await
+                    .into_response()
+                }
+            }),
+        )
+        .route(
+            &format!("{file_root}/transfers/{transfer_id}"),
+            get(move || async move {
+                Json(FileTransferStatus {
+                    state: FileTransferState::Aborted,
+                    received: Vec::new(),
+                    received_bytes: 0,
+                    uploaded_parts: Vec::new(),
+                    ..upload_status(transfer_id)
+                })
+            }),
+        );
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let source = tempfile::NamedTempFile::new().unwrap();
+    fs::write(source.path(), b"12345678").unwrap();
+    let transport = HttpSyncTransport::new(
+        &format!("http://{address}/v1/authorities/{authority_id}/sync"),
+        "token",
+    )
+    .unwrap();
+    let request = OpenFileUploadRequest {
+        protocol_version: FILE_PROTOCOL_VERSION,
+        message_type: OpenFileUploadRequestKind::OpenFileUpload,
+        transfer_id,
+        path: "asset.bin".to_string(),
+        size: 8,
+        content_digest: "sha256:fixture".to_string(),
+        media_type: None,
+        if_revision: None,
+    };
+
+    let refused = transport
+        .upload_file_transfer(&request, source.path())
+        .await
+        .unwrap_err();
+    assert_eq!(
+        (refused.code.as_str(), refused.status),
+        ("stale_file_revision", Some(409))
+    );
+    refuse.store(false, Ordering::SeqCst);
+    let closed = transport
+        .upload_file_transfer(&request, source.path())
+        .await
+        .unwrap_err();
+    assert_eq!(
+        (closed.code.as_str(), closed.status),
+        ("file_transfer_expired", Some(409))
+    );
+    server.abort();
+    assert!(server.await.unwrap_err().is_cancelled());
+}

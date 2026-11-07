@@ -89,6 +89,9 @@ use mdbase_connect_protocol::SyncFileSnapshotPageKind;
 pub struct MirrorError {
     pub code: String,
     pub message: String,
+    /// HTTP status when the authority answered this request with an error.
+    /// `None` for local and transport failures, whose outcome may be unknown.
+    status: Option<u16>,
 }
 
 impl MirrorError {
@@ -96,6 +99,14 @@ impl MirrorError {
         Self {
             code: code.into(),
             message: message.into(),
+            status: None,
+        }
+    }
+
+    fn refused(status: u16, code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            status: Some(status),
+            ..Self::new(code, message)
         }
     }
 
@@ -205,6 +216,8 @@ enum DurableJournalEvent {
         phase: BatchPhase,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         failure: Option<MirrorFailure>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stuck: Option<StuckAction>,
     },
     Receipt {
         plan_fingerprint: String,
@@ -278,6 +291,30 @@ struct DurableMirrorState {
     last_completed_plan: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     last_synced_at: Option<String>,
+    /// Counts abandoned batches. It scopes file transfer and mutation IDs, so
+    /// file work a dropped batch did not apply gets fresh IDs when re-planned.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    retry_epoch: u64,
+    /// The remote action the authority keeps refusing with the same error.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    stuck: Option<StuckAction>,
+}
+
+/// One object's repeated refusal. After `STUCK_ATTEMPTS` identical refusals
+/// spanning `stuck_after`, the object is set aside as a rejected conflict.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct StuckAction {
+    identity: String,
+    code: String,
+    attempts: u32,
+    since: String,
+}
+
+const STUCK_ATTEMPTS: u32 = 10;
+const STUCK_AFTER: chrono::TimeDelta = chrono::TimeDelta::hours(1);
+
+fn is_zero(value: &u64) -> bool {
+    *value == 0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -375,6 +412,7 @@ pub struct DirectoryMirror {
     sync_policy: SelectiveSyncPolicy,
     transport: Arc<dyn SyncTransport>,
     record_reader: Arc<dyn LocalRecordReader>,
+    stuck_after: chrono::TimeDelta,
 }
 
 impl DirectoryMirror {
@@ -434,12 +472,19 @@ impl DirectoryMirror {
             sync_policy,
             transport,
             record_reader: Arc::new(FilesystemRecordReader),
+            stuck_after: STUCK_AFTER,
         })
     }
 
     #[cfg(test)]
     fn with_record_reader(mut self, reader: Arc<dyn LocalRecordReader>) -> Self {
         self.record_reader = reader;
+        self
+    }
+
+    #[cfg(test)]
+    fn with_stuck_after(mut self, stuck_after: chrono::TimeDelta) -> Self {
+        self.stuck_after = stuck_after;
         self
     }
 

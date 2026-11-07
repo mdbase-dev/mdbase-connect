@@ -1,5 +1,6 @@
 export class SyncError extends Error {
-  constructor(public readonly code: string, message: string) {
+  /** `status` is the HTTP status when the authority itself answered. */
+  constructor(public readonly code: string, message: string, public readonly status?: number) {
     super(message);
   }
 }

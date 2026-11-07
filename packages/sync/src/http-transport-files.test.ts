@@ -241,6 +241,48 @@ describe("hosted sync file data plane", () => {
     expect(JSON.stringify(controlBodies)).not.toContain("R2-bytes");
   });
 
+  it("reports the authority's status on refusals and a closed transfer as expired", async () => {
+    const transferId = "01940000-0000-7000-8000-000000000004";
+    let refuse = true;
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith("/files/uploads")) {
+        if (refuse) {
+          return Response.json(
+            { error: { code: "stale_file_revision", message: "The file changed." } },
+            { status: 409 }
+          );
+        }
+        return Response.json({
+          protocol_version: 1, type: "file_transfer", transfer_id: transferId,
+          direction: "upload", protection: "transport_tls",
+          strategy: { kind: "object_put" }, total_size: bytes.byteLength,
+          expires_at: "2026-08-01T01:00:00.000Z", received: []
+        });
+      }
+      if (url.endsWith(`/files/transfers/${transferId}`)) {
+        return Response.json({
+          protocol_version: 1, type: "file_transfer_status", transfer_id: transferId,
+          state: "aborted", received: [], received_bytes: 0, uploaded_parts: []
+        });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const transport = new HttpSyncTransport(
+      `https://connect.example/v1/authorities/${authorityId}/sync`, "replica-token"
+    );
+    const request = {
+      protocol_version: 1 as const, type: "open_file_upload" as const, transfer_id: transferId,
+      path: descriptor.path, size: bytes.byteLength, content_digest: descriptor.content_digest
+    };
+    const source = () => (async function* () { yield bytes; })();
+    await expect(transport.uploadFile(request, source()))
+      .rejects.toMatchObject({ code: "stale_file_revision", status: 409 });
+    refuse = false;
+    await expect(transport.uploadFile(request, source()))
+      .rejects.toMatchObject({ code: "file_transfer_expired", status: 409 });
+  });
+
   it("resumes a partial multipart upload with non-prefix completed parts", async () => {
     const transferId = "01940000-0000-7000-8000-000000000003";
     const puts: Array<{ index: number; bytes: Uint8Array }> = [];

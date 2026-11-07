@@ -162,6 +162,10 @@ impl DirectoryMirror {
                 // impossible precondition forever. Remote transport failures
                 // retain their batch and mutation IDs for receipt recovery.
                 state.batch = None;
+                // Nothing after the receipted prefix applied, so re-planned
+                // file controls may use fresh IDs; the authority would only
+                // replay its stored answers for the old ones.
+                state.retry_epoch += 1;
                 // A partially applied prefix is no longer the previously
                 // completed plan's projection. Invalidate its acknowledgement
                 // and rebuild from an exact snapshot on the next inspection.

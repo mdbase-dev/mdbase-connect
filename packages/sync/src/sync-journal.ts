@@ -24,7 +24,13 @@ interface ActionStateDelta {
 }
 
 export type SyncJournalEvent =
-  | { type: "phase"; plan_fingerprint: string; phase: "applying" | "cancelled" | "blocked"; failure?: SyncFailure }
+  | {
+    type: "phase";
+    plan_fingerprint: string;
+    phase: "applying" | "cancelled" | "blocked";
+    failure?: SyncFailure;
+    stuck?: MirrorState["stuck"];
+  }
   | { type: "receipt"; plan_fingerprint: string; receipt: DurableSyncReceipt; delta: ActionStateDelta }
   | { type: "effects_complete"; plan_fingerprint: string };
 
@@ -134,7 +140,8 @@ export async function markBatchInterrupted(
     type: "phase",
     plan_fingerprint: batch.plan.fingerprint,
     phase,
-    failure
+    failure,
+    ...(state.stuck ? { stuck: state.stuck } : {})
   }, store);
 }
 
@@ -145,6 +152,7 @@ export function applySyncJournalEvent(state: MirrorState, event: SyncJournalEven
     batch.phase = event.phase;
     if (event.failure) batch.failure = structuredClone(event.failure);
     else delete batch.failure;
+    if (event.stuck) state.stuck = structuredClone(event.stuck);
     return;
   }
   if (event.type === "effects_complete") {
@@ -260,6 +268,9 @@ export async function abandonStaleBatch(
     );
   }
   delete state.batch;
+  // Nothing after the receipted prefix applied, so re-planned file controls
+  // may use fresh IDs; the authority would only replay its stored answers.
+  state.retry_epoch = (state.retry_epoch ?? 0) + 1;
   await store.write(state);
 }
 
