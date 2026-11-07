@@ -869,8 +869,8 @@ msgid "to move"
 msgstr "移动"
 
 #: src/CommandPalette.tsx
-msgid "to open"
-msgstr "打开"
+msgid "to run"
+msgstr "执行"
 
 #: src/screens.tsx
 msgid "Try again"

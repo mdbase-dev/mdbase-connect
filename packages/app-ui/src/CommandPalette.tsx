@@ -150,7 +150,7 @@ function OpenCommandPalette({ open, commands, onClose, label, placeholder, showA
       </div>
       <footer className="mdbase-command-footer" id={hintId}>
         <span><kbd>↑</kbd><kbd>↓</kbd>  {t({ message: "to move" })}</span>
-        <span><kbd>↵</kbd>  {t({ message: "to open" })}</span>
+        <span><kbd>↵</kbd>  {t({ message: "to run" })}</span>
         {matches[active]?.alternate
           ? <span><kbd>{shortcutLabel("shift")}</kbd><kbd>↵</kbd> {matches[active].alternate.label.toLocaleLowerCase()}</span>
           : null}
