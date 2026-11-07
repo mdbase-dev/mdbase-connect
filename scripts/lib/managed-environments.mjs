@@ -1,23 +1,12 @@
+import { managedAppOrigins } from "./managed-app-origins.mjs";
+
 export const managedEnvironments = Object.freeze({
   lab: Object.freeze({
-    connectOrigin: "https://connect-lab.mdbase.dev",
-    editorOrigin: "https://editor-lab.mdbase.dev",
-    readerOrigin: "https://lab.mdbase-reader.pages.dev",
-    writerOrigin: "https://lab.mdbase-writer.pages.dev",
+    ...managedAppOrigins.lab,
     cloudflareAccountId: "a738af70299a1b59abd43fe1275f5892"
   }),
-  staging: Object.freeze({
-    connectOrigin: "https://connect-staging.mdbase.dev",
-    editorOrigin: "https://editor-staging.mdbase.dev",
-    readerOrigin: "https://staging.mdbase-reader.pages.dev",
-    writerOrigin: "https://staging.mdbase-writer.pages.dev"
-  }),
-  production: Object.freeze({
-    connectOrigin: "https://connect.mdbase.dev",
-    editorOrigin: "https://editor.mdbase.dev",
-    readerOrigin: "https://reader.mdbase.dev",
-    writerOrigin: "https://writer.mdbase.dev"
-  })
+  staging: managedAppOrigins.staging,
+  production: managedAppOrigins.production
 });
 
 export function normalizedEndpointOrigin(value, name) {

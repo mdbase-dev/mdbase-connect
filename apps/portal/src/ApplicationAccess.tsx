@@ -1,5 +1,5 @@
 import { withAppUrls } from "@mdbase-dev/ui/apps";
-import { managedEnvironments } from "../../../scripts/lib/managed-environments.mjs";
+import { managedAppOrigins } from "../../../scripts/lib/managed-app-origins.mjs";
 import { formatters } from "@mdbase-dev/i18n";
 import { countLabel } from "./count-label";
 import { t, plural } from "@lingui/core/macro";
@@ -78,7 +78,7 @@ export function AppAccess({ error, groups, client, busy, perform, collectionName
 }) {
   useLocaleRevision();
   const [query, setQuery] = useState("");
-  const deployment = Object.values(managedEnvironments).find(environment => environment.editorOrigin === editorOrigin);
+  const deployment = Object.values(managedAppOrigins).find(environment => environment.editorOrigin === editorOrigin);
   const visible = groups.filter(group => group.applicationName.toLocaleLowerCase(i18n.locale).includes(query.trim().toLocaleLowerCase(i18n.locale)));
   return <Page title={collectionName ? t(i18n)({ message: "Access", context: "Connect interface" }) : t(i18n)({ message: "Apps", context: "Connect interface" })} intro={collectionName ? t(i18n)`Review the access each app has to ${collectionName}.` : t(i18n)({ message: "Apps connected to your account. Your browser sign-in is never shared with them." })}>
     <section>{collectionName && <SectionTitle title={t(i18n)({ message: "Apps", context: "Connect interface" })} count={groups.length} />}
