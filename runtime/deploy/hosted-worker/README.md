@@ -122,6 +122,16 @@ module refuses bundling.
 - A collection outside the allowlist gets `kms_collection_not_allowed` from KMS
   custody, surfaced as the verdict `custody_collection_not_allowed`. CP
   activation of such a collection answers 409, not 5xx.
+- An escrow deployment without custody answers `custody_not_configured`. On an
+  escrow this is a lasting refusal: the object cancels its alarm, keeps its
+  storage, and CP activation answers 409, so CP parks the row with
+  `activation_next_at = 'infinity'`. A hosted deployment without custody is a
+  configuration fault, so it answers the same code but keeps retrying.
+- **Enabling escrow custody later.** Parked escrow rows don't retry on a timer. A
+  new policy batch for the collection tries its row again; a collection with no
+  new batch needs its `next_service_devices` escrow row reactivated by setting
+  `activation_next_at = now()` through a reviewed migration. Parking deletes no
+  data.
 
 ## Historical local end-to-end (no Cloudflare account)
 

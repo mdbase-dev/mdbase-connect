@@ -72,7 +72,7 @@ describe("durable cloud-copy service activation", () => {
     expect(retries.map(([, values]) => values)).toEqual([[collection, "hosted", "9007199254740993"], [collection, "escrow", "9007199254740993"]]);
     expect(JSON.stringify(db.query.mock.calls)).not.toContain("private");
   });
-  it.each(["custody_collection_gone", "custody_collection_not_allowed"])("a Worker 409 %s is terminal for that batch: no retry backoff, logged once", async (code) => {
+  it.each(["custody_collection_gone", "custody_collection_not_allowed", "custody_not_configured"])("a Worker 409 %s is terminal for that batch: no retry backoff, logged once", async (code) => {
     vi.stubEnv("MDBASE_CONNECT_ENVIRONMENT", "lab");
     const logs: string[] = []; const logger = vi.spyOn(console, "info").mockImplementation((line: string) => { logs.push(line); });
     try {

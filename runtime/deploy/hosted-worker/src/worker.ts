@@ -134,6 +134,8 @@ function pitrConfigured(env: Env): boolean {
     || p.PITR_ESCROW_SERVICE_TOKEN !== undefined || p.PITR_PHASE !== undefined;
 }
 
+const unconfiguredCustody = (error: unknown): boolean => error instanceof Error && error.message === "custody_not_configured";
+
 /** A lasting custody verdict on an activation: an answer the CP records, not a 5xx. */
 function verdictAnswer(error: unknown): Response {
   return Response.json({ error: (error as Error).message }, { status: 409, headers: { "cache-control": "no-store" } });
@@ -844,7 +846,7 @@ export class HostedCollection extends DurableObject<Env> {
       }
       return engine;
     })().catch(async (error: unknown) => {
-      if (isPermanentCustodyRefusal(error)) { await this.retireForVerdict(); throw error; }
+      if (this.lastingRefusal(error)) { await this.retireForVerdict(error); throw error; }
       try { await this.ctx.storage.put(OPEN_FAILURES_KEY, openFailures + 1); } catch { /* the retry alarm is already set */ }
       throw error;
     }).finally(() => {
@@ -887,14 +889,22 @@ export class HostedCollection extends DurableObject<Env> {
     throw new PinParked();
   }
 
+  /** A refusal no timer can change. An escrow deployment without custody is one.
+   * A hosted one is misconfigured, so its objects keep retrying until it is fixed. */
+  private lastingRefusal(error: unknown): boolean {
+    return isPermanentCustodyRefusal(error) || (this.escrow && unconfiguredCustody(error));
+  }
+
   /** Custody gave a lasting verdict (the KMS does not serve the collection, or the
    * CP holds no current service device: deleted / left sync). Stop being a
    * background actor for it: drop the live engine and its sessions, drop the
    * rebuildable `st_*` cache (the migration ledger stays), forget the open
    * backoff and cancel the alarm, so no timer wakes this collection again. Only a
    * new CP activation or app connection re-evaluates custody; a transient
-   * refusal never reaches here and keeps its backed-off retry alarm. */
-  private async retireForVerdict(): Promise<void> {
+   * refusal never reaches here and keeps its backed-off retry alarm. An escrow
+   * without custody keeps its `st_*` tables: that refusal is this deployment's
+   * setting, not a verdict on the collection. */
+  private async retireForVerdict(error?: unknown): Promise<void> {
     if (this.engine) {
       this.releaseAttachment(this.engine);
       this.engineReset("custody_verdict");
@@ -904,7 +914,7 @@ export class HostedCollection extends DurableObject<Env> {
       for (const r of this.readers.values()) r.wipe();
       this.readers.clear();
     }
-    runIndex(this.ctx.storage, RESET);
+    if (!unconfiguredCustody(error)) runIndex(this.ctx.storage, RESET);
     await this.ctx.storage.delete(OPEN_FAILURES_KEY);
     await this.ctx.storage.deleteAlarm();
     if (this.env.LAB === "1") {
@@ -1203,7 +1213,7 @@ export class HostedCollection extends DurableObject<Env> {
       if (collection && UUID.test(collection)) {
         // A permanent verdict already retired the actor (no alarm left); return
         // normally so the platform does not retry the alarm either.
-        try { await this.ready(collection); } catch (error) { if (error instanceof PinParked || isPermanentCustodyRefusal(error)) return; throw error; }
+        try { await this.ready(collection); } catch (error) { if (error instanceof PinParked || this.lastingRefusal(error)) return; throw error; }
       }
     }
     if (!await this.alarms.allowed() || !this.engine || !this.collection) return;
@@ -1216,8 +1226,8 @@ export class HostedCollection extends DurableObject<Env> {
     try { await this.sync(engine); }
     catch (error) {
       // A warm engine learns of deletion through its next log token.
-      if (!isPermanentCustodyRefusal(error)) throw error;
-      await this.retireForVerdict();
+      if (!this.lastingRefusal(error)) throw error;
+      await this.retireForVerdict(error);
       return;
     }
     await this.migrationWake();
@@ -1444,7 +1454,7 @@ export class HostedCollection extends DurableObject<Env> {
         // A lasting verdict (deleted, left sync, not this deployment's) is an
         // answer, not a failure: ready() already retired the actor. The CP keeps
         // the batch pending and retries on its own backoff.
-        if (isPermanentCustodyRefusal(error)) return verdictAnswer(error);
+        if (this.lastingRefusal(error)) return verdictAnswer(error);
         throw error;
       }
       const generation = this.logGen;
@@ -1454,8 +1464,8 @@ export class HostedCollection extends DurableObject<Env> {
         // A warm engine learns of the verdict through its fresh log token (the
         // activation dropped the held one): retire as the alarm path does, and
         // give the CP the same definite answer as a cold open.
-        if (!isPermanentCustodyRefusal(error)) throw error;
-        await this.retireForVerdict();
+        if (!this.lastingRefusal(error)) throw error;
+        await this.retireForVerdict(error);
         return verdictAnswer(error);
       }
       if (tag && this.engine === engine && this.logGen === generation) wakeLog(tag, this.escrow ? "escrow" : "hosted", "activation_complete");
