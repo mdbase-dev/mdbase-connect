@@ -6,6 +6,7 @@ import { useLingui } from "@lingui/react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useOverlay } from "@mdbase-dev/ui/overlay";
+import { Tooltip } from "@mdbase-dev/ui/tooltip";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import { FilePlusIcon as FilePlus2, SidebarSimpleIcon as PanelLeft } from "./icons";
 import { ContextMenu, type ActionMenuItem } from "./ContextMenu";
@@ -230,7 +231,7 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
   };
 
   return <section className="note-list-pane" aria-label={t`Notes and files`}>
-    <header className="list-header"><button className="mobile-collections icon-button" aria-label={t`Collections`} onClick={onCollections}><PanelLeft aria-hidden="true" /></button>{leadingActions}<div><h1>{collectionName}</h1><p aria-live="polite">{browserCountLabel(noteCount, fileCount, entries.length, loading, structureLoading, filesLoading, contentIndexing, contentLoaded, total, contentTotal, Boolean(search.trim()), sort, Boolean(structureError || (search.trim() && contentError)))}{structureError && <button className="list-retry" title={structureError} onClick={onRetryStructure}><Trans>Retry notes</Trans></button>}{contentError && <button className="list-retry" title={contentError} onClick={onRetryContent}><Trans>Retry search</Trans></button>}{fileError && <button className="list-retry" title={fileError} onClick={onRetryFiles}><Trans>Retry files</Trans></button>}</p></div>{trailingActions}{onCreate && <button className="icon-button new-note" aria-label={t`New note`} aria-keyshortcuts="C Control+Shift+N Meta+Shift+N" onClick={onCreate}><FilePlus2 aria-hidden="true" /><span className="mobile-label"><Trans>New note</Trans></span></button>}</header>
+    <header className="list-header"><button className="mobile-collections icon-button" aria-label={t`Collections`} onClick={onCollections}><PanelLeft aria-hidden="true" /></button>{leadingActions}<div><h1>{collectionName}</h1><p aria-live="polite">{browserCountLabel(noteCount, fileCount, entries.length, loading, structureLoading, filesLoading, contentIndexing, contentLoaded, total, contentTotal, Boolean(search.trim()), sort, Boolean(structureError || (search.trim() && contentError)))}{structureError && <button className="list-retry" title={structureError} onClick={onRetryStructure}><Trans>Retry notes</Trans></button>}{contentError && <button className="list-retry" title={contentError} onClick={onRetryContent}><Trans>Retry search</Trans></button>}{fileError && <button className="list-retry" title={fileError} onClick={onRetryFiles}><Trans>Retry files</Trans></button>}</p></div>{trailingActions}{onCreate && <Tooltip label={t`New note`}><button className="icon-button new-note" aria-keyshortcuts="C Control+Shift+N Meta+Shift+N" onClick={onCreate}><FilePlus2 aria-hidden="true" /><span className="mobile-label"><Trans>New note</Trans></span></button></Tooltip>}</header>
     <div className="note-list-controls">
       <NoteSearchField search={search} filter={filter} tags={tags} types={filterTypes} onSearch={onSearch} onFilter={onFilter ?? onClearScope} onQuickOpen={onQuickOpen} onResults={(first) => {
         if (first && entries[0]) {
