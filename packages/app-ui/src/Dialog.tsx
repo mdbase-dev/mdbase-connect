@@ -48,6 +48,11 @@ export function Dialog({ open, onClose, title, descriptionId, className, closeDi
     if (closeDisabled && (!dialog.contains(document.activeElement) || document.activeElement?.matches(":disabled"))) dialog.focus({ preventScroll: true });
     if (!closeDisabled && document.activeElement === dialog) dialog.querySelector<HTMLElement>("[data-autofocus]:not(:disabled)")?.focus({ preventScroll: true });
   }, [closeDisabled, open, ref]);
+  useLayoutEffect(() => {
+    const dialog = ref.current;
+    // A command closes the native dialog before its exit ends; don't leave focus in it.
+    if (!open && dialog && !dialog.open && dialog.contains(document.activeElement)) (returnFocusRef?.current ?? invoker.current)?.focus({ preventScroll: true });
+  }, [open, ref, returnFocusRef]);
   useEffect(() => {
     const dialog = ref.current;
     return () => {
@@ -60,7 +65,8 @@ export function Dialog({ open, onClose, title, descriptionId, className, closeDi
   return createPortal(<dialog ref={ref} className={["mdbase-dialog mdbase-overlay", className].filter(Boolean).join(" ")}
     data-open={open} role={role} aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} tabIndex={-1}
     onKeyDown={(event) => {
-      event.stopPropagation();
+      // An exiting dialog no longer owns the keyboard, so app shortcuts still work.
+      if (open) event.stopPropagation();
       if (event.key === "Escape") { event.preventDefault(); if (!closeDisabled) onClose(); }
       if (event.key === "Tab" && closeDisabled) {
         const controls = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]')].filter(control => control.getClientRects().length > 0);
