@@ -13,6 +13,8 @@ import { writeOverviewPreview } from "./overview-cache";
 let overview: ManagementOverview;
 
 beforeEach(() => {
+  vi.stubEnv("VITE_MDBASE_READER_URL", undefined);
+  vi.stubEnv("VITE_MDBASE_WRITER_URL", undefined);
   localStorage.clear();
   sessionStorage.clear();
   history.replaceState(null, "", "/?collection=collection");
@@ -34,6 +36,7 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe("ConnectApp", () => {
@@ -322,7 +325,37 @@ describe("ConnectApp", () => {
     expect(screen.queryByText("Availability unknown")).not.toBeInTheDocument();
   });
 
-  it("lists configured apps for discovery without production fallbacks before access is approved", async () => {
+  it.each([
+    ["lab", "https://editor-lab.mdbase.dev", "https://lab.mdbase-reader.pages.dev", "https://lab.mdbase-writer.pages.dev"],
+    ["staging", "https://editor-staging.mdbase.dev", "https://staging.mdbase-reader.pages.dev", "https://staging.mdbase-writer.pages.dev"],
+    ["production", "https://editor.mdbase.dev", "https://reader.mdbase.dev", "https://writer.mdbase.dev"],
+  ])("discovers all managed apps in %s before access is approved", async (_environment, editor, reader, writer) => {
+    const fetchData = vi.mocked(fetch).getMockImplementation()!;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+      new URL(String(input)).pathname === "/v1/ui-configuration" ? Response.json({ editor_url: `${editor}/connect` }) : fetchData(input, init)));
+    vi.stubEnv("VITE_MDBASE_ENV", "production");
+    overview.grants = [];
+    history.replaceState(null, "", "/applications");
+    render(<ConnectApp />);
+    await screen.findByRole("link", { name: "Editor" });
+    for (const [name, href] of [["Editor", editor], ["Reader", reader], ["Writer", writer], ["Journal", "https://journal.mdbase.dev"], ["TaskNotes", "https://app.tasknotes.dev"]]) {
+      expect(screen.getByRole("link", { name })).toHaveAttribute("href", href);
+    }
+    expect(screen.getByText("No apps with access")).toBeInTheDocument();
+  });
+
+  it("uses explicit app URLs for a custom deployment", async () => {
+    vi.stubEnv("VITE_MDBASE_READER_URL", "http://127.0.0.1:5321");
+    vi.stubEnv("VITE_MDBASE_WRITER_URL", "http://127.0.0.1:5320");
+    history.replaceState(null, "", "/applications");
+    render(<ConnectApp />);
+    await screen.findByRole("link", { name: "Editor" });
+    expect(screen.getByRole("link", { name: "Editor" })).toHaveAttribute("href", "https://editor.example.test");
+    expect(screen.getByRole("link", { name: "Reader" })).toHaveAttribute("href", "http://127.0.0.1:5321");
+    expect(screen.getByRole("link", { name: "Writer" })).toHaveAttribute("href", "http://127.0.0.1:5320");
+  });
+
+  it("does not guess production URLs for unconfigured custom apps", async () => {
     overview.grants = [];
     history.replaceState(null, "", "/applications");
     render(<ConnectApp />);
