@@ -10,11 +10,11 @@ const workflow='publish-sdk-npm.yml';
 const need=(ok,message)=>{if(!ok)throw Error('SDK authentication refusal: '+message);};
 const retryable=status=>status===403||status===408||status===429||status>=500;
 // Authentication judges the bytes, so repeating a public read cannot weaken it.
-export async function publicBytes(url,fetchImpl=fetch,delays=[5000,20000]) {
+export async function publicBytes(url,fetchImpl=fetch,delays=[5000,20000],headers={}) {
  for(const delay of [...delays,null]) {
   let status='no response';
   try {
-   const response=await fetchImpl(url,{redirect:'follow',signal:AbortSignal.timeout(30000)});
+   const response=await fetchImpl(url,{headers,redirect:'follow',signal:AbortSignal.timeout(30000)});
    if(response.ok)return Buffer.from(await response.arrayBuffer());
    status=response.status;
    need(retryable(status),`public artifact unavailable (${status})`);
@@ -34,9 +34,12 @@ export async function authenticateProduction(pin,bytes,{fetchImpl=fetch,prove=pr
  need(source.commit===pin.sourceCommit && source.identity===`https://github.com/${repository}/.github/workflows/${workflow}@${pin.publication.ref}`,'npm provenance source mismatch');
  return {kind:'npm-provenance',version:pin.version,source:source.commit};
 }
-export async function stagingArchive(pin,{fetchImpl=fetch,run=execFileSync}={}) {
+export async function stagingArchive(pin,{fetchImpl=fetch,run=execFileSync,token=process.env.GITHUB_TOKEN}={}) {
  const tag=`sdk-v${pin.version}`;
- const release=JSON.parse(await publicBytes(`https://api.github.com/repos/${repository}/releases/tags/${tag}`,fetchImpl));
+ // The job token only lifts the shared runner's anonymous API rate limit; the
+ // release metadata is still judged below, so it grants nothing.
+ const api=token?{authorization:`Bearer ${token}`}:{};
+ const release=JSON.parse(await publicBytes(`https://api.github.com/repos/${repository}/releases/tags/${tag}`,fetchImpl,undefined,api));
  need(release.tag_name===tag && release.prerelease===true && release.draft===false,'exact SDK prerelease required');
  const asset=name=>{
   const matches=release.assets?.filter(a=>a.name===name)??[];
