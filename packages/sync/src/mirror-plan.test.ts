@@ -56,5 +56,10 @@ describe("mdbase-mirror watch backoff", () => {
     expect(backoff.next(refused("put-c"))).toBe(4_000);
     expect(backoff.next(result("stale", 0, { code: "sync_plan_stale", message: "Local state changed." }))).toBe(2_000);
     expect(backoff.next(refused("put-c"))).toBe(2_000);
+    expect(backoff.next(refused("put-c"))).toBe(4_000);
+    // A pass that applied other work before the same refusal is progress too.
+    const afterWork = refused("put-c");
+    afterWork.applied = 2;
+    expect(backoff.next(afterWork)).toBe(2_000);
   });
 });

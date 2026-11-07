@@ -43,8 +43,9 @@ const MAX_WATCH_BACKOFF_MS = 5 * 60 * 1000;
 /**
  * Paces `mdbase-mirror watch`. Each pass that ends where the last one did
  * doubles the wait, up to five minutes: a kept batch blocked at the same
- * action, an authority refusal that re-plans into the same refusal, or an
- * error before any result. Progress or a local change resets it.
+ * action, an authority refusal that re-plans into the same refusal before
+ * applying anything, or an error before any result. Progress or a local
+ * change resets it.
  */
 export class WatchBackoff {
   private failures = 0;
@@ -58,7 +59,7 @@ export class WatchBackoff {
       ? "error"
       : result.status === "failed"
         ? `failed:${result.plan_fingerprint}:${result.applied}`
-        : result.status === "stale" && result.failure?.action_id
+        : result.status === "stale" && result.applied === 0 && result.failure?.action_id
           ? `stale:${result.failure.action_id}:${result.failure.message}`
           : undefined;
     if (failure === undefined) {

@@ -156,8 +156,8 @@ try {
             await currentProfile(root),
             acquiredLease
           ).status();
-          // A blocked pass returns rather than throws, so say why it is blocked.
-          const blocked = result.status === "failed" && result.failure
+          // A blocked or refused pass returns rather than throws, so say why.
+          const blocked = (result.status === "failed" || result.failure?.action_id) && result.failure
             ? `. Blocked: ${result.failure.code}: ${result.failure.message}`
             : "";
           const line = `${statusLine(status)}${blocked}`;
