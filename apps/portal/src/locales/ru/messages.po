@@ -487,6 +487,10 @@ msgctxt "Connect interface"
 msgid "Account"
 msgstr "Учётная запись"
 
+#: src/auth-view.tsx
+msgid "Account creation is paused"
+msgstr "Создание аккаунтов приостановлено"
+
 #: src/AccountManagement.tsx
 msgid "Account deletion is temporarily unavailable while we complete a service correction."
 msgstr "Удаление учётной записи временно недоступно, пока мы исправляем работу сервиса."
@@ -1808,10 +1812,6 @@ msgstr "Не удалось подтвердить личность"
 msgid "If an mdbase Connect account uses that address, its one-time reset link is on the way."
 msgstr "Если этот адрес привязан к учётной записи mdbase Connect, на него придёт одноразовая ссылка для сброса пароля."
 
-#: src/auth-view.tsx
-msgid "If that address can be used, its one-time verification link is on the way."
-msgstr "Если этот адрес подходит, на него придёт одноразовая ссылка для подтверждения."
-
 #: src/ConnectPrimitives.tsx
 msgid "If the desktop app did not open, <0>install the latest release</0> and try again."
 msgstr "Если настольное приложение не открылось, <0>установите последнюю версию</0> и повторите попытку."
@@ -1824,6 +1824,10 @@ msgstr "Если настольное приложение не открывае
 #: src/authorization-view.tsx
 msgid "If the value is already present, mdbase leaves the collection unchanged. Conflicting settings stop setup without overwriting policy."
 msgstr "Если значение уже есть, mdbase не изменит коллекцию. При конфликте настроек настройка остановится без перезаписи правил."
+
+#: src/auth-view.tsx
+msgid "If this address can be used, we’ve sent a one-time link to it."
+msgstr "Если этот адрес можно использовать, мы отправили на него одноразовую ссылку."
 
 #: src/authority-workflows.tsx
 msgid "If verification fails or this request expires, hosted writes resume."
@@ -3697,6 +3701,10 @@ msgstr "Данные об использовании временно недос
 msgctxt "Account management"
 msgid "Usage unavailable"
 msgstr "Данные об использовании недоступны"
+
+#: src/auth-view.tsx
+msgid "Use a different email"
+msgstr "Использовать другой адрес электронной почты"
 
 #: src/authorization-view.tsx
 msgid "Use a folder on this computer"

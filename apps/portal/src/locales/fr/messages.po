@@ -487,6 +487,10 @@ msgctxt "Connect interface"
 msgid "Account"
 msgstr "Compte"
 
+#: src/auth-view.tsx
+msgid "Account creation is paused"
+msgstr "La création de comptes est suspendue"
+
 #: src/AccountManagement.tsx
 msgid "Account deletion is temporarily unavailable while we complete a service correction."
 msgstr "La suppression du compte est temporairement indisponible pendant la correction du service."
@@ -1808,10 +1812,6 @@ msgstr "Identité indisponible"
 msgid "If an mdbase Connect account uses that address, its one-time reset link is on the way."
 msgstr "Si un compte mdbase Connect utilise cette adresse, un lien de réinitialisation à usage unique est en route."
 
-#: src/auth-view.tsx
-msgid "If that address can be used, its one-time verification link is on the way."
-msgstr "Si cette adresse peut être utilisée, un lien de vérification à usage unique est en route."
-
 #: src/ConnectPrimitives.tsx
 msgid "If the desktop app did not open, <0>install the latest release</0> and try again."
 msgstr "Si l'application de bureau ne s'est pas ouverte, <0>installez la dernière version</0> et réessayez."
@@ -1824,6 +1824,10 @@ msgstr "Si l’application de bureau ne s’ouvre pas, <0>installez la version a
 #: src/authorization-view.tsx
 msgid "If the value is already present, mdbase leaves the collection unchanged. Conflicting settings stop setup without overwriting policy."
 msgstr "Si la valeur existe déjà, mdbase laisse la collection inchangée. Des paramètres contradictoires interrompent la configuration sans écraser la politique."
+
+#: src/auth-view.tsx
+msgid "If this address can be used, we’ve sent a one-time link to it."
+msgstr "Si cette adresse peut être utilisée, nous y avons envoyé un lien à usage unique."
 
 #: src/authority-workflows.tsx
 msgid "If verification fails or this request expires, hosted writes resume."
@@ -3697,6 +3701,10 @@ msgstr "Utilisation temporairement indisponible"
 msgctxt "Account management"
 msgid "Usage unavailable"
 msgstr "Utilisation indisponible"
+
+#: src/auth-view.tsx
+msgid "Use a different email"
+msgstr "Utiliser une autre adresse e-mail"
 
 #: src/authorization-view.tsx
 msgid "Use a folder on this computer"

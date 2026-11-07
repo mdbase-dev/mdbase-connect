@@ -3901,6 +3901,7 @@ msgid "Pin"
 msgstr "固定"
 
 #: src/collection-browser.ts
+#: src/use-note-actions.ts
 msgid "Pinned"
 msgstr "已固定"
 
@@ -5802,6 +5803,10 @@ msgstr "未链接的提及（{0}）"
 #: src/editor-commands.ts
 msgid "Unpin"
 msgstr "取消固定"
+
+#: src/use-note-actions.ts
+msgid "Unpinned"
+msgstr "已取消置顶"
 
 #: src/App.tsx
 msgid "Unsaved draft found"

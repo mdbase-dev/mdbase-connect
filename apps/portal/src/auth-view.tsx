@@ -2,7 +2,7 @@ import { select, t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import { observeProviderWidth } from "@mdbase/connect-ui/provider-button";
-import React, { useEffect, useId, useRef, useState, useSyncExternalStore, type InputHTMLAttributes } from "react";
+import React, { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type InputHTMLAttributes } from "react";
 import { observeTheme, resolveDarkTheme } from "@mdbase-dev/ui/theme";
 import { api, ApiError } from "./api";
 import {
@@ -23,8 +23,14 @@ export function SignedOutFooter() {
 
 export function MinimalAuthPage({ children }: { children: React.ReactNode }) {
   useLocaleRevision();
+  const main = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    if (document.activeElement !== document.body) return;
+    const heading = main.current?.querySelector<HTMLElement>("h1");
+    if (heading) { heading.tabIndex = -1; heading.focus(); }
+  });
   return <div className="minimal-auth-shell">
-    <main className="mdbase-page minimal-auth-page">
+    <main ref={main} className="mdbase-page minimal-auth-page">
       <Brand productLabel />
       {children}
     </main>
@@ -612,13 +618,14 @@ export function Signup({
   );
   if (canRequest) return (
     <MinimalAuthPage>
-      <section className="mdbase-page-panel">
+      <section className="mdbase-page-panel signup-email-step">
         <h1>{requestSubmitted ? t(i18n)({ message: "Check your email", context: "Account sign-in" }) : t(i18n)({ message: "Create an account", context: "Account sign-in" })}</h1>
         <p role={requestSubmitted ? "status" : undefined} aria-live={requestSubmitted ? "polite" : undefined}>
           {requestSubmitted
-            ? t(i18n)({ message: "If that address can be used, its one-time verification link is on the way." })
+            ? t(i18n)({ message: "If this address can be used, we’ve sent a one-time link to it." })
             : t(i18n)`Connect apps to your Markdown files, on your computers or hosted by mdbase.`}
         </p>
+        {requestSubmitted && <><p className="verification-email">{email}</p><button type="button" className="mdbase-button" onClick={() => { setRequestSubmitted(false); setError(""); }}><Trans>Use a different email</Trans></button></>}
         {error && <div className="mdbase-message is-boxed is-error" role="alert">{error}</div>}
         {!requestSubmitted && config.external_public_registration && (
           <AuthProviders providers={config.providers} divider={false} onError={setError} />
@@ -646,7 +653,8 @@ export function Signup({
   return (
     <MinimalAuthPage>
       <section className="mdbase-page-panel">
-        <h1>{ready ? t(i18n)({ message: "Create an account", context: "Account sign-in" }) : t(i18n)({ message: "This account setup link can’t be opened" })}</h1>
+        <h1>{ready ? t(i18n)({ message: "Create an account", context: "Account sign-in" }) : !isInvitation && !hasVerification && !externalSignup ? t(i18n)`Account creation is paused` : t(i18n)({ message: "This account setup link can’t be opened" })}</h1>
+        {!ready && !isInvitation && !hasVerification && !externalSignup && <a className="quiet-auth-link" href="https://mdbase.dev/beta/"><Trans>Join the signup waitlist</Trans></a>}
         <p>{ready
           ? externalSignup
             ? t(i18n)({ message: "Your email is verified. Confirm your name to finish setting up your account. No password needed." })

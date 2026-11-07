@@ -58,10 +58,10 @@ describe("workspace commands", () => {
     render(<App gateway={new DemoCollectionGateway(4)} />);
     await screen.findByRole("textbox", { name: "Note body" });
     await runCommand("pin");
-    expect(screen.getByText("Pinned")).toBeInTheDocument();
+    expect(screen.getByText("Pinned", { selector: ".note-group-header span" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "More note actions" }));
     await user.click(screen.getByRole("menuitem", { name: "Unpin" }));
-    expect(screen.queryByText("Pinned")).not.toBeInTheDocument();
+    expect(screen.queryByText("Pinned", { selector: ".note-group-header span" })).not.toBeInTheDocument();
     await runCommand("open settings");
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
     await runCommand("switch theme");

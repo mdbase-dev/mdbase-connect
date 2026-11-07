@@ -3901,6 +3901,7 @@ msgid "Pin"
 msgstr "Fissa"
 
 #: src/collection-browser.ts
+#: src/use-note-actions.ts
 msgid "Pinned"
 msgstr "Fissato"
 
@@ -5802,6 +5803,10 @@ msgstr "Menzioni non collegate ({0})"
 #: src/editor-commands.ts
 msgid "Unpin"
 msgstr "Rimuovi dai preferiti"
+
+#: src/use-note-actions.ts
+msgid "Unpinned"
+msgstr "Non più fissato"
 
 #: src/App.tsx
 msgid "Unsaved draft found"

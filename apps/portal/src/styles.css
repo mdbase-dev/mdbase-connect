@@ -650,6 +650,9 @@ h1 {
 }
 
 .minimal-auth-footer a:hover { color: var(--color-text); text-decoration: underline; }
+.minimal-auth-footer .mdbase-select { font-size: inherit; color: var(--color-text-muted); }
+.minimal-auth-shell:has(.signup-email-step) { justify-content: flex-start; padding-top: clamp(var(--space-8), 20svh, 11.5rem); }
+.verification-email { overflow-wrap: anywhere; }
 
 @media (max-width: 40rem) {
   .minimal-auth-shell { width: min(100% - var(--space-8), 25rem); }

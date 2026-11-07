@@ -17,6 +17,15 @@ const B = "22222222-2222-4222-8222-222222222222";
 const C = "33333333-3333-4333-8333-333333333333";
 const app = { name: "TaskNotes" };
 
+it("Try again reopens the failed collection instead of repeating idempotent start", async () => {
+  const problem = describeError("unavailable")!;
+  const fixture = fakeMdbase({ kind: "problem", collectionId: A, problem }, { status: "blocked", selectedCollectionId: A });
+  await act(async () => root.render(<CollectionGate mdbase={fixture.entry} app={app} autoStart={false}>{() => null}</CollectionGate>));
+  await act(async () => button("Try again").click());
+  expect(fixture.mdbase.select).toHaveBeenCalledWith(A, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  expect(fixture.mdbase.start).not.toHaveBeenCalled();
+});
+
 function fakeMdbase(phase: MdbasePhase, extra: Partial<MdbaseSnapshot> = {}) {
   let value = {
     status: "unselected",

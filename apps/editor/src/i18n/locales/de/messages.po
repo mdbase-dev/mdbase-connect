@@ -3901,6 +3901,7 @@ msgid "Pin"
 msgstr "Anheften"
 
 #: src/collection-browser.ts
+#: src/use-note-actions.ts
 msgid "Pinned"
 msgstr "Angeheftet"
 
@@ -5802,6 +5803,10 @@ msgstr "Unverknüpfte Erwähnungen ({0})"
 #: src/editor-commands.ts
 msgid "Unpin"
 msgstr "Lösen"
+
+#: src/use-note-actions.ts
+msgid "Unpinned"
+msgstr "Nicht mehr angeheftet"
 
 #: src/App.tsx
 msgid "Unsaved draft found"

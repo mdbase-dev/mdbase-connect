@@ -12,7 +12,7 @@ import {
 } from "./api";
 import { finishDeniedPairing, rememberCollection, installationAccountLabel, installationRefusal, message, NEW_COLLECTION, pairingInspectionPath } from "./portal-model";
 import { Loading, PageBrand } from "./portal-ui";
-import { CollectionPicker, CollectionIdentity, RequestShell, fileActionLabel } from "./authorization-review";
+import { CollectionPicker, CollectionIdentity, RequestShell, fileActionLabel, useRequestExpiry } from "./authorization-review";
 import { RequestIdentity, RequestOutcome } from "./authorization-view";
 import { watchPairingCollections, watchPairingPreparation } from "./pairing-progress";
 import { Checkbox, CheckboxGroup } from "@mdbase-dev/ui/checkbox";
@@ -29,7 +29,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   const [busy, setBusy] = useState(false);
   // The step to repeat after a retryable refusal; cancelled once a refusal no retry can fix.
   const [retry, setRetry] = useState<"approve" | null>(null);
-  const [outcome, setOutcome] = useState<"cancelled" | ReturnType<typeof installationRefusal> | null>(null);
+  const [outcome, setOutcome] = useState<"cancelled" | "expired" | ReturnType<typeof installationRefusal> | null>(null);
   const [collectionIds,setCollectionIds] = useState<string[]>([]);
   const [createCollections,setCreateCollections] = useState(false);
   const [allowReminders,setAllowReminders] = useState(false);
@@ -45,6 +45,8 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   const handBack = useRef(false);
   const approvalTarget = useRef<HTMLDivElement>(null);
   const inspectionPath = pairingInspectionPath(pairingId, location.search);
+
+  useRequestExpiry(pairing && !pairing.approved_at && !declined && !busy && !outcome ? pairing.expires_at : undefined, () => setOutcome("expired"));
 
   function applyPairing(value: DevicePairing, current: number) {
     if (current !== generation.current) return;
@@ -125,6 +127,10 @@ export function Pairing({ pairingId }: { pairingId: string }) {
 
   async function act(action: "approve" | "deny" | "remove-access") {
     if (dispatching.current || !pairing) return;
+    if (!pairing.approved_at && pairing.expires_at && Date.parse(pairing.expires_at) <= Date.now()) {
+      setOutcome("expired");
+      return;
+    }
     const current = generation.current;
     dispatching.current = true;
     if (action === "approve" || action === "deny") approvalTarget.current?.focus();
@@ -267,6 +273,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
       </RequestShell>
     );
   const installation = pairing.installation_device === true;
+  if (outcome === "expired") return <RequestShell><RequestOutcome status="expired" applicationName={pairing.connector_name} returnUrl="" standalone /></RequestShell>;
   const refusal = outcome && outcome !== "cancelled" ? outcome : pairing.account_upgrade
     ? installationRefusal({ code: "installation_legacy_backend", details: { upgrade: pairing.account_upgrade } }, pairing.connector_name)
     : null;

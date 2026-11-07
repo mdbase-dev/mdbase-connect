@@ -1,5 +1,20 @@
 import { expect, test } from "@playwright/test";
 
+for (const colorScheme of ["light", "dark"] as const) test(`shortcut help columns align in ${colorScheme}`, async ({ page }) => {
+  await page.emulateMedia({ colorScheme });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("?demo=4");
+  await expect(page.getByRole("listbox", { name: "Collection notes and files" })).toBeFocused();
+  await page.keyboard.press("?");
+  const help = page.getByRole("dialog", { name: "Shortcuts", exact: true });
+  await expect(help).toBeVisible();
+  const navigate = await help.getByRole("heading", { name: "Navigate", exact: true }).boundingBox();
+  const note = await help.getByRole("heading", { name: "Note", exact: true }).boundingBox();
+  expect(Math.abs(navigate!.y - note!.y)).toBeLessThanOrEqual(1);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await help.locator(".shortcut-groups").evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+});
+
 test("first C captures every key while a cold composer chunk is delayed", async ({ page }, testInfo) => {
   await page.goto("?demo=300");
   await expect(page.locator(".title-input")).toBeVisible();

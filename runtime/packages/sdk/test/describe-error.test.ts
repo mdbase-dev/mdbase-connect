@@ -5,6 +5,11 @@ import { MdbaseError } from "../src/errors.js";
 import { ACCOUNT_COLLECTION_QUOTA_MESSAGE } from "../src/collection-quota-copy.generated.js";
 
 describe("describeError", () => {
+  it("does not diagnose a network outage for a generic failure after a successful response", () => {
+    expect(describeError({ code: "unavailable", status: 200 })).toMatchObject({
+      title: "Can't complete this request", message: "mdbase couldn't complete this request. Try again.", action: "retry"
+    });
+  });
   it("describes unfinished consent neutrally without blaming mdbase", () => {
     for (const input of [{ reason: "refused" }, { problem: "refused" }]) {
       expect(describeError(input)).toMatchObject({ title: "Sign-in wasn't finished", message: "Access wasn't approved. Sign in again when you're ready.", severity: "info", action: "sign_in" });

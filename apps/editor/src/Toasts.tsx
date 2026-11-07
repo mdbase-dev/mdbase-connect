@@ -7,6 +7,7 @@ export const undoWindowMs = 30_000;
 
 export function buildToastItems({
   notice,
+  recoveryId,
   recoveryMessage,
   recoveryPending = false,
   recoveryBusy,
@@ -15,6 +16,7 @@ export function buildToastItems({
   onResumeRename
 }: {
   notice?: { message: string; tone: ToastTone };
+  recoveryId: string;
   recoveryMessage?: string;
   /** The change is still being confirmed; Undo is offered once it settles. */
   recoveryPending?: boolean;
@@ -25,13 +27,13 @@ export function buildToastItems({
 }): ToastItem[] {
   const items: ToastItem[] = notice ? [{ id: "notice", message: notice.message, tone: notice.tone }] : [];
   if (recoveryMessage) items.push(recoveryPending ? {
-    id: "recovery",
+    id: recoveryId,
     message: recoveryMessage,
     tone: "info",
     sticky: true,
     dismissible: false
   } : {
-    id: "recovery",
+    id: recoveryId,
     message: recoveryMessage,
     tone: "success",
     durationMs: undoWindowMs,

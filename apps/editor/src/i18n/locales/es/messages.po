@@ -3901,6 +3901,7 @@ msgid "Pin"
 msgstr "Fijar"
 
 #: src/collection-browser.ts
+#: src/use-note-actions.ts
 msgid "Pinned"
 msgstr "Fijadas"
 
@@ -5802,6 +5803,10 @@ msgstr "Menciones sin enlazar ({0})"
 #: src/editor-commands.ts
 msgid "Unpin"
 msgstr "Dejar de fijar"
+
+#: src/use-note-actions.ts
+msgid "Unpinned"
+msgstr "Desfijado"
 
 #: src/App.tsx
 msgid "Unsaved draft found"

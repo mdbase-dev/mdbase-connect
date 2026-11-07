@@ -3901,6 +3901,7 @@ msgid "Pin"
 msgstr "Pin"
 
 #: src/collection-browser.ts
+#: src/use-note-actions.ts
 msgid "Pinned"
 msgstr "Pinned"
 
@@ -5802,6 +5803,10 @@ msgstr "Unlinked mentions ({0})"
 #: src/editor-commands.ts
 msgid "Unpin"
 msgstr "Unpin"
+
+#: src/use-note-actions.ts
+msgid "Unpinned"
+msgstr "Unpinned"
 
 #: src/App.tsx
 msgid "Unsaved draft found"

@@ -265,7 +265,10 @@ export function useCollectionUi(options: CollectionUiOptions): CollectionUi {
         if (current && popupActions.has(current.name)) current.controller.abort();
       },
       assess: () => { void run("assess", (signal) => mdbase.assess({ signal })); },
-      start: () => { void run("start", (signal) => mdbase.start({ signal })); },
+      start: () => {
+        const collectionId = mdbase.getSnapshot().selectedCollectionId;
+        void run("start", (signal) => collectionId ? mdbase.select(collectionId, { signal }) : mdbase.start({ signal }));
+      },
       signOut: () => leave("sign_out", () => { void run("sign_out", (signal) => mdbase.signOut({ signal })); }),
       confirmSignOut: () => {
         setSignOutPrompt(null);

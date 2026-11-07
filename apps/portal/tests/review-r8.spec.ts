@@ -3,6 +3,35 @@ import { expect, openScenario, test } from "./review/fixture";
 import { authentication, authorizationId, clock, pairingId } from "./review/scenarios.mjs";
 import { openSharedStyleFixture } from "../../../packages/app-ui/test/browser-styles";
 
+for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as const) test.describe(`round 9 auth ${width} ${colorScheme}`, () => {
+  test.use({ viewport: { width, height: width === 390 ? 844 : 900 }, colorScheme });
+  test("email confirmation keeps the brand anchored and supports correcting the address", async ({ page }) => {
+    await page.route("**/v1/auth/password/signup/request", route => route.fulfill({ json: {} }));
+    await openScenario(page, "signup");
+    const brand = page.locator(".minimal-auth-page > :first-child");
+    const before = await brand.boundingBox();
+    await page.getByLabel("Email", { exact: true }).fill("typo@example.test");
+    await page.getByRole("button", { name: "Send verification link", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Check your email", exact: true })).toBeFocused();
+    await expect(page.getByText("typo@example.test", { exact: true })).toBeVisible();
+    const after = await brand.boundingBox();
+    expect(Math.abs(after!.y - before!.y)).toBeLessThanOrEqual(1);
+    const footerSizes = await page.locator(".minimal-auth-footer").evaluate(footer => ({
+      text: getComputedStyle(footer).fontSize,
+      controls: [...footer.querySelectorAll(".mdbase-select")].map(control => getComputedStyle(control).fontSize)
+    }));
+    expect(footerSizes.controls.length).toBeGreaterThan(0);
+    expect(footerSizes.controls.every(size => size === footerSizes.text)).toBe(true);
+    await page.getByRole("button", { name: "Use a different email", exact: true }).click();
+    await expect(page.getByLabel("Email", { exact: true })).toBeFocused();
+    await expect(page.getByLabel("Email", { exact: true })).toHaveValue("typo@example.test");
+  });
+  for (const scenario of ["onboarding-pending", "onboarding-failed", "pairing-fresh", "pairing-create-new"]) test(`heading receives focus on ${scenario}`, async ({ page }) => {
+    await openScenario(page, scenario);
+    await expect(page.locator("h1").first()).toBeFocused();
+  });
+});
+
 async function fillOnly(element: Locator, ring = false) {
   const appearance = await element.evaluate(element => {
     const style = getComputedStyle(element);

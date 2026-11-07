@@ -32,7 +32,7 @@ export function quickOpenResults({ index, recentPaths, types, commands, onSelect
   });
   if (!commandMode && commandQuery && !results.length && onCreate) entries.push({ id: "create-note", label: t`Create note ‘${query.trim()}’`, group: t`Notes`, run: () => onCreate(commandQuery) });
   if (commandMode || !commandQuery || !results.length) entries.push(...filterCommands(commands, commandQuery).map(command => ({
-    id: command.id, label: command.label, detail: command.hint, group: t`Actions`, shortcut: command.shortcut,
+    id: command.id, label: command.label, detail: command.hint, group: t`Actions`, shortcut: command.shortcut, context: commandQuery ? undefined : command.context,
     content: <><strong><SearchMatchText text={command.label} ranges={searchTextRanges(command.label, commandQuery)} /></strong>
       {command.hint && <small><SearchMatchText text={command.hint} ranges={searchTextRanges(command.hint, commandQuery)} /></small>}</>,
     run: () => { rememberCommand(command.id); command.run(); }
