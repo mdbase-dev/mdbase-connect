@@ -306,10 +306,10 @@ export class LogServiceClient {
     }
   }
 
-  /** What the collection stores, counted by the log service as it enforces `storage_bytes`. */
-  async storageStatus(collection: string): Promise<{ usedBytes: number; quotaBytes: number }> {
+  /** What the collection stores: `usedBytes` is what `storage_bytes` is enforced against, `fileBytes` the uploaded files plans meter. */
+  async storageStatus(collection: string): Promise<{ usedBytes: number; quotaBytes: number; fileBytes: number }> {
     const result = await this.rpc("storage_status", struct([[0, uuidBytes(collection)]]));
-    return { usedBytes: seqField(result, 0), quotaBytes: seqField(result, 1) };
+    return { usedBytes: seqField(result, 0), quotaBytes: seqField(result, 1), fileBytes: seqField(result, 2) };
   }
 
   /** One batch of `gc`; returns the objects removed, and a full batch means more may remain. */

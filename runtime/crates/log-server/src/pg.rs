@@ -689,6 +689,19 @@ impl Txn for PgTxn {
         Ok(r.get::<_, i64>(0) as u64)
     }
 
+    async fn committed_blob_bytes(&mut self) -> Result<u64> {
+        let r = self
+            .c()
+            .query_one(
+                "SELECT coalesce(sum(size), 0)::bigint FROM ls_objects
+                 WHERE collection = $1 AND committed AND kind = 18",
+                &[&self.id],
+            )
+            .await
+            .map_err(db)?;
+        Ok(r.get::<_, i64>(0) as u64)
+    }
+
     async fn gc_candidates(&mut self, before: i64, limit: u64) -> Result<Vec<ObjectMeta>> {
         let rows = self
             .c()

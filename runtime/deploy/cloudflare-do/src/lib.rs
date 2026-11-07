@@ -617,6 +617,14 @@ impl Txn for DoTxn<'_> {
         Ok(r.first().map_or(0, |r| as_i64(&r[0]) as u64))
     }
 
+    async fn committed_blob_bytes(&mut self) -> LsResult<u64> {
+        let r = self.be.exec(
+            "SELECT coalesce(sum(size), 0) FROM objects WHERE committed = 1 AND kind = 18",
+            vec![],
+        )?;
+        Ok(r.first().map_or(0, |r| as_i64(&r[0]) as u64))
+    }
+
     async fn gc_candidates(&mut self, before: i64, limit: u64) -> LsResult<Vec<ObjectMeta>> {
         let rows = self.be.exec(
             "SELECT address, kind, size, checksum, committed, created_at FROM objects o

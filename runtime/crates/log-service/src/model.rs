@@ -119,6 +119,11 @@ pub struct CollectionMeta {
     pub quotas: Quotas,
     /// Retained item bytes plus committed object bytes.
     pub used_bytes: u64,
+    /// Committed blob-part bytes: the uploaded files plans meter, unlike the log
+    /// text and snapshots in `used_bytes`. `None` on a row written before this
+    /// counter existed; [`crate::Txn::committed_blob_bytes`] supplies the value and
+    /// the next blob commit or GC persists it.
+    pub file_bytes: Option<u64>,
     /// Service time of creation.
     pub created_at: i64,
     /// Archive retention for compacted entries and dead objects.
@@ -154,6 +159,7 @@ impl CollectionMeta {
             retained_from: 1,
             quotas: Quotas::default(),
             used_bytes: 0,
+            file_bytes: Some(0),
             created_at: now,
             retention_tier: RetentionTier::default(),
             restore_plan: None,
@@ -227,6 +233,9 @@ impl CollectionMeta {
         }
         if let Some(region) = self.region {
             m.push((u(22), Cbor::Text(region.as_str().into())));
+        }
+        if let Some(file_bytes) = self.file_bytes {
+            m.push((u(23), u(file_bytes)));
         }
         cbor::encode(&Cbor::Map(m)).expect("meta encodes")
     }
@@ -343,6 +352,12 @@ impl CollectionMeta {
                 burst_items: qn(3)?,
             },
             used_bytes: uint(16)?,
+            // Rows written before the counter existed have no key 23.
+            file_bytes: match get(23) {
+                Ok(Cbor::Uint(n)) => Some(*n),
+                Ok(_) => return Err(bad()),
+                Err(_) => None,
+            },
             created_at: int(17)?,
             // Rows written before the archive existed have no key 18: 30 days.
             retention_tier: match get(18) {
@@ -568,6 +583,19 @@ mod tests {
         let d = CollectionMeta::decode(&old).unwrap();
         assert_eq!(d.retention_tier, RetentionTier::Days30);
         assert_eq!(d, m);
+    }
+
+    #[test]
+    fn meta_without_file_bytes_stays_unknown() {
+        let mut m = CollectionMeta::new(B16([7; 16]), 42);
+        m.file_bytes = Some(5);
+        assert_eq!(CollectionMeta::decode(&m.encode()).unwrap(), m);
+        m.file_bytes = None;
+        let Cbor::Map(entries) = cbor::decode(&m.encode()).unwrap() else {
+            panic!("map");
+        };
+        assert!(!entries.iter().any(|(k, _)| *k == Cbor::Uint(23)));
+        assert_eq!(CollectionMeta::decode(&m.encode()).unwrap(), m);
     }
 
     #[test]

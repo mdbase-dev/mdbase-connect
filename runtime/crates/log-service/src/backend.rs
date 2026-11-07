@@ -92,6 +92,8 @@ pub trait Txn {
     async fn last_seq_at_or_before(&mut self, t: i64) -> Result<u64>;
     /// Total bytes of `entry` items with `seq ≤ c` still stored.
     async fn entry_bytes_through(&mut self, c: u64) -> Result<u64>;
+    /// Total size of committed `blob-part` objects.
+    async fn committed_blob_bytes(&mut self) -> Result<u64>;
     /// Objects created before `created_before` that no retained item or snapshot
     /// references, up to `limit`.
     async fn gc_candidates(&mut self, created_before: i64, limit: u64) -> Result<Vec<ObjectMeta>>;

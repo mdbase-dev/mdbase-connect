@@ -592,7 +592,7 @@ Over the control plane's credential only:
 |---|---|
 | `create_log {collection, genesis item}` | creates the actor with the genesis policy item at `seq` 1 |
 | `set_quota {collection, quotas}` | |
-| `storage_status {collection}` | returns the collection's used bytes and storage quota |
+| `storage_status {collection}` | returns the collection's used bytes, storage quota and file bytes (committed `blob-part` objects, the figure plans meter) |
 | `delete_log {collection}` | marks it `gone`; data is deleted after a grace period, per the retention policy |
 | `move_log {collection, target}` | for migrations between backends. The log is `unavailable` during the copy, which is verified by chain hash |
 | `export {collection}` | streams every retained item, snapshot pointer and object, for backups and restore drills |
