@@ -116,7 +116,7 @@ function GateScreen({ ui, layout, extraActions }: { ui: CollectionUi; layout: "p
   const headingText = appListed ? ui.say("chooseHeading") : view.heading;
   const lead = appListed ? null : view.lead;
   const heading = useRef<HTMLHeadingElement>(null);
-  const root = useRef<HTMLDivElement>(null);
+  const root = useRef<HTMLElement>(null);
   const [dialog, setDialog] = useState<RowDialog>(null);
   const previousKind = useRef<CollectionView["kind"] | null>(null);
   // Move focus to the new heading when the phase changes, unless the person is busy elsewhere on the page.
@@ -128,9 +128,10 @@ function GateScreen({ ui, layout, extraActions }: { ui: CollectionUi; layout: "p
     if (!active || active === document.body || root.current?.contains(active)) heading.current?.focus({ preventScroll: true });
   }, [view.kind]);
   const Heading = layout === "page" ? "h1" : "h2";
+  const Container = layout === "page" ? "main" : "div";
   const opening = view.kind === "starting" || view.kind === "opening";
   const announce = view.kind === "authorizing" ? view.heading : "";
-  return <div ref={root} className="mdbase-collections mdbase-collections-gate" data-layout={layout} data-phase={view.kind} aria-busy={ui.busy !== null || undefined}>
+  return <Container ref={element => { root.current = element; }} className="mdbase-collections mdbase-collections-gate" data-layout={layout} data-phase={view.kind} aria-busy={ui.busy !== null || undefined}>
     <div className="mdbase-collections-gate-body">
       {!opening && <p className="mdbase-collections-brand">
         {options.app.mark && <span className="mdbase-collections-brand-mark" aria-hidden="true">{options.app.mark}</span>}
@@ -138,16 +139,16 @@ function GateScreen({ ui, layout, extraActions }: { ui: CollectionUi; layout: "p
       </p>}
       <Heading ref={heading} tabIndex={-1} className={opening ? "mdbase-collections-visually-hidden" : "mdbase-collections-heading"}>{headingText}</Heading>
       {opening
-        ? <OpeningScreen app={options.app} layout={layout} title={headingText} detail={lead ?? undefined} />
-        : lead && <p className="mdbase-collections-lead">{lead}</p>}
-      <GateBody ui={ui} extraActions={view.kind === "signed_out" ? extra : undefined} onDialog={setDialog} />
-      {ui.error && <NoticeBlock notice={ui.error} ui={ui} variant="inline" />}
+        ? <OpeningScreen app={options.app} layout="panel" title={headingText} detail={lead ?? undefined} />
+        : lead && view.kind !== "needs_setup" && <p className="mdbase-collections-lead">{lead}</p>}
+      <GateBody ui={ui} layout={layout} extraActions={view.kind === "signed_out" ? extra : undefined} onDialog={setDialog} />
+      {ui.error && !(view.kind === "choosing" && ui.error.key === "account_collection_quota_exceeded") && <NoticeBlock notice={ui.error} ui={ui} variant="inline" />}
       <GateFooter ui={ui} chooseAnother={showsChooseAnother(view)} extra={view.kind === "signed_out" ? undefined : extra} />
     </div>
     <p className="mdbase-collections-visually-hidden" role="status">{announce}</p>
     <RowDialogs ui={ui} dialog={dialog} onClose={() => setDialog(null)} />
     <SignOutDialog ui={ui} />
-  </div>;
+  </Container>;
 }
 
 function showsChooseAnother(view: CollectionView): boolean {
@@ -161,8 +162,9 @@ function showsChooseAnother(view: CollectionView): boolean {
   }
 }
 
-function GateBody({ ui, extraActions, onDialog }: {
+function GateBody({ ui, layout, extraActions, onDialog }: {
   ui: CollectionUi;
+  layout: "page" | "panel";
   extraActions?: ReactNode;
   onDialog: (dialog: NonNullable<RowDialog>) => void;
 }): JSX.Element | null {
@@ -193,8 +195,9 @@ function GateBody({ ui, extraActions, onDialog }: {
         {view.collections.length > 0 && <CollectionList ui={ui} onDialog={onDialog} />}
         <AppSections ui={ui} onDialog={onDialog} />
         <div className="mdbase-collections-actions">
-          <ActionButton tone={view.collections.length > 0 ? "secondary" : "primary"} inert={inert} progress={busy === "add" ? copy.addingCollection : null}
-            onClick={actions.addCollection}>{copy.addCollection}</ActionButton>
+          {ui.error?.key === "account_collection_quota_exceeded" ? <NoticeBlock notice={ui.error} ui={ui} variant="inline" />
+            : <ActionButton tone={view.collections.length > 0 ? "secondary" : "primary"} inert={inert} progress={busy === "add" ? copy.addingCollection : null}
+              onClick={actions.addCollection}>{copy.addCollection}</ActionButton>}
         </div>
       </>;
     case "needs_approval":
@@ -203,7 +206,7 @@ function GateBody({ ui, extraActions, onDialog }: {
           onClick={() => actions.approve(view.collectionId)}>{copy.reviewAccess}</ActionButton>
       </div>;
     case "needs_setup":
-      return <SetupReview key={view.collectionId} ui={ui} />;
+      return <SetupReview key={view.collectionId} ui={ui} layout={layout} />;
     case "problem":
       return <NoticeBlock notice={view.notice} ui={ui} />;
     case "unavailable":

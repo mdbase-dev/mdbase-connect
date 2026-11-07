@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import "../test/dialog.js";
+import { readFileSync } from "node:fs";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -35,6 +36,26 @@ Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: t
 const host = document.body.appendChild(document.createElement("div"));
 const root = createRoot(host);
 afterEach(() => act(() => root.render(null)));
+
+it("resets query and selection in the layout phase, before an exit can be reopened and painted", () => {
+  const source = readFileSync("src/CommandPalette.tsx", "utf8");
+  expect(source).toMatch(/useLayoutEffect\(\(\) => \{ if \(open\) \{ setQuery\(initialQuery\); setActive\(0\); \} \}, \[open, initialQuery\]\)/);
+});
+
+it("resets a retained palette to the new initial query and first result on reopening", () => {
+  const animation = vi.spyOn(HTMLElement.prototype, "getAnimations").mockReturnValue([{ finished: new Promise<void>(() => {}) }] as Animation[]);
+  const commands = [command("alpha", "app"), command("beta", "app")];
+  const draw = (open: boolean, initialQuery: string) => createElement(CommandPalette, { open, initialQuery, commands, onClose: () => {} });
+  act(() => root.render(draw(true, "")));
+  const input = document.querySelector<HTMLInputElement>('[role="combobox"]')!;
+  act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true })));
+  act(() => root.render(draw(false, "")));
+  act(() => root.render(draw(true, "alpha")));
+  expect(document.querySelector('[role="combobox"]')).toBe(input);
+  expect(input.value).toBe("alpha");
+  expect(document.querySelector('[aria-selected="true"]')?.textContent).toContain("alpha");
+  animation.mockRestore();
+});
 
 it("keeps a result selected when live updates shrink the list", () => {
   const run = vi.fn();

@@ -35,8 +35,9 @@ applyThemePreference(loadThemePreference());
   total is known, and `holdMdbaseMarkBusy(loop)` (or `useMdbaseMarkBusy`) while
   it is not.
 - `apps` lists the mdbase apps and builds links that open the current
-  collection in another app. Lab and local builds pass their own URLs to
-  `withAppUrls`.
+  collection in another app. Every deployment passes its own URLs to
+  `withAppUrls` (or `AppSwitcher`'s `urls` prop). Apps without a configured URL
+  are omitted; shared metadata never falls back to production origins.
 
 ## Icon-button tooltips
 

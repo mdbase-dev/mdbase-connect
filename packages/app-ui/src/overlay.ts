@@ -5,11 +5,13 @@ export function useOverlay<Element extends HTMLElement>(open: boolean) {
   const [retained, setRetained] = useState(open);
   useLayoutEffect(() => {
     if (open) { setRetained(true); return; }
-    // The resolved transition duration is always in seconds, whatever a build does to the token.
-    const duration = ref.current ? parseFloat(getComputedStyle(ref.current).transitionDuration) * 1000 : 0;
-    if (!duration) { setRetained(false); return; }
-    const timeout = setTimeout(() => setRetained(false), duration);
-    return () => clearTimeout(timeout);
+    const animations = ref.current?.getAnimations() ?? [];
+    if (animations.length === 0) { setRetained(false); return; }
+    let cancelled = false;
+    void Promise.allSettled(animations.map(animation => animation.finished)).then(() => {
+      if (!cancelled) setRetained(false);
+    });
+    return () => { cancelled = true; };
   }, [open]);
   return { ref, present: open || retained };
 }
