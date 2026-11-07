@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { MirrorApplyResult } from "./mirror-plan.js";
-import { MAX_WATCH_BACKOFF_MS, WatchBackoff } from "./watch-backoff.js";
+import { WatchBackoff, type MirrorApplyResult } from "./mirror-plan.js";
 
 function result(status: MirrorApplyResult["status"], applied = 0, plan = "plan-1"): MirrorApplyResult {
   return {
@@ -19,7 +18,7 @@ describe("mdbase-mirror watch backoff", () => {
     const backoff = new WatchBackoff(2_000);
     const waits = Array.from({ length: 10 }, () => backoff.next(result("failed", 1)));
     expect(waits).toEqual([
-      2_000, 4_000, 8_000, 16_000, 32_000, 64_000, 128_000, 256_000, MAX_WATCH_BACKOFF_MS, MAX_WATCH_BACKOFF_MS
+      2_000, 4_000, 8_000, 16_000, 32_000, 64_000, 128_000, 256_000, 300_000, 300_000
     ]);
     // Errors before any result back off the same way.
     const offline = new WatchBackoff(2_000);

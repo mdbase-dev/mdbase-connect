@@ -28,9 +28,8 @@ import {
   canonicalConnectOrigin,
   type MirrorEnrollment
 } from "./enrollment.js";
-import type { MirrorApplyResult } from "./mirror-plan.js";
+import { WatchBackoff, type MirrorApplyResult } from "./mirror-plan.js";
 import { promoteMirrorAuthority } from "./promotion.js";
-import { WatchBackoff } from "./watch-backoff.js";
 
 const parsed = parseArgs({
   allowPositionals: true,
