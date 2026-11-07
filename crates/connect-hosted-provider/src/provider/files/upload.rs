@@ -347,19 +347,20 @@ impl HostedProvider {
         if let Some(receipt) = transfer.receipt {
             return Ok(receipt);
         }
+        if transfer.state == "aborted" {
+            // Its multipart upload is gone from R2, so validating the parts
+            // would fail as though storage were down. Checked before expiry, to
+            // match what status reports.
+            return Err(ApiError::conflict(
+                "file_transfer_not_open",
+                "This file upload was cancelled.",
+            ));
+        }
         if transfer.expires_at <= Utc::now() {
             self.expire_upload(&transfer).await?;
             return Err(ApiError::conflict(
                 "file_transfer_expired",
                 "This file upload has expired.",
-            ));
-        }
-        if transfer.state == "aborted" {
-            // Its multipart upload is gone from R2, so validating the parts
-            // would fail as though storage were down.
-            return Err(ApiError::conflict(
-                "file_transfer_not_open",
-                "This file upload was cancelled.",
             ));
         }
         let completion = self

@@ -179,6 +179,21 @@ async fn aborted_multipart_upload_reports_abort() {
     let error = commit(&fixture, transfer_id).await.unwrap_err();
     assert_eq!(error.status, StatusCode::CONFLICT);
     assert_eq!(error.code, "file_transfer_not_open");
+
+    // Once it is also past expiry, commit still agrees with status.
+    sqlx::query(
+        "UPDATE hosted_provider_file_transfers SET expires_at = now() - interval '1 minute' WHERE id = $1",
+    )
+    .bind(transfer_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        status(&fixture, transfer_id).await,
+        FileTransferState::Aborted
+    );
+    let error = commit(&fixture, transfer_id).await.unwrap_err();
+    assert_eq!(error.code, "file_transfer_not_open");
 }
 
 /// Retries against a full collection neither copy nor re-hash the file, and
@@ -283,8 +298,9 @@ async fn file_count_limit_refuses_commit_before_copying() {
     assert_eq!(copies_and_verifies(&fixture).await, before);
 }
 
-/// Commits that fit, including a replacement that shrinks a file on a full
-/// account and additions that exactly fill the remaining space.
+/// Commits that fit, including replacements that shrink, keep or grow a file
+/// to exactly fill a full account, a replacement at the file count limit, and
+/// additions that exactly fill the remaining space.
 #[tokio::test]
 #[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
 async fn commits_that_fit_a_full_account_are_not_refused() {
@@ -298,9 +314,43 @@ async fn commits_that_fit_a_full_account_are_not_refused() {
     let shrink = fixture
         .stage_replace("a.bin", &[2; 500], &original.file.revision)
         .await;
-    commit(&fixture, shrink)
+    let shrunk = commit(&fixture, shrink)
         .await
         .expect("a shrinking replacement commits on a full account");
+
+    account_headroom(&fixture, Some(0)).await;
+    let same = fixture
+        .stage_replace("a.bin", &[5; 500], &shrunk.file.revision)
+        .await;
+    let same = commit(&fixture, same)
+        .await
+        .expect("a same-size replacement commits on a full account");
+
+    account_headroom(&fixture, Some(100)).await;
+    let grow = fixture
+        .stage_replace("a.bin", &[6; 600], &same.file.revision)
+        .await;
+    let grown = commit(&fixture, grow)
+        .await
+        .expect("a replacement growing into exactly the free space commits");
+
+    sqlx::query("UPDATE hosted_provider_collections SET max_files = file_count WHERE id = $1")
+        .bind(fixture.collection_id)
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
+    account_headroom(&fixture, None).await;
+    let at_count = fixture
+        .stage_replace("a.bin", &[7; 600], &grown.file.revision)
+        .await;
+    commit(&fixture, at_count)
+        .await
+        .expect("a replacement commits at the file count limit");
+    sqlx::query("UPDATE hosted_provider_collections SET max_files = file_count + 10 WHERE id = $1")
+        .bind(fixture.collection_id)
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
 
     account_headroom(&fixture, Some(100)).await;
     commit(&fixture, fixture.stage_upload("b.bin", &[3; 100]).await)
