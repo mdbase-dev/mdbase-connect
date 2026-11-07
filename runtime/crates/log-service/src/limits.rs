@@ -67,8 +67,12 @@ pub const EPH_IDLE_MS: i64 = 60_000;
 /// Server buffer per receiving session.
 pub const EPH_BUFFER_BYTES: usize = 256 * 1024;
 
-/// Default quotas (§11).
+/// Default quotas (§11). The storage quota caps log bytes, everything but
+/// files: an abuse limit set well above any real collection's notes.
 pub const DEFAULT_STORAGE_BYTES: u64 = 1024 * MIB;
+/// File quota until the control plane allocates one, matching the flat quota
+/// collections had when it covered files and log together.
+pub const DEFAULT_FILE_QUOTA_BYTES: u64 = 1024 * MIB;
 /// Sustained append rate, items per second.
 pub const DEFAULT_ITEMS_PER_S: u64 = 50;
 /// Sustained append rate, bytes per second.

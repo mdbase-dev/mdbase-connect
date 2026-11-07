@@ -491,6 +491,7 @@ pub fn rebuild_state(
     st.meta.retained_from = old.retained_from;
     st.meta.used_bytes = old.used_bytes;
     st.meta.file_bytes = old.file_bytes;
+    st.meta.file_quota = old.file_quota;
     st.meta.status = old.status;
     let budget = Budget::default();
     for (seq, b) in control {
@@ -501,6 +502,12 @@ pub fn rebuild_state(
 }
 
 /// Refuse requests on a deleted (`gone`) or restoring (`unavailable`) collection.
+/// Bytes outside files, which the storage quota caps. `used_bytes` includes the
+/// file bytes.
+fn log_bytes(m: &CollectionMeta, file_bytes: u64) -> u64 {
+    m.used_bytes.saturating_sub(file_bytes)
+}
+
 fn live(m: &CollectionMeta) -> Result<()> {
     match m.status {
         Status::Live => Ok(()),
@@ -899,6 +906,7 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
             // §12 administrative API (control plane only).
             "create_log" => self.create_log(principal, params, now, budget).await,
             "set_quota" => self.set_quota(principal, params).await,
+            "set_file_headroom" => self.set_file_headroom(principal, params).await,
             "storage_status" => self.storage_status(principal, params).await,
             "delete_log" => self.delete_log(principal, params).await,
             "log_terminal_status" => self.log_terminal_status(principal, params).await,
@@ -1175,9 +1183,17 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
                 ));
             }
         }
-        if content && state.meta.used_bytes + total > state.meta.quotas.storage_bytes {
-            return Err(ServiceError::new(Code::QuotaExceeded));
-        }
+        // Files have their own quota, so a collection full of files can still
+        // append entries, including the deletes that free space.
+        let file_bytes = if content {
+            let file_bytes = Self::file_bytes(&mut tx, &state.meta).await?;
+            if log_bytes(&state.meta, file_bytes) + total > state.meta.quotas.storage_bytes {
+                return Err(ServiceError::new(Code::QuotaExceeded));
+            }
+            Some(file_bytes)
+        } else {
+            state.meta.file_bytes
+        };
         // Step 5: head check (I2).
         if params.expect_seq != head + 1 || params.expect_prev != state.meta.head_chain {
             return Ok(Outcome::plain(
@@ -1283,6 +1299,7 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
         ws.meta.head = params.expect_seq + n as u64 - 1;
         ws.meta.head_chain = prev;
         ws.meta.used_bytes += total;
+        ws.meta.file_bytes = file_bytes;
         for (d, e) in &ws.acl {
             if state.acl.get(d) != Some(e) {
                 tx.write(Write::UpsertAcl(e.clone()));
@@ -1474,28 +1491,36 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
             // The early PUT check is advisory: uploads may race or the quota
             // may change while their bytes are staged. This exclusive WriteTX
             // owns the final quota check, accounting and object insertion.
+            let exceeded = || ServiceError::new(Code::QuotaExceeded);
+            let file = meta.kind == ItemKind::BlobPart.value();
+            let file_bytes = Self::file_bytes(&mut tx, &state.meta).await?;
             let used_bytes = state
                 .meta
                 .used_bytes
                 .checked_add(meta.size)
-                .filter(|used| {
-                    let limit = state
-                        .meta
-                        .restore_plan
-                        .as_ref()
-                        .filter(|_| state.meta.status == Status::Importing)
-                        .map_or(state.meta.quotas.storage_bytes, |plan| plan.used_bytes);
-                    *used <= limit
-                })
-                .ok_or_else(|| ServiceError::new(Code::QuotaExceeded))?;
-            state.meta.used_bytes = used_bytes;
-            if meta.kind == ItemKind::BlobPart.value() {
-                let file_bytes = Self::file_bytes(&mut tx, &state.meta)
-                    .await?
-                    .checked_add(meta.size)
-                    .ok_or_else(|| ServiceError::new(Code::QuotaExceeded))?;
-                state.meta.file_bytes = Some(file_bytes);
+                .ok_or_else(exceeded)?;
+            let new_file_bytes = if file {
+                file_bytes.checked_add(meta.size).ok_or_else(exceeded)?
+            } else {
+                file_bytes
+            };
+            let importing = state.meta.status == Status::Importing;
+            let fits = match state.meta.restore_plan.as_ref().filter(|_| importing) {
+                // A strict restore reproduces the source's bytes exactly.
+                Some(plan) => used_bytes <= plan.used_bytes,
+                // Backups don't carry the file quota, so a restore can't be held
+                // to it; the control plane allocates one once the copy is live.
+                None if file => importing || new_file_bytes <= state.meta.file_quota,
+                None => {
+                    log_bytes(&state.meta, file_bytes) + meta.size
+                        <= state.meta.quotas.storage_bytes
+                }
+            };
+            if !fits {
+                return Err(exceeded());
             }
+            state.meta.used_bytes = used_bytes;
+            state.meta.file_bytes = Some(new_file_bytes);
             tx.write(Write::PutMeta(state.meta));
         }
         let fenced = meta.committed && self.backend.fences_deletion_floor_at_commit();
@@ -1562,12 +1587,17 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
                 direct: None,
             });
         }
-        if state
-            .meta
-            .used_bytes
-            .checked_add(q.size)
-            .is_none_or(|used| used > state.meta.quotas.storage_bytes)
-        {
+        // Advisory: a row without the file counter is checked at commit.
+        let file_bytes = state.meta.file_bytes.unwrap_or(0);
+        let (used, limit) = if q.kind == ItemKind::BlobPart {
+            (file_bytes, state.meta.file_quota)
+        } else {
+            (
+                log_bytes(&state.meta, file_bytes),
+                state.meta.quotas.storage_bytes,
+            )
+        };
+        if used.checked_add(q.size).is_none_or(|used| used > limit) {
             return Err(ServiceError::new(Code::QuotaExceeded));
         }
         match q.bytes {
@@ -2267,7 +2297,8 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
         Ok(Outcome::plain(ok(region)))
     }
 
-    /// `set_quota {0: collection, 1: [storage, items/s, bytes/s, burst]}`.
+    /// `set_quota {0: collection, 1: [log storage, items/s, bytes/s, burst]}`:
+    /// the operator's abuse limits. Plan storage is `set_file_headroom`.
     async fn set_quota(&self, p: &Principal, params: &Cbor) -> Result<Outcome> {
         self.require_cp(p)?;
         let c = uuid_field(params, 0)?;
@@ -2299,8 +2330,35 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
         Ok(Outcome::plain(map(vec![(0, Cbor::Bool(true))])))
     }
 
+    /// `set_file_headroom {0: collection, 1: headroom}` sets the file quota to
+    /// the current file bytes plus `headroom` in one transaction and returns
+    /// `{0: file bytes, 1: file quota}`. Setting it from usage read in the same
+    /// transaction means a concurrent upload can't push the quota past what the
+    /// control plane allocated. A headroom of 0 blocks new files and keeps the
+    /// existing ones.
+    async fn set_file_headroom(&self, p: &Principal, params: &Cbor) -> Result<Outcome> {
+        self.require_cp(p)?;
+        let c = uuid_field(params, 0)?;
+        let Some(Cbor::Uint(headroom)) = field(params, 1) else {
+            return Err(bad_params("headroom"));
+        };
+        let mut tx = self.backend.begin(&c, Mode::Write).await?;
+        let mut st = Self::load(&mut tx).await?;
+        live(&st.meta)?;
+        let file_bytes = Self::file_bytes(&mut tx, &st.meta).await?;
+        st.meta.file_bytes = Some(file_bytes);
+        st.meta.file_quota = file_bytes.saturating_add(*headroom);
+        let file_quota = st.meta.file_quota;
+        tx.write(Write::PutMeta(st.meta));
+        tx.commit().await?;
+        Ok(Outcome::plain(map(vec![
+            (0, Cbor::Uint(file_bytes)),
+            (1, Cbor::Uint(file_quota)),
+        ])))
+    }
+
     /// `storage_status {0: collection}` returns `{0: used bytes, 1: storage quota,
-    /// 2: file bytes}`.
+    /// 2: file bytes, 3: file quota}`.
     async fn storage_status(&self, p: &Principal, params: &Cbor) -> Result<Outcome> {
         self.require_cp(p)?;
         let c = uuid_field(params, 0)?;
@@ -2312,6 +2370,7 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
             (0, Cbor::Uint(state.meta.used_bytes)),
             (1, Cbor::Uint(state.meta.quotas.storage_bytes)),
             (2, Cbor::Uint(file_bytes)),
+            (3, Cbor::Uint(state.meta.file_quota)),
         ])))
     }
 
