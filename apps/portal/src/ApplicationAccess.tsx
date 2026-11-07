@@ -112,7 +112,7 @@ export function AppAccess({ error, groups, client, busy, perform, collectionName
     {!collectionName && <section>
       <SectionTitle title={t(i18n)`Explore apps`} note={t(i18n)({ message: "Open an app, then choose which collections it can access." })} />
       <div className="connect-row-actions">
-        {withAppUrls({ editor: editorOrigin }).filter(app => app.id !== "editor" || editorOrigin).map(app => <a key={app.id} href={app.url}>{app.name}</a>)}
+        {withAppUrls({ editor: editorOrigin }).map(app => <a key={app.id} href={app.url}>{app.name}</a>)}
         <a href="https://journal.mdbase.dev">Journal</a>
         <a href="https://app.tasknotes.dev">TaskNotes</a>
       </div>

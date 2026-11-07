@@ -322,15 +322,17 @@ describe("ConnectApp", () => {
     expect(screen.queryByText("Availability unknown")).not.toBeInTheDocument();
   });
 
-  it("lists apps for discovery before any access is approved", async () => {
+  it("lists configured apps for discovery without production fallbacks before access is approved", async () => {
     overview.grants = [];
     history.replaceState(null, "", "/applications");
     render(<ConnectApp />);
     await screen.findByRole("heading", { name: "Apps" });
     await screen.findByRole("link", { name: "Editor" });
-    for (const [name, href] of [["Editor", "https://editor.example.test"], ["Reader", "https://reader.mdbase.dev/"], ["Writer", "https://writer.mdbase.dev/"], ["Journal", "https://journal.mdbase.dev"], ["TaskNotes", "https://app.tasknotes.dev"]]) {
+    for (const [name, href] of [["Editor", "https://editor.example.test"], ["Journal", "https://journal.mdbase.dev"], ["TaskNotes", "https://app.tasknotes.dev"]]) {
       expect(screen.getByRole("link", { name })).toHaveAttribute("href", href);
     }
+    expect(screen.queryByRole("link", { name: "Reader" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Writer" })).not.toBeInTheDocument();
     expect(screen.getByText("No apps with access")).toBeInTheDocument();
   });
 
@@ -342,7 +344,8 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
     await screen.findByRole("heading", { name: "Apps" });
     expect(screen.queryByRole("link", { name: "Editor" })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Reader" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Reader" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Writer" })).not.toBeInTheDocument();
   });
 
   it("shows owned cloud-copy and Private collections and the complete deletion count", async () => {
