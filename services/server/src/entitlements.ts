@@ -9,9 +9,13 @@ import {
 } from "./hosted-provider.js";
 
 export const BETA_ENTITLEMENT_PROFILE = "beta_v1";
+/** Held permanently by accounts that signed up during the open beta; no longer granted. */
 export const OPEN_BETA_ENTITLEMENT_PROFILE = "open_beta_v1";
 /** The free plan every account holds once backfilled (pricing §6). */
 export const FREE_ENTITLEMENT_PROFILE = "free_v1";
+/** The storage-only trial a public signup holds for its first month. */
+const TRIAL_ENTITLEMENT_PROFILE = "trial_v1";
+const TRIAL_DURATION = "30 days";
 
 export interface EffectiveEntitlement {
   profileCodes: string[];
@@ -24,6 +28,12 @@ export interface EffectiveEntitlement {
   maxHostedCollections: number;
   maxFilesPerCollection: number;
   maxCollectionMemberSeats: number;
+  /** An active trial that raises hosted storage above the account's other grants. */
+  trial: null | {
+    endsAt: Date;
+    /** Hosted storage once the trial ends: the maximum across the other grants. */
+    hostedStorageBytesAfter: number;
+  };
 }
 
 export class HostedEntitlementRequiredError extends Error {
@@ -42,6 +52,7 @@ export interface ReconciledHostedAccount {
 
 interface EntitlementProfileRow {
   profile_code: string;
+  ends_at: Date | null;
   hosted_storage_bytes: string | number;
   retained_file_bytes: string | number;
   max_document_bytes: string | number;
@@ -115,16 +126,32 @@ export async function materializeInvitationEntitlement(
   };
 }
 
+/**
+ * Grants a just-created public-signup account the permanent free plan and its
+ * first-month storage trial. Runs in the account-creation transaction, so the
+ * account holds no grants yet.
+ */
 export async function materializePublicSignupEntitlement(
   db: DatabaseQueryable,
   userId: string
-): Promise<{ providerAccountId: string; entitlementRevision: number }> {
+): Promise<{
+  providerAccountId: string;
+  entitlementRevision: number;
+  trialEndsAt: Date;
+}> {
   await db.query(
     `INSERT INTO account_entitlement_grants
        (id, user_id, profile_code, source, source_reference)
-     VALUES ($1, $2, $3, 'subscription', 'public_signup_v1')
-     ON CONFLICT DO NOTHING`,
-    [randomUUID(), userId, OPEN_BETA_ENTITLEMENT_PROFILE]
+     VALUES ($1, $2, $3, 'subscription', 'public_signup_v2')`,
+    [randomUUID(), userId, FREE_ENTITLEMENT_PROFILE]
+  );
+  const trial = await db.query<{ ends_at: Date }>(
+    `INSERT INTO account_entitlement_grants
+       (id, user_id, profile_code, source, source_reference, ends_at)
+     VALUES ($1, $2, $3, 'subscription', 'public_signup_trial_v1',
+             now() + $4::interval)
+     RETURNING ends_at`,
+    [randomUUID(), userId, TRIAL_ENTITLEMENT_PROFILE, TRIAL_DURATION]
   );
   const account = await db.query<{
     provider_account_id: string;
@@ -149,7 +176,8 @@ export async function materializePublicSignupEntitlement(
     entitlementRevision: safeNumber(
       account.rows[0]!.entitlement_revision,
       "entitlement revision"
-    )
+    ),
+    trialEndsAt: trial.rows[0]!.ends_at
   };
 }
 
@@ -183,7 +211,7 @@ export async function effectiveEntitlement(
   userId: string
 ): Promise<EffectiveEntitlement | null> {
   const profiles = await db.query<EntitlementProfileRow>(
-    `SELECT entitlement_grant.profile_code,
+    `SELECT entitlement_grant.profile_code, entitlement_grant.ends_at,
             profile.hosted_storage_bytes, profile.retained_file_bytes,
             profile.max_document_bytes, profile.max_single_file_bytes,
             profile.max_mirror_replicas_per_collection,
@@ -222,8 +250,25 @@ export async function effectiveEntitlement(
     maxCollectionMemberSeats: maximum(
       profiles.rows,
       "max_collection_member_seats"
-    )
+    ),
+    trial: activeTrial(profiles.rows)
   };
+}
+
+function activeTrial(rows: EntitlementProfileRow[]): EffectiveEntitlement["trial"] {
+  const trials = rows.filter((row) => row.profile_code === TRIAL_ENTITLEMENT_PROFILE);
+  if (trials.length === 0) return null;
+  const others = rows.filter((row) => row.profile_code !== TRIAL_ENTITLEMENT_PROFILE);
+  const hostedStorageBytesAfter = others.length === 0
+    ? 0
+    : maximum(others, "hosted_storage_bytes");
+  // An operator can grant the trial profile without an end; that storage never drops.
+  if (
+    maximum(trials, "hosted_storage_bytes") <= hostedStorageBytesAfter
+    || trials.some((row) => row.ends_at === null)
+  ) return null;
+  const endsAt = Math.max(...trials.map((row) => new Date(row.ends_at!).getTime()));
+  return { endsAt: new Date(endsAt), hostedStorageBytesAfter };
 }
 
 export async function reconcileHostedAccount(
@@ -439,7 +484,7 @@ export async function grantOperatorEntitlement(
 
 function maximum(
   rows: EntitlementProfileRow[],
-  key: Exclude<keyof EntitlementProfileRow, "profile_code">
+  key: Exclude<keyof EntitlementProfileRow, "profile_code" | "ends_at">
 ): number {
   return Math.max(...rows.map((row) => safeNumber(row[key], key)));
 }
