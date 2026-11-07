@@ -56,7 +56,7 @@ pub use provider::{
     ProviderAccountUsage, ProviderAuthorityImport, ProviderAuthorityImportState,
     ProviderAuthorityTransfer, ProviderAuthorityTransferState, ProviderLimits, RegisterReplica,
     ReplicaPurpose, ResourceChangeDiagnostic, RuntimeOutboxLifecycleDiagnostic, StorageDiagnostic,
-    HOSTED_DIAGNOSTICS_SCHEMA_VERSION,
+    UnfinishedMutationDiagnostic, HOSTED_DIAGNOSTICS_SCHEMA_VERSION,
 };
 #[cfg(feature = "test-hooks")]
 pub use test_hooks::{AuthorityImportHookError, AuthorityImportHookPoint, AuthorityImportTestHook};

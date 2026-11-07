@@ -40,10 +40,11 @@ impl HostedProvider {
             storage: section!(self.storage_diagnostic()),
             recent_resource_changes: section!(self.recent_resource_changes_diagnostic()),
             lifecycle_work,
+            unfinished_mutations: section!(self.unfinished_mutations_diagnostic()),
         }
     }
 
-    async fn lifecycle_work_diagnostic(&self) -> ApiResult<HostedLifecycleWorkDiagnostic> {
+    async fn read_only_diagnostic_transaction(&self) -> ApiResult<Transaction<'_, Postgres>> {
         let mut transaction = self.pool.begin().await?;
         sqlx::query("SET TRANSACTION READ ONLY")
             .execute(&mut *transaction)
@@ -54,6 +55,11 @@ impl HostedProvider {
         sqlx::query("SET LOCAL lock_timeout = '250ms'")
             .execute(&mut *transaction)
             .await?;
+        Ok(transaction)
+    }
+
+    async fn lifecycle_work_diagnostic(&self) -> ApiResult<HostedLifecycleWorkDiagnostic> {
+        let mut transaction = self.read_only_diagnostic_transaction().await?;
         let row = sqlx::query(
             r#"WITH outbox AS (
                  SELECT
@@ -311,6 +317,54 @@ impl HostedProvider {
             credential_expires_at: expires_at,
             credential_expires_in_seconds: expires_at.map(|at| (at - Utc::now()).num_seconds()),
         })
+    }
+
+    /// Unfinished journal entries counted by what they are and how old they
+    /// are. Counts of closed values only: no identifier, digest, ciphertext or
+    /// payload leaves this query. `applied` sorts first so the row limit cannot
+    /// hide an effect that landed without a final receipt.
+    async fn unfinished_mutations_diagnostic(
+        &self,
+    ) -> ApiResult<Vec<UnfinishedMutationDiagnostic>> {
+        let mut transaction = self.read_only_diagnostic_transaction().await?;
+        let rows = sqlx::query(
+            r#"WITH unfinished AS (
+                 SELECT
+                   CASE WHEN operation_kind ~ '^[a-z_:]{1,40}$'
+                     THEN operation_kind ELSE 'other' END AS operation_kind,
+                   state,
+                   coalesce(evidence_kind, 'none') AS evidence_kind,
+                   CASE
+                     WHEN accepted_at > now() - interval '1 hour' THEN 'under_1h'
+                     WHEN accepted_at > now() - interval '1 day' THEN '1h_to_1d'
+                     WHEN accepted_at > now() - interval '7 days' THEN '1d_to_7d'
+                     WHEN accepted_at > now() - interval '30 days' THEN '7d_to_30d'
+                     ELSE 'over_30d'
+                   END AS age_band
+                 FROM hosted_provider_mutation_journal
+                 WHERE state IN ('claimed', 'prepared', 'applied')
+               )
+               SELECT operation_kind, state, evidence_kind, age_band, count(*) AS count
+               FROM unfinished
+               GROUP BY operation_kind, state, evidence_kind, age_band
+               ORDER BY state = 'applied' DESC, count DESC,
+                 operation_kind, state, evidence_kind, age_band
+               LIMIT 12"#,
+        )
+        .fetch_all(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(UnfinishedMutationDiagnostic {
+                    operation_kind: row.get("operation_kind"),
+                    state: row.get("state"),
+                    evidence_kind: row.get("evidence_kind"),
+                    age_band: row.get("age_band"),
+                    count: number(row.get::<i64, _>("count"), "unfinished mutation count")?,
+                })
+            })
+            .collect()
     }
 
     async fn recent_resource_changes_diagnostic(&self) -> ApiResult<Vec<ResourceChangeDiagnostic>> {

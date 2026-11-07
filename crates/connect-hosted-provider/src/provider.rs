@@ -274,6 +274,18 @@ pub struct HostedDiagnostics {
     pub storage: DiagnosticSection<StorageDiagnostic>,
     pub recent_resource_changes: DiagnosticSection<Vec<ResourceChangeDiagnostic>>,
     pub lifecycle_work: LifecycleDiagnosticSection,
+    pub unfinished_mutations: DiagnosticSection<Vec<UnfinishedMutationDiagnostic>>,
+}
+
+/// One group of unfinished journal entries. Every field but `count` is a closed
+/// value, and no row identifies a request, replica or collection.
+#[derive(Debug, Clone, Serialize)]
+pub struct UnfinishedMutationDiagnostic {
+    pub operation_kind: String,
+    pub state: String,
+    pub evidence_kind: String,
+    pub age_band: String,
+    pub count: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
