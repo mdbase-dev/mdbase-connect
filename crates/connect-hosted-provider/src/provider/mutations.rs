@@ -99,12 +99,15 @@ impl HostedProvider {
             }
             Err(error) => Err(error),
         };
-        // Every deterministic refusal is already a stored receipt. An error
+        // Refusals the planner decides are already stored receipts. An error
         // here (timeout, deadlock, lost connection, quota trigger, a token or
         // collection that changed mid-request) is not a final answer, and a
         // stored one would be replayed to the client forever. Release the lease
         // instead: the next attempt takes the row over, re-running a `prepared`
-        // row or replaying an `applied` one.
+        // row or replaying an `applied` one. The few deterministic errors
+        // (`invalid_mutation`, `replica_scope_denied`) are released too; they
+        // fail the same way on every retry, and compaction removes the row
+        // once it is 30 days old.
         let value = result.and_then(|receipt| {
             serde_json::to_value(&receipt)
                 .map(|value| (receipt, value))
