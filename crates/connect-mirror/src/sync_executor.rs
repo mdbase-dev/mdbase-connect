@@ -543,7 +543,7 @@ impl DirectoryMirror {
         // The plan no longer matches the authority, or the upload's transfer
         // can no longer commit. The authority would answer the same ID the same
         // way, so plan again, with a fresh ID for this work.
-        if code == "file_transfer_expired" || REPLAN_REFUSALS.contains(&code) {
+        if FRESH_ID_REFUSALS.contains(&code) || REPLAN_REFUSALS.contains(&code) {
             return Ok(MirrorError::new(
                 "sync_plan_stale",
                 format!(
@@ -556,16 +556,19 @@ impl DirectoryMirror {
     }
 
     /// Count one definite refusal of `identity` and report whether it should
-    /// now be set aside: the same refusal at least `STUCK_ATTEMPTS` times over
-    /// at least `STUCK_AFTER`. Other failures never reach this, so they leave
-    /// the count as it was.
+    /// now be set aside: counted refusals of any kind at least `STUCK_ATTEMPTS`
+    /// times over at least `STUCK_AFTER`. Other failures never reach this, so
+    /// they leave the count as it was. A tripped count stays until the
+    /// conflict is written with the batch drop, so a crash in between trips
+    /// again on the next refusal instead of starting over.
     fn count_refusal(&self, state: &mut DurableMirrorState, identity: &str, code: &str) -> bool {
         let now = (self.clock)();
         let stuck = match state.stuck.take() {
-            Some(mut stuck) if stuck.identity == identity && stuck.code == code => {
-                stuck.attempts += 1;
-                stuck
-            }
+            Some(stuck) if stuck.identity == identity => StuckAction {
+                code: code.to_string(),
+                attempts: stuck.attempts + 1,
+                ..stuck
+            },
             _ => StuckAction {
                 identity: identity.to_string(),
                 code: code.to_string(),
@@ -577,9 +580,7 @@ impl DirectoryMirror {
             .map(|since| now.signed_duration_since(since))
             .unwrap_or_default();
         let trip = stuck.attempts >= STUCK_ATTEMPTS && stuck_for >= STUCK_AFTER;
-        if !trip {
-            state.stuck = Some(stuck);
-        }
+        state.stuck = Some(stuck);
         trip
     }
 

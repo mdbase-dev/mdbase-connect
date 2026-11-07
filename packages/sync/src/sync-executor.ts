@@ -527,7 +527,7 @@ export class PlanOnlySyncExecutor {
     // The plan no longer matches the authority, or the upload's transfer can
     // no longer commit. The authority would answer the same ID the same way,
     // so plan again, with a fresh ID for this work.
-    if (code === "file_transfer_expired" || REPLAN_REFUSALS.includes(code)) {
+    if (FRESH_ID_REFUSALS.includes(code) || REPLAN_REFUSALS.includes(code)) {
       return new SyncError("sync_plan_stale", `The authority refused ${target.path} (${code}); planning again.`);
     }
     return error;
@@ -535,19 +535,19 @@ export class PlanOnlySyncExecutor {
 
   /**
    * Count one definite refusal of `identity` and report whether it should now
-   * be set aside: the same refusal at least STUCK_ATTEMPTS times over at least
-   * STUCK_AFTER_MS. Other failures never reach this, so they leave the count.
+   * be set aside: counted refusals of any kind at least STUCK_ATTEMPTS times
+   * over at least STUCK_AFTER_MS. Other failures never reach this, so they
+   * leave the count. A tripped count stays until the conflict is written with
+   * the batch drop, so a crash in between trips again on the next refusal.
    */
   private countRefusal(state: MirrorState, identity: string, code: string): boolean {
     const now = this.ports.runtime.now();
     const previous = state.stuck;
-    const stuck = previous?.identity === identity && previous.code === code
-      ? { ...previous, attempts: previous.attempts + 1 }
+    const stuck = previous?.identity === identity
+      ? { ...previous, code, attempts: previous.attempts + 1 }
       : { identity, code, attempts: 1, since: now };
-    const trip = stuck.attempts >= STUCK_ATTEMPTS && Date.parse(now) - Date.parse(stuck.since) >= STUCK_AFTER_MS;
-    if (trip) delete state.stuck;
-    else state.stuck = stuck;
-    return trip;
+    state.stuck = stuck;
+    return stuck.attempts >= STUCK_ATTEMPTS && Date.parse(now) - Date.parse(stuck.since) >= STUCK_AFTER_MS;
   }
 
   private acceptRecordReceipt(
@@ -735,10 +735,24 @@ const STUCK_ATTEMPTS = 10;
 const STUCK_AFTER_MS = 60 * 60 * 1000;
 /**
  * File refusals a fresh plan settles: a concurrent edit, move or delete on
- * another device, or an occupied path. They still count, so one that keeps
- * recurring is eventually set aside.
+ * another device, an occupied path, or a reused control ID. They still count,
+ * so one that keeps recurring is eventually set aside.
  */
-const REPLAN_REFUSALS = ["stale_file_revision", "path_occupied", "file_not_found", "file_source_mismatch"];
+const REPLAN_REFUSALS = [
+  "stale_file_revision",
+  "path_occupied",
+  "file_not_found",
+  "file_source_mismatch",
+  "file_transfer_conflict",
+  "file_mutation_conflict",
+  "mutation_request_conflict"
+];
+/**
+ * Refusals that end this control ID but say nothing about the file: an expired
+ * or closed transfer, or a recovery window that has passed. They re-plan with
+ * a fresh ID without counting.
+ */
+const FRESH_ID_REFUSALS = ["file_transfer_expired", "file_transfer_not_open", "mutation_recovery_expired"];
 /**
  * Other definite refusals of the file itself. Only these and the re-plan
  * refusals count towards setting a file aside; every other answer (5xx, rate

@@ -450,4 +450,101 @@ describe("hosted sync file data plane", () => {
     expect(objectPuts).toBe(3);
     expect(controlCommits).toBe(2);
   });
+  it.each(["status", "prepare", "put", "commit", "connection"] as const)(
+    "keeps the transfer through a failure at %s and resumes it with the same ID",
+    async (stage) => {
+      const transferId = "01940000-0000-7000-8000-000000000005";
+      const received = new Map<number, string>();
+      const calls = { prepare: 0, put: 0, commit: 0, abort: 0 };
+      let failing: typeof stage | null = stage;
+      const fails = (name: typeof stage) => {
+        if (failing !== name) return false;
+        failing = null;
+        return true;
+      };
+      const outage = () => Response.json(
+        { error: { code: "provider_unavailable", message: "Down." } },
+        { status: 503 }
+      );
+      vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.startsWith("https://r2.example/upload")) {
+          calls.put += 1;
+          if (fails("put")) return new Response(null, { status: 503 });
+          const index = Number(new URL(url).searchParams.get("part"));
+          expect(received.has(index), `part ${index} uploaded twice`).toBe(false);
+          received.set(index, `etag-${index + 1}`);
+          return new Response(null, { headers: { etag: `etag-${index + 1}` } });
+        }
+        const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+        if (url.endsWith("/files/uploads")) {
+          return Response.json({
+            protocol_version: 1, type: "file_transfer", transfer_id: transferId,
+            direction: "upload", protection: "transport_tls",
+            strategy: { kind: "object_multipart", part_size: 3 }, total_size: bytes.byteLength,
+            expires_at: "2026-08-01T01:00:00.000Z", received: [...received.keys()].sort()
+          });
+        }
+        if (url.endsWith(`/files/transfers/${transferId}`)) {
+          if (init?.method === "DELETE") {
+            calls.abort += 1;
+            return new Response(null, { status: 204 });
+          }
+          if (fails("status")) return outage();
+          const indexes = [...received.keys()].sort();
+          return Response.json({
+            protocol_version: 1, type: "file_transfer_status", transfer_id: transferId, state: "open",
+            received: indexes,
+            received_bytes: indexes.reduce((total, index) => total + Math.min(3, bytes.byteLength - index * 3), 0),
+            uploaded_parts: indexes.map((index) => ({ part_number: index + 1, etag: received.get(index) }))
+          });
+        }
+        if (url.endsWith(`/uploads/${transferId}/parts`)) {
+          calls.prepare += 1;
+          if (fails("prepare")) return outage();
+          const index = body.part_number - 1;
+          return Response.json({
+            protocol_version: 1, type: "file_part", transfer_id: transferId, part_index: index,
+            offset: index * 3, content_length: Math.min(3, bytes.byteLength - index * 3),
+            method: "PUT", url: `https://r2.example/upload?part=${index}`, headers: {},
+            expires_at: "2026-08-01T01:00:00.000Z"
+          });
+        }
+        if (url.endsWith(`/uploads/${transferId}/commit`)) {
+          calls.commit += 1;
+          if (fails("connection")) throw new TypeError("fetch failed");
+          if (fails("commit")) return outage();
+          expect(body.parts).toHaveLength(3);
+          return Response.json({
+            protocol_version: 1, type: "file_upload_committed", transfer_id: transferId, file: descriptor
+          });
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }));
+      const transport = new HttpSyncTransport(
+        `https://connect.example/v1/authorities/${authorityId}/sync`, "replica-token"
+      );
+      const request = {
+        protocol_version: 1 as const, type: "open_file_upload" as const, transfer_id: transferId,
+        path: descriptor.path, size: bytes.byteLength, content_digest: descriptor.content_digest
+      };
+      const source = () => (async function* () { yield bytes; })();
+
+      const error = await transport.uploadFile(request, source()).then(
+        () => { throw new Error("the upload must fail once"); },
+        (failure: unknown) => failure as { status?: number }
+      );
+      // The executor counts only a definite 4xx refusal, so this leaves the count.
+      expect(error.status === undefined || error.status >= 500).toBe(true);
+      const before = { ...calls };
+      expect((await transport.uploadFile(request, source())).transfer_id).toBe(transferId);
+      expect([...received.keys()].sort()).toEqual([0, 1, 2]);
+      expect(calls.abort).toBe(0);
+      expect(calls.commit).toBe(before.commit + 1);
+      if (stage === "commit" || stage === "connection") {
+        // Every part is already in: the retry re-runs only the commit.
+        expect([calls.prepare, calls.put]).toEqual([before.prepare, before.put]);
+      }
+    }
+  );
 });

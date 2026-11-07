@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
+import { watch, type FSWatcher } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { hostname } from "node:os";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { HttpSyncTransport } from "./index.js";
 import {
@@ -27,7 +28,9 @@ import {
   canonicalConnectOrigin,
   type MirrorEnrollment
 } from "./enrollment.js";
+import type { MirrorApplyResult } from "./mirror-plan.js";
 import { promoteMirrorAuthority } from "./promotion.js";
+import { WatchBackoff } from "./watch-backoff.js";
 
 const parsed = parseArgs({
   allowPositionals: true,
@@ -128,8 +131,17 @@ try {
       throw new Error("--interval must be an integer of at least 250 milliseconds.");
     }
     const acquiredLease = await new NodeMirrorLease(root).acquire();
+    const backoff = new WatchBackoff(interval);
     let stopping = false;
-    const stop = () => { stopping = true; };
+    let wake: (() => void) | undefined;
+    const stop = () => {
+      stopping = true;
+      wake?.();
+    };
+    // A local change ends a backoff early, so new edits sync promptly.
+    const changes = watchLocalChanges(root, () => {
+      if (backoff.reset()) wake?.();
+    });
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
     process.once("SIGHUP", stop);
@@ -137,8 +149,9 @@ try {
       process.stdout.write(`Watching collection into ${root}. Press Ctrl+C to stop.\n`);
       let lastLine = "";
       while (!stopping) {
+        let result: MirrorApplyResult | undefined;
         try {
-          await sync(root, acquiredLease);
+          result = await sync(root, acquiredLease);
           const status = await mirrorFor(
             root,
             await currentProfile(root),
@@ -156,9 +169,20 @@ try {
             lastLine = line;
           }
         }
-        if (!stopping) await delay(interval);
+        const wait = backoff.next(result);
+        if (!stopping) {
+          await new Promise<void>((resolveWait) => {
+            const timer = setTimeout(resolveWait, wait);
+            wake = () => {
+              clearTimeout(timer);
+              resolveWait();
+            };
+          });
+          wake = undefined;
+        }
       }
     } finally {
+      changes?.close();
       process.removeListener("SIGINT", stop);
       process.removeListener("SIGTERM", stop);
       process.removeListener("SIGHUP", stop);
@@ -170,9 +194,24 @@ try {
   process.exitCode = 1;
 }
 
-async function sync(root: string, lease?: MirrorLease): Promise<void> {
+async function sync(root: string, lease?: MirrorLease): Promise<MirrorApplyResult> {
   const configuration = await currentProfile(root);
-  await mirrorFor(root, configuration, lease).sync();
+  return mirrorFor(root, configuration, lease).sync();
+}
+
+/** Report edits under `root`, ignoring the mirror's own temporary files. */
+function watchLocalChanges(root: string, onChange: () => void): FSWatcher | undefined {
+  try {
+    const watcher = watch(root, { recursive: true }, (_event, name) => {
+      if (name && basename(String(name)).startsWith(".mdbase-")) return;
+      onChange();
+    });
+    watcher.on("error", () => watcher.close());
+    return watcher;
+  } catch {
+    // Without change events the watch still retries, at most five minutes apart.
+    return undefined;
+  }
 }
 
 async function initialSync(root: string): Promise<void> {
@@ -505,10 +544,6 @@ async function hiddenTokenPrompt(): Promise<string> {
 function required(value: string | undefined, name: string): string {
   if (!value) throw new Error(`${name} is required for mirror initialization.`);
   return value;
-}
-
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
 }
 
 function storedEnrollment(stored: StoredMirrorProfile): MirrorEnrollment {

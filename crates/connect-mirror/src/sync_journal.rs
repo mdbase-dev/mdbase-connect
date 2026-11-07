@@ -112,6 +112,7 @@ impl DirectoryMirror {
             plan_fingerprint: batch.plan.fingerprint.clone(),
             delta: Box::new(state_delta(&action, &receipt, state)?),
             receipt: Box::new(receipt.clone()),
+            stuck: state.stuck.clone(),
         })?;
         let batch = state.batch.as_mut().expect("checked");
         batch.receipts.push(receipt);

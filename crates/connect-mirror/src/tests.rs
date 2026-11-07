@@ -100,6 +100,8 @@ struct FakeAuthority {
     aborted_transfers: Mutex<HashSet<Uuid>>,
     upload_attempts: Mutex<Vec<(String, Uuid)>>,
     uploaded: Mutex<Vec<(String, Uuid)>>,
+    /// Signalled when an upload queued as `hang` stops answering.
+    hung: tokio::sync::Notify,
 }
 
 impl FakeAuthority {
@@ -145,15 +147,14 @@ impl FakeAuthority {
             network_edit: Mutex::new(None),
             upload_refusals: Mutex::new(BTreeMap::new()),
             aborted_transfers: Mutex::new(HashSet::new()),
+            hung: tokio::sync::Notify::new(),
             upload_attempts: Mutex::new(Vec::new()),
             uploaded: Mutex::new(Vec::new()),
         }
     }
 
-    /// Refuse the next `times` uploads of `path`. Like the hosted file-control
-    /// journal, a refusal with a status is the final answer for its transfer
-    /// ID; without a status it is a transport failure and nothing is stored.
     /// Queue `times` failures of uploads to `path`, after any already queued.
+    /// Without a status it is a transport failure; the code `hang` never answers.
     fn refuse_uploads(&self, path: &str, status: Option<u16>, code: &str, times: usize) {
         self.upload_refusals
             .lock()
@@ -563,6 +564,10 @@ impl SyncTransport for FakeAuthority {
             })
         };
         if let Some((status, code)) = queued {
+            if code == "hang" {
+                self.hung.notify_one();
+                std::future::pending::<()>().await;
+            }
             let error = match status {
                 Some(status) => MirrorError::refused(status, code.clone(), "Fake refusal."),
                 None => MirrorError::new(code.clone(), "Fake transport failure."),
@@ -1227,7 +1232,12 @@ async fn file_control_refusals_replan_with_fresh_ids_then_succeed() {
         (409, "path_occupied"),
         (404, "file_not_found"),
         (409, "file_source_mismatch"),
+        (409, "file_transfer_conflict"),
+        (409, "file_mutation_conflict"),
+        (409, "mutation_request_conflict"),
         (409, "file_transfer_expired"),
+        (409, "file_transfer_not_open"),
+        (410, "mutation_recovery_expired"),
     ] {
         let (_temporary, mirror, authority) = image_mirror_with_three_new_files();
         authority.refuse_uploads("assets/b.png", Some(status), code, 1);
@@ -1241,8 +1251,12 @@ async fn file_control_refusals_replan_with_fresh_ids_then_succeed() {
             "{code}: the blocked batch is dropped"
         );
         assert_eq!(state.retry_epoch, 1);
-        // An expired transfer says nothing about the file, so it is not counted.
-        assert_eq!(state.stuck.is_some(), code != "file_transfer_expired");
+        // A closed transfer or recovery window says nothing about the file.
+        assert_eq!(
+            state.stuck.is_some(),
+            REPLAN_REFUSALS.contains(&code),
+            "{code}"
+        );
 
         mirror.sync().await.unwrap();
         assert_uploaded_once(
@@ -1317,6 +1331,70 @@ async fn persistent_refusal_sets_one_file_aside_only_when_repeated_and_old() {
     let state = mirror.read_state().unwrap().unwrap();
     assert!(state.batch.is_none());
     assert_eq!(state.stuck, None);
+}
+
+#[tokio::test]
+async fn alternating_refusals_of_one_file_count_together() {
+    let (_temporary, mirror, authority) = image_mirror_with_three_new_files();
+    let (mirror, now) = with_test_clock(mirror);
+    let codes = ["stale_file_revision", "path_occupied"];
+    for attempt in 1..=STUCK_ATTEMPTS {
+        advance(&now, 10);
+        let code = codes[attempt as usize % 2];
+        authority.refuse_uploads("assets/b.png", Some(409), code, 1);
+        let error = mirror.sync().await.unwrap_err();
+        assert_eq!(error.code, "sync_plan_stale");
+        let state = mirror.read_state().unwrap().unwrap();
+        if attempt < STUCK_ATTEMPTS {
+            let stuck = state.stuck.unwrap();
+            assert_eq!((stuck.attempts, stuck.code.as_str()), (attempt, code));
+            assert!(state.planned_conflicts.is_empty());
+        } else {
+            assert!(error.message.contains("set aside"), "{}", error.message);
+            assert!(error.message.contains(code));
+            assert_eq!(state.stuck, None);
+        }
+    }
+    mirror.sync().await.unwrap();
+
+    assert_uploaded_once(&authority, &["assets/a.png", "assets/c.png"]);
+    assert!(authority.uploads_of("assets/b.png").1.is_empty());
+    let status = mirror.status().unwrap();
+    assert_eq!(status.conflicts.len(), 1);
+    assert_eq!(status.conflicts[0].kind, "rejected");
+    assert_eq!(status.conflicts[0].path.as_deref(), Some("assets/b.png"));
+}
+
+#[tokio::test]
+async fn a_crash_after_a_trip_sets_the_file_aside_on_the_next_refusal() {
+    let (_temporary, mirror, authority) = image_mirror_with_three_new_files();
+    let (mirror, now) = with_test_clock(mirror);
+    for _ in 1..STUCK_ATTEMPTS {
+        authority.refuse_uploads("assets/b.png", Some(400), "invalid_media_type", 1);
+        assert_eq!(mirror.sync().await.unwrap_err().code, "invalid_media_type");
+    }
+    advance(&now, 60);
+    authority.refuse_uploads("assets/b.png", Some(400), "invalid_media_type", 1);
+    // The tenth refusal trips, and the process dies before the batch drop
+    // and its conflict are written.
+    let mut state = mirror.read_state().unwrap().unwrap();
+    assert_eq!(
+        mirror.execute_prepared(&mut state).await.unwrap().status,
+        "stale"
+    );
+    let state = mirror.read_state().unwrap().unwrap();
+    assert!(state.planned_conflicts.is_empty());
+    assert_eq!(state.stuck.unwrap().attempts, STUCK_ATTEMPTS);
+
+    // After the restart one more refusal sets the file aside.
+    authority.refuse_uploads("assets/b.png", Some(400), "invalid_media_type", 1);
+    assert_eq!(mirror.sync().await.unwrap_err().code, "sync_plan_stale");
+    mirror.sync().await.unwrap();
+    assert_uploaded_once(&authority, &["assets/a.png", "assets/c.png"]);
+    assert!(authority.uploads_of("assets/b.png").1.is_empty());
+    assert_eq!(fs::read(mirror.root().join("assets/b.png")).unwrap(), b"b");
+    assert_eq!(mirror.status().unwrap().conflicts.len(), 1);
+    assert_eq!(mirror.read_state().unwrap().unwrap().stuck, None);
 }
 
 #[tokio::test]
@@ -1427,6 +1505,44 @@ async fn a_receipt_clears_its_files_refusal_count() {
         mirror.sync().await.unwrap_err().code,
         "provider_unavailable"
     );
+    assert_eq!(authority.uploads_of(&first).1.len(), 1);
+    let state = mirror.read_state().unwrap().unwrap();
+    assert!(state.batch.is_some());
+    assert_eq!(state.stuck, None);
+}
+
+#[tokio::test]
+async fn a_crash_after_a_receipt_keeps_its_files_count_cleared() {
+    let (_temporary, mirror, authority) = image_mirror_with_three_new_files();
+    for name in ["a", "b", "c"] {
+        authority.refuse_uploads(
+            &format!("assets/{name}.png"),
+            Some(503),
+            "provider_unavailable",
+            1,
+        );
+    }
+    assert_eq!(
+        mirror.sync().await.unwrap_err().code,
+        "provider_unavailable"
+    );
+    let first = authority.upload_attempts.lock().unwrap()[0].0.clone();
+    authority.upload_refusals.lock().unwrap().clear();
+    authority.refuse_uploads(&first, Some(400), "invalid_media_type", 1);
+    assert_eq!(mirror.sync().await.unwrap_err().code, "invalid_media_type");
+    assert!(mirror.read_state().unwrap().unwrap().stuck.is_some());
+    for name in ["a", "b", "c"] {
+        let path = format!("assets/{name}.png");
+        if path != first {
+            authority.refuse_uploads(&path, None, "hang", 1);
+        }
+    }
+
+    // The refused upload lands, then the process dies during the next one.
+    tokio::select! {
+        _ = mirror.sync() => panic!("the next upload never answers"),
+        () = authority.hung.notified() => {}
+    }
     assert_eq!(authority.uploads_of(&first).1.len(), 1);
     let state = mirror.read_state().unwrap().unwrap();
     assert!(state.batch.is_some());

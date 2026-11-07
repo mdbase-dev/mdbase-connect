@@ -31,8 +31,14 @@ export type SyncJournalEvent =
     failure?: SyncFailure;
     stuck?: MirrorState["stuck"];
   }
-  | { type: "receipt"; plan_fingerprint: string; receipt: DurableSyncReceipt; delta: ActionStateDelta }
-  | { type: "effects_complete"; plan_fingerprint: string };
+  | {
+    type: "receipt";
+    plan_fingerprint: string;
+    receipt: DurableSyncReceipt;
+    delta: ActionStateDelta;
+    stuck?: MirrorState["stuck"];
+  }
+  | { type: "effects_complete"; plan_fingerprint: string; stuck?: MirrorState["stuck"] };
 
 export async function prepareSyncBatch(
   prior: MirrorState | null,
@@ -87,7 +93,7 @@ export async function beginApplying(
     type: "phase",
     plan_fingerprint: batch.plan.fingerprint,
     phase: "applying",
-    ...(state.stuck ? { stuck: state.stuck } : {})
+    ...stuckOf(state)
   }, store);
 }
 
@@ -105,7 +111,8 @@ export async function recordActionReceipt(
     type: "receipt",
     plan_fingerprint: batch.plan.fingerprint,
     receipt: structuredClone(receipt),
-    delta: captureActionDelta(state, action, receipt)
+    delta: captureActionDelta(state, action, receipt),
+    ...stuckOf(state)
   };
   batch.receipts.push(structuredClone(receipt));
   batch.next_action += 1;
@@ -124,7 +131,8 @@ export async function markEffectsComplete(
   batch.phase = "effects_complete";
   await appendOrWrite(state, {
     type: "effects_complete",
-    plan_fingerprint: batch.plan.fingerprint
+    plan_fingerprint: batch.plan.fingerprint,
+    ...stuckOf(state)
   }, store);
 }
 
@@ -142,20 +150,20 @@ export async function markBatchInterrupted(
     plan_fingerprint: batch.plan.fingerprint,
     phase,
     failure,
-    ...(state.stuck ? { stuck: state.stuck } : {})
+    ...stuckOf(state)
   }, store);
 }
 
 export function applySyncJournalEvent(state: MirrorState, event: SyncJournalEvent): void {
   const batch = state.batch;
   if (!batch || batch.plan.fingerprint !== event.plan_fingerprint) return;
+  // Every event carries the refusal count as it stood, including its absence.
+  if (event.stuck) state.stuck = structuredClone(event.stuck);
+  else delete state.stuck;
   if (event.type === "phase") {
     batch.phase = event.phase;
     if (event.failure) batch.failure = structuredClone(event.failure);
     else delete batch.failure;
-    // Every phase event carries the count as it stood, including its absence.
-    if (event.stuck) state.stuck = structuredClone(event.stuck);
-    else delete state.stuck;
     return;
   }
   if (event.type === "effects_complete") {
@@ -171,6 +179,10 @@ export function applySyncJournalEvent(state: MirrorState, event: SyncJournalEven
   applyDelta(state, event.delta);
   batch.receipts.push(structuredClone(event.receipt));
   batch.next_action += 1;
+}
+
+function stuckOf(state: MirrorState): { stuck?: MirrorState["stuck"] } {
+  return state.stuck ? { stuck: structuredClone(state.stuck) } : {};
 }
 
 async function appendOrWrite(
@@ -271,6 +283,8 @@ export async function abandonStaleBatch(
     );
   }
   delete state.batch;
+  // A file just set aside is frozen until the user resolves it.
+  if (state.stuck && state.planned_conflicts?.[state.stuck.identity]) delete state.stuck;
   // Nothing after the receipted prefix applied, so re-planned file controls
   // may use fresh IDs; the authority would only replay its stored answers.
   state.retry_epoch = (state.retry_epoch ?? 0) + 1;

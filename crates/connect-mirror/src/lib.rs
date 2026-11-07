@@ -223,6 +223,8 @@ enum DurableJournalEvent {
         plan_fingerprint: String,
         receipt: Box<DurableReceipt>,
         delta: Box<DurableStateDelta>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stuck: Option<StuckAction>,
     },
 }
 
@@ -300,8 +302,9 @@ struct DurableMirrorState {
     stuck: Option<StuckAction>,
 }
 
-/// One object's repeated refusal. After `STUCK_ATTEMPTS` identical refusals
-/// spanning `STUCK_AFTER`, the object is set aside as a rejected conflict.
+/// One object's repeated refusals. After `STUCK_ATTEMPTS` counted refusals of
+/// any kind spanning `STUCK_AFTER`, the object is set aside as a rejected
+/// conflict. `code` is the latest refusal, for the conflict message.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct StuckAction {
     identity: String,
@@ -314,13 +317,24 @@ const STUCK_ATTEMPTS: u32 = 10;
 const STUCK_AFTER: chrono::TimeDelta = chrono::TimeDelta::hours(1);
 
 /// File refusals a fresh plan settles: a concurrent edit, move or delete on
-/// another device, or an occupied path. They still count, so one that keeps
-/// recurring is eventually set aside.
-const REPLAN_REFUSALS: [&str; 4] = [
+/// another device, an occupied path, or a reused control ID. They still count,
+/// so one that keeps recurring is eventually set aside.
+const REPLAN_REFUSALS: [&str; 7] = [
     "stale_file_revision",
     "path_occupied",
     "file_not_found",
     "file_source_mismatch",
+    "file_transfer_conflict",
+    "file_mutation_conflict",
+    "mutation_request_conflict",
+];
+/// Refusals that end this control ID but say nothing about the file: an
+/// expired or closed transfer, or a recovery window that has passed. They
+/// re-plan with a fresh ID without counting.
+const FRESH_ID_REFUSALS: [&str; 3] = [
+    "file_transfer_expired",
+    "file_transfer_not_open",
+    "mutation_recovery_expired",
 ];
 /// Other definite refusals of the file itself. Only these and the re-plan
 /// refusals count towards setting a file aside; every other answer (5xx, rate
@@ -346,7 +360,7 @@ fn definite_refusal(error: &MirrorError) -> bool {
 fn abandons_transfer(error: &MirrorError) -> bool {
     definite_refusal(error)
         && (error.code == "file_too_large"
-            || error.code == "file_transfer_expired"
+            || FRESH_ID_REFUSALS.contains(&error.code.as_str())
             || REPLAN_REFUSALS.contains(&error.code.as_str()))
 }
 
