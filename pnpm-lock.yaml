@@ -412,8 +412,8 @@ importers:
         specifier: workspace:*
         version: link:../i18n
       '@mdbase-dev/sdk':
-        specifier: file:vendor/sdk-0.0.0-bd131b16.tgz
-        version: file:packages/app-ui/vendor/sdk-0.0.0-bd131b16.tgz
+        specifier: 0.1.0-beta.160
+        version: 0.1.0-beta.160
       '@rolldown/plugin-babel':
         specifier: ^0.2.4
         version: 0.2.4(@babel/core@7.29.7(supports-color@10.2.2))(@babel/runtime@7.29.7)(rolldown@1.2.14)(vite@8.3.4(@types/node@24.19.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.1)(yaml@2.9.1))
@@ -2305,6 +2305,12 @@ packages:
   '@mdbase-dev/connect-protocol@file:apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.145-e6e66bcd172f.tgz':
     resolution: {integrity: sha512-uLeG6+yHiKmtpg5KY4XEa8kGx5mLg6pqLZ4H4+x0An7Q/bhfz5Hgh+P8Ngh6DWvGf6PIuJ3Smw8w6GmCK1gsvQ==, tarball: file:apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.145-e6e66bcd172f.tgz}
     version: 0.1.0-beta.145
+
+  '@mdbase-dev/sdk@0.1.0-beta.160':
+    resolution: {integrity: sha512-0rxrXlGKIToexkB7J8qwDXYMGjXxPNCm87Qm3G68q4R5Do2b7eshjprkaHTRaAGuWv5hZigcbQaBZowBJQSWVg==}
+    engines: {node: '>=20'}
+    bundledDependencies:
+      - '@mdbase-dev/connect-protocol'
 
   '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-b7856f3d-production-beta161.tgz':
     resolution: {integrity: sha512-Jq3N+cGIG88VD4htIhN2DAQcR4If9MUURuZcsbubSzTgUIO9gwyyzdZKx+JeIxajHW6r9NIESvF2eG6vwsC7WA==, tarball: file:apps/editor/vendor/sdk-b7856f3d-production-beta161.tgz}
@@ -8140,6 +8146,12 @@ snapshots:
     dependencies:
       '@noble/hashes': 2.4.0
       yaml: 2.9.1
+
+  '@mdbase-dev/sdk@0.1.0-beta.160':
+    dependencies:
+      '@noble/ciphers': 2.4.0
+      '@noble/curves': 2.4.0
+      '@noble/hashes': 2.4.0
 
   '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-b7856f3d-production-beta161.tgz':
     dependencies:

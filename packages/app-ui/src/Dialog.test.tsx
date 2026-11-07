@@ -11,7 +11,39 @@ import { Dialog } from "./Dialog.js";
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const host = document.body.appendChild(document.createElement("div"));
 const root = createRoot(host);
-afterEach(() => { act(() => root.render(null)); vi.useRealTimers(); });
+afterEach(async () => { await act(async () => root.render(null)); vi.useRealTimers(); vi.restoreAllMocks(); });
+
+it("releases modal ownership immediately while its visual exit is inert", async () => {
+  let finish!: () => void;
+  vi.spyOn(HTMLElement.prototype, "getAnimations").mockReturnValue([{ finished: new Promise<void>(resolve => { finish = resolve; }) }] as Animation[]);
+  const draw = (open: boolean) => <><button data-invoker>Open</button><Dialog open={open} title="Details" onClose={vi.fn()}><input data-autofocus /></Dialog></>;
+  await act(async () => root.render(draw(false)));
+  const invoker = host.querySelector<HTMLButtonElement>("[data-invoker]")!;
+  invoker.focus();
+  await act(async () => root.render(draw(true)));
+  const dialog = document.querySelector("dialog")!;
+  await act(async () => root.render(draw(false)));
+  expect(document.querySelector("dialog")).toBe(dialog);
+  expect(dialog.open).toBe(false);
+  expect(dialog.hasAttribute("inert")).toBe(true);
+  expect(dialog.getAttribute("aria-hidden")).toBe("true");
+  expect(document.activeElement).toBe(invoker);
+  await act(async () => finish());
+  expect(document.querySelector("dialog")).toBeNull();
+});
+
+it("prevents backdrop mousedown from moving focus but leaves content mousedown alone", async () => {
+  await act(async () => root.render(<Dialog open title="Details" onClose={vi.fn()}><input data-autofocus /></Dialog>));
+  const input = document.querySelector("input")!;
+  const dialog = document.querySelector("dialog")!;
+  const backdrop = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+  const content = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+  dialog.dispatchEvent(backdrop);
+  input.dispatchEvent(content);
+  expect(backdrop.defaultPrevented).toBe(true);
+  expect(content.defaultPrevented).toBe(false);
+  expect(document.activeElement).toBe(input);
+});
 
 it("focuses a typed confirmation before its default cancel action", () => {
   act(() => root.render(<ConfirmDialog open title="Delete collection" confirmLabel="Delete" pendingLabel="Deleting…" disabled onConfirm={vi.fn()} onClose={vi.fn()}>
@@ -53,10 +85,8 @@ it("uses ranked results, highlighted content and Home/End in the shared palette"
   expect(run).toHaveBeenCalledOnce();
 });
 
-it("closes a palette before running its action and does not steal the action's focus", () => {
+it("closes a palette before running its action and does not steal the action's focus", async () => {
   Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
-  vi.useFakeTimers();
-  document.documentElement.style.setProperty("--motion-exit", "120ms");
   let openPalette: () => void;
   function Host() {
     const [open, setOpen] = useState(false);
@@ -72,15 +102,14 @@ it("closes a palette before running its action and does not steal the action's f
   act(() => root.render(<Host />));
   host.querySelector<HTMLButtonElement>("[data-invoker]")!.focus();
   act(() => openPalette!());
-  act(() => document.querySelector<HTMLButtonElement>('[role="option"]')!.click());
-  act(() => vi.advanceTimersByTime(120));
+  await act(async () => document.querySelector<HTMLButtonElement>('[role="option"]')!.click());
   expect(document.querySelector("dialog")).toBeNull();
   expect(document.activeElement).toBe(host.querySelector("[data-target]"));
 });
 
 it("returns focus and app shortcuts as soon as a palette command closes it", () => {
   Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
-  vi.useFakeTimers();
+  vi.spyOn(HTMLElement.prototype, "getAnimations").mockReturnValue([{ finished: new Promise<void>(() => {}) }] as Animation[]);
   const shortcut = vi.fn();
   window.addEventListener("keydown", shortcut);
   let openPalette: () => void;
@@ -95,7 +124,6 @@ it("returns focus and app shortcuts as soon as a palette command closes it", () 
   invoker.focus();
   act(() => openPalette!());
   const input = document.querySelector("dialog input")!;
-  document.querySelector("dialog")!.style.setProperty("transition-duration", "0.12s");
   act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true })));
   expect(shortcut).not.toHaveBeenCalled();
   act(() => document.querySelector<HTMLButtonElement>('[role="option"]')!.click());
@@ -106,8 +134,10 @@ it("returns focus and app shortcuts as soon as a palette command closes it", () 
   window.removeEventListener("keydown", shortcut);
 });
 
-it("focuses Cancel, keeps the dialog through exit, reverses, and returns focus", () => {
-  vi.useFakeTimers();
+it("focuses Cancel, keeps the dialog through exit, reverses, and returns focus", async () => {
+  let finish!: () => void;
+  const animations = vi.spyOn(HTMLElement.prototype, "getAnimations");
+  animations.mockReturnValue([{ finished: new Promise<void>(resolve => { finish = resolve; }) }] as Animation[]);
   let changeOpen: (open: boolean) => void;
   function Host() {
     const [open, setOpen] = useState(false);
@@ -123,19 +153,17 @@ it("focuses Cancel, keeps the dialog through exit, reverses, and returns focus",
   act(() => trigger.click());
   const dialog = document.querySelector("dialog")!;
   expect(document.getElementById(dialog.getAttribute("aria-describedby")!)?.textContent).toBe("The hosted data will be deleted.");
-  dialog.style.setProperty("transition-duration", "0.12s");
   expect(document.activeElement?.textContent).toBe("Cancel");
   expect(dialog.parentElement).toBe(document.body);
   act(() => changeOpen!(false));
   expect(document.querySelector("dialog")).toBe(dialog);
-  act(() => vi.advanceTimersByTime(60));
   act(() => changeOpen!(true));
-  act(() => vi.advanceTimersByTime(120));
+  await act(async () => finish());
   expect(document.querySelector("dialog")).toBe(dialog);
+  animations.mockReturnValue([{ finished: new Promise<void>(resolve => { finish = resolve; }) }] as Animation[]);
   act(() => changeOpen!(false));
-  act(() => vi.advanceTimersByTime(119));
   expect(document.querySelector("dialog")).toBe(dialog);
-  act(() => vi.advanceTimersByTime(1));
+  await act(async () => finish());
   expect(document.querySelector("dialog")).toBeNull();
   expect(document.activeElement).toBe(trigger);
 });

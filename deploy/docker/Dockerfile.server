@@ -23,6 +23,9 @@ RUN pnpm install --frozen-lockfile \
     --filter @mdbase/connect-portal...
 
 COPY apps/portal apps/portal
+COPY scripts/lib/managed-app-origins.mjs scripts/lib/managed-app-origins.mjs
+COPY scripts/lib/managed-environments.mjs scripts/lib/managed-environments.mjs
+COPY scripts/ci/check-portal-assets.mjs scripts/ci/check-portal-assets.mjs
 COPY packages/app-ui packages/app-ui
 COPY packages/i18n packages/i18n
 COPY packages/management packages/management

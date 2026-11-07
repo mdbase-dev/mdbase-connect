@@ -50,8 +50,10 @@ export function Dialog({ open, onClose, title, descriptionId, className, closeDi
   }, [closeDisabled, open, ref]);
   useLayoutEffect(() => {
     const dialog = ref.current;
-    // A command closes the native dialog before its exit ends; don't leave focus in it.
-    if (!open && dialog && !dialog.open && dialog.contains(document.activeElement)) (returnFocusRef?.current ?? invoker.current)?.focus({ preventScroll: true });
+    if (open || !dialog) return;
+    const ownedFocus = dialog.contains(document.activeElement) || document.activeElement === document.body;
+    if (dialog.open) dialog.close();
+    if (ownedFocus) (returnFocusRef?.current ?? invoker.current)?.focus({ preventScroll: true });
   }, [open, ref, returnFocusRef]);
   useEffect(() => {
     const dialog = ref.current;
@@ -63,7 +65,7 @@ export function Dialog({ open, onClose, title, descriptionId, className, closeDi
   }, [present, ref, returnFocusRef]);
   if (!present) return null;
   return createPortal(<dialog ref={ref} className={["mdbase-dialog mdbase-overlay", className].filter(Boolean).join(" ")}
-    data-open={open} role={role} aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} tabIndex={-1}
+    data-open={open} inert={!open} aria-hidden={!open || undefined} role={role} aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} tabIndex={-1}
     onKeyDown={(event) => {
       // An exiting dialog no longer owns the keyboard, so app shortcuts still work.
       if (open) event.stopPropagation();
@@ -77,6 +79,7 @@ export function Dialog({ open, onClose, title, descriptionId, className, closeDi
       }
     }}
     onCancel={(event) => { event.preventDefault(); if (!closeDisabled) onClose(); }}
+    onMouseDown={(event) => { if (event.target === event.currentTarget) event.preventDefault(); }}
     onClick={(event) => { if (!closeDisabled && event.target === event.currentTarget) onClose(); }}>
     <div className="mdbase-dialog-body">
       <header className="mdbase-dialog-header"><h2 id={titleId}>{title}</h2>

@@ -184,6 +184,9 @@ export function useCollectionUi(options: CollectionUiOptions): CollectionUi {
   const view = useMemo(() => collectionView(snapshot, { appName: app.name, copy }), [snapshot, app.name, copy]);
   const [busy, setBusy] = useState<CollectionActionName | null>(null);
   const [error, setError] = useState<ActionError | null>(null);
+  useEffect(() => {
+    setError(previous => previous?.notice.key === "account_collection_quota_exceeded" ? null : previous);
+  }, [snapshot.collections.length]);
   const [signOutPrompt, setSignOutPrompt] = useState<MdbaseProblem | null>(null);
   const running = useRef<{ name: CollectionActionName; controller: AbortController } | null>(null);
   const latest = useRef({ options, view });
