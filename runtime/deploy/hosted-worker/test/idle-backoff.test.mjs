@@ -5,6 +5,7 @@ import { mock, test } from "node:test";
 import assert from "node:assert/strict";
 import { build } from "esbuild";
 import { encode } from "../../../packages/sdk/src/cbor.ts";
+import { INSTALL_WAKE_MS, installRetryMs } from "../src/install-retry.ts";
 
 const collection = "0e0e0e0e-0e0e-4e0e-8e0e-0e0e0e0e0e0e";
 const token = "s".repeat(40);
@@ -17,7 +18,14 @@ const compiled = await build({ entryPoints: [new URL("../src/worker.ts", import.
     b.onLoad({ filter: /hosted\.wasm$/ }, () => ({ contents: "export default new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0]));" }));
   },
 }] });
-const { HostedCollection, INSTALL_WAKE_MS, installRetryMs } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text + "\n//# sourceURL=idle-backoff-worker.mjs").toString("base64")}`);
+const worker = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text + "\n//# sourceURL=idle-backoff-worker.mjs").toString("base64")}`);
+const { HostedCollection } = worker;
+
+// Cloudflare lists an exported function as a named handler, and a code-only Worker
+// publication refuses any change to that list, so a new helper belongs in its own module.
+test("the Worker entry adds no export", () => {
+  assert.deepEqual(Object.keys(worker).sort(), ["HostedCollection", "default", "idlePollMs"]);
+});
 
 
 function object(escrow = false, data = new Map()) {

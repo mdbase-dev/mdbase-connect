@@ -63,6 +63,7 @@ import { locationHint, namedStub } from "./do-location.ts";
 import { fetchAttachment } from "./object-reads.js";
 import { deploymentObjectOrigins, type ObjectOriginPolicy } from "./object-origins.ts";
 import { grantRecipients, hasGrantAppend, wakeCollectionTag, wakeLog } from "./wake-observe.ts";
+import { INSTALL_RETRY_MAX_STEPS, INSTALL_WAKE_MS, installRetryMs } from "./install-retry.ts";
 import { PIN_RESET_KEY, PinParked, isPinMismatch, pinLog, pinsDigest } from "./pin-reset.ts";
 import { labRawError, readyDiagnostic, type ReadyDiagnostic, type ReadyTrace } from "./ready-diagnostic.ts";
 import { LiveAdmission, type AdmissionContext } from "./admission/live-admission.ts";
@@ -95,23 +96,7 @@ const IDLE_SAME_LOOK_MS = 5_000;
 const IDLE_MAX_STREAK = 5;
 export const idlePollMs = (base: number, streak: number) =>
   Math.min(IDLE_POLL_CAP_MS, base * 2 ** Math.min(Math.max(0, Math.floor(streak)), IDLE_MAX_STREAK));
-/** Next wake while a snapshot install runs. An install lives in engine memory and
- * starts over from its first chunk after an eviction, and one wake moves at most 64
- * chunks, so a longer gap made any install too big for one wake rewrite the same
- * rows forever. Well under the time an idle object survives. */
-export const INSTALL_WAKE_MS = 1_000;
-/** An object that keeps failing must not be retried every second for good. Only a
- * wake that failed waits longer: the first retry keeps INSTALL_WAKE_MS and each
- * further failure doubles it. Wakes that fail nothing stay at INSTALL_WAKE_MS, so
- * an install catching up after an eviction is not evicted again. Passing the
- * furthest chunk count that failed clears it. Persisted, because a long wait
- * evicts the object. */
-const INSTALL_RETRY_CAP_MS = 5 * 60_000;
 const INSTALL_RETRY_KEY = "service-install-retry";
-/** Doublings that reach the cap. */
-const INSTALL_RETRY_MAX_STEPS = 9;
-export const installRetryMs = (failures: number) =>
-  Math.min(INSTALL_RETRY_CAP_MS, INSTALL_WAKE_MS * 2 ** Math.min(Math.max(0, failures - 1), INSTALL_RETRY_MAX_STEPS));
 /** Largest client frame accepted. */
 const MAX_FRAME_BYTES = 1 << 20;
 
