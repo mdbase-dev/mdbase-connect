@@ -36,6 +36,20 @@ const host = document.body.appendChild(document.createElement("div"));
 const root = createRoot(host);
 afterEach(() => act(() => root.render(null)));
 
+it("keeps a result selected when live updates shrink the list", () => {
+  const run = vi.fn();
+  const three = [command("a", "app"), command("b", "app"), { ...command("c", "app"), run }];
+  act(() => root.render(createElement(CommandPalette, { open: true, commands: three, onClose: () => {} })));
+  const input = document.querySelector<HTMLInputElement>('[role="combobox"]')!;
+  act(() => { input.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true })); });
+  const two = [command("a", "app"), { ...command("b", "app"), run }];
+  act(() => root.render(createElement(CommandPalette, { open: true, commands: two, onClose: () => {} })));
+  expect(document.querySelector('[aria-selected="true"]')?.textContent).toContain("b");
+  expect(input.getAttribute("aria-activedescendant")).toMatch(/-b$/);
+  act(() => { input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); });
+  expect(run).toHaveBeenCalledOnce();
+});
+
 it("presents sequential shortcuts without turning them into chords", () => {
   expect(shortcutLabel("g c")).toBe("G C");
 });
