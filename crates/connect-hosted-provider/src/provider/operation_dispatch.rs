@@ -109,11 +109,17 @@ impl HostedProvider {
             }
             if takeover {
                 lease_takeover(operation);
+                if let Some(result) = self
+                    .abandon_timer_takeover(collection_id, operation, &input, &lease)
+                    .await
+                {
+                    return result;
+                }
                 let current_head = self.current_collection_head(collection_id).await?;
                 let operation_has_inner_receipt =
                     matches!(operation, "create" | "update" | "delete" | "rename");
-                let timer_operation =
-                    matches!(operation, "put_timer" | "cancel_timer" | "reconcile_timers");
+                // Only a generation-guarded cancel_timer is still re-run.
+                let timer_operation = operation == "cancel_timer";
                 if current_head != prepared_head && !operation_has_inner_receipt && !timer_operation
                 {
                     return self

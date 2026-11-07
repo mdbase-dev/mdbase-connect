@@ -91,7 +91,7 @@ The durable state machine is:
 | `applied` | The intended side effect is proved present and post-apply evidence is durable. | No; recovery only finalizes. |
 | `completed` | Final encrypted receipt is durable. | No; retries return the receipt. |
 | `acknowledged` | A client acknowledged receiving the completed receipt. | No |
-| `abandoned` | The authority proved the effect never began and permanently closed the request. | No |
+| `abandoned` | The authority proved the effect never began, or closed an unguarded timer request unproven (2026-11-07 amendment), and permanently closed the request. | No |
 | `outcome_unknown` | Recovery exhausted all supported evidence and cannot distinguish applied from not applied. | No automatic replay; human/domain reconciliation is required. |
 
 Every row also stores the canonical mutation identifier, input digest,
@@ -105,6 +105,7 @@ The legal forward transitions are:
 ```text
 absent -> claimed -> prepared -> applied -> completed -> acknowledged
                   \-> abandoned
+          prepared -> abandoned
           prepared/applied -> outcome_unknown
 ```
 
@@ -132,7 +133,8 @@ receipt after takeover even if its external call returns late.
 An identical retry has exactly one of these results:
 
 - return the durable receipt for `completed` or `acknowledged`;
-- return the durable abandoned result (`operation_outcome: not_sent`);
+- return the durable abandoned result (the final `mutation_abandoned` receipt;
+  see below);
 - report a live owner and wait only within the caller's remaining budget;
 - take over an expired/stale lease, increment the fence, and recover;
 - return the durable recovery handle for `outcome_unknown`; or
@@ -145,6 +147,43 @@ journal; recovery continues or the SDK returns the same pending handle.
 Cancellation after `applied` can only defer receipt recovery. Acknowledgement is
 an optimization for retention and diagnostics, never permission to forget the
 request identity early.
+
+### Abandoning expired prepared requests
+
+Amendment, decision by Callum, 2026-11-07.
+
+A request can stay `prepared` indefinitely when its handler dies and the same
+request is never retried. `prepared -> abandoned` is legal on these terms:
+
+- For record, type, view-source, setup and sync mutations it requires proof of
+  non-application. On the hosted authority that proof is the row itself: these
+  kinds commit their effect in the same transaction that moves the row out of
+  `prepared`, fenced on the lease, so a row still `prepared` after its lease
+  expired never applied.
+- Timer requests without a timer generation (`put_timer`, `reconcile_timers`,
+  and `cancel_timer` without `generation`) are the one exception. Their effect
+  lives in the timer store, outside the journal transaction, so they are
+  abandoned unproven. Re-running stale timer input on takeover could overwrite
+  a newer timer change, so a takeover abandons them instead of re-running them.
+  A `cancel_timer` with `generation` cannot remove a newer timer and is still
+  taken over and re-run.
+
+The abandoned receipt is a final failure with code `mutation_abandoned` and
+details `request_id` and `application`. `application` is `not_applied` for the
+proved kinds and `unverified` for the timer kinds. It replaces the earlier
+`operation_outcome: not_sent` result. An `unverified` timer receipt tells the
+application to send its current desired timers as a fresh request. Both
+receipts are final: recovery clears the pending mutation and never retries the
+same request.
+
+The hosted provider closes such rows from its maintenance loop: a row is swept
+only when its lease has expired, it was accepted more than one day ago, and its
+collection is `active` or `migrated`. The sweep takes the row over (incrementing
+the fence) and writes the encrypted receipt in one transaction that holds the
+collection row `FOR SHARE`, so it never changes the journal of a collection
+that is `migrating`. Kinds whose non-application the journal cannot prove (file
+control, and `cancel_timer`, whose `generation` the journal does not record)
+are not swept.
 
 ### The only valid unknown outcome
 

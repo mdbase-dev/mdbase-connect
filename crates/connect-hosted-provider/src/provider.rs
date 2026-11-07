@@ -91,7 +91,7 @@ pub use collections::{LegacyRollbackEnvelope, LegacyRollbackReceipt, LegacyRollb
 pub use lifecycle::run_hosted_cutover_migrations;
 mod lifecycle_states;
 mod mutation_journal;
-pub use mutation_journal::HostedMutationJournalDiagnostics;
+pub use mutation_journal::{HostedMutationJournalDiagnostics, HostedMutationSweep};
 mod mutation_journal_files;
 mod mutation_journal_migration;
 mod mutation_metrics;

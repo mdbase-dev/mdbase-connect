@@ -440,12 +440,18 @@ fn optional_environment(name: &'static str) -> Result<Option<String>, std::io::E
     }
 }
 
+/// Expired `prepared` mutations closed per maintenance tick (ADR 0005).
+const MUTATION_ABANDON_SWEEP_BATCH: i64 = 100;
+
 async fn maintain_history(provider: HostedProvider, retain_changes: u64, period: Duration) {
     let mut interval = tokio::time::interval(period);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         interval.tick().await;
         provider.log_operation_mutation_metrics().await;
+        provider
+            .log_abandoned_operation_mutation_sweep(MUTATION_ABANDON_SWEEP_BATCH)
+            .await;
         match provider.compact_stale_history(retain_changes).await {
             Ok(0) => {}
             Ok(collections) => {
