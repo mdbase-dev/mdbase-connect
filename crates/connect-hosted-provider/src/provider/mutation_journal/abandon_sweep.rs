@@ -7,12 +7,16 @@
 /// Kinds whose effect commits in the same transaction that moves the journal
 /// row out of `prepared` (fenced on the lease), so a `prepared` row proves the
 /// change was not applied.
+///
+/// `sync:mutate` is atomic too, but is not swept: sync clients (the mirror and
+/// the offline replica) resend a pending mutation automatically, and a terminal
+/// error receipt would block their queue for good, while a takeover retry still
+/// completes it.
 const NOT_APPLIED_WHEN_PREPARED: &[&str] = &[
     "create",
     "update",
     "delete",
     "rename",
-    "sync:mutate",
     "create_type",
     "update_type",
     "apply_type_pack",
@@ -42,7 +46,8 @@ pub struct HostedMutationSweep {
     abandoned_unverified: u64,
     skipped_migrating: u64,
     skipped_other_inactive: u64,
-    skipped_unprovable_kind: u64,
+    skipped_kind: u64,
+    skipped_record_exists: u64,
     failed_key_unwrap: u64,
     errors: u64,
 }
@@ -57,7 +62,8 @@ enum SweepRow {
     Abandoned(AbandonedApplication),
     SkippedMigrating,
     SkippedOtherInactive,
-    SkippedUnprovableKind,
+    SkippedKind,
+    SkippedRecordExists,
     FailedKeyUnwrap,
     /// Finished, retried, renewed or locked by a live request since the
     /// candidate query: nothing to do this tick.
@@ -126,7 +132,7 @@ impl HostedProvider {
                  count(*) FILTER (
                    WHERE collection.state IN ('active', 'migrated')
                      AND NOT (journal.operation_kind = ANY($1))
-                 ) AS unprovable_kind
+                 ) AS skipped_kind
                FROM hosted_provider_mutation_journal journal
                JOIN hosted_provider_replicas replica ON replica.id = journal.replica_id
                JOIN hosted_provider_collections collection
@@ -139,7 +145,7 @@ impl HostedProvider {
         let mut sweep = HostedMutationSweep {
             skipped_migrating: sweep_count(skipped.get("migrating")),
             skipped_other_inactive: sweep_count(skipped.get("other_inactive")),
-            skipped_unprovable_kind: sweep_count(skipped.get("unprovable_kind")),
+            skipped_kind: sweep_count(skipped.get("skipped_kind")),
             ..HostedMutationSweep::default()
         };
         let candidates = sqlx::query(AssertSqlSafe(format!(
@@ -175,7 +181,8 @@ impl HostedProvider {
                 }
                 Ok(SweepRow::SkippedMigrating) => sweep.skipped_migrating += 1,
                 Ok(SweepRow::SkippedOtherInactive) => sweep.skipped_other_inactive += 1,
-                Ok(SweepRow::SkippedUnprovableKind) => sweep.skipped_unprovable_kind += 1,
+                Ok(SweepRow::SkippedKind) => sweep.skipped_kind += 1,
+                Ok(SweepRow::SkippedRecordExists) => sweep.skipped_record_exists += 1,
                 Ok(SweepRow::FailedKeyUnwrap) => sweep.failed_key_unwrap += 1,
                 Ok(SweepRow::Resolved) => {}
                 Err(_) => sweep.errors += 1,
@@ -234,7 +241,7 @@ impl HostedProvider {
         };
         let operation_kind: String = row.get("operation_kind");
         let Some(application) = sweep_application(&operation_kind) else {
-            return Ok(SweepRow::SkippedUnprovableKind);
+            return Ok(SweepRow::SkippedKind);
         };
         if operation_kind == "create" {
             // A create's record id is its request id. Any trace of that record
@@ -253,7 +260,7 @@ impl HostedProvider {
             .fetch_one(&mut *transaction)
             .await?;
             if created {
-                return Ok(SweepRow::SkippedUnprovableKind);
+                return Ok(SweepRow::SkippedRecordExists);
             }
         }
         let Ok(data_key) = self
@@ -321,7 +328,8 @@ fn log_mutation_sweep(sweep: &HostedMutationSweep) {
         abandoned_unverified = sweep.abandoned_unverified,
         skipped_migrating = sweep.skipped_migrating,
         skipped_other_inactive = sweep.skipped_other_inactive,
-        skipped_unprovable_kind = sweep.skipped_unprovable_kind,
+        skipped_kind = sweep.skipped_kind,
+        skipped_record_exists = sweep.skipped_record_exists,
         failed_key_unwrap = sweep.failed_key_unwrap,
         errors = sweep.errors,
         "privacy-safe hosted provider metric"
@@ -368,7 +376,8 @@ mod abandon_sweep_tests {
                 abandoned_unverified: 2,
                 skipped_migrating: 1,
                 skipped_other_inactive: 4,
-                skipped_unprovable_kind: 5,
+                skipped_kind: 5,
+                skipped_record_exists: 8,
                 failed_key_unwrap: 6,
                 errors: 7,
             });
@@ -385,7 +394,7 @@ mod abandon_sweep_tests {
             .collect::<Vec<_>>();
         assert_eq!(fields[0], "metric=\"mutation_abandon_sweep\"", "{line}");
         let counts = &fields[1..];
-        assert_eq!(counts.len(), 7, "{line}");
+        assert_eq!(counts.len(), 8, "{line}");
         for field in counts {
             let (name, value) = field.split_once('=').unwrap();
             assert!(
@@ -405,10 +414,6 @@ mod abandon_sweep_tests {
             Some(AbandonedApplication::NotApplied)
         );
         assert_eq!(
-            sweep_application("sync:mutate"),
-            Some(AbandonedApplication::NotApplied)
-        );
-        assert_eq!(
             sweep_application("put_timer"),
             Some(AbandonedApplication::Unverified)
         );
@@ -420,6 +425,7 @@ mod abandon_sweep_tests {
             );
         }
         for kind in [
+            "sync:mutate",
             "file_control:delete_file",
             "file_control:move_file",
             "file_control:commit_file_upload",

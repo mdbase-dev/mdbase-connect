@@ -155,11 +155,15 @@ Amendment, decision by Callum, 2026-11-07.
 A request can stay `prepared` indefinitely when its handler dies and the same
 request is never retried. `prepared -> abandoned` is legal on these terms:
 
-- For record, type, view-source, setup and sync mutations it requires proof of
+- For record, type, view-source and setup mutations it requires proof of
   non-application. On the hosted authority that proof is the row itself: these
   kinds commit their effect in the same transaction that moves the row out of
   `prepared`, fenced on the lease, so a row still `prepared` after its lease
   expired never applied.
+- Sync mutations (`sync:mutate`) are not abandoned, although their apply is
+  atomic too. Their clients (the mirror and the offline replica) resend a
+  pending mutation automatically, and a takeover retry still completes it,
+  whereas a terminal error receipt would block their queue for good.
 - Timer requests without a timer generation (`put_timer`, `reconcile_timers`,
   and `cancel_timer` without `generation`) are the one exception. Their effect
   lives in the timer store, outside the journal transaction, so they are

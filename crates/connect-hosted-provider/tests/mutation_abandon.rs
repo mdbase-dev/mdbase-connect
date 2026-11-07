@@ -192,7 +192,8 @@ const COUNTS: &[&str] = &[
     "abandoned_unverified",
     "skipped_migrating",
     "skipped_other_inactive",
-    "skipped_unprovable_kind",
+    "skipped_kind",
+    "skipped_record_exists",
     "failed_key_unwrap",
     "errors",
 ];
@@ -400,6 +401,20 @@ async fn sweep_abandons_only_expired_old_prepared_rows_with_final_receipts() {
     )
     .await;
 
+    // Sync mutations are not swept: sync clients resend them automatically,
+    // and an atomic takeover retry still completes them.
+    let sync = json!({ "action": "mutate", "mutation": { "mutation_id": Uuid::now_v7() } });
+    let old_sync = prepared(
+        pool,
+        collection,
+        replica_id,
+        "sync",
+        &sync,
+        "-1 minute",
+        "2 days",
+    )
+    .await;
+
     // A create whose record exists contradicts `prepared` and is left alone.
     let created_input = create_input("drafts/created.md");
     let created = Uuid::now_v7();
@@ -426,7 +441,8 @@ async fn sweep_abandons_only_expired_old_prepared_rows_with_final_receipts() {
         expected(&[
             ("abandoned_not_applied", 1),
             ("abandoned_unverified", 3),
-            ("skipped_unprovable_kind", 2)
+            ("skipped_kind", 3),
+            ("skipped_record_exists", 1)
         ])
     );
     for (request_id, state) in [
@@ -437,6 +453,7 @@ async fn sweep_abandons_only_expired_old_prepared_rows_with_final_receipts() {
         (old_cancel, "abandoned"),
         (old_guarded_cancel, "abandoned"),
         (old_file, "prepared"),
+        (old_sync, "prepared"),
         (created, "prepared"),
     ] {
         assert_eq!(journal_state(pool, replica_id, request_id).await, state);
@@ -496,7 +513,7 @@ async fn sweep_abandons_only_expired_old_prepared_rows_with_final_receipts() {
     // A second tick changes nothing.
     assert_eq!(
         counts(sweep(&fixture.provider).await),
-        expected(&[("skipped_unprovable_kind", 2)])
+        expected(&[("skipped_kind", 3), ("skipped_record_exists", 1)])
     );
 }
 
