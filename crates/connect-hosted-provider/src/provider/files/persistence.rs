@@ -128,6 +128,11 @@ impl HostedProvider {
                 uploaded_parts,
             ));
         }
+        // A terminal upload's multipart upload is aborted in R2, which then
+        // refuses to list it; nothing it received can be committed anyway.
+        if transfer.state == "aborted" || transfer.state == "expired" {
+            return Ok((Vec::new(), 0, Vec::new()));
+        }
         let mut uploaded_parts = Vec::new();
         let received = match transfer.strategy.as_str() {
             "object_put" => {
@@ -217,5 +222,106 @@ impl HostedProvider {
             received,
             uploaded_parts,
         })
+    }
+
+    /// Publication checks quota only after copying and re-hashing the object,
+    /// so a client retrying against a full account would pay for both every
+    /// time. This refuses, from one unlocked read, exactly when publication
+    /// would refuse for quota as things stand. Any refusal publication would
+    /// give first is left to it; it repeats every check under locks.
+    pub(super) async fn refuse_commit_over_quota(
+        &self,
+        transfer: &HostedFileTransfer,
+        replica: &Replica,
+        data_key: &[u8; 32],
+        request_origin: Option<&str>,
+    ) -> ApiResult<()> {
+        let Some(row) = sqlx::query(
+            r#"SELECT collection.file_count, collection.file_bytes,
+                      collection.stored_file_bytes, collection.max_files,
+                      collection.max_file_bytes, collection.max_stored_file_bytes,
+                      account.live_content_bytes, account.live_file_bytes,
+                      account.max_live_storage_bytes, account.retained_file_bytes,
+                      account.max_retained_file_bytes,
+                      file.file_id, file.revision, file.size
+               FROM hosted_provider_collections collection
+               JOIN hosted_provider_file_transfers transfer
+                 ON transfer.id = $2 AND transfer.collection_id = collection.id
+                AND transfer.state = 'completing'
+               LEFT JOIN hosted_provider_accounts account
+                 ON account.id = collection.account_id
+               LEFT JOIN hosted_provider_files file
+                 ON file.collection_id = collection.id AND file.path_token = $3
+               WHERE collection.id = $1 AND collection.state = 'active'"#,
+        )
+        .bind(transfer.collection_id)
+        .bind(transfer.id)
+        .bind(path_token(
+            data_key,
+            &portable_file_path_key(&transfer.intent.path),
+        ))
+        .fetch_optional(&self.pool)
+        .await?
+        else {
+            return Ok(());
+        };
+        let current = row
+            .get::<Option<Uuid>, _>("file_id")
+            .map(|file_id| {
+                Ok::<_, ApiError>((
+                    file_id,
+                    row.get::<String, _>("revision"),
+                    number(row.get("size"), "file size")?,
+                ))
+            })
+            .transpose()?;
+        let action = if current.is_some() {
+            FileAction::Replace
+        } else {
+            FileAction::Add
+        };
+        if authorize_file_access(replica, action, Some(&transfer.intent.path), request_origin)
+            .is_err()
+        {
+            return Ok(());
+        }
+        match (&current, transfer.intent.base_revision.as_deref()) {
+            (Some((file_id, revision, _)), Some(base))
+                if revision == base && *file_id == transfer.file_id => {}
+            (None, None) => {}
+            _ => return Ok(()),
+        }
+        let (_, next_bytes, next_stored_bytes) = file_usage_after_commit(
+            &row,
+            current.map(|(_, _, size)| size),
+            transfer.expected_size,
+        )?;
+        let Some(max_live) = row.get::<Option<i64>, _>("max_live_storage_bytes") else {
+            return Ok(());
+        };
+        // The same deltas and comparisons as the account usage trigger.
+        let file_delta =
+            to_i64(next_bytes, "current file bytes")? - row.get::<i64, _>("file_bytes");
+        let retained_delta = to_i64(next_stored_bytes, "stored file bytes")?
+            - row.get::<i64, _>("stored_file_bytes");
+        let live = row
+            .get::<i64, _>("live_content_bytes")
+            .saturating_add(row.get("live_file_bytes"));
+        let refusal = if file_delta > 0 && live.saturating_add(file_delta) > max_live {
+            Some("account_storage_quota_exceeded")
+        } else if retained_delta > 0
+            && row
+                .get::<i64, _>("retained_file_bytes")
+                .saturating_add(retained_delta)
+                > row.get::<i64, _>("max_retained_file_bytes")
+        {
+            Some("account_retained_storage_quota_exceeded")
+        } else {
+            None
+        };
+        match refusal.and_then(ApiError::account_quota) {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
 }
