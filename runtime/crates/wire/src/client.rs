@@ -9,6 +9,8 @@ use crate::schema::{Ann, SchemaError, Wire, type_err};
 use crate::snapshot::TextOrBlob;
 use crate::{wire_enum, wire_struct, wire_union};
 
+include!("generated/replica_client_api.rs");
+
 wire_struct! {
     /// A request.
     pub struct ClientRequest {
@@ -55,34 +57,6 @@ wire_union! {
     }
 }
 
-wire_enum! {
-    /// Recovery action of a problem (replica-client-api.md §9).
-    pub enum Recovery {
-        /// Fix the request.
-        FixRequest = 0,
-        /// Re-read state.
-        Refresh = 1,
-        /// Resolve the conflict.
-        ResolveConflict = 2,
-        /// Authorize again.
-        Reauthorize = 3,
-        /// Repair the collection's config or types.
-        RepairCollection = 4,
-        /// Retry later.
-        Retry = 5,
-        /// Free storage.
-        FreeSpace = 6,
-        /// Upgrade the app or runtime.
-        Upgrade = 7,
-        /// Re-read and decide whether to redo the write.
-        ResolveOutcome = 8,
-        /// Nothing to do.
-        None = 9,
-        /// Contact support.
-        ContactSupport = 10,
-    }
-}
-
 /// The 15 client error codes and their recovery actions (replica-client-api.md §9).
 pub const ERROR_CODES: [(&str, Recovery); 15] = [
     ("invalid_request", Recovery::FixRequest),
@@ -110,52 +84,6 @@ pub fn recovery_for(code: &str) -> Option<Recovery> {
         .map(|(_, r)| *r)
 }
 
-wire_enum! {
-    /// Issue severity.
-    pub enum Severity {
-        /// Warning.
-        Warning = 0,
-        /// Error.
-        Error = 1,
-    }
-}
-
-wire_struct! {
-    /// A validation issue.
-    pub struct Issue {
-        /// Code.
-        0 req code: String,
-        /// Severity.
-        1 req severity: Severity,
-        /// Message.
-        2 req message: String,
-        /// Details.
-        3 opt details: Value,
-    }
-}
-
-wire_struct! {
-    /// A problem (replica-client-api.md §9).
-    pub struct Problem {
-        /// One of the 15 codes.
-        0 req code: String,
-        /// Recovery action.
-        1 req recovery: Recovery,
-        /// For developers.
-        2 req message: String,
-        /// Finer cause.
-        3 opt reason: String,
-        /// Details.
-        4 opt details: Value,
-        /// Retry hint.
-        5 opt retry_after_ms: u64,
-        /// Issues (invalid_record).
-        6 opt issues: Vec<Issue>,
-        /// Trace ID.
-        7 opt trace_id: String,
-    }
-}
-
 wire_struct! {
     /// What a session may do.
     pub struct GrantInfo {
@@ -168,22 +96,6 @@ wire_struct! {
         /// The grant's folder scope of the file namespace (API 1.2; absent:
         /// unrestricted). Key 3 is reserved.
         4 opt1 file_folders: Vec<String>,
-    }
-}
-
-wire_struct! {
-    /// `hello` params (replica-client-api.md §2).
-    pub struct HelloParams {
-        /// API versions the client supports.
-        0 req1 versions: Vec<Version>,
-        /// Client name (app ID).
-        1 req client_name: String,
-        /// Client version.
-        2 req client_version: String,
-        /// Features wanted.
-        3 opt features: Vec<String>,
-        /// IANA time zone for this session.
-        4 opt timezone: String,
     }
 }
 
@@ -282,40 +194,6 @@ wire_struct! {
         0 req phase: ResyncPhase,
         /// Positions still to restore.
         1 req positions: u64,
-    }
-}
-
-wire_struct! {
-    /// An authoritative confirmed-prefix capture, never a query/local overlay position.
-    pub struct ConfirmedHead {
-        /// Applied log position.
-        0 req seq: u64,
-        /// Chain hash at exactly `seq`.
-        1 req chain: Hash,
-        /// Control-chain identity `ctl(seq)`.
-        2 req policy_generation: Hash,
-        /// Neutral confirmed resource+SEM identity, without profile-specific fields.
-        3 req catalog_generation: Hash,
-    }
-}
-
-wire_struct! {
-    /// `applied_prefix` parameters.
-    pub struct AppliedPrefixParams {
-        /// Captured hosted fence position.
-        0 req seq: u64,
-    }
-}
-
-wire_struct! {
-    /// READ-gated historical prefix evidence for `applied_prefix`.
-    pub struct AppliedPrefix {
-        /// Highest locally applied log position (zero for local-only).
-        0 req applied_through: u64,
-        /// Requested fence position, not the current head.
-        1 req seq: u64,
-        /// Absent when behind, unavailable, or not eligible for handover.
-        2 opt chain: Hash,
     }
 }
 

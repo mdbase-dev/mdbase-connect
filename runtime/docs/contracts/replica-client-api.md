@@ -41,10 +41,10 @@ c-push     = { 0: 2, 1: tstr, 2: any }                 ; push type, payload
 ```cddl
 ; ---- session (replica-client-api.md §2) ----
 hello-params = {
-  0: [+ version],        ; api versions the client supports
-  1: tstr,               ; client name (app ID)
-  2: tstr,               ; client version
-  ? 3: [* tstr],         ; features the client wants: "fence", "presence", "attachment-v1", ...
+  0: [+ version],        ; versions: API versions the client supports
+  1: tstr,               ; client_name: client name (app ID)
+  2: tstr,               ; client_version: client version
+  ? 3: [* tstr],         ; features: features the client wants: "fence", "presence", "attachment-v1", ...
   ? 4: tstr,             ; timezone: IANA zone used for this session's writes and queries
 }
 hello-result = {
@@ -140,7 +140,13 @@ record-state = {
   ? 2: hold-ref,         ; present when the record is held on this replica (§8.1)
   ? 3: uint,             ; unresolved: number of unresolved conflicts on this record
 }
-issue = { 0: tstr, 1: &( warning: 0, error: 1 ), 2: tstr, ? 3: value }   ; code, severity, message, details
+issue = {
+  0: tstr,               ; code
+  1: severity,           ; severity
+  2: tstr,               ; message
+  ? 3: value,            ; details
+}
+severity = &( warning: 0, error: 1 )
 ```
 
 Reads return the **local view**: confirmed state plus this replica's pending mutations.
@@ -666,18 +672,18 @@ sync-status = {
   ? 12: grant-info,      ; API 1.3: this session's current role-effective grant
 }
 confirmed-head = {
-  0: seq,               ; committed applied position
-  1: hash,              ; chain at exactly position 0
-  2: hash,              ; policyGeneration = ctl(seq)
-  3: hash,              ; neutral confirmed resource+SEM catalogGeneration
+  0: seq,               ; seq: committed applied position
+  1: hash,              ; chain: chain at exactly position 0
+  2: hash,              ; policy_generation: control-chain identity ctl(seq)
+  3: hash,              ; catalog_generation: neutral confirmed resource+SEM identity
 }
 applied-prefix-params = {
-  0: seq,               ; requested historical handover fence
+  0: seq,               ; seq: requested historical handover fence
 }
 applied-prefix = {
-  0: seq,               ; local appliedThrough (zero for local-only)
-  1: seq,               ; requested handover fence, echoed
-  ? 2: hash,            ; historical chain at exactly position 1, never a head hint
+  0: seq,               ; applied_through: local applied position (zero for local-only)
+  1: seq,               ; seq: requested handover fence, echoed
+  ? 2: hash,            ; chain: historical chain at exactly position 1, never a head hint
 }
 resyncing = {
   0: &( probing: 0, repairing: 1, rolling_back: 2, awaiting_control: 3 ),
@@ -821,13 +827,13 @@ without an inbox gap. It accepts only a
 ```cddl
 ; ---- problems (replica-client-api.md §9) ----
 problem = {
-  0: error-code,
-  1: recovery,
+  0: error-code,         ; code: one of the error codes
+  1: recovery,           ; recovery: the recovery action
   2: tstr,               ; message: for developers; apps show their own text keyed on code and reason
   ? 3: tstr,             ; reason: finer cause (stable, documented per code)
   ? 4: value,            ; details
   ? 5: uint,             ; retry_after_ms
-  ? 6: [* issue],        ; issues (invalid_record)
+  ? 6: [* issue],        ; issues: validation issues (invalid_record)
   ? 7: tstr,             ; trace_id
 }
 error-code = tstr
