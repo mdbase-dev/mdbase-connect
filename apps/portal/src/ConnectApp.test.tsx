@@ -391,7 +391,7 @@ describe("ConnectApp", () => {
     const collections = within(heading.closest("section")!);
     expect(collections.getByText("5 MB of 1 GB")).toBeInTheDocument();
     expect(collections.getByRole("progressbar", { name: "Beta hosted storage" })).toHaveAttribute("aria-valuenow", String(5 * 1024 * 1024));
-    expect(collections.getByText("Includes recent version history.")).toBeInTheDocument();
+    expect(collections.getByText("Counts uploaded files. Notes don't use storage.")).toBeInTheDocument();
     expect(collections.queryByText(/Markdown ·/)).not.toBeInTheDocument();
   });
 

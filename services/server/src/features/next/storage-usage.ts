@@ -18,8 +18,8 @@ function holdsNothing(error: unknown): boolean {
   return error instanceof LogServiceError && (error.code === "not_found" || error.code === "gone");
 }
 
-/** Bytes stored for the owner's collections. Rejects when any collection can't answer, rather than under-reporting. */
-export async function nextStoredBytes(
+/** Uploaded file bytes across the owner's collections; log text and snapshots don't count. Rejects when any collection can't answer, rather than under-reporting. */
+export async function nextFileBytes(
   db: DatabaseQueryable,
   log: Pick<LogServiceClient, "storageStatus">,
   owner: string
@@ -29,7 +29,7 @@ export async function nextStoredBytes(
     [owner]
   );
   const bytes = await Promise.all(held.rows.map(({ collection_id: id }) =>
-    log.storageStatus(id).then(status => status.usedBytes, (error: unknown) => {
+    log.storageStatus(id).then(status => status.fileBytes, (error: unknown) => {
       if (holdsNothing(error)) return 0;
       throw error;
     })

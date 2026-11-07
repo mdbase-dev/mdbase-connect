@@ -40,7 +40,7 @@ async fn storage_status<B: Backend, O: ObjectStore>(
     svc: &Service<B, O>,
     control_plane: &Principal,
     collection: mdbn_wire::common::Uuid,
-) -> (u64, u64) {
+) -> (u64, u64, u64) {
     let out = svc
         .call(
             control_plane,
@@ -50,10 +50,12 @@ async fn storage_status<B: Backend, O: ObjectStore>(
         )
         .await
         .unwrap();
-    let (Cbor::Uint(used), Cbor::Uint(quota)) = (f(&out.result, 0), f(&out.result, 1)) else {
+    let (Cbor::Uint(used), Cbor::Uint(quota), Cbor::Uint(files)) =
+        (f(&out.result, 0), f(&out.result, 1), f(&out.result, 2))
+    else {
         panic!("storage_status fields")
     };
-    (*used, *quota)
+    (*used, *quota, *files)
 }
 
 async fn scenario<B: Backend, O: ObjectStore>(
@@ -315,8 +317,10 @@ async fn scenario<B: Backend, O: ObjectStore>(
     assert!(early_seq <= cp_expected);
 
     // GC (I10): unreferenced and older than 24 h → deleted; referenced or young → kept.
-    let (used_before_gc, quota) = storage_status(svc, &cpp, c).await;
+    let (used_before_gc, quota, files_before_gc) = storage_status(svc, &cpp, c).await;
     assert_eq!(quota, 1 << 40);
+    // File bytes are blob parts only: the snapshot chunk and manifest don't count.
+    assert_eq!(files_before_gc, p1.size + p3.size + p4.size);
     let r = svc
         .call(&cpp, "gc", &map(vec![(0, c.to_cbor())]), late + 1000)
         .await
@@ -337,7 +341,9 @@ async fn scenario<B: Backend, O: ObjectStore>(
         .await
         .unwrap();
     assert_eq!(has.present, vec![false, false, true, true, true]);
-    assert!(storage_status(svc, &cpp, c).await.0 < used_before_gc);
+    let (used_after_gc, _, files_after_gc) = storage_status(svc, &cpp, c).await;
+    assert!(used_after_gc < used_before_gc);
+    assert_eq!(files_after_gc, p4.size);
     // A day later the late orphan goes too.
     svc.call(&cpp, "gc", &map(vec![(0, c.to_cbor())]), late + 2 * DAY)
         .await

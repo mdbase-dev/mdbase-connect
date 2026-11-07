@@ -433,7 +433,7 @@ function SubscriptionStorage({ subscription, fallbackStorage }: {
     </div>
     {liveStorageBytes !== null && <div className="connect-storage-progress" role="progressbar" aria-label={t(i18n)`${tier} hosted storage`} aria-valuemin={0} aria-valuemax={limit} aria-valuenow={liveStorageBytes} aria-valuetext={t(i18n)`${formatBytes(liveStorageBytes)} of ${formatBytes(limit)} used`}><span style={{ width: `${percentage}%` }} /></div>}
     {native
-      ? <p><Trans>Includes recent version history.</Trans></p>
+      ? <p><Trans>Counts uploaded files. Notes don't use storage.</Trans></p>
       : <p>{liveContentBytes === null || liveFileBytes === null
         ? t(i18n)({ message: "Markdown and file usage is temporarily unavailable." })
         : t(i18n)`${formatBytes(liveContentBytes)} Markdown · ${formatBytes(liveFileBytes)} files`}</p>}

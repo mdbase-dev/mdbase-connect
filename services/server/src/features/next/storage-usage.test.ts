@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DatabaseQueryable } from "../../database-types.js";
 import { LogServiceError } from "./log-service-client.js";
-import { nextStoredBytes, sweepObjects } from "./storage-usage.js";
+import { nextFileBytes, sweepObjects } from "./storage-usage.js";
 
 const ids = (...collections: string[]) => collections.map(collection_id => ({ collection_id }));
 const database = (...pages: Array<Array<{ collection_id: string }>>) => {
@@ -12,16 +12,16 @@ const gone = new LogServiceError("gone", undefined);
 const notFound = new LogServiceError("not_found", undefined);
 const unavailable = new LogServiceError("unavailable", undefined);
 
-describe("nextStoredBytes", () => {
+describe("nextFileBytes", () => {
   it("adds what each held collection stores, and is zero without collections", async () => {
-    const storageStatus = vi.fn(async (id: string) => ({ usedBytes: id === "a" ? 10 : 32, quotaBytes: 100 }));
-    expect(await nextStoredBytes(database(ids("a", "b")).db, { storageStatus }, "owner")).toBe(42);
-    expect(await nextStoredBytes(database([]).db, { storageStatus }, "owner")).toBe(0);
+    const storageStatus = vi.fn(async (id: string) => ({ usedBytes: 1000, quotaBytes: 100, fileBytes: id === "a" ? 10 : 32 }));
+    expect(await nextFileBytes(database(ids("a", "b")).db, { storageStatus }, "owner")).toBe(42);
+    expect(await nextFileBytes(database([]).db, { storageStatus }, "owner")).toBe(0);
   });
 
   it("scopes to the owner and counts collections that left sync until a deletion fact exists", async () => {
     const { db, query } = database([]);
-    await nextStoredBytes(db, { storageStatus: vi.fn() }, "owner");
+    await nextFileBytes(db, { storageStatus: vi.fn() }, "owner");
     const [sql, values] = query.mock.calls[0] as unknown as [string, string[]];
     expect(values).toEqual(["owner"]);
     expect(sql).toContain("next_collection_deletion_facts");
@@ -32,17 +32,17 @@ describe("nextStoredBytes", () => {
     const storageStatus = vi.fn(async (id: string) => {
       if (id === "a") throw gone;
       if (id === "b") throw notFound;
-      return { usedBytes: 7, quotaBytes: 100 };
+      return { usedBytes: 1000, quotaBytes: 100, fileBytes: 7 };
     });
-    expect(await nextStoredBytes(database(ids("a", "b", "c")).db, { storageStatus }, "owner")).toBe(7);
+    expect(await nextFileBytes(database(ids("a", "b", "c")).db, { storageStatus }, "owner")).toBe(7);
   });
 
   it("rejects instead of under-reporting when a collection can't answer", async () => {
     const storageStatus = vi.fn(async (id: string) => {
       if (id === "b") throw unavailable;
-      return { usedBytes: 7, quotaBytes: 100 };
+      return { usedBytes: 1000, quotaBytes: 100, fileBytes: 7 };
     });
-    await expect(nextStoredBytes(database(ids("a", "b")).db, { storageStatus }, "owner")).rejects.toBe(unavailable);
+    await expect(nextFileBytes(database(ids("a", "b")).db, { storageStatus }, "owner")).rejects.toBe(unavailable);
   });
 });
 

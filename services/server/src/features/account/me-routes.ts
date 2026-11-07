@@ -23,7 +23,7 @@ import { requiresHostedCollection } from "../grants/policy.js";
 import { hostedMirrorReplicas } from "../hosted/service.js";
 import type { LogServiceClient } from "../next/log-service-client.js";
 import { nativeDevicesByCollection } from "../next/native-grant-target.js";
-import { nextStoredBytes } from "../next/storage-usage.js";
+import { nextFileBytes } from "../next/storage-usage.js";
 
 interface AccountOverviewRouteOptions {
   db: DatabasePool;
@@ -275,7 +275,7 @@ export function registerAccountOverviewRoute(
     let nativeStorageBytes = null;
     if (options.nextLog && entitlement && accountBackend?.account_backend === "next") {
       try {
-        nativeStorageBytes = await nextStoredBytes(options.db, options.nextLog, user.id);
+        nativeStorageBytes = await nextFileBytes(options.db, options.nextLog, user.id);
       } catch (error) {
         request.log.warn({ error }, "Native storage usage is unavailable");
       }

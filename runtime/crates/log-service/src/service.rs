@@ -490,6 +490,7 @@ pub fn rebuild_state(
     st.meta.quotas = old.quotas;
     st.meta.retained_from = old.retained_from;
     st.meta.used_bytes = old.used_bytes;
+    st.meta.file_bytes = old.file_bytes;
     st.meta.status = old.status;
     let budget = Budget::default();
     for (seq, b) in control {
@@ -1488,6 +1489,13 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
                 })
                 .ok_or_else(|| ServiceError::new(Code::QuotaExceeded))?;
             state.meta.used_bytes = used_bytes;
+            if meta.kind == ItemKind::BlobPart.value() {
+                let file_bytes = Self::file_bytes(&mut tx, &state.meta)
+                    .await?
+                    .checked_add(meta.size)
+                    .ok_or_else(|| ServiceError::new(Code::QuotaExceeded))?;
+                state.meta.file_bytes = Some(file_bytes);
+            }
             tx.write(Write::PutMeta(state.meta));
         }
         let fenced = meta.committed && self.backend.fences_deletion_floor_at_commit();
@@ -2164,6 +2172,15 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
         if dead.is_empty() {
             return Ok(0);
         }
+        let dead_file_bytes: u64 = dead
+            .iter()
+            .filter(|o| o.committed && o.kind == ItemKind::BlobPart.value())
+            .map(|o| o.size)
+            .sum();
+        if dead_file_bytes > 0 {
+            let file_bytes = Self::file_bytes(&mut tx, &state.meta).await?;
+            state.meta.file_bytes = Some(file_bytes.saturating_sub(dead_file_bytes));
+        }
         for o in &dead {
             tx.write(Write::DeleteObject(o.address));
             if o.committed {
@@ -2282,17 +2299,28 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
         Ok(Outcome::plain(map(vec![(0, Cbor::Bool(true))])))
     }
 
-    /// `storage_status {0: collection}` returns `{0: used bytes, 1: storage quota}`.
+    /// `storage_status {0: collection}` returns `{0: used bytes, 1: storage quota,
+    /// 2: file bytes}`.
     async fn storage_status(&self, p: &Principal, params: &Cbor) -> Result<Outcome> {
         self.require_cp(p)?;
         let c = uuid_field(params, 0)?;
         let mut tx = self.backend.begin(&c, Mode::Read).await?;
         let state = Self::load(&mut tx).await?;
         live(&state.meta)?;
+        let file_bytes = Self::file_bytes(&mut tx, &state.meta).await?;
         Ok(Outcome::plain(map(vec![
             (0, Cbor::Uint(state.meta.used_bytes)),
             (1, Cbor::Uint(state.meta.quotas.storage_bytes)),
+            (2, Cbor::Uint(file_bytes)),
         ])))
+    }
+
+    /// The collection's file bytes, derived once for a row without the counter.
+    async fn file_bytes<T: Txn>(tx: &mut T, meta: &CollectionMeta) -> Result<u64> {
+        match meta.file_bytes {
+            Some(bytes) => Ok(bytes),
+            None => tx.committed_blob_bytes().await,
+        }
     }
 
     /// Independently read the backend-owned immutable floor; a foreign or

@@ -1214,6 +1214,10 @@ msgctxt "Account sign-in"
 msgid "Couldn’t connect"
 msgstr "无法连接"
 
+#: src/AccountManagement.tsx
+msgid "Counts uploaded files. Notes don't use storage."
+msgstr "统计已上传的文件。笔记不占用存储空间。"
+
 #. placeholder {0}: literal(selected?.display_name ?? t(i18n)({ message: "this collection", context: "Application access approval" }))
 #. placeholder {1}: existingOperations.size > 0 ? t(i18n)({ message: " Permissions this app does not already have are marked New." }) : ""
 #: src/authorization-view.tsx
@@ -1845,10 +1849,6 @@ msgstr "包含的存储空间"
 #: src/AccountManagement.tsx
 msgid "Includes collections that have left sync and retained data from deleted collections."
 msgstr "包括已停止同步的集合，以及已删除集合的保留数据。"
-
-#: src/AccountManagement.tsx
-msgid "Includes recent version history."
-msgstr "包含近期版本历史记录。"
 
 #. placeholder {0}: connector.minimum_connector_version ? t(i18n)`version ${connector.minimum_connector_version} or later` : t(i18n)({ message: "the latest release", context: "Connect interface" })
 #: src/ConnectApp.tsx

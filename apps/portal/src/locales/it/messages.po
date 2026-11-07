@@ -1214,6 +1214,10 @@ msgctxt "Account sign-in"
 msgid "Couldn’t connect"
 msgstr "Connessione non riuscita"
 
+#: src/AccountManagement.tsx
+msgid "Counts uploaded files. Notes don't use storage."
+msgstr "Conta i file caricati. Le note non occupano spazio."
+
 #. placeholder {0}: literal(selected?.display_name ?? t(i18n)({ message: "this collection", context: "Application access approval" }))
 #. placeholder {1}: existingOperations.size > 0 ? t(i18n)({ message: " Permissions this app does not already have are marked New." }) : ""
 #: src/authorization-view.tsx
@@ -1845,10 +1849,6 @@ msgstr "Spazio di archiviazione incluso"
 #: src/AccountManagement.tsx
 msgid "Includes collections that have left sync and retained data from deleted collections."
 msgstr "Include le raccolte non più sincronizzate e i dati conservati delle raccolte eliminate."
-
-#: src/AccountManagement.tsx
-msgid "Includes recent version history."
-msgstr "Include la cronologia recente delle versioni."
 
 #. placeholder {0}: connector.minimum_connector_version ? t(i18n)`version ${connector.minimum_connector_version} or later` : t(i18n)({ message: "the latest release", context: "Connect interface" })
 #: src/ConnectApp.tsx
