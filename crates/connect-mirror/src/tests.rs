@@ -96,7 +96,7 @@ struct FakeAuthority {
     next_receipt: Mutex<Option<SyncMutationReceipt>>,
     lose_next_response: Mutex<bool>,
     network_edit: Mutex<Option<NetworkEdit>>,
-    upload_refusals: Mutex<BTreeMap<String, UploadRefusal>>,
+    upload_refusals: Mutex<BTreeMap<String, VecDeque<UploadRefusal>>>,
     refused_controls: Mutex<HashMap<Uuid, (u16, String)>>,
     upload_attempts: Mutex<Vec<(String, Uuid)>>,
     uploaded: Mutex<Vec<(String, Uuid)>>,
@@ -153,11 +153,14 @@ impl FakeAuthority {
     /// Refuse the next `times` uploads of `path`. Like the hosted file-control
     /// journal, a refusal with a status is the final answer for its transfer
     /// ID; without a status it is a transport failure and nothing is stored.
+    /// Queue `times` failures of uploads to `path`, after any already queued.
     fn refuse_uploads(&self, path: &str, status: Option<u16>, code: &str, times: usize) {
         self.upload_refusals
             .lock()
             .unwrap()
-            .insert(path.to_string(), (status, code.to_string(), times));
+            .entry(path.to_string())
+            .or_default()
+            .push_back((status, code.to_string(), times));
     }
 
     fn uploads_of(&self, path: &str) -> (Vec<Uuid>, Vec<Uuid>) {
@@ -545,6 +548,35 @@ impl SyncTransport for FakeAuthority {
             .lock()
             .unwrap()
             .push((request.path.clone(), request.transfer_id));
+        let queued = {
+            let mut refusals = self.upload_refusals.lock().unwrap();
+            let queue = refusals.entry(request.path.clone()).or_default();
+            while queue
+                .front()
+                .is_some_and(|(_, _, remaining)| *remaining == 0)
+            {
+                queue.pop_front();
+            }
+            queue.front_mut().map(|(status, code, remaining)| {
+                *remaining -= 1;
+                (*status, code.clone())
+            })
+        };
+        if let Some((status, code)) = queued {
+            let Some(status) = status else {
+                return Err(MirrorError::new(code, "Fake transport failure."));
+            };
+            // A definite refusal is journaled under its transfer ID and
+            // replayed. An outage (5xx) or rate limit is modelled as failing
+            // before the journal, so the same ID succeeds after recovery.
+            if (400..500).contains(&status) && status != 429 {
+                self.refused_controls
+                    .lock()
+                    .unwrap()
+                    .insert(request.transfer_id, (status, code.clone()));
+            }
+            return Err(MirrorError::refused(status, code, "Fake refusal."));
+        }
         if let Some((status, code)) = self
             .refused_controls
             .lock()
@@ -557,23 +589,6 @@ impl SyncTransport for FakeAuthority {
                 code,
                 "Stored refusal replayed.",
             ));
-        }
-        if let Some((status, code, remaining)) = self
-            .upload_refusals
-            .lock()
-            .unwrap()
-            .get_mut(&request.path)
-            .filter(|(_, _, remaining)| *remaining > 0)
-        {
-            *remaining -= 1;
-            let Some(status) = *status else {
-                return Err(MirrorError::new(code.clone(), "Fake transport failure."));
-            };
-            self.refused_controls
-                .lock()
-                .unwrap()
-                .insert(request.transfer_id, (status, code.clone()));
-            return Err(MirrorError::refused(status, code.clone(), "Fake refusal."));
         }
         let bytes =
             fs::read(source).map_err(|error| MirrorError::io("Could not read", source, error))?;
@@ -1268,26 +1283,30 @@ async fn storage_quota_refusals_replan_until_space_frees_and_never_set_aside() {
 async fn persistent_refusal_sets_one_file_aside_and_keeps_syncing() {
     let (_temporary, mirror, authority) = image_mirror_with_three_new_files();
     let mirror = mirror.with_stuck_after(chrono::TimeDelta::zero());
-    authority.refuse_uploads(
-        "assets/b.png",
-        Some(500),
-        "provider_internal_error",
-        usize::MAX,
-    );
+    // The authority journals this refusal and replays it for the same ID.
+    authority.refuse_uploads("assets/b.png", Some(422), "unsupported_file_change", 1);
 
     for attempt in 1..STUCK_ATTEMPTS {
         let error = mirror.sync().await.unwrap_err();
-        assert_eq!(error.code, "provider_internal_error");
+        assert_eq!(error.code, "unsupported_file_change");
         let state = mirror.read_state().unwrap().unwrap();
         assert!(
             state.batch.is_some(),
             "a refusal below the threshold keeps the batch"
         );
         assert_eq!(state.stuck.as_ref().unwrap().attempts, attempt);
+        // An outage between refusals leaves the count as it was.
+        authority.refuse_uploads("assets/b.png", Some(503), "provider_unavailable", 1);
+        assert_eq!(
+            mirror.sync().await.unwrap_err().code,
+            "provider_unavailable"
+        );
+        let state = mirror.read_state().unwrap().unwrap();
+        assert_eq!(state.stuck.as_ref().unwrap().attempts, attempt);
     }
     // Retries resume the same batch, so they reuse the same transfer ID.
     let (attempts, _) = authority.uploads_of("assets/b.png");
-    assert_eq!(attempts.len(), STUCK_ATTEMPTS as usize - 1);
+    assert_eq!(attempts.len(), 2 * (STUCK_ATTEMPTS as usize - 1));
     assert!(attempts.iter().all(|id| *id == attempts[0]));
 
     let error = mirror.sync().await.unwrap_err();
@@ -1300,7 +1319,7 @@ async fn persistent_refusal_sets_one_file_aside_and_keeps_syncing() {
     assert!(applied.is_empty());
     assert_eq!(
         attempts.len(),
-        STUCK_ATTEMPTS as usize,
+        2 * (STUCK_ATTEMPTS as usize - 1) + 1,
         "set aside: no more attempts"
     );
     assert_eq!(fs::read(mirror.root().join("assets/b.png")).unwrap(), b"b");
@@ -1332,34 +1351,47 @@ async fn file_too_large_is_set_aside_without_blocking_other_files() {
 }
 
 #[tokio::test]
-async fn transport_failures_and_recent_refusals_keep_the_batch_and_its_ids() {
-    for status in [None, Some(503)] {
-        let (_temporary, mirror, authority) = image_mirror_with_three_new_files();
-        authority.refuse_uploads("assets/b.png", status, "provider_unavailable", usize::MAX);
-        for _ in 0..STUCK_ATTEMPTS + 2 {
-            assert_eq!(
-                mirror.sync().await.unwrap_err().code,
-                "provider_unavailable"
-            );
-        }
-        let state = mirror.read_state().unwrap().unwrap();
-        assert!(state.batch.is_some());
-        assert!(state.planned_conflicts.is_empty());
-        let (attempts, applied) = authority.uploads_of("assets/b.png");
-        assert!(applied.is_empty());
-        assert!(attempts.iter().all(|id| *id == attempts[0]));
-
-        if status.is_none() {
-            // The outcome was unknown, so recovery reuses the batch's ID.
-            authority.refuse_uploads("assets/b.png", None, "", 0);
-            mirror.sync().await.unwrap();
-            assert_uploaded_once(
-                &authority,
-                &["assets/a.png", "assets/b.png", "assets/c.png"],
-            );
-            assert_eq!(authority.uploads_of("assets/b.png").1[0], attempts[0]);
+async fn multi_hour_outage_never_sets_a_file_aside_and_recovers_with_the_same_id() {
+    let (_temporary, mirror, authority) = image_mirror_with_three_new_files();
+    // Both thresholds already hold for time; only definite refusals may count.
+    let mirror = mirror.with_stuck_after(chrono::TimeDelta::zero());
+    let outage = [
+        (Some(500), "provider_internal_error"),
+        (Some(502), "bad_gateway"),
+        (Some(503), "provider_unavailable"),
+        (Some(429), "rate_limited"),
+        (None, "mirror_transport_timeout"),
+    ];
+    for _ in 0..4 {
+        for (status, code) in outage {
+            authority.refuse_uploads("assets/b.png", status, code, 1);
         }
     }
+    for round in 0..4 * outage.len() {
+        let error = mirror.sync().await.unwrap_err();
+        assert_eq!(error.code, outage[round % outage.len()].1);
+        let state = mirror.read_state().unwrap().unwrap();
+        assert!(state.batch.is_some(), "an outage keeps the batch");
+        assert_eq!(state.stuck, None, "an outage never counts");
+        assert!(state.planned_conflicts.is_empty());
+    }
+
+    mirror.sync().await.unwrap();
+    assert_uploaded_once(
+        &authority,
+        &["assets/a.png", "assets/b.png", "assets/c.png"],
+    );
+    let (attempts, applied) = authority.uploads_of("assets/b.png");
+    assert_eq!(attempts.len(), 4 * outage.len() + 1);
+    assert!(attempts.iter().all(|id| *id == attempts[0]));
+    assert_eq!(
+        applied,
+        vec![attempts[0]],
+        "applied once, with the batch's ID"
+    );
+    let status = mirror.status().unwrap();
+    assert!(status.conflicts.is_empty());
+    assert_eq!(status.state, MirrorStatusState::UpToDate);
 }
 
 #[tokio::test]

@@ -499,16 +499,27 @@ export class PlanOnlySyncExecutor {
     if (file && QUOTA_CODES.includes(error.code)) {
       return new SyncError("sync_plan_stale", `The authority has no space for ${target.path} (${error.code}); planning again.`);
     }
-    const now = this.ports.runtime.now();
-    const previous = state.stuck;
-    const stuck = previous?.identity === target.identity && previous.code === error.code
-      ? { ...previous, attempts: previous.attempts + 1 }
-      : { identity: target.identity, code: error.code, attempts: 1, since: now };
-    const stuckFor = Date.parse(now) - Date.parse(stuck.since);
-    delete state.stuck;
     // A file over the per-file limit fails identically on every plan.
-    if ((file && error.code === "file_too_large")
-      || (stuck.attempts >= STUCK_ATTEMPTS && stuckFor >= STUCK_AFTER_MS)) {
+    const tooLarge = file && error.code === "file_too_large";
+    // Only a definite refusal (a 4xx other than a rate limit) counts towards
+    // setting an object aside. A 5xx or 429 says nothing about the object, so
+    // it leaves the count as it was: an outage of any length never sets
+    // anything aside, and outages mixed with refusals cannot trip sooner than
+    // the refusals alone, which still need both thresholds.
+    const refused = error.status >= 400 && error.status < 500 && error.status !== 429;
+    if (!tooLarge && !refused) return error;
+    let trip = tooLarge;
+    if (!tooLarge) {
+      const now = this.ports.runtime.now();
+      const previous = state.stuck;
+      const stuck = previous?.identity === target.identity && previous.code === error.code
+        ? { ...previous, attempts: previous.attempts + 1 }
+        : { identity: target.identity, code: error.code, attempts: 1, since: now };
+      trip = stuck.attempts >= STUCK_ATTEMPTS && Date.parse(now) - Date.parse(stuck.since) >= STUCK_AFTER_MS;
+      if (trip) delete state.stuck;
+      else state.stuck = stuck;
+    }
+    if (trip) {
       // Set the object aside as a rejected conflict. Its local bytes are
       // never touched; the user decides, and every other object syncs.
       state.planned_conflicts ??= {};
@@ -530,7 +541,6 @@ export class PlanOnlySyncExecutor {
         `${target.path} was set aside after the authority refused it (${error.code}): ${error.message}`
       );
     }
-    state.stuck = stuck;
     // Each of these says the plan no longer matches the authority (or the
     // upload's transfer can no longer commit). Its stored answer would be
     // replayed forever for the same ID, so plan again instead.

@@ -523,26 +523,45 @@ impl DirectoryMirror {
                 ),
             ));
         }
-        let now = Utc::now();
-        let stuck = match state.stuck.take() {
-            Some(mut stuck) if stuck.identity == target.identity && stuck.code == error.code => {
-                stuck.attempts += 1;
-                stuck
-            }
-            _ => StuckAction {
-                identity: target.identity.clone(),
-                code: error.code.clone(),
-                attempts: 1,
-                since: now.to_rfc3339(),
-            },
-        };
-        let stuck_for = chrono::DateTime::parse_from_rfc3339(&stuck.since)
-            .map(|since| now.signed_duration_since(since))
-            .unwrap_or_default();
         // A file over the per-file limit fails identically on every plan.
-        if (file && error.code == "file_too_large")
-            || (stuck.attempts >= STUCK_ATTEMPTS && stuck_for >= self.stuck_after)
-        {
+        let too_large = file && error.code == "file_too_large";
+        // Only a definite refusal (a 4xx other than a rate limit) counts towards
+        // setting an object aside. A 5xx or 429 says nothing about the object,
+        // so it leaves the count as it was: an outage of any length never sets
+        // anything aside, and outages mixed with refusals cannot trip sooner
+        // than the refusals alone, which still need both thresholds.
+        let refused = error
+            .status
+            .is_some_and(|status| (400..500).contains(&status) && status != 429);
+        if !too_large && !refused {
+            return Ok(error);
+        }
+        let trip = too_large || {
+            let now = Utc::now();
+            let stuck = match state.stuck.take() {
+                Some(mut stuck)
+                    if stuck.identity == target.identity && stuck.code == error.code =>
+                {
+                    stuck.attempts += 1;
+                    stuck
+                }
+                _ => StuckAction {
+                    identity: target.identity.clone(),
+                    code: error.code.clone(),
+                    attempts: 1,
+                    since: now.to_rfc3339(),
+                },
+            };
+            let stuck_for = chrono::DateTime::parse_from_rfc3339(&stuck.since)
+                .map(|since| now.signed_duration_since(since))
+                .unwrap_or_default();
+            let trip = stuck.attempts >= STUCK_ATTEMPTS && stuck_for >= self.stuck_after;
+            if !trip {
+                state.stuck = Some(stuck);
+            }
+            trip
+        };
+        if trip {
             // Set the object aside as a rejected conflict. Its local bytes are
             // never touched; the user decides, and every other object syncs.
             state.planned_conflicts.insert(
@@ -578,7 +597,6 @@ impl DirectoryMirror {
                 ),
             ));
         }
-        state.stuck = Some(stuck);
         // Each of these says the plan no longer matches the authority (or the
         // upload's transfer can no longer commit). Its stored answer would be
         // replayed forever for the same ID, so plan again instead.

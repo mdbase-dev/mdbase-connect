@@ -414,17 +414,20 @@ function record(recordId: string, path: string, body: string): SyncSnapshotRecor
 }
 
 /**
- * Refuses uploads of chosen paths like the hosted authority: an answer is
- * stored under its transfer ID and replayed for every retry of that ID. A
- * refusal without a status is a transport failure and stores nothing.
+ * Refuses uploads of chosen paths like the hosted authority: a definite
+ * refusal is stored under its transfer ID and replayed for every retry of
+ * that ID. A failure without a status is a transport failure.
  */
 class RefusingTransport extends FileTransport {
   readonly applied: Array<[path: string, transferId: string]> = [];
-  private readonly refusals = new Map<string, { code: string; status?: number; times: number }>();
+  private readonly refusals = new Map<string, Array<{ code: string; status?: number; times: number }>>();
   private readonly answers = new Map<string, SyncError>();
 
+  /** Queue `times` failures of uploads to `path`, after any already queued. */
   refuse(path: string, code: string, times: number, status?: number): void {
-    this.refusals.set(path, { code, times, ...(status === undefined ? {} : { status }) });
+    const queue = this.refusals.get(path) ?? [];
+    queue.push({ code, times, ...(status === undefined ? {} : { status }) });
+    this.refusals.set(path, queue);
   }
 
   attempts(path: string): string[] {
@@ -432,18 +435,25 @@ class RefusingTransport extends FileTransport {
   }
 
   override async uploadFile(request: OpenFileUploadRequest, source: AsyncIterable<Uint8Array>) {
-    const refusal = this.refusals.get(request.path);
-    const answer = this.answers.get(request.transfer_id);
-    if (answer || refusal && refusal.times > 0) {
+    const queue = this.refusals.get(request.path) ?? [];
+    while (queue[0]?.times === 0) queue.shift();
+    const refusal = queue[0];
+    if (refusal) {
       this.uploadCalls.push(structuredClone(request));
-      if (answer) throw answer;
-      refusal!.times -= 1;
-      if (refusal!.status === undefined) {
-        throw Object.assign(new Error("connection reset"), { code: "sync_transport_failed" });
+      refusal.times -= 1;
+      if (refusal.status === undefined) {
+        throw Object.assign(new Error("connection reset"), { code: refusal.code });
       }
-      const error = new SyncError(refusal!.code, `${request.path} refused`, refusal!.status);
-      this.answers.set(request.transfer_id, error);
+      const error = new SyncError(refusal.code, `${request.path} refused`, refusal.status);
+      // An outage (5xx) or rate limit fails before the journal, so the same
+      // ID succeeds after recovery.
+      if (refusal.status < 500 && refusal.status !== 429) this.answers.set(request.transfer_id, error);
       throw error;
+    }
+    const answer = this.answers.get(request.transfer_id);
+    if (answer) {
+      this.uploadCalls.push(structuredClone(request));
+      throw answer;
     }
     const before = this.events.length;
     const receipt = await super.uploadFile(request, source);
@@ -1558,14 +1568,18 @@ describe("portable collection file mirror", () => {
 
   it("sets a persistently refused file aside only when repeated and old, and keeps syncing the rest", async () => {
     const { transport, fileSystem, stateStore, clock, target } = refusalFixture();
-    transport.refuse("assets/b.png", "provider_internal_error", 1, 500);
+    // The authority journals this refusal and replays it for the same ID.
+    transport.refuse("assets/b.png", "unsupported_file_change", 1, 422);
 
     for (let attempt = 1; attempt <= 10; attempt += 1) {
       if (attempt === 10) clock.now += 59 * 60 * 1000;
       expect((await target.sync()).status).toBe("failed");
-      const state = (await stateStore.read())!;
-      expect(state.batch?.phase).toBe("blocked");
-      expect(state.stuck).toMatchObject({ code: "provider_internal_error", attempts: attempt });
+      expect((await stateStore.read())!.batch?.phase).toBe("blocked");
+      expect((await stateStore.read())!.stuck).toMatchObject({ code: "unsupported_file_change", attempts: attempt });
+      // An outage between refusals leaves the count as it was.
+      transport.refuse("assets/b.png", "provider_unavailable", 1, 503);
+      expect(await target.sync()).toMatchObject({ status: "failed", failure: { code: "provider_unavailable" } });
+      expect((await stateStore.read())!.stuck).toMatchObject({ attempts: attempt });
     }
     expect(new Set(transport.attempts("assets/b.png")).size).toBe(1);
 
@@ -1575,7 +1589,7 @@ describe("portable collection file mirror", () => {
     expect((await target.sync()).status).toBe("attention");
 
     expectUploadedOnce(transport, ["assets/a.png", "assets/c.png"]);
-    expect(transport.attempts("assets/b.png")).toHaveLength(11);
+    expect(transport.attempts("assets/b.png")).toHaveLength(21);
     expect(fileSystem.files.get("assets/b.png")).toEqual(utf8.encode("local b"));
     expect(await target.status()).toMatchObject({
       state: "attention",
@@ -1583,6 +1597,39 @@ describe("portable collection file mirror", () => {
     });
     expect((await target.status()).conflicts).toHaveLength(1);
     expect((await stateStore.read())!.stuck).toBeUndefined();
+  });
+
+  it("never sets a file aside during a multi-hour outage and recovers with the same ID", async () => {
+    const { transport, stateStore, clock, target } = refusalFixture();
+    const outage: Array<[string, number | undefined]> = [
+      ["provider_internal_error", 500],
+      ["bad_gateway", 502],
+      ["provider_unavailable", 503],
+      ["rate_limited", 429],
+      ["sync_transport_failed", undefined]
+    ];
+    for (let round = 0; round < 4; round += 1) {
+      for (const [code, status] of outage) transport.refuse("assets/b.png", code, 1, status);
+    }
+    for (let attempt = 0; attempt < 4 * outage.length; attempt += 1) {
+      clock.now += 20 * 60 * 1000;
+      expect(await target.sync()).toMatchObject({
+        status: "failed",
+        failure: { code: outage[attempt % outage.length]![0] }
+      });
+      const state = (await stateStore.read())!;
+      expect(state.batch?.phase).toBe("blocked");
+      expect(state.stuck).toBeUndefined();
+      expect(state.planned_conflicts ?? {}).toEqual({});
+    }
+
+    expect((await target.sync()).status).toBe("applied");
+    expectUploadedOnce(transport, ["assets/a.png", "assets/b.png", "assets/c.png"]);
+    const attempts = transport.attempts("assets/b.png");
+    expect(attempts).toHaveLength(4 * outage.length + 1);
+    expect(new Set(attempts).size).toBe(1);
+    expect(transport.applied.find(([path]) => path === "assets/b.png")![1]).toBe(attempts[0]);
+    expect(await target.status()).toMatchObject({ state: "up_to_date", conflicts: [] });
   });
 
   it("re-plans storage quota refusals until space frees and never sets the file aside", async () => {
@@ -1613,26 +1660,6 @@ describe("portable collection file mirror", () => {
     expect(fileSystem.files.get("assets/b.png")).toEqual(utf8.encode("local b"));
     expect((await target.status()).conflicts).toMatchObject([{ path: "assets/b.png", kind: "rejected" }]);
   });
-
-  it.each([undefined, 503])(
-    "keeps the batch and its IDs after transport failures and recent refusals (status %s)",
-    async (status) => {
-      const { transport, stateStore, target } = refusalFixture();
-      transport.refuse("assets/b.png", "provider_unavailable", 12, status);
-
-      for (let attempt = 0; attempt < 12; attempt += 1) {
-        expect((await target.sync()).status).toBe("failed");
-        expect((await stateStore.read())!.batch?.phase).toBe("blocked");
-      }
-      expect(new Set(transport.attempts("assets/b.png")).size).toBe(1);
-      expect((await target.status()).conflicts).toEqual([]);
-      if (status !== undefined) return;
-      expect((await stateStore.read())!.stuck).toBeUndefined();
-      expect((await target.sync()).status).toBe("applied");
-      expectUploadedOnce(transport, ["assets/a.png", "assets/b.png", "assets/c.png"]);
-      expect(new Set(transport.attempts("assets/b.png")).size).toBe(1);
-    }
-  );
 
   it("retains a stale writable file mutation and the user's bytes for resolution", async () => {
     const transport = new FileTransport();
