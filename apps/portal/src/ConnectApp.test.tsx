@@ -395,6 +395,30 @@ describe("ConnectApp", () => {
     expect(collections.queryByText(/Markdown ·/)).not.toBeInTheDocument();
   });
 
+  it("shows a signup's storage trial, when it ends, and the storage it drops to", async () => {
+    const account = accountFixture();
+    account.backend = "next";
+    account.storage.collections = [];
+    overview.subscription = {
+      ...overview.subscription!,
+      kind: "entitled",
+      profiles: ["free_v1", "trial_v1"],
+      limits: { ...overview.subscription!.limits, hosted_storage_bytes: 5 * 1024 ** 3 },
+      native_storage_bytes: 300 * 1024 * 1024,
+      trial: { ends_at: "2026-12-07T09:30:00.000Z", hosted_storage_bytes_after: 250 * 1024 * 1024 }
+    };
+    const client = new ConnectManagementClient(location.origin);
+    vi.spyOn(client, "account").mockResolvedValue(account);
+    render(<AccountManagement client={client} overview={overview} onOverviewRefresh={async () => {}} onSignedOut={() => {}} onDeleted={() => {}} />);
+    const heading = await screen.findByRole("heading", { name: "Collections" });
+    const collections = within(heading.closest("section")!);
+    expect(collections.getByText("Storage trial")).toBeInTheDocument();
+    expect(collections.getByText("Ends Dec 7, 2026").closest("time")).toHaveAttribute("dateTime", "2026-12-07T09:30:00.000Z");
+    expect(collections.getByText("300 MB of 5 GB")).toBeInTheDocument();
+    expect(collections.getByText("On Dec 7, 2026, storage drops to 250 MB. Files you've already uploaded are kept. If they're over the limit, new uploads pause.")).toBeInTheDocument();
+    expect(collections.queryByText("Permanent allowance")).not.toBeInTheDocument();
+  });
+
   it("counts native collections without legacy shadow rows or content authorization", async () => {
     overview.collections = [];
     overview.hosted_collections = [];

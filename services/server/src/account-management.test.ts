@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { deleteAccountLocally } from "./account-management.js";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
+import { materializePublicSignupEntitlement } from "./entitlements.js";
 import { hashPassword } from "./password.js";
 import { randomToken, tokenHash } from "./security.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
@@ -587,6 +588,38 @@ describe("account management", () => {
 });
 
 describe("email preferences", () => {
+  it("reports a signup's storage trial and the free storage it falls back to", async () => {
+    const { app, db } = await fixture();
+    const account = await seedSession(db);
+    const { trialEndsAt } = await materializePublicSignupEntitlement(db, account.userId);
+    const me = async () => (await app.inject({
+      method: "GET",
+      url: "/v1/me",
+      headers: { cookie: account.cookie }
+    })).json().subscription;
+
+    expect(await me()).toMatchObject({
+      profiles: ["free_v1", "trial_v1"],
+      limits: { hosted_storage_bytes: 5_368_709_120, max_hosted_collections: 1 },
+      trial: {
+        ends_at: trialEndsAt.toISOString(),
+        hosted_storage_bytes_after: 262_144_000
+      }
+    });
+
+    await db.query(
+      `UPDATE account_entitlement_grants
+       SET starts_at = now() - interval '31 days', ends_at = now() - interval '1 day'
+       WHERE user_id = $1 AND profile_code = 'trial_v1'`,
+      [account.userId]
+    );
+    expect(await me()).toMatchObject({
+      profiles: ["free_v1"],
+      limits: { hosted_storage_bytes: 262_144_000 },
+      trial: null
+    });
+  });
+
   it("reports defaults and changes only the preferences given", async () => {
     const { app, db } = await fixture();
     const account = await seedSession(db);

@@ -308,6 +308,10 @@ export function registerAccountOverviewRoute(
           retained_file_bytes: hostedUsage.retained_file_bytes
         } : null,
         native_storage_bytes: nativeStorageBytes,
+        trial: entitlement.trial ? {
+          ends_at: entitlement.trial.endsAt.toISOString(),
+          hosted_storage_bytes_after: entitlement.trial.hostedStorageBytesAfter
+        } : null,
         reconciliation: storageAccount.rows[0] ? {
           entitlement_revision: Number(storageAccount.rows[0].entitlement_revision),
           provider_revision: Number(storageAccount.rows[0].provider_revision)

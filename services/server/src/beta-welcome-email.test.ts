@@ -63,6 +63,42 @@ describe("Beta welcome email", () => {
     })).toEqual(message);
   });
 
+  it("describes the free plan and storage trial to new signups", () => {
+    const message = renderScheduledEmail({
+      userId: "user-1",
+      name: "Person Example",
+      email: "person@example.com",
+      messageKind: "signup_welcome",
+      templateVersion: 1,
+      unsubscribeUrl: null
+    });
+    expect(message.text).toContain("Free plan");
+    expect(message.text).toContain("250 MB");
+    expect(message.text).toContain("5 GB storage trial");
+    expect(message.text).not.toContain("does not expire");
+  });
+
+  it.each([
+    ["storage_trial_ending", "Your mdbase Connect storage trial ends in 7 days"],
+    ["storage_trial_ended", "Your mdbase Connect storage trial has ended"]
+  ])("renders the %s notice with the free allowance and kept files", (messageKind, subject) => {
+    const unsubscribeUrl = "https://connect.example/unsubscribe#unsubscribe=uns_a";
+    const message = renderScheduledEmail({
+      userId: "user-1",
+      name: "Person Example",
+      email: "person@example.com",
+      messageKind,
+      templateVersion: 1,
+      unsubscribeUrl
+    });
+    expect(message.subject).toBe(subject);
+    expect(message.html).toContain(`<title>${subject}</title>`);
+    expect(message.text).toContain("250 MB");
+    expect(message.text).toContain("Your existing files are kept, and nothing is deleted.");
+    expect(message.text).toContain("new uploads will pause");
+    expect(message.text.endsWith(unsubscribeUrl)).toBe(true);
+  });
+
   it("escapes recipient names in the matching HTML version", () => {
     const message = renderBetaWelcomeEmail({
       name: "<Person & Friend>",

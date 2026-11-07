@@ -34,12 +34,14 @@ describe("external public signup", () => {
     expect(complete.statusCode).toBe(200);
     expect(complete.json().redirect_to).toBe("/authorize/transaction?request=one");
     expect(cookies(complete).some((cookie) => cookie.startsWith("__Host-mdbase_session="))).toBe(true);
-    const rows = await f.db.query(`SELECT email.verified_at, entitlement.profile_code, onboarding.timezone, job.message_kind
-      FROM email_identities email JOIN account_entitlement_grants entitlement ON entitlement.user_id = email.user_id
-      JOIN account_onboarding onboarding ON onboarding.user_id = email.user_id
-      JOIN email_jobs job ON job.user_id = email.user_id`);
-    expect(rows.rows).toEqual([expect.objectContaining({ profile_code: "open_beta_v1", timezone: "Australia/Melbourne", message_kind: "open_beta_welcome" })]);
+    const rows = await f.db.query(`SELECT email.verified_at, onboarding.timezone
+      FROM email_identities email JOIN account_onboarding onboarding ON onboarding.user_id = email.user_id`);
+    expect(rows.rows).toEqual([expect.objectContaining({ timezone: "Australia/Melbourne" })]);
     expect(rows.rows[0].verified_at).not.toBeNull();
+    expect((await f.db.query("SELECT profile_code FROM account_entitlement_grants ORDER BY profile_code")).rows)
+      .toEqual([{ profile_code: "free_v1" }, { profile_code: "trial_v1" }]);
+    expect((await f.db.query("SELECT message_kind FROM email_jobs ORDER BY scheduled_for")).rows)
+      .toEqual([{ message_kind: "signup_welcome" }, { message_kind: "storage_trial_ending" }, { message_kind: "storage_trial_ended" }]);
     expect((await f.db.query("SELECT document, acceptance_method FROM account_agreements ORDER BY document")).rows).toEqual([
       { document: "privacy", acceptance_method: "external_identity" },
       { document: "terms", acceptance_method: "external_identity" }
@@ -166,8 +168,8 @@ describe("external public signup", () => {
     expect((await f.complete(first.cookie)).statusCode).toBe(200);
     expect((await f.complete(second.cookie)).statusCode).toBe(200);
     expect((await f.db.query("SELECT id FROM users")).rows).toHaveLength(1);
-    expect((await f.db.query("SELECT id FROM account_entitlement_grants")).rows).toHaveLength(1);
-    expect((await f.db.query("SELECT id FROM email_jobs")).rows).toHaveLength(1);
+    expect((await f.db.query("SELECT id FROM account_entitlement_grants")).rows).toHaveLength(2);
+    expect((await f.db.query("SELECT id FROM email_jobs")).rows).toHaveLength(3);
   });
 
   it("fails closed without the shared limiter or runtime legal documents", async () => {

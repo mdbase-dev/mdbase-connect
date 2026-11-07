@@ -54,32 +54,66 @@ describe("public password signup", () => {
     const materialized = await db.query<{
       verified_at: Date;
       provider: string;
-      profile_code: string;
-      source_reference: string;
       timezone: string;
-      message_kind: string;
-      template_version: number;
     }>(
-      `SELECT identity.verified_at, session.provider, entitlement.profile_code,
-              entitlement.source_reference, onboarding.timezone,
-              email_job.message_kind, email_job.template_version
+      `SELECT identity.verified_at, session.provider, onboarding.timezone
        FROM email_identities identity
        JOIN sessions session ON session.user_id = identity.user_id
-       JOIN account_entitlement_grants entitlement
-         ON entitlement.user_id = identity.user_id
        JOIN account_onboarding onboarding ON onboarding.user_id = identity.user_id
-       JOIN email_jobs email_job ON email_job.user_id = identity.user_id
        WHERE identity.user_id = $1`,
       [account.user.id]
     );
     expect(materialized.rows[0]).toMatchObject({
       provider: "password",
-      profile_code: "open_beta_v1",
-      source_reference: "public_signup_v1",
-      timezone: "Australia/Melbourne",
-      message_kind: "open_beta_welcome",
-      template_version: 1
+      timezone: "Australia/Melbourne"
     });
+    const grants = await db.query<{
+      profile_code: string;
+      source_reference: string;
+      ends_at: Date | null;
+      created_at: Date;
+    }>(
+      `SELECT profile_code, source_reference, ends_at, created_at
+       FROM account_entitlement_grants WHERE user_id = $1 ORDER BY profile_code`,
+      [account.user.id]
+    );
+    expect(grants.rows).toMatchObject([
+      { profile_code: "free_v1", source_reference: "public_signup_v2", ends_at: null },
+      { profile_code: "trial_v1", source_reference: "public_signup_trial_v1" }
+    ]);
+    const trialEndsAt = grants.rows[1]!.ends_at!;
+    expect(Math.abs(
+      trialEndsAt.getTime() - grants.rows[1]!.created_at.getTime() - 30 * 86_400_000
+    )).toBeLessThan(1_000);
+    const jobs = await db.query<{
+      message_kind: string;
+      template_version: number;
+      category: string;
+      deduplication_key: string;
+      scheduled_for: Date;
+    }>(
+      `SELECT message_kind, template_version, category, deduplication_key,
+              scheduled_for
+       FROM email_jobs WHERE user_id = $1 ORDER BY scheduled_for`,
+      [account.user.id]
+    );
+    expect(jobs.rows).toEqual([
+      expect.objectContaining({ message_kind: "signup_welcome", template_version: 1, category: "onboarding" }),
+      {
+        message_kind: "storage_trial_ending",
+        template_version: 1,
+        category: "onboarding",
+        deduplication_key: `storage_trial_ending:${account.user.id}`,
+        scheduled_for: new Date(trialEndsAt.getTime() - 7 * 86_400_000)
+      },
+      {
+        message_kind: "storage_trial_ended",
+        template_version: 1,
+        category: "onboarding",
+        deduplication_key: `storage_trial_ended:${account.user.id}`,
+        scheduled_for: trialEndsAt
+      }
+    ]);
     expect(materialized.rows[0]?.verified_at).toBeInstanceOf(Date);
     const agreements = await db.query<{
       document: string;
