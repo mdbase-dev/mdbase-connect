@@ -227,8 +227,7 @@ pub struct HostedProvider {
     notification_recovery_guard: Arc<Mutex<()>>,
     notification_recovery: Arc<RwLock<NotificationRecoveryStatus>>,
     projection_recovery_guard: Arc<Mutex<()>>,
-    /// Abandon sweep keyset position (accepted_at, replica_id, request_id).
-    mutation_sweep_cursor: Arc<Mutex<Option<(DateTime<Utc>, Uuid, Uuid)>>>,
+    mutation_sweep_cursor: Arc<Mutex<Option<MutationSweepKey>>>,
     blob_store: Arc<dyn BlobStore>,
     query_activity: Arc<HostedQueryActivityCounters>,
     query_scan_permits: Arc<Semaphore>,
@@ -806,6 +805,8 @@ impl AuthorizedRequest {
 }
 
 type PersistedRecord = SyncRecord;
+/// Abandon sweep keyset position: (accepted_at, replica_id, request_id).
+type MutationSweepKey = (DateTime<Utc>, Uuid, Uuid);
 
 fn verify_hosted_record_change_set(
     actual: &mdbase::runtime::ChangeSet,
