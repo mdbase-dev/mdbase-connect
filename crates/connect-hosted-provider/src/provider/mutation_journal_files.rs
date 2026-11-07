@@ -73,16 +73,31 @@ impl HostedProvider {
         // transfer/mutation identity. Re-executing after journal takeover
         // resumes that lifecycle or replays its receipt; it never starts a
         // second logical effect.
-        let result = execute().await;
-        let stored_result = match &result {
-            Ok(value) => serde_json::to_value(value).map_err(|error| {
-                ApiError::internal(format!("File control result could not serialize: {error}"))
-            }),
-            Err(error) => Err(error.clone()),
+        //
+        // Only a success is stored as the final receipt. An error (a refusal
+        // such as `stale_file_revision`, a quota, a timeout, a lost connection,
+        // a failed object copy) releases the lease instead, as on the sync
+        // path: the client gets the same error now, and its next retry with
+        // the same ID takes the row over and runs the control again against
+        // the current state. A stored error would be replayed forever to
+        // mirrors, which keep their batch and its ID after 5xx and 429.
+        let value = execute().await.and_then(|result| {
+            serde_json::to_value(&result)
+                .map(|value| (result, value))
+                .map_err(|error| {
+                    ApiError::internal(format!("File control result could not serialize: {error}"))
+                })
+        });
+        let (result, value) = match value {
+            Ok(pair) => pair,
+            Err(error) => {
+                self.release_operation_mutation(&lease).await;
+                return Err(error);
+            }
         };
-        self.complete_operation_mutation(collection_id, &lease, &stored_result)
+        self.complete_operation_mutation(collection_id, &lease, &Ok(value))
             .await?;
-        result
+        Ok(result)
     }
 }
 
