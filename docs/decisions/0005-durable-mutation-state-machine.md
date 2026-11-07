@@ -167,6 +167,12 @@ request is never retried. `prepared -> abandoned` is legal on these terms:
   a newer timer change, so a takeover abandons them instead of re-running them.
   A `cancel_timer` with `generation` cannot remove a newer timer and is still
   taken over and re-run.
+- File control kinds (`file_control:*`) are not abandoned. Their claim writes
+  `prepared`, and their effect then commits separately, in the file lifecycle's
+  own transactions and in object storage, so a `prepared` row proves nothing; a
+  retry with the same request id resumes or replays them. This decision covers
+  record and timer kinds only. If file control rows ever pile up, they need
+  their own decision.
 
 The abandoned receipt is a final failure with code `mutation_abandoned` and
 details `request_id` and `application`. `application` is `not_applied` for the
@@ -190,11 +196,6 @@ without `generation`. The journal does not record `generation`, but a request
 whose lease expired more than a day ago is not a live retry, so it is abandoned
 by this decision like `put_timer` and `reconcile_timers`. The narrower takeover
 rule above still applies to live retries.
-
-File control kinds (`file_control:*`) are not swept. Their claim writes
-`prepared`, and their effect then runs in the file lifecycle's own transactions
-and in object storage before the row moves to `completed`, so a `prepared` row
-does not prove non-application. A takeover resumes their keyed inner lifecycle.
 
 ### The only valid unknown outcome
 
