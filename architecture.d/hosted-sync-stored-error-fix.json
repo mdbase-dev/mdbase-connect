@@ -1,0 +1,6 @@
+{
+  "reason": "A failed hosted sync mutation releases its journal lease instead of storing the error as its final receipt, and failures stored that way by earlier releases reopen on retry. The provider gains the lease release and reopen predicate, and hosted diagnostics gains one public count of stored sync failures.",
+  "growth": {
+    "rustPublicDeclarations": 3
+  }
+}

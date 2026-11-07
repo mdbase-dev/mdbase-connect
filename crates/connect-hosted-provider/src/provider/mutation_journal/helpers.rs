@@ -37,3 +37,28 @@ fn mutation_fence_lost(request_id: Uuid) -> ApiError {
     )
     .with_details(json!({ "request_id": request_id }))
 }
+
+/// Reopen a stored sync failure so the claim takes it over like any expired
+/// lease. A row without evidence never committed an effect (the effect and its
+/// evidence commit together), so it re-runs as `prepared`. A row with evidence
+/// committed and then had an error stored over it, so it replays as `applied`.
+async fn reopen_stored_sync_failure_in(
+    transaction: &mut Transaction<'_, Postgres>,
+    replica_id: Uuid,
+    request_id: Uuid,
+) -> ApiResult<String> {
+    sqlx::query_scalar(
+        r#"UPDATE hosted_provider_mutation_journal
+           SET state = CASE WHEN evidence_kind IS NULL THEN 'prepared' ELSE 'applied' END,
+               final_receipt_ciphertext = NULL, receipt_digest = NULL,
+               completed_at = NULL, lease_expires_at = now(), updated_at = now()
+           WHERE replica_id = $1 AND request_id = $2
+             AND operation_kind = 'sync:mutate' AND state = 'completed'
+           RETURNING state"#,
+    )
+    .bind(replica_id)
+    .bind(request_id)
+    .fetch_optional(&mut **transaction)
+    .await?
+    .ok_or_else(|| mutation_fence_lost(request_id))
+}

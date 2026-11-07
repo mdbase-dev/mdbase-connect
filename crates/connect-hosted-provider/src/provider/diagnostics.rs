@@ -40,6 +40,7 @@ impl HostedProvider {
             storage: section!(self.storage_diagnostic()),
             recent_resource_changes: section!(self.recent_resource_changes_diagnostic()),
             lifecycle_work,
+            stored_sync_failures: section!(self.stored_sync_failures_diagnostic()),
             unfinished_mutations: section!(self.unfinished_mutations_diagnostic()),
         }
     }
@@ -365,6 +366,26 @@ impl HostedProvider {
                 })
             })
             .collect()
+    }
+
+    /// Sync mutations whose final receipt is a stored error rather than a
+    /// result: completed with no evidence, so their transaction never
+    /// committed. Current code no longer stores these; older rows reopen on
+    /// their next retry. A count only. The receipt's status is encrypted, so
+    /// this cannot split by status class without decrypting each row.
+    /// Version 0 rows are migrated legacy receipts, which also carry no
+    /// evidence, so they are excluded.
+    async fn stored_sync_failures_diagnostic(&self) -> ApiResult<u64> {
+        let mut transaction = self.read_only_diagnostic_transaction().await?;
+        let total: i64 = sqlx::query_scalar(
+            r#"SELECT count(*) FROM hosted_provider_mutation_journal
+               WHERE operation_kind = 'sync:mutate' AND fingerprint_schema_version = 1
+                 AND state = 'completed' AND evidence_kind IS NULL"#,
+        )
+        .fetch_one(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        number(total, "stored sync failure count")
     }
 
     async fn recent_resource_changes_diagnostic(&self) -> ApiResult<Vec<ResourceChangeDiagnostic>> {

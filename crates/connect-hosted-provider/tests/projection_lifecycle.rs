@@ -3843,7 +3843,9 @@ async fn candidate_b_sync_mutation_rechecks_revocation_at_commit() {
     .fetch_one(&fixture.pool)
     .await
     .unwrap();
-    assert_eq!(journal_state, "completed");
+    // Not a final answer: the lease is released and a retry with a
+    // valid credential runs the mutation again.
+    assert_eq!(journal_state, "prepared");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -3928,7 +3930,9 @@ async fn candidate_b_sync_mutation_rechecks_token_rotation_at_commit() {
     .fetch_one(&fixture.pool)
     .await
     .unwrap();
-    assert_eq!(journal_state, "completed");
+    // Not a final answer: the lease is released and a retry with a
+    // valid credential runs the mutation again.
+    assert_eq!(journal_state, "prepared");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

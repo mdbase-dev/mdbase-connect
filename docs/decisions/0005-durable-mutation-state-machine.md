@@ -224,6 +224,17 @@ missing response do not by themselves satisfy these conditions. `unknown` is a
 durable journal state with a stable recovery handle and diagnostics; it is never
 rewritten to `rejected` merely because the original owner disappeared.
 
+The hosted sync path (`sync:mutate`) stores every deterministic refusal as a
+receipt inside its own transaction. Any other error from that transaction is
+not a final answer: the owner releases its lease, fenced on its owner and
+generation, and returns the error without a receipt, so the next identical
+retry takes the row over. Earlier releases stored such errors as `completed`
+failures. A retry that finds one with status 5xx, 401, 404 or 429 reopens the
+row, as `prepared` when it has no evidence (the effect and its evidence commit
+together, so nothing applied) or as `applied` when it has, and recovers it as a
+takeover. This is the only transition out of `completed`; 400 and 403 failures
+were deterministic for that mutation and stay final.
+
 ### Replay after grant revocation
 
 Revocation prevents new claims and prevents a prepared request from performing

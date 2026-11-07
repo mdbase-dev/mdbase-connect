@@ -99,17 +99,29 @@ impl HostedProvider {
             }
             Err(error) => Err(error),
         };
-        let value_result = result
-            .as_ref()
-            .map_err(|error| ApiError::new(error.status, error.code.clone(), error.message.clone()))
-            .and_then(|receipt| {
-                serde_json::to_value(receipt).map_err(|error| {
+        // Every deterministic refusal is already a stored receipt. An error
+        // here (timeout, deadlock, lost connection, quota trigger, a token or
+        // collection that changed mid-request) is not a final answer, and a
+        // stored one would be replayed to the client forever. Release the lease
+        // instead: the next attempt takes the row over, re-running a `prepared`
+        // row or replaying an `applied` one.
+        let value = result.and_then(|receipt| {
+            serde_json::to_value(&receipt)
+                .map(|value| (receipt, value))
+                .map_err(|error| {
                     ApiError::internal(format!("Sync receipt could not serialize: {error}"))
                 })
-            });
-        self.complete_operation_mutation(collection_id, &lease, &value_result)
+        });
+        let (receipt, value) = match value {
+            Ok(pair) => pair,
+            Err(error) => {
+                self.release_operation_mutation(&lease).await;
+                return Err(error);
+            }
+        };
+        self.complete_operation_mutation(collection_id, &lease, &Ok(value))
             .await?;
-        result
+        Ok(receipt)
     }
 
     pub(super) async fn mutate_for(
