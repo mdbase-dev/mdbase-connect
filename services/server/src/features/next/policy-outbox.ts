@@ -13,7 +13,7 @@ import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import { effectiveEntitlement, HostedEntitlementRequiredError } from "../../entitlements.js";
 import { isLogRegion, LogServiceError, type LogPlacement, type LogRegion, LogServiceClient } from "./log-service-client.js";
 import { signPolicyItem, type PolicyOp, type PolicySigner } from "./policy-wire.js";
-import { recoverLostPolicy, verifyPolicyTip, withPolicyLock, type PolicyLock } from "./policy-recovery.js";
+import { policyTipIntact, recoverLostPolicy, verifyPolicyTip, withPolicyLock, type PolicyLock } from "./policy-recovery.js";
 import { DEFAULT_COLLECTION_DISPLAY_NAME } from "./collection-display-name.js";
 
 const OUTBOX_FORMAT = 1;
@@ -210,7 +210,8 @@ const HISTORY_PROBES_PER_POLL = 1;
 type VerificationCursor = { after: string; through?: string };
 
 /** Counts only: collections inside the tip window, and the probes made since the previous sweep. */
-export interface PolicyVerificationSweep { recentCollections: number; tipProbes: number; historyProbes: number }
+/** Counts since the previous sweep; `tipBacklog` is the tip checks still queued when the new sweep is seeded. */
+export interface PolicyVerificationSweep { recentCollections: number; tipProbes: number; historyProbes: number; tipBacklog: number }
 
 export class PolicyEmitter {
   private timer: NodeJS.Timeout | undefined;
@@ -361,7 +362,7 @@ export class PolicyEmitter {
         `SELECT collection_id FROM next_policy_batches WHERE state = 'appended' AND lost_at IS NULL
          GROUP BY collection_id HAVING max(appended_at) >= now() - interval '7 days' OR count(appended_at) < count(*)`
       );
-      this.onVerificationSweep({ recentCollections: recent.rows.length, tipProbes: this.tipProbes, historyProbes: this.historyProbes });
+      this.onVerificationSweep({ recentCollections: recent.rows.length, tipProbes: this.tipProbes, historyProbes: this.historyProbes, tipBacklog: this.tipQueue.size });
       this.tipProbes = 0;
       this.historyProbes = 0;
       for (const { collection_id: id } of recent.rows) {
@@ -379,19 +380,20 @@ export class PolicyEmitter {
     }
   }
 
-  /** Known loss first (it blocks the collection's fresh delivery), then recent
-   * tips, then at most the poll's share of healthy history. */
+  /** Known loss first (it blocks the collection's fresh delivery), then the
+   * poll's share of healthy history, so a tip backlog cannot starve it, then
+   * recent tips. */
   private nextProbe(failed: Set<string>, history: boolean): [string, VerificationCursor | undefined | "tip"] | undefined {
     for (const [id, cursor] of this.verificationQueue) {
       if (cursor === undefined && !failed.has(id)) { this.verificationQueue.delete(id); return [id, undefined]; }
     }
-    for (const id of this.tipQueue) {
-      if (!failed.has(id)) { this.tipQueue.delete(id); return [id, "tip"]; }
-    }
     if (history) {
       for (const [id, cursor] of this.verificationQueue) {
-        if (!failed.has(id)) { this.verificationQueue.delete(id); return [id, cursor]; }
+        if (cursor !== undefined && !failed.has(id)) { this.verificationQueue.delete(id); return [id, cursor]; }
       }
+    }
+    for (const id of this.tipQueue) {
+      if (!failed.has(id)) { this.tipQueue.delete(id); return [id, "tip"]; }
     }
     return undefined;
   }
@@ -533,6 +535,13 @@ export class PolicyEmitter {
     if (!preview.length) return "idle";
     const genesis = deserializeOps(preview[0]!.ops)[0]?.op === "genesis";
     const head = genesis ? { seq: 0, chain: ZERO_CHAIN } : await this.log.head(collectionId);
+    if (!genesis && !await policyTipIntact(lock, this.log, collectionId)) {
+      // A new batch at a rolled-back head would become the tip and hide the
+      // loss from tip checks. Recover first; the verification loop runs it
+      // in this poll, before any fresh delivery for this collection.
+      this.verificationQueue.set(collectionId, undefined);
+      return "blocked";
+    }
 
     await lock.query("BEGIN");
     try {

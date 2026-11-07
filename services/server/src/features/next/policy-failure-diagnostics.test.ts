@@ -76,6 +76,8 @@ describe("policy failure attribution", () => {
     const db = { query: vi.fn(async (sql: string) => ({ rows: sql.includes("SELECT DISTINCT") ? [{ collection_id: collection }] : [] })),
       connect: async () => ({ release, query: async (sql: string) => ({ rows:
         sql.includes("pg_locks") ? [{ owned: true }] : sql.includes("pg_advisory_unlock") ? [{ unlocked: true }]
+          // One acknowledged batch, so the history probe makes its exact read.
+          : sql.includes("MAX(id)") ? [{ id: "1" }] : sql.includes("SELECT id, seq, item") ? [{ id: "1", seq: "1", item: Buffer.of(1) }]
           : sql.includes("next_collections") ? [{ collection_id: collection }] : [] }) }) } as unknown as DatabasePool;
     const emitter = new PolicyEmitter(db, log, {} as PolicySigner, report);
     try {
