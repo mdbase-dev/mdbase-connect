@@ -26,6 +26,83 @@ async function openRowMenu(name = /Garden notes 2/) {
 }
 
 describe("Note actions", () => {
+  it("keeps a newer Pin Undo when an earlier note restore completes", async () => {
+    const gateway = new DemoCollectionGateway(4);
+    const restore = gateway.restore.bind(gateway);
+    let releaseRestore!: () => void;
+    const held = new Promise<void>((resolve) => { releaseRestore = resolve; });
+    const restoring = vi.spyOn(gateway, "restore").mockImplementation(async (document) => {
+      await held;
+      return restore(document);
+    });
+    render(<App gateway={gateway} />);
+    await screen.findByRole("textbox", { name: "Note body" });
+    fireEvent.click(screen.getByRole("button", { name: "More note actions" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(restoring).toHaveBeenCalledOnce());
+    const menu = await openRowMenu();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Pin" }));
+    await act(async () => releaseRestore());
+    await screen.findByText("Restored The shape of useful tools", { exact: true });
+    expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
+    const list = screen.getByRole("listbox", { name: "Collection notes and files" });
+    fireEvent.keyDown(list, { key: "z", ctrlKey: true });
+    expect(within(await openRowMenu()).getByRole("menuitem", { name: "Pin" })).toBeInTheDocument();
+  });
+
+  it("gives consecutive Pins independent Undo lifetimes despite identical messages", async () => {
+    const gateway = new DemoCollectionGateway(4);
+    const view = render(<App gateway={gateway} />);
+    await screen.findByRole("textbox", { name: "Note body" });
+    const menu = await openRowMenu(/The shape of useful tools/);
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(within(menu).getByRole("menuitem", { name: "Pin" }));
+      act(() => vi.advanceTimersByTime(29_999));
+      fireEvent.contextMenu(screen.getByRole("option", { name: /Garden notes 2/ }));
+      fireEvent.click(screen.getByRole("menuitem", { name: "Pin" }));
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
+      act(() => vi.advanceTimersByTime(14_999));
+      view.rerender(<App gateway={gateway} />);
+      act(() => vi.advanceTimersByTime(14_999));
+      expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
+    } finally {
+      view.unmount();
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a newer Pin Undo when an earlier move Undo fails", async () => {
+    const gateway = new DemoCollectionGateway(4);
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+    await screen.findByRole("textbox", { name: "Note body" });
+    await user.click(screen.getByRole("button", { name: "More note actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Move to…" }));
+    const dialog = screen.getByRole("dialog", { name: "Move note" });
+    await chooseOption(user, within(dialog).getByRole("combobox", { name: "Destination folder" }), "Projects");
+    await user.click(within(dialog).getByRole("button", { name: "Move" }));
+    await screen.findByRole("button", { name: "Projects/the-shape-of-useful-tools.md" });
+    let releaseRename!: () => void;
+    const held = new Promise<void>((resolve) => { releaseRename = resolve; });
+    const renaming = vi.spyOn(gateway, "rename").mockImplementation(async () => {
+      await held;
+      throw new Error("Temporarily offline");
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(renaming).toHaveBeenCalledOnce());
+    fireEvent.click(within(await openRowMenu()).getByRole("menuitem", { name: "Pin" }));
+    await act(async () => releaseRename());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled());
+    expect(screen.getByRole("button", { name: "Undo" }).closest('[role="status"]')).toHaveTextContent("Pinned");
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(within(await openRowMenu()).getByRole("menuitem", { name: "Pin" })).toBeInTheDocument();
+  });
+
   it("Pin has one live Undo that leads the palette and Ctrl+Z restores the previous pin", async () => {
     const results = vi.spyOn(quickOpen, "quickOpenResults");
     const user = userEvent.setup();

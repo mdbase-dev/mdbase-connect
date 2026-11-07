@@ -574,7 +574,10 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
         if (!mutationScope.current.isCurrent(token)) return;
         const failed = new Set(result.failed.map((item) => item.path));
         const remaining = action.changes.filter((change) => failed.has(change.document.path));
-        setRecoveryAction(remaining.length ? { ...action, changes: remaining, message: batchMessage("Restored", result) } : undefined);
+        setRecoveryAction((current) => {
+          if (current !== action) return current;
+          return remaining.length ? { ...action, changes: remaining, message: batchMessage("Restored", result) } : undefined;
+        });
         if (!remaining.length) setNotice(t`Restored selected notes.`, "success");
         return;
       }
@@ -636,13 +639,13 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
         if (!mutationScope.current.isCurrent(token)) return;
         if (result.failed.length) {
           const failed = new Set(result.failed.map((item) => item.path));
-          if (action.kind === "move") setRecoveryAction({ ...action, paths: moves.filter((move) => failed.has(move.to)), message: batchMessage("Restored", result) });
+          if (action.kind === "move") setRecoveryAction((current) => current === action ? { ...action, paths: moves.filter((move) => failed.has(move.to)), message: batchMessage("Restored", result) } : current);
           else setNotice(batchMessage("Restored", result));
           return;
         }
         setNotice(t`Restored note paths.`, "success");
       }
-      setRecoveryAction(undefined);
+      setRecoveryAction((current) => current === action ? undefined : current);
     } catch (error) {
       if (mutationScope.current.isCurrent(token)) setNotice(t`Couldn’t undo that change. ${gatewayError(error)}`);
     } finally {

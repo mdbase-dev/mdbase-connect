@@ -977,6 +977,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     focusNoteList,
     setDocument, setDraft, setSelectedPath, setPathDraft, setEditingPath, setRenamePlan, setRecentPaths, setNotice
   });
+  const recoveryToastId = useMemo(() => `recovery:${crypto.randomUUID()}`, [recoveryAction]);
 
   async function connectCollection() {
     setNotice(undefined);
@@ -1726,8 +1727,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const dismissToast = useCallback((id: string) => {
     if (id === "notice") setNoticeState(undefined);
     else if (id === "note-open") setNoteOpenFailure(undefined);
-    else if (id === "recovery") setRecoveryAction(undefined);
-  }, []);
+    else if (id === recoveryToastId) setRecoveryAction(undefined);
+  }, [recoveryToastId]);
   const confirmationDialog = confirmation && <ConfirmDialog open role="alertdialog" title={confirmation.title}
     pendingLabel={t`Working…`}
     confirmLabel={confirmation.confirmLabel}
@@ -1828,8 +1829,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       "check-note": !mutationsFrozen ? () => void validateNote() : undefined
     } : {})
   }, { focus: focusMode ? t`Exit focus mode` : t`Focus mode`, "attach-file": attachFileAction.label }).concat(noteViewCommands(chooseNoteSort, setNoteFilter, () => { setSearch(""); setNoteFilter(undefined); }, tagFacets, typeFacets, noteSortFields));
-  const activeToasts = buildToastItems({ notice, recoveryMessage, recoveryPending: recoveryAction?.kind === "delete" && recoveryAction.pending, recoveryBusy, onUndo: () => void undoRecovery(), hasPendingRename: Boolean(activePendingRename), onResumeRename: () => { if (activePendingRename) void performRename(activePendingRename.plan, activePendingRename.updateRefs, activePendingRename.requestId); } });
-  const liveUndo = activeToasts.find(toast => toast.id === "recovery")?.action;
+  const activeToasts = buildToastItems({ notice, recoveryId: recoveryToastId, recoveryMessage, recoveryPending: recoveryAction?.kind === "delete" && recoveryAction.pending, recoveryBusy, onUndo: () => void undoRecovery(), hasPendingRename: Boolean(activePendingRename), onResumeRename: () => { if (activePendingRename) void performRename(activePendingRename.plan, activePendingRename.updateRefs, activePendingRename.requestId); } });
+  const liveUndo = activeToasts.find(toast => toast.id === recoveryToastId)?.action;
   const commandContext = multipleSelected ? t`Selected notes` : document ? noteTitle(document, typeDescriptors) : undefined;
   const noteCommandIds = new Set(["rename", "move", "duplicate", "delete", "copy-link", "copy-path", "attach-file", "pin", "unpin", "focus", "properties", "outline", "backlinks", "check-note", "move-selected", "delete-selected", "add-tag", "remove-tag", "set-property", "clear-selection"]);
   for (const entry of quickOpenCommands) if (noteCommandIds.has(entry.id)) entry.context = commandContext;
