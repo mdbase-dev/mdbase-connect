@@ -205,7 +205,7 @@ function reconciliationProvider(
         live_content_bytes: 0,
         live_file_bytes: 0,
         retained_file_bytes: 0,
-        ...limits
+        limits
       };
       return usage;
     },
