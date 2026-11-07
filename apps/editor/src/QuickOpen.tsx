@@ -8,9 +8,10 @@ import { searchNoteResults, searchTextRanges, type NoteSearchEntry, type NoteSea
 import { SearchMatchText } from "./SearchMatchText";
 import { commandDefinitions, filterCommands, rememberCommand, type CommandDefinition, type CommandId, type EditorCommand } from "./editor-commands";
 
-export function quickOpenResults({ index, recentPaths, types, commands, onSelect, onCreate }: {
+export function quickOpenResults({ index, recentPaths, focusedNotePath, types, commands, onSelect, onCreate }: {
   index: NoteSearchEntry[];
   recentPaths: string[];
+  focusedNotePath?: string | undefined;
   types: CollectionTypeDescriptor[];
   commands: EditorCommand[];
   onSelect: (path: string) => void;
@@ -18,11 +19,12 @@ export function quickOpenResults({ index, recentPaths, types, commands, onSelect
 }, query: string): Command[] {
   const commandMode = query.trimStart().startsWith(">");
   const commandQuery = (commandMode ? query.trimStart().slice(1) : query).trim();
-  const results = commandMode ? [] : commandQuery ? searchNoteResults(index, commandQuery, 12) : recentNotes(index, recentPaths).slice(0, 12);
+  const results = commandMode ? [] : commandQuery ? searchNoteResults(index, commandQuery, 12) : recentNotes(index, focusedNotePath ? [focusedNotePath, ...recentPaths.filter(path => path !== focusedNotePath)] : recentPaths).slice(0, 12);
   const entries: Command[] = results.map(result => {
     const title = noteTitle(result.note, types);
     return {
       id: result.note.path, label: title, group: t`Notes`, detail: result.context.text,
+      context: !commandQuery && result.note.path === focusedNotePath ? title : undefined,
       content: <><strong><SearchMatchText text={title} ranges={searchTextRanges(title, commandQuery)} /></strong>
         {result.context.kind === "title"
           ? <small className="search-result-context path"><SearchMatchText text={result.note.path} ranges={searchTextRanges(result.note.path, commandQuery)} /></small>

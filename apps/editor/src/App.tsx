@@ -39,6 +39,7 @@ import {
 } from "react";
 import type { ActionMenuItem } from "./ContextMenu";
 import { Menu, useMenuTrigger } from "@mdbase-dev/ui/menu";
+import { Tooltip } from "@mdbase-dev/ui/tooltip";
 import { MoveNoteDialog } from "./MoveNoteDialog";
 import { bulkFields, type BulkPropertyChange } from "./bulk-note-actions";
 import { useNoteActions } from "./use-note-actions";
@@ -2041,16 +2042,14 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             {mobileLayout && shownConnection !== "connected" && <div className="mobile-connection">
               <ConnectionStatus state={shownConnection} issue={connectionIssue} onReconnect={() => void refreshAfterConnectionGap()} />
             </div>}
-            {!mobileLayout && <button className={`icon-button${propertiesOpen ? " active" : ""}`} aria-label={t`Note properties`} aria-keyshortcuts="Enter Space" aria-pressed={propertiesOpen} onClick={() => {
-              setPropertiesOpen((value) => {
-                if (!value) setBacklinksOpen(false);
-                return !value;
-              });
-            }}><Info aria-hidden="true" /></button>}
+            {!mobileLayout && <Tooltip label={t`Note properties`}><button className={`icon-button${propertiesOpen ? " active" : ""}`} aria-keyshortcuts="Enter Space" aria-pressed={propertiesOpen} onClick={() => {
+              if (!propertiesOpen) setBacklinksOpen(false);
+              setPropertiesOpen((value) => !value);
+            }}><Info aria-hidden="true" /></button></Tooltip>}
             {focusMode && <button className="mdbase-button is-tertiary focus-exit" onClick={toggleFocus}><Trans>Exit focus mode</Trans></button>}
-            {mobileLayout && canCreateNotes && <button className="icon-button" aria-label={t`New note`} aria-keyshortcuts="C Control+Shift+N Meta+Shift+N" disabled={mutationsFrozen} onClick={() => beginCreate()}><FilePlus2 aria-hidden="true" /></button>}
+            {mobileLayout && canCreateNotes && <Tooltip label={t`New note`}><button className="icon-button" aria-keyshortcuts="C Control+Shift+N Meta+Shift+N" disabled={mutationsFrozen} onClick={() => beginCreate()}><FilePlus2 aria-hidden="true" /></button></Tooltip>}
             <div className="note-actions">
-              <button {...noteMenu.triggerProps} className="icon-button" aria-label={t`More note actions`} aria-keyshortcuts="Enter Space ArrowDown ArrowUp"><MoreHorizontal aria-hidden="true" /></button>
+              <Tooltip label={t`More note actions`}><button {...noteMenu.triggerProps} className="icon-button" aria-keyshortcuts="Enter Space ArrowDown ArrowUp"><MoreHorizontal aria-hidden="true" /></button></Tooltip>
               <Menu open={noteMenu.open} id={noteMenu.id} label={t`More note actions`} triggerRef={noteMenu.trigger} onClose={noteMenu.close}>
               {[
               ...(mobileLayout ? [menuCommand("quick-open", <Search aria-hidden="true" />, () => { setQuickOpenCommandMode(false); setQuickOpen(true); })] : []),
@@ -2251,6 +2250,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       label={t`Quick open`} inputLabel={t`Find a note or action`} placeholder={t`Find a note by title or path, or type > for actions`}
       getResults={query => quickOpenResults({ index: searchIndex,
         recentPaths, types: typeDescriptors, commands: quickOpenCommands,
+        focusedNotePath: surface === "notes" && !selectedCollectionFile && !creationMode ? selectedPath : undefined,
         onCreate: canCreateNotes && !mutationsFrozen ? title => { beginCreate(); setCreationContext(current => ({ ...current, title })); } : undefined,
         onSelect: path => { setSearch(""); setNoteFilter(undefined); setSurface("notes"); navigateToNote(path); }
       }, query)} onClose={() => setQuickOpen(false)} />

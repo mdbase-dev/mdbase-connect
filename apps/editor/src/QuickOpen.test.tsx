@@ -9,6 +9,21 @@ function QuickOpen({ initialCommandMode, onClose, ...options }: Parameters<typeo
 }
 
 describe("keyboard discovery", () => {
+  it("includes the focused note before the recent limit and tags only its browse result", () => {
+    const index = buildNoteSearchIndex(Array.from({ length: 20 }, (_, offset) => ({
+      path: `Note ${offset}.md`, frontmatter: {}, effectiveFrontmatter: {}, types: [], body: "",
+      file: { path: `Note ${offset}.md`, name: `Note ${offset}.md`, folder: "", size: 0, mtime: "" }
+    })));
+    const options = { index, recentPaths: ["Note 0.md", "Note 1.md"], focusedNotePath: "Note 19.md", types: [], commands: [], onSelect: vi.fn() };
+    const browse = quickOpenResults(options, "");
+    expect(browse).toHaveLength(12);
+    expect(browse[0]).toMatchObject({ id: "Note 19.md", context: "Note 19" });
+    expect(browse[1].id).toBe("Note 0.md");
+    expect(browse.filter(result => result.context)).toHaveLength(1);
+    expect(quickOpenResults(options, "Note 19")[0]).toMatchObject({ id: "Note 19.md", context: undefined });
+    expect(quickOpenResults(options, ">Note 19")).toEqual([]);
+    expect(quickOpenResults({ ...options, focusedNotePath: "missing.md" }, "").some(result => result.context)).toBe(false);
+  });
   it("carries the actual action context into shared palette results", () => {
     const results = quickOpenResults({ index: [], recentPaths: [], types: [], onSelect: vi.fn(), commands: [
       { id: "rename", label: "Rename", context: "Garden notes", run: vi.fn() }
