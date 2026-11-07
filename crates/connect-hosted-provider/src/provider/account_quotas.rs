@@ -377,8 +377,9 @@ mod tests {
         };
         let body = serde_json::to_string(&json!({ "account": usage })).unwrap();
 
-        // A derived struct rejects a repeated key, unlike JSON.parse, which
-        // silently keeps the last one.
+        // Serialized through `json!` as the handler does; with the old flatten
+        // the limit replaced the usage value here. The derived struct also
+        // rejects a repeated key.
         #[derive(Deserialize)]
         struct Account {
             retained_file_bytes: u64,

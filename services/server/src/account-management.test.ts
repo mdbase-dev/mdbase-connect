@@ -100,7 +100,9 @@ describe("account management", () => {
       internalToken: "provider-internal-token"
     });
     const providerAccountId = randomUUID();
-    // The provider's wire body: usage at the top level, limits nested.
+    // The provider's wire body: usage at the top level, limits nested. This
+    // guards the server's mapping of that shape; the provider test catches
+    // the original bug.
     const body = JSON.stringify({
       account: {
         account_id: providerAccountId,

@@ -192,9 +192,9 @@ pub struct ProviderAccountUsage {
     pub live_content_bytes: u64,
     pub live_file_bytes: u64,
     pub retained_file_bytes: u64,
-    /// Nested, not flattened: the limits also have a `retained_file_bytes`,
-    /// and flattening them emitted that key twice, so JSON readers that keep
-    /// the last occurrence reported the limit as usage.
+    /// Nested, not flattened: the limits also have a `retained_file_bytes`.
+    /// Flattened, the limit overwrote the usage value when the handler built
+    /// its JSON response, so the server saw the limit as usage.
     pub limits: ProviderAccountLimits,
 }
 
