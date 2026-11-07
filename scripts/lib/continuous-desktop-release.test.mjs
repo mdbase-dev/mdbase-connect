@@ -157,7 +157,8 @@ test("automatic desktop jobs preserve tag-bound signing, full CI, e2e and notari
   assert.match(workflow, /rollout=100\n/);
   assert.doesNotMatch(workflow, /production_verified_commit|UPDATE_ROLLOUT_PERCENTAGE/);
   for (const gate of ["verify-qualified-commit", "scripts/continuous-desktop-release.mjs compatible", "pnpm test:accessibility",
-    "pnpm --filter @mdbase/connect-desktop test", "cosign sign-blob", "cosign verify-blob", "xcrun stapler validate"]) assert(workflow.includes(gate), gate);
+    "pnpm --filter @mdbase/connect-desktop test", "cosign sign-blob", "cosign verify-blob", "scripts/ci/stapler-validate-macos.sh"]) assert(workflow.includes(gate), gate);
+  assert.match(readFileSync("scripts/ci/stapler-validate-macos.sh", "utf8"), /xcrun stapler validate "\$1"/);
   assert.match(workflow, /minimum=.*config\/desktop-update-minimum\.json/);
   assert.match(workflow, /--blocked-versions "\$\{UPDATE_BLOCKED_VERSIONS:-\}"/);
   assert.match(workflow, /needs: \[build, headless-package-smoke, cross-platform-release-tests, windows-package-smoke\]/);

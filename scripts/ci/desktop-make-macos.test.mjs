@@ -42,3 +42,38 @@ test("stapling stops failing the job after three attempts", () => {
 test("any other failure is not retried", () => {
   assert.deepEqual(make(["codesign failed", "ok"]), { status: 1, calls: 1 });
 });
+
+function validate(exits) {
+  const bin = mkdtempSync(join(tmpdir(), "desktop-validate-"));
+  const calls = join(bin, "calls");
+  writeFileSync(calls, "");
+  writeFileSync(join(bin, "xcrun"), `#!/usr/bin/env bash
+echo "$*" >> "${calls}"
+exit "$(sed -n "$(wc -l < "${calls}")p" "${join(bin, "exits")}")"
+`);
+  chmodSync(join(bin, "xcrun"), 0o755);
+  writeFileSync(join(bin, "exits"), `${exits.join("\n")}\n`);
+  const result = spawnSync("bash", ["scripts/ci/stapler-validate-macos.sh", "fixture.app"], {
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, DESKTOP_VALIDATE_RETRY_SECONDS: "0" },
+    encoding: "utf8",
+  });
+  return { status: result.status, calls: readFileSync(calls, "utf8").trim().split("\n") };
+}
+
+test("a dropped ticket lookup asks again", () => {
+  const { status, calls } = validate([68, 0]);
+  assert.equal(status, 0);
+  assert.deepEqual(calls, ["stapler validate fixture.app", "stapler validate fixture.app"]);
+});
+
+test("ticket validation gives up after its attempts", () => {
+  const { status, calls } = validate([68, 68, 68, 68, 68, 0]);
+  assert.equal(status, 68);
+  assert.equal(calls.length, 5);
+});
+
+test("a missing ticket stops at once", () => {
+  const { status, calls } = validate([65, 0]);
+  assert.equal(status, 65);
+  assert.equal(calls.length, 1);
+});

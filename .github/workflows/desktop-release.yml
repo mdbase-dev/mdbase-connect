@@ -341,7 +341,7 @@ jobs:
           if [ "$MACOS_RELEASE_MODE" = "signed" ]; then
             codesign --verify --deep --strict --verbose=2 "$app_path"
             spctl --assess --type execute --verbose=4 "$app_path"
-            xcrun stapler validate "$app_path"
+            scripts/ci/stapler-validate-macos.sh "$app_path"
           else
             if codesign -dv "$app_path" 2>&1 | grep -q "Authority=Developer ID Application"; then
               echo "Unsigned preview unexpectedly has a Developer ID signature." >&2
