@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { useId, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from "react";
 import { moveMenuFocus, useMenuPopover } from "./popover.js";
 import { useOverlay } from "./overlay.js";
 
@@ -16,7 +16,16 @@ export function Menu({ open, triggerRef, onClose, id, label, className = "mdbase
   useMenuPopover(ref, triggerRef, onClose, { align: "end", open, point });
   return present ? <div ref={ref} id={id} className={`${className} mdbase-overlay`} data-open={open}
     popover="manual" role="menu" aria-label={label} tabIndex={-1}
-    onKeyDown={(event) => moveMenuFocus(event, ref.current)}>{children}</div> : null;
+    onKeyDown={(event) => moveMenuFocus(event, ref.current)}
+    onPointerMove={focusMenuItemUnderPointer}>{children}</div> : null;
+}
+
+/** Hovering a row takes focus from the keyboard-marked one, unless a field in the menu is being typed in. */
+function focusMenuItemUnderPointer(event: PointerEvent<HTMLElement>) {
+  const menu = event.currentTarget;
+  if (event.pointerType !== "mouse" || (document.activeElement instanceof HTMLInputElement && menu.contains(document.activeElement))) return;
+  const item = (event.target as Element).closest<HTMLElement>('[role^="menuitem"]:not(:disabled):not([aria-disabled="true"])');
+  if (item && menu.contains(item) && item !== document.activeElement) item.focus({ preventScroll: true });
 }
 
 export function useMenuTrigger() {
