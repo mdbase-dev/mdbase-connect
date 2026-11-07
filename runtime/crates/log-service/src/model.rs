@@ -25,7 +25,7 @@ pub enum Status {
 /// Per-collection quotas (§11), set by the control plane.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Quotas {
-    /// Retained items plus live objects.
+    /// Log bytes: retained items plus committed objects other than blob parts.
     pub storage_bytes: u64,
     /// Sustained append rate, items per second.
     pub items_per_s: u64,
@@ -124,6 +124,10 @@ pub struct CollectionMeta {
     /// counter existed; [`crate::Txn::committed_blob_bytes`] supplies the value and
     /// the next blob commit or GC persists it.
     pub file_bytes: Option<u64>,
+    /// The most `file_bytes` may reach, allocated by the control plane from the
+    /// account's plan. Not part of `quotas`: backups carry those, while this is
+    /// recomputed from the plan and starts from the default after a restore.
+    pub file_quota: u64,
     /// Service time of creation.
     pub created_at: i64,
     /// Archive retention for compacted entries and dead objects.
@@ -160,6 +164,7 @@ impl CollectionMeta {
             quotas: Quotas::default(),
             used_bytes: 0,
             file_bytes: Some(0),
+            file_quota: limits::DEFAULT_FILE_QUOTA_BYTES,
             created_at: now,
             retention_tier: RetentionTier::default(),
             restore_plan: None,
@@ -237,6 +242,7 @@ impl CollectionMeta {
         if let Some(file_bytes) = self.file_bytes {
             m.push((u(23), u(file_bytes)));
         }
+        m.push((u(24), u(self.file_quota)));
         cbor::encode(&Cbor::Map(m)).expect("meta encodes")
     }
 
@@ -357,6 +363,12 @@ impl CollectionMeta {
                 Ok(Cbor::Uint(n)) => Some(*n),
                 Ok(_) => return Err(bad()),
                 Err(_) => None,
+            },
+            // Rows written before file quotas have no key 24.
+            file_quota: match get(24) {
+                Ok(Cbor::Uint(n)) => *n,
+                Ok(_) => return Err(bad()),
+                Err(_) => limits::DEFAULT_FILE_QUOTA_BYTES,
             },
             created_at: int(17)?,
             // Rows written before the archive existed have no key 18: 30 days.
@@ -596,6 +608,19 @@ mod tests {
         };
         assert!(!entries.iter().any(|(k, _)| *k == Cbor::Uint(23)));
         assert_eq!(CollectionMeta::decode(&m.encode()).unwrap(), m);
+    }
+
+    #[test]
+    fn meta_without_file_quota_gets_the_default() {
+        let mut m = CollectionMeta::new(B16([7; 16]), 42);
+        m.file_quota = 5;
+        assert_eq!(CollectionMeta::decode(&m.encode()).unwrap(), m);
+        let Cbor::Map(mut entries) = cbor::decode(&m.encode()).unwrap() else {
+            panic!("map");
+        };
+        entries.retain(|(k, _)| *k != Cbor::Uint(24));
+        let old = CollectionMeta::decode(&cbor::encode(&Cbor::Map(entries)).unwrap()).unwrap();
+        assert_eq!(old.file_quota, limits::DEFAULT_FILE_QUOTA_BYTES);
     }
 
     #[test]

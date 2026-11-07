@@ -14,7 +14,7 @@ const unavailable = new LogServiceError("unavailable", undefined);
 
 describe("nextFileBytes", () => {
   it("adds what each held collection stores, and is zero without collections", async () => {
-    const storageStatus = vi.fn(async (id: string) => ({ usedBytes: 1000, quotaBytes: 100, fileBytes: id === "a" ? 10 : 32 }));
+    const storageStatus = vi.fn(async (id: string) => ({ usedBytes: 1000, quotaBytes: 100, fileBytes: id === "a" ? 10 : 32, fileQuotaBytes: 100 }));
     expect(await nextFileBytes(database(ids("a", "b")).db, { storageStatus }, "owner")).toBe(42);
     expect(await nextFileBytes(database([]).db, { storageStatus }, "owner")).toBe(0);
   });
@@ -32,7 +32,7 @@ describe("nextFileBytes", () => {
     const storageStatus = vi.fn(async (id: string) => {
       if (id === "a") throw gone;
       if (id === "b") throw notFound;
-      return { usedBytes: 1000, quotaBytes: 100, fileBytes: 7 };
+      return { usedBytes: 1000, quotaBytes: 100, fileBytes: 7, fileQuotaBytes: 100 };
     });
     expect(await nextFileBytes(database(ids("a", "b", "c")).db, { storageStatus }, "owner")).toBe(7);
   });
@@ -40,7 +40,7 @@ describe("nextFileBytes", () => {
   it("rejects instead of under-reporting when a collection can't answer", async () => {
     const storageStatus = vi.fn(async (id: string) => {
       if (id === "b") throw unavailable;
-      return { usedBytes: 1000, quotaBytes: 100, fileBytes: 7 };
+      return { usedBytes: 1000, quotaBytes: 100, fileBytes: 7, fileQuotaBytes: 100 };
     });
     await expect(nextFileBytes(database(ids("a", "b")).db, { storageStatus }, "owner")).rejects.toBe(unavailable);
   });

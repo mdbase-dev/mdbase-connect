@@ -24,6 +24,7 @@ fn method_label(method: &str) -> &'static str {
         "stream_send",
         "create_log",
         "set_quota",
+        "set_file_headroom",
         "storage_status",
         "delete_log",
         "revoke_device_credentials",
