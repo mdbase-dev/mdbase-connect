@@ -123,7 +123,7 @@ test("same-configuration Rust checks run once and remain required for qualificat
   }
   // The ignored PostgreSQL provider tests run in the same required job.
   assert.match(rust, /image: postgres:18-alpine/);
-  assert.match(rust, /--test mutation_abandon --test lifecycle_diagnostics\s+-- --ignored/);
+  assert.match(rust, /--test mutation_abandon --test lifecycle_diagnostics --test sync_stored_errors\s+-- --ignored/);
   for (const block of [rust, shards]) {
     assert.ok(block.includes("cp deploy/docker/Cargo.lock.hosted-provider Cargo.lock"));
     assert.ok(block.includes("cargo build --locked --workspace"));

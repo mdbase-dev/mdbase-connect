@@ -621,7 +621,7 @@ jobs:
       - name: Hosted provider PostgreSQL tests (ignored)
         run: >-
           cargo test --locked --workspace
-          --test mutation_abandon --test lifecycle_diagnostics
+          --test mutation_abandon --test lifecycle_diagnostics --test sync_stored_errors
           -- --ignored --test-threads=1
         env:
           MDBASE_APPROVE_DESTRUCTIVE_HOSTED_TESTS: operation_dispatch_uuid_schema_v1
