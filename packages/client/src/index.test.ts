@@ -3977,6 +3977,50 @@ describe("authorization renewal", () => {
     }
   );
 
+  it.each([
+    ["create", "not_applied"],
+    ["put_timer", "unverified"],
+    ["reconcile_timers", "unverified"]
+  ] as const)("settles a recovered hosted %s on its final abandoned receipt", async (operation, application) => {
+    const { connect } = hostedConnection([operation]);
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(
+      "<html>gateway timeout</html>",
+      { status: 503, headers: { "content-type": "text/html" } }
+    ));
+    const timer = { id: "task:reminder", fireAt: "2030-01-01T00:00:00Z" };
+    const outcome = operation === "create"
+      ? await connect.create({ path: "abandoned.md", frontmatter: {} })
+      : operation === "put_timer"
+        ? await connect.putTimer({ namespace: "reminders", criterionId: "due", timer })
+        : await connect.reconcileTimers({ namespace: "reminders", criterionId: "due", timers: [timer] });
+    expect(outcome).toMatchObject({ ok: false, problem: { operation_outcome: "unknown" } });
+    const pending = connect.pendingMutations();
+    expect(pending).toHaveLength(1);
+    const requestId = pending[0]!.requestId;
+
+    fetchMock.mockResolvedValue(jsonResponse({
+      error: {
+        code: "mutation_abandoned",
+        message: "The request was abandoned.",
+        details: { request_id: requestId, application }
+      }
+    }, 409));
+    await expect(pending[0]!.recover()).resolves.toMatchObject({
+      ok: false,
+      problem: {
+        code: "mutation_abandoned",
+        category: "conflict",
+        recovery: "none",
+        details: { request_id: requestId, application }
+      }
+    });
+    expect(connect.pendingMutations()).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [, recovered] = fetchMock.mock.calls.map(([, init]) =>
+      JSON.parse(String(init?.body)) as { request_id?: string });
+    expect(recovered?.request_id).toBe(requestId);
+  });
+
   it("keeps hosted sync credentials private and refreshes them for the offline transport", async () => {
     const storage = new MemoryStorage();
     const serverUrl = "https://connect.example";
@@ -5855,7 +5899,7 @@ async function rotateEncryptedFixture(
 }
 
 function hostedConnection(
-  operations: Array<"query" | "create">,
+  operations: Array<"query" | "create" | "put_timer" | "reconcile_timers">,
   proof?: { keyStore: MemoryGrantKeyStore; publicKey: string }
 ) {
   const storage = new MemoryStorage();
