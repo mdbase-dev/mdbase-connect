@@ -148,22 +148,7 @@ impl HostedProvider {
         .execute(&mut *transaction)
         .await?
         .rows_affected();
-        // A released sync mutation never applied: the effect and its evidence
-        // commit in one transaction, and this row has no evidence. Nothing
-        // needs it to exist. A causal successor already treats a `prepared`
-        // predecessor as missing, and a retry of the same mutation ID after
-        // deletion claims a fresh row and runs once. The lease condition keeps
-        // a live owner's row; a concurrent claim re-locks the row and moves
-        // `updated_at`, so the delete re-checks and skips it.
-        let released = sqlx::query(
-            r#"DELETE FROM hosted_provider_mutation_journal
-               WHERE operation_kind = 'sync:mutate' AND state = 'prepared'
-                 AND evidence_kind IS NULL AND lease_expires_at <= now()
-                 AND updated_at <= now() - interval '30 days'"#,
-        )
-        .execute(&mut *transaction)
-        .await?
-        .rows_affected();
+        let released = compact_released_sync_mutations_in(&mut transaction).await?;
         sqlx::query(
             "DELETE FROM hosted_provider_retired_replay_credentials WHERE expires_at <= now()",
         )
@@ -847,31 +832,6 @@ impl HostedProvider {
             return Err(mutation_fence_lost(lease.request_id));
         }
         Ok(())
-    }
-
-    /// Give up a lease without a final receipt, so the next attempt takes the
-    /// row over at once. Fenced on this lease: a lost lease releases nothing.
-    /// Best effort: if this write fails too, the lease simply expires.
-    pub(super) async fn release_operation_mutation(&self, lease: &HostedMutationLease) {
-        let released = sqlx::query(
-            r#"UPDATE hosted_provider_mutation_journal
-               SET lease_expires_at = now(), updated_at = now()
-               WHERE replica_id = $1 AND request_id = $2 AND input_digest = $3
-                 AND process_epoch = $4 AND lease_owner = $5
-                 AND fencing_generation = $6
-                 AND state IN ('claimed', 'prepared', 'applied')"#,
-        )
-        .bind(lease.replica_id)
-        .bind(lease.request_id)
-        .bind(&lease.input_digest)
-        .bind(lease.process_epoch)
-        .bind(lease.owner)
-        .bind(lease.generation)
-        .execute(&self.pool)
-        .await;
-        if released.is_err() {
-            tracing::warn!("hosted mutation lease release deferred to lease expiry");
-        }
     }
 
     pub(super) async fn current_collection_head(&self, collection_id: Uuid) -> ApiResult<u64> {

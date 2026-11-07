@@ -244,7 +244,12 @@ leaves `completed`.
 A released sync row (`prepared`, no evidence, lease expired) that its client
 never retries is deleted by compaction once it is 30 days old. A later retry of
 that request ID claims a fresh row and runs once; this is safe because a row
-without evidence never applied.
+without evidence never applied. No tombstone is kept, so after deletion the
+request ID is no longer bound to its input: the same ID with different input
+runs instead of returning `mutation_request_conflict`. This is deliberate. A
+tombstone answer would wedge the client again, and sync clients use random or
+content-derived request IDs, so a reused ID with new input does not occur in
+practice.
 
 ### Replay after grant revocation
 

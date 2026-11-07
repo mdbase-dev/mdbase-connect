@@ -812,12 +812,14 @@ async fn a_stale_owner_releases_nothing() {
     assert_eq!(error.code, "pending_mutation_unresolved");
 }
 
-/// The mutation commits but the client still gets an error. On a COMMIT that
-/// lands but reports failure, the attempt releases its lease; if the final
-/// receipt write fails instead, the lease lapses after 30 seconds (until
-/// then a retry gets `pending_mutation_unresolved`). Either way the row is
-/// `applied` with evidence and an expired lease, and the retry replays the
-/// applied receipt without applying the mutation again.
+/// The mutation commits but the client still gets an error, here because the
+/// final receipt write fails. The lease is held, so a retry gets
+/// `pending_mutation_unresolved` until it lapses. The row is then `applied`
+/// with evidence and an expired lease, and the retry replays the applied
+/// receipt without applying the mutation again. A COMMIT that lands but
+/// reports failure can't be injected in-process; it leaves the same `applied`
+/// row with its lease released, which this test reaches by expiring the
+/// lease.
 #[tokio::test]
 #[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
 async fn a_landed_commit_reported_as_an_error_replays_on_retry() {
