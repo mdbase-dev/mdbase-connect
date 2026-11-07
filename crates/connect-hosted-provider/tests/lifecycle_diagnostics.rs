@@ -133,7 +133,7 @@ async fn provider_lifecycle_aggregates_use_production_sql() {
         // The ops reducer anchors on this being the response's last section.
         let last_section = serde_json::to_value(&diagnostics)?
             .as_object()
-            .and_then(|sections| sections.keys().last().cloned());
+            .and_then(|sections| sections.keys().next_back().cloned());
         assert_eq!(last_section.as_deref(), Some("unfinished_mutations"));
         let serialized = serde_json::to_string(&diagnostics.lifecycle_work)?
             + &serde_json::to_string(&diagnostics.unfinished_mutations)?;
