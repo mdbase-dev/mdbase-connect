@@ -67,7 +67,6 @@ export class ExternalSignupService {
     name: string;
     termsVersion: string;
     privacyVersion: string;
-    timezone: string;
     clientName: string;
     productUpdates: boolean;
   }) {

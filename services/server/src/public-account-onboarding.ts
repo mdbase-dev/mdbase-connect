@@ -1,5 +1,4 @@
 import type { DatabaseQueryable } from "./database-types.js";
-import { scheduleStarterCollection } from "./account-onboarding.js";
 import { scheduleSignupEmails } from "./beta-welcome-email.js";
 import { materializePublicSignupEntitlement } from "./entitlements.js";
 import { updateEmailPreferences } from "./scheduled-email.js";
@@ -13,7 +12,6 @@ export async function completePublicAccountOnboarding(
     termsVersion: string;
     privacyVersion: string;
     acceptanceMethod: "email_verification" | "external_identity";
-    timezone: string;
     /** The unticked-by-default signup checkbox; product email is opt-in. */
     productUpdates: boolean;
   }
@@ -28,6 +26,6 @@ export async function completePublicAccountOnboarding(
   if (input.productUpdates) {
     await updateEmailPreferences(db, input.userId, { product_updates: true });
   }
+  // No starter collection: it would take the Free plan's only synced collection.
   await scheduleSignupEmails(db, { ...input, trialEndsAt });
-  await scheduleStarterCollection(db, input.userId, input.timezone);
 }
