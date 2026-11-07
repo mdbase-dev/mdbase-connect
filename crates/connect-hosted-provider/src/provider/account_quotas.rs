@@ -349,3 +349,51 @@ async fn account_usage(
         limits: stored.limits,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn account_usage_json_reports_retained_usage_once_and_limits_separately() {
+        let limit = 2 * 1024 * 1024 * 1024;
+        let usage = ProviderAccountUsage {
+            account_id: Uuid::nil(),
+            entitlement_revision: 1,
+            collection_count: 0,
+            live_content_bytes: 0,
+            live_file_bytes: 0,
+            retained_file_bytes: 7,
+            limits: ProviderAccountLimits {
+                hosted_storage_bytes: 1024 * 1024 * 1024,
+                retained_file_bytes: limit,
+                max_document_bytes: 2 * 1024 * 1024,
+                max_single_file_bytes: 250 * 1024 * 1024,
+                max_mirror_replicas_per_collection: 10,
+                max_application_replicas_per_collection: 50,
+                max_hosted_collections: 10,
+                max_files_per_collection: 10_000,
+            },
+        };
+        let body = serde_json::to_string(&json!({ "account": usage })).unwrap();
+
+        // A derived struct rejects a repeated key, unlike JSON.parse, which
+        // silently keeps the last one.
+        #[derive(Deserialize)]
+        struct Account {
+            retained_file_bytes: u64,
+            limits: ProviderAccountLimits,
+        }
+        #[derive(Deserialize)]
+        struct Body {
+            account: Account,
+        }
+        let parsed: Body = serde_json::from_str(&body).unwrap();
+        assert_eq!(parsed.account.retained_file_bytes, 7);
+        assert_eq!(parsed.account.limits.retained_file_bytes, limit);
+
+        let value: Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(value["account"]["retained_file_bytes"], 7);
+        assert_eq!(value["account"]["live_file_bytes"], 0);
+    }
+}
