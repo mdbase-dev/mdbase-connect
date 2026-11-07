@@ -60,7 +60,12 @@ impl DirectoryMirror {
                 });
             }
             match self.dispatch_action(state, &action).await {
-                Ok(receipt) => self.journal_receipt(state, receipt)?,
+                Ok(receipt) => {
+                    if let Some((target, _, _)) = remote_file_action(&action) {
+                        clear_stuck(state, &target.identity);
+                    }
+                    self.journal_receipt(state, receipt)?
+                }
                 Err(error) => {
                     let error = self.classify_refusal(state, &action, error)?;
                     let failure = MirrorFailure {
@@ -472,97 +477,35 @@ impl DirectoryMirror {
         }
     }
 
-    /// Decide what an authority's refusal of a remote action means. Only an
-    /// answer from the authority can drop the batch: a transport failure keeps
-    /// it, so a retry reuses the same mutation or transfer ID and can never
-    /// apply twice. A dropped batch is re-planned from current local and
-    /// authority state, with fresh IDs only for work that did not apply.
+    /// Decide what an authority's refusal of a remote file action means. Only
+    /// a definite refusal can drop the batch: any failure whose outcome a retry
+    /// must learn keeps it, so the retry reuses the same mutation or transfer
+    /// ID and can never apply twice. A dropped batch is re-planned from current
+    /// local and authority state, with fresh IDs only for work that did not apply.
     fn classify_refusal(
         &self,
         state: &mut DurableMirrorState,
         action: &SyncAction,
         error: MirrorError,
     ) -> Result<MirrorError, MirrorError> {
-        let (target, local, remote) = match action {
-            SyncAction::PutRemote {
-                target,
-                expected_local,
-                expected_remote,
-                ..
-            }
-            | SyncAction::DeleteRemote {
-                target,
-                expected_local,
-                expected_remote,
-                ..
-            } => (target, expected_local, expected_remote),
-            SyncAction::MoveRemote {
-                source,
-                expected_local,
-                expected_source_owner,
-                ..
-            } => (source, expected_local, expected_source_owner),
-            _ => return Ok(error),
+        let Some((target, local, remote)) = remote_file_action(action) else {
+            return Ok(error);
         };
-        // 401/403 concern the replica's credentials, not this object.
-        if !error
-            .status
-            .is_some_and(|status| status != 401 && status != 403)
-        {
+        if !definite_refusal(&error) {
+            // A locally stale action is dropped: what the authority said about
+            // the file before no longer describes this change.
+            if error.code == "sync_plan_stale" {
+                clear_stuck(state, &target.identity);
+            }
             return Ok(error);
         }
-        let file = target.entity == SyncObjectKind::File;
-        // Freeing space fixes these, so the file is never set aside. Its
-        // stored answer would replay for this ID, so plan again with a new one.
-        if file && QUOTA_CODES.contains(&error.code.as_str()) {
-            return Ok(MirrorError::new(
-                "sync_plan_stale",
-                format!(
-                    "The authority has no space for {} ({}); planning again.",
-                    target.path, error.code
-                ),
-            ));
-        }
+        let code = error.code.as_str();
         // A file over the per-file limit fails identically on every plan.
-        let too_large = file && error.code == "file_too_large";
-        // Only a definite refusal (a 4xx other than a rate limit) counts towards
-        // setting an object aside. A 5xx or 429 says nothing about the object,
-        // so it leaves the count as it was: an outage of any length never sets
-        // anything aside, and outages mixed with refusals cannot trip sooner
-        // than the refusals alone, which still need both thresholds.
-        let refused = error
-            .status
-            .is_some_and(|status| (400..500).contains(&status) && status != 429);
-        if !too_large && !refused {
-            return Ok(error);
-        }
-        let trip = too_large || {
-            let now = Utc::now();
-            let stuck = match state.stuck.take() {
-                Some(mut stuck)
-                    if stuck.identity == target.identity && stuck.code == error.code =>
-                {
-                    stuck.attempts += 1;
-                    stuck
-                }
-                _ => StuckAction {
-                    identity: target.identity.clone(),
-                    code: error.code.clone(),
-                    attempts: 1,
-                    since: now.to_rfc3339(),
-                },
-            };
-            let stuck_for = chrono::DateTime::parse_from_rfc3339(&stuck.since)
-                .map(|since| now.signed_duration_since(since))
-                .unwrap_or_default();
-            let trip = stuck.attempts >= STUCK_ATTEMPTS && stuck_for >= self.stuck_after;
-            if !trip {
-                state.stuck = Some(stuck);
-            }
-            trip
-        };
+        let trip = code == "file_too_large"
+            || ((REPLAN_REFUSALS.contains(&code) || OBJECT_REFUSALS.contains(&code))
+                && self.count_refusal(state, &target.identity, code));
         if trip {
-            // Set the object aside as a rejected conflict. Its local bytes are
+            // Set the file aside as a rejected conflict. Its local bytes are
             // never touched; the user decides, and every other object syncs.
             state.planned_conflicts.insert(
                 target.identity.clone(),
@@ -592,29 +535,52 @@ impl DirectoryMirror {
             return Ok(MirrorError::new(
                 "sync_plan_stale",
                 format!(
-                    "{} was set aside after the authority refused it ({}): {}",
-                    target.path, error.code, error.message
+                    "{} was set aside after the authority refused it ({code}): {}",
+                    target.path, error.message
                 ),
             ));
         }
-        // Each of these says the plan no longer matches the authority (or the
-        // upload's transfer can no longer commit). Its stored answer would be
-        // replayed forever for the same ID, so plan again instead.
-        if file
-            && matches!(
-                error.code.as_str(),
-                "stale_file_revision" | "path_occupied" | "file_transfer_expired"
-            )
-        {
+        // The plan no longer matches the authority, or the upload's transfer
+        // can no longer commit. The authority would answer the same ID the same
+        // way, so plan again, with a fresh ID for this work.
+        if code == "file_transfer_expired" || REPLAN_REFUSALS.contains(&code) {
             return Ok(MirrorError::new(
                 "sync_plan_stale",
                 format!(
-                    "The authority refused {} ({}); planning again.",
-                    target.path, error.code
+                    "The authority refused {} ({code}); planning again.",
+                    target.path
                 ),
             ));
         }
         Ok(error)
+    }
+
+    /// Count one definite refusal of `identity` and report whether it should
+    /// now be set aside: the same refusal at least `STUCK_ATTEMPTS` times over
+    /// at least `STUCK_AFTER`. Other failures never reach this, so they leave
+    /// the count as it was.
+    fn count_refusal(&self, state: &mut DurableMirrorState, identity: &str, code: &str) -> bool {
+        let now = (self.clock)();
+        let stuck = match state.stuck.take() {
+            Some(mut stuck) if stuck.identity == identity && stuck.code == code => {
+                stuck.attempts += 1;
+                stuck
+            }
+            _ => StuckAction {
+                identity: identity.to_string(),
+                code: code.to_string(),
+                attempts: 1,
+                since: now.to_rfc3339(),
+            },
+        };
+        let stuck_for = chrono::DateTime::parse_from_rfc3339(&stuck.since)
+            .map(|since| now.signed_duration_since(since))
+            .unwrap_or_default();
+        let trip = stuck.attempts >= STUCK_ATTEMPTS && stuck_for >= STUCK_AFTER;
+        if !trip {
+            state.stuck = Some(stuck);
+        }
+        trip
     }
 
     fn rebase_conflict(
@@ -863,12 +829,43 @@ fn invalid_file_receipt(action: &str) -> MirrorError {
         format!("Authority file receipt does not match action {action}."),
     )
 }
-/// Storage refusals that freeing space resolves (not the per-file size limit).
-const QUOTA_CODES: [&str; 3] = [
-    "file_storage_quota_exceeded",
-    "account_storage_quota_exceeded",
-    "account_retained_storage_quota_exceeded",
-];
+/// The file a remote action changes, with the states it expects locally and
+/// on the authority. Record actions are not classified.
+fn remote_file_action(
+    action: &SyncAction,
+) -> Option<(&SyncObjectRef, &ExpectedObjectState, &ExpectedObjectState)> {
+    let (target, local, remote) = match action {
+        SyncAction::PutRemote {
+            target,
+            expected_local,
+            expected_remote,
+            ..
+        }
+        | SyncAction::DeleteRemote {
+            target,
+            expected_local,
+            expected_remote,
+            ..
+        } => (target, expected_local, expected_remote),
+        SyncAction::MoveRemote {
+            source,
+            expected_local,
+            expected_source_owner,
+            ..
+        } => (source, expected_local, expected_source_owner),
+        _ => return None,
+    };
+    (target.entity == SyncObjectKind::File).then_some((target, local, remote))
+}
+fn clear_stuck(state: &mut DurableMirrorState, identity: &str) {
+    if state
+        .stuck
+        .as_ref()
+        .is_some_and(|stuck| stuck.identity == identity)
+    {
+        state.stuck = None;
+    }
+}
 /// File controls are journaled by the authority under this ID, errors included.
 /// A batch always runs under the epoch it was prepared in, so retries reuse
 /// the ID; after an abandoned batch, re-planned work gets a new one.

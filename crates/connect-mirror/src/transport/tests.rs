@@ -324,25 +324,33 @@ async fn stalled_authority_request_returns_a_typed_transport_timeout() {
 }
 
 #[tokio::test]
-async fn refusals_carry_their_status_and_a_closed_transfer_is_expired() {
+async fn refusals_carry_their_status_and_only_abandoned_transfers_are_aborted() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let authority_id = Uuid::new_v4();
     let transfer_id = Uuid::new_v4();
-    let refuse = Arc::new(std::sync::atomic::AtomicBool::new(true));
-    let open_refuse = refuse.clone();
+    // 0: an outage, 1: a stale revision, then an open that finds its transfer closed.
+    let stage = Arc::new(AtomicUsize::new(0));
+    let open_stage = stage.clone();
+    let aborts = Arc::new(AtomicUsize::new(0));
+    let abort_count = aborts.clone();
     let file_root = format!("/v1/authorities/{authority_id}/files");
     let app = Router::new()
         .route(
             &format!("{file_root}/uploads"),
             post(move || {
-                let refuse = open_refuse.clone();
+                let stage = open_stage.load(Ordering::SeqCst);
                 async move {
-                    if refuse.load(Ordering::SeqCst) {
+                    let refusal = match stage {
+                        0 => Some((StatusCode::SERVICE_UNAVAILABLE, "provider_unavailable")),
+                        1 => Some((StatusCode::CONFLICT, "stale_file_revision")),
+                        _ => None,
+                    };
+                    if let Some((status, code)) = refusal {
                         return (
-                            StatusCode::CONFLICT,
+                            status,
                             Json(serde_json::json!({
-                                "error": { "code": "stale_file_revision", "message": "The file changed." }
+                                "error": { "code": code, "message": "Refused." }
                             })),
                         )
                             .into_response();
@@ -368,6 +376,10 @@ async fn refusals_carry_their_status_and_a_closed_transfer_is_expired() {
                     uploaded_parts: Vec::new(),
                     ..upload_status(transfer_id)
                 })
+            })
+            .delete(move || {
+                abort_count.fetch_add(1, Ordering::SeqCst);
+                async move { StatusCode::NOT_FOUND }
             }),
         );
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -389,17 +401,28 @@ async fn refusals_carry_their_status_and_a_closed_transfer_is_expired() {
         if_revision: None,
     };
 
+    let outage = transport
+        .upload_file(&request, source.path())
+        .await
+        .unwrap_err();
+    assert_eq!(
+        (outage.code.as_str(), outage.status),
+        ("provider_unavailable", Some(503))
+    );
+    assert_eq!(aborts.load(Ordering::SeqCst), 0, "a retry resumes it");
+    stage.store(1, Ordering::SeqCst);
     let refused = transport
-        .upload_file_transfer(&request, source.path())
+        .upload_file(&request, source.path())
         .await
         .unwrap_err();
     assert_eq!(
         (refused.code.as_str(), refused.status),
         ("stale_file_revision", Some(409))
     );
-    refuse.store(false, Ordering::SeqCst);
+    assert_eq!(aborts.load(Ordering::SeqCst), 1, "a re-plan abandons it");
+    stage.store(2, Ordering::SeqCst);
     let closed = transport
-        .upload_file_transfer(&request, source.path())
+        .upload_file(&request, source.path())
         .await
         .unwrap_err();
     assert_eq!(

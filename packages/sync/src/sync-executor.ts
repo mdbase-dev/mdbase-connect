@@ -108,6 +108,8 @@ export class PlanOnlySyncExecutor {
       }
       try {
         const receipt = await this.dispatch(state, action);
+        const file = remoteFileAction(action);
+        if (file) clearStuck(state, file[0].identity);
         await recordActionReceipt(state, receipt, this.ports.store);
         completedActions.add(receipt.action_id);
         this.ports.onProgress?.(batch.next_action, batch.plan.actions.length - 1);
@@ -478,76 +480,74 @@ export class PlanOnlySyncExecutor {
   }
 
   /**
-   * Decide what an authority's refusal of a remote action means. Only an
-   * answer from the authority can drop the batch: a transport failure keeps
-   * it, so a retry reuses the same mutation or transfer ID and can never
-   * apply twice. A dropped batch is re-planned from current local and
-   * authority state, with fresh IDs only for work that did not apply.
+   * Decide what an authority's refusal of a remote file action means. Only a
+   * definite refusal can drop the batch: any failure whose outcome a retry
+   * must learn keeps it, so the retry reuses the same mutation or transfer ID
+   * and can never apply twice. A dropped batch is re-planned from current
+   * local and authority state, with fresh IDs only for work that did not apply.
    */
   private classifyRefusal(state: MirrorState, action: SyncAction, error: unknown): unknown {
-    if (action.command !== "put_remote" && action.command !== "delete_remote"
-      && action.command !== "move_remote") return error;
-    const [target, local, remote] = action.command === "move_remote"
-      ? [action.source, action.expected_local, action.expected_source_owner]
-      : [action.target, action.expected_local, action.expected_remote];
-    // 401/403 concern the replica's credentials, not this object.
+    const file = remoteFileAction(action);
+    if (!file) return error;
+    const [target, local, remote] = file;
     if (!(error instanceof SyncError) || error.status === undefined
-      || error.status === 401 || error.status === 403 || target.entity === "resource") return error;
-    const file = target.entity === "file";
-    // Freeing space fixes these, so the file is never set aside. Its stored
-    // answer would replay for this ID, so plan again with a new one.
-    if (file && QUOTA_CODES.includes(error.code)) {
-      return new SyncError("sync_plan_stale", `The authority has no space for ${target.path} (${error.code}); planning again.`);
+      || error.status < 400 || error.status >= 500) {
+      // A locally stale action is dropped: what the authority said about the
+      // file before no longer describes this change.
+      if (errorCode(error, "") === "sync_plan_stale") clearStuck(state, target.identity);
+      return error;
     }
+    const code = error.code;
     // A file over the per-file limit fails identically on every plan.
-    const tooLarge = file && error.code === "file_too_large";
-    // Only a definite refusal (a 4xx other than a rate limit) counts towards
-    // setting an object aside. A 5xx or 429 says nothing about the object, so
-    // it leaves the count as it was: an outage of any length never sets
-    // anything aside, and outages mixed with refusals cannot trip sooner than
-    // the refusals alone, which still need both thresholds.
-    const refused = error.status >= 400 && error.status < 500 && error.status !== 429;
-    if (!tooLarge && !refused) return error;
-    let trip = tooLarge;
-    if (!tooLarge) {
-      const now = this.ports.runtime.now();
-      const previous = state.stuck;
-      const stuck = previous?.identity === target.identity && previous.code === error.code
-        ? { ...previous, attempts: previous.attempts + 1 }
-        : { identity: target.identity, code: error.code, attempts: 1, since: now };
-      trip = stuck.attempts >= STUCK_ATTEMPTS && Date.parse(now) - Date.parse(stuck.since) >= STUCK_AFTER_MS;
-      if (trip) delete state.stuck;
-      else state.stuck = stuck;
-    }
+    const trip = code === "file_too_large"
+      || ((REPLAN_REFUSALS.includes(code) || OBJECT_REFUSALS.includes(code))
+        && this.countRefusal(state, target.identity, code));
     if (trip) {
-      // Set the object aside as a rejected conflict. Its local bytes are
-      // never touched; the user decides, and every other object syncs.
+      // Set the file aside as a rejected conflict. Its local bytes are never
+      // touched; the user decides, and every other object syncs.
       state.planned_conflicts ??= {};
       state.planned_conflicts[target.identity] = {
         decision_id: conflictDecisionId(
-          target.entity, target.identity, local, remote, "rejected", this.ports.runtime.digest
+          "file", target.identity, local, remote, "rejected", this.ports.runtime.digest
         ),
-        entity: target.entity,
+        entity: "file",
         local,
         remote,
         conflict_kind: "rejected"
       };
       if (local.state === "exact") {
         state.local_bindings ??= {};
-        state.local_bindings[target.identity] = { entity: target.entity, path: local.object.path };
+        state.local_bindings[target.identity] = { entity: "file", path: local.object.path };
       }
       return new SyncError(
         "sync_plan_stale",
-        `${target.path} was set aside after the authority refused it (${error.code}): ${error.message}`
+        `${target.path} was set aside after the authority refused it (${code}): ${error.message}`
       );
     }
-    // Each of these says the plan no longer matches the authority (or the
-    // upload's transfer can no longer commit). Its stored answer would be
-    // replayed forever for the same ID, so plan again instead.
-    if (file && ["stale_file_revision", "path_occupied", "file_transfer_expired"].includes(error.code)) {
-      return new SyncError("sync_plan_stale", `The authority refused ${target.path} (${error.code}); planning again.`);
+    // The plan no longer matches the authority, or the upload's transfer can
+    // no longer commit. The authority would answer the same ID the same way,
+    // so plan again, with a fresh ID for this work.
+    if (code === "file_transfer_expired" || REPLAN_REFUSALS.includes(code)) {
+      return new SyncError("sync_plan_stale", `The authority refused ${target.path} (${code}); planning again.`);
     }
     return error;
+  }
+
+  /**
+   * Count one definite refusal of `identity` and report whether it should now
+   * be set aside: the same refusal at least STUCK_ATTEMPTS times over at least
+   * STUCK_AFTER_MS. Other failures never reach this, so they leave the count.
+   */
+  private countRefusal(state: MirrorState, identity: string, code: string): boolean {
+    const now = this.ports.runtime.now();
+    const previous = state.stuck;
+    const stuck = previous?.identity === identity && previous.code === code
+      ? { ...previous, attempts: previous.attempts + 1 }
+      : { identity, code, attempts: 1, since: now };
+    const trip = stuck.attempts >= STUCK_ATTEMPTS && Date.parse(now) - Date.parse(stuck.since) >= STUCK_AFTER_MS;
+    if (trip) delete state.stuck;
+    else state.stuck = stuck;
+    return trip;
   }
 
   private acceptRecordReceipt(
@@ -733,12 +733,36 @@ export class PlanOnlySyncExecutor {
 /** A refusal is set aside only when it is both repeated and old. */
 const STUCK_ATTEMPTS = 10;
 const STUCK_AFTER_MS = 60 * 60 * 1000;
-/** Storage refusals that freeing space resolves (not the per-file size limit). */
-const QUOTA_CODES = [
-  "file_storage_quota_exceeded",
-  "account_storage_quota_exceeded",
-  "account_retained_storage_quota_exceeded"
-];
+/**
+ * File refusals a fresh plan settles: a concurrent edit, move or delete on
+ * another device, or an occupied path. They still count, so one that keeps
+ * recurring is eventually set aside.
+ */
+const REPLAN_REFUSALS = ["stale_file_revision", "path_occupied", "file_not_found", "file_source_mismatch"];
+/**
+ * Other definite refusals of the file itself. Only these and the re-plan
+ * refusals count towards setting a file aside; every other answer (5xx, rate
+ * limits, storage quota, a live claim, a collection that is not active) says
+ * nothing about the file and keeps the batch and its IDs.
+ */
+const OBJECT_REFUSALS = ["invalid_file_path", "markdown_is_not_a_file_attachment", "invalid_media_type"];
+
+/** The file a remote action changes, with the states it expects locally and remotely. */
+function remoteFileAction(
+  action: SyncAction
+): [SyncObjectRef, ExpectedObjectState, ExpectedObjectState] | undefined {
+  const file: [SyncObjectRef, ExpectedObjectState, ExpectedObjectState] | undefined =
+    action.command === "move_remote"
+      ? [action.source, action.expected_local, action.expected_source_owner]
+      : action.command === "put_remote" || action.command === "delete_remote"
+        ? [action.target, action.expected_local, action.expected_remote]
+        : undefined;
+  return file?.[0].entity === "file" ? file : undefined;
+}
+
+function clearStuck(state: MirrorState, identity: string): void {
+  if (state.stuck?.identity === identity) delete state.stuck;
+}
 
 function conflictDecisionId(
   entity: "record" | "file",

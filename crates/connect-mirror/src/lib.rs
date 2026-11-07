@@ -301,7 +301,7 @@ struct DurableMirrorState {
 }
 
 /// One object's repeated refusal. After `STUCK_ATTEMPTS` identical refusals
-/// spanning `stuck_after`, the object is set aside as a rejected conflict.
+/// spanning `STUCK_AFTER`, the object is set aside as a rejected conflict.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct StuckAction {
     identity: String,
@@ -312,6 +312,43 @@ struct StuckAction {
 
 const STUCK_ATTEMPTS: u32 = 10;
 const STUCK_AFTER: chrono::TimeDelta = chrono::TimeDelta::hours(1);
+
+/// File refusals a fresh plan settles: a concurrent edit, move or delete on
+/// another device, or an occupied path. They still count, so one that keeps
+/// recurring is eventually set aside.
+const REPLAN_REFUSALS: [&str; 4] = [
+    "stale_file_revision",
+    "path_occupied",
+    "file_not_found",
+    "file_source_mismatch",
+];
+/// Other definite refusals of the file itself. Only these and the re-plan
+/// refusals count towards setting a file aside; every other answer (5xx, rate
+/// limits, storage quota, a live claim, a collection that is not active) says
+/// nothing about the file and keeps the batch and its IDs.
+const OBJECT_REFUSALS: [&str; 3] = [
+    "invalid_file_path",
+    "markdown_is_not_a_file_attachment",
+    "invalid_media_type",
+];
+
+/// Whether the authority answered a file control with a 4xx refusal. Connection
+/// failures, timeouts and 5xx leave the outcome to a retry with the same ID.
+fn definite_refusal(error: &MirrorError) -> bool {
+    error
+        .status
+        .is_some_and(|status| (400..500).contains(&status))
+}
+
+/// Whether the executor will give up this file control's ID, so its upload
+/// transfer can be aborted. Any other failure keeps the transfer open for the
+/// retry to resume.
+fn abandons_transfer(error: &MirrorError) -> bool {
+    definite_refusal(error)
+        && (error.code == "file_too_large"
+            || error.code == "file_transfer_expired"
+            || REPLAN_REFUSALS.contains(&error.code.as_str()))
+}
 
 fn is_zero(value: &u64) -> bool {
     *value == 0
@@ -412,7 +449,7 @@ pub struct DirectoryMirror {
     sync_policy: SelectiveSyncPolicy,
     transport: Arc<dyn SyncTransport>,
     record_reader: Arc<dyn LocalRecordReader>,
-    stuck_after: chrono::TimeDelta,
+    clock: Arc<dyn Fn() -> chrono::DateTime<Utc> + Send + Sync>,
 }
 
 impl DirectoryMirror {
@@ -472,7 +509,7 @@ impl DirectoryMirror {
             sync_policy,
             transport,
             record_reader: Arc::new(FilesystemRecordReader),
-            stuck_after: STUCK_AFTER,
+            clock: Arc::new(Utc::now),
         })
     }
 
@@ -483,8 +520,11 @@ impl DirectoryMirror {
     }
 
     #[cfg(test)]
-    fn with_stuck_after(mut self, stuck_after: chrono::TimeDelta) -> Self {
-        self.stuck_after = stuck_after;
+    fn with_clock(
+        mut self,
+        clock: impl Fn() -> chrono::DateTime<Utc> + Send + Sync + 'static,
+    ) -> Self {
+        self.clock = Arc::new(clock);
         self
     }
 

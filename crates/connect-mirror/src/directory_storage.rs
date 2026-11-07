@@ -451,9 +451,7 @@ fn apply_journal_event(
             }
             batch.phase = phase;
             batch.failure = failure;
-            if stuck.is_some() {
-                state.stuck = stuck;
-            }
+            state.stuck = stuck;
         }
         DurableJournalEvent::Receipt {
             plan_fingerprint,

@@ -86,7 +86,8 @@ export async function beginApplying(
   await appendOrWrite(state, {
     type: "phase",
     plan_fingerprint: batch.plan.fingerprint,
-    phase: "applying"
+    phase: "applying",
+    ...(state.stuck ? { stuck: state.stuck } : {})
   }, store);
 }
 
@@ -152,7 +153,9 @@ export function applySyncJournalEvent(state: MirrorState, event: SyncJournalEven
     batch.phase = event.phase;
     if (event.failure) batch.failure = structuredClone(event.failure);
     else delete batch.failure;
+    // Every phase event carries the count as it stood, including its absence.
     if (event.stuck) state.stuck = structuredClone(event.stuck);
+    else delete state.stuck;
     return;
   }
   if (event.type === "effects_complete") {

@@ -275,7 +275,10 @@ impl SyncTransport for HttpSyncTransport {
         source: &Path,
     ) -> Result<CommitFileUploadReceipt, MirrorError> {
         let result = self.upload_file_transfer(request, source).await;
-        if result.is_err() {
+        // Abort only a transfer whose ID the executor gives up. After any other
+        // failure the retry resumes it; aborting would turn an outage into an
+        // expired transfer and a needless re-upload.
+        if result.as_ref().is_err_and(abandons_transfer) {
             self.abort_file_transfer(request.transfer_id).await;
         }
         result
