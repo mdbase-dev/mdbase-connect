@@ -40,6 +40,8 @@ impl HostedProvider {
             storage: section!(self.storage_diagnostic()),
             recent_resource_changes: section!(self.recent_resource_changes_diagnostic()),
             lifecycle_work,
+            released_sync_mutations: section!(self.released_sync_mutations_diagnostic()),
+            stored_sync_failures: section!(self.stored_sync_failures_diagnostic()),
             unfinished_mutations: section!(self.unfinished_mutations_diagnostic()),
         }
     }
@@ -90,6 +92,11 @@ impl HostedProvider {
                      FILTER (WHERE state IN ('claimed', 'prepared', 'applied'))))::bigint
                      AS oldest_unfinished_seconds
                  FROM hosted_provider_mutation_journal
+                 -- Released sync mutations are not outstanding work: nothing
+                 -- applied and nothing will run them until the client retries.
+                 -- They are counted in `released_sync_mutations` instead.
+                 WHERE NOT (operation_kind = 'sync:mutate' AND state = 'prepared'
+                   AND evidence_kind IS NULL AND lease_expires_at <= now())
                ), deleting AS (
                  SELECT count(*) AS stuck
                  FROM hosted_provider_collections
@@ -343,6 +350,8 @@ impl HostedProvider {
                    END AS age_band
                  FROM hosted_provider_mutation_journal
                  WHERE state IN ('claimed', 'prepared', 'applied')
+                   AND NOT (operation_kind = 'sync:mutate' AND state = 'prepared'
+                     AND evidence_kind IS NULL AND lease_expires_at <= now())
                )
                SELECT operation_kind, state, evidence_kind, age_band, count(*) AS count
                FROM unfinished
@@ -365,6 +374,53 @@ impl HostedProvider {
                 })
             })
             .collect()
+    }
+
+    /// Current-format sync mutations closed by an error that an earlier
+    /// release stored as the final receipt: `completed` with no evidence, so
+    /// their transaction never committed. Current code stores none. A count
+    /// only: the receipt's status is encrypted, so it cannot split by status.
+    ///
+    /// It includes stored 400 and 403 failures, which stay final, so it need
+    /// not reach zero; the 5xx, 401, 404 and 429 ones reopen when their client
+    /// retries, so it falls as stuck clients come back. It misses an error
+    /// stored over an `applied` row: that row keeps its evidence and cannot be
+    /// told from a success without decrypting the receipt (the receipt digest
+    /// hashes the whole plaintext). Those rows reopen on retry all the same.
+    /// Version 0 rows are migrated legacy receipts, which also carry no
+    /// evidence, so they are excluded.
+    async fn stored_sync_failures_diagnostic(&self) -> ApiResult<u64> {
+        let mut transaction = self.read_only_diagnostic_transaction().await?;
+        let total: i64 = sqlx::query_scalar(
+            r#"SELECT count(*) FROM hosted_provider_mutation_journal
+               WHERE operation_kind = 'sync:mutate' AND fingerprint_schema_version = 1
+                 AND state = 'completed' AND evidence_kind IS NULL"#,
+        )
+        .fetch_one(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        number(total, "stored sync failure count")
+    }
+
+    /// Sync mutations whose last attempt failed and released its lease:
+    /// `prepared`, no evidence, lease expired. Nothing applied (the effect and
+    /// its evidence commit together), and nothing runs them again until the
+    /// client retries the same mutation ID, which re-runs it. A client that
+    /// stays over quota, or abandons the ID, leaves them here; compaction
+    /// deletes them after 30 days. A process that died mid-transaction leaves
+    /// the same shape and is equally safe. Kept out of the unfinished counts
+    /// so that they do not hold the lifecycle monitor in warning.
+    async fn released_sync_mutations_diagnostic(&self) -> ApiResult<u64> {
+        let mut transaction = self.read_only_diagnostic_transaction().await?;
+        let total: i64 = sqlx::query_scalar(
+            r#"SELECT count(*) FROM hosted_provider_mutation_journal
+               WHERE operation_kind = 'sync:mutate' AND state = 'prepared'
+                 AND evidence_kind IS NULL AND lease_expires_at <= now()"#,
+        )
+        .fetch_one(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        number(total, "released sync mutation count")
     }
 
     async fn recent_resource_changes_diagnostic(&self) -> ApiResult<Vec<ResourceChangeDiagnostic>> {

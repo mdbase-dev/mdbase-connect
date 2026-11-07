@@ -29,6 +29,16 @@ impl StoredMutationReceipt {
         }
     }
 
+    /// A sync failure stored by a release before transient errors stopped
+    /// being stored: server errors, the account quota trigger, a token
+    /// rotated mid-request, or a collection briefly not active. None is a
+    /// final answer. 400 and 403 failures were deterministic for that exact
+    /// mutation, so they stay final.
+    pub(super) fn is_retryable_stored_sync_failure(&self) -> bool {
+        matches!(self, Self::Failure { status, .. }
+            if *status >= 500 || matches!(*status, 401 | 404 | 429))
+    }
+
     pub(super) fn into_result(self) -> ApiResult<Value> {
         match self {
             Self::Success { value } => Ok(value),

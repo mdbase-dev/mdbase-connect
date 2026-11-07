@@ -148,13 +148,14 @@ impl HostedProvider {
         .execute(&mut *transaction)
         .await?
         .rows_affected();
+        let released = compact_released_sync_mutations_in(&mut transaction).await?;
         sqlx::query(
             "DELETE FROM hosted_provider_retired_replay_credentials WHERE expires_at <= now()",
         )
         .execute(&mut *transaction)
         .await?;
         transaction.commit().await?;
-        Ok(tombstoned)
+        Ok(tombstoned + released)
     }
 
     pub async fn operation_mutation_diagnostics(
@@ -402,7 +403,7 @@ impl HostedProvider {
             if !same {
                 return Err(mutation_conflict(request_id));
             }
-            let state: String = row.get("state");
+            let mut state: String = row.get("state");
             if matches!(
                 state.as_str(),
                 "completed" | "acknowledged" | "abandoned" | "outcome_unknown"
@@ -413,8 +414,15 @@ impl HostedProvider {
                     &ciphertext,
                     &hosted_mutation_receipt_aad(replica.id, request_id),
                 )?;
-                transaction.commit().await?;
-                return Ok(HostedMutationClaim::Terminal(receipt.into_result()));
+                if !(state == "completed"
+                    && operation_kind == "sync:mutate"
+                    && receipt.is_retryable_stored_sync_failure())
+                {
+                    transaction.commit().await?;
+                    return Ok(HostedMutationClaim::Terminal(receipt.into_result()));
+                }
+                state = reopen_stored_sync_failure_in(&mut transaction, replica.id, request_id)
+                    .await?;
             }
             let lease_expires_at: DateTime<Utc> = row.get("lease_expires_at");
             if lease_expires_at > Utc::now() {
