@@ -493,13 +493,18 @@ export class PlanOnlySyncExecutor {
     // 401/403 concern the replica's credentials, not this object.
     if (!(error instanceof SyncError) || error.status === undefined
       || error.status === 401 || error.status === 403 || target.entity === "resource") return error;
+    const file = target.entity === "file";
+    // Freeing space fixes these, so the file is never set aside. Its stored
+    // answer would replay for this ID, so plan again with a new one.
+    if (file && QUOTA_CODES.includes(error.code)) {
+      return new SyncError("sync_plan_stale", `The authority has no space for ${target.path} (${error.code}); planning again.`);
+    }
     const now = this.ports.runtime.now();
     const previous = state.stuck;
     const stuck = previous?.identity === target.identity && previous.code === error.code
       ? { ...previous, attempts: previous.attempts + 1 }
       : { identity: target.identity, code: error.code, attempts: 1, since: now };
     const stuckFor = Date.parse(now) - Date.parse(stuck.since);
-    const file = target.entity === "file";
     delete state.stuck;
     // A file over the per-file limit fails identically on every plan.
     if ((file && error.code === "file_too_large")
@@ -718,6 +723,12 @@ export class PlanOnlySyncExecutor {
 /** A refusal is set aside only when it is both repeated and old. */
 const STUCK_ATTEMPTS = 10;
 const STUCK_AFTER_MS = 60 * 60 * 1000;
+/** Storage refusals that freeing space resolves (not the per-file size limit). */
+const QUOTA_CODES = [
+  "file_storage_quota_exceeded",
+  "account_storage_quota_exceeded",
+  "account_retained_storage_quota_exceeded"
+];
 
 function conflictDecisionId(
   entity: "record" | "file",

@@ -511,6 +511,18 @@ impl DirectoryMirror {
         {
             return Ok(error);
         }
+        let file = target.entity == SyncObjectKind::File;
+        // Freeing space fixes these, so the file is never set aside. Its
+        // stored answer would replay for this ID, so plan again with a new one.
+        if file && QUOTA_CODES.contains(&error.code.as_str()) {
+            return Ok(MirrorError::new(
+                "sync_plan_stale",
+                format!(
+                    "The authority has no space for {} ({}); planning again.",
+                    target.path, error.code
+                ),
+            ));
+        }
         let now = Utc::now();
         let stuck = match state.stuck.take() {
             Some(mut stuck) if stuck.identity == target.identity && stuck.code == error.code => {
@@ -527,7 +539,6 @@ impl DirectoryMirror {
         let stuck_for = chrono::DateTime::parse_from_rfc3339(&stuck.since)
             .map(|since| now.signed_duration_since(since))
             .unwrap_or_default();
-        let file = target.entity == SyncObjectKind::File;
         // A file over the per-file limit fails identically on every plan.
         if (file && error.code == "file_too_large")
             || (stuck.attempts >= STUCK_ATTEMPTS && stuck_for >= self.stuck_after)
@@ -834,6 +845,12 @@ fn invalid_file_receipt(action: &str) -> MirrorError {
         format!("Authority file receipt does not match action {action}."),
     )
 }
+/// Storage refusals that freeing space resolves (not the per-file size limit).
+const QUOTA_CODES: [&str; 3] = [
+    "file_storage_quota_exceeded",
+    "account_storage_quota_exceeded",
+    "account_retained_storage_quota_exceeded",
+];
 /// File controls are journaled by the authority under this ID, errors included.
 /// A batch always runs under the epoch it was prepared in, so retries reuse
 /// the ID; after an abandoned batch, re-planned work gets a new one.

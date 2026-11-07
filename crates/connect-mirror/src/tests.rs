@@ -1230,6 +1230,41 @@ async fn file_control_refusals_replan_with_fresh_ids_then_succeed() {
 }
 
 #[tokio::test]
+async fn storage_quota_refusals_replan_until_space_frees_and_never_set_aside() {
+    let (_temporary, mirror, authority) = image_mirror_with_three_new_files();
+    let mirror = mirror.with_stuck_after(chrono::TimeDelta::zero());
+    let refusals = STUCK_ATTEMPTS as usize + 2;
+    authority.refuse_uploads(
+        "assets/b.png",
+        Some(429),
+        "account_storage_quota_exceeded",
+        refusals,
+    );
+
+    for _ in 0..refusals {
+        assert_eq!(mirror.sync().await.unwrap_err().code, "sync_plan_stale");
+    }
+    mirror.sync().await.unwrap();
+
+    assert_uploaded_once(
+        &authority,
+        &["assets/a.png", "assets/b.png", "assets/c.png"],
+    );
+    let (attempts, _) = authority.uploads_of("assets/b.png");
+    assert_eq!(
+        attempts
+            .iter()
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
+        refusals + 1,
+        "each re-plan uses a new transfer ID"
+    );
+    let status = mirror.status().unwrap();
+    assert!(status.conflicts.is_empty());
+    assert_eq!(status.state, MirrorStatusState::UpToDate);
+}
+
+#[tokio::test]
 async fn persistent_refusal_sets_one_file_aside_and_keeps_syncing() {
     let (_temporary, mirror, authority) = image_mirror_with_three_new_files();
     let mirror = mirror.with_stuck_after(chrono::TimeDelta::zero());

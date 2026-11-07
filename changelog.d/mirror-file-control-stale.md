@@ -1,3 +1,3 @@
 ## Fixed
 
-- Stop directory mirrors from retrying a refused file upload, move or delete forever. A stale revision, an occupied path or an expired upload now makes the mirror plan again, a file over the size limit is set aside at once, and an object the authority refuses repeatedly for over an hour is set aside as a conflict. Other files keep syncing, and the set-aside file stays on disk for the user to resolve.
+- Stop directory mirrors from retrying a refused file upload, move or delete forever. A stale revision, an occupied path, an expired upload or a full storage quota now makes the mirror plan again, so syncing resumes once space is freed. A file over the size limit is set aside at once, and an object the authority keeps refusing for over an hour is set aside as a conflict. Other files keep syncing, and a set-aside file stays on disk for the user to resolve.

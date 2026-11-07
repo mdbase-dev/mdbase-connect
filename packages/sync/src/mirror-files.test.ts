@@ -1585,6 +1585,21 @@ describe("portable collection file mirror", () => {
     expect((await stateStore.read())!.stuck).toBeUndefined();
   });
 
+  it("re-plans storage quota refusals until space frees and never sets the file aside", async () => {
+    const { transport, clock, target } = refusalFixture();
+    transport.refuse("assets/b.png", "account_storage_quota_exceeded", 12, 429);
+
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      clock.now += 2 * 60 * 60 * 1000;
+      expect((await target.sync()).status).toBe("stale");
+    }
+    expect((await target.sync()).status).toBe("applied");
+
+    expectUploadedOnce(transport, ["assets/a.png", "assets/b.png", "assets/c.png"]);
+    expect(new Set(transport.attempts("assets/b.png")).size).toBe(13);
+    expect(await target.status()).toMatchObject({ state: "up_to_date", conflicts: [] });
+  });
+
   it("sets a file over the size limit aside at once without blocking other files", async () => {
     const { transport, fileSystem, target } = refusalFixture();
     transport.refuse("assets/b.png", "file_too_large", 1, 429);
