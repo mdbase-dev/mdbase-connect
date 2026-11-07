@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { watch, type FSWatcher } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { hostname } from "node:os";
-import { basename, resolve } from "node:path";
+import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { HttpSyncTransport } from "./index.js";
 import {
@@ -156,7 +156,11 @@ try {
             await currentProfile(root),
             acquiredLease
           ).status();
-          const line = statusLine(status);
+          // A blocked pass returns rather than throws, so say why it is blocked.
+          const blocked = result.status === "failed" && result.failure
+            ? `. Blocked: ${result.failure.code}: ${result.failure.message}`
+            : "";
+          const line = `${statusLine(status)}${blocked}`;
           if (line !== lastLine) {
             process.stdout.write(`${line}\n`);
             lastLine = line;
@@ -198,17 +202,22 @@ async function sync(root: string, lease?: MirrorLease): Promise<MirrorApplyResul
   return mirrorFor(root, configuration, lease).sync();
 }
 
-/** Report edits under `root`, ignoring the mirror's own temporary files. */
+/**
+ * Report edits under `root`, ignoring dot-directories (app state such as
+ * `.obsidian`) and the mirror's own temporary files. Not on Linux, where a
+ * recursive watch walks the tree and spends one shared inotify watch per entry;
+ * there the backoff alone limits retries to five minutes apart.
+ */
 function watchLocalChanges(root: string, onChange: () => void): FSWatcher | undefined {
+  if (process.platform === "linux") return undefined;
   try {
     const watcher = watch(root, { recursive: true }, (_event, name) => {
-      if (name && basename(String(name)).startsWith(".mdbase-")) return;
+      if (name && String(name).split(/[\\/]/u).some((segment) => segment.startsWith("."))) return;
       onChange();
     });
     watcher.on("error", () => watcher.close());
     return watcher;
   } catch {
-    // Without change events the watch still retries, at most five minutes apart.
     return undefined;
   }
 }

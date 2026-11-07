@@ -41,9 +41,10 @@ export function mirrorApplyResult(
 const MAX_WATCH_BACKOFF_MS = 5 * 60 * 1000;
 
 /**
- * Paces `mdbase-mirror watch`. Each pass that fails without progress (a kept
- * batch blocked at the same action, or an error before any result) doubles
- * the wait, up to five minutes. Progress or a local change resets it.
+ * Paces `mdbase-mirror watch`. Each pass that ends where the last one did
+ * doubles the wait, up to five minutes: a kept batch blocked at the same
+ * action, an authority refusal that re-plans into the same refusal, or an
+ * error before any result. Progress or a local change resets it.
  */
 export class WatchBackoff {
   private failures = 0;
@@ -53,11 +54,17 @@ export class WatchBackoff {
 
   /** Record one pass, `undefined` if it threw, and return the wait before the next. */
   next(result: MirrorApplyResult | undefined): number {
-    if (result && result.status !== "failed") {
+    const failure = !result
+      ? "error"
+      : result.status === "failed"
+        ? `failed:${result.plan_fingerprint}:${result.applied}`
+        : result.status === "stale" && result.failure?.action_id
+          ? `stale:${result.failure.action_id}:${result.failure.message}`
+          : undefined;
+    if (failure === undefined) {
       this.reset();
       return this.interval;
     }
-    const failure = result ? `${result.plan_fingerprint}:${result.applied}` : "error";
     this.failures = failure === this.lastFailure ? this.failures + 1 : 1;
     this.lastFailure = failure;
     return Math.min(

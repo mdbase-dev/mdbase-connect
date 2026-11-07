@@ -1672,11 +1672,17 @@ describe("portable collection file mirror", () => {
   it("re-plans expired transfers without counting them", async () => {
     const { transport, stateStore, clock, target } = refusalFixture();
     transport.refuse("assets/b.png", "file_transfer_expired", 12, 409);
+    const failures = new Set<string>();
     for (let attempt = 0; attempt < 12; attempt += 1) {
       clock.now += 20 * 60 * 1000;
-      expect((await target.sync()).status).toBe("stale");
+      const result = await target.sync();
+      expect(result.status).toBe("stale");
+      failures.add(JSON.stringify(result.failure));
       expect((await stateStore.read())!.stuck).toBeUndefined();
     }
+    // Each pass ends identically, so `mdbase-mirror watch` backs it off.
+    expect(failures.size).toBe(1);
+    expect(JSON.parse([...failures][0]!)).toMatchObject({ code: "sync_plan_stale", action_id: expect.any(String) });
     expect((await target.sync()).status).toBe("applied");
     expectUploadedOnce(transport, ["assets/a.png", "assets/b.png", "assets/c.png"]);
     expect(new Set(transport.attempts("assets/b.png")).size).toBe(13);
@@ -1741,6 +1747,26 @@ describe("portable collection file mirror", () => {
     const state = (await stateStore.read())!;
     expect(state.batch?.receipts.length).toBeGreaterThan(0);
     expect(state.stuck).toBeUndefined();
+  });
+
+  it("keeps a file's count when the process dies after another file's receipt", async () => {
+    const stateStore = new CrashingStateStore();
+    const { transport, fileSystem, target } = refusalFixture(stateStore);
+    transport.refuse("assets/c.png", "path_occupied", 1, 409);
+    expect((await target.sync()).status).toBe("stale");
+    const counted = (await stateStore.read())!.stuck;
+    expect(counted).toMatchObject({ code: "path_occupied", attempts: 1 });
+
+    // A new file is planned before the counted one; the process dies after its receipt.
+    fileSystem.files.set("assets/0.png", utf8.encode("local 0"));
+    transport.refuse("assets/c.png", "provider_unavailable", 1, 503);
+    stateStore.crashAfter = (event) => event.type === "receipt";
+    await target.sync();
+    stateStore.restart();
+    expectUploadedOnce(transport, ["assets/0.png", "assets/a.png", "assets/b.png"]);
+    const state = (await stateStore.read())!;
+    expect(state.batch?.receipts).toHaveLength(1);
+    expect(state.stuck).toEqual(counted);
   });
 
   it("sets a file aside on the next refusal when the process died after the trip", async () => {

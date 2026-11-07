@@ -1,15 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { WatchBackoff, type MirrorApplyResult } from "./mirror-plan.js";
 
-function result(status: MirrorApplyResult["status"], applied = 0, plan = "plan-1"): MirrorApplyResult {
+function result(
+  status: MirrorApplyResult["status"],
+  applied = 0,
+  failure?: MirrorApplyResult["failure"]
+): MirrorApplyResult {
   return {
     status,
-    plan_fingerprint: plan,
+    plan_fingerprint: "plan-1",
     applied,
     pending: 1,
     checkpoint_cursor: null,
     conflicts: 0,
-    issues: []
+    issues: [],
+    ...(failure ? { failure } : {})
   };
 }
 
@@ -39,5 +44,17 @@ describe("mdbase-mirror watch backoff", () => {
     expect(backoff.reset()).toBe(true);
     expect(backoff.next(result("failed", 3))).toBe(2_000);
     expect(backoff.reset()).toBe(false);
+  });
+
+  it("backs off an authority refusal that re-plans into the same refusal", () => {
+    const refused = (actionId: string, message = "The authority refused assets/b.png (path_occupied); planning again.") =>
+      result("stale", 0, { code: "sync_plan_stale", message, action_id: actionId });
+    const backoff = new WatchBackoff(2_000);
+    expect([1, 2, 3].map(() => backoff.next(refused("put-b")))).toEqual([2_000, 4_000, 8_000]);
+    // A different refusal, or a stale plan with no refused action, is progress.
+    expect(backoff.next(refused("put-c"))).toBe(2_000);
+    expect(backoff.next(refused("put-c"))).toBe(4_000);
+    expect(backoff.next(result("stale", 0, { code: "sync_plan_stale", message: "Local state changed." }))).toBe(2_000);
+    expect(backoff.next(refused("put-c"))).toBe(2_000);
   });
 });

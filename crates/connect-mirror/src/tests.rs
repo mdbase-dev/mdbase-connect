@@ -1512,6 +1512,52 @@ async fn a_receipt_clears_its_files_refusal_count() {
 }
 
 #[tokio::test]
+async fn a_crash_after_another_files_receipt_keeps_the_count() {
+    let (_temporary, mirror, authority) = image_mirror_with_three_new_files();
+    for name in ["a", "b", "c"] {
+        authority.refuse_uploads(
+            &format!("assets/{name}.png"),
+            Some(503),
+            "provider_unavailable",
+            1,
+        );
+    }
+    assert_eq!(
+        mirror.sync().await.unwrap_err().code,
+        "provider_unavailable"
+    );
+    let first = authority.upload_attempts.lock().unwrap()[0].0.clone();
+    authority.upload_refusals.lock().unwrap().clear();
+    // Another file's count, as left by an earlier batch.
+    let counted = StuckAction {
+        identity: "another-file".to_string(),
+        code: "path_occupied".to_string(),
+        attempts: 3,
+        since: Utc::now().to_rfc3339(),
+    };
+    let mut state = mirror.read_state().unwrap().unwrap();
+    state.stuck = Some(counted.clone());
+    mirror.write_state(&state).unwrap();
+    mirror.reset_journal().unwrap();
+    for name in ["a", "b", "c"] {
+        let path = format!("assets/{name}.png");
+        if path != first {
+            authority.refuse_uploads(&path, None, "hang", 1);
+        }
+    }
+
+    // The first upload lands, then the process dies during the next one.
+    tokio::select! {
+        _ = mirror.sync() => panic!("the next upload never answers"),
+        () = authority.hung.notified() => {}
+    }
+    assert_eq!(authority.uploads_of(&first).1.len(), 1);
+    let state = mirror.read_state().unwrap().unwrap();
+    assert!(state.batch.is_some());
+    assert_eq!(state.stuck, Some(counted));
+}
+
+#[tokio::test]
 async fn a_crash_after_a_receipt_keeps_its_files_count_cleared() {
     let (_temporary, mirror, authority) = image_mirror_with_three_new_files();
     for name in ["a", "b", "c"] {
