@@ -87,6 +87,24 @@ export function recoverLostPolicy(db: DatabasePool, log: LogServiceClient, colle
   return withPolicyLock(db, collectionId, lock => recover(lock, log, collectionId, cursor));
 }
 
+/** Check only the newest acknowledged batch: its exact bytes at its own seq,
+ * never the log's head. A log rollback removes a suffix, so a healthy tip means
+ * no position was rolled back; a restore followed by a fresh append at that seq
+ * has other bytes. Any mismatch runs the complete fenced recovery. */
+export function verifyPolicyTip(db: DatabasePool, log: LogServiceClient, collectionId: string): Promise<number> {
+  return withPolicyLock(db, collectionId, async lock => {
+    const newest = (await lock.query<{ seq: string; item: Buffer }>(
+      `SELECT seq, item FROM next_policy_batches WHERE collection_id = $1
+       AND state = 'appended' AND lost_at IS NULL ORDER BY id DESC LIMIT 1`, [collectionId]
+    )).rows[0];
+    if (!newest) return 0;
+    await lock.assertOwned();
+    const stored = await log.controlItemAt(collectionId, Number(newest.seq));
+    if (stored && newest.item.equals(Buffer.from(stored))) return 0;
+    return recover(lock, log, collectionId);
+  });
+}
+
 interface LostBatch { id: string; park?: "lost_genesis" | "invalid_retained_ops" }
 interface SendingBatch { id: string; acknowledged: boolean }
 
@@ -101,8 +119,9 @@ async function retainedOps(client: DatabaseQueryable, batchId: string): Promise<
 async function recover(lock: PolicyLock, log: LogServiceClient, collectionId: string, cursor?: PolicyVerificationCursor): Promise<number> {
   const collection = await lock.query("SELECT collection_id FROM next_collections WHERE collection_id = $1", [collectionId]);
   if (!collection.rows.length) { if (cursor) cursor.after = "0"; return 0; }
-  await lock.assertOwned();
-  const head = await log.head(collectionId);
+  // Probes read their one position directly; a position beyond the head reads
+  // as missing. Full recovery reads the head once to skip those reads.
+  let head: { seq: number } | undefined;
   // Retain decisions only for lost/sending batches, not the healthy history.
   // All remote verification completes BEFORE any scheduling transaction starts:
   // a failed read must not commit even a prefix of the reissue plan.
@@ -128,9 +147,11 @@ async function recover(lock: PolicyLock, log: LogServiceClient, collectionId: st
       const seq = Number(batch.seq);
       // Stop a dead owner before its next remote read, not only at page end.
       await lock.assertOwned();
-      const stored = seq > head.seq ? null : await log.controlItemAt(collectionId, seq);
+      if (!probing) head ??= await log.head(collectionId);
+      const stored = head && seq > head.seq ? null : await log.controlItemAt(collectionId, seq);
       if (stored && batch.item.equals(Buffer.from(stored))) {
-        if (probing) { cursor!.after = after; return 0; }
+        // The sweep's last batch completes it without another empty probe.
+        if (probing) { cursor!.after = after === cursor!.through ? "0" : after; return 0; }
         continue;
       }
       if (probing) {

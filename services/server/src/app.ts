@@ -293,7 +293,8 @@ export async function buildApp(options: BuildOptions) {
         Date.now,
         serviceDeployments
           ? (collectionId) => activatePendingServices(options.db, serviceDeployments, undefined, collectionId, options.nextControlPlane!.logService.labPitr, options.nextControlPlane!.migrationRouting)
-          : undefined
+          : undefined,
+        (sweep) => app.log.info(sweep, "mdbase-next policy verification sweep")
       )
     : undefined;
 
