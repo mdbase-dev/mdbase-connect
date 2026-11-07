@@ -80,6 +80,38 @@ async function approvalTick(session: AppWebSignInSession<unknown>): Promise<void
   session.setForeground(false);session.setForeground(true);
   await vi.waitFor(()=>expect((session as unknown as {pending:unknown}).pending).toBeNull());
 }
+describe("explicit startup recovery", () => {
+  it("retries a failed hosted collection through select, not the session startup fast path",async()=>{
+    const f=fixture("paired","never");await f.session.start();
+    f.openCollection.mockRejectedValueOnce(new AppCloudCopyHostError("unavailable"));
+    await expect(f.session.select(collectionId)).rejects.toMatchObject({reason:"unavailable"});
+    expect(f.session.getSnapshot()).toMatchObject({status:"blocked",problem:"unavailable"});
+    await f.session.start();
+    expect(f.openCollection).toHaveBeenCalledOnce();
+    await f.session.select(collectionId);
+    expect(f.session.getSnapshot()).toMatchObject({status:"ready",problem:null});
+    expect(f.openCollection).toHaveBeenCalledTimes(2);
+    expect(f.flowOpen).toHaveBeenCalledOnce();
+    await f.session.close();
+  });
+  it.each(["host", "collections"] as const)("resumes after one %s startup failure using the original sign-in flow",async stage=>{
+    const f=fixture("paired","never");
+    if(stage==="host")f.hostOpen.mockRejectedValueOnce(new AppCloudCopyHostError("unavailable"));
+    else f.flow.listApprovedCollections.mockRejectedValueOnce(new AppCloudCopyHostError("unavailable"));
+    await expect(f.session.start()).rejects.toMatchObject({reason:"unavailable"});
+    expect(f.session.getSnapshot()).toMatchObject({status:"blocked",problem:"unavailable"});
+    await f.session.start();
+    expect(f.session.getSnapshot()).toMatchObject({status:"unselected",problem:null});
+    expect(f.flowOpen).toHaveBeenCalledOnce();
+    expect(f.hostOpen).toHaveBeenCalledTimes(stage==="host"?2:1);
+    expect(f.flow.renewExpiredPairing).not.toHaveBeenCalled();
+    await f.session.select(collectionId);
+    expect(f.session.getSnapshot().status).toBe("ready");
+    await f.session.close();
+    expect(f.installationRelease).toHaveBeenCalledOnce();
+  });
+});
+
 describe("opening progress", () => {
   it("explicitly clears a stale stage when the same slot is already opening", async () => {
     const f = fixture("paired"), original = f.openCollection.getMockImplementation()!;

@@ -351,10 +351,10 @@ export class AppWebSignInSession<Connection> {
    * sign-in gesture; a pending ledger keeps its SAME request for authorize(). */
   start(): Promise<AppWebSignInSnapshot> {
     return this.operation(async () => {
-      if (this.flow) return this.getSnapshot();
+      if (this.flow && this.base.status !== "blocked") return this.getSnapshot();
       this.publish({status: "starting", problem: null, signOutResult: null});
       const p = this.options;
-      this.flow = await AppProtectedInstallationSignIn.open({...p, mode: p.storeMode ?? "open", signal: this.flowLifetime.signal,
+      this.flow ??= await AppProtectedInstallationSignIn.open({...p, mode: p.storeMode ?? "open", signal: this.flowLifetime.signal,
         environmentSelection: this.environment});
       this.check();
       // Local ledger only: the pairing request is created by the sign-in

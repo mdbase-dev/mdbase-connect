@@ -327,7 +327,15 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
     this.selection.subscribe(()=>{this.unforgetApproved();this.notify(false);});
     const view=()=>this.getSnapshot();
     this.app=Object.freeze({getSnapshot:view,subscribe:(listener:()=>void)=>{this.listeners.add(listener);return()=>{this.listeners.delete(listener);};},
-      start:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>this.call(runtime=>this.started(runtime,options)).catch(error=>{
+      start:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>this.call(async runtime=>{
+        const native=runtime.getNativeSnapshot();
+        if(native.status==="blocked"&&native.signIn&&native.selectedCollectionId===null)
+          await runtime.queue(()=>runtime.start(options));
+        else await this.started(runtime,options);
+        const selection=this.choose(),snapshot=selection.getSnapshot();
+        if(snapshot.state==="blocked"&&snapshot.requested.approved&&snapshot.requested.collectionId!==null)
+          await selection.select(snapshot.requested.collectionId,options);
+      }).catch(error=>{
         // Open in another tab is a wait, not a failure: the snapshot says so and
         // this tab takes over by itself when the other one lets go.
         const native=this.runtime?.getNativeSnapshot();
