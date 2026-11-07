@@ -26,6 +26,8 @@ async fn adversarial_file_lifecycle_scenarios() {
     abort_wins_against_late_copy(&database_url).await;
     abort_wins_after_copy_is_visible(&database_url).await;
     expiry_wins_against_late_copy(&database_url).await;
+    status_reporting_expiry_stops_a_late_publish(&database_url).await;
+    status_waits_for_a_publishing_commit(&database_url).await;
     maintenance_wins_against_late_copy(&database_url).await;
     commit_wins_maintenance_loses(&database_url).await;
     maintenance_recovers_abandoned_open_upload(&database_url).await;
@@ -323,6 +325,72 @@ async fn commit_wins_expiry_loses(database_url: &str) {
     assert_storage_consistent(&fixture.pool, &fixture.blobs, fixture.collection_id).await;
 }
 
+/// Status for a transfer that expires while its commit is publishing waits
+/// for that commit and reports it committed, not expired.
+async fn status_waits_for_a_publishing_commit(database_url: &str) {
+    let fixture = FileLifecycleFixture::new(database_url).await;
+    let transfer_id = fixture
+        .stage_upload(
+            "races/status-waits.bin",
+            b"status crosses the expiry boundary",
+        )
+        .await;
+    sqlx::query(
+        "UPDATE hosted_provider_file_transfers SET expires_at = now() + interval '750 milliseconds' WHERE id = $1",
+    )
+    .bind(transfer_id)
+    .execute(&fixture.pool)
+    .await
+    .expect("expiry is brought close");
+    let mut blocker = fixture.pool.begin().await.expect("blocker begins");
+    blocker
+        .execute("LOCK TABLE hosted_provider_file_changes IN ACCESS EXCLUSIVE MODE")
+        .await
+        .expect("file change table is locked");
+
+    let commit = spawn_commit(&fixture, transfer_id);
+    wait_for_query_blocked(&fixture.pool, "INSERT INTO hosted_provider_file_changes").await;
+    wait_for_database_condition(&fixture.pool, || {
+        let pool = fixture.pool.clone();
+        async move {
+            sqlx::query_scalar::<_, bool>(
+                "SELECT expires_at <= now() FROM hosted_provider_file_transfers WHERE id = $1",
+            )
+            .bind(transfer_id)
+            .fetch_one(&pool)
+            .await
+            .expect("expiry can be observed")
+        }
+    })
+    .await;
+    let status = {
+        let provider = fixture.provider.clone();
+        let collection_id = fixture.collection_id;
+        let token = fixture.token.clone();
+        tokio::spawn(async move {
+            provider
+                .file_transfer_status(collection_id, &token, transfer_id, None)
+                .await
+        })
+    };
+    wait_for_query_blocked(&fixture.pool, "SET state = 'expired'").await;
+
+    blocker.commit().await.expect("blocker releases");
+    commit
+        .await
+        .expect("commit task joins")
+        .expect("commit wins");
+    let status = status
+        .await
+        .expect("status task joins")
+        .expect("status is reported");
+    assert_eq!(
+        status.state,
+        mdbase_connect_protocol::FileTransferState::Committed
+    );
+    assert_storage_consistent(&fixture.pool, &fixture.blobs, fixture.collection_id).await;
+}
+
 async fn abort_wins_against_late_copy(database_url: &str) {
     let fixture = FileLifecycleFixture::new(database_url).await;
     let transfer_id = fixture
@@ -419,6 +487,51 @@ async fn abort_wins_after_copy_is_visible(database_url: &str) {
         .await
         .expect("commit task joins")
         .expect_err("commit observes deleted destination");
+    assert_terminal_objects_absent(&fixture, transfer_id).await;
+}
+
+/// Once status reports a completing transfer expired, the client re-uploads
+/// under a new ID, so the original finalizer must not publish even when no
+/// sweep or commit retry had marked the row expired.
+async fn status_reporting_expiry_stops_a_late_publish(database_url: &str) {
+    let fixture = FileLifecycleFixture::new(database_url).await;
+    let transfer_id = fixture
+        .stage_upload(
+            "races/expiry-without-sweep.bin",
+            b"a finalizer that outlives its transfer",
+        )
+        .await;
+    fixture.blobs.arm_copy(CopyCheckpoint::BeforePublish).await;
+    let commit = spawn_commit(&fixture, transfer_id);
+    fixture.blobs.wait_for_copy().await;
+    sqlx::query("UPDATE hosted_provider_file_transfers SET expires_at = now() - interval '1 second' WHERE id = $1")
+        .bind(transfer_id)
+        .execute(&fixture.pool)
+        .await
+        .expect("transfer expires");
+    let status = fixture
+        .provider
+        .file_transfer_status(fixture.collection_id, &fixture.token, transfer_id, None)
+        .await
+        .expect("status is reported");
+    assert_eq!(
+        status.state,
+        mdbase_connect_protocol::FileTransferState::Expired
+    );
+
+    fixture.blobs.release_copy().await;
+    let error = commit
+        .await
+        .expect("commit task joins")
+        .expect_err("a late finalizer does not publish");
+    assert_eq!(error.code, "file_transfer_not_completing");
+    let state: String =
+        sqlx::query_scalar("SELECT state FROM hosted_provider_file_transfers WHERE id = $1")
+            .bind(transfer_id)
+            .fetch_one(&fixture.pool)
+            .await
+            .expect("transfer state is readable");
+    assert_eq!(state, "expired");
     assert_terminal_objects_absent(&fixture, transfer_id).await;
 }
 

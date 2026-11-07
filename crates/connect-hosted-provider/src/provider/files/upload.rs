@@ -263,7 +263,7 @@ impl HostedProvider {
     ) -> ApiResult<FileTransferStatus> {
         let replica = self.authenticate_for_file(collection_id, token).await?;
         let data_key = self.load_collection_key(collection_id).await?;
-        if let Some(transfer) = self
+        if let Some(mut transfer) = self
             .load_upload_transfer(collection_id, transfer_id, &data_key)
             .await?
         {
@@ -280,6 +280,21 @@ impl HostedProvider {
                 Some(&transfer.intent.path),
                 request_origin,
             )?;
+            if matches!(transfer.state.as_str(), "open" | "completing")
+                && transfer.expires_at <= Utc::now()
+            {
+                // A client told the upload expired starts again under a new
+                // ID, so expire the row first. This waits for any commit
+                // publishing it, and stops a later one from publishing too.
+                if self.expire_upload(&transfer).await? {
+                    transfer.state = "expired".to_string();
+                } else {
+                    transfer = self
+                        .load_upload_transfer(collection_id, transfer_id, &data_key)
+                        .await?
+                        .ok_or_else(transfer_not_found)?;
+                }
+            }
             let (received, received_bytes, uploaded_parts) =
                 self.upload_progress(&transfer).await?;
             return Ok(FileTransferStatus {
@@ -945,7 +960,8 @@ impl HostedProvider {
         Ok(receipt)
     }
 
-    async fn expire_upload(&self, transfer: &HostedFileTransfer) -> ApiResult<()> {
+    /// Returns false when the transfer had already left `open`/`completing`.
+    async fn expire_upload(&self, transfer: &HostedFileTransfer) -> ApiResult<bool> {
         let updated = sqlx::query(
             r#"UPDATE hosted_provider_file_transfers
                SET state = 'expired', updated_at = now()
@@ -954,11 +970,12 @@ impl HostedProvider {
         .bind(transfer.id)
         .execute(&self.pool)
         .await?;
-        if updated.rows_affected() == 1 {
+        let expired = updated.rows_affected() == 1;
+        if expired {
             self.schedule_uncommitted_upload_cleanup(transfer.into())
                 .await;
         }
-        Ok(())
+        Ok(expired)
     }
 }
 
