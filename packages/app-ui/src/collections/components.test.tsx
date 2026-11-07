@@ -88,7 +88,53 @@ const button = (name: string | RegExp) => {
 };
 const key = (element: Element, value: string) => act(() => { element.dispatchEvent(new KeyboardEvent("keydown", { key: value, bubbles: true })); });
 
+it("replaces Add with one quota notice and clears it when collection count changes", async () => {
+  const { mdbase, entry, set } = fakeMdbase({ kind: "choosing" });
+  mdbase.addCollection.mockRejectedValue(Object.assign(new Error("quota"), { code: "account_collection_quota_exceeded" }));
+  await act(async () => root.render(<CollectionGate mdbase={entry} app={app}>{() => null}</CollectionGate>));
+  await act(async () => button("Add a collection…").click());
+  expect(() => button("Add a collection…")).toThrow();
+  expect(container.querySelectorAll(".mdbase-collections-notice")).toHaveLength(1);
+  const notice = container.querySelector(".mdbase-collections-notice")!;
+  expect(notice.closest(".mdbase-collections-actions")).not.toBeNull();
+  act(() => set({ collections: entry.getSnapshot().collections.slice(1) }));
+  expect(container.querySelector(".mdbase-collections-notice")).toBeNull();
+  expect(button("Add a collection…")).toBeDefined();
+});
+
+it("does not clear unrelated action errors when collection count changes", async () => {
+  const { mdbase, entry, set } = fakeMdbase({ kind: "choosing" });
+  mdbase.addCollection.mockRejectedValue(Object.assign(new Error("offline"), { code: "unavailable" }));
+  await act(async () => root.render(<CollectionGate mdbase={entry} app={app}>{() => null}</CollectionGate>));
+  await act(async () => button("Add a collection…").click());
+  const text = container.querySelector(".mdbase-collections-notice")!.textContent;
+  act(() => set({ collections: entry.getSnapshot().collections.slice(1) }));
+  expect(container.querySelector(".mdbase-collections-notice")?.textContent).toBe(text);
+});
+
+it("clears only the quota action error after the approved collection count changes", async () => {
+  const { mdbase, entry, set } = fakeMdbase({ kind: "choosing", lastApproval: null });
+  mdbase.addCollection.mockRejectedValue(Object.assign(new Error("quota"), { code: "account_collection_quota_exceeded" }));
+  let ui!: ReturnType<typeof useCollectionUi>;
+  function Host() { ui = useCollectionUi({ mdbase: entry, app }); return null; }
+  await act(async () => root.render(<Host />));
+  await act(async () => ui.actions.addCollection());
+  expect(ui.error?.key).toBe("account_collection_quota_exceeded");
+  act(() => set({ collections: [...entry.getSnapshot().collections] }));
+  expect(ui.error?.key).toBe("account_collection_quota_exceeded");
+  act(() => set({ collections: entry.getSnapshot().collections.slice(1) }));
+  expect(ui.error).toBeNull();
+});
+
 describe("opening presentation", () => {
+  it.each(["signed_out", "starting"] as const)("owns exactly one page landmark while %s", (kind) => {
+    const { entry } = fakeMdbase(kind === "signed_out" ? { kind, notice: null } : { kind });
+    render(<CollectionGate mdbase={entry} app={app} autoStart={false}>{() => null}</CollectionGate>);
+    expect(container.querySelectorAll("main")).toHaveLength(1);
+    expect(container.querySelector("main")).toBe(container.firstElementChild);
+    expect(container.querySelectorAll("main main")).toHaveLength(0);
+  });
+
   it.each(["page", "panel"] as const)("preserves programmatic focus on visible and hidden %s headings", (layout) => {
     const { entry, set } = fakeMdbase({ kind: "starting" }, { status: "starting", signIn: null });
     render(<CollectionGate mdbase={entry} app={app} layout={layout}>{() => null}</CollectionGate>);
@@ -312,6 +358,18 @@ describe("SDK storage and Private states", () => {
 });
 
 describe("setup review", () => {
+  it.each(["page", "panel"] as const)("uses consecutive %s setup headings without repeating the lead", async (layout) => {
+    const { mdbase, entry } = fakeMdbase({ kind: "needs_setup", collectionId: A, collection: { collectionId: A, displayName: "Alpha", role: "owner" } } as MdbasePhase);
+    mdbase.setup.plan.mockResolvedValue({ status: "setup", canApply: true, digest: "d", summary: "One readable setup summary.",
+      changes: [{ kind: "create", target: "_types/task.md", message: "Add the task type." }],
+      conflicts: [{ target: "_types/note.md", message: "Review the note type." }], adoptable: {}, packs: [], staged: [], records: [] } as never);
+    await act(async () => root.render(<CollectionGate mdbase={entry} app={app} layout={layout}>{() => null}</CollectionGate>));
+    expect(container.querySelector(".mdbase-collections-lead")).toBeNull();
+    expect([...container.querySelectorAll(".mdbase-collections-setup-section > :first-child")].map(heading => heading.tagName))
+      .toEqual(layout === "page" ? ["H2", "H2"] : ["H3", "H3"]);
+    expect(container.querySelector(".mdbase-collections-setup-summary")?.textContent).toBe("One readable setup summary.");
+  });
+
   it("plans again by itself while setup is busy elsewhere, instead of stopping at Try again", async () => {
     vi.useFakeTimers();
     try {
@@ -616,7 +674,7 @@ describe("sign out", () => {
     await act(async () => { button("Sign out").click(); });
     const dialog = document.querySelector("dialog")!;
     expect(dialog.textContent).toContain("Changes are still saving");
-    act(() => button("Sign out anyway").click());
+    await act(async () => button("Sign out anyway").click());
     expect(mdbase.signOut).toHaveBeenLastCalledWith(expect.objectContaining({ discard: true }));
   });
 });

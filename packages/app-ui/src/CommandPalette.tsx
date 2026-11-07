@@ -3,7 +3,7 @@ import { useLocaleRevision } from "./i18n.js";
 import { Dialog } from "./Dialog.js";
 import { shortcutLabel } from "./shortcuts.js";
 export { isApplePlatform, shortcutLabel } from "./shortcuts.js";
-import { Fragment, useEffect, useLayoutEffect, useId, useMemo, useRef, useState, type JSX, type KeyboardEvent, type RefObject, type ReactNode } from "react";
+import { Fragment, useLayoutEffect, useId, useMemo, useRef, useState, type JSX, type KeyboardEvent, type RefObject, type ReactNode } from "react";
 
 export interface Command {
   readonly id: string;
@@ -108,7 +108,7 @@ function OpenCommandPalette({ open, commands, onClose, label, placeholder, showA
   useLayoutEffect(() => {
     resultsRef.current!.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   }, [active, matches]);
-  useEffect(() => { if (open) { setQuery(initialQuery); setActive(0); } }, [open, initialQuery]);
+  useLayoutEffect(() => { if (open) { setQuery(initialQuery); setActive(0); } }, [open, initialQuery]);
   const run = (command: Command, alternate = false): void => {
     inputRef.current?.closest("dialog")?.close();
     returnFocusRef?.current?.focus({ preventScroll: true });

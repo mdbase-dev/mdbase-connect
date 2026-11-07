@@ -615,7 +615,7 @@
   gap: 4px;
 }
 
-.mdbase-collections-setup-section h3 {
+.mdbase-collections-setup-section :is(h2, h3) {
   margin: 0;
   color: var(--_text-soft);
   font-size: var(--_font-size-caption);

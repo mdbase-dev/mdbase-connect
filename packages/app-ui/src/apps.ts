@@ -10,7 +10,7 @@ export interface MdbaseApp {
   readonly id: MdbaseAppId;
   readonly name: string;
   readonly description: string;
-  /** Production origin. Lab and local builds substitute their own with `withAppUrls`. */
+  /** Deployment URL supplied by the consumer with `withAppUrls`. */
   readonly url: string;
 }
 
@@ -19,25 +19,25 @@ export const mdbaseApps: readonly MdbaseApp[] = [
     id: "editor",
     name: "Editor",
     get description() { return t({ message: "Browse and edit records" }); },
-    url: "https://editor.mdbase.dev/"
+    url: ""
   },
   {
     id: "reader",
     name: "Reader",
     get description() { return t({ message: "Read and annotate sources" }); },
-    url: "https://reader.mdbase.dev/"
+    url: ""
   },
   {
     id: "writer",
     name: "Writer",
     get description() { return t({ message: "Write manuscripts that cite your sources" }); },
-    url: "https://writer.mdbase.dev/"
+    url: ""
   }
 ];
 
 /**
  * Replaces app URLs for a lab or local build, for example from
- * `import.meta.env.VITE_MDBASE_WRITER_URL`. Unset entries keep production.
+ * `import.meta.env.VITE_MDBASE_WRITER_URL`. Apps without a URL are omitted.
  */
 export function withAppUrls(
   urls: Partial<Record<MdbaseAppId, string | undefined>>,
@@ -46,7 +46,7 @@ export function withAppUrls(
   return apps.map((app) => {
     const url = urls[app.id];
     return url ? { ...app, url } : app;
-  });
+  }).filter((app) => app.url);
 }
 
 /**
