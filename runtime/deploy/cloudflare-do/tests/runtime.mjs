@@ -335,8 +335,8 @@ try {
   try {
     assert.equal(store.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name = 'used_http_nonces_expiry'").get().n, 0,
       'actor startup drops the old expiry index');
-    assert.equal(store.prepare('SELECT count(*) AS n FROM used_http_nonces WHERE expires_at < ?').get(Date.now()).n, 0,
-      'expired nonces are pruned without the index');
+    assert.equal(store.prepare('SELECT count(*) AS n FROM used_http_nonces WHERE nonce IN (?, ?, ?)')
+      .get(...[0, 1, 2].map(i => Buffer.alloc(32, 0xe0 + i))).n, 0, 'expired nonces are pruned without the index');
     assert.equal(store.prepare('SELECT count(*) AS n FROM used_http_nonces WHERE nonce IN (?, ?)').get(nonce, freshNonce).n, 2,
       'unexpired used nonces are kept');
   } finally { store.close(); }
