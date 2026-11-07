@@ -211,6 +211,16 @@ impl FileLifecycleFixture {
     }
 
     pub async fn stage_upload(&self, path: &str, bytes: &[u8]) -> Uuid {
+        self.stage(path, bytes, None).await
+    }
+
+    /// Stages a replacement of the file at `path` committed as `if_revision`.
+    #[allow(dead_code)]
+    pub async fn stage_replace(&self, path: &str, bytes: &[u8], if_revision: &str) -> Uuid {
+        self.stage(path, bytes, Some(if_revision)).await
+    }
+
+    async fn stage(&self, path: &str, bytes: &[u8], if_revision: Option<&str>) -> Uuid {
         let transfer_id = Uuid::now_v7();
         self.provider
             .open_file_upload(
@@ -224,7 +234,7 @@ impl FileLifecycleFixture {
                     size: bytes.len() as u64,
                     content_digest: format!("sha256:{:x}", Sha256::digest(bytes)),
                     media_type: None,
-                    if_revision: None,
+                    if_revision: if_revision.map(str::to_string),
                 },
                 None,
             )

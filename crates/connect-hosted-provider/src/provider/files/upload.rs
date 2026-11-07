@@ -347,6 +347,15 @@ impl HostedProvider {
         if let Some(receipt) = transfer.receipt {
             return Ok(receipt);
         }
+        if transfer.state == "aborted" {
+            // Its multipart upload is gone from R2, so validating the parts
+            // would fail as though storage were down. Checked before expiry, to
+            // match what status reports.
+            return Err(ApiError::conflict(
+                "file_transfer_not_open",
+                "This file upload was cancelled.",
+            ));
+        }
         if transfer.expires_at <= Utc::now() {
             self.expire_upload(&transfer).await?;
             return Err(ApiError::conflict(
@@ -387,6 +396,8 @@ impl HostedProvider {
         {
             return Err(completion_conflict());
         }
+        self.refuse_commit_over_quota(&transfer, &replica, &data_key, request_origin)
+            .await?;
         if !self.start_finalization_attempt(&mut transfer).await? {
             // Another finalizer published first, or the upload was cancelled.
             return self
@@ -781,35 +792,13 @@ impl HostedProvider {
             (None, None) => {}
             _ => return Err(stale_file_revision()),
         }
-        let old_size = current
-            .as_ref()
-            .map_or(0, |(descriptor, _, _, _)| descriptor.size);
-        let file_count = number(collection.get("file_count"), "file count")?;
-        let file_bytes = number(collection.get("file_bytes"), "current file bytes")?;
-        let stored_file_bytes = number(collection.get("stored_file_bytes"), "stored file bytes")?;
-        let next_count = file_count
-            .checked_add(u64::from(current.is_none()))
-            .ok_or_else(|| ApiError::internal("File count overflowed."))?;
-        let next_bytes = file_bytes
-            .checked_sub(old_size)
-            .and_then(|bytes| bytes.checked_add(transfer.expected_size))
-            .ok_or_else(|| ApiError::internal("Current file byte count overflowed."))?;
-        let next_stored_bytes = stored_file_bytes
-            .checked_add(transfer.expected_size)
-            .ok_or_else(|| ApiError::internal("Stored file byte count overflowed."))?;
-        if next_count > number(collection.get("max_files"), "file quota")?
-            || next_bytes > number(collection.get("max_file_bytes"), "current file byte quota")?
-            || next_stored_bytes
-                > number(
-                    collection.get("max_stored_file_bytes"),
-                    "stored file byte quota",
-                )?
-        {
-            return Err(ApiError::quota(
-                "file_storage_quota_exceeded",
-                "The hosted collection does not have enough file storage for this upload.",
-            ));
-        }
+        let (next_count, next_bytes, next_stored_bytes) = file_usage_after_commit(
+            &collection,
+            current
+                .as_ref()
+                .map(|(descriptor, _, _, _)| descriptor.size),
+            transfer.expected_size,
+        )?;
         let head = number(collection.get("head"), "collection head")?;
         let sequence = head
             .checked_add(1)

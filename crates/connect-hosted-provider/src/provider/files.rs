@@ -370,6 +370,43 @@ fn part_length(total_size: u64, part_size: u64, part_index: u64) -> ApiResult<u6
     Ok(total_size.saturating_sub(offset).min(part_size))
 }
 
+/// The collection's file count, current bytes and stored bytes once `size`
+/// bytes are published at a path whose current file has `replaced` bytes, or
+/// the collection quota refusal.
+fn file_usage_after_commit(
+    collection: &PgRow,
+    replaced: Option<u64>,
+    size: u64,
+) -> ApiResult<(u64, u64, u64)> {
+    let file_count = number(collection.get("file_count"), "file count")?;
+    let file_bytes = number(collection.get("file_bytes"), "current file bytes")?;
+    let stored_file_bytes = number(collection.get("stored_file_bytes"), "stored file bytes")?;
+    let next_count = file_count
+        .checked_add(u64::from(replaced.is_none()))
+        .ok_or_else(|| ApiError::internal("File count overflowed."))?;
+    let next_bytes = file_bytes
+        .checked_sub(replaced.unwrap_or(0))
+        .and_then(|bytes| bytes.checked_add(size))
+        .ok_or_else(|| ApiError::internal("Current file byte count overflowed."))?;
+    let next_stored_bytes = stored_file_bytes
+        .checked_add(size)
+        .ok_or_else(|| ApiError::internal("Stored file byte count overflowed."))?;
+    if next_count > number(collection.get("max_files"), "file quota")?
+        || next_bytes > number(collection.get("max_file_bytes"), "current file byte quota")?
+        || next_stored_bytes
+            > number(
+                collection.get("max_stored_file_bytes"),
+                "stored file byte quota",
+            )?
+    {
+        return Err(ApiError::quota(
+            "file_storage_quota_exceeded",
+            "The hosted collection does not have enough file storage for this upload.",
+        ));
+    }
+    Ok((next_count, next_bytes, next_stored_bytes))
+}
+
 fn transfer_state(transfer: &HostedFileTransfer) -> ApiResult<FileTransferState> {
     Ok(match transfer.state.as_str() {
         "open" | "completing" => {
