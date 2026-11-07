@@ -530,7 +530,16 @@ export class PolicyEmitter {
     const open = await lock.query<Batch & { state: string }>(
       "SELECT id, seq, prev, item, state FROM next_policy_batches WHERE collection_id = $1 AND state <> 'appended' ORDER BY id LIMIT 1", [collectionId]
     );
-    if (open.rows[0]) return open.rows[0].state === "parked" ? "blocked" : open.rows[0];
+    if (open.rows[0]) {
+      if (open.rows[0].state === "parked") return "blocked";
+      // A batch prepared by an older server may sit at an already regressed
+      // head. If it landed, the previous tip is still intact.
+      if (Number(open.rows[0].seq) > 1 && !await policyTipIntact(lock, this.log, collectionId)) {
+        this.verificationQueue.set(collectionId, undefined);
+        return "blocked";
+      }
+      return open.rows[0];
+    }
     const preview = await this.pending(lock, collectionId);
     if (!preview.length) return "idle";
     const genesis = deserializeOps(preview[0]!.ops)[0]?.op === "genesis";

@@ -49,7 +49,7 @@ complete fenced recovery.
 | Newest batch appended within 7 days (tip check) | about 5 minutes |
 | Older batches (history sweep) | about 1 hour at today's size; it grows by about 1 minute per 30 acknowledged batches |
 | Owner loss hint | the next poll |
-| Any loss, when the collection's next policy change is delivered | that delivery's poll |
+| Loss of the newest batch, when the collection's next policy change is delivered or retried | that delivery's poll |
 
 Hints are held in memory. A hint that arrives just before a server restart is
 lost; the loss is then found by the tip check if it is within 7 days, or by the

@@ -1132,7 +1132,9 @@ describePostgres("mdbase-next policy outbox", () => {
     expect(sending.rows).toHaveLength(1);
     // The log rolls back after the batch was prepared at the healthy head.
     service.logs.get(collectionId.replaceAll("-", ""))!.splice(1);
+    // Its retry is refused before the append, so the batch stays open for recovery.
     expect(await emitter.drainCollection(collectionId)).toBe(0);
+    expect((await database.db.query("SELECT 1 FROM next_policy_batches WHERE collection_id = $1 AND state = 'sending'", [collectionId])).rows).toHaveLength(1);
     expect(await recoverLostPolicy(database.db, client, collectionId)).toBe(1);
     expect(await emitter.drainCollection(collectionId)).toBe(2);
     expect(service.policyOps(collectionId, signer.cert.policyPublicKey)).toEqual([["1", "4", "2", "2"], ["7"], ["11"]]);
