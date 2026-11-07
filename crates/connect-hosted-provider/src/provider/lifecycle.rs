@@ -127,6 +127,7 @@ impl HostedProvider {
                                     },
                                 )),
                                 projection_recovery_guard: Arc::new(Mutex::new(())),
+                                mutation_sweep_cursor: Arc::new(Mutex::new(None)),
                                 blob_store,
                                 query_activity: Arc::new(HostedQueryActivityCounters::default()),
                                 query_scan_permits: Arc::new(Semaphore::new(

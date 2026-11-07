@@ -195,6 +195,10 @@ collection row `FOR SHARE`, so it never changes the journal of a collection
 that is `migrating`. It locks the collection row before the journal row, the
 order every write path uses, and takes the journal row `SKIP LOCKED`, so it
 skips a row a live request holds instead of waiting for it.
+Kinds it never sweeps are filtered out in the query. Rows it leaves in place
+for other reasons (a record that exists, a key that will not unwrap, an error)
+do not starve rows behind them: each tick continues from a keyset cursor on
+`(accepted_at, replica_id, request_id)` and wraps to the start at the end.
 
 Every timer kind is swept as `unverified`, `cancel_timer` included, with or
 without `generation`. The journal does not record `generation`, but a request

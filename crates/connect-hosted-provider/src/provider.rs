@@ -227,6 +227,8 @@ pub struct HostedProvider {
     notification_recovery_guard: Arc<Mutex<()>>,
     notification_recovery: Arc<RwLock<NotificationRecoveryStatus>>,
     projection_recovery_guard: Arc<Mutex<()>>,
+    /// Abandon sweep keyset position (accepted_at, replica_id, request_id).
+    mutation_sweep_cursor: Arc<Mutex<Option<(DateTime<Utc>, Uuid, Uuid)>>>,
     blob_store: Arc<dyn BlobStore>,
     query_activity: Arc<HostedQueryActivityCounters>,
     query_scan_permits: Arc<Semaphore>,

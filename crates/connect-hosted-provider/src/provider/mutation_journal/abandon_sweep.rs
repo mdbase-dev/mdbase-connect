@@ -117,7 +117,9 @@ impl HostedProvider {
     /// Close up to `batch` expired `prepared` mutations with their final
     /// abandoned receipts. Only collections in `active` or `migrated` are
     /// swept; `migrating` is skipped so a migration drain or archive never sees
-    /// the journal change under it.
+    /// the journal change under it. Each tick continues from a keyset cursor
+    /// and wraps at the end, so rows left in place (a record that exists, a
+    /// key that will not unwrap, an error) cannot starve rows behind them.
     pub async fn sweep_abandoned_operation_mutations(
         &self,
         batch: i64,
@@ -148,8 +150,11 @@ impl HostedProvider {
             skipped_kind: sweep_count(skipped.get("skipped_kind")),
             ..HostedMutationSweep::default()
         };
+        let mut cursor_guard = self.mutation_sweep_cursor.lock().await;
+        let cursor = *cursor_guard;
         let candidates = sqlx::query(AssertSqlSafe(format!(
-            r#"SELECT journal.replica_id, journal.request_id, replica.collection_id
+            r#"SELECT journal.accepted_at, journal.replica_id, journal.request_id,
+                      replica.collection_id
                FROM hosted_provider_mutation_journal journal
                JOIN hosted_provider_replicas replica ON replica.id = journal.replica_id
                JOIN hosted_provider_collections collection
@@ -157,14 +162,30 @@ impl HostedProvider {
                WHERE {SWEEP_AGE_PREDICATE}
                  AND journal.operation_kind = ANY($1)
                  AND collection.state IN ('active', 'migrated')
-               ORDER BY journal.accepted_at
+                 AND ($3::timestamptz IS NULL
+                   OR (journal.accepted_at, journal.replica_id, journal.request_id)
+                      > ($3, $4, $5))
+               ORDER BY journal.accepted_at, journal.replica_id, journal.request_id
                LIMIT $2"#
         )))
         .bind(&kinds)
         .bind(batch)
+        .bind(cursor.map(|key| key.0))
+        .bind(cursor.map(|key| key.1))
+        .bind(cursor.map(|key| key.2))
         .fetch_all(&self.pool)
         .await?;
-        for candidate in candidates {
+        // A short page reached the end: the next tick starts over.
+        let mut next = None;
+        let full_page = i64::try_from(candidates.len()).is_ok_and(|len| len >= batch);
+        for candidate in &candidates {
+            if full_page {
+                next = Some((
+                    candidate.get("accepted_at"),
+                    candidate.get("replica_id"),
+                    candidate.get("request_id"),
+                ));
+            }
             match self
                 .sweep_abandoned_operation_mutation(
                     candidate.get("collection_id"),
@@ -188,6 +209,7 @@ impl HostedProvider {
                 Err(_) => sweep.errors += 1,
             }
         }
+        *cursor_guard = next;
         Ok(sweep)
     }
 

@@ -441,7 +441,7 @@ async fn sweep_abandons_only_expired_old_prepared_rows_with_final_receipts() {
         expected(&[
             ("abandoned_not_applied", 1),
             ("abandoned_unverified", 3),
-            ("skipped_kind", 3),
+            ("skipped_kind", 2),
             ("skipped_record_exists", 1)
         ])
     );
@@ -513,7 +513,7 @@ async fn sweep_abandons_only_expired_old_prepared_rows_with_final_receipts() {
     // A second tick changes nothing.
     assert_eq!(
         counts(sweep(&fixture.provider).await),
-        expected(&[("skipped_kind", 3), ("skipped_record_exists", 1)])
+        expected(&[("skipped_kind", 2), ("skipped_record_exists", 1)])
     );
 }
 
@@ -1145,5 +1145,107 @@ async fn sweep_never_closes_a_request_taken_over_within_the_last_day() {
         row.get::<i64, _>("fencing_generation"),
         2,
         "the sweep did not fence out the handler"
+    );
+}
+
+/// Rows the sweep leaves in place (here, creates whose record exists) never
+/// starve a sweepable row behind them: each tick continues from a keyset
+/// cursor and wraps at the end. Excluded kinds never take a page slot.
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn sweep_pages_past_rows_it_leaves_in_place() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let (replica_id, token) = application(&fixture).await;
+    let pool = &fixture.pool;
+    let collection = fixture.collection_id;
+    // Oldest: excluded kinds, filtered out in SQL.
+    for index in 0..3 {
+        prepared(
+            pool,
+            collection,
+            replica_id,
+            "file_control",
+            &json!({ "type": "delete_file", "path": format!("files/{index}.bin") }),
+            "-5 days",
+            "6 days",
+        )
+        .await;
+    }
+    // Then more left-in-place rows than one page.
+    for index in 0..3 {
+        let request_id = Uuid::now_v7();
+        fixture
+            .provider
+            .operation(
+                collection,
+                &token,
+                "create",
+                request_id,
+                create_input(&format!("drafts/exists-{index}.md")),
+                None,
+            )
+            .await
+            .unwrap();
+        sqlx::query(
+            "UPDATE hosted_provider_mutation_journal SET state = 'prepared', \
+             final_receipt_ciphertext = NULL, receipt_digest = NULL, completed_at = NULL, \
+             evidence_ciphertext = NULL, evidence_kind = NULL, \
+             lease_expires_at = now() - interval '3 days', \
+             accepted_at = now() - interval '4 days' + $3 * interval '1 minute' \
+             WHERE replica_id = $1 AND request_id = $2",
+        )
+        .bind(replica_id)
+        .bind(request_id)
+        .bind(f64::from(index))
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+    // Newest: the one sweepable row.
+    let sweepable = prepared(
+        pool,
+        collection,
+        replica_id,
+        "create",
+        &create_input("drafts/behind.md"),
+        "-47 hours",
+        "2 days",
+    )
+    .await;
+
+    let page = |provider: HostedProvider| async move {
+        counts(
+            provider
+                .sweep_abandoned_operation_mutations(2)
+                .await
+                .unwrap(),
+        )
+    };
+    assert_eq!(
+        page(fixture.provider.clone()).await,
+        expected(&[("skipped_kind", 3), ("skipped_record_exists", 2)])
+    );
+    assert_eq!(journal_state(pool, replica_id, sweepable).await, "prepared");
+    assert_eq!(
+        page(fixture.provider.clone()).await,
+        expected(&[
+            ("skipped_kind", 3),
+            ("skipped_record_exists", 1),
+            ("abandoned_not_applied", 1)
+        ])
+    );
+    assert_eq!(
+        journal_state(pool, replica_id, sweepable).await,
+        "abandoned"
+    );
+    // The end of the rows: the next tick wraps to the start.
+    assert_eq!(
+        page(fixture.provider.clone()).await,
+        expected(&[("skipped_kind", 3)])
+    );
+    assert_eq!(
+        page(fixture.provider.clone()).await,
+        expected(&[("skipped_kind", 3), ("skipped_record_exists", 2)])
     );
 }
