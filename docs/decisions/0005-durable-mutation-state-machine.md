@@ -187,8 +187,9 @@ receipts are final: recovery clears the pending mutation and never retries the
 same request.
 
 The hosted provider closes such rows from its maintenance loop: a row is swept
-only when its lease has expired, it was accepted more than one day ago, and its
-collection is `active` or `migrated`. The sweep takes the row over (incrementing
+only when its lease expired more than one day ago (a takeover sets a fresh
+lease, so a recently taken-over request is never swept under its handler) and
+its collection is `active` or `migrated`. The sweep takes the row over (incrementing
 the fence) and writes the encrypted receipt in one transaction that holds the
 collection row `FOR SHARE`, so it never changes the journal of a collection
 that is `migrating`. It locks the collection row before the journal row, the

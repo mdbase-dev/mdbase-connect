@@ -327,7 +327,7 @@ async fn sweep_abandons_only_expired_old_prepared_rows_with_final_receipts() {
         replica_id,
         "create",
         &create,
-        "-1 minute",
+        "-47 hours",
         "2 days",
     )
     .await;
@@ -338,11 +338,11 @@ async fn sweep_abandons_only_expired_old_prepared_rows_with_final_receipts() {
         replica_id,
         "put_timer",
         &timer,
-        "-1 minute",
+        "-47 hours",
         "2 days",
     )
     .await;
-    // Not swept: a live lease, and a row younger than a day.
+    // Not swept: a live lease, and a lease that expired less than a day ago.
     let live = prepared(
         pool,
         collection,
@@ -359,8 +359,8 @@ async fn sweep_abandons_only_expired_old_prepared_rows_with_final_receipts() {
         replica_id,
         "create",
         &create_input("drafts/young.md"),
-        "-1 minute",
-        "23 hours",
+        "-23 hours",
+        "2 days",
     )
     .await;
     // Timer cancels more than a day old are swept by recorded decision,
@@ -372,7 +372,7 @@ async fn sweep_abandons_only_expired_old_prepared_rows_with_final_receipts() {
         replica_id,
         "cancel_timer",
         &cancel,
-        "-1 minute",
+        "-47 hours",
         "2 days",
     )
     .await;
@@ -383,7 +383,7 @@ async fn sweep_abandons_only_expired_old_prepared_rows_with_final_receipts() {
         replica_id,
         "cancel_timer",
         &guarded_cancel,
-        "-1 minute",
+        "-47 hours",
         "2 days",
     )
     .await;
@@ -396,7 +396,7 @@ async fn sweep_abandons_only_expired_old_prepared_rows_with_final_receipts() {
         replica_id,
         "file_control",
         &delete_file,
-        "-1 minute",
+        "-47 hours",
         "2 days",
     )
     .await;
@@ -410,7 +410,7 @@ async fn sweep_abandons_only_expired_old_prepared_rows_with_final_receipts() {
         replica_id,
         "sync",
         &sync,
-        "-1 minute",
+        "-47 hours",
         "2 days",
     )
     .await;
@@ -427,7 +427,7 @@ async fn sweep_abandons_only_expired_old_prepared_rows_with_final_receipts() {
         "UPDATE hosted_provider_mutation_journal SET state = 'prepared', \
          final_receipt_ciphertext = NULL, receipt_digest = NULL, completed_at = NULL, \
          evidence_ciphertext = NULL, evidence_kind = NULL, \
-         lease_expires_at = now() - interval '1 minute', accepted_at = now() - interval '2 days' \
+         lease_expires_at = now() - interval '47 hours', accepted_at = now() - interval '2 days' \
          WHERE replica_id = $1 AND request_id = $2",
     )
     .bind(replica_id)
@@ -531,7 +531,7 @@ async fn sweep_skips_migrating_and_inactive_collections_and_waits_for_a_move_to_
         replica_id,
         "create",
         &create_input("drafts/held.md"),
-        "-1 minute",
+        "-47 hours",
         "2 days",
     )
     .await;
@@ -589,7 +589,7 @@ async fn sweep_closes_expired_rows_of_migrated_collections() {
         replica_id,
         "create",
         &create_input("drafts/migrated.md"),
-        "-1 minute",
+        "-47 hours",
         "2 days",
     )
     .await;
@@ -658,7 +658,7 @@ async fn sweep_after_cutover_cannot_match_the_original_migrating_source() {
         replica_id,
         "create",
         &create_input("drafts/cutover.md"),
-        "-1 minute",
+        "-47 hours",
         "2 days",
     )
     .await;
@@ -720,7 +720,7 @@ async fn sweep_locks_the_collection_first_and_skips_journal_rows_held_by_live_re
         replica_id,
         "create",
         &create_input("drafts/busy.md"),
-        "-1 minute",
+        "-47 hours",
         "2 days",
     )
     .await;
@@ -794,7 +794,7 @@ async fn sweep_locks_the_collection_first_and_skips_journal_rows_held_by_live_re
     );
 
     sqlx::query(
-        "UPDATE hosted_provider_mutation_journal SET lease_expires_at = now() - interval '1 minute' \
+        "UPDATE hosted_provider_mutation_journal SET lease_expires_at = now() - interval '47 hours' \
          WHERE replica_id = $1 AND request_id = $2",
     )
     .bind(replica_id)
@@ -1002,7 +1002,7 @@ async fn stale_prepared_timer_requests_never_overwrite_a_newer_timer_set() {
             replica_id,
             operation,
             input,
-            "-1 minute",
+            "-47 hours",
             "2 days",
         )
         .await;
@@ -1093,4 +1093,57 @@ async fn stale_prepared_timer_requests_never_overwrite_a_newer_timer_set() {
         assert_eq!(signal["grant_id"], grant_id.to_string());
         assert_eq!(signal["criterion_id"], "due");
     }
+}
+
+/// The age rule is on the lease, not the request: a two-day-old request that
+/// a handler took over just now is never swept under it, while the handler
+/// runs or after it overruns its fresh lease.
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn sweep_never_closes_a_request_taken_over_within_the_last_day() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let (replica_id, _) = application(&fixture).await;
+    let pool = &fixture.pool;
+    let request_id = prepared(
+        pool,
+        fixture.collection_id,
+        replica_id,
+        "create",
+        &create_input("drafts/taken-over.md"),
+        "-47 hours",
+        "2 days",
+    )
+    .await;
+    // A takeover now: the next fencing generation and a fresh 30 s lease.
+    let take_over = |lease: &'static str| {
+        sqlx::query(
+            "UPDATE hosted_provider_mutation_journal \
+             SET fencing_generation = 2, lease_expires_at = now() + $3::interval \
+             WHERE replica_id = $1 AND request_id = $2",
+        )
+        .bind(replica_id)
+        .bind(request_id)
+        .bind(lease)
+    };
+    take_over("30 seconds").execute(pool).await.unwrap();
+    assert_eq!(counts(sweep(&fixture.provider).await), expected(&[]));
+    // The handler overran its lease a minute ago.
+    take_over("-1 minute").execute(pool).await.unwrap();
+    assert_eq!(counts(sweep(&fixture.provider).await), expected(&[]));
+    let row = sqlx::query(
+        "SELECT state, fencing_generation FROM hosted_provider_mutation_journal \
+         WHERE replica_id = $1 AND request_id = $2",
+    )
+    .bind(replica_id)
+    .bind(request_id)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(row.get::<String, _>("state"), "prepared");
+    assert_eq!(
+        row.get::<i64, _>("fencing_generation"),
+        2,
+        "the sweep did not fence out the handler"
+    );
 }

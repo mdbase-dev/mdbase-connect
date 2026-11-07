@@ -88,11 +88,11 @@ fn sweepable_kinds() -> Vec<String> {
         .collect()
 }
 
-/// Expired lease and accepted more than a day ago. Shared by the candidate
-/// query and the locked re-check.
+/// Lease expired more than a day ago. A takeover sets a fresh lease, so a row
+/// a handler took over recently is never swept under it, however old the
+/// request. Shared by the candidate query and the locked re-check.
 const SWEEP_AGE_PREDICATE: &str = "journal.state = 'prepared' \
-     AND journal.lease_expires_at < now() \
-     AND journal.accepted_at < now() - interval '1 day'";
+     AND journal.lease_expires_at < now() - interval '1 day'";
 
 impl HostedProvider {
     /// ADR 0005: a taken-over timer request without a timer generation is
