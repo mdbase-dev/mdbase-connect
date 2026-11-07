@@ -280,8 +280,9 @@ impl HostedProvider {
                 Some(&transfer.intent.path),
                 request_origin,
             )?;
+            let now = Utc::now();
             if matches!(transfer.state.as_str(), "open" | "completing")
-                && transfer.expires_at <= Utc::now()
+                && transfer.expires_at <= now
             {
                 // A client told the upload expired starts again under a new
                 // ID, so expire the row first. This waits for any commit
@@ -301,7 +302,7 @@ impl HostedProvider {
                 protocol_version: FILE_TRANSFER_PROTOCOL_VERSION,
                 message_type: FileTransferStatusKind::FileTransferStatus,
                 transfer_id,
-                state: transfer_state(&transfer)?,
+                state: transfer_state(&transfer, now)?,
                 received,
                 received_bytes,
                 uploaded_parts,
@@ -372,7 +373,16 @@ impl HostedProvider {
             ));
         }
         if transfer.expires_at <= Utc::now() {
-            self.expire_upload(&transfer).await?;
+            if !self.expire_upload(&transfer).await? {
+                // A commit already publishing it finished first.
+                if let Some(receipt) = self
+                    .load_upload_transfer(collection_id, request.transfer_id, &data_key)
+                    .await?
+                    .and_then(|transfer| transfer.receipt)
+                {
+                    return Ok(receipt);
+                }
+            }
             return Err(ApiError::conflict(
                 "file_transfer_expired",
                 "This file upload has expired.",
@@ -962,20 +972,24 @@ impl HostedProvider {
 
     /// Returns false when the transfer had already left `open`/`completing`.
     async fn expire_upload(&self, transfer: &HostedFileTransfer) -> ApiResult<bool> {
-        let updated = sqlx::query(
+        // Clean up the key the row holds now; an attempt may have started
+        // since this transfer was loaded.
+        let current_key = sqlx::query_scalar::<_, String>(
             r#"UPDATE hosted_provider_file_transfers
                SET state = 'expired', updated_at = now()
-               WHERE id = $1 AND state IN ('open', 'completing')"#,
+               WHERE id = $1 AND state IN ('open', 'completing')
+               RETURNING committed_object_key"#,
         )
         .bind(transfer.id)
-        .execute(&self.pool)
+        .fetch_optional(&self.pool)
         .await?;
-        let expired = updated.rows_affected() == 1;
-        if expired {
-            self.schedule_uncommitted_upload_cleanup(transfer.into())
-                .await;
-        }
-        Ok(expired)
+        let Some(committed_object_key) = current_key else {
+            return Ok(false);
+        };
+        let mut cleanup = HostedUploadCleanup::from(transfer);
+        cleanup.committed_object_key = committed_object_key;
+        self.schedule_uncommitted_upload_cleanup(cleanup).await;
+        Ok(true)
     }
 }
 

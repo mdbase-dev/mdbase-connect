@@ -307,15 +307,17 @@ async fn commit_wins_expiry_loses(database_url: &str) {
     wait_for_query_blocked(&fixture.pool, "SET state = 'expired'").await;
 
     blocker.commit().await.expect("blocker releases");
-    commit
+    let receipt = commit
         .await
         .expect("commit task joins")
         .expect("commit wins");
-    let expiry_error = expiry
+    // The retry waited for the publishing commit, so it replays its receipt
+    // rather than reporting an expiry that never took effect.
+    let retried = expiry
         .await
         .expect("expiry task joins")
-        .expect_err("the stale expiry attempt reports expiry");
-    assert_eq!(expiry_error.code, "file_transfer_expired");
+        .expect("the retry replays the receipt");
+    assert_eq!(retried, receipt);
     assert!(
         fixture
             .blobs
