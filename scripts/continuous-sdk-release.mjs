@@ -136,17 +136,26 @@ export function publicationCommit(production, run, packages, kind, runGit = git)
 }
 
 // Main's Server CI reuses the merge queue's artifacts, so a new main commit
-// qualifies within about a minute of landing. Wait boundedly for it.
-export async function awaitMainCi(commit, { readApi = api, wait = ms => new Promise(done => setTimeout(done, ms)),
-  attempts = 30, delay = 20_000 } = {}) {
+// qualifies within about a minute of landing; Runtime CI, which the source
+// build also requires, takes up to about twenty. Wait boundedly for either.
+export async function awaitMainCi(commit, { workflow = "server-ci.yml", events = ["push"], readApi = api,
+  wait = ms => new Promise(done => setTimeout(done, ms)), attempts = 30, delay = 20_000 } = {}) {
   for (let attempt = 1; ; attempt += 1) {
-    const runs = readApi(`actions/workflows/server-ci.yml/runs?head_sha=${commit}&event=push&branch=main&per_page=100`).workflow_runs
-      .filter(run => run.head_sha === commit && run.head_branch === "main" && run.event === "push" && run.path === ".github/workflows/server-ci.yml");
+    const runs = readApi(`actions/workflows/${workflow}/runs?head_sha=${commit}&branch=main&per_page=100`).workflow_runs
+      .filter(run => run.head_sha === commit && run.head_branch === "main" && events.includes(run.event)
+        && run.path === `.github/workflows/${workflow}`);
     if (runs.some(run => run.status === "completed" && run.conclusion === "success")) return true;
     if (runs.length > 0 && runs.every(run => run.status === "completed")) return false;
     if (attempt >= attempts) return false;
     await wait(delay);
   }
+}
+
+// The qualifications the publish jobs re-check for the publishing commit.
+export async function awaitPublicationCi(commit, kind, options = {}) {
+  if (!await awaitMainCi(commit, options)) return false;
+  return kind !== "source" || awaitMainCi(commit,
+    { ...options, workflow: "runtime-ci.yml", events: ["push", "workflow_dispatch"], attempts: 75 });
 }
 
 export function dependentPackages(packages, changed) {
@@ -201,9 +210,9 @@ export async function plan(kind, output, env = process.env) {
   const equivalent = publicationCommit(production, env.GITHUB_SHA, packages, kind);
   let current = equivalent !== null;
   if (!current) console.log(`Selected ${production} is not this run's commit and differs in published inputs; publishing nothing.`);
-  else if (equivalent !== production && !await awaitMainCi(equivalent)) {
+  else if (equivalent !== production && !await awaitPublicationCi(equivalent, kind)) {
     current = false;
-    console.log(`This run's ${equivalent} matches selected ${production} but its Server CI did not pass; publishing nothing.`);
+    console.log(`This run's ${equivalent} matches selected ${production} but its CI did not pass in time; publishing nothing.`);
   }
   const commit = current ? equivalent : production;
   git("checkout", "--detach", commit);

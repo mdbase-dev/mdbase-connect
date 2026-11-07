@@ -81,8 +81,9 @@ ancestor of the run's commit and nothing between them changes a published
 package's inputs (any manifest change counts, even version-only) or a
 server-facing contract path. The production commit's qualified bytes are then
 the run commit's bytes. The plan waits up to ten minutes for the run commit's
-own Server CI to pass, qualifies that commit, and packs its artifacts with
-provenance naming it. Otherwise the plan reports no changed packages and the
+own Server CI to pass and, for the source-built SDK, up to twenty-five more for
+its Runtime CI, which the build job requires. It then qualifies that commit and
+packs its artifacts with provenance naming it. Otherwise the plan reports no changed packages and the
 run ends successfully without publishing; a later run on a production-contained
 main publishes the change.
 

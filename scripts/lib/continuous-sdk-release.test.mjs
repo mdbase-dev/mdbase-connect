@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, wr
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { awaitMainCi, contentChanged, dependentPackages, failedPublisherRuns, inputChanged, packageInputs, publicationBaseline, publicationCommit, publicationState, provenanceSource, qualifyWorkspace } from "../continuous-sdk-release.mjs";
+import { awaitMainCi, awaitPublicationCi, contentChanged, dependentPackages, failedPublisherRuns, inputChanged, packageInputs, publicationBaseline, publicationCommit, publicationState, provenanceSource, qualifyWorkspace } from "../continuous-sdk-release.mjs";
 import { publicPackages } from "../public-packages.mjs";
 
 const name = "@mdbase-dev/sdk";
@@ -291,6 +291,28 @@ test("an equivalent newer commit publishes only once its own Server CI passes", 
   assert.equal(await awaitMainCi(sha, { ...options, readApi: sequence([[run("completed", "cancelled")]]) }), false);
   assert.equal(await awaitMainCi(sha, { ...options, readApi: sequence([[run("queued", null)]]) }), false);
   assert.equal(await awaitMainCi(sha, { ...options, readApi: sequence([[{ ...run("completed", "success"), event: "pull_request" }]]) }), false);
+});
+
+test("the source SDK also waits for the publishing commit's own Runtime CI", async () => {
+  const sha = "c".repeat(40);
+  const read = (workflow, statuses) => {
+    let index = 0;
+    return path => {
+      const name = path.split("/")[2];
+      if (name !== workflow) return { workflow_runs: [{ head_sha: sha, head_branch: "main", event: "push",
+        path: `.github/workflows/${name}`, status: "completed", conclusion: "success" }] };
+      const [status, conclusion] = statuses[Math.min(index++, statuses.length - 1)];
+      return { workflow_runs: [{ head_sha: sha, head_branch: "main", event: "workflow_dispatch",
+        path: `.github/workflows/${name}`, status, conclusion }] };
+    };
+  };
+  const options = { wait: async () => {} };
+  assert.equal(await awaitPublicationCi(sha, "source", { ...options, readApi: read("runtime-ci.yml", [["in_progress", null], ["completed", "success"]]) }), true);
+  assert.equal(await awaitPublicationCi(sha, "source", { ...options, readApi: read("runtime-ci.yml", [["completed", "failure"]]) }), false);
+  assert.equal(await awaitPublicationCi(sha, "source", { ...options, readApi: read("runtime-ci.yml", [["in_progress", null]]) }), false);
+  let reads = 0;
+  assert.equal(await awaitPublicationCi(sha, "workspace", { ...options, readApi: path => { reads += 1; return read("runtime-ci.yml", [["in_progress", null]])(path); } }), true);
+  assert.equal(reads, 1, "workspace packages do not wait for Runtime CI");
 });
 
 test("version-only manifest edits are not input changes when deciding what to publish", () => {
