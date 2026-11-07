@@ -1,0 +1,7 @@
+{
+  "reason": "The file quota allocator shares account plan storage across native collections. The worker needs the entitlement loader (one import), and the mode, allocation result, allocation function and worker are exported for the config parser, tests and app wiring.",
+  "growth": {
+    "relativeImports": 1,
+    "typeScriptExportDeclarations": 4
+  }
+}

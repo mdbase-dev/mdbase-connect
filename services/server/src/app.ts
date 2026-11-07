@@ -23,7 +23,7 @@ import { HostedAuthorityRegistry } from "./hosted.js";
 import { ProviderRevocationWorker } from "./hosted-capability-lifecycle.js";
 import { drainDeferredAccountDeletions } from "./account-management.js";
 import { LogServiceClient } from "./features/next/log-service-client.js";
-import { ObjectGcWorker } from "./features/next/storage-usage.js";
+import { FileQuotaWorker, ObjectGcWorker } from "./features/next/storage-usage.js";
 import { PolicyEmitter } from "./features/next/policy-outbox.js";
 import { activatePendingServices } from "./features/next/service-activation.js";
 import { registerCloudCopyRoutes } from "./features/next/cloud-copy-bootstrap.js";
@@ -244,6 +244,21 @@ export async function buildApp(options: BuildOptions) {
         (error) => app.log.error({ err: error }, "object gc worker failed")
       )
     : undefined;
+  const fileQuotaMode = options.nextControlPlane?.fileQuota;
+  const fileQuota = fileQuotaMode
+    ? new FileQuotaWorker(
+        options.db,
+        new LogServiceClient(options.nextControlPlane!.logService),
+        fileQuotaMode,
+        (allocation) => {
+          // Uploads are refused once the files reach the plan.
+          if (allocation.shareBytes === 0 && allocation.collections > 0) {
+            app.log.info({ ...allocation, mode: fileQuotaMode }, "account has no file storage left");
+          }
+        },
+        (error) => app.log.error({ err: error }, "file quota worker failed")
+      )
+    : undefined;
   if (options.hostedProvider && options.hostedReferenceAuthority) {
     throw new Error("Hosted provider and reference authority modes are mutually exclusive.");
   }
@@ -293,6 +308,10 @@ export async function buildApp(options: BuildOptions) {
         Date.now,
         serviceDeployments
           ? (collectionId) => activatePendingServices(options.db, serviceDeployments, undefined, collectionId, options.nextControlPlane!.logService.labPitr, options.nextControlPlane!.migrationRouting)
+          : undefined,
+        fileQuotaMode === "enforce"
+          ? (collectionId) => void fileQuota!.allocateCollection(collectionId).catch((error: unknown) =>
+              app.log.error({ err: error, collectionId }, "file quota allocation failed"))
           : undefined
       )
     : undefined;
@@ -360,6 +379,7 @@ export async function buildApp(options: BuildOptions) {
     await scheduledEmails?.close();
     await usageRetention.close();
     await objectGc?.close();
+    await fileQuota?.close();
     await applicationReconciliation.close();
     await providerRevocations?.close();
     await authorityTransferRecovery?.close();
@@ -738,6 +758,7 @@ export async function buildApp(options: BuildOptions) {
   scheduledEmails?.start();
   usageRetention.start();
   objectGc?.start();
+  fileQuota?.start();
 
   return { app, relay, timers };
 }
