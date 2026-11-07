@@ -13,7 +13,7 @@ import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import { effectiveEntitlement, HostedEntitlementRequiredError } from "../../entitlements.js";
 import { isLogRegion, LogServiceError, type LogPlacement, type LogRegion, LogServiceClient } from "./log-service-client.js";
 import { signPolicyItem, type PolicyOp, type PolicySigner } from "./policy-wire.js";
-import { recoverLostPolicy, withPolicyLock, type PolicyLock } from "./policy-recovery.js";
+import { recoverLostPolicy, verifyPolicyTip, withPolicyLock, type PolicyLock } from "./policy-recovery.js";
 import { DEFAULT_COLLECTION_DISPLAY_NAME } from "./collection-display-name.js";
 
 const OUTBOX_FORMAT = 1;
@@ -198,12 +198,30 @@ const MAX_REBUILDS = 8;
 const MAX_BACKGROUND_WAKES = 4;
 const VERIFICATION_BUDGET_MS = 500;
 const MAX_VERIFICATION_PROBES = 32;
+/** Verification cadence (docs/next-policy-outbox.md).
+ * Tips of collections whose policy changed within the last 7 days are
+ * rechecked every 5 minutes, so a rolled-back recent change is found within
+ * about 5 minutes. Older history gets one probe per poll, a full sweep about
+ * every hour at current size. Loss hints and fresh deliveries go first. */
+const TIP_SWEEP_MS = 5 * 60_000;
+const HISTORY_SWEEP_MS = 10 * 60_000;
+const HISTORY_PROBES_PER_POLL = 1;
+
+type VerificationCursor = { after: string; through?: string };
+
+/** Counts only: collections inside the tip window, and the probes made since the previous sweep. */
+export interface PolicyVerificationSweep { recentCollections: number; tipProbes: number; historyProbes: number }
 
 export class PolicyEmitter {
   private timer: NodeJS.Timeout | undefined;
   private inFlight: Promise<number> | undefined;
-  private lastVerificationAt = -Infinity;
-  private readonly verificationQueue = new Map<string, { after: string; through?: string } | undefined>();
+  private lastTipSweepAt = -Infinity;
+  private lastHistorySweepAt = -Infinity;
+  private tipProbes = 0;
+  private historyProbes = 0;
+  /** `undefined` is a full fenced recovery; a cursor is a healthy history sweep. */
+  private readonly verificationQueue = new Map<string, VerificationCursor | undefined>();
+  private readonly tipQueue = new Set<string>();
   private readonly wakeWork = new Map<string, Promise<void>>();
   private readonly committedWork = new Map<string, Promise<void>>();
   private closed = false;
@@ -211,6 +229,7 @@ export class PolicyEmitter {
   /** Hints only select a collection for verification, never its ops or positions. */
   hintLostPolicy(collectionId: string): void {
     // An explicit loss hint needs the full fenced recovery, not a healthy scan.
+    this.tipQueue.delete(collectionId);
     this.verificationQueue.delete(collectionId);
     this.verificationQueue.set(collectionId, undefined);
   }
@@ -222,7 +241,8 @@ export class PolicyEmitter {
     private readonly onError: (error: unknown, collectionId: string | undefined, details: ReturnType<typeof LogServiceClient.failureDetails>) => void = () => undefined,
     private readonly pollIntervalMs = 2_000,
     private readonly now: () => number = Date.now,
-    private readonly activateServices: (collectionId?: string) => Promise<void> = async () => undefined
+    private readonly activateServices: (collectionId?: string) => Promise<void> = async () => undefined,
+    private readonly onVerificationSweep: (sweep: PolicyVerificationSweep) => void = () => undefined
   ) {}
 
   private reportFailure(error: unknown, collectionId?: string, phase?: "recover"): void {
@@ -298,37 +318,30 @@ export class PolicyEmitter {
   private async drainAll(): Promise<number> {
     // New deliveries never sit behind routine historical verification.
     let appended = await this.drainPending();
-    const due = this.now() - this.lastVerificationAt >= 60_000;
-    const checks = due ? await this.db.query<{ collection_id: string }>(
-      "SELECT DISTINCT collection_id FROM next_policy_batches WHERE state = 'appended' AND lost_at IS NULL"
-    ) : { rows: [] };
-    if (due) this.lastVerificationAt = this.now();
-    for (const { collection_id: id } of checks.rows) {
-      if (!this.verificationQueue.has(id)) this.verificationQueue.set(id, { after: "0" });
-    }
+    await this.seedVerification();
     // Rotate collection probes within a time/item budget, rather than stretching
     // a sweep across one poll per batch. An in-progress RPC/full loss recovery
     // retains its existing deadline and atomicity; do not cancel it mid-flight.
     const started = performance.now(), failed = new Set<string>();
-    let recovered = false;
+    let recovered = false, history = 0;
     for (let probes = 0; probes < MAX_VERIFICATION_PROBES && performance.now() - started < VERIFICATION_BUDGET_MS; probes++) {
-      let next = this.verificationQueue.entries().next().value;
-      // Known loss blocks this collection's fresh delivery. Recover it before
-      // spending the shared budget on healthy history, regardless of hint age.
-      for (const entry of this.verificationQueue) {
-        if (entry[1] === undefined && !failed.has(entry[0])) { next = entry; break; }
-      }
+      const next = this.nextProbe(failed, history < HISTORY_PROBES_PER_POLL);
       if (!next) break;
       const [collectionId, cursor] = next;
-      this.verificationQueue.delete(collectionId);
-      if (failed.has(collectionId)) { this.verificationQueue.set(collectionId, cursor); continue; }
       try {
+        if (cursor === "tip") {
+          this.tipProbes += 1;
+          recovered ||= await verifyPolicyTip(this.db, this.log, collectionId) > 0;
+          continue;
+        }
+        if (cursor) { history += 1; this.historyProbes += 1; }
         const reissues = await recoverLostPolicy(this.db, this.log, collectionId, cursor);
         recovered ||= reissues > 0 || cursor === undefined;
         if (cursor && cursor.after !== "0" && !this.verificationQueue.has(collectionId)) this.verificationQueue.set(collectionId, cursor);
       } catch (error) {
         failed.add(collectionId);
-        if (!this.verificationQueue.has(collectionId)) this.verificationQueue.set(collectionId, undefined);
+        // An unverified collection takes no fresh delivery until a full recovery succeeds.
+        this.verificationQueue.set(collectionId, undefined);
         this.reportFailure(error, collectionId, "recover");
       }
     }
@@ -337,6 +350,50 @@ export class PolicyEmitter {
     // Retry activation even when there was no new policy work this poll.
     await this.activateServices();
     return appended;
+  }
+
+  private async seedVerification(): Promise<void> {
+    const now = this.now();
+    if (now - this.lastTipSweepAt >= TIP_SWEEP_MS) {
+      this.lastTipSweepAt = now;
+      // A missing appended_at is treated as recent rather than skipped.
+      const recent = await this.db.query<{ collection_id: string }>(
+        `SELECT collection_id FROM next_policy_batches WHERE state = 'appended' AND lost_at IS NULL
+         GROUP BY collection_id HAVING max(appended_at) >= now() - interval '7 days' OR count(appended_at) < count(*)`
+      );
+      this.onVerificationSweep({ recentCollections: recent.rows.length, tipProbes: this.tipProbes, historyProbes: this.historyProbes });
+      this.tipProbes = 0;
+      this.historyProbes = 0;
+      for (const { collection_id: id } of recent.rows) {
+        if (!this.verificationQueue.has(id) || this.verificationQueue.get(id) !== undefined) this.tipQueue.add(id);
+      }
+    }
+    if (now - this.lastHistorySweepAt >= HISTORY_SWEEP_MS) {
+      this.lastHistorySweepAt = now;
+      const checks = await this.db.query<{ collection_id: string }>(
+        "SELECT DISTINCT collection_id FROM next_policy_batches WHERE state = 'appended' AND lost_at IS NULL"
+      );
+      for (const { collection_id: id } of checks.rows) {
+        if (!this.verificationQueue.has(id)) this.verificationQueue.set(id, { after: "0" });
+      }
+    }
+  }
+
+  /** Known loss first (it blocks the collection's fresh delivery), then recent
+   * tips, then at most the poll's share of healthy history. */
+  private nextProbe(failed: Set<string>, history: boolean): [string, VerificationCursor | undefined | "tip"] | undefined {
+    for (const [id, cursor] of this.verificationQueue) {
+      if (cursor === undefined && !failed.has(id)) { this.verificationQueue.delete(id); return [id, undefined]; }
+    }
+    for (const id of this.tipQueue) {
+      if (!failed.has(id)) { this.tipQueue.delete(id); return [id, "tip"]; }
+    }
+    if (history) {
+      for (const [id, cursor] of this.verificationQueue) {
+        if (!failed.has(id)) { this.verificationQueue.delete(id); return [id, cursor]; }
+      }
+    }
+    return undefined;
   }
 
   private async drainPending(): Promise<number> {
