@@ -35,7 +35,7 @@ use mdbn_replica::store::{
 };
 use mdbn_wire::client::Hold;
 use mdbn_wire::common::{Hash, Uuid};
-use mdbn_wire::intent::FileInclusion;
+use mdbn_wire::intent::{FileInclusion, MediaClass};
 
 use crate::codec::{DiskState, EvidenceRec, IntentRec, RetainedRec, counter_bytes, counter_of};
 use crate::diskdb::{Change, DbError, DiskDb, Kind};
@@ -566,7 +566,8 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
                     continue;
                 }
             }
-            self.check_path(&p, changes, out, quiet_recheck).await?;
+            self.check_path(&p, &settings, changes, out, quiet_recheck)
+                .await?;
         }
         self.settle_moves(changes, out).await?;
         self.reoffer_outstanding(out).await?;
@@ -1490,15 +1491,25 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
                 crate::platform::portable_violation(path.as_str()),
                 Some("hidden_path" | "dependency_path")
             )
-            || settings
-                .as_ref()
-                .and_then(|s| s.exclude.as_ref())
-                .is_some_and(|excluded| {
-                    excluded.iter().any(|e| {
-                        let e = e.trim_end_matches('/');
-                        path.as_str() == e || path.as_str().starts_with(&format!("{e}/"))
+            || settings.as_ref().is_some_and(|s| {
+                (!self.is_text(path.as_str())
+                    && !s.include.contains(&MediaClass::of(path.as_str())))
+                    || s.exclude.as_ref().is_some_and(|excluded| {
+                        excluded.iter().any(|e| {
+                            let e = e.trim_end_matches('/');
+                            path.as_str() == e || path.as_str().starts_with(&format!("{e}/"))
+                        })
                     })
-                })
+            })
+    }
+
+    /// Whether the inclusion size cap leaves a file out. Text never is.
+    fn oversized(&self, path: &str, size: u64, settings: &Option<FileInclusion>) -> bool {
+        !self.is_text(path)
+            && settings
+                .as_ref()
+                .and_then(|s| s.max_size)
+                .is_some_and(|max| size > max)
     }
 
     fn unsupported_name(path: &str) -> Option<String> {
@@ -1855,6 +1866,7 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
     async fn check_path(
         &mut self,
         path: &str,
+        settings: &Option<FileInclusion>,
         changes: &mut Vec<Change>,
         out: &mut Vec<Observation>,
         quiet_recheck: bool,
@@ -1911,6 +1923,10 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
             }
             return Ok(());
         };
+        // Left out like an excluded folder: never ingested, never deleted.
+        if self.oversized(path, meta.size, settings) {
+            return Ok(());
+        }
         if !known
             .as_ref()
             .is_some_and(|k| Self::meta_unchanged(k, &meta))

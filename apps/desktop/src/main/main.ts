@@ -368,6 +368,28 @@ function registerIpc(): void {
     if ((value.targetMode !== "private" && value.targetMode !== "cloud_copy") || typeof value.resume !== "boolean" || (value.cancel !== undefined && typeof value.cancel !== "boolean")) throw new Error("Invalid mode input.");
     return bootGate.request(() => daemonCli().run(["sync", "mode", collectionIdOf(value.collectionId), value.targetMode === "private" ? "private" : "cloud-copy", ...(value.resume ? ["--resume"] : []), ...(value.cancel ? ["--cancel"] : [])], 120_000));
   });
+  ipcMain.handle("connect:collections:sync-files", async (event, collectionId: unknown) => {
+    trustedIpc(event);
+    return requestReadyAgent("sync.files", { collection: collectionIdOf(collectionId) }, 15_000);
+  });
+  // Privileged (it changes what every device syncs): through the CLI.
+  ipcMain.handle("connect:collections:sync-files-set", async (event, input: unknown) => {
+    trustedIpc(event);
+    const value = asObject(input, "Invalid file settings.");
+    const include = value.include;
+    const exclude = value.exclude;
+    const maxSize = value.max_size;
+    if (!Array.isArray(include) || !include.every((c) => typeof c === "string" && FILE_CLASSES.has(c))
+      || !Array.isArray(exclude) || !exclude.every((f) => typeof f === "string" && f.trim() !== "")
+      || (maxSize !== undefined && (!Number.isSafeInteger(maxSize) || (maxSize as number) <= 0))) {
+      throw new Error("Invalid file settings.");
+    }
+    return bootGate.request(() => daemonCli().run([
+      "sync", "files", collectionIdOf(value.collectionId), "--set", `--types=${include.join(",")}`,
+      ...exclude.map((folder) => `--exclude=${folder}`),
+      ...(maxSize === undefined ? [] : [`--max-size=${maxSize}`])
+    ], 120_000));
+  });
   ipcMain.handle("connect:collections:sync-disable", async (event, collectionId: unknown) => {
     trustedIpc(event);
     return requestReadyAgent("sync.disable", { collection: collectionIdOf(collectionId) }, 600_000);
@@ -508,6 +530,8 @@ function registerIpc(): void {
     ));
   });
 }
+
+const FILE_CLASSES = new Set(["image", "audio", "video", "pdf", "other"]);
 
 function collectionIdOf(value: unknown): string {
   if (typeof value !== "string" || !/^[0-9a-f-]{32,36}$/iu.test(value)) throw new Error("Invalid collection ID.");

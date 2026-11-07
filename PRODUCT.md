@@ -28,12 +28,13 @@ user's computers, and syncing it moves its log to mdbase. There is no separate
 - **Sync off** keeps the log on one computer. It is a state of a collection,
   not another kind of collection.
 
-What syncs is controlled in two places. The collection's inclusion settings,
-editable wherever the collection is managed, decide which files belong to it
-at all (file types, excluded folders, a size limit), for every device and the
-cloud copy alike. The desktop app also decides which included files its own
-computer keeps on disk. There is no separate filter for the cloud copy: a file
-the cloud copy does not have is not in the collection.
+What syncs is controlled in two places. The collection's inclusion settings
+decide which files belong to it at all (file types, excluded folders, a size
+limit), for every device and the cloud copy alike. They are set in the desktop
+app; the portal does not change them. Separately, each desktop computer will
+decide which included files it keeps on disk; the runtime does not support that
+yet. There is no separate filter for the cloud copy: a file the cloud copy does
+not have is not in the collection.
 
 ## Product Purpose
 

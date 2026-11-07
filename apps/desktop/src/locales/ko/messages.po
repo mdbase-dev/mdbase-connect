@@ -411,6 +411,10 @@ msgstr "승인한 앱은 이 컴퓨터를 통해 내 컬렉션에 접근합니�
 msgid "Apps you used with mdbase Connect appear here once Private sync is on for the {movedWaiting, plural, one {collection} other {collections}} that moved to this computer. mdbase turns it on by itself; you don't need to approve those apps again."
 msgstr "이 컴퓨터로 이동한 {movedWaiting, plural, other {컬렉션}}에 비공개 동기화가 켜지면 mdbase Connect에서 사용하던 앱이 여기에 표시됩니다. mdbase에서 자동으로 켜므로 앱을 다시 승인할 필요가 없습니다."
 
+#: src/renderer/collections-view.tsx
+msgid "Archive/Recordings"
+msgstr "보관/녹음"
+
 #: src/renderer/main.tsx
 msgid "Ask before new apps connect"
 msgstr "새 앱 연결 전에 확인"
@@ -419,6 +423,11 @@ msgstr "새 앱 연결 전에 확인"
 #: src/renderer/access-view.tsx
 msgid "Asked {0}"
 msgstr "요청 시간: {0}"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Audio"
+msgstr "오디오"
 
 #: src/renderer/main.tsx
 msgid "Available in installed builds"
@@ -558,6 +567,10 @@ msgstr "컬렉션 폴더를 만들 위치 선택"
 msgctxt "Desktop application"
 msgid "Choose where to create the folder."
 msgstr "폴더를 만들 위치를 선택하세요."
+
+#: src/renderer/collections-view.tsx
+msgid "Choose which files this collection syncs, on every device. Notes always sync, and files that already synced stay where they are."
+msgstr "이 컬렉션이 모든 기기에서 동기화할 파일을 선택하세요. 노트는 항상 동기화되며, 이미 동기화된 파일은 그대로 유지됩니다."
 
 #: src/renderer/ui-components.tsx
 msgid "Clear filter"
@@ -782,6 +795,15 @@ msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "이 컴퓨터의 이름을 입력하세요."
 
+#. placeholder {0}: collection.name
+#: src/renderer/collections-view.tsx
+msgid "File sync settings for {0} were saved."
+msgstr "{0}의 파일 동기화 설정을 저장했습니다."
+
+#: src/renderer/collections-view.tsx
+msgid "File types"
+msgstr "파일 유형"
+
 #: src/renderer/activity-view.tsx
 msgid "Filter activity"
 msgstr "활동 필터링"
@@ -806,6 +828,10 @@ msgstr "폴더 위치는 업로드되지 않습니다."
 #: src/renderer/main.tsx
 msgid "Folders on this computer that your apps can use, and how each one syncs."
 msgstr "앱에서 사용할 수 있는 이 컴퓨터의 폴더와 각 동기화 방법입니다."
+
+#: src/renderer/collections-view.tsx
+msgid "Folders to leave out"
+msgstr "제외할 폴더"
 
 #: src/renderer/main.tsx
 msgid "Go to {label}"
@@ -833,6 +859,11 @@ msgstr "mdbase 계정에 이 컴퓨터가 표시되는 방식"
 #: src/renderer/access-view.tsx
 msgid "If you approve, {0} will be able to {1} in {where}, through this computer. You can revoke this at any time."
 msgstr "승인하면 {0}이(가) 이 컴퓨터를 통해 {where}에서 {1}을(를) 할 수 있습니다. 언제든 철회할 수 있습니다."
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Images"
+msgstr "이미지"
 
 #. placeholder {0}: status.target_version
 #. placeholder {0}: update.target_version
@@ -926,6 +957,10 @@ msgid "Leave mdbase Connect's data in place and contact support with a diagnosti
 msgstr "mdbase Connect 데이터를 그대로 두고 진단 보고서를 첨부해 지원팀에 문의하세요."
 
 #: src/renderer/collections-view.tsx
+msgid "Leave out files larger than"
+msgstr "다음보다 큰 파일 제외"
+
+#: src/renderer/collections-view.tsx
 msgid "Loading…"
 msgstr "불러오는 중…"
 
@@ -940,6 +975,10 @@ msgstr "mdbase에서 관리"
 #: src/renderer/access-view.tsx
 msgid "Mark as seen"
 msgstr "확인함으로 표시"
+
+#: src/renderer/collections-view.tsx
+msgid "MB"
+msgstr "MB"
 
 #. placeholder {0}: bundled.version
 #. placeholder {1}: result.version
@@ -1232,6 +1271,10 @@ msgctxt "Local connection status"
 msgid "On this computer only"
 msgstr "이 컴퓨터에만 있음"
 
+#: src/renderer/collections-view.tsx
+msgid "One folder per line, relative to the collection."
+msgstr "한 줄에 폴더 하나씩, 컬렉션 기준 경로로 입력하세요."
+
 #: src/renderer/device-requests.tsx
 msgid "Only allow if this matches the code on {who}"
 msgstr "이 코드가 {who}의 코드와 일치하는 경우에만 허용하세요"
@@ -1279,6 +1322,11 @@ msgstr "브라우저 여는 중…"
 msgid "Opening…"
 msgstr "여는 중…"
 
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Other files"
+msgstr "기타 파일"
+
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
 msgctxt "Connect interface"
@@ -1293,6 +1341,11 @@ msgstr "일시 중지"
 #: src/renderer/daemon-view.mts
 msgid "Paused"
 msgstr "일시 중지됨"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "PDFs"
+msgstr "PDF"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"
@@ -1416,6 +1469,11 @@ msgid "Revoked"
 msgstr "철회됨"
 
 #: src/renderer/main.tsx
+msgid "Save"
+msgstr "저장"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File sync settings"
 msgid "Save"
 msgstr "저장"
 
@@ -1549,6 +1607,10 @@ msgstr "로그인하는 중"
 msgid "Signing out did not finish. Try signing out again."
 msgstr "로그아웃이 완료되지 않았습니다. 다시 로그아웃해 보세요."
 
+#: src/renderer/collections-view.tsx
+msgid "Size limit in megabytes"
+msgstr "크기 제한(메가바이트)"
+
 #: src/renderer/takeover-state.mts
 msgid "Some edits from before the move need your attention."
 msgstr "이동 전의 일부 편집 내용을 확인해야 합니다."
@@ -1606,6 +1668,10 @@ msgstr "동기화 중지됨"
 msgctxt "Local connection status"
 msgid "Synced"
 msgstr "동기화됨"
+
+#: src/renderer/collections-view.tsx
+msgid "Synced files"
+msgstr "동기화할 파일"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1966,6 +2032,11 @@ msgstr "버전 {0}이(가) 설치 대상의 {1}%에 배포되고 있습니다."
 #: src/main/update-coordinator.ts
 msgid "Version {0} is verified and ready to install."
 msgstr "버전 {0}이(가) 검증되었으며 설치할 준비가 되었습니다."
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Video"
+msgstr "동영상"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"

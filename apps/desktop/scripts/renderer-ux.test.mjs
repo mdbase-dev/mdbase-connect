@@ -71,6 +71,8 @@ async function desktop({ signedIn = true, collections = [], access = [], devices
         return null;
       },
       removeCollection: record("removeCollection"),
+      syncFiles: async () => fixture.syncFiles ?? { include: ["image", "audio", "video", "pdf", "other"], exclude: [] },
+      setSyncFiles: async (id, files) => { calls.push(["setSyncFiles", id, files]); fixture.syncFiles = files; return files; },
       listHolds: async () => fixture.holds ?? [],
       resolveHold: async (id, hold, how) => { calls.push(["resolveHold", id, hold, how]); fixture.holds = (fixture.holds ?? []).filter((h) => h.id !== hold);
         const held = fixture.migration?.holds?.[id];
@@ -670,6 +672,41 @@ test("turning on sync offers private only as an advanced choice and removal is c
     await confirmation.getByText(/^Remove Notes from mdbase/).waitFor();
     await confirmation.getByRole("button", { name: "Cancel" }).click();
     assert.deepEqual(await calls("removeCollection"), [], "cancelling the confirmation keeps the collection");
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("synced collections choose which files sync; local-only ones do not offer it", async () => {
+  const { page, errors, calls } = await desktop({ collections: [collection({ mode: "synced" }), collection({ id: "c-local", name: "Local", root: "/disposable/Local" })] });
+  try {
+    await page.evaluate(() => { window.fixture.syncFiles = { include: ["image", "pdf", "other"], exclude: ["Archive"], max_size: 50_000_000 }; });
+    await nav(page, "Collections").click();
+    const local = page.locator(".collection-card").filter({ hasText: "Local" });
+    await local.getByRole("button", { name: /^Actions for / }).click();
+    assert.equal(await page.getByRole("menuitem", { name: "Synced files", exact: true }).count(), 0);
+    await page.keyboard.press("Escape");
+    const card = page.locator(".collection-card").filter({ hasText: "Notes" });
+    await collectionAction(page, "Synced files", card);
+    const panel = card.locator(".sync-files");
+    const video = panel.getByRole("checkbox", { name: "Video", exact: true });
+    await video.waitFor();
+    assert.equal(await video.isChecked(), false);
+    assert.equal(await panel.getByRole("checkbox", { name: "Images", exact: true }).isChecked(), true);
+    assert.equal(await panel.getByRole("textbox").inputValue(), "Archive");
+    const size = panel.getByRole("spinbutton", { name: "Size limit in megabytes" });
+    assert.equal(await size.inputValue(), "50");
+    await screenshot(page, "synced-files");
+    assert.equal(await panel.getByRole("button", { name: "Save" }).isDisabled(), false);
+    await video.check();
+    await panel.getByRole("checkbox", { name: "PDFs", exact: true }).uncheck();
+    await panel.getByRole("textbox").fill("Archive\n  Recordings/Raw \n\n");
+    await size.fill("");
+    assert.equal(await panel.getByRole("button", { name: "Save" }).isDisabled(), true, "an empty size limit cannot be saved");
+    await panel.getByRole("checkbox", { name: "Leave out files larger than" }).uncheck();
+    await panel.getByRole("button", { name: "Save" }).click();
+    await page.getByText("File sync settings for Notes were saved.", { exact: true }).waitFor();
+    assert.deepEqual(await calls("setSyncFiles"), [["c-notes", { include: ["image", "video", "other"], exclude: ["Archive", "Recordings/Raw"] }]]);
+    assert.equal(await panel.count(), 0);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
