@@ -211,7 +211,7 @@ type VerificationCursor = { after: string; through?: string };
 
 /** Counts only: collections inside the tip window, and the probes made since the previous sweep. */
 /** Counts since the previous sweep; `tipBacklog` is the tip checks still queued when the new sweep is seeded. */
-export interface PolicyVerificationSweep { recentCollections: number; tipProbes: number; historyProbes: number; tipBacklog: number }
+interface PolicyVerificationSweep { recentCollections: number; tipProbes: number; historyProbes: number; tipBacklog: number }
 
 export class PolicyEmitter {
   private timer: NodeJS.Timeout | undefined;
