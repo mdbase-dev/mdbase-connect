@@ -687,8 +687,9 @@ async fn refusals_mirrors_act_on_keep_their_answer() {
 }
 
 /// Item 5: a multi-step upload whose commit fails is resumed, not restarted.
-/// The commit fails twice inside its transaction (the account storage trigger,
-/// then a 500), releasing its lease each time; the third attempt with the
+/// The commit fails twice (the account storage limit, refused before any
+/// copy, then a 500 inside its transaction), releasing its lease each time;
+/// the third attempt with the
 /// same transfer ID publishes one object, counts the bytes once and leaves no
 /// transfer or attempt object behind.
 #[tokio::test]
@@ -708,8 +709,10 @@ async fn a_half_done_upload_resumes_the_same_transfer_after_released_commits() {
         (429, "account_storage_quota_exceeded".to_string())
     );
     assert_released(&journal(fixture, "commit_file_upload", transfer_id).await);
-    let first_attempt = fixture.attempt_key(transfer_id).await;
-    assert!(fixture.blobs.contains(&first_attempt).await);
+    // Refused before any attempt was started or copied.
+    let initial_key = fixture.attempt_key(transfer_id).await;
+    assert_eq!(initial_key, fixture.committed_key(transfer_id));
+    assert_eq!(fixture.blobs.calls("copy").await, 0);
     account_storage_full(fixture, false).await;
 
     fail_inserts(fixture, "hosted_provider_file_versions", true).await;
@@ -719,7 +722,7 @@ async fn a_half_done_upload_resumes_the_same_transfer_after_released_commits() {
     );
     assert_released(&journal(fixture, "commit_file_upload", transfer_id).await);
     let second_attempt = fixture.attempt_key(transfer_id).await;
-    assert_ne!(second_attempt, first_attempt);
+    assert_ne!(second_attempt, initial_key);
     fail_inserts(fixture, "hosted_provider_file_versions", false).await;
     // Nothing was published or counted by the failed attempts, and the
     // upload is still the one open transfer, mid-commit.
@@ -753,7 +756,7 @@ async fn a_half_done_upload_resumes_the_same_transfer_after_released_commits() {
     // Superseded attempts and staging were queued for deletion; once the
     // queue drains, the only object left is the published one.
     fixture.provider.delete_pending_blobs(100).await.unwrap();
-    assert!(!fixture.blobs.contains(&first_attempt).await);
+    assert!(!fixture.blobs.contains(&initial_key).await);
     assert!(!fixture.blobs.contains(&second_attempt).await);
     assert!(
         !fixture
