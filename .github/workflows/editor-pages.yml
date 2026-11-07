@@ -190,6 +190,8 @@ jobs:
         with:
           node-version: 24
       - name: Data-only original intake before dependency execution
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/editor-build"
@@ -270,6 +272,8 @@ jobs:
         timeout-minutes: 2
       - name: Workflow-owned guard; candidate is data only
         timeout-minutes: 4
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/editor-receipt" "$RUNNER_TEMP/editor-upload"
