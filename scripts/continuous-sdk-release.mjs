@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { publicPackages } from "./public-packages.mjs";
-import { api, checkoutProductionCommit, gh, git, nextBetaVersion, repository, requireRunning, verifyCompatibility } from "./lib/continuous-client-release.mjs";
+import { api, checkoutProductionCommit, contractSensitive, gh, git, nextBetaVersion, repository, requireGreenMain, requireRunning, verifyCompatibility } from "./lib/continuous-client-release.mjs";
 
 const registry = "https://registry.npmjs.org";
 const readJson = file => JSON.parse(readFileSync(file, "utf8"));
@@ -107,6 +107,48 @@ export function packageInputs(path, item, kind) {
   return /^(?:tsconfig[^/]*\.json|scripts\/public-packages\.mjs)$/.test(path);
 }
 
+// Whether a path changed between two commits as an input of a published package.
+// Tests and version-only manifest edits never count.
+export function inputChanged(path, item, kind, from, to, runGit = git) {
+  if (!packageInputs(path, item, kind)) return false;
+  if (!/(?:^|\/)package(?:-lock)?\.json$/.test(path)) return contentChanged(path);
+  const readAt = commit => {
+    try { return runGit("show", `${commit}:${path}`); }
+    catch (error) { if (error.status === 128) return undefined; throw error; }
+  };
+  return contentChanged(path, readAt(from), readAt(to));
+}
+
+// npm refuses provenance that names any commit but this run's own. A run on a
+// newer main still publishes when nothing between the production commit and it
+// changes a published package's inputs or the server-facing contract: the
+// production commit's qualified bytes are then exactly this commit's bytes.
+// Any manifest change counts, even version-only, because packing names the
+// qualified tarballs by the checked-out manifest version. Otherwise it stands
+// down and leaves the selected source unpublished.
+export function publicationCommit(production, run, packages, kind, runGit = git) {
+  if (production === run) return run;
+  try { runGit("merge-base", "--is-ancestor", production, run); }
+  catch (error) { if (error.status === 1) return null; throw error; }
+  const paths = runGit("diff", "--no-renames", "--name-only", "-z", production, run).split("\0").filter(Boolean);
+  return paths.some(path => contractSensitive(path)
+    || packages.some(item => packageInputs(path, item, kind) && contentChanged(path))) ? null : run;
+}
+
+// Main's Server CI reuses the merge queue's artifacts, so a new main commit
+// qualifies within about a minute of landing. Wait boundedly for it.
+export async function awaitMainCi(commit, { readApi = api, wait = ms => new Promise(done => setTimeout(done, ms)),
+  attempts = 30, delay = 20_000 } = {}) {
+  for (let attempt = 1; ; attempt += 1) {
+    const runs = readApi(`actions/workflows/server-ci.yml/runs?head_sha=${commit}&event=push&branch=main&per_page=100`).workflow_runs
+      .filter(run => run.head_sha === commit && run.head_branch === "main" && run.event === "push" && run.path === ".github/workflows/server-ci.yml");
+    if (runs.some(run => run.status === "completed" && run.conclusion === "success")) return true;
+    if (runs.length > 0 && runs.every(run => run.status === "completed")) return false;
+    if (attempt >= attempts) return false;
+    await wait(delay);
+  }
+}
+
 export function dependentPackages(packages, changed) {
   const selected = new Set(changed);
   let expanded = true;
@@ -151,29 +193,31 @@ export async function plan(kind, output, env = process.env) {
   assert.equal(env.GITHUB_REF, "refs/heads/main");
   assert.equal(git("rev-parse", "HEAD"), env.GITHUB_SHA);
   requireRunning(env.SDK_RELEASE_STOPPED);
-  const commit = await checkoutProductionCommit(env);
-  // npm refuses provenance that names any commit but this run's own, so a run
-  // on a newer main stands down and leaves the selected source unpublished.
-  const current = commit === env.GITHUB_SHA;
-  if (!current) console.log(`Selected ${commit} is not this run's commit; publishing nothing.`);
+  // Qualify the selection without step outputs; the publishing commit's own
+  // qualification below names the artifacts that are packed.
+  const { GITHUB_OUTPUT: _, ...quiet } = env;
+  const production = await checkoutProductionCommit(env, { qualify: commit => requireGreenMain(commit, quiet) });
+  const packages = kind === "source" ? [sdk] : await publicPackages();
+  const equivalent = publicationCommit(production, env.GITHUB_SHA, packages, kind);
+  let current = equivalent !== null;
+  if (!current) console.log(`Selected ${production} is not this run's commit and differs in published inputs; publishing nothing.`);
+  else if (equivalent !== production && !await awaitMainCi(equivalent)) {
+    current = false;
+    console.log(`This run's ${equivalent} matches selected ${production} but its Server CI did not pass; publishing nothing.`);
+  }
+  const commit = current ? equivalent : production;
+  git("checkout", "--detach", commit);
+  if (current) requireGreenMain(commit, env);
+  if (current && commit !== production) console.log(`Selected ${production}; this run's ${commit} has the same published inputs and contract, so it publishes as ${commit}.`);
   env = { ...env, GITHUB_SHA: commit };
   if (env.LIVE_PUBLICATION === "true") checkPriorAttempts(kind, env);
-  const packages = kind === "source" ? [sdk] : await publicPackages();
   const inventory = [];
   const changed = [];
   for (const item of packages) {
     const manifest = readJson(join(item.directory, "package.json"));
     const baseline = await published(item, kind === "source" ? "publish-sdk-npm.yml" : "publish-npm.yml");
     const paths = git("diff", "--no-renames", "--name-only", "-z", baseline.commit, env.GITHUB_SHA).split("\0").filter(Boolean);
-    const readAt = (commit, path) => {
-      try { return git("show", `${commit}:${path}`); }
-      catch (error) { if (error.status === 128) return undefined; throw error; }
-    };
-    if (current && paths.some(path => {
-      if (!packageInputs(path, item, kind)) return false;
-      if (!/(?:^|\/)package(?:-lock)?\.json$/.test(path)) return contentChanged(path);
-      return contentChanged(path, readAt(baseline.commit, path), readAt(env.GITHUB_SHA, path));
-    })) changed.push(item.name);
+    if (current && paths.some(path => inputChanged(path, item, kind, baseline.commit, env.GITHUB_SHA))) changed.push(item.name);
     inventory.push({ name: item.name, directory: item.directory, manifest, baseline: baseline.version,
       version: nextBetaVersion([...baseline.versions, manifest.version]) });
   }
