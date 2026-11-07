@@ -2,6 +2,7 @@ import {afterEach,beforeEach,describe,expect,it,vi} from "vitest";
 import {IDBFactory} from "fake-indexeddb";
 import {APPLICATION_WORKER_PROTOCOL as schema} from "../src/application/worker-protocol.js";
 import {pipeCloseError} from "../src/transport/relay-pipe.js";
+import {mdbaseError} from "../src/errors.js";
 
 // SDK-10: Private collections list beside hosted ones and open from the same
 // selection, against the real entry and runtime with a scripted Worker.
@@ -69,6 +70,58 @@ beforeEach(()=>{
 afterEach(()=>{vi.unstubAllGlobals();});
 
 describe("Private collections",()=>{
+  it("start retries a failed collection open without replacing the entry or Worker",async()=>{
+    const app=reload();await app.start();
+    await vi.waitFor(()=>expect(app.getSnapshot().collections.some(c=>c.collectionId===P)).toBe(true));
+    gate.error=mdbaseError("unavailable","first open unavailable");
+    await app.select(P);
+    await vi.waitFor(()=>expect(app.getSnapshot()).toMatchObject({status:"blocked",selectedCollectionId:P,problem:"unavailable"}));
+    gate.error=null;
+    await app.start();
+    await vi.waitFor(()=>expect(app.getSnapshot()).toMatchObject({status:"ready",selectedCollectionId:P,problem:null}));
+    expect(FakeWorker.all).toHaveLength(1);
+    expect(opened).toHaveLength(1);
+    FakeWorker.snapshot={...paired,status:"closed"};await app.close();
+  });
+  it("a reload recovers the same failed selection when the next open succeeds",async()=>{
+    const app=reload();await app.start();
+    await vi.waitFor(()=>expect(app.getSnapshot().collections.some(c=>c.collectionId===P)).toBe(true));
+    gate.error=mdbaseError("unavailable","first open unavailable");
+    await app.select(P);
+    await vi.waitFor(()=>expect(app.getSnapshot().status).toBe("blocked"));
+    gate.error=null;
+    FakeWorker.snapshot={...paired,status:"closed"};await app.close();
+    FakeWorker.snapshot=paired;
+    const next=reload({},`${origin}/?collection=${P}`);await next.start();
+    await vi.waitFor(()=>expect(next.getSnapshot()).toMatchObject({status:"ready",selectedCollectionId:P,problem:null}));
+    expect(FakeWorker.all).toHaveLength(2);
+    FakeWorker.snapshot={...paired,status:"closed"};await next.close();
+  });
+  it("start sends a new select to the same Worker after a hosted open fails",async()=>{
+    const app=reload();await app.start();
+    FakeWorker.snapshot={...paired,status:"blocked",selectedCollectionId:A,problem:"unavailable"};
+    await app.select(A);
+    await vi.waitFor(()=>expect(app.getSnapshot().selection.state).toBe("blocked"));
+    expect(actions().filter(action=>action==="select")).toHaveLength(1);
+    FakeWorker.snapshot=paired;
+    await app.start();
+    expect(actions().filter(action=>action==="select")).toHaveLength(2);
+    expect(actions().filter(action=>action==="start")).toHaveLength(1);
+    expect(FakeWorker.all).toHaveLength(1);
+    FakeWorker.snapshot={...paired,status:"closed"};await app.close();
+  });
+  it("start resumes a paired session blocked before collection selection",async()=>{
+    const app=reload();await app.start();
+    FakeWorker.snapshot={...paired,status:"blocked",problem:"unavailable"};
+    await app.refreshCollectionList!();
+    expect(app.getSnapshot().status).toBe("blocked");
+    FakeWorker.snapshot=paired;
+    await app.start();
+    expect(actions().filter(action=>action==="start")).toHaveLength(2);
+    expect(app.getSnapshot().status).toBe("unselected");
+    expect(FakeWorker.all).toHaveLength(1);
+    FakeWorker.snapshot={...paired,status:"closed"};await app.close();
+  });
   it("lists a Private collection with the hosted ones, opens it in this page, and leaves it for a hosted one",async()=>{
     const app=reload();await app.start();
     await vi.waitFor(()=>expect(app.getSnapshot().collections.map(c=>[c.collectionId,c.kind??"cloud_copy"])).toEqual([[A,"cloud_copy"],[B,"cloud_copy"],[P,"private"]]));
