@@ -92,17 +92,20 @@ export function recoverLostPolicy(db: DatabasePool, log: LogServiceClient, colle
  * no position was rolled back; a restore followed by a fresh append at that seq
  * has other bytes. Any mismatch runs the complete fenced recovery. */
 export function verifyPolicyTip(db: DatabasePool, log: LogServiceClient, collectionId: string): Promise<number> {
-  return withPolicyLock(db, collectionId, async lock => {
-    const newest = (await lock.query<{ seq: string; item: Buffer }>(
-      `SELECT seq, item FROM next_policy_batches WHERE collection_id = $1
-       AND state = 'appended' AND lost_at IS NULL ORDER BY id DESC LIMIT 1`, [collectionId]
-    )).rows[0];
-    if (!newest) return 0;
-    await lock.assertOwned();
-    const stored = await log.controlItemAt(collectionId, Number(newest.seq));
-    if (stored && newest.item.equals(Buffer.from(stored))) return 0;
-    return recover(lock, log, collectionId);
-  });
+  return withPolicyLock(db, collectionId, async lock =>
+    await policyTipIntact(lock, log, collectionId) ? 0 : recover(lock, log, collectionId));
+}
+
+/** The log still holds the newest acknowledged batch's exact bytes at its seq. */
+export async function policyTipIntact(lock: PolicyLock, log: LogServiceClient, collectionId: string): Promise<boolean> {
+  const newest = (await lock.query<{ seq: string; item: Buffer }>(
+    `SELECT seq, item FROM next_policy_batches WHERE collection_id = $1
+     AND state = 'appended' AND lost_at IS NULL ORDER BY id DESC LIMIT 1`, [collectionId]
+  )).rows[0];
+  if (!newest) return true;
+  await lock.assertOwned();
+  const stored = await log.controlItemAt(collectionId, Number(newest.seq));
+  return !!stored && newest.item.equals(Buffer.from(stored));
 }
 
 interface LostBatch { id: string; park?: "lost_genesis" | "invalid_retained_ops" }
