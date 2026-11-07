@@ -58,7 +58,7 @@ interface Options {
 type BatchUndo = { kind: "delete"; document: NoteDocument } | { kind: "properties"; document: NoteDocument; revision: string };
 
 type RecoveryAction =
-  | { kind: "pin"; path: string; pinned: boolean }
+  | { kind: "pin"; id: string; path: string; pinned: boolean }
   | { kind: "mention"; path: string; before: string; after: string }
   | { kind: "batch"; changes: BatchUndo[]; message: string }
   | { kind: "delete"; document: NoteDocument; pending?: boolean }
@@ -689,7 +689,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
   function togglePin(path: string) {
     const pinned = pinnedPaths.includes(path);
     setPin(path, !pinned);
-    setRecoveryAction({ kind: "pin", path, pinned });
+    setRecoveryAction({ kind: "pin", id: crypto.randomUUID(), path, pinned });
   }
   return { recoveryMessage, togglePin, renameNote, duplicateNote, linkUnlinkedMention, applyBulkProperties, deleteSelectedNotes,
     onMoveNotes, requestRename, performRename, cancelRename, saveProperties, saveRecordSource,

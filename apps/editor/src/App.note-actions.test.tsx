@@ -8,7 +8,7 @@ import type { ReactNode } from "react";
 import { App } from "./App";
 import * as quickOpen from "./QuickOpen";
 import { DemoCollectionGateway } from "./demo-gateway";
-import { NOTE_PATHS_MIME } from "./note-list-view";
+import { NOTE_PATHS_MIME, loadPinnedNotes } from "./note-list-view";
 import { chooseOption } from "./test/select";
 
 vi.mock("./CodeEditor", () => ({
@@ -70,6 +70,56 @@ describe("Note actions", () => {
       expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
       act(() => vi.advanceTimersByTime(1));
       expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
+    } finally {
+      view.unmount();
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(["undo", "expire"] as const)("remaps a retained Pin after a held move Undo without replacing its toast (%s)", async (ending) => {
+    const gateway = new DemoCollectionGateway(4);
+    const { collectionId } = await gateway.describe();
+    const originalPath = "Notes/the-shape-of-useful-tools.md";
+    const movedPath = "Projects/the-shape-of-useful-tools.md";
+    const user = userEvent.setup();
+    const view = render(<App gateway={gateway} />);
+    await screen.findByRole("textbox", { name: "Note body" });
+    await user.click(screen.getByRole("button", { name: "More note actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Move to…" }));
+    const dialog = screen.getByRole("dialog", { name: "Move note" });
+    await chooseOption(user, within(dialog).getByRole("combobox", { name: "Destination folder" }), "Projects");
+    await user.click(within(dialog).getByRole("button", { name: "Move" }));
+    await screen.findByRole("button", { name: movedPath });
+    const rename = gateway.rename.bind(gateway);
+    let releaseRename!: () => void;
+    const held = new Promise<void>((resolve) => { releaseRename = resolve; });
+    const renaming = vi.spyOn(gateway, "rename").mockImplementation(async (...args) => {
+      await held;
+      return rename(...args);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(renaming).toHaveBeenCalledOnce());
+    const menu = await openRowMenu(/The shape of useful tools/);
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(within(menu).getByRole("menuitem", { name: "Pin" }));
+      const pinUndo = screen.getByRole("button", { name: "Undoing" });
+      expect(loadPinnedNotes(collectionId)).toEqual([movedPath]);
+      await act(async () => releaseRename());
+      expect(loadPinnedNotes(collectionId)).toEqual([originalPath]);
+      expect(screen.getByRole("button", { name: "Undo" })).toBe(pinUndo);
+      expect(pinUndo).toBeEnabled();
+      act(() => vi.advanceTimersByTime(29_999));
+      view.rerender(<App gateway={gateway} />);
+      expect(screen.getByRole("button", { name: "Undo" })).toBe(pinUndo);
+      if (ending === "undo") {
+        fireEvent.click(pinUndo);
+        expect(loadPinnedNotes(collectionId)).toEqual([]);
+      } else {
+        act(() => vi.advanceTimersByTime(1));
+        expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
+        expect(loadPinnedNotes(collectionId)).toEqual([originalPath]);
+      }
     } finally {
       view.unmount();
       vi.useRealTimers();

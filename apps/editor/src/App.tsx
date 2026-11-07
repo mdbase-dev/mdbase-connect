@@ -977,7 +977,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     focusNoteList,
     setDocument, setDraft, setSelectedPath, setPathDraft, setEditingPath, setRenamePlan, setRecentPaths, setNotice
   });
-  const recoveryToastId = useMemo(() => `recovery:${crypto.randomUUID()}`, [recoveryAction]);
+  const recoveryToastId = useMemo(() => `recovery:${recoveryAction?.kind === "pin" ? recoveryAction.id : crypto.randomUUID()}`, [recoveryAction]);
 
   async function connectCollection() {
     setNotice(undefined);
@@ -1354,7 +1354,10 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     return { label: entry.label, icon, onSelect: entry.run, disabled, title: entry.shortcut ? `${entry.label} · ${shortcutLabel(entry.shortcut)}` : undefined };
   }
   function setPin(path: string, pinned: boolean) { updatePins(current => pinned ? [...new Set([...current, path])] : current.filter(value => value !== path)); }
-  function remapPin(from: string, to: string) { updatePins(current => [...new Set(current.map(path => path === from ? to : path))]); }
+  function remapPin(from: string, to: string) {
+    updatePins(current => [...new Set(current.map(path => path === from ? to : path))]);
+    setRecoveryAction(current => current?.kind === "pin" && current.path === from ? { ...current, path: to } : current);
+  }
   function updatePins(update: (paths: string[]) => string[]) {
     if (!description) return;
     setPinnedPaths((current) => {
