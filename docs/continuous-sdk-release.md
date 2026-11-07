@@ -3,7 +3,12 @@
 The existing `publish-npm.yml` and `publish-sdk-npm.yml` workflows are the only
 publishers for their packages. They now wake on green main qualification and
 every six hours (workspace packages at minute 47, source-built SDK at minute 37).
-The source-built SDK also wakes on successful main Runtime CI. PRs never enter
+The source-built SDK also wakes on successful main Runtime CI. After production
+servers, enabled Workers and Editor verify successfully, ops Server CD dispatches
+`publish-sdk-npm.yml` on **main** with `dry_run=false`. The existing release App
+provides Actions write; no new secret, publisher identity or policy key is needed.
+Dispatch failure is advisory, never a server-release failure or rollback.
+PRs never enter
 publishing environments. A manual run is on **main** with `dry_run: true` by
 default; no human version tag or `production_verified_commit` is accepted.
 
@@ -55,9 +60,25 @@ require a separate approved source-build/qualification contract.
 
 ## Qualification and compatibility
 
-Each source is an exact successful **full Server CI main-push** qualification;
-the source-built SDK additionally requires exact successful Runtime CI. No PR,
-documentation-only successor or stale qualification can substitute.
+Both planners observe live production and select the newest green first-parent
+commit in the common ancestry of main, Connect/MCP and the provider. They check
+out that source and require its exact successful **full Server CI main-push**
+qualification artifact; the source-built SDK additionally requires exact
+successful Runtime CI. A green badge alone, PR, documentation-only successor or
+stale qualification cannot substitute. Missing/unreadable evidence fails closed.
+The selected commit is recorded in the plan and exported as a job output.
+
+Build, pack and publisher checkouts use that plan commit, never a newly resolved
+main tip. Source-sensitive shell commands explicitly export it as `GITHUB_SHA`,
+including npm's provenance generation (a job-level default-variable override
+would be ignored by Actions). The workflow and OIDC publisher identity remain
+on main.
+
+npm refuses provenance whose source commit differs from the commit the workflow
+ran on, so a run publishes only when the selected commit is the run's own commit.
+When main has moved past production, the plan reports no changed packages and the
+run ends successfully without publishing. A later run on a production-contained
+main publishes the change.
 
 Runtime CI now qualifies every main push, including documentation-only
 successors, so a newer main commit cannot strand an otherwise changed SDK
@@ -66,7 +87,7 @@ is unchanged. This expands main CI coverage; it does not reuse an older SHA.
 Workflow-run
 events are restricted to successful main pushes from this repository, and
 publishers never consume artifacts from the triggering run as arbitrary input.
-All plan/build transfers belong to this run and identify its exact SHA.
+All plan/build transfers belong to this run and identify its selected source SHA.
 
 `continuous-client-release.mjs` retains the fixed production Connect/MCP and
 provider readiness observations. It proves compatibility independently against

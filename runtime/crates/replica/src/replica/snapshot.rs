@@ -61,6 +61,9 @@ use crate::store::{
 pub(super) const TARGET_CHUNK: u64 = 512 << 10;
 /// Unbucketed sections split at this plaintext size.
 const MAX_CHUNK: usize = 4 << 20;
+/// Record text a hosted build may hold: it keeps the rows, their encoded copies
+/// and the sealed chunks in memory at once, and a Worker cannot grow past 256 MiB.
+pub(super) const HOSTED_SNAPSHOT_RECORD_BYTES: u64 = 64 << 20;
 /// Entries between snapshots.
 pub const SNAPSHOT_EVERY: u64 = 10_000;
 
@@ -81,6 +84,26 @@ fn all_records(s: &dyn Store) -> Result<Vec<RecordRow>, StoreError> {
         out.extend(p);
     }
     Ok(out)
+}
+
+/// [`all_records`], or `None` as soon as the text passes `limit`.
+fn records_within(s: &dyn Store, limit: u64) -> Result<Option<Vec<RecordRow>>, StoreError> {
+    let mut out = Vec::new();
+    let mut after = None;
+    let mut bytes = 0u64;
+    loop {
+        let p = s.records(Page { after, limit: 1024 })?;
+        let Some(l) = p.last() else {
+            break;
+        };
+        after = Some(l.id);
+        bytes += p.iter().map(|r| r.doc.len() as u64).sum::<u64>();
+        if bytes > limit {
+            return Ok(None);
+        }
+        out.extend(p);
+    }
+    Ok(Some(out))
 }
 
 fn all_files(s: &dyn Store) -> Result<Vec<FileRow>, StoreError> {
@@ -169,6 +192,12 @@ impl Held {
 /// never silent: the previous snapshot, and every object it retains, stay.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SnapshotBlocked {
+    /// The confirmed record text is over what this host can build in memory. The
+    /// previous snapshot stays; the next attempt is one snapshot period later.
+    RecordBytes {
+        /// The limit it passed.
+        limit: u64,
+    },
     /// Some attachments' object inventories are still being read from their
     /// authenticated manifests. The build runs again once they are known.
     InventoryPending {
@@ -648,6 +677,8 @@ const MAX_ROW_TEXT: usize = 16 << 20;
 
 /// The last manifest this replica built or installed, for incremental builds.
 const LAST_MANIFEST: &str = "replica.snapshot.last";
+/// The head a build was last declined at, so a new wake waits for the next period.
+const DECLINED_AT: &str = "replica.snapshot.declined";
 
 /// Aliases resolve historical names; they never authorize a filesystem write.
 /// Keep the relative lookup-key grammar, allowing nonportable legacy names.
@@ -715,7 +746,9 @@ impl<S: Store> Replica<S> {
                 return Err(StoreError::Io("unindexed_snapshot_not_yet".into()));
             }
         }
-        let records = all_records(&self.store)?;
+        let Some(records) = records_within(&self.store, self.snapshot_record_bytes)? else {
+            return self.decline_snapshot();
+        };
         let files = all_files(&self.store)?;
         let total: u64 = records.iter().map(|r| r.doc.len() as u64).sum();
         let bits = ceil_log2(total.div_ceil(TARGET_CHUNK).max(1)).min(16);
@@ -2488,19 +2521,52 @@ impl<S: Store> Replica<S> {
     }
 
     /// Build a snapshot when enough has been appended since the last one.
+    /// Too much record text to build in memory. Nothing is lost: the previous
+    /// snapshot and its compaction floor stay, and this head is not tried again.
+    fn decline_snapshot(&mut self) -> Result<(), StoreError> {
+        let seq = self.head.seq;
+        self.snapshot_blocked = Some(SnapshotBlocked::RecordBytes {
+            limit: self.snapshot_record_bytes,
+        });
+        self.stats.snapshot_builds_refused += 1;
+        self.snapshot_declined = self.snapshot_declined.max(seq);
+        self.snapshot_decline_seen = true;
+        self.store.commit(Tx {
+            meta: vec![(DECLINED_AT.into(), Some(seq.to_be_bytes().to_vec()))],
+            ..Tx::default()
+        })?;
+        Ok(())
+    }
+
+    /// One report per decline or wake that finds one in force: true at most once.
+    pub fn take_snapshot_declined(&mut self) -> bool {
+        std::mem::take(&mut self.snapshot_decline_seen)
+    }
+
     pub(crate) fn maybe_build(&mut self) {
         if self.build.is_some() || self.install.is_some() || !self.caught_up {
             return;
         }
-        let last = self
+        let manifest = self
             .store
             .meta(LAST_MANIFEST)
             .ok()
             .flatten()
             .and_then(|b| ManifestPayload::from_bytes(&b).ok())
             .map(|m| m.seq)
-            .unwrap_or(0)
-            .max(self.snapshot_declined);
+            .unwrap_or(0);
+        if !std::mem::replace(&mut self.snapshot_decline_read, true) {
+            let at = self
+                .store
+                .meta(DECLINED_AT)
+                .ok()
+                .flatten()
+                .and_then(|b| <[u8; 8]>::try_from(b.as_slice()).ok())
+                .map_or(0, u64::from_be_bytes);
+            self.snapshot_declined = self.snapshot_declined.max(at);
+            self.snapshot_decline_seen |= at > manifest;
+        }
+        let last = manifest.max(self.snapshot_declined);
         if self.head.seq >= last + self.snapshot_every {
             let _ = self.build_snapshot_now();
         }

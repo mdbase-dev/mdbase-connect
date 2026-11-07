@@ -705,7 +705,7 @@ impl<S: Store> Replica<S> {
             diagnostics: None,
             view: None,
             groups: None,
-            has_more: None,
+            has_more: Some(end < rows.len()),
         })
     }
 

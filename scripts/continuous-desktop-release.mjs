@@ -4,7 +4,7 @@ import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { api, gh, git, nextBetaVersion, pages, remoteTagCommit, repository, requireGreenMain, requireRunning, verifyCompatibility } from "./lib/continuous-client-release.mjs";
+import { api, checkoutProductionCommit, gh, git, nextBetaVersion, pages, remoteTagCommit, repository, requireGreenMain, requireRunning, verifyCompatibility } from "./lib/continuous-client-release.mjs";
 
 const channelName = "mdbase-connect-channel-v1.json";
 const marker = "Continuous desktop status: stopped";
@@ -88,8 +88,8 @@ export async function coordinate(env = process.env) {
   assert(["workflow_run", "schedule", "workflow_dispatch"].includes(env.GITHUB_EVENT_NAME));
   assert.equal(env.GITHUB_REPOSITORY, repository);
   git("fetch", "--tags", "origin", "main:refs/remotes/origin/main");
-  if (git("rev-parse", "origin/main") !== env.GITHUB_SHA) return console.log("Main advanced; the next green run owns publication.");
-  requireGreenMain(env.GITHUB_SHA);
+  const commit = await checkoutProductionCommit(env);
+  env = { ...env, GITHUB_SHA: commit };
   const all = releaseList();
   const latest = all[0];
   const records = reservations(all);

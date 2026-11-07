@@ -158,8 +158,8 @@ jobs:
           for smoke in app-storage app-sqlite app-owner keys-mv3 app-private-persistence app-cloud-copy-outcome; do
             timeout 120s node "packages/sdk/scripts/$smoke-smoke.mjs"
           done
-      - name: thin-client bundle size
-        run: npm run size
+      - name: bundle boundaries
+        run: npm run bundle-boundaries
 
   obsidian:
     name: obsidian runtime execution

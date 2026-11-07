@@ -18,8 +18,9 @@ const [metadata,group] = ${JSON.stringify(queries)};
 const magic=[77,68,66,73,68,88,0,1], enc=new TextEncoder(), dec=new TextDecoder();
 const u32=n=>{const b=new Uint8Array(4);new DataView(b.buffer).setUint32(0,n,true);return [...b];};
 const data=s=>{const b=enc.encode(s);return [...u32(b.length),...b];};
+const param=v=>v===null?[0]:typeof v==="number"?[1,...new Uint8Array(new BigInt64Array([BigInt(v)]).buffer)]:[3,...data(v)];
 function read(storage,sql,params=[]){
- const bytes=runIndex(storage,Uint8Array.from([...magic,0,1,...u32(1),...data(sql),...u32(params.length),...params.flatMap(s=>[3,...data(s)])]));
+ const bytes=runIndex(storage,Uint8Array.from([...magic,0,1,...u32(1),...data(sql),...u32(params.length),...params.flatMap(param)]));
  if(bytes[8]!==2)throw Error("actual index reply refused");
  const v=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);let at=13;
  const columns=v.getUint32(at,true);at+=20;const n=v.getUint32(at,true);at+=4;
@@ -31,7 +32,7 @@ export class Probe extends DurableObject {
  async fetch(request){
   const sql=this.ctx.storage.sql, trace=[];sql.exec("CREATE TABLE st_res(path TEXT PRIMARY KEY,doc TEXT)");
   this.ctx.storage.transactionSync(()=>{for(let i=0;i<80;i++)sql.exec("INSERT INTO st_res VALUES(?,?)",'r'+String(i).padStart(3,'0'),'x'.repeat(60000));});
-  const inventory=read(this.ctx.storage,metadata);trace.push("metadata");
+  const inventory=read(this.ctx.storage,metadata,[null,256]);trace.push("metadata");
   // Earliest possible same-owner writer: queued BEFORE any range SELECT.
   let written=false;const writer=new Promise(resolve=>queueMicrotask(()=>{sql.exec("UPDATE st_res SET doc=?",'y'.repeat(60001));written=true;trace.push("write");resolve();}));
   const unsafe=new URL(request.url).searchParams.has("yield");if(unsafe)await writer;
@@ -43,7 +44,7 @@ export class Probe extends DurableObject {
    trace.push("group");groups++;start=end;
   }
   const writtenBeforeReturn=written;trace.push("read-return");await writer;
-  const after=read(this.ctx.storage,metadata);
+  const after=read(this.ctx.storage,metadata,[null,256]);
   return Response.json({matched,groups,writtenBeforeReturn,trace,after:after.every(([,n])=>n===60001)});
  }
 }

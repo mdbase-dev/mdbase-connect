@@ -17,6 +17,17 @@ const problem = (reason: string, code: "invalid_request" | "forbidden" | "unavai
   new MdbaseError({ code, recovery: code === "invalid_request" ? "fix_request" : code === "forbidden" ? "reauthorize" : "retry", reason, message: "cursor refusal" });
 
 describe("pages cursor lifecycle (query responses mocked, not native cursor qualification)", () => {
+  it.each(["pages", "queryPages"] as const)("%s refuses a nonterminal page without a cursor instead of ending silently", async method => {
+    const { client, query } = await fixture();
+    query.mockResolvedValueOnce({ records: [], complete: true, asOf: 1, hasMore: true });
+    const next = client[method]({ limit: 100 }).next();
+    await expect(next).rejects.toBeInstanceOf(MdbaseError);
+    await expect(next).rejects.toMatchObject({
+      code: "invalid_request", recovery: "fix_request", reason: "query_cursor_required", message: "Query requires offset paging",
+    });
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+
   it.each(["cursor_expired"])("throws %s unchanged by default after yielding", async reason => {
     const { client, query } = await fixture(), error = problem(reason);
     query.mockResolvedValueOnce(page(1, "opaque-token")).mockRejectedValueOnce(error);

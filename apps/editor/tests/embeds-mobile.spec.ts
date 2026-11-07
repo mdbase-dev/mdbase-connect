@@ -16,7 +16,9 @@ for (const width of [360, 390, 430]) {
     const title = page.getByRole("textbox", { name: "Note title" });
     await expect(title).toBeVisible();
     await expect(page.locator(".editor-bar button:visible")).toHaveCount(3);
-    await expect(page.locator(".editor-bar").getByRole("button", { name: "New note", exact: true })).toBeVisible();
+    const newNote = (await page.locator(".editor-bar").getByRole("button", { name: "New note", exact: true }).boundingBox())!;
+    const more = (await page.getByRole("button", { name: "More note actions" }).boundingBox())!;
+    expect(more.x - (newNote.x + newNote.width)).toBe(0);
     await expect(page.locator(".mobile-note-path")).toHaveText("Notes/the-shape-of-useful-tools.md");
     await expect(page.locator(".editor-bar .path-button")).toHaveCount(0);
     for (const theme of ["light", "dark"]) {
@@ -61,8 +63,7 @@ for (const width of [360, 390, 430]) {
     expect(target!.height).toBeGreaterThanOrEqual(44);
     await page.getByRole("button", { name: "Close properties" }).click();
 
-    await page.getByRole("button", { name: "More note actions" }).click();
-    await page.getByRole("menuitem", { name: "New note", exact: true }).click();
+    await page.locator(".editor-bar").getByRole("button", { name: "New note", exact: true }).click();
     await expect(page.getByRole("textbox", { name: "Title", exact: true })).toBeVisible();
     await fitsViewport(page, ".new-note-composer");
     await page.locator(".new-note-actions").getByRole("button", { name: "Cancel" }).click();

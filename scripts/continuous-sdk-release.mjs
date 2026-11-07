@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { publicPackages } from "./public-packages.mjs";
-import { api, gh, git, nextBetaVersion, repository, requireGreenMain, requireRunning, verifyCompatibility } from "./lib/continuous-client-release.mjs";
+import { api, checkoutProductionCommit, gh, git, nextBetaVersion, repository, requireRunning, verifyCompatibility } from "./lib/continuous-client-release.mjs";
 
 const registry = "https://registry.npmjs.org";
 const readJson = file => JSON.parse(readFileSync(file, "utf8"));
@@ -151,9 +151,12 @@ export async function plan(kind, output, env = process.env) {
   assert.equal(env.GITHUB_REF, "refs/heads/main");
   assert.equal(git("rev-parse", "HEAD"), env.GITHUB_SHA);
   requireRunning(env.SDK_RELEASE_STOPPED);
-  git("fetch", "--no-tags", "origin", "main:refs/remotes/origin/main");
-  const current = git("rev-parse", "origin/main") === env.GITHUB_SHA;
-  requireGreenMain(env.GITHUB_SHA);
+  const commit = await checkoutProductionCommit(env);
+  // npm refuses provenance that names any commit but this run's own, so a run
+  // on a newer main stands down and leaves the selected source unpublished.
+  const current = commit === env.GITHUB_SHA;
+  if (!current) console.log(`Selected ${commit} is not this run's commit; publishing nothing.`);
+  env = { ...env, GITHUB_SHA: commit };
   if (env.LIVE_PUBLICATION === "true") checkPriorAttempts(kind, env);
   const packages = kind === "source" ? [sdk] : await publicPackages();
   const inventory = [];
@@ -179,7 +182,7 @@ export async function plan(kind, output, env = process.env) {
     dependencies: Object.fromEntries(inventory.map(item => [item.name, selected.some(value => value.name === item.name) ? item.version : item.baseline])) };
   writeFileSync(output, `${JSON.stringify(result, null, 2)}\n`, { flag: "wx" });
   if (kind === "workspace") result.compatibility = await qualifyWorkspace(output, env);
-  if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `changed=${selected.length > 0}\nversion=${selected[0]?.version ?? ""}\n`);
+  if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `commit=${commit}\nchanged=${selected.length > 0}\nversion=${selected[0]?.version ?? ""}\n`);
   console.log(JSON.stringify(result));
 }
 

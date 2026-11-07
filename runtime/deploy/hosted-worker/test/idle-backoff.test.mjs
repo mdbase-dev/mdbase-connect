@@ -42,7 +42,7 @@ const frame = (method) => encode(new Map([[2, method], [3, new Map()]]));
 /** A bound engine that queues `methods` once per sync (refresh() re-arms it). */
 function engine(methods = [], outputs = []) {
   let queued = [], applied = 0, sent = [];
-  const e = { appliedHead: () => String(applied), logBound: true, nextWakeup: () => null, installStatus: () => null, attachmentObject: () => null, signRpc: () => new Uint8Array(64),
+  const e = { appliedHead: () => String(applied), logBound: true, nextWakeup: () => null, installStatus: () => null, snapshotDeclined: () => false, attachmentObject: () => null, signRpc: () => new Uint8Array(64),
     logCalls: () => { const q = queued; queued = []; return q; }, logBind: () => true,
     logReply(id) { if (sent[id] === "read") applied++; }, logFailed() {}, poll: () => { const out = outputs; outputs = []; return out; },
     arm(next = methods) { sent = next; queued = next.map((m, id) => ({ id, frame: frame(m) })); } };
@@ -71,6 +71,34 @@ test("idle syncs double the poll from the base up to 10 min, for both roles", as
     assert.deepEqual(delays, expected, escrow ? "escrow" : "hosted");
     mock.restoreAll();
   }
+});
+
+test("a declined snapshot build reports once, with no identifiers or counts", async () => {
+  const lines = [];
+  mock.method(console, "info", (line) => lines.push(JSON.parse(line)));
+  const t = object(); t.o.log = logReplying();
+  const at = 1_000_000_000_000;
+  const e = engine(["get_object"]);
+  let declined = true;
+  e.snapshotDeclined = () => { const was = declined; declined = false; return was; };
+  await syncAt(t, at, e);
+  e.arm(["get_object"]);
+  await syncAt(t, at + 40 * S, e);
+  assert.deepEqual(lines.filter(l => l.event === "hosted_snapshot_declined"), [{ event: "hosted_snapshot_declined", role: "hosted" }]);
+  mock.restoreAll();
+});
+
+test("a Wasm trap logs one line with no identifiers and still fails the alarm", async () => {
+  const lines = [];
+  mock.method(console, "info", (line) => lines.push(JSON.parse(line)));
+  const t = object(true);
+  t.o.runAlarm = async () => { throw new WebAssembly.RuntimeError("unreachable"); };
+  await assert.rejects(t.o.alarm(), WebAssembly.RuntimeError);
+  assert.deepEqual(lines, [{ event: "hosted_wasm_trap", role: "escrow" }]);
+  t.o.runAlarm = async () => { throw new Error("other"); };
+  await assert.rejects(t.o.alarm(), /other/);
+  assert.equal(lines.length, 1, "only a trap");
+  mock.restoreAll();
 });
 
 test("a running snapshot install wakes at once, reports counts only, then falls back to the poll", async (ctx) => {

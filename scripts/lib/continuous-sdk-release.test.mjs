@@ -226,6 +226,45 @@ test("workspace packing preserves qualified files, changes only metadata, and pi
   assert.equal(execFileSync("tar", ["-xOf", archive, "package/dist/index.js"], { encoding: "utf8" }), "export const qualified = true;\n");
 });
 
+test("all SDK consumers pin the selected source", () => {
+  const source = readFileSync(new URL("../continuous-sdk-release.mjs", import.meta.url), "utf8");
+  assert.match(source, /const commit = await checkoutProductionCommit\(env\)/);
+  assert.match(source, /env = \{ \.\.\.env, GITHUB_SHA: commit \}/);
+  assert.match(source, /commit=\$\{commit\}/);
+  for (const [name, jobs] of [["publish-npm", ["pack", "publish"]], ["publish-sdk-npm", ["build", "publish", "publish-internal"]]]) {
+    const workflow = readFileSync(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), "utf8");
+    assert.match(workflow, /commit: \$\{\{ steps.plan.outputs.commit \}\}/);
+    for (const job of jobs) {
+      const block = workflow.split(`\n  ${job}:\n`)[1].split(/\n  [a-z][a-z-]*:\n/)[0];
+      assert.match(block, /CLIENT_RELEASE_COMMIT: \$\{\{ needs.plan.outputs.commit/);
+      assert.match(block, /ref: \$\{\{ needs.plan.outputs.commit/);
+      // Every shell command must bind source-sensitive legacy scripts, version
+      // stamping, compatibility checks, tags and npm provenance to the plan.
+      for (const step of block.split(/\n      - /).filter(step => /\brun:/.test(step))) {
+        assert.match(step, /run: \|\n          export GITHUB_SHA="\$CLIENT_RELEASE_COMMIT"/);
+      }
+    }
+  }
+});
+
+test("a run on a newer main publishes nothing, because npm provenance must name the run's own commit", () => {
+  const source = readFileSync("scripts/continuous-sdk-release.mjs", "utf8");
+  assert.match(source, /const current = commit === env\.GITHUB_SHA;\n[^\n]*\n  env = \{ \.\.\.env, GITHUB_SHA: commit \}/);
+  assert.match(source, /if \(current && paths\.some\(/);
+});
+
+test("npm provenance gets the selected source SHA, not Actions' newer workflow SHA", () => {
+  const workflow = readFileSync(new URL("../../.github/workflows/publish-sdk-npm.yml", import.meta.url), "utf8");
+  const step = workflow.split("      - name: Publish the verified production archive with provenance\n")[1].split(/\n  [a-z][a-z-]*:\n/)[0];
+  const command = step.split("        run: |\n")[1].replace(/^          /gm, "");
+  const selected = "b".repeat(40);
+  const result = spawnSync("bash", ["-e", "-c", `npm() { printf '%s\\n' "$GITHUB_SHA"; };\n${command}`], {
+    encoding: "utf8", env: { ...process.env, GITHUB_SHA: "f".repeat(40), CLIENT_RELEASE_COMMIT: selected, RUNNER_TEMP: "/unused" }
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), selected);
+});
+
 test("automatic publishers keep isolated OIDC, source qualification and explicit dry-run dispatches", () => {
   const publisher = readFileSync(new URL("../continuous-sdk-release.mjs", import.meta.url), "utf8");
   assert.match(publisher, /if \(kind === "workspace"\) result.compatibility = await qualifyWorkspace\(output, env\)/);

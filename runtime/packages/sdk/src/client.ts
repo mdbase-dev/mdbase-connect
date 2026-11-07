@@ -1448,6 +1448,9 @@ export class MdbaseClient {
         continue;
       }
       signal?.throwIfAborted();
+      if (page.hasMore && !page.cursor) {
+        throw mdbaseError("invalid_request", "Query requires offset paging", "query_cursor_required");
+      }
       yield page;
       pagesYielded++;
       if (!page.cursor) return;

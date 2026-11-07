@@ -106,21 +106,33 @@ test("renames before the server responds, rolls back failures, and offers real U
 
 test("styles footer links and separates account details on desktop and mobile", async ({ page }) => {
   for (const width of [1280, 390]) {
-    await page.setViewportSize({ width, height: 844 });
-    await page.goto(`${portalOrigin}/collections`);
-    await expect(page.getByRole("heading", { name: "Collections", exact: true })).toBeVisible();
-    const footer = page.locator(".connect-nav-footer");
-    for (const colorScheme of ["light", "dark"] as const) {
-      await page.emulateMedia({ colorScheme });
-      const styles = await footer.locator(".connect-account-slot > a").evaluateAll(links => links.map(link => {
-        const style = getComputedStyle(link), name = link.querySelector("strong"), email = link.querySelector("small");
-        return { decoration: style.textDecorationLine, display: style.display, font: style.fontFamily,
-          separateLines: !name || !email || email.getBoundingClientRect().top >= name.getBoundingClientRect().bottom };
-      }));
-      expect(styles).toHaveLength(1);
-      for (const style of styles) { expect(style.decoration).toBe("none"); expect(style.display).toBe("grid"); expect(style.font).toMatch(/IBM Plex Sans/); expect(style.separateLines).toBe(true); }
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    }
+    let release!: () => void;
+    const account = new Promise<void>(resolve => { release = resolve; });
+    await page.route(`${portalOrigin}/v1/me`, async route => {
+      await account;
+      await route.fulfill({ json: overview });
+    });
+    try {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(`${portalOrigin}/collections`);
+      await expect(page.getByRole("heading", { name: "Collections", exact: true })).toBeVisible();
+      const footer = page.locator(".connect-nav-footer");
+      const accountLink = footer.locator(".connect-account-slot > a");
+      await expect(accountLink).toHaveCount(0);
+      release();
+      await expect(accountLink).toHaveCount(1);
+      for (const colorScheme of ["light", "dark"] as const) {
+        await page.emulateMedia({ colorScheme });
+        const styles = await accountLink.evaluateAll(links => links.map(link => {
+          const style = getComputedStyle(link), name = link.querySelector("strong"), email = link.querySelector("small");
+          return { decoration: style.textDecorationLine, display: style.display, font: style.fontFamily,
+            separateLines: !name || !email || email.getBoundingClientRect().top >= name.getBoundingClientRect().bottom };
+        }));
+        expect(styles).toHaveLength(1);
+        for (const style of styles) { expect(style.decoration).toBe("none"); expect(style.display).toBe("grid"); expect(style.font).toMatch(/IBM Plex Sans/); expect(style.separateLines).toBe(true); }
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      }
+    } finally { release(); }
   }
 });
 
