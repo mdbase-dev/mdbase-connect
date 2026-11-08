@@ -10,7 +10,7 @@ const workflow='publish-sdk-npm.yml';
 const need=(ok,message)=>{if(!ok)throw Error('SDK authentication refusal: '+message);};
 const retryable=status=>status===403||status===408||status===429||status>=500;
 // Authentication judges the bytes, so repeating a public read cannot weaken it.
-export async function publicBytes(url,fetchImpl=fetch,delays=[5000,20000],headers={}) {
+export async function publicBytes(url,fetchImpl=fetch,delays=[5000,20000,60000,120000],headers={}) {
  for(const delay of [...delays,null]) {
   let status='no response';
   try {
@@ -25,6 +25,29 @@ export async function publicBytes(url,fetchImpl=fetch,delays=[5000,20000],header
   await new Promise(resolve=>setTimeout(resolve,delay));
  }
 }
+function releaseAsset(release,tag,name) {
+ const matches=release.assets?.filter(asset=>asset.name===name)??[];
+ need(matches.length===1 && /^sha256:[a-f0-9]{64}$/.test(matches[0].digest??''),'release asset digest required');
+ need(matches[0].browser_download_url===`https://github.com/${repository}/releases/download/${tag}/${name}`,'release asset URL mismatch');
+ return matches[0];
+}
+async function assetBytes(asset,fetchImpl,token) {
+ if(!token)return publicBytes(asset.browser_download_url,fetchImpl);
+ need(Number.isSafeInteger(asset.id) && asset.id>0,'release asset URL mismatch');
+ return publicBytes(`https://api.github.com/repos/${repository}/releases/assets/${asset.id}`,fetchImpl,undefined,
+  {accept:'application/octet-stream',authorization:`Bearer ${token}`});
+}
+export async function archiveBytes(url,fetchImpl=fetch,token=process.env.GITHUB_TOKEN) {
+ const prefix=`https://github.com/${repository}/releases/download/`;
+ if(!token || !url.startsWith(prefix))return publicBytes(url,fetchImpl);
+ const match=/^(sdk-v[\w.-]+)\/(sdk-staging\.tgz(?:\.sigstore\.json)?)$/.exec(url.slice(prefix.length));
+ need(match,'release asset URL mismatch');
+ const [,tag,name]=match;
+ const release=JSON.parse(await publicBytes(`https://api.github.com/repos/${repository}/releases/tags/${tag}`,fetchImpl,undefined,
+  {authorization:`Bearer ${token}`}));
+ need(release.tag_name===tag && release.prerelease===true && release.draft===false,'exact SDK prerelease required');
+ return assetBytes(releaseAsset(release,tag,name),fetchImpl,token);
+}
 export async function authenticateProduction(pin,bytes,{fetchImpl=fetch,prove=provenSource}={}) {
  const url=`https://registry.npmjs.org/@mdbase-dev/sdk/${pin.version}`;
  const entry=JSON.parse(await publicBytes(url,fetchImpl));
@@ -36,20 +59,14 @@ export async function authenticateProduction(pin,bytes,{fetchImpl=fetch,prove=pr
 }
 export async function stagingArchive(pin,{fetchImpl=fetch,run=execFileSync,token=process.env.GITHUB_TOKEN}={}) {
  const tag=`sdk-v${pin.version}`;
- // The job token only lifts the shared runner's anonymous API rate limit; the
- // release metadata is still judged below, so it grants nothing.
+ // The job token only lifts anonymous API/download limits; release metadata,
+ // digests and attestations are still judged below, so it grants no trust.
  const api=token?{authorization:`Bearer ${token}`}:{};
  const release=JSON.parse(await publicBytes(`https://api.github.com/repos/${repository}/releases/tags/${tag}`,fetchImpl,undefined,api));
  need(release.tag_name===tag && release.prerelease===true && release.draft===false,'exact SDK prerelease required');
- const asset=name=>{
-  const matches=release.assets?.filter(a=>a.name===name)??[];
-  need(matches.length===1 && /^sha256:[a-f0-9]{64}$/.test(matches[0].digest??''),'release asset digest required');
-  need(matches[0].browser_download_url===`https://github.com/${repository}/releases/download/${tag}/${name}`,'release asset URL mismatch');
-  return matches[0];
- };
- const archive=asset('sdk-staging.tgz'),bundle=asset('sdk-staging.tgz.sigstore.json');
+ const archive=releaseAsset(release,tag,'sdk-staging.tgz'),bundle=releaseAsset(release,tag,'sdk-staging.tgz.sigstore.json');
  const download=async a=>{
-  const bytes=await publicBytes(a.browser_download_url,fetchImpl);
+  const bytes=await assetBytes(a,fetchImpl,token);
   need('sha256:'+createHash('sha256').update(bytes).digest('hex')===a.digest,'staging release archive/bundle digest mismatch');
   return bytes;
  };

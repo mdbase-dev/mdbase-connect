@@ -35,6 +35,35 @@ production lock by substituting only that SDK archive, integrity and actual
 `@mdbase-dev/sdk-staging` file-alias/peer identity; application imports retain
 `@mdbase-dev/sdk`. No archive is rewritten. Production trust cannot be used on staging.
 
+With `GITHUB_TOKEN`, release metadata and both release assets use GitHub's REST
+API; asset bytes come from `/repos/mdbase-dev/mdbase-connect/releases/assets/<id>`
+with `Accept: application/octet-stream` and a Bearer header. Without a token,
+asset bytes use the exact `browser_download_url`. The exact asset names and
+browser URLs, SHA256 digests, and attestation identity are still required: the
+token changes transport limits, not trust. An authenticated failure never falls
+back to an anonymous request. Subsequent staging install and installed-original
+comparison downloads use the same authenticated transport and still enforce the
+plan's archive digest. npm and unrelated archive hosts never receive this token.
+The build wrapper removes it before executing dependency or application hooks.
+
+Transient intake failures keep the existing retryable statuses (including 403),
+with waits of 5, 20, 60 and 120 seconds and a 30-second timeout per attempt. This
+allows five attempts over at most 355 seconds per read. The protected guard has
+a seven-minute step budget; the existing job deadline and recovery bounds remain.
+
+**Other native publishers.**
+
+As checked on November 8, 2026, `mdbase-reader`, `mdbase-writer`, and
+`mdbase-journal` each own a separate `scripts/publisher/authentication.mjs`,
+`install-inputs.mjs`, `originals.mjs`, and build wrapper. Their respective
+`deploy-reader.yml`, `deploy-writer.yml`, and `deploy-journal.yml` workflows
+check out their own workflow revision into `publisher`; they do not call a
+Connect reusable publishing workflow/action or import this helper. Updating
+Connect alone therefore does **not** fix those publishers. Each needs the same
+transport/backoff port, read-only token wiring for intake/install/comparison,
+token removal before hooks, and a guard deadline that outlives retries. SDK
+repinning does not update these independent publisher implementations.
+
 Both targets require the packaged trust hash, packaged provenance, and raw
 `config/next-trust/<target>.json` hash to match `config/release-components.json`
 and the protected environment's `EDITOR_TRUST_ASSET_SHA256`. No trust roots or
