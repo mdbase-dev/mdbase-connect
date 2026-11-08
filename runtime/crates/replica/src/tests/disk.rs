@@ -3991,3 +3991,78 @@ fn an_app_create_at_a_refused_path_reaches_disk() {
     assert!(a.r.list_holds(a.s).unwrap().is_empty());
     assert!(refused(&a).is_empty());
 }
+
+/// The user's disk edit refused for its size, then an app's update of that
+/// record: a conflict hold keeps the user's bytes; the app's write does not
+/// replace them.
+#[test]
+fn an_app_update_over_a_refused_disk_edit_is_held() {
+    use mdbn_wire::snapshot::TextOrBlob;
+    let svc = FakeLogService::new();
+    let mut a = item_limited(&svc, 1);
+    save(&mut a, "a.md", Some(&big()));
+    settle(&mut [&mut a]);
+    assert_eq!(refused(&a).len(), 1);
+    app_document(&mut a, "original", "app");
+    settle(&mut [&mut a]);
+    assert_eq!(a.file("a.md"), Some(big()));
+    let holds = a.r.list_holds(a.s).unwrap();
+    assert_eq!(holds.len(), 1);
+    assert_eq!(holds[0].reason, mdbn_wire::client::HoldReason::Conflict);
+    assert_eq!(holds[0].mine, TextOrBlob::Text(big()));
+}
+
+/// The user's new file refused for its size, then an app's create of a
+/// record at that path: the user's file stays fenced, not overwritten.
+#[test]
+fn an_app_create_at_a_refused_disk_create_keeps_the_users_file() {
+    let svc = FakeLogService::new();
+    let mut a = item_limited(&svc, 1);
+    save(&mut a, "new.md", Some(&big()));
+    settle(&mut [&mut a]);
+    assert_eq!(refused(&a).len(), 1);
+    create(&mut a, 3, "new.md", "app");
+    settle(&mut [&mut a]);
+    assert_eq!(a.file("new.md"), Some(big()));
+    assert_eq!(refused(&a).len(), 1);
+}
+
+/// The user's resource edit refused for its size, then an app's write of
+/// that resource: the user's file stays fenced, not overwritten.
+#[test]
+fn an_app_resource_write_over_a_refused_resource_edit_keeps_the_users_file() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    a.r.planner = Box::new(crate::plan::CorePlanner);
+    let config = "spec_version: 0.3.0\nsettings:\n  timezone: UTC\n";
+    a.disk.borrow_mut().user_write("mdbase.yaml", Some(config));
+    settle(&mut [&mut a]);
+    a.log.faults.item_bytes_limit = Some(4096);
+    let large = format!("{config}# {}\n", "x".repeat(8192));
+    a.disk.borrow_mut().user_write("mdbase.yaml", Some(&large));
+    settle(&mut [&mut a]);
+    assert_eq!(refused(&a).len(), 1);
+    a.r.submit(
+        a.s,
+        SubmitParams {
+            ops: vec![Op::ResourcePut(mdbn_wire::intent::ResourcePut {
+                path: "mdbase.yaml".into(),
+                doc: Text::Inline(format!("{config}# app\n")),
+                base_revision: None,
+                must_not_exist: None,
+            })],
+            mutation_id: None,
+            conflict_mode: None,
+            timezone: None,
+            allow_partial: None,
+            mutation_ids: None,
+            dry_run: None,
+            include: None,
+            wait: None,
+        },
+    )
+    .unwrap();
+    settle(&mut [&mut a]);
+    assert_eq!(a.file("mdbase.yaml"), Some(large));
+    assert_eq!(refused(&a).len(), 1);
+}

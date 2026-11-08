@@ -69,6 +69,10 @@ pub(crate) struct RefusedFile {
     pub(crate) base: Option<DocVersion>,
     /// The refused change deleted the file.
     pub(crate) deleted: bool,
+    /// The bytes are an app's submission, not the user's disk edit: only then
+    /// may this replica's later app write replace them (absent in older meta:
+    /// a disk edit).
+    pub(crate) from_app: bool,
 }
 
 /// The fenced files, by path key.
@@ -129,6 +133,7 @@ fn encode(refused: &Refused) -> Vec<u8> {
                 f.mine.clone().map_or(Cbor::Null, Cbor::Text),
                 f.base.as_ref().map_or(Cbor::Null, Wire::to_cbor),
                 Cbor::Bool(f.deleted),
+                Cbor::Bool(f.from_app),
             ])
         })
         .collect();
@@ -148,6 +153,10 @@ pub(crate) fn decode(bytes: Option<&[u8]>) -> Result<Refused, &'static str> {
         let Cbor::Array(e) = e else {
             return Err("entry");
         };
+        let (e, from_app) = match e.as_slice() {
+            [rest @ .., Cbor::Bool(from_app)] if rest.len() == 7 => (rest, *from_app),
+            e => (e, false),
+        };
         let [
             Cbor::Text(path),
             id,
@@ -156,7 +165,7 @@ pub(crate) fn decode(bytes: Option<&[u8]>) -> Result<Refused, &'static str> {
             mine,
             base,
             Cbor::Bool(deleted),
-        ] = e.as_slice()
+        ] = e
         else {
             return Err("entry");
         };
@@ -187,6 +196,7 @@ pub(crate) fn decode(bytes: Option<&[u8]>) -> Result<Refused, &'static str> {
             mine,
             base,
             deleted: *deleted,
+            from_app,
         }]);
     }
     Ok(out)
@@ -338,6 +348,11 @@ impl<S: Store> Replica<S> {
         effects: &[Effect],
         problem: &Problem,
     ) -> Result<Vec<RefusedFile>, StoreError> {
+        // Disk captures (and hold resolutions) are captured unvalidated; an
+        // app's submission is validated. `source` alone cannot tell: resource
+        // edits from disk are `api` writes.
+        let from_app =
+            m.source != Source::External && m.validated_at == Some(mdbn_wire::intent::Level::Error);
         Ok(self
             .targets(m, effects)?
             .into_iter()
@@ -349,14 +364,15 @@ impl<S: Store> Replica<S> {
                 mine: t.mine,
                 base: t.base,
                 deleted: t.deleted,
+                from_app,
             })
             .collect())
     }
 
-    /// A captured disk edit ends the fence of what it targets, in the capture's
-    /// commit. Returns the fence to keep once `tx` commits. A resource edit
-    /// from disk is an `api` write (app resource writes are submitted, not
-    /// captured here).
+    /// A captured disk edit, or a hold resolution (the user chose), ends the
+    /// fence of what it targets, in the capture's commit. Returns the fence to
+    /// keep once `tx` commits. A resource edit from disk is an `api` write (app
+    /// resource writes are submitted, not captured here).
     pub(crate) fn release_refused(
         &self,
         m: &rt::Mutation,
@@ -368,7 +384,9 @@ impl<S: Store> Replica<S> {
                 rt::Op::Legacy(Op::ResourcePut(_) | Op::ResourceDelete(_))
             )
         });
-        if m.source != Source::External && !resources || self.refused.0.is_empty() {
+        let resolves_hold = !tx.holds_del.is_empty();
+        if m.source != Source::External && !resources && !resolves_hold || self.refused.0.is_empty()
+        {
             return Ok(None);
         }
         let mut ids = Vec::new();
@@ -486,9 +504,10 @@ impl<S: Store> Replica<S> {
     }
 
     /// Apply of a confirmed entry touching fenced records, in its transaction.
-    /// This replica's `own` write, whatever its source, ends the fence of what
-    /// it targets ([`Self::targets`]: not its planner rewrites), which then
-    /// materializes normally. Any other change of a fenced record becomes a
+    /// This replica's `own` write, whatever its source, ends the fences of an
+    /// app's refused bytes it targets ([`Self::targets`]: not its planner
+    /// rewrites), which then materialize normally. Any other change of a
+    /// fenced record, including over a user's refused disk edit, becomes a
     /// conflict hold so the user's bytes are never published over, matched by
     /// record ID only; files and resources stay fenced. Returns the fence to
     /// keep after commit and what the disk shows ([`Self::refused_applied`]).
@@ -504,9 +523,12 @@ impl<S: Store> Replica<S> {
             && !rest.0.is_empty()
         {
             let targets = self.targets(m, effects)?;
-            let ids: Vec<_> = targets.iter().map(|t| t.id).collect();
-            let paths: Vec<&str> = targets.iter().map(|t| t.path.as_str()).collect();
-            rest.remove(&ids, &paths);
+            rest.0.retain(|k, f| {
+                !(f.from_app
+                    && targets
+                        .iter()
+                        .any(|t| key(&t.path) == *k || f.id.is_some() && t.id == f.id))
+            });
             for (k, f) in &self.refused.0 {
                 let Some(mine) = f.mine.as_deref().filter(|_| !rest.0.contains_key(k)) else {
                     continue;
