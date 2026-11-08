@@ -312,3 +312,60 @@ test("a log 401/403 during sync drops the held token", async (ctx) => {
   assert.deepEqual(t.invalidated, [collection]);
   mock.restoreAll();
 });
+
+/** LAB only: the same actor with the LAB deployment var set. */
+function labObject(escrow = false, data = new Map()) {
+  const t = object(escrow, data);
+  t.o.env.LAB = "1";
+  t.o.log = logReplying();
+  return t;
+}
+/** A serving engine (LAB checks `serving()` when idle). */
+const servingEngine = (...args) => Object.assign(engine(...args), { serving: () => true });
+
+test("LAB: idle syncs back off to 1 h, for both roles", async (ctx) => {
+  for (const [escrow, expected] of [[false, [60, 120, 240, 480, 960, 1920, 3600, 3600]], [true, [120, 240, 480, 960, 1920, 3600, 3600]]]) {
+    mock.method(console, "info", () => {});
+    const t = labObject(escrow);
+    let at = 1_000_000_000_000;
+    const delays = [];
+    for (let i = 0; i < expected.length; i++) { delays.push(await syncAt(t, at, servingEngine(["subscribe"])) / S); at += 61 * 60 * S; }
+    assert.deepEqual(delays, expected, escrow ? "escrow" : "hosted");
+    mock.restoreAll();
+  }
+});
+
+test("LAB: answered calls that move nothing do not reset; progress, output, failures and clients still do", async (ctx) => {
+  mock.method(console, "info", () => {});
+  const t = labObject(true);
+  let at = 1_000_000_000_000;
+  const delays = [];
+  for (let i = 0; i < 4; i++) { delays.push(await syncAt(t, at, servingEngine(["put_object", "subscribe"])) / S); at += 61 * 60 * S; }
+  assert.deepEqual(delays, [120, 240, 480, 960], "a refused upload repeats without resetting");
+  const cases = {
+    "a new remote head (reads)": () => servingEngine(["subscribe", "read"]),
+    "output delivered": () => servingEngine(["subscribe"], [{ session: 1, frame: null }]),
+    "activity noted": (t) => { t.o.noteActivity(); return servingEngine(["put_object"]); },
+  };
+  for (const [name, arrange] of Object.entries(cases)) {
+    t.o.idleStreak = 4; t.o.idleDecidedAt = 0;
+    assert.equal(await syncAt(t, at, arrange(t)) / S, 60, name);
+    at += 61 * 60 * S;
+  }
+  t.o.idleStreak = 4; t.o.idleDecidedAt = 0; t.o.log = logReplying(503);
+  assert.equal(await syncAt(t, at, servingEngine(["put_object"])) / S, 60, "a transport failure is retried at the base rate");
+  mock.restoreAll();
+});
+
+test("LAB: an idle replica that is not serving waits for the poll, not its stall probe", async (ctx) => {
+  mock.method(console, "info", () => {});
+  const at = 1_000_000_000_000;
+  const stalled = (serving) => { const e = engine(["read"]); e.logReply = () => {}; e.serving = () => serving; e.nextWakeup = () => at + S; return e; };
+  const t = labObject(true);
+  assert.equal(await syncAt(t, at, stalled(false)) / S, 120, "LAB: stalled, idle");
+  const serving = labObject(true);
+  assert.equal(await syncAt(serving, at, stalled(true)) / S, 1, "LAB: a serving engine's wakeup still wins");
+  const prod = object(true); prod.o.log = logReplying();
+  assert.equal(await syncAt(prod, at, stalled(false)) / S, 1, "outside LAB the stall probe is unchanged");
+  mock.restoreAll();
+});

@@ -138,7 +138,11 @@ fieldset legend { margin-bottom: 6px; }
 .takeover-option { display: flex; align-items: center; gap: 8px; color: var(--muted); }
 
 .collection-card { display: grid; grid-template-columns: minmax(0, 1fr) 200px 28px; align-items: center; gap: 8px 20px; padding: 14px 0; }
-.collection-card > .collection-details, .collection-card > .collection-holds { grid-column: 1 / -1; }
+.collection-card > .collection-details, .collection-card > .collection-holds, .collection-card > .collection-history { grid-column: 1 / -1; }
+.collection-card > .collection-resume { grid-column: 1 / -1; justify-self: start; }
+.collection-history { font-size: var(--font-size-caption); overflow-wrap: anywhere; }
+.collection-history p { margin: 8px 0; }
+.collection-history ul { margin: 0; padding-left: 20px; }
 .collection-menu-trigger { min-width: 28px; }
 .collection-remove { color: var(--danger); }
 .collection-card-main { display: grid; grid-template-columns: 20px minmax(0, 1fr); align-items: start; gap: 8px; min-width: 0; }

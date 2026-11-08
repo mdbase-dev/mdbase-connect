@@ -225,7 +225,7 @@ describe("mdbase editor", () => {
     expect(await screen.findByText(/Uploaded “cover\.png”/)).toBeInTheDocument();
     const files = await gateway.listFiles();
     expect(files.some((file) => file.path === "Notes/Attachments/cover.png" && file.mediaType === "image/png")).toBe(true);
-    expect(await screen.findByRole("option", { name: "cover.png, PNG file" })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /^cover\.png/ })).toBeInTheDocument();
   });
 
   it("does not reload the collection index after saving one note", async () => {

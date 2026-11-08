@@ -470,10 +470,6 @@ msgid "Markup discarded. Screenshot excluded."
 msgstr "已丢弃标记，未包含屏幕截图。"
 
 #: src/AppSwitcher.tsx
-msgid "mdbase {current}: open this collection in another app"
-msgstr "mdbase {current}：在其他应用中打开此集合"
-
-#: src/AppSwitcher.tsx
 msgid "mdbase apps"
 msgstr "mdbase 应用"
 

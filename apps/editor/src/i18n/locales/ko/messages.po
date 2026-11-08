@@ -653,11 +653,6 @@ msgstr "{text} 업로드 {0}"
 msgid "{title} note actions"
 msgstr "{title} 노트 작업"
 
-#. placeholder {0}: collectionFileFormat(file)
-#: src/NoteList.tsx
-msgid "{title}, {0} file"
-msgstr "{title}, 파일 {0}개"
-
 #: src/TypeBrowser.tsx
 msgid "{title}.md"
 msgstr "{title}.md"

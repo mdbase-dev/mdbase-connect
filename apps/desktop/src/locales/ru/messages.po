@@ -70,12 +70,12 @@ msgstr "{0} больше не может использовать {1} через
 msgid "{0} can now use {where}."
 msgstr "Теперь {0} может использовать {where}."
 
-#. placeholder {0}: lastSyncTarget.name
+#. placeholder {0}: syncCollection.name
 #: src/renderer/collections-view.tsx
 msgid "{0} now syncs privately."
 msgstr "{0} теперь синхронизируется в закрытом режиме."
 
-#. placeholder {0}: lastSyncTarget.name
+#. placeholder {0}: syncCollection.name
 #: src/renderer/collections-view.tsx
 msgid "{0} now syncs."
 msgstr "{0} теперь синхронизируется."
@@ -432,6 +432,10 @@ msgstr "Аудио"
 #: src/renderer/main.tsx
 msgid "Available in installed builds"
 msgstr "Доступно в установленных сборках"
+
+#: src/renderer/collections-view.tsx
+msgid "Back to collection"
+msgstr "Вернуться к коллекции"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
@@ -832,6 +836,10 @@ msgstr "Папки на этом компьютере, доступные при
 #: src/renderer/collections-view.tsx
 msgid "Folders to leave out"
 msgstr "Исключаемые папки"
+
+#: src/renderer/collections-view.tsx
+msgid "From the last sync attempt, not a current file check."
+msgstr "Эти сведения относятся к последней попытке синхронизации, а не к текущей проверке файлов."
 
 #: src/renderer/main.tsx
 msgid "Go to {label}"
@@ -1438,6 +1446,11 @@ msgctxt "Local collection management"
 msgid "Resume"
 msgstr "Возобновить"
 
+#: src/renderer/collections-view.tsx
+#: src/renderer/daemon-view.mts
+msgid "Resume this collection to check its files before turning on sync."
+msgstr "Возобновите работу коллекции, чтобы проверить её файлы перед включением синхронизации."
+
 #: src/renderer/takeover-panel.tsx
 msgid "Returned to the old engine"
 msgstr "Возврат к старому механизму"
@@ -1647,8 +1660,8 @@ msgid "Stopped"
 msgstr "Остановлено"
 
 #: src/renderer/collections-view.tsx
-msgid "Sync"
-msgstr "Синхронизация"
+#~ msgid "Sync"
+#~ msgstr "Синхронизация"
 
 #. placeholder {0}: /[.!?]$/.test(sentence) ? sentence : `${sentence}.`
 #: src/renderer/view-model.ts
@@ -1659,6 +1672,10 @@ msgstr "Не удалось включить синхронизацию: {0} {un
 #: src/renderer/daemon-view.mts
 msgid "sync problem: {0}"
 msgstr "ошибка синхронизации: {0}"
+
+#: src/renderer/view-model.ts
+msgid "Sync setup stopped, and the collection is paused. Close this window, then choose Resume before trying again. {unchanged}"
+msgstr "Настройка синхронизации остановлена, а работа коллекции приостановлена. Закройте это окно и выберите «Возобновить», прежде чем повторить попытку. {unchanged}"
 
 #: src/renderer/daemon-view.mts
 msgid "Sync stopped"
@@ -1685,6 +1702,10 @@ msgstr "Системная тема соответствует настройк�
 #: src/renderer/collections-view.tsx
 msgid "Take the other version"
 msgstr "Взять другую версию"
+
+#: src/renderer/collections-view.tsx
+msgid "Technical details"
+msgstr "Технические сведения"
 
 #: src/main/boot-gate.ts
 msgctxt "Desktop application"

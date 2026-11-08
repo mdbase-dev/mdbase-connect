@@ -70,12 +70,12 @@ msgstr "{0} non può più usare {1} tramite questo computer."
 msgid "{0} can now use {where}."
 msgstr "{0} ora può usare {where}."
 
-#. placeholder {0}: lastSyncTarget.name
+#. placeholder {0}: syncCollection.name
 #: src/renderer/collections-view.tsx
 msgid "{0} now syncs privately."
 msgstr "{0} ora si sincronizza privatamente."
 
-#. placeholder {0}: lastSyncTarget.name
+#. placeholder {0}: syncCollection.name
 #: src/renderer/collections-view.tsx
 msgid "{0} now syncs."
 msgstr "{0} ora si sincronizza."
@@ -432,6 +432,10 @@ msgstr "Audio"
 #: src/renderer/main.tsx
 msgid "Available in installed builds"
 msgstr "Disponibile nelle versioni installate"
+
+#: src/renderer/collections-view.tsx
+msgid "Back to collection"
+msgstr "Torna alla raccolta"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
@@ -832,6 +836,10 @@ msgstr "Cartelle su questo computer utilizzabili dalle app e modalità di sincro
 #: src/renderer/collections-view.tsx
 msgid "Folders to leave out"
 msgstr "Cartelle da escludere"
+
+#: src/renderer/collections-view.tsx
+msgid "From the last sync attempt, not a current file check."
+msgstr "Questi dettagli risalgono all’ultimo tentativo di sincronizzazione, non a un controllo attuale dei file."
 
 #: src/renderer/main.tsx
 msgid "Go to {label}"
@@ -1438,6 +1446,11 @@ msgctxt "Local collection management"
 msgid "Resume"
 msgstr "Riprendi"
 
+#: src/renderer/collections-view.tsx
+#: src/renderer/daemon-view.mts
+msgid "Resume this collection to check its files before turning on sync."
+msgstr "Riprendi questa raccolta per controllarne i file prima di attivare la sincronizzazione."
+
 #: src/renderer/takeover-panel.tsx
 msgid "Returned to the old engine"
 msgstr "Ritorno al vecchio motore"
@@ -1647,8 +1660,8 @@ msgid "Stopped"
 msgstr "Interrotta"
 
 #: src/renderer/collections-view.tsx
-msgid "Sync"
-msgstr "Sincronizzazione"
+#~ msgid "Sync"
+#~ msgstr "Sincronizzazione"
 
 #. placeholder {0}: /[.!?]$/.test(sentence) ? sentence : `${sentence}.`
 #: src/renderer/view-model.ts
@@ -1659,6 +1672,10 @@ msgstr "Impossibile attivare la sincronizzazione: {0} {unchanged}"
 #: src/renderer/daemon-view.mts
 msgid "sync problem: {0}"
 msgstr "problema di sincronizzazione: {0}"
+
+#: src/renderer/view-model.ts
+msgid "Sync setup stopped, and the collection is paused. Close this window, then choose Resume before trying again. {unchanged}"
+msgstr "La configurazione della sincronizzazione si è interrotta e la raccolta è in pausa. Chiudi questa finestra, poi scegli Riprendi prima di riprovare. {unchanged}"
 
 #: src/renderer/daemon-view.mts
 msgid "Sync stopped"
@@ -1685,6 +1702,10 @@ msgstr "Il sistema segue l'aspetto del sistema operativo"
 #: src/renderer/collections-view.tsx
 msgid "Take the other version"
 msgstr "Scegli l'altra versione"
+
+#: src/renderer/collections-view.tsx
+msgid "Technical details"
+msgstr "Dettagli tecnici"
 
 #: src/main/boot-gate.ts
 msgctxt "Desktop application"
