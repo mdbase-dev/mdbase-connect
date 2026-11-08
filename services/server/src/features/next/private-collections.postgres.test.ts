@@ -258,7 +258,7 @@ describePg("private collections", () => {
     await db.query("UPDATE next_collections SET left_sync_at=now() WHERE collection_id=$1",[left]);
     await ensureDevelopmentEntitlement(db,owner);
     await db.query("UPDATE users SET account_backend='next' WHERE id=$1",[owner]);
-    const status=vi.spyOn(LogServiceClient.prototype,"storageStatus").mockImplementation(async id=>({usedBytes:1<<20,quotaBytes:1<<30,fileBytes:id===collection?1000:24,fileQuotaBytes:1<<30}));
+    const status=vi.spyOn(LogServiceClient.prototype,"storageStatus").mockImplementation(async id=>({usedBytes:1<<20,quotaBytes:1<<30,fileBytes:id===collection?1000:24}));
     const {app:portal}=await buildApp({db,devAuth:true,publicUrl:"http://connect.test",nextControlPlane:configuration()});
     try {
       const session=await portal.inject({method:"POST",url:"/v1/dev/session",payload:{name:"Owner",email:`${owner}@example.test`}});
