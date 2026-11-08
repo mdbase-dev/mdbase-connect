@@ -475,6 +475,27 @@ impl QueryProjectionContext {
             self.max_key_bytes,
         )
     }
+
+    /// The atoms [`Self::project_row`] derives for an already-parsed record, in
+    /// `fields()` order: a pending record's place in the index order.
+    pub fn project_atoms(&self, record: &QueryRecord<'_>) -> Result<Vec<QueryAtom>, IndexKeyError> {
+        let projected = mdbn_core::query::indexed::project_index_fields(
+            &self.catalog,
+            record,
+            &self.fields,
+            self.max_key_bytes,
+        )?;
+        if projected.len() != self.declarations.len() {
+            return Err(IndexKeyError::Invalid);
+        }
+        Ok(projected
+            .into_iter()
+            .map(|(_, atom)| QueryAtom {
+                kind: atom.kind() as u8,
+                key: atom.key().to_vec(),
+            })
+            .collect())
+    }
 }
 
 /// Confirmed state in a [`Store`], as a core `StateView`.

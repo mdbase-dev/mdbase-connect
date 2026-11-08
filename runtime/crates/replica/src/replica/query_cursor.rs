@@ -334,11 +334,9 @@ impl<S: Store> Replica<S> {
         }
     }
     fn cursor_stamp(&self, session: SessionId) -> ApiResult<Stamp> {
-        if self.install.is_some()
-            || self.apply_fault
-            || !self.layer.touched_ids().is_empty()
-            || self.layer.catalog().is_some()
-        {
+        // Pending record edits page by keyset too; any local change bumps
+        // `view_version`, so a cursor never spans two different layers.
+        if self.install.is_some() || self.apply_fault || self.layer.catalog().is_some() {
             return Err(stale());
         }
         let context = self.ready_context()?.map_err(|_| stale())?;
@@ -504,7 +502,7 @@ impl<S: Store> Replica<S> {
         })?;
         if saved.is_none()
             && (self.install.is_some()
-                || !self.layer.touched_ids().is_empty()
+                || (q.offset > 0 && !self.layer.touched_ids().is_empty())
                 || self.layer.catalog().is_some()
                 || q.limit.is_none_or(|n| n == 0 || n > MAX_SELECTED)
                 || !q.projections.is_empty()

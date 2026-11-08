@@ -347,15 +347,24 @@ values are not reconstructed by an app). Summaries without grouping use one grou
 with an empty values map; an empty grouped match set has no groups. `complete`
 continues to describe install/local-view completeness, not exact total coverage.
 
-All modes use one request-wide hydration budget of at most 1000 records AND 1 MiB
-source, including paging, retries and restarts. A keyset page that would exceed
-it ends at the last record that fits and returns `has_more: true` with a cursor,
-so `limit` is a maximum: fewer records than `limit` never means the end, only an
-absent cursor does. A first record that alone exceeds the budget is a page of
-its own, charged at its own size: a record source may reach the 1 MiB record
-cap, and its stored row adds the path and metadata. Windows answered without a
-cursor (pending edits merged into the window) still refuse
-`too_large / query_budget_exceeded`. Group/summary/CEL allocations need
+Each indexed request (a first page, or one cursor continuation) hydrates at
+most 1000 records AND 1 MiB, measured as stored rows for confirmed records and
+as source for pending ones; a retry or restart is a new request with its own
+budget. A keyset page that would exceed it ends at the last record that fits
+and returns `has_more: true` with a cursor, so `limit` is a maximum: fewer
+records than `limit` never means the end, only an absent cursor does. Pending
+local edits page the same way: each pending match takes its place in the index
+order by its own index keys, and a cursor is stale once the local view
+changes. A first record that alone exceeds the budget is a page of its own,
+charged at its own size: a record source may reach the 1 MiB record cap, and
+its stored row also holds its path, membership, effective frontmatter and
+links. A stored row beyond 2 MiB (frontmatter aliases expand when stored) is
+refused `too_large / query_budget_exceeded`. Answers without a cursor (a
+nonzero `offset` while edits are pending, live query re-runs) still refuse a
+window over the budget. The per-record path (a query the index cannot answer, a query
+without `limit`, or before the index is ready) charges every candidate source
+it reads against one 1 MiB budget on a memory-constrained or hosted replica,
+and refuses beyond it. Group/summary/CEL allocations need
 separate real bounds. An exact indexed aggregate is permitted only with qualified
 Core parity and current catalogue/generation/head coverage. Unsupported semantics
 or insufficient whole-query budget fail explicitly; no full-row fallback, page
