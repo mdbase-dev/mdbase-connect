@@ -122,6 +122,24 @@ fn store_and_index(name: &str) -> (Store, Rc<RefCell<ProfiledIndex>>) {
 }
 
 fn open(svc: &FakeLogService, store: Store) -> Node {
+    open_sealed(
+        svc,
+        store,
+        Box::new(PlainSealer::for_device(B16([101; 16]))),
+        DeviceSecrets {
+            sign_sk: [1; 32],
+            kem_sk: [1; 32],
+        },
+    )
+}
+
+/// Device 101 on `svc`, bootstrapping an E2E collection when the log is empty.
+fn open_sealed(
+    svc: &FakeLogService,
+    store: Store,
+    sealer: Box<dyn mdbn_replica::seal::Sealer>,
+    secrets: DeviceSecrets,
+) -> Node {
     let devices: Vec<B16> = (101..=109u8).map(|d| B16([d; 16])).collect();
     if svc.head(&COL).0 == 0 {
         TestControlPlane::new(COL).bootstrap(svc, mdbn_wire::policy::CState::E2e, &devices);
@@ -149,18 +167,8 @@ fn open(svc: &FakeLogService, store: Store) -> Node {
         entropy: Box::new(mdbn_replica::crypto::TestEntropy::new(1)),
         zones: Box::new(UtcOnly),
     };
-    let mut r = Replica::open(
-        cfg,
-        store,
-        Box::new(CorePlanner),
-        Box::new(PlainSealer::for_device(B16([101; 16]))),
-        host,
-        DeviceSecrets {
-            sign_sk: [1; 32],
-            kem_sk: [1; 32],
-        },
-    )
-    .expect("open");
+    let mut r =
+        Replica::open(cfg, store, Box::new(CorePlanner), sealer, host, secrets).expect("open");
     // The native desktop host: its non-indexed queries keep the unbudgeted scan.
     r.set_query_execution_profile(mdbn_replica::QueryExecutionProfile::Desktop);
     let (s, _) = r
@@ -1322,6 +1330,158 @@ fn query_keysets_end_pages_at_the_source_budget_and_continue_by_cursor() {
         err.problem().reason.as_deref(),
         Some("query_budget_exceeded")
     );
+}
+
+/// A note just under the 1 MiB record cap, written to a cloud-copy collection
+/// whose entries are compressed (as in LAB), is stored as a row larger than the
+/// 1 MiB query budget on its own: admission bounds the source, not the path and
+/// metadata stored beside it. On a memory-constrained host it is listed on a
+/// page of its own, opened with its body, read by path and deleted.
+#[test]
+fn query_keysets_serve_a_record_over_the_source_budget_on_its_own_page() {
+    use mdbn_replica::api::Target;
+    use mdbn_wire::intent::Delete;
+    use mdbn_wire::unindexed_markdown::RECORD_SOURCE_CAP_BYTES;
+    let cap = usize::try_from(RECORD_SOURCE_CAP_BYTES).unwrap();
+    // mdbn_bench::sync's device 1 is device 101 here, with these keys.
+    let service = mdbn_bench::sync::world(1, mdbn_wire::policy::CState::CloudCopy);
+    let (sign, kem) = ([0x31; 32], [0x41; 32]);
+    let (store, index) = store_and_index("query_keysets_large_note");
+    let mut node = open_sealed(
+        &service,
+        store,
+        Box::new(mdbn_replica::seal::KeyringSealer::new(
+            COL,
+            B16([101; 16]),
+            &sign,
+            &kem,
+        )),
+        DeviceSecrets {
+            sign_sk: sign,
+            kem_sk: kem,
+        },
+    );
+    node.r
+        .set_query_execution_profile(mdbn_replica::QueryExecutionProfile::MemoryConstrained);
+    seed(&mut node, 20);
+    let mut big = String::from("---\npriority: 3\nstatus: open\n---\n");
+    let front = big.len();
+    let mut n = 0;
+    while big.len() < cap - 64 {
+        n += 1;
+        big.push_str(&format!("Paragraph {n} of a long pasted chapter.\n\n"));
+    }
+    big.push_str(&"x".repeat(cap - 1 - big.len()));
+    submit(&mut node, vec![create(9001, "tasks/big.md", big.clone())]);
+    node.pump();
+    // Over the cap is never a record: refused when submitted.
+    let over = node.r.submit(
+        node.s,
+        SubmitParams {
+            ops: vec![create(9002, "tasks/over.md", format!("{big}xx"))],
+            mutation_id: None,
+            conflict_mode: None,
+            timezone: None,
+            allow_partial: None,
+            mutation_ids: None,
+            dry_run: None,
+            include: None,
+            wait: None,
+        },
+    );
+    assert!(!matches!(over, Ok(r) if r.iter().all(|r| r.problem.is_none())));
+    node.pump();
+    use mdbn_replica::store::Store as _;
+    assert_eq!(node.r.store().record_count().unwrap(), 21);
+    let row = sql_count(&index, "SELECT max(length(row)) FROM st_rec");
+    assert!(
+        row > 1 << 20,
+        "the stored row alone exceeds the budget: {row}"
+    );
+
+    let pages = |node: &mut Node, query: Value, include: Include| {
+        let before = node.r.query_stats();
+        let mut out = Vec::new();
+        let mut page = node
+            .r
+            .query(node.s, query.clone(), include.clone())
+            .unwrap();
+        loop {
+            out.push(page.records.clone());
+            let Some(cursor) = page.cursor.clone() else {
+                assert_eq!(page.has_more, Some(false));
+                break;
+            };
+            page = node
+                .r
+                .query(node.s, with_cursor(&query, &cursor), include.clone())
+                .unwrap();
+        }
+        let after = node.r.query_stats();
+        assert_eq!(after.indexed - before.indexed, out.len() as u64);
+        assert_eq!(
+            (after.declined, after.failed),
+            (before.declined, before.failed)
+        );
+        out
+    };
+    // Listing (Writer's index pages by 500): the large note is a page alone.
+    let list = q(&[
+        ("types", Value::List(vec![Value::Text("task".into())])),
+        ("order_by", order("priority", "asc")),
+        ("limit", Value::Int(500)),
+    ]);
+    let listed = pages(&mut node, list.clone(), none());
+    let ids: Vec<B16> = listed.iter().flatten().map(|r| r.id).collect();
+    assert_eq!(ids.len(), 21);
+    assert_eq!(
+        ids.iter().collect::<std::collections::BTreeSet<_>>().len(),
+        21
+    );
+    assert!(listed.iter().any(|p| p.len() == 1 && p[0].id == id(9001)));
+    // Opening a manuscript selects its notes by path, bodies included.
+    let open_query = q(&[
+        ("types", Value::List(vec![Value::Text("task".into())])),
+        (
+            "where",
+            Value::Text("file.path in [\"tasks/t00001.md\", \"tasks/big.md\"]".into()),
+        ),
+        ("limit", Value::Int(2)),
+    ]);
+    let body = Include {
+        body: Some(true),
+        ..none()
+    };
+    let opened: Vec<_> = pages(&mut node, open_query, body).concat();
+    assert_eq!(opened.len(), 2);
+    let large = opened.iter().find(|r| r.id == id(9001)).unwrap();
+    assert_eq!(large.body.as_deref(), Some(&big[front..]));
+    let read = node
+        .r
+        .get(
+            node.s,
+            Target::Path("tasks/big.md".into()),
+            Include {
+                document: Some(true),
+                ..none()
+            },
+        )
+        .unwrap();
+    assert_eq!(read.document.as_deref(), Some(big.as_str()));
+
+    submit(
+        &mut node,
+        vec![Op::Delete(Delete {
+            id: id(9001),
+            base_revision: None,
+            if_revision: None,
+        })],
+    );
+    node.pump();
+    assert_eq!(node.r.store().record_count().unwrap(), 20);
+    let listed = pages(&mut node, list, none());
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].len(), 20);
 }
 
 #[test]

@@ -351,8 +351,10 @@ All modes use one request-wide hydration budget of at most 1000 records AND 1 Mi
 source, including paging, retries and restarts. A keyset page that would exceed
 it ends at the last record that fits and returns `has_more: true` with a cursor,
 so `limit` is a maximum: fewer records than `limit` never means the end, only an
-absent cursor does. A first record that alone exceeds the budget, and windows
-answered without a cursor (pending edits merged into the window), still refuse
+absent cursor does. A first record that alone exceeds the budget is a page of
+its own, charged at its own size: a record source may reach the 1 MiB record
+cap, and its stored row adds the path and metadata. Windows answered without a
+cursor (pending edits merged into the window) still refuse
 `too_large / query_budget_exceeded`. Group/summary/CEL allocations need
 separate real bounds. An exact indexed aggregate is permitted only with qualified
 Core parity and current catalogue/generation/head coverage. Unsupported semantics

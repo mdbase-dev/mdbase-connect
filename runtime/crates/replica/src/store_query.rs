@@ -341,6 +341,15 @@ impl QueryBudget {
             bytes_left: bytes.min(1 << 20),
         }
     }
+    /// Exactly one record charged at its own encoded size, which may exceed the
+    /// binding profile: admission bounds a record's source, not its whole row,
+    /// so a record alone over the profile still needs a page of its own.
+    pub(crate) fn single(bytes: u64) -> Self {
+        Self {
+            records_left: 1,
+            bytes_left: bytes,
+        }
+    }
     /// Remaining cumulative record count.
     pub fn records_left(&self) -> u32 {
         self.records_left

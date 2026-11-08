@@ -578,16 +578,22 @@ impl<S: Store> Replica<S> {
             confirmed.iter().collect()
         };
         // A keyset page ends at the last record that fits the source budget; its
-        // frontier continues from there. Whole windows, merged pending edits and
-        // a first record beyond the budget on its own still refuse explicitly.
-        let fits = fitting_prefix(&hydrate, budget.bytes_left(), budget.records_left());
+        // frontier continues from there. A first record beyond the budget on its
+        // own is the whole page: a source at the record cap plus its path and
+        // metadata exceeds the budget, and such a record must stay listable.
+        // Whole windows and merged pending edits still refuse explicitly.
+        let mut fits = fitting_prefix(&hydrate, budget.bytes_left(), budget.records_left());
         let short = fits < hydrate.len();
         if short {
-            if window_mode != Window::BudgetBounded || !paged || fits == 0 {
+            if window_mode != Window::BudgetBounded || !paged {
                 return Err(budget_error("the matching records"));
             }
+            if fits == 0 {
+                budget = QueryBudget::single(hydrate[0].encoded_bytes);
+                fits = 1;
+            }
+            has_more |= fits < hydrate.len();
             hydrate.truncate(fits);
-            has_more = true;
         }
         let ids: Vec<Uuid> = hydrate.iter().map(|r| r.id).collect();
         self.trace_query("hydrate_start");
