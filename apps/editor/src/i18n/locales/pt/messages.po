@@ -653,11 +653,6 @@ msgstr "Envio de {text} de {0}"
 msgid "{title} note actions"
 msgstr "Ações da nota {title}"
 
-#. placeholder {0}: collectionFileFormat(file)
-#: src/NoteList.tsx
-msgid "{title}, {0} file"
-msgstr "{title}, {0} arquivo"
-
 #: src/TypeBrowser.tsx
 msgid "{title}.md"
 msgstr "{title}.md"

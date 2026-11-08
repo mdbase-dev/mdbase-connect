@@ -83,7 +83,7 @@ export function CollectionSwitcher({ variant = "full", className, icon, open: op
       aria-haspopup="dialog"
       aria-expanded={open}
       aria-controls={open ? panelId : undefined}
-      aria-label={currentName ? say("switchCollection", { collection: currentName }) : copy.switchCollectionNone}
+      aria-label={variant === "icon" ? currentName ? say("switchCollection", { collection: currentName }) : copy.switchCollectionNone : undefined}
       title={name}
       onClick={() => setOpen(!open)}
     >
@@ -93,6 +93,7 @@ export function CollectionSwitcher({ variant = "full", className, icon, open: op
           ? <span className="mdbase-collections-trigger-icon" aria-hidden="true">{leading}</span>
           : variant === "icon" ? <CollectionsGlyph /> : null}
       {variant !== "icon" && <span className="mdbase-collections-trigger-name">{name}</span>}
+      {variant === "full" && current && " "}
       {variant === "full" && current && <span className="mdbase-collections-trigger-role">{current.roleLabel}</span>}
       <svg className="mdbase-collections-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
     </button>}

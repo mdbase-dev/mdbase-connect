@@ -470,10 +470,6 @@ msgid "Markup discarded. Screenshot excluded."
 msgstr "Markierungen verworfen. Der Screenshot wird nicht mitgesendet."
 
 #: src/AppSwitcher.tsx
-msgid "mdbase {current}: open this collection in another app"
-msgstr "mdbase {current}: diese Sammlung in einer anderen App öffnen"
-
-#: src/AppSwitcher.tsx
 msgid "mdbase apps"
 msgstr "mdbase-Apps"
 

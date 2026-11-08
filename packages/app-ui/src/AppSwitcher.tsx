@@ -34,7 +34,6 @@ export function AppSwitcher({ current, urls = {}, motion }: {
       ref={triggerRef}
       type="button"
       className="mdbase-app-switcher"
-      aria-label={t`mdbase ${current}: open this collection in another app`}
       aria-haspopup="menu"
       aria-expanded={open}
       aria-controls={open ? menuId : undefined}

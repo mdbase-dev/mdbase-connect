@@ -8,6 +8,7 @@ import { act, StrictMode, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { accessibleName, visibleLabel } from "../../test/label-in-name.js";
 import { CollectionGate, CollectionSwitcher, CollectionSaveWarning, DeleteCollectionDialog, useCollectionUi, type CollectionSection, type DeleteCollectionOutcome } from "../collections.js";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -84,6 +85,12 @@ const button = (name: string | RegExp) => {
   const found = [...document.querySelectorAll<HTMLElement>("button, [role=radio]")].find((element) =>
     typeof name === "string" ? element.textContent?.trim() === name || element.getAttribute("aria-label") === name : name.test(element.textContent ?? ""));
   if (!found) throw new Error(`no button ${String(name)}`);
+  return found;
+};
+const switcherTrigger = (collection: string) => {
+  const found = [...document.querySelectorAll<HTMLElement>(".mdbase-collections-trigger")].find((element) =>
+    element.querySelector(".mdbase-collections-trigger-name")?.textContent === collection);
+  if (!found) throw new Error(`no collection trigger for ${collection}`);
   return found;
 };
 const key = (element: Element, value: string) => act(() => { element.dispatchEvent(new KeyboardEvent("keydown", { key: value, bubbles: true })); });
@@ -222,7 +229,7 @@ describe("popup calls run inside the click", () => {
     let confirm!: (ok: boolean) => void;
     const onBeforeLeave = vi.fn(() => new Promise<boolean>((resolve) => { confirm = resolve; }));
     render(<CollectionSwitcher mdbase={second.entry} app={app} onBeforeLeave={onBeforeLeave} />);
-    act(() => button("Switch collection, current: Alpha").click());
+    act(() => switcherTrigger("Alpha").click());
     act(() => button(/Add a collection/).click());
     expect(onBeforeLeave).toHaveBeenCalledWith("add");
     expect(second.mdbase.addCollection).not.toHaveBeenCalled();
@@ -232,6 +239,26 @@ describe("popup calls run inside the click", () => {
       await Promise.resolve();
       expect(second.mdbase.addCollection).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+describe("collection trigger name", () => {
+  const ready = () => fakeMdbase({ kind: "ready", collectionId: A, collection: { collectionId: A, displayName: "Alpha", role: "owner" }, connection: {} as never, rechecking: false, problem: null, unavailableTypes: [] },
+    { status: "ready", selectedCollectionId: A });
+
+  it.each(["full", "compact"] as const)("contains the %s trigger's visible label", (variant) => {
+    render(<CollectionSwitcher mdbase={ready().entry} app={app} variant={variant} icon="mark" />);
+    const trigger = switcherTrigger("Alpha");
+
+    expect(visibleLabel(trigger)).toMatch(/^Alpha\b/);
+    expect(accessibleName(trigger)).toContain(visibleLabel(trigger));
+  });
+
+  it("names the icon-only trigger after the current collection", () => {
+    render(<CollectionSwitcher mdbase={ready().entry} app={app} variant="icon" />);
+
+    expect(visibleLabel(document.querySelector(".mdbase-collections-trigger")!)).toBe("");
+    expect(accessibleName(document.querySelector(".mdbase-collections-trigger")!)).toBe("Switch collection, current: Alpha");
   });
 });
 
@@ -318,13 +345,13 @@ describe("SDK storage and Private states", () => {
     const { mdbase, entry } = fakeMdbase({ kind: "ready", collectionId: A, collection: { collectionId: A, displayName: "Alpha", role: "owner" }, connection: {} as never, rechecking: false, problem: null, unavailableTypes: [] });
     const before = vi.fn(() => false);
     render(<CollectionSwitcher mdbase={entry} app={app} onBeforeLeave={before} />);
-    act(() => button("Switch collection, current: Alpha").click());
+    act(() => switcherTrigger("Alpha").click());
     act(() => button("Add a collection…").click());
     expect(before).toHaveBeenCalledWith("add");
     expect(mdbase.addCollection).not.toHaveBeenCalled();
     expect(mdbase.addPrivateCollection).not.toHaveBeenCalled();
     render(<CollectionSwitcher mdbase={entry} app={app} />);
-    act(() => button("Switch collection, current: Alpha").click());
+    act(() => switcherTrigger("Alpha").click());
     act(() => button("Add a collection…").click());
     expect(mdbase.addCollection).toHaveBeenCalledExactlyOnceWith({ signal: expect.any(AbortSignal) });
     expect(mdbase.addPrivateCollection).not.toHaveBeenCalled();
@@ -493,7 +520,7 @@ describe("switcher keyboard", () => {
     const { mdbase, entry } = fakeMdbase({ kind: "ready", collectionId: B, collection: { collectionId: B, displayName: "Beta", role: "editor" }, connection: {} as never, rechecking: false, problem: null, unavailableTypes: [] },
       { status: "ready", selectedCollectionId: B });
     render(<CollectionSwitcher mdbase={entry} app={app} />);
-    const trigger = button("Switch collection, current: Beta");
+    const trigger = switcherTrigger("Beta");
     expect(trigger.getAttribute("aria-haspopup")).toBe("dialog");
 
     act(() => trigger.click());
@@ -530,7 +557,7 @@ describe("controlled switcher", () => {
     const { mdbase, entry } = ready();
     const onOpenChange = vi.fn();
     render(<CollectionSwitcher mdbase={entry} app={app} open onOpenChange={onOpenChange} />);
-    const trigger = button("Switch collection, current: Beta");
+    const trigger = switcherTrigger("Beta");
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
     expect(document.getElementById(document.querySelector("[role=dialog]")!.getAttribute("aria-labelledby")!)?.textContent).toBe("Collections");
 
@@ -556,7 +583,7 @@ describe("controlled switcher", () => {
     const { entry } = ready();
     const onOpenChange = vi.fn();
     render(<CollectionSwitcher mdbase={entry} app={app} onOpenChange={onOpenChange} />);
-    const trigger = button("Switch collection, current: Beta");
+    const trigger = switcherTrigger("Beta");
     act(() => trigger.click());
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
     expect(onOpenChange).toHaveBeenLastCalledWith(true);
@@ -647,7 +674,7 @@ describe("Private collections", () => {
     const ready = { kind: "ready", collectionId: P, collection: collections[1], connection: {} as never, rechecking: false, problem: null, unavailableTypes: [] } as unknown as MdbasePhase;
     const { entry } = fakeMdbase(ready, { status: "ready", selectedCollectionId: P, collections } as unknown as Partial<MdbaseSnapshot>);
     render(<CollectionSwitcher mdbase={entry} app={app} />);
-    act(() => button("Switch collection, current: Home notes").click());
+    act(() => switcherTrigger("Home notes").click());
     const [privateRow, hostedRow] = [...document.querySelectorAll<HTMLElement>("[role=radio]")];
     // The word is text in the radio (its accessible name), not hidden and not colour alone.
     expect(privateRow!.querySelector(".mdbase-collections-row-name")?.textContent).toBe("Home notes Private");
@@ -764,7 +791,7 @@ describe("app slots", () => {
       { status: "ready", selectedCollectionId: B });
     const onSelect = vi.fn();
     render(<CollectionSwitcher mdbase={entry} app={app} icon="mark" sections={[privateSection(onSelect)]} rowDetail={(row) => `Detail ${row.entry.collectionId.slice(0, 2)}`} />);
-    const trigger = button("Switch collection, current: Beta");
+    const trigger = switcherTrigger("Beta");
     expect(trigger.querySelector(".mdbase-collections-mark")?.textContent).toBe("B");
     act(() => trigger.click());
     expect(document.querySelector("[role=dialog]")?.textContent).toContain("Detail 22");
@@ -817,7 +844,7 @@ describe("section item actions", () => {
       { status: "ready", selectedCollectionId: B });
     const onDeleted = vi.fn();
     render(<CollectionSwitcher mdbase={entry} app={app} sections={[withActions(vi.fn(), onDeleted)]} />);
-    act(() => button("Switch collection, current: Beta").click());
+    act(() => switcherTrigger("Beta").click());
     const row = button(/Journal/);
     key(row, "ArrowRight");
     expect(document.activeElement).toBe(button("More for Journal"));
@@ -837,7 +864,7 @@ describe("section item actions", () => {
     expect(mdbase.deleteCollection).toHaveBeenCalledWith("p1", { confirmName: "Journal" });
     expect(onDeleted).toHaveBeenCalledWith("deleted");
     expect(document.querySelector("dialog")).toBeNull();
-    expect(document.activeElement).toBe(button("Switch collection, current: Beta"));
+    expect(document.activeElement).toBe(switcherTrigger("Beta"));
   });
 });
 
