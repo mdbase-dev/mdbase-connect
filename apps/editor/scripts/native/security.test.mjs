@@ -105,7 +105,7 @@ function browserDouble({pageError=false,fence=false,csp=false,entrySource=source
    return {status:()=>200};
   },
   locator:selector=>selector==='body'?{innerText:async()=>''}:{evaluateAll:async()=>[`https://editor.mdbase.dev/assets/index-a1-${entrySource.slice(0,12)}.js`,'https://static.cloudflareinsights.com/beacon.min.js/v1']},
-  getByRole:(role,options)=>{assert.equal(role,'button');assert.equal(options.name,'Sign in');return {waitFor:async()=>{if(missingSignIn)throw Error('not visible');}};}
+  getByRole:(role,options)=>{assert.equal(role,'button');assert.equal(options.name,'Sign in');return {waitFor:async()=>{if(missingSignIn)throw Object.assign(Error('Timeout 60000ms exceeded: private page text'),{name:'TimeoutError'});}};}
  };
  const context={newPage:async()=>page,newCDPSession:async()=>({send:async(method,args)=>{events.push(method);if(method.endsWith('setCacheDisabled'))assert.equal(args.cacheDisabled,true);}}),
   request:{get:async()=>({ok:()=>true,body:async()=>Buffer.from('entry')})}};
@@ -123,4 +123,7 @@ it('smoke checks a fresh source-bound entry and sign-in, ignores beacon CSP cons
   const bad=browserDouble(options);
   await assert.rejects(smoke(bad.chromium,source));assert.ok(bad.events.includes('closed'));
  }
+ await assert.rejects(smoke(browserDouble({missingSignIn:true}).chromium,source),{message:'sign-in-timeout'});
+ await assert.rejects(smoke(browserDouble({fence:true}).chromium,source),{message:'readiness-fenced'});
+ await assert.rejects(smoke({launch:async()=>{throw Error('Executable missing at /private/path');}},source),{message:'launch-error'});
 });
