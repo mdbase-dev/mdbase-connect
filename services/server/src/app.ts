@@ -252,7 +252,7 @@ export async function buildApp(options: BuildOptions) {
         fileQuotaMode,
         (allocation) => {
           // Uploads are refused once the files reach the plan.
-          if (allocation.shareBytes === 0 && allocation.collections > 0) {
+          if (allocation.headroomBytes === 0 && allocation.collections > 0) {
             app.log.info({ ...allocation, mode: fileQuotaMode }, "account has no file storage left");
           }
         },

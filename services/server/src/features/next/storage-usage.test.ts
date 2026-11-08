@@ -96,17 +96,17 @@ describe("allocateFileQuotas", () => {
     };
   };
 
-  it("gives each collection an equal share of what the plan has left, shrinking before growing", async () => {
+  it("lets every collection take all that the plan has left", async () => {
     const service = log({ a: { fileBytes: 100, fileQuotaBytes: 1000 }, b: { fileBytes: 300, fileQuotaBytes: 310 } });
     const allocation = await allocateFileQuotas(database(ids("a", "b"), plan(1000)).db, service, "owner", "enforce");
-    expect(allocation).toEqual({ owner: "owner", limitBytes: 1000, fileBytes: 400, shareBytes: 300, collections: 2 });
-    expect(service.calls).toEqual([["a", 300], ["b", 300]]);
+    expect(allocation).toEqual({ owner: "owner", limitBytes: 1000, fileBytes: 400, headroomBytes: 600, collections: 2 });
+    expect(service.calls).toEqual([["a", 600], ["b", 600]]);
   });
 
   it("gives no headroom to an account over its plan, and keeps its files", async () => {
     const service = log({ a: { fileBytes: 900, fileQuotaBytes: 1000 } });
     const allocation = await allocateFileQuotas(database(ids("a"), plan(500)).db, service, "owner", "enforce");
-    expect(allocation.shareBytes).toBe(0);
+    expect(allocation.headroomBytes).toBe(0);
     expect(service.calls).toEqual([["a", 0]]);
   });
 
@@ -116,7 +116,7 @@ describe("allocateFileQuotas", () => {
     expect(service.calls).toEqual([["a", 0]]);
   });
 
-  it("leaves a collection that already has its share alone, and skips logs that don't exist", async () => {
+  it("leaves a collection that already has the headroom alone, and skips logs that don't exist", async () => {
     const service = log({ a: { fileBytes: 100, fileQuotaBytes: 550 } });
     await allocateFileQuotas(database(ids("a", "erased"), plan(550)).db, service, "owner", "enforce");
     expect(service.calls).toEqual([]);

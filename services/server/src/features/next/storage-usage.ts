@@ -107,18 +107,18 @@ export interface FileAllocation {
   /** The plan's storage, 0 for an account without a grant. */
   limitBytes: number;
   fileBytes: number;
-  /** The headroom each collection gets: its share of what the plan has left. */
-  shareBytes: number;
+  /** What the plan has left, which every collection may take. */
+  headroomBytes: number;
   collections: number;
 }
 
 /**
- * Shares the owner's plan storage across their collections. Each collection's
- * file quota becomes its current file bytes plus an equal share of what's left,
- * so the quotas add up to the plan. Collections giving up headroom go first, so
- * a pass that stops part-way never leaves the total above the plan. Uploads
- * between reading usage and setting a quota stay within the old quota, and the
- * next pass takes them into account.
+ * Gives each of the owner's collections a file quota of its current file bytes
+ * plus everything the plan has left, so any one collection can take an upload the
+ * account has room for. The account can overshoot its plan only when several
+ * collections upload before the next pass, by at most what was left in each; the
+ * next pass then sets every collection's headroom to 0, and files over the plan
+ * are kept.
  */
 export async function allocateFileQuotas(
   db: DatabaseQueryable,
@@ -138,15 +138,13 @@ export async function allocateFileQuotas(
   ))).filter(status => status !== null);
   const limitBytes = (await effectiveEntitlement(db, owner))?.hostedStorageBytes ?? 0;
   const fileBytes = statuses.reduce((total, status) => total + status.fileBytes, 0);
-  const shareBytes = statuses.length === 0 ? 0 : Math.floor(Math.max(0, limitBytes - fileBytes) / statuses.length);
+  const headroomBytes = Math.max(0, limitBytes - fileBytes);
   if (mode === "enforce") {
-    const headroom = (status: { fileBytes: number; fileQuotaBytes: number }) => status.fileQuotaBytes - status.fileBytes;
-    const shrinking = statuses.filter(status => headroom(status) > shareBytes);
-    const growing = statuses.filter(status => headroom(status) < shareBytes);
-    for (const status of shrinking) await log.setFileHeadroom(status.id, shareBytes);
-    for (const status of growing) await log.setFileHeadroom(status.id, shareBytes);
+    for (const status of statuses) {
+      if (status.fileQuotaBytes - status.fileBytes !== headroomBytes) await log.setFileHeadroom(status.id, headroomBytes);
+    }
   }
-  return { owner, limitBytes, fileBytes, shareBytes, collections: statuses.length };
+  return { owner, limitBytes, fileBytes, headroomBytes, collections: statuses.length };
 }
 
 /** Allocates every owner with collections. One owner's failure doesn't stop the others. */
