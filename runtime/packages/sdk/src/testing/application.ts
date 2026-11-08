@@ -6,14 +6,16 @@ import {applicationDeclaration, type MdbaseApplicationDeclaration} from "../appl
 import type {
   MdbaseApplication, MdbaseApplicationConnection, MdbaseApplicationEntry,
   MdbaseApplicationRequestOptions, MdbaseApplicationSnapshot, MdbaseCollectionDeleteOptions, MdbaseSignOutOptions,
+  MdbaseTransferOptions, MdbaseTransferPlanOptions,
 } from "../application/entry.js";
+import {planUnsyncedTransfer, runUnsyncedTransfer, type MdbaseTransferPlan} from "../application/unsynced-transfer.js";
 import type {MdbaseSetupPlan} from "../application/setup.js";
 import type {MdbaseAccessRequest, MdbaseAccessRequestOptions, MdbaseAccessResult} from "../application/file-access.js";
 import type {FileAction} from "../files.js";
 import {applicationPhase} from "../application/phase.js";
 import {summarizeStatus} from "../status.js";
 
-export type ApplicationFixtureAction = "start" | "authorize" | "approve" | "reauthorize" | "refreshCollectionList" | "select" | "clearSelection" | "chooseAnother" | "forget" | "deleteCollection" | "requestAccess" | "assess" | "configure" | "planSetup" | "applySetup" | "signOut" | "close";
+export type ApplicationFixtureAction = "start" | "authorize" | "approve" | "reauthorize" | "refreshCollectionList" | "select" | "clearSelection" | "chooseAnother" | "forget" | "deleteCollection" | "requestAccess" | "assess" | "configure" | "planSetup" | "applySetup" | "signOut" | "openUnsynced" | "planUnsyncedTransfer" | "transferUnsynced" | "close";
 export interface ApplicationFixtureCall {
   readonly action: ApplicationFixtureAction | "setForeground";
   readonly collectionId?: string;
@@ -34,6 +36,10 @@ export interface ApplicationFixtureOptions {
   readonly declaration: MdbaseApplicationDeclaration;
   readonly connections: readonly MdbaseApplicationConnection[];
   readonly initialSnapshot: MdbaseApplicationSnapshot;
+  /** The app's unsynced collection (work before connecting), for apps created
+   * with `{unsynced: true}`: `openUnsynced` shows it, and transfers read it.
+   * Any client works, such as one over a `MemoryReplica`. Not in `collections`. */
+  readonly unsynced?: MdbaseApplicationConnection;
 }
 export interface ApplicationFixtureControls {
   readonly declaration: MdbaseApplicationDeclaration;
@@ -86,7 +92,8 @@ function frozenSnapshot(snapshot: MdbaseApplicationSnapshot): MdbaseApplicationS
 export function createApplicationFixture(options: ApplicationFixtureOptions): ApplicationFixture {
   const declaration = applicationDeclaration(options.declaration);
   let snapshot = frozenSnapshot(options.initialSnapshot);
-  let connections = bindings(options.connections);
+  const unsynced = options.unsynced ?? null;
+  let connections = bindings([...options.connections, ...(unsynced ? [unsynced] : [])]);
   const listeners = new Set<() => void>();
   const handlers = new Map<ApplicationFixtureAction, ApplicationFixtureHandler>();
   const calls: ApplicationFixtureCall[] = [];
@@ -142,6 +149,8 @@ export function createApplicationFixture(options: ApplicationFixtureOptions): Ap
     else if (action === "select") publish({...snapshot, selectedCollectionId: collectionId ?? null});
     else if (action === "clearSelection" || action === "chooseAnother") publish({...snapshot, selectedCollectionId: null});
     else if (action === "signOut") publish(signedOut(snapshot));
+    else if (action === "openUnsynced" && unsynced) publish({...snapshot, status: "ready", problem: null, selectedCollectionId: unsynced.id,
+      unsynced: {collectionId: unsynced.id, sessionStatus: snapshot.unsynced?.sessionStatus ?? snapshot.status}});
     else if (action === "forget" || action === "deleteCollection") publish({...snapshot,
       collections: snapshot.collections.filter(collection => collection.collectionId !== collectionId),
       selectedCollectionId: snapshot.selectedCollectionId === collectionId ? null : snapshot.selectedCollectionId});
@@ -194,6 +203,15 @@ export function createApplicationFixture(options: ApplicationFixtureOptions): Ap
       apply: (_plan: MdbaseSetupPlan, request?: MdbaseApplicationRequestOptions) => run("applySetup", request),
     }),
     signOut: ({discard, ...request}: MdbaseSignOutOptions = {}) => run("signOut", request, undefined, undefined, discard),
+    openUnsynced: (request?: MdbaseApplicationRequestOptions) => run("openUnsynced", request),
+    async planUnsyncedTransfer({map, ...request}: MdbaseTransferPlanOptions = {}) {
+      await run("planUnsyncedTransfer", request);
+      return planUnsyncedTransfer(transferSource().records, transferDestination().records, {...(map ? {map} : {}), ...(request.signal ? {signal: request.signal} : {})});
+    },
+    async transferUnsynced(plan: MdbaseTransferPlan, {onProgress, ...request}: MdbaseTransferOptions = {}) {
+      await run("transferUnsynced", request);
+      return runUnsyncedTransfer(plan, transferDestination().records, {...(onProgress ? {onProgress} : {}), ...(request.signal ? {signal: request.signal} : {})});
+    },
     setForeground(active: boolean) {calls.push(Object.freeze({action: "setForeground", active}));},
     close() {
       if (closed) return Promise.resolve();
@@ -204,6 +222,15 @@ export function createApplicationFixture(options: ApplicationFixtureOptions): Ap
       return job;
     },
   });
+  function transferSource(): MdbaseApplicationConnection {
+    if (!unsynced) throw new Error("No fixture unsynced collection; pass options.unsynced");
+    return unsynced;
+  }
+  function transferDestination(): MdbaseApplicationConnection {
+    const phase = view().phase;
+    if (phase?.kind !== "ready") throw new Error("Open the collection to transfer into first");
+    return phase.connection;
+  }
   const entry: MdbaseApplicationEntry = Object.freeze({
     application: () => application,
     connection(id: string) {

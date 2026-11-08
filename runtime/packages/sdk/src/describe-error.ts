@@ -311,6 +311,7 @@ export const INTERNAL_PROBLEM_CODES = [
   "record_lease_policy", "record_links_bounds", "record_links_missing", "record_links_response", "record_links_unsupported",
   "record_recovery_mismatch", "record_session_budget", "record_validation_stale", "record_witness_required", "strength",
   "strict_mode", "typing_bounds", "unsupported_push_version", "validation_bounds", "validation_selection",
+  "unsynced_transfer_needs_collection", "unsynced_transfer_plan_stale",
   // The build does not match the app's registration: apps describe this in
   // their own words (describeError gives the "unknown" key so their copy wins).
   "application_registration_binding",

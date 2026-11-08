@@ -130,9 +130,9 @@ Actions, each called from the user's gesture:
 
 ```ts
 mdbase.unsynced.open()                        // built
+mdbase.unsynced.planTransfer({ map })         // built: B, review bringing it into the open collection
+mdbase.unsynced.transfer(plan, { onProgress }) // built: B, execute a reviewed plan
 mdbase.unsynced.syncAsNew(options)            // A: turn sync on as a new collection
-mdbase.unsynced.planTransfer(collectionId)    // B: review bringing it into an existing one
-mdbase.unsynced.transfer(plan, { map })       // B: execute a reviewed plan
 mdbase.unsynced.discard()                     // explicit, confirmed by the person
 ```
 
@@ -169,17 +169,26 @@ create and upload lanes.
 
 This path is used when the person picks a collection that already holds work.
 
-- `planTransfer` compares the source with the destination. It reports
-  configuration and type differences, path collisions, and records whose IDs
-  already exist there.
+- The destination is the collection the tab has open (`ready`). Choosing a
+  collection in the connect flow opens it; the transfer then runs there.
+- `planTransfer({map})` compares the source with the destination and writes
+  nothing. Each record is `create`, `present` (its ID is already in the
+  destination) or `skipped` (the map returned null). A taken path is renamed
+  beside it (`todo.md` becomes `todo 2.md`), and types the destination lacks
+  are listed in `missingTypes`; the records are still created.
 - The app supplies `map(record) => CreateInput | null`. For TaskNotes, that
-  is its status, priority and custom-field mapping. Editor needs no mapping
-  beyond a path policy.
-- `transfer` creates each record using **its source UUID** and a mutation ID
-  derived from the transfer ID and record ID. Retrying is idempotent: an
-  existing destination record with the same ID and digest counts as done.
-  Progress is journalled in the unsynced store's host table. An interrupted
-  transfer resumes after a reload, and a second tab sees the same progress.
+  is its status, priority and custom-field mapping. Editor needs none. The
+  map may not change a record's ID.
+- `transfer(plan)` creates each record using **its source UUID**, with a
+  mutation ID derived from the intent `unsynced/1, source, record`. There is
+  no journal: record IDs are random UUIDs, so an ID already in the
+  destination came from an earlier transfer and counts as done, and the
+  deterministic mutation ID makes a resent create the same write. An
+  interrupted transfer, in this tab, another tab or after a reload, is
+  resumed by planning again. Records that fail are reported in `failed`.
+- The Worker attaches the unsynced collection to the tab only for the
+  duration of a plan (`attachUnsynced` / `detachUnsynced`), beside the
+  collection the tab shows, and closes it again when nothing holds it.
 - The destination's configuration is never replaced. (There are no files to
   move in this version; see above.)
 
@@ -247,7 +256,7 @@ unsynced collection, and its handoff could become path A or B.
   - one runtime composition (local-only app);
   - one phase;
   - one SDK namespace (`unsynced`);
-  - a transfer journal.
+  - a stateless transfer engine (no journal).
 
 ## Delivery
 
@@ -257,7 +266,9 @@ unsynced collection, and its handoff could become path A or B.
 3. SDK: the `unsynced` option, phase, Worker host, `unsynced.open()` and the
    `unsyncedWork` marker (built). The real app WASM is exercised by the
    runtime and SDK loader smokes.
-4. Path B: `planTransfer` and `transfer`, with the resumable journal.
+4. Path B: `planTransfer` and `transfer` (built; idempotent without a
+   journal). Still to do: the after-transfer lifecycle (`transferred`,
+   account binding, recovery window, `discard`).
 5. Path A: the portal's new-collection flow, resource copy, then the same
    transfer.
 6. Shared UI.

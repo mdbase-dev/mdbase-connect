@@ -48,6 +48,8 @@ export type { MdbasePhase, MdbasePhaseKind, MdbaseProblem, MdbaseCollectionSumma
 export {MdbaseConnect,MdbaseApplicationUnavailableError} from "./application/entry.js";
 export {createMdbase} from "./application/front-door.js";
 export type {Mdbase,MdbaseSnapshot,MdbaseSetupResult} from "./application/front-door.js";
+export type {MdbaseTransferItem,MdbaseTransferMap,MdbaseTransferPlan,MdbaseTransferProgress,MdbaseTransferResult} from "./application/unsynced-transfer.js";
+export type {MdbaseTransferOptions,MdbaseTransferPlanOptions} from "./application/entry.js";
 export {effectiveCapabilities} from "./application/capabilities.js";
 export type {MdbaseApplicationCapability,MdbaseApplicationCapabilities} from "./application/capabilities.js";
 export type {MdbaseApplicationEntry,MdbaseApplication,MdbaseApplicationConnection,MdbaseApplicationSnapshot,MdbaseApplicationRequestOptions,MdbaseCollectionDeleteOptions,MdbaseSignOutOptions,MdbaseConnectOptions,MdbaseSignInOpener,

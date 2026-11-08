@@ -14,6 +14,7 @@ import {ApplicationCollectionSelection,type ApplicationCollectionSelectionSnapsh
 import {APPLICATION_WORKER_PROTOCOL} from "./worker-protocol.js";
 import {browserApplicationPortalHost,openerApplicationPortalHost,reserveApplicationPortal,type ApplicationPortalHost} from "./portal-reservation.js";
 import {MdbaseError,mdbaseError} from "../errors.js";
+import {planUnsyncedTransfer,runUnsyncedTransfer,type MdbaseTransferMap,type MdbaseTransferPlan,type MdbaseTransferProgress,type MdbaseTransferResult} from "./unsynced-transfer.js";
 import {awaitFileAccess,consentedFileActions,fileAccessDeclaration,grantedResult,missingFileActions,type MdbaseAccessRequest,type MdbaseAccessRequestOptions,type MdbaseAccessResult} from "./file-access.js";
 import {registrationRefusal} from "./registration-refusal.js";
 import type {MdbaseClient} from "../client.js";
@@ -103,6 +104,14 @@ export interface MdbaseLinks {
   readonly manageAccess:string;
 }
 export interface MdbaseApplicationRequestOptions {readonly signal?:AbortSignal}
+export interface MdbaseTransferPlanOptions extends MdbaseApplicationRequestOptions {
+  /** Reshape or leave out (null) each record; it must keep the record ID.
+   * Default: the record's path and complete source. */
+  readonly map?:MdbaseTransferMap;
+}
+export interface MdbaseTransferOptions extends MdbaseApplicationRequestOptions {
+  readonly onProgress?:(progress:MdbaseTransferProgress)=>void;
+}
 export interface MdbaseCollectionDeleteOptions extends MdbaseApplicationRequestOptions {readonly confirmName:string}
 export interface MdbaseSignOutOptions extends MdbaseApplicationRequestOptions {
   /** Sign out even though changes on this device have not reached mdbase yet;
@@ -212,6 +221,13 @@ export interface MdbaseApplication {
   /** Open this app's unsynced collection in this tab (work before
    * connecting), creating it on first use. Optional for other implementations. */
   openUnsynced?(options?:MdbaseApplicationRequestOptions):Promise<MdbaseApplicationSnapshot>;
+  /** Compare the unsynced collection with this tab's open (ready) collection,
+   * mapping each record with `map`. Nothing is written. Optional for other
+   * implementations. */
+  planUnsyncedTransfer?(options?:MdbaseTransferPlanOptions):Promise<MdbaseTransferPlan>;
+  /** Create a reviewed plan's records in this tab's open collection. Safe to
+   * plan and run again after an interruption. Optional for other implementations. */
+  transferUnsynced?(plan:MdbaseTransferPlan,options?:MdbaseTransferOptions):Promise<MdbaseTransferResult>;
   /** @deprecated Use `createMdbase(...).addCollection(options)` or
    * `approve(null, options)`: the same unified chooser, without a current hint.
    * Optional for other implementations of this interface. */
@@ -414,6 +430,12 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
       }),
       setForeground:(active:boolean)=>this.setForeground(active),close:()=>this.close(),
       signOut:(options?:MdbaseSignOutOptions)=>this.signOut(options),
+      planUnsyncedTransfer:(options:MdbaseTransferPlanOptions={})=>this.call(runtime=>{
+        const destination=this.transferDestination(null);
+        return runtime.withUnsyncedSource((source,signal)=>planUnsyncedTransfer(source.records,destination.records,{...(options.map?{map:options.map}:{}),signal}),options);
+      }),
+      transferUnsynced:(plan:MdbaseTransferPlan,options:MdbaseTransferOptions={})=>this.call(async()=>runUnsyncedTransfer(plan,this.transferDestination(plan?.destination??null).records,
+        {...(options.signal?{signal:options.signal}:{}),...(options.onProgress?{onProgress:options.onProgress}:{})})),
       openUnsynced:(options?:MdbaseApplicationRequestOptions)=>this.track(async()=>{
         const selection=this.choose();this.privates?.close();
         if(selection.getSnapshot().requested.collectionId!==null)await selection.select(null,{...options,history:"replace"});
@@ -862,6 +884,13 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
     });return this.closing;
   }
   application():MdbaseApplication{return this.app;}
+  /** The tab's open, ready collection: where an unsynced transfer goes. */
+  private transferDestination(expected:string|null):MdbaseApplicationConnection{
+    const phase=this.getSnapshot().phase;
+    if(phase?.kind!=="ready")throw mdbaseError("invalid_request","Open the collection to bring this work into first.","unsynced_transfer_needs_collection");
+    if(expected!==null&&phase.collectionId!==expected)throw mdbaseError("invalid_request","This plan is for another collection. Plan the transfer again.","unsynced_transfer_plan_stale");
+    return phase.connection;
+  }
   connection(collectionId:string):MdbaseApplicationConnection|null{return this.closed?null:this.privates?.connection(collectionId)??this.runtime?.connection(collectionId)??null;}
 }
 

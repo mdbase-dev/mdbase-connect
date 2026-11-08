@@ -40,6 +40,11 @@ describe("private SDK Worker bounded lifecycle",()=>{
     expect(applicationWorkerRequest([schema,binding,1,"openUnsynced",null],binding)).toEqual([schema,binding,1,"openUnsynced",null]);
     for(const payload of ["11111111-1111-4111-8111-111111111111",true,{}])expect(()=>applicationWorkerRequest([schema,binding,1,"openUnsynced",payload],binding)).toThrow(ApplicationWorkerError);
     expect(()=>applicationWorkerRequest([schema,binding,0,"openUnsynced",null],binding)).toThrow(ApplicationWorkerError);
+    for(const action of ["attachUnsynced","detachUnsynced"] as const){
+      expect(applicationWorkerRequest([schema,binding,2,action,null],binding)).toEqual([schema,binding,2,action,null]);
+      expect(()=>applicationWorkerRequest([schema,binding,2,action,"11111111-1111-4111-8111-111111111111"],binding)).toThrow(ApplicationWorkerError);
+      expect(()=>applicationWorkerRequest([schema,binding,0,action,null],binding)).toThrow(ApplicationWorkerError);
+    }
   });
   it("rejects a nil collection hint at the Worker boundary, while retaining the optional null hint",()=>{
     expect(applicationWorkerRequest([schema,binding,1,"authorize",null],binding)[4]).toBeNull();
