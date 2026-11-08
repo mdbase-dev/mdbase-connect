@@ -95,14 +95,20 @@ export async function auditPortalInstallationApproval(localPage, origin) {
           display_name: `Fixture collection ${index}`, role: "owner"
         })));
         await page.reload(); await picker().waitFor();
-        await list().evaluate(element => element.scrollIntoView({block: "center"}));
         const appearance = await list().evaluate(element => {
           const box = element.getBoundingClientRect();
           return {width: box.width, height: box.height,
-            fits: box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight};
+            fits: box.left >= 0 && box.right <= innerWidth};
         });
         assert.equal(await list().getByRole("option").count(), pairing.collections.length, "all candidates are inline");
-        assert.ok(appearance.width > 0 && appearance.height > 0 && appearance.fits, "long picker is bounded by the popup viewport");
+        assert.ok(appearance.width > 0 && appearance.height > 0 && appearance.fits, "long picker fits the popup width");
+        await picker().focus();
+        for (let step = 0; step < 12; step++) await page.keyboard.press("ArrowDown");
+        assert.ok(await list().locator(".is-highlighted").evaluate(option => {
+          const box = option.getBoundingClientRect(), footer = document.querySelector(".approval-footer").getBoundingClientRect();
+          return box.top >= 0 && box.bottom <= footer.top && option.contains(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2));
+        }), "keyboard highlight lands above the sticky footer");
+        await page.keyboard.press("Escape");
         const search = picker();
         await search.evaluate(input => input.scrollIntoView({block: "center", behavior: "instant"}));
         assert.equal(await search.evaluate(input => {

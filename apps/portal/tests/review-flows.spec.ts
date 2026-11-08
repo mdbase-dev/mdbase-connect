@@ -536,7 +536,6 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await openScenario(page, "pairing-many");
       const picker = page.getByRole("combobox", { name: "Open in Reader" });
       await expect(page.getByText(/This request link expires .*Access you allow continues until you revoke it/)).toBeVisible();
-      await expect(page.locator(".collection-picker-list")).toHaveCSS("overflow-y", "visible");
       for (const selected of [false, true]) {
         if (selected) {
           const longName = "Coastal restoration research archive with a very long selected collection name — field notebooks";

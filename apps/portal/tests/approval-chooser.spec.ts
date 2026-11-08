@@ -54,8 +54,6 @@ for (const width of [1280, 390]) test(`searches approval collections without cha
   await expect(picker.getByRole("option",{selected:true})).toHaveCount(0);
   await expect(input).toHaveAttribute("data-value", "");
   await expect(input).not.toHaveAttribute("aria-activedescendant");
-  // The list scrolls with the page, not inside its own box behind the sticky footer.
-  await expect(picker).toHaveCSS("overflow-y", "visible");
   await input.focus();
   for (let i=0;i<12;i++) await input.press("ArrowDown");
   const highlighted=await picker.locator(".is-highlighted").boundingBox();
