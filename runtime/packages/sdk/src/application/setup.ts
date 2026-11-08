@@ -174,6 +174,11 @@ export function setupPlan(assessed: AppResourceAssessment, input: {
   }
   const records = status === "current" ? [] : input.records.map(r => Object.freeze({ path: r.path, action: r.free ? "create" as const : "skip" as const }));
   for (const r of records) if (r.action === "create") changes.push({ kind: "record", target: r.path, message: `Create the starter note "${name(r.path)}".` });
+  // Core's review omits its own receipt files (mdbase.provisions.yaml and the
+  // type lock), yet a plan that only refreshes them still writes. Say so,
+  // rather than promising that nothing changes.
+  if (status === "setup" && changes.length === 0 && conflicts.length === 0)
+    changes.push({ kind: "update", target: "Setup record", message: "Update this collection's record of this app's setup. Your notes and note types stay as they are." });
   // A kept seed blocks even a pack Core reports current: never "nothing to do".
   if (status === "current" && conflicts.length) status = "conflict";
   const newerMajor = (input.newer?.major.length ?? 0) > 0 || review.packs.some(p => p.installedVersion && versionRelation(p.installedVersion, p.version) === "installed_newer_major");

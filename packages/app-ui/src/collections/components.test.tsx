@@ -414,6 +414,24 @@ describe("setup review", () => {
       expect(() => button("Try again")).toThrow();
     } finally { vi.useRealTimers(); }
   });
+
+  it("plans again after a failed apply, so the next click never reuses the spent plan", async () => {
+    const { mdbase, entry } = fakeMdbase({ kind: "needs_setup", collectionId: A, collection: { collectionId: A, displayName: "Alpha", role: "owner" } } as MdbasePhase, { status: "setup_required", selectedCollectionId: A });
+    const plan = (digest: string) => ({ status: "setup", canApply: true, digest, summary: "This app will make 1 change to this collection.", changes: [{ kind: "create", target: "_types/task.md", message: "Add the task type." }],
+      conflicts: [], adoptable: {}, packs: [], staged: [], records: [] });
+    const first = plan("first"), second = plan("second");
+    mdbase.setup.plan.mockResolvedValueOnce(first as never).mockResolvedValueOnce(second as never);
+    mdbase.setup.apply.mockRejectedValueOnce(Object.assign(new Error("offline"), { code: "unavailable" })).mockResolvedValueOnce({ outcome: "applied" } as never);
+    render(<CollectionGate mdbase={entry} app={app}>{() => null}</CollectionGate>);
+    await act(async () => { for (let i = 0; i < 4; i++) await Promise.resolve(); });
+    await act(async () => { button("Set up").click(); for (let i = 0; i < 6; i++) await Promise.resolve(); });
+    expect(mdbase.setup.plan).toHaveBeenCalledTimes(2);
+    // The review and its notice stay on screen while the fresh plan replaces the spent one.
+    expect(container.querySelector(".mdbase-collections-spinner")).toBeNull();
+    expect(container.querySelector(".mdbase-collections-notice")).not.toBeNull();
+    await act(async () => { button("Set up").click(); await Promise.resolve(); });
+    expect(mdbase.setup.apply.mock.calls.map(([p]) => (p as { digest: string }).digest)).toEqual(["first", "second"]);
+  });
 });
 
 describe("setup review without a way forward", () => {

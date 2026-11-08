@@ -97,6 +97,9 @@ export function SetupReview({ ui, layout = "panel" }: { readonly ui: CollectionU
       applyingNow.current = false;
       const notice = actionNotice(describeError(cause));
       setState((current) => current.status === "ready" ? { ...current, notice } : current);
+      // A dispatched apply consumes its plan: clicking again with it can only be
+      // refused. Plan again quietly, keeping this review and notice on screen.
+      setRequest((current) => ({ ...current, quiet: true }));
     });
   };
 
