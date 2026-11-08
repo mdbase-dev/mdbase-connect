@@ -13,8 +13,8 @@ function cbor(v:unknown):CborValue {if(Array.isArray(v))return v.map(cbor);if(v&
 export async function nativeSetupFixture(manifest:Record<string,unknown>,o:{support?:boolean;capabilities?:string[];dropApply?:boolean;dropCode?:"conflict"|"not_found";oversized?:boolean;pending?:boolean;pendingForever?:boolean;receiptPending?:boolean}={}) {
  const bytes=Uint8Array.from((await manifestDigest(manifest)).match(/../g)!,v=>parseInt(v,16));
  const replica=new MemoryReplica({capabilities:o.capabilities??["collection.read","records.create","records.edit"]}),base=replica.connector();
- const state={installed:false,stale:false,drop:!!o.dropApply,digest:3,promoted:0,retireOnApply:0,mid:undefined as string|undefined,attempt:undefined as string|undefined};
- let activeTicket:Uint8Array|undefined,ticketSequence=0;
+ const state={installed:false,stale:false as boolean|string,staleOnce:false,drop:!!o.dropApply,digest:3,promoted:0,retireOnApply:0,mid:undefined as string|undefined,attempt:undefined as string|undefined};
+ let activeTicket:Uint8Array|undefined,ticketSequence=0,lastPort:{onclose?:((e:unknown)=>void)|null}|undefined;
  const matches=(ticket:unknown)=>ticket instanceof Uint8Array&&activeTicket!==undefined&&ticket.length===activeTicket.length&&ticket.every((v,i)=>v===activeTicket![i]);
  const methods:string[]=[],requests:Map<number,CborValue>[]=[];
  let jobRecords:Map<number,CborValue>[]=[];
@@ -23,7 +23,7 @@ export async function nativeSetupFixture(manifest:Record<string,unknown>,o:{supp
    const opened=await base.open(...args),h=clientFrame.dec(opened.helloResponse);
    if(h.kind!=="response"||!h.result)throw Error("hello");
    const hello=helloResult.dec(h.result);h.result=helloResult.enc({...hello,features:o.support===false?[]:["declared-collection-setup-v1"]});opened.helloResponse=clientFrame.enc(h);
-   const send=opened.port.send.bind(opened.port);
+   lastPort=opened.port as never;const send=opened.port.send.bind(opened.port);
    opened.port.send=(raw)=>{
      const f=clientFrame.dec(raw);if(f.kind!=="request")return send(raw);methods.push(f.method);
      const respond=(result:CborValue)=>queueMicrotask(()=>opened.port.onframe?.(clientFrame.enc({kind:"response",id:f.id,result})));
@@ -36,7 +36,7 @@ export async function nativeSetupFixture(manifest:Record<string,unknown>,o:{supp
      if(action==="apply"){
        if(state.retireOnApply>0){state.retireOnApply--;activeTicket=undefined;}
        if(!matches(m.get(2))){queueMicrotask(()=>opened.port.onframe?.(clientFrame.enc({kind:"response",id:f.id,problem:mdbaseError("not_found","Setup review not found.").toProblem()})));return;}
-       if(state.stale){queueMicrotask(()=>opened.port.onframe?.(clientFrame.enc({kind:"response",id:f.id,problem:mdbaseError("conflict","changed","setup_changed").toProblem()})));return;}
+       if(state.stale){const reason=typeof state.stale==="string"?state.stale:"setup_changed";if(state.staleOnce)state.stale=false;queueMicrotask(()=>opened.port.onframe?.(clientFrame.enc({kind:"response",id:f.id,problem:mdbaseError("conflict","changed",reason).toProblem()})));return;}
        state.mid=uuidFromBytes(m.get(3) as Uint8Array);state.installed=true;
        if(state.drop){state.drop=false;queueMicrotask(()=>opened.port.onclose?.(mdbaseError(o.dropCode??"conflict","transport closed after capture")));return;}
        respond(encode(new Map<number,CborValue>([[0,1],[1,"receipt"],[3,done()]])));return;
@@ -53,5 +53,7 @@ export async function nativeSetupFixture(manifest:Record<string,unknown>,o:{supp
  const client=await connect({connector,app:{name:"private-setup-test",version:"1"},reconnect:{minDelayMs:1,maxDelayMs:5}});
  onTestFinished(()=>client.close());
  const input={client,manifest,operations:["assess_collection_setup","apply_collection_setup"],journal,assertCurrent:async()=>{}};
- return {client,state,methods,requests,journal,input,setup:privateCollectionSetup(input)};
+ // The link drops and reconnects: Native retires the old session's review.
+ const reconnect=()=>{activeTicket=undefined;lastPort?.onclose?.(mdbaseError("unavailable","link dropped"));};
+ return {client,state,methods,requests,journal,input,reconnect,setup:privateCollectionSetup(input)};
 }
