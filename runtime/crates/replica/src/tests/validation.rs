@@ -50,6 +50,7 @@ fn narrow_schema(a: &mut Node) {
                 dry_run: None,
                 include: None,
                 wait: None,
+                validation: None,
             },
         )
         .unwrap();
@@ -345,4 +346,91 @@ fn validation_document_and_collection_inventory_limits_refuse_whole_result() {
             .issues
             .is_empty()
     );
+}
+
+fn create_at(
+    a: &mut Node,
+    id: u8,
+    doc: &str,
+    validation: Option<mdbn_wire::intent::Level>,
+) -> mdbn_wire::client::Receipt {
+    let mut r =
+        a.r.submit(
+            a.s,
+            SubmitParams {
+                ops: vec![Op::Create(mdbn_wire::intent::Create {
+                    id: B16([id; 16]),
+                    path: Some(format!("tasks/{id}.md")),
+                    type_name: None,
+                    frontmatter: None,
+                    body: None,
+                    document: Some(Text::Inline(doc.into())),
+                })],
+                mutation_id: None,
+                conflict_mode: None,
+                timezone: None,
+                allow_partial: None,
+                mutation_ids: None,
+                dry_run: None,
+                include: None,
+                wait: None,
+                validation,
+            },
+        )
+        .unwrap();
+    r.remove(0)
+}
+const UNTITLED: &str = "---\ndone: true\n---\nNo title\n";
+
+// Spec 04: `settings.validation` decides whether a single-record issue rejects an
+// engine write; only `error` does.
+#[test]
+fn submit_follows_the_collection_validation_level() {
+    for (level, rejected) in [("off", false), ("warn", false), ("error", true)] {
+        let (_, mut a) = configured(level, false);
+        let receipt = create_at(&mut a, 20, UNTITLED, None);
+        if rejected {
+            assert_eq!(receipt.state, ReceiptState::Rejected, "{level}");
+            assert_eq!(receipt.problem.as_ref().unwrap().code, "invalid_record");
+            assert!(a.doc(20).is_none());
+        } else {
+            assert_eq!(
+                receipt.state,
+                ReceiptState::Pending,
+                "{level}: {:?}",
+                receipt.problem
+            );
+            settle(&mut [&mut a]);
+            assert_eq!(a.doc(20).as_deref(), Some(UNTITLED), "{level}");
+        }
+    }
+}
+
+// A sync tool carries files, which are never rejected for validity (spec 04), so
+// it asks for a lower level than the collection's; an editor may ask for a higher one.
+#[test]
+fn submit_validation_param_overrides_the_collection_level() {
+    use mdbn_wire::intent::Level;
+    let (_, mut a) = configured("error", false);
+    let receipt = create_at(&mut a, 21, UNTITLED, Some(Level::Warn));
+    assert_eq!(
+        receipt.state,
+        ReceiptState::Pending,
+        "{:?}",
+        receipt.problem
+    );
+    settle(&mut [&mut a]);
+    assert_eq!(a.doc(21).as_deref(), Some(UNTITLED));
+    let receipt = create_at(&mut a, 22, UNTITLED, Some(Level::Off));
+    assert_eq!(
+        receipt.state,
+        ReceiptState::Pending,
+        "{:?}",
+        receipt.problem
+    );
+
+    let (_, mut b) = configured("warn", false);
+    let receipt = create_at(&mut b, 23, UNTITLED, Some(Level::Error));
+    assert_eq!(receipt.state, ReceiptState::Rejected);
+    assert_eq!(receipt.problem.as_ref().unwrap().code, "invalid_record");
 }

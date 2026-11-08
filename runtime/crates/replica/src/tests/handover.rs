@@ -296,6 +296,7 @@ fn handover_catalog_is_confirmed_only_and_profile_neutral() {
         dry_run: None,
         include: None,
         wait: None,
+        validation: None,
     };
     let receipts = n.r.submit(n.s, params).unwrap();
     assert_eq!(

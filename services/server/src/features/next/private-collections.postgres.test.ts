@@ -279,6 +279,28 @@ describePg("private collections", () => {
       expect(await stored()).toBeNull();
     } finally { status.mockRestore(); await portal.close(); }
   });
+  it("omits native storage from /v1/me without asking any log when the read asks to, and refuses other values",async()=>{
+    const who=await identity(),owner=who.connector.user_id;await created(who);await created(who);
+    await ensureDevelopmentEntitlement(db,owner);
+    await db.query("UPDATE users SET account_backend='next' WHERE id=$1",[owner]);
+    const status=vi.spyOn(LogServiceClient.prototype,"storageStatus").mockResolvedValue({usedBytes:1<<20,quotaBytes:1<<30,fileBytes:512});
+    const {app:portal}=await buildApp({db,devAuth:true,publicUrl:"http://connect.test",nextControlPlane:configuration()});
+    try {
+      const session=await portal.inject({method:"POST",url:"/v1/dev/session",payload:{name:"Owner",email:`${owner}@example.test`}});
+      expect(session.statusCode,session.body).toBe(200);
+      const raw=session.headers["set-cookie"]!;
+      const headers={cookie:(Array.isArray(raw)?raw[0]!:raw).split(";")[0]!};
+      const omitted=await portal.inject({url:"/v1/me?native_storage=omit",headers});
+      expect(omitted.statusCode,omitted.body).toBe(200);
+      expect(omitted.json().subscription).not.toHaveProperty("native_storage_bytes");
+      expect(omitted.json().subscription.limits).toBeDefined();
+      expect(status).not.toHaveBeenCalled();
+      const full=await portal.inject({url:"/v1/me",headers});
+      expect(full.json().subscription.native_storage_bytes).toBe(1024);
+      expect(status).toHaveBeenCalledTimes(2);
+      expect((await portal.inject({url:"/v1/me?native_storage=skip",headers})).statusCode).toBe(400);
+    } finally { status.mockRestore(); await portal.close(); }
+  });
   it("projects only exact appended own computer enrollments, never pending, other-account, changed-key or revoked devices",async()=>{
     const who=await identity(),account=who.connector.user_id,collection=await created(who);
     const pending=await identity(account),unlinked=await identity(account),other=await identity();

@@ -479,9 +479,8 @@ impl<S: Store> Replica<S> {
         if quota {
             self.incident(mdbn_wire::client::IncidentKind::QuotaExceeded, None);
         }
-        let retry_at = quota.then(|| {
-            self.now() + i64::try_from(self.tuning.quota_upload_retry_ms).unwrap_or(0)
-        });
+        let retry_at = quota
+            .then(|| self.now() + i64::try_from(self.tuning.quota_upload_retry_ms).unwrap_or(0));
         self.attachment_ingest.failed.insert(
             path.to_owned(),
             FailedIngest {
@@ -497,16 +496,14 @@ impl<S: Store> Replica<S> {
     /// restart. An uploader status is not durable capture/admission authority.
     fn native_ingest_failed(&mut self, path: &str, problem: Problem) {
         self.attachment_ingest.oversized_markdown_held += 1;
-        self.attachment_ingest
-            .failed
-            .insert(
-                path.into(),
-                FailedIngest {
-                    digest: None,
-                    problem,
-                    retry_at: None,
-                },
-            );
+        self.attachment_ingest.failed.insert(
+            path.into(),
+            FailedIngest {
+                digest: None,
+                problem,
+                retry_at: None,
+            },
+        );
     }
 
     fn finish_native_ingest(

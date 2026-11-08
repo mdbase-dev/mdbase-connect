@@ -425,7 +425,10 @@ fn quota_refused_upload_retries_on_a_later_scan_and_clears_the_incident() {
     a.r.observe(None).unwrap();
     sync(&mut a);
     assert!(a.r.attachment_ingest_failure(PATH).is_none());
-    assert_eq!(whole(&a, PATH), mdbn_wire::hash::sha256(b"waiting for room"));
+    assert_eq!(
+        whole(&a, PATH),
+        mdbn_wire::hash::sha256(b"waiting for room")
+    );
     assert!(!quota(&a), "the file's accepted entry clears the refusal");
 }
 

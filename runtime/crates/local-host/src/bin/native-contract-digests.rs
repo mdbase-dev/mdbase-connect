@@ -298,6 +298,7 @@ fn produce(
                 dry_run: Some(false),
                 include: None,
                 wait: None,
+                validation: None,
             },
         )
         .map_err(|e| format!("native resource batch refused: {}", e.problem().code))?;

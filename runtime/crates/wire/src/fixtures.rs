@@ -1151,6 +1151,7 @@ pub fn all() -> Vec<Fixture> {
                     diagnostics: None,
                 }),
                 wait: None,
+                validation: Some(Level::Warn),
             }
             .to_cbor(),
         }),

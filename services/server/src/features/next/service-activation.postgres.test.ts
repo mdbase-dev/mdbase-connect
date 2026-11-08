@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { deleteAccountLocally } from "../../account-management.js";
 import { createDatabase, type DatabasePool } from "../../db.js";
+import { inTransaction } from "./bootstrap-common.js";
+import { recordCollectionDeletionIntent } from "./collection-deletion.js";
 import { activatePendingServices } from "./service-activation.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
@@ -131,6 +134,115 @@ describePg("service activation persisted retries (dedicated local Postgres)", ()
     expect((await db.query<{ ack: string; attempt: string; activation_attempts: number }>(
       "SELECT activation_batch_id::text AS ack,activation_attempt_batch_id::text AS attempt,activation_attempts FROM next_service_devices WHERE collection_id=$1", [collection])).rows)
       .toEqual([{ack:id,attempt:id,activation_attempts:0},{ack:id,attempt:id,activation_attempts:0}]);
+  });
+  describe("retire wakes", () => {
+    const gone: typeof fetch = async () => Response.json({ error: "custody_collection_gone" }, { status: 409 });
+    const owner = async (collection: string) => (await db.query<{ owner: string }>(
+      "SELECT owner_user_id::text AS owner FROM next_collections WHERE collection_id=$1", [collection])).rows[0]!.owner;
+    const wakes = async (collection: string) => (await db.query<{ kind: string; attempts: number; due: boolean }>(
+      "SELECT kind,attempts,next_at <= now() AS due FROM next_service_retire_wakes WHERE collection_id=$1 ORDER BY kind", [collection])).rows;
+    /** A cloud copy whose services are activated and idle: nothing pending. */
+    async function activated() {
+      const collection = await fixture();
+      await activatePendingServices(db, deployments, async () => Response.json({ activated: true }), collection);
+      return collection;
+    }
+    /** Every wake request the poll sends for `collection`, by deployment host. */
+    async function poll(collection: string, reply: typeof fetch = gone) {
+      const sent: Array<{ host: string; body: unknown }> = [];
+      await activatePendingServices(db, deployments, async (input, init) => {
+        const body = JSON.parse(String(init?.body)) as { collection: string };
+        if (body.collection === collection) sent.push({ host: new URL(String(input)).hostname, body });
+        return reply(input, init);
+      }, collection);
+      return sent.sort((a, b) => a.host.localeCompare(b.host));
+    }
+    const both = (collection: string) => [
+      { host: "escrow.test", body: { collection } }, { host: "hosted.test", body: { collection } }];
+
+    it("collection deletion wakes both service copies until they answer with their verdict", async () => {
+      const collection = await activated();
+      expect(await poll(collection)).toEqual([]);
+      await inTransaction(db, async (client) => { await recordCollectionDeletionIntent(client, collection, await owner(collection)); });
+      expect(await wakes(collection)).toEqual([{ kind: "escrow", attempts: 0, due: true }, { kind: "hosted", attempts: 0, due: true }]);
+      expect(await poll(collection)).toEqual(both(collection));
+      expect(await wakes(collection)).toEqual([]);
+      expect(await poll(collection)).toEqual([]);
+    });
+    it("leaving cloud copy (switch to Private) wakes both service copies", async () => {
+      const collection = await activated();
+      // The switch's final commit (collection-mode-execution.ts, and its abandonment).
+      await inTransaction(db, async (client) => {
+        await client.query("DELETE FROM next_service_devices WHERE collection_id=$1", [collection]);
+        await client.query("UPDATE next_collections SET sync='private' WHERE collection_id=$1", [collection]);
+      });
+      expect(await poll(collection)).toEqual(both(collection));
+      expect(await wakes(collection)).toEqual([]);
+    });
+    it("account deletion wakes the owner's service copies after their rows cascade away", async () => {
+      const collection = await activated();
+      await deleteAccountLocally(db, { userId: await owner(collection), sessionId: randomUUID(), authorized: true, queueProviderCleanup: false });
+      expect((await db.query("SELECT 1 FROM next_service_devices WHERE collection_id=$1", [collection])).rows).toHaveLength(0);
+      expect(await poll(collection)).toEqual(both(collection));
+      expect(await wakes(collection)).toEqual([]);
+    });
+    it("an unknown outcome retries on the activation backoff until a definite answer", async () => {
+      const collection = await activated();
+      await inTransaction(db, async (client) => { await recordCollectionDeletionIntent(client, collection, await owner(collection)); });
+      expect(await poll(collection, async () => { throw new Error("network outcome unknown"); })).toEqual(both(collection));
+      expect(await wakes(collection)).toEqual([{ kind: "escrow", attempts: 1, due: false }, { kind: "hosted", attempts: 1, due: false }]);
+      const delays = (await db.query<{ seconds: number }>(
+        "SELECT round(extract(epoch FROM next_at - now()))::int AS seconds FROM next_service_retire_wakes WHERE collection_id=$1", [collection])).rows;
+      expect(delays.every(({ seconds }) => seconds >= 1 && seconds <= 2)).toBe(true);
+      expect(await poll(collection)).toEqual([]); // not due yet
+      await db.query("UPDATE next_service_retire_wakes SET next_at=now()-interval '1 second' WHERE collection_id=$1", [collection]);
+      expect(await poll(collection, async () => new Response(null, { status: 503 }))).toEqual(both(collection));
+      expect((await wakes(collection)).map(({ attempts }) => attempts)).toEqual([2, 2]);
+      await db.query("UPDATE next_service_retire_wakes SET next_at=now()-interval '1 second' WHERE collection_id=$1", [collection]);
+      expect(await poll(collection)).toEqual(both(collection));
+      expect(await wakes(collection)).toEqual([]);
+    });
+    it("an answer to an earlier wake cannot clear a wake queued again while it was in flight", async () => {
+      const collection = await activated();
+      await inTransaction(db, async (client) => { await recordCollectionDeletionIntent(client, collection, await owner(collection)); });
+      let release!: () => void; let entered!: () => void; let calls = 0;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      const ready = new Promise<void>((resolve) => { entered = resolve; });
+      const old = poll(collection, async (input, init) => { if (++calls === 2) entered(); await gate; return gone(input, init); });
+      await ready;
+      await db.query("DELETE FROM next_service_devices WHERE collection_id=$1", [collection]);
+      release(); await old;
+      expect(await wakes(collection)).toEqual([{ kind: "escrow", attempts: 0, due: true }, { kind: "hosted", attempts: 0, due: true }]);
+      expect(await poll(collection)).toEqual(both(collection));
+      expect(await wakes(collection)).toEqual([]);
+    });
+    it("a wake queued over 24 hours ago is dropped unsent, whatever its outcome so far", async () => {
+      const collection = await activated();
+      await inTransaction(db, async (client) => { await recordCollectionDeletionIntent(client, collection, await owner(collection)); });
+      await db.query("UPDATE next_service_retire_wakes SET queued_at=now()-interval '25 hours', attempts=9 WHERE collection_id=$1 AND kind='hosted'", [collection]);
+      expect(await poll(collection)).toEqual([{ host: "escrow.test", body: { collection } }]);
+      expect(await wakes(collection)).toEqual([]);
+    });
+    it("one call sends at most 20 retire wakes; the rest follow on the next call", async () => {
+      const limit = 20; // RETIRE_LIMIT
+      await db.query("DELETE FROM next_service_retire_wakes");
+      const collections = await Promise.all(Array.from({ length: limit / 2 + 1 }, () => activated()));
+      for (const collection of collections) {
+        await inTransaction(db, async (client) => { await recordCollectionDeletionIntent(client, collection, await owner(collection)); });
+      }
+      const drain = async () => {
+        let sent = 0;
+        await activatePendingServices(db, deployments, async (input, init) => {
+          if (collections.includes((JSON.parse(String(init?.body)) as { collection: string }).collection)) sent += 1;
+          return gone(input, init);
+        });
+        return sent;
+      };
+      expect(await drain()).toBe(limit);
+      expect((await db.query("SELECT 1 FROM next_service_retire_wakes")).rows).toHaveLength(2);
+      expect(await drain()).toBe(2);
+      expect((await db.query("SELECT 1 FROM next_service_retire_wakes")).rows).toHaveLength(0);
+    });
   });
   it("left-sync and lost-genesis rows never activate", async () => {
     const left = await fixture(), lost = await fixture();

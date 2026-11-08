@@ -2038,6 +2038,7 @@ impl<S: Store> Replica<S> {
                             dry_run: Some(true),
                             include: None,
                             wait: None,
+                            validation: None,
                         },
                     )?
                     .pop()

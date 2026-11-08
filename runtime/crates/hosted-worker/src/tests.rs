@@ -265,6 +265,7 @@ fn submit_doc(id: u64, path: &str, doc: &str) -> Vec<u8> {
         dry_run: None,
         include: None,
         wait: None,
+        validation: None,
     };
     request(id, "submit", p.to_cbor())
 }
@@ -358,6 +359,7 @@ fn pre_log_refusal_answers_at_once() {
         dry_run: None,
         include: None,
         wait: None,
+        validation: None,
     };
     h.e.frame(s, &request(9, "submit", p.to_cbor()));
     let r = responses(&h.e.poll(), s, 9);

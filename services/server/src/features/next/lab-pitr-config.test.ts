@@ -131,13 +131,28 @@ describe("fixed LAB PITR routing configuration", () => {
       { collection_id: p.active, kind: "hosted", batch_id: "1" },
       { collection_id: p.owner, kind: "escrow", batch_id: "1" }
     ];
-    const query = vi.fn(async (sql: string) => ({ rows: sql.startsWith("SELECT") ? rows : [] }));
+    const query = vi.fn(async (sql: string) => ({ rows: sql.includes("FROM next_service_devices device") ? rows : [] }));
     const urls: string[] = [];
     const fetcher: typeof fetch = async input => { urls.push(String(input)); return Response.json({ activated: true }); };
     const deployments = { hosted: { url: "https://normal-hosted.example.test", token: "h".repeat(32) }, escrow: { url: "https://normal-escrow.example.test", token: "e".repeat(32) } };
     await activatePendingServices({ query } as unknown as DatabaseQueryable, deployments, fetcher, undefined, p);
     expect(query.mock.calls[0][0]).toContain("AND NOT (device.kind = 'escrow' AND device.collection_id = ANY($2::uuid[]))");
     expect(urls.sort()).toEqual([`${p.hostedUrl}/internal/v1/collections/activate`, "https://normal-escrow.example.test/internal/v1/collections/activate"].sort());
-    expect(query.mock.calls.length).toBe(3); // SELECT, hosted ACK, unrelated escrow ACK only.
+    expect(query.mock.calls[1][0]).toContain("FROM next_service_retire_wakes wake");
+    expect(query.mock.calls.length).toBe(4); // SELECT, retire SELECT, hosted ACK, unrelated escrow ACK only.
+  });
+  it("deletes, without a wake, a retire wake for an escrow LAB PITR keeps stateless", async () => {
+    const p = parseLabPitrConfig(env())!;
+    const queued = "2026-11-08 01:02:03.456789+00";
+    const rows = [{ collection_id: p.active, kind: "escrow", queued_at: queued }, { collection_id: p.active, kind: "hosted", queued_at: queued }];
+    const query = vi.fn(async (sql: string, _values?: unknown[]) => ({ rows: sql.includes("FROM next_service_retire_wakes wake") ? rows : [] }));
+    const urls: string[] = [];
+    const fetcher: typeof fetch = async input => { urls.push(String(input)); return Response.json({ error: "custody_collection_gone" }, { status: 409 }); };
+    const deployments = { hosted: { url: "https://normal-hosted.example.test", token: "h".repeat(32) }, escrow: { url: "https://normal-escrow.example.test", token: "e".repeat(32) } };
+    await activatePendingServices({ query } as unknown as DatabaseQueryable, deployments, fetcher, undefined, p);
+    expect(urls).toEqual([`${p.hostedUrl}/internal/v1/collections/activate`]);
+    const deleted = query.mock.calls.filter(([sql]) => sql.startsWith("DELETE FROM next_service_retire_wakes"));
+    expect(deleted.map(([, values]) => values)).toEqual(expect.arrayContaining([[p.active, "escrow", queued], [p.active, "hosted", queued]]));
+    expect(deleted).toHaveLength(2);
   });
 });

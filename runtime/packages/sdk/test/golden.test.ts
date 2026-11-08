@@ -156,7 +156,7 @@ describe("typed: values", () => {
 });
 
 describe("typed: spot checks against the debug views", () => {
-  it("submit-request carries a mutation ID, time zone and include", () => {
+  it("submit-request carries a mutation ID, time zone, include and validation level", () => {
     const f = w.clientFrame.dec(decode(read("client/submit-request.cbor")));
     expect(f.kind).toBe("request");
     if (f.kind !== "request") return;
@@ -165,6 +165,8 @@ describe("typed: spot checks against the debug views", () => {
     expect(p.mutationId).toBe("0192f3a4-6000-7abc-8def-0123456789ab");
     expect(p.timezone).toBe("Australia/Melbourne");
     expect(p.include).toEqual({ body: true });
+    expect(p.validation).toBe("warn");
+    expect(w.submitParams.enc(p)).toEqual(f.params);
     const op = p.ops[0]!;
     expect(op.kind).toBe("update");
     if (op.kind !== "update") return;

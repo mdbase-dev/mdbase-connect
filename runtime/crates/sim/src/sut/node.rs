@@ -842,6 +842,7 @@ impl Node {
                 dry_run: None,
                 include: None,
                 wait: None,
+                validation: None,
             },
         );
         match res {

@@ -214,6 +214,7 @@ fn blocked_components_are_reviewable_without_empty_install_success() {
             dry_run: None,
             include: None,
             wait: None,
+            validation: None,
         },
     )
     .unwrap();

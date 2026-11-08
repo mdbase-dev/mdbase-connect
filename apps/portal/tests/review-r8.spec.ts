@@ -319,7 +319,7 @@ for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as 
       await page.route("**/v1/grants/revoke-batch", async route => { await held; await route.continue(); });
       let readback!: () => void;
       const refreshed = new Promise<void>(resolve => { readback = resolve; });
-      await page.route("**/v1/me", async route => { await refreshed; await route.continue(); });
+      await page.route(url => url.pathname === "/v1/me", async route => { await refreshed; await route.continue(); });
       let metadata!: () => void;
       const configuration = new Promise<void>(resolve => { metadata = resolve; });
       await page.route("**/v1/ui-configuration", async route => { await configuration; await route.continue(); });
@@ -362,7 +362,7 @@ for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as 
       let release!: () => void;
       let requested = false;
       const readback = new Promise<void>(resolve => { release = resolve; });
-      await page.route("**/v1/me", async route => { requested = true; await readback; await route.continue(); });
+      await page.route(url => url.pathname === "/v1/me", async route => { requested = true; await readback; await route.continue(); });
       await page.route("**/v1/grants/revoke-batch", route => route.fulfill({ status: 500, json: { error: { message: "Revocation failed" } } }));
       try {
         await page.keyboard.press("Tab"); await page.keyboard.press("Enter");
@@ -677,7 +677,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 844, height: 390 }
   test.use({ viewport });
   test("wraps a long collection label inside the viewport without moving its trigger", async ({ page }) => {
     const name = "Collection with a long name ".repeat(7).trim();
-    await page.route("**/v1/me", async route => {
+    await page.route(url => url.pathname === "/v1/me", async route => {
       const response = await route.fetch();
       const overview = await response.json();
       overview.collections[0].display_name = name;

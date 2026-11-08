@@ -932,6 +932,7 @@ fn create(n: &mut Node, id: u8, path: &str, doc: &str) -> mdbn_wire::client::Rec
             dry_run: None,
             include: None,
             wait: None,
+            validation: None,
         },
     )
     .unwrap()
@@ -1340,6 +1341,7 @@ fn host_writes_recheck_current_role_and_leave_no_viewer_pending() {
         dry_run: None,
         include: None,
         wait: None,
+        validation: None,
     };
     let error = a.r.submit(a.s, request.clone()).unwrap_err();
     assert_eq!(error.problem().reason.as_deref(), Some("read_only"));
@@ -2585,6 +2587,7 @@ fn local_only_grants_come_from_the_host() {
                 dry_run: None,
                 include: None,
                 wait: None,
+                validation: None,
             },
         )
     };
