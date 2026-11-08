@@ -95,10 +95,17 @@ impl Refused {
             .or_else(|| paths.iter().flatten().find_map(|p| self.0.get(&key(p))))
     }
 
-    /// Fence `files`, replacing earlier entries at the same paths.
+    /// Fence `files`, replacing earlier entries at the same paths, except
+    /// that an app's refused write never replaces a fence over the user's
+    /// refused disk edit: the disk still holds the user's bytes, and that
+    /// fence is what keeps them.
     pub(crate) fn add(&mut self, files: Vec<RefusedFile>) {
         for f in files {
-            self.0.insert(key(&f.path), f);
+            let k = key(&f.path);
+            if f.from_app && self.0.get(&k).is_some_and(|old| !old.from_app) {
+                continue;
+            }
+            self.0.insert(k, f);
         }
     }
 
@@ -378,12 +385,16 @@ impl<S: Store> Replica<S> {
         m: &rt::Mutation,
         tx: &mut Tx,
     ) -> Result<Option<Refused>, StoreError> {
-        let resources = m.ops.iter().all(|op| {
-            matches!(
-                op,
-                rt::Op::Legacy(Op::ResourcePut(_) | Op::ResourceDelete(_))
-            )
-        });
+        // A disk resource capture is an unvalidated `api` write; an app's
+        // validated resource write (e.g. a collection setup) must not end a
+        // fence over the user's refused disk edit.
+        let resources = m.validated_at != Some(mdbn_wire::intent::Level::Error)
+            && m.ops.iter().all(|op| {
+                matches!(
+                    op,
+                    rt::Op::Legacy(Op::ResourcePut(_) | Op::ResourceDelete(_))
+                )
+            });
         let resolves_hold = !tx.holds_del.is_empty();
         if m.source != Source::External && !resources && !resolves_hold || self.refused.0.is_empty()
         {

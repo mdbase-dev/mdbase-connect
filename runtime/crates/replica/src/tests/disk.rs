@@ -4012,6 +4012,31 @@ fn an_app_update_over_a_refused_disk_edit_is_held() {
     assert_eq!(holds[0].mine, TextOrBlob::Text(big()));
 }
 
+/// The user's disk edit refused, then an app's write of that record refused
+/// too: the fence stays the user's, so the app's next write is held against
+/// the user's bytes rather than replacing them.
+#[test]
+fn an_app_refusal_over_a_refused_disk_edit_keeps_the_users_fence() {
+    use mdbn_wire::snapshot::TextOrBlob;
+    let svc = FakeLogService::new();
+    let mut a = item_limited(&svc, 1);
+    save(&mut a, "a.md", Some(&big()));
+    settle(&mut [&mut a]);
+    assert_eq!(refused(&a).len(), 1);
+    app_document(&mut a, "original", &"y".repeat(8192));
+    settle(&mut [&mut a]);
+    assert_eq!(refused(&a).len(), 1);
+    assert_eq!(a.file("a.md"), Some(big()));
+    app_document(&mut a, "original", "app");
+    settle(&mut [&mut a]);
+    assert_eq!(a.file("a.md"), Some(big()));
+    let holds = a.r.list_holds(a.s).unwrap();
+    assert!(
+        holds.iter().any(|h| h.mine == TextOrBlob::Text(big())),
+        "the user's bytes are held: {holds:?}"
+    );
+}
+
 /// The user's new file refused for its size, then an app's create of a
 /// record at that path: the user's file stays fenced, not overwritten.
 #[test]
