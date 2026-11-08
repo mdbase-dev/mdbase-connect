@@ -49,12 +49,17 @@ export interface MdbaseTransferResult {
   readonly failed: readonly Readonly<{sourceId: string; code: string}>[];
   /** Mutations submitted by this run, to follow until the destination confirms. */
   readonly mutations: readonly string[];
+  /** Everything is in the destination, so the unsynced collection was kept
+   * aside as a retired copy and the app starts afresh. False when something
+   * failed, or another tab still works in it: transfer again to finish. */
+  readonly retired: boolean;
 }
 
 type Source = Pick<MdbaseClient, "collection" | "pages">;
 type Destination = Pick<MdbaseClient, "collection" | "get" | "create" | "describe">;
-/** Only plans made here can run: they carry the mapped inputs privately. */
-const prepared = new WeakMap<MdbaseTransferPlan, ReadonlyMap<string, CreateInput>>();
+/** Only plans made here can run: they carry the mapped inputs, and the map
+ * that made them, privately. */
+const prepared = new WeakMap<MdbaseTransferPlan, Readonly<{inputs: ReadonlyMap<string, CreateInput>; map: MdbaseTransferMap | undefined}>>();
 const MAX_RENAME = 100;
 
 const intentOf = (source: string, record: string) => `unsynced/1\0${source}\0${record}`;
@@ -104,15 +109,25 @@ export async function planUnsyncedTransfer(source: Source, destination: Destinat
   const count = (outcome: MdbaseTransferItem["outcome"]) => items.filter(item => item.outcome === outcome).length;
   const plan: MdbaseTransferPlan = Object.freeze({source: source.collection, destination: destination.collection, items: Object.freeze(items),
     missingTypes: Object.freeze([...missing].sort()), counts: Object.freeze({create: count("create"), present: count("present"), skipped: count("skipped"), renamed: renames})});
-  prepared.set(plan, inputs);
+  prepared.set(plan, Object.freeze({inputs, map: options.map}));
   return plan;
+}
+
+/** After a run: whether planning again with the same map finds nothing left
+ * to create (everything is present or left out by the map). */
+export async function unsyncedTransferComplete(plan: MdbaseTransferPlan, source: Source, destination: Destination, signal?: AbortSignal): Promise<boolean> {
+  const made = prepared.get(plan);
+  if (!made) throw mdbaseError("invalid_request", "plan the transfer first");
+  if (source.collection !== plan.source || destination.collection !== plan.destination) return false;
+  const again = await planUnsyncedTransfer(source, destination, {...(made.map ? {map: made.map} : {}), ...(signal ? {signal} : {})});
+  return again.counts.create === 0;
 }
 
 /** Create the plan's records in the destination. Safe to run again with a
  * new plan after an interruption: only what is missing is created. */
 export async function runUnsyncedTransfer(plan: MdbaseTransferPlan, destination: Destination,
   options: {readonly signal?: AbortSignal; readonly onProgress?: (progress: MdbaseTransferProgress) => void} = {}): Promise<MdbaseTransferResult> {
-  const inputs = prepared.get(plan), {signal} = options;
+  const inputs = prepared.get(plan)?.inputs, {signal} = options;
   if (!inputs) throw mdbaseError("invalid_request", "plan the transfer first");
   if (destination.collection !== plan.destination) throw mdbaseError("invalid_request", "the plan is for another collection");
   const work = plan.items.filter(item => item.outcome === "create"), failed: {sourceId: string; code: string}[] = [], mutations: string[] = [];
@@ -133,5 +148,5 @@ export async function runUnsyncedTransfer(plan: MdbaseTransferPlan, destination:
     done++; report();
   }
   return Object.freeze({source: plan.source, destination: plan.destination, created, present: already, skipped: plan.counts.skipped,
-    failed: Object.freeze(failed), mutations: Object.freeze(mutations)});
+    failed: Object.freeze(failed), mutations: Object.freeze(mutations), retired: false});
 }

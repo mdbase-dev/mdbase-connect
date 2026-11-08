@@ -9,7 +9,7 @@ import {ApplicationUiConnections} from "./ui-connections.js";
 import {applicationLoopbackAllowed} from "./local-build.js";
 import {consentedFileActions} from "./file-access.js";
 import type {MdbaseSetupPlan,MdbaseSetupPlanOptions} from "./setup.js";
-import {ApplicationWorkerClient} from "./worker-client.js";
+import {ApplicationWorkerClient,ApplicationWorkerReplyError} from "./worker-client.js";
 import {browserApplicationPortalHost,reserveApplicationPortal} from "./portal-reservation.js";
 
 /** Runtime view; the public entry adds its collection selection. */
@@ -200,6 +200,29 @@ export class ApplicationRuntime {
       ++this.epoch;const retired=this.retireOwn();this.publish();await retired;
       if(this.closed||caller.aborted)throw new ApplicationRuntimeError("application_fenced");
       return this.complete(await this.worker.request("openUnsynced",null,caller),caller);
+    },caller);
+  }
+  /** After a complete transfer into this tab's open collection: keep the
+   * unsynced collection as a retired copy and start the next one empty. False
+   * while another tab still shows it (transfer again from there to finish). */
+  async retireUnsynced(source:string,destination:string,options:MdbaseApplicationRequestOptions={}):Promise<boolean>{
+    const caller=this.signal(options);let retired=true;
+    await this.queue(()=>this.action(async()=>{
+      try{return this.complete(await this.worker.request("retireUnsynced",[source,destination],caller),caller);}
+      catch(error){if(error instanceof ApplicationWorkerReplyError&&error.code==="application_worker_busy"){retired=false;return this.snapshot;}throw error;}
+    },caller));
+    return retired;
+  }
+  /** Erase the unsynced collection from this browser. A tab that showed it
+   * continues in a new, empty one. */
+  discardUnsynced(options:MdbaseApplicationRequestOptions={}):Promise<MdbaseApplicationSnapshot>{
+    const caller=this.signal(options);return this.action(async()=>{
+      const shown=this.raw.unsynced?.collectionId??null;
+      if(shown!==null&&this.raw.selectedCollectionId===shown){
+        ++this.epoch;const retired=this.retireOwn();this.publish();await retired;
+        if(this.closed||caller.aborted)throw new ApplicationRuntimeError("application_fenced");
+      }
+      return this.complete(await this.worker.request("discardUnsynced",null,caller),caller);
     },caller);
   }
   /** Read the unsynced collection beside this tab's open one (an unsynced

@@ -8,14 +8,14 @@ import type {
   MdbaseApplicationRequestOptions, MdbaseApplicationSnapshot, MdbaseCollectionDeleteOptions, MdbaseSignOutOptions,
   MdbaseTransferOptions, MdbaseTransferPlanOptions,
 } from "../application/entry.js";
-import {planUnsyncedTransfer, runUnsyncedTransfer, type MdbaseTransferPlan} from "../application/unsynced-transfer.js";
+import {planUnsyncedTransfer, runUnsyncedTransfer, unsyncedTransferComplete, type MdbaseTransferPlan} from "../application/unsynced-transfer.js";
 import type {MdbaseSetupPlan} from "../application/setup.js";
 import type {MdbaseAccessRequest, MdbaseAccessRequestOptions, MdbaseAccessResult} from "../application/file-access.js";
 import type {FileAction} from "../files.js";
 import {applicationPhase} from "../application/phase.js";
 import {summarizeStatus} from "../status.js";
 
-export type ApplicationFixtureAction = "start" | "authorize" | "approve" | "reauthorize" | "refreshCollectionList" | "select" | "clearSelection" | "chooseAnother" | "forget" | "deleteCollection" | "requestAccess" | "assess" | "configure" | "planSetup" | "applySetup" | "signOut" | "openUnsynced" | "planUnsyncedTransfer" | "transferUnsynced" | "close";
+export type ApplicationFixtureAction = "start" | "authorize" | "approve" | "reauthorize" | "refreshCollectionList" | "select" | "clearSelection" | "chooseAnother" | "forget" | "deleteCollection" | "requestAccess" | "assess" | "configure" | "planSetup" | "applySetup" | "signOut" | "openUnsynced" | "planUnsyncedTransfer" | "transferUnsynced" | "discardUnsynced" | "close";
 export interface ApplicationFixtureCall {
   readonly action: ApplicationFixtureAction | "setForeground";
   readonly collectionId?: string;
@@ -210,7 +210,17 @@ export function createApplicationFixture(options: ApplicationFixtureOptions): Ap
     },
     async transferUnsynced(plan: MdbaseTransferPlan, {onProgress, ...request}: MdbaseTransferOptions = {}) {
       await run("transferUnsynced", request);
-      return runUnsyncedTransfer(plan, transferDestination().records, {...(onProgress ? {onProgress} : {}), ...(request.signal ? {signal: request.signal} : {})});
+      const destination = transferDestination().records, signal = request.signal ? {signal: request.signal} : {};
+      const result = await runUnsyncedTransfer(plan, destination, {...(onProgress ? {onProgress} : {}), ...signal});
+      if (result.failed.length || !await unsyncedTransferComplete(plan, transferSource().records, destination, request.signal)) return result;
+      // As the SDK does: the work is kept aside and the marker clears.
+      publish({...snapshot, unsyncedWork: null});
+      return Object.freeze({...result, retired: true});
+    },
+    discardUnsynced: async (request?: MdbaseApplicationRequestOptions) => {
+      await run("discardUnsynced", request);
+      if (!closed) publish({...snapshot, unsyncedWork: null});
+      return view();
     },
     setForeground(active: boolean) {calls.push(Object.freeze({action: "setForeground", active}));},
     close() {

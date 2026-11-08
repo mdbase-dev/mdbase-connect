@@ -11,7 +11,7 @@ import type {AppFileAction} from "../app-host/installation-sign-in.js";
 import {APPLICATION_WORKER_PROTOCOL,ApplicationWorkerError,applicationWorkerBinding,applicationWorkerProblem,applicationWorkerRequest,
   type ApplicationWorkerEvent,type ApplicationWorkerProblem,type ApplicationWorkerRequest} from "./worker-protocol.js";
 import {webSignInProblem} from "../app-host/web-sign-in-problem.js";
-import {appUnsyncedWork,openAppUnsyncedCollection,type AppUnsyncedConnection} from "../app-host/unsynced-collection.js";
+import {appUnsyncedIdentity,appUnsyncedWork,discardAppUnsynced,eraseAppUnsyncedStorage,openAppUnsyncedCollection,retireAppUnsynced,type AppUnsyncedConnection} from "../app-host/unsynced-collection.js";
 import type {AppWebNativeCollection} from "../app-host/web-collection.js";
 import type {AppWebSignInSnapshot} from "../app-host/web-sign-in-session.js";
 
@@ -96,9 +96,9 @@ export class ApplicationWorkerHost {
     const name=this.unsyncedOptions?.databaseName;
     if(name)void appUnsyncedWork(name,this.lifetime.signal).then(found=>{if(found)this.noteUnsyncedWork(found);}).catch(()=>{});
   }
-  private noteUnsyncedWork(found:Readonly<{since:number}>):void{
-    if(this.stopping||this.unsyncedWork?.since===found.since)return;
-    this.unsyncedWork=Object.freeze({since:found.since});
+  private noteUnsyncedWork(found:Readonly<{since:number}>|null):void{
+    if(this.stopping||this.unsyncedWork?.since===found?.since)return;
+    this.unsyncedWork=found?Object.freeze({since:found.since}):null;
     for(const client of [...this.clients.values()])this.post(client,[APPLICATION_WORKER_PROTOCOL,client.binding,"nativeSnapshot",0,this.view(client)]);
   }
   /** What one tab sees: the shared sign-in with its own collection. A tab that
@@ -153,6 +153,46 @@ export class ApplicationWorkerHost {
     if(!value)throw new ApplicationWorkerError("application_worker_unavailable");
     client.source=value;
     this.post(client,[APPLICATION_WORKER_PROTOCOL,client.binding,"handoff",id,value],[value.dataPort,value.controlPort]);
+  }
+  /** Whether a tab other than `client` shows or reads the unsynced collection. */
+  private unsyncedHeldElsewhere(client:HostClient,collection:string):boolean{
+    for(const other of this.clients.values())if(other!==client&&!other.gone&&(other.selected===collection||other.source?.scope.collection===collection))return true;
+    return false;
+  }
+  /** Close the unsynced collection for good: this tab lets go of it first. */
+  private async closeUnsynced(client:HostClient):Promise<void>{
+    if(this.showsUnsynced(client))this.leave(client);
+    this.releaseSource(client);
+    const open=this.unsynced;this.unsynced=null;
+    await open?.close();
+  }
+  /** After a transfer into the collection this tab shows: the unsynced
+   * collection becomes a retired copy of the signed-in account, and the next
+   * open starts a new one. Busy while another tab still works in it. */
+  private async retireUnsynced(client:HostClient,source:string,destination:string):Promise<void>{
+    const name=this.unsyncedOptions?.databaseName,account=this.session.getSnapshot().signIn?.accountId;
+    if(!name||!account||client.selected!==destination||this.session.connection(destination)?.isCurrent()!==true)throw new ApplicationWorkerError("application_worker_unavailable");
+    if(this.unsyncedHeldElsewhere(client,source))throw new ApplicationWorkerError("application_worker_busy");
+    if(this.unsynced?.scope.collection===source)await this.closeUnsynced(client);else this.releaseSource(client);
+    // False: already retired or discarded (another tab finished first).
+    if(await retireAppUnsynced(name,source,destination,account,this.lifetime.signal))this.noteUnsyncedWork(null);
+  }
+  /** Discard the unsynced collection and erase it from this browser. A tab
+   * that showed it continues in a new, empty one. */
+  private async discardUnsynced(client:HostClient,id:number):Promise<void>{
+    const name=this.unsyncedOptions?.databaseName;
+    if(!name)throw new ApplicationWorkerError("application_worker_unavailable");
+    const current=await appUnsyncedIdentity(name,false,this.lifetime.signal);
+    const showing=this.showsUnsynced(client);
+    if(current){
+      if(this.unsyncedHeldElsewhere(client,current.collection))throw new ApplicationWorkerError("application_worker_busy");
+      if(this.unsynced?.scope.collection===current.collection)await this.closeUnsynced(client);else this.releaseSource(client);
+      const gone=await discardAppUnsynced(name,current.collection,this.lifetime.signal);
+      // Best effort: leftover pages are unreachable once the identity is gone.
+      if(gone)await eraseAppUnsyncedStorage(gone);
+    }
+    this.noteUnsyncedWork(null);
+    if(showing)await this.openUnsynced(client,id);
   }
   private releaseSource(client:HostClient):void{
     const source=client.source;client.source=null;
@@ -416,6 +456,8 @@ export class ApplicationWorkerHost {
       case "openUnsynced":try{await this.openUnsynced(client,request[2]);}finally{this.collect();}break;
       case "attachUnsynced":try{await this.attachUnsynced(client,request[2]);}finally{this.collect();}break;
       case "detachUnsynced":this.releaseSource(client);this.collect();break;
+      case "retireUnsynced":{const [source,destination]=payload as readonly[string,string];try{await this.retireUnsynced(client,source,destination);}finally{this.collect();}break;}
+      case "discardUnsynced":try{await this.discardUnsynced(client,request[2]);}finally{this.collect();}break;
       case "forget":await this.session.forget(payload as string);break;
       case "refreshCollections":await this.session.refreshCollectionList();break;
       case "signOut":await this.session.signOut();break;

@@ -87,6 +87,10 @@ export interface Mdbase {
     /** Create a plan's records in the open collection, keeping their IDs.
      * Interrupted? Plan and transfer again: only what is missing is created. */
     transfer(plan: MdbaseTransferPlan, options?: MdbaseTransferOptions): Promise<MdbaseTransferResult>;
+    /** Erase the unsynced collection from this browser. Ask the person to
+     * confirm first: it cannot be undone. A tab showing it continues in a new,
+     * empty one. */
+    discard(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>;
   };
   /** The underlying application, for code written against `MdbaseConnect`. */
   readonly application: MdbaseApplication;
@@ -153,6 +157,10 @@ export function mdbaseFront(entry: Pick<MdbaseConnect, "application" | "connecti
       transfer: (plan: MdbaseTransferPlan, o?: MdbaseTransferOptions) => {
         if (!app.transferUnsynced) throw mdbaseError("unavailable", "Bringing in work isn't available here.", "application_not_yet_available");
         return app.transferUnsynced(plan, o);
+      },
+      discard: async (o?: MdbaseApplicationRequestOptions) => {
+        if (!app.discardUnsynced) throw mdbaseError("unavailable", "Discarding work isn't available here.", "application_not_yet_available");
+        return strict(await app.discardUnsynced(o));
       },
     }),
     application: app,

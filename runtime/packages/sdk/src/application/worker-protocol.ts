@@ -9,7 +9,7 @@ import type {AppWebCollectionHandoff} from "../app-host/web-collection.js";
 
 export const APPLICATION_WORKER_PROTOCOL="mdbn-application-worker/1";
 export const APPLICATION_WORKER_MAX_ID=0xffffffff;
-export type ApplicationWorkerAction="start"|"authorize"|"renewExpiredPairing"|"select"|"clearSelection"|"forget"|"refreshCollections"|"signOut"|"deleteCollection"|"requestFileAccess"|"pollFileAccess"|"openUnsynced"|"attachUnsynced"|"detachUnsynced"|"foreground"|"approvalClosed"|"close";
+export type ApplicationWorkerAction="start"|"authorize"|"renewExpiredPairing"|"select"|"clearSelection"|"forget"|"refreshCollections"|"signOut"|"deleteCollection"|"requestFileAccess"|"pollFileAccess"|"openUnsynced"|"attachUnsynced"|"detachUnsynced"|"retireUnsynced"|"discardUnsynced"|"foreground"|"approvalClosed"|"close";
 /** `deleteCollection` payload: [collection UUID, typed confirmation name].
  * `requestFileAccess` payload: [collection UUID, file actions, reason]. */
 export type ApplicationWorkerPayload=string|boolean|null|readonly[string,string]|readonly[string,readonly string[],string];
@@ -39,7 +39,7 @@ export function applicationWorkerRequest(value:unknown,binding:string):Applicati
   if(!Array.isArray(value)||value.length!==5||value[0]!==APPLICATION_WORKER_PROTOCOL||value[1]!==binding||
     !Number.isInteger(value[2])||value[2]<0||value[2]>APPLICATION_WORKER_MAX_ID||(value[2]===0&&value[3]!=="foreground"&&value[3]!=="approvalClosed")||(value[2]!==0&&value[3]==="approvalClosed"))return fail();
   const action=value[3],payload=value[4];
-  if(!["start","authorize","renewExpiredPairing","select","clearSelection","forget","refreshCollections","signOut","deleteCollection","requestFileAccess","pollFileAccess","openUnsynced","attachUnsynced","detachUnsynced","foreground","approvalClosed","close"].includes(action))fail();
+  if(!["start","authorize","renewExpiredPairing","select","clearSelection","forget","refreshCollections","signOut","deleteCollection","requestFileAccess","pollFileAccess","openUnsynced","attachUnsynced","detachUnsynced","retireUnsynced","discardUnsynced","foreground","approvalClosed","close"].includes(action))fail();
   const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
   if(action==="requestFileAccess"){
     if(!Array.isArray(payload)||payload.length!==3||typeof payload[0]!=="string"||!uuid.test(payload[0])||!Array.isArray(payload[1])||!payload[1].length||payload[1].length>6||
@@ -52,6 +52,10 @@ export function applicationWorkerRequest(value:unknown,binding:string):Applicati
   }else if(action==="deleteCollection"){
     if(!Array.isArray(payload)||payload.length!==2||typeof payload[0]!=="string"||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(payload[0])||
       typeof payload[1]!=="string"||!payload[1]||payload[1].length>1024)fail();
+    return Object.freeze([value[0],value[1],value[2],action,Object.freeze([payload[0],payload[1]])]) as ApplicationWorkerRequest;
+  }else if(action==="retireUnsynced"){
+    // [unsynced collection, destination collection].
+    if(!Array.isArray(payload)||payload.length!==2||payload.some((id:unknown)=>typeof id!=="string"||!uuid.test(id))||payload[0]===payload[1])fail();
     return Object.freeze([value[0],value[1],value[2],action,Object.freeze([payload[0],payload[1]])]) as ApplicationWorkerRequest;
   }else if(action==="authorize"){
     // Optional transient collection hint (canonical UUID) for Connect preselection.

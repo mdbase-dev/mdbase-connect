@@ -88,6 +88,12 @@ function leader(){
       detach:(value:AppWebCollectionHandoff)=>{record.live.delete(value.dataPort);},
       subscribe:()=>()=>{},close:async()=>{record.closed=true;}});
   });
+  const lifecycle={
+    retire:vi.spyOn(Unsynced,"retireAppUnsynced").mockResolvedValue(true),
+    identity:vi.spyOn(Unsynced,"appUnsyncedIdentity").mockResolvedValue(Object.freeze({version:1 as const,account:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",installation:"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",collection:U,replica:"cccccccc-cccc-4ccc-8ccc-cccccccccccc",device:"dddddddd-dddd-4ddd-8ddd-dddddddddddd"})),
+    discard:vi.spyOn(Unsynced,"discardAppUnsynced").mockImplementation(async()=>({version:1 as const,account:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",installation:"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",collection:U,replica:"cccccccc-cccc-4ccc-8ccc-cccccccccccc",device:"dddddddd-dddd-4ddd-8ddd-dddddddddddd"})),
+    erase:vi.spyOn(Unsynced,"eraseAppUnsyncedStorage").mockResolvedValue(true),
+  };
   vi.spyOn(WorkerSession,"applicationWorkerSession").mockImplementation((_declaration,_packaged,host)=>{callbacks=host;return {session,unsynced:{databaseName:"mdbase.test.unsynced.v1"},displayName:"Notes"} as unknown as ReturnType<typeof WorkerSession.applicationWorkerSession>;});
   const declaration=applicationDeclaration({id:appId,name:"Notes",origin,environment:"production",manifest:{manifest_version:1,id:"dev.example.notes",name:"Notes",homepage:origin,redirect_uris:[`${origin}/callback`],requirements:{access:"full_collection",contracts:[],capabilities:{contract_version:2,required:["collection.read"],optional:[]}}}});
   const packaged={release:()=>release} as unknown as PackagedApplicationNativeAssets;
@@ -95,7 +101,7 @@ function leader(){
   const host=new ApplicationWorkerHost(primary.port1,"leader_binding_00001",declaration,packaged,undefined,null);
   cleanup.push(()=>host.stop().catch(()=>{}));
   const open=(id:string)=>opened.filter(value=>value.id===id&&!value.closed);
-  return {host,session,hosts,opened,open,primary:primary.port2,flow,U,unsynced};
+  return {host,session,hosts,opened,open,primary:primary.port2,flow,U,unsynced,lifecycle};
 }
 
 /** One browser tab: its own URL and history, Worker client and selection. */
@@ -263,6 +269,42 @@ describe("per-tab collection selection",()=>{
     await a.client.request("detachUnsynced",null,life.signal);
     await vi.waitFor(()=>expect(u.closed).toBe(true));
     a.shows(X);
+  });
+
+  it("retires the unsynced collection into the collection a tab shows, but not while another tab works in it",async()=>{
+    const worker=leader(),life=new AbortController();cleanup.push(()=>life.abort());
+    const a=tab(worker,"leader_binding_00001",`${origin}/?collection=${X}`,worker.primary);await a.ready();
+    await vi.waitFor(()=>a.shows(X));
+    const b=tab(worker,"follower_binding_0001",`${origin}/`);await vi.waitFor(()=>expect(b.snapshot()).not.toBeNull());
+    await b.client.request("openUnsynced",null,life.signal);
+    await a.client.request("attachUnsynced",null,life.signal);
+    const u=worker.unsynced[0]!;
+    await expect(a.client.request("retireUnsynced",[worker.U,X],life.signal)).rejects.toMatchObject({code:"application_worker_busy"});
+    // Only into the collection this tab shows.
+    await expect(a.client.request("retireUnsynced",[worker.U,Y],life.signal)).rejects.toMatchObject({code:"application_worker_unavailable"});
+    expect(worker.lifecycle.retire).not.toHaveBeenCalled();
+    b.leave();await vi.waitFor(()=>expect([...u.live.values()]).toEqual(["attach2"]));
+    await a.client.request("retireUnsynced",[worker.U,X],life.signal);
+    expect(worker.lifecycle.retire).toHaveBeenCalledWith("mdbase.test.unsynced.v1",worker.U,X,account,expect.any(AbortSignal));
+    expect(u.closed).toBe(true);expect(u.live.size).toBe(0);
+    a.shows(X);expect(a.snapshot().unsyncedWork??null).toBeNull();
+  });
+
+  it("discarding moves a tab showing the unsynced collection to a new one, and is refused while another tab shows it",async()=>{
+    const worker=leader(),life=new AbortController();cleanup.push(()=>life.abort());
+    const leaderTab=tab(worker,"leader_binding_00001",`${origin}/`,worker.primary);await vi.waitFor(()=>expect(leaderTab.snapshot()).not.toBeNull());
+    const a=tab(worker,"follower_binding_0002",`${origin}/`);await vi.waitFor(()=>expect(a.snapshot()).not.toBeNull());
+    const b=tab(worker,"follower_binding_0001",`${origin}/`);await vi.waitFor(()=>expect(b.snapshot()).not.toBeNull());
+    await a.client.request("openUnsynced",null,life.signal);await b.client.request("openUnsynced",null,life.signal);
+    await expect(b.client.request("discardUnsynced",null,life.signal)).rejects.toMatchObject({code:"application_worker_busy"});
+    expect(worker.lifecycle.discard).not.toHaveBeenCalled();
+    a.leave();
+    const before=b.received.length;
+    expect(await b.client.request("discardUnsynced",null,life.signal)).toMatchObject({status:"ready",selectedCollectionId:worker.U,unsynced:{collectionId:worker.U}});
+    expect(worker.lifecycle.discard).toHaveBeenCalledWith("mdbase.test.unsynced.v1",worker.U,expect.any(AbortSignal));
+    expect(worker.lifecycle.erase).toHaveBeenCalledTimes(1);
+    expect(worker.unsynced).toHaveLength(2);expect(worker.unsynced[0]!.closed).toBe(true);
+    expect(b.received.slice(before).map(value=>value.generation)).toEqual([worker.unsynced[1]!.generation]);
   });
 
   it("a follower that leaves releases its unsynced source",async()=>{

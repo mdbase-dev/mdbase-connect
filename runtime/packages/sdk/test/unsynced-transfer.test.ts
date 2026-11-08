@@ -1,7 +1,7 @@
 import {describe,expect,it} from "vitest";
 import {connect,isMdbaseError,type MdbaseClient} from "../src/index.js";
 import {MemoryReplica} from "../src/testing/index.js";
-import {planUnsyncedTransfer,runUnsyncedTransfer} from "../src/application/unsynced-transfer.js";
+import {planUnsyncedTransfer,runUnsyncedTransfer,unsyncedTransferComplete} from "../src/application/unsynced-transfer.js";
 
 const app={name:"unsynced-transfer-test",version:"0.0.0"};
 const SOURCE="0192f3a4-6000-7abc-8def-000000000001",DESTINATION="0192f3a4-6000-7abc-8def-000000000002";
@@ -79,6 +79,20 @@ describe("unsynced transfer",()=>{
       const value=Reflect.get(target,key,receiver);return typeof value==="function"?value.bind(target):value;
     }});
     expect(await runUnsyncedTransfer(plan,lossy)).toMatchObject({created:0,present:3,failed:[]});
+  });
+
+  it("is complete only when planning again with the same map finds nothing left",async()=>{
+    const {source,destination}=await pair();
+    const map=(record:Parameters<NonNullable<Parameters<typeof planUnsyncedTransfer>[2]>["map"] & {}>[0])=>record.path==="scratch.md"?null:{path:record.path,document:record.document!};
+    const plan=await planUnsyncedTransfer(source,destination,{map});
+    expect(await unsyncedTransferComplete(plan,source,destination)).toBe(false);
+    expect((await runUnsyncedTransfer(plan,destination)).retired).toBe(false);
+    // The record the map leaves out does not hold the transfer open.
+    expect(await unsyncedTransferComplete(plan,source,destination)).toBe(true);
+    // Work saved after the plan does.
+    await source.create({path:"later.md",body:"written after planning\n"});
+    expect(await unsyncedTransferComplete(plan,source,destination)).toBe(false);
+    expect(await unsyncedTransferComplete(plan,destination,source)).toBe(false);
   });
 
   it("refuses a plan it did not make, another destination, and a collection into itself",async()=>{

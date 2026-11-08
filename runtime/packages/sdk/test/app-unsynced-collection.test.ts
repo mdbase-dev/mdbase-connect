@@ -1,9 +1,9 @@
-import {IDBFactory} from "fake-indexeddb";
+import {IDBFactory,IDBKeyRange} from "fake-indexeddb";
 import {beforeEach,expect,it} from "vitest";
-import {appUnsyncedIdentity,appUnsyncedWork,openAppUnsyncedCollection} from "../src/app-host/unsynced-collection.js";
+import {appUnsyncedIdentity,appUnsyncedRetired,appUnsyncedWork,discardAppUnsynced,eraseAppUnsyncedStorage,forgetAppUnsyncedRetired,openAppUnsyncedCollection,retireAppUnsynced} from "../src/app-host/unsynced-collection.js";
 
 const uuid=/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
-beforeEach(()=>{globalThis.indexedDB=new IDBFactory();});
+beforeEach(()=>{globalThis.indexedDB=new IDBFactory();globalThis.IDBKeyRange=IDBKeyRange;});
 
 it("creates one identity per storage scope, keeps it, and never creates on read",async()=>{
   const signal=new AbortController().signal;
@@ -63,4 +63,39 @@ it("refuses an aborted open before touching storage",async()=>{
   await expect(appUnsyncedIdentity("aborted",true,stop.signal)).rejects.toThrow();
   await expect(openAppUnsyncedCollection({databaseName:"x",setupJournal:{databaseName:"s",applicationNamespace:"n",appOrigin:"https://app.test",cpOrigin:"https://cp.test"},
     sql:{wasmSha256:"0".repeat(64),maxWasmBytes:1,loadWasm:async()=>new Uint8Array(),initialize:async()=>({})},locks:undefined,loadRuntime:async()=>new Uint8Array()},"App",stop.signal)).rejects.toThrow();
+});
+
+it("retires the current collection to the account that brought it in, so the next open starts afresh",async()=>{
+  const signal=new AbortController().signal,name="retire";
+  const first=(await appUnsyncedIdentity(name,true,signal))!;
+  await putRow(name,"work",{version:1,since:5});
+  const destination=crypto.randomUUID(),account=crypto.randomUUID();
+  expect(await retireAppUnsynced(name,crypto.randomUUID(),destination,account,signal)).toBe(false);
+  expect(await retireAppUnsynced(name,first.collection,destination,account,signal)).toBe(true);
+  expect(await appUnsyncedWork(name,signal)).toBeNull();
+  expect(await appUnsyncedIdentity(name,false,signal)).toBeNull();
+  const copies=await appUnsyncedRetired(name,signal);
+  expect(copies).toHaveLength(1);
+  expect(copies[0]).toMatchObject({version:1,identity:first,destination,account});
+  expect(copies[0]!.retiredAt).toBeGreaterThan(0);
+  // Retiring twice (another tab got there first) changes nothing.
+  expect(await retireAppUnsynced(name,first.collection,destination,account,signal)).toBe(false);
+  const next=(await appUnsyncedIdentity(name,true,signal))!;
+  expect(next.collection).not.toBe(first.collection);
+  await forgetAppUnsyncedRetired(name,first.collection,signal);
+  expect(await appUnsyncedRetired(name,signal)).toEqual([]);
+});
+
+it("discards only the current collection, and lists no copies without creating the database",async()=>{
+  const signal=new AbortController().signal;
+  expect(await appUnsyncedRetired("never",signal)).toEqual([]);
+  expect((await indexedDB.databases()).map(d=>d.name)).not.toContain("never");
+  const made=(await appUnsyncedIdentity("discard",true,signal))!;
+  await putRow("discard","work",{version:1,since:5});
+  expect(await discardAppUnsynced("discard",crypto.randomUUID(),signal)).toBeNull();
+  expect(await appUnsyncedIdentity("discard",false,signal)).toEqual(made);
+  expect(await discardAppUnsynced("discard",made.collection,signal)).toEqual(made);
+  expect(await appUnsyncedIdentity("discard",false,signal)).toBeNull();
+  expect(await appUnsyncedWork("discard",signal)).toBeNull();
+  expect(await eraseAppUnsyncedStorage(made)).toBe(true);
 });

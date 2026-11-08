@@ -4,6 +4,7 @@
  * collection. No account, sign-in, log, control plane or stored keys: its
  * identifiers are random, kept in one IndexedDB row, and never leave this
  * browser. One per app storage scope; it is never listed as a collection. */
+import { appPoolNames } from "../app-storage/app-sqlite-index.js";
 import { createAppCollectionSql, type AppCollectionSqlOptions, type AppLedgerRows } from "../app-storage/collection-sql.js";
 import { AppCollectionSetupJournal, type AppCollectionSetupJournalOptions } from "./collection-setup-journal.js";
 import { attachAppCollectionControl, type AppCollectionSetupTurn } from "./collection-control.js";
@@ -12,7 +13,7 @@ import { acquireAppReplicaLease, type AppLockPort, type AppReplicaLease, type Ap
 import { AppWasmRuntime } from "./wasm-runtime.js";
 import type { AppWebCollectionHandoff, AppWebNativeCollection } from "./web-collection.js";
 
-const STORE = "unsynced", KEY = "current", WORK = "work";
+const STORE = "unsynced", KEY = "current", WORK = "work", RETIRED = "retired.";
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
 /** Tabs that may show the unsynced collection at once (as for a synced one). */
 const MAX_TABS = 32;
@@ -41,6 +42,19 @@ export interface AppUnsyncedWork {
   readonly version: 1;
   /** When the first change was saved (ms since the epoch). */
   readonly since: number;
+}
+/** A transferred unsynced collection, kept for recovery: its identity moved
+ * out of `current`, so the next open starts a new, empty collection. */
+export interface AppUnsyncedRetired {
+  readonly version: 1;
+  readonly identity: AppUnsyncedIdentity;
+  /** The collection its work was brought into. */
+  readonly destination: string;
+  /** The account that brought it in: only that account sees it, and signing
+   * out of it erases it. */
+  readonly account: string;
+  /** When the transfer finished (ms since the epoch). */
+  readonly retiredAt: number;
 }
 export interface AppUnsyncedCollectionOptions {
   /** This app storage scope's own database (declaration storage). */
@@ -76,6 +90,13 @@ function work(value: unknown): AppUnsyncedWork {
   const row = value as AppUnsyncedWork;
   if (row.version !== 1 || !Number.isSafeInteger(row.since) || row.since < 0) throw fail();
   return Object.freeze({version: 1, since: row.since});
+}
+function retired(value: unknown): AppUnsyncedRetired {
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).sort().join() !== "account,destination,identity,retiredAt,version") throw fail();
+  const row = value as AppUnsyncedRetired;
+  if (row.version !== 1 || [row.destination, row.account].some(id => typeof id !== "string" || !UUID.test(id)) ||
+    !Number.isSafeInteger(row.retiredAt) || row.retiredAt < 0) throw fail();
+  return Object.freeze({version: 1, identity: identity(row.identity), destination: row.destination, account: row.account, retiredAt: row.retiredAt});
 }
 function database(name: string, signal: AbortSignal): Promise<IDBDatabase> {
   signal.throwIfAborted(); if (!globalThis.indexedDB) throw fail();
@@ -127,12 +148,85 @@ export function appUnsyncedIdentity(databaseName: string, create: boolean, signa
 /** Whether this scope's unsynced collection holds work, without opening it or
  * creating its database. Null where the browser cannot list databases. */
 export async function appUnsyncedWork(databaseName: string, signal: AbortSignal): Promise<AppUnsyncedWork | null> {
+  if (await exists(databaseName, signal) !== true) return null;
+  return row(databaseName, WORK, work, null, signal);
+}
+
+/** Whether this scope's database exists, without creating it. Null where the
+ * browser cannot list databases. */
+async function exists(databaseName: string, signal: AbortSignal): Promise<boolean | null> {
   const list = globalThis.indexedDB?.databases;
   if (typeof list !== "function") return null;
   const names = await list.call(globalThis.indexedDB);
   signal.throwIfAborted();
-  if (!names.some(entry => entry.name === databaseName)) return null;
-  return row(databaseName, WORK, work, null, signal);
+  return names.some(entry => entry.name === databaseName);
+}
+/** One read-write transaction over the store; `work` queues its requests and
+ * returns the value to resolve with once the transaction commits. */
+async function change<T>(databaseName: string, signal: AbortSignal, work: (rows: IDBObjectStore, done: (value: T) => void, refuse: (error: unknown) => void) => void): Promise<T> {
+  const db = await database(databaseName, signal);
+  try {
+    return await new Promise<T>((resolve, reject) => {
+      const tx = db.transaction(STORE, "readwrite", {durability: "strict"});
+      let result: T, problem: unknown = null;
+      tx.onabort = tx.onerror = () => reject(problem ?? fail());
+      tx.oncomplete = () => resolve(result);
+      work(tx.objectStore(STORE), value => { result = value; }, error => { problem = error; tx.abort(); });
+    });
+  } finally { db.close(); }
+}
+/** After a transfer: move `source`'s identity to a retired row bound to
+ * `account`, and clear the work marker, so the next open starts a new
+ * collection. False when `source` is no longer this scope's collection. */
+export function retireAppUnsynced(databaseName: string, source: string, destination: string, account: string, signal: AbortSignal): Promise<boolean> {
+  return change<boolean>(databaseName, signal, (rows, done, refuse) => {
+    const read = rows.get(KEY);
+    read.onsuccess = () => {
+      try {
+        if (read.result === undefined || identity(read.result).collection !== source) { done(false); return; }
+        const value = retired({version: 1, identity: read.result, destination, account, retiredAt: Date.now()});
+        rows.put(value, RETIRED + source); rows.delete(KEY); rows.delete(WORK); done(true);
+      } catch (error) { refuse(error); }
+    };
+  });
+}
+/** Forget `source` (this scope's current collection): the next open starts a
+ * new one. Returns the identity whose storage the caller then erases. */
+export function discardAppUnsynced(databaseName: string, source: string, signal: AbortSignal): Promise<AppUnsyncedIdentity | null> {
+  return change<AppUnsyncedIdentity | null>(databaseName, signal, (rows, done, refuse) => {
+    const read = rows.get(KEY);
+    read.onsuccess = () => {
+      try {
+        if (read.result === undefined) { done(null); return; }
+        const found = identity(read.result);
+        if (found.collection !== source) { done(null); return; }
+        rows.delete(KEY); rows.delete(WORK); done(found);
+      } catch (error) { refuse(error); }
+    };
+  });
+}
+/** Retired copies in this scope, without creating its database. */
+export async function appUnsyncedRetired(databaseName: string, signal: AbortSignal): Promise<readonly AppUnsyncedRetired[]> {
+  if (await exists(databaseName, signal) === false) return [];
+  return change<readonly AppUnsyncedRetired[]>(databaseName, signal, (rows, done, refuse) => {
+    const read = rows.getAll(IDBKeyRange.bound(RETIRED, RETIRED + "\uffff"));
+    read.onsuccess = () => { try { done(Object.freeze(read.result.map(retired))); } catch (error) { refuse(error); } };
+  });
+}
+/** Remove a retired copy's row; its storage is erased by the caller first. */
+export function forgetAppUnsyncedRetired(databaseName: string, collection: string, signal: AbortSignal): Promise<void> {
+  return change<void>(databaseName, signal, (rows, done) => { rows.delete(RETIRED + collection); done(); });
+}
+/** Erase an unsynced collection's replica storage (its OPFS pool). Call only
+ * once it is closed. True when nothing is left. */
+export async function eraseAppUnsyncedStorage(id: AppUnsyncedIdentity): Promise<boolean> {
+  const storage = (globalThis.navigator as {storage?: {getDirectory?: () => Promise<unknown>}} | undefined)?.storage;
+  if (typeof storage?.getDirectory !== "function") return true;
+  try {
+    const root = await storage.getDirectory() as {removeEntry(name: string, options: {recursive: true}): Promise<void>};
+    await root.removeEntry(appPoolNames({account: id.account, installation: id.installation, collection: id.collection}).directory, {recursive: true});
+    return true;
+  } catch (error) { return error instanceof DOMException && error.name === "NotFoundError"; }
 }
 
 /** Open (creating if needed) this scope's unsynced collection. Busy (another

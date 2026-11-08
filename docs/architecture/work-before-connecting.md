@@ -132,8 +132,8 @@ Actions, each called from the user's gesture:
 mdbase.unsynced.open()                        // built
 mdbase.unsynced.planTransfer({ map })         // built: B, review bringing it into the open collection
 mdbase.unsynced.transfer(plan, { onProgress }) // built: B, execute a reviewed plan
+mdbase.unsynced.discard()                     // built: explicit, confirmed by the person
 mdbase.unsynced.syncAsNew(options)            // A: turn sync on as a new collection
-mdbase.unsynced.discard()                     // explicit, confirmed by the person
 ```
 
 The SDK already requests persistent storage at app start and reports the
@@ -200,15 +200,24 @@ every difference.
 
 - The connected collection becomes the selection, and the phase becomes
   `ready`.
-- The unsynced collection becomes `transferred`. It is then bound to the
-  destination's account scope: other accounts on this browser never see it,
-  and signing out of that account erases it with the rest of that scope.
+- When a transfer leaves nothing behind (no failures, and planning again with
+  the same map finds nothing to create, so work saved meanwhile is not left
+  out), `transfer` retires the unsynced collection and reports
+  `retired: true`. Its identity moves to a retired row bound to the signed-in
+  account, `unsyncedWork` clears in every tab, and the next open starts a new,
+  empty collection. While another tab still shows the unsynced collection,
+  retiring waits (`retired: false`); transferring again from there finishes
+  it. Other accounts on this browser never see a retired copy, and signing out
+  of its account erases it with the rest of that scope.
 - The browser copy is kept until the destination has confirmed every
   transferred item, plus 30 days. It is reachable only from the app's
   collection settings, where the person can transfer it again (path B, which
   is idempotent) or delete it earlier. There is no separate restore.
 - Starting fresh later (signed out, or after deleting the copy) creates a new
   empty unsynced collection. It never reopens a transferred one.
+- `discard()` erases the current unsynced collection (its identity row, work
+  marker and OPFS pool) after the person confirms. A tab showing it continues
+  in a new, empty one; it is refused while another tab shows it.
 
 ## Shared UI (`@mdbase-dev/ui`)
 
@@ -267,8 +276,9 @@ unsynced collection, and its handoff could become path A or B.
    `unsyncedWork` marker (built). The real app WASM is exercised by the
    runtime and SDK loader smokes.
 4. Path B: `planTransfer` and `transfer` (built; idempotent without a
-   journal). Still to do: the after-transfer lifecycle (`transferred`,
-   account binding, recovery window, `discard`).
+   journal), retiring after a complete transfer, and `discard` (built).
+   Still to do: purging retired copies after the recovery window, erasing
+   them on sign-out of their account, and reaching them from settings.
 5. Path A: the portal's new-collection flow, resource copy, then the same
    transfer.
 6. Shared UI.

@@ -46,18 +46,23 @@ describe("public application fixture (metadata stand-in, not runtime evidence)",
     if (working?.kind !== "unsynced") throw new Error("unreachable");
     await working.connection.records.create({path: "started.md", body: "Before connecting\n"});
     // Signed in, with a collection open: bring the work in.
-    fixture.controls.publishSnapshot(snapshot({status: "ready", selectedCollectionId: synced.records.collection, unsynced: null, unsyncedWork: {since: 1},
+    const ready = (since: number) => snapshot({status: "ready", selectedCollectionId: synced.records.collection, unsynced: null, unsyncedWork: {since},
       collections: [{collectionId: synced.records.collection, displayName: "Notes", role: "owner"}],
-      readiness: {...snapshot().readiness, assessment: {status: "ready"}} as MdbaseApplicationSnapshot["readiness"]}));
+      readiness: {...snapshot().readiness, assessment: {status: "ready"}} as MdbaseApplicationSnapshot["readiness"]});
+    fixture.controls.publishSnapshot(ready(1));
     expect(mdbase.getSnapshot().phase?.kind).toBe("ready");
     const plan = await mdbase.unsynced.planTransfer();
     expect(plan).toMatchObject({source: local.records.collection, destination: synced.records.collection, counts: {create: 2, present: 0, skipped: 0, renamed: 1}});
     expect(plan.items.find(item => item.sourcePath === "started.md")).toMatchObject({outcome: "create", path: "started.md"});
     expect(plan.items.find(item => item.sourcePath === "fixture.md")).toMatchObject({outcome: "create", path: "fixture 2.md", renamedFrom: "fixture.md"});
     const result = await mdbase.unsynced.transfer(plan);
-    expect(result).toMatchObject({created: 2, failed: []});
+    expect(result).toMatchObject({created: 2, failed: [], retired: true});
+    expect(mdbase.getSnapshot().unsyncedWork).toBeNull();
     expect((await mdbase.unsynced.planTransfer()).counts).toMatchObject({create: 0, present: 2});
-    expect(fixture.controls.observedActions().map(call => call.action)).toEqual(["openUnsynced", "planUnsyncedTransfer", "transferUnsynced", "planUnsyncedTransfer"]);
+    fixture.controls.publishSnapshot(ready(2));
+    await mdbase.unsynced.discard();
+    expect(mdbase.getSnapshot().unsyncedWork).toBeNull();
+    expect(fixture.controls.observedActions().map(call => call.action)).toEqual(["openUnsynced", "planUnsyncedTransfer", "transferUnsynced", "planUnsyncedTransfer", "discardUnsynced"]);
   });
 
   it.each([true, false])("Private Add is the same null-hint Add, even without an optional legacy port (%s)", async legacyPort => {

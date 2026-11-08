@@ -3294,7 +3294,7 @@ ApplicationFixture@testing/application.ts
   readonly entry: MdbaseApplicationEntry
 
 ApplicationFixtureAction@testing/application.ts
-  = 'reauthorize' | 'approve' | 'assess' | 'start' | 'authorize' | 'refreshCollectionList' | 'select' | 'clearSelection' | 'chooseAnother' | 'forget' | 'deleteCollection' | 'requestAccess' | 'configure' | 'planSetup' | 'applySetup' | 'signOut' | 'openUnsynced' | 'planUnsyncedTransfer' | 'transferUnsynced' | 'close'
+  = 'reauthorize' | 'approve' | 'assess' | 'start' | 'authorize' | 'refreshCollectionList' | 'select' | 'clearSelection' | 'chooseAnother' | 'forget' | 'deleteCollection' | 'requestAccess' | 'configure' | 'planSetup' | 'applySetup' | 'signOut' | 'openUnsynced' | 'planUnsyncedTransfer' | 'transferUnsynced' | 'discardUnsynced' | 'close'
 
 ApplicationFixtureCall@testing/application.ts
   readonly action: ApplicationFixtureAction | 'setForeground'
@@ -4192,7 +4192,7 @@ Mdbase@application/front-door.ts
   signOut: (options?: MdbaseSignOutOptions) => Promise<MdbaseSnapshot>
   start: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
   subscribe: (listener: () => void) => () => void
-  readonly unsynced: { open(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>; planTransfer(options?: MdbaseTransferPlanOptions): Promise<MdbaseTransferPlan>; transfer(plan: MdbaseTransferPlan, options?: MdbaseTransferOptions): Promise<MdbaseTransferResult>; }
+  readonly unsynced: { open(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>; planTransfer(options?: MdbaseTransferPlanOptions): Promise<MdbaseTransferPlan>; transfer(plan: MdbaseTransferPlan, options?: MdbaseTransferOptions): Promise<MdbaseTransferResult>; discard(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>; }
 
 MdbaseAccessRequest@application/file-access.ts
   readonly files: readonly FileAction[]
@@ -4236,6 +4236,7 @@ MdbaseApplication@application/entry.ts
   close: () => Promise<void>
   configure: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>
   deleteCollection: (collectionId: string, options: MdbaseCollectionDeleteOptions) => Promise<MdbaseApplicationSnapshot>
+  discardUnsynced?: ((options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>) | undefined
   forget: (collectionId: string, options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>
   getSnapshot: () => MdbaseApplicationSnapshot
   openUnsynced?: ((options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>) | undefined
@@ -4723,6 +4724,7 @@ MdbaseTransferResult@application/unsynced-transfer.ts
   readonly failed: readonly Readonly<{ sourceId: string; code: string; }>[]
   readonly mutations: readonly string[]
   readonly present: number
+  readonly retired: boolean
   readonly skipped: number
   readonly source: string
 
@@ -5672,7 +5674,7 @@ TestMdbase@testing/test-app.ts
   signOut: (options?: MdbaseSignOutOptions) => Promise<MdbaseSnapshot>
   start: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
   subscribe: (listener: () => void) => () => void
-  readonly unsynced: { open(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>; planTransfer(options?: MdbaseTransferPlanOptions): Promise<MdbaseTransferPlan>; transfer(plan: MdbaseTransferPlan, options?: MdbaseTransferOptions): Promise<MdbaseTransferResult>; }
+  readonly unsynced: { open(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>; planTransfer(options?: MdbaseTransferPlanOptions): Promise<MdbaseTransferPlan>; transfer(plan: MdbaseTransferPlan, options?: MdbaseTransferOptions): Promise<MdbaseTransferResult>; discard(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>; }
 
 TextOrBlob@wire.ts
   = string | AttachmentHoldContent | BlobRef

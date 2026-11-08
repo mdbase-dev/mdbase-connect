@@ -40,7 +40,12 @@ describe("private SDK Worker bounded lifecycle",()=>{
     expect(applicationWorkerRequest([schema,binding,1,"openUnsynced",null],binding)).toEqual([schema,binding,1,"openUnsynced",null]);
     for(const payload of ["11111111-1111-4111-8111-111111111111",true,{}])expect(()=>applicationWorkerRequest([schema,binding,1,"openUnsynced",payload],binding)).toThrow(ApplicationWorkerError);
     expect(()=>applicationWorkerRequest([schema,binding,0,"openUnsynced",null],binding)).toThrow(ApplicationWorkerError);
-    for(const action of ["attachUnsynced","detachUnsynced"] as const){
+    // Retire: [unsynced collection, destination], two different UUIDs.
+    const u="11111111-1111-4111-8111-111111111111",d="22222222-2222-4222-8222-222222222222";
+    expect(applicationWorkerRequest([schema,binding,3,"retireUnsynced",[u,d]],binding)).toEqual([schema,binding,3,"retireUnsynced",[u,d]]);
+    for(const payload of [null,[u],[u,u],[u,d,d],[u,"X"],u])expect(()=>applicationWorkerRequest([schema,binding,3,"retireUnsynced",payload],binding)).toThrow(ApplicationWorkerError);
+    expect(()=>applicationWorkerRequest([schema,binding,0,"retireUnsynced",[u,d]],binding)).toThrow(ApplicationWorkerError);
+    for(const action of ["attachUnsynced","detachUnsynced","discardUnsynced"] as const){
       expect(applicationWorkerRequest([schema,binding,2,action,null],binding)).toEqual([schema,binding,2,action,null]);
       expect(()=>applicationWorkerRequest([schema,binding,2,action,"11111111-1111-4111-8111-111111111111"],binding)).toThrow(ApplicationWorkerError);
       expect(()=>applicationWorkerRequest([schema,binding,0,action,null],binding)).toThrow(ApplicationWorkerError);
