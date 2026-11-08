@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { once } from "node:events";
+import { createServer } from "node:net";
+import { setImmediate } from "node:timers/promises";
+import { Worker } from "node:worker_threads";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
@@ -121,6 +125,139 @@ test("only one network check runs while a check is in flight", async () => {
   await first;
   assert.equal(calls, 1);
 });
+
+test("a CONNECT blackhole during real Sigstore verification fails closed and permits recovery", { timeout: 20_000 }, async (context) => {
+  const directory = await mkdtemp(join(tmpdir(), "mdbase-update-blackhole-"));
+  const sockets = new Set();
+  let worker;
+  const proxy = createServer((socket) => {
+    sockets.add(socket);
+    socket.on("error", () => {});
+    socket.on("close", () => sockets.delete(socket));
+    socket.once("data", (bytes) => {
+      assert.match(bytes.toString(), /^CONNECT /);
+      socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+      proxy.emit("tunnel");
+    });
+  });
+  context.after(async () => {
+    await worker?.terminate();
+    for (const socket of sockets) socket.destroy();
+    await new Promise((resolve) => proxy.close(resolve));
+    await rm(directory, { recursive: true, force: true });
+  });
+  proxy.listen(0, "127.0.0.1");
+  await once(proxy, "listening");
+  const proxyUrl = `http://127.0.0.1:${proxy.address().port}`;
+  worker = new Worker(new URL("fixtures/update-check-blackhole.mjs", import.meta.url), {
+    workerData: { directory },
+    env: { ...process.env, HTTPS_PROXY: proxyUrl, https_proxy: proxyUrl, NO_PROXY: "", no_proxy: "" }
+  });
+  await Promise.race([
+    once(proxy, "tunnel"),
+    once(worker, "error").then(([error]) => { throw error; })
+  ]);
+  const expired = once(worker, "message");
+  worker.postMessage("expire");
+  const [result] = await expired;
+  assert.equal(result.status.phase, "failed");
+  assert.match(result.status.message, /^Could not verify updates: .*timed out/i);
+  assert.equal(result.status.can_install, false);
+  assert.equal(result.trustedVersion, undefined);
+  assert.equal(result.settled, true);
+  const recovered = once(worker, "message");
+  worker.postMessage("recover");
+  assert.equal((await recovered)[0].phase, "external");
+});
+
+for (const manual of [false, true]) {
+  test(`${manual ? "manual" : "automatic"} checks release their guard even when discovery ignores cancellation`, async (context) => {
+    const { store } = await fixture();
+    let finishDiscovery;
+    let checkSignal;
+    const runtime = backend({
+      findLatest(signal) {
+        checkSignal = signal;
+        return new Promise((resolve) => { finishDiscovery = resolve; });
+      }
+    });
+    const coordinator = new UpdateCoordinator(store, runtime);
+    await coordinator.initialize();
+    context.mock.timers.enable({ apis: ["setTimeout"] });
+    const pending = coordinator.check(manual);
+    await setImmediate();
+    context.mock.timers.tick(60_000);
+    await setImmediate();
+    assert.equal(coordinator.status().phase, "failed");
+    assert.equal((await pending).can_check, true);
+    assert.equal(checkSignal.aborted, true);
+    runtime.findLatest = async () => null;
+    assert.equal((await coordinator.check(true)).phase, "idle");
+    finishDiscovery({ manifest: signedManifest() });
+    await setImmediate();
+    assert.equal(coordinator.status().phase, "idle");
+    assert.deepEqual(runtime.events, []);
+    assert.equal((await store.load()).highest_trusted_version, undefined);
+  });
+}
+
+test("staging gets its own longer deadline and ignores expired progress and completion", async (context) => {
+  const { store } = await fixture();
+  let finishStaging;
+  let reportProgress;
+  const started = Promise.withResolvers();
+  const runtime = backend({
+    findLatest() {
+      return new Promise((resolve) => setTimeout(() => resolve({ manifest: signedManifest() }), 45_000));
+    },
+    stageAutomatic(_manifest, _target, progress) {
+      reportProgress = progress;
+      started.resolve();
+      return new Promise((resolve) => { finishStaging = resolve; });
+    }
+  });
+  const coordinator = new UpdateCoordinator(store, runtime);
+  await coordinator.initialize();
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const pending = coordinator.check();
+  await setImmediate();
+  context.mock.timers.tick(45_000);
+  await started.promise;
+  // Past the 60-second check deadline: a slow download is not a stalled check.
+  context.mock.timers.tick(15 * 60_000 - 1);
+  await setImmediate();
+  assert.equal(coordinator.status().phase, "downloading");
+  context.mock.timers.tick(1);
+  await setImmediate();
+  assert.equal(coordinator.status().phase, "failed");
+  await pending;
+  runtime.findLatest = async () => null;
+  assert.equal((await coordinator.check(true)).phase, "idle");
+  reportProgress(100);
+  finishStaging();
+  await setImmediate();
+  assert.equal(coordinator.status().phase, "idle");
+  await assert.rejects(coordinator.install(), /No update is ready/);
+});
+
+for (const operation of ["load", "update"]) {
+  test(`the overall deadline also covers a stalled state ${operation}`, async (context) => {
+    const { store } = await fixture();
+    const coordinator = new UpdateCoordinator(store, backend());
+    await coordinator.initialize();
+    const original = store[operation].bind(store);
+    store[operation] = () => new Promise(() => {});
+    context.mock.timers.enable({ apis: ["setTimeout"] });
+    const pending = coordinator.check();
+    await setImmediate();
+    context.mock.timers.tick(60_000);
+    await setImmediate();
+    assert.equal(coordinator.status().phase, "failed");
+    assert.equal((await pending).can_install, false);
+    store[operation] = original;
+    assert.equal((await coordinator.check(true)).phase, "ready");
+  });
+}
 
 test("Store and package-manager updates open the signed action target", async () => {
   const { store } = await fixture();
