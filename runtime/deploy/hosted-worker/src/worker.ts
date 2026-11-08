@@ -94,8 +94,12 @@ const IDLE_STREAK_KEY = "service-idle-streak";
 const IDLE_SAME_LOOK_MS = 5_000;
 /** Doublings that reach the cap from the smaller (hosted) base. */
 const IDLE_MAX_STREAK = 5;
-export const idlePollMs = (base: number, streak: number) =>
-  Math.min(IDLE_POLL_CAP_MS, base * 2 ** Math.min(Math.max(0, Math.floor(streak)), IDLE_MAX_STREAK));
+/** LAB only (cost): most LAB collections are idle test fixtures, so an idle LAB
+ * actor backs off to an hour. Clients and CP activations still wake it at once. */
+const LAB_IDLE_POLL_CAP_MS = 60 * 60_000;
+const LAB_IDLE_MAX_STREAK = 7;
+export const idlePollMs = (base: number, streak: number, lab = false) =>
+  Math.min(lab ? LAB_IDLE_POLL_CAP_MS : IDLE_POLL_CAP_MS, base * 2 ** Math.min(Math.max(0, Math.floor(streak)), lab ? LAB_IDLE_MAX_STREAK : IDLE_MAX_STREAK));
 const INSTALL_RETRY_KEY = "service-install-retry";
 /** Largest client frame accepted. */
 const MAX_FRAME_BYTES = 1 << 20;
@@ -969,24 +973,26 @@ export class HostedCollection extends DurableObject<Env> {
    * changes, so an evicted idle actor keeps backing off. */
   private async idlePoll(active: boolean, current: () => boolean): Promise<number> {
     const base = this.escrow ? ESCROW_POLL_MS : REFRESH_MS;
+    const lab = this.env.LAB === "1";
+    const max = lab ? LAB_IDLE_MAX_STREAK : IDLE_MAX_STREAK;
     let prior = this.idleStreak;
     if (prior == null) {
-      try { prior = Math.max(0, Math.min(IDLE_MAX_STREAK, Math.floor(Number(await this.ctx.storage.get<number>(IDLE_STREAK_KEY) ?? 0)) || 0)); }
+      try { prior = Math.max(0, Math.min(max, Math.floor(Number(await this.ctx.storage.get<number>(IDLE_STREAK_KEY) ?? 0)) || 0)); }
       catch { prior = 0; }
     }
     // Syncs moments apart (a cold open's sync, then the alarm's or activation's)
     // are one look at the log: only the first can lengthen the interval.
     const now = Date.now();
-    const next = active ? 0 : now - (this.idleDecidedAt ?? 0) < IDLE_SAME_LOOK_MS ? prior : Math.min(prior + 1, IDLE_MAX_STREAK);
+    const next = active ? 0 : now - (this.idleDecidedAt ?? 0) < IDLE_SAME_LOOK_MS ? prior : Math.min(prior + 1, max);
     this.idleDecidedAt = now;
     this.idleStreak = next;
     if (next !== prior && current()) {
       try { await (next === 0 ? this.ctx.storage.delete(IDLE_STREAK_KEY) : this.ctx.storage.put(IDLE_STREAK_KEY, next)); } catch { /* RAM still backs off. */ }
       if (this.env.LAB === "1") {
-        try { console.info(JSON.stringify({ event: "hosted_idle_poll", role: this.escrow ? "escrow" : "hosted", streak: next, poll_ms: idlePollMs(base, next) })); } catch { /* Logging is not authority. */ }
+        try { console.info(JSON.stringify({ event: "hosted_idle_poll", role: this.escrow ? "escrow" : "hosted", streak: next, poll_ms: idlePollMs(base, next, lab) })); } catch { /* Logging is not authority. */ }
       }
     }
-    return idlePollMs(base, next);
+    return idlePollMs(base, next, lab);
   }
 
   /** Delay to the next wake of a running install; null when none is running. */
@@ -1067,7 +1073,13 @@ export class HostedCollection extends DurableObject<Env> {
     // unchanged native rebuild can discount successful reads; writes, partial
     // rebuilds, failures and actual new log progress still reset the streak.
     const replayOnly = report.reads > 0 && report.work === report.reads && report.failed === 0 && !progressed && engine.serving();
-    const active = this.activitySeen || (!report.quiet && !replayOnly) || progressed || delivered > 0 || this.clientOpen();
+    // LAB only (cost): answered log calls that moved nothing are not activity. An
+    // upload the log answers with an error (quota) or a stalled replica's reads
+    // repeat on every wake and would otherwise hold the actor at the base poll
+    // forever. Transport failures still retry at the base rate.
+    const lab = this.env.LAB === "1";
+    const pumped = lab ? report.failed > 0 : !report.quiet && !replayOnly;
+    const active = this.activitySeen || pumped || progressed || delivered > 0 || this.clientOpen();
     this.activitySeen = false;
     const pollMs = await this.idlePoll(active, current);
     if (!current()) return;
@@ -1080,9 +1092,13 @@ export class HostedCollection extends DurableObject<Env> {
     const installMs = await this.installWake(install, report.failed > 0, current);
     if (!current()) return;
     const poll = Date.now() + (installMs ?? pollMs);
+    // LAB only (cost): an idle replica that is not serving (apply-stalled) waits
+    // for the idle poll, not its in-memory stall probe, which restarts at 1 s
+    // after every eviction and so never backs off.
+    const probe = lab && !active && installMs == null && !engine.serving() ? null : next;
     // Preserve earlier deadlines; inhibited or stale storage continuations must
     // not schedule another wake. This local fence is not deletion currentness.
-    const at = Math.min(next ?? poll, poll);
+    const at = Math.min(probe ?? poll, poll);
     await this.alarms.schedule(at, current);
     return at;
   }
