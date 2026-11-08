@@ -1559,6 +1559,10 @@ msgctxt "Account management"
 msgid "Email and password"
 msgstr "Email e password"
 
+#: src/AccountManagement.tsx
+msgid "Ends {trialEnd}"
+msgstr "Termina il {trialEnd}"
+
 #. placeholder {0}: literal(summary.setting)
 #. placeholder {1}: literal(summary.value)
 #: src/authorization-view.tsx
@@ -2331,6 +2335,11 @@ msgstr "Non in linea"
 msgctxt "Connect interface"
 msgid "Offline"
 msgstr "Non in linea"
+
+#. placeholder {0}: formatBytes(trial.hosted_storage_bytes_after)
+#: src/AccountManagement.tsx
+msgid "On {trialEnd}, storage drops to {0}. Files you've already uploaded are kept. If they're over the limit, new uploads pause."
+msgstr "Il {trialEnd} lo spazio di archiviazione scende a {0}. I file già caricati vengono conservati. Se superano il limite, i nuovi caricamenti vengono sospesi."
 
 #. placeholder {0}: formatters(i18n.locale).date(new Date(sharingCode.expiresAt), { dateStyle: "short", timeStyle: "short" })
 #: src/AccountManagement.tsx
@@ -3227,6 +3236,11 @@ msgstr "Interrompi la ricezione del tipo di email contenuto in questo link. I me
 msgctxt "Connect interface"
 msgid "Storage"
 msgstr "Archiviazione"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Storage trial"
+msgstr "Prova di archiviazione"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"

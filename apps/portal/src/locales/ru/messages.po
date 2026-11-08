@@ -1559,6 +1559,10 @@ msgctxt "Account management"
 msgid "Email and password"
 msgstr "Электронная почта и пароль"
 
+#: src/AccountManagement.tsx
+msgid "Ends {trialEnd}"
+msgstr "Заканчивается {trialEnd}"
+
 #. placeholder {0}: literal(summary.setting)
 #. placeholder {1}: literal(summary.value)
 #: src/authorization-view.tsx
@@ -2331,6 +2335,11 @@ msgstr "Не в сети"
 msgctxt "Connect interface"
 msgid "Offline"
 msgstr "Не в сети"
+
+#. placeholder {0}: formatBytes(trial.hosted_storage_bytes_after)
+#: src/AccountManagement.tsx
+msgid "On {trialEnd}, storage drops to {0}. Files you've already uploaded are kept. If they're over the limit, new uploads pause."
+msgstr "{trialEnd} объём хранилища уменьшится до {0}. Уже загруженные файлы сохранятся. Если они превышают лимит, новые загрузки будут приостановлены."
 
 #. placeholder {0}: formatters(i18n.locale).date(new Date(sharingCode.expiresAt), { dateStyle: "short", timeStyle: "short" })
 #: src/AccountManagement.tsx
@@ -3227,6 +3236,11 @@ msgstr "Отписаться от писем того типа, к которо�
 msgctxt "Connect interface"
 msgid "Storage"
 msgstr "Хранилище"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Storage trial"
+msgstr "Пробный период хранилища"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"

@@ -1559,6 +1559,10 @@ msgctxt "Account management"
 msgid "Email and password"
 msgstr "メールとパスワード"
 
+#: src/AccountManagement.tsx
+msgid "Ends {trialEnd}"
+msgstr "{trialEnd} に終了"
+
 #. placeholder {0}: literal(summary.setting)
 #. placeholder {1}: literal(summary.value)
 #: src/authorization-view.tsx
@@ -2331,6 +2335,11 @@ msgstr "オフライン"
 msgctxt "Connect interface"
 msgid "Offline"
 msgstr "オフライン"
+
+#. placeholder {0}: formatBytes(trial.hosted_storage_bytes_after)
+#: src/AccountManagement.tsx
+msgid "On {trialEnd}, storage drops to {0}. Files you've already uploaded are kept. If they're over the limit, new uploads pause."
+msgstr "{trialEnd} にストレージは {0} に下がります。アップロード済みのファイルは保持されます。上限を超えている場合、新しいアップロードは一時停止されます。"
 
 #. placeholder {0}: formatters(i18n.locale).date(new Date(sharingCode.expiresAt), { dateStyle: "short", timeStyle: "short" })
 #: src/AccountManagement.tsx
@@ -3227,6 +3236,11 @@ msgstr "このリンクが届いた種類のメールの受信を停止します
 msgctxt "Connect interface"
 msgid "Storage"
 msgstr "ストレージ"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Storage trial"
+msgstr "ストレージ試用"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"

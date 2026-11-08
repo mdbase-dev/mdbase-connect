@@ -6,6 +6,7 @@ import {
   attachInvitationEntitlement,
   BETA_ENTITLEMENT_PROFILE,
   effectiveEntitlement,
+  FREE_ENTITLEMENT_PROFILE,
   materializeInvitationEntitlement,
   materializePublicSignupEntitlement,
   OPEN_BETA_ENTITLEMENT_PROFILE,
@@ -19,6 +20,19 @@ import {
 } from "./hosted-provider.js";
 
 const resources: Array<() => Promise<void>> = [];
+const TRIAL_ENTITLEMENT_PROFILE = "trial_v1";
+
+const FREE_LIMITS = {
+  hostedStorageBytes: 262_144_000,
+  retainedFileBytes: 524_288_000,
+  maxDocumentBytes: 2_097_152,
+  maxSingleFileBytes: 104_857_600,
+  maxMirrorReplicasPerCollection: 10,
+  maxApplicationReplicasPerCollection: 50,
+  maxHostedCollections: 1,
+  maxFilesPerCollection: 10_000,
+  maxCollectionMemberSeats: 1
+};
 
 afterEach(async () => {
   while (resources.length) await resources.pop()?.();
@@ -62,29 +76,73 @@ describe("account entitlements", () => {
       maxApplicationReplicasPerCollection: 50,
       maxHostedCollections: 10,
       maxFilesPerCollection: 10_000,
-      maxCollectionMemberSeats: 10
+      maxCollectionMemberSeats: 10,
+      trial: null
     });
   });
 
-  it("materializes the permanent three-collection open Beta grant", async () => {
+  it("grants a public signup the permanent free plan and a 30-day storage trial", async () => {
     const { db, userId } = await fixture();
 
-    const first = await materializePublicSignupEntitlement(db, userId);
-    const replay = await materializePublicSignupEntitlement(db, userId);
+    const { trialEndsAt } = await materializePublicSignupEntitlement(db, userId);
 
-    expect(replay).toEqual(first);
+    const days = (trialEndsAt.getTime() - Date.now()) / 86_400_000;
+    expect(days).toBeGreaterThan(29.99);
+    expect(days).toBeLessThanOrEqual(30);
+    const grants = await db.query<{ profile_code: string; ends_at: Date | null }>(
+      `SELECT profile_code, ends_at FROM account_entitlement_grants
+       WHERE user_id = $1 ORDER BY profile_code`,
+      [userId]
+    );
+    expect(grants.rows).toEqual([
+      { profile_code: FREE_ENTITLEMENT_PROFILE, ends_at: null },
+      { profile_code: TRIAL_ENTITLEMENT_PROFILE, ends_at: trialEndsAt }
+    ]);
     expect(await effectiveEntitlement(db, userId)).toEqual({
-      profileCodes: [OPEN_BETA_ENTITLEMENT_PROFILE],
-      hostedStorageBytes: 1_073_741_824,
-      retainedFileBytes: 2_147_483_648,
-      maxDocumentBytes: 2_097_152,
-      maxSingleFileBytes: 262_144_000,
-      maxMirrorReplicasPerCollection: 10,
-      maxApplicationReplicasPerCollection: 50,
-      maxHostedCollections: 3,
-      maxFilesPerCollection: 10_000,
-      maxCollectionMemberSeats: 10
+      ...FREE_LIMITS,
+      profileCodes: [FREE_ENTITLEMENT_PROFILE, TRIAL_ENTITLEMENT_PROFILE],
+      hostedStorageBytes: 5_368_709_120,
+      retainedFileBytes: 5_368_709_120,
+      trial: { endsAt: trialEndsAt, hostedStorageBytesAfter: 262_144_000 }
     });
+    await expect(materializePublicSignupEntitlement(db, userId)).rejects.toThrow();
+  });
+
+  it("falls back to the free plan when the storage trial ends", async () => {
+    const { db, userId } = await fixture();
+    await materializePublicSignupEntitlement(db, userId);
+
+    await db.query(
+      `UPDATE account_entitlement_grants
+       SET starts_at = now() - interval '31 days', ends_at = now() - interval '1 day'
+       WHERE user_id = $1 AND profile_code = $2`,
+      [userId, TRIAL_ENTITLEMENT_PROFILE]
+    );
+
+    expect(await effectiveEntitlement(db, userId)).toEqual({
+      ...FREE_LIMITS,
+      profileCodes: [FREE_ENTITLEMENT_PROFILE],
+      trial: null
+    });
+  });
+
+  it("reports no trial when another grant already holds at least its storage", async () => {
+    const { db, userId } = await fixture();
+    await materializePublicSignupEntitlement(db, userId);
+    await db.query(
+      `UPDATE entitlement_profiles SET hosted_storage_bytes = 5368709120,
+         retained_file_bytes = 10737418240
+       WHERE code = $1`,
+      [OPEN_BETA_ENTITLEMENT_PROFILE]
+    );
+    await db.query(
+      `INSERT INTO account_entitlement_grants
+         (id, user_id, profile_code, source, source_reference)
+       VALUES ($1, $2, $3, 'operator', 'test')`,
+      [randomUUID(), userId, OPEN_BETA_ENTITLEMENT_PROFILE]
+    );
+
+    expect((await effectiveEntitlement(db, userId))?.trial).toBeNull();
   });
 
   it("takes the maximum active limit and retains the Beta floor", async () => {
