@@ -197,8 +197,12 @@ jobs:
           mkdir -p "$RUNNER_TEMP/editor-build"
           node apps/editor/scripts/native/publisher.mjs guard > "$RUNNER_TEMP/editor-build/plan.json"
       - run: node apps/editor/scripts/native/install-inputs.mjs "$RUNNER_TEMP/editor-build/plan.json"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - run: pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile
       - name: ALL installed original members, then unprivileged build once
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: node apps/editor/scripts/native/build.mjs "$RUNNER_TEMP/editor-build"
       - run: node apps/editor/scripts/native/envelope.mjs "$RUNNER_TEMP/editor-build"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -271,7 +275,7 @@ jobs:
           node-version: 24
         timeout-minutes: 2
       - name: Workflow-owned guard; candidate is data only
-        timeout-minutes: 4
+        timeout-minutes: 7
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |

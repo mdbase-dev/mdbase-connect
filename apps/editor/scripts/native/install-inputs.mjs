@@ -3,12 +3,12 @@ import { createHash } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { publicBytes } from './authentication.mjs';
+import { archiveBytes } from './authentication.mjs';
 export async function prepareInstall(plan,root=process.cwd(),fetchImpl=fetch) {
  if(plan.target==='production')return;
  if(plan.target!=='staging')throw Error('Unknown install target');
  const archive=plan.sdkTrust.archives.sdk;
- const bytes=await publicBytes(archive.path,fetchImpl);
+ const bytes=await archiveBytes(archive.path,fetchImpl);
  if(createHash('sha256').update(bytes).digest('hex')!==archive.sha256)throw Error('Staging install archive mismatch');
  const path='apps/editor/vendor/sdk-staging.tgz';
  await writeFile(join(root,path),bytes);

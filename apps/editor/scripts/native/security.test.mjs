@@ -44,6 +44,20 @@ it('refuses any direct protocol bytes that differ from the SDK authenticated bun
  assert.throws(()=>assertProtocolArchive(pin,bytes,Buffer.from('different archive')),/byte-identical/);
  assert.throws(()=>assertProtocolArchive({...pin,bundledDependencies:pin.bundledDependencies.map(d=>({...d,sha256:'0'.repeat(64)}))},bytes,protocol),/metadata mismatch/);
 });
+it('scopes the read-only job token to SDK intake rather than dependency installation',async()=>{
+ const {jobs,permissions}=parse(await readFile(root+'.github/workflows/editor-pages.yml','utf8'));
+ assert.equal(permissions.contents,'read');
+ assert.equal(jobs['native-build'].env.GITHUB_TOKEN,undefined);
+ assert.equal(jobs['native-build'].permissions,undefined);
+ for(const command of ['publisher.mjs guard','install-inputs.mjs','build.mjs']) {
+  const step=jobs['native-build'].steps.find(step=>step.run?.includes('native/'+command));
+  assert.equal(step.env.GITHUB_TOKEN,'${{ github.token }}');
+ }
+ const install=jobs['native-build'].steps.find(step=>step.run?.startsWith('pnpm install'));
+ assert.equal(install.env?.GITHUB_TOKEN,undefined);
+ const guard=jobs['native-deploy'].steps.find(step=>step.run?.includes('publisher.mjs guard'));
+ assert.ok(guard['timeout-minutes']*60000>5*30000+5000+20000+60000+120000);
+});
 it('protected jobs only execute workflow-owned helpers, with ancestry checks before candidate data and upload',async()=>{
  const {jobs}=parse(await readFile(root+'.github/workflows/editor-pages.yml','utf8'));
  for(const name of ['native-inputs','native-deploy','production-recovery']) {

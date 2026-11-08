@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cp, readFile, mkdtemp, writeFile, mkdir, rm } from 'node:fs/promises';
+import { chmod, cp, readFile, mkdtemp, writeFile, mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -106,7 +106,7 @@ it('pins staging to the production version and verifies both release digests and
   {name:'sdk-staging.tgz',digest:'sha256:'+sha(bytes),browser_download_url:prefix+'sdk-staging.tgz'},
   {name:'sdk-staging.tgz.sigstore.json',digest:'sha256:'+sha(proof),browser_download_url:prefix+'sdk-staging.tgz.sigstore.json'}]};
  let called=false;
- const options={fetchImpl:async url=>url.includes('api.github.com')?Response.json(release):new Response(url.endsWith('.json')?proof:bytes),
+ const options={token:'',fetchImpl:async url=>url.includes('api.github.com')?Response.json(release):new Response(url.endsWith('.json')?proof:bytes),
   run:(command,args)=>{called=true;assert.equal(command,'gh');assert.ok(args.includes('--bundle'));assert.ok(args.includes(pin.sourceCommit));assert.ok(args.includes('mdbase-dev/mdbase-connect/.github/workflows/publish-sdk-npm.yml'));}};
  assert.equal((await stagingArchive(pin,options)).authentication.sha256,sha(bytes));assert.equal(called,true);
  await assert.rejects(stagingArchive(pin,{...options,fetchImpl:async url=>url.includes('api.github.com')?Response.json(release):new Response('wrong')}),/digest mismatch/);
@@ -136,6 +136,49 @@ it('derives the staging frozen install without changing any other dependency',as
   pkg.dependencies['@mdbase-dev/sdk']=originalPackage.dependencies['@mdbase-dev/sdk'];
   assert.deepEqual(pkg,originalPackage);
  }finally{await rm(f.root,{recursive:true,force:true});}
+});
+it('uses authenticated assets for staging installation and installed-byte comparison',async context=>{
+ const fixture=await originalsFixture(),previous=process.env.GITHUB_TOKEN;
+ process.env.GITHUB_TOKEN='test-job-token';
+ context.after(()=>{if(previous===undefined)delete process.env.GITHUB_TOKEN;else process.env.GITHUB_TOKEN=previous;});
+ try {
+  const sdkTrust=await loadOriginals(fixture.options),{pin,bytes}=await productionPin(fixture.root);
+  const tag='sdk-v'+pin.version,path=`https://github.com/mdbase-dev/mdbase-connect/releases/download/${tag}/sdk-staging.tgz`;
+  const archive={...sdkTrust.archives.sdk,path},seen=[];
+  const metadata=`https://api.github.com/repos/mdbase-dev/mdbase-connect/releases/tags/${tag}`;
+  const asset='https://api.github.com/repos/mdbase-dev/mdbase-connect/releases/assets/100';
+  const fetchImpl=async(url,init)=>{
+   seen.push(url);assert.equal(init.headers.authorization,'Bearer test-job-token');
+   if(url===metadata)return Response.json({tag_name:tag,prerelease:true,draft:false,assets:[
+    {id:100,name:'sdk-staging.tgz',digest:'sha256:'+sha(bytes),browser_download_url:path}
+   ]});
+   assert.equal(url,asset);assert.equal(init.headers.accept,'application/octet-stream');
+   return new Response(bytes);
+  };
+  const plan={target:'staging',sdkTrust:{...sdkTrust,archives:{...sdkTrust.archives,sdk:archive}}};
+  await prepareInstall(plan,fixture.root,fetchImpl);
+  assert.deepEqual(await readFile(join(fixture.app,'vendor/sdk-staging.tgz')),bytes);
+  await compareInstalled(fixture.root,{sdk:archive},{fetchImpl});
+  assert.deepEqual(seen,[metadata,asset,metadata,asset]);
+  const wrong=async(url,init)=>url===metadata?fetchImpl(url,init):new Response('wrong bytes');
+  await assert.rejects(prepareInstall(plan,fixture.root,wrong),/Staging install archive mismatch/);
+  await assert.rejects(compareInstalled(fixture.root,{sdk:archive},{fetchImpl:wrong}),/installed comparison archive mismatch/);
+ }finally{await rm(fixture.root,{recursive:true,force:true});}
+});
+it('removes the intake job token before executing dependency or application build commands',async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'editor-build-token-'));
+ try {
+  const executable=join(directory,'pnpm');
+  await writeFile(executable,'#!/bin/sh\n[ -z "${GITHUB_TOKEN+x}" ] || exit 99\nprintf "build-token-cleared\\n" >&2\nexit 73\n');
+  await chmod(executable,0o755);
+  await writeFile(join(directory,'plan.json'),JSON.stringify({sdkTrust:{archives:{},release:{}}}));
+  const result=spawnSync(process.execPath,[join(repoRoot,'apps/editor/scripts/native/build.mjs'),directory],{
+   cwd:directory,encoding:'utf8',env:{...process.env,PATH:directory+':'+process.env.PATH,GITHUB_TOKEN:'test-job-token'}
+  });
+  assert.notEqual(result.status,0);
+  assert.match(result.stderr,/build-token-cleared/);
+  assert.doesNotMatch(result.stderr,/test-job-token/);
+ }finally{await rm(directory,{recursive:true,force:true});}
 });
 it('rolls production back, verifies the previous id and every transitive asset, and keeps failure evidence',async()=>{
  const previousId='87654321-1234-4234-8234-123456789abc',previousUrl='https://87654321.mdbase-editor.pages.dev',failedId='12345678-1234-4234-8234-123456789abc';
