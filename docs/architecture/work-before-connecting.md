@@ -209,10 +209,14 @@ every difference.
   retiring waits (`retired: false`); transferring again from there finishes
   it. Other accounts on this browser never see a retired copy, and signing out
   of its account erases it with the rest of that scope.
-- The browser copy is kept until the destination has confirmed every
-  transferred item, plus 30 days. It is reachable only from the app's
-  collection settings, where the person can transfer it again (path B, which
-  is idempotent) or delete it earlier. There is no separate restore.
+- The browser copy is kept for 30 days after the transfer, then erased at the
+  next Worker start (built). From the transfer on, the destination's own
+  replica holds every transferred record and keeps any it has not yet
+  confirmed, so the copy is a recovery aid rather than the only one; counting
+  from the transfer avoids tracking the destination's confirmations from the
+  unsynced side. It is to be reachable only from the app's collection
+  settings, where the person can transfer it again (path B, which is
+  idempotent) or delete it earlier. There is no separate restore.
 - Starting fresh later (signed out, or after deleting the copy) creates a new
   empty unsynced collection. It never reopens a transferred one.
 - `discard()` erases the current unsynced collection (its identity row, work
@@ -277,8 +281,9 @@ unsynced collection, and its handoff could become path A or B.
    runtime and SDK loader smokes.
 4. Path B: `planTransfer` and `transfer` (built; idempotent without a
    journal), retiring after a complete transfer, and `discard` (built).
-   Still to do: purging retired copies after the recovery window, erasing
-   them on sign-out of their account, and reaching them from settings.
+   Retired copies are purged after the recovery window and erased on sign-out
+   of their account (built). Still to do: reaching a retired copy from
+   settings to transfer it again or delete it.
 5. Path A: the portal's new-collection flow, resource copy, then the same
    transfer.
 6. Shared UI.
@@ -293,7 +298,8 @@ unsynced collection, and its handoff could become path A or B.
 2. **Files before connecting:** not in this version. The runtime refuses
    local-only attachments, and the grant hides attach. This can be revisited
    once a transfer can move attachment bytes through the upload lane.
-3. **Recovery window:** confirmed plus 30 days. The copy can be transferred
+3. **Recovery window:** 30 days from the transfer (originally "confirmed plus
+   30 days"; see "After either path" for why the clock starts at the transfer). The copy can be transferred
    again or deleted; there is no separate restore or export.
 4. **Name:** `unsynced`. It matches "sync off" in `PRODUCT.md`; "draft" is
    already used by record leases.

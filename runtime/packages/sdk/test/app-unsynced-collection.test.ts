@@ -1,6 +1,6 @@
 import {IDBFactory,IDBKeyRange} from "fake-indexeddb";
 import {beforeEach,expect,it} from "vitest";
-import {appUnsyncedIdentity,appUnsyncedRetired,appUnsyncedWork,discardAppUnsynced,eraseAppUnsyncedStorage,forgetAppUnsyncedRetired,openAppUnsyncedCollection,retireAppUnsynced} from "../src/app-host/unsynced-collection.js";
+import {appUnsyncedIdentity,appUnsyncedRetired,appUnsyncedWork,discardAppUnsynced,eraseAppUnsyncedStorage,forgetAppUnsyncedRetired,openAppUnsyncedCollection,pruneAppUnsyncedRetired,retireAppUnsynced} from "../src/app-host/unsynced-collection.js";
 
 const uuid=/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
 beforeEach(()=>{globalThis.indexedDB=new IDBFactory();globalThis.IDBKeyRange=IDBKeyRange;});
@@ -98,4 +98,18 @@ it("discards only the current collection, and lists no copies without creating t
   expect(await appUnsyncedIdentity("discard",false,signal)).toBeNull();
   expect(await appUnsyncedWork("discard",signal)).toBeNull();
   expect(await eraseAppUnsyncedStorage(made)).toBe(true);
+});
+
+it("prunes the copies it is asked to, and keeps one whose storage could not be erased",async()=>{
+  const signal=new AbortController().signal,name="prune",mine=crypto.randomUUID(),theirs=crypto.randomUUID();
+  const retire=async(account:string)=>{const id=(await appUnsyncedIdentity(name,true,signal))!;await retireAppUnsynced(name,id.collection,crypto.randomUUID(),account,signal);return id;};
+  const a=await retire(mine),b=await retire(theirs),c=await retire(mine);
+  const removed:string[]=[];
+  const storage={getDirectory:async()=>({removeEntry:async(entry:string)=>{if(entry.includes(c.collection))throw new DOMException("in use","NoModificationAllowedError");removed.push(entry);}})};
+  const nav=globalThis.navigator as {storage?:unknown};const before=Object.getOwnPropertyDescriptor(nav,"storage");
+  Object.defineProperty(nav,"storage",{value:storage,configurable:true});
+  try{expect(await pruneAppUnsyncedRetired(name,copy=>copy.account===mine,signal)).toBe(1);}
+  finally{if(before)Object.defineProperty(nav,"storage",before);else delete nav.storage;}
+  expect(removed).toEqual([`.mdbase-app-${a.account}-${a.installation}-${a.collection}`]);
+  expect((await appUnsyncedRetired(name,signal)).map(copy=>copy.identity.collection).sort()).toEqual([b.collection,c.collection].sort());
 });

@@ -93,6 +93,7 @@ function leader(){
     identity:vi.spyOn(Unsynced,"appUnsyncedIdentity").mockResolvedValue(Object.freeze({version:1 as const,account:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",installation:"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",collection:U,replica:"cccccccc-cccc-4ccc-8ccc-cccccccccccc",device:"dddddddd-dddd-4ddd-8ddd-dddddddddddd"})),
     discard:vi.spyOn(Unsynced,"discardAppUnsynced").mockImplementation(async()=>({version:1 as const,account:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",installation:"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",collection:U,replica:"cccccccc-cccc-4ccc-8ccc-cccccccccccc",device:"dddddddd-dddd-4ddd-8ddd-dddddddddddd"})),
     erase:vi.spyOn(Unsynced,"eraseAppUnsyncedStorage").mockResolvedValue(true),
+    prune:vi.spyOn(Unsynced,"pruneAppUnsyncedRetired").mockResolvedValue(0),
   };
   vi.spyOn(WorkerSession,"applicationWorkerSession").mockImplementation((_declaration,_packaged,host)=>{callbacks=host;return {session,unsynced:{databaseName:"mdbase.test.unsynced.v1"},displayName:"Notes"} as unknown as ReturnType<typeof WorkerSession.applicationWorkerSession>;});
   const declaration=applicationDeclaration({id:appId,name:"Notes",origin,environment:"production",manifest:{manifest_version:1,id:"dev.example.notes",name:"Notes",homepage:origin,redirect_uris:[`${origin}/callback`],requirements:{access:"full_collection",contracts:[],capabilities:{contract_version:2,required:["collection.read"],optional:[]}}}});
@@ -305,6 +306,20 @@ describe("per-tab collection selection",()=>{
     expect(worker.lifecycle.erase).toHaveBeenCalledTimes(1);
     expect(worker.unsynced).toHaveLength(2);expect(worker.unsynced[0]!.closed).toBe(true);
     expect(b.received.slice(before).map(value=>value.generation)).toEqual([worker.unsynced[1]!.generation]);
+  });
+
+  it("prunes expired retired copies at start, and erases the account's own copies when it signs out",async()=>{
+    const worker=leader(),life=new AbortController();cleanup.push(()=>life.abort());
+    const a=tab(worker,"leader_binding_00001",`${origin}/?collection=${X}`,worker.primary);await a.ready();
+    await vi.waitFor(()=>a.shows(X));
+    const [name,expired]=worker.lifecycle.prune.mock.calls[0]!;
+    expect(name).toBe("mdbase.test.unsynced.v1");
+    const copy=(account:string,retiredAt:number)=>({version:1 as const,identity:{} as never,destination:X,account,retiredAt});
+    expect(expired(copy(account,0))).toBe(true);expect(expired(copy(account,Date.now()))).toBe(false);
+    await a.client.request("signOut",null,life.signal);
+    expect(worker.lifecycle.prune).toHaveBeenCalledTimes(2);
+    const [,mine]=worker.lifecycle.prune.mock.calls[1]!;
+    expect(mine(copy(account,Date.now()))).toBe(true);expect(mine(copy("55555555-5555-4555-8555-555555555555",0))).toBe(false);
   });
 
   it("a follower that leaves releases its unsynced source",async()=>{

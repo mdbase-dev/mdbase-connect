@@ -217,6 +217,23 @@ export async function appUnsyncedRetired(databaseName: string, signal: AbortSign
 export function forgetAppUnsyncedRetired(databaseName: string, collection: string, signal: AbortSignal): Promise<void> {
   return change<void>(databaseName, signal, (rows, done) => { rows.delete(RETIRED + collection); done(); });
 }
+/** How long a retired copy is kept after its transfer: the destination's own
+ * replica holds every transferred record from the transfer on, so the copy is
+ * a recovery aid, not the only one. */
+export const APP_UNSYNCED_RECOVERY_MS = 30 * 24 * 60 * 60 * 1000;
+/** Erase every retired copy `drop` selects (storage first, then its row; a
+ * copy whose storage could not be erased keeps its row and is tried again).
+ * Never throws; returns how many were removed. */
+export async function pruneAppUnsyncedRetired(databaseName: string, drop: (copy: AppUnsyncedRetired) => boolean, signal: AbortSignal): Promise<number> {
+  let removed = 0;
+  try {
+    for (const copy of await appUnsyncedRetired(databaseName, signal)) {
+      if (!drop(copy) || !await eraseAppUnsyncedStorage(copy.identity)) continue;
+      await forgetAppUnsyncedRetired(databaseName, copy.identity.collection, signal); removed++;
+    }
+  } catch { /* tried again at the next start or sign-out */ }
+  return removed;
+}
 /** Erase an unsynced collection's replica storage (its OPFS pool). Call only
  * once it is closed. True when nothing is left. */
 export async function eraseAppUnsyncedStorage(id: AppUnsyncedIdentity): Promise<boolean> {

@@ -11,7 +11,7 @@ import type {AppFileAction} from "../app-host/installation-sign-in.js";
 import {APPLICATION_WORKER_PROTOCOL,ApplicationWorkerError,applicationWorkerBinding,applicationWorkerProblem,applicationWorkerRequest,
   type ApplicationWorkerEvent,type ApplicationWorkerProblem,type ApplicationWorkerRequest} from "./worker-protocol.js";
 import {webSignInProblem} from "../app-host/web-sign-in-problem.js";
-import {appUnsyncedIdentity,appUnsyncedWork,discardAppUnsynced,eraseAppUnsyncedStorage,openAppUnsyncedCollection,retireAppUnsynced,type AppUnsyncedConnection} from "../app-host/unsynced-collection.js";
+import {APP_UNSYNCED_RECOVERY_MS,appUnsyncedIdentity,appUnsyncedWork,discardAppUnsynced,eraseAppUnsyncedStorage,openAppUnsyncedCollection,pruneAppUnsyncedRetired,retireAppUnsynced,type AppUnsyncedConnection} from "../app-host/unsynced-collection.js";
 import type {AppWebNativeCollection} from "../app-host/web-collection.js";
 import type {AppWebSignInSnapshot} from "../app-host/web-sign-in-session.js";
 
@@ -94,7 +94,12 @@ export class ApplicationWorkerHost {
     this.post(this.primary,[APPLICATION_WORKER_PROTOCOL,binding,"nativeSnapshot",0,this.view(this.primary)]);
     // Read without opening the collection or creating its database.
     const name=this.unsyncedOptions?.databaseName;
-    if(name)void appUnsyncedWork(name,this.lifetime.signal).then(found=>{if(found)this.noteUnsyncedWork(found);}).catch(()=>{});
+    if(name){
+      void appUnsyncedWork(name,this.lifetime.signal).then(found=>{if(found)this.noteUnsyncedWork(found);}).catch(()=>{});
+      // Retired copies past their recovery window. None of them is ever open.
+      const now=Date.now();
+      void pruneAppUnsyncedRetired(name,copy=>copy.retiredAt+APP_UNSYNCED_RECOVERY_MS<now,this.lifetime.signal);
+    }
   }
   private noteUnsyncedWork(found:Readonly<{since:number}>|null):void{
     if(this.stopping||this.unsyncedWork?.since===found?.since)return;
@@ -460,7 +465,13 @@ export class ApplicationWorkerHost {
       case "discardUnsynced":try{await this.discardUnsynced(client,request[2]);}finally{this.collect();}break;
       case "forget":await this.session.forget(payload as string);break;
       case "refreshCollections":await this.session.refreshCollectionList();break;
-      case "signOut":await this.session.signOut();break;
+      case "signOut":{
+        // Retired copies belong to the account that brought them in.
+        const account=this.session.getSnapshot().signIn?.accountId,name=this.unsyncedOptions?.databaseName;
+        await this.session.signOut();
+        if(account&&name)await pruneAppUnsyncedRetired(name,copy=>copy.account===account,this.lifetime.signal);
+        break;
+      }
       case "deleteCollection":{const [id,name]=payload as readonly[string,string];await this.session.deleteCollection(id,name);break;}
       case "requestFileAccess":{const [id,actions,reason]=payload as readonly[string,readonly AppFileAction[],string];await this.session.requestFileAccess(id,actions,reason);break;}
       case "pollFileAccess":await this.session.pollFileAccess(payload as string);break;
