@@ -105,6 +105,21 @@ msgstr "Torna al lavoro"
 msgid "Blackout"
 msgstr "Oscura"
 
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Bring it in"
+msgstr "Importa"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Bring your work into {collection}?"
+msgstr "Importare il tuo lavoro in {collection}?"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Bringing in…"
+msgstr "Importazione…"
+
 #: src/apps.ts
 msgid "Browse and edit records"
 msgstr "Sfoglia e modifica i record"
@@ -235,6 +250,11 @@ msgstr "Comandi"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "Connect to sync your work"
+msgstr "Connetti per sincronizzare il tuo lavoro"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "Connecting to sync…"
 msgstr "Connessione alla sincronizzazione…"
 
@@ -263,6 +283,11 @@ msgstr "Continua nella finestra di mdbase"
 msgctxt "Collection storage mode"
 msgid "Continue on this device"
 msgstr "Continua su questo dispositivo"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Continue without connecting"
+msgstr "Continua senza connessione"
 
 #: src/AppSwitcher.tsx
 msgid "Current"
@@ -296,6 +321,26 @@ msgstr "Eliminazione…"
 #: src/screens.tsx
 msgid "Details"
 msgstr "Dettagli"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discard"
+msgstr "Elimina"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discard work that isn't in a collection?"
+msgstr "Eliminare il lavoro che non è in nessuna raccolta?"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discard…"
+msgstr "Elimina…"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discarding…"
+msgstr "Eliminazione…"
 
 #: src/Toaster.tsx
 msgid "Dismiss"
@@ -384,6 +429,11 @@ msgstr "Includi schermata"
 #: src/Feedback.tsx
 msgid "Include technical diagnostics"
 msgstr "Includi diagnostica tecnica"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "It's erased from {app} on this device. This can't be undone."
+msgstr "Verrà cancellato da {app} su questo dispositivo. L'operazione non può essere annullata."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -649,6 +699,16 @@ msgstr "Prima dell'invio, verifica che non siano presenti informazioni private."
 msgid "Saved"
 msgstr "Salvato"
 
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Saved only in this browser"
+msgstr "Salvato solo in questo browser"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Saved only on this device"
+msgstr "Salvato solo su questo dispositivo"
+
 #: src/SaveNotice.tsx
 msgid "Saving"
 msgstr "Salvataggio"
@@ -757,6 +817,21 @@ msgstr "Disconnessione…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "Some items get a new name because their names are already taken."
+msgstr "Alcuni elementi ricevono un nuovo nome perché il loro nome è già in uso."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Some items use types this collection doesn't have. They're brought in as they are."
+msgstr "Alcuni elementi usano tipi che questa raccolta non ha. Vengono importati così come sono."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Some of your work couldn't be brought in. Try again."
+msgstr "Non è stato possibile importare parte del tuo lavoro. Riprova."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "Starting {app}…"
 msgstr "Avvio di {app}…"
 
@@ -844,6 +919,11 @@ msgstr "La schermata supera i 3 MB. Scegli un'immagine più piccola."
 msgctxt "Collection storage mode"
 msgid "The switch to Private didn’t finish. Revoke the device that started it. Your other owner devices will then replace the collection key."
 msgstr "Il passaggio a Privata non è stato completato. Revoca il dispositivo che lo ha avviato. Gli altri tuoi dispositivi da proprietario sostituiranno quindi la chiave della raccolta."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "These types are added: {types}."
+msgstr "Vengono aggiunti questi tipi: {types}."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -981,6 +1061,11 @@ msgstr "Scrivi manoscritti con citazioni delle fonti"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "You have work that isn't in {collection} yet."
+msgstr "Hai del lavoro che non è ancora in {collection}."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "You've signed out of {app} on this device."
 msgstr "Disconnessione da {app} effettuata su questo dispositivo."
 
@@ -997,3 +1082,8 @@ msgstr "Le raccolte"
 #: src/Feedback.tsx
 msgid "Your message, any reply email and included screenshot, plus these app and build details."
 msgstr "Il messaggio, l'eventuale email per la risposta e la schermata inclusa, oltre ai seguenti dettagli sull'app e sulla build."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Your work is now in {collection}."
+msgstr "Il tuo lavoro ora è in {collection}."

@@ -105,6 +105,21 @@ msgstr "작업으로 돌아가기"
 msgid "Blackout"
 msgstr "가리기"
 
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Bring it in"
+msgstr "가져오기"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Bring your work into {collection}?"
+msgstr "작업을 {collection}(으)로 가져올까요?"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Bringing in…"
+msgstr "가져오는 중…"
+
 #: src/apps.ts
 msgid "Browse and edit records"
 msgstr "레코드 탐색 및 편집"
@@ -235,6 +250,11 @@ msgstr "명령"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "Connect to sync your work"
+msgstr "연결하여 작업 동기화"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "Connecting to sync…"
 msgstr "동기화에 연결 중…"
 
@@ -263,6 +283,11 @@ msgstr "mdbase 창에서 계속"
 msgctxt "Collection storage mode"
 msgid "Continue on this device"
 msgstr "이 기기에서 계속"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Continue without connecting"
+msgstr "연결하지 않고 계속"
 
 #: src/AppSwitcher.tsx
 msgid "Current"
@@ -296,6 +321,26 @@ msgstr "삭제 중…"
 #: src/screens.tsx
 msgid "Details"
 msgstr "세부 정보"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discard"
+msgstr "삭제"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discard work that isn't in a collection?"
+msgstr "컬렉션에 없는 작업을 삭제할까요?"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discard…"
+msgstr "삭제…"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discarding…"
+msgstr "삭제하는 중…"
 
 #: src/Toaster.tsx
 msgid "Dismiss"
@@ -384,6 +429,11 @@ msgstr "스크린샷 포함"
 #: src/Feedback.tsx
 msgid "Include technical diagnostics"
 msgstr "기술 진단 정보 포함"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "It's erased from {app} on this device. This can't be undone."
+msgstr "이 기기의 {app}에서 지워집니다. 이 작업은 되돌릴 수 없습니다."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -649,6 +699,16 @@ msgstr "보내기 전에 개인정보가 포함되어 있는지 확인하세요.
 msgid "Saved"
 msgstr "저장됨"
 
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Saved only in this browser"
+msgstr "이 브라우저에만 저장됨"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Saved only on this device"
+msgstr "이 기기에만 저장됨"
+
 #: src/SaveNotice.tsx
 msgid "Saving"
 msgstr "저장 중"
@@ -757,6 +817,21 @@ msgstr "로그아웃 중…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "Some items get a new name because their names are already taken."
+msgstr "이름이 이미 사용 중이어서 일부 항목의 이름이 새로 지정됩니다."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Some items use types this collection doesn't have. They're brought in as they are."
+msgstr "일부 항목은 이 컬렉션에 없는 유형을 사용합니다. 그대로 가져옵니다."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Some of your work couldn't be brought in. Try again."
+msgstr "일부 작업을 가져오지 못했습니다. 다시 시도하세요."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "Starting {app}…"
 msgstr "{app} 시작 중…"
 
@@ -844,6 +919,11 @@ msgstr "스크린샷이 3MB보다 큽니다. 더 작은 이미지를 선택하�
 msgctxt "Collection storage mode"
 msgid "The switch to Private didn’t finish. Revoke the device that started it. Your other owner devices will then replace the collection key."
 msgstr "비공개로 전환이 완료되지 않았습니다. 전환을 시작한 기기를 해지하세요. 그러면 다른 소유자 기기가 컬렉션 키를 교체합니다."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "These types are added: {types}."
+msgstr "다음 유형이 추가됩니다: {types}."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -981,6 +1061,11 @@ msgstr "자료를 인용하는 원고 작성"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "You have work that isn't in {collection} yet."
+msgstr "아직 {collection}에 없는 작업이 있습니다."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "You've signed out of {app} on this device."
 msgstr "이 기기에서 {app}에서 로그아웃했습니다."
 
@@ -997,3 +1082,8 @@ msgstr "내 컬렉션"
 #: src/Feedback.tsx
 msgid "Your message, any reply email and included screenshot, plus these app and build details."
 msgstr "메시지, 답변 이메일(있는 경우), 첨부한 스크린샷과 함께 다음 앱 및 빌드 정보가 전송됩니다."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Your work is now in {collection}."
+msgstr "이제 작업이 {collection}에 있습니다."

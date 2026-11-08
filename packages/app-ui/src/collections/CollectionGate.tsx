@@ -9,6 +9,8 @@ import { RowDialogs, SignOutDialog } from "./dialogs.js";
 import { problemControl, actionNotice, type CollectionView } from "./model.js";
 import { ActionButton, CollectionMark, GateFooter, ItemCopy, ItemMore, NoticeBlock, RowCopy, RowMore, type RowDialog } from "./parts.js";
 import { SetupReview } from "./SetupReview.js";
+import { BringInBanner, UnsyncedLine } from "./UnsyncedWork.js";
+import { unsyncedApi } from "./unsynced.js";
 import { useAutoStart, useCollectionUi, type CollectionSection, type CollectionSectionItem, type CollectionUi, type CollectionUiOptions } from "./use-collection-ui.js";
 
 /**
@@ -60,8 +62,16 @@ export function CollectionGate({ children, renderAppCollection, extraActions, la
   if (ui.view.kind === "ready") {
     return <>
       {ui.view.notice && <div className="mdbase-collections"><NoticeBlock notice={ui.view.notice} ui={ui} variant="banner" /></div>}
+      <BringInBanner ui={ui} />
       <CollectionMdbaseContext value={options.mdbase}>{children(ui.view.phase.connection)}</CollectionMdbaseContext>
       <SignOutDialog ui={ui} />
+    </>;
+  }
+  // Work before connecting: the app as usual, saved only on this device.
+  if (ui.view.kind === "unsynced") {
+    return <>
+      <UnsyncedLine ui={ui} />
+      <CollectionMdbaseContext value={options.mdbase}>{children(ui.view.phase.connection)}</CollectionMdbaseContext>
     </>;
   }
   return <GateScreen ui={ui} layout={layout} extraActions={extraActions} />;
@@ -77,9 +87,11 @@ export function CollectionPanel({ extraActions, autoStart = true, ...options }: 
   const ui = useCollectionUi(options);
   useAutoStart(options.mdbase, autoStart);
   const [dialog, setDialog] = useState<RowDialog>(null);
+  if (ui.view.kind === "unsynced") return <div className="mdbase-collections mdbase-collections-panel"><UnsyncedPanel ui={ui} /></div>;
   if (ui.view.kind !== "ready") return <GateScreen ui={ui} layout="panel" extraActions={extraActions} />;
   return <div className="mdbase-collections mdbase-collections-panel">
     {ui.view.notice && <NoticeBlock notice={ui.view.notice} ui={ui} variant="inline" />}
+    <BringInBanner ui={ui} variant="inline" />
     <SwitcherContent ui={ui} onDone={() => {}} onDialog={setDialog} />
     <RowDialogs ui={ui} dialog={dialog} onClose={() => setDialog(null)} />
     <SignOutDialog ui={ui} />
@@ -179,6 +191,7 @@ function GateBody({ ui, layout, extraActions, onDialog }: {
         {view.notice && <NoticeBlock notice={view.notice} ui={ui} variant="inline" />}
         <div className="mdbase-collections-actions">
           <ActionButton tone="primary" inert={inert} progress={busy === "sign_out" ? copy.signingOut : busy === "sign_in" ? copy.addingCollection : null} onClick={actions.signIn}>{copy.signIn}</ActionButton>
+          {ui.options.unsynced && unsyncedApi(ui.options.mdbase) && <ActionButton tone="secondary" inert={inert} onClick={actions.continueWithoutConnecting}>{copy.continueWithoutConnecting}</ActionButton>}
           {extraActions}
         </div>
         <AppSections ui={ui} onDialog={onDialog} />
@@ -218,8 +231,23 @@ function GateBody({ ui, layout, extraActions, onDialog }: {
         </div>
       </>;
     case "ready":
+    case "unsynced":
       return null;
   }
+}
+
+/** In a settings panel: where the work is kept, and the way to connect it. */
+function UnsyncedPanel({ ui }: { ui: CollectionUi }): JSX.Element {
+  const options = ui.options.unsynced;
+  const saved = typeof options === "object" && options.storage === "device" ? ui.copy.unsyncedSavedDevice : ui.copy.unsyncedSavedBrowser;
+  return <>
+    <p className="mdbase-collections-lead">{saved}</p>
+    <div className="mdbase-collections-actions">
+      <ActionButton tone="primary" inert={ui.busy !== null} progress={ui.busy === "sign_in" || ui.busy === "add" ? ui.copy.addingCollection : null}
+        onClick={ui.actions.connect}>{ui.copy.unsyncedConnect}</ActionButton>
+    </div>
+    {ui.error && <NoticeBlock notice={ui.error} ui={ui} variant="inline" />}
+  </>;
 }
 
 /** The approved collections as a labelled list: one row per collection, never mixed with actions. */

@@ -105,6 +105,21 @@ msgstr "Retour à votre travail"
 msgid "Blackout"
 msgstr "Occulter"
 
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Bring it in"
+msgstr "Importer"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Bring your work into {collection}?"
+msgstr "Importer votre travail dans {collection} ?"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Bringing in…"
+msgstr "Importation…"
+
 #: src/apps.ts
 msgid "Browse and edit records"
 msgstr "Parcourir et modifier les documents"
@@ -235,6 +250,11 @@ msgstr "Commandes"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "Connect to sync your work"
+msgstr "Connecter pour synchroniser votre travail"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "Connecting to sync…"
 msgstr "Connexion à la synchronisation…"
 
@@ -263,6 +283,11 @@ msgstr "Continuer dans la fenêtre mdbase"
 msgctxt "Collection storage mode"
 msgid "Continue on this device"
 msgstr "Continuer sur cet appareil"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Continue without connecting"
+msgstr "Continuer sans connexion"
 
 #: src/AppSwitcher.tsx
 msgid "Current"
@@ -296,6 +321,26 @@ msgstr "Suppression…"
 #: src/screens.tsx
 msgid "Details"
 msgstr "Détails"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discard"
+msgstr "Supprimer"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discard work that isn't in a collection?"
+msgstr "Supprimer le travail qui n’est dans aucune collection ?"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discard…"
+msgstr "Supprimer…"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discarding…"
+msgstr "Suppression…"
 
 #: src/Toaster.tsx
 msgid "Dismiss"
@@ -384,6 +429,11 @@ msgstr "Inclure la capture d’écran"
 #: src/Feedback.tsx
 msgid "Include technical diagnostics"
 msgstr "Inclure les diagnostics techniques"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "It's erased from {app} on this device. This can't be undone."
+msgstr "Il sera effacé de {app} sur cet appareil. Cette action est irréversible."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -649,6 +699,16 @@ msgstr "Vérifiez l’absence d’informations privées avant l’envoi."
 msgid "Saved"
 msgstr "Enregistré"
 
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Saved only in this browser"
+msgstr "Enregistré uniquement dans ce navigateur"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Saved only on this device"
+msgstr "Enregistré uniquement sur cet appareil"
+
 #: src/SaveNotice.tsx
 msgid "Saving"
 msgstr "Enregistrement"
@@ -757,6 +817,21 @@ msgstr "Déconnexion…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "Some items get a new name because their names are already taken."
+msgstr "Certains éléments reçoivent un nouveau nom, car leur nom est déjà utilisé."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Some items use types this collection doesn't have. They're brought in as they are."
+msgstr "Certains éléments utilisent des types que cette collection n’a pas. Ils sont importés tels quels."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Some of your work couldn't be brought in. Try again."
+msgstr "Une partie de votre travail n’a pas pu être importée. Réessayez."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "Starting {app}…"
 msgstr "Démarrage de {app}…"
 
@@ -844,6 +919,11 @@ msgstr "La capture d’écran dépasse 3 Mo. Choisissez une image plus petite."
 msgctxt "Collection storage mode"
 msgid "The switch to Private didn’t finish. Revoke the device that started it. Your other owner devices will then replace the collection key."
 msgstr "Le passage en mode Privé n’a pas abouti. Révoquez l’appareil qui l’a lancé. Vos autres appareils propriétaires remplaceront alors la clé de la collection."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "These types are added: {types}."
+msgstr "Ces types sont ajoutés : {types}."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -981,6 +1061,11 @@ msgstr "Rédigez des manuscrits qui citent vos sources"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "You have work that isn't in {collection} yet."
+msgstr "Vous avez du travail qui n’est pas encore dans {collection}."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "You've signed out of {app} on this device."
 msgstr "Vous vous êtes déconnecté de {app} sur cet appareil."
 
@@ -997,3 +1082,8 @@ msgstr "Vos collections"
 #: src/Feedback.tsx
 msgid "Your message, any reply email and included screenshot, plus these app and build details."
 msgstr "Votre message, l’adresse e-mail de réponse éventuelle et la capture d’écran jointe, ainsi que ces informations sur l’application et la version."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Your work is now in {collection}."
+msgstr "Votre travail est maintenant dans {collection}."

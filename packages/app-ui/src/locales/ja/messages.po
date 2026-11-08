@@ -105,6 +105,21 @@ msgstr "作業に戻る"
 msgid "Blackout"
 msgstr "黒塗り"
 
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Bring it in"
+msgstr "取り込む"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Bring your work into {collection}?"
+msgstr "作業を{collection}に取り込みますか？"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Bringing in…"
+msgstr "取り込み中…"
+
 #: src/apps.ts
 msgid "Browse and edit records"
 msgstr "レコードの閲覧と編集"
@@ -235,6 +250,11 @@ msgstr "コマンド"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "Connect to sync your work"
+msgstr "接続して作業を同期"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "Connecting to sync…"
 msgstr "同期に接続しています…"
 
@@ -263,6 +283,11 @@ msgstr "mdbaseのウィンドウで続行"
 msgctxt "Collection storage mode"
 msgid "Continue on this device"
 msgstr "このデバイスで続行"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Continue without connecting"
+msgstr "接続せずに続ける"
 
 #: src/AppSwitcher.tsx
 msgid "Current"
@@ -296,6 +321,26 @@ msgstr "削除中…"
 #: src/screens.tsx
 msgid "Details"
 msgstr "詳細"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discard"
+msgstr "破棄"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discard work that isn't in a collection?"
+msgstr "どのコレクションにも入っていない作業を破棄しますか？"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discard…"
+msgstr "破棄…"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discarding…"
+msgstr "破棄中…"
 
 #: src/Toaster.tsx
 msgid "Dismiss"
@@ -384,6 +429,11 @@ msgstr "スクリーンショットを含める"
 #: src/Feedback.tsx
 msgid "Include technical diagnostics"
 msgstr "技術診断情報を含める"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "It's erased from {app} on this device. This can't be undone."
+msgstr "このデバイスの{app}から消去されます。この操作は元に戻せません。"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -649,6 +699,16 @@ msgstr "送信前に個人情報が含まれていないか確認してくださ
 msgid "Saved"
 msgstr "保存済み"
 
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Saved only in this browser"
+msgstr "このブラウザーにのみ保存されています"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Saved only on this device"
+msgstr "このデバイスにのみ保存されています"
+
 #: src/SaveNotice.tsx
 msgid "Saving"
 msgstr "保存中"
@@ -757,6 +817,21 @@ msgstr "サインアウト中…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "Some items get a new name because their names are already taken."
+msgstr "名前がすでに使われているため、一部の項目には新しい名前が付きます。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Some items use types this collection doesn't have. They're brought in as they are."
+msgstr "一部の項目は、このコレクションにないタイプを使用しています。そのまま取り込まれます。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Some of your work couldn't be brought in. Try again."
+msgstr "一部の作業を取り込めませんでした。もう一度お試しください。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "Starting {app}…"
 msgstr "{app}を起動しています…"
 
@@ -844,6 +919,11 @@ msgstr "スクリーンショットは3 MBを超えています。より小さ�
 msgctxt "Collection storage mode"
 msgid "The switch to Private didn’t finish. Revoke the device that started it. Your other owner devices will then replace the collection key."
 msgstr "プライベートへの切り替えは完了しませんでした。切り替えを開始したデバイスを取り消してください。その後、ほかのオーナーデバイスがコレクションのキーを置き換えます。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "These types are added: {types}."
+msgstr "次のタイプが追加されます：{types}。"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -981,6 +1061,11 @@ msgstr "出典を引用した原稿を執筆"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "You have work that isn't in {collection} yet."
+msgstr "まだ{collection}にない作業があります。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "You've signed out of {app} on this device."
 msgstr "このデバイスで{app}からサインアウトしました。"
 
@@ -997,3 +1082,8 @@ msgstr "あなたのコレクション"
 #: src/Feedback.tsx
 msgid "Your message, any reply email and included screenshot, plus these app and build details."
 msgstr "メッセージ、返信先メールアドレス、添付したスクリーンショットに加え、次のアプリとビルド情報が送信されます。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Your work is now in {collection}."
+msgstr "作業は{collection}に取り込まれました。"

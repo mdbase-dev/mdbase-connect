@@ -105,6 +105,21 @@ msgstr "返回工作"
 msgid "Blackout"
 msgstr "遮盖"
 
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Bring it in"
+msgstr "导入"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Bring your work into {collection}?"
+msgstr "要将你的工作导入 {collection} 吗？"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Bringing in…"
+msgstr "正在导入…"
+
 #: src/apps.ts
 msgid "Browse and edit records"
 msgstr "浏览和编辑记录"
@@ -235,6 +250,11 @@ msgstr "命令"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "Connect to sync your work"
+msgstr "连接以同步你的工作"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "Connecting to sync…"
 msgstr "正在连接同步服务…"
 
@@ -263,6 +283,11 @@ msgstr "在 mdbase 窗口中继续"
 msgctxt "Collection storage mode"
 msgid "Continue on this device"
 msgstr "在此设备上继续"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Continue without connecting"
+msgstr "不连接，继续使用"
 
 #: src/AppSwitcher.tsx
 msgid "Current"
@@ -296,6 +321,26 @@ msgstr "正在删除…"
 #: src/screens.tsx
 msgid "Details"
 msgstr "详情"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discard"
+msgstr "丢弃"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discard work that isn't in a collection?"
+msgstr "要丢弃不在任何集合中的工作吗？"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discard…"
+msgstr "丢弃…"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discarding…"
+msgstr "正在丢弃…"
 
 #: src/Toaster.tsx
 msgid "Dismiss"
@@ -384,6 +429,11 @@ msgstr "包含屏幕截图"
 #: src/Feedback.tsx
 msgid "Include technical diagnostics"
 msgstr "包含技术诊断信息"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "It's erased from {app} on this device. This can't be undone."
+msgstr "它将从此设备上的 {app} 中清除。此操作无法撤销。"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -649,6 +699,16 @@ msgstr "发送前请检查是否包含私人信息。"
 msgid "Saved"
 msgstr "已保存"
 
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Saved only in this browser"
+msgstr "仅保存在此浏览器中"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Saved only on this device"
+msgstr "仅保存在此设备上"
+
 #: src/SaveNotice.tsx
 msgid "Saving"
 msgstr "正在保存"
@@ -757,6 +817,21 @@ msgstr "正在退出登录…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "Some items get a new name because their names are already taken."
+msgstr "部分项目的名称已被占用，因此会获得新名称。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Some items use types this collection doesn't have. They're brought in as they are."
+msgstr "部分项目使用了此集合没有的类型。它们将按原样导入。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Some of your work couldn't be brought in. Try again."
+msgstr "部分工作未能导入。请重试。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "Starting {app}…"
 msgstr "正在启动 {app}…"
 
@@ -844,6 +919,11 @@ msgstr "屏幕截图大于 3 MB。请选择较小的图片。"
 msgctxt "Collection storage mode"
 msgid "The switch to Private didn’t finish. Revoke the device that started it. Your other owner devices will then replace the collection key."
 msgstr "切换到私有模式未完成。请撤销发起切换的设备。之后你的其他所有者设备会替换集合密钥。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "These types are added: {types}."
+msgstr "将添加以下类型：{types}。"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -981,6 +1061,11 @@ msgstr "撰写引用来源的手稿"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "You have work that isn't in {collection} yet."
+msgstr "你有尚未放入 {collection} 的工作。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "You've signed out of {app} on this device."
 msgstr "你已在此设备上退出 {app}。"
 
@@ -997,3 +1082,8 @@ msgstr "你的集合"
 #: src/Feedback.tsx
 msgid "Your message, any reply email and included screenshot, plus these app and build details."
 msgstr "你的消息、回复邮箱、附加的屏幕截图，以及这些应用和构建信息。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Your work is now in {collection}."
+msgstr "你的工作现已在 {collection} 中。"
