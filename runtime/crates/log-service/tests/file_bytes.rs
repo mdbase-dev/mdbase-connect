@@ -1,11 +1,12 @@
-//! A row written before the file-bytes counter derives it from committed objects.
+//! File bytes and the file quota. A row written before the counter derives it
+//! from committed objects.
 use std::future::Future;
 use std::task::{Context, Poll, Waker};
 
 use mdbn_log_service::auth::Principal;
 use mdbn_log_service::mem::{MemBackend, MemObjects};
 use mdbn_log_service::testkit::{ControlPlane, Device, id16, object};
-use mdbn_log_service::{Backend, Config, Mode, Service, Txn, Write};
+use mdbn_log_service::{Backend, Code, Config, Mode, Service, Txn, Write};
 use mdbn_wire::cbor::Cbor;
 use mdbn_wire::common::{Bytes, Uuid};
 use mdbn_wire::envelope::ItemKind;
@@ -87,6 +88,10 @@ impl Fixture {
     }
 
     fn put(&self, kind: ItemKind, body: &[u8]) -> u64 {
+        self.try_put(kind, body).unwrap()
+    }
+
+    fn try_put(&self, kind: ItemKind, body: &[u8]) -> Result<u64, Code> {
         let bytes = object(self.collection, kind, 0, body.to_vec());
         let address = sha256(&bytes);
         ready(self.svc.put_object(
@@ -101,8 +106,54 @@ impl Fixture {
             },
             NOW,
         ))
+        .map_err(|e| e.code)?;
+        Ok(bytes.len() as u64)
+    }
+
+    /// `set_file_headroom`, returning `(file bytes, file quota)`.
+    fn headroom(&self, headroom: u64) -> (u64, u64) {
+        let out = ready(self.svc.call(
+            &Principal::ControlPlane,
+            "set_file_headroom",
+            &Cbor::Map(vec![
+                (Cbor::Uint(0), self.collection.to_cbor()),
+                (Cbor::Uint(1), Cbor::Uint(headroom)),
+            ]),
+            NOW,
+        ))
         .unwrap();
-        bytes.len() as u64
+        let Cbor::Map(fields) = out.result else {
+            panic!("set_file_headroom map");
+        };
+        match fields.as_slice() {
+            [
+                (Cbor::Uint(0), Cbor::Uint(files)),
+                (Cbor::Uint(1), Cbor::Uint(quota)),
+            ] => (*files, *quota),
+            _ => panic!("set_file_headroom fields"),
+        }
+    }
+
+    /// Sets the log storage quota, keeping the default rates.
+    fn log_quota(&self, bytes: u64) {
+        ready(self.svc.call(
+            &Principal::ControlPlane,
+            "set_quota",
+            &Cbor::Map(vec![
+                (Cbor::Uint(0), self.collection.to_cbor()),
+                (
+                    Cbor::Uint(1),
+                    Cbor::Array(vec![
+                        Cbor::Uint(bytes),
+                        Cbor::Uint(50),
+                        Cbor::Uint(4 << 20),
+                        Cbor::Uint(500),
+                    ]),
+                ),
+            ]),
+            NOW,
+        ))
+        .unwrap();
     }
 
     fn reported(&self) -> u64 {
@@ -172,10 +223,74 @@ fn a_row_without_the_counter_derives_it_then_keeps_it() {
     assert_eq!(f.reported(), first);
     assert_eq!(f.stored(), None, "a read never writes");
 
+    // Any commit needs the counter for its quota check, and keeps it.
     f.put(ItemKind::Chunk, b"another snapshot chunk");
-    assert_eq!(f.stored(), None, "only a blob commit settles the counter");
+    assert_eq!(f.stored(), Some(first));
 
     let second = f.put(ItemKind::BlobPart, b"after the counter");
     assert_eq!(f.stored(), Some(first + second));
     assert_eq!(f.reported(), first + second);
+}
+
+#[test]
+fn headroom_sets_the_file_quota_from_current_file_bytes() {
+    let f = Fixture::new();
+    let blob = f.put(ItemKind::BlobPart, b"attachment");
+    f.put(ItemKind::Chunk, b"snapshot chunk");
+    let next = object(f.collection, ItemKind::BlobPart, 0, vec![1; 60]).len() as u64;
+    assert_eq!(f.headroom(next + 10), (blob, blob + next + 10));
+
+    f.put(ItemKind::BlobPart, &[1; 60]);
+    assert_eq!(
+        f.try_put(ItemKind::BlobPart, &[2; 60]),
+        Err(Code::QuotaExceeded)
+    );
+    assert_eq!(f.reported(), blob + next);
+}
+
+#[test]
+fn no_headroom_blocks_files_but_not_notes() {
+    let f = Fixture::new();
+    let blob = f.put(ItemKind::BlobPart, b"kept");
+    assert_eq!(f.headroom(0), (blob, blob));
+    assert_eq!(
+        f.try_put(ItemKind::BlobPart, b"new"),
+        Err(Code::QuotaExceeded)
+    );
+    f.put(ItemKind::Chunk, b"snapshot chunk");
+    assert_eq!(f.reported(), blob, "existing files are kept");
+}
+
+#[test]
+fn the_log_quota_does_not_count_files() {
+    let f = Fixture::new();
+    let blob = f.put(ItemKind::BlobPart, &[3u8; 4096]);
+    let chunk = f.put(ItemKind::Chunk, b"snapshot-chunk-1");
+    let used = ready(async {
+        let mut tx = f
+            .svc
+            .backend
+            .begin(&f.collection, Mode::Read)
+            .await
+            .unwrap();
+        tx.load().await.unwrap().unwrap().meta.used_bytes
+    });
+    // Room for one more chunk of log bytes, far less than the files hold.
+    f.log_quota(used - blob + chunk);
+    assert!(used - blob + chunk < blob);
+    f.put(ItemKind::Chunk, b"snapshot chunk 2");
+    assert_eq!(
+        f.try_put(ItemKind::Chunk, b"snapshot chunk 3"),
+        Err(Code::QuotaExceeded)
+    );
+    f.put(ItemKind::BlobPart, b"files still fit");
+}
+
+#[test]
+fn headroom_settles_a_row_without_the_counter() {
+    let f = Fixture::new();
+    let blob = f.put(ItemKind::BlobPart, b"before the counter");
+    f.forget_counter();
+    assert_eq!(f.headroom(7), (blob, blob + 7));
+    assert_eq!(f.stored(), Some(blob));
 }

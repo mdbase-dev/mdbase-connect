@@ -573,7 +573,8 @@ Quotas are per collection, set by the control plane per plan (§12). Initial val
 
 | Quota | Default |
 |---|---|
-| Storage (retained items + live objects) | per plan, e.g. 1 GiB free tier. Compression and compaction count in the user's favour; the prototype's 4× storage amplification was a hosted-row artifact |
+| Files (committed `blob-part` objects) | the account's plan storage, shared across its collections by `set_file_headroom`; 1 GiB until allocated |
+| Log storage (retained items + other live objects) | 1 GiB, an abuse limit rather than a plan limit. Compression and compaction count in the user's favour; the prototype's 4× storage amplification was a hosted-row artifact |
 | Sustained append rate | 50 items/s and 4 MiB/s per collection, burst 500 items |
 | Read bandwidth | 32 MiB/s per connection |
 | Object upload bandwidth | 32 MiB/s per connection |
@@ -591,8 +592,9 @@ Over the control plane's credential only:
 | Method | Effect |
 |---|---|
 | `create_log {collection, genesis item}` | creates the actor with the genesis policy item at `seq` 1 |
-| `set_quota {collection, quotas}` | |
-| `storage_status {collection}` | returns the collection's used bytes, storage quota and file bytes (committed `blob-part` objects, the figure plans meter) |
+| `set_quota {collection, quotas}` | sets the abuse limits: the storage quota on log bytes (everything except files) and the append rates |
+| `set_file_headroom {collection, headroom}` | sets the file quota to the current file bytes plus `headroom` in one transaction, and returns both. The control plane shares an account's plan storage out this way. Headroom 0 blocks new files and keeps existing ones. Backups don't carry the file quota, and a restore isn't held to it |
+| `storage_status {collection}` | returns the collection's used bytes, storage quota, file bytes (committed `blob-part` objects, the figure plans meter) and file quota |
 | `delete_log {collection}` | marks it `gone`; data is deleted after a grace period, per the retention policy |
 | `move_log {collection, target}` | for migrations between backends. The log is `unavailable` during the copy, which is verified by chain hash |
 | `export {collection}` | streams every retained item, snapshot pointer and object, for backups and restore drills |

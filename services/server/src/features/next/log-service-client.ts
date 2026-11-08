@@ -306,10 +306,19 @@ export class LogServiceClient {
     }
   }
 
-  /** What the collection stores: `usedBytes` is what `storage_bytes` is enforced against, `fileBytes` the uploaded files plans meter. */
+  /** What the collection stores: `usedBytes` is everything, `quotaBytes` caps the part that isn't
+   * files, and `fileBytes` is the uploaded files plans meter. The file quota (key 3) is not read:
+   * CD deploys the server before the log service, which answers it only from this release. */
   async storageStatus(collection: string): Promise<{ usedBytes: number; quotaBytes: number; fileBytes: number }> {
     const result = await this.rpc("storage_status", struct([[0, uuidBytes(collection)]]));
     return { usedBytes: seqField(result, 0), quotaBytes: seqField(result, 1), fileBytes: seqField(result, 2) };
+  }
+
+  /** Sets the file quota to the collection's current file bytes plus `headroomBytes`, atomically, and
+   * returns both. Headroom 0 blocks new files and keeps existing ones. */
+  async setFileHeadroom(collection: string, headroomBytes: number): Promise<{ fileBytes: number; fileQuotaBytes: number }> {
+    const result = await this.rpc("set_file_headroom", struct([[0, uuidBytes(collection)], [1, headroomBytes]]));
+    return { fileBytes: seqField(result, 0), fileQuotaBytes: seqField(result, 1) };
   }
 
   /** One batch of `gc`; returns the objects removed, and a full batch means more may remain. */
@@ -327,6 +336,7 @@ export class LogServiceClient {
     return isLogRegion(region) ? { region } : {};
   }
 
+  /** The operator's abuse limits: log bytes (everything but files) and append rates. */
   async setQuota(collection: string, quotas: { storageBytes: number; itemsPerSecond: number; bytesPerSecond: number; burstItems: number }): Promise<void> {
     await this.rpc("set_quota", struct([[0, uuidBytes(collection)], [1, [quotas.storageBytes, quotas.itemsPerSecond, quotas.bytesPerSecond, quotas.burstItems]]]));
   }
