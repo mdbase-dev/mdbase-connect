@@ -944,9 +944,11 @@ fn pending_row_codec_keeps_legacy_bytes_and_round_trips_refs() {
     });
     assert!(crate::replica::attachment_upload::check_row_refs(&partial).is_err());
 
-    // A row without refs keeps the earlier six-element bytes.
+    // A captured row without refs keeps the earlier six-element bytes.
+    assert!(row.submitted, "an app's upload");
     let mut legacy = row.clone();
     legacy.refs.clear();
+    legacy.submitted = false;
     let c = mdbn_wire::cbor::decode(&legacy.to_bytes()).unwrap();
     assert!(matches!(c, mdbn_wire::cbor::Cbor::Array(ref a) if a.len() == 6));
 }
