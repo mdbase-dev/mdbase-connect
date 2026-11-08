@@ -168,6 +168,7 @@ describe("exact LAB account routing", () => {
   it.each([account, foreign])("policy wake selects only the owned hosted destination for %s", async owner => {
     const db = database([owner]);
     db.query.mockResolvedValueOnce(result([{ collection_id: collection, kind: "hosted", batch_id: "1" }, { collection_id: collection, kind: "escrow", batch_id: "1" }]));
+    db.query.mockResolvedValueOnce(result([])); // no queued retire wakes
     const seen: Request[] = [];
     await activatePendingServices(db, normal, async (url, init) => { seen.push(new Request(url, init)); return Response.json({ activated: true }); }, undefined, undefined, routing);
     expect(seen.map(r => r.url)).toEqual([`${owner === account ? routing.hosted.url : normal.hosted.url}/internal/v1/collections/activate`, `${normal.escrow.url}/internal/v1/collections/activate`]);

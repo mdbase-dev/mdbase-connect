@@ -131,13 +131,14 @@ describe("fixed LAB PITR routing configuration", () => {
       { collection_id: p.active, kind: "hosted", batch_id: "1" },
       { collection_id: p.owner, kind: "escrow", batch_id: "1" }
     ];
-    const query = vi.fn(async (sql: string) => ({ rows: sql.startsWith("SELECT") ? rows : [] }));
+    const query = vi.fn(async (sql: string) => ({ rows: sql.includes("FROM next_service_devices device") ? rows : [] }));
     const urls: string[] = [];
     const fetcher: typeof fetch = async input => { urls.push(String(input)); return Response.json({ activated: true }); };
     const deployments = { hosted: { url: "https://normal-hosted.example.test", token: "h".repeat(32) }, escrow: { url: "https://normal-escrow.example.test", token: "e".repeat(32) } };
     await activatePendingServices({ query } as unknown as DatabaseQueryable, deployments, fetcher, undefined, p);
     expect(query.mock.calls[0][0]).toContain("AND NOT (device.kind = 'escrow' AND device.collection_id = ANY($2::uuid[]))");
     expect(urls.sort()).toEqual([`${p.hostedUrl}/internal/v1/collections/activate`, "https://normal-escrow.example.test/internal/v1/collections/activate"].sort());
-    expect(query.mock.calls.length).toBe(3); // SELECT, hosted ACK, unrelated escrow ACK only.
+    expect(query.mock.calls[1][0]).toContain("AND NOT (wake.kind = 'escrow' AND wake.collection_id = ANY($2::uuid[]))");
+    expect(query.mock.calls.length).toBe(4); // SELECT, retire SELECT, hosted ACK, unrelated escrow ACK only.
   });
 });

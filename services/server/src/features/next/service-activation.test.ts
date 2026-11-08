@@ -51,10 +51,12 @@ describe("durable cloud-copy service activation", () => {
     expect(selection).toContain("device.activation_batch_id < latest.id");
     expect(selection).toContain("device.activation_attempt_batch_id < latest.id");
     expect(db.query.mock.calls[0]![1]).toEqual([4]);
-    expect(db.query.mock.calls.slice(1).map(([,values]) => values)).toEqual([
+    expect(db.query.mock.calls[1]![0]).toContain("FROM next_service_retire_wakes wake");
+    expect(db.query.mock.calls[1]![1]).toEqual([4]);
+    expect(db.query.mock.calls.slice(2).map(([,values]) => values)).toEqual([
       [collection, "hosted", "9007199254740993"], [collection, "escrow", "9007199254740993"]
     ]);
-    for (const [sql] of db.query.mock.calls.slice(1)) expect(sql).toContain("activation_attempt_batch_id <= $3::bigint");
+    for (const [sql] of db.query.mock.calls.slice(2)) expect(sql).toContain("activation_attempt_batch_id <= $3::bigint");
   });
   it.each(["offline", "redirect", "refused", "not-ack", "extra", "oversized"])("keeps %s pending without persisting arbitrary private error content", async (failure) => {
     const db = database();
@@ -104,6 +106,56 @@ describe("durable cloud-copy service activation", () => {
     await activatePendingServices(db, deployments, async () => reply());
     expect(db.query.mock.calls.filter(([sql]) => sql.includes("'infinity'"))).toHaveLength(0);
     expect(db.query.mock.calls.filter(([sql]) => sql.includes("make_interval"))).toHaveLength(2);
+  });
+  describe("retire wakes", () => {
+    const queued = "2026-11-08 01:02:03.456789+00";
+    function retiring() {
+      const query = vi.fn<DatabaseQueryable["query"]>();
+      const result = (rows: object[]) => ({ rows, rowCount: rows.length, command: "SELECT", oid: 0, fields: [] });
+      query.mockResolvedValueOnce(result([]));
+      query.mockResolvedValueOnce(result([{ collection_id: collection, kind: "hosted", queued_at: queued }, { collection_id: collection, kind: "escrow", queued_at: queued }]));
+      query.mockResolvedValue(result([]));
+      return { query };
+    }
+    it("send the same authenticated activation request, with no verdict or region in it", async () => {
+      const seen: Request[] = [];
+      await activatePendingServices(retiring(), deployments, async (input, init) => {
+        const request = new Request(input, init); seen.push(request);
+        return Response.json({ error: "custody_collection_gone" }, { status: 409 });
+      });
+      expect(seen.map((request) => new URL(request.url).hostname).sort()).toEqual(["escrow.test", "hosted.test"]);
+      for (const request of seen) {
+        const kind = new URL(request.url).hostname === "hosted.test" ? "hosted" : "escrow";
+        expect(new URL(request.url).pathname).toBe("/internal/v1/collections/activate");
+        expect(request.headers.get("authorization")).toBe(`Bearer ${deployments[kind].token}`);
+        expect(request.redirect).toBe("manual");
+        expect(await request.json()).toEqual({ collection });
+      }
+    });
+    it.each([
+      ["a lasting verdict", () => Response.json({ error: "custody_collection_gone" }, { status: 409 })],
+      ["a current copy", () => Response.json({ activated: true })],
+    ])("%s ends only the wake that was sent", async (_name, reply) => {
+      const db = retiring();
+      await activatePendingServices(db, deployments, async () => reply());
+      const done = db.query.mock.calls.filter(([sql]) => sql.startsWith("DELETE FROM next_service_retire_wakes"));
+      expect(done.map(([, values]) => values)).toEqual([[collection, "hosted", queued], [collection, "escrow", queued]]);
+      for (const [sql] of done) expect(sql).toContain("queued_at = $3::timestamptz");
+      expect(db.query.mock.calls.filter(([sql]) => sql.includes("make_interval") || sql.includes("next_service_devices SET"))).toHaveLength(0);
+    });
+    it("an unknown outcome backs off on the activation schedule", async () => {
+      const db = retiring();
+      await activatePendingServices(db, deployments, async () => { throw new Error("private network detail"); });
+      const retries = db.query.mock.calls.filter(([sql]) => sql.startsWith("UPDATE next_service_retire_wakes"));
+      expect(retries.map(([, values]) => values)).toEqual([[collection, "hosted", queued], [collection, "escrow", queued]]);
+      for (const [sql] of retries) {
+        expect(sql).toContain("make_interval(secs => LEAST(300, (2 * power(2, LEAST(attempts, 8)))::int))");
+        expect(sql).toContain("attempts = LEAST(attempts + 1, 9)");
+        expect(sql).toContain("queued_at = $3::timestamptz");
+      }
+      expect(db.query.mock.calls.filter(([sql]) => sql.startsWith("DELETE"))).toHaveLength(0);
+      expect(JSON.stringify(db.query.mock.calls)).not.toContain("private");
+    });
   });
   it("idle polls do not contact deployments", async () => {
     const db = database(); db.query.mockReset();
