@@ -234,17 +234,33 @@ every difference.
 
 ## Shared UI (`@mdbase-dev/ui`)
 
-- `CollectionGate` and `CollectionPanel` render `unsynced` as usable. They
-  show the persistent "Saved only in this browser · Connect to sync your work"
-  line once `unsyncedWork` is set.
-- The connect flow is the existing sign-in and chooser, with one change. When
-  there is unsynced work, the chooser leads with "New collection from this
-  work" (A) and lists existing collections as "Add to …" (B). Path B goes
-  through the app's own review only when `planTransfer` reports something to
-  decide.
-- The progress and recovery screens are shared, using
-  `transfer.problem` and `describeError`.
+Built. The app opts in with `unsynced` on `CollectionGate`, `CollectionPanel`
+or `useCollectionUi` (`true`, or `{ storage: "device", map }` for native
+shells and an app's transfer map).
+
+- The signed-out screen adds "Continue without connecting", which calls
+  `unsynced.open()`.
+- `CollectionGate` renders `unsynced` like `ready`: the app gets the
+  connection. Once `unsyncedWork` is set, one quiet line above it reads "Saved
+  only in this browser" (or "on this device") with "Connect to sync your
+  work". Connect signs in, or adds a collection when already signed in.
+  `CollectionPanel` shows the same in a settings panel.
+- The connect flow is the existing sign-in, chooser and Add. There is no
+  chooser change. With a collection open and work still unsynced, a banner
+  reads "You have work that isn't in {collection} yet", with "Bring it in" and
+  "Discard…".
+  - Bring it in plans with `addTypes: true`.
+  - A plan with renames, added types or missing types asks first, in a dialog
+    that names each consequence; otherwise it transfers at once.
+  - Path A is therefore Add a collection followed by the same banner.
+  - Afterwards the banner says how it went. A partial failure offers Bring it
+    in again.
+  - Discard asks first and names what is lost.
+- `useUnsyncedSavedLabel()` gives the app's own save notice the same wording.
 - The collection switcher does not list the unsynced collection.
+- The package compiles against published SDK releases. It reads the
+  `unsynced` phase, `unsyncedWork` and `mdbase.unsynced` structurally, and
+  offers nothing on an SDK without them.
 
 ## Consumers
 
@@ -257,10 +273,11 @@ every difference.
   priority and custom-value mapping, as the `map` for path B.
 - PR #362 is rebased onto the SDK release before it merges.
 
-**Editor.**
+**Editor.** It pins a vendored SDK build and the published shared UI, so
+adoption follows the SDK and UI releases, like TaskNotes.
 
-- Gains a workspace before sign-in: the gate renders `unsynced` like
-  `ready`.
+- Gains a workspace before sign-in: pass `unsynced` to its `CollectionGate`,
+  which then renders `unsynced` like `ready`.
 - Hides attach for the unsynced collection (its grant omits file `"add"`),
   and must not treat a missing `confirmedSeq` as unsaved: for an unsynced
   collection, local confirmation is the final state.
@@ -295,9 +312,10 @@ unsynced collection, and its handoff could become path A or B.
    settings to transfer it again or delete it.
 5. Path A: the portal's new-collection flow, then the same transfer with
    `addTypes` (built: no new method).
-6. Shared UI.
-7. Editor adoption, in this repository.
-8. SDK release, then TaskNotes adoption and PR #362.
+6. Shared UI (built).
+7. SDK and UI release, verified in a real browser on LAB. Unit tests use
+   fakes for OPFS and the Worker.
+8. Editor adoption, in this repository, then TaskNotes adoption and PR #362.
 
 ## Decisions
 
