@@ -1,7 +1,7 @@
 // Public data and transport doubles; no deployment or credentials.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { cp, readFile, mkdtemp, writeFile, mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -330,4 +330,16 @@ it('re-verifies only the custom alias inside a bounded settle window after the i
  assert.ok(stuck.calls.every(c=>c.totalTimeoutMs>0 && c.totalTimeoutMs<=180000));
  assert.ok(never.aliasAttempts.at(-1).startedMs<=300000);
  await assert.rejects(verifyPublication({...stuck.options,deployment:{...deployment,sourceSha:'c'.repeat(40)}}),/mismatch/);
+});
+
+it('recovery failures name the fixed refusal or only the error type', () => {
+ const script=new URL('./rollback.mjs',import.meta.url).pathname;
+ const run=(...args)=>spawnSync(process.execPath,[script,...args],{encoding:'utf8',
+  env:{PATH:process.env.PATH,TARGET:'production',CLOUDFLARE_API_TOKEN:'',CLOUDFLARE_ACCOUNT_ID:''}});
+ const refused=run('snapshot',tmpdir());
+ assert.equal(refused.status,1);
+ assert.equal(refused.stderr,'Editor recovery operation failed: Pages credentials required\n');
+ const other=run('unknown-command',tmpdir());
+ assert.equal(other.status,1);
+ assert.equal(other.stderr,'Editor recovery operation failed: transport or runtime error (Error)\n');
 });
