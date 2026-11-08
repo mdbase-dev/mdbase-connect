@@ -653,11 +653,6 @@ msgstr "{text}をアップロード中（全{0}件）"
 msgid "{title} note actions"
 msgstr "{title}のノート操作"
 
-#. placeholder {0}: collectionFileFormat(file)
-#: src/NoteList.tsx
-msgid "{title}, {0} file"
-msgstr "{title}、ファイル {0} 件"
-
 #: src/TypeBrowser.tsx
 msgid "{title}.md"
 msgstr "{title}.md"

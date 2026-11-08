@@ -420,10 +420,6 @@ msgid "Markup discarded. Screenshot excluded."
 msgstr "표시 내용을 버렸습니다. 스크린샷은 제외되었습니다."
 
 #: src/AppSwitcher.tsx
-msgid "mdbase {current}: open this collection in another app"
-msgstr "mdbase {current}: 이 컬렉션을 다른 앱에서 열기"
-
-#: src/AppSwitcher.tsx
 msgid "mdbase apps"
 msgstr "mdbase 앱"
 

@@ -155,7 +155,7 @@ test("file rows explain R and F2 without renaming the previous note", async ({ p
   await expect(page.locator(".note-scroll")).toBeFocused();
   await page.keyboard.press("/");
   await page.keyboard.type("frontmatter.svg", { delay: 40 });
-  const file = page.getByRole("option", { name: "frontmatter.svg, SVG file", exact: true });
+  const file = page.getByRole("option", { name: /^frontmatter\.svg/ });
   await expect(file).toBeVisible();
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("End");

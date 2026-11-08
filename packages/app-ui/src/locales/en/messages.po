@@ -420,10 +420,6 @@ msgid "Markup discarded. Screenshot excluded."
 msgstr "Markup discarded. Screenshot excluded."
 
 #: src/AppSwitcher.tsx
-msgid "mdbase {current}: open this collection in another app"
-msgstr "mdbase {current}: open this collection in another app"
-
-#: src/AppSwitcher.tsx
 msgid "mdbase apps"
 msgstr "mdbase apps"
 

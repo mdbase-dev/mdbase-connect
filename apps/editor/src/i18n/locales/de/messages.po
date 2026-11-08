@@ -653,11 +653,6 @@ msgstr "{text} hochgeladen: {0}"
 msgid "{title} note actions"
 msgstr "Notizaktionen für {title}"
 
-#. placeholder {0}: collectionFileFormat(file)
-#: src/NoteList.tsx
-msgid "{title}, {0} file"
-msgstr "{title}, {0} Datei"
-
 #: src/TypeBrowser.tsx
 msgid "{title}.md"
 msgstr "{title}.md"

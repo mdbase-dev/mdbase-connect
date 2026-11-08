@@ -420,10 +420,6 @@ msgid "Markup discarded. Screenshot excluded."
 msgstr "注釈を破棄しました。スクリーンショットは含まれません。"
 
 #: src/AppSwitcher.tsx
-msgid "mdbase {current}: open this collection in another app"
-msgstr "mdbase {current}：このコレクションを別のアプリで開く"
-
-#: src/AppSwitcher.tsx
 msgid "mdbase apps"
 msgstr "mdbaseアプリ"
 

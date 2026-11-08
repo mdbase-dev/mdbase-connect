@@ -94,6 +94,6 @@ describe("marks", () => {
       .toContain('class="mdbase-mark wordmark-mark mdbase-mark-at-rest"');
     const reader = renderToStaticMarkup(<Wordmark app="reader" />);
     expect(reader).toContain('class="mdbase-mark mdbase-app-mark is-reader wordmark-mark mdbase-mark-at-rest"');
-    expect(reader).toContain("<span>mdbase</span><strong>reader</strong>");
+    expect(reader).toContain("<span>mdbase</span> <strong>reader</strong>");
   });
 });

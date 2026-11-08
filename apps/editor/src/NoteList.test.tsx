@@ -123,6 +123,32 @@ describe("NoteList search presentation", () => {
     expect(props.onSelectFile).not.toHaveBeenCalled();
   });
 
+  it("names note and file entries by the text they show", () => {
+    const note: NoteSummary = { path: "Notes/one.md", frontmatter: {}, effectiveFrontmatter: {}, types: [], body: "", file: { mtime: "2026-01-01T12:00:00Z" } };
+    const noop = () => {};
+    render(<NoteList
+      entries={[
+        { kind: "note" as const, path: note.path, note },
+        { kind: "file" as const, path: "Files/paper.pdf", file: { path: "Files/paper.pdf", name: "paper.pdf", folder: "Files", size: 1, mtime: "", mediaType: "application/pdf", mediaClass: "pdf" } }
+      ] as never}
+      noteCount={1} fileCount={1} types={[]} selectedPath={note.path} statuses={new Map()}
+      search="" searchQuery="" searchContexts={new Map()} sort={defaultNoteSort} sortFields={[]}
+      collectionName="Test" loading={false} structureLoading={false} filesLoading={false}
+      contentIndexing={false} contentLoaded={1}
+      onSearch={noop} onSort={noop} onClearScope={noop} onQuickOpen={noop}
+      onRetryStructure={noop} onRetryContent={noop} onRetryFiles={noop} onSelect={noop}
+      onSelectFile={noop} onCollections={noop}
+    />);
+    // WCAG 2.5.3 Label in Name: each entry's accessible name contains its visible text.
+    const visibleText = (node: Node): string => node.nodeType === Node.TEXT_NODE ? node.textContent ?? ""
+      : node instanceof Element && node.getAttribute("aria-hidden") === "true" ? "" : [...node.childNodes].map(visibleText).join("");
+    const options = screen.getAllByRole("option");
+    expect(options.map(visibleText)).toEqual([expect.stringMatching(/^one/), expect.stringMatching(/^paper\.pdf/)]);
+    for (const option of options) {
+      expect(option).toHaveAccessibleName(new RegExp(visibleText(option).replace(/\s+/g, " ").trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    }
+  });
+
   it("keeps partial-load failures visible and retryable instead of claiming complete results", () => {
     const retry = vi.fn();
     const noop = () => {};

@@ -420,10 +420,6 @@ msgid "Markup discarded. Screenshot excluded."
 msgstr "Разметка отменена. Снимок экрана исключён."
 
 #: src/AppSwitcher.tsx
-msgid "mdbase {current}: open this collection in another app"
-msgstr "mdbase {current}: открыть эту коллекцию в другом приложении"
-
-#: src/AppSwitcher.tsx
 msgid "mdbase apps"
 msgstr "Приложения mdbase"
 
