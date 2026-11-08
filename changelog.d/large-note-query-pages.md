@@ -6,4 +6,7 @@
   listing and manuscript opening in Writer and Editor until it was deleted.
 - Page query results while local edits are pending, as without them. Before,
   any pending edit made a listing over 1 MiB fail with `too_large` until the
-  edit was confirmed, including while offline.
+  edit was confirmed. A page needs its limit plus the pending edits to stay
+  within 1000 records (more than 500 pending edits at Writer's page size of
+  500); beyond that the query takes the per-record path, which still refuses
+  over 1 MiB on memory-constrained and hosted replicas.

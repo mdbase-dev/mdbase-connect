@@ -1180,6 +1180,14 @@ fn query_keysets_are_repeatable_bounded_session_bound_and_explicitly_stale() {
             .as_deref(),
         Some("cursor_stale")
     );
+    // A cursor minted while edits are pending is stale after another edit.
+    submit(&mut node, vec![create(9998, "tasks/draft.md", task(9998))]);
+    let pending = node.r.query(node.s, original.clone(), none()).unwrap();
+    let resumed_pending = with_cursor(&original, &pending.cursor.unwrap());
+    submit(&mut node, vec![create(9997, "tasks/draft2.md", task(9997))]);
+    let error = node.r.query(node.s, resumed_pending, none()).unwrap_err();
+    assert_eq!(error.problem().reason.as_deref(), Some("cursor_stale"));
+    node.pump();
     node.r.close(node.s);
     assert_eq!(
         node.r
