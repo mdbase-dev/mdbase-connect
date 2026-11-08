@@ -31,6 +31,7 @@ impl DirectoryMirror {
                 ));
             };
             if matches!(action, SyncAction::AdvanceCheckpoint { .. }) {
+                state.stuck = None;
                 self.journal_phase(state, BatchPhase::EffectsComplete, None)?;
                 return Ok(ExecutionResult {
                     status: "effects_complete".into(),
@@ -59,8 +60,14 @@ impl DirectoryMirror {
                 });
             }
             match self.dispatch_action(state, &action).await {
-                Ok(receipt) => self.journal_receipt(state, receipt)?,
+                Ok(receipt) => {
+                    if let Some((target, _, _)) = remote_file_action(&action) {
+                        clear_stuck(state, &target.identity);
+                    }
+                    self.journal_receipt(state, receipt)?
+                }
                 Err(error) => {
+                    let error = self.classify_refusal(state, &action, error)?;
                     let failure = MirrorFailure {
                         code: error.code,
                         message: error.message,
@@ -276,7 +283,7 @@ impl DirectoryMirror {
                 let request = OpenFileUploadRequest {
                     protocol_version: FILE_PROTOCOL_VERSION,
                     message_type: OpenFileUploadRequestKind::OpenFileUpload,
-                    transfer_id: uuid_from_action_id(action_id)?,
+                    transfer_id: file_control_id(action_id, state.retry_epoch)?,
                     path: target.path.clone(),
                     size: local.size,
                     content_digest: local.content_digest.clone(),
@@ -338,7 +345,7 @@ impl DirectoryMirror {
                 let request = MoveFileRequest {
                     protocol_version: FILE_PROTOCOL_VERSION,
                     message_type: MoveFileRequestKind::MoveFile,
-                    mutation_id: uuid_from_action_id(action_id)?,
+                    mutation_id: file_control_id(action_id, state.retry_epoch)?,
                     file_id: parse_identity(&source.identity)?,
                     if_revision: dependency_revision
                         .or_else(|| {
@@ -382,7 +389,7 @@ impl DirectoryMirror {
                 let request = DeleteFileRequest {
                     protocol_version: FILE_PROTOCOL_VERSION,
                     message_type: DeleteFileRequestKind::DeleteFile,
-                    mutation_id: uuid_from_action_id(action_id)?,
+                    mutation_id: file_control_id(action_id, state.retry_epoch)?,
                     file_id: parse_identity(&target.identity)?,
                     if_revision: expected_remote
                         .exact()
@@ -468,6 +475,113 @@ impl DirectoryMirror {
                 "Executor cannot dispatch checkpoints.",
             )),
         }
+    }
+
+    /// Decide what an authority's refusal of a remote file action means. Only
+    /// a definite refusal can drop the batch: any failure whose outcome a retry
+    /// must learn keeps it, so the retry reuses the same mutation or transfer
+    /// ID and can never apply twice. A dropped batch is re-planned from current
+    /// local and authority state, with fresh IDs only for work that did not apply.
+    fn classify_refusal(
+        &self,
+        state: &mut DurableMirrorState,
+        action: &SyncAction,
+        error: MirrorError,
+    ) -> Result<MirrorError, MirrorError> {
+        let Some((target, local, remote)) = remote_file_action(action) else {
+            return Ok(error);
+        };
+        if !definite_refusal(&error) {
+            // A locally stale action is dropped: what the authority said about
+            // the file before no longer describes this change.
+            if error.code == "sync_plan_stale" {
+                clear_stuck(state, &target.identity);
+            }
+            return Ok(error);
+        }
+        let code = error.code.as_str();
+        // A file over the per-file limit fails identically on every plan.
+        let trip = code == "file_too_large"
+            || ((REPLAN_REFUSALS.contains(&code) || OBJECT_REFUSALS.contains(&code))
+                && self.count_refusal(state, &target.identity, code));
+        if trip {
+            // Set the file aside as a rejected conflict. Its local bytes are
+            // never touched; the user decides, and every other object syncs.
+            state.planned_conflicts.insert(
+                target.identity.clone(),
+                DurableConflict {
+                    decision_id: conflict_decision_id(
+                        &target.entity,
+                        &target.identity,
+                        local,
+                        remote,
+                        ConflictKind::Rejected,
+                    )?,
+                    entity: target.entity.clone(),
+                    local: local.clone(),
+                    remote: remote.clone(),
+                    conflict_kind: ConflictKind::Rejected,
+                },
+            );
+            if let Some(object) = local.exact() {
+                state.local_bindings.insert(
+                    target.identity.clone(),
+                    LocalBinding {
+                        entity: target.entity.clone(),
+                        path: object.path.clone(),
+                    },
+                );
+            }
+            return Ok(MirrorError::new(
+                "sync_plan_stale",
+                format!(
+                    "{} was set aside after the authority refused it ({code}): {}",
+                    target.path, error.message
+                ),
+            ));
+        }
+        // The plan no longer matches the authority, or the upload's transfer
+        // can no longer commit. The authority would answer the same ID the same
+        // way, so plan again, with a fresh ID for this work.
+        if FRESH_ID_REFUSALS.contains(&code) || REPLAN_REFUSALS.contains(&code) {
+            return Ok(MirrorError::new(
+                "sync_plan_stale",
+                format!(
+                    "The authority refused {} ({code}); planning again.",
+                    target.path
+                ),
+            ));
+        }
+        Ok(error)
+    }
+
+    /// Count one definite refusal of `identity` and report whether it should
+    /// now be set aside: counted refusals of any kind at least `STUCK_ATTEMPTS`
+    /// times over at least `STUCK_AFTER`. Other failures never reach this, so
+    /// they leave the count as it was. A tripped count stays until the
+    /// conflict is written with the batch drop, so a crash in between trips
+    /// again on the next refusal instead of starting over.
+    fn count_refusal(&self, state: &mut DurableMirrorState, identity: &str, code: &str) -> bool {
+        let now = (self.clock)();
+        let stuck = match state.stuck.take() {
+            Some(stuck) if stuck.identity == identity => StuckAction {
+                code: code.to_string(),
+                attempts: stuck.attempts + 1,
+                ..stuck
+            },
+            _ => StuckAction {
+                identity: identity.to_string(),
+                code: code.to_string(),
+                attempts: 1,
+                since: now.to_rfc3339(),
+            },
+        };
+        let stuck_for = chrono::DateTime::parse_from_rfc3339(&stuck.since)
+            .map(|since| now.signed_duration_since(since))
+            .unwrap_or_default();
+        let trip = stuck.attempts >= STUCK_ATTEMPTS && stuck_for >= STUCK_AFTER;
+        state.stuck = Some(stuck);
+        trip
     }
 
     fn rebase_conflict(
@@ -715,6 +829,55 @@ fn invalid_file_receipt(action: &str) -> MirrorError {
         "invalid_sync_response",
         format!("Authority file receipt does not match action {action}."),
     )
+}
+/// The file a remote action changes, with the states it expects locally and
+/// on the authority. Record actions are not classified.
+fn remote_file_action(
+    action: &SyncAction,
+) -> Option<(&SyncObjectRef, &ExpectedObjectState, &ExpectedObjectState)> {
+    let (target, local, remote) = match action {
+        SyncAction::PutRemote {
+            target,
+            expected_local,
+            expected_remote,
+            ..
+        }
+        | SyncAction::DeleteRemote {
+            target,
+            expected_local,
+            expected_remote,
+            ..
+        } => (target, expected_local, expected_remote),
+        SyncAction::MoveRemote {
+            source,
+            expected_local,
+            expected_source_owner,
+            ..
+        } => (source, expected_local, expected_source_owner),
+        _ => return None,
+    };
+    (target.entity == SyncObjectKind::File).then_some((target, local, remote))
+}
+fn clear_stuck(state: &mut DurableMirrorState, identity: &str) {
+    if state
+        .stuck
+        .as_ref()
+        .is_some_and(|stuck| stuck.identity == identity)
+    {
+        state.stuck = None;
+    }
+}
+/// File controls are journaled by the authority under this ID, errors included.
+/// A batch always runs under the epoch it was prepared in, so retries reuse
+/// the ID; after an abandoned batch, re-planned work gets a new one.
+fn file_control_id(action: &str, retry_epoch: u64) -> Result<Uuid, MirrorError> {
+    if retry_epoch == 0 {
+        return uuid_from_action_id(action);
+    }
+    uuid_from_action_id(&format!(
+        "sha256:{}",
+        digest(&format!("{action}\0{retry_epoch}"))
+    ))
 }
 fn uuid_from_action_id(action: &str) -> Result<Uuid, MirrorError> {
     let hex = action
