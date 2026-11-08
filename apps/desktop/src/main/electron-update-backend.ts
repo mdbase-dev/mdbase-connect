@@ -12,7 +12,6 @@ import {
 } from "./update-policy";
 import { artifactMatches, downloadArtifact, downloadBytes } from "./update-download";
 
-const AUTO_UPDATER_TIMEOUT_MS = 180_000;
 const MAX_BUNDLE_BYTES = 4 * 1024 * 1024;
 
 export interface ElectronUpdateBackendOptions {
@@ -39,17 +38,19 @@ export class ElectronUpdateBackend implements UpdateBackend {
     this.packaged = options.packaged;
   }
 
-  async findLatest(): Promise<{ manifest: UpdateManifest } | null> {
+  async findLatest(signal: AbortSignal): Promise<{ manifest: UpdateManifest } | null> {
     return findLatestRelease({
       channel: this.channel,
-      trustCacheDirectory: join(this.options.userDataDirectory, "updates", "sigstore")
+      trustCacheDirectory: join(this.options.userDataDirectory, "updates", "sigstore"),
+      signal
     });
   }
 
   async stageAutomatic(
     manifest: UpdateManifest,
     target: UpdateTarget,
-    onProgress: (progress: number) => void
+    onProgress: (progress: number) => void,
+    signal: AbortSignal
   ): Promise<void> {
     if (this.options.platform !== "darwin" || target.mode !== "automatic") {
       throw new Error("Automatic installation is only enabled for signed macOS releases.");
@@ -59,12 +60,14 @@ export class ElectronUpdateBackend implements UpdateBackend {
     const directory = join(this.options.userDataDirectory, "updates", "downloads", manifest.version);
     await mkdir(directory, { recursive: true, mode: 0o700 });
     await chmod(directory, 0o700).catch(() => undefined);
+    signal.throwIfAborted();
     const archive = join(directory, artifact.name);
-    const bundleBytes = await downloadBytes(artifact.sigstore_url, MAX_BUNDLE_BYTES);
+    const bundleBytes = await downloadBytes(artifact.sigstore_url, MAX_BUNDLE_BYTES, fetch, undefined, signal);
     const cached = await artifactMatches(archive, artifact);
+    signal.throwIfAborted();
     if (!cached) {
       await rm(archive, { force: true });
-      await downloadArtifact(artifact, archive, (progress) => onProgress(Math.min(90, progress * 0.9)));
+      await downloadArtifact(artifact, archive, (progress) => onProgress(Math.min(90, progress * 0.9)), fetch, undefined, signal);
     } else {
       onProgress(90);
     }
@@ -72,13 +75,15 @@ export class ElectronUpdateBackend implements UpdateBackend {
       bundleBytes,
       artifactPath: archive,
       tag: manifest.tag,
-      trustCacheDirectory: join(this.options.userDataDirectory, "updates", "sigstore")
+      trustCacheDirectory: join(this.options.userDataDirectory, "updates", "sigstore"),
+      signal
     }).catch(async (error) => {
-      await rm(archive, { force: true });
+      if (!signal.aborted) await rm(archive, { force: true });
       throw error;
     });
+    signal.throwIfAborted();
     onProgress(94);
-    await stageMacUpdate(archive, manifest, onProgress);
+    await stageMacUpdate(archive, manifest, onProgress, signal);
   }
 
   installAutomatic(): void {
@@ -93,7 +98,8 @@ export class ElectronUpdateBackend implements UpdateBackend {
 async function stageMacUpdate(
   archive: string,
   manifest: UpdateManifest,
-  onProgress: (progress: number) => void
+  onProgress: (progress: number) => void,
+  signal: AbortSignal
 ): Promise<void> {
   const server = await localUpdateServer(archive, manifest);
   const address = server.address();
@@ -103,17 +109,15 @@ async function stageMacUpdate(
   }
   const feedUrl = `http://127.0.0.1:${address.port}/feed`;
   try {
+    signal.throwIfAborted();
     autoUpdater.setFeedURL({ url: feedUrl, serverType: "json" });
     await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(
-        () => finish(new Error("The platform updater did not stage the release in time.")),
-        AUTO_UPDATER_TIMEOUT_MS
-      );
       const onDownloaded = () => finish();
       const onUnavailable = () => finish(new Error("The platform updater rejected the newer release."));
       const onError = (error: Error) => finish(error);
+      const onAbort = () => finish(signal.reason);
       const finish = (error?: Error) => {
-        clearTimeout(timeout);
+        signal.removeEventListener("abort", onAbort);
         autoUpdater.removeListener("update-downloaded", onDownloaded);
         autoUpdater.removeListener("update-not-available", onUnavailable);
         autoUpdater.removeListener("error", onError);
@@ -122,6 +126,7 @@ async function stageMacUpdate(
       autoUpdater.once("update-downloaded", onDownloaded);
       autoUpdater.once("update-not-available", onUnavailable);
       autoUpdater.once("error", onError);
+      signal.addEventListener("abort", onAbort, { once: true });
       try {
         autoUpdater.checkForUpdates();
       } catch (error) {
@@ -130,6 +135,7 @@ async function stageMacUpdate(
     });
     onProgress(100);
   } finally {
+    server.closeAllConnections();
     await closeServer(server);
   }
 }

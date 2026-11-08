@@ -53,17 +53,19 @@ export interface UpdateBackend {
   channel: UpdateChannel;
   platformKey: string;
   packaged: boolean;
-  findLatest(): Promise<{ manifest: UpdateManifest } | null>;
+  findLatest(signal: AbortSignal): Promise<{ manifest: UpdateManifest } | null>;
   stageAutomatic(
     manifest: UpdateManifest,
     target: UpdateTarget,
-    onProgress: (progress: number) => void
+    onProgress: (progress: number) => void,
+    signal: AbortSignal
   ): Promise<void>;
   installAutomatic(): void;
   openExternal(url: string): Promise<void>;
 }
 
 const NEWEST = msg({ message: "This is the newest release on the selected channel.", context: "Desktop application" });
+const CHECK_TIMEOUT_MS = 60_000;
 type UpdateCopy = string | MessageDescriptor;
 type UpdateState = Omit<DesktopUpdateStatus, "message" | "daemon_notice"> & {
   message: UpdateCopy;
@@ -122,7 +124,12 @@ export class UpdateCoordinator {
     if (["ready", "installing"].includes(this.statusValue.phase) || !this.statusValue.can_check) {
       return Promise.resolve(this.status());
     }
-    this.operation = this.checkExclusive(manual).finally(() => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => {
+      controller.abort(new Error("Update check timed out after 60 seconds."));
+    }, CHECK_TIMEOUT_MS);
+    this.operation = this.checkExclusive(manual, controller.signal).finally(() => {
+      clearTimeout(timeout);
       this.operation = null;
     });
     return this.operation;
@@ -162,7 +169,7 @@ export class UpdateCoordinator {
     return this.status();
   }
 
-  private async checkExclusive(manual: boolean): Promise<DesktopUpdateStatus> {
+  private async checkExclusive(manual: boolean, signal: AbortSignal): Promise<DesktopUpdateStatus> {
     if (!this.backend.packaged) return this.status();
     this.setStatus({
       phase: "checking",
@@ -171,15 +178,16 @@ export class UpdateCoordinator {
       can_install: false
     });
     try {
-      const persisted = await this.store.load();
-      const release = await this.backend.findLatest();
+      const persisted = await this.duringCheck(this.store.load(), signal);
+      const release = await this.duringCheck(this.backend.findLatest(signal), signal);
       const checkedAt = new Date().toISOString();
-      await this.store.update((state) => {
+      await this.duringCheck(this.store.update((state) => {
+        signal.throwIfAborted();
         state.last_checked_at = checkedAt;
         if (release) {
           state.highest_trusted_version = maxVersion(state.highest_trusted_version, release.manifest.version);
         }
-      });
+      }), signal);
       this.candidate = null;
       if (!release) {
         this.setStatus({ phase: "idle", checked_at: checkedAt, message: NEWEST, can_check: true, can_install: false });
@@ -216,9 +224,10 @@ export class UpdateCoordinator {
         const required = decision.required ? { required: true as const } : {};
         const downloading = msg`Downloading verified version ${manifest.version}…`;
         this.setStatus({ phase: "downloading", ...found, progress: 0, message: downloading, can_check: false, can_install: false });
-        await this.backend.stageAutomatic(manifest, decision.target, (progress) => {
+        await this.duringCheck(this.backend.stageAutomatic(manifest, decision.target, (progress) => {
+          if (signal.aborted) return;
           this.setStatus({ phase: "downloading", progress, message: downloading, can_check: false, can_install: false });
-        });
+        }, signal), signal);
         this.candidate = { manifest, target: decision.target };
         this.setStatus({
           phase: "ready",
@@ -258,6 +267,24 @@ export class UpdateCoordinator {
         can_install: false
       });
       return this.status();
+    }
+  }
+
+  private async duringCheck<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+    let onAbort: () => void = () => {};
+    try {
+      const result = await Promise.race([
+        operation,
+        new Promise<never>((_resolve, reject) => {
+          onAbort = () => reject(signal.reason);
+          if (signal.aborted) onAbort();
+          else signal.addEventListener("abort", onAbort, { once: true });
+        })
+      ]);
+      signal.throwIfAborted();
+      return result;
+    } finally {
+      signal.removeEventListener("abort", onAbort);
     }
   }
 

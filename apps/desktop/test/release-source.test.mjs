@@ -89,6 +89,75 @@ function fetchMap(entries) {
   };
 }
 
+for (const stalled of ["headers", "index-body", "manifest-body", "bundle-body"]) {
+  test(`check cancellation aborts stalled ${stalled} without trusting metadata`, { timeout: 2_000 }, async () => {
+    const candidate = release("0.1.0-beta.9");
+    const controller = new AbortController();
+    const started = Promise.withResolvers();
+    const responses = fetchMap({
+      [indexUrl]: [candidate],
+      [candidate.assets[0].browser_download_url]: manifest(),
+      [candidate.assets[1].browser_download_url]: {}
+    });
+    const pending = findLatestRelease({
+      channel: "beta",
+      trustCacheDirectory: "/tmp/not-used",
+      signal: controller.signal,
+      async fetchImpl(url, { signal }) {
+        if (stalled === "headers") {
+          started.resolve();
+          return new Promise((_resolve, reject) => {
+            signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+          });
+        }
+        const isStalled = stalled === "index-body" ? url === indexUrl : url.endsWith(stalled.split("-")[0]);
+        if (!isStalled) return responses(url);
+        const body = new ReadableStream({
+          start(stream) {
+            stream.enqueue(Buffer.from("{"));
+            signal.addEventListener("abort", () => stream.error(signal.reason), { once: true });
+          }
+        });
+        const response = new Response(body);
+        Object.defineProperty(response, "url", { value: url });
+        started.resolve();
+        return response;
+      },
+      async verifyBundle() { assert.fail("Incomplete metadata must not be verified."); }
+    });
+    const rejected = assert.rejects(pending, /check deadline/);
+    await started.promise;
+    controller.abort(new Error("check deadline"));
+    await rejected;
+  });
+}
+
+test("cancelled verification cannot trust a late result or try another release", async () => {
+  const candidate = release("0.1.0-beta.9");
+  const controller = new AbortController();
+  const started = Promise.withResolvers();
+  const verification = Promise.withResolvers();
+  const pending = findLatestRelease({
+    channel: "beta",
+    trustCacheDirectory: "/tmp/not-used",
+    signal: controller.signal,
+    fetchImpl: fetchMap({
+      [indexUrl]: [candidate, release("0.1.0-beta.10")],
+      [candidate.assets[0].browser_download_url]: manifest(),
+      [candidate.assets[1].browser_download_url]: {}
+    }),
+    async verifyBundle() {
+      started.resolve();
+      await verification.promise;
+    }
+  });
+  const rejected = assert.rejects(pending, /check deadline/);
+  await started.promise;
+  controller.abort(new Error("check deadline"));
+  verification.resolve();
+  await rejected;
+});
+
 test("release discovery verifies the exact workflow-and-tag identity", async () => {
   const candidate = release("0.1.0-beta.9");
   const calls = [];

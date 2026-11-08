@@ -54,6 +54,7 @@ export interface ReleaseSourceOptions {
   channel: UpdateChannel;
   trustCacheDirectory: string;
   fetchImpl?: typeof fetch;
+  signal?: AbortSignal;
   verifyBundle?: (
     bundle: unknown,
     payload: Buffer,
@@ -64,7 +65,7 @@ export interface ReleaseSourceOptions {
 
 export async function findLatestRelease(options: ReleaseSourceOptions): Promise<ReleaseCandidate | null> {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const releases = await fetchReleaseIndex(fetchImpl);
+  const releases = await fetchReleaseIndex(fetchImpl, options.signal);
   const matching = releases.filter(
     (release) =>
       !release.draft &&
@@ -74,26 +75,30 @@ export async function findLatestRelease(options: ReleaseSourceOptions): Promise<
   let best: ReleaseCandidate | null = null;
   const rejected: Error[] = [];
   for (const release of matching) {
+    options.signal?.throwIfAborted();
     const manifestAsset = release.assets.find((asset) => asset.name === MANIFEST_NAME);
     const bundleAsset = release.assets.find((asset) => asset.name === MANIFEST_BUNDLE_NAME);
     if (!manifestAsset || !bundleAsset) continue;
     try {
       const [manifestResponse, bundleResponse] = await Promise.all([
-        request(fetchImpl, manifestAsset.browser_download_url),
-        request(fetchImpl, bundleAsset.browser_download_url)
+        request(fetchImpl, manifestAsset.browser_download_url, options.signal),
+        request(fetchImpl, bundleAsset.browser_download_url, options.signal)
       ]);
       const [manifestBytes, bundleBytes] = await Promise.all([
         readLimited(manifestResponse, MAX_MANIFEST_BYTES),
         readLimited(bundleResponse, MAX_BUNDLE_BYTES)
       ]);
+      options.signal?.throwIfAborted();
       const identity = `${WORKFLOW_IDENTITY_PREFIX}${release.tag_name}`;
-      const verifyBundle = options.verifyBundle ?? verifyReleaseBundle;
+      const verifyBundle = options.verifyBundle ?? ((bundle, payload, signer, cache) =>
+        verifyReleaseBundle(bundle, payload, signer, cache, options.signal));
       await verifyBundle(
         JSON.parse(bundleBytes.toString("utf8")),
         manifestBytes,
         identity,
         options.trustCacheDirectory
       );
+      options.signal?.throwIfAborted();
       const manifest = parseUpdateManifest(JSON.parse(manifestBytes.toString("utf8")));
       if (manifest.tag !== release.tag_name) {
         throw new Error("Signed update manifest does not match its release tag.");
@@ -108,6 +113,7 @@ export async function findLatestRelease(options: ReleaseSourceOptions): Promise<
         best = { manifest, manifestBytes, release: { tag: release.tag_name, url: release.html_url } };
       }
     } catch (error) {
+      options.signal?.throwIfAborted();
       rejected.push(
         new Error(
           `Rejected update metadata for ${release.tag_name}: ${
@@ -127,17 +133,19 @@ export async function findLatestRelease(options: ReleaseSourceOptions): Promise<
   return best;
 }
 
-async function fetchReleaseIndex(fetchImpl: typeof fetch): Promise<GitHubRelease[]> {
+async function fetchReleaseIndex(fetchImpl: typeof fetch, signal?: AbortSignal): Promise<GitHubRelease[]> {
   const releases: GitHubRelease[] = [];
   // GitHub includes every artifact's metadata in this response. Keep individual
   // pages small as releases accumulate, rather than raising the response limit.
   // Construct URLs locally; never follow an untrusted pagination URL.
   for (let page = 1; page <= MAX_RELEASE_PAGES; page += 1) {
     const url = `${GITHUB_API}/repos/${REPOSITORY}/releases?per_page=${RELEASES_PER_PAGE}&page=${page}`;
-    const response = await request(fetchImpl, url);
+    signal?.throwIfAborted();
+    const response = await request(fetchImpl, url, signal);
     const entries = parseReleaseIndex(
       JSON.parse((await readLimited(response, MAX_RELEASE_INDEX_BYTES)).toString("utf8"))
     );
+    signal?.throwIfAborted();
     releases.push(...entries);
     if (entries.length < RELEASES_PER_PAGE) return releases;
   }
@@ -152,6 +160,7 @@ export async function verifyArtifactBundle(input: {
   artifactPath?: string;
   tag: string;
   trustCacheDirectory: string;
+  signal?: AbortSignal;
 }): Promise<void> {
   if (!/^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(input.tag)) {
     throw new Error("Cannot verify an artifact from an invalid release tag.");
@@ -166,7 +175,8 @@ export async function verifyArtifactBundle(input: {
     JSON.parse(input.bundleBytes.toString("utf8")),
     payload,
     `${WORKFLOW_IDENTITY_PREFIX}${input.tag}`,
-    input.trustCacheDirectory
+    input.trustCacheDirectory,
+    input.signal
   );
 }
 
@@ -174,9 +184,11 @@ async function verifyReleaseBundle(
   bundle: unknown,
   payload: Buffer,
   identity: string,
-  trustCacheDirectory: string
+  trustCacheDirectory: string,
+  signal?: AbortSignal
 ): Promise<void> {
   const verifyAt = async (cachePath: string): Promise<void> => {
+    signal?.throwIfAborted();
     await verify(bundle as Bundle, payload, {
       certificateIssuer: OIDC_ISSUER,
       certificateIdentityURI: identity,
@@ -186,10 +198,12 @@ async function verifyReleaseBundle(
       timeout: 10_000,
       retry: { retries: 2 }
     });
+    signal?.throwIfAborted();
   };
   try {
     await verifyAt(trustCacheDirectory);
   } catch (error) {
+    signal?.throwIfAborted();
     if (!isRecoverableTrustCacheError(error)) throw error;
     await recoverTrustCache(trustCacheDirectory, verifyAt, error);
   }
@@ -248,7 +262,7 @@ function isMissingPath(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
-async function request(fetchImpl: typeof fetch, url: string): Promise<Response> {
+async function request(fetchImpl: typeof fetch, url: string, signal?: AbortSignal): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   const response = await fetchImpl(url, {
@@ -257,7 +271,7 @@ async function request(fetchImpl: typeof fetch, url: string): Promise<Response> 
       "user-agent": "mdbase-connect-updater"
     },
     redirect: "follow",
-    signal: controller.signal
+    signal: signal ? AbortSignal.any([controller.signal, signal]) : controller.signal
   }).catch((error) => {
     clearTimeout(timeout);
     throw error;
