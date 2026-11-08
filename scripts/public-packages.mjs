@@ -10,7 +10,6 @@ export const publicPackageDirectories = [
   "packages/protocol",
   "packages/client",
   "packages/devkit",
-  "packages/webhooks",
   "packages/app-ui",
   "packages/i18n"
 ];
