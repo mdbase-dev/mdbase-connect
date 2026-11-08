@@ -9,7 +9,7 @@ import type {AppWebCollectionHandoff} from "../app-host/web-collection.js";
 
 export const APPLICATION_WORKER_PROTOCOL="mdbn-application-worker/1";
 export const APPLICATION_WORKER_MAX_ID=0xffffffff;
-export type ApplicationWorkerAction="start"|"authorize"|"renewExpiredPairing"|"select"|"clearSelection"|"forget"|"refreshCollections"|"signOut"|"deleteCollection"|"requestFileAccess"|"pollFileAccess"|"foreground"|"approvalClosed"|"close";
+export type ApplicationWorkerAction="start"|"authorize"|"renewExpiredPairing"|"select"|"clearSelection"|"forget"|"refreshCollections"|"signOut"|"deleteCollection"|"requestFileAccess"|"pollFileAccess"|"openUnsynced"|"foreground"|"approvalClosed"|"close";
 /** `deleteCollection` payload: [collection UUID, typed confirmation name].
  * `requestFileAccess` payload: [collection UUID, file actions, reason]. */
 export type ApplicationWorkerPayload=string|boolean|null|readonly[string,string]|readonly[string,readonly string[],string];
@@ -39,7 +39,7 @@ export function applicationWorkerRequest(value:unknown,binding:string):Applicati
   if(!Array.isArray(value)||value.length!==5||value[0]!==APPLICATION_WORKER_PROTOCOL||value[1]!==binding||
     !Number.isInteger(value[2])||value[2]<0||value[2]>APPLICATION_WORKER_MAX_ID||(value[2]===0&&value[3]!=="foreground"&&value[3]!=="approvalClosed")||(value[2]!==0&&value[3]==="approvalClosed"))return fail();
   const action=value[3],payload=value[4];
-  if(!["start","authorize","renewExpiredPairing","select","clearSelection","forget","refreshCollections","signOut","deleteCollection","requestFileAccess","pollFileAccess","foreground","approvalClosed","close"].includes(action))fail();
+  if(!["start","authorize","renewExpiredPairing","select","clearSelection","forget","refreshCollections","signOut","deleteCollection","requestFileAccess","pollFileAccess","openUnsynced","foreground","approvalClosed","close"].includes(action))fail();
   const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
   if(action==="requestFileAccess"){
     if(!Array.isArray(payload)||payload.length!==3||typeof payload[0]!=="string"||!uuid.test(payload[0])||!Array.isArray(payload[1])||!payload[1].length||payload[1].length>6||

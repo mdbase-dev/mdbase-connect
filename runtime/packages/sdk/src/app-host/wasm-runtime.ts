@@ -59,6 +59,15 @@ export interface AppBootstrap {
   opened: "fresh" | "existing" | "unclean";
   sqliteVersion: number;
 }
+/** The app's unsynced collection: identifiers chosen and kept by this
+ * browser storage scope, never sent to the control plane. No secrets. */
+export interface AppUnsyncedBootstrap {
+  collection: string;
+  replicaId: string;
+  deviceId: string;
+  opened: "fresh" | "existing" | "unclean";
+  sqliteVersion: number;
+}
 /** Trusted authenticated host bootstrap only, never a grant/app RPC. */
 export interface AppCpConnectorPin {
   readonly connectorId: string;
@@ -136,6 +145,8 @@ interface AppExports extends Exports {
   rt_app_cp_bind_connector(p: number, n: number): number;
   rt_app_cp_log_token_sign(p: number, n: number): bigint;
   rt_app_open(p: number, n: number): bigint;
+  /** Unsynced (local-only) open; absent from runtimes older than this SDK. */
+  rt_app_open_local?(p: number, n: number): bigint;
   rt_app_log_bind(endpoint: bigint, p: number, n: number): number;
   rt_app_log_generation(): bigint;
   rt_app_log_reconnect(endpoint:bigint,p:number,n:number):number;
@@ -246,6 +257,26 @@ export class AppWasmRuntime extends WasmRuntime implements AppLogRuntime {
       this.markOpened();
     } catch { this.retireLog(); this.fail(); throw bad(); }
     finally { encoded?.fill(0); c.signSecretKey?.fill(0); c.kemSecretKey?.fill(0); }
+  }
+  /** One attempt: open this app's unsynced collection, a local-only replica
+   * with no log, no trust pins and no stored keys (`rt_app_open_local`). */
+  openUnsyncedConsuming(c: AppUnsyncedBootstrap): void {
+    let encoded: Uint8Array | null = null;
+    try {
+      if (this.attempted || this.deviceAttempted || !this.sql || this.sql.needsRecovery || typeof this.app.rt_app_open_local !== "function") throw bad();
+      this.attempted = true;
+      if (!Number.isSafeInteger(c.sqliteVersion) || c.sqliteVersion < 0 || c.sqliteVersion > 0xffff_ffff) throw bad();
+      const opened = c.opened === "fresh" ? 0 : c.opened === "existing" ? 1 : c.opened === "unclean" ? 2 : -1;
+      if (opened < 0) throw bad();
+      encoded = encodeSecret(new Map<number, CborValue>([
+        [0, 1], [1, uuidToBytes(c.collection)], [2, uuidToBytes(c.replicaId)], [3, uuidToBytes(c.deviceId)], [12, opened], [13, c.sqliteVersion],
+      ]));
+      const error = this.guard(() => this.takeOut(this.app.rt_app_open_local!(...this.put(encoded!))));
+      if (error.length) throw bad();
+      this.collection = c.collection; this.deviceId = c.deviceId; this.active = true;
+      this.markOpened();
+    } catch { this.fail(); throw bad(); }
+    finally { encoded?.fill(0); }
   }
   override tick(): void { if (this.active && !this.retired) this.guard(() => super.tick()); }
   override connect(options: Parameters<WasmRuntime["connect"]>[0] = {}): ReturnType<WasmRuntime["connect"]> {

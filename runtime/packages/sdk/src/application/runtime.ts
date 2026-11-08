@@ -184,6 +184,20 @@ export class ApplicationRuntime {
       return this.complete(await this.worker.request("select",id,caller),caller);
     },caller);
   }
+  /** Open this app's unsynced collection in this tab (work before connecting).
+   * The Worker creates it on first use; the sign-in session is unchanged. */
+  openUnsynced(options:MdbaseApplicationRequestOptions={}):Promise<MdbaseApplicationSnapshot>{
+    const caller=this.signal(options);return this.action(async()=>{
+      const shown=this.raw.unsynced?.collectionId??null;
+      if(shown!==null&&this.raw.selectedCollectionId===shown&&(this.raw.status==="ready"||this.raw.status==="setup_required")&&this.scope.connection(shown)?.isCurrent()){
+        if(this.snapshot.status==="blocked")return this.complete(this.raw,caller);
+        return this.snapshot;
+      }
+      ++this.epoch;const retired=this.retireOwn();this.publish();await retired;
+      if(this.closed||caller.aborted)throw new ApplicationRuntimeError("application_fenced");
+      return this.complete(await this.worker.request("openUnsynced",null,caller),caller);
+    },caller);
+  }
   assess(options:MdbaseApplicationRequestOptions={}):Promise<MdbaseApplicationReadinessSnapshot>{
     const caller=this.signal(options);
     return this.action(async()=>{await this.scope.assess({signal:caller});return this.settled();},caller).then(value=>value.readiness);

@@ -56,6 +56,24 @@ async function fixture(outcome: "success" | "refused" | "trap" | "allocation" | 
   return { create: () => AppWasmRuntime.create(new Uint8Array(), sql), createDevice:()=>AppWasmRuntime.createDevice(new Uint8Array()), sql, pins: () => pins!, encoded: () => encoded!, imports: () => imports!, x, pack, bind, retire, reply, shutdown, observations };
 }
 describe("optional app artifact host", () => {
+  it("opens the unsynced collection with a secret-free local bootstrap and no log", async () => {
+    const f = await fixture(); let local: Map<cbor.CborValue, cbor.CborValue> | null = null;
+    (f.x as Record<string, unknown>).rt_app_open_local = vi.fn((p: number, n: number) => { local = cbor.decode(new Uint8Array(f.x.memory.buffer, p, n)) as Map<cbor.CborValue, cbor.CborValue>; new Uint8Array(f.x.memory.buffer, p, n).fill(0); return 0n; });
+    const rt = await f.create();
+    rt.openUnsyncedConsuming({ collection: COLLECTION, replicaId: "0192f3a4-6000-7abc-8def-0123456789ac", deviceId: "0192f3a4-6000-7abc-8def-0123456789ad", opened: "fresh", sqliteVersion: 3_050_004 });
+    expect([...local!.keys()]).toEqual([0, 1, 2, 3, 12, 13]);
+    expect(local!.get(0)).toBe(1); expect(local!.get(12)).toBe(0); expect(local!.get(13)).toBe(3_050_004);
+    expect(f.encoded().every(v => v === 0)).toBe(true);
+    // One attempt; there is no log to bind.
+    expect(() => rt.openUnsyncedConsuming({ collection: COLLECTION, replicaId: "0192f3a4-6000-7abc-8def-0123456789ac", deviceId: "0192f3a4-6000-7abc-8def-0123456789ad", opened: "existing", sqliteVersion: 1 })).toThrow();
+    expect(f.bind).not.toHaveBeenCalled();
+    await rt.close();
+  });
+  it("an older runtime without the unsynced open refuses it and is not reused", async () => {
+    const f = await fixture(), rt = await f.create();
+    expect(() => rt.openUnsyncedConsuming({ collection: COLLECTION, replicaId: "0192f3a4-6000-7abc-8def-0123456789ac", deviceId: "0192f3a4-6000-7abc-8def-0123456789ad", opened: "fresh", sqliteVersion: 1 })).toThrow();
+    expect(() => rt.openAppConsuming(config())).toThrow();
+  });
   it("delivers the native terminal problem before ending the facade, without flushing stale data", async () => {
     const f = await fixture(), rt = await f.create(); rt.openAppConsuming(config());
     const port = rt.connect(); port.send(new Map()); await Promise.resolve();

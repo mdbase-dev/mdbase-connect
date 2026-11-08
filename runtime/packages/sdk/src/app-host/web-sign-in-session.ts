@@ -133,6 +133,10 @@ export interface AppWebSignInSnapshot {
   readonly approval?: Readonly<{outcome: "closed" | "cancelled"}> | null;
   /** Set by signOut (UX-011); cleared when the session starts again. */
   readonly signOutResult?: AppWebSignOutResult | null;
+  /** Present while this tab shows the app's unsynced collection (work before
+   * connecting): `selectedCollectionId` is its id and `status` its state.
+   * `sessionStatus` is the sign-in session's own status behind it. */
+  readonly unsynced?: Readonly<{collectionId: string; sessionStatus: AppWebSignInSnapshot["status"]}> | null;
   /** Click-to-native/session screen, not a browser paint measurement. */
   readonly timing: Readonly<{firstScreenMs: number | null; readyMs: number | null}> | null;
 }

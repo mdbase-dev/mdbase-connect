@@ -73,6 +73,13 @@ export interface Mdbase {
    * unless `{discard: true}`. */
   signOut(options?: MdbaseSignOutOptions): Promise<MdbaseSnapshot>;
   close(): Promise<void>;
+  /** Work before connecting (the `unsynced` option). */
+  readonly unsynced: {
+    /** Open the app's unsynced collection in this tab, creating it on first
+     * use: for "Continue without connecting". Signed out with nothing
+     * requested, `start()` already does this. */
+    open(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>;
+  };
   /** The underlying application, for code written against `MdbaseConnect`. */
   readonly application: MdbaseApplication;
 }
@@ -126,6 +133,12 @@ export function mdbaseFront(entry: Pick<MdbaseConnect, "application" | "connecti
       return strict(await app.signOut(o));
     },
     close: () => app.close(),
+    unsynced: Object.freeze({
+      open: async (o?: MdbaseApplicationRequestOptions) => {
+        if (!app.openUnsynced) throw mdbaseError("unavailable", "Working before connecting isn't available here.", "application_not_yet_available");
+        return strict(await app.openUnsynced(o));
+      },
+    }),
     application: app,
   });
 }

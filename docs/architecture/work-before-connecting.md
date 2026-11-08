@@ -86,7 +86,7 @@ to review.
   Log binding, reconnect and control-plane binding are refused.
 - It reuses the existing owner lease, tabs and Worker. `TentativeStore` assumes
   that only a log receipt means saved; for local-only, local confirmation is
-  final, and the SDK reports it as `saved_in_browser` (origin storage may be
+  final, and the `unsynced` phase tells apps to say so (origin storage may be
   evicted).
 
 ## API sketch
@@ -100,28 +100,31 @@ const mdbase = createMdbase(declaration, { unsynced: true });
 A new phase. Apps render it like `ready`:
 
 ```ts
-| { kind: "unsynced"; connection: MdbaseApplicationConnection; unsynced: MdbaseUnsyncedSummary }
+| { kind: "unsynced"; collectionId; connection: MdbaseApplicationConnection; rechecking }
 ```
 
-`MdbaseUnsyncedSummary` has these fields:
+The phase applies when the app opted in, `start()` finds nobody signed in and
+no collection requested, and the person did not just sign out; or when the app
+calls `mdbase.unsynced.open()` from a gesture ("Continue without connecting").
+Signing in from it shows the ordinary `authorizing` phase with the work still
+open behind it. Choosing a collection leaves it.
 
-- `items: number`: records and files.
-- `persisted: boolean`: whether `navigator.storage.persist()` was granted.
-- `state: "empty" | "has_work" | "transferring" | "transferred"`.
-- `transfer?: { collectionId; progress; problem }`.
+There is no new save state. Local commits confirm at once, so the write
+ledger reads `"saved"`; the phase tells the app to say "Saved only in this
+browser" instead of "Saved". (A later step adds `snapshot.unsynced` with an
+item count, so a ready app can offer "N items are saved only in this
+browser".)
 
-The phase applies when the app opted in, nobody is signed in, and nothing is
-selected, or when the person returns to it from the chooser. In every other
-phase, `snapshot.unsynced` carries the same summary so a ready app can offer
-"N items are saved only in this browser".
-
-The save state for this collection is a new `SaveState` value,
-`"saved_in_browser"`. It is never `"saved_on_device"`, which means "waiting
-for sync". Apps map it to the copy above.
+How it fits the existing session: the Worker keeps the unsynced collection
+beside the sign-in session's collections and reports it as the tab's open
+collection, with the session's own status alongside. Readiness, automatic
+setup, tabs and ports therefore run unchanged. The URL selection never sees
+it.
 
 Actions, each called from the user's gesture:
 
 ```ts
+mdbase.unsynced.open()                        // built
 mdbase.unsynced.syncAsNew(options)            // A: turn sync on as a new collection
 mdbase.unsynced.planTransfer(collectionId)    // B: review bringing it into an existing one
 mdbase.unsynced.transfer(plan, { map })       // B: execute a reviewed plan
@@ -237,7 +240,6 @@ unsynced collection, and its handoff could become path A or B.
   owner lease are reused. The additions are:
   - one runtime composition (local-only app);
   - one phase;
-  - one save state;
   - one SDK namespace (`unsynced`);
   - a transfer journal.
 
@@ -246,8 +248,8 @@ unsynced collection, and its handoff could become path A or B.
 1. This note.
 2. Runtime: the local-only app composition over `TentativeStore`, with tests
    for reopening, the owner lease across tabs, and storage faults.
-3. SDK: the `unsynced` option, phase, summary, `saved_in_browser`, scope and
-   persistence request.
+3. SDK: the `unsynced` option, phase, Worker host and `unsynced.open()`
+   (built); then the summary and persistence request.
 4. Path B: `planTransfer` and `transfer`, with the resumable journal.
 5. Path A: the portal's new-collection flow, resource copy, then the same
    transfer.

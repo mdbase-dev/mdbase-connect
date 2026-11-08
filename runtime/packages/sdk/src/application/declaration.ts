@@ -7,6 +7,8 @@ export type ApplicationJson=null|boolean|number|string|readonly ApplicationJson[
 export interface ApplicationStorageDeclaration {
   readonly joinDatabaseName?:string;
   readonly setupDatabaseName?:string;
+  /** Names this browser's unsynced collection (work before connecting). */
+  readonly unsyncedDatabaseName?:string;
   /** Use a stable opaque ID (e.g. a vault ID, not a path or name). Comparison
    * is exact: case, whitespace and Unicode form are significant. A value equal
    * to the application id uses the default storage path. Changing it requires
@@ -83,13 +85,13 @@ export function applicationDeclaration(input:MdbaseApplicationDeclaration):Reado
   const platform=appOriginPlatform(origin,applicationLoopbackAllowed(environment),(manifest as Record<string,ApplicationJson>).platform === "native" ? "native" : undefined);
   const kind=data.installationKind??(platform==="mobile"?"mobile":"app-runtime");
   if(platform===null||(kind!=="app-runtime"&&kind!=="mobile")||(platform==="mobile"&&kind!=="mobile")||((platform==="extension"||platform==="native")&&kind!=="app-runtime"))fail();
-  const override=data.storage;if(override!==undefined&&(!override||Array.isArray(override)||typeof override!=="object"||Object.keys(override).some(key=>!["joinDatabaseName","setupDatabaseName","applicationNamespace"].includes(key))))fail();
+  const override=data.storage;if(override!==undefined&&(!override||Array.isArray(override)||typeof override!=="object"||Object.keys(override).some(key=>!["joinDatabaseName","setupDatabaseName","unsyncedDatabaseName","applicationNamespace"].includes(key))))fail();
   const fields=override as Record<string,ApplicationJson>|undefined;
   const namespace=fields?.applicationNamespace??id;
   const databaseOwner=typeof namespace==="string"&&namespace!==id?`namespace.${storageNamespaceDigest(JSON.stringify([id,namespace]))}`:id;
-  const storage={joinDatabaseName:fields?.joinDatabaseName??`mdbase.${databaseOwner}.native-collection-join.v1`,setupDatabaseName:fields?.setupDatabaseName??`mdbase.${databaseOwner}.native-model-setup.v1`,applicationNamespace:namespace};
+  const storage={joinDatabaseName:fields?.joinDatabaseName??`mdbase.${databaseOwner}.native-collection-join.v1`,setupDatabaseName:fields?.setupDatabaseName??`mdbase.${databaseOwner}.native-model-setup.v1`,unsyncedDatabaseName:fields?.unsyncedDatabaseName??`mdbase.${databaseOwner}.unsynced.v1`,applicationNamespace:namespace};
   for(const value of Object.values(storage))if(typeof value!=="string"||!value||value.length>256||/[\u0000-\u001f\u007f]/.test(value))fail();
-  if(storage.joinDatabaseName===storage.setupDatabaseName)fail();
+  if(new Set([storage.joinDatabaseName,storage.setupDatabaseName,storage.unsyncedDatabaseName]).size!==3)fail();
   const resolved=Object.freeze({id,name,origin,environment:environment as "lab"|"staging"|"production"|"local",installationKind:kind as "app-runtime"|"mobile",manifest:manifest as ApplicationDeclarationSnapshot["manifest"],storage:Object.freeze(storage as Required<ApplicationStorageDeclaration>)});
   storageOverrides.set(resolved,Object.freeze({...fields}) as Readonly<ApplicationStorageDeclaration>);return resolved;
 }

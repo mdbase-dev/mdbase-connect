@@ -42,6 +42,11 @@ export type MdbasePhase =
   /** Open and usable. `rechecking` and `problem` are informational only. */
   | { readonly kind: "ready"; readonly collectionId: string; readonly collection: MdbaseCollectionSummary; readonly connection: MdbaseApplicationConnection;
       readonly rechecking: boolean; readonly problem: MdbaseProblem | null; readonly unavailableTypes: readonly MdbaseUnavailableType[] }
+  /** Working before connecting (`createMdbase(declaration, {unsynced: true})`):
+   * the app's unsynced collection is open. Use `connection` as when ready.
+   * Its work is saved only in this browser: say so, and offer "Connect to sync
+   * your work". It is never in `snapshot.collections`. */
+  | { readonly kind: "unsynced"; readonly collectionId: string; readonly connection: MdbaseApplicationConnection; readonly rechecking: boolean }
   /** Can't continue: show `problem` with its action. */
   | { readonly kind: "problem"; readonly collectionId: string | null; readonly problem: MdbaseProblem }
   /** The SDK can't run here (SSR, Node, an unsupported browser). */
@@ -62,7 +67,7 @@ export interface ApplicationPhaseOptions {
   readonly cpOrigin?: string;
 }
 
-type Snapshot = Pick<MdbaseApplicationSnapshot, "status" | "signIn" | "collections" | "selectedCollectionId" | "problem" | "readiness" | "selection"> & Partial<Pick<MdbaseApplicationSnapshot, "problemDetail" | "removedScopeIds" | "recoveryAccountLabel" | "openingProgress">>;
+type Snapshot = Pick<MdbaseApplicationSnapshot, "status" | "signIn" | "collections" | "selectedCollectionId" | "problem" | "readiness" | "selection"> & Partial<Pick<MdbaseApplicationSnapshot, "problemDetail" | "removedScopeIds" | "recoveryAccountLabel" | "openingProgress" | "unsynced">>;
 
 const current = (c: MdbaseApplicationConnection | null | undefined, id: string): c is MdbaseApplicationConnection => {
   try { return !!c && c.id === id && c.isCurrent(); } catch { return false; }
@@ -90,6 +95,15 @@ function derive(s: Snapshot, o: ApplicationPhaseOptions): MdbasePhase {
     if (!paired) return { kind: "authorizing", purpose: "sign_in", collectionId: approval?.collectionId ?? requested?.collectionId ?? null };
     return approval?.kind === "add" ? { kind: "authorizing", purpose: "add", collectionId: null }
       : { kind: "authorizing", purpose: "approve", collectionId: approval?.collectionId ?? requested?.collectionId ?? null };
+  }
+  const unsynced = s.unsynced ?? null;
+  if (unsynced && s.selectedCollectionId === unsynced.collectionId) {
+    const id = unsynced.collectionId;
+    if (s.status === "ready" && current(o.connection, id)) return { kind: "unsynced", collectionId: id, connection: o.connection, rechecking: s.readiness.checking };
+    // Configured automatically on open; still unconfigured once checked is a problem.
+    if (s.status === "blocked" || (s.status === "setup_required" && !s.readiness.checking && s.readiness.assessment))
+      return { kind: "problem", collectionId: id, problem: (s.status === "blocked" ? describe(s, cp) : describe(s.readiness, cp)) ?? fallback("open_failed", cp) };
+    return { kind: "opening", collectionId: id, displayName: null, slow: !!o.slow };
   }
   if (s.status === "not_started" || s.status === "starting") {
     // A returning user with a remembered request goes straight to opening (P4).
@@ -135,6 +149,8 @@ function hold(next: MdbasePhase, s: Snapshot, o: ApplicationPhaseOptions): Mdbas
   // failure, rather than an "opening" screen that drops it.
   if (prev?.kind === "needs_setup" && next.kind === "opening" && next.collectionId === prev.collectionId &&
       s.selectedCollectionId === prev.collectionId && s.readiness.checking) return prev;
+  if (prev?.kind === "unsynced" && next.kind === "opening" && next.collectionId === prev.collectionId && s.selectedCollectionId === prev.collectionId && current(o.connection, prev.collectionId))
+    return { ...prev, connection: o.connection!, rechecking: true };
   if (!prev || prev.kind !== "ready" || next.kind === "ready" || !current(o.connection, prev.collectionId)) return next;
   // The same collection is still the one the session has selected.
   if (s.selectedCollectionId !== prev.collectionId) return next;

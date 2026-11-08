@@ -1,3 +1,4 @@
+import {storageNamespaceDigest} from "../src/application/storage-scope.js";
 import {describe,expect,it,vi} from "vitest";
 import {applicationDeclaration,type MdbaseApplicationDeclaration} from "../src/application/declaration.js";
 const id="5cdfa020-c201-4da8-845a-f2cc9969eade";
@@ -5,12 +6,12 @@ function declaration():MdbaseApplicationDeclaration{return{id,name:"TaskNotes",o
 describe("generic application declaration custody (not registration/trust/manifest semantics)",()=>{
   it("keeps actual registered app ID separate from optional original storage compatibility data",()=>{
     const source=declaration(),storage={joinDatabaseName:"tasknotes.native-collection-join.v1",setupDatabaseName:"tasknotes.native-model-setup.v1",applicationNamespace:"tasknotes-web"};
-    const copy=applicationDeclaration({...source,storage});expect(copy.id).toBe(id);expect(copy.manifest.id).toBe("dev.tasknotes.tasknotes");expect(copy.storage).toEqual(storage);
+    const copy=applicationDeclaration({...source,storage});expect(copy.id).toBe(id);expect(copy.manifest.id).toBe("dev.tasknotes.tasknotes");expect(copy.storage).toEqual({...storage,unsyncedDatabaseName:`mdbase.namespace.${storageNamespaceDigest(JSON.stringify([id,"tasknotes-web"]))}.unsynced.v1`});
     storage.applicationNamespace="replacement";expect(copy.storage.applicationNamespace).toBe("tasknotes-web");expect(Object.isFrozen(copy.storage)).toBe(true);
   });
   it("new declarations derive defaults from exact ID without copying another application's names or asserting registration",()=>{
     const copy=applicationDeclaration({...declaration(),id:"dev.tasknotes.planner",name:"Planner",origin:"https://planner.tasknotes.dev"});
-    expect(copy.id).toBe("dev.tasknotes.planner");expect(copy.storage).toEqual({joinDatabaseName:"mdbase.dev.tasknotes.planner.native-collection-join.v1",setupDatabaseName:"mdbase.dev.tasknotes.planner.native-model-setup.v1",applicationNamespace:"dev.tasknotes.planner"});
+    expect(copy.id).toBe("dev.tasknotes.planner");expect(copy.storage).toEqual({joinDatabaseName:"mdbase.dev.tasknotes.planner.native-collection-join.v1",setupDatabaseName:"mdbase.dev.tasknotes.planner.native-model-setup.v1",unsyncedDatabaseName:"mdbase.dev.tasknotes.planner.unsynced.v1",applicationNamespace:"dev.tasknotes.planner"});
     expect("applicationId" in copy).toBe(false);expect("registered" in copy).toBe(false);
   });
   it("snapshots declaration and nested manifest before any asynchronous loader/storage work",()=>{

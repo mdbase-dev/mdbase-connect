@@ -2355,6 +2355,7 @@ AppExports@app-host/wasm-runtime.ts
   rt_app_log_retire: () => void
   rt_app_observations: () => bigint
   rt_app_open: (p: number, n: number) => bigint
+  rt_app_open_local?: ((p: number, n: number) => bigint) | undefined
   rt_app_private_collection_pin: (p: number, n: number) => number
   rt_app_private_create_sign: (p: number, n: number) => bigint
   rt_app_private_device_enrol_sign: (p: number, n: number) => bigint
@@ -2983,6 +2984,13 @@ AppTimersPort@timers.ts
   unregisterFcm: (options: TimerRequestOptions) => Promise<void>
   unregisterWebPush: (serviceWorker: ServiceWorkerRegistration | undefined, options: TimerRequestOptions) => Promise<void>
 
+AppUnsyncedBootstrap@app-host/wasm-runtime.ts
+  collection: string
+  deviceId: string
+  opened: 'fresh' | 'existing' | 'unclean'
+  replicaId: string
+  sqliteVersion: number
+
 AppVerifiedHandover@app-host/handover.ts
   readonly appliedThrough: number
   dispose: () => void
@@ -3009,6 +3017,7 @@ AppWasmRuntime@app-host/wasm-runtime.ts
   open: (_config: OpenConfig) => never
   openAppConsuming: (c: AppBootstrap) => void
   openDeviceConsuming: (c: AppDeviceBootstrap) => AppNoiseCustodyResult
+  openUnsyncedConsuming: (c: AppUnsyncedBootstrap) => void
   prepareCloudCopyCollection: (pin: AppCloudCopyCollectionPin) => void
   preparePrivateCollection: (pin: AppPrivateCollectionPin, opened: AppPrivateCollectionOpen) => void
   privateCollectionCurrent: (source?: AppPrivateCollectionPin) => boolean
@@ -3241,6 +3250,7 @@ AppWebSignInSnapshot@app-host/web-sign-in-session.ts
   readonly status: 'starting' | 'closed' | 'opening' | 'setup_required' | 'ready' | 'signed_out' | 'authorizing' | 'blocked' | 'not_started' | 'unselected'
   readonly timing: Readonly<{ firstScreenMs: number | null; readyMs: number | null; }> | null
   readonly transport?: AppLogHealth | null | undefined
+  readonly unsynced?: Readonly<{ collectionId: string; sessionStatus: AppWebSignInSnapshot['status']; }> | null | undefined
 
 AppWebSignOutResult@app-host/web-sign-in-session.ts
   readonly grants?: 'erased' | 'incomplete' | undefined
@@ -3312,6 +3322,7 @@ ApplicationStorageDeclaration@application/declaration.ts
   readonly applicationNamespace?: string | undefined
   readonly joinDatabaseName?: string | undefined
   readonly setupDatabaseName?: string | undefined
+  readonly unsyncedDatabaseName?: string | undefined
 
 AppliedPrefix@wire.ts
   appliedThrough: number
@@ -4165,6 +4176,7 @@ Mdbase@application/front-door.ts
   signOut: (options?: MdbaseSignOutOptions) => Promise<MdbaseSnapshot>
   start: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
   subscribe: (listener: () => void) => () => void
+  readonly unsynced: { open(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>; }
 
 MdbaseAccessRequest@application/file-access.ts
   readonly files: readonly FileAction[]
@@ -4210,6 +4222,7 @@ MdbaseApplication@application/entry.ts
   deleteCollection: (collectionId: string, options: MdbaseCollectionDeleteOptions) => Promise<MdbaseApplicationSnapshot>
   forget: (collectionId: string, options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>
   getSnapshot: () => MdbaseApplicationSnapshot
+  openUnsynced?: ((options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>) | undefined
   reauthorize: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>
   refreshCollectionList?: ((options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>) | undefined
   requestAccess: (request: MdbaseAccessRequest, options: MdbaseAccessRequestOptions) => Promise<MdbaseAccessResult>
@@ -4307,6 +4320,7 @@ MdbaseApplicationSnapshot@application/entry.ts
   readonly sync?: StatusSummary | null | undefined
   readonly timing: Readonly<{ firstScreenMs: number | null; readyMs: number | null; }> | null
   readonly transport?: AppLogHealth | null | undefined
+  readonly unsynced?: Readonly<{ collectionId: string; sessionStatus: AppWebSignInSnapshot['status']; }> | null | undefined
   readonly writes?: WriteLedgerSnapshot | null | undefined
 
 MdbaseApplicationUnavailableError@application/entry.ts
@@ -4437,6 +4451,7 @@ MdbaseConnectOptions@application/entry.ts
   readonly privateCollections?: boolean | undefined
   readonly readiness?: { readonly typeIssues?: 'block' | 'degrade'; } | undefined
   readonly signIn?: MdbaseSignInOpener | undefined
+  readonly unsynced?: boolean | undefined
 
 MdbaseError@errors.ts
   cause?: unknown
@@ -4522,10 +4537,10 @@ MdbasePeopleClient@people.ts
   static new (client: PeopleRecords, authority: PeopleAuthority): MdbasePeopleClient
 
 MdbasePhase@application/phase.ts
-  = { readonly kind: 'starting'; } | { readonly kind: 'signed_out'; readonly notice: MdbaseProblem | null; } | { readonly kind: 'authorizing'; readonly purpose: 'sign_in' | 'add' | 'approve'; readonly collectionId: string | null; } | { readonly kind: 'choosing'; readonly lastApproval: MdbaseApprovalOutcome | null; } | { readonly kind: 'opening'; readonly collectionId: string; readonly displayName: string | null; readonly slow: boolean; readonly progress?: import("../app-host/opening-progress.js").AppOpeningProgress | null; } | { readonly kind: 'needs_approval'; readonly collectionId: string; readonly displayName: string | null; readonly declined: boolean; } | { readonly kind: 'needs_setup'; readonly collectionId: string; readonly collection: MdbaseCollectionSummary; } | { readonly kind: 'ready'; readonly collectionId: string; readonly collection: MdbaseCollectionSummary; readonly connection: MdbaseApplicationConnection; readonly rechecking: boolean; readonly problem: MdbaseProblem | null; readonly unavailableTypes: readonly MdbaseUnavailableType[]; } | { readonly kind: 'problem'; readonly collectionId: string | null; readonly problem: MdbaseProblem; } | { readonly kind: 'unavailable'; readonly problem: MdbaseProblem; } | { readonly kind: 'closed'; }
+  = { readonly kind: 'starting'; } | { readonly kind: 'signed_out'; readonly notice: MdbaseProblem | null; } | { readonly kind: 'authorizing'; readonly purpose: 'sign_in' | 'add' | 'approve'; readonly collectionId: string | null; } | { readonly kind: 'choosing'; readonly lastApproval: MdbaseApprovalOutcome | null; } | { readonly kind: 'opening'; readonly collectionId: string; readonly displayName: string | null; readonly slow: boolean; readonly progress?: import("../app-host/opening-progress.js").AppOpeningProgress | null; } | { readonly kind: 'needs_approval'; readonly collectionId: string; readonly displayName: string | null; readonly declined: boolean; } | { readonly kind: 'needs_setup'; readonly collectionId: string; readonly collection: MdbaseCollectionSummary; } | { readonly kind: 'ready'; readonly collectionId: string; readonly collection: MdbaseCollectionSummary; readonly connection: MdbaseApplicationConnection; readonly rechecking: boolean; readonly problem: MdbaseProblem | null; readonly unavailableTypes: readonly MdbaseUnavailableType[]; } | { readonly kind: 'unsynced'; readonly collectionId: string; readonly connection: MdbaseApplicationConnection; readonly rechecking: boolean; } | { readonly kind: 'problem'; readonly collectionId: string | null; readonly problem: MdbaseProblem; } | { readonly kind: 'unavailable'; readonly problem: MdbaseProblem; } | { readonly kind: 'closed'; }
 
 MdbasePhaseKind@application/phase.ts
-  = 'problem' | 'starting' | 'closed' | 'opening' | 'unavailable' | 'ready' | 'signed_out' | 'authorizing' | 'choosing' | 'needs_approval' | 'needs_setup'
+  = 'problem' | 'unsynced' | 'starting' | 'closed' | 'opening' | 'unavailable' | 'ready' | 'signed_out' | 'authorizing' | 'choosing' | 'needs_approval' | 'needs_setup'
 
 MdbasePrepareAuthorizationOptions@app-grant/client.ts
   readonly authorizationNonce?: string | undefined
@@ -4650,6 +4665,7 @@ MdbaseSnapshot@application/front-door.ts
   readonly sync: StatusSummary | null
   readonly timing: Readonly<{ firstScreenMs: number | null; readyMs: number | null; }> | null
   readonly transport?: AppLogHealth | null | undefined
+  readonly unsynced?: Readonly<{ collectionId: string; sessionStatus: AppWebSignInSnapshot['status']; }> | null | undefined
   readonly writes?: WriteLedgerSnapshot | null | undefined
 
 MdbaseUnavailableType@application/entry.ts
@@ -5394,7 +5410,7 @@ SetupResult@private-account.ts
   recoveryKey: string
 
 Snapshot@application/phase.ts
-  = Pick<MdbaseApplicationSnapshot, 'status' | 'signIn' | 'collections' | 'selectedCollectionId' | 'problem' | 'readiness' | 'selection'> & Partial<Pick<MdbaseApplicationSnapshot, 'problemDetail' | 'removedScopeIds' | 'recoveryAccountLabel' | 'openingProgress'>>
+  = Pick<MdbaseApplicationSnapshot, 'status' | 'signIn' | 'collections' | 'selectedCollectionId' | 'problem' | 'readiness' | 'selection'> & Partial<Pick<MdbaseApplicationSnapshot, 'problemDetail' | 'removedScopeIds' | 'recoveryAccountLabel' | 'openingProgress' | 'unsynced'>>
 
 SqlBinding@app-host/wasm-runtime.ts
   exports: (() => AppSqlMemory) | null
@@ -5598,6 +5614,7 @@ TestMdbase@testing/test-app.ts
   signOut: (options?: MdbaseSignOutOptions) => Promise<MdbaseSnapshot>
   start: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
   subscribe: (listener: () => void) => () => void
+  readonly unsynced: { open(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>; }
 
 TextOrBlob@wire.ts
   = string | AttachmentHoldContent | BlobRef

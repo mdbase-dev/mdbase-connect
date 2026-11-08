@@ -30,7 +30,8 @@ function nativeSnapshot(value:unknown):AppWebSignInSnapshot {
   if(!["not_started","starting","signed_out","authorizing","unselected","opening","setup_required","ready","blocked","closed"].includes(snapshot.status)||
     !(snapshot.openingProgress==null||typeof snapshot.openingProgress==="string")||
     !Array.isArray(snapshot.collections)||snapshot.collections.length>1024||!(snapshot.selectedCollectionId===null||typeof snapshot.selectedCollectionId==="string")||
-    !(snapshot.problem===null||(typeof snapshot.problem==="string"&&/^[a-z0-9_-]{1,128}$/.test(snapshot.problem))))throw new ApplicationWorkerError("application_worker_binding");
+    !(snapshot.problem===null||(typeof snapshot.problem==="string"&&/^[a-z0-9_-]{1,128}$/.test(snapshot.problem)))||
+    !(snapshot.unsynced==null||(typeof snapshot.unsynced==="object"&&snapshot.unsynced.collectionId===snapshot.selectedCollectionId&&typeof snapshot.unsynced.sessionStatus==="string")))throw new ApplicationWorkerError("application_worker_binding");
   return Object.freeze({...snapshot,openingProgress:isAppOpeningProgress(snapshot.openingProgress)?snapshot.openingProgress:null});
 }
 /** One original operation slot, no queue/retry/cancel RPC. Caller cancellation
