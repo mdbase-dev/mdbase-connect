@@ -293,6 +293,29 @@ export class LogCollection extends RustCollection {
         else sql.exec("DROP TRIGGER test_refuse_destination_denial");
       }
     }
+    if (path === "/deletion-floor-fence" && this.fencePause) {
+      // Apply the registry's fence, then hold its acknowledgement: the registry
+      // stays mid-fence, before its floor/Closing insert, until resumed.
+      const pause = this.fencePause;
+      const response = await super.fetch(req);
+      pause.reached = true;
+      await pause.gate;
+      this.fencePause = undefined;
+      return response;
+    }
+    if (path === "/__test/arm-fence-pause") {
+      if (this.fencePause) throw Error("one bounded fence pause per actor");
+      let resume;
+      const gate = new Promise(resolve => { resume = resolve; });
+      this.fencePause = { reached: false, resume, gate };
+      return new Response("ok");
+    }
+    if (path === "/__test/fence-pause-state") return Response.json({ paused: this.fencePause?.reached === true });
+    if (path === "/__test/resume-fence") {
+      if (!this.fencePause?.reached) return new Response("not paused", { status: 409 });
+      this.fencePause.resume();
+      return new Response("ok");
+    }
     if (path === "/__test/floor-pause-state") {
       return Response.json({ paused: this.floorPause?.reached === true });
     }
@@ -382,6 +405,13 @@ export class LogCollection extends RustCollection {
         return id.toString() === nilId ? faultStub(stub) : stub;
       };
       try {
+        // The actor caches its floor answer. Fence it as the registry does
+        // before a floor or Closing insert, so the faulted request really asks.
+        // `fence: false` keeps a warm cache to show the registry is not asked.
+        if (q.fence !== false) {
+          const fenced = await super.fetch(new Request(`https://do/deletion-floor-fence?c=${q.actor}`));
+          if (fenced.status !== 200) throw Error("floor cache fence");
+        }
         const response = await super.fetch(new Request(q.url, {
           method: "POST", headers: q.headers,
           body: Uint8Array.from(atob(q.body), x => x.charCodeAt(0)),
@@ -452,7 +482,9 @@ export default {
       });
     }
     if (["/__test/expire-cut", "/__test/age-objects", "/__test/aux-state", "/__test/age-aux-fixture", "/__test/age-aux-tokens",
-      "/__test/floor-pause-state", "/__test/resume-floor", "/__test/destination-state", "/__test/corrupt-destination-denial"].includes(path)) {
+      "/__test/floor-pause-state", "/__test/resume-floor", "/__test/arm-fence-pause", "/__test/fence-pause-state",
+      "/__test/resume-fence", "/__test/destination-state", "/__test/corrupt-destination-denial"].includes(path)) {
+
       const { actor } = await req.json();
       if (typeof actor !== "string" || !/^[0-9a-f-]{36}$/.test(actor)) return new Response("actor", { status: 400 });
       return env.LOG.get(env.LOG.idFromName(actor)).fetch(`https://do${path}`);

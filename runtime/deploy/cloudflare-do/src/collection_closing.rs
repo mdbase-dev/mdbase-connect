@@ -142,9 +142,15 @@ impl DoBackend {
         refuse_new_floor(&self.sql, c)
     }
 
-    /// No producer mutex or external await. This acknowledges only the first
-    /// persistent denial, not membership, a generation, any receipt or a floor.
-    pub(super) fn begin_collection_closing(&self, p: &Principal, value: &Cbor) -> LsResult<Cbor> {
+    /// No producer mutex. The one external await fences the collection actor's
+    /// cached floor answer before a first Closing row exists. This acknowledges
+    /// only the first persistent denial, not membership, a generation, any
+    /// receipt or a floor.
+    pub(super) async fn begin_collection_closing(
+        &self,
+        p: &Principal,
+        value: &Cbor,
+    ) -> LsResult<Cbor> {
         if !matches!(p, Principal::ControlPlane) {
             return Err(ServiceError::reason(
                 mdbn_log_service::Code::Forbidden,
@@ -178,6 +184,21 @@ impl DoBackend {
             return Err(invalid());
         }
         refuse_existing_floor(&self.sql, &requested.collection)?;
+        let _fence = if present(
+            &self.sql,
+            "SELECT 1 FROM collection_closing WHERE collection = ? LIMIT 1",
+            &requested.collection,
+        )? {
+            None
+        } else {
+            let fence = self
+                .fence_collection(&requested.collection)
+                .await
+                .map_err(|_| unavailable())?;
+            // A floor may have won while the fence was in flight.
+            refuse_existing_floor(&self.sql, &requested.collection)?;
+            Some(fence)
+        };
         // Bound every projected field BEFORE workers-rs copies it into Rust.
         // Bad presence projects NULL, never an absent row or large raw BLOB.
         let rows = self.exec("SELECT CASE WHEN typeof(version) = 'blob' AND length(version) = 1 THEN version END, CASE WHEN typeof(deletion_id) = 'blob' AND length(deletion_id) = 16 THEN deletion_id END, CASE WHEN typeof(lifecycle_epoch) = 'blob' AND length(lifecycle_epoch) = 8 THEN lifecycle_epoch END, CASE WHEN typeof(first_started_at_ms) = 'blob' AND length(first_started_at_ms) = 8 THEN first_started_at_ms END FROM collection_closing WHERE collection = ? LIMIT 1", vec![blob(&requested.collection.0)]).map_err(|_| unavailable())?;

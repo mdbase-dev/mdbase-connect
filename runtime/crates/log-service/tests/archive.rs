@@ -5,16 +5,18 @@
 
 use std::collections::BTreeMap;
 use std::future::Future;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{Context, Poll, Wake, Waker};
 
+use mdbn_log_service::error::Result;
 use mdbn_log_service::limits::{ARCHIVE_SEGMENT_BYTES, MIB};
 use mdbn_log_service::mem::{MemBackend, MemObjects};
 use mdbn_log_service::model::{
     CollectionMeta, CollectionState, ObjectMeta, RetentionTier, SnapshotRow, StoredItem,
     archive_object_key, archive_segment_key, object_key,
 };
-use mdbn_log_service::{Backend, Config, Mode, ObjectStore, Service, Txn, Write};
+use mdbn_log_service::{Archive, Backend, Config, Mode, ObjectStore, Service, Txn, Write};
 use mdbn_wire::cbor::{self, Cbor};
 use mdbn_wire::common::{B16, B32, Uuid};
 use mdbn_wire::hash::{chain_hash, sha256};
@@ -39,17 +41,17 @@ fn ready<F: Future>(future: F) -> F::Output {
 
 type Svc = Service<MemBackend, MemObjects>;
 
+fn config() -> Config {
+    Config {
+        roots: vec![],
+        token_issuers: vec![],
+        url_secret: vec![7; 32],
+        public_base: "http://unused".into(),
+    }
+}
+
 fn svc() -> Svc {
-    Service::new(
-        MemBackend::default(),
-        MemObjects::default(),
-        Config {
-            roots: vec![],
-            token_issuers: vec![],
-            url_secret: vec![7; 32],
-            public_base: "http://unused".into(),
-        },
-    )
+    Service::new(MemBackend::default(), MemObjects::default(), config())
 }
 
 fn item(seq: u64, kind: u64, bytes: Vec<u8>, refs: Vec<B32>) -> StoredItem {
@@ -66,8 +68,8 @@ fn item(seq: u64, kind: u64, bytes: Vec<u8>, refs: Vec<B32>) -> StoredItem {
 /// A collection of `n` items at `T0`: seq 1 is control (genesis), `control`
 /// lists further control positions, every other position is an `entry` of
 /// `entry_bytes(seq)` bytes; an endorsed snapshot at `n`.
-fn seed(
-    svc: &Svc,
+fn seed<O: ObjectStore>(
+    svc: &Service<MemBackend, O>,
     c: &Uuid,
     n: u64,
     control: &[u64],
@@ -112,12 +114,16 @@ fn seed(
     items
 }
 
-fn all_items(svc: &Svc, c: &Uuid, control_only: bool) -> Vec<StoredItem> {
+fn all_items<O: ObjectStore>(
+    svc: &Service<MemBackend, O>,
+    c: &Uuid,
+    control_only: bool,
+) -> Vec<StoredItem> {
     let mut tx = ready(svc.backend.begin(c, Mode::Read)).unwrap();
     ready(tx.items(0, u64::MAX, u64::MAX, control_only)).unwrap()
 }
 
-fn meta(svc: &Svc, c: &Uuid) -> CollectionMeta {
+fn meta<O: ObjectStore>(svc: &Service<MemBackend, O>, c: &Uuid) -> CollectionMeta {
     let mut tx = ready(svc.backend.begin(c, Mode::Read)).unwrap();
     ready(tx.load()).unwrap().unwrap().meta
 }
@@ -383,4 +389,185 @@ fn segments_split_at_the_byte_bound() {
         .collect();
     assert_eq!(all, deleted);
     assert_eq!(all_items(&svc, &c, false).len(), 1 + (n - 20) as usize);
+}
+
+/// An archive that, at each write, records whether a writer could take the
+/// collection's write lock at that moment. An upload made under the lock
+/// would leave every append to the collection waiting on the archive store.
+#[derive(Default)]
+struct LockProbe {
+    inner: MemObjects,
+    backend: OnceLock<Arc<MemBackend>>,
+    writes: AtomicUsize,
+    blocked: AtomicUsize,
+    /// Committed by the next archive write, as a concurrent request would.
+    rival: Mutex<Option<Rival>>,
+}
+type Rival = Box<dyn FnOnce(&MemBackend, &Uuid) + Send>;
+impl LockProbe {
+    fn probe(&self, c: &Uuid) {
+        self.writes.fetch_add(1, Ordering::SeqCst);
+        let backend = self.backend.get().expect("probe bound to the backend");
+        let waker = Waker::from(Arc::new(NoWake));
+        let mut cx = Context::from_waker(&waker);
+        // A Ready poll's transaction is dropped at once, releasing the lock.
+        if std::pin::pin!(backend.begin(c, Mode::Write))
+            .poll(&mut cx)
+            .is_pending()
+        {
+            self.blocked.fetch_add(1, Ordering::SeqCst);
+        }
+        if let Some(rival) = self.rival.lock().unwrap().take() {
+            rival(backend, c);
+        }
+    }
+}
+impl Archive for LockProbe {
+    async fn put_segment(
+        &self,
+        c: &Uuid,
+        tier: RetentionTier,
+        from: u64,
+        to: u64,
+        bytes: Vec<u8>,
+    ) -> Result<()> {
+        self.probe(c);
+        self.inner.put_segment(c, tier, from, to, bytes).await
+    }
+    async fn archive_object(&self, c: &Uuid, tier: RetentionTier, address: &B32) -> Result<()> {
+        self.probe(c);
+        self.inner.archive_object(c, tier, address).await
+    }
+}
+impl ObjectStore for LockProbe {
+    async fn put(&self, key: &str, bytes: Vec<u8>) -> Result<()> {
+        self.inner.put(key, bytes).await
+    }
+    async fn put_new(&self, key: &str, bytes: Vec<u8>) -> Result<bool> {
+        self.inner.put_new(key, bytes).await
+    }
+    async fn get(&self, key: &str, range: Option<(u64, u64)>) -> Result<Option<Vec<u8>>> {
+        self.inner.get(key, range).await
+    }
+    async fn delete(&self, key: &str) -> Result<()> {
+        self.inner.delete(key).await
+    }
+}
+
+#[test]
+fn archive_writes_do_not_hold_the_write_lock() {
+    let svc = Service::new(MemBackend::default(), LockProbe::default(), config());
+    assert!(svc.objects.backend.set(svc.backend.clone()).is_ok());
+    let c = B16([10; 16]);
+    let n = GRACE + 20;
+    let dead_bytes = b"dead blob part".to_vec();
+    let dead = sha256(&dead_bytes);
+    seed(
+        &svc,
+        &c,
+        n,
+        &[],
+        |s| vec![s as u8; 16],
+        |s| {
+            if s == 5 { vec![dead] } else { vec![] }
+        },
+    );
+    {
+        let mut tx = ready(svc.backend.begin(&c, Mode::Write)).unwrap();
+        tx.write(Write::PutObject(ObjectMeta {
+            address: dead,
+            kind: 18,
+            size: dead_bytes.len() as u64,
+            checksum: dead,
+            committed: true,
+            created_at: T0,
+        }));
+        ready(tx.commit()).unwrap();
+    }
+    ready(svc.objects.put(&object_key(&c, &dead), dead_bytes)).unwrap();
+    let now = T0 + 8 * DAY;
+    assert_eq!(ready(svc.compact(&c, now)).unwrap(), 21);
+    assert_eq!(ready(svc.gc(&c, now)).unwrap(), 1);
+    assert_eq!(
+        svc.objects.writes.load(Ordering::SeqCst),
+        2,
+        "one segment and one dead object archived"
+    );
+    assert_eq!(
+        svc.objects.blocked.load(Ordering::SeqCst),
+        0,
+        "no archive write ran while the collection's write lock was held"
+    );
+    assert_eq!(svc.objects.inner.archived().len(), 2);
+}
+
+#[test]
+fn compaction_that_loses_a_race_deletes_nothing() {
+    // Another compaction commits while this one's segment is uploading: the
+    // delete sees `retained_from` moved and leaves the remaining entries alone.
+    let svc = Service::new(MemBackend::default(), LockProbe::default(), config());
+    assert!(svc.objects.backend.set(svc.backend.clone()).is_ok());
+    let c = B16([11; 16]);
+    let n = GRACE + 50;
+    seed(&svc, &c, n, &[], |s| vec![s as u8; 8], |_| vec![]);
+    *svc.objects.rival.lock().unwrap() = Some(Box::new(|b, c| {
+        ready(b.compact_through(c, 20)).unwrap();
+    }));
+    assert_eq!(ready(svc.compact(&c, T0 + 8 * DAY)).unwrap(), 21);
+    assert_eq!(meta(&svc, &c).retained_from, 21);
+    let kept: Vec<u64> = all_items(&svc, &c, false)
+        .iter()
+        .map(|i| i.seq)
+        .filter(|s| *s <= 50)
+        .collect();
+    assert_eq!(
+        kept,
+        std::iter::once(1).chain(21..=50).collect::<Vec<_>>(),
+        "only the rival's delete"
+    );
+    // The next run compacts the rest.
+    assert_eq!(ready(svc.compact(&c, T0 + 8 * DAY)).unwrap(), 51);
+}
+
+#[test]
+fn gc_keeps_an_upload_committed_while_it_archives() {
+    // An upload still pending when GC read its candidates is committed while
+    // GC archives another object: the delete re-reads under the lock and keeps
+    // it (it was never archived).
+    let svc = Service::new(MemBackend::default(), LockProbe::default(), config());
+    assert!(svc.objects.backend.set(svc.backend.clone()).is_ok());
+    let c = B16([12; 16]);
+    let dead_bytes = b"dead".to_vec();
+    let dead = sha256(&dead_bytes);
+    let pending = B32([7; 32]);
+    seed(&svc, &c, 3, &[], |s| vec![s as u8; 8], |_| vec![]);
+    let object = |address, committed| ObjectMeta {
+        address,
+        kind: 18,
+        size: 4,
+        checksum: address,
+        committed,
+        created_at: T0,
+    };
+    {
+        let mut tx = ready(svc.backend.begin(&c, Mode::Write)).unwrap();
+        tx.write(Write::PutObject(object(dead, true)));
+        tx.write(Write::PutObject(object(pending, false)));
+        ready(tx.commit()).unwrap();
+    }
+    ready(svc.objects.put(&object_key(&c, &dead), dead_bytes)).unwrap();
+    *svc.objects.rival.lock().unwrap() = Some(Box::new(move |b, c| {
+        let mut tx = ready(b.begin(c, Mode::Write)).unwrap();
+        tx.write(Write::PutObject(object(pending, true)));
+        ready(tx.commit()).unwrap();
+    }));
+    assert_eq!(
+        ready(svc.gc(&c, T0 + 8 * DAY)).unwrap(),
+        1,
+        "only the archived object"
+    );
+    let mut tx = ready(svc.backend.begin(&c, Mode::Read)).unwrap();
+    let got = ready(tx.objects(&[dead, pending])).unwrap();
+    assert!(got[0].is_none());
+    assert!(got[1].as_ref().is_some_and(|o| o.committed));
 }
