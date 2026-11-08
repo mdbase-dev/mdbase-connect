@@ -10,6 +10,12 @@ import { migrationDeployments, type MigrationRouting } from "./migration-routing
 import { isLogRegion } from "./log-service-client.js";
 
 const LIMIT = 4;
+/** Retire wakes sent per call: a large account deletion or deletion-floor merge
+ * drains over several polls instead of holding one poll. */
+const RETIRE_LIMIT = 20;
+/** A retire wake older than this is dropped, whatever its outcome: the copy's
+ * idle poll learns the verdict on its own and erases. */
+const RETIRE_WAKE_TTL = "24 hours";
 // A cold Hosted actor for a migrated collection took ~14s to wake and emit its
 // grant in LAB; an 8s bound abandoned every attempt. Activation is background work.
 const TIMEOUT_MS = 30_000;
@@ -64,7 +70,9 @@ type Deployments = NonNullable<NextControlPlaneConfig["cloudCopyBootstrap"]>;
  * unlike log positions, remain monotonic across lost-tail repair/replacement.
  * A newer batch bypasses an older backoff; old HTTP completions cannot acknowledge
  * or postpone a newer batch. Unknown HTTP outcomes stay pending for bounded retry.
- * Queued retire wakes (`next_service_retire_wakes`) use the same request and backoff. */
+ * Queued retire wakes (`next_service_retire_wakes`) use the same request and backoff;
+ * every retire wake ends: on a definite answer, when it has no deployment to wake,
+ * or after RETIRE_WAKE_TTL. */
 export async function activatePendingServices(
   db: DatabaseQueryable,
   deployments: Deployments,
@@ -111,12 +119,17 @@ export async function activatePendingServices(
   );
   // The copy re-checks the control plane on a wake and erases itself on a lasting
   // verdict; the wake carries no verdict. `queued_at` is text so the fence keeps
-  // PostgreSQL's microseconds.
+  // PostgreSQL's microseconds. Expired wakes are deleted in the same statement (the
+  // SELECT sees the rows before the DELETE, hence its own age filter). Route filters
+  // do not apply here: a wake with no deployment to wake is deleted below, not skipped.
+  const owned = (row: string) => collectionId ? `AND ${row}.collection_id = $1::uuid` : "";
   const retiring = await db.query<{ collection_id: string; kind: ServiceKind; queued_at: string }>(
-    `SELECT wake.collection_id::text, wake.kind, wake.queued_at::text FROM next_service_retire_wakes wake
-     WHERE wake.next_at <= now()
-     ${scope("wake")}
-     ORDER BY wake.next_at, wake.collection_id, wake.kind LIMIT $1`, values
+    `WITH expired AS (DELETE FROM next_service_retire_wakes old
+       WHERE old.queued_at < now() - interval '${RETIRE_WAKE_TTL}' ${owned("old")})
+     SELECT wake.collection_id::text, wake.kind, wake.queued_at::text FROM next_service_retire_wakes wake
+     WHERE wake.next_at <= now() AND wake.queued_at >= now() - interval '${RETIRE_WAKE_TTL}'
+     ${owned("wake")}
+     ORDER BY wake.next_at, wake.collection_id, wake.kind LIMIT ${RETIRE_LIMIT}`, collectionId ? [collectionId] : []
   );
   await Promise.all([
     ...pending.rows.map(async ({ collection_id: collection, kind, batch_id: batch, region: stored }) => {
@@ -145,12 +158,16 @@ export async function activatePendingServices(
       }
     }),
     ...retiring.rows.map(async ({ collection_id: collection, kind, queued_at: queued }) => {
-      // An existing actor ignores placement; a retire wake needs no region.
-      const result = await wake(db, deployments, fetchImpl, collection, kind, undefined, pitr, migrationRouting, true);
-      if (!result) return;
+      // An existing actor ignores placement; a retire wake needs no region. A route
+      // that cannot be resolved (ambiguous_collection_owner) is an unknown outcome.
+      let result: Outcome | null;
+      try { result = await wake(db, deployments, fetchImpl, collection, kind, undefined, pitr, migrationRouting, true); }
+      catch { result = { kind: "unknown" }; wakeLog(collection, kind, "retry", { retire: true }); }
       // Either definite answer means the copy has checked the control plane: it
-      // retired on the verdict, or it is a current cloud copy again.
-      if (result.kind === "unknown") {
+      // retired on the verdict, or it is a current cloud copy again. With no
+      // deployment to wake (LAB PITR escrow, retired or moving route) the wake ends;
+      // a copy that still exists erases at its own idle poll.
+      if (result?.kind === "unknown") {
         await db.query(`UPDATE next_service_retire_wakes SET next_at = ${backoff("attempts")}, attempts = LEAST(attempts + 1, 9)
           WHERE collection_id = $1 AND kind = $2 AND queued_at = $3::timestamptz`, [collection, kind, queued]);
       } else {

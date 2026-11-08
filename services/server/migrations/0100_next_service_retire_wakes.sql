@@ -5,8 +5,9 @@
 -- before it erases anything, so a row is a wake request, never a verdict.
 -- No foreign key: a row must outlive the cascade that removes its collection and
 -- service devices (account deletion). The activation poller deletes it after a
--- definite answer and backs it off otherwise. `queued_at` fences an older
--- completion from clearing a wake queued again after it was sent.
+-- definite answer, when it has no deployment to wake, or 24 hours after it was
+-- queued, and backs it off otherwise. `queued_at` fences an older completion from
+-- clearing a wake queued again after it was sent.
 CREATE TABLE next_service_retire_wakes (
   collection_id uuid NOT NULL,
   kind text NOT NULL CHECK (kind IN ('hosted', 'escrow')),
@@ -31,6 +32,7 @@ BEGIN
   END IF;
   INSERT INTO next_service_retire_wakes(collection_id, kind)
     SELECT collection_id, kind FROM next_service_devices WHERE collection_id = NEW.collection_id
+    ORDER BY collection_id, kind
   ON CONFLICT (collection_id, kind) DO UPDATE SET queued_at = now(), next_at = now(), attempts = 0;
   RETURN NEW;
 END;

@@ -174,6 +174,41 @@ describe("exact LAB account routing", () => {
     expect(seen.map(r => r.url)).toEqual([`${owner === account ? routing.hosted.url : normal.hosted.url}/internal/v1/collections/activate`, `${normal.escrow.url}/internal/v1/collections/activate`]);
     expect(seen[0]!.headers.get("authorization")).toBe(`Bearer ${owner === account ? routing.hosted.token : normal.hosted.token}`);
   });
+  describe("retire wakes", () => {
+    const queued = "2026-11-08 01:02:03.456789+00";
+    /** One queued retire wake per kind; `owners` and `retired` answer the route lookup. */
+    function retiring(owners: string[], retired: boolean) {
+      const db = database(owners);
+      db.query.mockImplementation(async sql => {
+        if (sql.includes("FROM next_service_devices device")) return result([]);
+        if (sql.includes("FROM next_service_retire_wakes wake")) return result([{ collection_id: collection, kind: "hosted", queued_at: queued }, { collection_id: collection, kind: "escrow", queued_at: queued }]);
+        if (sql.includes("UNION SELECT")) return result(owners.map(owner => ({ owner, legacy: true, move: null })));
+        if (sql.includes("next_migration_routing_retirements")) return result([{ retired }]);
+        return result([]);
+      });
+      return db;
+    }
+    const writes = (db: ReturnType<typeof database>, verb: string) =>
+      db.query.mock.calls.filter(([sql]) => sql.startsWith(`${verb} next_service_retire_wakes`) || sql.startsWith(`${verb} FROM next_service_retire_wakes`));
+    it("a wake whose migration route is retired is deleted, not sent or kept", async () => {
+      const db = retiring([account], true);
+      const fetcher = vi.fn<typeof fetch>();
+      await activatePendingServices(db, normal, fetcher, undefined, undefined, routing);
+      expect(fetcher).not.toHaveBeenCalled();
+      expect(writes(db, "DELETE").map(([, values]) => values)).toEqual([[collection, "hosted", queued], [collection, "escrow", queued]]);
+      expect(writes(db, "UPDATE")).toHaveLength(0);
+    });
+    it("an ambiguous collection owner backs off like any unknown outcome", async () => {
+      const db = retiring([account, foreign], false);
+      const fetcher = vi.fn<typeof fetch>();
+      await expect(activatePendingServices(db, normal, fetcher, undefined, undefined, routing)).resolves.toBeUndefined();
+      expect(fetcher).not.toHaveBeenCalled();
+      const retries = writes(db, "UPDATE");
+      expect(retries.map(([, values]) => values)).toEqual([[collection, "hosted", queued], [collection, "escrow", queued]]);
+      for (const [sql] of retries) expect(sql).toContain("make_interval(secs => LEAST(300, (2 * power(2, LEAST(attempts, 8)))::int))");
+      expect(writes(db, "DELETE")).toHaveLength(0);
+    });
+  });
   it.each([account, foreign])("discovery derives account from the authenticated grant/parent SQL for %s", async owner => {
     const db = database([owner]);
     db.query.mockResolvedValueOnce(result([{ owner_account: owner, grant_id: "grant", authorization_grant: "grant", policy_required: true, policy_active: true, has_client_key: true,

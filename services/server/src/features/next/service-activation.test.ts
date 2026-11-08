@@ -52,7 +52,7 @@ describe("durable cloud-copy service activation", () => {
     expect(selection).toContain("device.activation_attempt_batch_id < latest.id");
     expect(db.query.mock.calls[0]![1]).toEqual([4]);
     expect(db.query.mock.calls[1]![0]).toContain("FROM next_service_retire_wakes wake");
-    expect(db.query.mock.calls[1]![1]).toEqual([4]);
+    expect(db.query.mock.calls[1]![1]).toEqual([]);
     expect(db.query.mock.calls.slice(2).map(([,values]) => values)).toEqual([
       [collection, "hosted", "9007199254740993"], [collection, "escrow", "9007199254740993"]
     ]);
@@ -155,6 +155,28 @@ describe("durable cloud-copy service activation", () => {
       }
       expect(db.query.mock.calls.filter(([sql]) => sql.startsWith("DELETE"))).toHaveLength(0);
       expect(JSON.stringify(db.query.mock.calls)).not.toContain("private");
+    });
+  });
+  describe("retire wakes end", () => {
+    it("a wake queued over 24 hours ago is deleted by the selecting statement and never sent", async () => {
+      for (const scoped of [undefined, collection]) {
+        const db = database(); db.query.mockReset();
+        db.query.mockResolvedValue({ rows: [], rowCount: 0, command: "SELECT", oid: 0, fields: [] });
+        await activatePendingServices(db, deployments, vi.fn<typeof fetch>(), scoped);
+        const [sql, values] = db.query.mock.calls[1]!;
+        expect(sql).toMatch(/^WITH expired AS \(DELETE FROM next_service_retire_wakes old\s+WHERE old\.queued_at < now\(\) - interval '24 hours'/u);
+        expect(sql).toContain("wake.next_at <= now() AND wake.queued_at >= now() - interval '24 hours'");
+        expect(values).toEqual(scoped ? [collection] : []);
+        if (scoped) for (const row of ["old", "wake"]) expect(sql).toContain(`AND ${row}.collection_id = $1::uuid`);
+      }
+    });
+    it("sends at most 20 retire wakes per call; activations keep their own limit", async () => {
+      const db = database(); db.query.mockReset();
+      db.query.mockResolvedValue({ rows: [], rowCount: 0, command: "SELECT", oid: 0, fields: [] });
+      await activatePendingServices(db, deployments, vi.fn<typeof fetch>());
+      expect(db.query.mock.calls[0]![0]).toContain("LIMIT $1");
+      expect(db.query.mock.calls[0]![1]).toEqual([4]);
+      expect(db.query.mock.calls[1]![0]).toMatch(/ORDER BY wake\.next_at, wake\.collection_id, wake\.kind LIMIT 20$/u);
     });
   });
   it("idle polls do not contact deployments", async () => {

@@ -216,6 +216,33 @@ describePg("service activation persisted retries (dedicated local Postgres)", ()
       expect(await poll(collection)).toEqual(both(collection));
       expect(await wakes(collection)).toEqual([]);
     });
+    it("a wake queued over 24 hours ago is dropped unsent, whatever its outcome so far", async () => {
+      const collection = await activated();
+      await inTransaction(db, async (client) => { await recordCollectionDeletionIntent(client, collection, await owner(collection)); });
+      await db.query("UPDATE next_service_retire_wakes SET queued_at=now()-interval '25 hours', attempts=9 WHERE collection_id=$1 AND kind='hosted'", [collection]);
+      expect(await poll(collection)).toEqual([{ host: "escrow.test", body: { collection } }]);
+      expect(await wakes(collection)).toEqual([]);
+    });
+    it("one call sends at most 20 retire wakes; the rest follow on the next call", async () => {
+      const limit = 20; // RETIRE_LIMIT
+      await db.query("DELETE FROM next_service_retire_wakes");
+      const collections = await Promise.all(Array.from({ length: limit / 2 + 1 }, () => activated()));
+      for (const collection of collections) {
+        await inTransaction(db, async (client) => { await recordCollectionDeletionIntent(client, collection, await owner(collection)); });
+      }
+      const drain = async () => {
+        let sent = 0;
+        await activatePendingServices(db, deployments, async (input, init) => {
+          if (collections.includes((JSON.parse(String(init?.body)) as { collection: string }).collection)) sent += 1;
+          return gone(input, init);
+        });
+        return sent;
+      };
+      expect(await drain()).toBe(limit);
+      expect((await db.query("SELECT 1 FROM next_service_retire_wakes")).rows).toHaveLength(2);
+      expect(await drain()).toBe(2);
+      expect((await db.query("SELECT 1 FROM next_service_retire_wakes")).rows).toHaveLength(0);
+    });
   });
   it("left-sync and lost-genesis rows never activate", async () => {
     const left = await fixture(), lost = await fixture();
