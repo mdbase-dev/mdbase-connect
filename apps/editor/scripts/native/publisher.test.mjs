@@ -1,7 +1,7 @@
 // Public data and transport doubles; no deployment or credentials.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { cp, readFile, mkdtemp, writeFile, mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -260,7 +260,10 @@ it('accounts for ALL static bytes plus SOURCE-owned headers/redirects; refuses t
   };
   const staleAsset=staleEdge(path=>path==='/assets/a.js');
   assert.equal((await verifyHosting({origin,inventory:f.inventory,deployment,fetchImpl:staleAsset})).ok,true,'unchanged asset may keep previous headers on the alias');
-  assert.equal((await verifyHosting({origin:deployment.url,inventory:f.inventory,deployment,fetchImpl:staleAsset})).ok,false,'the immutable URL proves the policy on every file');
+  const immutableStale=await verifyHosting({origin:deployment.url,inventory:f.inventory,deployment,fetchImpl:staleAsset});
+  assert.equal(immutableStale.ok,false,'the immutable URL proves the policy on every file');
+  assert.deepEqual(immutableStale.failures.find(x=>x.path==='/assets/a.js'),{path:'/assets/a.js',reason:'trusted-live-header-policy-failed',
+   detail:'Live source-owned header policy mismatch: Content-Security-Policy'},'the report names the rule, never the served value');
   const staleDocument=staleEdge((path,response)=>response.headers.get('content-type')==='text/html');
   assert.equal((await verifyHosting({origin,inventory:f.inventory,deployment,fetchImpl:staleDocument})).ok,false,'documents prove the policy on the alias');
   await writeFile(join(f.root,'_headers'),headersPolicy+'# changed\n');
@@ -327,4 +330,16 @@ it('re-verifies only the custom alias inside a bounded settle window after the i
  assert.ok(stuck.calls.every(c=>c.totalTimeoutMs>0 && c.totalTimeoutMs<=180000));
  assert.ok(never.aliasAttempts.at(-1).startedMs<=300000);
  await assert.rejects(verifyPublication({...stuck.options,deployment:{...deployment,sourceSha:'c'.repeat(40)}}),/mismatch/);
+});
+
+it('recovery failures name the fixed refusal or only the error type', () => {
+ const script=new URL('./rollback.mjs',import.meta.url).pathname;
+ const run=(...args)=>spawnSync(process.execPath,[script,...args],{encoding:'utf8',
+  env:{PATH:process.env.PATH,TARGET:'production',CLOUDFLARE_API_TOKEN:'',CLOUDFLARE_ACCOUNT_ID:''}});
+ const refused=run('snapshot',tmpdir());
+ assert.equal(refused.status,1);
+ assert.equal(refused.stderr,'Editor recovery operation failed: Pages credentials required\n');
+ const other=run('unknown-command',tmpdir());
+ assert.equal(other.status,1);
+ assert.equal(other.stderr,'Editor recovery operation failed: transport or runtime error (Error)\n');
 });

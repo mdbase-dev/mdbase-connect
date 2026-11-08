@@ -118,6 +118,23 @@ async fn provider_lifecycle_aggregates_use_production_sql() {
             .execute(&fixture.pool)
             .await?;
         }
+        // A file control request the sweep leaves alone (ADR 0005) stays
+        // visible under its own kind, next to the record kinds, while its
+        // handler holds the lease. Once released (lease expired, no
+        // evidence) it is counted in `released_file_control_mutations`.
+        sqlx::query(
+            r#"INSERT INTO hosted_provider_mutation_journal
+              (replica_id,request_id,operation_kind,input_schema_version,input_digest,state,
+               process_epoch,lease_owner,lease_expires_at,fencing_generation,accepted_at,updated_at)
+              VALUES ($1,$2,'file_control:commit_file_upload',1,$3,'prepared',$4,$4,
+                now()+interval '1 hour',1,now()-interval '2 days',now()-interval '2 days')"#,
+        )
+        .bind(replica_id)
+        .bind(Uuid::new_v4())
+        .bind(vec![7_u8; 32])
+        .bind(Uuid::new_v4())
+        .execute(&fixture.pool)
+        .await?;
         sqlx::query(
             "UPDATE hosted_provider_mutation_journal SET operation_kind='Unexpected Kind' WHERE state='claimed'",
         )
@@ -186,8 +203,8 @@ async fn provider_lifecycle_aggregates_use_production_sql() {
     assert_eq!(value.runtime_outbox.expired_leases, 1);
     assert_eq!(value.runtime_outbox.impossible, 2);
     assert!(value.runtime_outbox.oldest_open_seconds >= Some(1_859));
-    assert_eq!(value.mutation_journal.unfinished, 4);
-    assert_eq!(value.mutation_journal.stale, 3);
+    assert_eq!(value.mutation_journal.unfinished, 5);
+    assert_eq!(value.mutation_journal.stale, 4);
     assert_eq!(value.mutation_journal.outcome_unknown, 1);
     assert_eq!(value.mutation_journal.expired_leases, 2);
     assert_eq!(value.stuck_deleting_collections, 1);
@@ -207,6 +224,12 @@ async fn provider_lifecycle_aggregates_use_production_sql() {
             row("create", "applied", "public_result", "under_1h"),
             row("create", "prepared", "none", "1d_to_7d"),
             row("create", "prepared", "none", "under_1h"),
+            row(
+                "file_control:commit_file_upload",
+                "prepared",
+                "none",
+                "1d_to_7d"
+            ),
             row("other", "claimed", "none", "under_1h"),
         ]
     );

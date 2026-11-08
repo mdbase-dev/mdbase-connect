@@ -5,7 +5,7 @@ import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
 import { hashPassword } from "./password.js";
 import { randomToken, tokenHash } from "./security.js";
-import type { HostedProviderClient } from "./hosted-provider.js";
+import { HostedProviderClient } from "./hosted-provider.js";
 
 const resources: Array<() => Promise<void>> = [];
 const origin = "https://connect.example";
@@ -92,6 +92,74 @@ describe("account management", () => {
       deletion: expect.objectContaining({ hosted_collections: 1, owned_collections: 1 })
     }));
     expect(usage).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports retained file usage on /v1/me, not the retained file limit", async () => {
+    const provider = new HostedProviderClient({
+      url: "https://provider.example",
+      internalToken: "provider-internal-token"
+    });
+    const providerAccountId = randomUUID();
+    // The provider's wire body: usage at the top level, limits nested. This
+    // guards the server's mapping of that shape; the provider test catches
+    // the original bug.
+    const body = JSON.stringify({
+      account: {
+        account_id: providerAccountId,
+        entitlement_revision: 1,
+        collection_count: 1,
+        live_content_bytes: 4_096,
+        live_file_bytes: 1_024,
+        retained_file_bytes: 3_072,
+        limits: {
+          hosted_storage_bytes: 1_073_741_824,
+          retained_file_bytes: 2_147_483_648,
+          max_document_bytes: 2_097_152,
+          max_single_file_bytes: 262_144_000,
+          max_mirror_replicas_per_collection: 10,
+          max_application_replicas_per_collection: 10,
+          max_hosted_collections: 10,
+          max_files_per_collection: 10_000
+        }
+      }
+    });
+    const fetched = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      expect(String(input)).toBe(
+        `https://provider.example/internal/v1/accounts/${providerAccountId}`
+      );
+      return new Response(body, {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    });
+    const { app, db } = await fixture({ hostedProvider: provider });
+    const account = await seedSession(db);
+    await db.query(
+      `INSERT INTO account_entitlement_grants
+         (id, user_id, profile_code, source, source_reference)
+       VALUES ($1, $2, 'beta_v1', 'operator', $3)`,
+      [randomUUID(), account.userId, `test-${account.userId}`]
+    );
+    await db.query(
+      `INSERT INTO account_storage_accounts (user_id, provider_account_id)
+       VALUES ($1, $2)`,
+      [account.userId, providerAccountId]
+    );
+
+    const response = await app.inject({
+      method: "GET", url: "/v1/me", headers: { cookie: account.cookie }
+    });
+    expect(response.statusCode).toBe(200);
+    const { subscription } = response.json();
+    expect(subscription.limits.retained_file_bytes).toBe(2_147_483_648);
+    expect(subscription.usage).toEqual({
+      hosted_collections: 1,
+      live_content_bytes: 4_096,
+      live_file_bytes: 1_024,
+      live_storage_bytes: 5_120,
+      retained_file_bytes: 3_072
+    });
+    expect(fetched).toHaveBeenCalledTimes(1);
   });
 
   it("changes a password, preserves only the current session, and accepts only the new password", async () => {

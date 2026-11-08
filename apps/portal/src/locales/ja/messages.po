@@ -403,8 +403,8 @@ msgid "a new collection"
 msgstr "新しいコレクション"
 
 #: src/authorization-view.tsx
-msgid "A new collection stored by mdbase, available from any computer."
-msgstr "どのコンピューターからも利用できる、mdbase がホストする新しいコレクションです。"
+msgid "A new collection with a cloud copy, available from any device."
+msgstr "クラウド上のコピーを持つ新しいコレクション。どのデバイスからでも使えます。"
 
 #: src/AccountManagement.tsx
 msgid "A new one-use sharing code is ready."
@@ -951,8 +951,8 @@ msgid "Choose a field"
 msgstr "フィールドを選択"
 
 #: src/ConnectApp.tsx
-msgid "Choose a Markdown folder in the desktop app. Your files stay here."
-msgstr "デスクトップアプリで Markdown フォルダーを選択します。ファイルはこのコンピューターに残ります。"
+msgid "Choose a Markdown folder in the desktop app. It syncs from there."
+msgstr "デスクトップアプリで Markdown フォルダーを選びます。そこから同期されます。"
 
 #. placeholder {0}: unmapped.label
 #: src/authorization-review.tsx
@@ -1015,6 +1015,13 @@ msgstr "新規登録を停止中"
 #: src/compatibility.ts
 msgid "Cloud collection required"
 msgstr "クラウドコレクションが必要です"
+
+#: src/authority-workflows.tsx
+#: src/authorization-view.tsx
+#: src/ConnectApp.tsx
+msgctxt "Collection storage mode"
+msgid "Cloud copy"
+msgstr "クラウド上のコピー"
 
 #: src/AccountManagement.tsx
 msgctxt "Connect interface"
@@ -1230,8 +1237,8 @@ msgid "Create"
 msgstr "作成"
 
 #: src/authorization-view.tsx
-msgid "Create a hosted collection"
-msgstr "ホスト型コレクションを作成"
+msgid "Create a collection"
+msgstr "コレクションを作成"
 
 #: src/authority-workflows.tsx
 msgid "Create a hosted collection before approving this folder."
@@ -1268,10 +1275,6 @@ msgctxt "Application access approval"
 msgid "Create collection"
 msgstr "コレクションを作成"
 
-#: src/authorization-view.tsx
-msgid "Create hosted collection"
-msgstr "ホスト型コレクションを作成"
-
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Create invitation"
@@ -1305,13 +1308,17 @@ msgid "Created, but this browser could not clear its request. Retrying will use 
 msgstr "作成は完了しましたが、このブラウザーでは要求を消去できませんでした。再試行しても同じコレクションを使用します。"
 
 #: src/authorization-view.tsx
-msgid "Creates a plain mdbase collection hosted by mdbase. App access is still approved separately."
-msgstr "mdbase がホストする通常の mdbase コレクションを作成します。アプリケーションのアクセスは別途承認が必要です。"
+msgid "Creates a plain mdbase collection with a cloud copy. App access is still approved separately."
+msgstr "クラウド上のコピーを持つシンプルな mdbase コレクションを作成します。アプリのアクセスは別途承認します。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Creating account…"
 msgstr "アカウントを作成中…"
+
+#: src/ConnectApp.tsx
+msgid "Creating collections is unavailable on this server."
+msgstr "このサーバーではコレクションを作成できません。"
 
 #: src/onboarding-view.tsx
 msgid "Creating your first collection"
@@ -1740,25 +1747,9 @@ msgstr "Google ログインが正しく読み込まれませんでした。"
 msgid "Help {applicationName} understand {0}"
 msgstr "{applicationName} が {0} を理解できるようにする"
 
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Hosted"
-msgstr "ホスト型"
-
 #: src/AccountManagement.tsx
 msgid "Hosted access was removed immediately. Hosted data deletion continues automatically in the background. Any local collection and mirror files remain on your computers."
 msgstr "ホスト型のアクセスは直ちに削除されました。ホスト型データの削除はバックグラウンドで自動的に続きます。ローカルコレクションとミラーファイルはコンピューター上に残ります。"
-
-#: src/authority-workflows.tsx
-#: src/authorization-view.tsx
-#: src/ConnectApp.tsx
-msgid "Hosted by mdbase"
-msgstr "mdbase がホスト"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Hosted by mdbase"
-msgstr "mdbase がホスト"
 
 #: src/authority-workflows.tsx
 msgid "Hosted collection"
@@ -1768,10 +1759,6 @@ msgstr "ホスト型コレクション"
 msgctxt "Collection connection"
 msgid "Hosted collection"
 msgstr "ホスト型コレクション"
-
-#: src/ConnectApp.tsx
-msgid "Hosted creation is unavailable on this server."
-msgstr "このサーバーではホスト型コレクションを作成できません。"
 
 #: src/authority-workflows.tsx
 msgid "Hosted service"
@@ -1919,10 +1906,6 @@ msgstr "オフラインのレプリカを保持"
 #: src/authority-workflows.tsx
 msgid "Keep it hosted"
 msgstr "ホスト型のままにする"
-
-#: src/ConnectApp.tsx
-msgid "Keep the main copy in mdbase, with optional synced folders."
-msgstr "メインコピーを mdbase に保存し、必要に応じてフォルダーを同期します。"
 
 #: src/authorization-review.tsx
 msgid "Keep your current records and explain which fields mean the same thing."
@@ -2206,6 +2189,11 @@ msgstr "すべてのインストールで新たなアクセスが停止します
 msgid "New access will stop. Copies already downloaded by the app cannot be removed remotely."
 msgstr "新たなアクセスが停止します。アプリがダウンロード済みのコピーはリモートで削除できません。"
 
+#: src/authorization-view.tsx
+#: src/ConnectApp.tsx
+msgid "New collection"
+msgstr "新しいコレクション"
+
 #: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 msgid "New collection name"
@@ -2364,8 +2352,8 @@ msgid "Open {0}"
 msgstr "{0} を開く"
 
 #: src/ConnectApp.tsx
-msgid "Open a collection in the editor or manage where its main copy lives."
-msgstr "エディターでコレクションを開くか、正本の場所を管理します。"
+msgid "Open a collection in the editor or manage how it syncs."
+msgstr "コレクションをエディターで開くか、同期方法を管理します。"
 
 #: src/ApplicationAccess.tsx
 msgid "Open an app, then choose which collections it can access."
@@ -3223,6 +3211,14 @@ msgstr "mdbaseで問題が発生しました。もう一度お試しください
 msgid "Start signup again"
 msgstr "新規登録をやり直す"
 
+#: src/ConnectApp.tsx
+msgid "Starts with a cloud copy"
+msgstr "クラウド上のコピーから始まります"
+
+#: src/ConnectApp.tsx
+msgid "Starts with a cloud copy, so apps can use it from any device. Add it to a computer later."
+msgstr "クラウド上のコピーから始まるので、アプリがどのデバイスからでも使えます。あとでコンピューターに追加できます。"
+
 #: src/auth-view.tsx
 msgid "Stop receiving the kind of email this link came in. Messages about your account are still sent."
 msgstr "このリンクが届いた種類のメールの受信を停止します。アカウントに関するメッセージは引き続き送信されます。"
@@ -3312,6 +3308,10 @@ msgstr "アクセスが許可されなかったことがアプリケーション
 msgid "The app’s {0} value."
 msgstr "アプリケーションの {0} の値。"
 
+#: src/ConnectApp.tsx
+msgid "The cloud copy is available to the editor."
+msgstr "クラウド上のコピーをエディターで使えます。"
+
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "The collection"
@@ -3351,10 +3351,6 @@ msgctxt "Connect interface"
 msgid "the hosted authority"
 msgstr "ホスト型の管理元"
 
-#: src/ConnectApp.tsx
-msgid "The hosted collection is available to the editor."
-msgstr "ホスト型コレクションはエディターで利用できます。"
-
 #: src/LanguageSetting.tsx
 msgid "The language could not be loaded or saved. Try choosing it again."
 msgstr "言語を読み込むか保存する際に失敗しました。もう一度選んでください。"
@@ -3377,8 +3373,8 @@ msgid "The link is invalid, expired, already used, or password sign-in is tempor
 msgstr "リンクが無効、期限切れ、使用済み、またはパスワードログインが一時的に利用できません。"
 
 #: src/ConnectApp.tsx
-msgid "The main copy has moved away from hosted storage."
-msgstr "正本はホスト型ストレージから移動しました。"
+msgid "The main copy has moved to a computer."
+msgstr "メインのコピーはコンピューターに移動しました。"
 
 #: src/authority-workflows.tsx
 msgid "The main copy stayed hosted."

@@ -191,8 +191,8 @@ export function reviewServer({ editorUrl = process.env.REVIEW_EDITOR_URL ?? "htt
           const action = authorization[2];
           if (action === "status" && method === "GET") return send({ status: state.authorizationStatus, ...(state.authorizationRedirect ? { redirect_uri: state.authorizationRedirect } : {}) });
           if (!action && method === "GET") return send({ authorization: state.authorization,
-            collections: [...data.collections.map(collection => ({ ...collection, kind: "local" })), ...data.hosted_collections.map(collection => ({ ...collection, connector_name: "Hosted by mdbase", kind: "hosted" })), ...(data.native_collections ?? []).map(collection => ({ ...collection, kind: collection.sync, connector_id: "", connector_name: "Cloud copy configured", spec_version: "0.3.0", contracts: [], enabled: true }))],
-            hosted_collections_available: true, unavailable_connectors: [{ connector_id: "computer-2", connector_name: "Travel laptop", reason: "offline" }] });
+            collections: [...data.collections.map(collection => ({ ...collection, kind: "local" })), ...data.hosted_collections.map(collection => ({ ...collection, connector_name: "Cloud copy", kind: "hosted" })), ...(data.native_collections ?? []).map(collection => ({ ...collection, kind: collection.sync, connector_id: "", connector_name: "Cloud copy configured", spec_version: "0.3.0", contracts: [], enabled: true }))],
+            collection_creation_available: true, unavailable_connectors: [{ connector_id: "computer-2", connector_name: "Travel laptop", reason: "offline" }] });
           if (method === "POST" && ["approve", "deny"].includes(action)) {
             if (action === "approve") {
               const collection = [...data.collections, ...data.hosted_collections].find(collection => collection.id === body.collection_id);

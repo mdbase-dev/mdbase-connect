@@ -239,6 +239,10 @@ msgid "<0/>Allow hosted mirrors to stop until I join them again"
 msgstr "<0/>Разрешить остановку размещённых зеркал, пока я не подключу их снова"
 
 #: src/renderer/collections-view.tsx
+msgid "<0/>Encrypt end to end so mdbase cannot read it"
+msgstr "<0/>Сквозное шифрование: mdbase не сможет её прочитать"
+
+#: src/renderer/collections-view.tsx
 msgid "<0/>I have checked these files"
 msgstr "<0/>Я проверил эти файлы"
 
@@ -300,6 +304,10 @@ msgstr "Добавить существующую папку"
 #: src/renderer/main.tsx
 msgid "Add your first collection"
 msgstr "Добавить первую коллекцию"
+
+#: src/renderer/collections-view.tsx
+msgid "Advanced"
+msgstr "Дополнительно"
 
 #: src/renderer/main.tsx
 msgid "All on this computer only"
@@ -403,6 +411,10 @@ msgstr "Одобренные вами приложения получают до
 msgid "Apps you used with mdbase Connect appear here once Private sync is on for the {movedWaiting, plural, one {collection} other {collections}} that moved to this computer. mdbase turns it on by itself; you don't need to approve those apps again."
 msgstr "Приложения, которые вы использовали с mdbase connect, появятся здесь, когда для перенесённых на этот компьютер {movedWaiting, plural, one {коллекции} few {коллекций} many {коллекций} other {коллекций}} включится закрытая синхронизация. mdbase включит её автоматически; повторно одобрять приложения не нужно."
 
+#: src/renderer/collections-view.tsx
+msgid "Archive/Recordings"
+msgstr "Архив/Записи"
+
 #: src/renderer/main.tsx
 msgid "Ask before new apps connect"
 msgstr "Спрашивать перед подключением новых приложений"
@@ -411,6 +423,11 @@ msgstr "Спрашивать перед подключением новых пр
 #: src/renderer/access-view.tsx
 msgid "Asked {0}"
 msgstr "Запрос отправлен: {0}"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Audio"
+msgstr "Аудио"
 
 #: src/renderer/main.tsx
 msgid "Available in installed builds"
@@ -551,6 +568,10 @@ msgctxt "Desktop application"
 msgid "Choose where to create the folder."
 msgstr "Выберите, где создать папку."
 
+#: src/renderer/collections-view.tsx
+msgid "Choose which files this collection syncs, on every device. Notes always sync, and files that already synced stay where they are."
+msgstr "Выберите, какие файлы эта коллекция синхронизирует на всех устройствах. Заметки синхронизируются всегда, а уже синхронизированные файлы остаются на месте."
+
 #: src/renderer/ui-components.tsx
 msgid "Clear filter"
 msgstr "Сбросить фильтр"
@@ -563,10 +584,6 @@ msgstr "Закройте приложения, редактирующие эту
 msgctxt "Connect interface"
 msgid "Close navigation"
 msgstr "Закрыть навигацию"
-
-#: src/renderer/collections-view.tsx
-msgid "Cloud copy"
-msgstr "Облачная копия"
 
 #: src/renderer/daemon-view.mts
 msgid "Collection deleted"
@@ -773,14 +790,19 @@ msgstr "не удалось сохранить для переноса прав�
 msgid "Email support@mdbase.dev and include a diagnostics report. We'll finish your upgrade or move this computer back to mdbase Connect."
 msgstr "Напишите на support@mdbase.dev и приложите отчёт о диагностике. Мы завершим обновление или вернём этот компьютер на mdbase connect."
 
-#: src/renderer/collections-view.tsx
-msgid "End-to-end encrypted: mdbase cannot read it. Web apps work only while one of your devices is online."
-msgstr "Сквозное шифрование: mdbase не может прочитать данные. Веб-приложения работают, только когда одно из ваших устройств в сети."
-
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "Введите имя этого компьютера."
+
+#. placeholder {0}: collection.name
+#: src/renderer/collections-view.tsx
+msgid "File sync settings for {0} were saved."
+msgstr "Настройки синхронизации файлов для {0} сохранены."
+
+#: src/renderer/collections-view.tsx
+msgid "File types"
+msgstr "Типы файлов"
 
 #: src/renderer/activity-view.tsx
 msgid "Filter activity"
@@ -807,6 +829,10 @@ msgstr "Пути к папкам никогда не загружаются."
 msgid "Folders on this computer that your apps can use, and how each one syncs."
 msgstr "Папки на этом компьютере, доступные приложениям, и способ синхронизации каждой из них."
 
+#: src/renderer/collections-view.tsx
+msgid "Folders to leave out"
+msgstr "Исключаемые папки"
+
 #: src/renderer/main.tsx
 msgid "Go to {label}"
 msgstr "Перейти: {label}"
@@ -824,10 +850,6 @@ msgstr "в размещённых коллекциях остались прав
 msgid "How new apps get access to your local collections."
 msgstr "Как новые приложения получают доступ к вашим локальным коллекциям."
 
-#: src/renderer/collections-view.tsx
-msgid "How should it sync?"
-msgstr "Как синхронизировать?"
-
 #: src/renderer/main.tsx
 msgid "How this computer appears in your mdbase account"
 msgstr "Как этот компьютер отображается в вашей учётной записи mdbase"
@@ -837,6 +859,11 @@ msgstr "Как этот компьютер отображается в ваше�
 #: src/renderer/access-view.tsx
 msgid "If you approve, {0} will be able to {1} in {where}, through this computer. You can revoke this at any time."
 msgstr "Если вы одобрите запрос, {0} сможет {1} в {where} через этот компьютер. Вы сможете отозвать доступ в любой момент."
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Images"
+msgstr "Изображения"
 
 #. placeholder {0}: status.target_version
 #. placeholder {0}: update.target_version
@@ -930,6 +957,10 @@ msgid "Leave mdbase Connect's data in place and contact support with a diagnosti
 msgstr "Не удаляйте данные mdbase connect и обратитесь в поддержку с отчётом о диагностике."
 
 #: src/renderer/collections-view.tsx
+msgid "Leave out files larger than"
+msgstr "Исключать файлы больше"
+
+#: src/renderer/collections-view.tsx
 msgid "Loading…"
 msgstr "Загрузка…"
 
@@ -944,6 +975,10 @@ msgstr "Управлять в mdbase"
 #: src/renderer/access-view.tsx
 msgid "Mark as seen"
 msgstr "Отметить как просмотренное"
+
+#: src/renderer/collections-view.tsx
+msgid "MB"
+msgstr "МБ"
 
 #. placeholder {0}: bundled.version
 #. placeholder {1}: result.version
@@ -1042,8 +1077,8 @@ msgid "mdbase is not running on this computer. It restarts automatically; if thi
 msgstr "mdbase не работает на этом компьютере. Он перезапустится автоматически; если проблема останется, перезапустите mdbase connect."
 
 #: src/renderer/collections-view.tsx
-msgid "mdbase keeps a copy, so web apps and agents can use it while your devices are off."
-msgstr "mdbase хранит копию, чтобы веб-приложения и агенты могли использовать её, даже когда ваши устройства выключены."
+msgid "mdbase keeps a cloud copy, so web apps and agents can use this collection while your devices are off."
+msgstr "mdbase хранит облачную копию, поэтому веб-приложения и агенты могут работать с этой коллекцией, пока ваши устройства выключены."
 
 #: src/renderer/collections-view.tsx
 msgid "mdbase kept these files instead of overwriting them. Choose which version to keep."
@@ -1086,6 +1121,10 @@ msgstr "При одобрении mdbase показывает ключ прил�
 msgctxt "Desktop application"
 msgid "mdbase starting"
 msgstr "Запуск mdbase"
+
+#: src/renderer/collections-view.tsx
+msgid "mdbase stores only encrypted changes. Web apps and agents can use this collection only while one of your devices with the desktop app is online."
+msgstr "mdbase хранит только зашифрованные изменения. Веб-приложения и агенты могут работать с этой коллекцией, только пока в сети одно из ваших устройств с настольным приложением."
 
 #. placeholder {0}: reason.replaceAll("_", " ")
 #: src/renderer/takeover-state.mts
@@ -1232,6 +1271,10 @@ msgctxt "Local connection status"
 msgid "On this computer only"
 msgstr "Только на этом компьютере"
 
+#: src/renderer/collections-view.tsx
+msgid "One folder per line, relative to the collection."
+msgstr "Одна папка на строку, путь относительно коллекции."
+
 #: src/renderer/device-requests.tsx
 msgid "Only allow if this matches the code on {who}"
 msgstr "Разрешайте доступ, только если этот код совпадает с кодом на {who}"
@@ -1279,6 +1322,11 @@ msgstr "Открытие браузера…"
 msgid "Opening…"
 msgstr "Открытие…"
 
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Other files"
+msgstr "Другие файлы"
+
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
 msgctxt "Connect interface"
@@ -1294,6 +1342,11 @@ msgstr "Приостановить"
 msgid "Paused"
 msgstr "Приостановлено"
 
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "PDFs"
+msgstr "PDF"
+
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"
 msgid "Postponed"
@@ -1306,10 +1359,6 @@ msgstr "Подготовка кода для сравнения…"
 #: src/renderer/main.tsx
 msgid "Previous version restored"
 msgstr "Предыдущая версия восстановлена"
-
-#: src/renderer/collections-view.tsx
-msgid "Private"
-msgstr "Закрытая"
 
 #: src/renderer/daemon-view.mts
 msgid "Private sync (end-to-end encrypted)"
@@ -1420,6 +1469,11 @@ msgid "Revoked"
 msgstr "Доступ отозван"
 
 #: src/renderer/main.tsx
+msgid "Save"
+msgstr "Сохранить"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File sync settings"
 msgid "Save"
 msgstr "Сохранить"
 
@@ -1553,6 +1607,10 @@ msgstr "Вход"
 msgid "Signing out did not finish. Try signing out again."
 msgstr "Выход не завершён. Попробуйте выйти из аккаунта снова."
 
+#: src/renderer/collections-view.tsx
+msgid "Size limit in megabytes"
+msgstr "Ограничение размера в мегабайтах"
+
 #: src/renderer/takeover-state.mts
 msgid "Some edits from before the move need your attention."
 msgstr "Некоторые правки, внесённые до переноса, требуют вашего внимания."
@@ -1610,6 +1668,10 @@ msgstr "Синхронизация остановлена"
 msgctxt "Local connection status"
 msgid "Synced"
 msgstr "Синхронизировано"
+
+#: src/renderer/collections-view.tsx
+msgid "Synced files"
+msgstr "Синхронизируемые файлы"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1970,6 +2032,11 @@ msgstr "Версия {0} развёртывается для {1}% установ
 #: src/main/update-coordinator.ts
 msgid "Version {0} is verified and ready to install."
 msgstr "Версия {0} проверена и готова к установке."
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Video"
+msgstr "Видео"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"

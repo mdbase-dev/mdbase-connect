@@ -91,7 +91,7 @@ pub use collections::{LegacyRollbackEnvelope, LegacyRollbackReceipt, LegacyRollb
 pub use lifecycle::run_hosted_cutover_migrations;
 mod lifecycle_states;
 mod mutation_journal;
-pub use mutation_journal::HostedMutationJournalDiagnostics;
+pub use mutation_journal::{HostedMutationJournalDiagnostics, HostedMutationSweep};
 mod mutation_journal_files;
 mod mutation_journal_migration;
 mod mutation_metrics;
@@ -192,7 +192,9 @@ pub struct ProviderAccountUsage {
     pub live_content_bytes: u64,
     pub live_file_bytes: u64,
     pub retained_file_bytes: u64,
-    #[serde(flatten)]
+    /// Nested, not flattened: the limits also have a `retained_file_bytes`.
+    /// Flattened, the limit overwrote the usage value when the handler built
+    /// its JSON response, so the server saw the limit as usage.
     pub limits: ProviderAccountLimits,
 }
 
@@ -227,6 +229,7 @@ pub struct HostedProvider {
     notification_recovery_guard: Arc<Mutex<()>>,
     notification_recovery: Arc<RwLock<NotificationRecoveryStatus>>,
     projection_recovery_guard: Arc<Mutex<()>>,
+    mutation_sweep_cursor: Arc<Mutex<Option<MutationSweepKey>>>,
     blob_store: Arc<dyn BlobStore>,
     query_activity: Arc<HostedQueryActivityCounters>,
     query_scan_permits: Arc<Semaphore>,
@@ -275,6 +278,9 @@ pub struct HostedDiagnostics {
     pub storage: DiagnosticSection<StorageDiagnostic>,
     pub recent_resource_changes: DiagnosticSection<Vec<ResourceChangeDiagnostic>>,
     pub lifecycle_work: LifecycleDiagnosticSection,
+    pub released_file_control_mutations: DiagnosticSection<u64>,
+    pub released_sync_mutations: DiagnosticSection<u64>,
+    pub stored_sync_failures: DiagnosticSection<u64>,
     pub unfinished_mutations: DiagnosticSection<Vec<UnfinishedMutationDiagnostic>>,
 }
 
@@ -804,6 +810,8 @@ impl AuthorizedRequest {
 }
 
 type PersistedRecord = SyncRecord;
+/// Abandon sweep keyset position: (accepted_at, replica_id, request_id).
+type MutationSweepKey = (DateTime<Utc>, Uuid, Uuid);
 
 fn verify_hosted_record_change_set(
     actual: &mdbase::runtime::ChangeSet,

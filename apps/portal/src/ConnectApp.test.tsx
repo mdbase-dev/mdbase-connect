@@ -13,6 +13,8 @@ import { writeOverviewPreview } from "./overview-cache";
 let overview: ManagementOverview;
 
 beforeEach(() => {
+  vi.stubEnv("VITE_MDBASE_READER_URL", undefined);
+  vi.stubEnv("VITE_MDBASE_WRITER_URL", undefined);
   localStorage.clear();
   sessionStorage.clear();
   history.replaceState(null, "", "/?collection=collection");
@@ -34,6 +36,7 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe("ConnectApp", () => {
@@ -247,7 +250,7 @@ describe("ConnectApp", () => {
     expect(change).not.toHaveBeenCalled();
   });
 
-  it("opens Hosted first-collection setup for a newly flipped next account without a computer", async () => {
+  it("opens first-collection setup for a newly flipped next account without a computer", async () => {
     history.replaceState(null, "", "/");
     overview.collections = [];
     overview.hosted_collections = [];
@@ -261,14 +264,14 @@ describe("ConnectApp", () => {
 
     expect(await screen.findByText("No collections")).toBeInTheDocument();
     expect(screen.getByText("Choose where your first collection lives.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Hosted by mdbase/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /New collection/ })).toBeEnabled();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     await waitFor(() => expect(location.pathname).toBe("/collections"));
 
-    await user.click(screen.getByRole("button", { name: /Hosted by mdbase/ }));
+    await user.click(screen.getByRole("button", { name: /New collection/ }));
     expect(screen.getByRole("textbox", { name: "Collection name" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create" })).toBeEnabled();
-    expect(screen.queryByText("Hosted creation is unavailable on this server.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Creating collections is unavailable on this server.")).not.toBeInTheDocument();
   });
 
   it.each([false, true])("offers one Add collection flow with a Native handoff when Hosted enabled=%s", async hosted => {
@@ -289,11 +292,12 @@ describe("ConnectApp", () => {
   it("keeps Add collection visible without inventing a Native device or Hosted authority", async () => {
     history.replaceState(null, "", "/collections");
     overview.hosted_collections_available = false;
+    overview.collection_creation_available = false;
     Object.assign(overview, { native_collection_creation_available: false });
     const user = userEvent.setup();
     render(<ConnectApp />);
     await user.click(await screen.findByRole("button", { name: "Add collection" }));
-    expect(screen.getByRole("button", { name: /Hosted by mdbase/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /New collection/ })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: /A folder on this computer/ }));
     expect(screen.getByRole("link", { name: "Open desktop app" })).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "Location" })).not.toBeInTheDocument();
@@ -322,15 +326,47 @@ describe("ConnectApp", () => {
     expect(screen.queryByText("Availability unknown")).not.toBeInTheDocument();
   });
 
-  it("lists apps for discovery before any access is approved", async () => {
+  it.each([
+    ["lab", "https://editor-lab.mdbase.dev", "https://lab.mdbase-reader.pages.dev", "https://lab.mdbase-writer.pages.dev"],
+    ["staging", "https://editor-staging.mdbase.dev", "https://staging.mdbase-reader.pages.dev", "https://staging.mdbase-writer.pages.dev"],
+    ["production", "https://editor.mdbase.dev", "https://reader.mdbase.dev", "https://writer.mdbase.dev"],
+  ])("discovers all managed apps in %s before access is approved", async (_environment, editor, reader, writer) => {
+    const fetchData = vi.mocked(fetch).getMockImplementation()!;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+      new URL(String(input)).pathname === "/v1/ui-configuration" ? Response.json({ editor_url: `${editor}/connect` }) : fetchData(input, init)));
+    vi.stubEnv("VITE_MDBASE_ENV", "production");
+    overview.grants = [];
+    history.replaceState(null, "", "/applications");
+    render(<ConnectApp />);
+    await screen.findByRole("link", { name: "Editor" });
+    for (const [name, href] of [["Editor", editor], ["Reader", reader], ["Writer", writer], ["Journal", "https://journal.mdbase.dev"], ["TaskNotes", "https://app.tasknotes.dev"]]) {
+      expect(screen.getByRole("link", { name })).toHaveAttribute("href", href);
+    }
+    expect(screen.getByText("No apps with access")).toBeInTheDocument();
+  });
+
+  it("uses explicit app URLs for a custom deployment", async () => {
+    vi.stubEnv("VITE_MDBASE_READER_URL", "http://127.0.0.1:5321");
+    vi.stubEnv("VITE_MDBASE_WRITER_URL", "http://127.0.0.1:5320");
+    history.replaceState(null, "", "/applications");
+    render(<ConnectApp />);
+    await screen.findByRole("link", { name: "Editor" });
+    expect(screen.getByRole("link", { name: "Editor" })).toHaveAttribute("href", "https://editor.example.test");
+    expect(screen.getByRole("link", { name: "Reader" })).toHaveAttribute("href", "http://127.0.0.1:5321");
+    expect(screen.getByRole("link", { name: "Writer" })).toHaveAttribute("href", "http://127.0.0.1:5320");
+  });
+
+  it("does not guess production URLs for unconfigured custom apps", async () => {
     overview.grants = [];
     history.replaceState(null, "", "/applications");
     render(<ConnectApp />);
     await screen.findByRole("heading", { name: "Apps" });
     await screen.findByRole("link", { name: "Editor" });
-    for (const [name, href] of [["Editor", "https://editor.example.test"], ["Reader", "https://reader.mdbase.dev/"], ["Writer", "https://writer.mdbase.dev/"], ["Journal", "https://journal.mdbase.dev"], ["TaskNotes", "https://app.tasknotes.dev"]]) {
+    for (const [name, href] of [["Editor", "https://editor.example.test"], ["Journal", "https://journal.mdbase.dev"], ["TaskNotes", "https://app.tasknotes.dev"]]) {
       expect(screen.getByRole("link", { name })).toHaveAttribute("href", href);
     }
+    expect(screen.queryByRole("link", { name: "Reader" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Writer" })).not.toBeInTheDocument();
     expect(screen.getByText("No apps with access")).toBeInTheDocument();
   });
 
@@ -342,7 +378,8 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
     await screen.findByRole("heading", { name: "Apps" });
     expect(screen.queryByRole("link", { name: "Editor" })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Reader" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Reader" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Writer" })).not.toBeInTheDocument();
   });
 
   it("shows owned cloud-copy and Private collections and the complete deletion count", async () => {
@@ -734,7 +771,7 @@ describe("ConnectApp", () => {
     await screen.findByRole("heading", { name: "Garden notes" });
     await user.click(screen.getByRole("link", { name: "Collections" }));
     await user.click(screen.getByRole("button", { name: "Add collection" }));
-    await user.click(screen.getByRole("button", { name: /Hosted by mdbase/ }));
+    await user.click(screen.getByRole("button", { name: /New collection/ }));
     await user.type(screen.getByRole("textbox", {name: "Collection name"}), "Created while loading");
     fireEvent(document, new Event("visibilitychange"));
     expect(read).toHaveBeenCalledTimes(2);
@@ -813,7 +850,7 @@ describe("ConnectApp", () => {
     const view = render(<ConnectApp />);
     try {
       await user.click(await screen.findByRole("button", { name: "Aggiungi raccolta" }));
-      await user.click(screen.getByRole("button", { name: /Ospitata da mdbase/ }));
+      await user.click(screen.getByRole("button", { name: /Nuova raccolta/ }));
       expect(screen.getByLabelText("Nome della raccolta")).toHaveValue("");
       await user.type(screen.getByLabelText("Nome della raccolta"), "La prima raccolta");
       await user.click(screen.getByRole("button", { name: "Crea" }));
@@ -822,7 +859,7 @@ describe("ConnectApp", () => {
         new URL(String(url)).pathname === "/v1/account/collections" && init?.method === "POST")!;
       expect(JSON.parse(String(request[1]!.body)).display_name).toBe("La prima raccolta");
       await user.click(screen.getByRole("button", { name: "Aggiungi raccolta" }));
-      await user.click(screen.getByRole("button", { name: /Ospitata da mdbase/ }));
+      await user.click(screen.getByRole("button", { name: /Nuova raccolta/ }));
       const name = screen.getByLabelText("Nome della raccolta");
       expect(name).toHaveValue("");
       await user.clear(name);
@@ -844,7 +881,7 @@ describe("ConnectApp", () => {
     await screen.findByRole("heading", { name: "Garden notes" });
     await user.click(screen.getByRole("link", { name: "Collections" }));
     await user.click(await screen.findByRole("button", { name: "Add collection" }));
-    await user.click(screen.getByRole("button", { name: /Hosted by mdbase/ }));
+    await user.click(screen.getByRole("button", { name: /New collection/ }));
 
     const originalFetch = vi.mocked(fetch).getMockImplementation()!;
     vi.mocked(fetch).mockImplementation((input, init) => {
@@ -873,8 +910,9 @@ describe("ConnectApp", () => {
     expect(screen.queryByRole("link", { name: "Open desktop app" })).not.toBeInTheDocument();
   });
 
-  it("restores an uncertain original creation after reload and has one Add action even without hosted availability",async()=>{
+  it("restores an uncertain original creation after reload and has one Add action even without creation availability",async()=>{
     overview.hosted_collections_available=false;
+    overview.collection_creation_available=false;
     const account=overview.user.id;
     localStorage.setItem(`mdbase.connect.collection-creation:${account}`,JSON.stringify({accountId:account,requestId:"11111111-1111-4111-a111-111111111111",displayName:"Uncertain name",timezone:"UTC"}));
     const user=userEvent.setup();render(<ConnectApp/>);
@@ -1474,6 +1512,7 @@ function overviewFixture(): ManagementOverview {
       reconciliation: { entitlement_revision: 1, provider_revision: 1 }
     },
     hosted_collections_available: true,
+    collection_creation_available: true,
     collection_sharing_available: true,
     authentication: { provider: "github", registration: "closed" },
     connectors: [{ id: "computer", name: "Home computer", last_seen_at: now, created_at: now }],

@@ -249,8 +249,8 @@ enum SyncCmd {
     Enable {
         /// Collection ID, ID prefix or name.
         collection: String,
-        /// `private` or `cloud-copy`. Default: `private` for a folder with files
-        /// or a taken-over collection, `cloud-copy` for an empty folder.
+        /// `private` or `cloud-copy`. Default: `cloud-copy`, or `private` for a
+        /// collection taken over from today's connector.
         #[arg(long, value_enum)]
         mode: Option<SyncKind>,
         /// Turn sync on although files are still held from the takeover, keeping
@@ -273,6 +273,25 @@ enum SyncCmd {
     },
     /// Current collection-mode request and progress.
     ModeStatus { collection: String },
+    /// Show which files the collection syncs, or replace that choice with `--set`
+    /// for every device. Files already synced stay where they are.
+    Files {
+        /// Collection ID, ID prefix or name.
+        collection: String,
+        /// Replace the policy; options left out mean everything syncs.
+        #[arg(long)]
+        set: bool,
+        /// File types that sync: image, audio, video, pdf, other; empty for notes
+        /// only. Default: all.
+        #[arg(long, value_delimiter = ',', requires = "set")]
+        types: Option<Vec<String>>,
+        /// A folder to leave out (repeatable).
+        #[arg(long, requires = "set")]
+        exclude: Vec<String>,
+        /// Leave out files larger than this many bytes.
+        #[arg(long, requires = "set")]
+        max_size: Option<u64>,
+    },
     /// Move the log back to this device (local only).
     Disable {
         /// Collection ID, ID prefix or name.
@@ -1082,6 +1101,33 @@ async fn run_command(
                 Method::COLLECTION_MODE_STATUS,
                 &collection,
                 json!({}),
+            )
+            .await
+        }
+        Command::Sync(SyncCmd::Files {
+            collection,
+            set: false,
+            ..
+        }) => simple(profile, out, Method::SYNC_FILES, &collection, json!({})).await,
+        Command::Sync(SyncCmd::Files {
+            collection,
+            set: true,
+            types,
+            exclude,
+            max_size,
+        }) => {
+            let include: Vec<String> = match types {
+                Some(t) => t.into_iter().filter(|t| !t.is_empty()).collect(),
+                None => ["image", "audio", "video", "pdf", "other"]
+                    .map(String::from)
+                    .to_vec(),
+            };
+            simple(
+                profile,
+                out,
+                Method::SYNC_FILES_SET,
+                &collection,
+                json!({ "include": include, "exclude": exclude, "max_size": max_size }),
             )
             .await
         }
@@ -2096,6 +2142,43 @@ fn account_problem(reason: &str) -> &'static str {
 #[cfg(test)]
 mod mode_cli_tests {
     use super::*;
+    #[test]
+    fn sync_files_only_sets_with_an_explicit_flag() {
+        let cli = Cli::try_parse_from(["mdbase", "sync", "files", "notes"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Sync(SyncCmd::Files { set: false, .. })
+        ));
+        assert!(
+            Cli::try_parse_from(["mdbase", "sync", "files", "notes", "--types", "pdf"]).is_err()
+        );
+        let cli = Cli::try_parse_from([
+            "mdbase",
+            "sync",
+            "files",
+            "notes",
+            "--set",
+            "--types",
+            "image,pdf",
+            "--exclude",
+            "Videos",
+            "--max-size",
+            "10",
+        ])
+        .unwrap();
+        let Command::Sync(SyncCmd::Files {
+            types,
+            exclude,
+            max_size,
+            ..
+        }) = cli.command
+        else {
+            panic!("not sync files");
+        };
+        assert_eq!(types, Some(vec!["image".into(), "pdf".into()]));
+        assert_eq!(exclude, ["Videos"]);
+        assert_eq!(max_size, Some(10));
+    }
     #[test]
     fn mode_commands_preserve_explicit_target_and_resume() {
         let cli = Cli::try_parse_from([

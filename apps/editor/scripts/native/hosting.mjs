@@ -65,10 +65,11 @@ export async function verifyHosting({origin,inventory,deployment,fetchImpl=fetch
  const transport=async(url,init)=>{
   const response=await fetchImpl(url,init);
   try {checkHeaders(response,new URL(url).pathname,origin===deployment.url);}
-  catch {
+  catch(error) {
    // A security-policy refusal is terminal policy evidence, NOT a transient
    // network exception. Still account for the body, without refetching it.
-   failures.push({path:new URL(url).pathname,reason:'trusted-live-header-policy-failed'});
+   // The detail is a fixed message naming the rule (never a header value).
+   failures.push({path:new URL(url).pathname,reason:'trusted-live-header-policy-failed',detail:error.message});
   }
   return response;
  };
@@ -148,6 +149,14 @@ if(process.argv[1]===fileURLToPath(import.meta.url)) {
   const [planPath,inventoryPath,deploymentPath]=process.argv.slice(2);
   const json=async path=>JSON.parse(await readFile(path,'utf8'));
   const result=await verifyPublication({plan:await json(planPath),inventory:await json(inventoryPath),deployment:await json(deploymentPath)});
-  console.log(JSON.stringify(result,null,2));if(!result.ok)process.exitCode=1;
- }catch(error){console.log(JSON.stringify({ok:false,error:error.message}));process.exitCode=1;}
+  console.log(JSON.stringify(result,null,2));
+  if(!result.ok) {
+   // stdout is the receipt file, so say why on stderr for the job log.
+   for(const report of result.origins)for(const f of (report.failures??[]).slice(0,10))
+    console.error(`${report.ok?'ok':'FAILED'} ${report.origin}: ${f.path} ${f.reason}${f.detail?` (${f.detail})`:''}`);
+   for(const report of result.origins)if(report.unverified?.length)console.error(`${report.origin}: ${report.unverified.length} unverified`);
+   console.error('Editor hosting verification failed.');
+   process.exitCode=1;
+  }
+ }catch(error){console.log(JSON.stringify({ok:false,error:error.message}));console.error('Editor hosting verification failed: '+error.message);process.exitCode=1;}
 }

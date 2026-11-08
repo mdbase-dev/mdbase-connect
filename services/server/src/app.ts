@@ -309,6 +309,7 @@ export async function buildApp(options: BuildOptions) {
         serviceDeployments
           ? (collectionId) => activatePendingServices(options.db, serviceDeployments, undefined, collectionId, options.nextControlPlane!.logService.labPitr, options.nextControlPlane!.migrationRouting)
           : undefined,
+        (sweep) => app.log.info(sweep, "mdbase-next policy verification sweep"),
         fileQuotaMode === "enforce"
           ? (collectionId) => void fileQuota!.allocateCollection(collectionId).catch((error: unknown) =>
               app.log.error({ err: error, collectionId }, "file quota allocation failed"))
@@ -724,6 +725,7 @@ export async function buildApp(options: BuildOptions) {
     publicUrl,
     tailscaleAuth: options.tailscaleAuth,
     hostedCollections: options.hostedCollections,
+    nativeCollectionCreation: Boolean(options.nextControlPlane?.cloudCopyBootstrap),
     hostedProvider: options.hostedProvider,
     drainProviderRevocations: async () => {
       await providerRevocations?.drain();

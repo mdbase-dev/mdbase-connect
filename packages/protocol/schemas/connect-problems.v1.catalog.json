@@ -271,6 +271,17 @@
     "manifest_load_failed": { "category": "availability", "recovery": "retry" },
     "manifest_required": { "category": "validation", "recovery": "fix_request" },
     "missing_grant_key": { "category": "authorization", "recovery": "reauthorize" },
+    "mutation_abandoned": {
+      "category": "conflict",
+      "recovery": "none",
+      "details": {
+        "required": ["request_id", "application"],
+        "properties": {
+          "request_id": { "type": "string" },
+          "application": { "type": "string" }
+        }
+      }
+    },
     "mutation_recovery_expired": { "category": "compatibility", "recovery": "none" },
     "mutation_request_conflict": {
       "category": "conflict",

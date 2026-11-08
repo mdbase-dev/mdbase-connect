@@ -81,6 +81,7 @@ export const CONNECT_PROBLEM_CATALOG = {
   "manifest_load_failed": { category: "availability", recovery: "retry" },
   "manifest_required": { category: "validation", recovery: "fix_request" },
   "missing_grant_key": { category: "authorization", recovery: "reauthorize" },
+  "mutation_abandoned": { category: "conflict", recovery: "none" },
   "mutation_recovery_expired": { category: "compatibility", recovery: "none" },
   "mutation_request_conflict": { category: "conflict", recovery: "resolve_conflict" },
   "no_pending_mutation": { category: "conflict", recovery: "refresh" },
@@ -281,6 +282,10 @@ export interface ConnectProblemDetailsByCode {
   "manifest_load_failed": undefined;
   "manifest_required": undefined;
   "missing_grant_key": undefined;
+  "mutation_abandoned": {
+  "request_id": string;
+  "application": string;
+};
   "mutation_recovery_expired": undefined;
   "mutation_request_conflict": {
   "request_id": string;
@@ -818,6 +823,12 @@ export interface ConnectProblemByCode {
     category: "authorization";
     recovery: "reauthorize";
     details?: never;
+  };
+  "mutation_abandoned": ConnectProblemBase & {
+    code: "mutation_abandoned";
+    category: "conflict";
+    recovery: "none";
+    details: ConnectProblemDetailsByCode["mutation_abandoned"];
   };
   "mutation_recovery_expired": ConnectProblemBase & {
     code: "mutation_recovery_expired";
@@ -1447,6 +1458,21 @@ const CONNECT_PROBLEM_DETAIL_SCHEMAS: Readonly<Record<string, ConnectProblemDeta
             }
           }
         }
+      }
+    }
+  },
+  "mutation_abandoned": {
+    "type": "object",
+    "required": [
+      "request_id",
+      "application"
+    ],
+    "properties": {
+      "request_id": {
+        "type": "string"
+      },
+      "application": {
+        "type": "string"
       }
     }
   },

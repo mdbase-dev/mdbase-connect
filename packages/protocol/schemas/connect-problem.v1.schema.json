@@ -3456,6 +3456,63 @@
         "code",
         "category",
         "recovery",
+        "message",
+        "details"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
+          "const": "mutation_abandoned"
+        },
+        "category": {
+          "const": "conflict"
+        },
+        "recovery": {
+          "const": "none"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "request_id",
+            "application"
+          ],
+          "properties": {
+            "request_id": {
+              "type": "string"
+            },
+            "application": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
         "message"
       ],
       "properties": {

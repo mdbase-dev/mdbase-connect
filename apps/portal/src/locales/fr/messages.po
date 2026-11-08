@@ -403,8 +403,8 @@ msgid "a new collection"
 msgstr "une nouvelle collection"
 
 #: src/authorization-view.tsx
-msgid "A new collection stored by mdbase, available from any computer."
-msgstr "Une nouvelle collection stockée par mdbase, accessible depuis n’importe quel ordinateur."
+msgid "A new collection with a cloud copy, available from any device."
+msgstr "Une nouvelle collection avec une copie cloud, disponible depuis n’importe quel appareil."
 
 #: src/AccountManagement.tsx
 msgid "A new one-use sharing code is ready."
@@ -951,8 +951,8 @@ msgid "Choose a field"
 msgstr "Choisir un champ"
 
 #: src/ConnectApp.tsx
-msgid "Choose a Markdown folder in the desktop app. Your files stay here."
-msgstr "Choisissez un dossier Markdown dans l'application de bureau. Vos fichiers restent ici."
+msgid "Choose a Markdown folder in the desktop app. It syncs from there."
+msgstr "Choisissez un dossier Markdown dans l’application de bureau. Il se synchronise à partir de là."
 
 #. placeholder {0}: unmapped.label
 #: src/authorization-review.tsx
@@ -1015,6 +1015,13 @@ msgstr "Inscriptions closes"
 #: src/compatibility.ts
 msgid "Cloud collection required"
 msgstr "Collection cloud requise"
+
+#: src/authority-workflows.tsx
+#: src/authorization-view.tsx
+#: src/ConnectApp.tsx
+msgctxt "Collection storage mode"
+msgid "Cloud copy"
+msgstr "Copie cloud"
 
 #: src/AccountManagement.tsx
 msgctxt "Connect interface"
@@ -1230,8 +1237,8 @@ msgid "Create"
 msgstr "Créer"
 
 #: src/authorization-view.tsx
-msgid "Create a hosted collection"
-msgstr "Créer une collection hébergée"
+msgid "Create a collection"
+msgstr "Créer une collection"
 
 #: src/authority-workflows.tsx
 msgid "Create a hosted collection before approving this folder."
@@ -1268,10 +1275,6 @@ msgctxt "Application access approval"
 msgid "Create collection"
 msgstr "Créer une collection"
 
-#: src/authorization-view.tsx
-msgid "Create hosted collection"
-msgstr "Créer une collection hébergée"
-
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Create invitation"
@@ -1305,13 +1308,17 @@ msgid "Created, but this browser could not clear its request. Retrying will use 
 msgstr "Créée, mais le navigateur n’a pas pu effacer sa demande. Une nouvelle tentative utilisera la même collection."
 
 #: src/authorization-view.tsx
-msgid "Creates a plain mdbase collection hosted by mdbase. App access is still approved separately."
-msgstr "Crée une collection mdbase ordinaire hébergée par mdbase. L’accès des applications doit toujours être approuvé séparément."
+msgid "Creates a plain mdbase collection with a cloud copy. App access is still approved separately."
+msgstr "Crée une collection mdbase simple avec une copie cloud. L’accès de l’application reste approuvé séparément."
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Creating account…"
 msgstr "Création du compte…"
+
+#: src/ConnectApp.tsx
+msgid "Creating collections is unavailable on this server."
+msgstr "La création de collections n’est pas disponible sur ce serveur."
 
 #: src/onboarding-view.tsx
 msgid "Creating your first collection"
@@ -1740,25 +1747,9 @@ msgstr "La connexion avec Google ne s’est pas chargée correctement."
 msgid "Help {applicationName} understand {0}"
 msgstr "Aidez {applicationName} à comprendre {0}"
 
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Hosted"
-msgstr "Hébergé"
-
 #: src/AccountManagement.tsx
 msgid "Hosted access was removed immediately. Hosted data deletion continues automatically in the background. Any local collection and mirror files remain on your computers."
 msgstr "L’accès hébergé a été supprimé immédiatement. La suppression des données hébergées se poursuit automatiquement en arrière-plan. Les fichiers des collections locales et des miroirs restent sur vos ordinateurs."
-
-#: src/authority-workflows.tsx
-#: src/authorization-view.tsx
-#: src/ConnectApp.tsx
-msgid "Hosted by mdbase"
-msgstr "Hébergé par mdbase"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Hosted by mdbase"
-msgstr "Hébergé par mdbase"
 
 #: src/authority-workflows.tsx
 msgid "Hosted collection"
@@ -1768,10 +1759,6 @@ msgstr "Collection hébergée"
 msgctxt "Collection connection"
 msgid "Hosted collection"
 msgstr "Collection hébergée"
-
-#: src/ConnectApp.tsx
-msgid "Hosted creation is unavailable on this server."
-msgstr "La création de collections hébergées est indisponible sur ce serveur."
 
 #: src/authority-workflows.tsx
 msgid "Hosted service"
@@ -1919,10 +1906,6 @@ msgstr "Conserver une réplique hors ligne"
 #: src/authority-workflows.tsx
 msgid "Keep it hosted"
 msgstr "Conserver la collection hébergée"
-
-#: src/ConnectApp.tsx
-msgid "Keep the main copy in mdbase, with optional synced folders."
-msgstr "Conservez la copie principale dans mdbase, avec des dossiers synchronisés en option."
 
 #: src/authorization-review.tsx
 msgid "Keep your current records and explain which fields mean the same thing."
@@ -2206,6 +2189,11 @@ msgstr "Les nouveaux accès cesseront sur toutes les installations. Les copies d
 msgid "New access will stop. Copies already downloaded by the app cannot be removed remotely."
 msgstr "Les nouveaux accès cesseront. Les copies déjà téléchargées par l'application ne peuvent pas être supprimées à distance."
 
+#: src/authorization-view.tsx
+#: src/ConnectApp.tsx
+msgid "New collection"
+msgstr "Nouvelle collection"
+
 #: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 msgid "New collection name"
@@ -2364,8 +2352,8 @@ msgid "Open {0}"
 msgstr "Ouvrir {0}"
 
 #: src/ConnectApp.tsx
-msgid "Open a collection in the editor or manage where its main copy lives."
-msgstr "Ouvrez une collection dans l’éditeur ou gérez l’emplacement de sa copie principale."
+msgid "Open a collection in the editor or manage how it syncs."
+msgstr "Ouvrez une collection dans l’éditeur ou gérez sa synchronisation."
 
 #: src/ApplicationAccess.tsx
 msgid "Open an app, then choose which collections it can access."
@@ -3223,6 +3211,14 @@ msgstr "Une erreur s’est produite sur mdbase. Réessayez."
 msgid "Start signup again"
 msgstr "Recommencer l’inscription"
 
+#: src/ConnectApp.tsx
+msgid "Starts with a cloud copy"
+msgstr "Commence avec une copie cloud"
+
+#: src/ConnectApp.tsx
+msgid "Starts with a cloud copy, so apps can use it from any device. Add it to a computer later."
+msgstr "Commence avec une copie cloud pour que les applications puissent l’utiliser depuis n’importe quel appareil. Ajoutez-la à un ordinateur plus tard."
+
 #: src/auth-view.tsx
 msgid "Stop receiving the kind of email this link came in. Messages about your account are still sent."
 msgstr "Ne plus recevoir le type d’e-mail qui contenait ce lien. Les messages relatifs à votre compte continueront d’être envoyés."
@@ -3312,6 +3308,10 @@ msgstr "L’application indiquera que l’accès n’a pas été accordé."
 msgid "The app’s {0} value."
 msgstr "La valeur {0} de l’application."
 
+#: src/ConnectApp.tsx
+msgid "The cloud copy is available to the editor."
+msgstr "La copie cloud est disponible pour l’éditeur."
+
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "The collection"
@@ -3351,10 +3351,6 @@ msgctxt "Connect interface"
 msgid "the hosted authority"
 msgstr "l’autorité hébergée"
 
-#: src/ConnectApp.tsx
-msgid "The hosted collection is available to the editor."
-msgstr "La collection hébergée est accessible à l’éditeur."
-
 #: src/LanguageSetting.tsx
 msgid "The language could not be loaded or saved. Try choosing it again."
 msgstr "Impossible de charger ou d’enregistrer la langue. Essayez de la choisir à nouveau."
@@ -3377,8 +3373,8 @@ msgid "The link is invalid, expired, already used, or password sign-in is tempor
 msgstr "Ce lien est invalide, expiré ou déjà utilisé, ou la connexion par mot de passe est temporairement indisponible."
 
 #: src/ConnectApp.tsx
-msgid "The main copy has moved away from hosted storage."
-msgstr "La copie principale a quitté le stockage hébergé."
+msgid "The main copy has moved to a computer."
+msgstr "La copie principale a été déplacée vers un ordinateur."
 
 #: src/authority-workflows.tsx
 msgid "The main copy stayed hosted."

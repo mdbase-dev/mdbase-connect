@@ -660,7 +660,7 @@ describe("authentication operator command", () => {
           live_content_bytes: 0,
           live_file_bytes: 0,
           retained_file_bytes: 0,
-          ...limits
+          limits
         };
         usage.set(accountId, next);
         return next;
@@ -904,7 +904,7 @@ function fakeHostedProvider(): HostedProviderClient {
         live_content_bytes: 0,
         live_file_bytes: 0,
         retained_file_bytes: 0,
-        ...limits
+        limits
       };
       return usage;
     },

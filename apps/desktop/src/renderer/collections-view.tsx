@@ -72,6 +72,7 @@ function CollectionCard({ collection, computerName, busy, onAct, onNotice, onTur
   const view = presentCollection(collection);
   const [holdsOpen, setHoldsOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [filesOpen, setFilesOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
   const menuId = useId();
@@ -105,6 +106,7 @@ function CollectionCard({ collection, computerName, busy, onAct, onNotice, onTur
       <Menu open={menuOpen} triggerRef={menuTrigger} onClose={closeMenu} id={menuId} label={collection.name}>
         <button role="menuitem" className="mdbase-menu-item" disabled={busy} onClick={() => { closeMenu(true); void onAct(() => window.mdbaseConnect.openCollectionFolder(collection.id)); }}><Trans>Open folder</Trans></button>
         <button role="menuitem" className="mdbase-menu-item" onClick={() => { closeMenu(true); setDetailsOpen((open) => !open); }}><Trans>Details</Trans></button>
+        {["synced", "synced_e2e"].includes(collection.mode) && <button role="menuitem" className="mdbase-menu-item" onClick={() => { closeMenu(true); setFilesOpen((open) => !open); }}><Trans>Synced files</Trans></button>}
         {view.holds > 0 && <button role="menuitem" className="mdbase-menu-item" onClick={() => { closeMenu(true); setHoldsOpen((open) => !open); }}>{holdsOpen ? t(i18n)`Hide ${plural(view.holds, { one: "# file", other: "# files" })}` : t(i18n)`Review ${plural(view.holds, { one: "# file", other: "# files" })}`}</button>}
         {view.canEnableSync && <button role="menuitem" className="mdbase-menu-item" disabled={busy} onClick={() => { closeMenu(true); onTurnOnSync(); }}><Trans>Turn on sync</Trans></button>}
         <button role="menuitem" className="mdbase-menu-item" disabled={busy || collection.state === "opening"} onClick={() => { closeMenu(true); void onAct(() => window.mdbaseConnect.setCollectionEnabled(collection.id, view.paused)); }}>{view.paused ? t(i18n)({ message: "Resume", context: "Local collection management" }) : t(i18n)({ message: "Pause", context: "Local collection management" })}</button>
@@ -118,6 +120,7 @@ function CollectionCard({ collection, computerName, busy, onAct, onNotice, onTur
         setRemoveOpen(false);
       }} />
       {detailsOpen && <Details collection={collection} onDone={(saved) => { setDetailsOpen(false); if (saved) onNotice(t(i18n)`${saved.name} was saved.`); }} />}
+      {filesOpen && <SyncedFiles collection={collection} onDone={(saved) => { setFilesOpen(false); if (saved) onNotice(t(i18n)`File sync settings for ${collection.name} were saved.`); }} />}
       {holdsOpen && <Holds collection={collection} busy={busy} onAct={onAct} />}
     </article>
   );
@@ -151,6 +154,87 @@ function Details({ collection, onDone }: { collection: DaemonCollection; onDone(
       <div className="row-actions">
         <button className="mdbase-button" disabled={saving} onClick={() => onDone(null)}><Trans>Cancel</Trans></button>
         <button className="mdbase-button is-primary" disabled={saving || !name.trim()} onClick={() => void save()}>{saving ? t(i18n)({ message: "Saving…", context: "Local collection management" }) : t(i18n)({ message: "Save details", context: "Local collection management" })}</button>
+      </div>
+    </div>
+  );
+}
+
+const FILE_CLASSES: Array<{ id: SyncFiles["include"][number]; label(): string }> = [
+  { id: "image", label: () => t(i18n)({ message: "Images", context: "File types that sync" }) },
+  { id: "audio", label: () => t(i18n)({ message: "Audio", context: "File types that sync" }) },
+  { id: "video", label: () => t(i18n)({ message: "Video", context: "File types that sync" }) },
+  { id: "pdf", label: () => t(i18n)({ message: "PDFs", context: "File types that sync" }) },
+  { id: "other", label: () => t(i18n)({ message: "Other files", context: "File types that sync" }) }
+];
+const MB = 1_000_000;
+
+/** Which files the collection syncs on every device. The draft survives a failed save. */
+function SyncedFiles({ collection, onDone }: { collection: DaemonCollection; onDone(saved: boolean): void }) {
+  useLocaleRevision();
+  const [loaded, setLoaded] = useState(false);
+  const [include, setInclude] = useState<SyncFiles["include"]>([]);
+  const [folders, setFolders] = useState("");
+  const [capped, setCapped] = useState(false);
+  const [limit, setLimit] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  useEffect(() => {
+    window.mdbaseConnect.syncFiles(collection.id).then((files) => {
+      setInclude(files.include);
+      setFolders(files.exclude.join("\n"));
+      setCapped(files.max_size !== undefined);
+      setLimit(files.max_size === undefined ? "" : String(files.max_size / MB));
+      setLoaded(true);
+    }).catch((reason) => setFailure(message(reason)));
+  }, [collection.id]);
+  const megabytes = Number(limit);
+  const limitValid = !capped || (limit.trim() !== "" && Number.isFinite(megabytes) && megabytes > 0);
+  async function save() {
+    setSaving(true);
+    setFailure(null);
+    try {
+      await window.mdbaseConnect.setSyncFiles(collection.id, {
+        include: FILE_CLASSES.map((c) => c.id).filter((id) => include.includes(id)),
+        exclude: folders.split("\n").map((folder) => folder.trim()).filter(Boolean),
+        ...(capped ? { max_size: Math.round(megabytes * MB) } : {})
+      });
+      onDone(true);
+    } catch (reason) {
+      setFailure(message(reason));
+    } finally {
+      setSaving(false);
+    }
+  }
+  const disabled = saving || !loaded;
+  return (
+    <div className="sync-files">
+      <p><Trans>Choose which files this collection syncs, on every device. Notes always sync, and files that already synced stay where they are.</Trans></p>
+      {failure && <p className="mdbase-message is-error" role="alert">{failure}</p>}
+      {!loaded && !failure && <small><Trans>Loading…</Trans></small>}
+      <fieldset disabled={disabled}>
+        <legend><Trans>File types</Trans></legend>
+        <div>{FILE_CLASSES.map((c) => (
+          <label key={c.id} className="takeover-option">
+            <input className="mdbase-checkbox" type="checkbox" checked={include.includes(c.id)} onChange={(event) => setInclude((current) => event.target.checked ? [...current, c.id] : current.filter((id) => id !== c.id))} />
+            {c.label()}
+          </label>
+        ))}</div>
+      </fieldset>
+      <label className="sync-files-field"><span><Trans>Folders to leave out</Trans></span>
+        <textarea className="mdbase-field" value={folders} disabled={disabled} onChange={(event) => setFolders(event.target.value)} placeholder={t(i18n)({ message: "Archive/Recordings" })} />
+        <small><Trans>One folder per line, relative to the collection.</Trans></small>
+      </label>
+      <div className="sync-files-size">
+        <label className="takeover-option">
+          <input className="mdbase-checkbox" type="checkbox" checked={capped} disabled={disabled} onChange={(event) => setCapped(event.target.checked)} />
+          <Trans>Leave out files larger than</Trans>
+        </label>
+        <input className="mdbase-field" type="number" min="0.001" step="any" inputMode="decimal" value={limit} disabled={disabled || !capped} aria-label={t(i18n)`Size limit in megabytes`} onChange={(event) => setLimit(event.target.value)} />
+        <span><Trans>MB</Trans></span>
+      </div>
+      <div className="row-actions">
+        <button className="mdbase-button" disabled={saving} onClick={() => onDone(false)}><Trans>Cancel</Trans></button>
+        <button className="mdbase-button is-primary" disabled={disabled || !limitValid} onClick={() => void save()}>{saving ? t(i18n)({ message: "Saving…", context: "Local collection management" }) : t(i18n)({ message: "Save", context: "File sync settings" })}</button>
       </div>
     </div>
   );
@@ -240,12 +324,12 @@ function TurnOnSyncDialog({ open, collection, busy, error, onAct, onClose, onCon
   onConfirm(mode: "private" | "cloud-copy", acceptTakeoverHolds: boolean): Promise<void>;
 }) {
   useLocaleRevision();
-  const [mode, setMode] = useState<"private" | "cloud-copy">("private");
+  const [encrypted, setEncrypted] = useState(false);
   const [takeover, setTakeover] = useState<{ takenOver: boolean; held: TakeoverHold[] } | null>(null);
   const [holds, setHolds] = useState<HoldSummary[] | null>(null);
   const [reviewed, setReviewed] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
-  useEffect(() => { if (open) { setMode("private"); setTakeover(null); setHolds(null); setReviewed(false); setFailure(null); } }, [open]);
+  useEffect(() => { if (open) { setEncrypted(false); setTakeover(null); setHolds(null); setReviewed(false); setFailure(null); } }, [open]);
   // Read with each hold list, so a file resolved through the hold path drops out of both.
   const holdsLoaded = (list: HoldSummary[]) => {
     window.mdbaseConnect.migrationStatus()
@@ -280,20 +364,19 @@ function TurnOnSyncDialog({ open, collection, busy, error, onAct, onClose, onCon
           </Trans></label>
         </div>
       )}
-      <fieldset className="authority-choice">
-        <legend><Trans>How should it sync?</Trans></legend>
-        <label className={mode === "private" ? "selected" : ""}>
-          <input type="radio" name="sync-mode" checked={mode === "private"} disabled={busy} onChange={() => setMode("private")} />
-          <span><strong><Trans>Private</Trans></strong><small><Trans>End-to-end encrypted: mdbase cannot read it. Web apps work only while one of your devices is online.</Trans></small></span>
-        </label>
-        <label className={mode === "cloud-copy" ? "selected" : ""}>
-          <input type="radio" name="sync-mode" checked={mode === "cloud-copy"} disabled={busy} onChange={() => setMode("cloud-copy")} />
-          <span><strong><Trans>Cloud copy</Trans></strong><small><Trans>mdbase keeps a copy, so web apps and agents can use it while your devices are off.</Trans></small></span>
-        </label>
-      </fieldset>
+      <p>{encrypted
+        ? <Trans>mdbase stores only encrypted changes. Web apps and agents can use this collection only while one of your devices with the desktop app is online.</Trans>
+        : <Trans>mdbase keeps a cloud copy, so web apps and agents can use this collection while your devices are off.</Trans>}</p>
+      <details className="mdbase-disclosure">
+        <summary><Trans>Advanced</Trans></summary>
+        <label className="takeover-option"><Trans>
+          <input className="mdbase-checkbox" type="checkbox" checked={encrypted} disabled={busy} onChange={(event) => setEncrypted(event.target.checked)} />
+          Encrypt end to end so mdbase cannot read it
+        </Trans></label>
+      </details>
       <div className="modal-actions">
         <button className="mdbase-button" disabled={busy} onClick={onClose}><Trans>Cancel</Trans></button>
-        <button className="mdbase-button is-primary" disabled={busy || !ready} onClick={() => void onConfirm(mode, unlisted.length > 0 && reviewed)}>{busy ? t(i18n)({ message: "Turning on…", context: "Local collection management" }) : t(i18n)({ message: "Turn on sync", context: "Local collection management" })}</button>
+        <button className="mdbase-button is-primary" disabled={busy || !ready} onClick={() => void onConfirm(encrypted ? "private" : "cloud-copy", unlisted.length > 0 && reviewed)}>{busy ? t(i18n)({ message: "Turning on…", context: "Local collection management" }) : t(i18n)({ message: "Turn on sync", context: "Local collection management" })}</button>
       </div>
     </Dialog>
   );

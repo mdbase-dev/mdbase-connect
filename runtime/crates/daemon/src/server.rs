@@ -29,7 +29,8 @@ use crate::control::{
     AccountInfo, AddCollection, Check, CollectionRef, CollectionStatus, ConflictSummary,
     ControlError, DaemonStatus, DeleteCollection, DeviceInfo, EnableSync, GrantRef, HoldAction,
     HoldResolved, HoldSummary, JoinCollection, Method, NotReady, Notice, PROTOCOL,
-    READINESS_SCHEMA, Readiness, Request, ResolveHold, Response, Settings, UpdateCollection,
+    READINESS_SCHEMA, Readiness, Request, ResolveHold, Response, SetSyncFiles, Settings, SyncFiles,
+    UpdateCollection,
 };
 use crate::fsutil;
 use crate::instance::{InstanceLock, LockError};
@@ -1468,6 +1469,11 @@ impl Daemon {
             }
             Method::COLLECTION_RESOLVE_HOLD => self.resolve_hold(params(req)?).await,
             Method::CONFLICTS_DISMISS => self.dismiss_conflict(params(req)?).await,
+            Method::SYNC_FILES => {
+                let p: CollectionRef = params(req)?;
+                Ok(json!(self.sync_files(&p.collection).await?))
+            }
+            Method::SYNC_FILES_SET => self.set_sync_files(params(req)?).await,
             Method::COLLECTION_CONFLICTS => {
                 let p: CollectionRef = params(req)?;
                 self.conflicts(&p.collection).await
@@ -1864,6 +1870,94 @@ impl Daemon {
             }
             .into(),
         }))
+    }
+
+    /// The collection's inclusion policy, as `describe` reports it.
+    async fn sync_files(&self, id: &str) -> Result<SyncFiles, ControlError> {
+        use mdbn_wire::Wire;
+        use mdbn_wire::cbor::Cbor;
+        use mdbn_wire::intent::FileInclusion;
+        let rt = self.runtime_of(id).await?;
+        let bad = || ControlError::internal("the replica's description does not decode");
+        let Cbor::Map(m) = host_call(&rt, "describe", Cbor::Map(vec![])).await? else {
+            return Err(bad());
+        };
+        let (_, inclusion) = m
+            .iter()
+            .find(|(k, _)| *k == Cbor::Uint(3))
+            .ok_or_else(bad)?;
+        let f = FileInclusion::from_cbor(inclusion).map_err(|_| bad())?;
+        Ok(SyncFiles {
+            include: f.include.into_iter().map(file_class).collect(),
+            exclude: f.exclude.unwrap_or_default(),
+            max_size: f.max_size,
+        })
+    }
+
+    /// Replace the inclusion policy with an ordinary `sync_settings` mutation.
+    async fn set_sync_files(&self, p: SetSyncFiles) -> Result<Value, ControlError> {
+        use mdbn_wire::Wire;
+        use mdbn_wire::client::{Receipt, ReceiptState, SubmitParams, WaitFor};
+        use mdbn_wire::intent::{FileInclusion, MediaClass, Op, SyncSettings};
+        let mut exclude = Vec::with_capacity(p.files.exclude.len());
+        for folder in &p.files.exclude {
+            let folder = folder.trim_matches('/');
+            if folder.is_empty()
+                || folder
+                    .split('/')
+                    .any(|seg| seg.is_empty() || seg == "." || seg == "..")
+            {
+                return Err(ControlError::invalid(
+                    "invalid_folder",
+                    format!("`{folder}` is not a folder inside the collection"),
+                ));
+            }
+            if !exclude.iter().any(|f: &String| f == folder) {
+                exclude.push(folder.to_string());
+            }
+        }
+        let mut include: Vec<MediaClass> = Vec::new();
+        for c in &p.files.include {
+            let m = match c {
+                crate::control::FileClass::Image => MediaClass::Image,
+                crate::control::FileClass::Audio => MediaClass::Audio,
+                crate::control::FileClass::Video => MediaClass::Video,
+                crate::control::FileClass::Pdf => MediaClass::Pdf,
+                crate::control::FileClass::Other => MediaClass::Other,
+            };
+            if !include.contains(&m) {
+                include.push(m);
+            }
+        }
+        let inclusion = FileInclusion {
+            include,
+            exclude: (!exclude.is_empty()).then_some(exclude),
+            max_size: p.files.max_size,
+        };
+        let rt = self.runtime_of(&p.collection).await?;
+        let submit = SubmitParams {
+            ops: vec![Op::SyncSettings(SyncSettings { inclusion })],
+            mutation_id: None,
+            conflict_mode: None,
+            timezone: None,
+            allow_partial: None,
+            mutation_ids: None,
+            dry_run: None,
+            include: None,
+            wait: Some(WaitFor::Confirmed),
+        };
+        let result = host_call(&rt, "submit", submit.to_cbor()).await?;
+        let receipts: Vec<Receipt> = Wire::from_cbor(&result)
+            .map_err(|_| ControlError::internal("the replica's receipt does not decode"))?;
+        if receipts
+            .first()
+            .is_none_or(|r| r.state == ReceiptState::Rejected)
+        {
+            return Err(ControlError::internal(
+                "the replica rejected the file settings",
+            ));
+        }
+        Ok(json!(self.sync_files(&p.collection).await?))
     }
 
     /// The registered collection `raw` names, as the registry spells it. Only
@@ -2784,25 +2878,13 @@ impl Daemon {
         }
         let adopting = journal.is_some() || !local_bootstrap_folder_is_empty(&entry.root)?;
         let migrated = entry.origin == crate::registry::Origin::MigratedLocal;
-        let e2e = match (&journal, p.mode) {
-            (Some(j), asked) => {
-                let started = j.mode == crate::adopt::Mode::Private;
-                if asked.is_some_and(|m| (m == SyncMode::SyncedE2e) != started) {
-                    return Err(ControlError::invalid(
-                        "adopt_in_progress",
-                        format!(
-                            "turning sync on was started as {}; run it again with that mode",
-                            if started { "private" } else { "cloud-copy" }
-                        ),
-                    ));
-                }
-                started
-            }
-            (None, Some(m)) => m == SyncMode::SyncedE2e,
-            // Migrated local-authority collections, and folders with files, become
-            // private unless the user asks for a cloud copy.
-            (None, None) => adopting || migrated,
-        };
+        let e2e = sync_e2e(
+            journal
+                .as_ref()
+                .map(|j| j.mode == crate::adopt::Mode::Private),
+            p.mode,
+            migrated,
+        )?;
         let mode = if e2e {
             SyncMode::SyncedE2e
         } else {
@@ -4853,6 +4935,18 @@ const OLD_CONNECTOR_POLL: Duration = Duration::from_secs(5);
 /// `SessionAuth::Host` session (the daemon is the host; no grant, so the mutation
 /// is the user's own device's), one request, then the session closes. The
 /// replica's problem becomes the control error (same codes, §9).
+fn file_class(m: mdbn_wire::intent::MediaClass) -> crate::control::FileClass {
+    use crate::control::FileClass;
+    use mdbn_wire::intent::MediaClass;
+    match m {
+        MediaClass::Image => FileClass::Image,
+        MediaClass::Audio => FileClass::Audio,
+        MediaClass::Video => FileClass::Video,
+        MediaClass::Pdf => FileClass::Pdf,
+        MediaClass::Other => FileClass::Other,
+    }
+}
+
 async fn host_call(
     rt: &Arc<crate::runtime::Runtime>,
     method: &str,
@@ -5007,6 +5101,34 @@ fn folder_is_empty(root: &std::path::Path) -> Result<bool, ControlError> {
         }
     }
     Ok(true)
+}
+
+/// Whether turning sync on makes the collection Private. `started` is the
+/// mode an interrupted adopt journal began with, which a retry must keep.
+fn sync_e2e(
+    started: Option<bool>,
+    asked: Option<SyncMode>,
+    migrated: bool,
+) -> Result<bool, ControlError> {
+    Ok(match (started, asked) {
+        (Some(started), asked) => {
+            if asked.is_some_and(|m| (m == SyncMode::SyncedE2e) != started) {
+                return Err(ControlError::invalid(
+                    "adopt_in_progress",
+                    format!(
+                        "turning sync on was started as {}; run it again with that mode",
+                        if started { "private" } else { "cloud-copy" }
+                    ),
+                ));
+            }
+            started
+        }
+        (None, Some(m)) => m == SyncMode::SyncedE2e,
+        // A cloud copy unless the user asks for private. Migrated
+        // local-authority collections never had a cloud copy, and the
+        // automatic takeover enables them without asking, so they stay private.
+        (None, None) => migrated,
+    })
 }
 
 /// Only for an authenticated owner's EXISTING local registration: FileStore

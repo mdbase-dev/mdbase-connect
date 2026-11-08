@@ -1,6 +1,11 @@
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+    time::Duration,
+};
 
 use async_trait::async_trait;
+use axum::http::StatusCode;
 use chrono::Utc;
 use futures_util::stream;
 use mdbase_connect_hosted_provider::{
@@ -92,6 +97,7 @@ pub struct ControlledBlobStore {
     copy_gate: Arc<CopyGate>,
     delete_gate: Arc<CopyGate>,
     delete_failures_remaining: Arc<Mutex<u32>>,
+    aborted_multipart_uploads: Arc<Mutex<BTreeSet<String>>>,
     calls: Arc<Mutex<BTreeMap<&'static str, usize>>>,
 }
 
@@ -189,12 +195,29 @@ impl BlobStore for ControlledBlobStore {
     async fn list_multipart_parts(
         &self,
         _key: &str,
-        _upload_id: &str,
+        upload_id: &str,
     ) -> ApiResult<Vec<UploadedPart>> {
+        // R2 answers NoSuchUpload, which the provider maps like any R2 error.
+        if self
+            .aborted_multipart_uploads
+            .lock()
+            .await
+            .contains(upload_id)
+        {
+            return Err(ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "blob_storage_unavailable",
+                "Hosted file storage is temporarily unavailable.",
+            ));
+        }
         Ok(Vec::new())
     }
 
-    async fn abort_multipart(&self, _key: &str, _upload_id: &str) -> ApiResult<()> {
+    async fn abort_multipart(&self, _key: &str, upload_id: &str) -> ApiResult<()> {
+        self.aborted_multipart_uploads
+            .lock()
+            .await
+            .insert(upload_id.to_string());
         Ok(())
     }
 

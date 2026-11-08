@@ -220,6 +220,8 @@ test("LAB target and account are static and target overrides fail before command
   assert.deepEqual(developmentDeployments.lab, {
     connectOrigin: "https://connect-lab.mdbase.dev",
     editorOrigin: "https://editor-lab.mdbase.dev",
+    readerOrigin: "https://lab.mdbase-reader.pages.dev",
+    writerOrigin: "https://lab.mdbase-writer.pages.dev",
     cloudflareAccountId: accountId,
     project: "mdbase-editor-lab",
     branch: "candidate-b",

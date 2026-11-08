@@ -59,6 +59,7 @@ export type CommonOperationProblemCode =
   | "invalid_operation_response"
   | "invalid_request"
   | "missing_grant_key"
+  | "mutation_abandoned"
   | "mutation_recovery_expired"
   | "mutation_request_conflict"
   | "not_authorized"
@@ -105,6 +106,7 @@ export const COMMON_OPERATION_PROBLEM_CODES = [
   "invalid_operation_response",
   "invalid_request",
   "missing_grant_key",
+  "mutation_abandoned",
   "mutation_recovery_expired",
   "mutation_request_conflict",
   "not_authorized",

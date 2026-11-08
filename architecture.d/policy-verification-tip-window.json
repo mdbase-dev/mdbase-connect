@@ -1,0 +1,6 @@
+{
+  "reason": "The verifier checks only the newest acknowledged batch for recently changed collections, and the outbox runs the same tip check before every delivery. Both need the tip read and its fenced recovery from policy-recovery, so verifyPolicyTip and policyTipIntact are exported for the outbox.",
+  "growth": {
+    "typeScriptExportDeclarations": 2
+  }
+}
