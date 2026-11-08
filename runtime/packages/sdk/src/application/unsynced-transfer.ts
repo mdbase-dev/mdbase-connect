@@ -7,7 +7,8 @@
  * destination, so a retry from any tab, after a reload or with a lost reply,
  * resends the same create. A record whose ID is already in the destination
  * came from an earlier transfer (IDs are random UUIDs) and is left as it is.
- * The destination's configuration and types are never replaced. */
+ * The destination's configuration and types are never replaced; with
+ * `addTypes`, types it lacks are added from the source's definitions. */
 import type {CreateInput, MdbaseClient} from "../client.js";
 import {isMdbaseError, mdbaseError} from "../errors.js";
 import type {RecordView} from "../wire.js";
@@ -32,9 +33,13 @@ export interface MdbaseTransferPlan {
   readonly source: string;
   readonly destination: string;
   readonly items: readonly MdbaseTransferItem[];
-  /** Types the records to create name that the destination does not define.
-   * They are still created; the app may ask the person to add the types. */
+  /** Types the records to create name that the destination does not define
+   * and this transfer does not add. They are still created; the app may ask
+   * the person to add the types, or plan again with `addTypes`. */
   readonly missingTypes: readonly string[];
+  /** Types the transfer adds to the destination, from the source's own
+   * definitions (`addTypes` only). */
+  readonly addTypes: readonly string[];
   readonly counts: Readonly<{create: number; present: number; skipped: number; renamed: number}>;
 }
 export interface MdbaseTransferProgress { readonly done: number; readonly total: number }
@@ -47,6 +52,10 @@ export interface MdbaseTransferResult {
   readonly skipped: number;
   /** Not created. Transfer again to retry them: nothing already done repeats. */
   readonly failed: readonly Readonly<{sourceId: string; code: string}>[];
+  /** Types added to the destination (an existing one counts as added). */
+  readonly addedTypes: readonly string[];
+  /** Types that could not be added; their records were still created. */
+  readonly failedTypes: readonly Readonly<{name: string; code: string}>[];
   /** Mutations submitted by this run, to follow until the destination confirms. */
   readonly mutations: readonly string[];
   /** Everything is in the destination, so the unsynced collection was kept
@@ -55,11 +64,11 @@ export interface MdbaseTransferResult {
   readonly retired: boolean;
 }
 
-type Source = Pick<MdbaseClient, "collection" | "pages">;
-type Destination = Pick<MdbaseClient, "collection" | "get" | "create" | "describe">;
+type Source = Pick<MdbaseClient, "collection" | "pages" | "describe" | "resources">;
+type Destination = Pick<MdbaseClient, "collection" | "get" | "create" | "describe" | "createType">;
 /** Only plans made here can run: they carry the mapped inputs, and the map
  * that made them, privately. */
-const prepared = new WeakMap<MdbaseTransferPlan, Readonly<{inputs: ReadonlyMap<string, CreateInput>; map: MdbaseTransferMap | undefined}>>();
+const prepared = new WeakMap<MdbaseTransferPlan, Readonly<{inputs: ReadonlyMap<string, CreateInput>; types: ReadonlyMap<string, string>; map: MdbaseTransferMap | undefined}>>();
 const MAX_RENAME = 100;
 
 const intentOf = (source: string, record: string) => `unsynced/1\0${source}\0${record}`;
@@ -79,7 +88,7 @@ function identity(record: RecordView): CreateInput {
 
 /** Compare the source with the destination. Nothing is written. */
 export async function planUnsyncedTransfer(source: Source, destination: Destination,
-  options: {readonly map?: MdbaseTransferMap; readonly signal?: AbortSignal} = {}): Promise<MdbaseTransferPlan> {
+  options: {readonly map?: MdbaseTransferMap; readonly addTypes?: boolean; readonly signal?: AbortSignal} = {}): Promise<MdbaseTransferPlan> {
   const {signal} = options, map = options.map ?? identity;
   if (source.collection === destination.collection) throw mdbaseError("invalid_request", "a collection cannot be transferred into itself");
   const described = await destination.describe(signal ? {signal} : {});
@@ -106,10 +115,26 @@ export async function planUnsyncedTransfer(source: Source, destination: Destinat
       items.push(Object.freeze({sourceId: record.id, sourcePath: record.path, outcome: "create", path, ...(path !== wanted ? {renamedFrom: wanted} : {})}));
     }
   }
+  // Types to add: those the source defines, read as its own type documents.
+  const types = new Map<string, string>();
+  if (options.addTypes && missing.size) {
+    const own = new Map((await source.describe(signal ? {signal} : {})).types.map(t => [t.name.toLowerCase(), t] as const));
+    for (const name of [...missing].sort()) {
+      // Only a type with its own definition file (a type records merely name
+      // has no revision) can be added.
+      const type = own.get(name.toLowerCase());
+      if (!type?.revision) continue;
+      let text: string | undefined;
+      try { text = (await source.resources.get(type.path, signal)).text; }
+      catch (error) { if (isMdbaseError(error, "not_found")) continue; throw error; }
+      if (typeof text === "string") { types.set(type.name, text); missing.delete(name); }
+    }
+  }
   const count = (outcome: MdbaseTransferItem["outcome"]) => items.filter(item => item.outcome === outcome).length;
   const plan: MdbaseTransferPlan = Object.freeze({source: source.collection, destination: destination.collection, items: Object.freeze(items),
-    missingTypes: Object.freeze([...missing].sort()), counts: Object.freeze({create: count("create"), present: count("present"), skipped: count("skipped"), renamed: renames})});
-  prepared.set(plan, Object.freeze({inputs, map: options.map}));
+    missingTypes: Object.freeze([...missing].sort()), addTypes: Object.freeze([...types.keys()].sort()),
+    counts: Object.freeze({create: count("create"), present: count("present"), skipped: count("skipped"), renamed: renames})});
+  prepared.set(plan, Object.freeze({inputs, types, map: options.map}));
   return plan;
 }
 
@@ -127,12 +152,25 @@ export async function unsyncedTransferComplete(plan: MdbaseTransferPlan, source:
  * new plan after an interruption: only what is missing is created. */
 export async function runUnsyncedTransfer(plan: MdbaseTransferPlan, destination: Destination,
   options: {readonly signal?: AbortSignal; readonly onProgress?: (progress: MdbaseTransferProgress) => void} = {}): Promise<MdbaseTransferResult> {
-  const inputs = prepared.get(plan)?.inputs, {signal} = options;
-  if (!inputs) throw mdbaseError("invalid_request", "plan the transfer first");
+  const made = prepared.get(plan), {signal} = options;
+  if (!made) throw mdbaseError("invalid_request", "plan the transfer first");
+  const {inputs} = made;
   if (destination.collection !== plan.destination) throw mdbaseError("invalid_request", "the plan is for another collection");
   const work = plan.items.filter(item => item.outcome === "create"), failed: {sourceId: string; code: string}[] = [], mutations: string[] = [];
   let created = 0, already = plan.counts.present, done = 0;
   const report = () => { try { options.onProgress?.(Object.freeze({done, total: work.length})); } catch { /* progress is advisory */ } };
+  // Types first, so the records validate against them as they arrive.
+  const addedTypes: string[] = [], failedTypes: {name: string; code: string}[] = [];
+  for (const [name, document] of made.types) {
+    signal?.throwIfAborted();
+    try { await destination.createType(document, signal ? {signal} : {}); addedTypes.push(name); }
+    catch (error) {
+      signal?.throwIfAborted();
+      // Added by an earlier run, or by someone else meanwhile.
+      if (isMdbaseError(error, "conflict")) addedTypes.push(name);
+      else failedTypes.push(Object.freeze({name, code: isMdbaseError(error) ? error.code : "unavailable"}));
+    }
+  }
   report();
   for (const item of work) {
     signal?.throwIfAborted();
@@ -148,5 +186,5 @@ export async function runUnsyncedTransfer(plan: MdbaseTransferPlan, destination:
     done++; report();
   }
   return Object.freeze({source: plan.source, destination: plan.destination, created, present: already, skipped: plan.counts.skipped,
-    failed: Object.freeze(failed), mutations: Object.freeze(mutations), retired: false});
+    failed: Object.freeze(failed), addedTypes: Object.freeze(addedTypes), failedTypes: Object.freeze(failedTypes), mutations: Object.freeze(mutations), retired: false});
 }

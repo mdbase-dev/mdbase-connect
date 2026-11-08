@@ -130,10 +130,9 @@ Actions, each called from the user's gesture:
 
 ```ts
 mdbase.unsynced.open()                        // built
-mdbase.unsynced.planTransfer({ map })         // built: B, review bringing it into the open collection
-mdbase.unsynced.transfer(plan, { onProgress }) // built: B, execute a reviewed plan
-mdbase.unsynced.discard()                     // built: explicit, confirmed by the person
-mdbase.unsynced.syncAsNew(options)            // A: turn sync on as a new collection
+mdbase.unsynced.planTransfer({ map, addTypes }) // built: review bringing it into the open collection
+mdbase.unsynced.transfer(plan, { onProgress })  // built: execute a reviewed plan
+mdbase.unsynced.discard()                       // built: explicit, confirmed by the person
 ```
 
 The SDK already requests persistent storage at app start and reports the
@@ -151,12 +150,19 @@ This is the default path when the person has no collection yet, or chooses
 
 1. Sign in if needed. The existing portal "New collection" flow creates an
    empty cloud-copy collection and approves it for the app in the same window
-   (`created_collection_ids`, opened as `approved-new-collection`).
-2. Instead of applying the declaration's setup, the SDK copies the unsynced
-   collection's configuration and type resources into the new collection.
-3. It then runs the same transfer engine as path B, with an identity map.
-   Record IDs, paths, types and settings are unchanged, so app caches and
-   links by ID remain valid.
+   (`created_collection_ids`, opened as `approved-new-collection`), through
+   `addCollection()`.
+2. The new collection is set up from the app's declaration, as the unsynced
+   collection was, so the two start with the same configuration.
+3. The app then runs the same transfer as path B, with the identity map and
+   `addTypes: true`, which adds any types the person defined before
+   connecting from the unsynced collection's own type files. Record IDs and
+   paths are unchanged, so app caches and links by ID remain valid. Settings
+   changed before connecting are not copied in this version.
+
+There is no separate `syncAsNew` method: path A is `addCollection()`, then
+`planTransfer({addTypes: true})` and `transfer(plan)` once the new
+collection is ready. The shared UI composes these.
 
 This path has no mapping and nothing to reconcile. It does not use adopt:
 adopt in the browser would mean building and uploading a generation-0
@@ -189,8 +195,11 @@ This path is used when the person picks a collection that already holds work.
 - The Worker attaches the unsynced collection to the tab only for the
   duration of a plan (`attachUnsynced` / `detachUnsynced`), beside the
   collection the tab shows, and closes it again when nothing holds it.
-- The destination's configuration is never replaced. (There are no files to
-  move in this version; see above.)
+- The destination's configuration is never replaced. With `addTypes`, types
+  the records use that the destination lacks are added from the source's own
+  type files before the records (a type that already exists counts as
+  added); the app asks the person first when the destination already held
+  work. (There are no files to move in this version; see above.)
 
 A file-level join (`snapshot.md` §9) is not used here. A join assumes both
 sides are copies of the same collection; joining unrelated content would hold
@@ -284,8 +293,8 @@ unsynced collection, and its handoff could become path A or B.
    Retired copies are purged after the recovery window and erased on sign-out
    of their account (built). Still to do: reaching a retired copy from
    settings to transfer it again or delete it.
-5. Path A: the portal's new-collection flow, resource copy, then the same
-   transfer.
+5. Path A: the portal's new-collection flow, then the same transfer with
+   `addTypes` (built: no new method).
 6. Shared UI.
 7. Editor adoption, in this repository.
 8. SDK release, then TaskNotes adoption and PR #362.

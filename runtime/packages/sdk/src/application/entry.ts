@@ -108,6 +108,10 @@ export interface MdbaseTransferPlanOptions extends MdbaseApplicationRequestOptio
   /** Reshape or leave out (null) each record; it must keep the record ID.
    * Default: the record's path and complete source. */
   readonly map?:MdbaseTransferMap;
+  /** Add the types the records use that the destination lacks, from the
+   * unsynced collection's own definitions. For a new collection made from
+   * this work, or once the person agreed to add them. */
+  readonly addTypes?:boolean;
 }
 export interface MdbaseTransferOptions extends MdbaseApplicationRequestOptions {
   readonly onProgress?:(progress:MdbaseTransferProgress)=>void;
@@ -436,7 +440,7 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
       signOut:(options?:MdbaseSignOutOptions)=>this.signOut(options),
       planUnsyncedTransfer:(options:MdbaseTransferPlanOptions={})=>this.call(runtime=>{
         const destination=this.transferDestination(null);
-        return runtime.withUnsyncedSource((source,signal)=>planUnsyncedTransfer(source.records,destination.records,{...(options.map?{map:options.map}:{}),signal}),options);
+        return runtime.withUnsyncedSource((source,signal)=>planUnsyncedTransfer(source.records,destination.records,{...(options.map?{map:options.map}:{}),...(options.addTypes?{addTypes:true}:{}),signal}),options);
       }),
       transferUnsynced:(plan:MdbaseTransferPlan,options:MdbaseTransferOptions={})=>this.call(async runtime=>{
         const destination=this.transferDestination(plan?.destination??null);

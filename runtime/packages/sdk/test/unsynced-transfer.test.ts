@@ -46,6 +46,27 @@ describe("unsynced transfer",()=>{
     expect((await destination.get({path:"todo.md"},{body:true})).body).toBe("theirs\n");
   });
 
+  it("adds the types the destination lacks from the source's own definitions, and a rerun finds them present",async()=>{
+    const from=new MemoryReplica({collection:SOURCE}),to=new MemoryReplica({collection:DESTINATION});
+    from.seedType("task",{fields:{status:{type:"string"}}});from.seedType("note");to.seedType("note");
+    from.seed({id:A,path:"a.md",types:["task"],frontmatter:{type:"task",status:"open"},body:"A\n"});
+    from.seed({id:B,path:"b.md",types:["idea"],frontmatter:{type:"idea"},body:"B\n"});
+    from.seed({id:C,path:"c.md",types:["note"],frontmatter:{type:"note"},body:"C\n"});
+    const source=await connect({connector:from.connector(),app}),destination=await connect({connector:to.connector(),app});
+    const without=await planUnsyncedTransfer(source,destination);
+    expect(without).toMatchObject({missingTypes:["idea","task"],addTypes:[]});
+    const plan=await planUnsyncedTransfer(source,destination,{addTypes:true});
+    // "idea" is not defined in the source either: it stays missing.
+    expect(plan).toMatchObject({missingTypes:["idea"],addTypes:["task"]});
+    const result=await runUnsyncedTransfer(plan,destination);
+    expect(result).toMatchObject({created:3,addedTypes:["task"],failedTypes:[],failed:[]});
+    expect((await destination.describe()).types.map(t=>t.name).sort()).toEqual(["note","task"]);
+    // Running the same plan again replays the same writes: nothing doubles.
+    expect(await runUnsyncedTransfer(plan,destination)).toMatchObject({failed:[],addedTypes:["task"],failedTypes:[]});
+    expect(await all(destination)).toHaveLength(3);
+    expect((await destination.describe()).types.filter(t=>t.name==="task")).toHaveLength(1);
+  });
+
   it("applies the app's map, which may leave records out but not change their IDs",async()=>{
     const {source,destination}=await pair();
     const plan=await planUnsyncedTransfer(source,destination,{map:record=>record.path==="scratch.md"?null:{path:record.path,frontmatter:{...Object.fromEntries([...record.frontmatter].map(([k,v])=>[k,v as never])),moved:true},body:record.body ?? ""}});

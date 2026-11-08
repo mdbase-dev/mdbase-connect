@@ -204,9 +204,9 @@ export function createApplicationFixture(options: ApplicationFixtureOptions): Ap
     }),
     signOut: ({discard, ...request}: MdbaseSignOutOptions = {}) => run("signOut", request, undefined, undefined, discard),
     openUnsynced: (request?: MdbaseApplicationRequestOptions) => run("openUnsynced", request),
-    async planUnsyncedTransfer({map, ...request}: MdbaseTransferPlanOptions = {}) {
+    async planUnsyncedTransfer({map, addTypes, ...request}: MdbaseTransferPlanOptions = {}) {
       await run("planUnsyncedTransfer", request);
-      return planUnsyncedTransfer(transferSource().records, transferDestination().records, {...(map ? {map} : {}), ...(request.signal ? {signal: request.signal} : {})});
+      return planUnsyncedTransfer(transferSource().records, transferDestination().records, {...(map ? {map} : {}), ...(addTypes ? {addTypes} : {}), ...(request.signal ? {signal: request.signal} : {})});
     },
     async transferUnsynced(plan: MdbaseTransferPlan, {onProgress, ...request}: MdbaseTransferOptions = {}) {
       await run("transferUnsynced", request);

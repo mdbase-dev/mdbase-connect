@@ -4704,6 +4704,7 @@ MdbaseTransferOptions@application/entry.ts
   readonly signal?: AbortSignal | undefined
 
 MdbaseTransferPlan@application/unsynced-transfer.ts
+  readonly addTypes: readonly string[]
   readonly counts: Readonly<{ create: number; present: number; skipped: number; renamed: number; }>
   readonly destination: string
   readonly items: readonly MdbaseTransferItem[]
@@ -4711,6 +4712,7 @@ MdbaseTransferPlan@application/unsynced-transfer.ts
   readonly source: string
 
 MdbaseTransferPlanOptions@application/entry.ts
+  readonly addTypes?: boolean | undefined
   readonly map?: MdbaseTransferMap | undefined
   readonly signal?: AbortSignal | undefined
 
@@ -4719,9 +4721,11 @@ MdbaseTransferProgress@application/unsynced-transfer.ts
   readonly total: number
 
 MdbaseTransferResult@application/unsynced-transfer.ts
+  readonly addedTypes: readonly string[]
   readonly created: number
   readonly destination: string
   readonly failed: readonly Readonly<{ sourceId: string; code: string; }>[]
+  readonly failedTypes: readonly Readonly<{ name: string; code: string; }>[]
   readonly mutations: readonly string[]
   readonly present: number
   readonly retired: boolean
