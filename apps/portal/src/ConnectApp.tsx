@@ -61,6 +61,7 @@ import "@mdbase-dev/ui/feedback.css";
 import { Select } from "@mdbase-dev/ui/select";
 import { literal } from "./literal";
 import { usePortalCommands, type ConnectView } from "./portal-commands";
+import { NativeStorageReads, useOverviewRefresh } from "./overview-refresh";
 
 type MemberRole = "viewer" | "editor";
 
@@ -109,7 +110,8 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
   const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
   const busyRef = useRef(new Set<string>());
   const refreshGenerationRef = useRef(0);
-  const refreshInFlightRef = useRef<{ promise: Promise<void>; signal?: AbortSignal } | null>(null);
+  const refreshInFlightRef = useRef<{ promise: Promise<void>; signal?: AbortSignal; nativeStorage: boolean } | null>(null);
+  const nativeStorageRef = useRef(new NativeStorageReads());
   const mutationRevisionRef = useRef(0);
   const optimisticRef = useRef(new Map<string, OptimisticAction>());
   const actionVersionsRef = useRef(new Map<string, number>());
@@ -129,10 +131,14 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
     return () => lifecycle.abort(t(i18n)({ message: "Connect management closed" }));
   }, []);
 
-  const refresh = useCallback((signal = lifecycleRef.current?.signal, animate = false): Promise<void> => {
+  const refresh = useCallback((signal = lifecycleRef.current?.signal, animate = false, storageAgeMs?: number): Promise<void> => {
     if (accountDeleted || signal?.aborted) return Promise.resolve();
+    const nativeStorage = nativeStorageRef.current.due(storageAgeMs);
     const pending = refreshInFlightRef.current;
-    if (pending && !pending.signal?.aborted) return pending.promise;
+    if (pending && !pending.signal?.aborted) {
+      if (pending.nativeStorage || !nativeStorage) return pending.promise;
+      return pending.promise.then(() => refresh(signal, animate, storageAgeMs));
+    }
     setRefreshing(true);
     const generation = ++refreshGenerationRef.current;
     const mutationRevision = mutationRevisionRef.current;
@@ -146,7 +152,8 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
       setRefreshError(errorMessage(reason));
     };
     const request = (async () => {
-      const next = await management.overview({ signal });
+      const next = await management.overview({ signal, nativeStorage });
+      nativeStorageRef.current.received(next, nativeStorage);
       if (signal?.aborted || lifecycleRef.current?.signal.aborted || generation !== refreshGenerationRef.current || mutationRevision !== mutationRevisionRef.current) return;
       writeOverviewPreview(next); setPreview(readOverviewPreview());
       hadSession.current = true;
@@ -166,7 +173,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
         }
       }).catch(failed);
     })().catch(failed);
-    refreshInFlightRef.current = { promise: request, signal };
+    refreshInFlightRef.current = { promise: request, signal, nativeStorage };
     const settled = () => {
       if (refreshInFlightRef.current?.promise === request) {
         refreshInFlightRef.current = null;
@@ -177,24 +184,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
     return request;
   }, [accountDeleted]);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    void refresh(controller.signal);
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") void refresh(controller.signal);
-    };
-    const timer = window.setInterval(refreshWhenVisible, 15_000);
-    document.addEventListener("visibilitychange", refreshWhenVisible);
-    window.addEventListener("focus", refreshWhenVisible);
-    window.addEventListener("online", refreshWhenVisible);
-    return () => {
-      controller.abort();
-      document.removeEventListener("visibilitychange", refreshWhenVisible);
-      window.removeEventListener("focus", refreshWhenVisible);
-      window.removeEventListener("online", refreshWhenVisible);
-      window.clearInterval(timer);
-    };
-  }, [refresh]);
+  useOverviewRefresh(refresh, view === "account");
 
   useEffect(() => {
     const update = () => setView(viewFromPath());
