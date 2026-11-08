@@ -287,7 +287,8 @@ for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as 
     await picker.focus();
     for (let step = 0; step < 45; step++) await page.keyboard.press("ArrowDown");
     await page.keyboard.press("Enter");
-    for (let step = 0; step < 4; step++) await page.keyboard.press("Tab");
+    // The list scrolls with the page, so it is not a tab stop of its own.
+    for (let step = 0; step < 3; step++) await page.keyboard.press("Tab");
     const details = page.locator("details").filter({ has: page.locator("summary", { hasText: "Details" }) });
     await expect(details.locator("summary")).toBeFocused();
     const height = await page.locator(".collection-picker-list").evaluate(element => element.getBoundingClientRect().height);
@@ -535,7 +536,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await openScenario(page, "pairing-many");
       const picker = page.getByRole("combobox", { name: "Open in Reader" });
       await expect(page.getByText(/This request link expires .*Access you allow continues until you revoke it/)).toBeVisible();
-      expect(await page.locator(".collection-picker-list").evaluate(element => (element.getBoundingClientRect().height - 2) % 64)).toBe(0);
+      await expect(page.locator(".collection-picker-list")).toHaveCSS("overflow-y", "visible");
       for (const selected of [false, true]) {
         if (selected) {
           const longName = "Coastal restoration research archive with a very long selected collection name — field notebooks";
@@ -557,11 +558,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
           const option = document.getElementById(input.getAttribute("aria-activedescendant")!)!;
           const bounds = option.getBoundingClientRect();
           const footer = document.querySelector(".approval-footer")!.getBoundingClientRect();
-          const list = document.querySelector(".collection-picker-list")!.getBoundingClientRect();
-          return list.bottom <= footer.top && bounds.top >= list.top && bounds.bottom <= list.bottom
+          return bounds.top >= 0 && bounds.bottom <= footer.top
             && option.contains(document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2));
         })).toBe(true);
-        expect(await page.locator(".collection-picker-list").evaluate(element => element.scrollTop % 64)).toBe(0);
         expect(await page.getByRole("button", { name: "Cancel", exact: true }).evaluate(button => {
           const text = document.createRange();
           text.selectNodeContents(button);
