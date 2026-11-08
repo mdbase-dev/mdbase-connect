@@ -51,6 +51,20 @@ describe("ConnectManagementClient", () => {
     }));
   });
 
+  it("asks the account read to omit native storage only when told to", async () => {
+    const fetch = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json({ user: { id: "person" } }));
+    vi.stubGlobal("fetch", fetch);
+    const client = new ConnectManagementClient("https://connect.example");
+    await client.overview({ nativeStorage: false });
+    await client.overview({ nativeStorage: true });
+    await client.overview();
+    expect(fetch.mock.calls.map(call => String(call[0]))).toEqual([
+      "https://connect.example/v1/me?native_storage=omit",
+      "https://connect.example/v1/me",
+      "https://connect.example/v1/me"
+    ]);
+  });
+
   it("removes genuine installation scope with explicit confirmation and account credentials", async () => {
     const fetch = vi.fn(async () => Response.json({ ok: true, state: "revoking", collection_id: "collection" }));
     vi.stubGlobal("fetch", fetch);

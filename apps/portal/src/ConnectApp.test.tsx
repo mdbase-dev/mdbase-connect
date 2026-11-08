@@ -789,6 +789,100 @@ describe("ConnectApp", () => {
     expect(vi.mocked(fetch).mock.calls.filter(([input]) => new URL(String(input)).pathname === "/v1/me")).toHaveLength(2);
   });
 
+  describe("native storage refresh", () => {
+    const overviewReads = () => vi.mocked(fetch).mock.calls.map(([input]) => new URL(String(input)))
+      .filter(url => url.pathname === "/v1/me").map(url => url.search);
+    const settle = () => act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    const omitted = "?native_storage=omit";
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    });
+
+    it("reads storage on load, focus and visibility but leaves it out of the 15-second refresh", async () => {
+      render(<ConnectApp />);
+      await settle();
+      expect(overviewReads()).toEqual([""]);
+      await act(async () => { await vi.advanceTimersByTimeAsync(45_000); });
+      expect(overviewReads()).toEqual(["", omitted, omitted, omitted]);
+      fireEvent(window, new Event("focus"));
+      await settle();
+      expect(overviewReads().at(-1)).toBe("");
+      fireEvent(document, new Event("visibilitychange"));
+      await settle();
+      expect(overviewReads()).toEqual(["", omitted, omitted, omitted, "", ""]);
+    });
+
+    it("includes storage in the background refresh at most every 5 minutes", async () => {
+      render(<ConnectApp />);
+      await settle();
+      await act(async () => { await vi.advanceTimersByTimeAsync(5 * 60_000 - 15_000); });
+      expect(overviewReads()).toEqual(["", ...Array<string>(19).fill(omitted)]);
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      expect(overviewReads().at(-1)).toBe("");
+      await act(async () => { await vi.advanceTimersByTimeAsync(5 * 60_000 - 15_000); });
+      expect(overviewReads().slice(21)).toEqual(Array<string>(19).fill(omitted));
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      expect(overviewReads().at(-1)).toBe("");
+    });
+
+    it("reads storage when the account page opens", async () => {
+      render(<ConnectApp />);
+      await settle();
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      expect(overviewReads()).toEqual(["", omitted]);
+      fireEvent.click(screen.getByRole("link", { name: "Account" }));
+      await settle();
+      expect(overviewReads()).toEqual(["", omitted, ""]);
+    });
+
+    it("reads storage after an in-flight refresh that left it out", async () => {
+      render(<ConnectApp />);
+      await settle();
+      let finish!: () => void;
+      const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+      vi.mocked(fetch).mockImplementation(async (input, init) => {
+        if (new URL(String(input)).search === omitted) await new Promise<void>(resolve => { finish = resolve; });
+        return originalFetch(input, init);
+      });
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      fireEvent(window, new Event("focus"));
+      await settle();
+      expect(overviewReads()).toEqual(["", omitted]);
+      await act(async () => finish());
+      await settle();
+      expect(overviewReads()).toEqual(["", omitted, ""]);
+    });
+
+    it("keeps the last storage figure on the account page when a refresh leaves it out", async () => {
+      history.replaceState(null, "", "/account");
+      const account = accountFixture();
+      account.backend = "next";
+      account.storage.collections = [];
+      overview.native_collections = [
+        { id: "cloud", display_name: "Cloud notes", sync: "cloud_copy", access: { relationship: "owner", role: "owner", can_manage_members: true } }
+      ];
+      const withStorage = { ...overview, subscription: { ...overview.subscription!, native_storage_bytes: 5 * 1024 * 1024 } };
+      const withoutStorage: ManagementOverview = structuredClone(withStorage);
+      delete withoutStorage.subscription!.native_storage_bytes;
+      vi.mocked(fetch).mockImplementation(async (input) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/v1/account") return Response.json(account);
+        if (url.pathname === "/v1/account/sessions") return Response.json({ sessions: [] });
+        if (url.pathname === "/v1/me") return Response.json(url.search === omitted ? withoutStorage : withStorage);
+        return Response.json({});
+      });
+      render(<ConnectApp />);
+      await settle();
+      expect(overviewReads()).toEqual([""]);
+      expect(screen.getByText("5 MB of 1 GB")).toBeInTheDocument();
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      expect(overviewReads()).toEqual(["", omitted]);
+      expect(screen.getByText("5 MB of 1 GB")).toBeInTheDocument();
+      expect(screen.queryByText("Usage unavailable")).not.toBeInTheDocument();
+    });
+  });
+
   it("pauses background refresh while the page is hidden and refreshes on return", async () => {
     const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
     vi.useFakeTimers();

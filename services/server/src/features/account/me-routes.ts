@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { z } from "zod";
 import { accessView, requireCollectionAction, resolveHostedCollectionAccess, resolveLocalCollectionAccess } from "../../collection-access.js";
 import {
   listHostedCollectionsVisibleToUser,
@@ -65,6 +66,8 @@ export function registerAccountOverviewRoute(
       options.tailscaleAuth
     );
     if (!authenticated) return;
+    // The portal's frequent refresh omits native storage: each read asks every held collection's log.
+    const { native_storage: nativeStorage } = z.object({ native_storage: z.literal("omit").optional() }).parse(request.query);
     const { authentication_provider: authenticationProvider, ...user } = authenticated;
     const creation = await accountCollectionCreation(options.db, user.id, options);
     const nativeCollections = await listNativeCollectionsVisibleToUser(options.db, user.id);
@@ -272,7 +275,7 @@ export function registerAccountOverviewRoute(
       }
     }
     let nativeStorageBytes = null;
-    if (options.nextLog && entitlement && creation.backend === "next") {
+    if (nativeStorage !== "omit" && options.nextLog && entitlement && creation.backend === "next") {
       try {
         nativeStorageBytes = await nextFileBytes(options.db, options.nextLog, user.id);
       } catch (error) {
@@ -306,7 +309,7 @@ export function registerAccountOverviewRoute(
             hostedUsage.live_content_bytes + hostedUsage.live_file_bytes,
           retained_file_bytes: hostedUsage.retained_file_bytes
         } : null,
-        native_storage_bytes: nativeStorageBytes,
+        ...(nativeStorage === "omit" ? {} : { native_storage_bytes: nativeStorageBytes }),
         reconciliation: storageAccount.rows[0] ? {
           entitlement_revision: Number(storageAccount.rows[0].entitlement_revision),
           provider_revision: Number(storageAccount.rows[0].provider_revision)

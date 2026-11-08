@@ -202,7 +202,7 @@ export interface ManagementOverview {
       live_storage_bytes: number;
       retained_file_bytes: number;
     };
-    /** Uploaded file bytes across this account's native collections; notes and history don't count. Null when unknown. */
+    /** Uploaded file bytes across this account's native collections; notes and history don't count. Null when unknown; absent when the read omitted it. */
     native_storage_bytes?: number | null;
     reconciliation: null | {
       entitlement_revision: number;
@@ -332,8 +332,9 @@ export class ConnectManagementClient {
     this.baseUrl = normalized.href;
   }
 
-  overview(options?: ManagementRequestOptions): Promise<ManagementOverview> {
-    return this.request("/v1/me", {}, options);
+  /** `nativeStorage: false` skips the native storage figure, which asks every held collection's log. */
+  overview(options?: ManagementRequestOptions & { nativeStorage?: boolean }): Promise<ManagementOverview> {
+    return this.request(options?.nativeStorage === false ? "/v1/me?native_storage=omit" : "/v1/me", {}, options);
   }
 
   collectionModeStatus(collectionId: string, options?: ManagementRequestOptions): Promise<CollectionModeStatus> {

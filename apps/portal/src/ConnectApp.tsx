@@ -109,7 +109,8 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
   const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
   const busyRef = useRef(new Set<string>());
   const refreshGenerationRef = useRef(0);
-  const refreshInFlightRef = useRef<{ promise: Promise<void>; signal?: AbortSignal } | null>(null);
+  const refreshInFlightRef = useRef<{ promise: Promise<void>; signal?: AbortSignal; nativeStorage: boolean } | null>(null);
+  const nativeStorageRef = useRef<{ readAt: number; bytes?: number | null }>({ readAt: -Infinity }); // Each storage read wakes every held collection's log.
   const mutationRevisionRef = useRef(0);
   const optimisticRef = useRef(new Map<string, OptimisticAction>());
   const actionVersionsRef = useRef(new Map<string, number>());
@@ -129,11 +130,11 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
     return () => lifecycle.abort(t(i18n)({ message: "Connect management closed" }));
   }, []);
 
-  const refresh = useCallback((signal = lifecycleRef.current?.signal, animate = false): Promise<void> => {
+  const refresh = useCallback((signal = lifecycleRef.current?.signal, animate = false, storage = false): Promise<void> => {
     if (accountDeleted || signal?.aborted) return Promise.resolve();
-    const pending = refreshInFlightRef.current;
-    if (pending && !pending.signal?.aborted) return pending.promise;
-    setRefreshing(true);
+    const pending = refreshInFlightRef.current, nativeStorage = storage || Date.now() - nativeStorageRef.current.readAt >= 5 * 60_000;
+    if (pending && !pending.signal?.aborted) return pending.nativeStorage || !nativeStorage ? pending.promise : pending.promise.then(() => refresh(signal, animate, storage));
+    setRefreshing(true); if (nativeStorage) nativeStorageRef.current.readAt = Date.now();
     const generation = ++refreshGenerationRef.current;
     const mutationRevision = mutationRevisionRef.current;
     const failed = (reason: unknown) => {
@@ -146,7 +147,8 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
       setRefreshError(errorMessage(reason));
     };
     const request = (async () => {
-      const next = await management.overview({ signal });
+      const next = await management.overview({ signal, nativeStorage });
+      if (next.subscription) { if (nativeStorage) nativeStorageRef.current.bytes = next.subscription.native_storage_bytes; else next.subscription.native_storage_bytes = nativeStorageRef.current.bytes; }
       if (signal?.aborted || lifecycleRef.current?.signal.aborted || generation !== refreshGenerationRef.current || mutationRevision !== mutationRevisionRef.current) return;
       writeOverviewPreview(next); setPreview(readOverviewPreview());
       hadSession.current = true;
@@ -166,7 +168,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
         }
       }).catch(failed);
     })().catch(failed);
-    refreshInFlightRef.current = { promise: request, signal };
+    refreshInFlightRef.current = { promise: request, signal, nativeStorage };
     const settled = () => {
       if (refreshInFlightRef.current?.promise === request) {
         refreshInFlightRef.current = null;
@@ -179,22 +181,22 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
 
   useEffect(() => {
     const controller = new AbortController();
-    void refresh(controller.signal);
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") void refresh(controller.signal);
-    };
+    void refresh(controller.signal, false, true);
+    const refreshWhenVisible = () => { if (document.visibilityState === "visible") void refresh(controller.signal); };
+    const refreshStorageWhenVisible = () => { if (document.visibilityState === "visible") void refresh(controller.signal, false, true); };
     const timer = window.setInterval(refreshWhenVisible, 15_000);
-    document.addEventListener("visibilitychange", refreshWhenVisible);
-    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshStorageWhenVisible);
+    window.addEventListener("focus", refreshStorageWhenVisible);
     window.addEventListener("online", refreshWhenVisible);
     return () => {
       controller.abort();
-      document.removeEventListener("visibilitychange", refreshWhenVisible);
-      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshStorageWhenVisible);
+      window.removeEventListener("focus", refreshStorageWhenVisible);
       window.removeEventListener("online", refreshWhenVisible);
       window.clearInterval(timer);
     };
   }, [refresh]);
+  useEffect(() => { if (view === "account") void refresh(undefined, false, true); }, [view, refresh]);
 
   useEffect(() => {
     const update = () => setView(viewFromPath());
