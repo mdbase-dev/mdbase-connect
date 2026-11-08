@@ -185,13 +185,15 @@
 .collection-picker { display: grid; gap: var(--space-2); min-width: 0; margin-block: var(--space-4); }
 .collection-picker > label { font-weight: var(--font-weight-semibold); }
 .collection-picker input { width: 100%; min-width: 0; }
-.collection-picker-list { max-height: min(calc(32rem + 2px), var(--collection-picker-space)); overflow-y: auto; overscroll-behavior: contain; border-block: 1px solid var(--line); }
+/* The list grows with the page. A nested box sized to the gap above the sticky
+   footer left room for one row on short windows; search narrows long lists. */
+.collection-picker-list { border-block: 1px solid var(--line); }
 .collection-picker input::placeholder { color: var(--color-text-muted); }
 .collection-picker-option > span[aria-hidden] { min-width: 0; }
 .installation-additional-collection { padding-right: var(--space-3); }
 .installation-additional-collection label { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
 .installation-additional-collection .collection-identity { flex: 1; }
-.collection-picker-option { position: relative; display: flex; align-items: center; min-height: 64px; padding: var(--space-3) var(--space-8) var(--space-3) var(--space-3); border-bottom: 1px solid var(--line); cursor: pointer; }
+.collection-picker-option { position: relative; display: flex; align-items: center; min-height: 52px; padding: var(--space-2) var(--space-8) var(--space-2) var(--space-3); border-bottom: 1px solid var(--line); cursor: pointer; }
 .collection-picker-option:last-child { border-bottom: 0; }
 .collection-picker-option:hover { background: var(--hover); }
 .collection-picker-option.is-selected { background: var(--selected); }
