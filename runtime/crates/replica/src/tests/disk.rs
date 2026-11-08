@@ -3249,3 +3249,366 @@ fn first_local_ingest_takes_record_ids_from_the_hints() {
             .is_some()
     );
 }
+
+// ------------------------------------------------- refused edits (`refused.rs`)
+
+/// More than the fake log takes in one item (see [`item_limited`]).
+fn big() -> String {
+    "x".repeat(8192)
+}
+
+/// A node whose log refuses items over 4 KiB `too_large`/`item_bytes`, as the
+/// service does, with record 1 confirmed at `a.md`.
+fn item_limited(svc: &FakeLogService, n: u8) -> Node {
+    let mut a = node(svc, n);
+    create(&mut a, 1, "a.md", "original");
+    settle(&mut [&mut a]);
+    a.log.faults.item_bytes_limit = Some(4096);
+    a
+}
+
+/// Save `text` at `path` on disk and ingest it; the captured mutation's ID.
+fn save(n: &mut Node, path: &str, text: Option<&str>) -> Uuid {
+    n.disk.borrow_mut().user_write(path, text);
+    n.r.observe(None).unwrap();
+    let rows = n.r.store().pending(None, 64).unwrap();
+    rows.last().unwrap().mutation.id
+}
+
+fn refused(n: &Node) -> Vec<(String, Option<String>)> {
+    n.r.refused_files()
+        .map(|(p, problem)| (p.to_string(), problem.reason.clone()))
+        .collect()
+}
+
+fn integrity(n: &Node) -> bool {
+    n.r.sync_status()
+        .incidents
+        .iter()
+        .any(|i| i.kind == mdbn_wire::client::IncidentKind::Integrity)
+}
+
+fn rejected_with(n: &Node, m: &Uuid, reason: &str) {
+    let r = n.r.store().local_receipt(m).unwrap().unwrap();
+    assert_eq!(r.state, mdbn_wire::client::ReceiptState::Rejected);
+    let p = r.problem.unwrap();
+    assert_eq!(p.code, "too_large");
+    assert_eq!(p.reason.as_deref(), Some(reason));
+}
+
+/// Exchange calls as `settle` does; the item count of every append sent.
+fn settle_counting_appends(n: &mut Node) -> Vec<usize> {
+    use crate::log::{LogClient, LogPort};
+    let mut sizes = Vec::new();
+    for _ in 0..100 {
+        n.r.observe(None).unwrap();
+        for call in n.r.take_log_calls() {
+            if let crate::log::LogRequest::Append(p) = &call.request {
+                sizes.push(p.items.len());
+            }
+            let reply = n.log.call(call.request);
+            n.r.on_log_reply(call.id, reply);
+        }
+        n.r.tick();
+    }
+    sizes
+}
+
+/// (a) The log refuses one edit for its size: the edit is rejected, the file
+/// keeps the user's bytes and says why, and the collection keeps syncing.
+#[test]
+fn a_refused_edit_is_rejected_and_keeps_the_user_bytes() {
+    let svc = FakeLogService::new();
+    let mut a = item_limited(&svc, 1);
+    let m = save(&mut a, "a.md", Some(&big()));
+    settle(&mut [&mut a]);
+    rejected_with(&a, &m, "item_bytes");
+    assert_eq!(a.file("a.md"), Some(big()), "the user's bytes are kept");
+    assert_eq!(
+        a.r.store().record(&B16([1; 16])).unwrap().unwrap().doc,
+        "original"
+    );
+    assert_eq!(
+        refused(&a),
+        vec![("a.md".into(), Some("item_bytes".into()))]
+    );
+    assert!(a.r.list_holds(a.s).unwrap().is_empty());
+    assert!(!integrity(&a));
+    assert_ne!(a.r.append, crate::replica::append::AppendState::Stopped);
+    // Other files keep syncing.
+    a.disk.borrow_mut().user_write("b.md", Some("fine"));
+    settle(&mut [&mut a]);
+    assert_eq!(a.r.store().pending_count().unwrap(), 0);
+    assert_eq!(a.r.store().record_count().unwrap(), 2);
+    assert_eq!(a.file("a.md"), Some(big()));
+}
+
+/// (b) Editing the refused file again syncs the new bytes from the local view:
+/// no hold, and the fence is gone.
+#[test]
+fn editing_a_refused_file_again_syncs_it() {
+    let svc = FakeLogService::new();
+    let mut a = item_limited(&svc, 1);
+    save(&mut a, "a.md", Some(&big()));
+    settle(&mut [&mut a]);
+    assert_eq!(refused(&a).len(), 1);
+    let m = save(&mut a, "a.md", Some("smaller"));
+    settle(&mut [&mut a]);
+    assert!(a.r.list_holds(a.s).unwrap().is_empty());
+    assert_eq!(
+        a.r.store().local_receipt(&m).unwrap().unwrap().state,
+        mdbn_wire::client::ReceiptState::Confirmed
+    );
+    assert_eq!(
+        a.r.store().record(&B16([1; 16])).unwrap().unwrap().doc,
+        "smaller"
+    );
+    assert_eq!(a.file("a.md").as_deref(), Some("smaller"));
+    assert!(refused(&a).is_empty());
+}
+
+/// (b) A refused move edited again at its new path moves the same record:
+/// the old path is not recreated, now or after a restart.
+#[test]
+fn editing_a_refused_move_again_moves_the_record() {
+    let svc = FakeLogService::new();
+    let mut a = item_limited(&svc, 1);
+    move_file(&mut a, "a.md", "b.md", &big());
+    settle(&mut [&mut a]);
+    assert_eq!(
+        refused(&a),
+        vec![("b.md".into(), Some("item_bytes".into()))]
+    );
+    assert!(a.file("a.md").is_none(), "the move is not undone");
+    assert_eq!(a.file("b.md"), Some(big()));
+    save(&mut a, "b.md", Some("moved"));
+    settle(&mut [&mut a]);
+    assert!(a.r.list_holds(a.s).unwrap().is_empty());
+    assert!(refused(&a).is_empty());
+    let row = a.r.store().record(&B16([1; 16])).unwrap().unwrap();
+    assert_eq!((row.path.as_str(), row.doc.as_str()), ("b.md", "moved"));
+    assert_eq!(a.r.store().record_count().unwrap(), 1);
+    let Node { r, log, disk, .. } = a;
+    let mut a = reopen(&svc, 1, r.into_store(), log, disk);
+    settle(&mut [&mut a]);
+    assert!(a.file("a.md").is_none());
+    assert_eq!(a.file("b.md").as_deref(), Some("moved"));
+}
+
+/// (c) A refused delete is not undone: the file is not recreated, now or
+/// after a restart.
+#[test]
+fn a_refused_delete_is_not_recreated() {
+    use crate::log::{LogError, LogErrorCode};
+    let svc = FakeLogService::new();
+    let mut a = item_limited(&svc, 1);
+    a.log.faults.fail_appends = vec![LogError::Service {
+        code: LogErrorCode::TooLarge,
+        reason: Some("item_bytes".into()),
+        retry_after_ms: None,
+        missing: Vec::new(),
+    }];
+    let m = save(&mut a, "a.md", None);
+    settle(&mut [&mut a]);
+    rejected_with(&a, &m, "item_bytes");
+    assert!(a.file("a.md").is_none());
+    assert!(a.r.store().record(&B16([1; 16])).unwrap().is_some());
+    assert_eq!(
+        refused(&a),
+        vec![("a.md".into(), Some("item_bytes".into()))]
+    );
+    let Node { r, log, disk, .. } = a;
+    let mut a = reopen(&svc, 1, r.into_store(), log, disk);
+    settle(&mut [&mut a]);
+    assert!(a.file("a.md").is_none(), "not recreated at open");
+    assert_eq!(refused(&a).len(), 1);
+}
+
+/// (d) The fence and its notice survive a restart; nothing is re-sent and the
+/// file is untouched.
+#[test]
+fn a_refused_edit_stays_refused_after_a_restart() {
+    let svc = FakeLogService::new();
+    let mut a = item_limited(&svc, 1);
+    let m = save(&mut a, "a.md", Some(&big()));
+    settle(&mut [&mut a]);
+    let head = svc.head(&COL);
+    let Node { r, log, disk, .. } = a;
+    let mut a = reopen(&svc, 1, r.into_store(), log, disk);
+    let appends = settle_counting_appends(&mut a);
+    assert!(appends.is_empty(), "{appends:?}");
+    assert_eq!(svc.head(&COL), head);
+    rejected_with(&a, &m, "item_bytes");
+    assert_eq!(
+        refused(&a),
+        vec![("a.md".into(), Some("item_bytes".into()))]
+    );
+    assert_eq!(a.file("a.md"), Some(big()));
+    assert_eq!(a.r.store().pending_count().unwrap(), 0);
+    assert!(a.r.list_holds(a.s).unwrap().is_empty());
+}
+
+/// (e) The same refusal again with nothing appended between is not one
+/// change's fault: the loop stops with an integrity incident. Nothing is
+/// rejected or published.
+#[test]
+fn the_same_refusal_twice_in_a_row_stops() {
+    let svc = FakeLogService::new();
+    let mut a = item_limited(&svc, 1);
+    let first = save(&mut a, "a.md", Some(&big()));
+    settle(&mut [&mut a]);
+    rejected_with(&a, &first, "item_bytes");
+    assert!(!integrity(&a));
+    let second = save(&mut a, "b.md", Some(&big()));
+    settle(&mut [&mut a]);
+    assert!(integrity(&a));
+    assert_eq!(a.r.append, crate::replica::append::AppendState::Stopped);
+    assert!(a.r.store().pending_get(&second).unwrap().is_some());
+    assert_eq!(a.file("b.md"), Some(big()));
+    assert_eq!(refused(&a).len(), 1);
+}
+
+/// (f) A refused batch is probed one row at a time: only the guilty edit is
+/// rejected; the others confirm.
+#[test]
+fn a_refused_batch_rejects_only_the_guilty_item() {
+    let svc = FakeLogService::new();
+    let mut a = item_limited(&svc, 1);
+    {
+        let mut d = a.disk.borrow_mut();
+        d.user_write("one.md", Some("1"));
+        d.user_write("big.md", Some(&big()));
+        d.user_write("two.md", Some("2"));
+    }
+    let appends = settle_counting_appends(&mut a);
+    assert!(
+        appends.windows(2).any(|w| w[0] > 1 && w[1] == 1),
+        "a multi-item refusal sends the head alone: {appends:?}"
+    );
+    assert_eq!(a.r.store().pending_count().unwrap(), 0);
+    assert_eq!(a.r.store().record_count().unwrap(), 3);
+    assert_eq!(
+        refused(&a),
+        vec![("big.md".into(), Some("item_bytes".into()))]
+    );
+    assert_eq!(a.file("big.md"), Some(big()));
+    assert!(!integrity(&a));
+    assert_ne!(a.r.append, crate::replica::append::AppendState::Stopped);
+    // The probe is one-shot: later batches carry several items again.
+    {
+        let mut d = a.disk.borrow_mut();
+        d.user_write("three.md", Some("3"));
+        d.user_write("four.md", Some("4"));
+    }
+    let appends = settle_counting_appends(&mut a);
+    assert_eq!(appends, vec![2]);
+}
+
+/// (g) Refusals that are not about one change still stop the loop with an
+/// integrity incident, and nothing is rejected or published.
+#[test]
+fn chain_signature_epoch_and_not_found_refusals_still_stop() {
+    use crate::log::{LogError, LogErrorCode};
+    for (code, reason) in [
+        (LogErrorCode::Invalid, Some("chain")),
+        (LogErrorCode::Invalid, Some("signature")),
+        (LogErrorCode::Invalid, Some("epoch")),
+        (LogErrorCode::NotFound, None),
+    ] {
+        let svc = FakeLogService::new();
+        let mut a = item_limited(&svc, 1);
+        a.log.faults.fail_appends = vec![LogError::Service {
+            code,
+            reason: reason.map(String::from),
+            retry_after_ms: None,
+            missing: Vec::new(),
+        }];
+        let m = save(&mut a, "a.md", Some("edited"));
+        settle(&mut [&mut a]);
+        assert!(integrity(&a), "{reason:?}");
+        assert_eq!(a.r.append, crate::replica::append::AppendState::Stopped);
+        assert!(a.r.store().pending_get(&m).unwrap().is_some());
+        assert!(a.r.store().local_receipt(&m).unwrap().is_none());
+        assert!(refused(&a).is_empty());
+        assert_eq!(a.file("a.md").as_deref(), Some("edited"));
+    }
+}
+
+/// (h) A change rejected while planning its append (over 1 MiB sealed) keeps
+/// the bytes its records left on disk.
+#[test]
+fn a_change_too_large_to_append_keeps_its_files() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    settle(&mut [&mut a]);
+    let doc = "y".repeat(300_000);
+    let paths = ["h1.md", "h2.md", "h3.md", "h4.md"];
+    let r =
+        a.r.submit(
+            a.s,
+            SubmitParams {
+                ops: paths
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| {
+                        Op::Create(Create {
+                            id: B16([40 + i as u8; 16]),
+                            path: Some((*p).into()),
+                            type_name: None,
+                            frontmatter: None,
+                            body: None,
+                            document: Some(Text::Inline(doc.clone())),
+                        })
+                    })
+                    .collect(),
+                mutation_id: None,
+                conflict_mode: None,
+                timezone: None,
+                allow_partial: None,
+                mutation_ids: None,
+                dry_run: None,
+                include: None,
+                wait: None,
+            },
+        )
+        .unwrap()
+        .remove(0);
+    settle(&mut [&mut a]);
+    let receipt = a.r.store().local_receipt(&r.mutation).unwrap().unwrap();
+    assert_eq!(receipt.state, mdbn_wire::client::ReceiptState::Rejected);
+    assert_eq!(receipt.problem.unwrap().code, "too_large");
+    for p in paths {
+        assert_eq!(a.file(p).as_deref(), Some(doc.as_str()), "{p}");
+    }
+    assert_eq!(refused(&a).len(), paths.len());
+    assert_eq!(a.r.store().record_count().unwrap(), 0);
+    assert!(!integrity(&a));
+}
+
+/// (i) A confirmed change elsewhere to a refused file becomes a conflict hold
+/// (mine: the bytes on disk; theirs: the new version), never published over.
+#[test]
+fn a_remote_change_to_a_refused_file_is_held_as_a_conflict() {
+    use mdbn_wire::snapshot::TextOrBlob;
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    let mut b = node(&svc, 2);
+    create(&mut a, 1, "a.md", "original");
+    settle(&mut [&mut a, &mut b]);
+    a.log.faults.item_bytes_limit = Some(4096);
+    save(&mut a, "a.md", Some(&big()));
+    settle(&mut [&mut a]);
+    assert_eq!(refused(&a).len(), 1);
+    b.disk.borrow_mut().user_write("a.md", Some("theirs"));
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(a.file("a.md"), Some(big()), "the disk is untouched");
+    let holds = a.r.list_holds(a.s).unwrap();
+    assert_eq!(holds.len(), 1);
+    assert_eq!(holds[0].reason, mdbn_wire::client::HoldReason::Conflict);
+    assert_eq!(holds[0].path, "a.md");
+    assert_eq!(holds[0].mine, TextOrBlob::Text(big()));
+    assert_eq!(holds[0].theirs, Some(TextOrBlob::Text("theirs".into())));
+    assert!(refused(&a).is_empty(), "the hold replaces the fence");
+    assert!(!integrity(&a));
+    assert_eq!(b.file("a.md").as_deref(), Some("theirs"));
+}

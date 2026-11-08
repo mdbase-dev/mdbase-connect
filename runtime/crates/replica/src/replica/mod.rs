@@ -130,6 +130,7 @@ mod query_index;
 mod query_profile;
 mod record_admission;
 pub(crate) mod ref_index;
+mod refused;
 mod repair;
 pub(crate) mod snapshot;
 mod snapshot_text;
@@ -451,6 +452,8 @@ pub struct Replica<S: Store> {
     pub(crate) repair_stats: lost_tail::RepairStats,
     /// Own acknowledged mutations being resurrected: mutation ID → earlier seq.
     pub(crate) resurrected: std::collections::BTreeMap<Uuid, u64>,
+    /// Files whose rejected change the disk keeps (`refused.rs`).
+    pub(crate) refused: refused::Refused,
     /// The revocation latch.
     pub(crate) latch: latch::Latch,
     /// When `log_regressed` was last raised (cleared after 24 hours).
@@ -506,6 +509,11 @@ pub struct Replica<S: Store> {
     pub(crate) reading: bool,
     pub(crate) caught_up: bool,
     pub(crate) moved_streak: u32,
+    /// Send only the head row next: a batch was refused for one of its items.
+    pub(crate) append_probe: bool,
+    /// The log's last single-item refusal that rejected a change (code,
+    /// reason), until an append succeeds. The same refusal again stops.
+    pub(crate) last_refusal: Option<(crate::log::LogErrorCode, String)>,
     pub(crate) stalled: Option<(IncidentKind, u64)>,
     stall_read: stall_read::ReadBackoff,
     /// Control read-ahead while waiting for a key (`join_ahead.rs`).
@@ -791,6 +799,8 @@ impl<S: Store> Replica<S> {
         let resurrected =
             lost_tail::decode_resurrected(store.meta(meta_keys::RESURRECT)?.as_deref())
                 .map_err(|e| OpenError::Corrupt(format!("resurrect set: {e}")))?;
+        let refused = refused::decode(store.meta(meta_keys::REFUSED)?.as_deref())
+            .map_err(|e| OpenError::Corrupt(format!("refused files: {e}")))?;
         let latch = match store.meta(meta_keys::LATCH)? {
             Some(b) => latch::Latch::from_bytes(&b)
                 .map_err(|e| OpenError::Corrupt(format!("revocation latch: {e}")))?,
@@ -828,6 +838,7 @@ impl<S: Store> Replica<S> {
             store_generation: 0,
             repair_stats: lost_tail::RepairStats::default(),
             resurrected,
+            refused,
             latch,
             regressed_at: None,
             orphans: orphan_rows,
@@ -869,6 +880,8 @@ impl<S: Store> Replica<S> {
             reading: false,
             caught_up: false,
             moved_streak: 0,
+            append_probe: false,
+            last_refusal: None,
             stalled: None,
             stall_read: Default::default(),
             join_ahead: None,

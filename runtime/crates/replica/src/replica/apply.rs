@@ -2026,6 +2026,11 @@ impl<S: Store> Replica<S> {
         if own_match && payload.mutation.origin == self.cfg.replica_id {
             self.prepare_conflict_holds(&payload.mutation, &conflicts, &mut tx, &t)?;
         }
+        // A confirmed change of a record whose refused bytes the disk keeps.
+        let own_external = own_match
+            && payload.mutation.origin == self.cfg.replica_id
+            && payload.mutation.source == mdbn_wire::intent::Source::External;
+        let refused = self.prepare_refused_holds(&legacy_effects, own_external, &mut tx)?;
         let holds_changed = !tx.holds_put.is_empty()
             || self.store.holds()?.iter().any(|hold| {
                 hold.reason == mdbn_wire::client::HoldReason::ReadOnly
@@ -2064,6 +2069,10 @@ impl<S: Store> Replica<S> {
             return Ok(Outcome::Applied);
         }
         self.query_context = query_context;
+        if let Some(rest) = refused {
+            self.refused = rest;
+            self.status_dirty = true;
+        }
         self.log_time = log_time;
         self.sem_ratchet_set(ratchet);
         if catalog_changed {

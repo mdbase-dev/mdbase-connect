@@ -1477,6 +1477,9 @@ pub mod meta_keys {
     /// Lost-tail orphans: other authors' lost entries, and own writes lost after
     /// revocation (49-byte records).
     pub const ORPHANS: &str = "replica.orphans";
+    /// Files whose change was rejected and whose disk bytes nothing may
+    /// overwrite until the user edits them again (`refused.rs`). Device-local.
+    pub const REFUSED: &str = "replica.refused";
     /// Device materialization policy.
     pub const MATERIALIZATION: &str = "replica.materialization";
     /// Local-only grants (collections without a log, policy.md preamble).

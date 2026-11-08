@@ -1990,6 +1990,7 @@ fn file_notices(rep: &Replica<Store>) -> Vec<crate::control::Notice> {
     use mdbn_wire::client::HoldReason;
     let unsupported = &rep.store().inner().stats.unsupported_paths;
     let failures = rep.attachment_ingest_failures();
+    let edits = rep.refused_files();
     let (mut holds, error) = match rep.store().holds() {
         Ok(holds) => (holds, None),
         Err(_) => (
@@ -2002,7 +2003,11 @@ fn file_notices(rep: &Replica<Store>) -> Vec<crate::control::Notice> {
         ),
     };
     holds.sort_by_key(|hold| hold.reason != HoldReason::UnknownProvenance);
-    let total = unsupported.len() + failures.len() + holds.len() + usize::from(error.is_some());
+    let total = unsupported.len()
+        + failures.len()
+        + edits.len()
+        + holds.len()
+        + usize::from(error.is_some());
     let skipped = unsupported
         .iter()
         .map(|(path, reason)| crate::control::Notice {
@@ -2018,6 +2023,7 @@ fn file_notices(rep: &Replica<Store>) -> Vec<crate::control::Notice> {
             .unwrap_or_else(|| problem.code.clone()),
         message: problem.message.clone(),
     });
+    let edits = edits.map(|(path, problem)| edit_refused_notice(path, problem));
     let held = holds.into_iter().map(|hold| {
         let collision = rep
             .store()
@@ -2060,9 +2066,31 @@ fn file_notices(rep: &Replica<Store>) -> Vec<crate::control::Notice> {
         }
     });
     limited_file_notices(
-        error.into_iter().chain(skipped).chain(refused).chain(held),
+        error
+            .into_iter()
+            .chain(skipped)
+            .chain(refused)
+            .chain(edits)
+            .chain(held),
         total,
     )
+}
+
+/// A file whose change was rejected; the disk keeps the user's bytes.
+fn edit_refused_notice(path: &str, problem: &mdbn_wire::client::Problem) -> crate::control::Notice {
+    let why = match (problem.code.as_str(), problem.reason.as_deref()) {
+        (_, Some("refs")) => "it refers to too many files",
+        ("too_large", _) => "it is too large",
+        _ => "it is not a valid change",
+    };
+    crate::control::Notice {
+        path: Some(path.into()),
+        code: "edit_refused".into(),
+        message: format!(
+            "This change could not be synced: the server refused it ({why}). \
+             Your edit is kept in the file. Edit the file to try again."
+        ),
+    }
 }
 
 fn limited_file_notices(
@@ -2229,6 +2257,20 @@ mod tests {
             notices
                 .iter()
                 .any(|notice| notice.code == "file_notices_omitted")
+        );
+    }
+
+    #[test]
+    fn a_refused_edit_is_noticed_on_its_file() {
+        let problem = mdbn_replica::api::ErrorCode::TooLarge
+            .problem_with_reason("item_bytes", "the log refused this change");
+        let notice = super::edit_refused_notice("notes/big.md", &problem);
+        assert_eq!(notice.path.as_deref(), Some("notes/big.md"));
+        assert_eq!(notice.code, "edit_refused");
+        assert_eq!(
+            notice.message,
+            "This change could not be synced: the server refused it (it is too large). \
+             Your edit is kept in the file. Edit the file to try again."
         );
     }
 

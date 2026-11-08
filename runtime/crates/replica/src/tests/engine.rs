@@ -5223,8 +5223,9 @@ fn a_lost_revocation_rekey_is_recreated_after_the_revocation_returns() {
     assert_eq!(a.r.head(), b.r.head());
 }
 
-/// A false `duplicate` for a position holding someone else's item is
-/// reported, never confirms the write, and doesn't stop the append loop: the
+/// A false `duplicate` for a position holding someone else's item never
+/// confirms the write and doesn't stop the append loop (no integrity
+/// incident, which hosts treat as terminal): the
 /// mutation stays pending and is appended once the service answers honestly.
 #[test]
 fn false_duplicate_does_not_stop_appending() {
@@ -5261,7 +5262,7 @@ fn false_duplicate_does_not_stop_appending() {
         ReceiptState::Confirmed
     );
     assert!(
-        a.r.sync_status()
+        !a.r.sync_status()
             .incidents
             .iter()
             .any(|i| i.kind == mdbn_wire::client::IncidentKind::Integrity)
