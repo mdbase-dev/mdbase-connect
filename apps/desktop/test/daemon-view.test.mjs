@@ -39,6 +39,21 @@ test("collections: sync is offered only for a ready local collection; waiting wo
   assert.equal(presentCollection({ mode: "local", state: "paused" }).status, "Paused");
 });
 
+test("collections: a paused local source offers an explicit file recheck, not sync", () => {
+  const paused = presentCollection({ mode: "local", state: "paused" });
+  assert.equal(paused.canResume, true);
+  assert.equal(paused.canEnableSync, false);
+  assert.equal(paused.detail, "Resume this collection to check its files before turning on sync.");
+  assert.equal(presentCollection({ mode: "local", state: "ready" }).canResume, false);
+  assert.equal(presentCollection({ mode: "synced", state: "paused" }).canResume, true);
+});
+
+test("collections: automatic Private sync setup and deleted collections do not offer Resume", () => {
+  for (const reason of ["private_sync_pending", "collection_deleted"]) {
+    assert.equal(presentCollection({ mode: "local", state: "paused", reason }).canResume, false);
+  }
+});
+
 test("connection follows collection outages even while the account relay is online", () => {
   const account = { signed_in: true, online: true };
   const collection = { mode: "synced", state: "opening", sync: { pending: 1, holds: 0, unresolved: 0, connection: "offline" } };
