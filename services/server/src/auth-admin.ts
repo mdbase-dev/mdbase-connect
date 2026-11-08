@@ -190,7 +190,13 @@ async function grantEntitlements(
     actor: requiredFlag(flags, "actor"),
     reason: requiredFlag(flags, "reason")
   });
-  const reconciliation = context.hostedProvider
+  const backend = await context.db.query<{ account_backend: string }>(
+    "SELECT account_backend FROM users WHERE id = $1",
+    [found.user.id]
+  );
+  // A next account's storage is not held by the legacy provider, which also
+  // refuses plans above its 1 GiB cap, so only legacy accounts reconcile there.
+  const reconciliation = context.hostedProvider && backend.rows[0]?.account_backend === "legacy"
     ? await reconcileHostedAccountCollections(
         context.db,
         context.hostedProvider,
