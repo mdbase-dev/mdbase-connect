@@ -24,6 +24,8 @@ impl DirectoryMirror {
             batch: None,
             last_completed_plan: None,
             last_synced_at: None,
+            retry_epoch: 0,
+            stuck: None,
         });
         if state.batch.is_some() {
             return Err(MirrorError::new(
@@ -80,6 +82,7 @@ impl DirectoryMirror {
             plan_fingerprint: batch.plan.fingerprint.clone(),
             phase,
             failure,
+            stuck: state.stuck.clone(),
         })
     }
 
@@ -109,6 +112,7 @@ impl DirectoryMirror {
             plan_fingerprint: batch.plan.fingerprint.clone(),
             delta: Box::new(state_delta(&action, &receipt, state)?),
             receipt: Box::new(receipt.clone()),
+            stuck: state.stuck.clone(),
         })?;
         let batch = state.batch.as_mut().expect("checked");
         batch.receipts.push(receipt);

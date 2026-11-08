@@ -471,6 +471,7 @@ pub fn op(o: &wi::Op, t: TextResolver<'_>) -> CResult<ci::Op> {
             document: opt_text(&c.document, t)?,
         }),
         wi::Op::Update(u) => ci::Op::Update(ci::Update {
+            update_refs: u.update_refs,
             id: uuid(&u.id),
             patch: u.patch.as_ref().map(map).transpose()?,
             unset: u.unset.clone().unwrap_or_default(),

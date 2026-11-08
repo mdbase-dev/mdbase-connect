@@ -17,7 +17,7 @@
 
 mod budget;
 mod source_tags;
-pub use source_tags::{BASES_TAG_CAPTURE_VERSION, capture_source_tags};
+pub use source_tags::{BASES_TAG_CAPTURE_VERSION, SourceTags, capture_source_tags};
 mod captured;
 mod date_value;
 mod discovery;
@@ -33,6 +33,8 @@ pub use streaming::{
     MAX_INCREMENTAL_SOURCE_BYTES, MAX_INCREMENTAL_STEPS,
 };
 mod file_bindings;
+mod links;
+pub use links::{BasesLinkMemo, BasesLinks, MAX_BASES_LINK_MEMO_BYTES};
 mod filter;
 mod numeric;
 mod ordering;

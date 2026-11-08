@@ -1,11 +1,11 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 // The offline-shell service worker precaches the CodeEditor chunk. Requests it
 // serves bypass page.route, so the gated chunk could load ungated (and the
 // test hang) whenever the worker won the race. Keep this spec on the network.
 test.use({ serviceWorkers: "block" });
 
-test("a delayed CodeEditor chunk does not steal sidebar search typing", async ({ page }) => {
+async function delayCodeEditor(page: Page) {
   let releaseChunk!: () => void;
   const chunkGate = new Promise<void>((resolve) => { releaseChunk = resolve; });
   let chunkRequested!: () => void;
@@ -15,6 +15,11 @@ test("a delayed CodeEditor chunk does not steal sidebar search typing", async ({
     await chunkGate;
     await route.continue();
   });
+  return { releaseChunk, requested };
+}
+
+test("a delayed CodeEditor chunk does not steal sidebar search typing", async ({ page }) => {
+  const { releaseChunk, requested } = await delayCodeEditor(page);
   try {
     await page.goto("?demo=12", { waitUntil: "domcontentloaded" });
     const search = page.getByRole("combobox", { name: "Search notes and files" });
@@ -22,6 +27,11 @@ test("a delayed CodeEditor chunk does not steal sidebar search typing", async ({
     await requested;
     await expect(search).toBeFocused();
     await expect(page.getByRole("textbox", { name: "Note body", exact: true })).toHaveCount(0);
+    const title = await page.getByRole("textbox", { name: "Note title" }).boundingBox();
+    const loading = await page.getByRole("status", { name: "Loading note editor" }).boundingBox();
+    expect(title!.y).toBeLessThan(150);
+    expect(loading!.y).toBeGreaterThanOrEqual(title!.y + title!.height);
+    expect(loading!.y).toBeLessThan(title!.y + title!.height + 40);
     releaseChunk();
     const body = page.getByRole("textbox", { name: "Note body", exact: true });
     await expect(body).toBeVisible();
@@ -40,6 +50,34 @@ test("a delayed CodeEditor chunk does not steal sidebar search typing", async ({
     await expect(body).toHaveText(originalBody, { useInnerText: true });
     await expect(page.getByRole("option", { name: /Reading list 4/ }).locator(".note-search-context"))
       .toContainText("Record 4 remains lightweight");
+  } finally {
+    releaseChunk();
+  }
+});
+
+test("the new-note title accepts typing while the CodeEditor chunk is delayed", async ({ page }) => {
+  const { releaseChunk, requested } = await delayCodeEditor(page);
+  try {
+    await page.goto("?demo=300", { waitUntil: "domcontentloaded" });
+    const list = page.getByRole("listbox", { name: "Collection notes and files" });
+    await list.focus();
+    await requested;
+    const before = await list.evaluate(element => element.scrollTop);
+    const title = "Cold editor jkjk probe";
+    await page.keyboard.press("c");
+    await page.keyboard.type(title, { delay: 40 });
+    const input = page.getByRole("textbox", { name: "Title", exact: true });
+    await expect(input).toHaveValue(title);
+    await expect(input).toBeFocused();
+    expect(await list.evaluate(element => element.scrollTop)).toBe(before);
+    await expect(page.getByRole("status", { name: "Loading note editor", exact: true })).toBeVisible();
+    releaseChunk();
+    await expect(page.getByRole("textbox", { name: "Note body", exact: true })).toBeVisible();
+    await expect(input).toBeFocused();
+    await page.keyboard.type(" saved", { delay: 40 });
+    await expect(input).toHaveValue(`${title} saved`);
+    await page.keyboard.press("Control+Enter");
+    await expect(page.getByRole("textbox", { name: "Note title", exact: true })).toHaveValue(`${title} saved`);
   } finally {
     releaseChunk();
   }

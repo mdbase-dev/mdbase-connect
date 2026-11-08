@@ -8,6 +8,7 @@ use mdbn_replica::store_query::{
 use mdbn_wire::common::{B16, B32, Uuid};
 #[path = "values.rs"]
 mod values;
+pub(crate) use values::encode_tags;
 
 fn run<I: IndexStorage>(
     index: &Rc<RefCell<I>>,

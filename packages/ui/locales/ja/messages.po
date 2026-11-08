@@ -161,6 +161,11 @@ msgctxt "Collection field mapping"
 msgid "Doesn’t match"
 msgstr "一致しません"
 
+#: keyboard.tsx
+msgctxt "Connect keyboard shortcuts"
+msgid "Filter the current list"
+msgstr "現在のリストを絞り込む"
+
 #: access.ts
 msgctxt "Application permission"
 msgid "Inspect saved-view definitions"
@@ -170,6 +175,11 @@ msgstr "保存済みビューの定義を確認"
 msgctxt "Application permission"
 msgid "Install or update record types"
 msgstr "レコードタイプをインストールまたは更新"
+
+#: keyboard.tsx
+msgctxt "Connect keyboard shortcuts"
+msgid "Keyboard shortcuts"
+msgstr "キーボードショートカット"
 
 #. placeholder {0}: url.host
 #: access.ts
@@ -186,10 +196,20 @@ msgctxt "Collection field mapping"
 msgid "Matches"
 msgstr "一致します"
 
+#: keyboard.tsx
+msgctxt "Connect keyboard shortcuts"
+msgid "Move through the list"
+msgstr "リスト内を移動"
+
 #: contract-setup.ts
 msgctxt "Collection field mapping"
 msgid "Not shared"
 msgstr "共有されません"
+
+#: keyboard.tsx
+msgctxt "Connect keyboard shortcuts"
+msgid "Open the focused item"
+msgstr "フォーカスした項目を開く"
 
 #: access.ts
 msgctxt "Application permission"
@@ -210,6 +230,11 @@ msgstr "コレクションの詳細、レコード、保存済みビュー、タ
 msgctxt "Application permission"
 msgid "Read records"
 msgstr "レコードを読み取る"
+
+#: keyboard.tsx
+msgctxt "Connect keyboard shortcuts"
+msgid "Rename a hosted collection or computer"
+msgstr "ホストされたコレクションまたはコンピューターの名前を変更"
 
 #: access.ts
 msgctxt "Application permission"
@@ -241,6 +266,11 @@ msgctxt "Application permission"
 msgid "Schedule app activity"
 msgstr "アプリのアクティビティをスケジュール"
 
+#: keyboard.tsx
+msgctxt "Connect keyboard shortcuts"
+msgid "Search"
+msgstr "検索"
+
 #: access.ts
 msgctxt "Application permission"
 msgid "Search and query"
@@ -266,6 +296,11 @@ msgctxt "Application permission"
 msgid "Set up this app in the collection"
 msgstr "コレクションでこのアプリをセットアップ"
 
+#: keyboard.tsx
+msgctxt "Connect keyboard shortcuts"
+msgid "Shortcuts are off while typing or while a dialog is open."
+msgstr "入力中またはダイアログが開いている間はショートカットが無効になります。"
+
 #: contract-setup.ts
 msgctxt "Collection field mapping"
 msgid "Some existing records may not have this required value."
@@ -290,6 +325,10 @@ msgstr "2つのフィールドで許可される値が異なります。"
 msgctxt "Collection field mapping"
 msgid "This optional value will not be shared with the application."
 msgstr "この任意の値はアプリと共有されません。"
+
+#: confirm-action.tsx
+msgid "Type {confirmName} to confirm"
+msgstr "確認のため{confirmName}と入力してください"
 
 #: access.ts
 msgctxt "Application permission"

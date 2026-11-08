@@ -3,7 +3,7 @@
  * Release manifest/tool/asset authentication must precede this selection. */
 import type { AppBundledReleaseTrust } from "./cloud-copy-bootstrap.js";
 import { isAppOrigin } from "./app-origin.js";
-import { applicationEnvironmentAllowed, applicationLoopbackAllowed, LOCAL_APPLICATION_BUILD, localApplicationHttpOrigin, localApplicationEnvironment, localApplicationOrigin } from "../application/local-build.js";
+import { applicationEnvironmentAllowed, applicationLoopbackAllowed, labLoopbackHttpOrigin, localApplicationEnvironment, localApplicationOrigin } from "../application/local-build.js";
 export interface AppEnvironmentSelection {
   readonly environment: "lab" | "staging" | "production" | "local";
   readonly appOrigin: string;
@@ -19,7 +19,7 @@ const invalid = () => new Error("app environment: explicit authenticated build c
 function origin(value: unknown, loopbackAllowed: boolean): string {
   if (typeof value !== "string" || !value.length) throw invalid();
   const u = new URL(value);
-  const loopback = loopbackAllowed && u.protocol === "http:" && (LOCAL_APPLICATION_BUILD ? localApplicationHttpOrigin(value) : ["127.0.0.1", "localhost", "[::1]"].includes(u.hostname));
+  const loopback = loopbackAllowed && labLoopbackHttpOrigin(value);
   if (u.origin !== value || u.username || u.password || (u.protocol !== "https:" && !loopback)) throw invalid();
   return value;
 }

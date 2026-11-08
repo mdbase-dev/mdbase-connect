@@ -1,0 +1,57 @@
+import { act } from "react";
+import { afterEach, expect, it, vi } from "vitest";
+import { render, screen } from "./test/render";
+import { RequestOutcome } from "./authorization-view";
+
+afterEach(() => vi.useRealTimers());
+
+it("names the return step without duplicating it, and gives a next step without a return URL", () => {
+  const view = render(<RequestOutcome status="approved" applicationName="Reader" returnUrl="/reader" />);
+  expect(screen.getByText("Returning to Reader…")).toBeInTheDocument();
+  expect(screen.queryByText(/follow you back/)).not.toBeInTheDocument();
+  expect(screen.queryByText("Continue in Reader to use this collection.")).not.toBeInTheDocument();
+  view.rerender(<RequestOutcome status="approved" applicationName="Reader" />);
+  expect(screen.getByText("Continue in Reader to use this collection.")).toBeInTheDocument();
+  expect(screen.queryByText(/Returning to/)).not.toBeInTheDocument();
+});
+
+it("waits for confirmed approval before counting down and cancels return on unmount", () => {
+  vi.useFakeTimers();
+  const replace = vi.fn();
+  vi.stubGlobal("location", { ...location, replace });
+  const view = render(<RequestOutcome status="setting_up" applicationName="Reader" returnUrl="/reader" />);
+  act(() => vi.advanceTimersByTime(4_000));
+  expect(replace).not.toHaveBeenCalled();
+  expect(screen.queryByRole("heading", { name: "Access approved" })).not.toBeInTheDocument();
+  view.rerender(<RequestOutcome status="approved" applicationName="Reader" collectionName="Field notes" collectionKind="hosted" returnUrl="/reader" />);
+  expect(screen.getByRole("heading", { name: "Reader can now use Field notes" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Return to Reader" })).toHaveAttribute("href", "/reader");
+  expect(document.querySelector("output")).toHaveTextContent("3 seconds");
+  expect(document.querySelector("output")).toHaveAttribute("aria-live", "polite");
+  expect(document.querySelector("output")).toHaveClass("mdbase-visually-hidden");
+  expect(document.querySelector(".request-return-countdown")).toHaveAttribute("aria-hidden", "true");
+  expect(screen.getByRole("heading", { name: "Reader can now use Field notes" })).toHaveFocus();
+  act(() => vi.advanceTimersByTime(1_000));
+  expect(document.querySelector("output")).toHaveTextContent("2 seconds");
+  expect(screen.getByRole("heading", { name: "Reader can now use Field notes" })).toHaveFocus();
+  expect(replace).not.toHaveBeenCalled();
+  view.unmount();
+  act(() => vi.advanceTimersByTime(5_000));
+  expect(replace).not.toHaveBeenCalled();
+});
+
+it("returns after three seconds, but never auto-returns a portable approval", () => {
+  vi.useFakeTimers();
+  const replace = vi.fn();
+  vi.stubGlobal("location", { ...location, replace });
+  const view = render(<RequestOutcome status="approved" applicationName="Reader" returnUrl="/reader" />);
+  act(() => vi.advanceTimersByTime(2_999));
+  expect(replace).not.toHaveBeenCalled();
+  act(() => vi.advanceTimersByTime(1));
+  expect(replace).toHaveBeenCalledExactlyOnceWith("/reader");
+  replace.mockClear();
+  view.rerender(<RequestOutcome status="approved" applicationName="Reader" returnUrl="/reader" portable />);
+  act(() => vi.advanceTimersByTime(5_000));
+  expect(replace).not.toHaveBeenCalled();
+  expect(document.querySelector("output")).toBeNull();
+});

@@ -25,14 +25,16 @@ success, warning, and danger roles rather than fixed palette values.
 
 ## Typography
 
-Locally packaged Atkinson Hyperlegible Next Variable carries prose and controls,
-with real regular/medium/semibold/bold weights (400/500/600/700). Azeret Mono is
+Locally packaged IBM Plex Sans carries prose and controls, with real
+regular/medium/semibold/bold weights (400/500/600/700) and italics. Row names and
+section labels use medium, and titles use semibold. Azeret Mono is
 reserved for paths, source/code and the canonical lowercase mdbase wordmark,
 not field names, types or state labels. Counts, dates, sizes and versions use
 tabular numerals in the primary family. The shared six-step type scale is
 12/13/15/17/24/34px: interface chrome defaults to 13px, captions are 12px, and
 nothing is smaller. Mobile document titles use the 24px heading step instead
-of introducing a seventh size. Note content is 17px with a relaxed 1.7 line
+of introducing a seventh size. Settings and Types titles use the same 24px step;
+34px belongs to the note being written. Note content is 17px with a relaxed 1.7 line
 height and a maximum readable measure. Labels use sentence case without uppercase tracking
 or CSS capitalization; CodeMirror search labels use phrases such as “Replace all”.
 Quick-open action hints use the primary family; only actual path results use mono.
@@ -40,13 +42,13 @@ Quick-open action hints use the primary family; only actual path results use mon
 ## Controls
 
 Use `@mdbase-dev/ui/controls.css`: `.mdbase-button.is-primary` is the filled
-accent committing action; the default button is tonal secondary;
+accent committing action; the default button is outlined secondary;
 `.is-tertiary` is quiet text; `.is-danger` carries destructive intent. Disabled
 buttons visibly lose their accent. Fields and menus use the shared corner,
 elevation and motion tokens, not local values. Trigger and context menus share one
-surface and row treatment. Persistent list selection is neutral with an edge cue;
-keyboard-active note/type/quick-open rows use the accent tint and edge. Counts
-and dates remain tabular primary-family text.
+surface and row treatment. List selection is neutral with an edge cue, and
+keyboard focus turns that edge accent; note/type/quick-open rows never use an
+accent fill. Counts and dates remain tabular primary-family text.
 
 Settings use `.mdbase-switch` with native button activation, `role="switch"`
 and `aria-checked`. Native property/type checkboxes use `.mdbase-checkbox`;
@@ -119,9 +121,9 @@ are rejected before writing. After a partial change, remaining notes can be
 moved individually to the destination.
 
 Mobile (≤760px) presents each level as a separate navigable screen, with 44px
-touch targets and safe-area padding. The note bar contains only Back and More;
-the complete path sits subtly above the title, and Rename path, New note and
-Quick open live in More. List screens have a labeled, filled New note action.
+touch targets and safe-area padding. The note bar has Back on the left and New note beside More on the right;
+the complete path sits subtly above the title and scrolls away with it, and
+Rename path and Quick open live in More. List screens have a labeled, filled New note action.
 Properties take over the screen, and quick open fits the available viewport
 rather than keeping its desktop keyboard-help footer.
 
@@ -146,8 +148,8 @@ focus state uses the normal caret and selection only: the editor surface never
 gains a border, outline, or glow. Vim bindings are optional and loaded only
 when enabled. More is one menu on both desktop and mobile, with separators
 between note actions, document views (outline and Linked from), insertion
-(Attach file), and help (shortcuts and Check note). Mobile puts New note and
-Quick open first; there is only one Rename path and one Attach file action.
+(Attach file), and help (shortcuts and Check note). Mobile puts Quick open
+first; there is only one Rename path and one Attach file action.
 Menus scroll when viewport space is limited, and keyboard focus stays visible.
 Frontmatter opens as typed rows first, with underlying values available as an
 escape hatch for nested or unfamiliar values. The inspector offers quiet Properties
@@ -176,8 +178,8 @@ schema properties remain separate. The initial create operation includes the
 drafted body and properties. While an existing note is fetched, the stable
 document frame stays in place with concise loading text; it does not impersonate
 the note with placeholder content or shimmer. Before collection metadata is
-available, a centered status avoids previewing unstable sidebars. The first page
-then becomes usable in the three-pane workspace while the remaining index
+available, the top bar and a static list skeleton paint with the initial HTML.
+The first page then becomes usable in the three-pane workspace while the remaining index
 continues in the note list. A newly created note is adopted from the create
 response, so the editor never waits for a collection-wide refresh or a redundant
 read.
@@ -215,15 +217,23 @@ remain visible with recovery actions. Word count lives in Properties, not the ba
 Ctrl/⌘P opens quick open everywhere; `>` switches to commands, and
 Ctrl/⌘Shift+P opens commands directly. Commands use the same registry as note
 menus and shortcut help, with fuzzy matching, shortcut chips and recent commands
-first. Pin/Unpin and available selection actions use that registry too. With
+first. C creates a note, / focuses search, and G N, G T and G S open Notes,
+Types and Settings outside text inputs. X remains reserved and unbound.
+Fresh loads focus the list, not the note body. Explicit opens and creation keep
+the writing path immediate. Outside focus mode, Escape leaves the body for the
+list unless Vim owns it; G N always lands on the list. Escape dismisses an empty
+composer only.
+Pin/Unpin and available selection actions use that registry too. With
 multiple notes selected, Move and Delete target the selection; Add tag, Remove
 tag, Set property and Clear selection appear only when applicable. Property
 commands reveal the existing inline selection form, never a second bulk-action
-surface. Ctrl/⌘K inserts a link only in note text.
+surface. Ctrl/⌘K opens commands outside text inputs and inserts a link while
+writing. Shortcut help groups Navigate, Note and Text, with one scoped K entry;
+all hints use the shared shortcut notation.
 
 Focus mode (Ctrl/⌘Shift+F, Escape to exit) temporarily hides the rail, note list
 and properties without changing their saved layout. Its minimal bar keeps Exit
-focus mode and More, plus save failures when needed. Focus mode stays in this
+focus mode and More, plus save failures when needed. Once the note scrolls, its title stays in the bar. Focus mode stays in this
 browser. Optional typewriter scrolling in Settings centres the caret line only
 while writing in focus mode; it does not animate scrolling or alter undo history.
 
@@ -248,12 +258,26 @@ The current Markdown path sits quietly above the title, with the directory
 truncated before the filename. It can be renamed in place, making the relationship between the calm note and its durable file
 visible without turning the app into a file manager.
 
+The title is part of the document, so it scrolls away with the note and gives
+the writing area the full height of the pane. When it leaves view it appears in
+the note bar once, before the path, at 13px semibold. Selecting it returns to
+the top of the note with the title ready to edit. The path shortens first when
+the bar runs out of room, and moving the caret to the first line reveals the
+title again.
+
 ## Note actions and discovery
 
 The list header names the current scope, not the collection again. Tags and types
 are search filters, suggested by `#` and `type:` or browsed with Search filters.
 The active scope is a removable chip in the search field; folders remain in the
 rail. New notes inherit the active scope.
+
+View options sort by Modified, Title or Path, then by any date, choice, number or
+text field a type in scope declares and at least one note fills in. Dates and
+choices follow their meaning: choices keep schema order. Entries without a value
+stay last under No value, in either direction. A separate Order group holds the
+direction in the field's own words. The choice is kept per collection and comes
+back when a filter returns its field to scope.
 
 Note rows and the document’s More menu share Rename, Move to…, Duplicate, Copy
 link, Copy path, and Delete. F2 renames; Ctrl/⌘+Backspace deletes in the list.
@@ -278,6 +302,14 @@ Undo notification that recreates the same path, frontmatter, and body. Undo
 notifications announce their result, pause expiry while hovered/focused, and
 support Escape to dismiss.
 
+Space peeks at the focused note; J/K move through the list while it stays open.
+The region uses the note title and politely announces changes. Peek enters with
+opacity and a 4px vertical translation over 120ms, leaves over 90ms, and
+cross-fades note bodies over 120ms. Reduced motion makes these changes static.
+Peek uses the list's readable wiki references and hides embed syntax. J/K change
+only the preview; Enter commits the note to the main pane. Its body height tweens
+over the same 120ms rather than collapsing between notes.
+
 The document bar keeps history, path, Properties, and More. Outline and keyboard
 help live in More; `?` opens help outside text inputs. Backlinks are a quiet
 Linked from section after the document text, not a competing inspector. Its
@@ -288,6 +320,6 @@ shared chevron disclosure initially shows five results, with Show all N. Each
 source note offers a plain-text snippet emphasising its matched phrase and a
 Link action for its first eligible title mention; conversion preserves the occurrence's spelling and offers Undo. Both
 writes check revisions and refuse to overwrite a changed occurrence or newer text.
-Pinned notes stay at the top of the list and quick open within this browser and
-collection. Link previews inside Markdown remain
+Pinned notes stay at the top of the list within this browser and collection;
+quick open puts recent notes first. Link previews inside Markdown remain
 available; list-row previews do not.

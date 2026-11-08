@@ -127,13 +127,15 @@ export interface HostedAccountLimits {
   max_files_per_collection: number;
 }
 
-export interface HostedAccountUsage extends HostedAccountLimits {
+export interface HostedAccountUsage {
   account_id: string;
   entitlement_revision: number;
   collection_count: number;
   live_content_bytes: number;
   live_file_bytes: number;
   retained_file_bytes: number;
+  // Older providers flattened these, so retained_file_bytes read as the limit.
+  limits: HostedAccountLimits;
 }
 
 export interface HostedProtocolUsageEntry {

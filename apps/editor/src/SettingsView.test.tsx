@@ -6,6 +6,16 @@ import { defaultPreferences } from "./preferences";
 import { SettingsView } from "./settings/SettingsView";
 
 describe("quiet settings document", () => {
+  it.each(["available", "unavailable"] as const)("does not infer custody from %s reachability", async (directAccess) => {
+    const gateway = new DemoCollectionGateway(4);
+    const description = await gateway.describe();
+    const props = { description, noteCount: 4, preferences: defaultPreferences, directAccessBusy: false, onChange: vi.fn(), onBack: vi.fn(), onForget: vi.fn(), onRequestDirectAccess: vi.fn() };
+    const view = render(<SettingsView {...props} connection={{ collectionId: "test", operations: [], directAccess }} />);
+    expect(screen.queryByText("Main copy")).not.toBeInTheDocument();
+    view.rerender(<SettingsView {...props} connection={{ collectionId: "test", operations: [], authorityKind: "hosted", directAccess }} />);
+    expect(screen.getByText("Main copy")).toBeInTheDocument();
+    expect(screen.getByText("Hosted by mdbase")).toBeInTheDocument();
+  });
   it("keeps labelled switches keyboard-operable and technical facts in Details", async () => {
     const user = userEvent.setup();
     const gateway = new DemoCollectionGateway(12);

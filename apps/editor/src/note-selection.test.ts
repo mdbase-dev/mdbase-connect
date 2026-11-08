@@ -42,9 +42,9 @@ describe("collection pins", () => {
   it("groups pinned entries once and never groups search results", () => {
     const entries: CollectionBrowserEntry[] = ["a.md", "b.md"].map((path) => ({ kind: "note", path, note: { path, frontmatter: {}, effectiveFrontmatter: {}, types: [], file: { mtime: "" } } }));
     const pins = new Set(["a.md"]);
-    const items = browserListItems(entries, "path-asc", [], undefined, false, pins);
+    const items = browserListItems(entries, { key: "path", direction: "asc" }, [], undefined, false, pins);
     expect(items.filter((item) => item.kind === "header").map((item) => item.label)).toEqual(["Pinned", "Collection root"]);
     expect(items.filter((item) => item.kind === "entry")).toHaveLength(2);
-    expect(browserListItems(entries, "path-asc", [], undefined, true, pins).every((item) => item.kind === "entry")).toBe(true);
+    expect(browserListItems(entries, { key: "path", direction: "asc" }, [], undefined, true, pins).every((item) => item.kind === "entry")).toBe(true);
   });
 });

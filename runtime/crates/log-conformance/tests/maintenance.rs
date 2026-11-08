@@ -35,7 +35,33 @@ fn dev(d: &Device) -> Principal {
     }
 }
 
-async fn scenario<B: Backend, O: ObjectStore>(svc: &Service<B, O>) -> mdbn_wire::common::Uuid {
+/// `token_rows` counts the collection's stored tokens, expired ones included.
+async fn storage_status<B: Backend, O: ObjectStore>(
+    svc: &Service<B, O>,
+    control_plane: &Principal,
+    collection: mdbn_wire::common::Uuid,
+) -> (u64, u64, u64) {
+    let out = svc
+        .call(
+            control_plane,
+            "storage_status",
+            &map(vec![(0, collection.to_cbor())]),
+            0,
+        )
+        .await
+        .unwrap();
+    let (Cbor::Uint(used), Cbor::Uint(quota), Cbor::Uint(files)) =
+        (f(&out.result, 0), f(&out.result, 1), f(&out.result, 2))
+    else {
+        panic!("storage_status fields")
+    };
+    (*used, *quota, *files)
+}
+
+async fn scenario<B: Backend, O: ObjectStore>(
+    svc: &Service<B, O>,
+    token_rows: impl AsyncFn(mdbn_wire::common::Uuid) -> usize,
+) -> mdbn_wire::common::Uuid {
     let t0: i64 = 1_800_000_000_000;
     let cp = ControlPlane::new(CP_LABEL);
     let c = random_uuid();
@@ -291,6 +317,10 @@ async fn scenario<B: Backend, O: ObjectStore>(svc: &Service<B, O>) -> mdbn_wire:
     assert!(early_seq <= cp_expected);
 
     // GC (I10): unreferenced and older than 24 h → deleted; referenced or young → kept.
+    let (used_before_gc, quota, files_before_gc) = storage_status(svc, &cpp, c).await;
+    assert_eq!(quota, 1 << 40);
+    // File bytes are blob parts only: the snapshot chunk and manifest don't count.
+    assert_eq!(files_before_gc, p1.size + p3.size + p4.size);
     let r = svc
         .call(&cpp, "gc", &map(vec![(0, c.to_cbor())]), late + 1000)
         .await
@@ -311,6 +341,9 @@ async fn scenario<B: Backend, O: ObjectStore>(svc: &Service<B, O>) -> mdbn_wire:
         .await
         .unwrap();
     assert_eq!(has.present, vec![false, false, true, true, true]);
+    let (used_after_gc, _, files_after_gc) = storage_status(svc, &cpp, c).await;
+    assert!(used_after_gc < used_before_gc);
+    assert_eq!(files_after_gc, p4.size);
     // A day later the late orphan goes too.
     svc.call(&cpp, "gc", &map(vec![(0, c.to_cbor())]), late + 2 * DAY)
         .await
@@ -354,6 +387,74 @@ async fn scenario<B: Backend, O: ObjectStore>(svc: &Service<B, O>) -> mdbn_wire:
     assert!(
         matches!(AppendResult::from_cbor(&out.result).unwrap(), AppendResult::Duplicate(d) if d.seq == early_seq)
     );
+
+    // Once they expire, compaction prunes the tokens of the entries it has
+    // archived, so the token table is bounded by the retained items, not the
+    // whole history. Tokens of retained items stay with them.
+    let before = token_rows(c).await;
+    assert!(before >= total as usize, "every entry's token: {before}");
+    let e = a.entry(
+        c,
+        head + 1,
+        chain,
+        1,
+        id16(&format!("{}/late", c.to_hex())),
+        None,
+        filler("late", 100),
+    );
+    append(&dev(&a), vec![e], &mut head, &mut chain, late).await;
+    let manifest = a.manifest(c, 1, vec![chunk], filler("m2", 100));
+    let ma2 = sha256(&manifest);
+    svc.call(
+        &dev(&a),
+        "put_object",
+        &PutObjectParams {
+            collection: c,
+            address: ma2,
+            kind: ItemKind::Manifest,
+            size: manifest.len() as u64,
+            checksum: ma2,
+            bytes: Some(Bytes(manifest)),
+        }
+        .to_cbor(),
+        late,
+    )
+    .await
+    .unwrap();
+    svc.call(
+        &dev(&a),
+        "put_snapshot",
+        &PutSnapshotParams {
+            collection: c,
+            seq: head,
+            manifest: ma2,
+            refs: vec![chunk],
+        }
+        .to_cbor(),
+        late,
+    )
+    .await
+    .unwrap();
+    let expired = t0 + 181 * DAY;
+    svc.call(
+        &dev(&b),
+        "endorse_snapshot",
+        &EndorseSnapshotParams {
+            collection: c,
+            seq: head,
+            manifest: ma2,
+        }
+        .to_cbor(),
+        expired,
+    )
+    .await
+    .unwrap();
+    let cp2 = head - 10_000;
+    assert_eq!(svc.head(&cpp, &c).await.unwrap().retained_from, cp2 + 1);
+    // Entries early_seq..=cp2 are compacted and their tokens pruned; the late
+    // entry added one.
+    let pruned = (cp2 - early_seq + 1) as usize;
+    assert_eq!(token_rows(c).await, before + 1 - pruned, "tokens pruned");
     c
 }
 
@@ -586,9 +687,10 @@ async fn compaction_and_gc_memory() {
         MemObjects::default(),
         testkit_config(CP_LABEL, "http://unused"),
     );
-    let c = scenario(&svc).await;
+    let c = scenario(&svc, async |c| svc.backend.token_rows(&c).await).await;
     // What compaction and GC removed is in the archive (30-day tier by default):
-    // entries 4..=C in one segment, and the three collected objects.
+    // entries 4..=C in one segment, entry C + 1 from the second compaction, and
+    // the three collected objects.
     let archived = svc.objects.archived();
     let prefix = format!("archive/30d/{}/", c.to_hex());
     let segments: Vec<&String> = archived
@@ -597,7 +699,10 @@ async fn compaction_and_gc_memory() {
         .collect();
     assert_eq!(
         segments,
-        vec![&format!("{prefix}segments/4-{}", 3 + 10_100 - 10_000)]
+        vec![
+            &format!("{prefix}segments/104-104"),
+            &format!("{prefix}segments/4-{}", 3 + 10_100 - 10_000),
+        ]
     );
     assert_eq!(
         archived
@@ -607,7 +712,7 @@ async fn compaction_and_gc_memory() {
         3,
         "early blob, old orphan, late orphan"
     );
-    assert_eq!(archived.len(), 4);
+    assert_eq!(archived.len(), 5);
     let restored = Service::new(
         MemBackend::default(),
         MemObjects::default(),
@@ -639,14 +744,28 @@ async fn compaction_and_gc_postgres() {
         FsObjects::new(dir),
         testkit_config(CP_LABEL, "http://unused"),
     );
+    let (pg, conn) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
+        .await
+        .unwrap();
+    tokio::spawn(conn);
+    let pg_token_rows = async |c: mdbn_wire::common::Uuid| {
+        let row = pg
+            .query_one(
+                "SELECT count(*) FROM ls_tokens WHERE collection = $1",
+                &[&&c.0[..]],
+            )
+            .await
+            .unwrap();
+        row.get::<_, i64>(0) as usize
+    };
     // Postgres export → memory import, and memory export → Postgres import.
-    let c = scenario(&svc).await;
+    let c = scenario(&svc, pg_token_rows).await;
     let mem = Service::new(
         MemBackend::default(),
         MemObjects::default(),
         testkit_config(CP_LABEL, "http://unused"),
     );
     roundtrip(&svc, &mem, c).await;
-    let c2 = scenario(&mem).await;
+    let c2 = scenario(&mem, async |c| mem.backend.token_rows(&c).await).await;
     roundtrip(&mem, &svc, c2).await;
 }

@@ -6,12 +6,13 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { App } from "./App";
+import * as quickOpen from "./QuickOpen";
 import { DemoCollectionGateway } from "./demo-gateway";
-import { NOTE_PATHS_MIME } from "./note-list-view";
+import { NOTE_PATHS_MIME, loadPinnedNotes } from "./note-list-view";
 import { chooseOption } from "./test/select";
 
 vi.mock("./CodeEditor", () => ({
-  CodeEditor: ({ value, onChange, label, footer }: { value: string; onChange?: (value: string) => void; label: string; footer?: ReactNode }) => <><textarea aria-label={label} value={value} onChange={(event) => onChange?.(event.target.value)} />{footer}</>
+  CodeEditor: ({ header, value, onChange, label, footer }: { header?: ReactNode; value: string; onChange?: (value: string) => void; label: string; footer?: ReactNode }) => <>{header}<textarea aria-label={label} value={value} onChange={(event) => onChange?.(event.target.value)} />{footer}</>
 }));
 vi.mock("@tanstack/react-virtual", () => ({ useVirtualizer: ({ count }: { count: number }) => ({
   getTotalSize: () => count * 76,
@@ -25,6 +26,215 @@ async function openRowMenu(name = /Garden notes 2/) {
 }
 
 describe("Note actions", () => {
+  it("keeps a newer Pin Undo when an earlier note restore completes", async () => {
+    const gateway = new DemoCollectionGateway(4);
+    const restore = gateway.restore.bind(gateway);
+    let releaseRestore!: () => void;
+    const held = new Promise<void>((resolve) => { releaseRestore = resolve; });
+    const restoring = vi.spyOn(gateway, "restore").mockImplementation(async (document) => {
+      await held;
+      return restore(document);
+    });
+    render(<App gateway={gateway} />);
+    await screen.findByRole("textbox", { name: "Note body" });
+    fireEvent.click(screen.getByRole("button", { name: "More note actions" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(restoring).toHaveBeenCalledOnce());
+    const menu = await openRowMenu();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Pin" }));
+    await act(async () => releaseRestore());
+    await screen.findByText("Restored The shape of useful tools", { exact: true });
+    expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
+    const list = screen.getByRole("listbox", { name: "Collection notes and files" });
+    fireEvent.keyDown(list, { key: "z", ctrlKey: true });
+    expect(within(await openRowMenu()).getByRole("menuitem", { name: "Pin" })).toBeInTheDocument();
+  });
+
+  it("gives consecutive Pins independent Undo lifetimes despite identical messages", async () => {
+    const gateway = new DemoCollectionGateway(4);
+    const view = render(<App gateway={gateway} />);
+    await screen.findByRole("textbox", { name: "Note body" });
+    const menu = await openRowMenu(/The shape of useful tools/);
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(within(menu).getByRole("menuitem", { name: "Pin" }));
+      act(() => vi.advanceTimersByTime(29_999));
+      fireEvent.contextMenu(screen.getByRole("option", { name: /Garden notes 2/ }));
+      fireEvent.click(screen.getByRole("menuitem", { name: "Pin" }));
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
+      act(() => vi.advanceTimersByTime(14_999));
+      view.rerender(<App gateway={gateway} />);
+      act(() => vi.advanceTimersByTime(14_999));
+      expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
+    } finally {
+      view.unmount();
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(["undo", "expire"] as const)("remaps a retained Pin after a held move Undo without replacing its toast (%s)", async (ending) => {
+    const gateway = new DemoCollectionGateway(4);
+    const { collectionId } = await gateway.describe();
+    const originalPath = "Notes/the-shape-of-useful-tools.md";
+    const movedPath = "Projects/the-shape-of-useful-tools.md";
+    const user = userEvent.setup();
+    const view = render(<App gateway={gateway} />);
+    await screen.findByRole("textbox", { name: "Note body" });
+    await user.click(screen.getByRole("button", { name: "More note actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Move to…" }));
+    const dialog = screen.getByRole("dialog", { name: "Move note" });
+    await chooseOption(user, within(dialog).getByRole("combobox", { name: "Destination folder" }), "Projects");
+    await user.click(within(dialog).getByRole("button", { name: "Move" }));
+    await screen.findByRole("button", { name: movedPath });
+    const rename = gateway.rename.bind(gateway);
+    let releaseRename!: () => void;
+    const held = new Promise<void>((resolve) => { releaseRename = resolve; });
+    const renaming = vi.spyOn(gateway, "rename").mockImplementation(async (...args) => {
+      await held;
+      return rename(...args);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(renaming).toHaveBeenCalledOnce());
+    const menu = await openRowMenu(/The shape of useful tools/);
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(within(menu).getByRole("menuitem", { name: "Pin" }));
+      const pinUndo = screen.getByRole("button", { name: "Undoing" });
+      expect(loadPinnedNotes(collectionId)).toEqual([movedPath]);
+      await act(async () => releaseRename());
+      expect(loadPinnedNotes(collectionId)).toEqual([originalPath]);
+      expect(screen.getByRole("button", { name: "Undo" })).toBe(pinUndo);
+      expect(pinUndo).toBeEnabled();
+      act(() => vi.advanceTimersByTime(29_999));
+      view.rerender(<App gateway={gateway} />);
+      expect(screen.getByRole("button", { name: "Undo" })).toBe(pinUndo);
+      if (ending === "undo") {
+        fireEvent.click(pinUndo);
+        expect(loadPinnedNotes(collectionId)).toEqual([]);
+      } else {
+        act(() => vi.advanceTimersByTime(1));
+        expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
+        expect(loadPinnedNotes(collectionId)).toEqual([originalPath]);
+      }
+    } finally {
+      view.unmount();
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a newer Pin Undo when an earlier move Undo fails", async () => {
+    const gateway = new DemoCollectionGateway(4);
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+    await screen.findByRole("textbox", { name: "Note body" });
+    await user.click(screen.getByRole("button", { name: "More note actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Move to…" }));
+    const dialog = screen.getByRole("dialog", { name: "Move note" });
+    await chooseOption(user, within(dialog).getByRole("combobox", { name: "Destination folder" }), "Projects");
+    await user.click(within(dialog).getByRole("button", { name: "Move" }));
+    await screen.findByRole("button", { name: "Projects/the-shape-of-useful-tools.md" });
+    let releaseRename!: () => void;
+    const held = new Promise<void>((resolve) => { releaseRename = resolve; });
+    const renaming = vi.spyOn(gateway, "rename").mockImplementation(async () => {
+      await held;
+      throw new Error("Temporarily offline");
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(renaming).toHaveBeenCalledOnce());
+    fireEvent.click(within(await openRowMenu()).getByRole("menuitem", { name: "Pin" }));
+    await act(async () => releaseRename());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled());
+    expect(screen.getByRole("button", { name: "Undo" }).closest('[role="status"]')).toHaveTextContent("Pinned");
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(within(await openRowMenu()).getByRole("menuitem", { name: "Pin" })).toBeInTheDocument();
+  });
+
+  it("Pin has one live Undo that leads the palette and Ctrl+Z restores the previous pin", async () => {
+    const results = vi.spyOn(quickOpen, "quickOpenResults");
+    const user = userEvent.setup();
+    render(<App gateway={new DemoCollectionGateway(4)} />);
+    await screen.findByRole("textbox", { name: "Note body" });
+    const menu = await openRowMenu();
+    await user.click(within(menu).getByRole("menuitem", { name: /^Pin$/ }));
+    expect(await screen.findByRole("button", { name: /^Undo$/ })).toBeInTheDocument();
+    const list = screen.getByRole("listbox", { name: "Collection notes and files" });
+    list.focus();
+    await user.keyboard("{Control>}k{/Control}");
+    const palette = await screen.findByRole("dialog", { name: /^Quick open$/ });
+    expect(within(palette).getAllByRole("option")[0]).toHaveTextContent("Undo");
+    expect(results.mock.calls.at(-1)?.[0].commands[0]).toMatchObject({ id: "undo", context: "Journal/garden-notes-2.md" });
+    await user.keyboard("{Escape}");
+    list.focus();
+    await user.keyboard("{Control>}z{/Control}");
+    const restoredMenu = await openRowMenu();
+    expect(within(restoredMenu).getByRole("menuitem", { name: /^Pin$/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Undo$/ })).not.toBeInTheDocument();
+  });
+  it.each([0, 1, 3])("selects the adjacent displayed note after deleting row %s and restores selection and focus on Undo", async (position) => {
+    const user = userEvent.setup();
+    render(<App gateway={new DemoCollectionGateway(4)} />);
+    await screen.findByRole("textbox", { name: "Note body" });
+    const rows = screen.getAllByRole("option").filter((row) => !row.classList.contains("file-row"));
+    const title = rows[position].querySelector(".note-title")!.textContent!;
+    const nextTitle = rows[position + 1 < rows.length ? position + 1 : position - 1].querySelector(".note-title")!.textContent!;
+    await user.click(rows[position]);
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue(title));
+    await user.click(screen.getByRole("button", { name: "More note actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Delete" }));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue(nextTitle));
+    await user.click(await screen.findByRole("button", { name: "Undo" }));
+    await screen.findByText(`Restored ${title}`, { exact: true });
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue(title));
+    const list = screen.getByRole("listbox", { name: "Collection notes and files" });
+    await waitFor(() => expect(list).toHaveFocus());
+    expect(window.document.getElementById(list.getAttribute("aria-activedescendant")!)).toHaveTextContent(title);
+    expect(screen.getByRole("option", { selected: true })).toHaveTextContent(title);
+    expect(screen.getByRole("option", { selected: true })).toHaveClass("note-row-arrival");
+  });
+
+  it("peeks with Space without leaving or scrolling the list, then returns focus on Escape", async () => {
+    const user = userEvent.setup();
+    render(<App gateway={new DemoCollectionGateway(4)} />);
+    await screen.findByRole("textbox", { name: "Note body" });
+    const list = screen.getByRole("listbox", { name: "Collection notes and files" });
+    const active = list.getAttribute("aria-activedescendant");
+    list.scrollTop = 76;
+    await user.click(list);
+    fireEvent.keyDown(list, { key: " " });
+    const peek = await screen.findByRole("region", { name: "The shape of useful tools" });
+    expect(within(peek).getByRole("heading", { name: "The shape of useful tools" })).toBeInTheDocument();
+    expect(within(peek).queryByText("Read-only Markdown preview")).not.toBeInTheDocument();
+    expect(within(peek).getByRole("region", { name: "Read-only Markdown preview" })).toBeInTheDocument();
+    expect(list.scrollTop).toBe(76);
+    fireEvent.keyDown(list, { key: "j" });
+    await waitFor(() => expect(peek).toHaveAccessibleName("Garden notes 2"));
+    expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
+    fireEvent.keyDown(list, { key: "Enter" });
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
+    fireEvent.keyDown(list, { key: " " });
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Garden notes 2" })).not.toBeInTheDocument());
+    await waitFor(() => expect(list).toHaveFocus());
+    expect(list.getAttribute("aria-activedescendant")).not.toBe(active);
+    expect(list.scrollTop).toBe(76);
+  });
+
+  it("uses the existing note composer with the empty quick-open search as its title", async () => {
+    const user = userEvent.setup();
+    render(<App gateway={new DemoCollectionGateway(4)} />);
+    await screen.findByRole("textbox", { name: "Note body" });
+    await user.keyboard("{Control>}p{/Control}");
+    const input = await screen.findByRole("combobox", { name: "Find a note or action" });
+    await user.type(input, "A newly imagined note");
+    await user.keyboard("{Enter}");
+    expect(await screen.findByDisplayValue("A newly imagined note")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Create note/ })).toBeInTheDocument();
+  });
+
   it("keeps the mobile rename-path action independent of its translated label", async () => {
     vi.stubGlobal("innerWidth", 600);
     await editorLocaleRuntime.initialize();
@@ -34,7 +244,8 @@ describe("Note actions", () => {
       <App gateway={new DemoCollectionGateway(4)} />
     </LocaleProvider>);
     try {
-      await user.click(await screen.findByRole("button", { name: "Altre azioni sulle note" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: "Altre azioni sulle note" })).toBeEnabled());
+      await user.click(screen.getByRole("button", { name: "Altre azioni sulle note" }));
       await user.click(screen.getByRole("menuitem", { name: "Rinomina il percorso" }));
       expect(await screen.findByRole("textbox", { name: "Percorso Markdown" })).toBeInTheDocument();
     } finally {
@@ -52,7 +263,8 @@ describe("Note actions", () => {
       <App gateway={new DemoCollectionGateway(4)} />
     </LocaleProvider>);
     try {
-      await user.click(await screen.findByRole("button", { name: "Altre azioni sulle note" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: "Altre azioni sulle note" })).toBeEnabled());
+      await user.click(screen.getByRole("button", { name: "Altre azioni sulle note" }));
       await user.click(screen.getByRole("menuitem", { name: "Modalità concentrazione" }));
       await user.click(await screen.findByRole("button", { name: "Altre azioni sulle note" }));
       expect(screen.getByRole("menuitem", { name: "Esci dalla modalità concentrazione" })).toBeInTheDocument();

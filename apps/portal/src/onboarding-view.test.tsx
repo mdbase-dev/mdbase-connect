@@ -35,9 +35,9 @@ describe("starter onboarding", () => {
     vi.mocked(fetch).mockResolvedValue(Response.json({ error: { code, message: "Could not prepare the collection." } }, { status }));
     render(<GettingStarted />);
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Could not prepare the collection.");
+    expect(await screen.findByRole("alert")).toHaveTextContent(status >= 500 ? "Something went wrong on mdbase. Try again." : "Could not prepare the collection.");
     expect(replace).not.toHaveBeenCalled();
-    expect(screen.getByRole("link", { name: "Open mdbase Connect without it" })).toHaveAttribute("href", "/");
+    expect(screen.getByRole("link", { name: "Continue without it" })).toHaveAttribute("href", "/");
     vi.mocked(fetch).mockResolvedValue(Response.json({ status: "ready", editor_url: "https://editor.example.test/starter" }));
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(replace).toHaveBeenCalledWith("https://editor.example.test/starter"));
@@ -61,5 +61,18 @@ describe("starter onboarding", () => {
     await waitFor(() => expect(replace).toHaveBeenCalledWith(editorUrl));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens the collection when no Editor is configured", async () => {
+    vi.mocked(fetch).mockResolvedValue(Response.json({ status: "ready", collection_id: "starter" }));
+    render(<GettingStarted />);
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/collections/starter"));
+  });
+
+  it("offers skipping while collection creation is pending", async () => {
+    vi.mocked(fetch).mockReturnValue(new Promise(() => {}));
+    render(<GettingStarted />);
+    expect(screen.getByRole("heading", { name: "Creating your first collection" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Continue without it" })).toHaveAttribute("href", "/");
   });
 });

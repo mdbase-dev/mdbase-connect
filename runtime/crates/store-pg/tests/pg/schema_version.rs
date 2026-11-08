@@ -28,7 +28,7 @@ fn cleanup(conn: SharedConn, name: String) {
 }
 
 #[test]
-fn fresh_and_unversioned_schema_preserve_rows_and_adopt_v1() {
+fn fresh_and_unversioned_schema_preserve_rows_and_adopt_current() {
     let Some((conn, name)) = isolated() else {
         return;
     };
@@ -36,7 +36,8 @@ fn fresh_and_unversioned_schema_preserve_rows_and_adopt_v1() {
     migrate(conn.borrow_mut().client()).unwrap();
     let col = fresh();
     let mut store = PgStore::open(conn.clone(), col).unwrap();
-    let row = record(1, "a.md", "original");
+    let mut row = record(1, "a.md", "original");
+    row.mtime = Some(1_791_100_800_000);
     store
         .commit(Tx {
             records_put: vec![row.clone()],
@@ -50,10 +51,39 @@ fn fresh_and_unversioned_schema_preserve_rows_and_adopt_v1() {
     migrate(conn.borrow_mut().client()).unwrap();
     assert_eq!(
         schema::current(conn.borrow_mut().client()).unwrap(),
-        Some(1)
+        Some(schema::SCHEMA_VERSION)
     );
     assert_eq!(store.record(&row.id).unwrap(), Some(row));
     migrate(conn.borrow_mut().client()).unwrap();
+    drop(store);
+    cleanup(conn, name);
+}
+
+#[test]
+fn version_one_schema_gains_record_mtime_and_keeps_rows_unknown() {
+    let Some((conn, name)) = isolated() else {
+        return;
+    };
+    migrate(conn.borrow_mut().client()).unwrap();
+    let col = fresh();
+    let mut store = PgStore::open(conn.clone(), col).unwrap();
+    let row = record(1, "a.md", "original");
+    store
+        .commit(Tx {
+            records_put: vec![row.clone()],
+            ..Tx::default()
+        })
+        .unwrap();
+    conn.borrow_mut()
+        .client()
+        .batch_execute("ALTER TABLE rs_records DROP COLUMN mtime; UPDATE rs_schema SET version=1")
+        .unwrap();
+    migrate(conn.borrow_mut().client()).unwrap();
+    assert_eq!(
+        schema::current(conn.borrow_mut().client()).unwrap(),
+        Some(schema::SCHEMA_VERSION)
+    );
+    assert_eq!(store.record(&row.id).unwrap(), Some(row));
     drop(store);
     cleanup(conn, name);
 }
@@ -74,9 +104,10 @@ fn newer_schema_refuses_migration_and_open_without_fencing_owner_or_changing_dat
             ..Tx::default()
         })
         .unwrap();
+    let newer = schema::SCHEMA_VERSION + 1;
     conn.borrow_mut()
         .client()
-        .batch_execute("UPDATE rs_schema SET version=2")
+        .batch_execute(&format!("UPDATE rs_schema SET version={newer}"))
         .unwrap();
     let err = migrate(conn.borrow_mut().client()).unwrap_err();
     assert!(err.to_string().contains("newer"), "{err}");
@@ -84,7 +115,7 @@ fn newer_schema_refuses_migration_and_open_without_fencing_owner_or_changing_dat
     assert!(err.to_string().contains("upgrade"), "{err}");
     assert_eq!(
         schema::current(conn.borrow_mut().client()).unwrap(),
-        Some(2)
+        Some(newer)
     );
     assert_eq!(PgStore::info(&conn, &col).unwrap().unwrap().epoch, epoch);
     assert_eq!(store.record(&row.id).unwrap(), Some(row));

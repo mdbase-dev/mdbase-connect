@@ -164,7 +164,8 @@ impl HttpSyncTransport {
             )
         })?;
         if !status.is_success() {
-            return Err(MirrorError::new(
+            return Err(MirrorError::refused(
+                status.as_u16(),
                 value
                     .pointer("/error/code")
                     .and_then(Value::as_str)
@@ -274,7 +275,10 @@ impl SyncTransport for HttpSyncTransport {
         source: &Path,
     ) -> Result<CommitFileUploadReceipt, MirrorError> {
         let result = self.upload_file_transfer(request, source).await;
-        if result.is_err() {
+        // Abort only a transfer whose ID the executor gives up. After any other
+        // failure the retry resumes it; aborting would turn an outage into an
+        // expired transfer and a needless re-upload.
+        if result.as_ref().is_err_and(abandons_transfer) {
             self.abort_file_transfer(request.transfer_id).await;
         }
         result
@@ -382,6 +386,17 @@ impl HttpSyncTransport {
                 None,
             )
             .await?;
+        if matches!(
+            status.state,
+            FileTransferState::Aborted | FileTransferState::Expired
+        ) {
+            // This transfer ID can never commit; a re-plan uploads with a new one.
+            return Err(MirrorError::refused(
+                409,
+                "file_transfer_expired",
+                "This file upload is no longer open.",
+            ));
+        }
         let part_count = request.size.div_ceil(part_size).max(1);
         let (received, mut uploaded) = validate_upload_progress(
             status,

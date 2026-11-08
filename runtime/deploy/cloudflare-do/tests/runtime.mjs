@@ -22,6 +22,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { accessSync, constants, mkdirSync, mkdtempSync, openSync, closeSync, writeFileSync, readFileSync, readdirSync, appendFileSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
 
 if (process.env.MDBN_REQUIRE_REAL_BACKENDS === '1') {
@@ -178,6 +179,17 @@ async function stop() {
     if(!settled)throw new Error('owned wrangler process group did not settle');
   }
 }
+// The stopped runtime's SQLite file for the actor that holds `nonce`.
+function nonceStore(nonce) {
+  const root = resolve(stateDirectory, 'v3/do');
+  const found = readdirSync(root, { recursive: true }).filter(f => String(f).endsWith('.sqlite')).filter(f => {
+    const db = new DatabaseSync(resolve(root, String(f)), { readOnly: true });
+    try { return db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'used_http_nonces'").get()
+      && db.prepare('SELECT 1 FROM used_http_nonces WHERE nonce = ?').get(nonce); } finally { db.close(); }
+  });
+  assert.equal(found.length, 1, 'exactly one actor holds the used nonce');
+  return new DatabaseSync(resolve(root, String(found[0])));
+}
 async function rpc(headers, body) {
   const response = await fetch(`${base}/v1/rpc`, { method: 'POST', headers, body });
   assert.equal(response.status, 200);
@@ -299,14 +311,39 @@ try {
   const replay = await rpc(headers, body);
   assert.equal(replay.get(1), 'replay');
   await stop();
+  // Make this an actor created before the expiry index was dropped: restore the
+  // old index and add expired rows that the next signed RPC must prune.
+  let store = nonceStore(nonce);
+  assert.equal(store.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name = 'used_http_nonces_expiry'").get().n, 0);
+  store.exec('CREATE INDEX used_http_nonces_expiry ON used_http_nonces (expires_at)');
+  const stale = store.prepare('INSERT INTO used_http_nonces (nonce, expires_at) VALUES (?, ?)');
+  for (let i = 0; i < 3; i++) stale.run(Buffer.alloc(32, 0xe0 + i), Date.now() - 120000);
+  store.close();
   await start();
   assert.equal((await fetch(`${base}/ready`)).status, 200, 'readiness after restart');
   // Restart is deliberately within the nonce lifetime. Same persisted SQLite.
   assert.ok(Date.now() - Number(nonce.readBigUInt64BE(0)) < 60000);
   const restarted = await rpc(headers, body);
   assert.equal(restarted.get(0), 'unauthenticated');
-  assert.equal(restarted.get(1), 'replay', 'used nonce survives actor/runtime restart');
-  console.log('PASS: HTTPS possession, single use, and replay rejection after restart');
+  assert.equal(restarted.get(1), 'replay', 'used nonce survives actor/runtime restart and the index drop');
+  const freshNonce = Buffer.from(await (await fetch(`${base}/v1/nonce`)).text(), 'hex');
+  const freshHeaders = { authorization: `Bearer ${token}`, 'x-mdbase-nonce': freshNonce.toString('hex'),
+    'x-mdbase-sig': sign(null, h('mdbase/v1/ls-http', Buffer.concat([
+      Buffer.from('head\0/v1/rpc\0'), c, sha(Buffer.from(token)), sha(body), freshNonce])), transport).toString('hex') };
+  assert.equal((await rpc(freshHeaders, body)).get(0), 'not_found');
+  assert.equal((await rpc(freshHeaders, body)).get(1), 'replay', 'a duplicate inside the TTL is refused without the index');
+  await stop();
+  store = nonceStore(nonce);
+  try {
+    assert.equal(store.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name = 'used_http_nonces_expiry'").get().n, 0,
+      'actor startup drops the old expiry index');
+    assert.equal(store.prepare('SELECT count(*) AS n FROM used_http_nonces WHERE nonce IN (?, ?, ?)')
+      .get(...[0, 1, 2].map(i => Buffer.alloc(32, 0xe0 + i))).n, 0, 'expired nonces are pruned without the index');
+    assert.equal(store.prepare('SELECT count(*) AS n FROM used_http_nonces WHERE nonce IN (?, ?)').get(nonce, freshNonce).n, 2,
+      'unexpired used nonces are kept');
+  } finally { store.close(); }
+  await start();
+  console.log('PASS: HTTPS possession, single use, replay rejection after restart and index drop, bounded expiry pruning');
   await sec061Cases({base,token,transport,sha,h});
   await directGetCases({base,encode,map,sha});
   }

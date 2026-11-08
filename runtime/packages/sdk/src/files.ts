@@ -8,7 +8,7 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import type { CborValue } from "./cbor.js";
 import { hash as hashCodec, hashFromBytes, list, uint, uuid as uuidCodec } from "./codec.js";
 import type { ChangesWatch, MdbaseClient, Write, WriteOptions } from "./client.js";
-import { isMdbaseError, mdbaseError, type MdbaseError } from "./errors.js";
+import { isMdbaseError, MdbaseError, mdbaseError } from "./errors.js";
 import { withMutation, type Session } from "./session.js";
 import { uuidv7 } from "./values.js";
 
@@ -35,6 +35,7 @@ import {
   ChangesResult,
   FileChunk,
   fileChunk,
+  fileStreamFailure,
   HelloResult,
   FileView,
   fileView,
@@ -166,6 +167,7 @@ export class FilesApi {
   private wired = new WeakSet<Session>();
   private opening = 0;
   private early = new Map<number, FileChunk[]>();
+  private earlyFailures = new Map<number, MdbaseError>();
 
   constructor(private client: MdbaseClient) {
     client.onSession((s) => this.wire(s));
@@ -225,6 +227,21 @@ export class FilesApi {
             q.push(c);
             this.early.set(c.stream, q);
           }
+        }
+      } catch {
+        // ignore
+      }
+    });
+    // One download failed; the session and every other operation carry on.
+    s.onPush("file_stream_failed", (p) => {
+      try {
+        const { stream, problem } = fileStreamFailure.dec(p);
+        const st = this.streams.get(stream);
+        if (st) {
+          this.streams.delete(stream);
+          st.onEnd(new MdbaseError(problem));
+        } else if (this.opening > 0 && this.earlyFailures.size < 16) {
+          this.earlyFailures.set(stream, new MdbaseError(problem));
         }
       } catch {
         // ignore
@@ -312,9 +329,8 @@ export class FilesApi {
     if (o.onProgress) this.progress.set(transfer, o.onProgress);
     const busyUntil = Date.now() + REGION_BUSY_WAIT_MS;
     for (;;) {
-      const phase = { committing: false };
       try {
-        return await this.uploadOnce(source, size, open, o, phase);
+        return await this.uploadOnce(source, size, open, o);
       } catch (e) {
         // Retry after a dropped link; the transfer survives on the replica.
         if (isMdbaseError(e, "unavailable") && this.client.link === "reconnecting") continue;
@@ -325,17 +341,14 @@ export class FilesApi {
           continue;
         }
         this.progress.delete(transfer);
-        // Nothing can have been captured before commit: release the replica's
-        // upload lane so a failed transfer never blocks the next one. A retry
-        // under the same transferId and mutationId opens it afresh.
-        if (!phase.committing) await this.abortUpload(transfer).catch(() => {});
-        // Resume under the same transferId and mutationId; never a new identity.
+        await this.abortUpload(transfer).catch(() => {});
+        // A captured commit survives lane cleanup; its mutation ID resolves the outcome.
         throw withMutation(e, "upload", { mutationId: open.mutationId });
       }
     }
   }
 
-  private async uploadOnce(source: UploadSource, size: number, open: OpenUploadParams, o: UploadOptions, phase: { committing: boolean }): Promise<FileWrite> {
+  private async uploadOnce(source: UploadSource, size: number, open: OpenUploadParams, o: UploadOptions): Promise<FileWrite> {
     const s = await this.session(o.signal);
     const sig = o.signal ? { signal: o.signal } : {};
     const opened = await s.request("open_upload", openUploadParams.enc(open), { codec: openUploadResult, ...sig });
@@ -371,7 +384,6 @@ export class FilesApi {
       if (inflight.size >= 4) await Promise.race(inflight);
     }
     await Promise.all(inflight);
-    phase.committing = true;
     const r = await s.request("commit_upload", m([[0, uuidCodec.enc(open.transfer)]]), {
       codec: receiptCodec,
       ...sig,
@@ -385,7 +397,7 @@ export class FilesApi {
     return w;
   }
 
-  /** Abort an upload; the replica discards its chunks. */
+  /** Release the upload lane. An already captured write remains durable; use its receipt to resolve the outcome. */
   abortUpload(transferId: Uuid): Promise<void> {
     return this.client.call("abort_upload", m([[0, uuidCodec.enc(transferId)]])).then(() => {});
   }
@@ -479,8 +491,13 @@ export class FilesApi {
           }
           streamId = uint.dec(r.get(0) ?? null);
           const early = self.early.get(streamId) ?? [];
+          const earlyFailure = self.earlyFailures.get(streamId);
           self.early.delete(streamId);
-          if (self.opening === 0) self.early.clear();
+          self.earlyFailures.delete(streamId);
+          if (self.opening === 0) {
+            self.early.clear();
+            self.earlyFailures.clear();
+          }
           if (cancelled) {
             // reader.cancel on the already-closed local stream cannot run its
             // underlying cancel twice. Own this late cleanup inside the SDK.
@@ -515,10 +532,19 @@ export class FilesApi {
             },
           });
           for (const c of early) deliver(c);
+          if (earlyFailure && !finished) {
+            self.streams.delete(streamId);
+            finished = true;
+            detachAbort();
+            ctrl.error(earlyFailure);
+          }
         } catch (e) {
           finished = true;
           detachAbort();
-          if (self.opening === 0) self.early.clear();
+          if (self.opening === 0) {
+            self.early.clear();
+            self.earlyFailures.clear();
+          }
           cancelRemote();
           fileReject(e);
           ctrl.error(e);

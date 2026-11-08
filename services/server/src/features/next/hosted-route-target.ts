@@ -59,7 +59,7 @@ export async function hostedRouteTarget(db: DatabaseQueryable, tokenDigest: stri
      LEFT JOIN collections col ON col.id = g.collection_id
      LEFT JOIN connectors connector ON connector.id = col.connector_id
      LEFT JOIN hosted_collections hc ON hc.id = g.hosted_collection_id
-     JOIN next_collections parent ON parent.collection_id::text = COALESCE(col.local_id::text, hc.id::text)
+     JOIN next_collections parent ON parent.collection_id::text = COALESCE(col.local_id::text, hc.id::text, g.next_collection_id::text)
      JOIN users owner ON owner.id = parent.owner_user_id AND owner.suspended_at IS NULL
      LEFT JOIN next_grant_client_keys key ON key.grant_id = g.id
      LEFT JOIN next_grant_bindings binding ON binding.grant_id = g.id AND binding.collection_id = parent.collection_id
@@ -78,6 +78,8 @@ export async function hostedRouteTarget(db: DatabaseQueryable, tokenDigest: stri
        AND parent.collection_id = $2 AND parent.runtime = 'next' AND parent.sync = 'cloud_copy' AND parent.left_sync_at IS NULL
        AND (g.collection_id IS NULL OR (col.enabled = true AND col.present = true AND col.authority_state = 'active' AND connector.revoked_at IS NULL))
        AND (g.hosted_collection_id IS NULL OR (hc.authority_state = 'active' AND hc.quarantined_at IS NULL))
+       -- A native grant is served here only when it was approved for a cloud copy.
+       AND (g.next_collection_id IS NULL OR g.next_collection_sync = 'cloud_copy')
        AND ((g.user_id = parent.owner_user_id AND g.membership_id IS NULL AND g.membership_policy_id IS NULL AND g.membership_policy_revision IS NULL)
          OR EXISTS (
            SELECT 1 FROM collection_memberships membership
@@ -94,6 +96,8 @@ export async function hostedRouteTarget(db: DatabaseQueryable, tokenDigest: stri
   const route = await migrationRoute(db, migrationRouting, collection);
   // A retired migration route has no hosted app; it never falls back to the default.
   if (route === "retired") return null;
+  // Moving hosting: the grant stands, with no hosted target until the move ends.
+  if (route === "moving") return { grant, target: null };
   const selected = route === "migration" ? migrationRouting!.hosted.url : origin;
   // A scoped destination never supplies a missing default for other accounts.
   if (!selected) return null;

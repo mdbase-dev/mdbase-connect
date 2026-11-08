@@ -70,12 +70,12 @@ msgstr "{0} can no longer use {1} through this computer."
 msgid "{0} can now use {where}."
 msgstr "{0} can now use {where}."
 
-#. placeholder {0}: syncTarget.name
+#. placeholder {0}: lastSyncTarget.name
 #: src/renderer/collections-view.tsx
 msgid "{0} now syncs privately."
 msgstr "{0} now syncs privately."
 
-#. placeholder {0}: syncTarget.name
+#. placeholder {0}: lastSyncTarget.name
 #: src/renderer/collections-view.tsx
 msgid "{0} now syncs."
 msgstr "{0} now syncs."
@@ -239,6 +239,10 @@ msgid "<0/>Allow hosted mirrors to stop until I join them again"
 msgstr "<0/>Allow hosted mirrors to stop until I join them again"
 
 #: src/renderer/collections-view.tsx
+msgid "<0/>Encrypt end to end so mdbase cannot read it"
+msgstr "<0/>Encrypt end to end so mdbase cannot read it"
+
+#: src/renderer/collections-view.tsx
 msgid "<0/>I have checked these files"
 msgstr "<0/>I have checked these files"
 
@@ -265,14 +269,14 @@ msgctxt "Connect interface"
 msgid "Account"
 msgstr "Account"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Account and startup."
-msgstr "Account and startup."
-
 #: src/renderer/daemon-view.mts
 msgid "Account connection needs attention"
 msgstr "Account connection needs attention"
+
+#. placeholder {0}: collection.name
+#: src/renderer/collections-view.tsx
+msgid "Actions for {0}"
+msgstr "Actions for {0}"
 
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
@@ -301,6 +305,10 @@ msgstr "Add existing folder"
 msgid "Add your first collection"
 msgstr "Add your first collection"
 
+#: src/renderer/collections-view.tsx
+msgid "Advanced"
+msgstr "Advanced"
+
 #: src/renderer/main.tsx
 msgid "All on this computer only"
 msgstr "All on this computer only"
@@ -326,15 +334,13 @@ msgstr "An app"
 msgid "Another app, such as Obsidian, is using this folder right now. mdbase opens it when that app lets go."
 msgstr "Another app, such as Obsidian, is using this folder right now. mdbase opens it when that app lets go."
 
+#: src/renderer/main.tsx
+msgid "Another device"
+msgstr "Another device"
+
 #: src/renderer/takeover-state.mts
 msgid "another program is writing to the folder"
 msgstr "another program is writing to the folder"
-
-#: src/renderer/main.tsx
-#: src/renderer/ui-components.tsx
-msgctxt "Connect interface"
-msgid "App access"
-msgstr "App access"
 
 #: src/renderer/activity-view.tsx
 msgid "App access and collection changes on this computer will be listed here."
@@ -371,6 +377,12 @@ msgctxt "Connect interface"
 msgid "Approve…"
 msgstr "Approve…"
 
+#: src/renderer/main.tsx
+#: src/renderer/ui-components.tsx
+msgctxt "Connect interface"
+msgid "Apps"
+msgstr "Apps"
+
 #: src/renderer/daemon-view.mts
 msgid "Apps cannot use it until you resume it."
 msgstr "Apps cannot use it until you resume it."
@@ -399,6 +411,10 @@ msgstr "Apps you approve reach your collections through this computer"
 msgid "Apps you used with mdbase Connect appear here once Private sync is on for the {movedWaiting, plural, one {collection} other {collections}} that moved to this computer. mdbase turns it on by itself; you don't need to approve those apps again."
 msgstr "Apps you used with mdbase Connect appear here once Private sync is on for the {movedWaiting, plural, one {collection} other {collections}} that moved to this computer. mdbase turns it on by itself; you don't need to approve those apps again."
 
+#: src/renderer/collections-view.tsx
+msgid "Archive/Recordings"
+msgstr "Archive/Recordings"
+
 #: src/renderer/main.tsx
 msgid "Ask before new apps connect"
 msgstr "Ask before new apps connect"
@@ -407,6 +423,11 @@ msgstr "Ask before new apps connect"
 #: src/renderer/access-view.tsx
 msgid "Asked {0}"
 msgstr "Asked {0}"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Audio"
+msgstr "Audio"
 
 #: src/renderer/main.tsx
 msgid "Available in installed builds"
@@ -417,6 +438,12 @@ msgctxt "Connect interface"
 msgid "Background behavior"
 msgstr "Background behavior"
 
+#. placeholder {0}: capabilityPhrase(entry.capabilities)
+#: src/renderer/access-view.tsx
+msgid "Can {0}"
+msgstr "Can {0}"
+
+#: src/main/main.ts
 #: src/renderer/collections-view.tsx
 #: src/renderer/main.tsx
 msgid "Cancel"
@@ -429,13 +456,8 @@ msgstr "Catching up…"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
-msgid "change note types"
-msgstr "change note types"
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
-msgid "Change types"
-msgstr "Change types"
+msgid "change record types"
+msgstr "change record types"
 
 #: src/renderer/collections-view.tsx
 msgid "Changed by a program mdbase does not recognise"
@@ -546,6 +568,14 @@ msgctxt "Desktop application"
 msgid "Choose where to create the folder."
 msgstr "Choose where to create the folder."
 
+#: src/renderer/collections-view.tsx
+msgid "Choose which files this collection syncs, on every device. Notes always sync, and files that already synced stay where they are."
+msgstr "Choose which files this collection syncs, on every device. Notes always sync, and files that already synced stay where they are."
+
+#: src/renderer/ui-components.tsx
+msgid "Clear filter"
+msgstr "Clear filter"
+
 #: src/renderer/takeover-state.mts
 msgid "Close apps that are editing this folder, then choose Move to the new sync engine."
 msgstr "Close apps that are editing this folder, then choose Move to the new sync engine."
@@ -554,10 +584,6 @@ msgstr "Close apps that are editing this folder, then choose Move to the new syn
 msgctxt "Connect interface"
 msgid "Close navigation"
 msgstr "Close navigation"
-
-#: src/renderer/collections-view.tsx
-msgid "Cloud copy"
-msgstr "Cloud copy"
 
 #: src/renderer/daemon-view.mts
 msgid "Collection deleted"
@@ -589,6 +615,11 @@ msgstr "Collections, app access and sync status in one place."
 #: src/renderer/main.tsx
 msgid "Color theme"
 msgstr "Color theme"
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Commands"
+msgstr "Commands"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
@@ -661,13 +692,8 @@ msgstr "Create a collection"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
-msgid "Create and edit"
-msgstr "Create and edit"
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
-msgid "create and edit notes"
-msgstr "create and edit notes"
+msgid "create and edit records"
+msgstr "create and edit records"
 
 #: src/renderer/main.tsx
 msgid "Create collection"
@@ -676,11 +702,6 @@ msgstr "Create collection"
 #: src/renderer/main.tsx
 msgid "Create the folder in"
 msgstr "Create the folder in"
-
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Decide what apps can do."
-msgstr "Decide what apps can do."
 
 #: src/renderer/approval-prompt.tsx
 msgid "Decline"
@@ -698,13 +719,8 @@ msgstr "Declined or revoked here"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
-msgid "Delete"
-msgstr "Delete"
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
-msgid "delete notes"
-msgstr "delete notes"
+msgid "delete records"
+msgstr "delete records"
 
 #: src/renderer/collections-view.tsx
 msgid "Deleted on another device"
@@ -725,6 +741,10 @@ msgstr "Details"
 #: src/renderer/collections-view.tsx
 msgid "Differed when mdbase took over from the old app; this computer's version is in the folder"
 msgstr "Differed when mdbase took over from the old app; this computer's version is in the folder"
+
+#: src/renderer/collections-view.tsx
+msgid "Discard"
+msgstr "Discard"
 
 #: src/renderer/collections-view.tsx
 msgid "Discard local changes"
@@ -770,19 +790,31 @@ msgstr "edits waiting to upload in hosted collections could not be saved for the
 msgid "Email support@mdbase.dev and include a diagnostics report. We'll finish your upgrade or move this computer back to mdbase Connect."
 msgstr "Email support@mdbase.dev and include a diagnostics report. We'll finish your upgrade or move this computer back to mdbase Connect."
 
-#: src/renderer/collections-view.tsx
-msgid "End-to-end encrypted: mdbase cannot read it. Web apps work only while one of your devices is online."
-msgstr "End-to-end encrypted: mdbase cannot read it. Web apps work only while one of your devices is online."
-
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "Enter a name for this computer."
 
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
-msgid "Files"
-msgstr "Files"
+#. placeholder {0}: collection.name
+#: src/renderer/collections-view.tsx
+msgid "File sync settings for {0} were saved."
+msgstr "File sync settings for {0} were saved."
+
+#: src/renderer/collections-view.tsx
+msgid "File types"
+msgstr "File types"
+
+#: src/renderer/activity-view.tsx
+msgid "Filter activity"
+msgstr "Filter activity"
+
+#: src/renderer/access-view.tsx
+msgid "Filter apps"
+msgstr "Filter apps"
+
+#: src/renderer/collections-view.tsx
+msgid "Filter collections"
+msgstr "Filter collections"
 
 #: src/renderer/sign-in-panel.tsx
 msgctxt "Connect interface"
@@ -797,6 +829,14 @@ msgstr "Folder locations are never uploaded."
 msgid "Folders on this computer that your apps can use, and how each one syncs."
 msgstr "Folders on this computer that your apps can use, and how each one syncs."
 
+#: src/renderer/collections-view.tsx
+msgid "Folders to leave out"
+msgstr "Folders to leave out"
+
+#: src/renderer/main.tsx
+msgid "Go to {label}"
+msgstr "Go to {label}"
+
 #. placeholder {0}: view.holds
 #: src/renderer/collections-view.tsx
 msgid "Hide {0, plural, one {# file} other {# files}}"
@@ -810,10 +850,6 @@ msgstr "hosted collections still have edits waiting to upload"
 msgid "How new apps get access to your local collections."
 msgstr "How new apps get access to your local collections."
 
-#: src/renderer/collections-view.tsx
-msgid "How should it sync?"
-msgstr "How should it sync?"
-
 #: src/renderer/main.tsx
 msgid "How this computer appears in your mdbase account"
 msgstr "How this computer appears in your mdbase account"
@@ -823,6 +859,11 @@ msgstr "How this computer appears in your mdbase account"
 #: src/renderer/access-view.tsx
 msgid "If you approve, {0} will be able to {1} in {where}, through this computer. You can revoke this at any time."
 msgstr "If you approve, {0} will be able to {1} in {where}, through this computer. You can revoke this at any time."
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Images"
+msgstr "Images"
 
 #. placeholder {0}: status.target_version
 #. placeholder {0}: update.target_version
@@ -851,6 +892,11 @@ msgstr "It moves when you join that hosted collection on this computer."
 #: src/renderer/takeover-state.mts
 msgid "It retries when mdbase restarts. If it keeps failing, move again to see the error."
 msgstr "It retries when mdbase restarts. If it keeps failing, move again to see the error."
+
+#: src/main/main.ts
+msgctxt "Desktop application"
+msgid "Its mdbase.yaml has an x-mdbase-connect entry that no mdbase Connect on this computer manages, for example because the folder was copied or removed from Connect. Adding the folder removes that entry and leaves the rest of the file unchanged."
+msgstr "Its mdbase.yaml has an x-mdbase-connect entry that no mdbase Connect on this computer manages, for example because the folder was copied or removed from Connect. Adding the folder removes that entry and leaves the rest of the file unchanged."
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -889,6 +935,10 @@ msgstr "Keeps apps on your other devices connected to this computer"
 msgid "Kept on this computer only: the last 200 changes."
 msgstr "Kept on this computer only: the last 200 changes."
 
+#: src/renderer/main.tsx
+msgid "Keyboard shortcuts"
+msgstr "Keyboard shortcuts"
+
 #: src/renderer/language-setting.tsx
 msgid "Language"
 msgstr "Language"
@@ -907,6 +957,10 @@ msgid "Leave mdbase Connect's data in place and contact support with a diagnosti
 msgstr "Leave mdbase Connect's data in place and contact support with a diagnostics report."
 
 #: src/renderer/collections-view.tsx
+msgid "Leave out files larger than"
+msgstr "Leave out files larger than"
+
+#: src/renderer/collections-view.tsx
 msgid "Loading…"
 msgstr "Loading…"
 
@@ -921,6 +975,10 @@ msgstr "Manage in mdbase"
 #: src/renderer/access-view.tsx
 msgid "Mark as seen"
 msgstr "Mark as seen"
+
+#: src/renderer/collections-view.tsx
+msgid "MB"
+msgstr "MB"
 
 #. placeholder {0}: bundled.version
 #. placeholder {1}: result.version
@@ -1019,8 +1077,8 @@ msgid "mdbase is not running on this computer. It restarts automatically; if thi
 msgstr "mdbase is not running on this computer. It restarts automatically; if this stays, restart mdbase connect."
 
 #: src/renderer/collections-view.tsx
-msgid "mdbase keeps a copy, so web apps and agents can use it while your devices are off."
-msgstr "mdbase keeps a copy, so web apps and agents can use it while your devices are off."
+msgid "mdbase keeps a cloud copy, so web apps and agents can use this collection while your devices are off."
+msgstr "mdbase keeps a cloud copy, so web apps and agents can use this collection while your devices are off."
 
 #: src/renderer/collections-view.tsx
 msgid "mdbase kept these files instead of overwriting them. Choose which version to keep."
@@ -1063,6 +1121,10 @@ msgstr "mdbase shows the app's key when you approve. Check that {0} shows the sa
 msgctxt "Desktop application"
 msgid "mdbase starting"
 msgstr "mdbase starting"
+
+#: src/renderer/collections-view.tsx
+msgid "mdbase stores only encrypted changes. Web apps and agents can use this collection only while one of your devices with the desktop app is online."
+msgstr "mdbase stores only encrypted changes. Web apps and agents can use this collection only while one of your devices with the desktop app is online."
 
 #. placeholder {0}: reason.replaceAll("_", " ")
 #: src/renderer/takeover-state.mts
@@ -1139,11 +1201,6 @@ msgstr "New apps now wait for your approval on this computer."
 msgid "New collection"
 msgstr "New collection"
 
-#: src/renderer/access-view.tsx
-msgctxt "Connect interface"
-msgid "No actions"
-msgstr "No actions"
-
 #: src/renderer/activity-view.tsx
 msgctxt "Connect interface"
 msgid "No activity yet"
@@ -1214,6 +1271,10 @@ msgctxt "Local connection status"
 msgid "On this computer only"
 msgstr "On this computer only"
 
+#: src/renderer/collections-view.tsx
+msgid "One folder per line, relative to the collection."
+msgstr "One folder per line, relative to the collection."
+
 #: src/renderer/device-requests.tsx
 msgid "Only allow if this matches the code on {who}"
 msgstr "Only allow if this matches the code on {who}"
@@ -1261,6 +1322,11 @@ msgstr "Opening browser…"
 msgid "Opening…"
 msgstr "Opening…"
 
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Other files"
+msgstr "Other files"
+
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
 msgctxt "Connect interface"
@@ -1276,6 +1342,11 @@ msgstr "Pause"
 msgid "Paused"
 msgstr "Paused"
 
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "PDFs"
+msgstr "PDFs"
+
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"
 msgid "Postponed"
@@ -1288,10 +1359,6 @@ msgstr "Preparing comparison code…"
 #: src/renderer/main.tsx
 msgid "Previous version restored"
 msgstr "Previous version restored"
-
-#: src/renderer/collections-view.tsx
-msgid "Private"
-msgstr "Private"
 
 #: src/renderer/daemon-view.mts
 msgid "Private sync (end-to-end encrypted)"
@@ -1308,18 +1375,13 @@ msgstr "Quit mdbase Connect (including its menu-bar or tray icon), then choose M
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
-msgid "Read"
-msgstr "Read"
-
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
 msgid "read and add files"
 msgstr "read and add files"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
-msgid "read notes"
-msgstr "read notes"
+msgid "read records"
+msgstr "read records"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
@@ -1344,11 +1406,6 @@ msgstr "Reconnect the drive or restore the folder; the old engine's data is kept
 msgid "Releases are checked against signed provenance before installation."
 msgstr "Releases are checked against signed provenance before installation."
 
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
-msgid "Reminders"
-msgstr "Reminders"
-
 #: src/renderer/collections-view.tsx
 msgctxt "Remove a local collection connection"
 msgid "Remove"
@@ -1358,6 +1415,15 @@ msgstr "Remove"
 #: src/renderer/collections-view.tsx
 msgid "Remove {0} from mdbase? Apps stop using it. The folder and its files stay where they are."
 msgstr "Remove {0} from mdbase? Apps stop using it. The folder and its files stay where they are."
+
+#: src/main/main.ts
+msgctxt "Desktop application"
+msgid "Remove and add"
+msgstr "Remove and add"
+
+#: src/renderer/collections-view.tsx
+msgid "Removing…"
+msgstr "Removing…"
 
 #: src/renderer/main.tsx
 msgid "Rename"
@@ -1376,19 +1442,26 @@ msgstr "Resume"
 msgid "Returned to the old engine"
 msgstr "Returned to the old engine"
 
-#: src/renderer/access-view.tsx
-msgctxt "Connect interface"
-msgid "Review"
-msgstr "Review"
-
 #. placeholder {0}: view.holds
 #: src/renderer/collections-view.tsx
 msgid "Review {0, plural, one {# file} other {# files}}"
 msgstr "Review {0, plural, one {# file} other {# files}}"
 
+#. placeholder {0}: device.name ?? unnamedDevice
+#. placeholder {0}: entry.app_name
+#: src/renderer/main.tsx
+msgid "Review {0}"
+msgstr "Review {0}"
+
 #: src/renderer/access-view.tsx
+msgctxt "Connect interface"
 msgid "Revoke"
 msgstr "Revoke"
+
+#: src/renderer/access-view.tsx
+msgctxt "Connect interface"
+msgid "Revoke access"
+msgstr "Revoke access"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
@@ -1396,6 +1469,11 @@ msgid "Revoked"
 msgstr "Revoked"
 
 #: src/renderer/main.tsx
+msgid "Save"
+msgstr "Save"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File sync settings"
 msgid "Save"
 msgstr "Save"
 
@@ -1417,6 +1495,12 @@ msgstr "Saved app access still works on this computer"
 msgctxt "Local collection management"
 msgid "Saving…"
 msgstr "Saving…"
+
+#: src/renderer/main.tsx
+#: src/renderer/ui-components.tsx
+msgctxt "Connect interface"
+msgid "Search"
+msgstr "Search"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1489,10 +1573,16 @@ msgid "Sign in with your browser"
 msgstr "Sign in with your browser"
 
 #: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Sign out"
+msgstr "Sign out"
+
+#: src/renderer/main.tsx
 msgid "Sign out on this computer? Apps can no longer reach your local collections through this computer. Your files are unaffected."
 msgstr "Sign out on this computer? Apps can no longer reach your local collections through this computer. Your files are unaffected."
 
 #: src/renderer/main.tsx
+msgctxt "Connect interface"
 msgid "Sign out on this computer…"
 msgstr "Sign out on this computer…"
 
@@ -1516,6 +1606,10 @@ msgstr "Signing in"
 #: src/renderer/daemon-view.mts
 msgid "Signing out did not finish. Try signing out again."
 msgstr "Signing out did not finish. Try signing out again."
+
+#: src/renderer/collections-view.tsx
+msgid "Size limit in megabytes"
+msgstr "Size limit in megabytes"
 
 #: src/renderer/takeover-state.mts
 msgid "Some edits from before the move need your attention."
@@ -1574,6 +1668,10 @@ msgstr "Sync stopped"
 msgctxt "Local connection status"
 msgid "Synced"
 msgstr "Synced"
+
+#: src/renderer/collections-view.tsx
+msgid "Synced files"
+msgstr "Synced files"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1739,11 +1837,6 @@ msgstr "This collection's sync settings could not be verified. Turn sync off and
 msgid "This computer"
 msgstr "This computer"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "This computer"
-msgstr "This computer"
-
 #. placeholder {0}: collections.length
 #: src/renderer/main.tsx
 msgid "This computer · {0, plural, one {# collection} other {# collections}}"
@@ -1798,6 +1891,11 @@ msgstr "This copy stopped following the collection. Join it again to keep it in 
 #: src/renderer/collections-view.tsx
 msgid "This file is not a note: restore the other version by hand if you need it."
 msgstr "This file is not a note: restore the other version by hand if you need it."
+
+#: src/main/main.ts
+msgctxt "Desktop application"
+msgid "This folder has an old mdbase Connect identity"
+msgstr "This folder has an old mdbase Connect identity"
 
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"
@@ -1935,10 +2033,10 @@ msgstr "Version {0} is rolling out to {1}% of installations."
 msgid "Version {0} is verified and ready to install."
 msgstr "Version {0} is verified and ready to install."
 
-#: src/renderer/daemon-view.mts
-msgctxt "Local connection status"
-msgid "Views"
-msgstr "Views"
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Video"
+msgstr "Video"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"
@@ -1962,6 +2060,7 @@ msgid "Waiting for you"
 msgstr "Waiting for you"
 
 #: src/renderer/access-view.tsx
+#: src/renderer/main.tsx
 msgid "Waiting for your approval"
 msgstr "Waiting for your approval"
 
@@ -1970,17 +2069,9 @@ msgctxt "Local connection status"
 msgid "Waiting to open."
 msgstr "Waiting to open."
 
-#: src/renderer/main.tsx
-msgid "What reached this computer."
-msgstr "What reached this computer."
-
 #: src/renderer/collections-view.tsx
 msgid "What this collection is for"
 msgstr "What this collection is for"
-
-#: src/renderer/main.tsx
-msgid "What this computer is doing right now."
-msgstr "What this computer is doing right now."
 
 #: src/renderer/takeover-panel.tsx
 msgid "What to do: "
@@ -2032,19 +2123,9 @@ msgstr "Your collections are waiting to move"
 msgid "Your collections moved to mdbase"
 msgstr "Your collections moved to mdbase"
 
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Your collections."
-msgstr "Your collections."
-
 #: src/renderer/takeover-state.mts
 msgid "Your local collections are safe on disk."
 msgstr "Your local collections are safe on disk."
-
-#: src/renderer/main.tsx
-msgctxt "Connect interface"
-msgid "Your local connection."
-msgstr "Your local connection."
 
 #: src/renderer/daemon-view.mts
 msgid "Your mdbase account cannot sync this collection. Check your plan or the collection's owner."

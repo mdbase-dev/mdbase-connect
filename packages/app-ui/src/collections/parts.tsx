@@ -1,6 +1,6 @@
-import { useId, useLayoutEffect, useRef, useState, type CSSProperties, type JSX, type ReactNode, type RefObject } from "react";
+import { useId, useRef, useState, type CSSProperties, type JSX, type ReactNode } from "react";
 
-import { moveMenuFocus, useMenuPopover } from "../popover.js";
+import { Menu } from "../Menu.js";
 import type { CollectionNotice, CollectionRow, ProblemControl } from "./model.js";
 import type { CollectionSectionItem, CollectionSectionItemActionContext, CollectionUi, DeleteCollectionOutcome } from "./use-collection-ui.js";
 
@@ -186,26 +186,14 @@ function RowMenuButton({ label, entries, tabbable, refocus = false }: {
     >
       <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.5" cy="8" r="1.3" /><circle cx="8" cy="8" r="1.3" /><circle cx="12.5" cy="8" r="1.3" /></svg>
     </button>
-    {open && <RowMenu id={menuId} triggerRef={trigger} onClose={close}>
+    <Menu open={open} className="mdbase-collections-menu" id={menuId} triggerRef={trigger} onClose={close}>
       {entries.map((entry) => <button key={entry.id} type="button" role="menuitem" disabled={entry.disabled}
         className={entry.danger ? "mdbase-collections-menu-item is-danger" : "mdbase-collections-menu-item"}
         onClick={() => { if (entry.disabled) return; close(refocus); entry.onSelect(); }}>
         {entry.label}
       </button>)}
-    </RowMenu>}
+    </Menu>
   </>;
-}
-
-function RowMenu({ id, triggerRef, onClose, children }: {
-  id: string;
-  triggerRef: RefObject<HTMLButtonElement | null>;
-  onClose: (refocus: boolean) => void;
-  children: ReactNode;
-}): JSX.Element {
-  const menu = useRef<HTMLDivElement>(null);
-  useMenuPopover(menu, triggerRef, onClose, { align: "end", focus: '[role="menuitem"]' });
-  return <div ref={menu} id={id} className="mdbase-collections-menu" popover="manual" role="menu" tabIndex={-1}
-    onKeyDown={(event) => moveMenuFocus(event, menu.current)}>{children}</div>;
 }
 
 /** The app's actions, Choose a different collection, Manage access, the account and Sign out: never under an error. */
@@ -230,46 +218,6 @@ export function AccountLine({ ui }: { readonly ui: CollectionUi }): JSX.Element 
       {copy.signOut}
     </ActionButton>
   </span>;
-}
-
-/** A native modal <dialog>: the browser traps focus and makes the page inert; Escape cancels. */
-export function CollectionDialog({ title, alert = false, busy = false, onClose, children, footer }: {
-  readonly title: string;
-  readonly alert?: boolean;
-  readonly busy?: boolean;
-  readonly onClose: () => void;
-  readonly children: ReactNode;
-  readonly footer: ReactNode;
-}): JSX.Element {
-  const ref = useRef<HTMLDialogElement>(null);
-  const titleId = useId();
-  useLayoutEffect(() => {
-    const dialog = ref.current;
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    if (dialog && !dialog.open) {
-      if (typeof dialog.showModal === "function") dialog.showModal(); else dialog.setAttribute("open", "");
-    }
-    (dialog?.querySelector<HTMLElement>("[data-autofocus]") ?? dialog?.querySelector<HTMLElement>("button"))?.focus();
-    return () => {
-      if (dialog?.open && typeof dialog.close === "function") dialog.close();
-      if (previous?.isConnected) previous.focus();
-    };
-  }, []);
-  return <dialog
-    ref={ref}
-    className="mdbase-collections mdbase-collections-dialog"
-    role={alert ? "alertdialog" : undefined}
-    aria-labelledby={titleId}
-    onKeyDown={(event) => {
-      event.stopPropagation();
-      if (event.key === "Escape") { event.preventDefault(); if (!busy) onClose(); }
-    }}
-    onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}
-  >
-    <h2 id={titleId} className="mdbase-collections-dialog-title">{title}</h2>
-    <div className="mdbase-collections-dialog-body">{children}</div>
-    <div className="mdbase-collections-dialog-actions">{footer}</div>
-  </dialog>;
 }
 
 export function initials(name: string): string {

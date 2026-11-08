@@ -7,6 +7,10 @@ mod conflict_tests;
 #[path = "server_mirror_join_tests.rs"]
 mod mirror_join_tests;
 use super::*;
+
+#[cfg(unix)]
+#[path = "server_grant_session_tests.rs"]
+mod grant_sessions;
 use crate::access::{AccessState, FeedCursor};
 use crate::confirm::{Answer, Confirmer};
 use std::collections::BTreeMap;
@@ -20,16 +24,16 @@ fn cloud_collection_quota_is_not_retryable() {
     ));
     assert_eq!(error.code, "quota_exceeded");
     assert_eq!(
+        error.message,
+        include_str!("../../../docs/account-collection-quota-message.txt").trim_end()
+    );
+    assert_eq!(
         error.reason.as_deref(),
         Some("account_collection_quota_exceeded")
     );
     assert_eq!(
         mdbn_wire::client::recovery_for(&error.code),
         Some(mdbn_wire::client::Recovery::FreeSpace)
-    );
-    assert_eq!(
-        error.message,
-        "Your account has reached its synced collection limit. Delete a synced collection before creating another."
     );
 }
 
@@ -114,6 +118,7 @@ pub(super) fn daemon(dir: &crate::testutil::TestDir) -> Arc<Daemon> {
         // separately by trust_tests with the LAB feature enabled.
         trust: Some(Arc::new(crate::trust::fixture_trust())),
         shutdown: watch::channel(false).0,
+        tasks: Default::default(),
         identity: Default::default(),
         account_keys: Default::default(),
         takeover: Default::default(),
@@ -191,6 +196,54 @@ async fn readiness_waits_for_account_resume_and_host_refresh() {
     if let Some(link) = d.link.lock().unwrap_or_else(|p| p.into_inner()).take() {
         link.stop();
     }
+}
+
+#[tokio::test]
+async fn shutdown_aborts_and_awaits_every_daemon_task() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    struct SetOnDrop(Arc<AtomicBool>);
+    impl Drop for SetOnDrop {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+    let dir = crate::testutil::TestDir::new("stop-tasks");
+    let d = daemon(&dir);
+    let dropped = Arc::new(AtomicBool::new(false));
+    let guard = SetOnDrop(dropped.clone());
+    d.spawn(async move {
+        let _guard = guard;
+        std::future::pending::<()>().await;
+    })
+    .unwrap();
+    // Blocking work already running outlives the abort of the task awaiting it;
+    // shutdown still waits for it.
+    let finished = Arc::new(AtomicBool::new(false));
+    let (started, running) = tokio::sync::oneshot::channel();
+    let (d2, done) = (d.clone(), finished.clone());
+    d.spawn(async move {
+        d2.run_blocking(move || {
+            let _ = started.send(());
+            std::thread::sleep(Duration::from_millis(200));
+            done.store(true, Ordering::SeqCst);
+        })
+        .await;
+    })
+    .unwrap();
+    running.await.unwrap();
+
+    d.shutdown.send_replace(true);
+    assert!(d.spawn(async {}).is_none(), "spawned after shutdown began");
+    assert!(d.run_blocking(|| ()).await.is_none());
+    d.stop_tasks().await;
+    assert!(
+        dropped.load(Ordering::SeqCst),
+        "a pending task outlived shutdown"
+    );
+    assert!(
+        finished.load(Ordering::SeqCst),
+        "blocking work outlived shutdown"
+    );
 }
 
 async fn paired_daemon(dir: &crate::testutil::TestDir) -> Arc<Daemon> {
@@ -585,6 +638,121 @@ async fn silent_pending_removal_and_lease_renewal_are_durable() {
 }
 
 #[tokio::test]
+async fn local_open_and_pipe_refusals_preserve_consent_and_lease_reasons() {
+    use crate::relay::RelayHost;
+    use crate::session::{Auth, Handler, Prologue};
+    let dir = crate::testutil::TestDir::new("lease-refusals");
+    let d = paired_daemon(&dir).await;
+    let collection = [4; 16];
+    let grant_id = [5; 16];
+    let collection_id = secrets::uuid_string(&collection);
+    let grant_string = secrets::uuid_string(&grant_id);
+    let mut entry = d.inner.lock().await.registry.collections[0].clone();
+    entry.id = collection_id.clone();
+    entry.owner_account = Some("11111111-1111-4111-8111-111111111111".into());
+    entry.device = Some(secrets::uuid_string(&d.identity.get().unwrap().device_id));
+    {
+        let mut inner = d.inner.lock().await;
+        inner.registry.collections = vec![entry.clone()];
+        entry.paused = true;
+        inner.hosts.push(CollectionHost::open(entry, d.host_ctx()));
+        d.authority.publish_registry(&inner.registry);
+    }
+    for (state, present, live, reason) in [
+        (
+            AccessState::PendingApproval,
+            true,
+            true,
+            "grant_pending_approval",
+        ),
+        (AccessState::Denied, true, true, "grant_revoked_on_device"),
+        (
+            AccessState::RevokedLocally,
+            true,
+            true,
+            "grant_revoked_on_device",
+        ),
+        (AccessState::Active, false, true, "unknown_grant"),
+        (AccessState::Active, true, false, "grant_lease_expired"),
+        (
+            AccessState::RevokedLocally,
+            true,
+            false,
+            "grant_revoked_on_device",
+        ),
+    ] {
+        {
+            let mut cached = grant(1);
+            cached.collection = collection_id.clone();
+            cached.grant = grant_string.clone();
+            let mut inner = d.inner.lock().await;
+            inner.access = AccessList::default();
+            let now = fsutil::now_ms() as u64;
+            inner.access.sync_from_control_plane(
+                &collection_id,
+                &[cached],
+                now,
+                now + 60_000,
+                false,
+            );
+            inner.access.entries[0].state = state;
+            if !present {
+                inner.access.entries.clear();
+            }
+            if !live {
+                inner.access.monotonic_leases.clear();
+            }
+            d.authority.publish_access(&inner.access);
+        }
+        let opened = d
+            .open(
+                Prologue {
+                    collection,
+                    grant: grant_id,
+                    target: d.identity.get().unwrap().device_id,
+                },
+                Auth::Grant {
+                    grant: grant_id,
+                    client_pk: [1; 32],
+                    origin: crate::session::Origin::LocalIpc,
+                },
+                mdbn_wire::client::ClientRequest {
+                    id: 1,
+                    method: "hello".into(),
+                    params: mdbn_wire::cbor::Cbor::Null,
+                },
+            )
+            .await;
+        assert!(opened.session.is_none());
+        let problem = opened.response.problem.unwrap();
+        let retry = reason == "grant_lease_expired";
+        assert_eq!(problem.reason.as_deref(), Some(reason));
+        assert_eq!(
+            problem.code,
+            if retry { "unavailable" } else { "forbidden" }
+        );
+        assert_eq!(
+            problem.recovery,
+            if retry {
+                mdbn_wire::client::Recovery::Retry
+            } else {
+                mdbn_wire::client::Recovery::Reauthorize
+            }
+        );
+        assert_eq!(
+            problem.retry_after_ms,
+            if retry { Some(1000) } else { None }
+        );
+        assert_eq!(
+            d.grant_refusal(&collection_id, &grant_string)
+                .await
+                .as_deref(),
+            Some(reason)
+        );
+    }
+}
+
+#[tokio::test]
 async fn cursor_and_cache_share_one_commit_and_fail_closed_at_each_boundary() {
     for after_rename in [false, true] {
         let dir = crate::testutil::TestDir::new("feed-failure");
@@ -607,13 +775,29 @@ async fn cursor_and_cache_share_one_commit_and_fail_closed_at_each_boundary() {
         assert!(result.is_err());
         let inner = d.inner.lock().await;
         assert!(!inner.access.grant_live("c", "g", fsutil::now_ms() as u64));
-        assert_eq!(inner.access.feed_cursor.as_ref().unwrap().sequence, 2);
+        assert_eq!(inner.access.feed_cursor.as_ref().unwrap().sequence, 1);
         drop(inner);
+        let mut attempted = false;
         assert!(
-            d.commit_control_plane_feed(&snapshot(1), &grants(Some(grant(1))))
+            d.commit_control_plane_feed_with(&next, &grants(None), |_| {
+                attempted = true;
+                Err(crate::access::AccessError::Io(std::io::Error::other(
+                    "still unwritable",
+                )))
+            })
+            .await
+            .is_err()
+        );
+        assert!(
+            attempted,
+            "identical redelivery must retry persistence, not acknowledge"
+        );
+        assert!(
+            !d.inner
+                .lock()
                 .await
-                .is_err(),
-            "failed attempt cannot roll back in-process cursor"
+                .access
+                .grant_live("c", "g", fsutil::now_ms() as u64)
         );
         let reopened = AccessList::load(&path).unwrap();
         assert!(
@@ -629,14 +813,19 @@ async fn cursor_and_cache_share_one_commit_and_fail_closed_at_each_boundary() {
             after_rename,
             "cursor and cache are never torn"
         );
-        d.inner.lock().await.access = reopened;
-        if after_rename {
-            assert!(
-                d.commit_control_plane_feed(&snapshot(1), &grants(Some(grant(1))))
-                    .await
-                    .is_err()
-            );
-        }
+        d.commit_control_plane_feed(&next, &grants(None))
+            .await
+            .unwrap();
+        assert_eq!(
+            AccessList::load(&path)
+                .unwrap()
+                .feed_cursor
+                .as_ref()
+                .unwrap()
+                .sequence,
+            2
+        );
+        assert!(d.inner.lock().await.access.entries.is_empty());
         // Successful reconciliation renews access with a cursor newer than either state.
         d.commit_control_plane_feed(&snapshot(3), &grants(Some(grant(1))))
             .await
@@ -863,6 +1052,7 @@ async fn added_empty_folder_stays_empty_for_sync_enable_with_the_host_lock() {
         .add(crate::control::AddCollection {
             path: folder.path().to_path_buf(),
             name: None,
+            remove_legacy_identity: false,
         })
         .await
         .unwrap();
@@ -907,6 +1097,7 @@ async fn enable_right_after_add_waits_for_the_open() {
         .add(crate::control::AddCollection {
             path: folder.path().to_path_buf(),
             name: None,
+            remove_legacy_identity: false,
         })
         .await
         .unwrap();
@@ -939,6 +1130,7 @@ async fn resume_returns_once_the_collection_serves_again() {
         .add(crate::control::AddCollection {
             path: folder.path().to_path_buf(),
             name: None,
+            remove_legacy_identity: false,
         })
         .await
         .unwrap();
@@ -1153,6 +1345,7 @@ async fn update_renames_and_describes_and_persists() {
         .add(crate::control::AddCollection {
             path: folder.path().to_path_buf(),
             name: None,
+            remove_legacy_identity: false,
         })
         .await
         .unwrap();
@@ -1327,6 +1520,7 @@ async fn captured_mirror_edits_are_imported_listed_and_resolvable() {
     d.add(crate::control::AddCollection {
         path: folder.clone(),
         name: Some("Hosted".into()),
+        remove_legacy_identity: false,
     })
     .await
     .unwrap();
@@ -1489,4 +1683,218 @@ fn an_unknown_collection_is_not_found_not_refused() {
     ] {
         assert_eq!(join_refusal(other).reason.as_deref(), Some("sync_refused"));
     }
+}
+
+#[test]
+fn only_the_legacy_identity_entry_is_removed() {
+    let id = "4c18af2e-b04a-4b77-b83e-493c3695962e";
+    for (before, after) in [
+        (
+            format!("a: 1\nx-mdbase-connect:\n  collection_id: {id}\n  # note\nb: 2\n"),
+            "a: 1\nb: 2\n".to_owned(),
+        ),
+        (
+            format!("x-mdbase-connect: {{collection_id: {id}}}\n\nb: 2\n"),
+            "\nb: 2\n".to_owned(),
+        ),
+        (
+            format!("a: 1\n\"x-mdbase-connect\" :\n    collection_id: '{id}'\n"),
+            "a: 1\n".to_owned(),
+        ),
+        (
+            format!("# x-mdbase-connect: old\nx-mdbase-connect:\n  collection_id: {id}\n"),
+            "# x-mdbase-connect: old\n".to_owned(),
+        ),
+    ] {
+        assert_eq!(
+            without_legacy_identity(&before).as_deref(),
+            Some(after.as_str())
+        );
+    }
+    // An entry a line edit cannot remove exactly is left for the user.
+    for unremovable in [
+        format!("{{a: 1, x-mdbase-connect: {{collection_id: {id}}}}}\n"),
+        "x-mdbase-connect-other: 1\n".to_owned(),
+    ] {
+        assert_eq!(without_legacy_identity(&unremovable), None);
+    }
+}
+
+#[test]
+fn a_commented_identity_is_no_claim() {
+    let dir = crate::testutil::TestDir::new("classify-comment");
+    let profile = crate::paths::Profile::isolated(&dir.path().join("state")).unwrap();
+    let folder = dir.path().join("notes");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join("mdbase.yaml"),
+        "spec_version: 0.3.0 # x-mdbase-connect\n# x-mdbase-connect:\n#   collection_id: x\n",
+    )
+    .unwrap();
+    assert_eq!(
+        classify_folder(&folder, &profile, None).unwrap(),
+        FolderClaim::Free
+    );
+    std::fs::write(folder.join("mdbase.yaml"), "a: [\n").unwrap();
+    assert_eq!(
+        classify_folder(&folder, &profile, None)
+            .unwrap_err()
+            .reason
+            .as_deref(),
+        Some("invalid_config")
+    );
+}
+
+/// A captured mirror whose hosted collection cannot be joined is reported once
+/// per attempt, and doctor names the waiting edits, the folder and what to do.
+#[tokio::test]
+async fn an_unjoinable_mirror_capture_is_a_doctor_warning_with_an_action() {
+    use crate::takeover::mirror_join::{self, Joiner, Refused, Step};
+    struct Gone;
+    impl Joiner for Gone {
+        async fn registered(&mut self, _: &str) -> Option<std::path::PathBuf> {
+            None
+        }
+        async fn join(&mut self, _: &str, _: &std::path::Path, _: &str) -> Result<(), Refused> {
+            Err(Refused("not_found".into()))
+        }
+    }
+    let dir = crate::testutil::TestDir::new("mi-doctor");
+    let d = daemon(&dir);
+    assert!(d.mirror_join_checks().is_empty());
+    let old = dir.path().join("connect");
+    let mirror = dir.path().join("Hosted notes");
+    let entry = hosted_mirror::build(&old, &mirror);
+    let legacy = d.takeover_paths().legacy;
+    crate::takeover::mirror_import::capture(&legacy, &old, &entry, "2026-10-18T00:00:00Z").unwrap();
+    // Captured but not attempted yet: nothing to report.
+    assert!(d.mirror_join_checks().is_empty());
+
+    let first = mirror_join::step(&legacy, HOSTED, &mut Gone, 1_000)
+        .await
+        .unwrap();
+    assert!(matches!(first, Step::Waiting { ref reason, .. } if reason == "not_found"));
+    // Within the backoff no attempt runs, so the daemon has nothing to log.
+    assert_eq!(
+        mirror_join::step(&legacy, HOSTED, &mut Gone, 2_000)
+            .await
+            .unwrap(),
+        Step::NotDue
+    );
+
+    let checks = d.mirror_join_checks();
+    assert_eq!(checks.len(), 1, "{checks:?}");
+    let c = &checks[0];
+    assert_eq!(c.id, format!("mirror_import:{HOSTED}"));
+    assert_eq!(c.status, "warn");
+    assert!(c.detail.contains("6 unsent edit(s)"), "{}", c.detail);
+    assert!(
+        c.detail.contains(&mirror.display().to_string()),
+        "{}",
+        c.detail
+    );
+    assert!(c.detail.contains("(not_found)"), "{}", c.detail);
+    let action = c.action.as_deref().unwrap();
+    assert!(action.contains("copy what you need"), "{action}");
+}
+
+/// A taken-over folder refused for overlapping a registered collection is named,
+/// with the choices the user has.
+#[test]
+fn an_overlapping_taken_over_folder_is_named_with_its_choices() {
+    use crate::takeover::record::{Collection, CollectionState, Record, State};
+    let dir = crate::testutil::TestDir::new("takeover-overlap");
+    let d = daemon(&dir);
+    let id = "c972b4f2-6ec0-47ae-a0b1-4731135fde0a";
+    let mut c = Collection::new(CollectionState::Complete);
+    c.reason = Some("registration_pending:overlapping_root".into());
+    Record {
+        schema_version: crate::takeover::record::SCHEMA_VERSION,
+        state: State::Complete,
+        updated_at: "2026-11-02T00:00:00Z".into(),
+        old_state_dir: dir.path().join("connect"),
+        collections: [(id.to_owned(), c)].into_iter().collect(),
+    }
+    .save(&d.takeover_paths().record)
+    .unwrap();
+    let check = d.takeover_check(&Registry::default()).unwrap();
+    assert_eq!(check.status, "warn");
+    assert!(
+        check.detail.contains(&format!(
+            "not registered yet: {id} (registration_pending:overlapping_root)"
+        )),
+        "{}",
+        check.detail
+    );
+    let action = check.action.unwrap();
+    assert!(action.contains("cannot nest"), "{action}");
+    assert!(action.contains("mdbase collection remove"), "{action}");
+}
+
+/// Doctor's marker check: a taken-over folder that lost its claim fails, until
+/// the user has registered that folder as another collection.
+#[test]
+fn doctor_does_not_fail_a_taken_over_folder_registered_again_as_another_collection() {
+    use crate::takeover::tests::old_agent;
+    let dir = crate::testutil::TestDir::new("doctor-marker-superseded");
+    let d = daemon(&dir);
+    let old = dir.path().join("connect");
+    let notes = dir.path().join("agents-notes");
+    old_agent::build(&old, &notes);
+    let paths = d.takeover_paths();
+    let opts = crate::takeover::Options {
+        stop_mirrors: false,
+        account_moved: false,
+        drain: Duration::ZERO,
+        now: "2026-10-27T21:20:00Z".into(),
+        registered: Vec::new(),
+    };
+    crate::takeover::run(
+        &paths,
+        &old,
+        &mut crate::takeover::IsolatedOldService,
+        &opts,
+    )
+    .unwrap();
+    crate::takeover::mark_registered(&paths, old_agent::CID, "2026-10-27T21:20:30Z").unwrap();
+    std::fs::remove_file(notes.join(".mdbase/connect-role.json")).unwrap();
+    crate::takeover::run(
+        &paths,
+        &old,
+        &mut crate::takeover::IsolatedOldService,
+        &opts,
+    )
+    .unwrap();
+
+    let mut registry = Registry::default();
+    let check = d.takeover_check(&registry).unwrap();
+    assert_eq!(check.status, "fail", "{}", check.detail);
+    assert!(check.detail.contains("marker_incident"), "{}", check.detail);
+
+    let mut entry = d.inner.try_lock().unwrap().registry.collections[0].clone();
+    entry.id = "36be1780-539e-46c9-a99e-04314e84426f".into();
+    entry.root = notes.canonicalize().unwrap();
+    registry.collections.push(entry);
+    let check = d.takeover_check(&registry).unwrap();
+    assert_ne!(check.status, "fail", "{}", check.detail);
+    assert!(
+        !check.detail.contains("marker_incident"),
+        "{}",
+        check.detail
+    );
+}
+
+/// Turning sync on makes a cloud copy by default, a folder with files included.
+/// Only a collection taken over from today's connector stays Private, and an
+/// interrupted adopt keeps the mode it started with.
+#[test]
+fn sync_defaults_to_a_cloud_copy() {
+    assert!(!sync_e2e(None, None, false).unwrap());
+    assert!(sync_e2e(None, None, true).unwrap());
+    assert!(sync_e2e(None, Some(SyncMode::SyncedE2e), false).unwrap());
+    assert!(!sync_e2e(None, Some(SyncMode::Synced), true).unwrap());
+    assert!(sync_e2e(Some(true), None, false).unwrap());
+    assert!(!sync_e2e(Some(false), None, true).unwrap());
+    let changed = sync_e2e(Some(true), Some(SyncMode::Synced), false).unwrap_err();
+    assert_eq!(changed.reason.as_deref(), Some("adopt_in_progress"));
 }

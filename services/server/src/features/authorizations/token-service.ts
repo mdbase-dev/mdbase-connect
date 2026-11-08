@@ -22,7 +22,7 @@ import { authorityUrl } from "../../platform/authority-url.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 import { normalizedApplicationOrigin } from "./redirects.js";
 import { CutoverProblemError } from "../next/cutover-problems.js";
-import { resolveNativeCollectionAccess } from "./native-approval-service.js";
+import { resolveNativeCollectionAccess, type NativeSync } from "./native-approval-service.js";
 import { requireCollectionNotDeleted } from "../next/collection-deletion.js";
 import { nativeTokenCompletion, type NativeTokenCompletion } from "./native-credential-reconciliation.js";
 
@@ -61,6 +61,8 @@ export async function issueApplicationTokens(
     collection_name: string;
     hosted_collection_id: string | null;
     next_collection_id: string | null;
+    /** Set exactly when next_collection_id is (grants_next_collection_sync_target). */
+    next_collection_sync: NativeSync | null;
     hosted_replica_id: string | null;
     provider_url: string | null;
     operations: string[];
@@ -85,7 +87,7 @@ export async function issueApplicationTokens(
             g.collection_id AS local_authority_row_id,
             CASE WHEN nc.runtime='next' AND nc.sync IN ('cloud_copy','private') AND nc.left_sync_at IS NULL THEN COALESCE(nc.display_name,'New collection')
                  ELSE COALESCE(col.display_name, hosted.display_name) END AS collection_name,
-            g.hosted_collection_id, g.next_collection_id, g.hosted_replica_id, hosted.provider_url,
+            g.hosted_collection_id, g.next_collection_id, g.next_collection_sync, g.hosted_replica_id, hosted.provider_url,
             g.operations, g.scope, g.encryption, g.file_capability,
             g.proof_public_key, g.membership_id, g.membership_policy_id,
             g.membership_policy_revision,
@@ -152,8 +154,8 @@ export async function issueApplicationTokens(
       "application.authorize"
     );
   } else if (grant.rows[0].next_collection_id) {
-    // A Private native collection: the same authority check as consent (a current
-    // member with application.authorize on a synced Private collection).
+    // A native collection: the same authority check as consent (a current member
+    // with application.authorize), in the mode the grant was approved for.
     try {
       await requireCollectionNotDeleted(db, grant.rows[0].next_collection_id);
     } catch (error) {
@@ -163,7 +165,7 @@ export async function issueApplicationTokens(
       throw error;
     }
     requireCollectionAction(
-      await resolveNativeCollectionAccess(db, grant.rows[0].user_id, grant.rows[0].next_collection_id),
+      await resolveNativeCollectionAccess(db, grant.rows[0].user_id, grant.rows[0].next_collection_id, grant.rows[0].next_collection_sync!),
       "application.authorize"
     );
   }

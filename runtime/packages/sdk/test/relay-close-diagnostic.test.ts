@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { pipeCloseError } from "../src/transport/relay-pipe.js";
 import { relayCloseFromDetails } from "../src/transport/relay-close.js";
 
@@ -11,7 +12,16 @@ const classes = [
   [4404, "connector_offline"], [4429, "connector_busy"], [4999, "other"],
 ] as const;
 
+const grantRefusals = JSON.parse(readFileSync(new URL("../../../conformance/relay-grant-refusals.json", import.meta.url), "utf8")) as {
+  name: string; reason: string; close_code: number;
+}[];
+
 describe("bounded relay close diagnostics", () => {
+  it.each(grantRefusals)("preserves the daemon/server recovery contract for $name", ({ reason, close_code }) => {
+    expect(pipeCloseError(close_code, reason)).toMatchObject({
+      code: close_code === 4000 ? "unavailable" : "forbidden", reason,
+    });
+  });
   it.each(classes)("keeps numeric close code %i and fixed class %s without raw text", (code, closeClass) => {
     const raw = "PRIVATE_UNKNOWN_CLOSE_TEXT_/some/path?token=do-not-retain";
     const error = pipeCloseError(code, raw);
@@ -42,9 +52,17 @@ describe("bounded relay close diagnostics", () => {
     [4000, "handshake_timeout", "unavailable", "handshake_timeout"],
     [4401, "unauthenticated", "unauthenticated", "relay_unauthenticated"],
     [4403, "grant_inactive", "forbidden", "grant_inactive"],
+    [4403, "grant_revoked_on_device", "forbidden", "grant_revoked_on_device"],
+    [4403, "grant_pending_approval", "forbidden", "grant_pending_approval"],
+    [4403, "unknown_grant", "forbidden", "unknown_grant"],
+    [4000, "grant_lease_expired", "unavailable", "grant_lease_expired"],
     [4404, "connector_offline", "unavailable", "no_device_online"],
     [4429, "connector_busy", "rate_limited", "connector_busy"],
   ] as const)("preserves known protocol recovery for %i/%s", (code, reason, wantCode, wantReason) => {
     expect(pipeCloseError(code, reason)).toMatchObject({ code: wantCode, reason: wantReason });
+  });
+
+  it("keeps lease expiry retryable with the existing retry hint", () => {
+    expect(pipeCloseError(4000, "grant_lease_expired")).toMatchObject({ code: "unavailable", recovery: "retry", reason: "grant_lease_expired", retryAfterMs: 1000 });
   });
 });

@@ -160,6 +160,7 @@ fn mutation(ops: Vec<Op>) -> Mutation {
 
 fn update_op() -> Op {
     Op::Update(Update {
+        update_refs: None,
         id: b16(RECORD),
         patch: Some(DataMap(vec![
             ("status".into(), Value::Text("done".into())),
@@ -250,6 +251,7 @@ fn record_view() -> RecordView {
         },
         diagnostics: None,
         values: None,
+        mtime: None,
     }
 }
 
@@ -395,6 +397,7 @@ pub fn all() -> Vec<Fixture> {
                 state: b32(0x77),
             }),
             ..mutation(vec![Op::Update(Update {
+                update_refs: None,
                 id: b16(RECORD),
                 patch: None,
                 unset: None,
@@ -697,6 +700,7 @@ pub fn all() -> Vec<Fixture> {
                     revision: b32(0x10),
                     size: 21,
                     modified_seq: 0,
+                    mtime: None,
                 }
                 .to_cbor(),
             ],

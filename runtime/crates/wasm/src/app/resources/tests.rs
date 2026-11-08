@@ -20,10 +20,16 @@ provisions:
 fn canonical_config_only_plan_has_original_guards_and_no_synthetic_pack() {
     let setup = setup(&manifest()).unwrap();
     let mut state = MemState::new();
-    let assessment = envelope::assess_collection_resources(&state, &setup).unwrap();
+    let assessment =
+        envelope::assess_collection_resources(&state, &setup, &Default::default()).unwrap();
     assert!(assessment.applicable);
-    let (_, ops) =
-        envelope::apply_collection_resources(&state, &setup, assessment.assessment_digest).unwrap();
+    let (_, ops) = envelope::apply_collection_resources(
+        &state,
+        &setup,
+        assessment.assessment_digest,
+        &Default::default(),
+    )
+    .unwrap();
     assert!(!ops.is_empty());
     let dto = plan(&assessment, &ops).unwrap();
     assert_eq!(
@@ -41,16 +47,27 @@ fn canonical_config_only_plan_has_original_guards_and_no_synthetic_pack() {
         assert!(r.base_revision.is_none());
         state.insert_resource(&r.path, &r.doc);
     }
-    let ready = envelope::assess_collection_resources(&state, &setup).unwrap();
+    let ready = envelope::assess_collection_resources(&state, &setup, &Default::default()).unwrap();
     assert!(ready.applicable);
     assert!(
-        envelope::apply_collection_resources(&state, &setup, ready.assessment_digest)
-            .unwrap()
-            .1
-            .is_empty()
+        envelope::apply_collection_resources(
+            &state,
+            &setup,
+            ready.assessment_digest,
+            &Default::default()
+        )
+        .unwrap()
+        .1
+        .is_empty()
     );
     assert!(
-        envelope::apply_collection_resources(&state, &setup, assessment.assessment_digest).is_err()
+        envelope::apply_collection_resources(
+            &state,
+            &setup,
+            assessment.assessment_digest,
+            &Default::default()
+        )
+        .is_err()
     );
 }
 #[test]
@@ -58,10 +75,17 @@ fn config_conflict_and_changed_original_input_refuse_core_apply() {
     let setup = setup(&manifest()).unwrap();
     let mut state = MemState::new();
     state.insert_resource("mdbase.yaml", "settings: false\n");
-    let assessed = envelope::assess_collection_resources(&state, &setup).unwrap();
+    let assessed =
+        envelope::assess_collection_resources(&state, &setup, &Default::default()).unwrap();
     assert!(!assessed.applicable);
     assert!(
-        envelope::apply_collection_resources(&state, &setup, assessed.assessment_digest).is_err()
+        envelope::apply_collection_resources(
+            &state,
+            &setup,
+            assessed.assessment_digest,
+            &Default::default()
+        )
+        .is_err()
     );
 }
 #[test]

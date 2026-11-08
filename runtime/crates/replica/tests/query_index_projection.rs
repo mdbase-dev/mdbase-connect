@@ -44,6 +44,7 @@ fn row(path: &str, doc: &str) -> RecordRow {
         doc: doc.into(),
         revision: mdbn_wire::hash::sha256(doc.as_bytes()),
         modified_seq: 1,
+        mtime: None,
         bucket: 0,
         // Deliberately stale/wrong claims must not control projection.
         meta: RecordMeta {
@@ -372,11 +373,11 @@ fn declared_profile_uses_compiled_ref_allof_properties_and_exact_top_level_names
 
 #[test]
 fn empty_generation_frame_binds_key_codec_and_projection_algorithm_versions() {
-    // Independent frame oracle: version 1 of both codecs, SEM 1.1, no resources
+    // Independent frame oracle: key codec 1, projection algorithm 2, SEM 1.1, no resources
     // or declared fields. This is a SHA frame test, not an authorization witness.
     let mut frame = b"mdbase/v1/query-index-generation\0".to_vec();
     frame.push(1);
-    for word in [1u64, 1, 1, 0, 0] {
+    for word in [2u64, 1, 1, 0, 0] {
         frame.extend_from_slice(&word.to_be_bytes());
     }
     assert_eq!(

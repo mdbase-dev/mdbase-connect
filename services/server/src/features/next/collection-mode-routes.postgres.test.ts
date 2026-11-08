@@ -12,6 +12,7 @@ import { recordCollectionDeletionIntent } from "./collection-deletion.js";
 import { registerCollectionNameRoutes } from "./collection-name-routes.js";
 import { registerNextCollection } from "./policy-outbox.js";
 
+const noLog = { controlItemsAfter: async () => { throw new Error("no abandoned switch in this suite"); } };
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
 const describePg = testUrl && approved ? describe : describe.skip;
@@ -21,7 +22,7 @@ describePg("durable owner mode intent", () => {
   const keys = { sign_pk: Buffer.alloc(32, 1), kem_pk: Buffer.alloc(32, 2), noise_pk: Buffer.alloc(32, 3) };
   const server = async (pool = db, execution = false) => {
     const app = Fastify(); await app.register(cookie); registerErrorHandler(app);
-    registerCollectionNameRoutes(app, pool);
+    registerCollectionNameRoutes(app, pool, noLog);
     if (execution) app.post("/v1/next/collections/:id/mode/:requestId/prepare", async () => ({phase:"waiting_for_device"}));
     return app;
   };

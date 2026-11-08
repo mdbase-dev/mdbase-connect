@@ -184,6 +184,9 @@ export function useCollectionUi(options: CollectionUiOptions): CollectionUi {
   const view = useMemo(() => collectionView(snapshot, { appName: app.name, copy }), [snapshot, app.name, copy]);
   const [busy, setBusy] = useState<CollectionActionName | null>(null);
   const [error, setError] = useState<ActionError | null>(null);
+  useEffect(() => {
+    setError(previous => previous?.notice.key === "account_collection_quota_exceeded" ? null : previous);
+  }, [snapshot.collections.length]);
   const [signOutPrompt, setSignOutPrompt] = useState<MdbaseProblem | null>(null);
   const running = useRef<{ name: CollectionActionName; controller: AbortController } | null>(null);
   const latest = useRef({ options, view });
@@ -265,7 +268,10 @@ export function useCollectionUi(options: CollectionUiOptions): CollectionUi {
         if (current && popupActions.has(current.name)) current.controller.abort();
       },
       assess: () => { void run("assess", (signal) => mdbase.assess({ signal })); },
-      start: () => { void run("start", (signal) => mdbase.start({ signal })); },
+      start: () => {
+        const collectionId = mdbase.getSnapshot().selectedCollectionId;
+        void run("start", (signal) => collectionId ? mdbase.select(collectionId, { signal }) : mdbase.start({ signal }));
+      },
       signOut: () => leave("sign_out", () => { void run("sign_out", (signal) => mdbase.signOut({ signal })); }),
       confirmSignOut: () => {
         setSignOutPrompt(null);

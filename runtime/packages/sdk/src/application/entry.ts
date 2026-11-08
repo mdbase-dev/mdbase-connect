@@ -99,7 +99,7 @@ export interface MdbaseApplicationSnapshot extends AppWebSignInSnapshot {
 export interface MdbaseLinks {
   /** The account page: profile, collections, sign-in. */
   readonly account:string;
-  /** Apps with access to the account's collections; revoke access there. */
+  /** Who can reach the selected collection, or every collection's apps when none is selected. */
   readonly manageAccess:string;
 }
 export interface MdbaseApplicationRequestOptions {readonly signal?:AbortSignal}
@@ -327,7 +327,15 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
     this.selection.subscribe(()=>{this.unforgetApproved();this.notify(false);});
     const view=()=>this.getSnapshot();
     this.app=Object.freeze({getSnapshot:view,subscribe:(listener:()=>void)=>{this.listeners.add(listener);return()=>{this.listeners.delete(listener);};},
-      start:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>this.call(runtime=>this.started(runtime,options)).catch(error=>{
+      start:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>this.call(async runtime=>{
+        const native=runtime.getNativeSnapshot();
+        if(native.status==="blocked"&&native.signIn&&native.selectedCollectionId===null)
+          await runtime.queue(()=>runtime.start(options));
+        else await this.started(runtime,options);
+        const selection=this.choose(),snapshot=selection.getSnapshot();
+        if(snapshot.state==="blocked"&&snapshot.requested.approved&&snapshot.requested.collectionId!==null)
+          await selection.select(snapshot.requested.collectionId,options);
+      }).catch(error=>{
         // Open in another tab is a wait, not a failure: the snapshot says so and
         // this tab takes over by itself when the other one lets go.
         const native=this.runtime?.getNativeSnapshot();
@@ -406,8 +414,11 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
     const sync=this.trackSync(phase,base.problem,base.transport??null,base.live??null);
     const writes=this.syncing?.writes()??null;
     const saveWarning=this.trackSaveWarning();
-    const value:MdbaseApplicationSnapshot=Object.freeze({...base,selection,phase,sync,writes,storage:this.storagePolicy,saveWarning,links:this.links});
+    const value:MdbaseApplicationSnapshot=Object.freeze({...base,selection,phase,sync,writes,storage:this.storagePolicy,saveWarning,links:this.linksFor(id)});
     this.composed={base:raw,selection,revision:this.revision,hint,value};return value;
+  }
+  private linksFor(id:string|null):MdbaseLinks|null{
+    return this.links&&id?Object.freeze({...this.links,manageAccess:`${this.cpOrigin}/access?collection=${encodeURIComponent(id)}`}):this.links;
   }
   /** One grace window per continuously pending replica, not per edit or request. */
   private trackSaveWarning():"storage_may_be_evicted"|null{

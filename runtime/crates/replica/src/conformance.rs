@@ -458,6 +458,7 @@ pub fn record(n: u64, path: &str, doc: &str) -> RecordRow {
         doc: doc.to_string(),
         revision: mdbn_wire::hash::sha256(doc.as_bytes()),
         modified_seq: n,
+        mtime: None,
         bucket: bucket16(&i),
         meta: RecordMeta::default(),
     }

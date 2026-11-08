@@ -15,7 +15,7 @@ use mdbn_replica::policy::{EffectiveGrant, PolicyState, capability};
 use mdbn_wire::common::{B16, B32};
 use mdbn_wire::policy::Role;
 
-use crate::access::AccessList;
+use crate::access::{AccessList, Refusal};
 use crate::cloud::{AccountRecord, CloudConfig};
 use crate::registry::{Entry, Registry, SyncMode};
 
@@ -180,6 +180,68 @@ impl Authority {
             }
             state.access = access.clone();
         }
+    }
+
+    pub(crate) fn authorize_session(
+        &self,
+        collection: &str,
+        auth: crate::session::Auth,
+    ) -> Result<(), Refusal> {
+        use crate::session::{Auth, Origin};
+        let state = self.0.read().expect("authority lock poisoned");
+        let mode = state.entries.get(collection).map(|entry| entry.mode);
+        if mode == Some(SyncMode::Synced) {
+            return Ok(());
+        }
+        let matching = || {
+            state.access.entries.iter().filter(|entry| {
+                entry.grant.collection == collection
+                    && match auth {
+                        Auth::Grant { grant, .. } => {
+                            entry.grant.grant == crate::secrets::uuid_string(&grant)
+                        }
+                        Auth::Link { client_pk } => {
+                            crate::secrets::hex_decode(&entry.grant.client_pk)
+                                .ok()
+                                .as_deref()
+                                == Some(&client_pk[..])
+                        }
+                        Auth::Host { .. } => false,
+                    }
+            })
+        };
+        if matching().any(|entry| entry.is_refused())
+            && !(matches!(auth, Auth::Link { .. })
+                && mode == Some(SyncMode::Local)
+                && matching().any(|entry| entry.state == crate::access::AccessState::Active))
+        {
+            return Err(Refusal::RevokedLocally);
+        }
+        if let Auth::Grant {
+            grant,
+            client_pk,
+            origin,
+        } = auth
+            && (mode == Some(SyncMode::Local) || origin == Origin::RelayPipe)
+        {
+            let now = crate::fsutil::now_ms() as u64;
+            if mode == Some(SyncMode::SyncedE2e) && !state.access.lease_live(collection, now) {
+                return Err(Refusal::LeaseExpired);
+            }
+            state
+                .access
+                .authorize(
+                    collection,
+                    &crate::secrets::uuid_string(&grant),
+                    &client_pk,
+                    now,
+                )
+                .map_err(|reason| match (mode, reason) {
+                    (Some(SyncMode::SyncedE2e), Refusal::UnknownGrant) => Refusal::Unavailable,
+                    _ => reason,
+                })?;
+        }
+        Ok(())
     }
 
     /// Current authenticated account (not derived from grants or registration).
@@ -389,29 +451,40 @@ impl CollectionAuthority {
 
     /// Local grant under current identity, active consent, wall+monotonic lease,
     /// key and folder/capability bounds. No accountless or app-Owner fallback.
-    pub fn grant(&self, grant: &B16) -> Option<EffectiveGrant> {
-        let state = self.authority.0.read().ok()?;
-        let owner = self.owner(&state).ok()?;
+    pub fn grant(&self, grant: &B16) -> mdbn_replica::api::ApiResult<EffectiveGrant> {
+        use mdbn_replica::api::ErrorCode;
+        let state = self
+            .authority
+            .0
+            .read()
+            .map_err(|_| ErrorCode::Internal.err("authority lock poisoned"))?;
+        let owner = self.owner(&state).map_err(|reason| {
+            ErrorCode::Forbidden
+                .err_with_reason(reason.reason(), "collection authority is not active")
+        })?;
         let collection = crate::secrets::uuid_string(&self.collection.0);
         let id = crate::secrets::uuid_string(&grant.0);
         let entry = state
             .access
             .entries
             .iter()
-            .find(|entry| entry.grant.collection == collection && entry.grant.grant == id)?;
+            .find(|entry| entry.grant.collection == collection && entry.grant.grant == id)
+            .ok_or_else(|| Refusal::UnknownGrant.problem())?;
         let cached = &entry.grant;
-        if cached.account_id.as_deref().and_then(account_id)? != owner.account || cached.legacy_only
-        {
-            return None;
+        if cached.account_id.as_deref().and_then(account_id) != Some(owner.account) {
+            return Err(ErrorCode::Forbidden.err_with_reason(
+                "grant_account_mismatch",
+                "grant account is not authorized here",
+            ));
         }
         let client_pk: [u8; 32] = crate::secrets::hex_decode(&cached.client_pk)
-            .ok()?
+            .map_err(|_| Refusal::KeyMismatch.problem())?
             .try_into()
-            .ok()?;
+            .map_err(|_| Refusal::KeyMismatch.problem())?;
         state
             .access
             .authorize(&collection, &id, &client_pk, crate::fsutil::now_ms() as u64)
-            .ok()?;
+            .map_err(Refusal::problem)?;
         let writes = [
             capability::CREATE,
             capability::EDIT,
@@ -428,7 +501,7 @@ impl CollectionAuthority {
         } else {
             Role::Viewer
         };
-        Some(EffectiveGrant {
+        Ok(EffectiveGrant {
             account: owner.account,
             role,
             capabilities: cached.capabilities.iter().cloned().collect(),

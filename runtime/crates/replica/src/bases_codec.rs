@@ -239,6 +239,12 @@ impl Writer {
                 self.uint(3)?;
                 self.text(s)
             }
+            // Hosts receive the written text: resolution decides grouping only.
+            RuntimeValue::Link(link) => {
+                self.array(2)?;
+                self.uint(3)?;
+                self.text(&link.source())
+            }
             RuntimeValue::Date(d) => {
                 if !(-JS_SAFE..=JS_SAFE).contains(&d.millis()) {
                     return Err(too_large());

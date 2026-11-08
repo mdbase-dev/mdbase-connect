@@ -441,6 +441,7 @@ fn apply_journal_event(
             plan_fingerprint,
             phase,
             failure,
+            stuck,
         } => {
             if plan_fingerprint != batch.plan.fingerprint {
                 return Err(MirrorError::new(
@@ -450,11 +451,13 @@ fn apply_journal_event(
             }
             batch.phase = phase;
             batch.failure = failure;
+            state.stuck = stuck;
         }
         DurableJournalEvent::Receipt {
             plan_fingerprint,
             receipt,
             delta,
+            stuck,
         } => {
             if plan_fingerprint != batch.plan.fingerprint
                 || batch
@@ -470,6 +473,7 @@ fn apply_journal_event(
                 ));
             }
             apply_state_delta(state, *delta)?;
+            state.stuck = stuck;
             let batch = state.batch.as_mut().expect("checked");
             batch.receipts.push(*receipt);
             batch.next_action += 1;

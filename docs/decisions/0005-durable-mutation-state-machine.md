@@ -87,11 +87,11 @@ The durable state machine is:
 | State | Meaning | May cause a new logical effect? |
 | --- | --- | --- |
 | `claimed` | Identity/fingerprint exist and a fenced owner holds a bounded lease. | No |
-| `prepared` | Deterministic execution plan and before-state evidence are durable. | Only the current fenced owner may apply it. |
+| `prepared` | Deterministic execution plan and before-state evidence are durable. | Only the current fenced owner may apply it. A hosted sync or file control owner whose attempt fails releases its lease, and the next retry takes over. |
 | `applied` | The intended side effect is proved present and post-apply evidence is durable. | No; recovery only finalizes. |
-| `completed` | Final encrypted receipt is durable. | No; retries return the receipt. |
+| `completed` | Final encrypted receipt is durable. | No; retries return the receipt, except a hosted sync or file control failure stored by an earlier release, which reopens (below). |
 | `acknowledged` | A client acknowledged receiving the completed receipt. | No |
-| `abandoned` | The authority proved the effect never began and permanently closed the request. | No |
+| `abandoned` | The authority proved the effect never began, or closed an unguarded timer request unproven (2026-11-07 amendment), and permanently closed the request. | No |
 | `outcome_unknown` | Recovery exhausted all supported evidence and cannot distinguish applied from not applied. | No automatic replay; human/domain reconciliation is required. |
 
 Every row also stores the canonical mutation identifier, input digest,
@@ -105,13 +105,17 @@ The legal forward transitions are:
 ```text
 absent -> claimed -> prepared -> applied -> completed -> acknowledged
                   \-> abandoned
+          prepared -> abandoned
           prepared/applied -> outcome_unknown
+          completed (legacy stored sync or file control failure) -> prepared/applied
 ```
 
 An implementation may atomically skip persisted intermediate states only when
 the side effect and completed receipt commit in the same database transaction.
 It must still expose equivalent fault-injection points in conformance tests.
-`completed`, `acknowledged`, `abandoned`, and `outcome_unknown` are terminal.
+`completed`, `acknowledged`, `abandoned`, and `outcome_unknown` are terminal,
+apart from the hosted sync and file control reopen described under "The only
+valid unknown outcome" below.
 
 ### Lease ownership and fencing
 
@@ -132,7 +136,8 @@ receipt after takeover even if its external call returns late.
 An identical retry has exactly one of these results:
 
 - return the durable receipt for `completed` or `acknowledged`;
-- return the durable abandoned result (`operation_outcome: not_sent`);
+- return the durable abandoned result (the final `mutation_abandoned` receipt;
+  see below);
 - report a live owner and wait only within the caller's remaining budget;
 - take over an expired/stale lease, increment the fence, and recover;
 - return the durable recovery handle for `outcome_unknown`; or
@@ -145,6 +150,64 @@ journal; recovery continues or the SDK returns the same pending handle.
 Cancellation after `applied` can only defer receipt recovery. Acknowledgement is
 an optimization for retention and diagnostics, never permission to forget the
 request identity early.
+
+### Abandoning expired prepared requests
+
+Amendment, decision by Callum, 2026-11-07.
+
+A request can stay `prepared` indefinitely when its handler dies and the same
+request is never retried. `prepared -> abandoned` is legal on these terms:
+
+- For record, type, view-source and setup mutations it requires proof of
+  non-application. On the hosted authority that proof is the row itself: these
+  kinds commit their effect in the same transaction that moves the row out of
+  `prepared`, fenced on the lease, so a row still `prepared` after its lease
+  expired never applied.
+- Sync mutations (`sync:mutate`) are not abandoned, although their apply is
+  atomic too. Their clients (the mirror and the offline replica) resend a
+  pending mutation automatically, and a takeover retry still completes it,
+  whereas a terminal error receipt would block their queue for good.
+- Timer requests without a timer generation (`put_timer`, `reconcile_timers`,
+  and `cancel_timer` without `generation`) are the one exception. Their effect
+  lives in the timer store, outside the journal transaction, so they are
+  abandoned unproven. Re-running stale timer input on takeover could overwrite
+  a newer timer change, so a takeover abandons them instead of re-running them.
+  A `cancel_timer` with `generation` cannot remove a newer timer and is still
+  taken over and re-run.
+- File control kinds (`file_control:*`) are not abandoned. Their claim writes
+  `prepared`, and their effect then commits separately, in the file lifecycle's
+  own transactions and in object storage, so a `prepared` row proves nothing; a
+  retry with the same request id resumes or replays them. This decision covers
+  record and timer kinds only. File control rows whose attempt failed are
+  released and compacted instead (below).
+
+The abandoned receipt is a final failure with code `mutation_abandoned` and
+details `request_id` and `application`. `application` is `not_applied` for the
+proved kinds and `unverified` for the timer kinds. It replaces the earlier
+`operation_outcome: not_sent` result. An `unverified` timer receipt tells the
+application to send its current desired timers as a fresh request. Both
+receipts are final: recovery clears the pending mutation and never retries the
+same request.
+
+The hosted provider closes such rows from its maintenance loop: a row is swept
+only when its lease expired more than one day ago (a takeover sets a fresh
+lease, so a recently taken-over request is never swept under its handler) and
+its collection is `active` or `migrated`. The sweep takes the row over (incrementing
+the fence) and writes the encrypted receipt in one transaction that holds the
+collection row `FOR SHARE`, so it never changes the journal of a collection
+that is `migrating`. It locks the collection row before the journal row, the
+order every write path uses, and takes the journal row `SKIP LOCKED`, so it
+skips a row a live request holds instead of waiting for it.
+Kinds it never sweeps are filtered out in the query. Rows it leaves in place
+for other reasons (a record that exists, a key that will not unwrap, an error)
+do not starve rows behind them: each tick continues from a keyset cursor on
+`(accepted_at, replica_id, request_id)` and wraps to the start at the end.
+
+Every timer kind is swept as `unverified`, `cancel_timer` included, with or
+without `generation`. The journal does not record `generation`, but a request
+whose lease expired more than a day ago is not a live retry, so it is abandoned
+by this decision like `put_timer` and `reconcile_timers`. The narrower takeover
+rule above still applies to live retries.
 
 ### The only valid unknown outcome
 
@@ -163,6 +226,52 @@ Timeout, cancellation, process death, stale ownership, a busy database, and a
 missing response do not by themselves satisfy these conditions. `unknown` is a
 durable journal state with a stable recovery handle and diagnostics; it is never
 rewritten to `rejected` merely because the original owner disappeared.
+
+The hosted sync path (`sync:mutate`) stores the planner's refusals as
+receipts inside its own transaction. Any error from that transaction is not
+stored: the owner releases its lease, fenced on its owner and generation, and
+returns the error without a receipt, so the next identical retry takes the row
+over. This includes the deterministic `invalid_mutation` (400) and
+`replica_scope_denied` (403), which fail the same way on every retry. Earlier
+releases stored such errors as `completed` failures. A retry that finds one
+with status 5xx, 401, 404 or 429 reopens the row, as `prepared` when it has no
+evidence (the effect and its evidence commit together, so nothing applied) or
+as `applied` when it has, and recovers it as a takeover. Legacy stored 400 and
+403 failures were deterministic for that mutation and stay final. Besides
+`completed -> acknowledged` and compaction, this reopen is the only way a row
+leaves `completed`.
+
+Hosted file controls (`file_control:*`: upload open and commit, move, delete
+and transfer abort) follow the same rule. Only a success is stored as the final
+receipt. Every error from the control, including the refusals clients act on
+(`stale_file_revision`, `path_occupied`, `file_transfer_expired`,
+`file_too_large` and the storage quota codes), is returned unchanged and not
+stored: the owner releases its lease, fenced on its owner and generation. File
+controls have no refusal receipt, so these refusals were errors, stored only by
+the journal. A retry with the same ID runs the control again. It resumes the
+control's own record, keyed by the public transfer or mutation ID: the upload
+transfer with its finalization attempts, or the file mutation receipt. Or it
+re-checks the same durable condition (the file revision, the destination path,
+the transfer's expiry, the collection and account limits) and refuses again
+while that condition holds. A file control never writes journal evidence, so a
+stored file control failure reopens as `prepared` and re-runs; the same record
+replays a control whose effect had landed. The reopen covers the same statuses
+as sync: 5xx, 401, 404 and 429 reopen, and every other stored failure, 409
+refusals included, stays final.
+
+A released sync row or file control row (`prepared`, no evidence, lease
+expired) that its client never retries is deleted by compaction once it is 30
+days old. A later retry of
+that request ID claims a fresh row and runs once; this is safe because a row
+without evidence never applied. No tombstone is kept, so after deletion the
+request ID is no longer bound to its input: the same ID with different input
+runs instead of returning `mutation_request_conflict`. This is deliberate. A
+tombstone answer would wedge the client again, and sync clients use random or
+content-derived request IDs, so a reused ID with new input does not occur in
+practice. For a file control the journal row was never the proof of
+application: a retry after deletion re-runs the control, which replays its own
+transfer or file mutation record if it landed, and its revision precondition
+refuses a stale request, so it still takes effect at most once.
 
 ### Replay after grant revocation
 

@@ -10,6 +10,7 @@ import {
   CaretDownIcon as ChevronDown,
   CaretRightIcon as ChevronRight,
   CheckIcon as Check,
+  DotsThreeIcon as MoreHorizontal,
   FileCodeIcon as FileCode2,
   FilePlusIcon as FilePlus2,
   InfoIcon as Info,
@@ -27,7 +28,7 @@ import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type R
 import { CodeEditor } from "./CodeEditor";
 import { SchemaValueEditor, schemaInitialValue } from "./SchemaValueEditor";
 import { InlineRemoveButton } from "./InlineRemoveButton";
-import { ActionMenu } from "./ActionMenu";
+import { Menu, useMenuTrigger } from "@mdbase-dev/ui/menu";
 import { ComboboxInput } from "./SelectionControls";
 import { SaveNotice } from "@mdbase-dev/ui/save-notice";
 import { PathLabel } from "./WorkspaceChrome";
@@ -275,7 +276,7 @@ export function TypeInspector({ readOnly = false, type, availableTypes = [], con
       <button className="mobile-back icon-button" aria-label={t`Back to types`} onClick={onBack}><ArrowLeft aria-hidden="true" /></button>
       {leadingActions}
       <details className="type-file-details">
-        <summary><Trans>Details</Trans></summary>
+        <summary><span><Trans>Details</Trans></span><ChevronRight aria-hidden="true" /></summary>
         <PathLabel path={path} />
         {!creating && <p>{typeHeadingFacts(type!, contractState.implementations.length)}</p>}
       </details>
@@ -291,7 +292,7 @@ export function TypeInspector({ readOnly = false, type, availableTypes = [], con
     </section>
     <section className="type-source">
       {reviewing ? <div className="type-source-context reviewing">
-        <div className="type-source-intro"><h2><Trans>Review changes</Trans></h2><p><Trans>Confirm the collection-wide effect before saving.</Trans></p></div>
+        <div className="type-source-intro"><h2><Trans>Review type changes</Trans></h2></div>
       </div> : <div className="type-source-context">
           <div className="type-source-intro"><h2><Trans>Definition</Trans></h2><p><Trans>Design the note shape or work with its complete YAML source.</Trans></p></div>
           {!readOnly && <><div className="type-view-switch" role="group" aria-label={t`Type editor view`}>
@@ -576,7 +577,7 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
 
   return <TypeEditorDisclosure
     className="type-contracts-section"
-    title={t`Works with applications`}
+    title={t`Works with apps`}
     description={t`Tell compatible apps what this type’s fields mean.`}
     summary={contractSummary}
     attention={contractErrors > 0}
@@ -584,7 +585,7 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
 
     {!contracts.length && <div className="contract-empty">
       <Link2 aria-hidden="true" />
-      <div><strong><Trans>No application contracts are installed</Trans></strong><p><Trans>Add a ready-made type to get app compatibility, or install a contract before connecting this type yourself.</Trans></p></div>
+      <div><strong><Trans>No app contracts are installed</Trans></strong><p><Trans>Add a ready-made type to get app compatibility, or install a contract before connecting this type yourself.</Trans></p></div>
       {onBrowsePacks && <button onClick={onBrowsePacks}><Trans>Browse ready-made types</Trans></button>}
     </div>}
 
@@ -1638,6 +1639,7 @@ function VisualFieldRow({ field, source, depth, typeKey = false, activeField, on
   onChange: (change: (source: string) => string) => void;
 }) {
   useLingui();
+  const menu = useMenuTrigger();
   const [pendingKind, setPendingKind] = useState<Exclude<TypeFieldKind, "advanced">>();
   const conversionImpact = pendingKind ? typeFieldConversionImpact(source, field.path, pendingKind) : [];
   const fieldLabel = typeFieldPathLabel(field.path);
@@ -1661,9 +1663,7 @@ function VisualFieldRow({ field, source, depth, typeKey = false, activeField, on
       <label className={`visual-field-name${typeKey ? " type-key" : ""}`}><span className="sr-only"><Trans>Field name</Trans></span><input aria-label={t`${fieldLabel} field name`} type="text" defaultValue={field.name} readOnly={typeKey} aria-describedby={typeKey ? `type-key-note-${fieldLabel}` : undefined} onBlur={(event) => { if (!typeKey) onChange((current) => renameTypeField(current, field.path, event.target.value)); }} spellCheck="false" />{typeKey && <small id={`type-key-note-${fieldLabel}`} title={t`Notes use this field to declare their type. Edit it in YAML if you need to change it.`}><Trans>Type key</Trans></small>}</label>
       <label className="visual-field-kind"><span className="sr-only">{t`${fieldLabel} field type`}</span><Select aria-label={t`${fieldLabel} field type`} value={field.kind} disabled={typeKey} options={kindOptions(field.kind)} onChange={chooseKind} /></label>
       <label className="visual-field-required"><input className="mdbase-checkbox" type="checkbox" checked={field.required} onChange={(event) => onChange((current) => setTypeFieldRequired(current, field.path, event.target.checked))} /><span><Trans>Required</Trans></span></label>
-      <div className="type-field-actions">{!typeKey && <ActionMenu label={t`${fieldLabel} field options`} items={[
-        { label: t`Remove ${fieldLabel} field`, icon: <Trash2 aria-hidden="true" />, tone: "danger", onSelect: () => onChange((current) => removeTypeField(current, field.path)) }
-      ]} />}</div>
+      <div className="type-field-actions">{!typeKey && <div className="note-actions"><button {...menu.triggerProps} className="icon-button" aria-label={t`${fieldLabel} field options`}><MoreHorizontal aria-hidden="true" /></button><Menu open={menu.open} id={menu.id} label={t`${fieldLabel} field options`} triggerRef={menu.trigger} onClose={menu.close}><button role="menuitem" className="mdbase-menu-item is-danger" onClick={() => { menu.close(true); onChange((current) => removeTypeField(current, field.path)); }}><Trash2 aria-hidden="true" />{t`Remove ${fieldLabel} field`}</button></Menu></div>}</div>
     </div>
     {expanded && <div className="visual-field-details">
       <div className="field-path"><span>{fieldLabel}</span>{field.advancedKeys.length > 0 && <strong><Trans>Advanced YAML rules</Trans></strong>}</div>
@@ -1929,12 +1929,13 @@ function TypeChangeReview({ previousSource, source, impact, creating, saving, on
   onConfirm: () => void;
 }) {
   useLingui();
-  const diff = compareLines(previousSource ?? "", source);
   const changeCount = impact.addedFields.length + impact.removedFields.length + impact.changedFields.length + impact.newlyRequired.length;
+  const descriptionChanged = previousSource !== undefined && readVisualType(previousSource).description !== readVisualType(source).description;
+  const descriptionOnly = descriptionChanged && impact.definitionChanges.length === 1 && changeCount === 0 && impact.collectionChanges.length === 0;
   return <div className="type-change-review">
-    <p className="eyebrow"><Trans>Review changes</Trans></p>
-    <h2>{creating ? t`Create this type?` : t`Update this type?`}</h2>
-    <p>{changeCount ? plural(changeCount, { one: `# field-level change detected.`, other: `# field-level changes detected.` }) : t`The source changed without altering declared fields.`}</p>
+    {descriptionChanged && <p><strong><Trans>Description changed</Trans></strong></p>}
+    {descriptionOnly && <p><Trans>Existing note contents and fields stay unchanged.</Trans></p>}
+    {changeCount > 0 && <p>{plural(changeCount, { one: `# field-level change detected.`, other: `# field-level changes detected.` })}</p>}
     <dl>
       <div><dt><Trans>Matching notes</Trans></dt><dd>{impact.affectedNotes.toLocaleString(displayLocale())}</dd></div>
       <div><dt><Trans>Fields added</Trans></dt><dd>{impact.addedFields.length}</dd></div>
@@ -1942,7 +1943,7 @@ function TypeChangeReview({ previousSource, source, impact, creating, saving, on
       <div><dt><Trans>Fields changed</Trans></dt><dd>{impact.changedFields.length}</dd></div>
     </dl>
     <TypeMembershipPreview impact={impact.membership} afterUpdate />
-    {impact.definitionChanges.length > 0 && <div className="type-definition-changes"><strong><Trans>Definition changes</Trans></strong><p>{impact.definitionChanges.join(" · ")}</p></div>}
+    {!descriptionOnly && impact.definitionChanges.length > 0 && <div className="type-definition-changes"><strong><Trans>Definition changes</Trans></strong><p>{impact.definitionChanges.join(" · ")}</p></div>}
     {impact.collectionChanges.length > 0 && <div className="type-collection-changes">
       <strong><Trans>Collection behaviour</Trans></strong>
       <p>{impact.collectionChanges.join(" · ")}</p>
@@ -1960,7 +1961,7 @@ function TypeChangeReview({ previousSource, source, impact, creating, saving, on
       <div><strong><Trans>Existing notes need attention</Trans></strong>{impact.missingRequired.map(({ field, count }) => <p key={field}>{plural(count, { one: `# note is missing required field ${field}.`, other: `# notes are missing required field ${field}.` })}</p>)}</div>
     </div>}
     <p className="type-review-scope"><Trans>Impact is based on the currently indexed notes. The collection validates the complete definition when you confirm.</Trans></p>
-    <details><summary><Trans>Review YAML diff</Trans></summary><div className="line-diff" role="table" aria-label={t`Type source differences`}>{diff.map((line, index) => <div className={`diff-line ${line.kind}`} role="row" key={`${line.kind}:${index}`}><span className="diff-marker" aria-hidden="true">{line.kind === "local" ? "−" : line.kind === "remote" ? "+" : line.kind === "omitted" ? "···" : " "}</span><span className="diff-line-number" aria-hidden="true">{line.localLine ?? line.remoteLine ?? ""}</span><code role="cell">{line.text || " "}</code></div>)}</div></details>
+    <details><summary><Trans>Review YAML diff</Trans></summary><div className="line-diff" role="table" aria-label={t`Type source differences`}>{compareLines(previousSource ?? "", source).map((line, index) => <div className={`diff-line ${line.kind}`} role="row" key={`${line.kind}:${index}`}><span className="diff-marker" aria-hidden="true">{line.kind === "local" ? "−" : line.kind === "remote" ? "+" : line.kind === "omitted" ? "···" : " "}</span><span className="diff-line-number" aria-hidden="true">{line.localLine ?? line.remoteLine ?? ""}</span><code role="cell">{line.text || " "}</code></div>)}</div></details>
     <div className="type-review-actions"><button className="mdbase-button is-tertiary" onClick={onBack}><Trans>Back to editing</Trans></button><button className="confirm-type-button mdbase-button is-primary" disabled={saving} onClick={onConfirm}>{saving ? t`Saving…` : creating ? t`Create type` : t`Confirm update`}</button></div>
   </div>;
 }

@@ -131,9 +131,7 @@ impl<S: Store> Replica<S> {
         let crate::api::SessionAuth::Grant { grant, client_pk } = auth else {
             return Err(ErrorCode::Forbidden.err("declared setup requires an app grant"));
         };
-        self.grant_for_client(&grant, &client_pk).ok_or_else(|| {
-            ErrorCode::Unauthenticated.err("the original client grant is no longer active")
-        })?;
+        self.grant_for_client(&grant, &client_pk)?;
         let setup = self.setup_delegation(grant)?.authorization.setup;
         self.begin_setup_session(
             setup,

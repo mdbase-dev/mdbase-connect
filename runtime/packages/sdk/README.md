@@ -496,9 +496,10 @@ if (plan.canApply) await app.setup.apply(plan);
 ```
 
 `status` is `current` (nothing to do), `setup` or `conflict`. A conflict that
-`adoptable` lists is an existing definition with different content: if the
-user chooses the app's version, plan again with `adopt` and that definition is
-replaced over exactly the reviewed revision. `staged` holds the definition
+`adoptable` lists is an existing definition with different content, or a type
+the app seeded that was edited in a way no published version can be combined
+with: if the user chooses the app's version, plan again with `adopt` and that
+definition is replaced over exactly the reviewed revision. `staged` holds the definition
 documents setup would write, for a details view.
 
 Starter `records` (at most 32, 256 KiB in total) are created once, in the
@@ -522,8 +523,7 @@ Refusal codes: `setup_forbidden` (no `definitions.manage`),
 `setup_conflict`, `setup_unresolved`, `installed_newer` (a newer app version
 set it up; `setup_downgrade` is its former name) and `setup_records_forbidden`.
 `setup_unresolved` means the collection still lacks what the app needs but
-setup has nothing it may write: a type the app seeded was edited away from
-every published version, so it can't be upgraded, or was removed. The person
+setup has nothing it may write: a type the app seeded was removed. The person
 restores it in the collection; readiness re-checks and the next `plan` reflects it.
 
 `configure()` is plan and apply in one step, for collections with nothing to
@@ -835,11 +835,9 @@ refusal, real DH, existing-key refusal, late IDB abort, worker wake and browser 
 ## Checks
 
 ```sh
-npm ci && npm run typecheck && npm test && npm run build && npm run size   # or: cargo xtask sdk
+npm ci && npm run typecheck && npm test && npm run build && npm run bundle-boundaries   # or: cargo xtask sdk
 ```
 
-`npm run size` fails when `@mdbase-dev/sdk/thin-client` exceeds 64 KiB gzip or the
-root entry exceeds its measured ceiling (166 KiB; standalone apps have no product
-size limit, so this ceiling only catches regressions). It also fails when either
-entry bundles the Ajv compiler (manifest validators are precompiled in
-connect-protocol), the thin client bundles yaml, or either bundles `app-grant`.
+`npm run bundle-boundaries` fails when either entry bundles the Ajv compiler
+(manifest validators are precompiled in connect-protocol), the thin client
+bundles yaml, or either bundles `app-grant`.

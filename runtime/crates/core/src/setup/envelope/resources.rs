@@ -1,7 +1,7 @@
 //! Resource-data assessment only. Atomic head planning owns namespace and
 //! validity; this API cannot certify file absence, capture or source authority.
 use super::*;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Maximum supplied resource inventory rows.
 pub const MAX_RESOURCE_INVENTORY_ROWS: usize = 4096;
@@ -131,9 +131,11 @@ pub(super) fn compact_pack_lock(operations: &mut Vec<Op>) {
 }
 /// Assess supplied resource DATA only; no file enumeration, promotion or
 /// caller-labelled trusted revision. Operations still require atomic head checks.
+/// `adopt` holds reviewed adoptions (see [`reviewed_resource_adoptions`]).
 pub fn assess_collection_resources(
     state: &dyn StateView,
     setup: &CollectionSetup,
+    adopt: &BTreeMap<String, Hash>,
 ) -> Result<CollectionResourceAssessment, Box<Issue>> {
     let resource_inventory_digest = inventory_digest(state)?;
     let StagedProvisions {
@@ -142,7 +144,7 @@ pub fn assess_collection_resources(
         mut operations,
         applicable,
         ..
-    } = stage_resource_provisions(state, setup)?;
+    } = stage_resource_provisions(state, setup, adopt)?;
     let provision_digest = setup.input_digest();
     let prior = state.resource(PROVISION_LOCK_PATH);
     let mut ledger = prior
@@ -232,8 +234,9 @@ pub fn apply_collection_resources(
     state: &dyn StateView,
     setup: &CollectionSetup,
     expected_digest: Hash,
+    adopt: &BTreeMap<String, Hash>,
 ) -> Result<(CollectionResourceAssessment, Vec<Op>), Box<Issue>> {
-    let assessment = assess_collection_resources(state, setup)?;
+    let assessment = assess_collection_resources(state, setup, adopt)?;
     if assessment.assessment_digest != expected_digest {
         return Err(stale());
     }

@@ -172,6 +172,7 @@ fn live_record_source_cas_and_kind_bind_same_id_and_exact_path() {
         revision: sha256(doc.as_bytes()),
         doc,
         modified_seq: 1,
+        mtime: None,
         bucket: 0,
         meta: RecordMeta::default(),
     };

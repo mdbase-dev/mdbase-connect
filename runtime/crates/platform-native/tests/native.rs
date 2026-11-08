@@ -799,6 +799,7 @@ fn link_dense_records_commit_within_the_statement_budget() {
                 revision: revision(doc.as_bytes()),
                 doc,
                 modified_seq: 0,
+                mtime: None,
                 bucket: 0,
                 meta: RecordMeta {
                     // 3 x 6,001 keys: over 16,384 at one statement per key.

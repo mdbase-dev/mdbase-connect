@@ -58,7 +58,7 @@ for (const width of [1440, 390]) {
     });
     expect(notice.gap).toBeLessThan(25);
     expect(notice.width).toBeLessThan(90);
-    expect(await page.locator(".visual-field-name input").first().evaluate((input) => getComputedStyle(input).fontFamily)).toContain("Atkinson");
+    expect(await page.locator(".visual-field-name input").first().evaluate((input) => getComputedStyle(input).fontFamily)).toContain("IBM Plex Sans");
     const options = page.getByRole("button", { name: "title field options" });
     await options.focus();
     await page.keyboard.press("ArrowDown");
@@ -78,12 +78,12 @@ async function openDemoForLayout(page: Page, surface = "notes") {
     .toHaveValue("The shape of useful tools");
 }
 
-async function expectReadyLayout(page: Page) {
+async function expectReadyLayout(page: Page, family: string) {
   await expect(page.locator('[aria-busy="true"]:visible')).toHaveCount(0);
   await page.evaluate(() => document.fonts.ready);
-  await expect.poll(() => page.evaluate(() => [...document.fonts].some((font) =>
-    font.family.includes("Atkinson") && font.status === "loaded"))).toBe(true);
-  await expect(page.locator("body")).toHaveCSS("font-family", /Atkinson/);
+  await expect.poll(() => page.evaluate((name) => [...document.fonts].some((font) =>
+    font.family.includes(name) && font.status === "loaded"), family)).toBe(true);
+  await expect(page.locator("body")).toHaveCSS("font-family", new RegExp(family));
   await expect.poll(() => page.locator("img:visible").evaluateAll((images) =>
     images.every((image) => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0))).toBe(true);
   await page.locator("img:visible").evaluateAll((images) => Promise.all(images.map((image) => (image as HTMLImageElement).decode())));
@@ -111,9 +111,9 @@ test.describe("responsive themed view readiness", () => {
         sessionStorage.clear();
         localStorage.setItem("mdbase:theme", theme);
       }, mode.theme);
-      const checkView = async (view: string) => test.step(`${view} is ready and fits the viewport`, async () => {
+      const checkView = async (view: string, family = "IBM Plex Sans") => test.step(`${view} is ready and fits the viewport`, async () => {
         await expect(page.locator("html")).toHaveAttribute("data-theme", mode.theme);
-        await expectReadyLayout(page);
+        await expectReadyLayout(page, family);
       });
 
       await openDemoForLayout(page);
@@ -168,15 +168,12 @@ test.describe("responsive themed view readiness", () => {
       await openDemoForLayout(page);
       await page.keyboard.press("Control+p");
       await page.getByRole("combobox", { name: "Find a note or action" }).fill(">");
-      await expect(page.getByRole("option").first()).toContainText("New note");
-      await expect(page.locator(".quick-open-command small").first()).toHaveCSS("font-family", /Atkinson/);
+      await expect(page.getByRole("dialog", { name: "Quick open" }).getByRole("option").first()).toContainText("Rename");
+      await expect(page.locator(".mdbase-command-copy small").first()).toHaveCSS("font-family", /IBM Plex Sans/);
       await checkView("Quick open");
       await page.keyboard.press("Escape");
 
-      if (mobile) {
-        await page.getByRole("button", { name: "More note actions" }).click();
-        await page.getByRole("menuitem", { name: "New note", exact: true }).click();
-      } else await page.getByRole("button", { name: "New note", exact: true }).click();
+      await page.getByRole("button", { name: "New note", exact: true }).click();
       const composer = page.getByRole("main", { name: "Create note" });
       await expect(composer).toBeVisible();
       await composer.getByRole("textbox", { name: "Title", exact: true }).fill("A quieter way to work");
@@ -192,8 +189,8 @@ test.describe("responsive themed view readiness", () => {
       await page.goto(`${authPortal}/login`);
       await expect(page).toHaveURL(`${authPortal}/login`);
       await expect(page.getByRole("button", { name: "Continue with Google" })).toBeEnabled();
-      await expect(page.locator(".provider-divider")).toHaveCount(1);
-      await checkView("Connect sign-in");
+      await expect(page.locator(".provider-divider")).toHaveCount(0);
+      await checkView("Connect sign-in", "IBM Plex Sans");
     });
   }
 });

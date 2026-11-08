@@ -1,0 +1,7 @@
+{
+  "reason": "mdbase-mirror watch needs a testable backoff while sync is blocked; cli.ts runs on import and imports only public entry points, so the pacing lives beside MirrorApplyResult in the internal mirror-plan module.",
+  "growth": {
+    "relativeImports": 1,
+    "typeScriptExportDeclarations": 1
+  }
+}

@@ -1,0 +1,151 @@
+name: Rollback read compatibility
+
+# Exact-pair evidence that the current production hosted provider can read
+# storage written by a release candidate. Ops `bin/release train check` reads
+# only this workflow's bounded artifact; it never treats a rerun as erasing a
+# failed attempt. The run touches disposable runner containers only.
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_commit:
+        description: Full candidate product commit (the staging release lock)
+        required: true
+        type: string
+      candidate_provider_image:
+        description: Candidate signed hosted-provider image by digest
+        required: true
+        type: string
+      predecessor_release:
+        description: Production predecessor release tag
+        required: true
+        type: string
+      predecessor_commit:
+        description: Full production predecessor product commit
+        required: true
+        type: string
+      predecessor_provider_image:
+        description: Production predecessor hosted-provider image by digest
+        required: true
+        type: string
+
+run-name: Rollback read compatibility ${{ inputs.predecessor_commit }} -> ${{ inputs.candidate_commit }}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rollback-read-compat-${{ inputs.predecessor_commit }}-${{ inputs.candidate_commit }}
+  cancel-in-progress: false
+
+jobs:
+  provider-predecessor-read:
+    name: Production provider reads candidate-written storage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CANDIDATE_COMMIT: ${{ inputs.candidate_commit }}
+      CANDIDATE_PROVIDER_IMAGE: ${{ inputs.candidate_provider_image }}
+      PREDECESSOR_RELEASE: ${{ inputs.predecessor_release }}
+      PREDECESSOR_COMMIT: ${{ inputs.predecessor_commit }}
+      PREDECESSOR_PROVIDER_IMAGE: ${{ inputs.predecessor_provider_image }}
+    steps:
+      - name: Validate the exact pair
+        run: |
+          image='^ghcr\.io/mdbase-dev/mdbase-connect-hosted-provider@sha256:[0-9a-f]{64}$'
+          [[ $CANDIDATE_COMMIT =~ ^[0-9a-f]{40}$ && $PREDECESSOR_COMMIT =~ ^[0-9a-f]{40}$ ]]
+          [[ $CANDIDATE_COMMIT != "$PREDECESSOR_COMMIT" ]]
+          [[ $PREDECESSOR_RELEASE =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]
+          [[ $CANDIDATE_PROVIDER_IMAGE =~ $image && $PREDECESSOR_PROVIDER_IMAGE =~ $image ]]
+          [[ $CANDIDATE_PROVIDER_IMAGE != "$PREDECESSOR_PROVIDER_IMAGE" ]]
+      # Save the workflow-ref identity override before checking out the candidate.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - run: cp test/upgrade/rollback-tag-identity.sh "$RUNNER_TEMP/rollback-tag-identity.sh"
+      # The candidate's own upgrade harness runs against its signed image.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.candidate_commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require the candidate checkout and current-upgrade harness
+        run: |
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_COMMIT"
+          git merge-base --is-ancestor "$PREDECESSOR_COMMIT" "$CANDIDATE_COMMIT"
+          grep -Fq 'current_provider_upgrade' test/upgrade/provider-current.sh
+          grep -Fq 'SKIP_CANDIDATE_BUILD' test/upgrade/retained-v2.sh
+          grep -Fq 'rollback_result=refused-unknown-migration' test/upgrade/provider-current.sh
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 11.15.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @mdbase-dev/connect-protocol build
+      - name: Pull and bind both provider images to their commits
+        run: |
+          for pair in "$CANDIDATE_PROVIDER_IMAGE $CANDIDATE_COMMIT" "$PREDECESSOR_PROVIDER_IMAGE $PREDECESSOR_COMMIT"; do
+            read -r image revision <<<"$pair"
+            docker pull --quiet "$image" >/dev/null
+            docker image inspect "$image" | jq -e --arg revision "$revision" '
+              length == 1 and
+              .[0].Config.Labels["org.opencontainers.image.source"] == "https://github.com/mdbase-dev/mdbase-connect" and
+              .[0].Config.Labels["org.opencontainers.image.revision"] == $revision' >/dev/null
+          done
+          docker pull --quiet postgres:18-alpine >/dev/null
+      - name: Select the exact production predecessor for this runner only
+        # Replace only the candidate harness release verifier with the workflow-ref
+        # annotated-tag verifier; older candidate harnesses cannot opt out themselves.
+        run: |
+          printf '%s\n' \
+            "MDBASE_CONNECT_PREVIOUS_RELEASE=$PREDECESSOR_RELEASE" \
+            "MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT=$PREDECESSOR_COMMIT" \
+            "MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE=$PREDECESSOR_PROVIDER_IMAGE" \
+            >.github/previous-release.env
+          cat "$RUNNER_TEMP/rollback-tag-identity.sh" >>test/upgrade/lib.sh
+      - name: Candidate writes, then the predecessor reads the same storage
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SKIP_CANDIDATE_BUILD: 'true'
+          CANDIDATE_IMAGE: ${{ inputs.candidate_provider_image }}
+        run: test/upgrade/provider-from-previous --current-upgrade
+      - name: Record bounded exact-pair evidence
+        # Only these fields leave the runner; fixture logs stay private.
+        run: |
+          shopt -s nullglob
+          files=("$RUNNER_TEMP"/mdbase-retained-v2.*/evidence.json)
+          ((${#files[@]} == 1))
+          mkdir -p "$RUNNER_TEMP/rollback-read-compat"
+          candidate_image_id=$(docker image inspect --format '{{.Id}}' "$CANDIDATE_PROVIDER_IMAGE")
+          jq -e \
+            --arg candidate "$CANDIDATE_COMMIT" --arg candidate_image "$CANDIDATE_PROVIDER_IMAGE" \
+            --arg candidate_image_id "$candidate_image_id" \
+            --arg release "$PREDECESSOR_RELEASE" --arg predecessor "$PREDECESSOR_COMMIT" \
+            --arg predecessor_image "$PREDECESSOR_PROVIDER_IMAGE" '
+            select(.scenario == "current-provider-upgrade" and .checkout_commit == $candidate and
+              .candidate_image_id == $candidate_image_id and
+              .predecessor_commit == $predecessor and .predecessor_image == $predecessor_image and
+              (.predecessor_migration | type) == "number" and (.candidate_migration | type) == "number" and
+              ((.rollback_result == "fixture-compatible" and .candidate_migration == .predecessor_migration) or
+               (.rollback_result == "refused-unknown-migration" and .candidate_migration > .predecessor_migration)))
+            | {schema_version: 1, scenario: "provider-predecessor-read",
+               candidate_commit: $candidate, candidate_provider_image: $candidate_image,
+               predecessor_release: $release, predecessor_commit: $predecessor,
+               predecessor_provider_image: $predecessor_image,
+               predecessor_migration, candidate_migration,
+               result: (if .rollback_result == "fixture-compatible" then "compatible" else "incompatible" end)}
+          ' "${files[0]}" >"$RUNNER_TEMP/rollback-read-compat/rollback-read-compat.json"
+          cat "$RUNNER_TEMP/rollback-read-compat/rollback-read-compat.json"
+          {
+            echo 'Predecessor identity: origin annotated tag peeled to the pinned commit; provider image digest and source/revision labels checked.'
+            echo 'GitHub Release metadata was not checked.'
+          } >>"$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rollback-read-compat
+          path: ${{ runner.temp }}/rollback-read-compat/rollback-read-compat.json
+          if-no-files-found: error
+          retention-days: 90

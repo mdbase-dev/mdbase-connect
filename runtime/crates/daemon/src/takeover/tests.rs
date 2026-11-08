@@ -69,6 +69,7 @@ fn opts() -> Options {
         account_moved: false,
         drain: Duration::ZERO,
         now: "2026-10-08T12:00:00Z".into(),
+        registered: Vec::new(),
     }
 }
 
@@ -584,6 +585,34 @@ fn no_old_state_is_a_no_op() {
 }
 
 #[test]
+fn a_yaml_identity_is_connect_owned_only_where_the_old_state_lists_the_folder() {
+    use crate::server::{FolderClaim, classify_folder};
+    let d = device("tko-classify");
+    let config = format!("spec_version: 0.3.0\nx-mdbase-connect:\n  collection_id: {CID}\n");
+    fs::write(d.root.join("mdbase.yaml"), &config).unwrap();
+    let profile = crate::paths::Profile::isolated(&d.state).unwrap();
+    // The old connector's own folder: the takeover reaches it.
+    assert_eq!(
+        classify_folder(&d.root, &profile, Some(&d.old)).unwrap(),
+        FolderClaim::Connect("collection identity in mdbase.yaml")
+    );
+    // A copy of it (same identity), or the folder on a device without that state.
+    let copy = d.state.join("copy");
+    fs::create_dir_all(&copy).unwrap();
+    fs::write(copy.join("mdbase.yaml"), &config).unwrap();
+    assert_eq!(
+        classify_folder(&copy, &profile, Some(&d.old)).unwrap(),
+        FolderClaim::OrphanedIdentity
+    );
+    for old in [None, Some(d.state.join("nothing"))] {
+        assert_eq!(
+            classify_folder(&d.root, &profile, old.as_deref()).unwrap(),
+            FolderClaim::OrphanedIdentity
+        );
+    }
+}
+
+#[test]
 fn unsafe_journal_paths_are_refused() {
     let dir = crate::testutil::TestDir::new("tko-paths");
     for bad in [
@@ -641,6 +670,60 @@ fn a_missing_or_altered_marker_is_a_sticky_incident_never_rewritten() {
     assert!(!marker_is_ours(&d.root, CID, &d.paths.store_ids).unwrap());
     run(&d.paths, &d.old, &mut Old::default(), &opts()).unwrap();
     assert!(Record::load(&d.paths.record).unwrap().unwrap().collections[CID].marker_incident);
+}
+
+/// A taken-over folder the user unregistered and registered again as another
+/// collection has no marker of its own: that is explained, not an incident, and
+/// an incident latched for it is resolved. While the taken-over collection is
+/// still registered, or only another folder is, a missing marker still latches.
+#[test]
+fn a_folder_registered_again_as_another_collection_is_no_marker_incident() {
+    let other = "36be1780-539e-46c9-a99e-04314e84426f".to_owned();
+    let d = device("tko-marker-superseded");
+    let mut old = Old::default();
+    run(&d.paths, &d.old, &mut old, &opts()).unwrap();
+    let root = fs::canonicalize(&d.root).unwrap();
+    fs::remove_file(d.root.join(".mdbase/connect-role.json")).unwrap();
+    let latched = |d: &Device| {
+        Record::load(&d.paths.record).unwrap().unwrap().collections[CID].marker_incident
+    };
+
+    // Still registered itself: an incident.
+    let itself = Options {
+        registered: vec![(CID.to_owned(), root.clone())],
+        ..opts()
+    };
+    run(&d.paths, &d.old, &mut old, &itself).unwrap();
+    assert!(latched(&d));
+    // Another collection elsewhere explains nothing.
+    let elsewhere = Options {
+        registered: vec![(other.clone(), root.join("sub"))],
+        ..opts()
+    };
+    run(&d.paths, &d.old, &mut old, &elsewhere).unwrap();
+    assert!(latched(&d));
+    // Registered again as another collection at the same folder: resolved.
+    let replaced = Options {
+        registered: vec![(other.clone(), root.clone())],
+        ..opts()
+    };
+    run(&d.paths, &d.old, &mut old, &replaced).unwrap();
+    assert!(!latched(&d));
+    assert!(
+        !d.root.join(".mdbase/connect-role.json").exists(),
+        "never rewritten"
+    );
+
+    // Replaced before the guard first saw it: never latched.
+    let d = device("tko-marker-superseded-first");
+    run(&d.paths, &d.old, &mut Old::default(), &opts()).unwrap();
+    fs::remove_file(d.root.join(".mdbase/connect-role.json")).unwrap();
+    let replaced = Options {
+        registered: vec![(other, fs::canonicalize(&d.root).unwrap())],
+        ..opts()
+    };
+    run(&d.paths, &d.old, &mut Old::default(), &replaced).unwrap();
+    assert!(!latched(&d));
 }
 
 /// A hold resolution resolves the hold only once its mutation is confirmed.

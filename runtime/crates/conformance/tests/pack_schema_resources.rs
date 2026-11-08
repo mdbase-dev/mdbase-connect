@@ -249,7 +249,12 @@ fn published_tasknotes_pack_installs_and_upgrades_its_declared_seed_baseline() {
         }
         install(&mut state, &desired);
         assert!(
-            state.catalog().issues().is_empty(),
+            state
+                .catalog()
+                .issues()
+                .iter()
+                .all(|i| i.code == "unknown_path_key"
+                    && i.severity == mdbn_core::validate::Severity::Warning),
             "{:?}",
             state.catalog().issues()
         );
@@ -558,4 +563,176 @@ fn invalid_final_catalog_is_not_hidden_by_a_mixed_operation() {
     );
     assert!(state.resource(LOCK_PATH).is_none());
     assert!(state.record(&Uuid([80; 16])).is_none());
+}
+
+fn published_tasknotes_app_packs() -> Vec<Pack> {
+    let packs: serde_json::Value = serde_json::from_str(include_str!(
+        "fixtures/tasknotes-legacy-seeds/type-packs.json"
+    ))
+    .unwrap();
+    packs
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|published| {
+            load_pack(&published["manifest"].to_string(), &|source| {
+                published["resources"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|resource| resource["source"].as_str() == Some(source))
+                    .and_then(|resource| resource["document"].as_str())
+                    .map(str::to_owned)
+            })
+            .unwrap()
+        })
+        .collect()
+}
+
+/// A collection set up by the legacy installer: its lock records each seed at
+/// the app's current digest but no origin, and another writer re-serialised
+/// the seeds (sorted keys, expanded flow style and anchors). Content decides:
+/// the image type is the current seed, the scratchpad type is the current seed
+/// with a custom folder, and the task type is an older published seed with
+/// custom colours.
+#[test]
+fn legacy_seed_receipts_without_origins_upgrade_by_content() {
+    let packs = published_tasknotes_app_packs();
+    let mut state = MemState::new();
+    for pack in &packs {
+        install(&mut state, pack);
+    }
+    let lock = state.resource(LOCK_PATH).unwrap();
+    let legacy: String = lock
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("origin_digest:"))
+        .map(|line| format!("{line}\n"))
+        .collect();
+    assert_ne!(*lock, *legacy);
+    state.insert_resource(LOCK_PATH, &legacy);
+    let live = [
+        (
+            "_types/task.md",
+            include_str!("fixtures/tasknotes-legacy-seeds/task.md"),
+        ),
+        (
+            "_types/tasknotes-scratch.md",
+            include_str!("fixtures/tasknotes-legacy-seeds/tasknotes-scratch.md"),
+        ),
+        (
+            "_types/tasknotes-scratch-image.md",
+            include_str!("fixtures/tasknotes-legacy-seeds/tasknotes-scratch-image.md"),
+        ),
+    ];
+    for (target, document) in live {
+        state.insert_resource(target, document);
+    }
+    let seed = |target: &str| {
+        let (pack, resource) = packs
+            .iter()
+            .find_map(|p| {
+                p.resources
+                    .iter()
+                    .find(|r| r.target == target)
+                    .map(|r| (p, r))
+            })
+            .unwrap();
+        let assessment = assess_type_pack(&state, pack, &options()).unwrap();
+        let planned = assessment
+            .resources
+            .into_iter()
+            .find(|r| r.target == target)
+            .unwrap();
+        (resource.clone(), planned)
+    };
+    for target in [
+        "_types/tasknotes-scratch-image.md",
+        "_types/tasknotes-scratch.md",
+    ] {
+        let (resource, planned) = seed(target);
+        assert_eq!(
+            planned.action,
+            Action::Preserve,
+            "{target}: {:?}",
+            planned.reason
+        );
+        assert_eq!(planned.reason, None, "{target}");
+        assert_eq!(planned.origin, Some(resource.digest), "{target}");
+    }
+    let (resource, planned) = seed("_types/task.md");
+    assert_eq!(planned.action, Action::Update, "{:?}", planned.reason);
+    // Two v4 baselines merge cleanly; the nearer one is the true origin.
+    assert_eq!(
+        planned.upgrade_baseline,
+        resource
+            .baselines
+            .iter()
+            .find(|b| b.digest.to_string().starts_with("sha256:2b6016c3"))
+            .map(|b| (b.digest, b.version))
+    );
+    let merged = planned.document.unwrap();
+    let colours = |document: &str| {
+        let doc = mdbn_core::doc::Document::parse(document, mdbn_core::doc::RecordFormat::Markdown);
+        let binding = doc
+            .frontmatter()
+            .get("implements")
+            .unwrap()
+            .as_list()
+            .unwrap()[0]
+            .get("binding")
+            .unwrap()
+            .clone();
+        ["status", "priority"].map(|key| {
+            binding
+                .get(key)
+                .unwrap()
+                .get("definitions")
+                .unwrap()
+                .as_list()
+                .unwrap()
+                .iter()
+                .map(|d| d.get("color").unwrap().as_str().unwrap().to_owned())
+                .collect::<Vec<_>>()
+        })
+    };
+    let custom = colours(live[0].1);
+    assert_ne!(custom, colours(&resource.document));
+    assert_eq!(colours(&merged), custom, "the custom colours survive");
+    let version = |document: &str| {
+        mdbn_core::doc::Document::parse(document, mdbn_core::doc::RecordFormat::Markdown)
+            .frontmatter()
+            .get("version")
+            .cloned()
+    };
+    assert_eq!(version(&merged), version(&resource.document));
+    assert_eq!(planned.origin, Some(resource.digest));
+    for pack in &packs {
+        install(&mut state, pack);
+    }
+    let lock = Lock::parse(&state.resource(LOCK_PATH).unwrap()).unwrap();
+    for pack in &packs {
+        let receipt = lock.receipt(&pack.id).unwrap();
+        for resource in pack.resources.iter().filter(|r| r.kind == "type") {
+            let entry = receipt
+                .resources
+                .iter()
+                .find(|e| e.target == resource.target)
+                .unwrap();
+            assert_eq!(
+                entry.origin_digest,
+                Some(resource.digest),
+                "{}",
+                resource.target
+            );
+        }
+        let current = assess_type_pack(&state, pack, &options()).unwrap();
+        assert!(
+            apply_type_pack(&state, pack, &options(), &current.assessment_digest)
+                .unwrap()
+                .1
+                .is_empty(),
+            "{} is current",
+            pack.id
+        );
+    }
 }

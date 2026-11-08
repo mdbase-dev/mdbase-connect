@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
 
-vi.mock("./CodeEditor", () => ({ CodeEditor: ({ value, onChange, label, footer }: { value: string; onChange?: (value: string) => void; label: string; footer?: ReactNode }) => <><textarea aria-label={label} value={value} onChange={(event) => onChange?.(event.target.value)} />{footer}</> }));
+vi.mock("./CodeEditor", () => ({ CodeEditor: ({ header, value, onChange, label, footer }: { header?: ReactNode; value: string; onChange?: (value: string) => void; label: string; footer?: ReactNode }) => <>{header}<textarea aria-label={label} value={value} onChange={(event) => onChange?.(event.target.value)} />{footer}</> }));
 vi.mock("@tanstack/react-virtual", () => ({ useVirtualizer: ({ count }: { count: number }) => ({ getTotalSize: () => count * 76, getVirtualItems: () => Array.from({ length: count }, (_, index) => ({ index, start: index * 76, size: 76 })) }) }));
 
 async function runCommand(query: string) {
@@ -17,6 +17,19 @@ async function runCommand(query: string) {
 }
 
 describe("workspace commands", () => {
+  it("uses the menu registry for sort and tag/type filters", async () => {
+    render(<App gateway={new DemoCollectionGateway(12)} />);
+    await screen.findByRole("textbox", { name: "Note body" });
+    await runCommand("Title A–Z");
+    expect(JSON.parse(localStorage.getItem("mdbase-editor:note-sort:00000000-0000-4000-8000-000000000001")!)).toEqual({ key: "title", direction: "asc" });
+    await runCommand("Filter by type: note");
+    expect(screen.getByRole("button", { name: "Remove type filter note" })).toBeInTheDocument();
+    await runCommand("All notes");
+    expect(screen.queryByRole("button", { name: "Remove type filter note" })).not.toBeInTheDocument();
+    await runCommand("Filter by tag: ideas");
+    expect(screen.getByRole("button", { name: "Remove tag filter ideas" })).toBeInTheDocument();
+  });
+
   it("enters focus from commands, hides sidebars and properties, preserves layout, and persists until Escape", async () => {
     const user = userEvent.setup();
     render(<App gateway={new DemoCollectionGateway(4)} />);
@@ -45,10 +58,10 @@ describe("workspace commands", () => {
     render(<App gateway={new DemoCollectionGateway(4)} />);
     await screen.findByRole("textbox", { name: "Note body" });
     await runCommand("pin");
-    expect(screen.getByText("Pinned")).toBeInTheDocument();
+    expect(screen.getByText("Pinned", { selector: ".note-group-header span" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "More note actions" }));
     await user.click(screen.getByRole("menuitem", { name: "Unpin" }));
-    expect(screen.queryByText("Pinned")).not.toBeInTheDocument();
+    expect(screen.queryByText("Pinned", { selector: ".note-group-header span" })).not.toBeInTheDocument();
     await runCommand("open settings");
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
     await runCommand("switch theme");

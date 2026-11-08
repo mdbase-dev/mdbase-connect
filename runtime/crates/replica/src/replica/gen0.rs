@@ -352,6 +352,7 @@ impl Gen0Writer {
                     revision: mdbn_wire::hash::sha256(r.doc.as_bytes()),
                     size: r.doc.len() as u64,
                     modified_seq: 0,
+                    mtime: None,
                 }
                 .to_cbor(),
             ));
@@ -377,6 +378,7 @@ impl Gen0Writer {
                     revision: f.content.plain_hash(),
                     size: f.content.size(),
                     modified_seq: 0,
+                    mtime: None,
                 }
                 .to_cbor(),
             ));
@@ -1431,7 +1433,7 @@ impl<S: crate::store::Store> super::Replica<S> {
                     whole_plain_hash: written.expected.whole_plain_hash,
                     total_plain_bytes: written.expected.total_plain_bytes,
                 }),
-                media: super::apply::media_class(&stream.path),
+                media: mdbn_wire::intent::MediaClass::of(&stream.path),
                 path: stream.path,
                 unindexed: false,
             })

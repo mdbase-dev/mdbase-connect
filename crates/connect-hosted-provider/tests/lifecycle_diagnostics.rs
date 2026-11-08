@@ -2,7 +2,7 @@ use std::panic::AssertUnwindSafe;
 
 use futures_util::FutureExt;
 use mdbase_connect_hosted_provider::{
-    LifecycleDiagnosticSection, HOSTED_DIAGNOSTICS_SCHEMA_VERSION,
+    DiagnosticSection, LifecycleDiagnosticSection, HOSTED_DIAGNOSTICS_SCHEMA_VERSION,
 };
 use serde_json::json;
 use sqlx::{postgres::PgPoolOptions, AssertSqlSafe};
@@ -87,6 +87,7 @@ async fn provider_lifecycle_aggregates_use_production_sql() {
             ("claimed", 0_i64, false, false, false),
             ("prepared", 180, true, false, false),
             ("applied", 180, false, false, true),
+            ("prepared", 172_800, true, false, false),
             ("outcome_unknown", 180, false, true, false),
         ] {
             sqlx::query(
@@ -117,6 +118,28 @@ async fn provider_lifecycle_aggregates_use_production_sql() {
             .execute(&fixture.pool)
             .await?;
         }
+        // A file control request the sweep leaves alone (ADR 0005) stays
+        // visible under its own kind, next to the record kinds, while its
+        // handler holds the lease. Once released (lease expired, no
+        // evidence) it is counted in `released_file_control_mutations`.
+        sqlx::query(
+            r#"INSERT INTO hosted_provider_mutation_journal
+              (replica_id,request_id,operation_kind,input_schema_version,input_digest,state,
+               process_epoch,lease_owner,lease_expires_at,fencing_generation,accepted_at,updated_at)
+              VALUES ($1,$2,'file_control:commit_file_upload',1,$3,'prepared',$4,$4,
+                now()+interval '1 hour',1,now()-interval '2 days',now()-interval '2 days')"#,
+        )
+        .bind(replica_id)
+        .bind(Uuid::new_v4())
+        .bind(vec![7_u8; 32])
+        .bind(Uuid::new_v4())
+        .execute(&fixture.pool)
+        .await?;
+        sqlx::query(
+            "UPDATE hosted_provider_mutation_journal SET operation_kind='Unexpected Kind' WHERE state='claimed'",
+        )
+        .execute(&fixture.pool)
+        .await?;
         sqlx::query(
             "UPDATE hosted_provider_collections SET state='deleting', updated_at=now()-interval '11 minutes' WHERE id=$1",
         )
@@ -124,7 +147,22 @@ async fn provider_lifecycle_aggregates_use_production_sql() {
         .execute(&fixture.pool)
         .await?;
         let diagnostics = fixture.provider.hosted_diagnostics().await;
-        let serialized = serde_json::to_string(&diagnostics.lifecycle_work)?;
+        // The ops reducer anchors on this being the response's last section.
+        let last_section = serde_json::to_value(&diagnostics)?
+            .as_object()
+            .and_then(|sections| sections.keys().next_back().cloned());
+        assert_eq!(last_section.as_deref(), Some("unfinished_mutations"));
+        let serialized = serde_json::to_string(&diagnostics.lifecycle_work)?
+            + &serde_json::to_string(&diagnostics.unfinished_mutations)?;
+        let breakdown = match diagnostics.unfinished_mutations {
+            DiagnosticSection::Ok { value } => value
+                .iter()
+                .map(|row| serde_json::to_value(row).map(|json| json.to_string()))
+                .collect::<Result<Vec<_>, _>>()?,
+            DiagnosticSection::Unavailable { .. } => {
+                return Err("unfinished mutations section unavailable".into());
+            }
+        };
         let value = match diagnostics.lifecycle_work {
             LifecycleDiagnosticSection::Ok { value } => value,
             LifecycleDiagnosticSection::Unavailable => {
@@ -136,6 +174,7 @@ async fn provider_lifecycle_aggregates_use_production_sql() {
         Ok::<_, Box<dyn std::error::Error>>((
             diagnostics.schema_version,
             value,
+            breakdown,
             serialized,
             private_ids,
         ))
@@ -155,7 +194,7 @@ async fn provider_lifecycle_aggregates_use_production_sql() {
         Ok(result) => result,
         Err(panic) => std::panic::resume_unwind(panic),
     };
-    let (schema_version, value, serialized, private_ids) =
+    let (schema_version, value, breakdown, serialized, private_ids) =
         observed.expect("collect lifecycle diagnostics");
     assert_eq!(schema_version, HOSTED_DIAGNOSTICS_SCHEMA_VERSION);
     assert_eq!(value.runtime_outbox.open, 3);
@@ -164,15 +203,41 @@ async fn provider_lifecycle_aggregates_use_production_sql() {
     assert_eq!(value.runtime_outbox.expired_leases, 1);
     assert_eq!(value.runtime_outbox.impossible, 2);
     assert!(value.runtime_outbox.oldest_open_seconds >= Some(1_859));
-    assert_eq!(value.mutation_journal.unfinished, 3);
-    assert_eq!(value.mutation_journal.stale, 2);
+    assert_eq!(value.mutation_journal.unfinished, 5);
+    assert_eq!(value.mutation_journal.stale, 4);
     assert_eq!(value.mutation_journal.outcome_unknown, 1);
-    assert_eq!(value.mutation_journal.expired_leases, 1);
+    assert_eq!(value.mutation_journal.expired_leases, 2);
     assert_eq!(value.stuck_deleting_collections, 1);
+    let row = |operation_kind: &str, state: &str, evidence_kind: &str, age_band: &str| {
+        json!({
+            "age_band": age_band,
+            "count": 1,
+            "evidence_kind": evidence_kind,
+            "operation_kind": operation_kind,
+            "state": state,
+        })
+        .to_string()
+    };
+    assert_eq!(
+        breakdown,
+        [
+            row("create", "applied", "public_result", "under_1h"),
+            row("create", "prepared", "none", "1d_to_7d"),
+            row("create", "prepared", "none", "under_1h"),
+            row(
+                "file_control:commit_file_upload",
+                "prepared",
+                "none",
+                "1d_to_7d"
+            ),
+            row("other", "claimed", "none", "under_1h"),
+        ]
+    );
     for private in private_ids.iter().map(String::as_str).chain([
         "fixture outbox error",
         "/private/path",
         "customer-id",
+        "Unexpected Kind",
     ]) {
         assert!(!serialized.contains(private));
     }

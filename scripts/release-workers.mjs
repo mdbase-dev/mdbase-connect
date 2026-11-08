@@ -12,6 +12,8 @@ export { readReleaseBuild };
 export const REPOSITORY = 'mdbase-dev/mdbase-connect';
 export const WORKFLOW = 'release-workers.yml';
 export const CI_WORKFLOW = 'runtime-ci.yml';
+export const PUBLISHERS = Object.freeze(['callumalpass', 'mdbase-dev-release-automation[bot]']);
+export const MERGE_QUEUE = 'github-merge-queue[bot]';
 export const IDENTITY = 'https://github.com/mdbase-dev/mdbase-connect/.github/workflows/release-workers.yml@refs/heads/main';
 export const OPS_VERIFIER_COMMIT = 'eaaab7cafd6d58af18bbb4f316dbe349392c5cdb';
 export const DO_JOB = 'logsvc DO (wasm32, local conformance, restart replay)';
@@ -30,12 +32,21 @@ function positive(value) {
   requireThat(/^[1-9][0-9]*$/.test(value ?? '') && integer(Number(value)), 'positive safe run identity required');
   return Number(value);
 }
+export function authorizedPublisher(actor, triggeringActor) {
+  return PUBLISHERS.includes(actor) && triggeringActor === actor;
+}
+// A merge-queue main push qualifies Runtime CI only; publishers stay the owner and release App.
+export function authorizedRun(run, workflow) {
+  return authorizedPublisher(run.actor?.login, run.triggering_actor?.login)
+    || (workflow === CI_WORKFLOW && run.event === 'push'
+      && run.actor?.login === MERGE_QUEUE && run.triggering_actor?.login === MERGE_QUEUE);
+}
 export function verifyRun(run, expected, workflow) {
   if (run.id !== expected.id || run.run_attempt !== expected.attempt
       || run.head_sha !== expected.source || run.head_branch !== 'main'
       || !['push', 'workflow_dispatch'].includes(run.event) || run.status !== 'completed' || run.conclusion !== 'success'
       || run.repository?.full_name !== REPOSITORY || run.repository?.private !== false
-      || run.actor?.login !== 'callumalpass' || run.triggering_actor?.login !== 'callumalpass'
+      || !authorizedRun(run, workflow)
       || run.path !== `.github/workflows/${workflow}`) {
     fail('exact successful main push or dispatch workflow identity required');
   }
@@ -68,20 +79,31 @@ export function pages(path, key) {
   fail('identity pagination limit reached');
 }
 
-export function inputs(env) {
-  const environment = env.RELEASE_ENVIRONMENT === undefined ? 'staging' : env.RELEASE_ENVIRONMENT;
-  requireThat(['staging', 'production'].includes(environment), 'fixed managed tier required');
-  requireThat(SHA.test(env.SOURCE_REVISION ?? ''), 'full source SHA required');
-  requireThat(typeof env.TRUST_RELEASE === 'string' && env.TRUST_RELEASE.length <= 4096, 'public trust release required');
-  const trust = JSON.parse(env.TRUST_RELEASE);
+function trustRelease(value) {
+  requireThat(typeof value === 'string' && value.length <= 4096, 'public trust release required');
+  const trust = JSON.parse(value);
   // The request is five scalars; reject duplicate/escaped-duplicate keys too.
-  const keys = [...env.TRUST_RELEASE.matchAll(/("(?:[^"\\]|\\.)*")\s*:/g)].map(match => JSON.parse(match[1]));
+  const keys = [...value.matchAll(/("(?:[^"\\]|\\.)*")\s*:/g)].map(match => JSON.parse(match[1]));
   requireThat(keys.length === 5 && new Set(keys).size === 5, 'duplicate trust release field refused');
   requireThat(exact(trust, ['source_commit', 'image_run', 'trust_run', 'publisher_commit', 'asset_sha256'])
     && typeof trust.source_commit === 'string' && SHA.test(trust.source_commit)
     && typeof trust.publisher_commit === 'string' && SHA.test(trust.publisher_commit)
     && typeof trust.asset_sha256 === 'string' && HASH.test(trust.asset_sha256)
     && integer(trust.image_run) && integer(trust.trust_run), 'closed public trust release required');
+  return trust;
+}
+function verifyApprovedTrust(input, env) {
+  let approved;
+  try { approved = trustRelease(env.APPROVED_TRUST_RELEASE); }
+  catch { fail('hold: trust change; missing or invalid independently approved tier trust'); }
+  requireThat(Object.keys(approved).every(key => approved[key] === input.trust[key]),
+    'hold: trust change; requested trust differs from independently approved tier trust');
+}
+export function inputs(env) {
+  const environment = env.RELEASE_ENVIRONMENT === undefined ? 'staging' : env.RELEASE_ENVIRONMENT;
+  requireThat(['staging', 'production'].includes(environment), 'fixed managed tier required');
+  requireThat(SHA.test(env.SOURCE_REVISION ?? ''), 'full source SHA required');
+  const trust = trustRelease(env.TRUST_RELEASE);
   return { environment, source: env.SOURCE_REVISION, ciId: positive(env.CI_RUN_ID), ciAttempt: positive(env.CI_RUN_ATTEMPT),
     logId: positive(env.LOG_RUN_ID), logAttempt: positive(env.LOG_RUN_ATTEMPT), trust };
 }
@@ -89,9 +111,10 @@ export function publisher(env, input) {
   requireThat(input.environment === (env.RELEASE_ENVIRONMENT ?? 'staging')
     && env.GITHUB_REPOSITORY === REPOSITORY && env.GITHUB_REF === 'refs/heads/main'
     && env.GITHUB_REF_PROTECTED === 'true' && env.GITHUB_EVENT_NAME === 'workflow_dispatch'
-    && env.GITHUB_ACTOR === 'callumalpass' && env.GITHUB_TRIGGERING_ACTOR === 'callumalpass'
+    && authorizedPublisher(env.GITHUB_ACTOR, env.GITHUB_TRIGGERING_ACTOR)
     && env.GITHUB_WORKFLOW_REF === `${REPOSITORY}/.github/workflows/${WORKFLOW}@refs/heads/main`
-    && env.GITHUB_SHA === input.source, 'exact protected-main owner dispatch/source required');
+    && env.GITHUB_SHA === input.source, 'exact protected-main owner or release-App dispatch/source required');
+  verifyApprovedTrust(input, env);
   return { repository: REPOSITORY, workflow: WORKFLOW, run_id: positive(env.GITHUB_RUN_ID),
     run_attempt: positive(env.GITHUB_RUN_ATTEMPT), publisher_commit: input.source };
 }
@@ -99,7 +122,7 @@ export function gate(input, api = gh, list = pages) {
   const ci = () => {
     const run = api(`repos/${REPOSITORY}/actions/runs/${input.ciId}`);
     verifyRun(run, { id: input.ciId, attempt: input.ciAttempt, source: input.source }, CI_WORKFLOW);
-    // Main owner dispatches use the same mandatory execution-job gate below.
+    // Main dispatches use the same mandatory execution-job gate below.
     requireThat(['push', 'workflow_dispatch'].includes(run.event), 'full source CI must be a main push or dispatch');
   };
   const log = () => verifyRun(api(`repos/${REPOSITORY}/actions/runs/${input.logId}`),
@@ -206,5 +229,9 @@ function main() {
   else requireThat(process.argv[2] === 'verify', 'unknown workflow operation');
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  try { main(); } catch { console.error('Managed Worker publication refused: source, qualification, authenticated trust or frozen inventory mismatch'); process.exitCode = 1; }
+  try { main(); } catch (error) {
+    console.error(error.message.startsWith('hold: trust change;') ? error.message
+      : 'Managed Worker publication refused: source, qualification, authenticated trust or frozen inventory mismatch');
+    process.exitCode = 1;
+  }
 }

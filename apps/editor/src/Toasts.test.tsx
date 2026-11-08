@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from "./test/locale";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildToastItems, ToastStack } from "./Toasts";
+import { buildToastItems } from "./Toasts";
+import { Toaster } from "@mdbase-dev/ui/toast";
 
 afterEach(() => vi.useRealTimers());
 
@@ -8,11 +9,11 @@ describe("Undo notifications", () => {
   it("announces deletion, offers a focusable Undo and expires after 30 seconds even across rerenders", () => {
     vi.useFakeTimers();
     const undo = vi.fn(), dismiss = vi.fn();
-    const items = () => buildToastItems({ recoveryMessage: "Deleted note.", recoveryBusy: false, onUndo: undo, hasPendingRename: false, onResumeRename: vi.fn() });
-    const view = render(<ToastStack toasts={items()} onDismiss={dismiss} />);
+    const items = () => buildToastItems({ recoveryId: "recovery", recoveryMessage: "Deleted note.", recoveryBusy: false, onUndo: undo, hasPendingRename: false, onResumeRename: vi.fn() });
+    const view = render(<Toaster items={items()} onDismiss={dismiss} />);
     expect(screen.getByRole("status")).toHaveTextContent("Deleted note.");
     act(() => vi.advanceTimersByTime(15_000));
-    view.rerender(<ToastStack toasts={items()} onDismiss={dismiss} />);
+    view.rerender(<Toaster items={items()} onDismiss={dismiss} />);
     act(() => vi.advanceTimersByTime(14_999));
     expect(dismiss).not.toHaveBeenCalled();
     act(() => vi.advanceTimersByTime(1));
@@ -24,7 +25,7 @@ describe("Undo notifications", () => {
   it("pauses while Undo has focus, and Escape dismisses without stealing focus", () => {
     vi.useFakeTimers();
     const dismiss = vi.fn();
-    render(<ToastStack toasts={[{ id: "undo", message: "Moved note.", tone: "success", action: { label: "Undo", onAction: vi.fn() } }]} onDismiss={dismiss} />);
+    render(<Toaster items={[{ id: "undo", message: "Moved note.", tone: "success", action: { label: "Undo", onAction: vi.fn() } }]} onDismiss={dismiss} />);
     act(() => screen.getByRole("button", { name: "Undo" }).focus());
     act(() => vi.advanceTimersByTime(7000));
     expect(dismiss).not.toHaveBeenCalled();
@@ -36,7 +37,7 @@ describe("Undo notifications", () => {
   it("does not dismiss while a modal owns Escape or an Undo request is in flight", () => {
     vi.useFakeTimers();
     const dismiss = vi.fn();
-    render(<><div role="dialog" /><ToastStack toasts={[{ id: "undo", message: "Moving", tone: "success", action: { label: "Undoing", busy: true, onAction: vi.fn() } }]} onDismiss={dismiss} /></>);
+    render(<><div role="dialog" /><Toaster items={[{ id: "undo", message: "Moving", tone: "success", action: { label: "Undoing", busy: true, onAction: vi.fn() } }]} onDismiss={dismiss} /></>);
     fireEvent.keyDown(window, { key: "Escape" });
     act(() => vi.advanceTimersByTime(7000));
     expect(dismiss).not.toHaveBeenCalled();

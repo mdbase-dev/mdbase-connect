@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { generateKeyPairSync, randomUUID, sign, verify } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDatabase } from "./db.js";
@@ -13,6 +13,8 @@ import {
   resolvePolicyAppliedAck
 } from "./relay-policy.js";
 import type { DatabasePool } from "./database-types.js";
+import { testApplicationAuthorization } from "./application-authorization.test-helper.js";
+import { clientNoiseKeyMessage, verifiedClientNoiseKey } from "./features/next/client-key.js";
 
 const databases: DatabasePool[] = [];
 afterEach(async () => {
@@ -81,6 +83,67 @@ describe("connector policy stage diagnostics", () => {
 });
 
 describe("connector policy sequence", () => {
+  it.each([false, true])("delivers canonical client-key attestations without changing stored grants (native=%s)", async native => {
+    const fixture = JSON.parse(readFileSync(new URL(
+      "../../../test-fixtures/protocol-v1-policy-canonical.json", import.meta.url
+    ), "utf8"));
+    const source = fixture.db_like_grants[0];
+    const signing = generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const point = signing.publicKey.export({ format: "jwk" });
+    const publicKey = Buffer.concat([Buffer.of(4), Buffer.from(point.x!, "base64url"), Buffer.from(point.y!, "base64url")]);
+    const proof = await testApplicationAuthorization({
+      applicationId: source.application_id, applicationDeclarationId: "dev.mdbase.policy-test",
+      applicationManifestDigest: "a".repeat(64), flow: "device_code", codeChallenge: Buffer.alloc(32, 1).toString("base64url"),
+      requestedOperations: ["read"], semanticCapabilityContractVersion: 1, grantSigningPublicKey: publicKey.toString("base64url")
+    });
+    const clientKey = Buffer.alloc(32, 12);
+    const message = clientNoiseKeyMessage(proof.binding.authorization_id, clientKey);
+    const signature = sign("sha256", message, { key: signing.privateKey, dsaEncoding: "ieee-p1363" });
+    const order = BigInt("0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551");
+    const scalar = BigInt(`0x${signature.subarray(32).toString("hex")}`);
+    const low = scalar <= order / 2n ? scalar : order - scalar;
+    const lowSignature = Buffer.concat([signature.subarray(0, 32), Buffer.from(low.toString(16).padStart(64, "0"), "hex")]);
+    const highSignature = Buffer.concat([signature.subarray(0, 32), Buffer.from((order - low).toString(16).padStart(64, "0"), "hex")]);
+    const project = async (storedSignature: Buffer) => {
+      const grant = { ...source, local_id: source.collection_id, next_bound: native,
+        client_pk: clientKey, client_key_signature: storedSignature, application_authorization: proof };
+      const query = vi.fn(async (sql: string) => ({ rows: sql.includes("RETURNING policy_sequence")
+        ? [{ policy_sequence: "1", database_now: "2026-11-01T00:00:00Z" }]
+        : sql.includes("FROM grants g") && sql.includes("WHERE g.next_collection_id IS NOT NULL") === native ? [grant] : [] }));
+      const db = { connect: async () => ({ query, release: vi.fn() }) } as unknown as DatabasePool;
+      const snapshot = await buildPolicySnapshot(db, source.id, 60_000, undefined, () => true, "lease_v1", false, true);
+      expect(snapshot?.grants).toHaveLength(1);
+      expect(query.mock.calls.every(([sql]) => !sql.includes("UPDATE next_grant_client_keys"))).toBe(true);
+      return snapshot!;
+    };
+    const snapshots = [];
+    for (const storedSignature of [lowSignature, highSignature]) {
+      const attested = verifiedClientNoiseKey(JSON.stringify({ public_key: clientKey.toString("base64url"), signature: storedSignature.toString("base64url") }), proof.binding)!;
+      const snapshot = await project(storedSignature);
+      const delivered = snapshot!.grants[0];
+      expect(delivered.client_key_signature).toBe(lowSignature.toString("base64url"));
+      expect(delivered.client_pk).toBe(clientKey.toString("hex"));
+      expect(delivered.application_authorization).toEqual(proof);
+      expect(verify("sha256", message, { key: signing.publicKey, dsaEncoding: "ieee-p1363" }, Buffer.from(delivered.client_key_signature as string, "base64url"))).toBe(true);
+      expect(attested.signature.equals(storedSignature)).toBe(true);
+      snapshots.push(snapshot);
+    }
+    expect(snapshots[0]!.revision).toBe(snapshots[1]!.revision);
+    for (const invalid of [
+      Buffer.alloc(63),
+      Buffer.concat([signature.subarray(0, 32), Buffer.alloc(32)]),
+      Buffer.concat([signature.subarray(0, 32), Buffer.from(order.toString(16), "hex")]),
+      Buffer.alloc(64, 255)
+    ]) {
+      expect(() => verifiedClientNoiseKey(JSON.stringify({ public_key: clientKey.toString("base64url"), signature: invalid.toString("base64url") }), proof.binding)).toThrow();
+      expect((await project(invalid)).grants[0].client_key_signature).toBe(invalid.toString("base64url"));
+    }
+    const tampered = Buffer.from(highSignature);
+    tampered[0] = tampered[0]! ^ 1;
+    const delivered = (await project(tampered)).grants[0].client_key_signature as string;
+    expect(verify("sha256", message, { key: signing.publicKey, dsaEncoding: "ieee-p1363" }, Buffer.from(delivered, "base64url"))).toBe(false);
+  });
+
   it("matches the shared Rust protocol-v1 canonical fixture", () => {
     const fixture = JSON.parse(readFileSync(new URL(
       "../../../test-fixtures/protocol-v1-policy-canonical.json",

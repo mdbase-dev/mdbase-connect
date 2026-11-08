@@ -1,7 +1,11 @@
 # Source-built SDK publication
 
-The SDK follows the Connect release version and is published from its exact
-annotated tag only after independent production verification. Existing apps
+The SDK uses an independent CI-computed version and publishes changed qualified
+main source after production-contract compatibility checks. See
+[continuous SDK publication](continuous-sdk-release.md) for triggers, selection,
+stop/recovery controls and required environment-policy setup. Editor authenticates its committed production original against npm integrity
+and provenance and uses the same version's attested staging asset. See
+[Editor continuous deployment](../apps/editor/NATIVE_PUBLISHER.md). Other apps
 keep their current originals until their guarded npm intake migration lands.
 
 ## Decision: separate package identities, build-time trust (model a)
@@ -12,7 +16,7 @@ keep their current originals until their guarded npm intake migration lands.
 | Staging | `@mdbase-dev/sdk-staging` | `sdk-v<version>/sdk-staging.tgz` prerelease asset | Staging only |
 | LAB | `@mdbase-dev/sdk-lab` | `sdk-v<version>/sdk-lab.tgz` prerelease asset | LAB only |
 
-Only production goes to `registry.npmjs.org`, initially with the `next` tag.
+Only production goes to `registry.npmjs.org`, with the `latest` tag.
 Dist-tags are discovery pointers, **not security boundaries**. Production apps
 pin a version, never a tag/range; staging/LAB pin the exact prerelease asset URL
 and lockfile integrity. These internal-environment packages are publicly
@@ -44,8 +48,10 @@ a production declaration paired with staging/LAB release metadata.
 This is not a claim that JavaScript can defend against an app deliberately
 replacing its entire dependency or rewriting its bundle. Production publishers
 must admit only the production package name, exact version, frozen-lock SRI and
-verified npm provenance, and reject every alias, URL/tarball specifier,
-linked/workspace SDK, patched source and installed-member drift. The shared
+verified npm provenance. Editor retains a committed original archive plus
+repin-generated metadata, authenticated against that exact npm version; this is
+not an arbitrary tarball override. Reject unverified aliases, URLs/archives,
+linked/workspace SDKs, patched source and installed-member drift. The shared
 `production-version` admission command accepts only an exact npm version; the
 first consumer migrations must wire this into their protected publishers before
 installing, and verify the lock resolves to npmjs. Preserve the complete
@@ -73,7 +79,17 @@ The rebuilt `runtime.wasm` must match both length and SHA-256 in
 `runtime/packages/sdk/src/application/asset-pins.json`. SQLite WASM and
 initializer keep their existing committed pins and package-lock integrity.
 A source change producing different WASM fails until reviewed pins are
-updated; CI must not auto-bless its output. No WASM ABI, wire protocol, bundled
+updated; CI must not auto-bless its output. When updating pins, match the
+workflow's Rust path remapping as well as its pinned tools and optimizer flags:
+map the compiler host's checkout root to `/source` and Cargo home to `/cargo`.
+Source paths can survive WASM stripping, so builds without these mappings do not
+produce publication-compatible bytes. Verify the corrected pins with the actual
+`scripts/sdk-publication.mjs pack-all` cold-consumer and archive checks.
+After committing runtime changes and rebuilding `cargo xtask wasm-app` with
+those mappings, run `node scripts/sdk-publication.mjs pin-runtime` to regenerate
+the runtime integrity pin and its served-method inventory. Review that diff;
+this is an explicit maintainer command, never an automatic CI acceptance step.
+No WASM ABI, wire protocol, bundled
 `connect-protocol` dependency or protocol version is changed here. Keep that
 exact bundled protocol and its archive for cold consumers; removing it needs
 separate compatibility work, not an incidental publication cleanup.
@@ -81,20 +97,19 @@ separate compatibility work, not an incidental publication cleanup.
 `dist/native/provenance.json` binds the SDK producer commit, environment,
 reviewed trust context and runtime pin. It replaces per-app SDK-original facts,
 not release/grant authority. The GitHub artifact attestation binds the exact
-packed tarball to this version-tag workflow; npm `--provenance` additionally binds
+packed tarball to this exact main-ref workflow; npm `--provenance` additionally binds
 the registry publication. Neither proves deployment, current CP membership or
 per-app operations. Review of the committed pin is the trust authorization for
 this source build; this is not an invented Ops handoff/signature receipt.
 
 Every live publication requires the exact commit's successful full Server CI
-and Runtime CI, `ready: true`, the matching annotated version tag and an explicit
-non-dry-run dispatch with the full `production_verified_commit` SHA.
-The shared `verify-client-publication.mjs` checks the remote annotated tag and
-fixed canonical production health/readiness immediately before each publication.
-The protected `npm-sdk` environment admits only `v0.1.0-beta.*` tags; it has no
-human reviewer, matching the unattended release policy.
-The first release-preparation commit must include the final SDK version/pin
-updates so Runtime CI is triggered for that exact SHA; a documentation-only
+and Runtime CI, `ready: true`, and production-compatible contract axes. Green main
+changes publish automatically; manual dispatches default to dry-run. The shared
+continuous-client gate checks fixed canonical production health/readiness and
+source ancestry/diffs immediately before publication, without a human-typed SHA.
+The owner must allow main in the existing `npm-sdk` environment policy; this PR
+does not change the environment or add a human reviewer/token fallback.
+Source/pin changes must pass Runtime CI for that exact SHA; a documentation-only
 successor without Runtime CI cannot reuse an older commit's qualification.
 The build job has no OIDC permission. The production publisher verifies and
 publishes only the fixed `sdk-production.tgz`, unchanged, with scripts disabled,
@@ -102,20 +117,18 @@ explicit npmjs registry and OIDC provenance. Nonproduction tarballs cannot match
 that command's path or production package/registry admission checks. A conflicting
 npm version is an error, never a skip.
 
-Owner setup: npm trusted publishing cannot create a package. For the first
-publication only, after production verification and review of the exact CI-built
-`sdk-production.tgz`, the scope owner creates a short-lived granular token with
-publish rights restricted to `@mdbase-dev` and stores it directly as
-`NPM_SDK_BOOTSTRAP_TOKEN` on `npm-sdk`. The publisher uses that credential only
-when supplied, with the same `--provenance` command and all production gates.
-Never publish a placeholder or use an interactive local SDK publish.
+The publisher authenticates through GitHub OIDC alone, using **one npm trusted
+publisher** for `@mdbase-dev/sdk`: owner `mdbase-dev`, repository
+`mdbase-connect`, workflow `publish-sdk-npm.yml`, environment `npm-sdk`. It has
+no token binding or token fallback. The npm package must disallow token
+publishing. The scope owner confirmed this trusted publisher on 2026-11-01.
 
-After the first publish, configure **one npm trusted publisher**, for
-`@mdbase-dev/sdk` only: owner `mdbase-dev`, repository `mdbase-connect`, workflow
-`publish-sdk-npm.yml`, environment `npm-sdk`. Disallow token publishing, revoke
-the token and delete the environment secret. Immediately merge a follow-up PR
-removing the workflow's bootstrap `NODE_AUTH_TOKEN` binding; normal publication
-then uses GitHub OIDC alone. Do not create npm trusted publishers or registry
+The protected beta.149 tag retains the one-time bootstrap binding used for the
+first package publication, with the same exact-archive checks and `--provenance`
+command. After successful publication, the owner revoked the short-lived
+bootstrap token and deleted `NPM_SDK_BOOTSTRAP_TOKEN` from `npm-sdk`. That
+historical tag is not modified. Never publish a placeholder or use an
+interactive local SDK publish. Do not create npm trusted publishers or registry
 entries for staging/LAB.
 
 ### Pinned staging/LAB prerelease
@@ -129,7 +142,8 @@ as one run-local transfer artifact. It has no npm setup or credentials.
 `publish-internal` runs only after the verified `npm-sdk` production publish
 succeeds, so a dry or failed run never consumes a
 `sdk-v<version>` tag. It downloads those four fixed files. Its only granted permission
-is `contents: write`: no OIDC, attestation-write, packages permission or npm
+includes `contents: write` and `actions: read` for the stop check: no OIDC,
+attestation-write, packages permission or npm
 credentials. GitHub's contents permission is repository-scoped, not per-release;
 the script limits its writes to one newly created `sdk-v<version>` tag/release
 and its fixed assets. It does not modify any other release or a latest pointer.
@@ -150,8 +164,8 @@ rechecks the tag SHA, then publishes with `prerelease: true` and
 Latest status. No update/delete operation on an existing tag or asset exists.
 
 A partial failure stops: do not delete, retarget, replace or automatically replay
-the same version. An owner must investigate and prepare a new version if the
-tag was already created. The npm and prerelease jobs are not a transaction; one
+the same version. A release agent reconciles it until the outcome is known,
+records the evidence, and prepares a new version if the tag was already created. The npm and prerelease jobs are not a transaction; one
 may succeed while the other fails. Neither is silently republished or repaired.
 
 The active repository tag ruleset blocks updates and deletions of `v*` and
@@ -163,14 +177,14 @@ published releases are not retroactively locked. See
 Consumers must still pin the exact URL and lockfile integrity and verify the
 attached attestation against the reviewed producer SHA.
 
-The workflow defaults to `dry_run: true`. PRs and dry-run dispatches build and
-verify all three packages without npm credentials, attestations or publication.
-The live dispatch selects the existing release tag, for example:
+Manual dispatch defaults to `dry_run: true`. PRs and changed-package dry runs
+build and verify all three packages without npm credentials, attestations or
+publication. Healthy main changes publish automatically. A live dispatch is on
+main, for example:
 
 ```sh
 gh workflow run publish-sdk-npm.yml --repo mdbase-dev/mdbase-connect \
-  --ref v0.1.0-beta.149 -f dry_run=false \
-  -f production_verified_commit=<full independently verified product SHA>
+  --ref main -f dry_run=false
 ```
 
 A stale WASM pin or failed consumer test remains a failure, never an
@@ -179,14 +193,19 @@ no production or publication authority.
 
 ## Versioning and consumption
 
-The SDK version is the Connect release version: beta.149 publishes
-`@mdbase-dev/sdk@0.1.0-beta.149`. `pnpm version:set` updates the SDK manifest,
-npm lock and Obsidian runtime's SDK peer/local lock together. The three
-environment packages share that version; their package names distinguish trust.
-Every trust/native/protocol/code change needs a new release version. Provenance
-binds its exact producer SHA. The Obsidian runtime's own version remains
-independent. Stable SDK versions and the first `latest` promotion need a
-separate owner decision.
+CI computes `0.1.0-beta.N` above every published SDK version and the source
+manifest version. It stamps the root and SDK manifests only in the build
+workspace, after frozen installs; no version PR, hand-created tag or human
+version input is needed. Server release-preparation versions are no longer SDK
+publication authority. The three environment packages share the computed
+version; their package names distinguish trust. The internal `sdk-v<version>`
+tag records the original main producer SHA after npm publication; it is not a
+source-version commit. The Obsidian runtime's own version remains independent.
+Continuous delivery moves `latest` on every publish. A package only moves when
+it has a qualified change, so an unchanged package keeps its older `latest`. The
+`next` tag is retired: nothing reads it, and it stays frozen on npm because
+removing a tag needs an interactive login. Versions below are illustrative
+historical pins, not latest selectors.
 
 Production manifest:
 
@@ -209,9 +228,10 @@ also checks the matching attached Sigstore bundle against the expected repo,
 downloaded tarball/bundle can be checked with `gh attestation verify <tarball>
 --bundle <bundle> --repo mdbase-dev/mdbase-connect --signer-workflow
 mdbase-dev/mdbase-connect/.github/workflows/publish-sdk-npm.yml --source-ref
-refs/tags/v0.1.0-beta.149 --source-digest <producer-SHA>`.
+refs/heads/main --source-digest <producer-SHA>`. Use the exact producer workflow
+ref recorded for that version (a protected version tag for tag-built versions).
 
-Native/web production publishers must reject these URLs and all aliases,
+Production publishers must reject staging/LAB URLs and all unverified aliases,
 including a URL claiming to contain the production package. Retain their
 target-origin/declaration checks. Do not dynamically select an
 environment at runtime, retarget production roots, or fall back to production
@@ -224,6 +244,30 @@ archive facts and Dockerfile SHA values no longer need parallel repins. CI
 derives the allowed npm package or exact environment asset URL from that dependency and checks
 the lock's SRI rather than maintaining a second version/integrity inventory.
 
+## Editor consumption and deployment
+
+Editor uses its ordinary manifest, matching `vendor/sdk-production-*.json`
+metadata/facts and frozen lock as its SDK pin. The central ops repin writes
+those inputs and must not preserve publisher fixtures or separate native
+approvals. The guard discovers the matching metadata from the manifest, checks
+its bytes against the committed archive and npm, verifies npm provenance, and
+compares all installed members before execution. UI version/integrity comes
+only from the manifest and lock; protocol uses its committed file pin.
+
+Staging derives the same SDK version's exact `sdk-staging.tgz` and bundle URL,
+checks both release digests, and verifies the repository, publication workflow,
+producer ref and commit with `gh attestation verify`. Its unprivileged frozen
+install substitutes only that authenticated SDK and integrity. The packaged
+trust hash must match the release-components contract and the protected
+`EDITOR_TRUST_ASSET_SHA256` for the target. Repins never change that variable.
+
+The ops server pipeline dispatches Editor on main with an immutable source SHA
+reachable from main. Main advancing is allowed. Production alias verification
+failure triggers the Pages rollback API to the captured prior deployment,
+verifies the restored alias, retains a receipt and fails the job. This static
+rollback does not change any SDK version, trust roots, policy keys or registry
+release. See `apps/editor/NATIVE_PUBLISHER.md` for the full procedure.
+
 ## Migration dependency, deletions and rollback
 
 PRs 1075 and 1080 brought Connect `runtime/` up to the production hosted source
@@ -233,10 +277,11 @@ cold/browser/native consumer gates. `sdkPublication.ready` records source-build
 qualification; it never substitutes for staging acceptance, production
 verification or unchanged production trust.
 
-The beta.149 application pin is 3,720,400 bytes, SHA-256
-`643eef6203bc7d394c76f9e305faa8977ea97785758b9cb076efda05d4f4d83f`,
+The application pin is 3,732,264 bytes, SHA-256
+`34079d5404c501b28069779a37f38ca84febc704074a8bafd607b6595925a076`,
 built with Rust 1.94.0 and the locked Binaryen optimizer from the runtime inputs
-at `e161f426a521c39adf8ca057255fa940338f7de4`, including PR 982. The build uses
+at `bf558f23da9d53cb361c495d36a5bcb619f4cc4e`, including PRs 1099, 1110, 1108,
+1100, 1119, 1123 and 1124 (beta.149 shipped 3,720,400 bytes, `643eef62…`, from `e161f426`). The build uses
 the SDK publication workflow's canonical source and Cargo path remaps. Qualification
 includes canonical verification of all three trust assets, the actual-WASM
 SQLite/backfill smokes and cold installs/typechecks of all three packed variants.
@@ -257,7 +302,7 @@ this is a source audit, not live promotion qualification.
 
 Consumer follow-ups, only after the first qualified npm/prerelease cut:
 
-1. Migrate Editor, Reader and TaskNotes individually with the existing protected
+1. Migrate Reader and TaskNotes individually with the existing protected
    build/upload isolation, target admission, installed-member checks and served
    byte verification retained. Use PR 1068's npm UI intake as the starting point.
 2. In each migrated app delete the SDK `file:` dependency, SDK-original `.tgz`,
@@ -276,9 +321,9 @@ Read-only consumer inspection on October 30, 2026 found Reader's
 `packages/connect/package.json` still on `sdk-dce61ff5-production-beta141.tgz`
 with `packages/connect/vendor/sdk-production-beta141.json` using the old facts
 schema, and TaskNotes' `config/native-publish/production.json` still recording
-`sdk-eaa4e697-production-beta141.tgz` and its facts hash. Editor's configs and
-vendor record do the same. These repos/pins are deliberately not migrated by
-this PR. No one-line bump is safe until their first npm-intake migration lands.
+`sdk-eaa4e697-production-beta141.tgz` and its facts hash. Those consumers need
+their own authenticated intake migration. Editor uses the authenticated
+metadata/archive path described above.
 
 Production rollback is an exact prior npm version and frozen lock. Staging/LAB
 rollback is the exact prior **same-environment** version's asset URL and its

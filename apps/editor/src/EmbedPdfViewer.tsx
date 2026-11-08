@@ -17,7 +17,7 @@ export function EmbedPdfViewer({ src, filename }: { src: string; filename: strin
           theme: { preference: "system" },
           fonts: {
             ui: {
-              family: '"Atkinson Hyperlegible", system-ui, sans-serif',
+              family: '"IBM Plex Sans", system-ui, sans-serif',
               stylesheetUrl: null
             },
             signature: null

@@ -1,6 +1,8 @@
 use super::*;
 use crate::value::Map;
-use crate::views::bases::{BasesTimezone, CapturedClock, CapturedFile, CapturedFileBindings};
+use crate::views::bases::{
+    BasesTimezone, CapturedClock, CapturedFile, CapturedFileBindings, SourceTags,
+};
 #[test]
 fn task_profile_filter_boundary_preserves_required_file_preflight_even_when_lazy() {
     let source = Value::string("false && file.hasTag('task')");
@@ -35,7 +37,7 @@ fn task_profile_global_tags_and_local_captured_date_filter_use_one_meter() {
     let zone = BasesTimezone::capture("UTC", &mut budget).unwrap();
     let clock = CapturedClock::new(1781075828070, zone, &mut budget).unwrap();
     let file = CapturedFile::new("Tasks/Today.md", Some(60), None, None, &mut budget).unwrap();
-    let tags = vec!["task/subtask".into()];
+    let tags = SourceTags::exact(vec!["task/subtask".into()]);
     let facts = CapturedFileBindings::capture(&file, Some(&tags), &mut budget).unwrap();
     let note = Map::from_iter([
         ("due".into(), Value::string("2026-06-10")),

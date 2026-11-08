@@ -1,4 +1,5 @@
-//! A retained earlier-SEM tail, signed and encrypted, replayed on fresh replicas.
+//! A SEM bump with all four native kinds in the retained tail, signed and
+//! encrypted, replayed on current-SEM replicas that reopen and cold-join.
 use mdbn_replica::{
     crypto::{TestEntropy, blob, keys::Keyring},
     log::{LogClient, LogRequest},
@@ -32,7 +33,10 @@ use crate::{
     world::{HookCfg, World},
 };
 
-/// Keep all four native kinds in the tail while fresh current-SEM nodes join.
+/// Keep all four native kinds in the tail while fresh current-SEM nodes join. The
+/// writers planned under the previous registered SEM and the next minor, as builds
+/// either side of a bump interleave in one log; consecutive seeds swap which entry
+/// has which, so two seeds put every kind on both sides.
 pub fn run(world: &mut World) -> String {
     let collection = B16([0x73; 16]);
     let device = B16([0x20; 16]);
@@ -202,10 +206,23 @@ pub fn run(world: &mut World) -> String {
             doc: Text::Inline("small\n".into()),
         })],
     ));
-    for (ops, effects) in tail {
+    let current = mdbn_core::semantics::SEM;
+    let rows = mdbn_core::semantics::SEMANTICS;
+    let previous = rows[rows.len() - 2].sem;
+    let sems = [
+        Version {
+            major: previous.major,
+            minor: previous.minor,
+        },
+        Version {
+            major: current.major,
+            minor: current.minor + 1,
+        },
+    ];
+    for (index, (ops, effects)) in tail.into_iter().enumerate() {
         let (seq, chain) = log.head(&collection);
         let payload = rt::EntryPayload {
-            sem: Version { major: 1, minor: 0 },
+            sem: sems[(index + world.seed as usize) % sems.len()],
             mutation: rt::Mutation {
                 id: B16([seq as u8; 16]),
                 origin: B16([0x70; 16]),
@@ -276,7 +293,7 @@ pub fn run(world: &mut World) -> String {
     if !world.quiesce(200, 5, 60_000) {
         world.shared.violate(
             Kind::NoQuiesce,
-            "earlier-SEM replicas did not settle".into(),
+            "replicas across a SEM bump did not settle".into(),
         );
     }
     let target = log.head(&collection).0;
@@ -299,6 +316,7 @@ pub fn run(world: &mut World) -> String {
             || records.len() != 2
             || files.len() != 1
             || policy.voids != 0
+            || replica.stats.verify_mismatch != 0
             || records.iter().any(|row| row.doc != "small\n")
             || !records
                 .iter()
@@ -316,7 +334,10 @@ pub fn run(world: &mut World) -> String {
         {
             world.shared.violate(
                 Kind::Divergence,
-                format!("earlier-SEM replica stopped: {:?}", replica.sync_status()),
+                format!(
+                    "replica stopped across a SEM bump: {:?}",
+                    replica.sync_status()
+                ),
             );
         }
         let files = files
@@ -326,9 +347,10 @@ pub fn run(world: &mut World) -> String {
         digests.push((replica.head(), records, files));
     }
     if digests.windows(2).any(|pair| pair[0] != pair[1]) {
-        world
-            .shared
-            .violate(Kind::Divergence, "earlier-SEM replicas disagree".into());
+        world.shared.violate(
+            Kind::Divergence,
+            "replicas across a SEM bump disagree".into(),
+        );
     }
     format!("{{\"replicas\":3,\"head\":{target},\"native_kinds\":4,\"records\":2,\"files\":1}}")
 }
@@ -336,18 +358,20 @@ pub fn run(world: &mut World) -> String {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn retained_previous_sem_native_tail_converges() {
-        let report = crate::scenario::run_seed(
-            "semantics-retained-native",
-            73,
-            &crate::scenario::Opts::default(),
-        )
-        .unwrap();
-        assert!(report.violations.is_empty(), "{report:?}");
-        assert_eq!(
-            report.state,
-            include_str!("../../../../conformance/determinism/retained-native.expected.json")
-                .trim()
-        );
+    fn sem_bump_native_tail_converges() {
+        for seed in [73, 74] {
+            let report = crate::scenario::run_seed(
+                "semantics-retained-native",
+                seed,
+                &crate::scenario::Opts::default(),
+            )
+            .unwrap();
+            assert!(report.violations.is_empty(), "{report:?}");
+            assert_eq!(
+                report.state,
+                include_str!("../../../../conformance/determinism/retained-native.expected.json")
+                    .trim()
+            );
+        }
     }
 }

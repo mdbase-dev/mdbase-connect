@@ -171,6 +171,7 @@ update = {
   ? 9: text,                        ; body_base_text: that body, when the writer may not retain it
   ? 10: [+ base-field],             ; base: observed values of the touched keys
   ? 11: hash,                       ; if_revision: opt-in CAS on the whole document
+  ? 12: bool,                       ; update_refs: rewrite inbound links on path-stored moves (default true)
 }
 body-edit = [start: uint, end: uint, insert: tstr]   ; offsets in Unicode scalar values of the base body
 ```
@@ -194,6 +195,17 @@ Spec 12 defines `patch`, `unset`, `add`, `remove`, `body`, `body_edits` with
 
   SDKs SHOULD send `base` for every key they set from a value they read. Without it,
   concurrent field edits silently last-writer-win by log order.
+- **Path-stored fields.** Values declared in `collection.path.fields` are persisted
+  in the path, never frontmatter. Patching one (or lifecycle assigning one) derives
+  the new path after `on_update`; unsetting one fails with `path_value_missing`.
+  Matching spans are replaced without changing non-stored placeholder text; an
+  undecodable current path is derived in full. Another holder at the target key
+  fails with `path_conflict`, never a suffixed value. A case-only change respells
+  the same record. The edit, move and inbound rewrites form one atomic operation,
+  naming the moved record only once. `update_refs` defaults to true, like rename;
+  false leaves references unchanged. Results carry the new record `path` and
+  `references_updated` in the same form as rename. Observed stored-field bases
+  refer to decoded persisted values, not missing physical YAML keys.
 - **`add` / `remove`** need no base. They apply to the current value and commute
   (spec 12, SC2).
 - **Body replacement with a base.** `body` with `body_base` (and optionally
@@ -220,6 +232,12 @@ Spec 12 defines `patch`, `unset`, `add`, `remove`, `body`, `body_edits` with
 - **Update of an unknown record** (no record, no tombstone) is `not_found`.
 
 ### 3.3 `document`
+
+For API replacements, a path-stored key in the supplied frontmatter is a value
+assignment: normalize it, move if needed, then remove the key from emitted YAML.
+Omitted stored keys are read from the supplied path. This operation has no
+`update_refs` option and does not rewrite inbound links. External document
+observations retain their exact bytes/path; values follow the observed path.
 
 ```cddl
 document = {
@@ -279,6 +297,10 @@ delete = {
   `applied`, no effects). Deletes are idempotent.
 
 ### 3.5 `rename`
+
+For a type with path-stored fields, every stored field must decode from the
+new path; otherwise reject with `path_value_missing` naming that field. A
+successful rename changes the values by decoding, without writing YAML keys.
 
 ```cddl
 rename = {

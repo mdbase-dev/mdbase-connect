@@ -23,6 +23,7 @@ import { HostedAuthorityRegistry } from "./hosted.js";
 import { ProviderRevocationWorker } from "./hosted-capability-lifecycle.js";
 import { drainDeferredAccountDeletions } from "./account-management.js";
 import { LogServiceClient } from "./features/next/log-service-client.js";
+import { FileQuotaWorker, ObjectGcWorker } from "./features/next/storage-usage.js";
 import { PolicyEmitter } from "./features/next/policy-outbox.js";
 import { activatePendingServices } from "./features/next/service-activation.js";
 import { registerCloudCopyRoutes } from "./features/next/cloud-copy-bootstrap.js";
@@ -40,6 +41,7 @@ import { registerPrearchiveMigrationRoutes } from "./features/next/migration-pre
 import { registerMigrationReplicaRoutes } from "./features/next/migration-replicas.js";
 import { registerMigrationTimerCleanupRoute } from "./features/next/migration-timer-cleanup.js";
 import { registerMigrationRouteRetireRoute } from "./features/next/migration-routing.js";
+import { registerHostingMoveRoutes } from "./features/next/hosting-moves.js";
 import { registerPolicyRecoveryRoutes } from "./features/next/policy-recovery-routes.js";
 import { registerLabFixtureRoutes } from "./features/next/lab-fixture-routes.js";
 import { validateLabFixtureConfig } from "./features/next/lab-fixture-config.js";
@@ -235,6 +237,28 @@ export async function buildApp(options: BuildOptions) {
     options.db,
     (error) => app.log.error({ err: error }, "usage retention worker failed")
   );
+  const objectGc = options.nextControlPlane?.objectGc
+    ? new ObjectGcWorker(
+        options.db,
+        new LogServiceClient(options.nextControlPlane.logService),
+        (error) => app.log.error({ err: error }, "object gc worker failed")
+      )
+    : undefined;
+  const fileQuotaMode = options.nextControlPlane?.fileQuota;
+  const fileQuota = fileQuotaMode
+    ? new FileQuotaWorker(
+        options.db,
+        new LogServiceClient(options.nextControlPlane!.logService),
+        fileQuotaMode,
+        (allocation) => {
+          // Uploads are refused once the files reach the plan.
+          if (allocation.shareBytes === 0 && allocation.collections > 0) {
+            app.log.info({ ...allocation, mode: fileQuotaMode }, "account has no file storage left");
+          }
+        },
+        (error) => app.log.error({ err: error }, "file quota worker failed")
+      )
+    : undefined;
   if (options.hostedProvider && options.hostedReferenceAuthority) {
     throw new Error("Hosted provider and reference authority modes are mutually exclusive.");
   }
@@ -284,6 +308,11 @@ export async function buildApp(options: BuildOptions) {
         Date.now,
         serviceDeployments
           ? (collectionId) => activatePendingServices(options.db, serviceDeployments, undefined, collectionId, options.nextControlPlane!.logService.labPitr, options.nextControlPlane!.migrationRouting)
+          : undefined,
+        (sweep) => app.log.info(sweep, "mdbase-next policy verification sweep"),
+        fileQuotaMode === "enforce"
+          ? (collectionId) => void fileQuota!.allocateCollection(collectionId).catch((error: unknown) =>
+              app.log.error({ err: error, collectionId }, "file quota allocation failed"))
           : undefined
       )
     : undefined;
@@ -350,6 +379,8 @@ export async function buildApp(options: BuildOptions) {
   app.addHook("onClose", async () => {
     await scheduledEmails?.close();
     await usageRetention.close();
+    await objectGc?.close();
+    await fileQuota?.close();
     await applicationReconciliation.close();
     await providerRevocations?.close();
     await authorityTransferRecovery?.close();
@@ -646,6 +677,9 @@ export async function buildApp(options: BuildOptions) {
         environment: options.environment, provider: options.hostedProvider });
       if (options.nextControlPlane.migrationRouting) registerMigrationRouteRetireRoute(app, { db: options.db,
         token: options.nextControlPlane.migrationToken, routing: options.nextControlPlane.migrationRouting });
+      if (options.nextControlPlane.migrationRouting && options.nextControlPlane.cloudCopyBootstrap) registerHostingMoveRoutes(app, { db: options.db,
+        token: options.nextControlPlane.migrationToken, routing: options.nextControlPlane.migrationRouting,
+        hosted: options.nextControlPlane.cloudCopyBootstrap.hosted });
     }
     if (options.nextControlPlane.cloudCopyBootstrap) registerCloudCopyRoutes(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, deletionFloor: nextLog, tailscaleAuth: options.tailscaleAuth });
     if (options.nextControlPlane.privateBootstrap) registerPrivateCollectionRoutes(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, deletionFloor: nextLog });
@@ -675,6 +709,7 @@ export async function buildApp(options: BuildOptions) {
     publicUrl,
     authenticationPolicy,
     tailscaleAuth: options.tailscaleAuth,
+    ...(options.nextControlPlane ? { nextLog: new LogServiceClient(options.nextControlPlane.logService) } : {}),
     nativeCollectionCreation: Boolean(options.nextControlPlane?.cloudCopyBootstrap),
     hostedCollections: options.hostedCollections,
     hostedSharing: options.hostedSharing,
@@ -690,6 +725,7 @@ export async function buildApp(options: BuildOptions) {
     publicUrl,
     tailscaleAuth: options.tailscaleAuth,
     hostedCollections: options.hostedCollections,
+    nativeCollectionCreation: Boolean(options.nextControlPlane?.cloudCopyBootstrap),
     hostedProvider: options.hostedProvider,
     drainProviderRevocations: async () => {
       await providerRevocations?.drain();
@@ -723,6 +759,8 @@ export async function buildApp(options: BuildOptions) {
 
   scheduledEmails?.start();
   usageRetention.start();
+  objectGc?.start();
+  fileQuota?.start();
 
   return { app, relay, timers };
 }

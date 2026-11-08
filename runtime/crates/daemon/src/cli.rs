@@ -19,8 +19,8 @@ use serde_json::{Value, json};
 
 use crate::client::{self, ClientError, ControlClient};
 use crate::control::{
-    Check, CollectionStatus, ConflictSummary, ControlError, DaemonStatus, HoldSummary, Method,
-    PendingDevice,
+    AddCollection, Check, CollectionStatus, ConflictSummary, ControlError, DaemonStatus,
+    HoldSummary, Method, PendingDevice,
 };
 use crate::paths::Profile;
 use crate::registry::SyncMode;
@@ -176,6 +176,10 @@ enum CollectionCmd {
         /// Display name (default: the folder name).
         #[arg(long)]
         name: Option<String>,
+        /// Remove an `x-mdbase-connect` identity from the folder's mdbase.yaml that
+        /// no mdbase Connect on this computer manages (a copied or removed folder).
+        #[arg(long)]
+        remove_legacy_identity: bool,
     },
     /// Join one of your account's collections into an empty folder on this computer.
     Join {
@@ -245,8 +249,8 @@ enum SyncCmd {
     Enable {
         /// Collection ID, ID prefix or name.
         collection: String,
-        /// `private` or `cloud-copy`. Default: `private` for a folder with files
-        /// or a taken-over collection, `cloud-copy` for an empty folder.
+        /// `private` or `cloud-copy`. Default: `cloud-copy`, or `private` for a
+        /// collection taken over from today's connector.
         #[arg(long, value_enum)]
         mode: Option<SyncKind>,
         /// Turn sync on although files are still held from the takeover, keeping
@@ -269,6 +273,25 @@ enum SyncCmd {
     },
     /// Current collection-mode request and progress.
     ModeStatus { collection: String },
+    /// Show which files the collection syncs, or replace that choice with `--set`
+    /// for every device. Files already synced stay where they are.
+    Files {
+        /// Collection ID, ID prefix or name.
+        collection: String,
+        /// Replace the policy; options left out mean everything syncs.
+        #[arg(long)]
+        set: bool,
+        /// File types that sync: image, audio, video, pdf, other; empty for notes
+        /// only. Default: all.
+        #[arg(long, value_delimiter = ',', requires = "set")]
+        types: Option<Vec<String>>,
+        /// A folder to leave out (repeatable).
+        #[arg(long, requires = "set")]
+        exclude: Vec<String>,
+        /// Leave out files larger than this many bytes.
+        #[arg(long, requires = "set")]
+        max_size: Option<u64>,
+    },
     /// Move the log back to this device (local only).
     Disable {
         /// Collection ID, ID prefix or name.
@@ -294,8 +317,9 @@ enum AccountCmd {
     /// Sign in: approve this computer in your browser.
     SignIn {
         /// Server: only this build's environment (production builds:
-        /// https://connect.mdbase.dev; LAB builds: https://connect-lab.mdbase.dev),
-        /// which is also the default.
+        /// https://connect.mdbase.dev; staging builds:
+        /// https://connect-staging.mdbase.dev; LAB builds:
+        /// https://connect-lab.mdbase.dev), which is also the default.
         #[arg(long)]
         server: Option<String>,
     },
@@ -760,14 +784,32 @@ async fn run_command(
             }
             Ok(ExitCode::SUCCESS)
         }
-        Command::Collection(CollectionCmd::Add { path, name }) => {
+        Command::Collection(CollectionCmd::Add {
+            path,
+            name,
+            remove_legacy_identity,
+        }) => {
             let path = std::path::absolute(&path).map_err(ClientError::Io)?;
             let v = call(
                 profile,
                 Method::COLLECTION_ADD,
-                json!({ "path": path, "name": name }),
+                json!(AddCollection {
+                    path,
+                    name,
+                    remove_legacy_identity,
+                }),
             )
-            .await?;
+            .await
+            .map_err(|e| match e {
+                ClientError::Remote(mut err)
+                    if err.reason.as_deref() == Some("orphaned_legacy_identity") =>
+                {
+                    err.message
+                        .push_str(" (add it with `--remove-legacy-identity` to remove the key)");
+                    ClientError::Remote(err)
+                }
+                e => e,
+            })?;
             if out.json {
                 out.value(&v);
             } else {
@@ -1059,6 +1101,33 @@ async fn run_command(
                 Method::COLLECTION_MODE_STATUS,
                 &collection,
                 json!({}),
+            )
+            .await
+        }
+        Command::Sync(SyncCmd::Files {
+            collection,
+            set: false,
+            ..
+        }) => simple(profile, out, Method::SYNC_FILES, &collection, json!({})).await,
+        Command::Sync(SyncCmd::Files {
+            collection,
+            set: true,
+            types,
+            exclude,
+            max_size,
+        }) => {
+            let include: Vec<String> = match types {
+                Some(t) => t.into_iter().filter(|t| !t.is_empty()).collect(),
+                None => ["image", "audio", "video", "pdf", "other"]
+                    .map(String::from)
+                    .to_vec(),
+            };
+            simple(
+                profile,
+                out,
+                Method::SYNC_FILES_SET,
+                &collection,
+                json!({ "include": include, "exclude": exclude, "max_size": max_size }),
             )
             .await
         }
@@ -1687,49 +1756,6 @@ fn print_status(s: &DaemonStatus) {
     }
 }
 
-fn collection_state_text(
-    state: crate::control::CollectionState,
-    sync: Option<&crate::control::SyncCounters>,
-) -> String {
-    if state == crate::control::CollectionState::Ready
-        && sync.is_some_and(|s| s.pending > 0 || s.resyncing)
-    {
-        return "syncing".into();
-    }
-    serde_json::to_value(state)
-        .ok()
-        .and_then(|v| v.as_str().map(str::to_string))
-        .unwrap_or_default()
-}
-
-#[cfg(test)]
-mod progress_tests {
-    #[test]
-    fn unfinished_sync_is_displayed_without_changing_serving_readiness() {
-        use crate::control::{CollectionState, SyncCounters};
-        let mut sync: SyncCounters = serde_json::from_value(serde_json::json!({
-            "confirmed_through":1,"head_known":1,"pending":1,"holds":0,
-            "unresolved":0,"connection":"online"
-        }))
-        .unwrap();
-        assert_eq!(
-            super::collection_state_text(CollectionState::Ready, Some(&sync)),
-            "syncing"
-        );
-        sync.pending = 0;
-        assert_eq!(
-            super::collection_state_text(CollectionState::Ready, Some(&sync)),
-            "ready"
-        );
-        sync.connection = "offline".into();
-        sync.pending = 1;
-        assert_eq!(
-            super::collection_state_text(CollectionState::Ready, Some(&sync)),
-            "syncing"
-        );
-    }
-}
-
 fn display_code(code: &str) -> String {
     if code.len() == 6 && code.bytes().all(|b| b.is_ascii_digit()) {
         format!("{} {}", &code[..3], &code[3..])
@@ -1744,7 +1770,10 @@ fn print_collection(c: &CollectionStatus) {
         SyncMode::Synced => "synced",
         SyncMode::SyncedE2e => "synced, end-to-end encrypted",
     };
-    let state = collection_state_text(c.state, c.sync.as_ref());
+    let state = serde_json::to_value(c.state)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default();
     let reason = c
         .reason
         .as_deref()
@@ -2102,6 +2131,9 @@ fn account_problem(reason: &str) -> &'static str {
             "this computer's secure storage is unavailable; unlock the keychain or restart mdbase"
         }
         "account_state" => "the account settings could not be saved; check free disk space",
+        "environment_mismatch" => {
+            "this computer is signed in to a different mdbase environment than this build; sign out and sign in again"
+        }
         "account_cleanup_failed" => "signing out did not finish; sign out again",
         _ => "this computer could not connect to the account; mdbase keeps trying while running",
     }
@@ -2110,6 +2142,43 @@ fn account_problem(reason: &str) -> &'static str {
 #[cfg(test)]
 mod mode_cli_tests {
     use super::*;
+    #[test]
+    fn sync_files_only_sets_with_an_explicit_flag() {
+        let cli = Cli::try_parse_from(["mdbase", "sync", "files", "notes"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Sync(SyncCmd::Files { set: false, .. })
+        ));
+        assert!(
+            Cli::try_parse_from(["mdbase", "sync", "files", "notes", "--types", "pdf"]).is_err()
+        );
+        let cli = Cli::try_parse_from([
+            "mdbase",
+            "sync",
+            "files",
+            "notes",
+            "--set",
+            "--types",
+            "image,pdf",
+            "--exclude",
+            "Videos",
+            "--max-size",
+            "10",
+        ])
+        .unwrap();
+        let Command::Sync(SyncCmd::Files {
+            types,
+            exclude,
+            max_size,
+            ..
+        }) = cli.command
+        else {
+            panic!("not sync files");
+        };
+        assert_eq!(types, Some(vec!["image".into(), "pdf".into()]));
+        assert_eq!(exclude, ["Videos"]);
+        assert_eq!(max_size, Some(10));
+    }
     #[test]
     fn mode_commands_preserve_explicit_target_and_resume() {
         let cli = Cli::try_parse_from([

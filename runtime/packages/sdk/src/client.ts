@@ -258,6 +258,8 @@ export interface CreateInput {
 }
 
 export interface UpdateInput {
+  /** Rewrite inbound links on path-stored field moves (default true). */
+  updateRefs?: boolean;
   /** Set these top-level keys. */
   patch?: Map<string, PlainValue> | { [k: string]: PlainValue | undefined };
   unset?: string[];
@@ -661,14 +663,12 @@ export class MdbaseClient {
           return new MdbaseClient(opts, session);
         } catch (e) {
           if (signal?.aborted) throw stopped();
-          // 4403 is an authority refusal, NOT pending. Only the fixed pre-live
-          // Native pipe close may defer this original next-relay initial hello.
-          const pending = nextRelay && isMdbaseError(e, "unavailable") && e.reason === "grant_inactive"
-            && e.details instanceof Map && e.details.get("relayCloseCode") === 4000;
+          const pending = nextRelay && isMdbaseError(e, "unavailable")
+            && (e.reason === "grant_lease_expired" || e.reason === "authorization_unavailable");
           if (!(pending || opts.waitForDevice && isMdbaseError(e, "unavailable") && e.reason === "no_device_online")) throw e;
           if (pending && !deadline) {
             deadline = new AbortController();
-            timeout = mdbaseError("unavailable", "The approved grant did not become live within 30 seconds", { reason: "grant_activation_timeout", details: e.details });
+            timeout = mdbaseError("unavailable", "The approved grant did not become live within 30 seconds", { reason: "grant_activation_timeout", details: e.toProblem().details });
             signal = opts.signal ? AbortSignal.any([opts.signal, deadline.signal]) : deadline.signal;
             timer = setTimeout(() => deadline!.abort(), 30_000);
           }
@@ -692,7 +692,7 @@ export class MdbaseClient {
       versions: API_VERSIONS,
       clientName: opts.app.name,
       clientVersion: opts.app.version,
-      features: [...new Set([...(opts.features ?? []), "declared-collection-setup-v1"])],
+      features: [...new Set([...(opts.features ?? []), "declared-collection-setup-v1", "file-stream-failure-v1"])],
       ...(tz ? { timezone: tz } : {}),
     };
   }
@@ -1448,6 +1448,9 @@ export class MdbaseClient {
         continue;
       }
       signal?.throwIfAborted();
+      if (page.hasMore && !page.cursor) {
+        throw mdbaseError("invalid_request", "Query requires offset paging", "query_cursor_required");
+      }
       yield page;
       pagesYielded++;
       if (!page.cursor) return;
@@ -1799,6 +1802,7 @@ export class MdbaseClient {
     if (plan.patch.size) op.patch = plan.patch;
     if (plan.unset.length) op.unset = plan.unset;
     if (plan.base.length) op.base = plan.base;
+    if (c.updateRefs !== undefined) op.updateRefs = c.updateRefs;
     if (c.ifRevision) op.ifRevision = c.ifRevision;
     return this.one(op, o);
   }
@@ -1808,6 +1812,7 @@ export class MdbaseClient {
     if (c.contract || c.promote) throw mdbaseError("invalid_request", "contract updates are mapped by the replica; use update()");
     const op: Op & { kind: "update" } = { kind: "update", id: refId(target) };
     const seen = typeof target === "object" && "frontmatter" in target ? (target as RecordView) : null;
+    if (c.updateRefs !== undefined) op.updateRefs = c.updateRefs;
     if (c.patch) op.patch = toFmMap(c.patch);
     if (c.unset?.length) op.unset = c.unset;
     if (c.add) op.add = new Map(Object.entries(c.add).map(([k, v]) => [k, v.map(toValue)]));

@@ -124,7 +124,7 @@ record-view = {
   0: uuid,               ; id
   1: path,
   2: hash,               ; revision of the exact bytes
-  3: fm-map,             ; frontmatter (persisted)
+  3: fm-map,             ; frontmatter (persisted logical values, including decoded path fields)
   ? 4: fm-map,           ; effective_frontmatter (spec 03; on request)
   ? 5: tstr,             ; body (on request)
   ? 6: tstr,             ; document: exact source (on request)
@@ -132,6 +132,7 @@ record-view = {
   8: record-state,
   ? 9: [* issue],        ; diagnostics (on request)
   ? 10: fm-map,          ; values: canonical select output (order is in columns)
+  ? 11: int,             ; mtime: capture time of the last confirmed byte change, milliseconds
 }
 record-state = {
   0: &( confirmed: 0, pending: 1 ),   ; pending: the local view includes unconfirmed changes
@@ -145,6 +146,19 @@ issue = { 0: tstr, 1: &( warning: 0, error: 1 ), 2: tstr, ? 3: value }   ; code,
 Reads return the **local view**: confirmed state plus this replica's pending mutations.
 That is the optimistic view an app wants to display. `record-state` says which parts
 are not yet confirmed.
+
+### 3.1 Capture time
+
+`mtime` is the `op-clock.instant` of the mutation that last changed the record's
+bytes, in milliseconds since the Unix epoch. Every replica stamps it when applying
+that mutation, so it is the writing device's capture clock, not a device file mtime
+or a log timestamp. A rename or a write of identical bytes keeps the existing time.
+A record whose latest change is pending reports its last confirmed time.
+
+Absent means unknown: the record has not changed since adoption or since a replica
+that predates the field built the snapshot this replica installed. It is never
+inferred from a host stat, sequence or snapshot time, is not part of the state
+digest, and is not exposed as `file.mtime` to queries or Bases.
 
 ## 4. Reads, live queries and change feeds
 
@@ -833,7 +847,7 @@ recovery = &( fix_request: 0, refresh: 1, resolve_conflict: 2, reauthorize: 3,
 | 5 | `unauthenticated` | `reauthorize` | no or expired session, or a grant revoked during the session | — |
 | 6 | `forbidden` | `reauthorize` | the grant lacks the capability, or the member's role doesn't allow it | `details.capability` |
 | 7 | `collection_invalid` | `repair_collection` | the catalog can't be loaded, so writes can't be planned | `issues` of the config and type files |
-| 8 | `unavailable` | `retry` | the replica is starting, moving its lease, or not reachable (no route, relay down, no device online in an end-to-end collection) | `retry_after_ms` |
+| 8 | `unavailable` | `retry` | the replica is starting, moving its lease, its renewable grant lease has lapsed, or it is not reachable (no route, relay down, no device online in an end-to-end collection) | `grant_lease_expired`; `retry_after_ms` |
 | 9 | `rate_limited` | `retry` | the session is over its request or presence limits | `retry_after_ms` |
 | 10 | `quota_exceeded` | `free_space` | the collection is over its storage quota; new content can't be confirmed | — |
 | 11 | `too_large` | `fix_request` | a request, op count, presence state or file over its limit | `details.limit` |
@@ -1021,8 +1035,17 @@ transfer-progress = {
   2: uint,               ; bytes done
   3: uint,               ; bytes total
 }
+file-stream-failed = {   ; push, only with the granted `file-stream-failure-v1`
+  0: uint,               ; stream ID
+  1: problem,            ; why; no `last` chunk will follow
+}
 ```
 
+- **Failure.** A read that cannot complete ends its stream, not the session. With
+  `file-stream-failure-v1` granted, the replica releases the stream and sends
+  `file-stream-failed`; it may overtake the `read_file` response, and other operations
+  are unaffected. Without the feature it closes the session with `closed`, because such
+  a client would otherwise wait forever for a `last` chunk.
 - **Pinning.** A download reads one blob for its whole life. A concurrent replacement
   doesn't disturb it: blobs are immutable, and GC keeps replaced blobs until the
   horizon.
@@ -1288,6 +1311,20 @@ policy item.
 - **Lifetime.** Sessions end after 24 hours, or 2^30 messages, whichever comes first.
   The client then reconnects with a new handshake. A grant revocation closes them
   immediately (`policy.md` §7).
+  A renewable local grant lease lapse instead refuses `hello` and closes existing
+  sessions with `unavailable`, reason `grant_lease_expired`, recovery `retry`, and
+  `retry_after_ms: 1000`. It is not revoked consent. Pending approval, local denial,
+  unknown grants and account/key mismatches retain their precise terminal reasons.
+  Relay pipes carry the same lapse reason with existing close code 4000; terminal
+  local consent refusals use existing 4403. N-1 SDK (beta.151) decodes the ordinary
+  Problem as retryable; it treats an unknown 4000 reason as `unavailable` /
+  `pipe_closed` and reconnects, while 4403 remains terminal `forbidden`.
+  The native daemon acknowledges a control-plane feed snapshot as `policy_applied`
+  only after persisting its grants and cursor together and completing session
+  rechecks. A failed save (including failure after rename) clears all serving
+  leases and keeps the in-memory cursor at the last successful commit. Identical
+  redelivery retries persistence; storage recovery needs no restart. A duplicate
+  of an already durable cursor is an ACK retry, not a lease renewal.
 - **The relay** is a dumb pipe. It pairs the client's connection with the target
   replica's relay connection by session ID, and forwards opaque Noise messages. It
   sees who connects to which replica, sizes and timing, never content.

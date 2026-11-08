@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import "../../test/dialog.js";
 import type { Mdbase, MdbasePhase, MdbaseSnapshot } from "@mdbase-dev/sdk";
 import { describeError } from "@mdbase-dev/sdk/describe";
 import { readFileSync, readdirSync } from "node:fs";
@@ -15,6 +16,15 @@ const A = "11111111-1111-4111-8111-111111111111";
 const B = "22222222-2222-4222-8222-222222222222";
 const C = "33333333-3333-4333-8333-333333333333";
 const app = { name: "TaskNotes" };
+
+it("Try again reopens the failed collection instead of repeating idempotent start", async () => {
+  const problem = describeError("unavailable")!;
+  const fixture = fakeMdbase({ kind: "problem", collectionId: A, problem }, { status: "blocked", selectedCollectionId: A });
+  await act(async () => root.render(<CollectionGate mdbase={fixture.entry} app={app} autoStart={false}>{() => null}</CollectionGate>));
+  await act(async () => button("Try again").click());
+  expect(fixture.mdbase.select).toHaveBeenCalledWith(A, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  expect(fixture.mdbase.start).not.toHaveBeenCalled();
+});
 
 function fakeMdbase(phase: MdbasePhase, extra: Partial<MdbaseSnapshot> = {}) {
   let value = {
@@ -78,7 +88,53 @@ const button = (name: string | RegExp) => {
 };
 const key = (element: Element, value: string) => act(() => { element.dispatchEvent(new KeyboardEvent("keydown", { key: value, bubbles: true })); });
 
+it("replaces Add with one quota notice and clears it when collection count changes", async () => {
+  const { mdbase, entry, set } = fakeMdbase({ kind: "choosing" });
+  mdbase.addCollection.mockRejectedValue(Object.assign(new Error("quota"), { code: "account_collection_quota_exceeded" }));
+  await act(async () => root.render(<CollectionGate mdbase={entry} app={app}>{() => null}</CollectionGate>));
+  await act(async () => button("Add a collection…").click());
+  expect(() => button("Add a collection…")).toThrow();
+  expect(container.querySelectorAll(".mdbase-collections-notice")).toHaveLength(1);
+  const notice = container.querySelector(".mdbase-collections-notice")!;
+  expect(notice.closest(".mdbase-collections-actions")).not.toBeNull();
+  act(() => set({ collections: entry.getSnapshot().collections.slice(1) }));
+  expect(container.querySelector(".mdbase-collections-notice")).toBeNull();
+  expect(button("Add a collection…")).toBeDefined();
+});
+
+it("does not clear unrelated action errors when collection count changes", async () => {
+  const { mdbase, entry, set } = fakeMdbase({ kind: "choosing" });
+  mdbase.addCollection.mockRejectedValue(Object.assign(new Error("offline"), { code: "unavailable" }));
+  await act(async () => root.render(<CollectionGate mdbase={entry} app={app}>{() => null}</CollectionGate>));
+  await act(async () => button("Add a collection…").click());
+  const text = container.querySelector(".mdbase-collections-notice")!.textContent;
+  act(() => set({ collections: entry.getSnapshot().collections.slice(1) }));
+  expect(container.querySelector(".mdbase-collections-notice")?.textContent).toBe(text);
+});
+
+it("clears only the quota action error after the approved collection count changes", async () => {
+  const { mdbase, entry, set } = fakeMdbase({ kind: "choosing", lastApproval: null });
+  mdbase.addCollection.mockRejectedValue(Object.assign(new Error("quota"), { code: "account_collection_quota_exceeded" }));
+  let ui!: ReturnType<typeof useCollectionUi>;
+  function Host() { ui = useCollectionUi({ mdbase: entry, app }); return null; }
+  await act(async () => root.render(<Host />));
+  await act(async () => ui.actions.addCollection());
+  expect(ui.error?.key).toBe("account_collection_quota_exceeded");
+  act(() => set({ collections: [...entry.getSnapshot().collections] }));
+  expect(ui.error?.key).toBe("account_collection_quota_exceeded");
+  act(() => set({ collections: entry.getSnapshot().collections.slice(1) }));
+  expect(ui.error).toBeNull();
+});
+
 describe("opening presentation", () => {
+  it.each(["signed_out", "starting"] as const)("owns exactly one page landmark while %s", (kind) => {
+    const { entry } = fakeMdbase(kind === "signed_out" ? { kind, notice: null } : { kind });
+    render(<CollectionGate mdbase={entry} app={app} autoStart={false}>{() => null}</CollectionGate>);
+    expect(container.querySelectorAll("main")).toHaveLength(1);
+    expect(container.querySelector("main")).toBe(container.firstElementChild);
+    expect(container.querySelectorAll("main main")).toHaveLength(0);
+  });
+
   it.each(["page", "panel"] as const)("preserves programmatic focus on visible and hidden %s headings", (layout) => {
     const { entry, set } = fakeMdbase({ kind: "starting" }, { status: "starting", signIn: null });
     render(<CollectionGate mdbase={entry} app={app} layout={layout}>{() => null}</CollectionGate>);
@@ -302,6 +358,18 @@ describe("SDK storage and Private states", () => {
 });
 
 describe("setup review", () => {
+  it.each(["page", "panel"] as const)("uses consecutive %s setup headings without repeating the lead", async (layout) => {
+    const { mdbase, entry } = fakeMdbase({ kind: "needs_setup", collectionId: A, collection: { collectionId: A, displayName: "Alpha", role: "owner" } } as MdbasePhase);
+    mdbase.setup.plan.mockResolvedValue({ status: "setup", canApply: true, digest: "d", summary: "One readable setup summary.",
+      changes: [{ kind: "create", target: "_types/task.md", message: "Add the task type." }],
+      conflicts: [{ target: "_types/note.md", message: "Review the note type." }], adoptable: {}, packs: [], staged: [], records: [] } as never);
+    await act(async () => root.render(<CollectionGate mdbase={entry} app={app} layout={layout}>{() => null}</CollectionGate>));
+    expect(container.querySelector(".mdbase-collections-lead")).toBeNull();
+    expect([...container.querySelectorAll(".mdbase-collections-setup-section > :first-child")].map(heading => heading.tagName))
+      .toEqual(layout === "page" ? ["H2", "H2"] : ["H3", "H3"]);
+    expect(container.querySelector(".mdbase-collections-setup-summary")?.textContent).toBe("One readable setup summary.");
+  });
+
   it("plans again by itself while setup is busy elsewhere, instead of stopping at Try again", async () => {
     vi.useFakeTimers();
     try {
@@ -349,6 +417,28 @@ describe("setup review without a way forward", () => {
     await flush();
     expect(container.textContent).toContain("The note type for this app was changed outside this app.");
     expect(button("Try again")).toBeTruthy();
+  });
+
+  it("offers the app's version for a starter note type no upgrade applies to, never only Try again", async () => {
+    const { mdbase, entry } = fakeMdbase(needsSetup, { status: "setup_required", selectedCollectionId: A });
+    const live = `sha256:${"ab".repeat(32)}`;
+    const message = "One item differs from what this app needs. Choose whether to use this app's version to continue.";
+    mdbase.setup.plan.mockResolvedValueOnce({ ...base, status: "conflict", canApply: false, summary: message, adoptable: { "_types/task.md": live },
+      conflicts: [{ target: "_types/task.md", adoptable: { digest: live },
+        message: "Your note type for this app has changes that can't be combined with the version this app needs. You can replace it with this app's version." }],
+      refusal: { code: "setup_conflict", message } } as never).mockResolvedValueOnce({ ...base, status: "setup", canApply: true,
+      summary: "This app will make 1 change to this collection.", staged: [{ path: "_types/task.md", document: "app's" }],
+      changes: [{ kind: "adopt", target: "_types/task.md", message: "Replace the note type for this app with this app's version. Yours isn't kept." }] } as never);
+    render(<CollectionGate mdbase={entry} app={app}>{() => null}</CollectionGate>);
+    await flush();
+    expect(container.textContent).toContain("can't be combined with the version this app needs");
+    expect(() => button("Try again")).toThrow();
+    expect(() => button("Set up")).toThrow();
+    act(() => button("Use TaskNotes's version").click());
+    await flush();
+    expect(mdbase.setup.plan).toHaveBeenLastCalledWith(expect.objectContaining({ adopt: { "_types/task.md": live } }));
+    expect(container.textContent).toContain("Yours isn't kept.");
+    expect(button("Set up")).toBeTruthy();
   });
 
   it("plans again quietly when readiness settles after a change, keeping the review on screen", async () => {
@@ -408,7 +498,7 @@ describe("switcher keyboard", () => {
 
     act(() => trigger.click());
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
-    expect(document.querySelector("[role=dialog]")?.getAttribute("aria-label")).toBe("Collections");
+    expect(document.getElementById(document.querySelector("[role=dialog]")!.getAttribute("aria-labelledby")!)?.textContent).toBe("Collections");
     const radios = [...document.querySelectorAll<HTMLElement>("[role=radio]")];
     expect(radios.map((radio) => radio.getAttribute("aria-checked"))).toEqual(["true", "false", "false"]);
     expect(document.activeElement).toBe(radios[0]);
@@ -442,7 +532,7 @@ describe("controlled switcher", () => {
     render(<CollectionSwitcher mdbase={entry} app={app} open onOpenChange={onOpenChange} />);
     const trigger = button("Switch collection, current: Beta");
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
-    expect(document.querySelector("[role=dialog]")?.getAttribute("aria-label")).toBe("Collections");
+    expect(document.getElementById(document.querySelector("[role=dialog]")!.getAttribute("aria-labelledby")!)?.textContent).toBe("Collections");
 
     key(document.activeElement!, "Escape");
     expect(onOpenChange).toHaveBeenLastCalledWith(false);
@@ -501,7 +591,7 @@ describe("controlled switcher", () => {
     expect(document.activeElement).toBe(anchorRef.current);
   });
 
-  it("opens the bottom sheet on narrow screens with variant none, and closes back to the anchor", () => {
+  it("opens the shared modal on narrow screens with variant none, and closes back to the anchor", () => {
     const { entry } = ready();
     vi.stubGlobal("matchMedia", (query: string) => ({ matches: true, media: query, addEventListener: () => {}, removeEventListener: () => {} }));
     try {
@@ -509,7 +599,7 @@ describe("controlled switcher", () => {
       document.body.append(anchor);
       const onOpenChange = vi.fn();
       render(<CollectionSwitcher mdbase={entry} app={app} variant="none" anchorRef={{ current: anchor }} open onOpenChange={onOpenChange} />);
-      const sheet = document.querySelector("dialog.mdbase-collections-sheet");
+      const sheet = document.querySelector("dialog.mdbase-collections-switcher-dialog");
       expect(sheet).not.toBeNull();
       expect(document.activeElement?.getAttribute("aria-checked")).toBe("true");
       act(() => button("Close").click());
@@ -584,7 +674,7 @@ describe("sign out", () => {
     await act(async () => { button("Sign out").click(); });
     const dialog = document.querySelector("dialog")!;
     expect(dialog.textContent).toContain("Changes are still saving");
-    act(() => button("Sign out anyway").click());
+    await act(async () => button("Sign out anyway").click());
     expect(mdbase.signOut).toHaveBeenLastCalledWith(expect.objectContaining({ discard: true }));
   });
 });
@@ -623,6 +713,8 @@ describe("delete outcome", () => {
     const onClose = vi.fn();
     mdbase.deleteCollection.mockImplementationOnce(() => Promise.reject(Object.assign(new Error("no"), { code: "forbidden" })));
     render(<Host entry={entry} onClose={onClose} />);
+    expect(document.activeElement).toBe(document.querySelector("dialog input"));
+    expect(button("Delete collection").disabled).toBe(true);
     typeName();
     await act(async () => { button("Delete collection").click(); });
     act(() => button("Cancel").click());
@@ -752,9 +844,11 @@ describe("section item actions", () => {
 describe("styles", () => {
   it("suppresses only noninteractive heading outlines and retains control focus-visible rings", () => {
     const css = readFileSync(join(import.meta.dirname, "../../css/collections.css"), "utf8");
+    expect(css).toContain('@import "./tokens.css";');
+    expect(css).toContain('@import "./controls.css";');
     expect(css).toMatch(/:is\(h1, h2\)\.mdbase-collections-heading\[tabindex="-1"\]:focus,\s*:is\(h1, h2\)\.mdbase-collections-visually-hidden\[tabindex="-1"\]:focus\s*\{\s*outline: none;/);
     expect(css).not.toMatch(/\.mdbase-collections-heading:focus-visible/);
-    expect(css).toMatch(/\.mdbase-collections-button:focus-visible,[\s\S]*?\.mdbase-collections-field:focus-visible\s*\{\s*outline: 2px solid var\(--_accent\);/);
+    expect(css).toMatch(/\.mdbase-collections-button:focus-visible,[\s\S]*?\.mdbase-collections-field:focus-visible\s*\{\s*outline: var\(--focus-ring\);/);
   });
 
   it("defines every collections class the components use", () => {

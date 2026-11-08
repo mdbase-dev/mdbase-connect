@@ -11,6 +11,15 @@
 
 .editor-private-problem { margin: 0; color: var(--danger); }
 
+.mdbase-collections .mdbase-collections-notice:not(.is-banner) {
+  border-left: 1px solid var(--line);
+  padding-left: 16px;
+}
+.mdbase-collections .mdbase-collections-notice.is-inline { padding-left: 14px; }
+.mdbase-collections-notice[data-tone="warning"] { background: var(--warning-soft); }
+.mdbase-collections-notice[data-tone="error"] { background: var(--danger-soft); }
+.mdbase-collections-notice[data-tone="info"] { background: var(--accent-soft); }
+
 /* In the rail header the switcher names the open collection. */
 .rail-collection-heading .editor-collection-switcher { width: 100%; }
 .rail-collection-heading .editor-collection-switcher .mdbase-collections-trigger { width: 100%; margin-left: -8px; }

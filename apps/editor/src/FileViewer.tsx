@@ -1,8 +1,8 @@
 import { Trans } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
-import { useId, type ReactNode } from "react";
-import { Dialog } from "./Dialog";
+import type { ReactNode } from "react";
+import { Dialog } from "@mdbase-dev/ui/dialog";
 import { ArrowLeftIcon as ArrowLeft, FileIcon as File, XIcon as X } from "./icons";
 import { isReadOnlyMarkdownFile, type FileAssetSnapshot } from "./file-asset-store";
 import { ReadOnlyMarkdown } from "./read-only-markdown";
@@ -42,11 +42,9 @@ export function FileViewer({ asset, onClose }: {
   onClose: () => void;
 }) {
   useLingui();
-  const titleId = useId();
   if (!asset) return null;
   const filename = collectionFileTitle(asset.file);
-  return <Dialog className="file-viewer" titleId={titleId} onClose={onClose}>
-    <h1 className="sr-only" id={titleId}><Trans>Preview {filename}</Trans></h1>
+  return <Dialog open className="file-viewer" title={t`Preview ${filename}`} onClose={onClose}>
     <header><div><strong>{filename}</strong><span>{asset.file.path}</span></div><a href={asset.url} target="_blank" rel="noreferrer"><Trans>Open original</Trans></a><button className="icon-button" aria-label={t`Close file preview`} onClick={onClose} data-autofocus><X aria-hidden="true" /></button></header>
     <div className={`file-viewer-content file-viewer-${isReadOnlyMarkdownFile(asset.file) ? "markdown" : asset.file.mediaClass}`}><FileContent asset={asset} /></div>
   </Dialog>;

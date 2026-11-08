@@ -13,6 +13,21 @@ import { chooseOption, optionsOf } from "./test/select";
 afterEach(() => vi.useRealTimers());
 
 describe("recursive type builder", () => {
+  it("reviews description-only changes once with their concrete impact", async () => {
+    const user = userEvent.setup();
+    render(<InspectorHarness />);
+    const description = screen.getByRole("textbox", { name: "Description" });
+    await user.clear(description);
+    await user.type(description, "A clearer description.");
+    await user.click(screen.getByRole("button", { name: "Review changes" }));
+    expect(screen.getAllByRole("heading", { name: "Review type changes" })).toHaveLength(1);
+    expect(screen.getByText("Description changed")).toBeVisible();
+    expect(screen.getByText("Existing note contents and fields stay unchanged.")).toBeVisible();
+    expect(screen.getByText(/Impact is based on the currently indexed notes/)).toBeVisible();
+    expect(screen.queryByText("Update this type?")).not.toBeInTheDocument();
+    expect(screen.queryByText("The source changed without altering declared fields.")).not.toBeInTheDocument();
+  });
+
   it("does not mistake an unread definition for invalid YAML, but reports invalid loaded source", () => {
     const props = {
       type: { name: "note", schema: {}, extensions: {} },
@@ -79,7 +94,7 @@ describe("recursive type builder", () => {
 
     const membership = screen.getByRole("heading", { name: "Which notes use this type" }).closest<HTMLDetailsElement>("details")!;
     const behaviour = screen.getByRole("heading", { name: "Collection behaviour" }).closest<HTMLDetailsElement>("details")!;
-    const contracts = screen.getByRole("heading", { name: "Works with applications" }).closest<HTMLDetailsElement>("details")!;
+    const contracts = screen.getByRole("heading", { name: "Works with apps" }).closest<HTMLDetailsElement>("details")!;
 
     expect(membership).not.toHaveAttribute("open");
     expect(behaviour).not.toHaveAttribute("open");

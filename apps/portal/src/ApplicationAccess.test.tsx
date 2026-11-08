@@ -28,8 +28,8 @@ describe("native installation display scopes", () => {
     expect(screen.getByText(/Mobile app/)).toBeInTheDocument();
     expect(screen.getByText(/App installation/)).toBeInTheDocument();
     expect(document.querySelectorAll("time[datetime]")).toHaveLength(2);
-    expect(screen.getByText(/11111111/)).toBeInTheDocument();
-    expect(screen.getByText(/22222222/)).toBeInTheDocument();
+    expect(screen.queryByText(/11111111/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/22222222/)).not.toBeInTheDocument();
   });
   it("does not merge two collections sharing a stored display name", () => {
     show([installation(),installation({collection_id:"collection-b",connector_id:"connector-b",installation_id:"installation-22222222"})]);
@@ -42,15 +42,17 @@ describe("native installation display scopes", () => {
     const buttons = screen.getAllByRole("button", {name:"Revoke collection access"});
     expect(buttons).toHaveLength(1);
     fireEvent.click(buttons[0]!);expect(remove).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", {name:"Revoke collection access"}));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", {name:"Revoke collection access"}));
     await vi.waitFor(() => expect(remove).toHaveBeenCalledTimes(2));
     expect(remove).toHaveBeenCalledWith("app-a","collection-a",{});
     expect(remove).toHaveBeenCalledWith("app-b","collection-a",{});
   });
   it("also retains every application ID when revoking from the collection page", async () => {
     const { remove, revoke } = show([installation(),installation({application_id:"app-b",connector_id:"connector-b",installation_id:"installation-22222222"})], "Garden notes");
+    expect(screen.queryByRole("button", {name:"Revoke collection access"})).not.toBeInTheDocument();
+    expect(screen.queryByText("1 collection")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", {name:"Revoke access"}));
-    fireEvent.click(screen.getByRole("button", {name:"Revoke access"}));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke access" }));
     await vi.waitFor(()=>expect(remove).toHaveBeenCalledTimes(2));
     expect(remove).toHaveBeenCalledWith("app-a","collection-a",{});expect(remove).toHaveBeenCalledWith("app-b","collection-a",{});
     expect(revoke).not.toHaveBeenCalled();
@@ -63,7 +65,7 @@ describe("native installation display scopes", () => {
     expect(screen.queryByRole("button", {name:"Revoke collection access"})).not.toBeInTheDocument();
     const details=screen.getByText("Installation details").closest("details")!;
     expect(within(details).getByText(/Mobile app/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", {name:"Revoke application"}));fireEvent.click(screen.getByRole("button", {name:"Revoke application"}));
+    fireEvent.click(screen.getByRole("button", {name:"Revoke app"}));fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke app" }));
     await vi.waitFor(()=>expect(revoke).toHaveBeenCalledTimes(2));
     expect(revoke).toHaveBeenCalledWith("connector-a",{});expect(revoke).toHaveBeenCalledWith("connector-b",{});
   });

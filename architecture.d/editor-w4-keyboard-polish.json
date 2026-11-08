@@ -1,0 +1,6 @@
+{
+  "reason": "Space peek reuses the Editor's existing bounded, inert ReadOnlyMarkdown renderer through one direct import rather than adding a second Markdown renderer or dependency. Note ordering is moved out of NoteList and shared with deletion; no production file or exported API is added.",
+  "growth": {
+    "relativeImports": 1
+  }
+}

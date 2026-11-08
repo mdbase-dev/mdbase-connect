@@ -332,3 +332,273 @@ fn folder_overrides_install_into_configured_definition_folders() {
     // Default folders need no overrides.
     assert!(mdbn_core::packs::folder_target_overrides(&MemState::new(), &pack).is_empty());
 }
+
+#[test]
+fn edited_seed_upgrades_keep_the_publishers_bytes_for_upgraded_entries() {
+    let base = "---\nkind: mdbase.type\nname: note\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    required: [id, digest]\n    properties:\n      id: { type: string, minLength: 1 }\n      digest: { type: string, pattern: '^sha256:[0-9a-f]{64}$' }\ncollection:\n  path:\n    folder: notes\n---\n# Note\n";
+    let desired = base
+        .replace("version: 1", "version: 2")
+        .replace("[id, digest]", "[id, digest, state]")
+        .replace(
+            "      digest:",
+            "      state: { enum: [active, done] }\n      digest:",
+        );
+    let mut pack = load_pack(&manifest(), &|s| (s == "note.md").then(|| TYPE.to_owned())).unwrap();
+    let resource = &mut pack.resources[0];
+    resource.mode = mdbn_core::packs::Mode::Seed;
+    resource.document = desired.clone();
+    resource.digest = revision(&desired);
+    resource.baselines.push(mdbn_core::packs::Baseline {
+        digest: revision(base),
+        document: base.into(),
+        version: Some(1),
+    });
+    let mut state = MemState::new();
+    state.insert_resource(
+        "_types/note.md",
+        &base.replace("folder: notes", "folder: inbox"),
+    );
+    state.insert_resource(
+        "mdbase.lock.yaml",
+        &format!(
+            "kind: mdbase.type-pack-lock\nlock_version: 1\npacks:\n  - id: example.notes\n    version: 1.0.0\n    digest: {base}\n    installed_by: dev.example.tests\n    resources:\n      - kind: type\n        mode: seed\n        source: note.md\n        target: _types/note.md\n        digest: {base}\n        origin_digest: {base}\n",
+            base = revision(base)
+        ),
+    );
+    let a = assess_type_pack(&state, &pack, &opts()).unwrap();
+    assert_eq!(a.resources[0].action, Action::Update);
+    assert_eq!(
+        a.resources[0].document.as_deref(),
+        Some(desired.replace("folder: notes", "folder: inbox").as_str()),
+        "the user's edit survives and every upgraded entry is the publisher's text"
+    );
+}
+
+// ---------------------------------------------------------------- seeds
+
+const CONTRACT: &str = "---\nkind: mdbase.contract\nid: example.note\nversion: 1.0.0\ncontract_type: record\nrecord_schema:\n  dialect: json-schema-2020-12\n  value: {type: object, properties: {title: {type: string}}, required: [title]}\n---\n";
+const SEED_V1: &str = "---\nkind: mdbase.type\nname: note\nversion: 1\ndescription: A note.\nschema:\n  dialect: json-schema-2020-12\n  value: {type: object, properties: {title: {type: string}}}\nimplements:\n  - contract: example.note\n    version: ^1.0.0\n    fields: {title: title}\n---\n# Note\n";
+const SEED_V2: &str = "---\nkind: mdbase.type\nname: note\nversion: 2\ndescription: A note with tags.\nschema:\n  dialect: json-schema-2020-12\n  value: {type: object, properties: {title: {type: string}, tags: {type: array}}}\nimplements:\n  - contract: example.note\n    version: ^1.0.0\n    fields: {title: title}\n---\n# Note\n";
+/// `SEED_V1` as another writer re-serialises it: sorted keys, block style.
+const SEED_V1_REWRITTEN: &str = "---\ndescription: A note.\nimplements:\n- contract: example.note\n  fields:\n    title: title\n  version: ^1.0.0\nkind: mdbase.type\nname: note\nschema:\n  dialect: json-schema-2020-12\n  value:\n    properties:\n      title:\n        type: string\n    type: object\nversion:\n  1\n---\n# Note\n";
+const SEED: &str = "_types/note.md";
+
+/// A contract plus a seed type; `version` 2 lists version 1 as its baseline.
+fn seed_pack(version: u32) -> mdbn_core::packs::Pack {
+    let seed = if version == 1 { SEED_V1 } else { SEED_V2 };
+    let mut manifest = format!(
+        "kind: mdbase.type-pack\nid: example.notes\nversion: {version}.0.0\nresources:\n  - kind: contract\n    mode: managed\n    source: contract.md\n    target: _contracts/example.note.md\n    digest: {}\n  - kind: type\n    mode: seed\n    source: note.md\n    target: {SEED}\n    digest: {}\n",
+        revision(CONTRACT),
+        revision(seed)
+    );
+    if version == 2 {
+        manifest.push_str(&format!(
+            "    upgrade_from:\n      - digest: {}\n        version: 1\n        document: |\n",
+            revision(SEED_V1)
+        ));
+        for line in SEED_V1.lines() {
+            manifest.push_str(&format!("          {line}\n"));
+        }
+    }
+    load_pack(&manifest, &|s| match s {
+        "contract.md" => Some(CONTRACT.to_owned()),
+        "note.md" => Some(seed.to_owned()),
+        _ => None,
+    })
+    .unwrap()
+}
+
+/// Install `version`, then leave the receipt as a legacy installer wrote it
+/// (no seed origins) and the seed as `live`.
+fn legacy_seed(version: u32, live: &str) -> MemState {
+    let mut state = MemState::new();
+    let pack = seed_pack(version);
+    let a = assess_type_pack(&state, &pack, &opts()).unwrap();
+    let (_, ops) = apply_type_pack(&state, &pack, &opts(), &a.assessment_digest).unwrap();
+    apply(&mut state, ops);
+    let lock: String = state
+        .resource(mdbn_core::types::LOCK_PATH)
+        .unwrap()
+        .lines()
+        .filter(|l| !l.trim_start().starts_with("origin_digest:"))
+        .map(|l| format!("{l}\n"))
+        .collect();
+    state.insert_resource(mdbn_core::types::LOCK_PATH, &lock);
+    state.insert_resource(SEED, live);
+    state
+}
+
+fn seed_plan(state: &MemState) -> mdbn_core::packs::PlannedResource {
+    let a = assess_type_pack(state, &seed_pack(2), &opts()).unwrap();
+    a.resources.into_iter().find(|r| r.target == SEED).unwrap()
+}
+
+fn field(doc: &str, path: &[&str]) -> Option<mdbn_core::value::Value> {
+    let d = mdbn_core::doc::Document::parse(doc, mdbn_core::doc::RecordFormat::Markdown);
+    let mut v = mdbn_core::value::Value::Map(d.frontmatter().clone());
+    for k in path {
+        v = v.get(k)?.clone();
+    }
+    Some(v)
+}
+
+#[test]
+fn a_rewritten_desired_seed_is_current_and_records_its_origin() {
+    let rewritten = SEED_V1_REWRITTEN
+        .replace("version:\n  1", "version:\n  2")
+        .replace("description: A note.", "description: A note with tags.")
+        .replace(
+            "        type: string\n",
+            "        type: string\n      tags:\n        type: array\n",
+        );
+    let mut state = legacy_seed(2, &rewritten);
+    let p = seed_plan(&state);
+    assert_eq!((p.action, p.reason.as_deref()), (Action::Preserve, None));
+    assert_eq!(p.origin, Some(revision(SEED_V2)));
+    let pack = seed_pack(2);
+    let a = assess_type_pack(&state, &pack, &opts()).unwrap();
+    assert_eq!(a.lock_action, Action::Update, "the origin is recorded");
+    let (_, ops) = apply_type_pack(&state, &pack, &opts(), &a.assessment_digest).unwrap();
+    assert_eq!(ops.len(), 1, "only the lock is written");
+    apply(&mut state, ops);
+    assert_eq!(state.resource(SEED).as_deref(), Some(rewritten.as_str()));
+}
+
+#[test]
+fn a_rewritten_baseline_seed_upgrades_to_the_exact_desired_bytes() {
+    let p = seed_plan(&legacy_seed(1, SEED_V1_REWRITTEN));
+    assert_eq!(p.action, Action::Update);
+    assert_eq!(p.document.as_deref(), Some(SEED_V2));
+    assert_eq!(p.upgrade_baseline, Some((revision(SEED_V1), Some(1))));
+    assert_eq!(p.origin, Some(revision(SEED_V2)));
+}
+
+#[test]
+fn a_customised_seed_without_an_origin_merges_against_the_inferred_baseline() {
+    let customised = SEED_V1_REWRITTEN.replace(
+        "        type: string\n",
+        "        type: string\n        minLength: 3\n",
+    );
+    let mut state = legacy_seed(1, &customised);
+    let p = seed_plan(&state);
+    assert_eq!(p.action, Action::Update, "{:?}", p.reason);
+    assert_eq!(p.upgrade_baseline, Some((revision(SEED_V1), Some(1))));
+    assert_eq!(p.origin, Some(revision(SEED_V2)));
+    let merged = p.document.as_deref().unwrap();
+    let property = |name: &str| field(merged, &["schema", "value", "properties", name]);
+    assert_eq!(
+        property("title").and_then(|t| t.get("minLength").cloned()),
+        Some(mdbn_core::value::Value::Int(3))
+    );
+    assert!(property("tags").is_some());
+    assert_eq!(
+        field(merged, &["version"]),
+        Some(mdbn_core::value::Value::Int(2))
+    );
+    let pack = seed_pack(2);
+    let a = assess_type_pack(&state, &pack, &opts()).unwrap();
+    assert!(a.applicable(), "{:?}", a.issues);
+    let (_, ops) = apply_type_pack(&state, &pack, &opts(), &a.assessment_digest).unwrap();
+    apply(&mut state, ops);
+    // The recorded origin makes the customised type plainly current.
+    let p = seed_plan(&state);
+    assert_eq!((p.action, p.reason.as_deref()), (Action::Preserve, None));
+}
+
+#[test]
+fn a_seed_that_cannot_merge_but_implements_the_pack_is_kept_as_it_is() {
+    let competing = SEED_V1_REWRITTEN.replace("description: A note.", "description: My notes.");
+    let p = seed_plan(&legacy_seed(1, &competing));
+    assert_eq!((p.action, p.reason.as_deref()), (Action::Preserve, None));
+    assert_eq!(p.origin, None);
+    assert!(!p.replaceable(true));
+}
+
+#[test]
+fn an_inferred_merge_must_still_implement_the_desired_contracts() {
+    // The user dropped the implementation: the merge is clean but the result
+    // no longer implements example.note, so it is not taken as an upgrade.
+    let start = SEED_V1_REWRITTEN.find("implements:").unwrap();
+    let end = SEED_V1_REWRITTEN.find("kind: mdbase.type").unwrap();
+    let unimplemented = format!(
+        "{}{}",
+        &SEED_V1_REWRITTEN[..start],
+        &SEED_V1_REWRITTEN[end..]
+    );
+    let p = seed_plan(&legacy_seed(1, &unimplemented));
+    assert_eq!(p.action, Action::Preserve);
+    assert!(p.reason.unwrap().contains("no upgrade baseline applies"));
+}
+
+#[test]
+fn a_kept_seed_with_records_cannot_be_replaced() {
+    let start = SEED_V1_REWRITTEN.find("implements:").unwrap();
+    let end = SEED_V1_REWRITTEN.find("kind: mdbase.type").unwrap();
+    let unimplemented = format!(
+        "{}{}",
+        &SEED_V1_REWRITTEN[..start],
+        &SEED_V1_REWRITTEN[end..]
+    );
+    let mut state = legacy_seed(1, &unimplemented);
+    assert!(seed_plan(&state).replaceable(true));
+    state.insert_record(
+        mdbn_core::ids::Uuid([1; 16]),
+        "notes/a.md",
+        "---\ntype: note\n---\nBody\n",
+    );
+    let p = seed_plan(&state);
+    assert!(p.reason.is_some() && p.in_use);
+    assert!(!p.replaceable(true));
+}
+
+#[test]
+fn an_unmergeable_seed_is_replaced_only_by_a_choice_bound_to_its_digest() {
+    let competing = SEED_V1_REWRITTEN.replace("description: A note.", "description: My notes.");
+    let mut state = legacy_seed(1, &competing);
+    let pack = seed_pack(2);
+    let choose = |digest| AssessOptions {
+        adopt: std::collections::BTreeMap::from([(SEED.to_owned(), digest)]),
+        ..opts()
+    };
+    let chosen = choose(revision(&competing));
+    let a = assess_type_pack(&state, &pack, &chosen).unwrap();
+    let p = a.resources.iter().find(|r| r.target == SEED).unwrap();
+    assert_eq!(p.action, Action::Update);
+    assert_eq!(p.document.as_deref(), Some(SEED_V2));
+    assert_eq!(p.origin, Some(revision(SEED_V2)));
+    let (_, ops) = apply_type_pack(&state, &pack, &chosen, &a.assessment_digest).unwrap();
+    let write = ops
+        .iter()
+        .find_map(|op| match op {
+            mdbn_core::intent::Op::ResourcePut(r) if r.path == SEED => Some(r),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(write.base_revision, Some(revision(&competing)));
+    apply(&mut state, ops);
+    let p = seed_plan(&state);
+    assert_eq!((p.action, p.reason.as_deref()), (Action::Preserve, None));
+}
+
+#[test]
+fn a_stale_seed_adoption_is_refused() {
+    let competing = SEED_V1_REWRITTEN.replace("description: A note.", "description: My notes.");
+    let state = legacy_seed(1, &competing);
+    let stale = AssessOptions {
+        adopt: std::collections::BTreeMap::from([(SEED.to_owned(), revision(SEED_V1))]),
+        ..opts()
+    };
+    let a = assess_type_pack(&state, &seed_pack(2), &stale).unwrap();
+    let p = a.resources.iter().find(|r| r.target == SEED).unwrap();
+    assert_eq!(p.action, Action::Conflict);
+    assert!(p.reason.as_deref().unwrap().contains("stale"));
+    assert!(!a.applicable());
+    let other = AssessOptions {
+        adopt: std::collections::BTreeMap::from([(
+            "_types/other.md".to_owned(),
+            revision(&competing),
+        )]),
+        ..opts()
+    };
+    assert!(assess_type_pack(&state, &seed_pack(2), &other).is_err());
+}

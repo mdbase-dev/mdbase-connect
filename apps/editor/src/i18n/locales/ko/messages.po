@@ -116,7 +116,7 @@ msgid "{0, plural, one {# required field unmapped} other {# required fields unma
 msgstr "{0, plural, other {매핑되지 않은 필수 필드 #개}}"
 
 #. placeholder {0}: recoveryAction.references
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "{0, plural, one {Also updated links in # note.} other {Also updated links in # notes.}}"
 msgstr "{0, plural, other {노트 #개의 링크도 업데이트했습니다.}}"
 
@@ -131,7 +131,7 @@ msgid "{0, plural, one {Move # note?} other {Move # notes?}}"
 msgstr "{0, plural, other {노트 #개를 이동할까요?}}"
 
 #. placeholder {0}: recoveryAction.paths.length
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "{0, plural, one {Moved # note.} other {Moved # notes.}}"
 msgstr "{0, plural, other {노트 #개 이동됨}}"
 
@@ -281,11 +281,6 @@ msgstr "전체 {1}개 필드 중 {0}개가 일치합니다"
 #: src/NoteList.tsx
 msgid "{0} of {1} notes"
 msgstr "노트 {1}개 중 {0}개"
-
-#. placeholder {0}: shortcutModifier()
-#: src/NoteSearchField.tsx
-msgid "{0} P"
-msgstr "{0} P"
 
 #. placeholder {0}: directory.invalid.length
 #: src/YourPersonPanel.tsx
@@ -720,10 +715,6 @@ msgstr "<0>{0}</0> · 컬렉션 표시 이름이나 ID 연결을 변경하려면
 msgid "<0>{linkedSchema}</0> is installed with this type. Field structure is edited at the schema source."
 msgstr "<0>{linkedSchema}</0>은(는) 이 유형과 함께 설치됩니다. 필드 구조는 스키마 원본에서 편집합니다."
 
-#: src/QuickOpen.tsx
-msgid "<0>↑↓</0> choose · <1>Enter</1> open · <2>></2> actions · <3>Esc</3> close"
-msgstr "<0>↑↓</0> 선택 · <1>Enter</1> 열기 · <2>></2> 작업 · <3>Esc</3> 닫기"
-
 #. placeholder {0}: (changed - 20).toLocaleString(displayLocale())
 #: src/TypeBrowser.tsx
 msgid "<0>More</0>{0} additional notes"
@@ -817,10 +808,6 @@ msgstr "기존 연락처 정보"
 msgid "Actions"
 msgstr "작업"
 
-#: src/QuickOpen.tsx
-msgid "Actions in quick open"
-msgstr "빠른 열기의 작업"
-
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add"
@@ -839,10 +826,6 @@ msgstr "노트를 만들려면 {0}을(를) 추가하세요."
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add a custom property…"
 msgstr "사용자 지정 속성 추가…"
-
-#: src/QuickOpen.tsx
-msgid "Add a link, in the note text"
-msgstr "노트 텍스트에 링크 추가"
 
 #: src/SdkEditorRoot.tsx
 msgid "Add a Private collection"
@@ -1017,9 +1000,10 @@ msgid "Advisory labels and colour used when records of this type are shown."
 msgstr "이 유형의 레코드를 표시할 때 사용하는 참고용 레이블과 색상입니다."
 
 #: src/App.tsx
+#: src/editor-commands.ts
 #: src/EditorRail.tsx
+#: src/LoadingScreens.tsx
 #: src/note-list-view.ts
-#: src/NoteListViewOptions.tsx
 msgid "All notes"
 msgstr "모든 노트"
 
@@ -1124,6 +1108,7 @@ msgid "Assigned by name"
 msgstr "이름으로 지정됨"
 
 #: src/AttachmentUpload.tsx
+#: src/editor-commands.ts
 msgid "Attach file…"
 msgstr "파일 첨부…"
 
@@ -1157,6 +1142,7 @@ msgctxt "direct connection availability"
 msgid "Available"
 msgstr "사용 가능"
 
+#: src/editor-commands.ts
 #: src/StructuredPropertiesEditor.tsx
 msgid "Back"
 msgstr "뒤로"
@@ -1164,10 +1150,6 @@ msgstr "뒤로"
 #: src/App.tsx
 msgid "Back in note history"
 msgstr "노트 기록에서 뒤로"
-
-#: src/QuickOpen.tsx
-msgid "Back or forward"
-msgstr "뒤로 또는 앞으로"
 
 #: src/App.tsx
 msgid "Back to {historyBackPath} · Alt+Left"
@@ -1190,7 +1172,13 @@ msgstr "편집으로 돌아가기"
 msgid "Back to fields"
 msgstr "필드로 돌아가기"
 
+#: src/ConnectionScreens.tsx
+#: src/SdkEditorRoot.tsx
+msgid "Back to mdbase Connect"
+msgstr "mdbase Connect로 돌아가기"
+
 #: src/App.tsx
+#: src/LoadingScreens.tsx
 msgid "Back to notes"
 msgstr "노트로 돌아가기"
 
@@ -1201,10 +1189,6 @@ msgstr "노트 및 파일로 돌아가기"
 #: src/TypeBrowser.tsx
 msgid "Back to types"
 msgstr "유형으로 돌아가기"
-
-#: src/QuickOpen.tsx
-msgid "Best matches"
-msgstr "가장 일치하는 항목"
 
 #. placeholder {0}: segments.join(".")
 #: src/type-contracts.ts
@@ -1237,9 +1221,9 @@ msgstr "블록 · {0}"
 msgid "Body differences"
 msgstr "본문 차이"
 
-#: src/QuickOpen.tsx
-msgid "Bold or italic"
-msgstr "굵게 또는 기울임"
+#: src/editor-commands.ts
+msgid "Bold"
+msgstr "굵게"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Boolean"
@@ -1257,9 +1241,12 @@ msgstr "글머리 기호 목록"
 msgid "Calculated"
 msgstr "계산됨"
 
+#: src/ConnectionScreens.tsx
+msgid "Can't open this collection"
+msgstr "이 컬렉션을 열 수 없습니다"
+
 #: src/App.tsx
 #: src/BulkNoteProperties.tsx
-#: src/Dialog.tsx
 #: src/FolderChangeDialog.tsx
 #: src/MoveNoteDialog.tsx
 #: src/NewNoteComposer.tsx
@@ -1471,21 +1458,13 @@ msgstr "유형 검색 지우기"
 msgid "Close file preview"
 msgstr "파일 미리보기 닫기"
 
-#: src/QuickOpen.tsx
-msgid "Close keyboard shortcuts"
-msgstr "키보드 단축키 닫기"
-
-#: src/WorkspaceChrome.tsx
-msgid "Close outline"
-msgstr "개요 닫기"
+#: src/App.tsx
+msgid "Close note peek"
+msgstr "노트 미리보기 닫기"
 
 #: src/PropertiesPanel.tsx
 msgid "Close properties"
 msgstr "속성 닫기"
-
-#: src/QuickOpen.tsx
-msgid "Close quick open"
-msgstr "빠른 열기 닫기"
 
 #: src/code-editor-completions.ts
 msgid "Code block"
@@ -1605,6 +1584,16 @@ msgstr "편안하게"
 msgid "Commands"
 msgstr "명령"
 
+#. placeholder {0}: shortcutLabel(commandDefinitions["command-palette"].shortcut)
+#: src/NoteSearchField.tsx
+msgid "Commands · {0}"
+msgstr "명령 · {0}"
+
+#. placeholder {0}: shortcutLabel(commandDefinitions["command-palette"].shortcut)
+#: src/NoteSearchField.tsx
+msgid "Commands · {0} outside text"
+msgstr "명령 · 텍스트 밖에서 {0}"
+
 #: src/TypeBrowser.tsx
 msgid "Common icons"
 msgstr "일반 아이콘"
@@ -1651,10 +1640,6 @@ msgid "Configured"
 msgstr "구성됨"
 
 #: src/TypeBrowser.tsx
-msgid "Confirm the collection-wide effect before saving."
-msgstr "저장하기 전에 컬렉션 전체에 미칠 영향을 확인하세요."
-
-#: src/TypeBrowser.tsx
 msgid "Confirm update"
 msgstr "업데이트 확인"
 
@@ -1670,9 +1655,23 @@ msgstr "다른 컬렉션을 연결할까요?"
 msgid "Connect application contract"
 msgstr "애플리케이션 계약 연결"
 
+#: src/ConnectionScreens.tsx
+msgid "Connect server: {server}"
+msgstr "Connect 서버: {server}"
+
 #: src/CollectionRail.tsx
 msgid "Connected"
 msgstr "연결됨"
+
+#: src/settings/SettingsView.tsx
+msgctxt "connection route"
+msgid "Connected directly"
+msgstr "직접 연결됨"
+
+#: src/settings/SettingsView.tsx
+msgctxt "connection route"
+msgid "Connected through mdbase"
+msgstr "mdbase를 통해 연결됨"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -1910,9 +1909,15 @@ msgstr "첫 노트를 만들어 폴더를 만드세요. 빈 폴더는 저장되�
 msgid "Create my person record"
 msgstr "내 사람 레코드 만들기"
 
+#: src/editor-commands.ts
 #: src/NewNoteComposer.tsx
 msgid "Create note"
 msgstr "노트 만들기"
+
+#. placeholder {0}: query.trim()
+#: src/QuickOpen.tsx
+msgid "Create note ‘{0}’"
+msgstr "노트 ‘{0}’ 만들기"
 
 #: src/NewNoteComposer.tsx
 msgid "Create note (Ctrl or Command + Enter)"
@@ -1929,10 +1934,6 @@ msgstr "첫 노트 만들기"
 #: src/TypeBrowser.tsx
 msgid "Create the first type"
 msgstr "첫 유형 만들기"
-
-#: src/TypeBrowser.tsx
-msgid "Create this type?"
-msgstr "이 유형을 만들까요?"
 
 #: src/TypeBrowser.tsx
 msgid "Create type"
@@ -1954,14 +1955,6 @@ msgstr "만드는 중"
 #: src/NewNoteComposer.tsx
 msgid "Creating folder"
 msgstr "폴더 만드는 중"
-
-#: src/NewNoteComposer.tsx
-msgid "Ctrl "
-msgstr "Ctrl 키 "
-
-#: src/editor-commands.ts
-msgid "Current note"
-msgstr "현재 노트"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Custom"
@@ -2031,18 +2024,18 @@ msgstr "삭제"
 msgid "delete notes"
 msgstr "노트 삭제"
 
-#: src/App.tsx
-msgid "Deleted “{title}”."
-msgstr "“{title}” 삭제됨."
+#: src/use-note-actions.ts
+msgid "Deleted {title}"
+msgstr "{title} 삭제됨"
 
 #: src/note-mutation-presentation.ts
 #: src/WorkspaceChrome.tsx
 msgid "Deleting"
 msgstr "삭제 중"
 
-#: src/App.tsx
-msgid "Deleting “{title}”…"
-msgstr "“{title}” 삭제 중…"
+#: src/use-note-actions.ts
+msgid "Deleting {title}…"
+msgstr "{title} 삭제 중…"
 
 #: src/note-mutation-presentation.ts
 msgid "Deleting note"
@@ -2056,6 +2049,10 @@ msgstr "다른 레코드를 가리키는 속성과 대상을 확인하는 방법
 #: src/TypeBrowser.tsx
 msgid "Description"
 msgstr "설명"
+
+#: src/TypeBrowser.tsx
+msgid "Description changed"
+msgstr "설명 변경됨"
 
 #: src/TypeBrowser.tsx
 msgid "Description field"
@@ -2133,10 +2130,6 @@ msgstr "유형 취소"
 msgid "Discard type changes?"
 msgstr "유형 변경사항을 취소할까요?"
 
-#: src/Toasts.tsx
-msgid "Dismiss notification"
-msgstr "알림 닫기"
-
 #: src/type-presentation.ts
 #: src/TypeBrowser.tsx
 msgid "Display"
@@ -2198,6 +2191,10 @@ msgstr "각 선택 항목에는 이식 가능한 계약과 편집 가능한 로�
 #: src/type-contracts.ts
 msgid "Each implementation needs an exact contract ID and version."
 msgstr "각 구현에는 정확한 계약 ID와 버전이 필요합니다."
+
+#: src/note-sort.ts
+msgid "Earliest first"
+msgstr "빠른 순"
 
 #: src/ConnectionScreens.tsx
 msgid "edit and move notes"
@@ -2329,6 +2326,10 @@ msgid "Exact Markdown source, including YAML frontmatter and body."
 msgstr "YAML 프런트매터와 본문을 포함한 정확한 Markdown 원본입니다."
 
 #: src/TypeBrowser.tsx
+msgid "Existing note contents and fields stay unchanged."
+msgstr "기존 노트의 내용과 필드는 변경되지 않습니다."
+
+#: src/TypeBrowser.tsx
 msgid "Existing notes need attention"
 msgstr "주의가 필요한 기존 노트"
 
@@ -2341,7 +2342,6 @@ msgid "Existing person or contact"
 msgstr "기존 사람 또는 연락처"
 
 #: src/App.tsx
-#: src/QuickOpen.tsx
 msgid "Exit focus mode"
 msgstr "집중 모드 종료"
 
@@ -2388,6 +2388,7 @@ msgstr "지원되지 않는 값이 있는 필드 선택자"
 msgid "Field type"
 msgstr "필드 유형"
 
+#: src/NoteListViewOptions.tsx
 #: src/TypeBrowser.tsx
 msgid "Fields"
 msgstr "필드"
@@ -2417,19 +2418,31 @@ msgstr "파일 경로"
 msgid "File viewer, {filename}"
 msgstr "파일 뷰어, {filename}"
 
+#: src/App.tsx
+msgid "Files can’t be renamed in the Editor."
+msgstr "편집기에서는 파일 이름을 바꿀 수 없습니다."
+
 #: src/NewNoteComposer.tsx
 msgid "Fill in the required properties."
 msgstr "필수 속성을 입력하세요."
+
+#: src/editor-commands.ts
+msgid "Filter by tag"
+msgstr "태그로 필터링"
+
+#: src/editor-commands.ts
+msgid "Filter by type"
+msgstr "유형으로 필터링"
 
 #: src/code-editor-completions.ts
 msgid "Filter links by type"
 msgstr "유형별 링크 필터"
 
-#: src/QuickOpen.tsx
+#: src/App.tsx
 msgid "Find a note by title or path, or type > for actions"
 msgstr "제목이나 경로로 노트를 찾거나, 작업을 보려면 >를 입력하세요"
 
-#: src/QuickOpen.tsx
+#: src/App.tsx
 msgid "Find a note or action"
 msgstr "노트 또는 작업 찾기"
 
@@ -2437,7 +2450,7 @@ msgstr "노트 또는 작업 찾기"
 msgid "Find a property"
 msgstr "속성 찾기"
 
-#: src/QuickOpen.tsx
+#: src/editor-commands.ts
 msgid "Find in note"
 msgstr "노트에서 찾기"
 
@@ -2549,6 +2562,10 @@ msgstr "이 브라우저에서 잊기"
 msgid "Format"
 msgstr "형식"
 
+#: src/editor-commands.ts
+msgid "Forward"
+msgstr "앞으로"
+
 #: src/App.tsx
 msgid "Forward in note history"
 msgstr "노트 기록에서 앞으로"
@@ -2596,6 +2613,10 @@ msgstr "컬렉션 준비 중…"
 msgid "Give the type a name, then add the fields its notes need."
 msgstr "유형 이름을 입력한 다음 노트에 필요한 필드를 추가하세요."
 
+#: src/App.tsx
+msgid "Go to note title"
+msgstr "노트 제목으로 이동"
+
 #: src/TypeBrowser.tsx
 msgid "Guide compatible tools when they create or rename records of this type."
 msgstr "호환 도구가 이 유형의 레코드를 만들거나 이름을 바꿀 때 참고하도록 안내합니다."
@@ -2624,10 +2645,14 @@ msgstr "노트 사이드바 숨기기"
 msgid "Hide types sidebar"
 msgstr "유형 사이드바 숨기기"
 
+#: src/note-sort.ts
+msgid "High to low"
+msgstr "높은 순"
+
 #: src/settings/SettingsView.tsx
-msgctxt "connection route"
-msgid "Hosted"
-msgstr "호스팅됨"
+msgctxt "settings view"
+msgid "Hosted by mdbase"
+msgstr "mdbase에서 호스팅"
 
 #: src/TypeBrowser.tsx
 msgid "How notes are assigned to this type."
@@ -2653,9 +2678,17 @@ msgstr "영향은 현재 색인된 노트를 기준으로 합니다. 확인을 �
 msgid "in the list"
 msgstr "목록에"
 
+#: src/editor-commands.ts
+msgid "in the note composer"
+msgstr "노트 작성 화면에서"
+
 #: src/type-contracts.ts
 msgid "Incompatible"
 msgstr "호환되지 않음"
+
+#: src/editor-commands.ts
+msgid "Inline code"
+msgstr "인라인 코드"
 
 #: src/code-editor-completions.ts
 msgid "Insert a fenced code block"
@@ -2721,6 +2754,10 @@ msgstr "잘못된 JSON입니다."
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
 msgstr "추가된 이후 편집되지 않아 새 기본 유형으로 대체됩니다."
 
+#: src/editor-commands.ts
+msgid "Italic"
+msgstr "기울임꼴"
+
 #: src/TypeBrowser.tsx
 msgid "Its current structural rules will be replaced."
 msgstr "현재 구조 규칙이 대체됩니다."
@@ -2764,6 +2801,10 @@ msgstr "크게"
 #: src/code-editor-completions.ts
 msgid "Large section heading"
 msgstr "큰 섹션 제목"
+
+#: src/note-sort.ts
+msgid "Latest first"
+msgstr "늦은 순"
 
 #: src/ConflictResolver.tsx
 msgid "Latest title"
@@ -2829,7 +2870,7 @@ msgstr "노트 또는 파일에 링크"
 msgid "Linked from"
 msgstr "링크됨"
 
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "Linked mention."
 msgstr "언급을 연결했습니다."
 
@@ -2876,6 +2917,10 @@ msgstr "목록 항목 스키마"
 msgid "List items"
 msgstr "목록 항목"
 
+#: src/note-sort.ts
+msgid "Listed order"
+msgstr "목록 순서"
+
 #: src/App.tsx
 msgid "Loaded the latest version."
 msgstr "최신 버전을 불러왔습니다."
@@ -2892,10 +2937,6 @@ msgstr "계약 카탈로그 불러오는 중"
 msgid "Loading file viewer"
 msgstr "파일 뷰어 불러오는 중"
 
-#: src/App.tsx
-msgid "Loading folder composer"
-msgstr "폴더 작성기 불러오는 중"
-
 #: src/CollectionRail.tsx
 msgid "Loading folders…"
 msgstr "폴더 불러오는 중…"
@@ -2904,10 +2945,7 @@ msgstr "폴더 불러오는 중…"
 msgid "Loading note"
 msgstr "노트 불러오는 중"
 
-#: src/App.tsx
-msgid "Loading note composer"
-msgstr "노트 작성기 불러오는 중"
-
+#: src/DeferredCodeEditor.tsx
 #: src/MarkdownNoteEditor.tsx
 msgid "Loading note editor"
 msgstr "노트 편집기 불러오는 중"
@@ -2959,6 +2997,15 @@ msgstr "현지 시간 ({0})"
 msgid "Loses"
 msgstr "잃음"
 
+#: src/note-sort.ts
+msgid "Low to high"
+msgstr "낮은 순"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Main copy"
+msgstr "주 사본"
+
 #: src/ConnectionScreens.tsx
 msgid "manage type definitions"
 msgstr "유형 정의 관리"
@@ -2988,7 +3035,7 @@ msgstr "작업 완료로 표시"
 msgid "Mark task incomplete"
 msgstr "작업 미완료로 표시"
 
-#: src/QuickOpen.tsx
+#: src/editor-commands.ts
 msgid "Markdown commands"
 msgstr "Markdown 명령"
 
@@ -3004,17 +3051,9 @@ msgstr "Markdown 경로"
 msgid "Markdown preview unavailable."
 msgstr "Markdown 미리보기를 사용할 수 없습니다."
 
-#: src/QuickOpen.tsx
-msgid "Matching actions"
-msgstr "일치하는 작업"
-
 #: src/TypeBrowser.tsx
 msgid "Matching notes"
 msgstr "일치하는 노트"
-
-#: src/QuickOpen.tsx
-msgid "Matching notes and actions"
-msgstr "일치하는 노트 및 작업"
 
 #: src/type-schema.ts
 msgid "Matching rules"
@@ -3110,23 +3149,16 @@ msgstr "누락된 속성에는 유형별 읽기 기본값이 없습니다."
 msgid "Missing required properties"
 msgstr "누락된 필수 속성"
 
+#: src/note-sort.ts
 #: src/PropertiesPanel.tsx
 msgid "Modified"
 msgstr "수정됨"
 
-#: src/note-list-view.ts
-msgid "modified newest"
-msgstr "최근 수정순"
-
-#: src/note-list-view.ts
+#: src/editor-commands.ts
 msgid "Modified newest"
 msgstr "최근 수정순"
 
-#: src/note-list-view.ts
-msgid "modified oldest"
-msgstr "오래된 수정순"
-
-#: src/note-list-view.ts
+#: src/editor-commands.ts
 msgid "Modified oldest"
 msgstr "오래된 수정순"
 
@@ -3139,6 +3171,7 @@ msgid "More inferred rules in YAML"
 msgstr "YAML에서 더 많은 추론 규칙"
 
 #: src/App.tsx
+#: src/LoadingScreens.tsx
 msgid "More note actions"
 msgstr "추가 노트 작업"
 
@@ -3180,10 +3213,6 @@ msgstr "노트 이동"
 #: src/ConnectionScreens.tsx
 msgid "move notes"
 msgstr "노트 이동"
-
-#: src/QuickOpen.tsx
-msgid "Move through the note list"
-msgstr "노트 목록에서 이동"
 
 #: src/CollectionRail.tsx
 #: src/editor-commands.ts
@@ -3233,6 +3262,10 @@ msgstr "이름 필드"
 msgid "Name the folder to create it."
 msgstr "폴더를 만들 이름을 입력하세요."
 
+#: src/QuickOpen.tsx
+msgid "Navigate"
+msgstr "탐색"
+
 #: src/note-mutation-presentation.ts
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
@@ -3256,7 +3289,9 @@ msgstr "중첩 필수 필드"
 msgid "New folder"
 msgstr "새 폴더"
 
+#: src/App.tsx
 #: src/editor-commands.ts
+#: src/LoadingScreens.tsx
 #: src/NewNoteComposer.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
@@ -3287,17 +3322,25 @@ msgstr "새 유형"
 msgid "New type definition"
 msgstr "새 유형 정의"
 
-#: src/QuickOpen.tsx
-msgid "Next or previous note"
-msgstr "이전 또는 다음 노트"
+#: src/note-sort.ts
+msgid "Newest first"
+msgstr "최신순"
+
+#: src/editor-commands.ts
+msgid "Next note"
+msgstr "다음 노트"
+
+#: src/editor-commands.ts
+msgid "Next note in the list"
+msgstr "목록의 다음 노트"
+
+#: src/TypeBrowser.tsx
+msgid "No app contracts are installed"
+msgstr "설치된 앱 계약이 없습니다"
 
 #: src/TypeBrowser.tsx
 msgid "No app contracts installed"
 msgstr "설치된 앱 계약 없음"
-
-#: src/TypeBrowser.tsx
-msgid "No application contracts are installed"
-msgstr "설치된 애플리케이션 계약이 없습니다."
 
 #: src/TypeBrowser.tsx
 msgid "No automatic matching rules"
@@ -3363,10 +3406,6 @@ msgstr "다음 노트 없음"
 msgid "No matches."
 msgstr "일치 항목이 없습니다."
 
-#: src/QuickOpen.tsx
-msgid "No matching actions."
-msgstr "일치하는 작업이 없습니다."
-
 #: src/NoteSearchField.tsx
 msgid "No matching filters"
 msgstr "일치하는 필터가 없습니다."
@@ -3375,7 +3414,6 @@ msgstr "일치하는 필터가 없습니다."
 msgid "No matching icons."
 msgstr "일치하는 아이콘이 없습니다."
 
-#: src/QuickOpen.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "No matching notes."
 msgstr "일치하는 노트가 없습니다."
@@ -3433,6 +3471,10 @@ msgstr "연결되지 않은 언급이 없습니다."
 msgid "No validation issues."
 msgstr "검증 문제가 없습니다."
 
+#: src/collection-browser.ts
+msgid "No value"
+msgstr "값 없음"
+
 #: src/App.tsx
 msgid "Not attempted because an earlier move needs recovery."
 msgstr "이전 이동을 복구해야 하므로 시도하지 않았습니다."
@@ -3456,6 +3498,10 @@ msgid "Not now"
 msgstr "나중에"
 
 #: src/QuickOpen.tsx
+msgid "Note"
+msgstr "노트"
+
+#: src/editor-commands.ts
 msgid "Note actions, in the list"
 msgstr "목록의 노트 작업"
 
@@ -3549,10 +3595,6 @@ msgstr "노트는 이 필드로 유형을 선언합니다. 변경하려면 YAML�
 msgid "Notes without an explicit assignment belong to this type when every configured condition group below matches."
 msgstr "명시적으로 할당되지 않은 노트는 아래 설정된 모든 조건 그룹이 일치할 때 이 유형에 속합니다."
 
-#: src/Toasts.tsx
-msgid "Notifications"
-msgstr "알림"
-
 #: src/StructuredPropertiesEditor.tsx
 msgid "Null"
 msgstr "널(null)"
@@ -3596,6 +3638,10 @@ msgstr "오프라인"
 #: src/collection-browser.ts
 msgid "Older"
 msgstr "이전"
+
+#: src/note-sort.ts
+msgid "Oldest first"
+msgstr "오래된 순"
 
 #: src/TypeBrowser.tsx
 msgid "Only declared fields are allowed"
@@ -3641,6 +3687,10 @@ msgstr "파일 열기"
 msgid "open notes"
 msgstr "노트 열기"
 
+#: src/editor-commands.ts
+msgid "Open Notes"
+msgstr "노트 열기"
+
 #: src/FileViewer.tsx
 msgid "Open original"
 msgstr "원본 열기"
@@ -3648,6 +3698,11 @@ msgstr "원본 열기"
 #: src/editor-commands.ts
 msgid "Open Settings"
 msgstr "설정 열기"
+
+#: src/main.tsx
+#: src/SdkEditorRoot.tsx
+msgid "Open the Editor configured for your mdbase environment from Collections."
+msgstr "컬렉션에서 mdbase 환경에 맞게 설정된 편집기를 여세요."
 
 #: src/WorkspaceChrome.tsx
 msgid "Open to find mentions."
@@ -3662,17 +3717,13 @@ msgid "Open YAML"
 msgstr "YAML 열기"
 
 #: src/NoteList.tsx
+#: src/NotePreview.tsx
 msgid "Opening"
 msgstr "여는 중"
 
 #: src/App.tsx
 msgid "Opening “{pendingNotePath}”…"
 msgstr "“{pendingNotePath}” 여는 중…"
-
-#. placeholder {0}: original.displayName
-#: src/SdkEditorRoot.tsx
-msgid "Opening {0}"
-msgstr "{0} 여는 중"
 
 #: src/code-editor-file-embeds.ts
 #: src/FileViewer.tsx
@@ -3686,10 +3737,6 @@ msgstr "컬렉션 여는 중"
 #: src/main.tsx
 msgid "Opening mdbase connect… <0>Continue</0>"
 msgstr "mdbase connect 여는 중… <0>계속</0>"
-
-#: src/main.tsx
-msgid "Opening mdbase…"
-msgstr "mdbase 여는 중…"
 
 #: src/WorkspaceChrome.tsx
 msgid "Opening note…"
@@ -3724,6 +3771,10 @@ msgstr "이 유형에서 선택 사항"
 msgid "Optional regular expression"
 msgstr "선택적 정규식"
 
+#: src/NoteListViewOptions.tsx
+msgid "Order"
+msgstr "순서"
+
 #: src/type-schema.ts
 msgid "Other collection rules"
 msgstr "기타 컬렉션 규칙"
@@ -3735,6 +3786,10 @@ msgstr "다른 필드도 허용됩니다."
 #: src/editor-commands.ts
 msgid "outside text inputs"
 msgstr "텍스트 입력란 외부"
+
+#: src/editor-commands.ts
+msgid "outside text; add a link while typing"
+msgstr "텍스트 밖에서, 입력 중에는 링크 추가"
 
 #: src/TypeBrowser.tsx
 msgid "Pack"
@@ -3749,11 +3804,12 @@ msgid "Partly installed"
 msgstr "일부 설치됨"
 
 #: src/NewNoteComposer.tsx
+#: src/note-sort.ts
 #: src/TypeBrowser.tsx
 msgid "Path"
 msgstr "경로"
 
-#: src/note-list-view.ts
+#: src/editor-commands.ts
 msgid "Path A–Z"
 msgstr "경로 오름차순"
 
@@ -3804,6 +3860,10 @@ msgstr "PDF 삽입, {filename}"
 msgid "PDF viewer, {filename}"
 msgstr "PDF 뷰어, {filename}"
 
+#: src/editor-commands.ts
+msgid "Peek at the focused note"
+msgstr "포커스된 노트 미리보기"
+
 #: src/StructuredPropertiesEditor.tsx
 msgid "Persisted null"
 msgstr "저장된 Null"
@@ -3841,6 +3901,7 @@ msgid "Pin"
 msgstr "고정"
 
 #: src/collection-browser.ts
+#: src/use-note-actions.ts
 msgid "Pinned"
 msgstr "고정됨"
 
@@ -3862,6 +3923,7 @@ msgstr "환경설정은 이 브라우저에 유지됩니다."
 msgid "Preparing “{0}”…"
 msgstr "“{0}” 준비 중…"
 
+#: src/DeferredCodeEditor.tsx
 #: src/MarkdownNoteEditor.tsx
 msgid "Preparing editor…"
 msgstr "편집기 준비 중…"
@@ -3905,6 +3967,14 @@ msgstr "지난 30일"
 #: src/collection-browser.ts
 msgid "Previous 7 days"
 msgstr "지난 7일"
+
+#: src/editor-commands.ts
+msgid "Previous note"
+msgstr "이전 노트"
+
+#: src/editor-commands.ts
+msgid "Previous note in the list"
+msgstr "목록의 이전 노트"
 
 #: src/ConnectionScreens.tsx
 msgid "Previously opened in mdbase editor"
@@ -3951,20 +4021,10 @@ msgstr "속성 옵션"
 msgid "Provided by the note's type, not stored in this file."
 msgstr "노트 유형에서 제공되며 이 파일에는 저장되지 않습니다."
 
+#: src/App.tsx
 #: src/editor-commands.ts
-#: src/QuickOpen.tsx
 msgid "Quick open"
 msgstr "빠른 열기"
-
-#. placeholder {0}: shortcutModifier()
-#: src/NoteSearchField.tsx
-msgid "Quick open · {0} P"
-msgstr "빠른 열기 · {0} P"
-
-#. placeholder {0}: shortcutModifier()
-#: src/NoteSearchField.tsx
-msgid "Quick open · {0} P anywhere"
-msgstr "빠른 열기 · 어디서나 {0} P"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -4016,14 +4076,11 @@ msgstr "컬렉션 텍스트 읽는 중…"
 msgid "Reading file content…"
 msgstr "파일 콘텐츠 읽는 중…"
 
-#: src/LoadingScreens.tsx
-msgid "Reading its notes and types"
-msgstr "노트와 유형 읽는 중"
-
 #: src/WorkspaceChrome.tsx
 msgid "Reading note content…"
 msgstr "노트 콘텐츠 읽는 중…"
 
+#: src/LoadingScreens.tsx
 #: src/NoteList.tsx
 msgid "Reading notes and files"
 msgstr "노트 및 파일 읽는 중"
@@ -4043,10 +4100,6 @@ msgstr "준비된 유형"
 #: src/ConnectionScreens.tsx
 msgid "Recent collections"
 msgstr "최근 컬렉션"
-
-#: src/QuickOpen.tsx
-msgid "Recent notes and actions"
-msgstr "최근 노트 및 작업"
 
 #: src/CollectionRail.tsx
 msgid "Reconnecting"
@@ -4218,7 +4271,7 @@ msgid "Rename this note?"
 msgstr "이 노트의 이름을 바꿀까요?"
 
 #. placeholder {0}: recoveryAction.to
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "Renamed to “{0}”."
 msgstr "“{0}”(으)로 이름을 바꿨습니다."
 
@@ -4303,8 +4356,8 @@ msgstr "저장되지 않은 편집 내용 복원"
 
 #. placeholder {0}: noteTitle(restored, typeDescriptors)
 #: src/use-note-actions.ts
-msgid "Restored “{0}”."
-msgstr "“{0}” 복원됨."
+msgid "Restored {0}"
+msgstr "{0} 복원됨"
 
 #: src/use-note-actions.ts
 msgid "Restored note paths."
@@ -4360,6 +4413,15 @@ msgstr "저장 다시 시도"
 #: src/NoteList.tsx
 msgid "Retry search"
 msgstr "검색 다시 시도"
+
+#: src/main.tsx
+#: src/SdkEditorRoot.tsx
+msgid "Return to Collections and open the collection again."
+msgstr "컬렉션으로 돌아가서 컬렉션을 다시 여세요."
+
+#: src/note-sort.ts
+msgid "Reversed"
+msgstr "역순"
 
 #: src/TypeBrowser.tsx
 msgid "Revert"
@@ -4418,6 +4480,10 @@ msgstr "검토 권장"
 #: src/App.tsx
 msgid "Review recovered text"
 msgstr "복구된 텍스트 검토"
+
+#: src/TypeBrowser.tsx
+msgid "Review type changes"
+msgstr "유형 변경 사항 검토"
 
 #: src/TypeBrowser.tsx
 msgid "Review YAML diff"
@@ -4492,6 +4558,7 @@ msgstr "스키마 관리 필드"
 msgid "Scope"
 msgstr "범위"
 
+#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search"
 msgstr "검색"
@@ -4504,6 +4571,8 @@ msgstr "검색 필터"
 msgid "Search is incomplete."
 msgstr "검색이 완료되지 않았습니다."
 
+#: src/editor-commands.ts
+#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search notes and files"
 msgstr "노트 및 파일 검색"
@@ -4811,6 +4880,7 @@ msgstr "템플릿"
 msgid "text"
 msgstr "텍스트"
 
+#: src/QuickOpen.tsx
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 msgid "Text"
@@ -5190,10 +5260,6 @@ msgid "The selected file has an invalid size."
 msgstr "선택한 파일 크기가 올바르지 않습니다."
 
 #: src/TypeBrowser.tsx
-msgid "The source changed without altering declared fields."
-msgstr "선언된 필드는 변경하지 않고 원본이 변경되었습니다."
-
-#: src/TypeBrowser.tsx
 msgid "The stable name used by records and connected apps."
 msgstr "레코드와 연결된 앱에서 사용하는 안정적인 이름입니다."
 
@@ -5337,6 +5403,7 @@ msgid "These properties must be persisted before this record is valid."
 msgstr "이 레코드가 유효하려면 이러한 속성을 저장해야 합니다."
 
 #: src/App.tsx
+#: src/use-note-actions.ts
 msgid "This application does not have permission to make that change."
 msgstr "이 애플리케이션에는 해당 변경을 수행할 권한이 없습니다."
 
@@ -5376,6 +5443,11 @@ msgstr "이 컬렉션은 비어 있습니다."
 msgid "This collection is no longer open in mdbase editor."
 msgstr "이 컬렉션은 더 이상 mdbase editor에서 열려 있지 않습니다."
 
+#: src/main.tsx
+#: src/SdkEditorRoot.tsx
+msgid "This collection link is invalid"
+msgstr "이 컬렉션 링크는 올바르지 않습니다"
+
 #: src/gateway.ts
 msgid "This collection needs authorization again. Choose the collection to continue."
 msgstr "이 컬렉션은 다시 인증해야 합니다. 계속하려면 컬렉션을 선택하세요."
@@ -5393,11 +5465,6 @@ msgid "This collection's Person type was not added from a Person starter that ca
 msgstr "이 컬렉션의 Person 유형은 자동 업그레이드 가능한 Person 기본 유형에서 추가된 것이 아니므로 변경되지 않았습니다. "
 
 #: src/settings/SettingsView.tsx
-msgctxt "connection route"
-msgid "This computer"
-msgstr "이 컴퓨터"
-
-#: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "This computer"
 msgstr "이 컴퓨터"
@@ -5409,6 +5476,11 @@ msgstr "이 연락처에는 다른 명시적 유형이 있습니다. 먼저 편�
 #: src/TypeBrowser.tsx
 msgid "This contract does not expose simple top-level properties. Configure its field references in YAML."
 msgstr "이 계약은 간단한 최상위 속성을 제공하지 않습니다. YAML에서 필드 참조를 설정하세요."
+
+#: src/main.tsx
+#: src/SdkEditorRoot.tsx
+msgid "This Editor build cannot open collections here"
+msgstr "이 편집기 버전은 여기서 컬렉션을 열 수 없습니다"
 
 #: src/use-session-lifecycle.ts
 msgid "This editor session has been closed."
@@ -5540,10 +5612,11 @@ msgid "This value does not match the required format."
 msgstr "이 값은 필수 형식과 일치하지 않습니다."
 
 #: src/NewNoteComposer.tsx
+#: src/note-sort.ts
 msgid "Title"
 msgstr "제목"
 
-#: src/note-list-view.ts
+#: src/editor-commands.ts
 msgid "Title A–Z"
 msgstr "제목 오름차순"
 
@@ -5692,6 +5765,7 @@ msgstr "타자기 스크롤"
 msgid "Undated"
 msgstr "날짜 없음"
 
+#: src/editor-commands.ts
 #: src/Toasts.tsx
 msgid "Undo"
 msgstr "실행 취소"
@@ -5730,6 +5804,10 @@ msgstr "연결되지 않은 언급 ({0})"
 msgid "Unpin"
 msgstr "고정 해제"
 
+#: src/use-note-actions.ts
+msgid "Unpinned"
+msgstr "고정 해제됨"
+
 #: src/App.tsx
 msgid "Unsaved draft found"
 msgstr "저장되지 않은 초안 발견"
@@ -5754,6 +5832,7 @@ msgstr "새 컬렉션을 열면 저장되지 않은 유형 또는 생성 변경�
 msgid "Unsaved type or creation changes will be discarded."
 msgstr "저장되지 않은 유형 또는 생성 변경사항이 버려집니다."
 
+#: src/App.tsx
 #: src/ConflictResolver.tsx
 #: src/MarkdownNoteEditor.tsx
 #: src/NewNoteComposer.tsx
@@ -5786,10 +5865,6 @@ msgstr "정의 업데이트 후 계속"
 #: src/YourPersonPanel.tsx
 msgid "Update the Person type?"
 msgstr "Person 유형을 업데이트할까요?"
-
-#: src/TypeBrowser.tsx
-msgid "Update this type?"
-msgstr "이 유형을 업데이트할까요?"
 
 #: src/YourPersonPanel.tsx
 msgid "Updating definitions…"
@@ -5887,11 +5962,6 @@ msgstr "검증 결과가 달라질 수 있음"
 msgid "Version {0}"
 msgstr "버전 {0}"
 
-#: src/settings/SettingsView.tsx
-msgctxt "connection route"
-msgid "Via mdbase"
-msgstr "mdbase를 통해"
-
 #: src/NoteListViewOptions.tsx
 msgid "View options"
 msgstr "보기 옵션"
@@ -5933,13 +6003,13 @@ msgstr "이 유형을 사용하는 노트"
 msgid "Words"
 msgstr "단어"
 
-#: src/Dialog.tsx
+#: src/App.tsx
 msgid "Working…"
 msgstr "작업 중…"
 
 #: src/TypeBrowser.tsx
-msgid "Works with applications"
-msgstr "애플리케이션과 호환"
+msgid "Works with apps"
+msgstr "앱 호환성"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"

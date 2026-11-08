@@ -30,6 +30,7 @@ import type { MigrationProviderResult } from "./migration-provider-result.js";
 import type { MigrationSourceResult } from "./migration-source-result.js";
 import type { Gen0Result } from "./migration-gen0-input.js";
 import { AlarmLifecycle } from "./alarm-lifecycle.ts";
+import { withDeadline } from "./deadline.ts";
 import { attachmentSlots, ChunkBusy, type ChunkPermit } from "./chunk-slots.ts";
 import { deploymentLog, pumpLog, PumpReport, StaleAppendStore, type CallTimings } from "./log.js";
 import { DENY_ADMISSION, DENY_CUSTODY, DENY_WRAPPER, type Admission, type Custody, type OpenKeys } from "./seams.js";
@@ -62,6 +63,7 @@ import { locationHint, namedStub } from "./do-location.ts";
 import { fetchAttachment } from "./object-reads.js";
 import { deploymentObjectOrigins, type ObjectOriginPolicy } from "./object-origins.ts";
 import { grantRecipients, hasGrantAppend, wakeCollectionTag, wakeLog } from "./wake-observe.ts";
+import { INSTALL_RETRY_MAX_STEPS, INSTALL_WAKE_MS, installRetryMs } from "./install-retry.ts";
 import { PIN_RESET_KEY, PinParked, isPinMismatch, pinLog, pinsDigest } from "./pin-reset.ts";
 import { labRawError, readyDiagnostic, type ReadyDiagnostic, type ReadyTrace } from "./ready-diagnostic.ts";
 import { LiveAdmission, type AdmissionContext } from "./admission/live-admission.ts";
@@ -94,6 +96,7 @@ const IDLE_SAME_LOOK_MS = 5_000;
 const IDLE_MAX_STREAK = 5;
 export const idlePollMs = (base: number, streak: number) =>
   Math.min(IDLE_POLL_CAP_MS, base * 2 ** Math.min(Math.max(0, Math.floor(streak)), IDLE_MAX_STREAK));
+const INSTALL_RETRY_KEY = "service-install-retry";
 /** Largest client frame accepted. */
 const MAX_FRAME_BYTES = 1 << 20;
 
@@ -127,6 +130,8 @@ function pitrConfigured(env: Env): boolean {
   return p.PITR_BINDING !== undefined || p.PITR_MINIMUM_EPOCH !== undefined
     || p.PITR_ESCROW_SERVICE_TOKEN !== undefined || p.PITR_PHASE !== undefined;
 }
+
+const unconfiguredCustody = (error: unknown): boolean => error instanceof Error && error.message === "custody_not_configured";
 
 /** A lasting custody verdict on an activation: an answer the CP records, not a 5xx. */
 function verdictAnswer(error: unknown): Response {
@@ -167,6 +172,8 @@ export class HostedCollection extends DurableObject<Env> {
   private lastRefresh = 0;
   /** Consecutive syncs that learned nothing new (persisted: survives eviction). */
   private idleStreak: number | null = null;
+  /** Set while this actor has seen a running install. */
+  private installRetry: { failures: number; done: number } | null = null;
   /** Activity since the last sync's back-off decision. */
   private activitySeen = false;
   /** When the last back-off decision was made (RAM). */
@@ -687,7 +694,8 @@ export class HostedCollection extends DurableObject<Env> {
     // The executor's own budget (60 s) bounds starting actions; this backstop only
     // fences a stuck one. It must outlast an action started in budget: token/sealer
     // fetches retry for up to 45 s each, and an abort at settlement stops the run.
-    const result = await this.migrationExecutor(this.collection).wake(AbortSignal.timeout(600_000));
+    const collection = this.collection;
+    const result = await withDeadline(600_000, signal => this.migrationExecutor(collection).wake(signal));
     if (result.nextAt !== null) await this.alarms.schedule(result.nextAt, () => this.alarms.current);
   }
 
@@ -837,7 +845,7 @@ export class HostedCollection extends DurableObject<Env> {
       }
       return engine;
     })().catch(async (error: unknown) => {
-      if (isPermanentCustodyRefusal(error)) { await this.retireForVerdict(); throw error; }
+      if (this.lastingRefusal(error)) { await this.retireForVerdict(error); throw error; }
       try { await this.ctx.storage.put(OPEN_FAILURES_KEY, openFailures + 1); } catch { /* the retry alarm is already set */ }
       throw error;
     }).finally(() => {
@@ -880,14 +888,22 @@ export class HostedCollection extends DurableObject<Env> {
     throw new PinParked();
   }
 
+  /** A refusal no timer can change. An escrow deployment without custody is one.
+   * A hosted one is misconfigured, so its objects keep retrying until it is fixed. */
+  private lastingRefusal(error: unknown): boolean {
+    return isPermanentCustodyRefusal(error) || (this.escrow && unconfiguredCustody(error));
+  }
+
   /** Custody gave a lasting verdict (the KMS does not serve the collection, or the
    * CP holds no current service device: deleted / left sync). Stop being a
    * background actor for it: drop the live engine and its sessions, drop the
    * rebuildable `st_*` cache (the migration ledger stays), forget the open
    * backoff and cancel the alarm, so no timer wakes this collection again. Only a
    * new CP activation or app connection re-evaluates custody; a transient
-   * refusal never reaches here and keeps its backed-off retry alarm. */
-  private async retireForVerdict(): Promise<void> {
+   * refusal never reaches here and keeps its backed-off retry alarm. An escrow
+   * without custody keeps its `st_*` tables: that refusal is this deployment's
+   * setting, not a verdict on the collection. */
+  private async retireForVerdict(error?: unknown): Promise<void> {
     if (this.engine) {
       this.releaseAttachment(this.engine);
       this.engineReset("custody_verdict");
@@ -897,7 +913,7 @@ export class HostedCollection extends DurableObject<Env> {
       for (const r of this.readers.values()) r.wipe();
       this.readers.clear();
     }
-    runIndex(this.ctx.storage, RESET);
+    if (!unconfiguredCustody(error)) runIndex(this.ctx.storage, RESET);
     await this.ctx.storage.delete(OPEN_FAILURES_KEY);
     await this.ctx.storage.deleteAlarm();
     if (this.env.LAB === "1") {
@@ -973,6 +989,30 @@ export class HostedCollection extends DurableObject<Env> {
     return idlePollMs(base, next);
   }
 
+  /** Delay to the next wake of a running install; null when none is running. */
+  private async installWake(install: { done: number; total: number } | null, failed: boolean, current: () => boolean): Promise<number | null> {
+    let prior = this.installRetry;
+    if (!install) {
+      this.installRetry = null;
+      if (prior?.failures && current()) try { await this.ctx.storage.delete(INSTALL_RETRY_KEY); } catch { /* Clears at the next pass. */ }
+      return null;
+    }
+    if (!prior) {
+      let stored: { failures?: unknown; done?: unknown } | undefined;
+      try { stored = await this.ctx.storage.get<{ failures: number; done: number }>(INSTALL_RETRY_KEY); } catch { /* Start over. */ }
+      const { failures, done } = stored ?? {};
+      prior = Number.isSafeInteger(failures) && Number.isSafeInteger(done) ? { failures: failures as number, done: done as number } : { failures: 0, done: 0 };
+    }
+    const passed = install.done > prior.done;
+    const failures = failed ? Math.min((passed ? 0 : prior.failures) + 1, INSTALL_RETRY_MAX_STEPS + 1) : passed ? 0 : prior.failures;
+    const next = { failures, done: failures ? Math.max(prior.done, failed ? install.done : 0) : 0 };
+    this.installRetry = next;
+    if ((next.failures !== prior.failures || next.done !== prior.done) && current()) {
+      try { await (next.failures ? this.ctx.storage.put(INSTALL_RETRY_KEY, next) : this.ctx.storage.delete(INSTALL_RETRY_KEY)); } catch { /* RAM still backs off this wake. */ }
+    }
+    return failed ? installRetryMs(failures) : INSTALL_WAKE_MS;
+  }
+
   /** LAB diagnosis only: each transient custody refusal a fetch retried. */
   private custodyRetryOptions(fetch: "open_sealer" | "log_token") {
     return this.env.LAB === "1" ? { onRetry: (facts: { attempt: number; code: string; call: string | null; name: string | null; message: string | null }) =>
@@ -1032,7 +1072,14 @@ export class HostedCollection extends DurableObject<Env> {
     const pollMs = await this.idlePoll(active, current);
     if (!current()) return;
     const next = engine.nextWakeup();
-    const poll = Date.now() + pollMs;
+    const install = engine.installStatus();
+    // Counts only, in every environment: the one sign of an install in production.
+    if (install) try { console.info(JSON.stringify({ event: "hosted_install_progress", role: this.escrow ? "escrow" : "hosted", ...install })); } catch { /* Logging is not authority. */ }
+    // No count of the collection's text, and no identifiers.
+    if (engine.snapshotDeclined()) try { console.info(JSON.stringify({ event: "hosted_snapshot_declined", role: this.escrow ? "escrow" : "hosted" })); } catch { /* Logging is not authority. */ }
+    const installMs = await this.installWake(install, report.failed > 0, current);
+    if (!current()) return;
+    const poll = Date.now() + (installMs ?? pollMs);
     // Preserve earlier deadlines; inhibited or stale storage continuations must
     // not schedule another wake. This local fence is not deletion currentness.
     const at = Math.min(next ?? poll, poll);
@@ -1163,7 +1210,18 @@ export class HostedCollection extends DurableObject<Env> {
   /** Distinguishes sockets accepted in this wake from older ones (RAM state gone). */
   private readonly wakeId = crypto.randomUUID();
 
+  /** A Wasm trap has no panic text to report: one line, with no identifiers. */
+  private noteTrap(error: unknown): void {
+    if (!(error instanceof WebAssembly.RuntimeError)) return;
+    try { console.info(JSON.stringify({ event: "hosted_wasm_trap", role: this.escrow ? "escrow" : "hosted" })); } catch { /* Logging is not authority. */ }
+  }
+
   async alarm(): Promise<void> {
+    try { await this.runAlarm(); }
+    catch (error) { this.noteTrap(error); throw error; }
+  }
+
+  private async runAlarm(): Promise<void> {
     if (this.pitrClosed) {
       this.closePitrResources();
       await this.pitrWork!.trackClosed(() => this.ctx.storage.deleteAlarm());
@@ -1180,7 +1238,7 @@ export class HostedCollection extends DurableObject<Env> {
       if (collection && UUID.test(collection)) {
         // A permanent verdict already retired the actor (no alarm left); return
         // normally so the platform does not retry the alarm either.
-        try { await this.ready(collection); } catch (error) { if (error instanceof PinParked || isPermanentCustodyRefusal(error)) return; throw error; }
+        try { await this.ready(collection); } catch (error) { if (error instanceof PinParked || this.lastingRefusal(error)) return; throw error; }
       }
     }
     if (!await this.alarms.allowed() || !this.engine || !this.collection) return;
@@ -1193,14 +1251,19 @@ export class HostedCollection extends DurableObject<Env> {
     try { await this.sync(engine); }
     catch (error) {
       // A warm engine learns of deletion through its next log token.
-      if (!isPermanentCustodyRefusal(error)) throw error;
-      await this.retireForVerdict();
+      if (!this.lastingRefusal(error)) throw error;
+      await this.retireForVerdict(error);
       return;
     }
     await this.migrationWake();
   }
 
   async fetch(request: Request): Promise<Response> {
+    try { return await this.respond(request); }
+    catch (error) { this.noteTrap(error); throw error; }
+  }
+
+  private async respond(request: Request): Promise<Response> {
     if (this.pitrClosed) {
       this.closePitrResources();
       const url = new URL(request.url);
@@ -1306,7 +1369,7 @@ export class HostedCollection extends DurableObject<Env> {
           return Response.json({ error: "migration_operator_busy" }, { status: 409 });
         }
         await this.ready(collection);
-        await this.operateMigration(input, AbortSignal.timeout(60_000));
+        await withDeadline(60_000, signal => this.operateMigration(input, signal));
         return Response.json(migrationStatus(await storageRunStore(this.ctx.storage).load(), readNativeState(this.ctx.storage.sql)),
           { headers: { "cache-control": "no-store" } });
       } catch (error) {
@@ -1378,7 +1441,7 @@ export class HostedCollection extends DurableObject<Env> {
           }
           this.#migrationOperatorRunning = true;
           try {
-            await this.supersedeMigration(run, input.backupHold, input.pauseBeforeCutover, AbortSignal.timeout(60_000));
+            await withDeadline(60_000, signal => this.supersedeMigration(run, input.backupHold, input.pauseBeforeCutover, signal));
           } catch {
             // Native refused or the outcome is unknown; the stored run is unchanged
             // unless the new run record itself landed, which status shows.
@@ -1416,7 +1479,7 @@ export class HostedCollection extends DurableObject<Env> {
         // A lasting verdict (deleted, left sync, not this deployment's) is an
         // answer, not a failure: ready() already retired the actor. The CP keeps
         // the batch pending and retries on its own backoff.
-        if (isPermanentCustodyRefusal(error)) return verdictAnswer(error);
+        if (this.lastingRefusal(error)) return verdictAnswer(error);
         throw error;
       }
       const generation = this.logGen;
@@ -1426,8 +1489,8 @@ export class HostedCollection extends DurableObject<Env> {
         // A warm engine learns of the verdict through its fresh log token (the
         // activation dropped the held one): retire as the alarm path does, and
         // give the CP the same definite answer as a cold open.
-        if (!isPermanentCustodyRefusal(error)) throw error;
-        await this.retireForVerdict();
+        if (!this.lastingRefusal(error)) throw error;
+        await this.retireForVerdict(error);
         return verdictAnswer(error);
       }
       if (tag && this.engine === engine && this.logGen === generation) wakeLog(tag, this.escrow ? "escrow" : "hosted", "activation_complete");
@@ -1476,6 +1539,11 @@ export class HostedCollection extends DurableObject<Env> {
       return new Response(null, { status: 101, webSocket: pair[0] });
     }
     return new Response("not found", { status: 404 });
+  }
+
+  /** Counts only, in every environment: a refusal otherwise leaves no production trace. */
+  private noteRefused(engine: Engine): void {
+    try { console.info(JSON.stringify({ event: "hosted_session_refused", role: this.escrow ? "escrow" : "hosted", serving: engine.serving(), installing: engine.installStatus() !== null })); } catch { /* Logging is not authority. */ }
   }
 
   /** End an app session: Noise state, reassembly and the replica session. */
@@ -1534,7 +1602,10 @@ export class HostedCollection extends DurableObject<Env> {
         }
         if (!m2) return this.endApp(engine, ws, a, 1011, "handshake");
         ws.send(m2);
-        if (!session) return this.endApp(engine, ws, a, 1008, "refused");
+        if (!session) {
+          this.noteRefused(engine);
+          return this.endApp(engine, ws, a, 1008, "refused");
+        }
         ws.serializeAttachment({ ...a, session, client: toHex(m1.peer) } satisfies AppAttachment);
       } finally {
         m1.payload.fill(0);
@@ -1595,6 +1666,7 @@ export class HostedCollection extends DurableObject<Env> {
       const { session, response } = engine.hello(null, frame);
       ws.send(response);
       if (!session) {
+        this.noteRefused(engine);
         ws.close(1008, "refused");
         return;
       }

@@ -201,6 +201,10 @@
     padding-top: max(10px, env(safe-area-inset-top));
   }
 
+  .editor-opening .note-list-pane { grid-template-rows: auto auto auto auto minmax(0, 1fr); }
+  .opening-toolbar { display: flex; }
+  .opening-toolbar > .icon-button { width: 44px; height: 44px; }
+
   .editor-pane { grid-template-rows: auto auto auto minmax(0, 1fr); }
 
   .editor-bar {
@@ -210,9 +214,19 @@
     padding: calc(var(--space-1) + env(safe-area-inset-top)) var(--space-2) var(--space-1);
   }
 
+  .note-bar-title { margin-right: auto; }
+
   .writing-surface {
     --writing-gutter: 22px;
-    grid-template-rows: auto auto minmax(0, 1fr);
+  }
+
+  .note-bar-title.is-shown {
+    flex: 1;
+    max-width: none;
+    text-align: center;
+  }
+
+  .note-header {
     padding-top: 22px;
   }
 
@@ -250,9 +264,7 @@
     font-weight: var(--font-weight-medium);
   }
 
-  /* Keep undo/error notices clear of the composer's bottom commit controls. */
-  .app-shell:has(.new-note-composer) .toast-stack { bottom: calc(100px + env(safe-area-inset-bottom)); }
-  .toast button, .toast .icon-button { min-width: 44px; min-height: 44px; }
+  .app-shell:has(.new-note-composer) .mdbase-toaster { bottom: calc(100px + env(safe-area-inset-bottom)); }
 
   .note-scroll { padding-bottom: env(safe-area-inset-bottom); }
   .app-shell { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
@@ -268,18 +280,6 @@
 
   .body-editor .cm-scroller {
     padding-bottom: max(60px, env(safe-area-inset-bottom));
-  }
-
-
-  .action-menu {
-    width: 190px;
-  }
-
-  .action-menu button,
-  .context-menu button {
-    min-height: 44px;
-    padding-inline: 10px;
-    font-size: var(--font-size-ui);
   }
 
   .inspector-content {
@@ -316,14 +316,6 @@
 
   .type-heading .eyebrow {
     margin-bottom: 6px;
-  }
-
-  .type-heading h1 {
-    font-size: var(--font-size-heading);
-  }
-
-  .settings-document h1 {
-    font-size: var(--font-size-heading);
   }
 
   .type-heading-title {
@@ -661,7 +653,7 @@
   }
 
   .new-note-composer > form {
-    padding: var(--space-8) 22px 0;
+    padding: var(--space-8) 0 0;
   }
 
   .new-note-actions {
@@ -715,16 +707,6 @@
     margin-bottom: var(--space-1);
   }
 
-
-
-
-  .dialog-scrim:has(.quick-open) { padding: calc(var(--space-3) + env(safe-area-inset-top)) var(--space-3) calc(var(--space-3) + env(safe-area-inset-bottom)); }
-  .quick-open { max-height: 100%; display: flex; flex-direction: column; }
-  .quick-open-search { flex: none; }
-  .quick-open-search input { min-height: 52px; }
-  .quick-open-search .icon-button { flex: none; }
-  .quick-open-results { min-height: 0; max-height: none; }
-  .quick-open > footer { display: none; }
   .search-field { min-height: 44px; }
   .search-field input { min-height: 44px; }
   .search-field button { min-width: 44px; min-height: 44px; }
@@ -749,22 +731,6 @@
   .properties-panel .property-row { padding-right: 44px; }
   .property-string-list > div { grid-template-columns: minmax(0, 1fr) 44px; }
   .schema-array-item { grid-template-columns: 18px minmax(0, 1fr) 44px; }
-
-  .confirm-dialog {
-    align-self: end;
-    width: 100%;
-    max-height: calc(100dvh - max(18px, env(safe-area-inset-top)));
-    border-radius: var(--radius-md) var(--radius-md) 0 0;
-  }
-
-  .dialog-scrim:has(.confirm-dialog) {
-    place-items: end center;
-    padding: max(18px, env(safe-area-inset-top)) 0 0;
-  }
-
-  .confirm-dialog > footer button {
-    min-height: 44px;
-  }
 
   .panel-header .icon-button {
     margin: -8px -8px 0 0;

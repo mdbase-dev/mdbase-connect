@@ -192,9 +192,7 @@ impl<S: Store> Replica<S> {
         let subject = self.session(session)?.auth.clone();
         let account = match subject {
             SessionAuth::Grant { grant, client_pk } => {
-                self.grant_for_client(&grant, &client_pk)
-                    .ok_or_else(|| ErrorCode::Unauthenticated.err("the grant is no longer active"))?
-                    .account
+                self.grant_for_client(&grant, &client_pk)?.account
             }
             SessionAuth::Host => {
                 self.policy
@@ -362,9 +360,7 @@ impl<S: Store> Replica<S> {
         self.attachment_create_caller_check(context.session, context)?;
         let account = match context.subject {
             SessionAuth::Grant { grant, client_pk } => {
-                self.grant_for_client(&grant, &client_pk)
-                    .ok_or_else(|| ErrorCode::Unauthenticated.err("the grant is no longer active"))?
-                    .account
+                self.grant_for_client(&grant, &client_pk)?.account
             }
             SessionAuth::Host => {
                 self.policy

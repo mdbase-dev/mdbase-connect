@@ -9,7 +9,10 @@
 //! Bump `minor` for fixes whose old and new behaviour may interleave in one log;
 //! bump `major` for changes that must not interleave. Either bump needs a new row
 //! in [`SEMANTICS`] and, if replay output changes, updated
-//! `conformance/determinism/*.expected.json` in the same commit.
+//! `conformance/determinism/*.expected.json` in the same commit. A bump must
+//! not change the V7 inputs (path rules, path-key folding, request rules):
+//! replicas of every `sem` judge an entry's validity with their own
+//! (`log-entry.md` §4.3, §5).
 
 /// A semantics version.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -33,7 +36,7 @@ pub struct SemInfo {
 }
 
 /// The semantics version this build plans under.
-pub const SEM: Sem = Sem { major: 1, minor: 1 };
+pub const SEM: Sem = Sem { major: 1, minor: 2 };
 
 /// Every semantics version this crate has shipped, oldest first. Only the last
 /// row has a planner; the rest are kept for diagnostics.
@@ -44,8 +47,16 @@ pub const SEMANTICS: &[SemInfo] = &[
         tzdb: None,
     },
     SemInfo {
-        sem: SEM,
+        sem: Sem { major: 1, minor: 1 },
         spec: "0.3.0-rc.5",
+        tzdb: Some(crate::cel::time::tzdb::RELEASE),
+    },
+    // Path storage only changes planning for types that declare stored fields,
+    // and lifecycle/path ordering on create. Replicas apply recorded results, so
+    // this interleaves safely; a major would void every older writer's entries.
+    SemInfo {
+        sem: SEM,
+        spec: "0.3.0-rc.6",
         tzdb: Some(crate::cel::time::tzdb::RELEASE),
     },
 ];

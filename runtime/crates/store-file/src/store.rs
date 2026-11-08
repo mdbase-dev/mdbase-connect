@@ -35,7 +35,7 @@ use mdbn_replica::store::{
 };
 use mdbn_wire::client::Hold;
 use mdbn_wire::common::{Hash, Uuid};
-use mdbn_wire::intent::FileInclusion;
+use mdbn_wire::intent::{FileInclusion, MediaClass};
 
 use crate::codec::{DiskState, EvidenceRec, IntentRec, RetainedRec, counter_bytes, counter_of};
 use crate::diskdb::{Change, DbError, DiskDb, Kind};
@@ -566,7 +566,8 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
                     continue;
                 }
             }
-            self.check_path(&p, changes, out, quiet_recheck).await?;
+            self.check_path(&p, &settings, changes, out, quiet_recheck)
+                .await?;
         }
         self.settle_moves(changes, out).await?;
         self.reoffer_outstanding(out).await?;
@@ -671,17 +672,24 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
             || original.moved_from != observation.moved_from
             || observation.provenance != Provenance::Normal
             || original.evidence.is_some()
-            || self
-                .dirty
-                .get(&original.path)
-                .is_some_and(|due| *due > self.now())
         {
             return Ok(None);
         }
         let Some(expected) = &original.known_after else {
             return Ok(None);
         };
+        let expected_revision = expected.rev;
         let path = Self::rel(&original.path)?;
+        if let Some(original) = self.outstanding.get_mut(&observation.token.0) {
+            original.resource_requested = true;
+        }
+        if self
+            .dirty
+            .get(&observation.path)
+            .is_some_and(|due| *due > self.now())
+        {
+            return Ok(None);
+        }
         let meta = match self.observe_io(|| self.p.stat(&path)).await? {
             Ok(meta) if meta.kind == FileKind::File && meta.size <= limit as u64 => meta,
             _ => return Ok(None),
@@ -690,17 +698,11 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
             Ok(read) if read.meta == meta && read.bytes.len() <= limit => read,
             _ => return Ok(None),
         };
-        if revision(&read.bytes) != expected.rev {
+        if revision(&read.bytes) != expected_revision {
             return Ok(None);
         }
         mdbn_replica::mirror_admission::ensure_open(&self.inner)?;
-        let text = String::from_utf8(read.bytes).ok();
-        if text.is_some()
-            && let Some(original) = self.outstanding.get_mut(&observation.token.0)
-        {
-            original.resource_requested = true;
-        }
-        Ok(text)
+        Ok(String::from_utf8(read.bytes).ok())
     }
 
     /// Drain content-free local retention diagnostics. Never contains note paths.
@@ -1489,15 +1491,25 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
                 crate::platform::portable_violation(path.as_str()),
                 Some("hidden_path" | "dependency_path")
             )
-            || settings
-                .as_ref()
-                .and_then(|s| s.exclude.as_ref())
-                .is_some_and(|excluded| {
-                    excluded.iter().any(|e| {
-                        let e = e.trim_end_matches('/');
-                        path.as_str() == e || path.as_str().starts_with(&format!("{e}/"))
+            || settings.as_ref().is_some_and(|s| {
+                (!self.is_text(path.as_str())
+                    && !s.include.contains(&MediaClass::of(path.as_str())))
+                    || s.exclude.as_ref().is_some_and(|excluded| {
+                        excluded.iter().any(|e| {
+                            let e = e.trim_end_matches('/');
+                            path.as_str() == e || path.as_str().starts_with(&format!("{e}/"))
+                        })
                     })
-                })
+            })
+    }
+
+    /// Whether the inclusion size cap leaves a file out. Text never is.
+    fn oversized(&self, path: &str, size: u64, settings: &Option<FileInclusion>) -> bool {
+        !self.is_text(path)
+            && settings
+                .as_ref()
+                .and_then(|s| s.max_size)
+                .is_some_and(|max| size > max)
     }
 
     fn unsupported_name(path: &str) -> Option<String> {
@@ -1854,6 +1866,7 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
     async fn check_path(
         &mut self,
         path: &str,
+        settings: &Option<FileInclusion>,
         changes: &mut Vec<Change>,
         out: &mut Vec<Observation>,
         quiet_recheck: bool,
@@ -1910,6 +1923,10 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
             }
             return Ok(());
         };
+        // Left out like an excluded folder: never ingested, never deleted.
+        if self.oversized(path, meta.size, settings) {
+            return Ok(());
+        }
         if !known
             .as_ref()
             .is_some_and(|k| Self::meta_unchanged(k, &meta))
@@ -1929,8 +1946,21 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
         if self.missing.remove(path).is_some() {
             // Came back (vim-style save, swap window): compare as usual.
         }
+        let revalidate_resource = known.as_ref().is_some_and(|known| {
+            self.outstanding_at
+                .get(path)
+                .into_iter()
+                .flatten()
+                .filter_map(|token| self.outstanding.get(token))
+                .any(|original| {
+                    original.resource_requested
+                        && original.evidence.is_none()
+                        && original.known_after.as_ref().map(|after| after.rev) != Some(known.rev)
+                })
+        });
         if let Some(k) = &known
             && Self::meta_unchanged(k, &meta)
+            && !revalidate_resource
         {
             return Ok(());
         }
@@ -1943,6 +1973,9 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
                 // Same bytes, new metadata (touch, our swap): just remember it.
                 let st = self.state_from(k.id, rev, &seen.meta, k.ours);
                 self.set_disk(changes, path, Some(st));
+                if revalidate_resource && !self.already_reported(path, Some(rev)) {
+                    self.emit(changes, out, path, Some(k.rev), Some(seen), None, k.id)?;
+                }
             }
             Some(k) => {
                 if seen.meta.size == 0 && k.size != 0 && !quiet_recheck {

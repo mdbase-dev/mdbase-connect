@@ -133,6 +133,7 @@ msgctxt "Collection access interface"
 msgid "Can't open {collection}"
 msgstr "{collection}을(를) 열 수 없습니다"
 
+#: src/ConfirmDialog.tsx
 #: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
 msgid "Cancel"
@@ -202,14 +203,6 @@ msgstr "닫기"
 msgctxt "Collection access interface"
 msgid "Close"
 msgstr "닫기"
-
-#: src/CommandPalette.tsx
-msgid "Close {label}"
-msgstr "{label} 닫기"
-
-#: src/Feedback.tsx
-msgid "Close feedback"
-msgstr "피드백 닫기"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
@@ -303,6 +296,10 @@ msgstr "삭제 중…"
 #: src/screens.tsx
 msgid "Details"
 msgstr "세부 정보"
+
+#: src/Toaster.tsx
+msgid "Dismiss"
+msgstr "닫기"
 
 #: src/FeedbackMarkup.tsx
 msgid "Drag to mark. Keyboard: arrows move; Space starts or finishes. Blackout removes pixels."
@@ -435,6 +432,10 @@ msgctxt "Collection storage mode"
 msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off."
 msgstr "mdbase가 기존 기록을 포함한 컬렉션을 읽고, 기기가 꺼져 있을 때도 접근을 제공할 수 있게 됩니다."
 
+#: src/shortcuts.ts
+msgid "Menu"
+msgstr "메뉴"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "More for {collection}"
@@ -517,11 +518,6 @@ msgstr "mdbase 여는 중…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
-msgid "Opening the local collection…"
-msgstr "로컬 컬렉션 여는 중…"
-
-#: src/collections/copy.ts
-msgctxt "Collection access interface"
 msgid "Opening your collection"
 msgstr "컬렉션 여는 중"
 
@@ -542,6 +538,16 @@ msgstr "선택 사항"
 msgctxt "Collection access interface"
 msgid "Owner"
 msgstr "소유자"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Preparing secure access…"
+msgstr "보안 액세스 준비 중…"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Preparing your offline copy…"
+msgstr "오프라인 사본 준비 중…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -834,6 +840,11 @@ msgstr "스크린샷에 올바른 PNG 또는 JPEG 이미지가 없습니다."
 msgid "The screenshot is larger than 3 MB. Choose a smaller image."
 msgstr "스크린샷이 3MB보다 큽니다. 더 작은 이미지를 선택하세요."
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "The switch to Private didn’t finish. Revoke the device that started it. Your other owner devices will then replace the collection key."
+msgstr "비공개로 전환이 완료되지 않았습니다. 전환을 시작한 기기를 해지하세요. 그러면 다른 소유자 기기가 컬렉션 키를 교체합니다."
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "this collection"
@@ -858,8 +869,8 @@ msgid "to move"
 msgstr "이동"
 
 #: src/CommandPalette.tsx
-msgid "to open"
-msgstr "열기"
+msgid "to run"
+msgstr "실행"
 
 #: src/screens.tsx
 msgid "Try again"
@@ -885,6 +896,7 @@ msgid "Unchanged lines"
 msgstr "변경되지 않은 줄"
 
 #: src/FeedbackMarkup.tsx
+#: src/Toaster.tsx
 msgid "Undo"
 msgstr "실행 취소"
 
@@ -923,11 +935,6 @@ msgstr "기기 업데이트를 기다리고 있습니다."
 msgctxt "Collection storage mode"
 msgid "Waiting for older device connections to expire. Cloud copy remains on until the switch finishes."
 msgstr "이전 기기 연결의 만료를 기다리고 있습니다. 전환이 완료될 때까지 클라우드 사본은 켜진 상태로 유지됩니다."
-
-#: src/collections/copy.ts
-msgctxt "Collection access interface"
-msgid "Waiting for the collection key…"
-msgstr "컬렉션 키를 기다리는 중…"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"

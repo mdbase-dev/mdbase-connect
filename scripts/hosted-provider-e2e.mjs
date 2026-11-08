@@ -3431,7 +3431,7 @@ async function authorityPromotionCliE2E(
       name: "Use the folder on Promotion mirror as the main copy?"
     })).toBeVisible();
     await expect(page.getByText(
-      "Existing access is revoked. Connect applications again to use the local collection."
+      "Existing access is revoked. Connect apps again to use the local collection."
     )).toBeVisible();
     await page.getByRole("button", { name: "Move main copy" }).click();
     const promotionExit = await waitForExit(promotion, 30_000);
@@ -4398,18 +4398,19 @@ async function authorizeHostedApplication(authorizationUrl, cookie, collectionId
     }]);
     const page = await context.newPage();
     await page.goto(authorizationUrl);
-    await expect(page.getByRole("heading", { name: "Hosted SDK E2E" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Hosted SDK E2E", level: 1, exact: true })).toBeVisible();
     await page.locator(".approval-form").waitFor();
-    const collection = page.getByRole("radio", {
-      name: /Hosted writing.*Hosted by mdbase/
+    const collection = page.getByRole("option", {
+      name: "Hosted writing", exact: true
     });
     // A single compatible collection opens directly on the access review.
     if (await collection.isVisible()) {
       await page.getByText("Add or connect another collection", { exact: true }).click();
-      await expect(collection).toHaveAttribute("value", collectionId);
-      await collection.check();
-      await expect(collection).toBeChecked();
-      await expect(page.getByRole("button", { name: "Create hosted collection" })).toBeVisible();
+      await expect(collection).toHaveAttribute("data-value", collectionId);
+      await expect(collection).toHaveAccessibleDescription(/Cloud copy/);
+      await collection.click();
+      await expect(collection).toHaveAttribute("aria-selected", "true");
+      await expect(page.getByRole("button", { name: "New collection" })).toBeVisible();
       await page.getByRole("button", { name: "Review access" }).click();
     }
     await expect(page.locator(".selected-collection-summary")).toContainText("Hosted writing");
@@ -4442,16 +4443,16 @@ async function authorizeHostedApplicationByCreating(authorizationUrl, cookie, re
     }]);
     const page = await context.newPage();
     await page.goto(authorizationUrl);
-    await expect(page.getByRole("heading", { name: "Workout Inline E2E" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Workout Inline E2E", level: 1, exact: true })).toBeVisible();
     await expect(page.getByText("No compatible collection is ready.")).toBeVisible();
-    await expect(page.getByRole("group", { name: "Collection", exact: true })).toHaveCount(0);
-    await page.getByRole("button", { name: "Create hosted collection" }).click();
+    await expect(page.getByRole("combobox", { name: "Choose a collection", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "New collection" }).click();
     await page.getByLabel("New collection name").fill("Workout records");
     await page.getByRole("button", { name: "Create collection" }).click();
     const collection = page.locator(".selected-collection-summary");
     await expect(page.getByRole("button", { name: "Review access", exact: true })).toHaveCount(0);
     await expect(collection).toContainText("Workout records");
-    await expect(collection).toContainText("Hosted by mdbase");
+    await expect(collection).toContainText("Cloud copy");
     await expect(collection.getByRole("button", { name: "Change" })).toBeVisible();
     await expect(page.getByText(
       "Workout Inline E2E needs a record type"

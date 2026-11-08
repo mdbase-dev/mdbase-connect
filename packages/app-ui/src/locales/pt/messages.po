@@ -133,6 +133,7 @@ msgctxt "Collection access interface"
 msgid "Can't open {collection}"
 msgstr "Não é possível abrir {collection}"
 
+#: src/ConfirmDialog.tsx
 #: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
 msgid "Cancel"
@@ -202,14 +203,6 @@ msgstr "Fechar"
 msgctxt "Collection access interface"
 msgid "Close"
 msgstr "Fechar"
-
-#: src/CommandPalette.tsx
-msgid "Close {label}"
-msgstr "Fechar {label}"
-
-#: src/Feedback.tsx
-msgid "Close feedback"
-msgstr "Fechar comentários"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
@@ -303,6 +296,10 @@ msgstr "Excluindo…"
 #: src/screens.tsx
 msgid "Details"
 msgstr "Detalhes"
+
+#: src/Toaster.tsx
+msgid "Dismiss"
+msgstr "Dispensar"
 
 #: src/FeedbackMarkup.tsx
 msgid "Drag to mark. Keyboard: arrows move; Space starts or finishes. Blackout removes pixels."
@@ -435,6 +432,10 @@ msgctxt "Collection storage mode"
 msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off."
 msgstr "O mdbase poderá ler a coleção, incluindo seu histórico existente, e disponibilizá-la enquanto seus dispositivos estiverem desligados."
 
+#: src/shortcuts.ts
+msgid "Menu"
+msgstr "Menu de contexto"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "More for {collection}"
@@ -517,11 +518,6 @@ msgstr "Abrindo o mdbase…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
-msgid "Opening the local collection…"
-msgstr "Abrindo a coleção local…"
-
-#: src/collections/copy.ts
-msgctxt "Collection access interface"
 msgid "Opening your collection"
 msgstr "Abrindo sua coleção"
 
@@ -542,6 +538,16 @@ msgstr "Opcional"
 msgctxt "Collection access interface"
 msgid "Owner"
 msgstr "Proprietário"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Preparing secure access…"
+msgstr "Preparando o acesso seguro…"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Preparing your offline copy…"
+msgstr "Preparando sua cópia offline…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -834,6 +840,11 @@ msgstr "A captura de tela não contém uma imagem PNG ou JPEG válida."
 msgid "The screenshot is larger than 3 MB. Choose a smaller image."
 msgstr "A captura de tela excede 3 MB. Escolha uma imagem menor."
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "The switch to Private didn’t finish. Revoke the device that started it. Your other owner devices will then replace the collection key."
+msgstr "A mudança para Privada não terminou. Revogue o dispositivo que a iniciou. Seus outros dispositivos de proprietário então substituirão a chave da coleção."
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "this collection"
@@ -858,8 +869,8 @@ msgid "to move"
 msgstr "para mover"
 
 #: src/CommandPalette.tsx
-msgid "to open"
-msgstr "para abrir"
+msgid "to run"
+msgstr "para executar"
 
 #: src/screens.tsx
 msgid "Try again"
@@ -885,6 +896,7 @@ msgid "Unchanged lines"
 msgstr "Linhas inalteradas"
 
 #: src/FeedbackMarkup.tsx
+#: src/Toaster.tsx
 msgid "Undo"
 msgstr "Desfazer"
 
@@ -923,11 +935,6 @@ msgstr "Aguardando a atualização dos dispositivos."
 msgctxt "Collection storage mode"
 msgid "Waiting for older device connections to expire. Cloud copy remains on until the switch finishes."
 msgstr "Aguardando a expiração das conexões antigas dos dispositivos. A cópia na nuvem permanece ativa até a conclusão da mudança."
-
-#: src/collections/copy.ts
-msgctxt "Collection access interface"
-msgid "Waiting for the collection key…"
-msgstr "Aguardando a chave da coleção…"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"

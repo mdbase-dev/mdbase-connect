@@ -85,6 +85,7 @@ impl DoBackend {
                         | Write::EndorseSnapshot(_)
                         | Write::DeleteSnapshot(_)
                         | Write::DeleteEntriesThrough(_)
+                        | Write::PruneTokens(_)
                         | Write::DeleteObject(_)
                 )
             })

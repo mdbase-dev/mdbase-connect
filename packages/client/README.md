@@ -676,7 +676,8 @@ export const manifest = {
 
 Set `collection_kind` to `hosted` when the application needs a durable
 provider-backed collection and the offline sync transport returned by
-`sync()`. Connect then offers and accepts collections with replication capability.
+`sync()`. Connect then offers and accepts collections with replication
+capability: hosted collections and cloud copies.
 
 Every SDK manifest must explicitly set `requirements.access` to the N-1 wire
 spelling `full_collection`. An active grant covers the entire selected

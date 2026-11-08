@@ -28,6 +28,7 @@ fn row(n: u8, path: &str, doc: &str) -> RecordRow {
         doc: doc.into(),
         revision: mdbn_wire::hash::sha256(doc.as_bytes()),
         modified_seq: 0,
+        mtime: None,
         bucket: bucket16(&id(n)),
         meta: RecordMeta::default(),
     }

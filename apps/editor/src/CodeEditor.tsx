@@ -3,6 +3,7 @@ import { i18n as editorI18n } from "@lingui/core";
 import { isLocale } from "@mdbase-dev/i18n";
 import { englishCodeMirrorPhrases, loadCodeMirrorPhrases } from "@mdbase-dev/i18n/codemirror";
 import { t } from "@lingui/core/macro";
+import { commandDefinitions } from "./editor-commands";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyField, historyKeymap, indentLess, indentMore } from "@codemirror/commands";
 import { markdown, markdownKeymap, pasteURLAsLink } from "@codemirror/lang-markdown";
@@ -17,7 +18,7 @@ import {
 import { lintGutter, linter, lintKeymap, type Diagnostic } from "@codemirror/lint";
 import { closeSearchPanel, highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
 import { registerActiveEditor, unregisterActiveEditor } from "./code-editor-reveal";
-import { Compartment, EditorSelection, EditorState, Prec, Transaction, type Extension, type Range } from "@codemirror/state";
+import { Compartment, EditorSelection, EditorState, Prec, StateEffect, StateField, Transaction, type Extension, type Range } from "@codemirror/state";
 import {
   Decoration,
   EditorView,
@@ -32,7 +33,7 @@ import {
   type ViewUpdate
 } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { parseDocument as parseYamlDocument } from "yaml";
 import type { FileAssetSnapshot } from "./file-asset-store";
@@ -90,6 +91,7 @@ interface CodeEditorProps {
   onUploadAttachment?: AttachmentUploader;
   onBlur?: () => void;
   remoteApplyToken?: number;
+  header?: ReactNode;
   footer?: ReactNode;
 }
 
@@ -117,6 +119,13 @@ const EMPTY_NOTES: NoteSummary[] = [];
 const rememberedEditors = new Map<string, RememberedEditor>();
 const rememberedEditorLimit = 40;
 const EMPTY_HISTORY_STATE = EditorState.create({ extensions: [history()] }).field(historyField);
+const remoteChange = StateEffect.define<DecorationSet>();
+const remoteChangeLines = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update: (lines, transaction) => transaction.effects.find((effect) => effect.is(remoteChange))?.value
+    ?? (transaction.docChanged ? Decoration.none : lines),
+  provide: (field) => EditorView.decorations.from(field)
+});
 
 export { internalLinkPathAt } from "./code-editor-writer-interactions";
 export { linkCompletion, mentionScope } from "./code-editor-completions";
@@ -156,11 +165,19 @@ export function CodeEditor({
   onUploadAttachment,
   onBlur,
   remoteApplyToken,
+  header,
   footer
 }: CodeEditorProps) {
   const { i18n } = useLingui();
   const parentRef = useRef<HTMLDivElement>(null);
   const [footerHost, setFooterHost] = useState<HTMLDivElement>();
+  // Created during render so the header paints in the same frame as the editor it joins.
+  const [headerHost] = useState(() => {
+    if (!header) return undefined;
+    const host = document.createElement("div");
+    host.className = "note-header";
+    return host;
+  });
   const viewRef = useRef<EditorView | undefined>(undefined);
   const appliedRemoteToken = useRef<number | null>(null);
   const onChangeRef = useRef(onChange);
@@ -225,13 +242,22 @@ export function CodeEditor({
 
   useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
 
-  useEffect(() => {
+  // A layout effect keeps the title and body in one paint when notes change.
+  useLayoutEffect(() => {
     if (!parentRef.current) return;
     const extensions: Extension[] = [
+      remoteChangeLines,
       vimMode.current.of([]),
       historyMode.current.of([history()]),
       Prec.highest(attachmentCapture(() => onUploadAttachmentRef.current)),
       editorSetup(variant, Boolean(footer)),
+      // CodeMirror cannot see the header, so caret moves at the top of the note reveal it explicitly.
+      headerHost ? EditorState.transactionExtender.of((transaction) => {
+        if (!transaction.scrollIntoView) return null;
+        const head = transaction.newSelection.main.head;
+        if (transaction.newDoc.lineAt(head).number > 1) return null;
+        return { effects: EditorView.scrollIntoView(head, { y: "nearest", yMargin: headerHost.offsetHeight }) };
+      }) : [],
       syntaxHighlighting(mdbaseHighlightStyle),
       mdbasePopupTheme,
       variant === "writer" ? syntaxHighlighting(writerHighlightStyle) : [],
@@ -296,6 +322,7 @@ export function CodeEditor({
     const focusBeforeMount = parentRef.current.ownerDocument.activeElement;
     const view = new EditorView({ parent: parentRef.current, state });
     viewRef.current = view;
+    if (headerHost) view.scrollDOM.prepend(headerHost);
     if (variant === "writer" && footer) {
       const host = view.dom.ownerDocument.createElement("div");
       host.className = "note-footer";
@@ -316,7 +343,6 @@ export function CodeEditor({
       // but before this frame, and keep dialogs in charge of their own focus.
       if (autoFocus && activeElement === focusBeforeMount
           && (!editableOwner || view.dom.contains(activeElement))
-          && !activeElement?.matches("[role='listbox']")
           && !activeElement?.closest("[role='dialog'], [role='alertdialog'], [role='combobox']")) view.focus();
     });
     return () => {
@@ -510,16 +536,26 @@ export function CodeEditor({
       appliedRemoteToken.current = remoteApplyToken;
     }
     if (!externalReset && restoreLineSeparators(view.state.doc.toString(), lineSeparator.current) === value) return;
+    const before = view.state.doc.toString().split("\n");
+    const after = value.split("\n");
+    let first = 0;
+    let last = after.length;
+    while (first < Math.min(before.length, after.length) && before[first] === after[first]) first++;
+    while (last > first && before[before.length - (after.length - last) - 1] === after[last - 1]) last--;
     syncing.current = true;
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: value },
       selection: EditorSelection.cursor(Math.min(view.state.selection.main.head, value.length)),
-      effects: externalReset
-        ? historyMode.current.reconfigure([history(), historyField.init(() => EMPTY_HISTORY_STATE)])
-        : undefined,
+      effects: externalReset ? historyMode.current.reconfigure([history(), historyField.init(() => EMPTY_HISTORY_STATE)]) : undefined,
       annotations: externalReset ? Transaction.addToHistory.of(false) : undefined
     });
     syncing.current = false;
+    if (externalReset && !view.hasFocus && first < last) {
+      const lines = after.slice(first, last).map((_, index) => Decoration.line({ class: "cm-remote-change" }).range(view.state.doc.line(first + index + 1).from));
+      view.dispatch({ effects: remoteChange.of(Decoration.set(lines)) });
+      const timeout = setTimeout(() => { if (viewRef.current === view) view.dispatch({ effects: remoteChange.of(Decoration.none) }); }, 900);
+      return () => clearTimeout(timeout);
+    }
   }, [value, remoteApplyToken]);
 
   useEffect(() => {
@@ -546,7 +582,7 @@ export function CodeEditor({
       if (next instanceof Node && event.currentTarget.contains(next)) return;
       onBlur?.();
     }}
-  >{footerHost && footer && createPortal(footer, footerHost)}</div>;
+  >{headerHost && createPortal(header, headerHost)}{footerHost && footer && createPortal(footer, footerHost)}</div>;
 }
 
 export function lineSeparatorFor(value: string): "\n" | "\r\n" {
@@ -615,10 +651,10 @@ const editorSetup = (variant: EditorVariant, hasFooter = false): Extension => [
 ];
 
 const writerKeymap = [
-  { key: "Mod-b", run: markdownFormatCommand("bold") },
-  { key: "Mod-i", run: markdownFormatCommand("italic") },
-  { key: "Mod-k", run: markdownFormatCommand("link") },
-  { key: "Mod-Shift-c", run: markdownFormatCommand("code") },
+  ...([ ["bold", "bold"], ["italic", "italic"], ["command-palette", "link"], ["code", "code"] ] as const).map(([id, format]) => ({
+    key: commandDefinitions[id].shortcut.toLowerCase().replace("mod", "Mod").replace("shift", "Shift").replaceAll("+", "-"),
+    run: markdownFormatCommand(format)
+  })),
   { key: "Tab", run: indentMarkdownList },
   { key: "Shift-Tab", run: outdentMarkdownList },
   ...markdownKeymap

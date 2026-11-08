@@ -6,8 +6,17 @@ assets) and its source-build qualification gate. See [SDK publication](sdk-publi
 No current ops change is required: private promotion readers consume their own
 component mapping and the unchanged OCI bundle, not this public source inventory.
 The OCI component matrix and signed image release
-bundle stay unchanged (bundle schema v1); the SDK uses the same release version
-and verified tag, with separate qualification and attestations.
+bundle stay unchanged (bundle schema v1). SDK packages now use independent
+CI-computed versions and verified main source, with separate qualification and
+attestations. [Continuous SDK publication](continuous-sdk-release.md) replaces
+the historical coordinated npm/tag procedure later in this document: npm
+workflows run from main, never accept `production_verified_commit`, and do not
+require server/package version equality. Server promotion and other clients'
+existing release procedures remain separate.
+
+Signed runtime Worker bundles use the separate
+[owner/App publication contract](runtime-worker-publication.md), including
+independent approved-trust pins and the ops consumer's identity prerequisite.
 
 `config/release-components.json` is the public, non-secret inventory of every
 product artifact promoted together as an mdbase Connect server release. It owns
@@ -164,29 +173,35 @@ MDBASE_CLOUD_OPS_CHECKOUT=/absolute/path/to/mdbase-cloud-ops \
 
 ## Editor publication
 
-Editor is a separate deployment artifact and main's Editor is the native-SDK
-Editor. It publishes only through the native path of **Editor CI and release**
-(`editor-pages.yml`): dispatch it on the literal `release/native-<target>` branch
-with `target` and that branch's exact full HEAD as `source_sha`:
+Editor is a separate static deployment artifact. The ops server pipeline
+dispatches **Editor CI and release** (`editor-pages.yml`) on main with a
+full source SHA reachable from main and the target environment:
 
 ```sh
 gh workflow run editor-pages.yml --repo mdbase-dev/mdbase-connect \
-  --ref release/native-staging -f target=staging -f source_sha=<full HEAD>
+  --ref main -f target=staging -f source_sha=<full-40-character-main-ancestor>
 ```
 
-Pushes to main, pull requests and dispatches without `source_sha` run the Editor
-checks and publish nothing; no main or version-tag dispatch publishes the Editor.
-The unprivileged frozen build, protected `editor-<target>` environment, pinned
-SDK/protocol file hashes, exact npm UI version/SHA512 and served-byte verification are described in
-`apps/editor/NATIVE_PUBLISHER.md`. Production additionally requires its own
-target intake on `release/native-production` and Callum's separate reviewer GO.
-UI-only Editor changes do not require a new backend, npm package, or desktop
+Main pushes and pull requests test only. Main moving during a publication does
+not invalidate its immutable source. There is no per-publish human GO.
+The publisher authenticates the exact production npm SDK or same-version
+staging asset, checks one protected trust hash per environment, and keeps the
+unprivileged frozen build, protected upload and complete served-byte/header
+verification. Production alias failure restores and verifies the captured prior
+Pages deployment and still fails the job. See `apps/editor/NATIVE_PUBLISHER.md`
+for environment policy, App dispatch permissions and recovery evidence.
+UI-only Editor changes do not require a new backend, npm package or desktop
 release.
 
 ## Public client release publication
 
-The explicitly dispatched `desktop-release.yml` workflow owns the public desktop
-channel after production verification. It creates and verifies `mdbase-connect-channel-v1.json`, publishes the
+`desktop-release.yml` owns the public desktop channel from qualified green main,
+with CI versions and production-contract compatibility rather than a human-typed
+server SHA. [Continuous desktop releases](continuous-desktop-release.md) is the
+current desktop procedure: **100% rollout with immutable releases enabled**.
+The legacy coordinated order below no longer authorizes desktop publication.
+The workflow creates and verifies `mdbase-connect-channel-v1.json`, uploads
+every asset to a draft, rechecks compatibility and the stop switch, publishes the
 GitHub release, and only then sends a `connect-client-release-published`
 repository dispatch containing the immutable tag to `mdbase-dev/mdbase.dev`.
 The receiving repository verifies the signed public channel, release assets,
@@ -200,7 +215,7 @@ contents and pull requests. A failed dispatch is recovered by manually running
 the website's **Update Connect release** workflow with the same tag; the public
 release is not republished.
 
-Client publication follows server production promotion; it cannot be triggered
+Legacy npm client publication follows server production promotion; it cannot be triggered
 by creating a tag. `mdbase-cloud-ops` does not trigger, receive, or hold
 credentials for client or website publication.
 
@@ -215,11 +230,11 @@ For coordinated client releases, and for semantic-v2 enablement, use this order:
    verifies the exact enabled candidate on each actual canonical production
    service, including unique service/deployment identity, image digests, hosted
    provider fresh-v2 readiness, and fresh authorization behavior.
-3. Only after that verification, dispatch `publish-npm.yml`, then
-   `desktop-release.yml`, selecting the existing version tag as the workflow ref
-   in each case. The Editor follows its native publication path above. Supply the full
-   verified candidate SHA as `production_verified_commit`. Desktop builds begin
-   on this dispatch; no pre-production desktop build is required. Consumers may
+3. Only after that verification, dispatch the legacy `publish-npm.yml`, selecting
+   the existing version tag as the workflow ref. The Editor follows its continuous
+   publication path above. Supply the full verified candidate SHA as
+   `production_verified_commit`. Desktop instead follows its continuous procedure
+   above, without that input. Consumers may
    update only after their dependencies are published. Reader remains excluded
    from this enablement rollout.
 

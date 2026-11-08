@@ -15,6 +15,13 @@ interface DaemonStatus {
   collections: DaemonCollection[];
 }
 
+/** Which files a collection syncs on every device (`mdbase sync files`). */
+interface SyncFiles {
+  include: Array<"image" | "audio" | "video" | "pdf" | "other">;
+  exclude: string[];
+  max_size?: number;
+}
+
 interface SyncCounters {
   confirmed_through: number;
   head_known: number;
@@ -36,7 +43,7 @@ interface DaemonCollection {
   mode: "local" | "synced" | "synced_e2e";
   origin: string;
   log: "none" | "hosted";
-  state: "paused" | "opening" | "ready" | "moving" | "unavailable" | "failed";
+  state: "paused" | "opening" | "ready" | "syncing" | "moving" | "unavailable" | "failed";
   reason?: string;
   sync?: SyncCounters;
   other_devices_online?: number;
@@ -161,6 +168,8 @@ interface Window {
     enableSync(collectionId: string, mode: "private" | "cloud-copy", acceptTakeoverHolds: boolean): Promise<unknown>;
     collectionModeStatus(collectionId: string): Promise<unknown>;
     changeCollectionMode(collectionId: string, targetMode: "private" | "cloud_copy", resume: boolean, cancel?: boolean): Promise<unknown>;
+    syncFiles(collectionId: string): Promise<SyncFiles>;
+    setSyncFiles(collectionId: string, files: SyncFiles): Promise<SyncFiles>;
     disableSync(collectionId: string): Promise<unknown>;
     listHolds(collectionId: string): Promise<HoldSummary[]>;
     resolveHold(collectionId: string, id: string, how: "keep_mine" | "take_theirs" | "keep_both" | "delete"): Promise<unknown>;

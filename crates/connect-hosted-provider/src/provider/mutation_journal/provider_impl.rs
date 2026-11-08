@@ -148,13 +148,14 @@ impl HostedProvider {
         .execute(&mut *transaction)
         .await?
         .rows_affected();
+        let released = compact_released_mutations_in(&mut transaction).await?;
         sqlx::query(
             "DELETE FROM hosted_provider_retired_replay_credentials WHERE expires_at <= now()",
         )
         .execute(&mut *transaction)
         .await?;
         transaction.commit().await?;
-        Ok(tombstoned)
+        Ok(tombstoned + released)
     }
 
     pub async fn operation_mutation_diagnostics(
@@ -402,7 +403,7 @@ impl HostedProvider {
             if !same {
                 return Err(mutation_conflict(request_id));
             }
-            let state: String = row.get("state");
+            let mut state: String = row.get("state");
             if matches!(
                 state.as_str(),
                 "completed" | "acknowledged" | "abandoned" | "outcome_unknown"
@@ -413,41 +414,29 @@ impl HostedProvider {
                     &ciphertext,
                     &hosted_mutation_receipt_aad(replica.id, request_id),
                 )?;
-                transaction.commit().await?;
-                return Ok(HostedMutationClaim::Terminal(receipt.into_result()));
+                if !(state == "completed"
+                    && releases_failed_attempts(&operation_kind)
+                    && receipt.is_retryable_stored_failure())
+                {
+                    transaction.commit().await?;
+                    return Ok(HostedMutationClaim::Terminal(receipt.into_result()));
+                }
+                state = reopen_stored_failure_in(&mut transaction, replica.id, request_id).await?;
             }
             let lease_expires_at: DateTime<Utc> = row.get("lease_expires_at");
             if lease_expires_at > Utc::now() {
                 transaction.commit().await?;
                 return Ok(HostedMutationClaim::Live);
             }
-            let owner = Uuid::new_v4();
-            let previous_generation: i64 = row.get("fencing_generation");
-            let generation = previous_generation.checked_add(1).ok_or_else(|| {
-                ApiError::internal("Hosted mutation fencing generation is exhausted.")
-            })?;
-            let updated = sqlx::query(
-                r#"UPDATE hosted_provider_mutation_journal
-                   SET process_epoch = $3, lease_owner = $4,
-                       lease_expires_at = now() + ($5 * interval '1 second'),
-                       fencing_generation = $6, updated_at = now()
-                   WHERE replica_id = $1 AND request_id = $2
-                     AND fencing_generation = $7
-                     AND state IN ('claimed', 'prepared', 'applied')"#,
-            )
-            .bind(replica.id)
-            .bind(request_id)
-            .bind(self.process_epoch)
-            .bind(owner)
-            .bind(MUTATION_LEASE_SECONDS)
-            .bind(generation)
-            .bind(previous_generation)
-            .execute(&mut *transaction)
-            .await?
-            .rows_affected();
-            if updated != 1 {
-                return Err(mutation_fence_lost(request_id));
-            }
+            let lease = self
+                .take_over_operation_mutation_in(
+                    &mut transaction,
+                    replica.id,
+                    request_id,
+                    input_digest,
+                    row.get("fencing_generation"),
+                )
+                .await?;
             let prepared_head = number(
                 row.get::<Option<i64>, _>("prepared_head")
                     .ok_or_else(|| ApiError::internal("Hosted mutation has no prepared head."))?,
@@ -472,14 +461,7 @@ impl HostedProvider {
             };
             transaction.commit().await?;
             return Ok(HostedMutationClaim::Owned {
-                lease: HostedMutationLease {
-                    replica_id: replica.id,
-                    request_id,
-                    input_digest,
-                    process_epoch: self.process_epoch,
-                    owner,
-                    generation,
-                },
+                lease,
                 prepared_head,
                 takeover: true,
                 applied_result,
@@ -876,6 +858,19 @@ impl HostedProvider {
         result
     }
 
+    /// Close a taken-over request with its final abandoned receipt (ADR 0005).
+    async fn abandon_operation_mutation(
+        &self,
+        collection_id: Uuid,
+        lease: &HostedMutationLease,
+        application: AbandonedApplication,
+    ) -> ApiResult<Value> {
+        let result = Err(mutation_abandoned(lease.request_id, application));
+        self.finish_operation_mutation(collection_id, lease, &result, "abandoned")
+            .await?;
+        result
+    }
+
     async fn finish_operation_mutation(
         &self,
         collection_id: Uuid,
@@ -892,6 +887,20 @@ impl HostedProvider {
         let data_key = self
             .collection_key(collection_id, &wrapped_data_key)
             .await?;
+        let mut connection = self.pool.acquire().await?;
+        self.finish_operation_mutation_in(&mut connection, &data_key, lease, result, state)
+            .await
+    }
+
+    /// Write a terminal state and its encrypted receipt, fenced on `lease`.
+    async fn finish_operation_mutation_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        data_key: &[u8; 32],
+        lease: &HostedMutationLease,
+        result: &ApiResult<Value>,
+        state: &str,
+    ) -> ApiResult<()> {
         let receipt = StoredMutationReceipt::from_result(result);
         let plaintext = serde_json::to_vec(&receipt).map_err(|error| {
             ApiError::internal(format!(
@@ -899,7 +908,7 @@ impl HostedProvider {
             ))
         })?;
         let ciphertext = self.crypto.encrypt_bytes(
-            &data_key,
+            data_key,
             &plaintext,
             &hosted_mutation_receipt_aad(lease.replica_id, lease.request_id),
         )?;
@@ -921,12 +930,59 @@ impl HostedProvider {
         .bind(state)
         .bind(ciphertext)
         .bind(Sha256::digest(&plaintext).to_vec())
-        .execute(&self.pool)
+        .execute(&mut *connection)
         .await?
         .rows_affected();
         if updated != 1 {
             return Err(mutation_fence_lost(lease.request_id));
         }
         Ok(())
+    }
+
+    /// Take over an expired, unfinished request: a new owner in this process
+    /// epoch and the next fencing generation, so the previous owner's late
+    /// writes update nothing.
+    async fn take_over_operation_mutation_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        replica_id: Uuid,
+        request_id: Uuid,
+        input_digest: Vec<u8>,
+        previous_generation: i64,
+    ) -> ApiResult<HostedMutationLease> {
+        let owner = Uuid::new_v4();
+        let generation = previous_generation.checked_add(1).ok_or_else(|| {
+            ApiError::internal("Hosted mutation fencing generation is exhausted.")
+        })?;
+        let updated = sqlx::query(
+            r#"UPDATE hosted_provider_mutation_journal
+               SET process_epoch = $3, lease_owner = $4,
+                   lease_expires_at = now() + ($5 * interval '1 second'),
+                   fencing_generation = $6, updated_at = now()
+               WHERE replica_id = $1 AND request_id = $2
+                 AND fencing_generation = $7
+                 AND state IN ('claimed', 'prepared', 'applied')"#,
+        )
+        .bind(replica_id)
+        .bind(request_id)
+        .bind(self.process_epoch)
+        .bind(owner)
+        .bind(MUTATION_LEASE_SECONDS)
+        .bind(generation)
+        .bind(previous_generation)
+        .execute(&mut *connection)
+        .await?
+        .rows_affected();
+        if updated != 1 {
+            return Err(mutation_fence_lost(request_id));
+        }
+        Ok(HostedMutationLease {
+            replica_id,
+            request_id,
+            input_digest,
+            process_epoch: self.process_epoch,
+            owner,
+            generation,
+        })
     }
 }

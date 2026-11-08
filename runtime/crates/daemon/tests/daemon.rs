@@ -300,8 +300,8 @@ async fn daemon_lifecycle() {
             Err(ClientError::Remote(e)) => assert_eq!(e.reason.as_deref(), Some("invalid_id")),
             other => panic!("{other:?}"),
         }
-        // A granted session on a local collection with no grant feed yet: refused
-        // because its grant lease is not live.
+        // A granted session on a local collection with no grant feed yet: the
+        // grant is unknown here, whatever the state of the lease.
         let pg = Prologue {
             grant: [3; 16],
             ..p
@@ -314,7 +314,7 @@ async fn daemon_lifecycle() {
         let prob = hello.problem.unwrap();
         assert_eq!(
             (prob.code.as_str(), prob.reason.as_deref()),
-            ("forbidden", Some("grant_lease_expired"))
+            ("forbidden", Some("unknown_grant"))
         );
         // Without the host key, an unknown collection is indistinguishable from a
         // hosted one; with it, the lookup answers.
@@ -368,6 +368,70 @@ async fn daemon_lifecycle() {
     match c.call(Method::COLLECTION_ADD, json!({ "path": old })).await {
         Err(ClientError::Remote(e)) => assert_eq!(e.reason.as_deref(), Some("migration_pending")),
         other => panic!("{other:?}"),
+    }
+    // The Connect identity key in a comment is not an identity.
+    let commented = root.join("commented");
+    std::fs::create_dir_all(&commented).unwrap();
+    std::fs::write(
+        commented.join("mdbase.yaml"),
+        "spec_version: 0.3.0\n# x-mdbase-connect:\n#   collection_id: 4c18af2e-b04a-4b77-b83e-493c3695962e\n",
+    )
+    .unwrap();
+    let st: CollectionStatus = serde_json::from_value(
+        c.call(Method::COLLECTION_ADD, json!({ "path": commented }))
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(st.origin, mdbn_daemon::registry::Origin::Adopted);
+    // An identity no old connector state on this device lists (here: none at all) is
+    // orphaned: the folder is added once the user confirms removing only that key.
+    let copied = root.join("copied");
+    std::fs::create_dir_all(&copied).unwrap();
+    let config = "spec_version: 0.3.0\nx-mdbase-connect:\n  collection_id: 4c18af2e-b04a-4b77-b83e-493c3695962e\n\n# Keep this comment\nsettings:\n  timezone: UTC\n";
+    std::fs::write(copied.join("mdbase.yaml"), config).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let readable = std::fs::Permissions::from_mode(0o644);
+        std::fs::set_permissions(copied.join("mdbase.yaml"), readable).unwrap();
+    }
+    match c
+        .call(Method::COLLECTION_ADD, json!({ "path": copied }))
+        .await
+    {
+        Err(ClientError::Remote(e)) => {
+            assert_eq!(e.reason.as_deref(), Some("orphaned_legacy_identity"));
+            assert!(e.message.contains("x-mdbase-connect"), "{}", e.message);
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(
+        std::fs::read_to_string(copied.join("mdbase.yaml")).unwrap(),
+        config
+    );
+    let st: CollectionStatus = serde_json::from_value(
+        c.call(
+            Method::COLLECTION_ADD,
+            json!({ "path": copied, "remove_legacy_identity": true }),
+        )
+        .await
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(st.origin, mdbn_daemon::registry::Origin::Adopted);
+    assert_ne!(st.id, "4c18af2e-b04a-4b77-b83e-493c3695962e");
+    assert_eq!(
+        std::fs::read_to_string(copied.join("mdbase.yaml")).unwrap(),
+        "spec_version: 0.3.0\n\n# Keep this comment\nsettings:\n  timezone: UTC\n"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(copied.join("mdbase.yaml"))
+            .unwrap()
+            .permissions();
+        assert_eq!(mode.mode() & 0o777, 0o644);
     }
     // A garbage marker fails closed.
     let bad = root.join("bad");
@@ -460,6 +524,40 @@ async fn daemon_lifecycle() {
     let access: serde_json::Value =
         serde_json::from_slice(&std::fs::read(profile.access_file()).unwrap()).unwrap();
     assert_eq!(access["require_grant_approval"], true);
+
+    // Which files sync: everything by default, then a narrower policy in the log.
+    assert_eq!(
+        c.call(Method::SYNC_FILES, json!({ "collection": added.id }))
+            .await
+            .unwrap(),
+        json!({ "include": ["image", "audio", "video", "pdf", "other"], "exclude": [] })
+    );
+    let narrowed = c
+        .call(
+            Method::SYNC_FILES_SET,
+            json!({
+                "collection": added.id,
+                "include": ["image", "pdf", "image"],
+                "exclude": ["/Videos/", "Videos"],
+                "max_size": 1024,
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        narrowed,
+        json!({ "include": ["image", "pdf"], "exclude": ["Videos"], "max_size": 1024 })
+    );
+    match c
+        .call(
+            Method::SYNC_FILES_SET,
+            json!({ "collection": added.id, "include": [], "exclude": ["a/../b"] }),
+        )
+        .await
+    {
+        Err(ClientError::Remote(e)) => assert_eq!(e.reason.as_deref(), Some("invalid_folder")),
+        other => panic!("{other:?}"),
+    }
 
     // Pause persists.
     let paused: CollectionStatus = serde_json::from_value(

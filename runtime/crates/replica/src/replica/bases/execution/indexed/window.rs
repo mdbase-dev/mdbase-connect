@@ -1,7 +1,7 @@
 //! Global semantic order/group placement, exact selected display hydration.
 use super::*;
 use crate::store_query::{QueryProjectionRequest, QueryProjectionState};
-use mdbn_core::views::bases::BasesProjectionRequirements;
+use mdbn_core::views::bases::{BasesLinkMemo, BasesProjectionRequirements};
 pub(super) struct Context<'a> {
     pub request: BasesExecutionWindow,
     pub plan: &'a AdmittedBasesView,
@@ -10,6 +10,7 @@ pub(super) struct Context<'a> {
     pub clock: CapturedClock,
     pub snapshot: &'a QueryProjectionState,
     pub fence: &'a BasesReadFence,
+    pub links: &'a BasesLinkMemo,
 }
 pub(super) fn render<S: Store>(
     replica: &mut Replica<S>,
@@ -83,19 +84,25 @@ pub(super) fn render<S: Store>(
         {
             return Err(invalid());
         }
-        let projected = ledger
-            .project_admitted(|work| {
-                let raw = ownership::fields(&context.requirements.fields, row.fields, work)?;
-                let file = CapturedFile::new(&row.path, Some(row.source_bytes), None, None, work)?;
-                let file = CapturedFileBindings::capture(&file, row.tags.as_deref(), work)?;
-                let bindings = context
-                    .types
-                    .projected_bindings(&raw, work)?
-                    .with_clock(context.clock)
-                    .with_file(file);
-                context.plan.project(bindings, work, check_cancelled)
-            })
-            .map_err(failure)?
+        let projected = replica
+            .with_bases_links(context.links, |links| {
+                ledger
+                    .project_admitted(|work| {
+                        let raw =
+                            ownership::fields(&context.requirements.fields, row.fields, work)?;
+                        let file =
+                            CapturedFile::new(&row.path, Some(row.source_bytes), None, None, work)?;
+                        let file = CapturedFileBindings::capture(&file, row.tags.as_ref(), work)?;
+                        let bindings = context
+                            .types
+                            .projected_bindings(&raw, work)?
+                            .with_clock(context.clock)
+                            .with_file(file)
+                            .with_links(links);
+                        context.plan.project(bindings, work, check_cancelled)
+                    })
+                    .map_err(failure)
+            })?
             .ok_or_else(invalid)?;
         if projected.sort != keys.sort
             || projected.group != keys.group
@@ -172,21 +179,34 @@ pub(super) fn render<S: Store>(
                 }
                 // Same previously-admitted inventory identity. Source cardinality
                 // isn't doubled; work and retained projection are charged AGAIN.
-                let projected = ledger
-                    .project_admitted(|work| {
-                        let raw =
-                            ownership::fields(&context.requirements.fields, row.fields, work)?;
-                        let file =
-                            CapturedFile::new(&row.path, Some(row.source_bytes), None, None, work)?;
-                        let file = CapturedFileBindings::capture(&file, row.tags.as_deref(), work)?;
-                        let bindings = context
-                            .types
-                            .projected_bindings(&raw, work)?
-                            .with_clock(context.clock)
-                            .with_file(file);
-                        context.plan.project(bindings, work, check_cancelled)
-                    })
-                    .map_err(failure)?
+                let projected = replica
+                    .with_bases_links(context.links, |links| {
+                        ledger
+                            .project_admitted(|work| {
+                                let raw = ownership::fields(
+                                    &context.requirements.fields,
+                                    row.fields,
+                                    work,
+                                )?;
+                                let file = CapturedFile::new(
+                                    &row.path,
+                                    Some(row.source_bytes),
+                                    None,
+                                    None,
+                                    work,
+                                )?;
+                                let file =
+                                    CapturedFileBindings::capture(&file, row.tags.as_ref(), work)?;
+                                let bindings = context
+                                    .types
+                                    .projected_bindings(&raw, work)?
+                                    .with_clock(context.clock)
+                                    .with_file(file)
+                                    .with_links(links);
+                                context.plan.project(bindings, work, check_cancelled)
+                            })
+                            .map_err(failure)
+                    })?
                     .ok_or_else(invalid)?;
                 if projected.sort != keys.sort
                     || projected.group != keys.group

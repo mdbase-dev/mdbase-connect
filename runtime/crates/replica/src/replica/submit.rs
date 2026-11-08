@@ -586,12 +586,17 @@ impl<S: Store> Replica<S> {
             id,
             &r.path,
             &r.source,
-            confirmed.map(|c| c.modified_seq).unwrap_or(0),
+            confirmed
+                .as_ref()
+                .map_or((0, None), |c| (c.modified_seq, c.mtime)),
             pending,
             include,
         ))
     }
 }
+
+/// Confirmed `modified_seq` and capture time reported for a record.
+pub(crate) type RecordPosition = (u64, Option<i64>);
 
 /// One record's client view from its path and source. Shared by the per-record
 /// path and the indexed query driver, so the two can never disagree on shape.
@@ -600,19 +605,22 @@ pub(crate) fn record_view(
     id: &B16,
     path: &str,
     source: &str,
-    confirmed_seq: u64,
+    (confirmed_seq, mtime): RecordPosition,
     pending: bool,
     include: &Include,
 ) -> RecordView {
     let doc = mdbn_core::doc::Document::parse_at(path, source);
     let types = catalog.membership(path, doc.frontmatter()).types;
+    let values = catalog.record_values(path, &types, doc.frontmatter());
     RecordView {
         id: *id,
         path: path.to_string(),
         revision: mdbn_wire::hash::sha256(source.as_bytes()),
-        frontmatter: convert::wmap(doc.frontmatter()),
+        frontmatter: convert::wmap(&values),
         effective: if include.effective == Some(true) {
-            Some(convert::wmap(doc.frontmatter()))
+            Some(convert::wmap(
+                &catalog.effective_frontmatter(&types, &values),
+            ))
         } else {
             None
         },
@@ -639,5 +647,6 @@ pub(crate) fn record_view(
         },
         diagnostics: None,
         values: None,
+        mtime,
     }
 }

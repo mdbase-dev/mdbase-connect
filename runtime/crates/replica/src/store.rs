@@ -136,6 +136,9 @@ pub struct RecordRow {
     pub revision: Hash,
     /// Position of the last change (0 = adopted, unchanged).
     pub modified_seq: Seq,
+    /// Capture time of the last change to the bytes in milliseconds, from the
+    /// mutation's clock; old/absent remains unknown.
+    pub mtime: Option<i64>,
     /// [`bucket16`] of the ID.
     pub bucket: u16,
     /// Derived index entries.
@@ -1192,7 +1195,7 @@ pub trait Store {
     /// Read from a cached blob.
     fn blob_read(&self, digest: &Hash, offset: u64, len: u64) -> StoreResult<Vec<u8>>;
 
-    // ---- lost-tail retention (device-local; defaults retain nothing) ----
+    // ---- lost-tail retention (device-local; `tail` defaults retain nothing) ----
 
     /// Retained tail rows with `seq > after`, in `seq` order.
     /// `after = u64::MAX` always returns no rows.
@@ -1204,9 +1207,10 @@ pub trait Store {
         Ok(TailStats::default())
     }
     /// Own-retained rows with `seq > after`, in `seq` order.
-    fn own_retained(&self, _after: Seq, _limit: u32) -> StoreResult<Vec<(Seq, PendingRow)>> {
-        Ok(Vec::new())
-    }
+    /// Required, like `own_retained_stats`: a store or forwarding wrapper that
+    /// commits `own_retained_put` must read the same rows back, or repair and
+    /// lost-tail recovery silently see no own history.
+    fn own_retained(&self, after: Seq, limit: u32) -> StoreResult<Vec<(Seq, PendingRow)>>;
 
     /// Size of confirmed own history, counting canonical `PendingRow::to_bytes`.
     /// Required, with no scanning default: the repair budget reads it on every

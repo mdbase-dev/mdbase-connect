@@ -20,6 +20,8 @@ applyThemePreference(loadThemePreference());
   `--color-text-soft`, `--color-accent`, ...) for light, dark and system
   themes. Style components with roles, not palette values. Short aliases such
   as `--ink` belong to each app.
+  `--color-current` and `--color-on-current` mark the keyboard/pointer current
+  choice in palettes, completion lists and diagnostics; `--color-selected` stays subtle for persistent selections.
 - `theme` stores the System, Light or Dark choice as `mdbase:theme`.
 - `brand` draws the Frontmatter mark, each app's inverted mark, and the
   `mdbase <app>` wordmark. Add `motion.css` to animate the mark: loops
@@ -33,8 +35,32 @@ applyThemePreference(loadThemePreference());
   total is known, and `holdMdbaseMarkBusy(loop)` (or `useMdbaseMarkBusy`) while
   it is not.
 - `apps` lists the mdbase apps and builds links that open the current
-  collection in another app. Lab and local builds pass their own URLs to
-  `withAppUrls`.
+  collection in another app. Every deployment passes its own URLs to
+  `withAppUrls` (or `AppSwitcher`'s `urls` prop). Apps without a configured URL
+  are omitted; shared metadata never falls back to production origins.
+
+## Icon-button tooltips
+
+Import `Tooltip` from `@mdbase-dev/ui/tooltip` and include `controls.css`.
+Wrap one native icon button in `<Tooltip label="Search" shortcut="mod+k">…</Tooltip>`.
+Localize the label in the caller. The optional shortcut uses the same notation and
+platform labels as the command palette and sets `aria-keyshortcuts` on the button.
+The button keeps its ref and handlers; a native manual popover adds no layout box
+or focus stop. Escape dismisses a visible tooltip before the parent dialog;
+the bubble remains visible while hovered, with 120 ms to cross the gap.
+Only the supplemental shortcut is linked as a description, preserving existing
+button names and descriptions. Hover waits 400 ms, keyboard
+focus is immediate, and a recently closed tooltip keeps the next one immediate
+for 800 ms. Touch presses do not show a tooltip. Scroll, resize, window blur,
+press, or an unavailable trigger cancels pending and visible hints.
+
+## Toasts
+
+Mount one `Toaster` from `@mdbase-dev/ui/toast` inside the app's locale provider
+and import `@mdbase-dev/ui/toast.css`. Call `toast(message, undo?)` with localized
+copy and, when applicable, a real inverse mutation. The toast stays for five
+seconds (eight with Undo), pauses on hover or focus, and queues up to three
+more messages. Unmounting the owner clears the queue.
 
 ## Languages
 
@@ -73,7 +99,7 @@ Re-render with the current locale's callback to update the presentation.
 ## Collections
 
 Import `@mdbase-dev/ui/collections` and `@mdbase-dev/ui/collections.css`.
-`tokens.css` is optional: without it every value falls back to a built-in one.
+The stylesheet includes the shared tokens, controls and dialog styles; no separate imports are needed.
 Every component takes the SDK front door from `createMdbase` (an optional peer
 dependency) and `app: { name, mark? }`.
 
@@ -183,7 +209,6 @@ built-in value.
 | `border` | hairlines | `--color-border-strong` | light grey |
 | `danger` | errors and destructive actions | `--color-danger` | red |
 | `warning` | warning text | `--color-warning-text` | amber |
-| `warning-edge` | the warning notice's edge | `--color-warning` | amber |
 | `scrim` | behind dialogs and sheets | `--color-scrim` | `rgb(0 0 0 / 0.3)` |
 | `current-bg` | the open collection's row | (none) | accent 9% into surface, mixed in oklab |
 | `font` | font family | `--sans` | `system-ui, sans-serif` |

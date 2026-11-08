@@ -37,7 +37,7 @@ export interface MdbaseSetupConflict {
  * types is installed; ask the person to update the app (describeError action
  * `update_app`). `setup_unresolved`: the collection still lacks what the app
  * needs and setup has nothing it may write to fix it (a note type it set up
- * was edited or removed); the person changes the collection, then plans again.
+ * was removed); the person changes the collection, then plans again.
  * `setup_downgrade` is the former name and is no longer produced. */
 export type MdbaseSetupRefusalCode = "setup_forbidden" | "setup_conflict" | "setup_unresolved" | "installed_newer" | "setup_downgrade" | "setup_records_forbidden";
 /** One type pack in a plan. `relation` compares the installed version with the
@@ -129,7 +129,7 @@ export function setupPlan(assessed: AppResourceAssessment, input: {
   const review = assessed.review!;
   let status = assessed.status === "current" ? "current" as const : assessed.status === "conflict" ? "conflict" as const : "setup" as const;
   const changes: MdbaseSetupChange[] = [], conflicts: MdbaseSetupConflict[] = [], adoptable: Record<string, string> = {};
-  let kept = 0;
+  const replaced = new Set(review.staged.map(s => s.path));
   for (const pack of review.packs) for (const r of pack.resources) {
     const thing = definition(r.kind), The = `T${thing.the.slice(1)}`;
     const why = r.kind === "contract" ? ", so other apps can work with them" : "";
@@ -137,26 +137,28 @@ export function setupPlan(assessed: AppResourceAssessment, input: {
       case "create": changes.push({ kind: "create", target: r.target, message: `Add ${thing.the}${why}.` }); break;
       case "update": changes.push({ kind: "update", target: r.target, message: `Update ${thing.the}.` }); break;
       case "delete": changes.push({ kind: "delete", target: r.target, message: `Remove ${thing.the}, which this app no longer uses.` }); break;
-      // Core plans adopt only for byte-identical bytes: nothing is written, the
-      // existing file just becomes managed. A chosen replacement plans as update.
-      case "adopt": changes.push({ kind: "adopt", target: r.target, message: `Use your existing ${thing.bare}, which already matches this app's.` }); break;
+      // Unreviewed, Core plans adopt only for byte-identical bytes: nothing is
+      // written. A reviewed replacement is an adopt row whose document is staged.
+      case "adopt": changes.push({ kind: "adopt", target: r.target, message: replaced.has(r.target)
+        ? `Replace ${thing.the} with this app's version. Yours isn't kept.`
+        : `Use your existing ${thing.bare}, which already matches this app's.` }); break;
+      // Core keeps a seed that no published version upgrades (`reason` says
+      // so); the app's version is then never written unless the person chooses
+      // it, so a required contract could stay unimplemented while the pack
+      // reads current. Like a conflicting seed, it is replaced only by choice.
+      case "preserve":
       case "conflict": {
-        const canAdopt = r.mode === "managed" && !r.installed && r.currentDigest !== undefined;
+        if (r.action === "preserve" && r.reason === undefined) break;
+        const seed = r.mode === "seed";
+        const canAdopt = r.currentDigest !== undefined && (seed || !r.installed);
         if (canAdopt) adoptable[r.target] = r.currentDigest!;
         conflicts.push({ target: r.target, ...(canAdopt ? { adoptable: { digest: r.currentDigest! } } : {}),
-          message: canAdopt ? `This collection already has a ${thing.bare} that differs from the one this app needs. You can replace it with this app's version.`
-            : r.installed ? `${The} was changed after this app set it up, so it can't be updated automatically.`
-              : `${The} can't be set up automatically.` });
+          message: canAdopt && seed ? `Your ${thing.bare} has changes that can't be combined with the version this app needs. You can replace it with this app's version.`
+            : canAdopt ? `This collection already has a ${thing.bare} that differs from the one this app needs. You can replace it with this app's version.`
+              : r.installed ? `${The} was changed after this app set it up, so it can't be updated automatically.`
+                : `${The} can't be set up automatically.` });
         break;
       }
-      // Core keeps a seed whose live bytes descend from no published baseline
-      // (`reason` says so). The app's newer type is then never written, so a
-      // required contract can stay unimplemented while the pack reads current.
-      case "preserve":
-        if (r.reason === undefined) break;
-        kept++;
-        conflicts.push({ target: r.target, message: `${The} was changed outside this app, so it can't be updated to the version this app needs.` });
-        break;
       default: break;
     }
   }
@@ -178,7 +180,6 @@ export function setupPlan(assessed: AppResourceAssessment, input: {
   let refusal: MdbaseSetupPlan["refusal"];
   if (status !== "current" && !input.canManage) refusal = { code: "setup_forbidden", message: "This app doesn't have permission to set up this collection." };
   else if (newerMajor) refusal = { code: "installed_newer", message: "A newer version of this app set up this collection. Update the app to continue." };
-  else if (conflicts.length && conflicts.length === kept) refusal = { code: "setup_unresolved", message: UNRESOLVED };
   else if (conflicts.length) refusal = { code: "setup_conflict", message: conflicts.length === Object.keys(adoptable).length
     ? `${conflicts.length === 1 ? "One item differs" : `${conflicts.length} items differ`} from what this app needs. Choose whether to use this app's version to continue.`
     : "Some items can't be set up automatically. Resolve them, then try again." };
@@ -186,7 +187,7 @@ export function setupPlan(assessed: AppResourceAssessment, input: {
   const summary = status === "current" ? "Everything this app needs is already set up."
     : refusal ? refusal.message
       : `This app will make ${plural(changes.length, "change")} to this collection.${
-        changes.every(c => c.kind === "create" || c.kind === "adopt" || c.kind === "record") ? " Nothing already in it is changed." : ""}`;
+        changes.every(c => c.kind === "create" || c.kind === "record" || (c.kind === "adopt" && !replaced.has(c.target))) ? " Nothing already in it is changed." : ""}`;
   return Object.freeze({
     status, canApply: status === "setup" && refusal === undefined, digest: assessed.assessmentDigest, summary,
     changes: Object.freeze(changes.map(c => Object.freeze(c))), conflicts: Object.freeze(conflicts.map(c => Object.freeze(c))),

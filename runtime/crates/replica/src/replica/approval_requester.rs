@@ -55,6 +55,20 @@ pub(super) struct RequesterCode {
     started: i64,
     expires: i64,
 }
+/// Requester trust in its selected approver (`sealed-envelope.md` §5.3 step 6).
+/// Answering a challenge trusts nobody: the selected approver's key grant is
+/// accepted only while the log still carries that exchange's commitment, and
+/// the approver becomes a trusted signer only when that grant keys this device.
+/// Memory only; checkpointed with apply.
+#[derive(Clone, Copy, Default)]
+pub(super) struct RequesterTrust {
+    /// The latest revealed exchange: its selected approver and commitment.
+    exchange: Option<(Uuid, B32)>,
+    /// The approver whose grant keyed this device, for the host to persist.
+    signer: Option<Uuid>,
+    /// The saved exchange was consulted for a keyed, untrusted device.
+    restored: bool,
+}
 impl Context {
     fn identity_matches(&self, b: &Self) -> bool {
         self.collection == b.collection && self.stamp == b.stamp && self.me == b.me
@@ -346,6 +360,46 @@ impl<S: Store> Replica<S> {
         }
         Ok(B32(n.commitment()))
     }
+    /// The saved revealed exchange under the SAME current context, policy and
+    /// latest commitment: its full selected approver, and the code shown for it
+    /// rebuilt from the saved reveal.
+    fn requester_saved_exchange(
+        &self,
+        context: &Context,
+        record: &Record,
+    ) -> ApiResult<Option<(ApprovalDevice, B32, RequesterCode)>> {
+        let Some(peer) = &record.peer else {
+            return Ok(None);
+        };
+        if record.context != *context || !peer.verify_for_policy(self.cfg.collection, &self.policy)
+        {
+            return Err(denied());
+        }
+        let ApprovalPeerMessage::Challenge(challenge) = &peer.message else {
+            return Err(denied());
+        };
+        let n = NewDevice::restore(context.collection, context.keys(), &record.state)
+            .map_err(|_| denied())?;
+        let approver = &challenge.binding.approver;
+        if n.approver() != Some(approver.device)
+            || B32(n.commitment()) != challenge.binding.commitment
+            || challenge.binding.requester != context.me
+        {
+            return Err(denied());
+        }
+        let code = n.code(&self.policy, &challenge.r_a.0).ok_or_else(denied)?;
+        let display = RequesterCode {
+            context: context.clone(),
+            code: Zeroizing::new(code),
+            started: self.now(),
+            expires: challenge.expires_at_ms,
+        };
+        Ok(Some((
+            approver.clone(),
+            challenge.binding.commitment,
+            display,
+        )))
+    }
     /// Restore the FULL selected approver only under the SAME current account,
     /// incarnation, custody, security-control witness and latest commitment.
     /// This is a pending key-delivery signer pin, not approval/keyed/Ready success.
@@ -361,25 +415,13 @@ impl<S: Store> Replica<S> {
         if !record.context.identity_matches(&context) {
             return Err(denied());
         }
-        let Some(peer) = record.peer else {
+        let Some((approver, ..)) = self.requester_saved_exchange(&context, &record)? else {
             return Ok(None);
         };
-        if record.context != context || !peer.verify_for_policy(self.cfg.collection, &self.policy) {
+        if self.requester_context(session)? != context {
             return Err(denied());
         }
-        let ApprovalPeerMessage::Challenge(challenge) = &peer.message else {
-            return Err(denied());
-        };
-        let n = NewDevice::restore(context.collection, context.keys(), &record.state)
-            .map_err(|_| denied())?;
-        if n.approver() != Some(challenge.binding.approver.device)
-            || B32(n.commitment()) != challenge.binding.commitment
-            || challenge.binding.requester != context.me
-            || self.requester_context(session)? != context
-        {
-            return Err(denied());
-        }
-        Ok(Some(challenge.binding.approver.clone()))
+        Ok(Some(approver))
     }
 
     /// Live six-digit visual comparison code for the trusted host's status UI.
@@ -435,10 +477,27 @@ impl<S: Store> Replica<S> {
             }
             None => false,
         };
+        // After a restart, the saved exchange's approver may still key this
+        // device while the log carries its commitment, and its code comes back
+        // while it is live (#1072).
+        if self.approval.requester_trust.exchange.is_none()
+            && let Ok(Some((approver, commitment, display))) =
+                self.requester_saved_exchange(&context, &record)
+        {
+            self.approval.requester_trust.exchange = Some((approver.device, commitment));
+            if live && self.approval.requester_code.is_none() {
+                self.approval.requester_code = Some(display);
+                self.status_dirty = true;
+            }
+        }
         if live {
             return Ok(None);
         }
         if record.peer.is_some() || renew {
+            // The old code is gone at once. Its approver's grant stays usable
+            // only until the fresh commitment reaches the log: an Allow the
+            // approver sent in time may still be applied.
+            self.approval.requester_code = None;
             let fresh = n.fresh(self.host.entropy.as_mut());
             record.context = context.clone();
             record.state = n.state();
@@ -515,13 +574,7 @@ impl<S: Store> Replica<S> {
         {
             return Err(denied());
         }
-        // The selected approver is the one signer whose `key_grant` this device
-        // uses (`sealed-envelope.md` §5.3 step 6): trusted from here on. The host
-        // persists it in its link's `trusted_signers` before sending the reveal.
-        let approver = challenge.binding.approver.device;
-        if !self.cfg.trusted_signers.contains(&approver) {
-            self.cfg.trusted_signers.push(approver);
-        }
+        // Answering trusts nobody (`RequesterTrust`).
         let envelope = ApprovalPeerMessage::Reveal(super::ApprovalReveal {
             challenge: challenge.clone(),
             r_n: B32(*r_n),
@@ -531,6 +584,10 @@ impl<S: Store> Replica<S> {
         if self.requester_context(session)? != context {
             return Err(denied());
         }
+        self.approval.requester_trust.exchange = Some((
+            challenge.binding.approver.device,
+            challenge.binding.commitment,
+        ));
         self.approval.requester_code = Some(RequesterCode {
             context,
             code: code.clone(),
@@ -539,5 +596,140 @@ impl<S: Store> Replica<S> {
         });
         self.status_dirty = true;
         Ok(RequesterApprovalReveal { code, envelope })
+    }
+
+    /// After each applied item: the selected approver becomes a trusted signer
+    /// exactly when its key grant keys this device while the log still carries
+    /// the exchange's commitment. A commitment replaced in the log (renewed
+    /// after expiry, Deny or an unseen challenge), or a key from anyone else,
+    /// ends the exchange with no trust.
+    pub(super) fn latch_requester_signer(&mut self) {
+        let Some((approver, commitment)) = self.approval.requester_trust.exchange else {
+            return;
+        };
+        let Some(me) = self.policy.devices.get(&self.cfg.device_id) else {
+            return;
+        };
+        if me.sas_commit != Some(commitment) {
+            self.approval.requester_trust.exchange = None;
+            return;
+        }
+        if !(me.active && me.keyed) {
+            return;
+        }
+        self.approval.requester_trust.exchange = None;
+        if me.delivered_by == Some(approver) {
+            self.trust_requester_signer(approver);
+        }
+    }
+    fn trust_requester_signer(&mut self, approver: Uuid) {
+        if !self.cfg.trusted_signers.contains(&approver) {
+            self.cfg.trusted_signers.push(approver);
+        }
+        self.approval.requester_trust.signer = Some(approver);
+        self.status_dirty = true;
+    }
+    pub(super) fn requester_trust(&self) -> RequesterTrust {
+        self.approval.requester_trust
+    }
+    pub(super) fn set_requester_trust(&mut self, trust: RequesterTrust) {
+        self.approval.requester_trust = trust;
+    }
+
+    /// The approver whose key grant keyed this device after the user's Allow,
+    /// for the host to keep as a trusted signer; repeated until this replica
+    /// closes, so a failed save is retried. After a restart that lost it before
+    /// the save, the saved exchange names it once, only for this account
+    /// incarnation, this device's keys and its latest logged commitment.
+    pub fn requester_approval_signer(
+        &mut self,
+        session: SessionId,
+        journal: &mut dyn ApprovalSecretJournal,
+    ) -> ApiResult<Option<Uuid>> {
+        self.host_only(session)?;
+        let trust = self.approval.requester_trust;
+        if trust.signer.is_none() && !trust.restored && self.key_untrusted {
+            let delivered = self
+                .policy
+                .devices
+                .get(&self.cfg.device_id)
+                .filter(|d| d.active && d.keyed)
+                .and_then(|d| d.delivered_by);
+            if delivered.is_some() {
+                let saved = self.requester_saved_approver(journal)?;
+                self.approval.requester_trust.restored = true;
+                if let Some(approver) = saved.filter(|a| delivered == Some(*a)) {
+                    self.trust_requester_signer(approver);
+                    self.check_key_trust();
+                }
+            }
+        }
+        Ok(self.approval.requester_trust.signer)
+    }
+
+    /// The saved exchange's approver for a keyed device (restart after the
+    /// grant applied): only for this account incarnation, this device's keys and
+    /// its latest logged commitment, signed by that approver's current key.
+    fn requester_saved_approver(
+        &mut self,
+        journal: &mut dyn ApprovalSecretJournal,
+    ) -> ApiResult<Option<Uuid>> {
+        // Unlike `requester_load`, a failed read here never blocks approvals.
+        let Some(bytes) = journal
+            .load()
+            .map_err(|_| ErrorCode::Unavailable.err("requester secret journal unavailable"))?
+        else {
+            return Ok(None);
+        };
+        if bytes.len() == BARE_STATE {
+            return Ok(None);
+        }
+        let record = Record::decode(&bytes)?;
+        let Some(peer) = &record.peer else {
+            return Ok(None);
+        };
+        let ApprovalPeerMessage::Challenge(challenge) = &peer.message else {
+            return Err(denied());
+        };
+        let source = self.grant_source.as_ref().ok_or_else(denied)?;
+        let stamp = ApprovalAuthorityStamp {
+            account: source.active_account().ok_or_else(denied)?,
+            epoch: source.authority_epoch().ok_or_else(denied)?,
+        };
+        let current = |t: &ApprovalDevice| {
+            self.policy
+                .devices
+                .get(&t.device)
+                .is_some_and(|d| d.active && ApprovalDevice::from_policy(t.device, d) == *t)
+        };
+        let me = &record.context.me;
+        let n = NewDevice::restore(
+            record.context.collection,
+            record.context.keys(),
+            &record.state,
+        )
+        .map_err(|_| denied())?;
+        let b = &challenge.binding;
+        if record.context.collection != self.cfg.collection
+            || record.context.stamp != stamp
+            || me.device != self.cfg.device_id
+            || b.collection != self.cfg.collection
+            || b.requester != *me
+            || !current(me)
+            || !current(&b.approver)
+            || self
+                .policy
+                .devices
+                .get(&me.device)
+                .and_then(|d| d.sas_commit)
+                != Some(b.commitment)
+            || B32(n.commitment()) != b.commitment
+            || n.approver() != Some(b.approver.device)
+            || !peer.verify_signature()
+        {
+            // Not the exchange that keyed this device.
+            return Ok(None);
+        }
+        Ok(Some(b.approver.device))
     }
 }

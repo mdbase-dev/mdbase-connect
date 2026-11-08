@@ -53,6 +53,24 @@ wire_enum! {
     }
 }
 
+impl MediaClass {
+    /// The class of a path, from its extension (intent.md §3.7).
+    pub fn of(path: &str) -> MediaClass {
+        let ext = path
+            .rsplit_once('.')
+            .map(|(_, e)| e.to_ascii_lowercase())
+            .unwrap_or_default();
+        match ext.as_str() {
+            "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "avif" | "heic" | "tif"
+            | "tiff" => MediaClass::Image,
+            "mp3" | "wav" | "m4a" | "ogg" | "flac" | "aac" | "opus" => MediaClass::Audio,
+            "mp4" | "mov" | "webm" | "mkv" | "avi" | "m4v" => MediaClass::Video,
+            "pdf" => MediaClass::Pdf,
+            _ => MediaClass::Other,
+        }
+    }
+}
+
 wire_struct! {
     /// The captured time of a mutation (intent.md §4.1).
     pub struct OpClock {
@@ -253,6 +271,8 @@ wire_struct! {
         10 opt1 base: Vec<BaseField>,
         /// Opt-in CAS.
         11 opt if_revision: Hash,
+        /// Rewrite inbound references on stored-field moves (default true).
+        12 opt update_refs: bool,
     }
 }
 

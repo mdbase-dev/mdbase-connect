@@ -60,6 +60,18 @@ unchanged state; a same-schema predecessor must serve the fixture. Other
 failures never count as the expected refusal. For0042, beta99 rollback is
 incompatible. No release or deployment authority is emitted.
 
+The `Rollback read compatibility` workflow (`rollback-read-compat.yml`,
+dispatch only) runs this same scenario for an exact release-train pair: the
+candidate commit's harness and signed hosted-provider image against the exact
+production predecessor release, commit and image, each bound by its image
+revision label. The predecessor is selected in the runner's copy of
+`.github/previous-release.env` only. Its single `rollback-read-compat` artifact
+holds bounded identities, both migration heads and `compatible` (the
+predecessor served candidate-written state) or `incompatible` (the expected
+unknown-prefix refusal). Ops `release train check` reads it for the
+`rollback-read-compatibility` gate. It covers hosted-provider PostgreSQL state
+only, not Worker Durable Object or R2 encodings.
+
 Each run creates its own UUID-named PostgreSQL and provider containers and private
 logs. It rejects external database/R2 targets and never cleans globally named
 legacy resources. It uses the existing startup/readiness helpers and S3 readiness
@@ -103,3 +115,8 @@ immutable schema41 successor and is not run on beta95's already-migrated schema.
 The current candidate's atomic migration implementation remains covered by the
 registered real-PostgreSQL atomic-runner tests. Never infer that beta94 is a rollback target
 for the populated v2 fixture.
+
+The exact-pair workflow uses its own ref to override the candidate harness release
+verifier. It checks that the origin annotated tag peels to the pinned predecessor
+commit, and checks both image digest references and source/revision labels. It
+does not check GitHub Release metadata; ordinary upgrade lanes still do.

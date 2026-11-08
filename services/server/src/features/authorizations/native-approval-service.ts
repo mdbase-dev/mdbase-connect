@@ -1,6 +1,9 @@
-// Approval of an application's access to a Private native collection. The grant
-// row is an offer published to the collection's policy log; the replica admits the
-// app only after one of the account's devices signs a grant approval for it.
+// Approval of an application's access to a synced native collection. A Private
+// grant is an offer published to the collection's policy log; the replica admits
+// the app only after one of the account's devices signs a grant approval for it.
+// A cloud-copy grant is served under the same published policy grant by the
+// collection's hosted replica, with no computer needed, and by the account's
+// online devices.
 import { randomUUID } from "node:crypto";
 import type { ApplicationAuthorizationProof, ApplicationNotifications, ApplicationProvisions, CollectionOperation, FileAction } from "@mdbase-dev/connect-protocol";
 import { isSupportedOperationTransport } from "@mdbase-dev/connect-protocol";
@@ -23,18 +26,33 @@ import { membershipBindingForAccess } from "../../collection-membership-binding.
 import { assertOperationsAllowedByApplication, requiresHostedCollection } from "../grants/policy.js";
 import { applicationOriginForRedirect } from "./redirects.js";
 
+/** The sync mode of a native collection, and of a grant approved on one. */
+export type NativeSync = "private" | "cloud_copy";
+
+/** The current sync mode of a synced native collection; null for anything else. */
+export async function currentNativeSync(db: DatabaseQueryable, collectionId: string): Promise<NativeSync | null> {
+  const authority = await resolveCollectionSharingAuthority(db, collectionId);
+  if (authority?.kind !== "native") return null;
+  return (await db.query<{ sync: NativeSync }>(
+    `SELECT sync FROM next_collections WHERE collection_id = $1
+     AND runtime = 'next' AND sync IN ('private', 'cloud_copy') AND left_sync_at IS NULL`,
+    [collectionId]
+  )).rows[0]?.sync ?? null;
+}
+
 /**
- * The user's access to a synced Private native collection: owner, or a member
- * with an active policy who is also a current member in the collection's log.
- * Null when the collection is not a current Private collection for this user.
+ * The user's access to a synced native collection that is currently in `sync`
+ * mode: owner, or a member with an active policy who is also a current member in
+ * the collection's log. Null when the collection is not a current native
+ * collection in that mode for this user.
  */
-export async function resolveNativeCollectionAccess(db: DatabaseQueryable, userId: string, collectionId: string): Promise<CollectionAccessContext | null> {
+export async function resolveNativeCollectionAccess(db: DatabaseQueryable, userId: string, collectionId: string, sync: NativeSync): Promise<CollectionAccessContext | null> {
   const authority = await resolveCollectionSharingAuthority(db, collectionId);
   if (authority?.kind !== "native") return null;
   const native = (await db.query<{ display_name: string | null }>(
     `SELECT display_name FROM next_collections WHERE collection_id = $1
-     AND runtime = 'next' AND sync = 'private' AND left_sync_at IS NULL`,
-    [collectionId]
+     AND runtime = 'next' AND sync = $2 AND left_sync_at IS NULL`,
+    [collectionId, sync]
   )).rows[0];
   if (!native) return null;
   try { await currentMember(db, collectionId, userId); }
@@ -55,6 +73,8 @@ interface NativeAuthorizationInput {
     requestId: string;
     userId: string;
     collectionId: string;
+    /** The mode the user was shown at consent; approval refuses if it changed. */
+    sync: NativeSync;
     operations: CollectionOperation[];
     fileActions?: FileAction[];
     peoplePermissions?: string[];
@@ -120,15 +140,16 @@ export async function approveNativeAuthorizationInTransaction(connection: Databa
     if (pending.collection_id && pending.collection_id !== input.collectionId) {
       throw new RequestValidationError("This authorization request is restricted to a different collection.");
     }
-    if (requiresHostedCollection(pending.requirements)) {
+    // A cloud copy is an mdbase cloud collection; a Private collection is not.
+    if (requiresHostedCollection(pending.requirements) && input.sync !== "cloud_copy") {
       throw new RequestValidationError("This application requires an mdbase cloud collection.");
     }
     if (pending.flow !== "authorization_code" || pending.distribution !== "web") {
-      throw new RequestValidationError("Private collections are available to web applications through this approval.");
+      throw new RequestValidationError("Synced collections are available to web applications through this approval.");
     }
     if (!isSupportedOperationTransport(pending.operation_transport_protocol ?? 0)
         || !pending.application_signing_public_key || !pending.application_authorization || !pending.has_client_key) {
-      throw new RequestValidationError("Private collections require a signed, key-bound application authorization request.");
+      throw new RequestValidationError("Synced collections require a signed, key-bound application authorization request.");
     }
     // Only this authenticated owner gets the legacy-local explanation. Do not
     // treat an unknown/inaccessible collection as migration evidence or mint a grant.
@@ -139,13 +160,19 @@ export async function approveNativeAuthorizationInTransaction(connection: Databa
     if (!await lockCollectionSharingAuthority(connection, input.collectionId)) {
       throw new RequestValidationError("This collection is not available for application authorization.");
     }
+    // The mode is read under the authority lock: the grant records the mode the
+    // user consented to, and a mode change since the consent view refuses.
+    if (await currentNativeSync(connection, input.collectionId) !== input.sync) {
+      throw new RequestValidationError("This collection changed. Refresh and choose again.");
+    }
     const access = requireCollectionAction(
-      await resolveNativeCollectionAccess(connection, input.userId, input.collectionId),
+      await resolveNativeCollectionAccess(connection, input.userId, input.collectionId, input.sync),
       "application.authorize"
     );
     const { plan, legacy } = await planFreshNextGrant(connection, input.collectionId, {
       requestedOperations: input.operations,
       applicationOperationCeiling: pending.requested_operations as CollectionOperation[],
+      applicationFileCeiling: pending.application_authorization.binding.requested_files?.actions ?? [],
       requestedFileActions: input.fileActions,
       requestedPeoplePermissions: input.peoplePermissions,
       requirements: pending.requirements,
@@ -179,11 +206,11 @@ export async function approveNativeAuthorizationInTransaction(connection: Databa
     const grantId = randomUUID();
     await connection.query(
       `INSERT INTO grants
-         (id, user_id, application_id, next_collection_id, operations, scope, encryption,
+         (id, user_id, application_id, next_collection_id, next_collection_sync, operations, scope, encryption,
           proof_public_key, application_origin, file_capability, notification_criteria,
           application_authorization, application_installation_id, people_permissions,
           logical_collection_id, membership_id, membership_policy_id, membership_policy_revision)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, NULL, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::jsonb,
+       VALUES ($1, $2, $3, $4, $17, $5::jsonb, $6::jsonb, NULL, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::jsonb,
                $4, $14, $15, $16)`,
       [
         grantId, input.userId, pending.application_id, input.collectionId,
@@ -193,7 +220,8 @@ export async function approveNativeAuthorizationInTransaction(connection: Databa
         JSON.stringify(pending.notifications.criteria),
         JSON.stringify(pending.application_authorization), installation,
         plan.peoplePermissions ? JSON.stringify(plan.peoplePermissions) : null,
-        membership?.membershipId ?? null, membership?.policyId ?? null, membership?.policyRevision ?? null
+        membership?.membershipId ?? null, membership?.policyId ?? null, membership?.policyRevision ?? null,
+        input.sync
       ]
     );
     await connection.query(
@@ -206,6 +234,7 @@ export async function approveNativeAuthorizationInTransaction(connection: Databa
     }
     await audit(connection, input.userId, "authorization.approved", input.requestId, {
       next_collection_id: input.collectionId,
+      next_collection_sync: input.sync,
       operations: plan.operations,
       scope: plan.scope,
       source: "portal"

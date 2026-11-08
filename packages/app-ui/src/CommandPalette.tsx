@@ -1,43 +1,33 @@
 import { t } from "@lingui/core/macro";
 import { useLocaleRevision } from "./i18n.js";
-import { Fragment, useEffect, useId, useMemo, useRef, useState, type JSX, type KeyboardEvent } from "react";
+import { Dialog } from "./Dialog.js";
+import { shortcutLabel } from "./shortcuts.js";
+export { isApplePlatform, shortcutLabel } from "./shortcuts.js";
+import { Fragment, useLayoutEffect, useId, useMemo, useRef, useState, type JSX, type KeyboardEvent, type RefObject, type ReactNode } from "react";
 
 export interface Command {
   readonly id: string;
   readonly label: string;
+  readonly content?: ReactNode;
   readonly detail?: string | undefined;
+  readonly icon?: ReactNode;
   /** Stable group ID; headings follow first appearance and may be presented by groupLabel. */
   readonly group: string;
   readonly keywords?: string | undefined;
   /** For example "mod+shift+f"; see shortcutLabel. */
   readonly shortcut?: string | undefined;
+  readonly context?: string | undefined;
   readonly run: () => void;
   /** A variant run with Shift+Enter or Shift+click, such as opening beside the document. */
   readonly alternate?: { readonly label: string; readonly run: () => void } | undefined;
 }
 
-export function isApplePlatform(): boolean {
-  return typeof navigator !== "undefined" && /Mac|iPhone|iPad/u.test(navigator.platform || navigator.userAgent);
-}
-
-/** "mod+shift+f" as the platform writes it: ⌘⇧F on Apple systems, Ctrl+Shift+F elsewhere. */
-export function shortcutLabel(shortcut: string): string {
-  const apple = isApplePlatform();
-  return shortcut
-    .split("+")
-    .map((part) => {
-      switch (part.toLowerCase()) {
-        case "mod": return apple ? "⌘" : "Ctrl";
-        case "shift": return apple ? "⇧" : "Shift";
-        case "alt": return apple ? "⌥" : "Alt";
-        default: return part.length === 1 ? part.toUpperCase() : part;
-      }
-    })
-    .join(apple ? "" : "+");
-}
-
 const browseLimit = 6;
 const searchLimit = 40;
+
+function contextualCommands(commands: readonly Command[]): readonly Command[] {
+  return [...commands.filter(command => command.context).map(command => ({ ...command, group: "context" })), ...commands.filter(command => !command.context)];
+}
 
 /**
  * Without a query, show a few of each group (every command of the groups in `showAll`); with
@@ -48,28 +38,31 @@ export function matchingCommands(
   query: string,
   showAll: readonly string[] = []
 ): readonly Command[] {
+  commands = contextualCommands(commands);
   const terms = query.trim().toLocaleLowerCase().split(/\s+/u).filter(Boolean);
   if (terms.length === 0) {
     const counts = new Map<string, number>();
     return commands.filter((command) => {
       const count = counts.get(command.group) ?? 0;
       counts.set(command.group, count + 1);
-      return showAll.includes(command.group) || count < browseLimit;
+      return command.context !== undefined || showAll.includes(command.group) || count < browseLimit;
     });
   }
   const matches = commands.filter((command) => {
     const content = `${command.label} ${command.detail ?? ""} ${command.group} ${command.keywords ?? ""}`.toLocaleLowerCase();
     return terms.every((term) => content.includes(term));
   });
-  const groups = [...new Set(matches.map(({ group }) => group))];
-  return groups.flatMap((group) => matches.filter((command) => command.group === group)).slice(0, searchLimit);
+  const names = matches.filter(command => terms.every(term => command.label.toLocaleLowerCase().includes(term)));
+  const selected = [...names, ...matches.filter(command => !names.includes(command))].slice(0, searchLimit);
+  const groups = [...new Set([...selected.filter(command => command.context), ...selected.filter(command => !command.context)].map(({ group }) => group))];
+  return groups.flatMap((group) => selected.filter((command) => command.group === group));
 }
 
 /**
  * Find or run anything: every mdbase app opens it with Mod+K. Typing filters commands; the
  * arrows move, Enter runs, Shift+Enter runs a command's alternate, Escape closes.
  */
-export function CommandPalette({ open, commands, onClose, label = t({ message: "Commands" }), placeholder = t({ message: "Search commands" }), showAll, groupLabel }: {
+export function CommandPalette({ open, commands, onClose, label = t({ message: "Commands" }), placeholder = t({ message: "Search commands" }), showAll, groupLabel, returnFocusRef, emptyState, initialQuery = "", getResults, inputLabel = placeholder }: {
   readonly open: boolean;
   readonly commands: readonly Command[];
   readonly onClose: () => void;
@@ -78,120 +71,112 @@ export function CommandPalette({ open, commands, onClose, label = t({ message: "
   readonly showAll?: readonly string[] | undefined;
   /** Presentation only: translate headings without changing group or showAll IDs. */
   readonly groupLabel?: ((group: string) => string) | undefined;
+  readonly returnFocusRef?: RefObject<HTMLElement | null> | undefined;
+  readonly emptyState?: ReactNode;
+  readonly initialQuery?: string;
+  readonly getResults?: (query: string) => readonly Command[];
+  readonly inputLabel?: string;
 }): JSX.Element | null {
   useLocaleRevision();
-  return open ? <OpenCommandPalette commands={commands} onClose={onClose} label={label} placeholder={placeholder} showAll={showAll} groupLabel={groupLabel} /> : null;
+  return <Dialog open={open} title={label} onClose={onClose} returnFocusRef={returnFocusRef} className="mdbase-command-palette">
+    <OpenCommandPalette open={open} commands={commands} onClose={onClose} label={label} placeholder={placeholder} showAll={showAll} groupLabel={groupLabel} returnFocusRef={returnFocusRef} emptyState={emptyState} initialQuery={initialQuery} getResults={getResults} inputLabel={inputLabel} />
+  </Dialog>;
 }
 
-function OpenCommandPalette({ commands, onClose, label, placeholder, showAll, groupLabel }: {
+function OpenCommandPalette({ open, commands, onClose, label, placeholder, showAll, groupLabel, returnFocusRef, emptyState, initialQuery, getResults, inputLabel }: {
+  readonly open: boolean;
   readonly commands: readonly Command[];
   readonly onClose: () => void;
   readonly label: string;
   readonly placeholder: string;
   readonly showAll?: readonly string[] | undefined;
   readonly groupLabel?: ((group: string) => string) | undefined;
+  readonly returnFocusRef?: RefObject<HTMLElement | null> | undefined;
+  readonly emptyState?: ReactNode;
+  readonly initialQuery: string;
+  readonly inputLabel: string;
+  readonly getResults?: ((query: string) => readonly Command[]) | undefined;
 }): JSX.Element {
   useLocaleRevision();
-  const [query, setQuery] = useState("");
-  const [active, setActive] = useState(0);
+  const [query, setQuery] = useState(initialQuery);
+  const [selected, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
-  const paletteRef = useRef<HTMLElement>(null);
-  const matches = useMemo(() => matchingCommands(commands, query, showAll), [commands, query, showAll]);
-  useEffect(() => {
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    globalThis.setTimeout(() => inputRef.current?.focus(), 0);
-    return () => previous?.focus();
-  }, []);
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const matches = useMemo(() => getResults ? contextualCommands(getResults(query)) : matchingCommands(commands, query, showAll), [commands, query, showAll, getResults]);
+  // Live command updates can shrink the list under the selection.
+  const active = Math.min(selected, Math.max(0, matches.length - 1));
+  useLayoutEffect(() => {
+    resultsRef.current!.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+  }, [active, matches]);
+  useLayoutEffect(() => { if (open) { setQuery(initialQuery); setActive(0); } }, [open, initialQuery]);
   const run = (command: Command, alternate = false): void => {
+    inputRef.current?.closest("dialog")?.close();
+    returnFocusRef?.current?.focus({ preventScroll: true });
     onClose();
     (alternate && command.alternate ? command.alternate.run : command.run)();
   };
   const hintId = useId();
-  return <dialog className="mdbase-command-backdrop" open>
-    <button className="mdbase-command-dismiss" type="button" aria-label={t`Close ${label}`} onClick={onClose} />
-    <section
-      ref={paletteRef}
-      className="mdbase-command-palette"
-      role="dialog"
-      aria-modal="true"
-      aria-label={label}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") {
-          event.preventDefault();
-          onClose();
-        } else if (event.key === "Tab") {
-          trapFocus(event, paletteRef.current);
-        }
-      }}
-    >
+  return <>
       <label className="mdbase-command-search">
         <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6">
           <circle cx="11" cy="11" r="6.5" />
           <path d="m16 16 4 4" />
         </svg>
-        <span className="mdbase-visually-hidden">{placeholder}</span>
+        <span className="mdbase-visually-hidden">{inputLabel}</span>
         <input
           ref={inputRef}
+          data-autofocus
           value={query}
           placeholder={placeholder}
           onChange={(event) => {
             setQuery(event.target.value);
             setActive(0);
           }}
-          onKeyDown={(event) => handleKeys(event, matches, active, setActive, run, onClose)}
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded="true"
+          aria-controls={`${hintId}-results`}
+          aria-activedescendant={matches[active] ? `${hintId}-${matches[active].id}` : undefined}
+          onKeyDown={(event) => { if (!event.nativeEvent.isComposing) handleKeys(event, matches, active, setActive, run, onClose); }}
         />
       </label>
-      <div className="mdbase-command-results" role="listbox" aria-label={t({ message: "Results" })} aria-describedby={hintId}>
+      <div ref={resultsRef} id={`${hintId}-results`} className="mdbase-command-results" role="listbox" aria-label={t({ message: "Results" })} aria-describedby={hintId}>
         {matches.length > 0
           ? matches.map((command, index) => <Fragment key={command.id}>
-            {command.group !== matches[index - 1]?.group
-              ? <div className="mdbase-command-group" role="presentation">{groupLabel ? groupLabel(command.group) : command.group}</div>
+            {command.group !== matches[index - 1]?.group || command.context !== matches[index - 1]?.context
+              ? <div className="mdbase-command-group" role="presentation">{command.context ?? (groupLabel ? groupLabel(command.group) : command.group)}</div>
               : null}
-            <CommandRow command={command} active={index === active} onRun={run} />
+            <CommandRow id={`${hintId}-${command.id}`} command={command} query={query} active={index === active} onActivate={() => setActive(index)} onRun={run} />
           </Fragment>)
-          : <div className="mdbase-command-empty">{t({ message: "Nothing matches" })}</div>}
+          : <div className="mdbase-command-empty" role="status">{emptyState ?? t({ message: "Nothing matches" })}</div>}
       </div>
       <footer className="mdbase-command-footer" id={hintId}>
         <span><kbd>↑</kbd><kbd>↓</kbd>  {t({ message: "to move" })}</span>
-        <span><kbd>↵</kbd>  {t({ message: "to open" })}</span>
+        <span><kbd>↵</kbd>  {t({ message: "to run" })}</span>
         {matches[active]?.alternate
           ? <span><kbd>{shortcutLabel("shift")}</kbd><kbd>↵</kbd> {matches[active].alternate.label.toLocaleLowerCase()}</span>
           : null}
         <span><kbd>{t({ message: "Esc" })}</kbd>  {t({ message: "to close" })}</span>
       </footer>
-    </section>
-  </dialog>;
+  </>;
 }
 
-function trapFocus(event: KeyboardEvent<HTMLElement>, container: HTMLElement | null): void {
-  if (!container) return;
-  const items = [...container.querySelectorAll<HTMLElement>("input, button, [tabindex]:not([tabindex='-1'])")];
-  const first = items[0];
-  const last = items.at(-1);
-  if (!first || !last) return;
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault();
-    last.focus();
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault();
-    first.focus();
-  }
-}
-
-function CommandRow({ command, active, onRun }: {
+function CommandRow({ id, command, query, active, onActivate, onRun }: {
+  readonly id: string;
   readonly command: Command;
+  readonly query: string;
   readonly active: boolean;
+  readonly onActivate: () => void;
   readonly onRun: (command: Command, alternate?: boolean) => void;
 }): JSX.Element {
   useLocaleRevision();
-  const ref = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (active) ref.current?.scrollIntoView({ block: "nearest" });
-  }, [active]);
-  return <button ref={ref} type="button" role="option" aria-selected={active} onMouseDown={(event) => onRun(command, event.shiftKey)}>
-    <span>
-      <strong>{command.label}</strong>
-      {command.detail ? <small>{command.detail}</small> : null}
+  const pattern = query.trim().split(/\s+/u).filter(Boolean).map(term => term.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")).join("|");
+  const label = pattern ? command.label.split(new RegExp(`(${pattern})`, "giu"))
+    .map((part, index) => index % 2 ? <mark key={index}>{part}</mark> : part) : command.label;
+  return <button id={id} tabIndex={-1} type="button" role="option" aria-selected={active} onPointerMove={event => { if (event.movementX || event.movementY) onActivate(); }} onMouseDown={event => event.preventDefault()} onClick={(event) => onRun(command, event.shiftKey)}>
+    {command.icon && <span className="mdbase-command-icon" aria-hidden="true">{command.icon}</span>}
+    <span className="mdbase-command-copy">
+      {command.content ?? <><strong>{label}</strong>{command.detail ? <small>{command.detail}</small> : null}</>}
     </span>
     {command.alternate && active
       ? <span className="mdbase-command-alternate">{shortcutLabel("shift")}↵ {command.alternate.label}</span>
@@ -215,6 +200,9 @@ function handleKeys(
     event.preventDefault();
     const direction = event.key === "ArrowDown" ? 1 : -1;
     setActive((active + direction + matches.length) % Math.max(1, matches.length));
+  } else if (event.key === "Home" || event.key === "End") {
+    event.preventDefault();
+    setActive(event.key === "Home" ? 0 : Math.max(0, matches.length - 1));
   } else if (event.key === "Enter") {
     const command = matches[active];
     if (command) {

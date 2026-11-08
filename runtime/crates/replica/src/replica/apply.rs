@@ -768,7 +768,7 @@ impl<S: Store> Replica<S> {
                 // A stall waiting for this key can proceed.
                 if matches!(self.stalled, Some((IncidentKind::WaitingForKey, _))) {
                     self.stalled = None;
-                    self.key_wait_read.clear();
+                    self.stall_read.clear();
                 }
             }
             crate::seal::KeyEvent::None => {}
@@ -797,6 +797,7 @@ impl<S: Store> Replica<S> {
     /// Device-local key trust: a key that reached this device only through
     /// devices its user never approved is not used for sealing.
     pub(crate) fn check_key_trust(&mut self) {
+        self.latch_requester_signer();
         if self.private_switch_blocks() {
             self.key_untrusted = true;
             return;
@@ -1262,14 +1263,6 @@ impl<S: Store> Replica<S> {
         if native && mdbn_core::plan::check_request(&mutation).is_err() {
             return self.commit_payload_void(head, &payload, "V7: invalid request");
         }
-        let entry_sem = mdbn_core::semantics::Sem {
-            major: payload.sem.major,
-            minor: payload.sem.minor,
-        };
-        let previous_sem = entry_sem < mdbn_core::semantics::SEM
-            && mdbn_core::semantics::SEMANTICS
-                .iter()
-                .any(|info| info.sem == entry_sem);
         // T6b always verifies full kind/path/prior CAS, even for our own entry or
         // when optional legacy result checking is disabled.
         if native
@@ -1376,7 +1369,7 @@ impl<S: Store> Replica<S> {
                             .as_ref()
                             .filter(|o| o.content == f.payload.content)
                             .and_then(|o| o.mtime),
-                        media: media_class(&f.path),
+                        media: mdbn_wire::intent::MediaClass::of(&f.path),
                         modified_seq: p,
                         bucket: bucket16(&f.id),
                         local,
@@ -1447,6 +1440,7 @@ impl<S: Store> Replica<S> {
                         doc: doc.clone(),
                         revision: mdbn_wire::hash::sha256(doc.as_bytes()),
                         modified_seq: p,
+                        mtime: old.mtime,
                         bucket: bucket16(&r.id),
                         meta: Default::default(),
                     });
@@ -1525,6 +1519,7 @@ impl<S: Store> Replica<S> {
                         doc: doc.clone(),
                         revision: mdbn_wire::hash::sha256(doc.as_bytes()),
                         modified_seq: p,
+                        mtime: old.mtime,
                         bucket: bucket16(&r.id),
                         meta: Default::default(),
                     });
@@ -1587,7 +1582,7 @@ impl<S: Store> Replica<S> {
                                 .and_then(|o| o.mtime)
                         }),
                         content,
-                        media: media_class(&f.path),
+                        media: mdbn_wire::intent::MediaClass::of(&f.path),
                         modified_seq: p,
                         bucket: bucket16(&f.id),
                         local,
@@ -1606,8 +1601,9 @@ impl<S: Store> Replica<S> {
                     if self.store.file(&r.id)?.is_some_and(|f|f.kind==mdbn_wire::unindexed_markdown::FileKindV1::UnindexedOversizedMarkdown) {
                         return self.commit_payload_void(head,&payload,"V7: ordinary record effect changes unindexed kind");
                     }
-                    if let Some(old) = self.store.record(&r.id)? {
-                        freed.insert(old.path_key);
+                    let stored = self.store.record(&r.id)?;
+                    if let Some(old) = &stored {
+                        freed.insert(old.path_key.clone());
                     }
                     if self.store.tombstone(&r.id)?.is_some() {
                         tx.tombstones_del.push(r.id);
@@ -1620,6 +1616,13 @@ impl<S: Store> Replica<S> {
                             "V7: two records share a path",
                         );
                     }
+                    let revision = mdbn_wire::hash::sha256(doc.as_bytes());
+                    // Renames and same-byte writes keep the time of the last byte change.
+                    let prior = tx.records_put.iter().find(|x| x.id == r.id);
+                    let mtime = match prior.or(stored.as_ref()) {
+                        Some(old) if old.revision == revision => old.mtime,
+                        _ => Some(payload.mutation.clock.instant),
+                    };
                     tx.records_del.retain(|x| *x != r.id);
                     tx.records_put.retain(|x| x.id != r.id);
                     tx.records_put.push(RecordRow {
@@ -1627,8 +1630,9 @@ impl<S: Store> Replica<S> {
                         path: r.path.clone(),
                         path_key: pk,
                         doc: doc.clone(),
-                        revision: mdbn_wire::hash::sha256(doc.as_bytes()),
+                        revision,
                         modified_seq: p,
+                        mtime,
                         bucket: bucket16(&r.id),
                         meta: Default::default(),
                     });
@@ -1712,7 +1716,7 @@ impl<S: Store> Replica<S> {
                         kind: mdbn_wire::unindexed_markdown::FileKindV1::Ordinary,
                         content: mdbn_wire::attachment::FileContent::Blob(f.blob.clone()),
                         mtime: None,
-                        media: media_class(&f.path),
+                        media: mdbn_wire::intent::MediaClass::of(&f.path),
                         modified_seq: p,
                         bucket: bucket16(&f.id),
                         local,
@@ -1773,79 +1777,59 @@ impl<S: Store> Replica<S> {
                 return self.commit_payload_void(head, &payload, "V7: path already taken");
             }
         }
-        let mut stall = None;
-        // Verification (log-entry.md §5) against the state at p − 1.
-        if native || (self.cfg.verify && payload.mutation.origin != self.cfg.replica_id) {
-            let sem = mdbn_core::semantics::SEM;
-            if payload.sem.major == sem.major && payload.sem.minor == sem.minor {
-                let view = StoreView::new(&self.store, self.catalog.clone());
-                // The marker selects resurrection semantics only; it never widens
-                // what verification accepts.
-                let stage = if payload.resurrect.is_some() {
-                    Stage::Resurrect
-                } else {
-                    Stage::Head
-                };
-                let r = self.planner.plan(&mutation, &view, &PlanOptions { stage });
-                if native && let Some(e) = view.error() {
-                    return Err(e);
-                }
-                let ok = match r {
-                    Ok(pl) => {
-                        convert::wstatus(pl.status) == payload.status
-                            && pl
-                                .effects
-                                .iter()
-                                .map(convert::wruntime_effect)
-                                .collect::<CResult<Vec<_>>>()
-                                .as_ref()
-                                == Ok(&effects)
-                            && pl
-                                .conflicts
-                                .iter()
-                                .map(convert::wruntime_conflict)
-                                .collect::<CResult<Vec<_>>>()
-                                .as_ref()
-                                == Ok(&conflicts)
-                            && pl.aliases.iter().map(convert::walias).collect::<Vec<_>>()
-                                == payload.aliases.clone().unwrap_or_default()
-                    }
-                    Err(_) => false,
-                };
-                if ok {
-                    if !native {
-                        self.stats.verified += 1;
-                    }
-                } else {
-                    if native {
-                        stall = Some("native results cannot be verified by this build's planner");
-                    } else {
-                        self.stats.verify_mismatch += 1;
-                        self.incident(
-                            IncidentKind::VerificationMismatch,
-                            Some(Value::Map(vec![
-                                (
-                                    "seq".into(),
-                                    Value::Int(i64::try_from(p).unwrap_or(i64::MAX)),
-                                ),
-                                (
-                                    "count".into(),
-                                    Value::Int(
-                                        i64::try_from(self.stats.verify_mismatch)
-                                            .unwrap_or(i64::MAX),
-                                    ),
-                                ),
-                            ])),
-                        );
-                    }
-                }
+        // Verification (log-entry.md §5) against the state at p − 1. Only this
+        // build's own `sem` is re-planned; native results of any other `sem` rest
+        // on the structural checks above, as legacy results do.
+        let same_sem = payload.sem.major == mdbn_core::semantics::SEM.major
+            && payload.sem.minor == mdbn_core::semantics::SEM.minor;
+        let mut native_mismatch = false;
+        if same_sem
+            && (native || (self.cfg.verify && payload.mutation.origin != self.cfg.replica_id))
+        {
+            let view = StoreView::new(&self.store, self.catalog.clone());
+            // The marker selects resurrection semantics only; it never widens
+            // what verification accepts.
+            let stage = if payload.resurrect.is_some() {
+                Stage::Resurrect
             } else {
-                if native && !previous_sem {
-                    stall = Some("T6b semantics cannot be verified");
-                } else if !native {
-                    self.stats.unverified += 1;
-                }
+                Stage::Head
+            };
+            let r = self.planner.plan(&mutation, &view, &PlanOptions { stage });
+            if native && let Some(e) = view.error() {
+                return Err(e);
             }
+            let ok = match r {
+                Ok(pl) => {
+                    convert::wstatus(pl.status) == payload.status
+                        && pl
+                            .effects
+                            .iter()
+                            .map(convert::wruntime_effect)
+                            .collect::<CResult<Vec<_>>>()
+                            .as_ref()
+                            == Ok(&effects)
+                        && pl
+                            .conflicts
+                            .iter()
+                            .map(convert::wruntime_conflict)
+                            .collect::<CResult<Vec<_>>>()
+                            .as_ref()
+                            == Ok(&conflicts)
+                        && pl.aliases.iter().map(convert::walias).collect::<Vec<_>>()
+                            == payload.aliases.clone().unwrap_or_default()
+                }
+                Err(_) => false,
+            };
+            if native {
+                // Counted once the source check below lets this entry through.
+                native_mismatch = !ok;
+            } else if ok {
+                self.stats.verified += 1;
+            } else {
+                self.verify_mismatch(p);
+            }
+        } else if !native && self.cfg.verify && payload.mutation.origin != self.cfg.replica_id {
+            self.stats.unverified += 1;
         }
         let source_meta = if native {
             match self.unindexed_source_check(head, &payload, refs) {
@@ -1876,11 +1860,27 @@ impl<S: Store> Replica<S> {
         } else {
             Vec::new()
         };
-        if let Some(reason) = stall {
-            return Ok(Outcome::Stall(IncidentKind::UpgradeRequired, reason.into()));
+        if native_mismatch {
+            // This build's planner disagrees with the writer's under the same
+            // `sem`: a determinism bug on one side (the writer picks `sem`, so this
+            // is detection, not a security gate). Voiding would persist a
+            // build-dependent verdict, so stop here, report the mismatch once per
+            // stall (reads retry the stalled entry) and retry the same bytes
+            // after an upgrade.
+            if self.stalled != Some((IncidentKind::UpgradeRequired, p)) {
+                self.verify_mismatch(p);
+            }
+            return Ok(Outcome::Stall(
+                IncidentKind::UpgradeRequired,
+                "native results cannot be verified by this build's planner".into(),
+            ));
         }
         if native {
-            self.stats.verified += 1;
+            if same_sem {
+                self.stats.verified += 1;
+            } else {
+                self.stats.unverified += 1;
+            }
         }
 
         tx.meta.extend(source_meta);
@@ -2132,20 +2132,40 @@ impl<S: Store> Replica<S> {
                 })
                 .collect();
             self.stats.reindexed += rows.len() as u64;
-            let mut tx = Tx {
-                records_put: rows,
-                ..Tx::default()
-            };
-            let context = self
-                .prepare_query_index(&mut tx)
-                .map_err(|error| match error {
-                    StoreError::CommitAborted(reason) => StoreError::Io(reason),
-                    other => other,
-                })?;
-            self.store.commit(tx)?;
-            self.query_context = context;
+            for rows in super::query_index::byte_batches(rows) {
+                let mut tx = Tx {
+                    records_put: rows,
+                    ..Tx::default()
+                };
+                let context = self
+                    .prepare_query_index(&mut tx)
+                    .map_err(|error| match error {
+                        StoreError::CommitAborted(reason) => StoreError::Io(reason),
+                        other => other,
+                    })?;
+                self.store.commit(tx)?;
+                self.query_context = context;
+            }
         }
         Ok(())
+    }
+
+    /// Count and report a re-planned entry whose recorded results differ.
+    fn verify_mismatch(&mut self, p: u64) {
+        self.stats.verify_mismatch += 1;
+        self.incident(
+            IncidentKind::VerificationMismatch,
+            Some(Value::Map(vec![
+                (
+                    "seq".into(),
+                    Value::Int(i64::try_from(p).unwrap_or(i64::MAX)),
+                ),
+                (
+                    "count".into(),
+                    Value::Int(i64::try_from(self.stats.verify_mismatch).unwrap_or(i64::MAX)),
+                ),
+            ])),
+        );
     }
 
     pub(crate) fn sem_ratchet(&self) -> u64 {
@@ -2237,23 +2257,6 @@ pub(crate) fn log_state(log_time: i64, ratchet: u64) -> Option<Vec<u8>> {
 /// Whether a decode error is an unknown variant anywhere (critical, §6.2).
 fn is_unknown_deep(e: &SchemaError) -> bool {
     e.is_unknown()
-}
-
-/// Media class from the extension (`intent.md` §3.7).
-pub(crate) fn media_class(path: &str) -> mdbn_wire::intent::MediaClass {
-    use mdbn_wire::intent::MediaClass as M;
-    let ext = path
-        .rsplit_once('.')
-        .map(|(_, e)| e.to_ascii_lowercase())
-        .unwrap_or_default();
-    match ext.as_str() {
-        "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "avif" | "heic" | "tif"
-        | "tiff" => M::Image,
-        "mp3" | "wav" | "m4a" | "ogg" | "flac" | "aac" | "opus" => M::Audio,
-        "mp4" | "mov" | "webm" | "mkv" | "avi" | "m4v" => M::Video,
-        "pdf" => M::Pdf,
-        _ => M::Other,
-    }
 }
 
 #[allow(dead_code)]

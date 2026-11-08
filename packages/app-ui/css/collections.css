@@ -1,5 +1,6 @@
+@import "./tokens.css";
 @import "./brand.css";
-@import "./motion.css";
+@import "./controls.css";
 @import "./screens.css";
 
 /*
@@ -21,7 +22,6 @@
   --_border: var(--mdbase-collections-border, var(--color-border-strong, oklch(82% 0.008 255)));
   --_danger: var(--mdbase-collections-danger, var(--color-danger, oklch(50% 0.11 28)));
   --_warning: var(--mdbase-collections-warning, var(--color-warning-text, oklch(43% 0.055 69)));
-  --_warning-edge: var(--mdbase-collections-warning-edge, var(--color-warning, oklch(60% 0.09 75)));
   --_scrim: var(--mdbase-collections-scrim, var(--color-scrim, rgb(0 0 0 / 0.3)));
   /*
    * Mixes are in oklab, which has no hue: in oklch an achromatic surface
@@ -247,8 +247,8 @@
 .mdbase-collections-trigger:focus-visible,
 .mdbase-collections-menu-item:focus-visible,
 .mdbase-collections-field:focus-visible {
-  outline: 2px solid var(--_accent);
-  outline-offset: 2px;
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
 }
 
 /* A problem and its fix in one block, with the fix inside. */
@@ -257,21 +257,20 @@
   gap: 10px;
   padding: 12px 14px;
   border: 1px solid var(--_border);
-  border-left-width: 3px;
   border-radius: var(--_radius);
   background: var(--_surface);
 }
 
 .mdbase-collections-notice[data-tone="warning"] {
-  border-left-color: var(--_warning-edge);
+  background: color-mix(in oklab, var(--_warning) 8%, var(--_surface));
 }
 
 .mdbase-collections-notice[data-tone="error"] {
-  border-left-color: var(--_danger);
+  background: color-mix(in oklab, var(--_danger) 8%, var(--_surface));
 }
 
 .mdbase-collections-notice[data-tone="info"] {
-  border-left-color: var(--_accent);
+  background: color-mix(in oklab, var(--_accent) 8%, var(--_surface));
 }
 
 .mdbase-collections-notice.is-inline {
@@ -616,7 +615,7 @@
   gap: 4px;
 }
 
-.mdbase-collections-setup-section h3 {
+.mdbase-collections-setup-section :is(h2, h3) {
   margin: 0;
   color: var(--_text-soft);
   font-size: var(--_font-size-caption);
@@ -733,22 +732,6 @@
   .mdbase-collections-switcher[data-variant="full"] .mdbase-collections-trigger-role {
     display: none;
   }
-}
-
-.mdbase-collections-popover {
-  position: fixed;
-  inset: auto;
-  z-index: 80;
-  margin: 0;
-  padding: 6px;
-  overflow: auto;
-  border: 1px solid var(--_border);
-  border-radius: var(--_radius-lg);
-  outline: 0;
-  color: var(--_text);
-  background: var(--_surface);
-  box-shadow: var(--_elevation-high);
-  overscroll-behavior: contain;
 }
 
 .mdbase-collections-switcher-content {
@@ -874,75 +857,7 @@
   color: var(--_text-soft);
 }
 
-/* Narrow screens: the switcher is a bottom sheet. */
-.mdbase-collections-sheet {
-  width: 100%;
-  max-width: 100%;
-  max-height: 85dvh;
-  margin: auto 0 0;
-  padding: 0;
-  border: 0;
-  border-radius: var(--_radius-lg) var(--_radius-lg) 0 0;
-  color: var(--_text);
-  background: var(--_surface);
-}
-
-.mdbase-collections-sheet::backdrop {
-  background: var(--_scrim);
-}
-
-.mdbase-collections-sheet-body {
-  display: grid;
-  gap: 6px;
-  padding: 8px 12px max(12px, env(safe-area-inset-bottom));
-}
-
-.mdbase-collections-sheet-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 0 0 8px;
-}
-
-.mdbase-collections-sheet-title {
-  font-weight: var(--_weight-semibold);
-}
-
-/* Confirmations. */
-.mdbase-collections-dialog {
-  width: min(100% - 32px, 440px);
-  padding: 20px;
-  border: 1px solid var(--_border);
-  border-radius: var(--_radius-lg);
-  color: var(--_text);
-  background: var(--_surface);
-  box-shadow: var(--_elevation-high);
-}
-
-.mdbase-collections-dialog::backdrop {
-  background: var(--_scrim);
-}
-
-.mdbase-collections-dialog-title {
-  margin: 0 0 8px;
-  font-size: var(--_font-size-section);
-  overflow-wrap: anywhere;
-}
-
-.mdbase-collections-dialog-body {
-  display: grid;
-  gap: 10px;
-  color: var(--_text-soft);
-}
-
-.mdbase-collections-dialog-body p {
-  margin: 0;
-}
-
-.mdbase-collections-dialog-body form {
-  display: grid;
-  gap: 6px;
-}
+.mdbase-collections-switcher-dialog { width: min(360px, calc(100vw - 16px)); }
 
 .mdbase-collections-field-label {
   color: var(--_text);
@@ -952,21 +867,9 @@
   color: var(--_danger);
 }
 
-.mdbase-collections-dialog-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 18px;
-}
-
 @media (max-width: 479.98px) {
   .mdbase-collections-gate .mdbase-collections-actions > .mdbase-collections-button:not(.is-quiet) {
     flex: 1 1 100%;
-  }
-
-  .mdbase-collections-dialog-actions > .mdbase-collections-button {
-    flex: 1 1 auto;
   }
 }
 

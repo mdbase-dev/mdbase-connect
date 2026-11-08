@@ -43,8 +43,8 @@ fn scratch(tag: &str) -> PathBuf {
 struct NoAuthority;
 
 impl mdbn_replica::policy::GrantSource for NoAuthority {
-    fn grant(&self, _: &B16) -> Option<mdbn_replica::policy::EffectiveGrant> {
-        None
+    fn grant(&self, _: &B16) -> mdbn_replica::api::ApiResult<mdbn_replica::policy::EffectiveGrant> {
+        Err(mdbn_replica::api::ErrorCode::Unauthenticated.err("the grant was revoked"))
     }
 }
 
@@ -313,6 +313,7 @@ async fn unsent_mirror_edits_are_captured_at_takeover_and_imported_across_a_cras
             account_moved: true,
             drain: Duration::ZERO,
             now: "2026-10-18T09:00:00Z".into(),
+            registered: Vec::new(),
         },
     )
     .unwrap();

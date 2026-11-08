@@ -1524,6 +1524,22 @@ pub extern "C" fn hd_applied_head() -> u64 {
     )
 }
 
+/// Snapshot install progress: `[done, total]` in chunks, or null with none running.
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_install_status() -> u64 {
+    let status = match with(|s| s.engine.install_status()).flatten() {
+        Some((done, total)) => Cbor::Array(vec![Cbor::Uint(done), Cbor::Uint(total)]),
+        None => Cbor::Null,
+    };
+    give(cbor::encode(&status).expect("bounded install status encodes"))
+}
+
+/// 1 when a snapshot build was declined since the last call, else 0.
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_snapshot_declined() -> u32 {
+    u32::from(with(|s| s.engine.take_snapshot_declined()).unwrap_or(false))
+}
+
 /// The next wakeup (host ms), or −1.
 #[unsafe(no_mangle)]
 pub extern "C" fn hd_next_wakeup() -> f64 {

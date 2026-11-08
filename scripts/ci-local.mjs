@@ -5,6 +5,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { serverTestPlan } from "./ci/server-test-plan.mjs";
 import { selectSteps } from "./lib/ci-local.mjs";
+import { useRcargo } from "./lib/rcargo.mjs";
 
 const args = new Set(process.argv.slice(2));
 const usage = "usage: pnpm ci:local [--node] [--rust] [--browser]\n" +
@@ -33,13 +34,15 @@ if (!tiers.size) {
     ? "Native inputs changed since origin/main: running the full node and Rust gates (add --browser for Chromium)."
     : "No native inputs changed since origin/main: running the pull-request node gates (pass --node --rust for every step).");
 }
+const rcargo = useRcargo();
 const failures = [];
 for (const step of selectSteps(tiers, native)) {
-  console.log(`\n==> ${step.command}`);
+  const command = rcargo ? step.remote ?? step.command : step.command;
+  console.log(`\n==> ${command}`);
   const started = Date.now();
-  const result = spawnSync("bash", ["-c", step.command], { cwd: root, stdio: "inherit" });
+  const result = spawnSync("bash", ["-c", command], { cwd: root, stdio: "inherit" });
   const seconds = Math.round((Date.now() - started) / 1000);
-  if (result.status !== 0) failures.push(step.command);
+  if (result.status !== 0) failures.push(command);
   console.log(`    ${result.status === 0 ? "ok" : "FAILED"} in ${seconds}s`);
 }
 console.log(failures.length

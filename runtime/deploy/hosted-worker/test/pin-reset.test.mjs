@@ -18,7 +18,7 @@ const compiled = await build({ entryPoints: [new URL("../src/worker.ts", import.
         open() { if (globalThis.pinTest.open) throw new Error(globalThis.pinTest.open); }
         pinState() { return [null, "inconsistent", "rebuilding", "rebuilt"][globalThis.pinTest.state]; }
         appliedHead() { return "cached"; } serving() { return false; } needsReset() { return false; }
-        logCalls() { return []; } poll() { return []; } nextWakeup() { return null; } attachmentObject() { return null; }
+        logCalls() { return []; } poll() { return []; } installStatus() { return null; } snapshotDeclined() { return false; } nextWakeup() { return null; } attachmentObject() { return null; }
       }` }));
   },
 }] });

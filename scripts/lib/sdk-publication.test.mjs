@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { buildAppTrust } from "../../runtime/packages/sdk/scripts/build-app-trust.mjs";
-import { checkedSdkAsset, exactSdkVersion, requireSdkPublicationReady, sdkPackages, sdkReleaseTag, sdkTarball, sdkTarget, validateSdkPublication } from "./sdk-publication.mjs";
+import { checkedSdkAsset, exactSdkVersion, refreshSdkRuntimePin, requireSdkPublicationReady, sdkPackages, sdkReleaseTag, sdkTarball, sdkTarget, validateSdkPublication } from "./sdk-publication.mjs";
 
 const root = resolve(import.meta.dirname, "../..");
 const contract = JSON.parse(readFileSync(join(root, "config/release-components.json"))).sdkPublication;
@@ -63,6 +63,27 @@ test("runtime bytes cannot substitute a new WASM under the committed integrity p
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("explicit runtime pin refresh preserves other assets and rejects invalid modules without writing", () => {
+  const directory = mkdtempSync(join(root, ".sdk-publication-test-"));
+  try {
+    const file = join(directory, "runtime.wasm"), manifest = join(directory, "pins.json");
+    const original = JSON.parse(readFileSync(join(root, "runtime/packages/sdk/src/application/asset-pins.json")));
+    writeFileSync(manifest, JSON.stringify(original));
+    writeFileSync(file, Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]));
+    const pin = refreshSdkRuntimePin(file, manifest, "ab".repeat(20));
+    assert.deepEqual(checkedSdkAsset(file, pin), readFileSync(file));
+    assert.equal(pin.source.commit, "ab".repeat(20));
+    assert.equal(pin.source.repository, original.runtime.source.repository);
+    assert.equal(pin.maxBytes, pin.bytes);
+    const updated = JSON.parse(readFileSync(manifest));
+    assert.deepEqual({ ...updated, runtime: original.runtime }, original);
+    const saved = readFileSync(manifest, "utf8");
+    writeFileSync(file, "not WASM");
+    assert.throws(() => refreshSdkRuntimePin(file, manifest, "ab".repeat(20)), /valid compiled WASM/);
+    assert.equal(readFileSync(manifest, "utf8"), saved);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 test("canonical trust generator emits one fixed environment, never a runtime selector", async () => {
@@ -140,14 +161,14 @@ test("production dependency admission rejects all aliases, URLs, tarballs and mu
 test("workflow builds all variants once, isolates both publisher credentials and defaults to dry-run", () => {
   const workflow = readFileSync(join(root, ".github/workflows/publish-sdk-npm.yml"), "utf8");
   assert.match(workflow, /dry_run:[\s\S]*?default: true/);
-  assert.match(workflow, /production_verified_commit:/);
-  assert.match(workflow, /group: sdk-publication-\$\{\{ \(github.event_name == 'workflow_dispatch' && !inputs.dry_run\) && 'live' \|\| github.ref \}\}/);
-  assert.match(workflow, /cancel-in-progress: \$\{\{ github.event_name != 'workflow_dispatch' \|\| inputs.dry_run \}\}/);
+  assert.doesNotMatch(workflow, /production_verified_commit:/);
+  assert.match(workflow, /group: sdk-publication-\$\{\{ github.event_name == 'pull_request' && github.ref \|\| 'live' \}\}/);
+  assert.match(workflow, /cancel-in-progress: \$\{\{ github.event_name == 'pull_request' \}\}/);
   for (const path of ["runtime/crates/**", "runtime/Cargo.toml", "runtime/Cargo.lock",
     "runtime/rust-toolchain.toml", "runtime/.cargo/**", "runtime/xtask/**", "runtime/tools/wasm/**"]) {
     assert(workflow.includes(`      - ${path}\n`), `source-build trigger missing ${path}`);
   }
-  assert.equal(workflow.match(/startsWith\(github\.ref, 'refs\/tags\/v0\.1\.0-beta\.'\)/g).length, 3);
+  assert.equal(workflow.match(/needs.plan.outputs.changed == 'true' && \(github.event_name != 'workflow_dispatch' \|\| !inputs.dry_run\)/g).length, 3);
   assert.match(workflow, /cargo build --locked --release -p mdbn-trust/);
   assert.match(workflow, /cargo xtask wasm-app/);
   assert.match(workflow, /verify-qualified-commit/);
@@ -165,12 +186,15 @@ test("workflow builds all variants once, isolates both publisher credentials and
   assert.match(publish, /environment: npm-sdk/);
   assert.match(publish, /sdk-publication.mjs ready/);
   assert.match(publish, /sdk-publication.mjs verify-npm/);
-  assert.match(publish, /scripts\/verify-client-publication.mjs/);
-  assert.match(publish, /PRODUCTION_VERIFIED_COMMIT: \$\{\{ inputs.production_verified_commit \}\}/);
-  assert.match(publish, /NODE_AUTH_TOKEN: \$\{\{ secrets.NPM_SDK_BOOTSTRAP_TOKEN \}\}/);
-  assert(!build.includes("NPM_SDK_BOOTSTRAP_TOKEN"));
+  assert.match(publish, /continuous-sdk-release.mjs compatible/);
+  assert.match(publish, /continuous-sdk-release.mjs publication-state/);
+  assert.match(publish, /if: steps\.publication\.outputs\.state == 'absent'\n\s+run: \|\n\s+export GITHUB_SHA="\$CLIENT_RELEASE_COMMIT"\n\s+npm publish/);
+  assert.match(release, /needs\.publish\.outputs\.state == 'absent'/);
+  assert.match(publish, /id-token: write/);
+  assert(!workflow.includes("NODE_AUTH_TOKEN"));
+  assert(!workflow.includes("NPM_SDK_BOOTSTRAP_TOKEN"));
   assert.match(publish, /npm publish "\$RUNNER_TEMP\/sdk-packages\/sdk-production.tgz"/);
-  assert.match(publish, /--registry https:\/\/registry.npmjs.org\/ --tag next --provenance/);
+  assert.match(publish, /--registry https:\/\/registry.npmjs.org\/ --tag latest --provenance/);
   assert(!publish.includes("contents: write"));
   assert(!publish.includes("*.tgz"));
   assert.match(attest, /id-token: write/);
@@ -180,7 +204,7 @@ test("workflow builds all variants once, isolates both publisher credentials and
     assert.match(attest, new RegExp(`subject-path: .*sdk-${environment}\\.tgz`));
     assert(attest.includes(`sdk-${environment}.tgz.sigstore.json`));
   }
-  assert.match(release, /needs: \[attest-internal, publish\]/);
+  assert.match(release, /needs: \[attest-internal, publish, plan\]/);
   assert.match(release, /contents: write/);
   assert(!release.includes("id-token:"));
   assert(!release.includes("attestations:"));

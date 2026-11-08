@@ -351,7 +351,7 @@ fn meta_d(c: &Cbor) -> StoreResult<RecordMeta> {
 }
 
 fn record_c(r: &RecordRow) -> StoreResult<Vec<u8>> {
-    enc(Cbor::Array(vec![
+    let mut fields = vec![
         r.id.to_cbor(),
         r.path.to_cbor(),
         r.path_key.to_cbor(),
@@ -360,13 +360,22 @@ fn record_c(r: &RecordRow) -> StoreResult<Vec<u8>> {
         r.modified_seq.to_cbor(),
         u64::from(r.bucket).to_cbor(),
         meta_c(&r.meta),
-    ]))
+    ];
+    if let Some(mtime) = r.mtime {
+        fields.push(mtime.to_cbor());
+    }
+    enc(Cbor::Array(fields))
 }
 
 pub(crate) fn record_d(v: &SqlValue) -> StoreResult<RecordRow> {
     let a = dec(v, "record")?;
-    let [id, path, pk, doc, rev, ms, bucket, meta] = a.as_slice() else {
-        return Err(corrupt("record"));
+    let (fields, mtime) = match a.as_slice() {
+        [_, _, _, _, _, _, _, _] => (a.as_slice(), None),
+        [_, _, _, _, _, _, _, _, mtime] => (&a[..8], Some(w::<i64>(mtime, "record mtime")?)),
+        _ => return Err(corrupt("record")),
+    };
+    let [id, path, pk, doc, rev, ms, bucket, meta] = fields else {
+        unreachable!("exact record row arity checked above");
     };
     Ok(RecordRow {
         id: w(id, "record")?,
@@ -375,6 +384,7 @@ pub(crate) fn record_d(v: &SqlValue) -> StoreResult<RecordRow> {
         doc: w(doc, "record")?,
         revision: w(rev, "record")?,
         modified_seq: w(ms, "record")?,
+        mtime,
         bucket: u16::try_from(w::<u64>(bucket, "record")?).map_err(|_| corrupt("record"))?,
         meta: meta_d(meta)?,
     })
@@ -1141,49 +1151,62 @@ impl<I: IndexStorage> Store for SqlStore<I> {
         // AppIndex/appSqlHost share one Worker, scope WebLock and SAH/SQLite
         // exclusive ownership. No await/reentrant writer between these reads.
         const GROUP_BYTES: u64 = 2 << 20;
-        let metadata: Vec<(String, u64)> = self.all(
-            "SELECT path, length(CAST(doc AS BLOB)) FROM st_res ORDER BY path",
-            vec![],
-            |r| match r {
-                [SqlValue::Text(p), SqlValue::Integer(n)] if *n >= 0 => Ok((p.clone(), *n as u64)),
-                _ => Err(corrupt("resource metadata")),
-            },
-        )?;
-        let mut out = Vec::with_capacity(metadata.len());
-        let mut start = 0;
-        while start < metadata.len() {
-            let mut end = start;
-            let mut charged = 0;
-            while end < metadata.len() {
-                let (path, bytes) = &metadata[end];
-                let cost = bytes + path.len() as u64 + 16;
-                if end > start && cost > GROUP_BYTES.saturating_sub(charged) {
-                    break;
-                }
-                charged += cost;
-                end += 1;
-            }
-            let group = &metadata[start..end];
-            let rows: Vec<(String, String)> = self.all(
-                "SELECT path, doc FROM st_res WHERE path >= ?1 AND path <= ?2 ORDER BY path",
-                vec![t(&group[0].0), t(&group[group.len() - 1].0)],
+        // Paged metadata: a hosted reply carries at most 4,096 rows and 4 MiB,
+        // and a 256-row page stays well inside both at the longest stored path.
+        const METADATA_ROWS: u32 = 256;
+        let mut out = Vec::new();
+        let mut after: Option<String> = None;
+        loop {
+            let mut metadata: Vec<(String, u64)> = self.all(
+                "SELECT path, length(CAST(doc AS BLOB)) FROM st_res WHERE (?1 IS NULL OR path > ?1) ORDER BY path LIMIT ?2",
+                vec![
+                    after.as_deref().map(t).unwrap_or(SqlValue::Null),
+                    int(METADATA_ROWS),
+                ],
                 |r| match r {
-                    [SqlValue::Text(p), SqlValue::Text(d)] => Ok((p.clone(), d.clone())),
-                    _ => Err(corrupt("resource")),
+                    [SqlValue::Text(p), SqlValue::Integer(n)] if *n >= 0 => {
+                        Ok((p.clone(), *n as u64))
+                    }
+                    _ => Err(corrupt("resource metadata")),
                 },
             )?;
-            if rows.len() != group.len()
-                || rows
-                    .iter()
-                    .zip(group)
-                    .any(|((p, d), (expected, bytes))| p != expected || d.len() as u64 != *bytes)
-            {
-                return Err(corrupt("resource inventory changed"));
+            let mut start = 0;
+            while start < metadata.len() {
+                let mut end = start;
+                let mut charged = 0;
+                while end < metadata.len() {
+                    let (path, bytes) = &metadata[end];
+                    let cost = bytes + path.len() as u64 + 16;
+                    if end > start && cost > GROUP_BYTES.saturating_sub(charged) {
+                        break;
+                    }
+                    charged += cost;
+                    end += 1;
+                }
+                let group = &metadata[start..end];
+                let rows: Vec<(String, String)> = self.all(
+                    "SELECT path, doc FROM st_res WHERE path >= ?1 AND path <= ?2 ORDER BY path",
+                    vec![t(&group[0].0), t(&group[group.len() - 1].0)],
+                    |r| match r {
+                        [SqlValue::Text(p), SqlValue::Text(d)] => Ok((p.clone(), d.clone())),
+                        _ => Err(corrupt("resource")),
+                    },
+                )?;
+                if rows.len() != group.len()
+                    || rows.iter().zip(group).any(|((p, d), (expected, bytes))| {
+                        p != expected || d.len() as u64 != *bytes
+                    })
+                {
+                    return Err(corrupt("resource inventory changed"));
+                }
+                out.extend(rows);
+                start = end;
             }
-            out.extend(rows);
-            start = end;
+            if metadata.len() < METADATA_ROWS as usize {
+                return Ok(out);
+            }
+            after = metadata.pop().map(|(path, _)| path);
         }
-        Ok(out)
     }
     fn settings(&self) -> StoreResult<Option<FileInclusion>> {
         self.one(
@@ -1910,6 +1933,43 @@ mod tests {
             "legacy eight-tuple bytes unchanged"
         );
         assert_eq!(file_d(&SqlValue::Blob(file_c(&row).unwrap())).unwrap(), row);
+        let mut record = RecordRow {
+            id: B16([9; 16]),
+            path: "a.md".into(),
+            path_key: "a.md".into(),
+            doc: "hello".into(),
+            revision: mdbn_wire::common::B32([8; 32]),
+            modified_seq: 7,
+            mtime: None,
+            bucket: 3,
+            meta: Default::default(),
+        };
+        let original_layout = Cbor::Array(vec![
+            record.id.to_cbor(),
+            record.path.to_cbor(),
+            record.path_key.to_cbor(),
+            record.doc.to_cbor(),
+            record.revision.to_cbor(),
+            record.modified_seq.to_cbor(),
+            u64::from(record.bucket).to_cbor(),
+            meta_c(&record.meta),
+        ]);
+        assert_eq!(
+            record_c(&record).unwrap(),
+            enc(original_layout).unwrap(),
+            "legacy eight-tuple record bytes unchanged"
+        );
+        for mtime in [None, Some(1_791_100_800_000), Some(-5)] {
+            record.mtime = mtime;
+            let encoded = record_c(&record).unwrap();
+            assert_eq!(record_d(&SqlValue::Blob(encoded)).unwrap(), record);
+        }
+        let mut fields = dec(&SqlValue::Blob(record_c(&record).unwrap()), "record").unwrap();
+        fields.push(1_u64.to_cbor());
+        assert!(matches!(
+            record_d(&SqlValue::Blob(enc(Cbor::Array(fields)).unwrap())),
+            Err(StoreError::Corrupt(_))
+        ));
         let content = AttachmentContentV1 {
             reference: AttachmentRefV1 {
                 collection: B16([4; 16]),

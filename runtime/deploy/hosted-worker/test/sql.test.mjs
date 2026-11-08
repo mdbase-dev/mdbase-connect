@@ -61,6 +61,27 @@ test("an oversized result is a typed Full error, not an allocation of the whole 
   assert.equal(errKind(out), 2);
 });
 
+test("a budget refusal logs the read that hit it, never its values", (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const big = "x".repeat(1 << 20);
+  const rows = Array.from({ length: 6 }, () => [big]);
+  const sql = "SELECT doc FROM st_res WHERE path > ?";
+  runIndex(storage(rows), req([[sql, ["private/path.md"]]]));
+  assert.equal(warn.mock.callCount(), 1);
+  const line = warn.mock.calls[0].arguments[0];
+  assert.deepEqual(JSON.parse(line), {
+    event: "hosted_sql_budget", reason: "reply over budget", verb: "select", table: "st_res",
+  });
+
+  runIndex(storage([]), new Uint8Array((4 << 20) + 1));
+  assert.deepEqual(JSON.parse(warn.mock.calls[1].arguments[0]), {
+    event: "hosted_sql_budget", reason: "request over budget", verb: null, table: null,
+  });
+
+  runIndex(storage([[1]]), req([["SELECT", [1.5]]]));
+  assert.equal(warn.mock.callCount(), 2);
+});
+
 test("many NULL values hit the value budget", () => {
   const rows = Array.from({ length: 4000 }, () => Array(40).fill(null));
   const out = runIndex(storage(rows), req([["SELECT", []]]));

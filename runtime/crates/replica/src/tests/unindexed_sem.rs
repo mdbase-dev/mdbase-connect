@@ -1,4 +1,4 @@
-//! Earlier semantics replay through the authenticated log receive path.
+//! Replay across a semantics bump through the authenticated log receive path.
 use super::engine::{COL, Node, node_with, settle};
 use crate::{
     Store,
@@ -14,6 +14,7 @@ use mdbn_core::{
 use mdbn_wire::{
     attachment::FileContent,
     attachment_runtime_v1 as rt,
+    client::IncidentKind,
     common::{B16, B32, B64, Bytes, Text, Version},
     envelope::{Item, ItemKind},
     intent::{BlobRef, MediaClass, OpClock, Source},
@@ -125,26 +126,66 @@ fn replay(sem: Version, change: impl FnOnce(&mut rt::EntryPayload)) -> Node {
     node
 }
 
-#[test]
-fn retained_previous_sem_native_entry_must_apply_structurally() {
-    let node = replay(Version { major: 1, minor: 0 }, |_| {});
-    assert_eq!(
-        node.r.head().seq,
-        3,
-        "previous minor must not require an upgrade"
-    );
-    assert_eq!(
-        node.r.store().record(&B16([52; 16])).unwrap().unwrap().doc,
-        "small\n"
-    );
-    assert_eq!(node.r.policy.voids, 0);
+/// Writers either side of a SEM bump: the previous registered SEM, the next minor and the
+/// next major.
+fn other_sems() -> [Version; 3] {
+    let current = mdbn_core::semantics::SEM;
+    let rows = mdbn_core::semantics::SEMANTICS;
+    let previous = rows[rows.len() - 2].sem;
+    [
+        Version {
+            major: previous.major,
+            minor: previous.minor,
+        },
+        Version {
+            major: current.major,
+            minor: current.minor + 1,
+        },
+        Version {
+            major: current.major + 1,
+            minor: 0,
+        },
+    ]
+}
+
+/// [`other_sems`] and this build's own SEM.
+fn every_sem() -> [Version; 4] {
+    let current = mdbn_core::semantics::SEM;
+    let [previous, minor, major] = other_sems();
+    [
+        previous,
+        Version {
+            major: current.major,
+            minor: current.minor,
+        },
+        minor,
+        major,
+    ]
 }
 
 #[test]
-fn previous_sem_structural_defect_voids() {
-    for minor in [0, 1, 2] {
-        let node = replay(Version { major: 1, minor: 0 }, |payload| {
-            payload.sem.minor = minor;
+fn other_sem_native_entry_must_apply_structurally() {
+    for sem in other_sems() {
+        let node = replay(sem, |_| {});
+        assert_eq!(
+            node.r.head().seq,
+            3,
+            "{sem:?} must not require an upgrade: {:?}",
+            node.r.sync_status()
+        );
+        assert_eq!(
+            node.r.store().record(&B16([52; 16])).unwrap().unwrap().doc,
+            "small\n"
+        );
+        assert_eq!(node.r.policy.voids, 0);
+        assert_eq!((node.r.stats.verified, node.r.stats.unverified), (0, 1));
+    }
+}
+
+#[test]
+fn every_sem_structural_defect_voids() {
+    for sem in every_sem() {
+        let node = replay(sem, |payload| {
             let rt::Effect::ReindexUnindexedMarkdown(effect) = &mut payload.effects[0] else {
                 unreachable!()
             };
@@ -157,40 +198,55 @@ fn previous_sem_structural_defect_voids() {
 }
 
 #[test]
-fn previous_sem_trusts_declared_effects_but_same_sem_still_replans() {
+fn other_sem_trusts_declared_effects_but_same_sem_mismatch_stalls_with_incident() {
     let current = mdbn_core::semantics::SEM;
-    for sem in [
-        Version { major: 1, minor: 0 },
-        Version {
-            major: current.major,
-            minor: current.minor,
-        },
-    ] {
-        let previous = sem.major == 1 && sem.minor == 0;
+    let same = Version {
+        major: current.major,
+        minor: current.minor,
+    };
+    for sem in other_sems().into_iter().chain([same]) {
         let node = replay(sem, |payload| {
             let rt::Effect::ReindexUnindexedMarkdown(effect) = &mut payload.effects[0] else {
                 unreachable!()
             };
-            effect.doc = Text::Inline("earlier planner's declared bytes\n".into());
+            effect.doc = Text::Inline("another planner's declared bytes\n".into());
         });
         assert_eq!(node.r.policy.voids, 0);
-        if previous {
+        let mismatch = node
+            .r
+            .incidents
+            .values()
+            .find(|i| i.kind == IncidentKind::VerificationMismatch);
+        if sem != same {
             assert_eq!(node.r.head().seq, 3);
             assert_eq!(
                 node.r.store().record(&B16([52; 16])).unwrap().unwrap().doc,
-                "earlier planner's declared bytes\n"
+                "another planner's declared bytes\n"
             );
+            assert!(mismatch.is_none());
+            assert_eq!(node.r.stats.verify_mismatch, 0);
         } else {
+            // A re-plan mismatch under this build's own SEM is never a void: it
+            // stalls for an upgrade and reports the disagreement.
             assert_eq!(node.r.head().seq, 2);
             assert!(node.r.store().record(&B16([52; 16])).unwrap().is_none());
+            assert_eq!(node.r.stalled, Some((IncidentKind::UpgradeRequired, 3)));
+            assert_eq!(node.r.stats.verify_mismatch, 1);
+            assert_eq!(node.r.stats.verified, 0);
+            let Some(mdbn_wire::common::Value::Map(details)) =
+                mismatch.and_then(|i| i.details.clone())
+            else {
+                panic!("no verification_mismatch incident: {:?}", node.r.incidents);
+            };
+            assert!(details.contains(&("seq".into(), mdbn_wire::common::Value::Int(3))));
         }
     }
 }
 
 #[test]
-fn previous_sem_prior_cas_defect_voids() {
-    for minor in [0, 1, 2] {
-        let node = replay(Version { major: 1, minor }, |payload| {
+fn every_sem_prior_cas_defect_voids() {
+    for sem in every_sem() {
+        let node = replay(sem, |payload| {
             let rt::Op::UnindexedMarkdownToRecord(op) = &mut payload.mutation.ops[0] else {
                 unreachable!()
             };
@@ -206,9 +262,12 @@ fn previous_sem_prior_cas_defect_voids() {
 }
 
 #[test]
-fn previous_sem_delegated_native_entry_still_stalls() {
-    for effects_only in [false, true] {
-        let node = replay(Version { major: 1, minor: 0 }, |payload| {
+fn other_sem_delegated_native_entry_still_stalls() {
+    for (sem, effects_only) in other_sems()
+        .into_iter()
+        .flat_map(|sem| [(sem, false), (sem, true)])
+    {
+        let node = replay(sem, |payload| {
             payload.mutation.on_behalf = Some(B16([99; 16]));
             if effects_only {
                 payload.mutation.ops = vec![rt::Op::Legacy(mdbn_wire::intent::Op::FileDelete(
@@ -227,27 +286,11 @@ fn previous_sem_delegated_native_entry_still_stalls() {
 }
 
 #[test]
-fn newer_sem_native_entry_stalls() {
-    let current = mdbn_core::semantics::SEM;
-    let node = replay(
-        Version {
-            major: current.major,
-            minor: current.minor + 1,
-        },
-        |_| {},
-    );
-    assert_eq!(node.r.head().seq, 2);
-    assert_eq!(node.r.policy.voids, 0);
-    assert!(node.r.store().record(&B16([52; 16])).unwrap().is_none());
-    assert!(format!("{:?}", node.r.sync_status()).contains("UpgradeRequired"));
-}
-
-#[test]
 fn review_1062_stateless_request_defects_void_across_sem_versions() {
     let mut outcomes = Vec::new();
     for defect in ["duplicate_id", "unsafe_op_path"] {
-        for minor in [0, 1, 2] {
-            let node = replay(Version { major: 1, minor }, |payload| match defect {
+        for sem in every_sem() {
+            let node = replay(sem, |payload| match defect {
                 "duplicate_id" => payload.mutation.ops.push(payload.mutation.ops[0].clone()),
                 "unsafe_op_path" => {
                     payload
@@ -267,10 +310,10 @@ fn review_1062_stateless_request_defects_void_across_sem_versions() {
                 }
                 _ => unreachable!(),
             });
-            outcomes.push((defect, minor, node.r.head().seq, node.r.policy.voids));
+            outcomes.push((defect, sem, node.r.head().seq, node.r.policy.voids));
         }
     }
-    eprintln!("request defects (defect, SEM minor, head, voids): {outcomes:?}");
+    eprintln!("request defects (defect, SEM, head, voids): {outcomes:?}");
     assert!(
         outcomes
             .iter()

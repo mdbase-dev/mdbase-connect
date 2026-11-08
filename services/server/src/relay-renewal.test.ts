@@ -25,6 +25,7 @@ function deferred<T = void>(): Deferred<T> {
 
 class PolicySocket extends EventEmitter {
   readyState = 1;
+  closeCode?: number;
   readonly policies: PolicySnapshot[] = [];
   readonly messages: Array<Record<string, unknown>> = [];
   readonly held: PolicySnapshot[] = [];
@@ -71,6 +72,7 @@ class PolicySocket extends EventEmitter {
 
   close(code = 1000): void {
     if (this.readyState === 3) return;
+    this.closeCode = code;
     this.readyState = 3;
     this.emit("close", code);
   }
@@ -222,6 +224,39 @@ async function settleAsync(): Promise<void> {
 }
 
 describe("exact-session policy renewal scheduler", () => {
+  it.each([
+    ["initial", "timeout"], ["initial", "policy_apply_failed"], ["established", "timeout"]
+  ] as const)("retries after %s policy %s", async (phase, failure) => {
+    const { relay, connectorId } = await fixture();
+    if (failure === "timeout") vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const socket = new PolicySocket();
+    const close = vi.spyOn(socket, "close");
+    if (phase === "established") await attach(relay, connectorId, socket);
+    socket.hold = true;
+    const attaching = phase === "initial" ? attach(relay, connectorId, socket) : relay.pushPolicy(connectorId);
+    const rejected = expect(attaching).rejects.toBeInstanceOf(Error);
+    await eventually(() => expect(socket.held).toHaveLength(1));
+    if (failure === "policy_apply_failed") socket.reject();
+    else {
+      await vi.advanceTimersByTimeAsync(20_000);
+    }
+    await rejected;
+    await eventually(() => expect(close).toHaveBeenCalledWith(1011, phase === "initial"
+      ? "Initial connector policy unavailable" : "Connector policy acknowledgement failed"));
+    vi.useRealTimers();
+    await attach(relay, connectorId, new PolicySocket());
+    expect(relay.isConnected(connectorId)).toBe(true);
+  });
+
+  it("keeps credential revocation terminal", async () => {
+    const { relay, connectorId } = await fixture();
+    const socket = new PolicySocket();
+    await attach(relay, connectorId, socket);
+    await relay.fenceConnector(connectorId, "2");
+    expect(socket.closeCode).toBe(4003);
+    expect(relay.isConnected(connectorId)).toBe(false);
+  });
+
   it("reports whether an actual socket close follows session readiness", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
     const readyFixture = await fixture();
@@ -359,6 +394,7 @@ describe("exact-session policy renewal scheduler", () => {
 
     await expect(brokerPush).rejects.toBeInstanceOf(Error);
     await eventually(() => expect(socket.readyState).toBe(3));
+    expect(socket.closeCode).toBe(1011);
     expect(owner.isConnected(connectorId)).toBe(false);
   });
 

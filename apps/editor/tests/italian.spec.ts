@@ -2,15 +2,18 @@ import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "./auth-portal";
 
 async function chooseItalian(page: Page, picker: Locator, storageKey: string, marker: string) {
-  await expect(picker).toHaveValue("en");
-  await expect(picker.locator("option")).toHaveCount(10);
-  await expect(picker.locator('option[value="it"]')).toHaveText("Italiano");
+  await expect(picker).toHaveAttribute("data-value", "en");
+  await picker.click();
+  const list = page.locator(`[id="${await picker.getAttribute("aria-controls")}"]`);
+  await expect(list.getByRole("option")).toHaveCount(10);
+  const italian = list.locator('[role="option"][data-value="it"]');
+  await expect(italian).toHaveText("Italiano");
   // This response must arrive after the explicit choice, not on English startup.
   const chunk = page.waitForResponse(async (response) =>
     new URL(response.url()).origin === new URL(page.url()).origin &&
     /\/assets\/messages-[^/]+\.js$/.test(new URL(response.url()).pathname) &&
     response.ok() && (await response.text()).includes(marker));
-  await picker.selectOption("it");
+  await italian.click();
   await chunk;
   await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), storageKey)).toBe("it");
   await expect(page.locator("html")).toHaveAttribute("lang", "it");
@@ -47,17 +50,26 @@ test("Italian portal picker loads its own chunk and renders singular/plural coll
     })),
     hosted_collections: [], grants: [], pending_authorizations: []
   };
-  await page.route(`${authPortal}/v1/**`, (route) => route.fulfill({
-    json: new URL(route.request().url()).pathname === "/v1/ui-configuration"
-      ? { editor_url: "http://editor.test/connect" } : overview
-  }));
-  await page.goto(`${authPortal}/computers`);
+  const account = {
+    backend: "next", user: overview.user,
+    authentication: { managed: true, current_provider: "session", identities: [], available_providers: { github: false, google: false, password: true },
+      password: { configured: true, change_available: true, current: true, email: overview.user.email } },
+    storage: { status: "available", collections: [], total_storage_bytes: 0 },
+    email_preferences: { announcements: true, product_updates: false },
+    deletion: { available: true, owned_collections: 0, hosted_collections: 0, local_collections: 0, computers: 2, development_confirmation: true }
+  };
+  await page.route(`${authPortal}/v1/**`, (route) => {
+    const path = new URL(route.request().url()).pathname;
+    return route.fulfill({ json: path === "/v1/ui-configuration" ? { editor_url: "http://editor.test/connect" }
+      : path === "/v1/account" ? account : path === "/v1/account/sessions" ? { sessions: [] } : overview });
+  });
+  await page.goto(`${authPortal}/account`);
   await chooseItalian(page, page.getByRole("combobox", { name: "Language", exact: true }),
     "mdbase:portal:locale", "raccolte");
+  await page.goto(`${authPortal}/computers`);
   await expect(page.getByText(/1 raccolta ·/)).toBeVisible();
   await expect(page.getByText(/2 raccolte ·/)).toBeVisible();
-  await page.reload();
-  await expect(page.getByRole("combobox", { name: "Lingua", exact: true })).toHaveValue("it");
-  await expect(page.getByText(/2 raccolte ·/)).toBeVisible();
+  await page.goto(`${authPortal}/account`);
+  await expect(page.getByRole("combobox", { name: "Lingua", exact: true })).toHaveAttribute("data-value", "it");
   expect(errors).toEqual([]);
 });

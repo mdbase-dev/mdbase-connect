@@ -89,6 +89,9 @@ use mdbase_connect_protocol::SyncFileSnapshotPageKind;
 pub struct MirrorError {
     pub code: String,
     pub message: String,
+    /// HTTP status when the authority answered this request with an error.
+    /// `None` for local and transport failures, whose outcome may be unknown.
+    status: Option<u16>,
 }
 
 impl MirrorError {
@@ -96,6 +99,14 @@ impl MirrorError {
         Self {
             code: code.into(),
             message: message.into(),
+            status: None,
+        }
+    }
+
+    fn refused(status: u16, code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            status: Some(status),
+            ..Self::new(code, message)
         }
     }
 
@@ -205,11 +216,15 @@ enum DurableJournalEvent {
         phase: BatchPhase,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         failure: Option<MirrorFailure>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stuck: Option<StuckAction>,
     },
     Receipt {
         plan_fingerprint: String,
         receipt: Box<DurableReceipt>,
         delta: Box<DurableStateDelta>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stuck: Option<StuckAction>,
     },
 }
 
@@ -278,6 +293,79 @@ struct DurableMirrorState {
     last_completed_plan: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     last_synced_at: Option<String>,
+    /// Counts abandoned batches. It scopes file transfer and mutation IDs, so
+    /// file work a dropped batch did not apply gets fresh IDs when re-planned.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    retry_epoch: u64,
+    /// The remote action the authority keeps refusing with the same error.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    stuck: Option<StuckAction>,
+}
+
+/// One object's repeated refusals. After `STUCK_ATTEMPTS` counted refusals of
+/// any kind spanning `STUCK_AFTER`, the object is set aside as a rejected
+/// conflict. `code` is the latest refusal, for the conflict message.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct StuckAction {
+    identity: String,
+    code: String,
+    attempts: u32,
+    since: String,
+}
+
+const STUCK_ATTEMPTS: u32 = 10;
+const STUCK_AFTER: chrono::TimeDelta = chrono::TimeDelta::hours(1);
+
+/// File refusals a fresh plan settles: a concurrent edit, move or delete on
+/// another device, an occupied path, or a reused control ID. They still count,
+/// so one that keeps recurring is eventually set aside.
+const REPLAN_REFUSALS: [&str; 7] = [
+    "stale_file_revision",
+    "path_occupied",
+    "file_not_found",
+    "file_source_mismatch",
+    "file_transfer_conflict",
+    "file_mutation_conflict",
+    "mutation_request_conflict",
+];
+/// Refusals that end this control ID but say nothing about the file: an
+/// expired or closed transfer, or a recovery window that has passed. They
+/// re-plan with a fresh ID without counting.
+const FRESH_ID_REFUSALS: [&str; 3] = [
+    "file_transfer_expired",
+    "file_transfer_not_open",
+    "mutation_recovery_expired",
+];
+/// Other definite refusals of the file itself. Only these and the re-plan
+/// refusals count towards setting a file aside; every other answer (5xx, rate
+/// limits, storage quota, a live claim, a collection that is not active) says
+/// nothing about the file and keeps the batch and its IDs.
+const OBJECT_REFUSALS: [&str; 3] = [
+    "invalid_file_path",
+    "markdown_is_not_a_file_attachment",
+    "invalid_media_type",
+];
+
+/// Whether the authority answered a file control with a 4xx refusal. Connection
+/// failures, timeouts and 5xx leave the outcome to a retry with the same ID.
+fn definite_refusal(error: &MirrorError) -> bool {
+    error
+        .status
+        .is_some_and(|status| (400..500).contains(&status))
+}
+
+/// Whether the executor will give up this file control's ID, so its upload
+/// transfer can be aborted. Any other failure keeps the transfer open for the
+/// retry to resume.
+fn abandons_transfer(error: &MirrorError) -> bool {
+    definite_refusal(error)
+        && (error.code == "file_too_large"
+            || FRESH_ID_REFUSALS.contains(&error.code.as_str())
+            || REPLAN_REFUSALS.contains(&error.code.as_str()))
+}
+
+fn is_zero(value: &u64) -> bool {
+    *value == 0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -375,6 +463,7 @@ pub struct DirectoryMirror {
     sync_policy: SelectiveSyncPolicy,
     transport: Arc<dyn SyncTransport>,
     record_reader: Arc<dyn LocalRecordReader>,
+    clock: Arc<dyn Fn() -> chrono::DateTime<Utc> + Send + Sync>,
 }
 
 impl DirectoryMirror {
@@ -434,12 +523,22 @@ impl DirectoryMirror {
             sync_policy,
             transport,
             record_reader: Arc::new(FilesystemRecordReader),
+            clock: Arc::new(Utc::now),
         })
     }
 
     #[cfg(test)]
     fn with_record_reader(mut self, reader: Arc<dyn LocalRecordReader>) -> Self {
         self.record_reader = reader;
+        self
+    }
+
+    #[cfg(test)]
+    fn with_clock(
+        mut self,
+        clock: impl Fn() -> chrono::DateTime<Utc> + Send + Sync + 'static,
+    ) -> Self {
+        self.clock = Arc::new(clock);
         self
     }
 

@@ -65,13 +65,14 @@ async function auditPortalLoading() {
   });
   try {
     await page.goto(`${servers[0].origin}/authorize/11111111-1111-4111-8111-111111111111`);
-    await page.getByRole("status").filter({ hasText: "Opening mdbase connect" }).waitFor();
+    await page.getByRole("heading", { name: "Review app access", exact: true }).waitFor();
+    await page.getByRole("status").filter({ hasText: "Loading the request…" }).waitFor();
     for (const colorScheme of ["light", "dark"]) {
       await page.emulateMedia({ colorScheme });
       for (const width of [320, 390, 640, 1280]) {
         await page.setViewportSize({ width, height: 844 });
         const layout = await page.evaluate(() => ({
-          edges: [...document.querySelectorAll(".loading .page-brand-row, .loading .product-brand-mark, .loading .theme-select, .loading > p")].map((element) => {
+          edges: [...document.querySelectorAll(".approval-page > .product-brand, .approval-page .product-brand-mark, .signed-out-preferences .theme-select, .authorization-panel > p[role]")].map((element) => {
             const { left, right } = element.getBoundingClientRect();
             return { left, right };
           }),
@@ -123,7 +124,7 @@ async function auditPortalLogin() {
   });
   await page.goto(`${servers[0].origin}/login`);
   await page.getByRole("heading", { name: "Sign in" }).waitFor();
-  await page.getByLabel("Email", { exact: true }).focus();
+  assert.equal(await page.getByLabel("Email", { exact: true }).evaluate(element => element === document.activeElement), true);
   await page.keyboard.press("Tab");
   assert.deepEqual(await page.getByLabel("Password", { exact: true }).evaluate((element) => {
     const style = getComputedStyle(element);
@@ -141,10 +142,10 @@ async function auditPortalLogin() {
   await page.getByRole("heading", { name: "Create an account" }).waitFor();
   await page.getByRole("button", { name: "Send verification link" }).waitFor();
   await auditPage(page, "portal signup", { keyboard: true });
-  await assertAuthDesign(page, "portal signup", { divider: false });
+  await assertAuthDesign(page, "portal signup");
   assert.equal(await page.locator("html").getAttribute("data-theme"), null, "portal signup: theme follows the operating system");
   assert.equal(await page.getByRole("combobox", { name: "Color theme" }).count(), 1, "portal signup: System/Light/Dark remains available");
-  const authAlignment = await page.locator(".page-brand-row, .minimal-auth-footer").evaluateAll(
+  const authAlignment = await page.locator(".minimal-auth-page > .product-brand, .minimal-auth-footer").evaluateAll(
     (elements) => elements.map((element) => element.getBoundingClientRect().left)
   );
   assert.equal(authAlignment[0], authAlignment[1], "portal signup: footer tracks the content edge");
@@ -157,7 +158,7 @@ async function auditPortalLogin() {
   await page.close();
 }
 
-async function assertAuthDesign(page, label, { divider = true } = {}) {
+async function assertAuthDesign(page, label) {
   const design = await page.locator(".minimal-auth-shell").evaluate((shell) => {
     const visible = (element) => element.checkVisibility() && element.getClientRects().length > 0;
     const copy = [...shell.querySelectorAll("h1, p, label, input, button, a, span, strong")].filter(visible);
@@ -181,15 +182,15 @@ async function assertAuthDesign(page, label, { divider = true } = {}) {
         const style = getComputedStyle(element);
         return { size: style.fontSize, weight: style.fontWeight };
       });
-    const primary = [...shell.querySelectorAll(".auth-panel .is-primary")].filter(visible);
-    const actions = [...shell.querySelectorAll(".auth-panel button, .auth-panel a")].filter(visible);
+    const primary = [...shell.querySelectorAll(".mdbase-page-panel .is-primary")].filter(visible);
+    const actions = [...shell.querySelectorAll(".mdbase-page-panel button, .mdbase-page-panel a")].filter(visible);
     return {
       sizes, weights,
       copy: copy.map((element) => ({ tag: element.tagName, size: getComputedStyle(element).fontSize, weight: getComputedStyle(element).fontWeight })),
       heading: styles("h1"),
-      body: styles(".auth-panel > p:not(.auth-footnote)"),
-      fields: styles('.auth-panel input:not([type="checkbox"]):not([type="hidden"])'),
-      labels: styles(".auth-panel label:not(.auth-agreement) > span:not(.auth-field-error)"),
+      body: styles(".mdbase-page-panel > p:not(.auth-footnote)"),
+      fields: styles('.mdbase-page-panel input:not([type="checkbox"]):not([type="hidden"])'),
+      labels: styles(".mdbase-page-panel label:not(.auth-agreement) > span:not(.auth-field-error)"),
       primary: primary.map((element) => ({ filled: getComputedStyle(element).backgroundColor === accent, onAccent: getComputedStyle(element).color === onAccent })),
       filledActions: actions.filter((element) => getComputedStyle(element).backgroundColor === accent).length,
       dividers: [...shell.querySelectorAll(".provider-divider")].filter(visible).map((element) => element.textContent.trim())
@@ -207,7 +208,7 @@ async function assertAuthDesign(page, label, { divider = true } = {}) {
   assert.ok(design.labels.length > 0 && design.labels.every(({ size, weight }) => size === design.sizes.section && weight === design.weights.medium), `${label}: field labels use medium section type`);
   assert.deepEqual(design.primary, [{ filled: true, onAccent: true }], `${label}: one filled primary action with on-accent text`);
   assert.equal(design.filledActions, 1, `${label}: providers and quiet links are not primary actions`);
-  assert.deepEqual(design.dividers, divider ? ["or"] : [], `${label}: one divider only when email and providers coexist`);
+  assert.deepEqual(design.dividers, [], `${label}: providers precede email without a divider`);
 }
 
 async function auditPortalDevLogin() {
@@ -309,12 +310,10 @@ async function auditPortalSignup() {
           const { left, width } = document.querySelector(selector).getBoundingClientRect();
           return { left, width };
         };
-        const label = document.querySelector(".auth-providers > .provider-divider > span");
-        const range = document.createRange();
-        range.selectNodeContents(label);
         return {
-          edges: [".page-brand-row", ".auth-providers", ".google-provider", ".github-button", ".auth-providers > .provider-divider", ".password-auth-form", ".minimal-auth-footer"].map(bounds),
-          labelLines: range.getClientRects().length,
+          edges: [".minimal-auth-page > .product-brand", ".auth-providers", ".google-provider", ".github-button", ".password-auth-form", ".minimal-auth-footer"].map(bounds),
+          providersBottom: document.querySelector(".auth-providers").getBoundingClientRect().bottom,
+          emailTop: document.querySelector(".password-auth-form").getBoundingClientRect().top,
           googleScheme: getComputedStyle(document.querySelector(".google-provider")).colorScheme,
           overflow: document.documentElement.scrollWidth > innerWidth
         };
@@ -323,7 +322,8 @@ async function auditPortalSignup() {
         assert.ok(Math.abs(edge.left - layout.edges[0].left) < 1, `signup ${colorScheme}/${width}: aligned left edges`);
         assert.ok(Math.abs(edge.width - layout.edges[0].width) < 1, `signup ${colorScheme}/${width}: matching widths`);
       }
-      assert.equal(layout.labelLines, 1, `signup ${colorScheme}/${width}: email divider stays on one line`);
+      assert.equal(await page.locator(".provider-divider").count(), 0);
+      assert.ok(layout.emailTop > layout.providersBottom, `signup ${colorScheme}/${width}: providers precede email`);
       assert.equal(layout.googleScheme, "light", "Google iframe uses its native color scheme");
       assert.equal(layout.overflow, false, `signup ${colorScheme}/${width}: no horizontal overflow`);
       await assertAuthDesign(page, `signup ${colorScheme}/${width}`);
@@ -389,7 +389,7 @@ async function auditPortalRecovery() {
     configFails = true;
     await page.reload();
     await page.getByRole("alert").waitFor();
-    assert.match(await page.getByRole("alert").innerText(), /Request failed with HTTP 500\./, "configuration failure remains visible");
+    assert.equal(await page.getByRole("alert").innerText(), "Something went wrong on mdbase. Try again.", "configuration failure remains visible");
     await page.close();
   }
   for (const [path, endpoint, data, heading] of [
@@ -410,7 +410,7 @@ async function auditPortalRecovery() {
     const retried = page.waitForRequest(`**/v1/${endpoint}/*`);
     await page.getByRole("button", { name: "Try again" }).click();
     await retried;
-    await page.locator('main[aria-busy="true"]').waitFor();
+    await page.locator('.request-shell[aria-busy="true"], main[aria-busy="true"]').waitFor();
     assert.equal(await page.getByRole("button", { name: "Try again" }).count(), 0, `${path}: cannot retry during a pending request`);
     releaseRetry();
     await page.getByRole("heading", { name: heading }).waitFor();
@@ -613,21 +613,23 @@ async function auditPortalManagement() {
   await page.getByRole("heading", { name: "Accessibility collection" }).waitFor();
   await auditPage(page, "portal management workspace", { keyboard: true });
 
-  await page.getByRole("link", { name: "Applications", exact: true }).click();
-  await page.getByRole("heading", { name: "Application access" }).waitFor();
+  await page.getByRole("link", { name: "Apps", exact: true }).click();
+  await page.getByRole("heading", { name: "Apps", level: 1, exact: true }).waitFor();
   await page.getByText("Photo catalog", { exact: true }).click();
   await page.getByText("Permissions", { exact: true }).click();
   await auditPage(page, "portal management expanded permissions", { keyboard: true });
 
-  await page.getByRole("link", { name: "Account & sessions" }).click();
+  await page.getByRole("link", { name: "Account", exact: true }).click();
   await page.getByRole("heading", { name: "Hosted storage" }).waitFor();
   await page.getByRole("button", { name: "Change password" }).click();
   await page.getByRole("button", { name: "Delete account…" }).click();
   await auditPage(page, "portal management account forms", { keyboard: true });
+  await page.keyboard.press("Escape");
+  await page.getByRole("dialog").waitFor({ state: "detached" });
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("button", { name: /Account & sessions.*Open menu/ }).click();
-  await page.getByRole("link", { name: "Open editor" }).waitFor();
+  await page.getByRole("button", { name: "Open menu", exact: true }).click();
+  await page.getByRole("link", { name: "Apps", exact: true }).waitFor();
   await auditPage(page, "portal management mobile navigation", { keyboard: true });
   assert.deepEqual(errors, []);
   await page.close();
@@ -694,13 +696,13 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
           }, {
             id: "55555555-5555-4555-8555-555555555555",
             kind: "hosted",
-            connector_name: "Hosted by mdbase",
+            connector_name: "Cloud copy",
             display_name: "Shared notes",
             spec_version: "0.3.0",
             contracts: [],
             types: []
           }],
-          hosted_collections_available: true,
+          collection_creation_available: true,
           unavailable_connectors: []
         }
       });
@@ -713,18 +715,18 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
     await route.fulfill({ status: 404, json: { error: "not_found" } });
   });
   await page.goto(`${servers[0].origin}/authorize/${requestId}`);
-  await page.getByRole("heading", { name: "Workout journal" }).waitFor();
+  await page.getByRole("heading", { name: "Workout journal", level: 1, exact: true }).waitFor();
   const applicationIcon = page.locator('.request-identity-mark img[src="https://journal.example/icon.png"]');
   await applicationIcon.waitFor();
   assert.equal(await applicationIcon.getAttribute("referrerpolicy"), "no-referrer", "portal authorization: application icons do not send the approval-page referrer");
   await applicationIcon.evaluate((element) => element.dispatchEvent(new Event("error")));
   assert.equal(await applicationIcon.count(), 0, "portal authorization: a failed application icon is removed");
   assert.equal(await page.locator(".request-identity-mark").textContent(), "WJ", "portal authorization: initials replace a failed application icon");
-  assert.equal(await page.locator(".request-origin code").textContent(), "journal.example", "portal authorization: the origin is shown as technical identity");
+  assert.equal(await page.locator(".request-origin code").textContent(), "https://journal.example", "portal authorization: the exact origin is shown as technical identity");
   const reviewAccess = page.getByRole("button", { name: "Review access" });
   assert.equal(await reviewAccess.isDisabled(), true, "portal authorization: multiple collections require a deliberate choice");
-  assert.equal(await page.getByRole("radio").count(), 2, "portal authorization: compatible collections are visible");
-  assert.equal(await page.getByRole("radio", { checked: true }).count(), 0, "portal authorization: no ambiguous collection is preselected");
+  assert.equal(await page.getByRole("option").count(), 2, "portal authorization: compatible collections are visible");
+  assert.equal(await page.getByRole("option", { selected: true }).count(), 0, "portal authorization: no ambiguous collection is preselected");
   const requested = page.getByRole("list", { name: "Requested access" });
   await requested.getByText("Delete records").waitFor();
   assert.equal(await page.getByRole("checkbox").count(), 0, "portal authorization: requested access is visible before collection choice, without controls");
@@ -746,7 +748,7 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
     element.addEventListener("click", (event) => event.preventDefault(), { once: true });
   });
   await localFolder.click();
-  await page.getByRole("heading", { name: "Choose the folder in mdbase connect." }).waitFor();
+  await page.getByRole("heading", { name: "Choose the folder in mdbase Connect." }).waitFor();
   assert.equal(
     new URL(page.url()).searchParams.get("continue_in_desktop"),
     "1",
@@ -761,24 +763,23 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
     false,
     "portal authorization: browser review remains available"
   );
-  const createHosted = page.getByRole("button", { name: "Create hosted collection" });
+  const createHosted = page.getByRole("button", { name: "New collection" });
   await createHosted.click();
   assert.equal(await page.getByLabel("New collection name").evaluate((element) => document.activeElement === element), true, "portal authorization: hosted collection form receives focus");
   await page.getByRole("button", { name: "Cancel" }).click();
   assert.equal(await createHosted.evaluate((element) => document.activeElement === element), true, "portal authorization: cancelling hosted collection creation restores focus");
-  const personalNotesChoice = page.getByRole("radio", { name: /Personal notes.*Home computer/ });
-  const personalNotesRow = personalNotesChoice.locator("xpath=..");
+  const personalNotesChoice = page.getByRole("option", { name: "Personal notes", exact: true });
+  const personalNotesRow = personalNotesChoice;
   assert.equal(await personalNotesRow.evaluate((element) => getComputedStyle(element).cursor), "pointer", "portal authorization: the full collection row is visibly selectable");
-  assert.equal(await personalNotesRow.evaluate((element) => element.getBoundingClientRect().height >= 68), true, "portal authorization: collection rows have deliberate full-row presence");
-  await personalNotesChoice.focus();
+  assert.equal(await personalNotesRow.evaluate((element) => element.getBoundingClientRect().height >= 44), true, "portal authorization: collection rows have deliberate full-row presence");
+  const collectionSearch = page.getByRole("combobox", { name: "Choose a collection", exact: true });
+  await collectionSearch.focus();
   await page.keyboard.press("ArrowDown");
-  const sharedNotesChoice = page.getByRole("radio", { name: /Shared notes.*Hosted by mdbase/ });
-  assert.equal(await sharedNotesChoice.evaluate((element) => document.activeElement === element), true, "portal authorization: native arrow-key radio navigation is preserved");
-  assert.equal(await sharedNotesChoice.isChecked(), true, "portal authorization: keyboard navigation updates the native selection");
-  await page.keyboard.press("ArrowUp");
-  assert.equal(await personalNotesChoice.isChecked(), true, "portal authorization: keyboard navigation can return to the first collection");
-  await page.getByText("Personal notes", { exact: true }).click();
-  assert.equal(await personalNotesChoice.isChecked(), true, "portal authorization: clicking collection copy selects its radio");
+  assert.equal(await page.getByRole("option", { selected: true }).count(), 0, "portal authorization: arrows only highlight, never commit consent");
+  await page.keyboard.press("Enter");
+  assert.equal(await personalNotesChoice.getAttribute("aria-selected"), "true", "portal authorization: Enter commits the highlighted choice");
+  await personalNotesChoice.click();
+  assert.equal(await personalNotesChoice.getAttribute("aria-selected"), "true", "portal authorization: clicking a collection commits its choice");
   assert.equal(await selectionHelp.count(), 0, "portal authorization: selection guidance clears after choosing a collection");
   await reviewAccess.click();
   const permissions = page.getByRole("list", { name: "Collection permissions" });
@@ -803,8 +804,8 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
     return style.outlineStyle !== "none" || style.boxShadow !== "none";
   }), true, "portal authorization: restrained text actions retain visible keyboard focus");
   await page.getByRole("button", { name: "Change" }).click();
-  assert.equal(await personalNotesChoice.evaluate((element) => document.activeElement === element), true, "portal authorization: changing the collection restores focus to the selected choice");
-  assert.equal(await page.getByRole("radio", { checked: true }).count(), 1, "portal authorization: changing the collection preserves exactly one selection");
+  assert.equal(await collectionSearch.evaluate((element) => document.activeElement === element), true, "portal authorization: changing the collection restores focus to the search");
+  assert.equal(await page.getByRole("option", { selected: true }).count(), 1, "portal authorization: changing the collection preserves exactly one selection");
   await reviewAccess.click();
   await allowAccess.waitFor();
   await auditPage(page, "portal application access review", { keyboard: true });
@@ -838,7 +839,7 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
     const copy = elements[0].querySelectorAll("h1, h2, p, small, strong, label, button, summary, li, span, code");
     return [...new Set([...copy].map((element) => getComputedStyle(element).fontWeight))].sort();
   });
-  assert.deepEqual(approvalFontWeights, ["400", "700"], "portal authorization: copy uses only regular and bold weights");
+  assert.deepEqual(approvalFontWeights, ["400", "500", "600", "700"], "portal authorization: copy and shared controls use the shared regular, medium, semibold and bold weights");
   const cardTreatment = await page.locator(".authorization-panel").evaluate((element) => {
     const style = getComputedStyle(element);
     return { shadow: style.boxShadow, border: style.borderTopWidth };
@@ -851,14 +852,16 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
     "portal authorization: narrow view does not overflow horizontally"
   );
   const footerClearsPermissions = await page.evaluate(() => {
-    const footer = document.querySelector(".approval-form > .approval-footer");
+    const footer = document.querySelector(".approval-form .approval-footer");
     const rows = [...document.querySelectorAll(".permission-row")];
     const last = rows.at(-1);
+    last?.scrollIntoView({ block: "center", behavior: "instant" });
     return footer instanceof HTMLElement
       && last instanceof HTMLElement
+      && last.getBoundingClientRect().top >= document.querySelector(".request-identity").getBoundingClientRect().bottom
       && footer.getBoundingClientRect().top >= last.getBoundingClientRect().bottom;
   });
-  assert.equal(footerClearsPermissions, true, "portal authorization: mobile actions do not obscure the final permission");
+  assert.equal(footerClearsPermissions, true, "portal authorization: the final permission scrolls fully above pinned mobile actions");
   await auditPage(page, "portal application access review mobile", { keyboard: true });
   await page.setViewportSize({ width: 320, height: 640 });
   assert.equal(
@@ -872,7 +875,10 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
     ? /Only attachments.*Hidden folders are always excluded/s
     : /Every visible folder.*Hidden folders are always excluded.*approved together/s);
   assert.match(await page.locator(".notification-access summary").innerText(), /can turn on this rule.*never contain record content/s);
-  assert.equal(await page.getByText(/until you revoke/).count(), 1, "approval discloses persistent access once");
+  assert.equal(await page.locator(".request-expiry").getByText(/This request link expires .*Access you allow continues until you revoke it/).count(), 1,
+    "approval distinguishes request-link expiry from persistent access");
+  assert.equal(await page.locator(".approval-footer").getByText(/until you revoke/).count(), 1,
+    "approval receipt discloses persistent access once");
   const checkbox = (label) => page.getByRole("checkbox", { name: new RegExp(`^${label}`) });
   if (atomic) {
     assert.equal(await permissions.getByRole("checkbox").count(), 3,
@@ -933,7 +939,7 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
   authorization.user_code = "ABCD-EFGH";
   authorization.project_url = "https://journal.example";
   await page.reload();
-  await page.getByText("Application origin unverified.", { exact: true }).waitFor();
+  await page.getByText("App origin unverified.", { exact: true }).waitFor();
   assert.match(await page.getByRole("note").innerText(), /Continue only if you started this connection intentionally and it shows ABCD-EFGH/);
   assert.match(await page.getByRole("note").innerText(), /journal\.example does not verify its origin/);
   assert.equal(await page.getByText(/until you revoke/).count(), 0, "portable approval does not promise durability");
@@ -985,24 +991,26 @@ async function auditDesktopRoutes() {
     };
   });
   await page.goto(servers[1].origin);
-  await page.getByRole("heading", { name: "Your local connection." }).waitFor();
+  await page.getByRole("heading", { name: "Overview", exact: true }).waitFor();
   await page.getByText("Connected securely", { exact: true }).first().waitFor();
   await auditPage(page, "desktop overview", { keyboard: true });
 
   const nav = (name) => page.locator(".product-sidebar-link").filter({ hasText: name });
   for (const route of [
-    ["Collections", "Your collections."],
-    ["App access", "Decide what apps can do."],
-    ["Activity", "What reached this computer."],
-    ["Settings", "Account and startup."]
+    ["Collections", "Collections"],
+    ["Apps", "Apps"],
+    ["Activity", "Activity"],
+    ["Settings", "Settings"]
   ]) {
     await nav(route[0]).click();
-    await page.getByRole("heading", { name: route[1] }).waitFor();
+    await page.getByRole("heading", { name: route[1], exact: true }).waitFor();
     if (route[0] === "Collections") {
-      await page.getByRole("button", { name: "Review 1 file" }).click();
+      await page.getByRole("button", { name: "Actions for Personal notes" }).click();
+      await page.getByRole("menuitem", { name: "Review 1 file" }).click();
+      await page.getByRole("menu").waitFor({ state: "detached" });
       await page.getByRole("button", { name: "Keep both" }).waitFor();
     }
-    if (route[0] === "App access") {
+    if (route[0] === "Apps") {
       await page.getByRole("button", { name: "Approve…" }).waitFor();
       await page.getByRole("button", { name: "Mark as seen" }).waitFor();
     }
@@ -1045,6 +1053,7 @@ function portalAuthorizationFixture(id) {
     application_id: "app-workout-journal",
     application_name: "Workout journal",
     distribution: "web",
+    application_origin: "https://journal.example",
     homepage: "https://journal.example",
     project_url: null,
     icon: null,
@@ -1203,7 +1212,7 @@ async function assertKeyboardReachability(page, label) {
         && bounds.height > 0;
     };
     return [
-      ...document.querySelectorAll(
+      ...(document.querySelector("dialog:modal") ?? document).querySelectorAll(
         "a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary"
       )
     ].filter(visible).map((element, index) => {

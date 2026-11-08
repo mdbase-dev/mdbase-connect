@@ -42,13 +42,14 @@ export async function auditPortalInstallationApproval(localPage, origin) {
     }
     assert.ok(path.endsWith("/approve"), "only explicit creation/approval mutations occur");
     pairing.approved_at = new Date().toISOString();
+    pairing.selected_collection_id = body.selected_collection_id;
     if (loseApproval) return route.abort("failed");
     return route.fulfill({json: {ok: true}});
   });
   const url = `${origin}/pair/00000000-0000-4000-8000-000000000001`;
   const picker = () => page.getByRole("combobox", {name: "Open in TaskNotes", exact: true});
   const list = () => page.getByRole("listbox", {name: "Open in TaskNotes", exact: true});
-  const approve = () => page.getByRole("button", {name: /^Open TaskNotes(?: with .+)?$/});
+  const approve = () => page.getByRole("button", {name: "Open TaskNotes", exact: true});
   const load = async hint => {
     pairing = structuredClone(base); posts = []; failCreation = false; loseApproval = false; holdAttestation = false;
     await page.goto(`${url}${hint ? `?collection_hint=${hint}` : ""}`); await picker().waitFor();
@@ -63,7 +64,7 @@ export async function auditPortalInstallationApproval(localPage, origin) {
       assert.equal(await picker().getAttribute("data-value"), offeredId, "the committed CID matches the offered collection");
     }
   };
-  const done = () => page.getByRole("heading", {name: "Access approved", exact: true}).waitFor();
+  const done = () => page.getByRole("heading", {name: /^TaskNotes can now use /}).waitFor();
   try {
     await load();
     Object.assign(pairing, {account_selection_confirmed:false,account_email:null,signed_in_account_email:base.account_email,attested:false,fingerprint:null,app_origin:undefined});
@@ -103,7 +104,7 @@ export async function auditPortalInstallationApproval(localPage, origin) {
         assert.equal(await list().getByRole("option").count(), pairing.collections.length, "all candidates are inline");
         assert.ok(appearance.width > 0 && appearance.height > 0 && appearance.fits, "long picker is bounded by the popup viewport");
         const search = picker();
-        await search.scrollIntoViewIfNeeded();
+        await search.evaluate(input => input.scrollIntoView({block: "center", behavior: "instant"}));
         assert.equal(await search.evaluate(input => {
           const box = input.getBoundingClientRect();
           return document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2) === input;
@@ -122,7 +123,9 @@ export async function auditPortalInstallationApproval(localPage, origin) {
         assert.equal(await picker().getAttribute("data-value"), "", "arrows only highlight");
         await page.keyboard.press("Enter");
         assert.equal(await picker().getAttribute("data-value"), first, "Enter commits the highlighted candidate");
-        assert.equal(await approve().innerText(), "Open TaskNotes with Personal notes");
+        assert.equal(await approve().innerText(), "Open TaskNotes");
+        await page.locator(".approval-target .collection-name").getByText("Personal notes", { exact: true }).waitFor();
+        assert.equal(await approve().getAttribute("aria-describedby"), await page.locator(".approval-target").getAttribute("id"));
         assert.equal(posts.length, 0, "focus, filtering and keyboard selection never approve or create a collection");
       }
     }
@@ -170,7 +173,8 @@ export async function auditPortalInstallationApproval(localPage, origin) {
     pairing.selected_collection_id = second;
     await page.reload(); await picker().waitFor();
     assert.equal(await picker().getAttribute("data-value"), second, "restore a server-recorded explicit choice, never the conflicting hint");
-    assert.equal(await approve().innerText(), "Open TaskNotes with Work notes");
+    assert.equal(await approve().innerText(), "Open TaskNotes");
+    await page.locator(".approval-target .collection-name").getByText("Work notes", { exact: true }).waitFor();
     await picker().fill("Personal");
     assert.equal(await picker().getAttribute("data-value"), second, "filtering keeps the restored choice");
     assert.equal(posts.length, 0);
@@ -179,7 +183,8 @@ export async function auditPortalInstallationApproval(localPage, origin) {
     pairing.collections.push({collection_id: created, display_name: "Original name", role: "owner"});
     await page.reload(); await picker().waitFor();
     assert.equal(await picker().getAttribute("data-value"), created, "restore the person's completed creation");
-    assert.equal(await approve().innerText(), "Open TaskNotes with Original name");
+    assert.equal(await approve().innerText(), "Open TaskNotes");
+    await page.locator(".approval-target .collection-name").getByText("Original name", { exact: true }).waitFor();
     assert.equal(posts.length, 0);
     await load();
     pairing.account_email = null; pairing.account_provider = "github"; pairing.account_login = "original";
@@ -189,8 +194,8 @@ export async function auditPortalInstallationApproval(localPage, origin) {
     await choose("Work notes"); await approve().click(); await done();
     assert.deepEqual(posts.map(post => post.body), [{fingerprint: base.fingerprint, collection_ids: [second], create_collections: true, selected_collection_id: second}], "changing the picker does not silently accumulate access");
     await load(); await choose("Personal notes");
-    await page.getByText("Advanced: allow more collections", {exact: true}).click();
-    await page.getByRole("checkbox", {name: "Work notes", exact: true}).check();
+    await page.getByText("Allow offline access to additional collections", {exact: true}).click();
+    await page.getByRole("checkbox", {name: "Work notes Cloud copy", exact: true}).check();
     await approve().click(); await done();
     assert.deepEqual([...posts[0].body.collection_ids].sort(), [first, second].sort());
     await load();
@@ -222,10 +227,10 @@ export async function auditPortalInstallationApproval(localPage, origin) {
     await load();
     Object.assign(pairing, {collections: [], requested_create_collections: false, can_create_collection: false, timer_declaration: {environment: "lab", digest: "cd".repeat(32)}});
     await page.reload(); await picker().waitFor();
-    assert.equal(await page.getByText("Advanced: allow more collections").count(), 0, "no empty additional-access section");
+    assert.equal(await page.getByText("Allow offline access to additional collections").count(), 0, "no empty additional-access section");
     const reminders = page.getByRole("checkbox", {name: "Allow TaskNotes to send you reminders", exact: true});
     assert.deepEqual(await reminders.evaluate(element => [element.getBoundingClientRect().height <= 24, element.closest("label").getBoundingClientRect().height >= 44]), [true, true], "reminder checkbox keeps its size; its label is the 44px target");
-    await load(); await page.getByText("Advanced: allow more collections", {exact: true}).click();
+    await load(); await page.getByText("Allow offline access to additional collections", {exact: true}).click();
     assert.equal(await page.getByRole("group", {name: "Additional collection access", exact: true}).evaluate(element => getComputedStyle(element).borderTopStyle), "none", "additional access is not outlined like a text field");
     await page.setViewportSize({width: 640, height: 1000});
     await load(); await choose("Personal notes");

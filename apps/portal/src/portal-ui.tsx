@@ -11,6 +11,7 @@ import {
 } from "@mdbase-dev/ui/theme";
 import { type MouseEvent, useEffect, useRef, useState } from "react";
 import { ThemeSelect } from "@mdbase-dev/ui/theme-select";
+import { Tooltip } from "@mdbase-dev/ui/tooltip";
 
 export interface ProductSidebarItem {
   id: string;
@@ -37,7 +38,7 @@ export function ProductSidebar({ items, active, account, identity, editorHref, a
   };
   return <aside id="product-navigation" className="product-sidebar">
     <div className="product-sidebar-brand"><Brand productLabel /></div>
-    <nav className="product-sidebar-nav" aria-label={t(i18n)({ message: "mdbase connect navigation" })}>
+    <nav className="product-sidebar-nav" aria-label={t(i18n)({ message: "mdbase Connect navigation" })}>
       {items.map((item) => <a
         key={item.id}
         className={`product-sidebar-link ${active === item.id ? "active" : ""}`}
@@ -73,7 +74,7 @@ export function MobileProductBar({ open, onOpen }: { open: boolean; onOpen(): vo
   useLocaleRevision();
   return <header className="mobile-product-bar">
     <Brand productLabel />
-    <button className="mobile-navigation-button" aria-label={t(i18n)({ message: "Open navigation", context: "Connect interface" })} aria-controls="product-navigation" aria-expanded={open} onClick={onOpen}><span /></button>
+    <Tooltip label={t(i18n)({ message: "Open navigation", context: "Connect interface" })}><button className="mobile-navigation-button" aria-controls="product-navigation" aria-expanded={open} onClick={onOpen}><span /></button></Tooltip>
   </header>;
 }
 
@@ -115,5 +116,5 @@ export function SectionHeading({ title, note, count }: { title: string; note: st
 export function Empty({ title, text }: { title: string; text: string }) {
   useLocaleRevision(); return <div className="empty"><span className="empty-folder" /><strong>{title}</strong><p>{text}</p></div>; }
 export function Loading({ error = "", onRetry }: { error?: string; onRetry?(): void }) {
-  useLocaleRevision(); return <main className="loading" aria-busy={!error}><PageBrand label="connect" markMotion="orbit" error={error} /><p role={error ? "alert" : "status"}>{error || t(i18n)({ message: "Opening mdbase connect…", context: "Connect interface" })}</p>{error && onRetry && <button className="button primary" onClick={onRetry}><Trans>Try again</Trans></button>}</main>; }
+  useLocaleRevision(); return <main className="mdbase-page loading" aria-busy={!error}><PageBrand label="connect" markMotion="orbit" error={error} /><p role={error ? "alert" : "status"}>{error || t(i18n)({ message: "Opening mdbase Connect…", context: "Connect interface" })}</p>{error && onRetry && <button className="mdbase-button is-primary" onClick={onRetry}><Trans>Try again</Trans></button>}</main>; }
 

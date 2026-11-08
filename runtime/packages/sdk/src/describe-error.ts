@@ -13,6 +13,7 @@
  * their `MdbaseError` code); a source-scan test fails on any unclassified code.
  */
 import { registrationRefusal, registrationRefusalMessage } from "./application/registration-refusal.js";
+import { ACCOUNT_COLLECTION_QUOTA_MESSAGE } from "./collection-quota-copy.generated.js";
 import { isCollectionUnavailableReason, type CollectionUnavailableReason } from "./collection-availability.js";
 import { DEFAULT_UPDATE_URL, MAX_SERVER_RETRY_MS, MIN_SERVER_RETRY_MS, sanitizeAppServerProblem, trustedUpdateUrl } from "./app-host/cp-problem.js";
 
@@ -108,11 +109,12 @@ export type ProblemCode = typeof PROBLEM_CODES[number];
 
 const GENERIC: Entry = ["Something went wrong", "An unexpected problem occurred. Reload the app, and contact support if it keeps happening.", "reload", "error"];
 const BUSY: Entry = ["Another step hasn't finished", "The app couldn't finish this step yet. Try again, or reload if it keeps happening.", "retry", "warning", true];
-const OFFLINE: Entry = ["Can't connect right now", "mdbase couldn't be reached. Check your connection and try again.", "check_connection", "warning"];
+const UNAVAILABLE: Entry = ["Can't complete this request", "mdbase couldn't complete this request. Try again.", "retry", "warning"];
 const UPDATE: Entry = ["Update required", "Update mdbase on this computer, then reload the app to try again.", "update_app", "warning", false, "Update mdbase"];
 const CHOOSE: Entry = ["Choose a collection", "Pick the collection you want this app to use.", "choose_collection", "info"];
 const APPROVE: Entry = ["Approval needed", "This app needs your approval for extra access to your collection.", "approve", "info"];
 const SET_UP: Entry = ["Set up this collection", "This collection needs a one-time setup before the app can use it.", "set_up", "info"];
+const UNFINISHED_SIGN_IN: Entry = ["Sign-in wasn't finished", "Access wasn't approved. Sign in again when you're ready.", "sign_in", "info"];
 
 const COPY = {
   // Private collections served by one of the account's computers (collection availability).
@@ -140,10 +142,10 @@ const COPY = {
   read_only: ["View access only", "You have view access, so changes can't be saved. Ask the collection's owner for edit access.", "none", "warning"],
   forbidden: ["Access needed", "This app doesn't have permission to do that. Approve access to continue.", "approve", "warning"],
   collection_invalid: ["Your collection needs repair", "Something in this collection isn't valid. Contact support if this keeps happening.", "contact_support", "error"],
-  unavailable: OFFLINE,
+  unavailable: UNAVAILABLE,
   rate_limited: ["Too many requests", "Wait a moment, then try again.", "retry", "warning", true],
-  quota_exceeded: ["Out of storage", "Your collection has reached its storage limit. Free up space to keep saving.", "free_space", "error"],
-  account_collection_quota_exceeded: ["Synced collection limit reached", "Your account has reached its synced collection limit. Delete a synced collection before creating another.", "free_space", "error", false, "Manage collections"],
+  quota_exceeded: ["Out of storage", "You've reached your storage limit. Free up space to keep saving.", "free_space", "error"],
+  account_collection_quota_exceeded: ["Synced collection limit reached", ACCOUNT_COLLECTION_QUOTA_MESSAGE, "free_space", "error", false, "Manage collections"],
   too_large: ["That's too large", "This item is larger than mdbase allows.", "none", "warning"],
   outcome_unknown: ["Not sure that worked", "The connection dropped before mdbase confirmed it. Check whether it went through before trying again.", "resolve_outcome", "warning"],
   internal: GENERIC,
@@ -305,7 +307,7 @@ export const INTERNAL_PROBLEM_CODES = [
   "click_target_cross_origin", "context_required", "context_type_mismatch", "cursor_expired", "file_upload_identity_mismatch",
   "invalid_autosave", "invalid_binding", "invalid_call", "invalid_push_payload", "invalid_sas", "invalid_scope",
   "invalid_timeout", "invalid_timer_response", "invalid_typing_response", "invalid_validation_result", "invalid_view",
-  "key_id_changed", "read_many_bounds", "read_many_identity_mismatch", "read_many_selection", "record_identity_mismatch",
+  "key_id_changed", "query_cursor_required", "read_many_bounds", "read_many_identity_mismatch", "read_many_selection", "record_identity_mismatch",
   "record_lease_policy", "record_links_bounds", "record_links_missing", "record_links_response", "record_links_unsupported",
   "record_recovery_mismatch", "record_session_budget", "record_validation_stale", "record_witness_required", "strength",
   "strict_mode", "typing_bounds", "unsupported_push_version", "validation_bounds", "validation_selection",
@@ -375,7 +377,7 @@ export function problemCodeOf(code: string): ProblemCode | null {
   return null;
 }
 
-interface Found { codes: string[]; retryAfterMs: number | null; updateUrl: string | null; refusal?: ReturnType<typeof registrationRefusal> }
+interface Found { codes: string[]; retryAfterMs: number | null; updateUrl: string | null; refusal?: ReturnType<typeof registrationRefusal>; hasServer?: boolean }
 
 function availabilityReason(o: Record<string, unknown>): CollectionUnavailableReason | null {
   const details = o.details;
@@ -396,7 +398,7 @@ function problemOf(input: unknown, cpOrigin: string | null): Found | null {
     // Server detail counts only if it re-validates as a sanitized SDK problem.
     const detail = obj(o.problemDetail), server = sanitizeAppServerProblem(o.server ?? detail?.server, cpOrigin);
     const serverCodes = [server?.reason ?? null, server?.code ?? null].filter((c): c is string => c !== null);
-    const extra = {retryAfterMs: server?.retryAfterMs ?? retry(o.retryAfterMs), updateUrl: trustedUpdateUrl(server?.updateUrl, cpOrigin)};
+    const extra = {retryAfterMs: server?.retryAfterMs ?? retry(o.retryAfterMs), updateUrl: trustedUpdateUrl(server?.updateUrl, cpOrigin), hasServer: o.server != null || detail?.server != null};
     // Snapshot or facet: { problem: string | {code}, readiness?, assessment?, status? }.
     if ("problem" in o || "readiness" in o || "assessment" in o) {
       const own = str(o.problem) ?? str(obj(o.problem)?.code);
@@ -446,7 +448,7 @@ export function describeError(input: unknown, options: DescribeErrorOptions = {}
   if (!found) return null;
   const {key, original} = resolve(found);
   if (key === null) return null;
-  const [title, message, action, severity, transient = false, label] = key === "unknown" ? GENERIC : COPY[key] as Entry;
+  const [title, message, action, severity, transient = false, label] = key === "unknown" ? GENERIC : key === "refused" && !found.hasServer ? UNFINISHED_SIGN_IN : COPY[key] as Entry;
   let translated: MdbaseProblemMessages | undefined;
   try { const messages = options.messages; translated = messages && Object.hasOwn(messages, key) ? obj(messages[key]) as MdbaseProblemMessages : undefined; } catch { translated = undefined; }
   const text = (v: unknown, fallback: string) => typeof v === "string" && v.trim() ? v : fallback;

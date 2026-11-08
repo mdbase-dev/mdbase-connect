@@ -551,6 +551,53 @@ async fn durable_logout_fence_survives_both_cleanup_failures_and_reopen() {
     assert_eq!(fresh.account.lock().unwrap().epoch, record.epoch);
 }
 
+/// Account state another environment's build signed in (another control plane,
+/// its credential and connector) never reconnects from this build, at sign-in
+/// publication or at a later daemon start; signing out stays local.
+#[tokio::test]
+async fn account_state_of_another_environment_never_reconnects() {
+    use crate::trust::Environment;
+    for other in [
+        Environment::Production,
+        Environment::Staging,
+        Environment::Lab,
+    ] {
+        if other == Environment::embedded() {
+            continue;
+        }
+        let dir = crate::testutil::TestDir::new("cross-environment-state");
+        let d = daemon(&dir);
+        let epoch = d.begin_pairing().await.unwrap();
+        let mut cfg = account_config(epoch, "other-environment");
+        cfg.server_url = other.control_plane().into();
+        d.publish_pairing(epoch, cfg.clone(), ALICE, b"con_other_environment")
+            .await
+            .unwrap();
+        assert!(d.account.lock().unwrap().relay.is_none(), "{other:?}");
+        assert_eq!(
+            d.account.lock().unwrap().last_error.as_deref(),
+            Some("environment_mismatch")
+        );
+        let restarted = daemon(&dir);
+        resume_relay(&restarted).await;
+        assert!(
+            restarted.account.lock().unwrap().relay.is_none(),
+            "{other:?}"
+        );
+        assert_eq!(
+            restarted.account.lock().unwrap().last_error.as_deref(),
+            Some("environment_mismatch")
+        );
+        assert_eq!(restarted.authority.incarnation(), None);
+        restarted.sign_out().await.unwrap();
+        assert!(
+            crate::cloud::CloudConfig::load(&restarted.profile.cloud_file())
+                .unwrap()
+                .is_none()
+        );
+    }
+}
+
 #[tokio::test]
 async fn partial_pairing_publication_never_reconnects() {
     for fail_fence in [false, true] {
@@ -598,7 +645,7 @@ async fn logout_aborts_tracked_pairing_and_never_restores_an_older_epoch() {
     let epoch = d.begin_pairing().await.unwrap();
     let task = tokio::spawn(std::future::pending::<()>());
     let abort = task.abort_handle();
-    d.account.lock().unwrap().pairing_task = Some(task);
+    d.account.lock().unwrap().pairing_task = Some(task.abort_handle());
     d.sign_out().await.unwrap();
     tokio::task::yield_now().await;
     assert!(abort.is_finished());

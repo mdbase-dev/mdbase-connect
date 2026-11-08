@@ -192,8 +192,8 @@ impl crate::logwire::TokenSource for HostedTokens {
 
 struct NoGrants;
 impl GrantSource for NoGrants {
-    fn grant(&self, _: &Uuid) -> Option<EffectiveGrant> {
-        None
+    fn grant(&self, _: &Uuid) -> mdbn_replica::api::ApiResult<EffectiveGrant> {
+        Err(mdbn_replica::api::ErrorCode::Unauthenticated.err("the grant was revoked"))
     }
 }
 
@@ -474,6 +474,7 @@ async fn takeover_joins_the_migrated_collection_and_imports_with_no_manual_step(
             account_moved: true,
             drain: Duration::ZERO,
             now: "2026-10-18T09:00:00Z".into(),
+            registered: Vec::new(),
         },
     )
     .unwrap();

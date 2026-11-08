@@ -1,0 +1,5 @@
+## Fixed
+
+- Stop directory mirrors from retrying a refused file upload, move or delete forever. A stale revision, an occupied path, a file moved or deleted on another device, a reused upload or change ID, or an expired or closed upload now makes the mirror plan again. A file over the size limit is set aside at once. A file the authority keeps refusing outright (10 refusals of any kind over at least an hour) is set aside as a conflict. Server errors, rate limits, a full storage quota and connection failures never set anything aside: the mirror retries the same upload, which resumes rather than starting again. Other files keep syncing, and a set-aside file stays on disk for the user to resolve.
+- `mdbase-mirror watch` now waits longer between retries, up to five minutes, while sync stays blocked or keeps meeting the same refusal, and prints why it is blocked. On macOS and Windows a local change outside dot-folders retries at once.
+- These clients need a hosted server that releases file-control errors instead of storing them and reports its upload sweep correctly. Ship them only after that server is in production.

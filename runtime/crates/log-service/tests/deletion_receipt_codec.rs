@@ -73,6 +73,8 @@ fn malformed_persisted_terminal_tuple_fails_not_legacy_none() {
     let Cbor::Map(mut fields) = cbor::decode(&meta.encode()).unwrap() else {
         unreachable!()
     };
-    fields.push((Cbor::Uint(21), Cbor::Bool(true)));
+    // Canonical maps ascend, and key 23 follows key 21.
+    let at = fields.partition_point(|(k, _)| matches!(k, Cbor::Uint(k) if *k < 21));
+    fields.insert(at, (Cbor::Uint(21), Cbor::Bool(true)));
     assert!(CollectionMeta::decode(&cbor::encode(&Cbor::Map(fields)).unwrap()).is_err());
 }

@@ -228,6 +228,10 @@ impl Method {
     pub const COLLECTION_CONFLICTS: &'static str = "collection.conflicts";
     /// `{collection, id}` → receipt; accept the kept values without changing files.
     pub const CONFLICTS_DISMISS: &'static str = "conflicts.dismiss";
+    /// `{collection}` → [`SyncFiles`]: which files the collection syncs.
+    pub const SYNC_FILES: &'static str = "sync.files";
+    /// [`SetSyncFiles`] → [`SyncFiles`]: replace that policy for every device.
+    pub const SYNC_FILES_SET: &'static str = "sync.files.set";
     /// [`JoinCollection`] → [`CollectionStatus`]: join an account's cloud copy into
     /// an empty folder (enrolled through Connect; hosted then keys this device).
     pub const COLLECTION_JOIN: &'static str = "collection.join";
@@ -413,14 +417,36 @@ pub enum CollectionState {
     Paused,
     /// Opening its replica (recovery, index warm-up, log catch-up).
     Opening,
-    /// Serving.
+    /// Serving, with nothing left to sync.
     Ready,
+    /// Serving, with known sync work unfinished: unconfirmed changes, disk
+    /// ingestion, an inbound or outbound file transfer, or a resync. Reported
+    /// only in observed status (see [`CollectionState::observed`]); serving
+    /// decisions never see it.
+    Syncing,
     /// Serving, with a log move (sync enable/disable) in progress.
     Moving,
     /// Not served; see `reason` (for example `runtime_pending`, `folder_missing`).
     Unavailable,
     /// Failed; see `reason`. Files are untouched.
     Failed,
+}
+
+impl CollectionState {
+    /// The state to report for one observation of a synced collection's
+    /// counters: a serving collection with unfinished work is `syncing`, never
+    /// `ready`. Derived from the same counters the status carries, so no status
+    /// says `ready` beside `pending > 0`.
+    pub fn observed(self, mode: SyncMode, sync: Option<&SyncCounters>) -> Self {
+        match (self, mode, sync) {
+            (Self::Ready, SyncMode::Synced | SyncMode::SyncedE2e, Some(s))
+                if s.pending > 0 || s.resyncing =>
+            {
+                Self::Syncing
+            }
+            (state, ..) => state,
+        }
+    }
 }
 
 /// Where the log lives.
@@ -591,6 +617,46 @@ pub struct DismissConflict {
     pub id: String,
 }
 
+/// A file type a collection can leave out of sync. Notes and definitions always sync.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FileClass {
+    /// Images.
+    Image,
+    /// Audio.
+    Audio,
+    /// Video.
+    Video,
+    /// PDFs.
+    Pdf,
+    /// Every other file.
+    Other,
+}
+
+/// Which files a collection syncs, on every device: the log's inclusion policy.
+/// Narrowing it leaves files already synced where they are.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyncFiles {
+    /// File types that sync.
+    pub include: Vec<FileClass>,
+    /// Folders left out, relative to the collection.
+    #[serde(default)]
+    pub exclude: Vec<String>,
+    /// Files larger than this many bytes are left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_size: Option<u64>,
+}
+
+/// [`Method::SYNC_FILES_SET`] params.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetSyncFiles {
+    /// Collection ID.
+    pub collection: String,
+    /// The new policy.
+    #[serde(flatten)]
+    pub files: SyncFiles,
+}
+
 /// `collection.resolve_hold` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolveHold {
@@ -635,6 +701,11 @@ pub struct AddCollection {
     /// Display name (default: the folder name).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub name: Option<String>,
+    /// The user confirmed removing an orphaned `x-mdbase-connect` identity (one no
+    /// Connect on this device manages) from `mdbase.yaml`. Without it such a folder
+    /// is refused as `orphaned_legacy_identity`.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub remove_legacy_identity: bool,
 }
 
 /// `collection.delete` params. The server checks the current shared name.
@@ -712,8 +783,8 @@ pub struct EnableSync {
     /// Collection ID.
     pub collection: String,
     /// `synced` (with the hosted replica) or `synced_e2e` (end-to-end encrypted,
-    /// no hosted replica). Absent: `synced_e2e` for a folder with files or a
-    /// taken-over collection (adopt), `synced` for an empty folder.
+    /// no hosted replica). Absent: `synced`, or `synced_e2e` for a collection
+    /// taken over from today's connector.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<SyncMode>,
     /// Adopt even though files were held when the collection was taken over
@@ -780,6 +851,7 @@ pub const PRIVILEGED: &[&str] = &[
     Method::PRIVATE_PASSWORD,
     Method::PRIVATE_STRICT,
     Method::SYNC_ENABLE,
+    Method::SYNC_FILES_SET,
     Method::COLLECTION_MODE,
     Method::COLLECTION_JOIN,
     Method::COLLECTION_DELETE,
@@ -857,5 +929,53 @@ mod tests {
             serde_json::to_string(&r).unwrap(),
             r#"{"schema_version":1,"ready":false,"binary_version":"0.0.0","control_protocol":1,"safe_reason":"credential_store_unavailable"}"#
         );
+    }
+
+    fn counters(pending: u64, resyncing: bool, connection: &str) -> SyncCounters {
+        SyncCounters {
+            confirmed_through: 6,
+            head_known: 6,
+            pending,
+            holds: 0,
+            unresolved: 0,
+            connection: connection.into(),
+            head_digest: None,
+            confirmed_record_digest: None,
+            last_error: None,
+            resyncing,
+            unsupported_entries: 0,
+        }
+    }
+
+    /// #1122: a collection caught up to the head it knows, with a known file
+    /// transfer still counted in `pending`, is `syncing`, not `ready`.
+    #[test]
+    fn observed_state_is_never_ready_with_unfinished_sync_work() {
+        use CollectionState as S;
+        for mode in [SyncMode::Synced, SyncMode::SyncedE2e] {
+            for connection in ["online", "connecting", "offline"] {
+                let busy = [
+                    counters(1, false, connection),
+                    counters(0, true, connection),
+                ];
+                for c in &busy {
+                    assert_eq!(S::Ready.observed(mode, Some(c)), S::Syncing);
+                    assert_eq!(
+                        serde_json::to_value(S::Ready.observed(mode, Some(c))).unwrap(),
+                        "syncing"
+                    );
+                }
+                let idle = counters(0, false, connection);
+                assert_eq!(S::Ready.observed(mode, Some(&idle)), S::Ready);
+            }
+            // Without counters nothing is known to be unfinished.
+            assert_eq!(S::Ready.observed(mode, None), S::Ready);
+        }
+        // Other states keep their own meaning; a local collection has nothing to sync.
+        let busy = counters(1, false, "online");
+        for s in [S::Paused, S::Opening, S::Moving, S::Unavailable, S::Failed] {
+            assert_eq!(s.observed(SyncMode::Synced, Some(&busy)), s);
+        }
+        assert_eq!(S::Ready.observed(SyncMode::Local, Some(&busy)), S::Ready);
     }
 }

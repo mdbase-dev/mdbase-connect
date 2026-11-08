@@ -1,0 +1,7 @@
+{
+  "reason": "Record native device activity after the log-token route commits, the only recurring control-plane request native sync makes, so the operator usage report can see native use. One export beside the protocol telemetry it extends, and one import on that route.",
+  "growth": {
+    "relativeImports": 1,
+    "typeScriptExportDeclarations": 1
+  }
+}

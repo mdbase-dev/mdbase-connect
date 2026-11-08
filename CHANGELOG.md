@@ -4,6 +4,77 @@
 
 <!-- Add release notes in changelog.d; assembled by pnpm version:set. -->
 
+## 0.1.0-beta.152
+
+### Fixed
+
+- Consent now offers cloud-copy collections while the owner's computers are offline, and approving one creates a grant served by the collection's hosted copy and, while one is online, by the owner's computers. Applications that require an mdbase cloud collection are offered cloud copies too. Grants on synced collections record the mode they were approved for; changing a collection's mode revokes its grants for the other mode, including in the collection's log. ([#1117](https://github.com/mdbase-dev/mdbase-connect/issues/1117))
+
+- Hosted collections served by the legacy provider no longer re-serialise an
+  edited seed type when upgrading it: the provider image now pins the
+  filesystem engine revision that keeps the app's published text for upgraded
+  settings.
+
+- Bases views of collections served by your computer (local or private, desktop or headless) now load in web apps instead of failing with `view_raw_projection_unavailable`. Thanks to [@Lorite](https://github.com/Lorite) for the report and diagnosis. ([#1130](https://github.com/mdbase-dev/mdbase-connect/issues/1130))
+
+- The daemon's log transport now reconnects at once when its token is renewed every 15 minutes, instead of treating renewal as a failure with a one-second offline backoff and an info line per collection.
+- Log transport reconnect lines now name the collection, and a hello proof that the collection runtime did not answer in time is no longer reported as the replica refusing it.
+- A refused policy snapshot now logs why and how old it was, and a lease that expired while waiting to be applied is reported apart from a malformed one.
+
+- Read-only (`mdbase:read`) MCP authorization no longer fails with HTTP 500 before consent. Connect now accepts a signed application request that selects a subset of its declared optional file actions (every required action, declared order, same scope), and keeps exactly that signed subset as the ceiling for consent, approval and the provider grant, so an approval cannot add file actions the application did not sign. Periodic application reconciliation no longer retires grants whose approved file actions are a permitted subset of the declaration (#1103).
+
+- The daemon no longer logs "hosted collection not joined yet" every 5 seconds while a captured hosted mirror waits for its collection. It logs once per join attempt, and attempts back off to every 30 minutes.
+- `mdbase doctor` now warns about unsent edits from an old hosted mirror whose collection cannot be joined. The warning names the folder and the refusal reason. When the hosted collection is gone (`not_found`), it says the edits are still in the old folder, which mdbase never changes.
+- The doctor takeover check now names each taken-over collection that is not registered yet, with its reason. For a folder refused because it contains, or sits inside, a registered collection, it lists the choices: leave it unserved, unregister the other collection, or move a folder, then run `mdbase migrate start`.
+
+- Report a synced collection as `syncing`, not `ready`, in daemon status while it has unfinished sync work, including an inbound or outbound file transfer, so `ready` means the collection is complete on this computer (#1122).
+
+- Setup no longer stops at "Try again" when an app's starter note type has changes that no published version can be combined with. The review now offers "Use this app's version", which replaces that type only when the person chooses it, and only if it is unchanged since they reviewed it. The review says the existing type isn't kept.
+
+- Upgrade an app's starter note types by content rather than exact bytes. A type that another writer re-serialised (sorted keys, expanded flow style or anchors) is recognised as the published version it matches, so it is current or upgrades normally.
+- Upgrade starter note types in collections whose setup record has no origin for them, as older installers wrote. Setup merges against the published version nearest the live type and keeps the person's customisations, provided the result still implements what the app needs. This fixes TaskNotes setup stopping at "Setup can't finish" for such collections.
+
+- Upgrading an edited seed type now writes each upgraded top-level setting with the app's published text instead of re-emitting it, so app-managed types keep their published flow lists, quoting and anchors and stay byte-stable for later upgrades.
+
+- `mdbase doctor` no longer reports a permanent `marker_incident` failure for a taken-over folder that you unregistered and then registered again as a different collection. Registering a folder requires that no connector claims it, so the missing takeover claim is explained. The takeover clears the latched incident, and doctor stops failing. A taken-over folder that loses its claim in any other way still fails as before.
+
+## 0.1.0-beta.151
+
+### Added
+
+- A staging build of the native daemon (`--features staging`) for running the native S0 release lane against staging with the exact candidate source. It embeds the reviewed staging trust asset, signs in only to `https://connect-staging.mdbase.dev`, and cannot be combined with LAB or local-rehearsal. `runtime/scripts/native-staging-artifact.mjs` builds it reproducibly and records a receipt that binds the artifact to its source commit and to the Ops staging trust handoff (#1094).
+- Every daemon build now refuses at startup to reconnect account state that another environment's build signed in from the same data directory. `mdbase status` reports the mismatch, and signing out clears it.
+
+## 0.1.0-beta.150
+
+### Changed
+
+- Publish the production SDK through GitHub OIDC trusted publishing alone, removing the completed first-publication token bootstrap.
+
+### Fixed
+
+- The daemon now aborts and waits for every task it started before shutdown returns, including takeover retries, Private sync turn-on passes and the blocking takeover work. Previously these could still write to the profile directory after the daemon stopped (#1089).
+
+- Desktop update checks verify signed releases again. Electron's BoringSSL has no default digest for ECDSA keys, so Sigstore's TUF root and transparency-log checks rejected every release with "root was signed by 0/3 keys" (#426).
+
+- The log service answers a retried append that already landed with its original receipt, even when the collection is now over its storage quota, instead of `quota_exceeded`.
+- Compaction now deletes expired idempotency tokens of entries it has already archived, so the token table no longer grows with the whole history (Durable Objects, Postgres and memory backends).
+
+- Hosted collections now read back the own-change history they store, so the repair history budget counts it and lost-change recovery can use it. Previously the hosted store wrote these rows but reported none (#1083).
+
+- Adding a folder whose `mdbase.yaml` carries an `x-mdbase-connect` identity that no mdbase Connect on this computer manages (a copied folder, one removed before the migration, or a computer without the old connector) no longer fails with `migration_pending` forever. mdbase now reads the YAML key instead of matching the text, so the key in a comment is ignored, and an orphaned identity is refused as `orphaned_legacy_identity` until you confirm removing only that key (`mdbase collection add --remove-legacy-identity`, or the confirmation in the desktop app) (#450).
+
+- After an abandoned switch to Private, surviving owner devices now replace the collection key automatically instead of stalling on the key the services held, and owner status and the storage mode control show the switch as unfinished until they do.
+
+- A replica stalled on an entry it cannot apply (an unknown format, an unpinned policy key, native results this build cannot verify) re-reads it on the same bounded backoff as a missing key, from 1 s up to every 30 s, instead of re-reading and re-applying it without pause.
+
+- Replay native Markdown and file-to-record entries written under a newer semantics version with the same structural checks as earlier versions, so replicas that have not updated yet keep syncing through a semantics bump. When this build's planner disagrees with an entry of its own semantics version, the replica still stops for an update, and now also reports a verification mismatch.
+
+### Security
+
+- A computer waiting for approval of a Private collection no longer trusts the approving device as soon as it answers that device's challenge. The approver is kept as a trusted signer only when its key grant, sent after Allow, keys this computer for that same exchange. Expired, denied and renewed exchanges leave no trust behind (#1071).
+- The comparison code on a computer waiting for Private approval comes back after a restart while the exchange is still live, so the codes can still be compared before Allow (#1072).
+
 ## 0.1.0-beta.149
 
 ### Added

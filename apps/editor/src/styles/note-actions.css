@@ -127,28 +127,69 @@
 .linked-from h2 {
   font-size: var(--font-size-ui);
   font-weight: var(--font-weight-medium);
-  margin: 0 0 var(--space-3);
+  margin: 0 0 var(--space-2);
 }
 
-.linked-from .backlink-list button {
-  width: auto;
+/* Rows bleed into the gutter so their text lines up with the heading. */
+.linked-from .backlink-list {
+  display: grid;
+  gap: 1px;
+  margin-inline: calc(-1 * var(--space-2));
+}
+
+.linked-from .backlink-list > button {
+  min-width: 0;
+  min-height: 44px;
   display: flex;
+  align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2) 0;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
   text-align: left;
 }
 
-.linked-from .backlink-list strong {
-  font-weight: var(--font-weight-medium);
+.linked-from .backlink-list > button:hover {
+  background: var(--hover);
 }
 
-.linked-from .backlink-list small {
-  display: none;
+.linked-from .backlink-list > button:focus-visible {
+  outline-offset: -2px;
 }
 
 .linked-from .backlink-list svg {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  color: var(--faint);
+}
+
+.linked-from .backlink-list > button > span {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.linked-from .backlink-list strong {
+  flex: 0 1 auto;
+  overflow: hidden;
+  font-weight: var(--font-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.linked-from .backlink-list small {
+  flex: 0 10 auto;
+  overflow: hidden;
+  color: var(--faint);
+  font-size: var(--font-size-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.linked-from .backlink-list .quiet-empty {
+  padding-inline: var(--space-2);
 }
 
 .linked-from .quiet-empty {

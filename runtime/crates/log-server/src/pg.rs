@@ -398,7 +398,10 @@ fn publishes(writes: &[Write]) -> bool {
         | Write::InsertSnapshot(_)
         | Write::EndorseSnapshot(_) => true,
         Write::Notify(notice) => !notice.gone,
-        Write::DeleteObject(_) | Write::DeleteSnapshot(_) | Write::DeleteEntriesThrough(_) => false,
+        Write::DeleteObject(_)
+        | Write::DeleteSnapshot(_)
+        | Write::DeleteEntriesThrough(_)
+        | Write::PruneTokens(_) => false,
     })
 }
 
@@ -686,6 +689,19 @@ impl Txn for PgTxn {
         Ok(r.get::<_, i64>(0) as u64)
     }
 
+    async fn committed_blob_bytes(&mut self) -> Result<u64> {
+        let r = self
+            .c()
+            .query_one(
+                "SELECT coalesce(sum(size), 0)::bigint FROM ls_objects
+                 WHERE collection = $1 AND committed AND kind = 18",
+                &[&self.id],
+            )
+            .await
+            .map_err(db)?;
+        Ok(r.get::<_, i64>(0) as u64)
+    }
+
     async fn gc_candidates(&mut self, before: i64, limit: u64) -> Result<Vec<ObjectMeta>> {
         let rows = self
             .c()
@@ -906,6 +922,12 @@ async fn commit_writes(client: &Object, id: &[u8], writes: Vec<Write>) -> Result
                     vec![idp(), Box::new(c as i64)],
                 ));
             }
+            Write::PruneTokens(now) => stmts.push((
+                "DELETE FROM ls_tokens t
+                 WHERE t.collection = $1 AND t.expires_at <= $2
+                   AND NOT EXISTS (SELECT 1 FROM ls_items i WHERE i.collection = t.collection AND i.seq = t.seq)",
+                vec![idp(), Box::new(now)],
+            )),
             Write::Notify(n) => tail.push((
                 "SELECT pg_notify('ls_commits', $1)",
                 vec![Box::new(n.to_text())],

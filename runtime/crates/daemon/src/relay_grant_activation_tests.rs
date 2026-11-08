@@ -9,6 +9,7 @@ struct WaitingHost {
     eligible: AtomicBool,
     epoch: AtomicU64,
     changes: watch::Sender<()>,
+    close_reason: &'static str,
 }
 impl WaitingHost {
     fn new(eligible: bool) -> Arc<Self> {
@@ -17,6 +18,7 @@ impl WaitingHost {
             eligible: AtomicBool::new(eligible),
             epoch: AtomicU64::new(1),
             changes: watch::channel(()).0,
+            close_reason: "grant_inactive",
         })
     }
 }
@@ -36,6 +38,9 @@ impl Handler for WaitingHost {
     }
 }
 impl RelayHost for WaitingHost {
+    fn grant_refusal<'a>(&'a self, _: &'a str, _: &'a str) -> BoxFuture<'a, Option<String>> {
+        Box::pin(async { (!self.live.load(Ordering::SeqCst)).then(|| self.close_reason.into()) })
+    }
     fn inventory(&self) -> BoxFuture<'_, Vec<(String, Value)>> {
         Box::pin(async { vec![] })
     }
@@ -108,6 +113,50 @@ async fn register(
     (pipes, rx, out)
 }
 #[tokio::test(start_paused = true)]
+async fn dead_pipe_uses_the_hosts_precise_refusal() {
+    for reason in [
+        "grant_lease_expired",
+        "grant_revoked_on_device",
+        "unknown_grant",
+    ] {
+        let h = Arc::new(WaitingHost {
+            live: AtomicBool::new(true),
+            eligible: AtomicBool::new(false),
+            epoch: AtomicU64::new(1),
+            changes: watch::channel(()).0,
+            close_reason: reason,
+        });
+        let (mut pipes, mut rx, out) = register(&h).await;
+        h.live.store(false, Ordering::SeqCst);
+        close_dead(&h, &mut pipes, &out).await;
+        assert!(pipes.is_empty());
+        assert!(matches!(rx.recv().await, Some(PipeOut::Close(_, why)) if why == reason));
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn pending_pipe_uses_the_precise_refusal_on_lease_loss_or_activation_timeout() {
+    for reason in ["grant_lease_expired", "authorization_unavailable"] {
+        let h = Arc::new(WaitingHost {
+            live: AtomicBool::new(false),
+            eligible: AtomicBool::new(true),
+            epoch: AtomicU64::new(1),
+            changes: watch::channel(()).0,
+            close_reason: reason,
+        });
+        let (mut pipes, mut rx, out) = register(&h).await;
+        tokio::task::yield_now().await;
+        if reason == "grant_lease_expired" {
+            h.eligible.store(false, Ordering::SeqCst);
+            close_dead(&h, &mut pipes, &out).await;
+        } else {
+            tokio::time::advance(Duration::from_secs(21)).await;
+        }
+        assert!(matches!(rx.recv().await, Some(PipeOut::Close(_, why)) if why == reason));
+    }
+}
+
+#[tokio::test(start_paused = true)]
 async fn pending_pipe_registered_and_swept_without_blocking_or_admitting() {
     let h = WaitingHost::new(true);
     let (mut pipes, mut rx, out) = register(&h).await;
@@ -123,9 +172,9 @@ async fn pending_pipe_registered_and_swept_without_blocking_or_admitting() {
     assert!(p.tx.try_send(vec![0, 0, 0, 1, 0]).is_ok());
     assert!(p.waiting_for_grant.load(Ordering::SeqCst));
     assert!(rx.try_recv().is_err());
-    for (_, p) in pipes {
+    for (_, mut p) in pipes {
         p.task.abort();
-        assert!(p.task.await.unwrap_err().is_cancelled());
+        assert!((&mut p.task).await.unwrap_err().is_cancelled());
     }
 }
 #[tokio::test(start_paused = true)]
@@ -142,8 +191,8 @@ async fn activation_timeout_is_twenty_seconds_and_refuses_same_pipe() {
         rx.recv().await,
         Some(PipeOut::Close(pipe, "grant_inactive".into()))
     );
-    for (_, p) in pipes {
-        p.task.await.unwrap();
+    for (_, mut p) in pipes {
+        (&mut p.task).await.unwrap();
     }
     assert!(rx.try_recv().is_err());
 }
@@ -155,7 +204,9 @@ async fn original_context_change_before_first_task_poll_never_recaptures() {
     h.live.store(true, Ordering::SeqCst);
     close_dead(&h, &mut pipes, &out).await;
     assert!(pipes.is_empty());
-    assert!(matches!(rx.recv().await,Some(PipeOut::Close(_,why)) if why=="grant_inactive"));
+    assert!(
+        matches!(rx.recv().await,Some(PipeOut::Close(_,why)) if why=="authorization_unavailable")
+    );
 }
 #[tokio::test(start_paused = true)]
 async fn absent_positive_consent_is_refused_without_pending_task() {

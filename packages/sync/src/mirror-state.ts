@@ -111,6 +111,10 @@ export interface MirrorState {
   last_synced_at?: string;
   batch?: DurableSyncBatch;
   last_completed_plan?: string;
+  /** Bumped when a batch is abandoned; re-planned file controls get new IDs. */
+  retry_epoch?: number;
+  /** The remote action the authority keeps refusing, until it applies or is set aside. */
+  stuck?: { identity: string; code: string; attempts: number; since: string };
 }
 
 export interface MirrorStateStore {

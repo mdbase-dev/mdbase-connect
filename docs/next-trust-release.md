@@ -144,6 +144,10 @@ standalone authentication. Packaging binds the completed verified output and its
 qualified verifier/build identity in its own receipt, then embeds those exact
 bytes. No runtime root file, self-derived expectation, server fetch, TOFU or
 unsigned environment exception exists. Mixed/cross-environment assets refuse.
+The production and staging daemons embed their reviewed in-repo asset, pinned
+in `runtime/crates/daemon/src/trust.rs`. For the staging daemon, the
+[native staging artifact receipt](native-staging-build.md) binds the built bytes
+to the handoff for that asset.
 
 The SDK release pipeline does this once for mdbase production. The published SDK
 already contains production trust: third-party developers install the SDK and

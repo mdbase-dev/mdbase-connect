@@ -94,6 +94,7 @@ fn record(n: u8, path: &str, doc: &str, seq: u64) -> RecordRow {
         revision: mdbn_wire::hash::sha256(doc.as_bytes()),
         doc: doc.into(),
         modified_seq: seq,
+        mtime: None,
         bucket: bucket16(&id),
         meta: RecordMeta::default(),
     }

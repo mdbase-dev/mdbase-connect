@@ -6,9 +6,15 @@ import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import "@mdbase-dev/ui/fonts.css";
 import "@mdbase/connect-ui/styles.css";
+import "@mdbase-dev/ui/palette.css";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { flushSync } from "react-dom";
+import { CommandPalette, type Command } from "@mdbase-dev/ui/command-palette";
 import { Dialog } from "@mdbase-dev/ui/dialog";
+import { signalMdbaseMark } from "@mdbase-dev/ui/mark-activity";
+import { ConfirmAction } from "@mdbase/connect-ui/confirm-action";
+import { KeyboardShortcuts, navigationShortcuts, useConnectKeyboard } from "@mdbase/connect-ui/keyboard";
 import { AccessView } from "./access-view";
 import { ActivityView } from "./activity-view";
 import { CollectionsView } from "./collections-view";
@@ -28,30 +34,25 @@ import {
 import { message, type Route } from "./view-model";
 import "./styles.css";
 
-const routeCopy: Record<Route, { eyebrow: string; title: string; lede: string }> = {
+const routeCopy: Record<Route, { title: string; lede: string }> = {
   overview: {
-    get eyebrow() { return t(i18n)({ message: "This computer", context: "Connect interface" }); },
-    get title() { return t(i18n)({ message: "Your local connection.", context: "Connect interface" }); },
+    get title() { return t(i18n)({ message: "Overview", context: "Connect interface" }); },
     get lede() { return t(i18n)({ message: "Collections, app access and sync status in one place." }); }
   },
   collections: {
-    get eyebrow() { return t(i18n)({ message: "Collections", context: "Connect interface" }); },
-    get title() { return t(i18n)({ message: "Your collections.", context: "Connect interface" }); },
+    get title() { return t(i18n)({ message: "Collections", context: "Connect interface" }); },
     get lede() { return t(i18n)({ message: "Folders on this computer that your apps can use, and how each one syncs." }); }
   },
   access: {
-    get eyebrow() { return t(i18n)({ message: "App access", context: "Connect interface" }); },
-    get title() { return t(i18n)({ message: "Decide what apps can do.", context: "Connect interface" }); },
+    get title() { return t(i18n)({ message: "Apps", context: "Connect interface" }); },
     get lede() { return t(i18n)({ message: "Apps you approve in mdbase reach your local collections through this computer." }); }
   },
   activity: {
-    get eyebrow() { return t(i18n)({ message: "Activity", context: "Connect interface" }); },
-    get title() { return t(i18n)({ message: "What reached this computer." }); },
+    get title() { return t(i18n)({ message: "Activity", context: "Connect interface" }); },
     get lede() { return t(i18n)({ message: "App access and collection changes on this computer." }); }
   },
   settings: {
-    get eyebrow() { return t(i18n)({ message: "Settings", context: "Connect interface" }); },
-    get title() { return t(i18n)({ message: "Account and startup.", context: "Connect interface" }); },
+    get title() { return t(i18n)({ message: "Settings", context: "Connect interface" }); },
     get lede() { return t(i18n)({ message: "This computer's account, app approval and background behavior." }); }
   }
 };
@@ -137,7 +138,9 @@ function App() {
     try {
       await action();
       await refresh();
+      signalMdbaseMark("saved");
     } catch (reason) {
+      signalMdbaseMark("error");
       setError(message(reason));
     } finally {
       setBusy(false);
@@ -177,6 +180,27 @@ function App() {
     setRoute(next);
     setNavigationOpen(false);
   };
+  const reviewApproval = (next: Route, commandId: string) => {
+    flushSync(() => selectRoute(next));
+    const prompt = [...document.querySelectorAll<HTMLElement>(".content .approval-prompt")].find(element => element.dataset.command === commandId);
+    if (prompt) keyboard.invoker.current = prompt;
+    prompt?.focus();
+    prompt?.scrollIntoView({ block: "nearest" });
+  };
+
+  const unnamedDevice = t(i18n)`Another device`;
+  const paletteContext = useRef<string | null>(null);
+  const commands: Command[] = [
+    ...groups.pending.map(entry => ({ id: `approval:${entry.grant}`, label: t(i18n)`Review ${entry.app_name}`, detail: names[entry.collection] ?? entry.collection, group: "approvals", run: () => reviewApproval("access", `approval:${entry.grant}`) })),
+    ...devices.map(device => ({ id: `device:${device.collection}/${device.device}`, label: t(i18n)`Review ${device.name ?? unnamedDevice}`, detail: names[device.collection] ?? device.collection_name ?? device.collection, group: "approvals", run: () => reviewApproval("collections", `device:${device.collection}/${device.device}`) })),
+    ...([["overview", t(i18n)({ message: "Overview", context: "Connect interface" })], ["collections", t(i18n)({ message: "Collections", context: "Connect interface" })], ["access", t(i18n)({ message: "Apps", context: "Connect interface" })], ["activity", t(i18n)({ message: "Activity", context: "Connect interface" })], ["settings", t(i18n)({ message: "Settings", context: "Connect interface" })]] as const)
+      .map(([id, label]) => ({ id, label: t(i18n)`Go to ${label}`, shortcut: id === "access" ? navigationShortcuts.applications : navigationShortcuts[id], group: "commands", run: () => selectRoute(id) })),
+    { id: "add", label: t(i18n)({ message: "Add existing folder" }), group: "commands", run: addExisting },
+    { id: "create", label: t(i18n)({ message: "Create collection" }), shortcut: "c", group: "commands", run: openCreate },
+    { id: "shortcuts", label: t(i18n)`Keyboard shortcuts`, shortcut: "?", group: "commands", run: () => keyboard.showHelp() },
+    ...collections.map((collection) => ({ id: `collection:${collection.id}`, label: collection.name, detail: collection.root, group: "collections", context: paletteContext.current === `collection:${collection.id}` ? collection.name : undefined, run: () => { void act(() => window.mdbaseConnect.openCollectionFolder(collection.id)); } }))
+  ];
+  const keyboard = useConnectKeyboard({ commands, enabled: true, root: ".content", filter: ".collection-filter input", listFocus: "summary", onShow: () => { paletteContext.current = document.activeElement?.closest("[data-command]")?.getAttribute("data-command") ?? null; } });
 
   return (
     <div className={`shell product-shell ${navigationOpen ? "navigation-open" : ""}`}>
@@ -185,22 +209,26 @@ function App() {
         collectionCount={collections.length}
         pendingCount={groups.attention}
         deviceCount={devices.length}
+        signingIn={cloud?.configured === false}
         connection={connection}
         computerName={t(i18n)`This computer · ${plural(collections.length, { one: "# collection", other: "# collections" })}`}
         onSelect={selectRoute}
+        onSearch={keyboard.show}
       />
+      <CommandPalette open={keyboard.open} commands={commands} onClose={keyboard.close} returnFocusRef={keyboard.invoker} showAll={["approvals", "commands"]} groupLabel={(group) => group === "collections" ? t(i18n)({ message: "Collections", context: "Connect interface" }) : group === "approvals" ? t(i18n)`Waiting for your approval` : t(i18n)({ message: "Commands", context: "Connect interface" })} label={t(i18n)({ message: "Commands", context: "Connect interface" })} placeholder={t(i18n)({ message: "Search", context: "Connect interface" })} />
+      <KeyboardShortcuts keyboard={keyboard} commands={commands} />
       <button className="product-sidebar-backdrop" aria-label={t(i18n)({ message: "Close navigation", context: "Connect interface" })} onClick={() => setNavigationOpen(false)} />
       <div className="product-canvas desktop-canvas">
-        <MobileProductBar open={navigationOpen} onOpen={() => setNavigationOpen(true)} />
+        <MobileProductBar open={navigationOpen} signingIn={cloud?.configured === false} onOpen={() => setNavigationOpen(true)} />
         <main className="content">
           <header className="topbar">
-            <div><p className="eyebrow">{copy.eyebrow}</p><h1>{copy.title}</h1><p className="lede">{copy.lede}</p></div>
+            <div><h1>{copy.title}</h1><p className="lede">{copy.lede}</p></div>
           </header>
 
           <div aria-live="polite">
-            {error && <div className="message error-message" role="alert"><span>{error}</span> <button className="quiet-action" onClick={() => setError(null)}><Trans>Dismiss</Trans></button></div>}
-            {checked && !status && <div className="message error-message" role="status">{t(i18n)({ message: "mdbase is not running on this computer. It restarts automatically; if this stays, restart mdbase connect." })}</div>}
-            {notice && <div className="message notice-message">{notice}</div>}
+            {error && <div className="mdbase-message is-error" role="alert"><span>{error}</span> <button className="mdbase-button is-tertiary" onClick={() => setError(null)}><Trans>Dismiss</Trans></button></div>}
+            {checked && !status && <div className="mdbase-message is-error" role="status">{t(i18n)({ message: "mdbase is not running on this computer. It restarts automatically; if this stays, restart mdbase connect." })}</div>}
+            {notice && <div className="mdbase-message is-success">{notice}</div>}
           </div>
 
           <TakeoverPanel names={names} />
@@ -224,7 +252,7 @@ function App() {
               onCreate={openCreate}
             />
           ) : route === "collections" ? (
-            <CollectionsView collections={collections} busy={busy} onAdd={addExisting} onCreate={openCreate} onAct={act} onNotice={setNotice} />
+            <CollectionsView collections={collections} computerName={cloud?.computerName ?? t(i18n)`This computer`} busy={busy} onAdd={addExisting} onCreate={openCreate} onAct={act} onNotice={setNotice} />
           ) : route === "access" ? (
             <AccessView groups={groups} names={names} busy={busy} requireApproval={requireApproval} movedWaiting={collections.filter((c) => c.notices?.some((n) => n.code === "private_sync_pending")).length} onAct={act} onNotice={setNotice} />
           ) : route === "activity" ? (
@@ -244,7 +272,7 @@ function App() {
           )}
         </main>
 
-        {createOpen && <CreateCollectionDialog busy={busy} onClose={() => setCreateOpen(false)} onCreate={async (input) => {
+        <CreateCollectionDialog open={createOpen} busy={busy} onClose={() => setCreateOpen(false)} onCreate={async (input) => {
           // Failures stay in the dialog with the draft, not behind it.
           setBusy(true);
           try {
@@ -257,7 +285,7 @@ function App() {
           } finally {
             setBusy(false);
           }
-        }} />}
+        }} />
       </div>
     </div>
   );
@@ -281,28 +309,28 @@ function Overview({ cloud, connectionLabel, collections, attention, busy, onNavi
       {collections.length === 0 && <section>
         <Empty title={t(i18n)({ message: "Add your first collection" })} text={t(i18n)({ message: "Choose a folder of Markdown notes, or create a new one. It stays on this computer; your apps reach it through mdbase." })} />
         <div className="collection-config-actions">
-          <button className="button primary" disabled={busy} onClick={onAdd}><Trans>Add existing folder</Trans></button>
-          <button className="button secondary" disabled={busy} onClick={onCreate}><Trans>Create collection</Trans></button>
+          <button className="mdbase-button is-primary" disabled={busy} onClick={onAdd}><Trans>Add existing folder</Trans></button>
+          <button className="mdbase-button" disabled={busy} onClick={onCreate}><Trans>Create collection</Trans></button>
         </div>
       </section>}
       <section>
-        <SectionHeading title={t(i18n)({ message: "Overview", context: "Connect interface" })} note={t(i18n)({ message: "What this computer is doing right now." })} />
         <div className="overview-list">
-          <OverviewRow label={t(i18n)({ message: "Account", context: "Connect interface" })} value={connectionLabel} detail={cloud.serverUrl ?? ""} action={t(i18n)({ message: "Settings", context: "Connect interface" })} onClick={() => onNavigate("settings")} />
-          <OverviewRow label={t(i18n)({ message: "Collections", context: "Connect interface" })} value={t(i18n)`${plural(collections.length, { one: "# collection", other: "# collections" })}`} detail={synced > 0 ? t(i18n)`${synced} synced` : t(i18n)`All on this computer only`} action={t(i18n)({ message: "Collections", context: "Connect interface" })} onClick={() => onNavigate("collections")} />
-          <OverviewRow label={t(i18n)({ message: "App access", context: "Connect interface" })} value={attention > 0 ? t(i18n)`${plural(attention, { one: "# item needs you", other: "# items need you" })}` : t(i18n)`Nothing waiting`} detail={t(i18n)`Apps you approve reach your collections through this computer`} action={t(i18n)({ message: "App access", context: "Connect interface" })} onClick={() => onNavigate("access")} />
+          <OverviewRow label={t(i18n)({ message: "Account", context: "Connect interface" })} value={connectionLabel} detail={cloud.serverUrl ?? ""} route="settings" onNavigate={onNavigate} />
+          <OverviewRow label={t(i18n)({ message: "Collections", context: "Connect interface" })} value={t(i18n)`${plural(collections.length, { one: "# collection", other: "# collections" })}`} detail={synced > 0 ? t(i18n)`${synced} synced` : t(i18n)`All on this computer only`} route="collections" onNavigate={onNavigate} />
+          <OverviewRow label={t(i18n)({ message: "Apps", context: "Connect interface" })} value={attention > 0 ? t(i18n)`${plural(attention, { one: "# item needs you", other: "# items need you" })}` : t(i18n)`Nothing waiting`} detail={t(i18n)`Apps you approve reach your collections through this computer`} route="access" onNavigate={onNavigate} />
         </div>
       </section>
     </div>
   );
 }
 
-function OverviewRow({ label, value, detail, action, onClick }: { label: string; value: string; detail: string; action: string; onClick(): void }) {
+function OverviewRow({ label, value, detail, route, onNavigate }: { label: string; value: string; detail: string; route: Route; onNavigate(route: Route): void }) {
   useLocaleRevision();
-  return <div className="overview-row"><span>{label}</span><div><strong>{value}</strong><small>{detail}</small></div><button className="quiet-action" onClick={onClick}>{action}</button></div>;
+  return <a className="overview-row" href={`#${route}`} onClick={(event) => { event.preventDefault(); onNavigate(route); }}><span>{label}</span><div><strong>{value}</strong><small>{detail}</small></div></a>;
 }
 
-function CreateCollectionDialog({ busy, onClose, onCreate }: {
+function CreateCollectionDialog({ open, busy, onClose, onCreate }: {
+  open: boolean;
   busy: boolean;
   onClose(): void;
   onCreate(input: { parent: string; name: string }): Promise<void>;
@@ -311,16 +339,17 @@ function CreateCollectionDialog({ busy, onClose, onCreate }: {
   const [name, setName] = useState("");
   const [parent, setParent] = useState("");
   const [failure, setFailure] = useState<string | null>(null);
+  useEffect(() => { if (open) { setName(""); setParent(""); setFailure(null); } }, [open]);
   return (
-    <Dialog open onClose={() => !busy && onClose()} title={t(i18n)({ message: "Create a collection", context: "Connect interface" })} className="modal" closeDisabled={busy}>
+    <Dialog open={open} onClose={() => !busy && onClose()} title={t(i18n)({ message: "Create a collection", context: "Connect interface" })} className="modal" closeDisabled={busy}>
       <p className="eyebrow"><Trans>New collection</Trans></p>
-      {failure && <div className="message error-message" role="alert">{failure}</div>}
+      {failure && <div className="mdbase-message is-error" role="alert">{failure}</div>}
       <p><Trans>mdbase creates a new folder with this name and keeps it on this computer. You can turn on sync later.</Trans></p>
-      <label><span><Trans>Collection name</Trans></span><input autoFocus disabled={busy} value={name} maxLength={100} onChange={(event) => setName(event.target.value)} placeholder={t(i18n)`Workouts`} /></label>
-      <label><span><Trans>Create the folder in</Trans></span><button className="folder-picker" disabled={busy} onClick={() => void window.mdbaseConnect.chooseCreateFolder().then((chosen) => { if (chosen) setParent(chosen); }).catch((reason) => setFailure(message(reason)))}>{parent || t(i18n)({ message: "Choose a location…", context: "Connect interface" })}</button></label>
+      <label><span><Trans>Collection name</Trans></span><input className="mdbase-field" autoFocus disabled={busy} value={name} maxLength={100} onChange={(event) => setName(event.target.value)} placeholder={t(i18n)`Workouts`} /></label>
+      <label><span><Trans>Create the folder in</Trans></span><button className="mdbase-field folder-picker" disabled={busy} onClick={() => void window.mdbaseConnect.chooseCreateFolder().then((chosen) => { if (chosen) setParent(chosen); }).catch((reason) => setFailure(message(reason)))}>{parent || t(i18n)({ message: "Choose a location…", context: "Connect interface" })}</button></label>
       <div className="modal-actions">
-        <button className="button secondary" disabled={busy} onClick={onClose}><Trans>Cancel</Trans></button>
-        <button className="button primary" disabled={busy || !name.trim() || !parent} onClick={() => { setFailure(null); void onCreate({ parent, name: name.trim() }).catch((reason) => setFailure(message(reason))); }}><Trans>Create collection</Trans></button>
+        <button className="mdbase-button" disabled={busy} onClick={onClose}><Trans>Cancel</Trans></button>
+        <button className="mdbase-button is-primary" disabled={busy || !name.trim() || !parent} onClick={() => { setFailure(null); void onCreate({ parent, name: name.trim() }).catch((reason) => setFailure(message(reason))); }}><Trans>Create collection</Trans></button>
       </div>
     </Dialog>
   );
@@ -349,12 +378,8 @@ function Settings({ cloud, connectionLabel, connectionDetail, requireApproval, s
             <ComputerNameRow name={cloud.computerName ?? null} busy={busy} onAct={onAct} onNotice={onNotice} />
           </div>
           <div className="portal-connection-actions">
-            <button className="button secondary" disabled={busy} onClick={() => void onAct(() => window.mdbaseConnect.openAccount())}><Trans>Manage in mdbase</Trans></button>
-            <button className="button secondary danger-text disconnect-button" disabled={busy} onClick={() => {
-              if (window.confirm(t(i18n)({ message: "Sign out on this computer? Apps can no longer reach your local collections through this computer. Your files are unaffected." }))) {
-                void onAct(() => window.mdbaseConnect.signOut());
-              }
-            }}><Trans>Sign out on this computer…</Trans></button>
+            <button className="mdbase-button" disabled={busy} onClick={() => void onAct(() => window.mdbaseConnect.openAccount())}><Trans>Manage in mdbase</Trans></button>
+            <ConfirmAction className="mdbase-button is-tertiary is-danger disconnect-button" busy={busy} label={t(i18n)({ message: "Sign out on this computer…", context: "Connect interface" })} confirmLabel={t(i18n)({ message: "Sign out", context: "Connect interface" })} question={t(i18n)({ message: "Sign out on this computer? Apps can no longer reach your local collections through this computer. Your files are unaffected." })} onConfirm={() => onAct(() => window.mdbaseConnect.signOut())} />
           </div>
         </section>
       )}
@@ -425,15 +450,15 @@ function ComputerNameRow({ name, busy, onAct, onNotice }: {
   useLocaleRevision();
   const [draft, setDraft] = useState<string | null>(null);
   if (draft === null) {
-    return <div className="setting-row"><span><Trans>This computer</Trans></span><div><strong>{name ?? t(i18n)({ message: "Unnamed", context: "Connect interface" })}</strong><small><Trans>How this computer appears in your mdbase account</Trans></small></div><button className="quiet-action" disabled={busy} onClick={() => setDraft(name ?? "")}><Trans>Rename</Trans></button></div>;
+    return <div className="setting-row"><span><Trans>This computer</Trans></span><div><strong>{name ?? t(i18n)({ message: "Unnamed", context: "Connect interface" })}</strong><small><Trans>How this computer appears in your mdbase account</Trans></small></div><button className="mdbase-button is-tertiary" disabled={busy} onClick={() => setDraft(name ?? "")}><Trans>Rename</Trans></button></div>;
   }
   return (
     <div className="setting-row">
       <span><Trans>This computer</Trans></span>
       <div className="computer-name-form">
-        <input aria-label={t(i18n)({ message: "Computer name", context: "Connect interface" })} autoFocus value={draft} maxLength={100} disabled={busy} onChange={(event) => setDraft(event.target.value)} />
-        <button className="button secondary" disabled={busy} onClick={() => setDraft(null)}><Trans>Cancel</Trans></button>
-        <button className="button primary" disabled={busy || !draft.trim()} onClick={() => void onAct(async () => {
+        <input className="mdbase-field" aria-label={t(i18n)({ message: "Computer name", context: "Connect interface" })} autoFocus value={draft} maxLength={100} disabled={busy} onChange={(event) => setDraft(event.target.value)} />
+        <button className="mdbase-button" disabled={busy} onClick={() => setDraft(null)}><Trans>Cancel</Trans></button>
+        <button className="mdbase-button is-primary" disabled={busy || !draft.trim()} onClick={() => void onAct(async () => {
           const renamed = await window.mdbaseConnect.renameComputer(draft.trim());
           setDraft(null);
           onNotice(t(i18n)`This computer is now called ${renamed.name}.`);
@@ -459,7 +484,7 @@ function UpdateRow({ status, busy, onAct }: {
       <span><Trans>Application</Trans></span>
       <div><strong>{status?.current_version ? t(i18n)`Version ${status.current_version}` : t(i18n)`Checking version…`}</strong><small>{status?.message ?? t(i18n)({ message: "Reading update status…", context: "Connect interface" })}</small></div>
       {status && status.phase !== "unavailable" ? (
-        <button className="quiet-action" disabled={busy || !enabled} onClick={() => void onAct(() =>
+        <button className="mdbase-button is-tertiary" disabled={busy || !enabled} onClick={() => void onAct(() =>
           install ? window.mdbaseConnect.installUpdate() : window.mdbaseConnect.checkForUpdates())}>{label}</button>
       ) : null}
     </div>

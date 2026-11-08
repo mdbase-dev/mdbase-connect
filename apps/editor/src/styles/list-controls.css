@@ -302,7 +302,7 @@
   width: 220px;
 }
 
-.action-menu.note-view-options-menu button {
+.mdbase-menu.note-view-options-menu button {
   min-width: 0;
 }
 
@@ -315,6 +315,11 @@
   color: var(--faint);
   font-size: var(--font-size-ui);
   font-weight: var(--font-weight-bold);
+}
+
+.view-options-fields {
+  max-height: 180px;
+  overflow-y: auto;
 }
 
 .view-options-divider {

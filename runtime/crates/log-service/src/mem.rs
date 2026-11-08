@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use async_lock::{Mutex as AsyncMutex, MutexGuardArc};
 use mdbn_wire::common::{B16, B32, Uuid};
+use mdbn_wire::envelope::ItemKind;
 use mdbn_wire::hash::{CHAIN_ZERO, chain_hash};
 
 use crate::backend::{Archive, Backend, Mode, ObjectStore, Txn, Write};
@@ -52,6 +53,11 @@ impl MemBackend {
     }
     fn col(&self, c: &Uuid) -> Arc<AsyncMutex<MemCollection>> {
         self.cols.lock().unwrap().entry(*c).or_default().clone()
+    }
+
+    /// Test hook: the number of stored idempotency tokens, expired ones included.
+    pub async fn token_rows(&self, c: &Uuid) -> usize {
+        self.col(c).lock_arc().await.tokens.len()
     }
 
     /// Test hook: lose the last `n` items, as a failover to a lagging replica would.
@@ -220,6 +226,15 @@ impl Txn for MemTxn {
             .map(|(_, i)| i.bytes.len() as u64)
             .sum())
     }
+    async fn committed_blob_bytes(&mut self) -> Result<u64> {
+        Ok(self
+            .g
+            .objects
+            .values()
+            .filter(|o| o.committed && o.kind == ItemKind::BlobPart.value())
+            .map(|o| o.size)
+            .sum())
+    }
     async fn gc_candidates(&mut self, before: i64, limit: u64) -> Result<Vec<ObjectMeta>> {
         let live: BTreeSet<B32> = self
             .g
@@ -304,6 +319,10 @@ impl Txn for MemTxn {
                 }
                 Write::DeleteEntriesThrough(c) => {
                     g.items.retain(|s, i| *s > c || i.kind != 1);
+                }
+                Write::PruneTokens(now) => {
+                    let MemCollection { items, tokens, .. } = &mut *g;
+                    tokens.retain(|_, (s, exp)| *exp > now || items.contains_key(s));
                 }
                 Write::Notify(_) => {}
             }

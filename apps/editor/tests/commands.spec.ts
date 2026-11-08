@@ -1,5 +1,132 @@
 import { expect, test } from "@playwright/test";
 
+test("shared native overlays keep nested focus, trap Tab, and use Portal shortcut aliases", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 900 });
+  await page.goto("?demo=4");
+  await expect(page.getByRole("textbox", { name: "Note body", exact: true })).toBeVisible();
+  const trigger = page.getByRole("button", { name: "Note properties", exact: true });
+  await trigger.click();
+  const inspector = page.getByRole("dialog", { name: "Note properties", exact: true });
+  const close = inspector.getByRole("button", { name: "Close properties", exact: true });
+  await expect(close).toBeFocused();
+  await page.keyboard.press("Control+k");
+  const palette = page.getByRole("dialog", { name: "Quick open", exact: true });
+  await expect(palette).toBeVisible();
+  await expect(page.locator("dialog[open]")).toHaveCount(2);
+  await page.keyboard.press("Escape");
+  await expect(palette).toHaveCount(0);
+  await expect(close).toBeFocused();
+  expect(await inspector.evaluate(element => element.matches(":modal"))).toBe(true);
+  await page.locator(".note-scroll").evaluate(element => (element as HTMLElement).focus());
+  await expect(close).toBeFocused();
+  await page.keyboard.press("Tab");
+  expect(await inspector.evaluate(element => element.contains(document.activeElement))).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(inspector).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await page.keyboard.press("Control+/");
+  await expect(page.getByRole("dialog", { name: "Shortcuts", exact: true })).toBeVisible();
+});
+
+for (const width of [1440, 390]) {
+  for (const theme of ["light", "dark"] as const) {
+    test.describe(`Editor W4 at ${width}px in ${theme}`, () => {
+      test.use({ viewport: { width, height: width === 390 ? 844 : 900 }, hasTouch: width === 390, colorScheme: theme });
+
+      test("preserves the note-list place, restores Undo focus, and peeks with Space", async ({ page }, testInfo) => {
+        await page.goto("?demo=300");
+        await expect(page.getByRole("textbox", { name: "Note body", exact: true })).toBeVisible({ timeout: 20_000 });
+        if (width === 390) await page.getByRole("button", { name: "Back to notes" }).click();
+        const list = page.locator(".note-scroll");
+        if (width === 390) await expect(page.locator(".quick-open-trigger")).toBeHidden();
+        else await expect(page.locator(".quick-open-trigger")).toBeVisible();
+        await list.focus();
+        await page.keyboard.press("ArrowDown");
+        await page.keyboard.press("ArrowDown");
+        if (width === 390) await expect(page.locator(".app-shell")).toHaveClass(/pane-notes/);
+        const title = await list.locator(".list-focused .note-title").innerText();
+        const nextTitle = await list.locator(".note-row:not(.file-row)").evaluateAll((rows) => {
+          const position = rows.findIndex((row) => row.classList.contains("list-focused"));
+          return rows[position + 1].querySelector(".note-title")!.textContent!;
+        });
+        await list.focus();
+        await page.keyboard.press("Control+Backspace");
+        await expect(page.getByRole("textbox", { name: "Note title", exact: true })).toHaveValue(nextTitle);
+        await page.getByRole("button", { name: "Undo", exact: true }).click();
+        await expect(list).toBeFocused();
+        await expect(list.locator(".list-focused .note-title")).toHaveText(title);
+        await expect(list.getByRole("option", { selected: true })).toContainText(title);
+        const scrollTop = await list.evaluate((element) => element.scrollTop);
+        await page.keyboard.press("Space");
+        const peek = page.locator(".note-peek");
+        await expect(peek).toBeVisible();
+        await expect(list).toBeFocused();
+        await expect(peek.getByRole("heading", { name: title, exact: true })).toHaveCount(1);
+        await expect(peek.getByText("Read-only Markdown preview", { exact: true })).toHaveCount(0);
+        await expect(peek.getByRole("region", { name: "Read-only Markdown preview" })).toBeVisible();
+        await page.keyboard.press("j");
+        await expect(peek.getByRole("heading", { name: nextTitle, exact: true })).toBeVisible();
+        await page.keyboard.press("k");
+        await expect(peek.getByRole("heading", { name: title, exact: true })).toBeVisible();
+        await page.keyboard.press("ArrowDown");
+        await expect(peek.getByRole("heading", { name: nextTitle, exact: true })).toBeVisible();
+        await page.keyboard.press("ArrowUp");
+        await expect(peek.getByRole("heading", { name: title, exact: true })).toBeVisible();
+        if (width === 390) await expect(page.locator(".app-shell")).toHaveClass(/pane-notes/);
+        expect(await list.evaluate((element) => element.scrollTop)).toBe(scrollTop);
+        await page.screenshot({ path: testInfo.outputPath("note-peek.png") });
+        await page.keyboard.press("Escape");
+        await expect(peek).toBeHidden();
+        await expect(list).toBeFocused();
+        expect(await list.evaluate((element) => element.scrollTop)).toBe(scrollTop);
+        await page.keyboard.press("Space");
+        await expect(peek).toBeVisible();
+        await page.keyboard.press("Control+p");
+        await expect(page.getByRole("combobox", { name: "Find a note or action" })).toBeFocused();
+        await expect(peek).toBeHidden();
+        await page.keyboard.press("Escape");
+        await expect(list).toBeFocused();
+        await page.keyboard.press("Control+p");
+        const input = page.getByRole("combobox", { name: "Find a note or action" });
+        await input.fill("A brand new W4 note");
+        await expect(page.getByRole("option", { name: "Create note ‘A brand new W4 note’", exact: true })).toBeVisible();
+        await input.press("Enter");
+        await expect(page.locator(".new-note-title input")).toHaveValue("A brand new W4 note");
+        await page.getByRole("button", { name: "Create note", exact: false }).click();
+        await expect(page.getByRole("textbox", { name: "Note title", exact: true })).toHaveValue("A brand new W4 note");
+      });
+
+      test("keeps type review concrete, backlinks touch-sized, and unknown location unchanged", async ({ page }, testInfo) => {
+        await page.goto("?demo=300");
+        await expect(page.getByRole("textbox", { name: "Note body", exact: true })).toBeVisible({ timeout: 20_000 });
+        const backlink = page.locator(".linked-from .backlink-list button").first();
+        await expect(backlink).toBeVisible();
+        const hitArea = await backlink.boundingBox();
+        expect(hitArea!.height).toBeGreaterThanOrEqual(44);
+        const textSize = await backlink.locator("strong").evaluate((element) => parseFloat(getComputedStyle(element).fontSize));
+        expect(textSize).toBeLessThanOrEqual(16);
+        if (width === 390) {
+          await page.getByRole("button", { name: "Back to notes" }).click();
+          await page.getByRole("button", { name: "Collections", exact: true }).click();
+        }
+        await page.getByRole("button", { name: "Settings", exact: true }).click();
+        await expect(page.locator(".settings-view")).toContainText("Connected through mdbase");
+        await expect(page.locator(".settings-view")).not.toContainText("Main copy");
+        if (width === 390) await page.getByRole("button", { name: "Back to collection" }).click();
+        await page.getByRole("button", { name: "Types (1)" }).click();
+        if (width === 390) await page.getByRole("option", { name: /note/ }).click();
+        await page.getByRole("textbox", { name: "Description", exact: true }).fill("A clearer note description.");
+        await page.getByRole("button", { name: "Review changes", exact: true }).click();
+        await expect(page.getByRole("heading", { name: "Review type changes", exact: true })).toHaveCount(1);
+        await expect(page.getByText("Description changed", { exact: true })).toBeVisible();
+        await expect(page.getByText("Existing note contents and fields stay unchanged.", { exact: true })).toBeVisible();
+        await expect(page.getByText(/Impact is based on the currently indexed notes/)).toBeVisible();
+        await page.screenshot({ path: testInfo.outputPath("type-review.png") });
+      });
+    });
+  }
+}
+
 for (const width of [1440, 390]) {
   test(`commands and persistent focus mode work with keyboard and touch at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
@@ -12,7 +139,7 @@ for (const width of [1440, 390]) {
     await expect(input).toHaveValue(">");
     await input.fill(">fcs md");
     const focus = page.getByRole("option", { name: /Focus mode/ });
-    await expect(focus.locator("kbd")).toHaveText("Ctrl Shift F");
+    await expect(focus.locator("kbd")).toHaveText("Ctrl+Shift+F");
     await input.press("Enter");
     await expect(page.locator(".app-shell")).toHaveClass(/focus-mode/);
     await expect(page.locator(".collection-rail, .note-list-pane, .properties-panel")).toHaveCount(0);

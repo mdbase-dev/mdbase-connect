@@ -186,6 +186,12 @@ pub fn check_snapshot(v: &Value, cfg: &CloudConfig, now_ms: u64) -> Result<Snaps
             "account-bound grants require explicit canonical account identities",
         ));
     }
+    if expires <= now_ms && issued < expires && expires - issued <= MAX_LEASE_MS {
+        return Err(refused(
+            "invalid_policy_lease",
+            "lease expired before it was applied",
+        ));
+    }
     if issued > now_ms.saturating_add(5_000)
         || issued >= expires
         || expires - issued > MAX_LEASE_MS
@@ -288,6 +294,12 @@ pub trait RelayHost: crate::session::Handler {
         collection: &'a str,
         grant: &'a str,
     ) -> crate::session::BoxFuture<'a, bool>;
+    /// Current refusal for a pipe that no longer has a live grant.
+    fn grant_refusal<'a>(
+        &'a self,
+        collection: &'a str,
+        grant: &'a str,
+    ) -> crate::session::BoxFuture<'a, Option<String>>;
     /// Capture a positive pending grant once, before spawning the original pipe.
     /// Default hosts preserve immediate refusal, never infer readiness.
     fn grant_activation<'a>(
@@ -336,6 +348,14 @@ struct Pipe {
     waiting_for_grant: Arc<std::sync::atomic::AtomicBool>,
     activation_guard: Option<GrantActivationGuard>,
     task: tokio::task::JoinHandle<()>,
+}
+
+/// A pipe's session task stops with it, including when the relay task itself is
+/// aborted on shutdown.
+impl Drop for Pipe {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
 }
 
 /// Run the relay until `stop` fires, reconnecting with equal-jitter back-off.
@@ -534,10 +554,8 @@ async fn session<H: RelayHost>(
                                 open_pipe(host, identity, &v, &mut open, &out_tx).await;
                             }
                             Some("pipe_close") => {
-                                if let Some(id) = v.get("pipe_id").and_then(Value::as_str).and_then(attest::uuid_bytes)
-                                    && let Some(p) = open.remove(&id)
-                                {
-                                    p.task.abort();
+                                if let Some(id) = v.get("pipe_id").and_then(Value::as_str).and_then(attest::uuid_bytes) {
+                                    open.remove(&id);
                                 }
                             }
                             Some("relay_incompatible") => break Ended::Terminal("incompatible_version".into()),
@@ -550,8 +568,7 @@ async fn session<H: RelayHost>(
                             && p.tx.try_send(payload.to_vec()).is_err()
                         {
                             // Slow or dead pipe: close it rather than buffer without bound.
-                            if let Some(p) = open.remove(&id) {
-                                p.task.abort();
+                            if open.remove(&id).is_some() {
                                 let _ = tx.send(Message::text(close_msg(&id, "backpressure"))).await;
                             }
                         }
@@ -589,9 +606,7 @@ async fn session<H: RelayHost>(
             }
         }
     };
-    for (_, p) in open {
-        p.task.abort();
-    }
+    drop(open);
     ended
 }
 
@@ -638,7 +653,11 @@ async fn apply_snapshot<H: RelayHost>(host: &Arc<H>, cfg: &mut CloudConfig, v: &
     let snap = match check_snapshot(v, cfg, now) {
         Ok(s) => s,
         Err(r) => {
-            tracing::warn!(code = r.code, "policy snapshot refused");
+            let age_ms = v
+                .get("lease_issued_at_ms")
+                .and_then(Value::as_u64)
+                .map(|issued| now.saturating_sub(issued));
+            tracing::warn!(code = r.code, reason = %r.message, ?age_ms, "policy snapshot refused");
             return fail(r);
         }
     };
@@ -678,25 +697,33 @@ async fn close_dead<H: RelayHost>(
 ) {
     let mut dead = Vec::new();
     for (id, p) in open.iter() {
-        let allowed = if p
+        let reason = if p
             .waiting_for_grant
             .load(std::sync::atomic::Ordering::SeqCst)
         {
-            match &p.activation_guard {
+            let allowed = match &p.activation_guard {
                 Some(current) => current().await,
                 None => false,
+            };
+            if allowed {
+                None
+            } else {
+                Some(
+                    host.grant_refusal(&p.collection, &p.grant)
+                        .await
+                        .unwrap_or_else(|| crate::access::Refusal::Unavailable.reason().into()),
+                )
             }
         } else {
-            host.grant_live(&p.collection, &p.grant).await
+            host.grant_refusal(&p.collection, &p.grant).await
         };
-        if !allowed {
-            dead.push(*id);
+        if let Some(reason) = reason {
+            dead.push((*id, reason));
         }
     }
-    for id in dead {
-        if let Some(p) = open.remove(&id) {
-            p.task.abort();
-            let _ = out.try_send(PipeOut::Close(id, "grant_inactive".into()));
+    for (id, reason) in dead {
+        if open.remove(&id).is_some() {
+            let _ = out.try_send(PipeOut::Close(id, reason));
         }
     }
 }
@@ -733,15 +760,18 @@ async fn open_pipe<H: RelayHost>(
         secrets::uuid_string(&collection),
         secrets::uuid_string(&grant),
     );
-    let live = host.grant_live(&col_s, &grant_s).await;
+    let mut live = host.grant_live(&col_s, &grant_s).await;
     let activation = if live {
         None
     } else {
         host.grant_activation(&col_s, &grant_s).await
     };
     if !live && activation.is_none() {
-        crate::session_diagnostics::pre_live("grant_not_live");
-        return close("grant_inactive");
+        if let Some(reason) = host.grant_refusal(&col_s, &grant_s).await {
+            crate::session_diagnostics::pre_live("grant_not_live");
+            return close(&reason);
+        }
+        live = true;
     }
     let activation_guard = activation.as_ref().map(|a| a.current.clone());
     let waiting_for_grant = Arc::new(std::sync::atomic::AtomicBool::new(!live));
@@ -761,9 +791,14 @@ async fn open_pipe<H: RelayHost>(
                 == Ok(true);
             if !activated {
                 crate::session_diagnostics::pre_live("grant_not_live");
-                let _ = out2
-                    .send(PipeOut::Close(pipe, "grant_inactive".into()))
-                    .await;
+                let reason = h
+                    .grant_refusal(
+                        &secrets::uuid_string(&collection),
+                        &secrets::uuid_string(&grant),
+                    )
+                    .await
+                    .unwrap_or_else(|| crate::access::Refusal::Unavailable.reason().into());
+                let _ = out2.send(PipeOut::Close(pipe, reason)).await;
                 return;
             }
         }
@@ -843,16 +878,15 @@ mod tests {
             "invalid_policy_revision"
         );
 
-        let expired = snap(5, now - 60_000, now - 5_000, vec![]);
-        assert_eq!(
-            check_snapshot(&expired, &cfg, now).unwrap_err().code,
-            "invalid_policy_lease"
-        );
-        let too_long = snap(5, now, now + 120_000, vec![]);
-        assert_eq!(
-            check_snapshot(&too_long, &cfg, now).unwrap_err().code,
-            "invalid_policy_lease"
-        );
+        // A lease that was valid when issued but expired before it was applied
+        // (a backed-up feed) is told apart from a malformed one.
+        let expired =
+            check_snapshot(&snap(5, now - 60_000, now - 5_000, vec![]), &cfg, now).unwrap_err();
+        assert_eq!(expired.code, "invalid_policy_lease");
+        assert_eq!(expired.message, "lease expired before it was applied");
+        let too_long = check_snapshot(&snap(5, now, now + 120_000, vec![]), &cfg, now).unwrap_err();
+        assert_eq!(too_long.code, "invalid_policy_lease");
+        assert_eq!(too_long.message, "lease out of bounds");
 
         let applied = CloudConfig {
             policy_sequence: 7,
@@ -1115,7 +1149,7 @@ mod tests {
         assert_eq!(current.generation, access.entries[0].generation);
         assert_eq!(current.client_pk.0, crate::noise::public_key(&[9; 32]));
         assert!(
-            source.grant(&grant).is_none(),
+            source.grant(&grant).is_err(),
             "setup must not infer local owner permissions for synced grants"
         );
         // Uninterrupted renewal preserves a review; an expiry gap followed by

@@ -648,6 +648,9 @@ impl<S: Store> Replica<S> {
             owners,
         };
     }
+    /// The adjacent rekey needs this owner's durable intent. Once the slot holds
+    /// anything else, the control plane has released its hold (an abandoned
+    /// switch): every surviving frozen owner rotates without waiting for intent.
     pub(super) fn can_author_private_switch(&self) -> bool {
         let State::Pending {
             at, epoch, owners, ..
@@ -655,10 +658,9 @@ impl<S: Store> Replica<S> {
         else {
             return false;
         };
-        self.private_switch.requested
+        (self.private_switch.requested || self.head.seq > at.seq)
             && owners.contains(&self.cfg.device_id)
-            && self.head == *at
-            && self.policy.seq == at.seq
+            && self.current_owner(&self.cfg.device_id)
             && self.policy.cstate == Some(CState::E2e)
             && self.policy.rekey_required
             && self.check_apply_store_health().is_ok()
@@ -683,9 +685,17 @@ impl<S: Store> Replica<S> {
         else {
             return;
         };
-        let valid = at.seq.checked_add(1) == Some(p)
-            && self.head == *at
-            && item.prev == Some(at.chain)
+        // After an abandoned slot, the first rekey (the epoch check) is accepted
+        // only from a frozen owner that still holds the role; expiry keeps policy
+        // e2e meanwhile. Its recipients are ordinary policy's keyed set: a grant on
+        // the old epoch needs an existing key holder, so the control plane alone
+        // cannot add one.
+        let adjacent =
+            at.seq.checked_add(1) == Some(p) && self.head == *at && item.prev == Some(at.chain);
+        let valid = (adjacent
+            || item
+                .signer
+                .is_some_and(|signer| self.current_owner(&signer)))
             && rekey.from == *epoch
             && rekey.reason == RekeyReason::CloudCopyOff
             && item.signer.is_some_and(|signer| owners.contains(&signer))
@@ -706,8 +716,15 @@ impl<S: Store> Replica<S> {
             self.private_switch.state = State::Refused;
         }
     }
+    /// A later non-rekey item no longer consumes the switch (the excluding rekey
+    /// may follow the abandoned slot). Leaving Private, another epoch (only by
+    /// read-ahead; settled rekeys resolve in accept), or losing every frozen owner
+    /// that could author the rekey does.
     pub(super) fn expire_private_switch(&mut self, head: Head) {
-        if matches!(&self.private_switch.state, State::Pending { at, .. } if head.seq > at.seq) {
+        if matches!(&self.private_switch.state, State::Pending { at, epoch, owners, .. }
+            if (head.seq > at.seq && (self.policy.cstate != Some(CState::E2e) || self.policy.epoch != *epoch))
+                || !owners.iter().any(|owner| self.current_owner(owner)))
+        {
             self.private_switch.state = State::Refused;
         }
         if matches!(self.private_switch.state, State::Refused) {
@@ -718,6 +735,12 @@ impl<S: Store> Replica<S> {
             );
             self.mode_alert(CState::E2e);
         }
+    }
+    fn current_owner(&self, id: &Uuid) -> bool {
+        self.policy
+            .devices
+            .get(id)
+            .is_some_and(|d| d.active && self.policy.members.get(&d.account) == Some(&Role::Owner))
     }
     pub(crate) fn private_switch_waiting(&self) -> bool {
         self.private_switch.waiting()

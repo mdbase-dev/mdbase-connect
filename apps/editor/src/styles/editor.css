@@ -1,15 +1,31 @@
-.writing-surface {
+.writing-surface, .new-note-composer {
   --writing-measure: 760px;
   /* A fitting desktop column keeps its full measure as the inspector docks.
      Gutters grow only once the pane is narrower than that measure. */
   --writing-gutter: clamp(0px, calc((var(--writing-measure) - 100cqi) / 4), var(--space-6));
+}
+
+.writing-surface {
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
-  padding: clamp(36px, 7vh, 78px) 0 0;
   background: var(--white);
+}
+
+.note-loading {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The title scrolls with the note but stays put when unwrapped lines scroll sideways. */
+.note-header {
+  position: sticky;
+  left: 0;
+  flex-shrink: 0;
+  width: 100%;
+  padding-top: clamp(36px, 7vh, 78px);
 }
 
 .note-title-field {
@@ -19,15 +35,14 @@
   );
   min-width: 0;
   min-height: 52px;
-  max-height: min(12rem, 30vh);
   display: grid;
   grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
   margin: 0 auto 18px;
   font-size: var(--font-size-title);
-  font-weight: var(--font-weight-bold);
+  font-weight: var(--font-weight-semibold);
   line-height: 1.2;
-  letter-spacing: -0.035em;
+  letter-spacing: -0.02em;
 }
 
 .note-title-measure,
@@ -87,6 +102,12 @@
 
 .code-editor .cm-editor.cm-focused {
   outline: 0;
+}
+
+.cm-remote-change { animation: remote-change-fade 900ms var(--ease-out); }
+@keyframes remote-change-fade { from { background: var(--accent-soft); } to { background: transparent; } }
+@media (prefers-reduced-motion: reduce) {
+  .cm-remote-change { animation: none; background: var(--accent-soft); }
 }
 
 .code-editor .cm-scroller {

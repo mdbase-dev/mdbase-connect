@@ -703,7 +703,7 @@ describePg("installation device sign-in on daemon pairing", () => {
     const p=await privatePrepared(), collection=await scopeCollection(p.owner.user,p.owner.user,"private"), n=await nativeCompanion(p);
     expect((await n.attach()).statusCode).toBe(200);
     expect((await app.inject({method:"POST",url:`${p.flow.base}/deny`,headers:p.owner.headers})).statusCode).toBe(200);
-    await expect(approveNativeAuthorization(db,{requestId:n.id,userId:p.owner.user,collectionId:collection,operations:n.operations})).rejects.toThrow("original app collection chooser");
+    await expect(approveNativeAuthorization(db,{requestId:n.id,userId:p.owner.user,collectionId:collection,sync:"private",operations:n.operations})).rejects.toThrow("original app collection chooser");
     expect((await db.query("SELECT grant_id FROM authorization_requests WHERE id=$1",[n.id])).rows[0].grant_id).toBeNull();
   });
   it("rolls back Native grant and choice if account-only installation approval fails",async()=>{

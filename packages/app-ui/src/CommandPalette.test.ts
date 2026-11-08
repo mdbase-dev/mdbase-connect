@@ -1,21 +1,113 @@
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+// @vitest-environment jsdom
+import "../test/dialog.js";
+import { readFileSync } from "node:fs";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { CommandPalette, matchingCommands, type Command } from "./CommandPalette.js";
+import { CommandPalette, matchingCommands, shortcutLabel, type Command } from "./CommandPalette.js";
 
 const command = (id: string, group: string, label = id): Command => ({ id, group, label, run: () => {} });
 
+it("puts all contextual actions first without duplicates, including ranked results", () => {
+  const commands = [command("search", "navigation"), ...Array.from({ length: 8 }, (_, index) => ({ ...command(`action-${index}`, "commands"), context: "Selected notes", shortcut: "r" }))];
+  const matches = matchingCommands(commands, "");
+  expect(matches.map(command => command.id)).toEqual([...commands.slice(1).map(command => command.id), "search"]);
+  expect(matches.slice(0, 8).every(command => command.group === "context")).toBe(true);
+  expect(matchingCommands(commands, "action-7")[0]?.context).toBe("Selected notes");
+  act(() => root.render(createElement(CommandPalette, { open: true, commands: [], getResults: () => commands, onClose: () => {} })));
+  expect(headings(document.querySelector("dialog")!.outerHTML)[0]).toBe("Selected notes");
+  expect(document.querySelector('[role="option"] kbd')?.textContent).toBe("R");
+});
+
 const headings = (markup: string) => [...markup.matchAll(/class="mdbase-command-group" role="presentation">(.*?)<\/div>/g)].map((match) => match[1]);
+
+it("keeps an Undo target distinct from the current note's contextual actions", () => {
+  const commands = [
+    { ...command("undo", "commands"), context: "Deleted note" },
+    { ...command("rename", "commands"), context: "Current note" }
+  ];
+  act(() => root.render(createElement(CommandPalette, { open: true, commands: [], getResults: () => commands, onClose: () => {} })));
+  expect(headings(document.querySelector("dialog")!.outerHTML)).toEqual(["Deleted note", "Current note"]);
+});
+
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
+const host = document.body.appendChild(document.createElement("div"));
+const root = createRoot(host);
+afterEach(() => act(() => root.render(null)));
+
+it("resets query and selection in the layout phase, before an exit can be reopened and painted", () => {
+  const source = readFileSync("src/CommandPalette.tsx", "utf8");
+  expect(source).toMatch(/useLayoutEffect\(\(\) => \{ if \(open\) \{ setQuery\(initialQuery\); setActive\(0\); \} \}, \[open, initialQuery\]\)/);
+});
+
+it("resets a retained palette to the new initial query and first result on reopening", () => {
+  const animation = vi.spyOn(HTMLElement.prototype, "getAnimations").mockReturnValue([{ finished: new Promise<void>(() => {}) }] as Animation[]);
+  const commands = [command("alpha", "app"), command("beta", "app")];
+  const draw = (open: boolean, initialQuery: string) => createElement(CommandPalette, { open, initialQuery, commands, onClose: () => {} });
+  act(() => root.render(draw(true, "")));
+  const input = document.querySelector<HTMLInputElement>('[role="combobox"]')!;
+  act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true })));
+  act(() => root.render(draw(false, "")));
+  act(() => root.render(draw(true, "alpha")));
+  expect(document.querySelector('[role="combobox"]')).toBe(input);
+  expect(input.value).toBe("alpha");
+  expect(document.querySelector('[aria-selected="true"]')?.textContent).toContain("alpha");
+  animation.mockRestore();
+});
+
+it("keeps a result selected when live updates shrink the list", () => {
+  const run = vi.fn();
+  const three = [command("a", "app"), command("b", "app"), { ...command("c", "app"), run }];
+  act(() => root.render(createElement(CommandPalette, { open: true, commands: three, onClose: () => {} })));
+  const input = document.querySelector<HTMLInputElement>('[role="combobox"]')!;
+  act(() => { input.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true })); });
+  const two = [command("a", "app"), { ...command("b", "app"), run }];
+  act(() => root.render(createElement(CommandPalette, { open: true, commands: two, onClose: () => {} })));
+  expect(document.querySelector('[aria-selected="true"]')?.textContent).toContain("b");
+  expect(input.getAttribute("aria-activedescendant")).toMatch(/-b$/);
+  act(() => { input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); });
+  expect(run).toHaveBeenCalledOnce();
+});
+
+it("presents sequential shortcuts without turning them into chords", () => {
+  expect(shortcutLabel("g c")).toBe("G C");
+});
+
+it("presents navigation keys as labels rather than DOM key names", () => {
+  expect(shortcutLabel("ArrowDown")).toBe("↓");
+  expect(shortcutLabel("ArrowUp")).toBe("↑");
+  expect(shortcutLabel("ContextMenu")).toBe("Menu");
+});
 
 describe("CommandPalette group labels", () => {
   const commands = [
     ...Array.from({ length: 8 }, (_, i) => command(`tab-${i}`, "tabs")),
     command("settings", "app"),
   ];
-  const render = (props: Partial<Parameters<typeof CommandPalette>[0]> = {}) => renderToStaticMarkup(createElement(CommandPalette, {
-    open: true, commands, onClose: () => {}, ...props,
-  }));
+  const render = (props: Partial<Parameters<typeof CommandPalette>[0]> = {}) => {
+    act(() => root.render(null));
+    act(() => root.render(createElement(CommandPalette, {
+      open: true, commands, onClose: () => {}, ...props,
+    })));
+    return document.querySelector("dialog")?.outerHTML ?? "";
+  };
+
+  it("describes Enter as running an action, not opening it", () => {
+    render({ commands: [command("delete", "actions", "Delete note")] });
+    expect(document.querySelector(".mdbase-command-footer")?.textContent).toContain("to run");
+    expect(document.querySelector(".mdbase-command-footer")?.textContent).not.toContain("to open");
+  });
+
+  it("highlights literal label matches without replacing adapter content", () => {
+    render({ commands: [command("field", "collections", "Field [notes] archive")], initialQuery: "field [notes]" });
+    expect([...document.querySelectorAll("mark")].map(element => element.textContent)).toEqual(["Field", "[notes]"]);
+    render({ commands: [{ ...command("adapter", "collections", "Field notes"), content: createElement("strong", null, createElement("mark", null, "Adapter")) }], initialQuery: "field" });
+    expect(document.querySelector("mark")?.textContent).toBe("Adapter");
+    render();
+    expect(document.querySelector("mark")).toBeNull();
+  });
 
   it("keeps existing headings when no callback is supplied", () => {
     expect(headings(render())).toEqual(["tabs", "app"]);
@@ -64,5 +156,15 @@ describe("matchingCommands", () => {
   it("matches every term and keeps the groups together", () => {
     expect(matchingCommands(commands, "source 3").map((c) => c.id)).toEqual(["source-3"]);
     expect(matchingCommands(commands, "open settings").map((c) => c.id)).toEqual(["settings"]);
+  });
+
+  it("matches nonadjacent terms and retains label matches before the search cap", () => {
+    const commands = [
+      ...Array.from({ length: 50 }, (_, index) => ({ ...command(`collection-${index}`, "collections"), detail: "Travel laptop" })),
+      command("computer", "computers", "Travel field laptop"),
+    ];
+    const matches = matchingCommands(commands, "travel laptop");
+    expect(matches).toHaveLength(40);
+    expect(matches[0]?.id).toBe("computer");
   });
 });

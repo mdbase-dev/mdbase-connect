@@ -1,4 +1,4 @@
-import { generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
+import { generateKeyPairSync, randomBytes, randomUUID, sign, verify } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { testApplicationAuthorization } from "../../application-authorization.test-helper.js";
@@ -23,7 +23,7 @@ function grantSigningKey() {
   const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
   const jwk = publicKey.export({ format: "jwk" }) as { x: string; y: string };
   const raw = Buffer.concat([Buffer.of(4), Buffer.from(jwk.x, "base64url"), Buffer.from(jwk.y, "base64url")]);
-  return { privateKey, publicKey: raw.toString("base64url") };
+  return { privateKey, verifyingKey: publicKey, publicKey: raw.toString("base64url") };
 }
 
 async function proofWith(signingPublicKey: string) {
@@ -121,10 +121,12 @@ describePostgres("client Noise key storage", () => {
 
     await db.query("UPDATE grants SET activated_at = now() WHERE id = $1", [id]);
     const snapshot = await buildPolicySnapshot(db, id, 55_000, undefined, () => true, "lease_v1", false, true) as LeasePolicySnapshot;
-    expect(snapshot.grants[0]).toMatchObject({
-      client_pk: attested.publicKey.toString("hex"),
-      client_key_signature: attested.signature.toString("base64url")
-    });
+    const delivered = snapshot.grants[0]!;
+    expect(delivered.client_pk).toBe(attested.publicKey.toString("hex"));
+    // The feed canonicalizes S, so the delivered bytes can differ from the stored ones.
+    const signature = Buffer.from(delivered.client_key_signature as string, "base64url");
+    expect(signature.subarray(0, 32)).toEqual(attested.signature.subarray(0, 32));
+    expect(verify("sha256", clientNoiseKeyMessage(requestId, attested.publicKey), { key: key.verifyingKey, dsaEncoding: "ieee-p1363" }, signature)).toBe(true);
 
     // Reactivating the grant from a request without a key removes the old one.
     await copyClientNoiseKeyToGrant(db, randomUUID(), id);

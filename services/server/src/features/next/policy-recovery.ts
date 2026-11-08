@@ -87,6 +87,27 @@ export function recoverLostPolicy(db: DatabasePool, log: LogServiceClient, colle
   return withPolicyLock(db, collectionId, lock => recover(lock, log, collectionId, cursor));
 }
 
+/** Check only the newest acknowledged batch: its exact bytes at its own seq,
+ * never the log's head. A log rollback removes a suffix, so a healthy tip means
+ * no position was rolled back; a restore followed by a fresh append at that seq
+ * has other bytes. Any mismatch runs the complete fenced recovery. */
+export function verifyPolicyTip(db: DatabasePool, log: LogServiceClient, collectionId: string): Promise<number> {
+  return withPolicyLock(db, collectionId, async lock =>
+    await policyTipIntact(lock, log, collectionId) ? 0 : recover(lock, log, collectionId));
+}
+
+/** The log still holds the newest acknowledged batch's exact bytes at its seq. */
+export async function policyTipIntact(lock: PolicyLock, log: LogServiceClient, collectionId: string): Promise<boolean> {
+  const newest = (await lock.query<{ seq: string; item: Buffer }>(
+    `SELECT seq, item FROM next_policy_batches WHERE collection_id = $1
+     AND state = 'appended' AND lost_at IS NULL ORDER BY id DESC LIMIT 1`, [collectionId]
+  )).rows[0];
+  if (!newest) return true;
+  await lock.assertOwned();
+  const stored = await log.controlItemAt(collectionId, Number(newest.seq));
+  return !!stored && newest.item.equals(Buffer.from(stored));
+}
+
 interface LostBatch { id: string; park?: "lost_genesis" | "invalid_retained_ops" }
 interface SendingBatch { id: string; acknowledged: boolean }
 
@@ -101,8 +122,9 @@ async function retainedOps(client: DatabaseQueryable, batchId: string): Promise<
 async function recover(lock: PolicyLock, log: LogServiceClient, collectionId: string, cursor?: PolicyVerificationCursor): Promise<number> {
   const collection = await lock.query("SELECT collection_id FROM next_collections WHERE collection_id = $1", [collectionId]);
   if (!collection.rows.length) { if (cursor) cursor.after = "0"; return 0; }
-  await lock.assertOwned();
-  const head = await log.head(collectionId);
+  // Probes read their one position directly; a position beyond the head reads
+  // as missing. Full recovery reads the head once to skip those reads.
+  let head: { seq: number } | undefined;
   // Retain decisions only for lost/sending batches, not the healthy history.
   // All remote verification completes BEFORE any scheduling transaction starts:
   // a failed read must not commit even a prefix of the reissue plan.
@@ -128,9 +150,11 @@ async function recover(lock: PolicyLock, log: LogServiceClient, collectionId: st
       const seq = Number(batch.seq);
       // Stop a dead owner before its next remote read, not only at page end.
       await lock.assertOwned();
-      const stored = seq > head.seq ? null : await log.controlItemAt(collectionId, seq);
+      if (!probing) head ??= await log.head(collectionId);
+      const stored = head && seq > head.seq ? null : await log.controlItemAt(collectionId, seq);
       if (stored && batch.item.equals(Buffer.from(stored))) {
-        if (probing) { cursor!.after = after; return 0; }
+        // The sweep's last batch completes it without another empty probe.
+        if (probing) { cursor!.after = after === cursor!.through ? "0" : after; return 0; }
         continue;
       }
       if (probing) {
@@ -191,6 +215,14 @@ async function recover(lock: PolicyLock, log: LogServiceClient, collectionId: st
           ? await lock.query("UPDATE next_policy_batches SET state = 'appended', appended_at = now(), error = NULL WHERE id = $1 AND state = 'sending' RETURNING id", [batch.id])
           : await lock.query("DELETE FROM next_policy_batches WHERE id = $1 AND state = 'sending' RETURNING id", [batch.id]);
         if (changed.rows.length !== 1) throw new Error("policy recovery state changed; outcome unknown");
+        if (batch.acknowledged) await lock.query(
+          `UPDATE grants g SET revocation_confirmed_at = b.appended_at
+           FROM next_policy_batches b, next_policy_outbox o, next_grant_bindings binding
+           WHERE b.id = $1 AND o.batch_id = b.id AND binding.collection_id = o.collection_id AND binding.grant_id = g.id
+             AND g.revoked_at IS NOT NULL AND g.revocation_confirmed_at IS NULL
+             AND o.ops->'ops' @> jsonb_build_array(jsonb_build_object('op', 'grant-revoke', 'grant', binding.log_grant_id::text))`,
+          [batch.id]
+        );
       }
     }
     await lock.commit();

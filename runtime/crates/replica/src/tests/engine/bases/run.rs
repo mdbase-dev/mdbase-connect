@@ -118,7 +118,7 @@ fn signed_replica_executes_all_five_unchanged_tasknotes_sources_against_independ
     }
 }
 #[test]
-fn link_valued_tasknotes_display_slots_do_not_poison_all_five_views() {
+fn link_valued_tasknotes_display_slots_show_written_text_in_all_five_views() {
     let expected = reference();
     for view in expected["views"].as_array().unwrap() {
         let (_, mut a, _) = configured();
@@ -158,14 +158,15 @@ fn link_valued_tasknotes_display_slots_do_not_poison_all_five_views() {
             .collect::<Vec<_>>();
         assert_eq!(serde_json::json!(ids), view["matched"]);
         for row in result.rows {
-            for index in [4, 5, 7] {
-                assert!(matches!(
-                    row.cells[index],
-                    BasesDisplayCell::Unavailable {
-                        code: "view_unsupported_construct",
-                        detail: "link_property"
-                    }
-                ));
+            for (index, written) in [
+                (4, serde_json::json!(["[[Work#heading|alias]]"])),
+                (5, serde_json::json!(["[[Office]]"])),
+                (7, serde_json::json!("[[Other task]]")),
+            ] {
+                let BasesDisplayCell::Value(value) = &row.cells[index] else {
+                    panic!("link cell {index} is unavailable");
+                };
+                assert_eq!(plain(value), written);
             }
             assert!(matches!(row.cells[0], BasesDisplayCell::Value(_)));
         }
@@ -173,12 +174,32 @@ fn link_valued_tasknotes_display_slots_do_not_poison_all_five_views() {
 }
 
 #[test]
-fn display_link_interim_mask_does_not_hide_semantic_link_use_or_nonmatches() {
-    for source in [
-        "filters: projects.isEmpty()\nviews: [{type: table, order: [projects]}]\n",
-        "views: [{type: table, order: [projects], sort: [{column: projects}]}]\n",
-        "views: [{type: table, order: [projects], groupBy: {property: projects}}]\n",
-        "filters: 'false'\nviews: [{type: table, order: [projects]}]\n",
+fn qualified_link_use_executes_and_unqualified_use_still_refuses_whole_views() {
+    for (source, usable) in [
+        (
+            "filters: projects.isEmpty()\nviews: [{type: table, order: [projects]}]\n",
+            true,
+        ),
+        (
+            "views: [{type: table, order: [projects], sort: [{column: projects}]}]\n",
+            true,
+        ),
+        (
+            "views: [{type: table, order: [projects], groupBy: {property: projects}}]\n",
+            true,
+        ),
+        (
+            "filters: 'false'\nviews: [{type: table, order: [projects]}]\n",
+            true,
+        ),
+        (
+            "filters: 'projects == \"[[Work]]\"'\nviews: [{type: table, order: [projects]}]\n",
+            false,
+        ),
+        (
+            "filters: projects.contains(\"Work\")\nviews: [{type: table, order: [projects]}]\n",
+            false,
+        ),
     ] {
         let (_, mut a, _) = configured();
         a.create(11, "View.base", source);
@@ -193,10 +214,37 @@ fn display_link_interim_mask_does_not_hide_semantic_link_use_or_nonmatches() {
             .unwrap();
         let result =
             a.r.execute_captured_bases_view(input, policies(), &|| false);
-        if source.starts_with("filters: 'false'") {
-            assert!(result.unwrap().rows.is_empty());
-        } else {
-            assert!(result.is_err());
+        assert_eq!(result.is_ok(), usable, "{source}");
+    }
+}
+
+#[test]
+fn a_spelling_with_no_link_identity_stays_unavailable_in_display_and_refuses_in_use() {
+    let display = "views: [{type: table, order: [projects]}]\n";
+    let grouped = "views: [{type: table, order: [projects], groupBy: {property: projects}}]\n";
+    for (source, usable) in [(display, true), (grouped, false)] {
+        let (_, mut a, _) = configured();
+        a.create(11, "View.base", source);
+        a.create(1, "Task.md", "---\nprojects: '[[a]] and [[b]]'\n---\n");
+        settle(&mut [&mut a]);
+        let input =
+            a.r.capture_bases_execution_inputs(
+                select(11, source, 0),
+                Some(&BTreeMap::new()),
+                Some("UTC"),
+            )
+            .unwrap();
+        let result =
+            a.r.execute_captured_bases_view(input, policies(), &|| false);
+        assert_eq!(result.is_ok(), usable, "{source}");
+        if let Ok(result) = result {
+            assert!(matches!(
+                result.rows[0].cells[0],
+                BasesDisplayCell::Unavailable {
+                    detail: "link_property",
+                    ..
+                }
+            ));
         }
     }
 }
@@ -252,7 +300,7 @@ fn simple(source: &str) -> Node {
     a.create(
         1,
         "Task.md",
-        "---\nstatus: open\n---\n[link](target) #still-unqualified-rich-markdown",
+        "---\nstatus: open\n---\n**#still-unqualified-rich-markdown**",
     );
     settle(&mut [&mut a]);
     a

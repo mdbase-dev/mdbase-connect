@@ -220,6 +220,29 @@ async function chooseFolder(title = t(i18n)({ message: "Choose a collection fold
   return result.canceled ? null : result.filePaths[0] ?? null;
 }
 
+// The folder's mdbase.yaml names an mdbase Connect identity that no Connect on this
+// computer manages (a copied folder, or one removed from Connect).
+async function confirmLegacyIdentityRemoval(): Promise<boolean> {
+  const options: Electron.MessageBoxOptions = {
+    type: "question",
+    buttons: [
+      t(i18n)({ message: "Remove and add", context: "Desktop application" }),
+      t(i18n)`Cancel`
+    ],
+    defaultId: 1,
+    cancelId: 1,
+    message: t(i18n)({ message: "This folder has an old mdbase Connect identity", context: "Desktop application" }),
+    detail: t(i18n)({
+      message: "Its mdbase.yaml has an x-mdbase-connect entry that no mdbase Connect on this computer manages, for example because the folder was copied or removed from Connect. Adding the folder removes that entry and leaves the rest of the file unchanged.",
+      context: "Desktop application"
+    })
+  };
+  const result = mainWindow
+    ? await dialog.showMessageBox(mainWindow, options)
+    : await dialog.showMessageBox(options);
+  return result.response === 0;
+}
+
 function registerIpc(): void {
   ipcMain.handle("connect:locale:get", (event) => {
     trustedIpc(event);
@@ -265,7 +288,13 @@ function registerIpc(): void {
     trustedIpc(event);
     const path = await chooseFolder(t(i18n)({ message: "Choose a folder to add", context: "Desktop application" }));
     if (!path) return null;
-    return requestReadyAgent("collection.add", { path }, 60_000);
+    try {
+      return await requestReadyAgent("collection.add", { path }, 60_000);
+    } catch (error) {
+      if (!(error instanceof DaemonControlError) || error.reason !== "orphaned_legacy_identity") throw error;
+      if (!await confirmLegacyIdentityRemoval()) return null;
+      return requestReadyAgent("collection.add", { path, remove_legacy_identity: true }, 60_000);
+    }
   });
   ipcMain.handle("connect:collections:choose-create", async (event) => {
     trustedIpc(event);
@@ -338,6 +367,28 @@ function registerIpc(): void {
     const value = asObject(input, "Invalid mode input.");
     if ((value.targetMode !== "private" && value.targetMode !== "cloud_copy") || typeof value.resume !== "boolean" || (value.cancel !== undefined && typeof value.cancel !== "boolean")) throw new Error("Invalid mode input.");
     return bootGate.request(() => daemonCli().run(["sync", "mode", collectionIdOf(value.collectionId), value.targetMode === "private" ? "private" : "cloud-copy", ...(value.resume ? ["--resume"] : []), ...(value.cancel ? ["--cancel"] : [])], 120_000));
+  });
+  ipcMain.handle("connect:collections:sync-files", async (event, collectionId: unknown) => {
+    trustedIpc(event);
+    return requestReadyAgent("sync.files", { collection: collectionIdOf(collectionId) }, 15_000);
+  });
+  // Privileged (it changes what every device syncs): through the CLI.
+  ipcMain.handle("connect:collections:sync-files-set", async (event, input: unknown) => {
+    trustedIpc(event);
+    const value = asObject(input, "Invalid file settings.");
+    const include = value.include;
+    const exclude = value.exclude;
+    const maxSize = value.max_size;
+    if (!Array.isArray(include) || !include.every((c) => typeof c === "string" && FILE_CLASSES.has(c))
+      || !Array.isArray(exclude) || !exclude.every((f) => typeof f === "string" && f.trim() !== "")
+      || (maxSize !== undefined && (!Number.isSafeInteger(maxSize) || (maxSize as number) <= 0))) {
+      throw new Error("Invalid file settings.");
+    }
+    return bootGate.request(() => daemonCli().run([
+      "sync", "files", collectionIdOf(value.collectionId), "--set", `--types=${include.join(",")}`,
+      ...exclude.map((folder) => `--exclude=${folder}`),
+      ...(maxSize === undefined ? [] : [`--max-size=${maxSize}`])
+    ], 120_000));
   });
   ipcMain.handle("connect:collections:sync-disable", async (event, collectionId: unknown) => {
     trustedIpc(event);
@@ -480,6 +531,8 @@ function registerIpc(): void {
   });
 }
 
+const FILE_CLASSES = new Set(["image", "audio", "video", "pdf", "other"]);
+
 function collectionIdOf(value: unknown): string {
   if (typeof value !== "string" || !/^[0-9a-f-]{32,36}$/iu.test(value)) throw new Error("Invalid collection ID.");
   return value;
@@ -537,7 +590,8 @@ function asObject(value: unknown, message: string): Record<string, unknown> {
 
 
 function registerDeepLinks(): void {
-  if (!shouldRegisterDeepLinks()) return;
+  // The Store package declares the protocol in its manifest.
+  if (process.windowsStore || !shouldRegisterDeepLinks()) return;
   if (process.defaultApp && process.argv[1]) {
     app.setAsDefaultProtocolClient("mdbase-connect", process.execPath, [resolve(process.argv[1])]);
   } else {
@@ -559,7 +613,8 @@ function showRoute(route: string): void {
 }
 
 async function getLaunchAtLogin(): Promise<{ enabled: boolean; available: boolean }> {
-  if (!app.isPackaged) return { enabled: false, available: false };
+  // A registry login item would point at a versioned WindowsApps path.
+  if (!app.isPackaged || process.windowsStore) return { enabled: false, available: false };
   if (process.platform === "linux") {
     const path = join(app.getPath("appData"), "autostart", "mdbase-connect.desktop");
     try {
@@ -573,7 +628,7 @@ async function getLaunchAtLogin(): Promise<{ enabled: boolean; available: boolea
 }
 
 async function setLaunchAtLogin(enabled: boolean): Promise<{ enabled: boolean; available: boolean }> {
-  if (!app.isPackaged) return { enabled: false, available: false };
+  if (!app.isPackaged || process.windowsStore) return { enabled: false, available: false };
   if (process.platform === "linux") {
     const directory = join(app.getPath("appData"), "autostart");
     const path = join(directory, "mdbase-connect.desktop");

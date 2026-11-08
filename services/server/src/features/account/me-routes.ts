@@ -3,7 +3,8 @@ import { accessView, requireCollectionAction, resolveHostedCollectionAccess, res
 import {
   listHostedCollectionsVisibleToUser,
   listLocalCollectionsVisibleToUser,
-  listNativeCollectionsVisibleToUser
+  listNativeCollectionsVisibleToUser,
+  accountCollectionCreation
 } from "../../collection-catalog.js";
 import type { DatabasePool } from "../../db.js";
 import { effectiveEntitlement } from "../../entitlements.js";
@@ -21,7 +22,9 @@ import { liveAuthorizationCollections } from "../authorizations/local-collection
 import { grantWithCompatibleApplicationOrigin } from "../grants/application-origin.js";
 import { requiresHostedCollection } from "../grants/policy.js";
 import { hostedMirrorReplicas } from "../hosted/service.js";
+import type { LogServiceClient } from "../next/log-service-client.js";
 import { nativeDevicesByCollection } from "../next/native-grant-target.js";
+import { nextFileBytes } from "../next/storage-usage.js";
 
 interface AccountOverviewRouteOptions {
   db: DatabasePool;
@@ -33,6 +36,7 @@ interface AccountOverviewRouteOptions {
   nativeCollectionCreation?: boolean;
   hostedSharing?: boolean;
   hostedProvider?: HostedProviderClient;
+  nextLog?: Pick<LogServiceClient, "storageStatus">;
   hostedReference?: HostedAuthorityRegistry;
 }
 
@@ -62,9 +66,7 @@ export function registerAccountOverviewRoute(
     );
     if (!authenticated) return;
     const { authentication_provider: authenticationProvider, ...user } = authenticated;
-    const accountBackend = (await options.db.query<{account_backend:string; flipped:boolean}>(`SELECT u.account_backend,
-      f.account_id IS NOT NULL AS flipped FROM users u LEFT JOIN next_migration_account_flips f ON f.account_id=u.id
-      WHERE u.id=$1 AND u.suspended_at IS NULL`, [user.id])).rows[0];
+    const creation = await accountCollectionCreation(options.db, user.id, options);
     const nativeCollections = await listNativeCollectionsVisibleToUser(options.db, user.id);
     const nativeComputers = await nativeDevicesByCollection(options.db, nativeCollections.map(collection => collection.id), user.id);
     const nativeCreator = await options.db.query(
@@ -189,7 +191,6 @@ export function registerAccountOverviewRoute(
               CASE
                 WHEN g.revoked_at IS NULL THEN 'active'
                 WHEN g.hosted_replica_id IS NULL AND g.hosted_collection_id IS NULL
-                  AND g.next_collection_id IS NULL
                   AND g.revocation_confirmed_at IS NULL THEN 'revoking'
                 WHEN g.id IN (
                   SELECT job.grant_id FROM provider_revocation_jobs job
@@ -205,7 +206,7 @@ export function registerAccountOverviewRoute(
               a.distribution, a.name AS application_name,
               a.homepage, a.project_url, a.icon, a.requirements,
               COALESCE(col.display_name, hosted.display_name, native.display_name) AS collection_name,
-              CASE WHEN g.next_collection_id IS NOT NULL THEN 'private' WHEN g.hosted_collection_id IS NULL THEN 'local' ELSE 'hosted' END AS collection_kind
+              CASE WHEN g.next_collection_id IS NOT NULL THEN g.next_collection_sync WHEN g.hosted_collection_id IS NULL THEN 'local' ELSE 'hosted' END AS collection_kind
        FROM grants g
        JOIN applications a ON a.id = g.application_id
        LEFT JOIN collections col ON col.id = g.collection_id
@@ -270,6 +271,14 @@ export function registerAccountOverviewRoute(
         request.log.warn({ error }, "Hosted account usage is unavailable");
       }
     }
+    let nativeStorageBytes = null;
+    if (options.nextLog && entitlement && creation.backend === "next") {
+      try {
+        nativeStorageBytes = await nextFileBytes(options.db, options.nextLog, user.id);
+      } catch (error) {
+        request.log.warn({ error }, "Native storage usage is unavailable");
+      }
+    }
     return {
       user,
       subscription: entitlement ? {
@@ -297,6 +306,7 @@ export function registerAccountOverviewRoute(
             hostedUsage.live_content_bytes + hostedUsage.live_file_bytes,
           retained_file_bytes: hostedUsage.retained_file_bytes
         } : null,
+        native_storage_bytes: nativeStorageBytes,
         reconciliation: storageAccount.rows[0] ? {
           entitlement_revision: Number(storageAccount.rows[0].entitlement_revision),
           provider_revision: Number(storageAccount.rows[0].provider_revision)
@@ -304,7 +314,7 @@ export function registerAccountOverviewRoute(
       } : null,
       hosted_collections_available: options.hostedCollections === true,
       native_collection_creation_available: nativeCreator.rows.length > 0,
-      collection_creation_available: accountBackend?.account_backend === "next" ? accountBackend.flipped && options.nativeCollectionCreation === true : accountBackend?.account_backend === "legacy" && options.hostedCollections === true,
+      collection_creation_available: creation.available,
       collection_sharing_available: options.hostedCollections === true && options.hostedSharing === true,
       authentication: {
         provider: authenticationProvider ?? (options.tailscaleAuth ? "tailscale" : "session"),

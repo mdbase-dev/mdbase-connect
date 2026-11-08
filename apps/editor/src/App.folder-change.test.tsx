@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "./test/locale";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -8,7 +9,7 @@ import { LocaleProvider } from "@mdbase-dev/i18n/react";
 import { editorLocaleRuntime } from "./i18n/runtime";
 import type { MutationOperationOptions, NoteDocument } from "./model";
 
-vi.mock("./CodeEditor", () => ({ CodeEditor: ({ value, onChange, label }: { value: string; onChange?: (value: string) => void; label: string }) => <textarea aria-label={label} value={value} onChange={(event) => onChange?.(event.target.value)} /> }));
+vi.mock("./CodeEditor", () => ({ CodeEditor: ({ header, value, onChange, label }: { header?: ReactNode; value: string; onChange?: (value: string) => void; label: string }) => <>{header}<textarea aria-label={label} value={value} onChange={(event) => onChange?.(event.target.value)} /></> }));
 vi.mock("@tanstack/react-virtual", () => ({ useVirtualizer: ({ count }: { count: number }) => ({ getTotalSize: () => count * 76, getVirtualItems: () => Array.from({ length: count }, (_, index) => ({ index, start: index * 76, size: 76 })) }) }));
 
 async function renameFolder(user: ReturnType<typeof userEvent.setup>, folder: string, name: string) {
@@ -29,7 +30,7 @@ describe("collection-wide folder changes", () => {
       render(<LocaleProvider runtime={editorLocaleRuntime} onError={(error) => { throw error; }}>
         <App gateway={new DemoCollectionGateway(12)} />
       </LocaleProvider>);
-      expect(await screen.findByRole("heading", { name: "Todas las notas" })).toBeInTheDocument();
+      expect(await within(await screen.findByRole("region", { name: "Notas y archivos" })).findByRole("heading", { name: "Todas las notas" })).toBeInTheDocument();
       expect(screen.queryByRole("heading", { name: "All notes" })).not.toBeInTheDocument();
     } finally {
       await act(() => editorLocaleRuntime.selectLocale("en"));

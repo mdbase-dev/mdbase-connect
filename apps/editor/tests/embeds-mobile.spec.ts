@@ -15,7 +15,10 @@ for (const width of [360, 390, 430]) {
     await page.goto("?demo=300");
     const title = page.getByRole("textbox", { name: "Note title" });
     await expect(title).toBeVisible();
-    await expect(page.locator(".editor-bar button:visible")).toHaveCount(2);
+    await expect(page.locator(".editor-bar button:visible")).toHaveCount(3);
+    const newNote = (await page.locator(".editor-bar").getByRole("button", { name: "New note", exact: true }).boundingBox())!;
+    const more = (await page.getByRole("button", { name: "More note actions" }).boundingBox())!;
+    expect(more.x - (newNote.x + newNote.width)).toBe(0);
     await expect(page.locator(".mobile-note-path")).toHaveText("Notes/the-shape-of-useful-tools.md");
     await expect(page.locator(".editor-bar .path-button")).toHaveCount(0);
     for (const theme of ["light", "dark"]) {
@@ -42,13 +45,14 @@ for (const width of [360, 390, 430]) {
     await page.getByRole("menuitem", { name: "Quick open" }).click();
     const quick = page.getByRole("dialog", { name: "Quick open" });
     await expect(quick).toBeVisible();
-    await fitsViewport(page, ".quick-open");
+    await fitsViewport(page, ".mdbase-command-palette");
     await quick.getByRole("combobox").fill("Ideas for Sunday 12");
     await quick.getByRole("option").filter({ has: page.getByText("Ideas for Sunday 12", { exact: true }) }).click();
     await expect(title).toHaveValue("Ideas for Sunday 12");
     await page.getByRole("button", { name: "More note actions" }).click();
     await page.getByRole("menuitem", { name: "Note properties" }).click();
     await expect(page.getByLabel("tags value item 1")).toHaveValue("notes");
+    await expect.poll(() => page.getByRole("dialog", { name: "Note properties" }).evaluate(element => element.getAnimations().length)).toBe(0);
     await fitsViewport(page, ".property-fields");
     const propertyFields = await page.locator(".property-fields").boundingBox();
     const removeProperty = await page.getByRole("button", { name: "Remove tags property" }).boundingBox();
@@ -59,8 +63,7 @@ for (const width of [360, 390, 430]) {
     expect(target!.height).toBeGreaterThanOrEqual(44);
     await page.getByRole("button", { name: "Close properties" }).click();
 
-    await page.getByRole("button", { name: "More note actions" }).click();
-    await page.getByRole("menuitem", { name: "New note", exact: true }).click();
+    await page.locator(".editor-bar").getByRole("button", { name: "New note", exact: true }).click();
     await expect(page.getByRole("textbox", { name: "Title", exact: true })).toBeVisible();
     await fitsViewport(page, ".new-note-composer");
     await page.locator(".new-note-actions").getByRole("button", { name: "Cancel" }).click();
@@ -107,8 +110,12 @@ test("embed actions reveal on pointer and keyboard focus without a caption bar",
   const viewer = page.getByRole("dialog", { name: "Preview frontmatter.svg" });
   await expect(viewer).toBeVisible();
   await expect(viewer.getByRole("button", { name: "Close file preview" })).toBeFocused();
-  await page.keyboard.press("Tab");
+  await viewer.getByRole("link", { name: "Open original" }).focus();
   await expect(viewer.getByRole("link", { name: "Open original" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(viewer.getByRole("button", { name: "Close file preview" })).toBeFocused();
+  await page.getByRole("textbox", { name: "Note body", exact: true, includeHidden: true }).evaluate(element => (element as HTMLElement).focus());
+  await expect(viewer.getByRole("button", { name: "Close file preview" })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(viewer).not.toBeAttached();
   await expect(embed.getByRole("button", { name: "Open frontmatter.svg" })).toBeFocused();

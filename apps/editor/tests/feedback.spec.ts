@@ -121,9 +121,7 @@ test("screenshot redaction flattens opaque pixels and sends only the resulting i
 
 test("feedback keeps application shortcuts out and restores the draft/focus after Escape", async ({ page }) => {
   await page.goto("?demo=4");
-  // The lazily mounted note editor takes focus once unless an editable control owns it (CodeEditor.focus.test.tsx).
-  // Settle that initial autofocus first; otherwise it can land after Escape and move focus off the restored trigger.
-  await expect(page.getByRole("textbox", { name: "Note body", exact: true })).toBeFocused();
+  await expect(page.getByRole("listbox", { name: "Collection notes and files" })).toBeFocused();
   const entry = feedbackEntry(page);
   await entry.click();
   const dialog = page.getByRole("dialog", { name: "Send feedback" });
@@ -131,17 +129,24 @@ test("feedback keeps application shortcuts out and restores the draft/focus afte
   await dialog.getByRole("textbox", { name: /What happened/ }).press("Control+Shift+N");
   await expect(page.locator(".new-note-composer")).toHaveCount(0);
   await dialog.getByRole("textbox", { name: /What happened/ }).press("Escape");
-  await expect(dialog).not.toBeVisible(); await expect(entry).toBeFocused();
+  await expect(dialog).toHaveCount(0); await expect(entry).toBeFocused();
   await entry.click();
   await expect(dialog.getByRole("textbox", { name: /What happened/ })).toHaveValue("Keep the editor unchanged while I report this.");
 });
 
-test("bug animation is finite and respects reduced motion", async ({ page }) => {
+test("feedback stays text-only under both motion preferences", async ({ page }) => {
   await page.goto("?demo=4");
-  const bug = feedbackEntry(page).locator(".mdbase-feedback-bug");
-  await expect(bug).toBeVisible(); await bug.evaluate((element) => element.classList.add("is-wiggling"));
-  await page.emulateMedia({ reducedMotion: "no-preference" });
-  expect(await bug.evaluate((element) => getComputedStyle(element).animationIterationCount)).toBe("2");
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  expect(await bug.evaluate((element) => getComputedStyle(element).animationName)).toBe("none");
+  const entry = feedbackEntry(page);
+  for (const reducedMotion of ["no-preference", "reduce"] as const) {
+    await page.emulateMedia({ reducedMotion });
+    await expect(entry).toBeVisible();
+    await expect(entry).toHaveText("Send feedback");
+    await expect(entry.locator("svg")).toHaveCount(0);
+    await entry.click();
+    const dialog = page.getByRole("dialog", { name: "Send feedback" });
+    await expect(dialog).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await expect(entry).toBeFocused();
+  }
 });

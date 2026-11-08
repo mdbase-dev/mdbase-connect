@@ -79,10 +79,10 @@ export function TakeoverPanel({ names }: { names: Record<string, string> }) {
       </ul>}
       {view.canStart && <div className="collection-config-actions">
         {view.offerStopMirrors && <label className="takeover-option"><Trans>
-          <input type="checkbox" checked={stopMirrors} onChange={(event) => setStopMirrors(event.target.checked)} />
+          <input className="mdbase-checkbox" type="checkbox" checked={stopMirrors} onChange={(event) => setStopMirrors(event.target.checked)} />
           Allow hosted mirrors to stop until I join them again
         </Trans></label>}
-        <button className="button primary" disabled={running} onClick={() => void start()}><Trans>Move to the new sync engine</Trans></button>
+        <button className="mdbase-button is-primary" disabled={running} onClick={() => void start()}><Trans>Move to the new sync engine</Trans></button>
       </div>}
     </section>
   );

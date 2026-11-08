@@ -1063,7 +1063,9 @@ pub(super) fn file_move(
     let updates = if f.update_refs {
         let mut post = Overlay::new(ov);
         post.apply_effect(&file_effect_kind(f.id, to.clone(), cur.content, cur.kind));
-        crate::links::plan_reference_updates(ov, &post, f.id, &to)
+        let mut updates = crate::links::plan_reference_updates(ov, &post, f.id, &to);
+        super::records::prepare_reference_updates(ctx, &post, &mut updates)?;
+        updates
     } else {
         Vec::new()
     };
@@ -1073,15 +1075,7 @@ pub(super) fn file_move(
     ctx.record_rewrites(&updates);
     ctx.emit(ov, file_effect_kind(f.id, to, cur.content, cur.kind));
     for u in updates {
-        ctx.touch_id(u.id);
-        ctx.emit(
-            ov,
-            Effect::PutRecord {
-                id: u.id,
-                path: u.path,
-                doc: u.doc,
-            },
-        );
+        super::records::emit_reference_update(ctx, ov, u);
     }
     ctx.record_broken(ov, f.id, before);
     Ok(())

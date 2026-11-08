@@ -353,6 +353,9 @@ fn push_payload(p: &Push) -> Cbor {
             ),
             (3, apply.expected.to_cbor()),
         ]),
+        Push::FileStreamFailed { stream, problem } => {
+            smap(vec![(0, Cbor::Uint(*stream)), (1, problem.to_cbor())])
+        }
         Push::Closed(problem) => problem.to_cbor(),
     }
 }

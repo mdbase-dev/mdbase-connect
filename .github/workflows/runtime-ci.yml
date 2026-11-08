@@ -5,7 +5,6 @@ on:
     paths: ['runtime/**', '.github/workflows/runtime-ci.yml', '.github/workflows/runtime-native-tests.yml', '.github/workflows/release-workers.yml', 'scripts/release-workers*.mjs']
   push:
     branches: [main]
-    paths: ['runtime/**', '.github/workflows/runtime-ci.yml', '.github/workflows/runtime-native-tests.yml', '.github/workflows/release-workers.yml', 'scripts/release-workers*.mjs']
   workflow_dispatch:
 permissions:
   contents: read
@@ -20,6 +19,22 @@ env:
   CARGO_NET_RETRY: '10'
   WRANGLER_SEND_METRICS: 'false'
 jobs:
+  publication:
+    name: Worker publication contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Verify publisher authorization, trust hold and ops publication contract
+        working-directory: .
+        run: node --test scripts/release-workers.test.mjs
+
   native:
     uses: ./.github/workflows/runtime-native-tests.yml
 
@@ -87,7 +102,7 @@ jobs:
   sdk:
     name: sdk execution
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: runtime/packages/sdk
@@ -117,6 +132,9 @@ jobs:
       - name: Managed native trust compiler-input regressions (real shared verifier)
         working-directory: runtime
         run: node --test scripts/build-managed-native-trust.test.mjs
+      - name: Native staging artifact custody regressions (synthetic custody only)
+        working-directory: runtime
+        run: node --test scripts/native-staging-artifact.test.mjs
       - name: install
         run: npm ci --no-audit --no-fund
       - name: typecheck
@@ -140,8 +158,8 @@ jobs:
           for smoke in app-storage app-sqlite app-owner keys-mv3 app-private-persistence app-cloud-copy-outcome; do
             timeout 120s node "packages/sdk/scripts/$smoke-smoke.mjs"
           done
-      - name: thin-client bundle size
-        run: npm run size
+      - name: bundle boundaries
+        run: npm run bundle-boundaries
 
   obsidian:
     name: obsidian runtime execution

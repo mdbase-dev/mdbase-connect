@@ -181,7 +181,7 @@ pub(super) fn resources(input: &Value, apply: bool) -> OpResult {
     let setup = CollectionSetup::from_value(&j::to_core(setup), &nested_pack)
         .map_err(|e| OpError::from_issue(*e))?;
     if !apply {
-        let a = envelope::assess_collection_resources(&state, &setup)
+        let a = envelope::assess_collection_resources(&state, &setup, &Default::default())
             .map_err(|e| OpError::from_issue(*e))?;
         return Ok(assessment(&a));
     }
@@ -190,8 +190,9 @@ pub(super) fn resources(input: &Value, apply: bool) -> OpResult {
         .and_then(Value::as_str)
         .and_then(Hash::parse)
         .ok_or_else(invalid)?;
-    let (a, ops) = envelope::apply_collection_resources(&state, &setup, expected)
-        .map_err(|e| OpError::from_issue(*e))?;
+    let (a, ops) =
+        envelope::apply_collection_resources(&state, &setup, expected, &Default::default())
+            .map_err(|e| OpError::from_issue(*e))?;
     // Do not plan a fake collection or derive snapshot writes: the actual native
     // atomic mutation must enforce these original guards and explicit creates.
     Ok(json!({

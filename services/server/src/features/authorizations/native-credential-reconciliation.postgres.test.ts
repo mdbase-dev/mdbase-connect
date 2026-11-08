@@ -77,8 +77,8 @@ suite("original native token completion (isolated PostgreSQL)", () => {
     [request, account, app, JSON.stringify(operations), collection, proof.binding.contracts.operation_transport, proof.binding.grant_agreement_public_key,
       signing.publicKey, JSON.stringify(proof), proof.binding.application_installation_id, REDIRECT, proof.binding.code_challenge, proof.binding.state]);
     await storeRequestClientNoiseKey(db, request, verifiedClientNoiseKey(JSON.stringify({ public_key: noise.toString("base64url"), signature: signature.toString("base64url") }), proof.binding)!);
-    await db.query(`INSERT INTO grants(id,user_id,application_id,next_collection_id,operations,scope,proof_public_key,application_origin,application_authorization,application_installation_id,activated_at)
-      VALUES($1,$2,$3,$4,$5::jsonb,'{"access":"full_collection","contracts":[]}',$6,$7,$8::jsonb,$9,now())`,
+    await db.query(`INSERT INTO grants(id,user_id,application_id,next_collection_id,next_collection_sync,operations,scope,proof_public_key,application_origin,application_authorization,application_installation_id,activated_at)
+      VALUES($1,$2,$3,$4,'private',$5::jsonb,'{"access":"full_collection","contracts":[]}',$6,$7,$8::jsonb,$9,now())`,
     [grant, account, app, collection, JSON.stringify(operations), signing.publicKey, new URL(REDIRECT).origin, JSON.stringify(proof), proof.binding.application_installation_id]);
     await copyClientNoiseKeyToGrant(db, request, grant);
     await db.query("UPDATE authorization_requests SET completed_at=now(),grant_id=$2 WHERE id=$1", [request, grant]);

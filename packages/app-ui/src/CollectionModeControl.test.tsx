@@ -61,6 +61,12 @@ it("cancels pending intent without an optimistic mode change and restores a fres
   await mount(async()=>value,undefined,false,"one",cancel);await click("Cancel switch");
   expect(cancel).toHaveBeenCalledWith("private","request");expect(host.textContent).toContain("Make private");
 });
+it("explains an abandoned Private switch without offering either direction",async()=>{
+  const change=vi.fn(async()=>({}));
+  await mount(async()=>state("private",{request_id:"request",target_mode:"private",phase:"abandoned"}),change,true,"one",vi.fn(async()=>({})));
+  expect(host.querySelector('[role="status"]')?.textContent).toContain("Revoke the device that started it");
+  expect([...host.querySelectorAll("button")].map(b=>b.textContent)).toEqual(["Refresh status"]);
+});
 it("ignores a stale response after switching collection",async()=>{
   let resolve!:(value:unknown)=>void;const old=new Promise<unknown>(r=>{resolve=r;});
   await mount(()=>old);await mount(async()=>state("private"),undefined,false,"two");

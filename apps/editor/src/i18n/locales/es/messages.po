@@ -116,7 +116,7 @@ msgid "{0, plural, one {# required field unmapped} other {# required fields unma
 msgstr "{0, plural, one {# campo obligatorio sin asignar} other {# campos obligatorios sin asignar}}"
 
 #. placeholder {0}: recoveryAction.references
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "{0, plural, one {Also updated links in # note.} other {Also updated links in # notes.}}"
 msgstr "{0, plural, one {También se actualizaron los enlaces en # nota.} other {También se actualizaron los enlaces en # notas.}}"
 
@@ -131,7 +131,7 @@ msgid "{0, plural, one {Move # note?} other {Move # notes?}}"
 msgstr "{0, plural, one {¿Mover # nota?} other {¿Mover # notas?}}"
 
 #. placeholder {0}: recoveryAction.paths.length
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "{0, plural, one {Moved # note.} other {Moved # notes.}}"
 msgstr "{0, plural, one {Se movió # nota.} other {Se movieron # notas.}}"
 
@@ -281,11 +281,6 @@ msgstr "Coinciden {0} de {1} campos"
 #: src/NoteList.tsx
 msgid "{0} of {1} notes"
 msgstr "{0} de {1} notas"
-
-#. placeholder {0}: shortcutModifier()
-#: src/NoteSearchField.tsx
-msgid "{0} P"
-msgstr "{0} P"
 
 #. placeholder {0}: directory.invalid.length
 #: src/YourPersonPanel.tsx
@@ -720,10 +715,6 @@ msgstr "<0>{0}</0> · Edita esta nota para cambiar su nombre visible en la colec
 msgid "<0>{linkedSchema}</0> is installed with this type. Field structure is edited at the schema source."
 msgstr "<0>{linkedSchema}</0> está instalado con este tipo. La estructura de los campos se edita en el origen del esquema."
 
-#: src/QuickOpen.tsx
-msgid "<0>↑↓</0> choose · <1>Enter</1> open · <2>></2> actions · <3>Esc</3> close"
-msgstr "<0>↑↓</0> elegir · <1>Intro</1> abrir · <2>></2> acciones · <3>Esc</3> cerrar"
-
 #. placeholder {0}: (changed - 20).toLocaleString(displayLocale())
 #: src/TypeBrowser.tsx
 msgid "<0>More</0>{0} additional notes"
@@ -817,10 +808,6 @@ msgstr "Acerca de los contactos existentes"
 msgid "Actions"
 msgstr "Acciones"
 
-#: src/QuickOpen.tsx
-msgid "Actions in quick open"
-msgstr "Acciones en la apertura rápida"
-
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add"
@@ -839,10 +826,6 @@ msgstr "Rellena el campo «{0}» para crear la nota."
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add a custom property…"
 msgstr "Añadir una propiedad personalizada…"
-
-#: src/QuickOpen.tsx
-msgid "Add a link, in the note text"
-msgstr "Añadir un enlace, en el texto de la nota"
 
 #: src/SdkEditorRoot.tsx
 msgid "Add a Private collection"
@@ -1017,9 +1000,10 @@ msgid "Advisory labels and colour used when records of this type are shown."
 msgstr "Etiquetas y color orientativos que se usan al mostrar registros de este tipo."
 
 #: src/App.tsx
+#: src/editor-commands.ts
 #: src/EditorRail.tsx
+#: src/LoadingScreens.tsx
 #: src/note-list-view.ts
-#: src/NoteListViewOptions.tsx
 msgid "All notes"
 msgstr "Todas las notas"
 
@@ -1124,6 +1108,7 @@ msgid "Assigned by name"
 msgstr "Asignación por nombre"
 
 #: src/AttachmentUpload.tsx
+#: src/editor-commands.ts
 msgid "Attach file…"
 msgstr "Adjuntar archivo…"
 
@@ -1157,6 +1142,7 @@ msgctxt "direct connection availability"
 msgid "Available"
 msgstr "Disponible"
 
+#: src/editor-commands.ts
 #: src/StructuredPropertiesEditor.tsx
 msgid "Back"
 msgstr "Volver"
@@ -1164,10 +1150,6 @@ msgstr "Volver"
 #: src/App.tsx
 msgid "Back in note history"
 msgstr "Atrás en el historial de notas"
-
-#: src/QuickOpen.tsx
-msgid "Back or forward"
-msgstr "Atrás o adelante"
 
 #: src/App.tsx
 msgid "Back to {historyBackPath} · Alt+Left"
@@ -1190,7 +1172,13 @@ msgstr "Volver a la edición"
 msgid "Back to fields"
 msgstr "Volver a los campos"
 
+#: src/ConnectionScreens.tsx
+#: src/SdkEditorRoot.tsx
+msgid "Back to mdbase Connect"
+msgstr "Volver a mdbase Connect"
+
 #: src/App.tsx
+#: src/LoadingScreens.tsx
 msgid "Back to notes"
 msgstr "Volver a las notas"
 
@@ -1201,10 +1189,6 @@ msgstr "Volver a notas y archivos"
 #: src/TypeBrowser.tsx
 msgid "Back to types"
 msgstr "Volver a los tipos"
-
-#: src/QuickOpen.tsx
-msgid "Best matches"
-msgstr "Mejores coincidencias"
 
 #. placeholder {0}: segments.join(".")
 #: src/type-contracts.ts
@@ -1237,9 +1221,9 @@ msgstr "Bloque · {0}"
 msgid "Body differences"
 msgstr "Diferencias en el cuerpo"
 
-#: src/QuickOpen.tsx
-msgid "Bold or italic"
-msgstr "Negrita o cursiva"
+#: src/editor-commands.ts
+msgid "Bold"
+msgstr "Negrita"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Boolean"
@@ -1257,9 +1241,12 @@ msgstr "Lista con viñetas"
 msgid "Calculated"
 msgstr "Calculado"
 
+#: src/ConnectionScreens.tsx
+msgid "Can't open this collection"
+msgstr "No se puede abrir esta colección"
+
 #: src/App.tsx
 #: src/BulkNoteProperties.tsx
-#: src/Dialog.tsx
 #: src/FolderChangeDialog.tsx
 #: src/MoveNoteDialog.tsx
 #: src/NewNoteComposer.tsx
@@ -1471,21 +1458,13 @@ msgstr "Borrar la búsqueda de tipos"
 msgid "Close file preview"
 msgstr "Cerrar la vista previa del archivo"
 
-#: src/QuickOpen.tsx
-msgid "Close keyboard shortcuts"
-msgstr "Cerrar los atajos de teclado"
-
-#: src/WorkspaceChrome.tsx
-msgid "Close outline"
-msgstr "Cerrar el esquema"
+#: src/App.tsx
+msgid "Close note peek"
+msgstr "Cerrar vista previa de la nota"
 
 #: src/PropertiesPanel.tsx
 msgid "Close properties"
 msgstr "Cerrar las propiedades"
-
-#: src/QuickOpen.tsx
-msgid "Close quick open"
-msgstr "Cerrar la apertura rápida"
 
 #: src/code-editor-completions.ts
 msgid "Code block"
@@ -1605,6 +1584,16 @@ msgstr "Cómodo"
 msgid "Commands"
 msgstr "Comandos"
 
+#. placeholder {0}: shortcutLabel(commandDefinitions["command-palette"].shortcut)
+#: src/NoteSearchField.tsx
+msgid "Commands · {0}"
+msgstr "Comandos · {0}"
+
+#. placeholder {0}: shortcutLabel(commandDefinitions["command-palette"].shortcut)
+#: src/NoteSearchField.tsx
+msgid "Commands · {0} outside text"
+msgstr "Comandos · {0} fuera del texto"
+
 #: src/TypeBrowser.tsx
 msgid "Common icons"
 msgstr "Iconos comunes"
@@ -1651,10 +1640,6 @@ msgid "Configured"
 msgstr "Configurado"
 
 #: src/TypeBrowser.tsx
-msgid "Confirm the collection-wide effect before saving."
-msgstr "Confirma el efecto en toda la colección antes de guardar."
-
-#: src/TypeBrowser.tsx
 msgid "Confirm update"
 msgstr "Confirmar actualización"
 
@@ -1670,9 +1655,23 @@ msgstr "¿Conectar otra colección?"
 msgid "Connect application contract"
 msgstr "Conectar contrato de aplicación"
 
+#: src/ConnectionScreens.tsx
+msgid "Connect server: {server}"
+msgstr "Servidor de Connect: {server}"
+
 #: src/CollectionRail.tsx
 msgid "Connected"
 msgstr "Conectado"
+
+#: src/settings/SettingsView.tsx
+msgctxt "connection route"
+msgid "Connected directly"
+msgstr "Conectado directamente"
+
+#: src/settings/SettingsView.tsx
+msgctxt "connection route"
+msgid "Connected through mdbase"
+msgstr "Conectado a través de mdbase"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -1910,9 +1909,15 @@ msgstr "Créala con una primera nota. Las carpetas vacías no se guardan."
 msgid "Create my person record"
 msgstr "Crear mi registro de persona"
 
+#: src/editor-commands.ts
 #: src/NewNoteComposer.tsx
 msgid "Create note"
 msgstr "Crear nota"
+
+#. placeholder {0}: query.trim()
+#: src/QuickOpen.tsx
+msgid "Create note ‘{0}’"
+msgstr "Crear nota ‘{0}’"
 
 #: src/NewNoteComposer.tsx
 msgid "Create note (Ctrl or Command + Enter)"
@@ -1929,10 +1934,6 @@ msgstr "Crear la primera nota"
 #: src/TypeBrowser.tsx
 msgid "Create the first type"
 msgstr "Crear el primer tipo"
-
-#: src/TypeBrowser.tsx
-msgid "Create this type?"
-msgstr "¿Crear este tipo?"
 
 #: src/TypeBrowser.tsx
 msgid "Create type"
@@ -1954,14 +1955,6 @@ msgstr "Creando"
 #: src/NewNoteComposer.tsx
 msgid "Creating folder"
 msgstr "Creando carpeta"
-
-#: src/NewNoteComposer.tsx
-msgid "Ctrl "
-msgstr "Ctrl "
-
-#: src/editor-commands.ts
-msgid "Current note"
-msgstr "Nota actual"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Custom"
@@ -2031,18 +2024,18 @@ msgstr "Eliminar"
 msgid "delete notes"
 msgstr "eliminar notas"
 
-#: src/App.tsx
-msgid "Deleted “{title}”."
-msgstr "Se eliminó «{title}»."
+#: src/use-note-actions.ts
+msgid "Deleted {title}"
+msgstr "Se eliminó {title}"
 
 #: src/note-mutation-presentation.ts
 #: src/WorkspaceChrome.tsx
 msgid "Deleting"
 msgstr "Eliminando"
 
-#: src/App.tsx
-msgid "Deleting “{title}”…"
-msgstr "Eliminando «{title}»…"
+#: src/use-note-actions.ts
+msgid "Deleting {title}…"
+msgstr "Eliminando {title}…"
 
 #: src/note-mutation-presentation.ts
 msgid "Deleting note"
@@ -2056,6 +2049,10 @@ msgstr "Describe qué propiedades apuntan a otros registros y cómo se validan l
 #: src/TypeBrowser.tsx
 msgid "Description"
 msgstr "Descripción"
+
+#: src/TypeBrowser.tsx
+msgid "Description changed"
+msgstr "Descripción modificada"
 
 #: src/TypeBrowser.tsx
 msgid "Description field"
@@ -2133,10 +2130,6 @@ msgstr "Descartar tipo"
 msgid "Discard type changes?"
 msgstr "¿Descartar los cambios del tipo?"
 
-#: src/Toasts.tsx
-msgid "Dismiss notification"
-msgstr "Cerrar notificación"
-
 #: src/type-presentation.ts
 #: src/TypeBrowser.tsx
 msgid "Display"
@@ -2198,6 +2191,10 @@ msgstr "Cada opción incluye su contrato portátil y una asignación local edita
 #: src/type-contracts.ts
 msgid "Each implementation needs an exact contract ID and version."
 msgstr "Cada implementación necesita un ID de contrato y una versión exactos."
+
+#: src/note-sort.ts
+msgid "Earliest first"
+msgstr "Primero los más tempranos"
 
 #: src/ConnectionScreens.tsx
 msgid "edit and move notes"
@@ -2329,6 +2326,10 @@ msgid "Exact Markdown source, including YAML frontmatter and body."
 msgstr "Código fuente Markdown exacto, incluidos el frontmatter YAML y el cuerpo."
 
 #: src/TypeBrowser.tsx
+msgid "Existing note contents and fields stay unchanged."
+msgstr "El contenido y los campos de las notas existentes no cambian."
+
+#: src/TypeBrowser.tsx
 msgid "Existing notes need attention"
 msgstr "Las notas existentes requieren atención"
 
@@ -2341,7 +2342,6 @@ msgid "Existing person or contact"
 msgstr "Persona o contacto existente"
 
 #: src/App.tsx
-#: src/QuickOpen.tsx
 msgid "Exit focus mode"
 msgstr "Salir del modo de enfoque"
 
@@ -2388,6 +2388,7 @@ msgstr "Selectores de campo con un valor no admitido"
 msgid "Field type"
 msgstr "Tipo de campo"
 
+#: src/NoteListViewOptions.tsx
 #: src/TypeBrowser.tsx
 msgid "Fields"
 msgstr "Campos"
@@ -2417,19 +2418,31 @@ msgstr "Ruta del archivo"
 msgid "File viewer, {filename}"
 msgstr "Visor de archivos, {filename}"
 
+#: src/App.tsx
+msgid "Files can’t be renamed in the Editor."
+msgstr "No se puede cambiar el nombre de los archivos en el Editor."
+
 #: src/NewNoteComposer.tsx
 msgid "Fill in the required properties."
 msgstr "Completa las propiedades obligatorias."
+
+#: src/editor-commands.ts
+msgid "Filter by tag"
+msgstr "Filtrar por etiqueta"
+
+#: src/editor-commands.ts
+msgid "Filter by type"
+msgstr "Filtrar por tipo"
 
 #: src/code-editor-completions.ts
 msgid "Filter links by type"
 msgstr "Filtrar enlaces por tipo"
 
-#: src/QuickOpen.tsx
+#: src/App.tsx
 msgid "Find a note by title or path, or type > for actions"
 msgstr "Busca una nota por título o ruta, o escribe > para ver acciones"
 
-#: src/QuickOpen.tsx
+#: src/App.tsx
 msgid "Find a note or action"
 msgstr "Buscar una nota o acción"
 
@@ -2437,7 +2450,7 @@ msgstr "Buscar una nota o acción"
 msgid "Find a property"
 msgstr "Buscar una propiedad"
 
-#: src/QuickOpen.tsx
+#: src/editor-commands.ts
 msgid "Find in note"
 msgstr "Buscar en la nota"
 
@@ -2549,6 +2562,10 @@ msgstr "Olvidar en este navegador"
 msgid "Format"
 msgstr "Formato"
 
+#: src/editor-commands.ts
+msgid "Forward"
+msgstr "Adelante"
+
 #: src/App.tsx
 msgid "Forward in note history"
 msgstr "Avanzar en el historial de notas"
@@ -2596,6 +2613,10 @@ msgstr "Preparando esta colección…"
 msgid "Give the type a name, then add the fields its notes need."
 msgstr "Ponle un nombre al tipo y luego añade los campos que necesitan sus notas."
 
+#: src/App.tsx
+msgid "Go to note title"
+msgstr "Ir al título de la nota"
+
 #: src/TypeBrowser.tsx
 msgid "Guide compatible tools when they create or rename records of this type."
 msgstr "Orienta a las herramientas compatibles cuando crean registros de este tipo o les cambian el nombre."
@@ -2624,10 +2645,14 @@ msgstr "Ocultar la barra lateral de notas"
 msgid "Hide types sidebar"
 msgstr "Ocultar la barra lateral de tipos"
 
+#: src/note-sort.ts
+msgid "High to low"
+msgstr "De mayor a menor"
+
 #: src/settings/SettingsView.tsx
-msgctxt "connection route"
-msgid "Hosted"
-msgstr "Alojado"
+msgctxt "settings view"
+msgid "Hosted by mdbase"
+msgstr "Alojado por mdbase"
 
 #: src/TypeBrowser.tsx
 msgid "How notes are assigned to this type."
@@ -2653,9 +2678,17 @@ msgstr "El impacto se calcula según las notas indexadas actualmente. La colecci
 msgid "in the list"
 msgstr "en la lista"
 
+#: src/editor-commands.ts
+msgid "in the note composer"
+msgstr "en el editor de notas"
+
 #: src/type-contracts.ts
 msgid "Incompatible"
 msgstr "No compatible"
+
+#: src/editor-commands.ts
+msgid "Inline code"
+msgstr "Código en línea"
 
 #: src/code-editor-completions.ts
 msgid "Insert a fenced code block"
@@ -2721,6 +2754,10 @@ msgstr "JSON no válido."
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
 msgstr "No se ha editado desde que se añadió, así que se reemplazará por el nuevo tipo inicial."
 
+#: src/editor-commands.ts
+msgid "Italic"
+msgstr "Cursiva"
+
 #: src/TypeBrowser.tsx
 msgid "Its current structural rules will be replaced."
 msgstr "Se reemplazarán sus reglas estructurales actuales."
@@ -2764,6 +2801,10 @@ msgstr "Grande"
 #: src/code-editor-completions.ts
 msgid "Large section heading"
 msgstr "Encabezado de sección grande"
+
+#: src/note-sort.ts
+msgid "Latest first"
+msgstr "Primero los más tardíos"
 
 #: src/ConflictResolver.tsx
 msgid "Latest title"
@@ -2829,7 +2870,7 @@ msgstr "Enlace a nota o archivo"
 msgid "Linked from"
 msgstr "Vinculado desde"
 
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "Linked mention."
 msgstr "Mención vinculada."
 
@@ -2876,6 +2917,10 @@ msgstr "esquema del elemento de la lista"
 msgid "List items"
 msgstr "Elementos de la lista"
 
+#: src/note-sort.ts
+msgid "Listed order"
+msgstr "Orden de la lista"
+
 #: src/App.tsx
 msgid "Loaded the latest version."
 msgstr "Se cargó la versión más reciente."
@@ -2892,10 +2937,6 @@ msgstr "Cargando catálogo de contratos"
 msgid "Loading file viewer"
 msgstr "Cargando visor de archivos"
 
-#: src/App.tsx
-msgid "Loading folder composer"
-msgstr "Cargando creador de carpetas"
-
 #: src/CollectionRail.tsx
 msgid "Loading folders…"
 msgstr "Cargando carpetas…"
@@ -2904,10 +2945,7 @@ msgstr "Cargando carpetas…"
 msgid "Loading note"
 msgstr "Cargando nota"
 
-#: src/App.tsx
-msgid "Loading note composer"
-msgstr "Cargando creador de notas"
-
+#: src/DeferredCodeEditor.tsx
 #: src/MarkdownNoteEditor.tsx
 msgid "Loading note editor"
 msgstr "Cargando editor de notas"
@@ -2959,6 +2997,15 @@ msgstr "Hora local ({0})"
 msgid "Loses"
 msgstr "Pierde"
 
+#: src/note-sort.ts
+msgid "Low to high"
+msgstr "De menor a mayor"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Main copy"
+msgstr "Copia principal"
+
 #: src/ConnectionScreens.tsx
 msgid "manage type definitions"
 msgstr "administrar definiciones de tipo"
@@ -2988,7 +3035,7 @@ msgstr "Marcar tarea como completada"
 msgid "Mark task incomplete"
 msgstr "Marcar tarea como incompleta"
 
-#: src/QuickOpen.tsx
+#: src/editor-commands.ts
 msgid "Markdown commands"
 msgstr "Comandos Markdown"
 
@@ -3004,17 +3051,9 @@ msgstr "Ruta Markdown"
 msgid "Markdown preview unavailable."
 msgstr "Vista previa de Markdown no disponible."
 
-#: src/QuickOpen.tsx
-msgid "Matching actions"
-msgstr "Acciones coincidentes"
-
 #: src/TypeBrowser.tsx
 msgid "Matching notes"
 msgstr "Notas coincidentes"
-
-#: src/QuickOpen.tsx
-msgid "Matching notes and actions"
-msgstr "Notas y acciones coincidentes"
 
 #: src/type-schema.ts
 msgid "Matching rules"
@@ -3110,23 +3149,16 @@ msgstr "Las propiedades que faltan no tienen valores predeterminados de lectura 
 msgid "Missing required properties"
 msgstr "Faltan propiedades obligatorias"
 
+#: src/note-sort.ts
 #: src/PropertiesPanel.tsx
 msgid "Modified"
 msgstr "Modificado"
 
-#: src/note-list-view.ts
-msgid "modified newest"
-msgstr "modificación más reciente"
-
-#: src/note-list-view.ts
+#: src/editor-commands.ts
 msgid "Modified newest"
 msgstr "Modificación más reciente"
 
-#: src/note-list-view.ts
-msgid "modified oldest"
-msgstr "modificación más antigua"
-
-#: src/note-list-view.ts
+#: src/editor-commands.ts
 msgid "Modified oldest"
 msgstr "Modificación más antigua"
 
@@ -3139,6 +3171,7 @@ msgid "More inferred rules in YAML"
 msgstr "Otras reglas de inferencia en YAML"
 
 #: src/App.tsx
+#: src/LoadingScreens.tsx
 msgid "More note actions"
 msgstr "Más acciones de la nota"
 
@@ -3180,10 +3213,6 @@ msgstr "Mover nota"
 #: src/ConnectionScreens.tsx
 msgid "move notes"
 msgstr "mover notas"
-
-#: src/QuickOpen.tsx
-msgid "Move through the note list"
-msgstr "Recorrer la lista de notas"
 
 #: src/CollectionRail.tsx
 #: src/editor-commands.ts
@@ -3233,6 +3262,10 @@ msgstr "Campo de nombre"
 msgid "Name the folder to create it."
 msgstr "Ponle nombre a la carpeta para crearla."
 
+#: src/QuickOpen.tsx
+msgid "Navigate"
+msgstr "Navegar"
+
 #: src/note-mutation-presentation.ts
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
@@ -3256,7 +3289,9 @@ msgstr "campos obligatorios anidados"
 msgid "New folder"
 msgstr "Carpeta nueva"
 
+#: src/App.tsx
 #: src/editor-commands.ts
+#: src/LoadingScreens.tsx
 #: src/NewNoteComposer.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
@@ -3287,17 +3322,25 @@ msgstr "Tipo nuevo"
 msgid "New type definition"
 msgstr "Nueva definición de tipo"
 
-#: src/QuickOpen.tsx
-msgid "Next or previous note"
-msgstr "Nota siguiente o anterior"
+#: src/note-sort.ts
+msgid "Newest first"
+msgstr "Más recientes primero"
+
+#: src/editor-commands.ts
+msgid "Next note"
+msgstr "Nota siguiente"
+
+#: src/editor-commands.ts
+msgid "Next note in the list"
+msgstr "Nota siguiente de la lista"
+
+#: src/TypeBrowser.tsx
+msgid "No app contracts are installed"
+msgstr "No hay contratos de apps instalados"
 
 #: src/TypeBrowser.tsx
 msgid "No app contracts installed"
 msgstr "Sin contratos de aplicación instalados"
-
-#: src/TypeBrowser.tsx
-msgid "No application contracts are installed"
-msgstr "No hay contratos de aplicación instalados"
 
 #: src/TypeBrowser.tsx
 msgid "No automatic matching rules"
@@ -3363,10 +3406,6 @@ msgstr "No hay nota posterior"
 msgid "No matches."
 msgstr "No hay coincidencias."
 
-#: src/QuickOpen.tsx
-msgid "No matching actions."
-msgstr "No hay acciones que coincidan."
-
 #: src/NoteSearchField.tsx
 msgid "No matching filters"
 msgstr "No hay filtros que coincidan"
@@ -3375,7 +3414,6 @@ msgstr "No hay filtros que coincidan"
 msgid "No matching icons."
 msgstr "No hay iconos que coincidan."
 
-#: src/QuickOpen.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "No matching notes."
 msgstr "No hay notas que coincidan."
@@ -3433,6 +3471,10 @@ msgstr "No hay menciones sin enlazar."
 msgid "No validation issues."
 msgstr "No hay problemas de validación."
 
+#: src/collection-browser.ts
+msgid "No value"
+msgstr "Sin valor"
+
 #: src/App.tsx
 msgid "Not attempted because an earlier move needs recovery."
 msgstr "No se intentó porque un movimiento anterior requiere recuperación."
@@ -3456,6 +3498,10 @@ msgid "Not now"
 msgstr "Ahora no"
 
 #: src/QuickOpen.tsx
+msgid "Note"
+msgstr "Nota"
+
+#: src/editor-commands.ts
 msgid "Note actions, in the list"
 msgstr "Acciones de la nota, en la lista"
 
@@ -3549,10 +3595,6 @@ msgstr "Las notas usan este campo para declarar su tipo. Si necesitas cambiarlo,
 msgid "Notes without an explicit assignment belong to this type when every configured condition group below matches."
 msgstr "Las notas sin una asignación explícita pertenecen a este tipo cuando coinciden todos los grupos de condiciones configurados a continuación."
 
-#: src/Toasts.tsx
-msgid "Notifications"
-msgstr "Notificaciones"
-
 #: src/StructuredPropertiesEditor.tsx
 msgid "Null"
 msgstr "Nulo"
@@ -3596,6 +3638,10 @@ msgstr "Sin conexión"
 #: src/collection-browser.ts
 msgid "Older"
 msgstr "Anteriores"
+
+#: src/note-sort.ts
+msgid "Oldest first"
+msgstr "Más antiguos primero"
 
 #: src/TypeBrowser.tsx
 msgid "Only declared fields are allowed"
@@ -3641,6 +3687,10 @@ msgstr "abrir archivos"
 msgid "open notes"
 msgstr "abrir notas"
 
+#: src/editor-commands.ts
+msgid "Open Notes"
+msgstr "Abrir notas"
+
 #: src/FileViewer.tsx
 msgid "Open original"
 msgstr "Abrir original"
@@ -3648,6 +3698,11 @@ msgstr "Abrir original"
 #: src/editor-commands.ts
 msgid "Open Settings"
 msgstr "Abrir Ajustes"
+
+#: src/main.tsx
+#: src/SdkEditorRoot.tsx
+msgid "Open the Editor configured for your mdbase environment from Collections."
+msgstr "Abra desde Colecciones el Editor configurado para su entorno de mdbase."
 
 #: src/WorkspaceChrome.tsx
 msgid "Open to find mentions."
@@ -3662,17 +3717,13 @@ msgid "Open YAML"
 msgstr "Abrir YAML"
 
 #: src/NoteList.tsx
+#: src/NotePreview.tsx
 msgid "Opening"
 msgstr "Abriendo"
 
 #: src/App.tsx
 msgid "Opening “{pendingNotePath}”…"
 msgstr "Abriendo «{pendingNotePath}»…"
-
-#. placeholder {0}: original.displayName
-#: src/SdkEditorRoot.tsx
-msgid "Opening {0}"
-msgstr "Abriendo {0}"
 
 #: src/code-editor-file-embeds.ts
 #: src/FileViewer.tsx
@@ -3686,10 +3737,6 @@ msgstr "Abriendo la colección"
 #: src/main.tsx
 msgid "Opening mdbase connect… <0>Continue</0>"
 msgstr "Abriendo mdbase connect… <0>Continuar</0>"
-
-#: src/main.tsx
-msgid "Opening mdbase…"
-msgstr "Abriendo mdbase…"
 
 #: src/WorkspaceChrome.tsx
 msgid "Opening note…"
@@ -3724,6 +3771,10 @@ msgstr "opcional en este tipo"
 msgid "Optional regular expression"
 msgstr "Expresión regular opcional"
 
+#: src/NoteListViewOptions.tsx
+msgid "Order"
+msgstr "Orden"
+
 #: src/type-schema.ts
 msgid "Other collection rules"
 msgstr "Otras reglas de la colección"
@@ -3735,6 +3786,10 @@ msgstr "Se permiten otros campos"
 #: src/editor-commands.ts
 msgid "outside text inputs"
 msgstr "fuera de los campos de texto"
+
+#: src/editor-commands.ts
+msgid "outside text; add a link while typing"
+msgstr "fuera del texto; insertar un enlace al escribir"
 
 #: src/TypeBrowser.tsx
 msgid "Pack"
@@ -3749,11 +3804,12 @@ msgid "Partly installed"
 msgstr "Instalado parcialmente"
 
 #: src/NewNoteComposer.tsx
+#: src/note-sort.ts
 #: src/TypeBrowser.tsx
 msgid "Path"
 msgstr "Ruta"
 
-#: src/note-list-view.ts
+#: src/editor-commands.ts
 msgid "Path A–Z"
 msgstr "Ruta A–Z"
 
@@ -3804,6 +3860,10 @@ msgstr "PDF incrustado, {filename}"
 msgid "PDF viewer, {filename}"
 msgstr "Visor de PDF, {filename}"
 
+#: src/editor-commands.ts
+msgid "Peek at the focused note"
+msgstr "Ver una vista previa de la nota enfocada"
+
 #: src/StructuredPropertiesEditor.tsx
 msgid "Persisted null"
 msgstr "Valor nulo guardado"
@@ -3841,6 +3901,7 @@ msgid "Pin"
 msgstr "Fijar"
 
 #: src/collection-browser.ts
+#: src/use-note-actions.ts
 msgid "Pinned"
 msgstr "Fijadas"
 
@@ -3862,6 +3923,7 @@ msgstr "Las preferencias se guardan solo en este navegador."
 msgid "Preparing “{0}”…"
 msgstr "Preparando «{0}»…"
 
+#: src/DeferredCodeEditor.tsx
 #: src/MarkdownNoteEditor.tsx
 msgid "Preparing editor…"
 msgstr "Preparando el editor…"
@@ -3905,6 +3967,14 @@ msgstr "Últimos 30 días"
 #: src/collection-browser.ts
 msgid "Previous 7 days"
 msgstr "Últimos 7 días"
+
+#: src/editor-commands.ts
+msgid "Previous note"
+msgstr "Nota anterior"
+
+#: src/editor-commands.ts
+msgid "Previous note in the list"
+msgstr "Nota anterior de la lista"
 
 #: src/ConnectionScreens.tsx
 msgid "Previously opened in mdbase editor"
@@ -3951,20 +4021,10 @@ msgstr "Opciones de propiedades"
 msgid "Provided by the note's type, not stored in this file."
 msgstr "Las proporciona el tipo de la nota; no se guardan en este archivo."
 
+#: src/App.tsx
 #: src/editor-commands.ts
-#: src/QuickOpen.tsx
 msgid "Quick open"
 msgstr "Apertura rápida"
-
-#. placeholder {0}: shortcutModifier()
-#: src/NoteSearchField.tsx
-msgid "Quick open · {0} P"
-msgstr "Apertura rápida · {0} P"
-
-#. placeholder {0}: shortcutModifier()
-#: src/NoteSearchField.tsx
-msgid "Quick open · {0} P anywhere"
-msgstr "Apertura rápida · {0} P desde cualquier lugar"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -4016,14 +4076,11 @@ msgstr "Leyendo el texto de la colección…"
 msgid "Reading file content…"
 msgstr "Leyendo el contenido del archivo…"
 
-#: src/LoadingScreens.tsx
-msgid "Reading its notes and types"
-msgstr "Leyendo sus notas y tipos"
-
 #: src/WorkspaceChrome.tsx
 msgid "Reading note content…"
 msgstr "Leyendo el contenido de la nota…"
 
+#: src/LoadingScreens.tsx
 #: src/NoteList.tsx
 msgid "Reading notes and files"
 msgstr "Leyendo notas y archivos"
@@ -4043,10 +4100,6 @@ msgstr "Tipos listos para usar"
 #: src/ConnectionScreens.tsx
 msgid "Recent collections"
 msgstr "Colecciones recientes"
-
-#: src/QuickOpen.tsx
-msgid "Recent notes and actions"
-msgstr "Notas y acciones recientes"
 
 #: src/CollectionRail.tsx
 msgid "Reconnecting"
@@ -4218,7 +4271,7 @@ msgid "Rename this note?"
 msgstr "¿Cambiar el nombre de esta nota?"
 
 #. placeholder {0}: recoveryAction.to
-#: src/App.tsx
+#: src/use-note-actions.ts
 msgid "Renamed to “{0}”."
 msgstr "Se cambió el nombre a «{0}»."
 
@@ -4303,8 +4356,8 @@ msgstr "Restaurar ediciones sin guardar"
 
 #. placeholder {0}: noteTitle(restored, typeDescriptors)
 #: src/use-note-actions.ts
-msgid "Restored “{0}”."
-msgstr "Se restauró «{0}»."
+msgid "Restored {0}"
+msgstr "Restaurada {0}"
 
 #: src/use-note-actions.ts
 msgid "Restored note paths."
@@ -4360,6 +4413,15 @@ msgstr "Reintentar guardado"
 #: src/NoteList.tsx
 msgid "Retry search"
 msgstr "Reintentar búsqueda"
+
+#: src/main.tsx
+#: src/SdkEditorRoot.tsx
+msgid "Return to Collections and open the collection again."
+msgstr "Vuelva a Colecciones y abra la colección de nuevo."
+
+#: src/note-sort.ts
+msgid "Reversed"
+msgstr "Invertido"
 
 #: src/TypeBrowser.tsx
 msgid "Revert"
@@ -4418,6 +4480,10 @@ msgstr "Se recomienda revisar"
 #: src/App.tsx
 msgid "Review recovered text"
 msgstr "Revisar el texto recuperado"
+
+#: src/TypeBrowser.tsx
+msgid "Review type changes"
+msgstr "Revisar cambios del tipo"
 
 #: src/TypeBrowser.tsx
 msgid "Review YAML diff"
@@ -4492,6 +4558,7 @@ msgstr "Campos gestionados por el esquema"
 msgid "Scope"
 msgstr "Ámbito"
 
+#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search"
 msgstr "Buscar"
@@ -4504,6 +4571,8 @@ msgstr "Filtros de búsqueda"
 msgid "Search is incomplete."
 msgstr "La búsqueda está incompleta."
 
+#: src/editor-commands.ts
+#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search notes and files"
 msgstr "Buscar notas y archivos"
@@ -4811,6 +4880,7 @@ msgstr "Plantilla"
 msgid "text"
 msgstr "texto"
 
+#: src/QuickOpen.tsx
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 msgid "Text"
@@ -5190,10 +5260,6 @@ msgid "The selected file has an invalid size."
 msgstr "El archivo seleccionado tiene un tamaño no válido."
 
 #: src/TypeBrowser.tsx
-msgid "The source changed without altering declared fields."
-msgstr "El código fuente cambió sin alterar los campos declarados."
-
-#: src/TypeBrowser.tsx
 msgid "The stable name used by records and connected apps."
 msgstr "El nombre estable que usan los registros y las aplicaciones conectadas."
 
@@ -5337,6 +5403,7 @@ msgid "These properties must be persisted before this record is valid."
 msgstr "Estas propiedades deben guardarse para que este registro sea válido."
 
 #: src/App.tsx
+#: src/use-note-actions.ts
 msgid "This application does not have permission to make that change."
 msgstr "Esta aplicación no tiene permiso para hacer ese cambio."
 
@@ -5376,6 +5443,11 @@ msgstr "Esta colección está vacía."
 msgid "This collection is no longer open in mdbase editor."
 msgstr "Esta colección ya no está abierta en el editor de mdbase."
 
+#: src/main.tsx
+#: src/SdkEditorRoot.tsx
+msgid "This collection link is invalid"
+msgstr "Este enlace a la colección no es válido"
+
 #: src/gateway.ts
 msgid "This collection needs authorization again. Choose the collection to continue."
 msgstr "Esta colección necesita una nueva autorización. Elige la colección para continuar."
@@ -5393,11 +5465,6 @@ msgid "This collection's Person type was not added from a Person starter that ca
 msgstr "El tipo Person de esta colección no se añadió a partir de un tipo inicial de Person que pueda actualizarse automáticamente, por lo que no se ha modificado. "
 
 #: src/settings/SettingsView.tsx
-msgctxt "connection route"
-msgid "This computer"
-msgstr "Este ordenador"
-
-#: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "This computer"
 msgstr "Este ordenador"
@@ -5409,6 +5476,11 @@ msgstr "Este contacto tiene otro tipo explícito. Revisa primero sus declaracion
 #: src/TypeBrowser.tsx
 msgid "This contract does not expose simple top-level properties. Configure its field references in YAML."
 msgstr "Este contrato no expone propiedades simples de nivel superior. Configura sus referencias de campo en YAML."
+
+#: src/main.tsx
+#: src/SdkEditorRoot.tsx
+msgid "This Editor build cannot open collections here"
+msgstr "Esta versión del Editor no puede abrir colecciones aquí"
 
 #: src/use-session-lifecycle.ts
 msgid "This editor session has been closed."
@@ -5540,10 +5612,11 @@ msgid "This value does not match the required format."
 msgstr "Este valor no coincide con el formato requerido."
 
 #: src/NewNoteComposer.tsx
+#: src/note-sort.ts
 msgid "Title"
 msgstr "Título"
 
-#: src/note-list-view.ts
+#: src/editor-commands.ts
 msgid "Title A–Z"
 msgstr "Título A–Z"
 
@@ -5692,6 +5765,7 @@ msgstr "Desplazamiento tipo máquina de escribir"
 msgid "Undated"
 msgstr "Sin fecha"
 
+#: src/editor-commands.ts
 #: src/Toasts.tsx
 msgid "Undo"
 msgstr "Deshacer"
@@ -5730,6 +5804,10 @@ msgstr "Menciones sin enlazar ({0})"
 msgid "Unpin"
 msgstr "Dejar de fijar"
 
+#: src/use-note-actions.ts
+msgid "Unpinned"
+msgstr "Desfijado"
+
 #: src/App.tsx
 msgid "Unsaved draft found"
 msgstr "Se encontró un borrador sin guardar"
@@ -5754,6 +5832,7 @@ msgstr "Se descartarán los cambios sin guardar en tipos y en notas o carpetas n
 msgid "Unsaved type or creation changes will be discarded."
 msgstr "Se descartarán los cambios sin guardar en tipos y en notas o carpetas nuevas."
 
+#: src/App.tsx
 #: src/ConflictResolver.tsx
 #: src/MarkdownNoteEditor.tsx
 #: src/NewNoteComposer.tsx
@@ -5786,10 +5865,6 @@ msgstr "Actualizar definiciones y continuar"
 #: src/YourPersonPanel.tsx
 msgid "Update the Person type?"
 msgstr "¿Actualizar el tipo Person?"
-
-#: src/TypeBrowser.tsx
-msgid "Update this type?"
-msgstr "¿Actualizar este tipo?"
 
 #: src/YourPersonPanel.tsx
 msgid "Updating definitions…"
@@ -5887,11 +5962,6 @@ msgstr "La validación puede cambiar"
 msgid "Version {0}"
 msgstr "Versión {0}"
 
-#: src/settings/SettingsView.tsx
-msgctxt "connection route"
-msgid "Via mdbase"
-msgstr "A través de mdbase"
-
 #: src/NoteListViewOptions.tsx
 msgid "View options"
 msgstr "Opciones de vista"
@@ -5933,13 +6003,13 @@ msgstr "Qué notas usan este tipo"
 msgid "Words"
 msgstr "Palabras"
 
-#: src/Dialog.tsx
+#: src/App.tsx
 msgid "Working…"
 msgstr "Procesando…"
 
 #: src/TypeBrowser.tsx
-msgid "Works with applications"
-msgstr "Compatibilidad con aplicaciones"
+msgid "Works with apps"
+msgstr "Funciona con apps"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"

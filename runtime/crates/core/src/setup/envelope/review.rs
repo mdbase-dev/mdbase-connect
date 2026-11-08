@@ -22,7 +22,8 @@ fn row(r: &crate::packs::PlannedResource, installed: bool, adopted: Option<&Hash
         ("action", Value::string(action)),
         ("installed", Value::Bool(installed)),
     ];
-    if let Some(live) = adopted.or(r.live.as_ref()) {
+    // Without its digest, a type records use cannot be offered for replacement.
+    if let Some(live) = adopted.or(r.live.as_ref().filter(|_| !r.in_use)) {
         fields.push(("currentDigest", Value::string(live.to_string())));
     }
     if let Some(reason) = &r.reason {
@@ -119,5 +120,30 @@ impl super::CollectionSetupAssessment {
             &self.operations,
             &self.adopted,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_seed_records_use_has_no_digest_to_replace_with() {
+        let kept = |in_use| crate::packs::PlannedResource {
+            kind: "type".to_owned(),
+            mode: crate::packs::Mode::Seed,
+            source: "types/task.md".to_owned(),
+            target: "_types/task.md".to_owned(),
+            action: Action::Preserve,
+            live: Some(crate::ids::revision("theirs")),
+            document: None,
+            result: None,
+            origin: None,
+            reason: Some("kept".to_owned()),
+            upgrade_baseline: None,
+            in_use,
+        };
+        assert!(row(&kept(false), true, None).get("currentDigest").is_some());
+        assert!(row(&kept(true), true, None).get("currentDigest").is_none());
     }
 }

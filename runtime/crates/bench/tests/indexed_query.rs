@@ -13,13 +13,16 @@ use mdbn_replica::fake::{FakeLog, FakeLogService};
 use mdbn_replica::log::{EndpointId, pump};
 use mdbn_replica::replica::{DeviceSecrets, Host, Replica, ReplicaConfig, UtcOnly};
 use mdbn_replica::seal::PlainSealer;
+use mdbn_replica::store_query::QueryPredicate;
 use mdbn_replica::testkit::{TEST_ROOT, TestControlPlane, signed_root};
 use mdbn_replica::{Clock, CorePlanner};
 use mdbn_store_file::SqlStore;
 use mdbn_store_file::index::{
-    Batch, IndexDurability, IndexError, IndexInfo, IndexStorage, Stmt, StmtResult,
+    Batch, BatchMode, IndexDurability, IndexError, IndexErrorKind, IndexInfo, IndexStorage,
+    SqlValue, Stmt, StmtResult,
 };
-use mdbn_wire::client::{HelloParams, Include, SubmitParams};
+use mdbn_store_file::index_codec::{CodecLimits, IndexRequest, encode_request};
+use mdbn_wire::client::{HelloParams, IncidentKind, Include, SubmitParams};
 use mdbn_wire::common::{B16, Text, Value, Version};
 use mdbn_wire::intent::{Create, Op, ResourcePut};
 
@@ -30,6 +33,10 @@ const TASK: &str = "---\nkind: mdbase.type\nname: task\nmatch: {path_glob: 'task
 struct ProfiledIndex {
     inner: SqliteIndex,
     explain: bool,
+    /// Query-index pages to admit before refusing the rest as over budget.
+    backfill_pages_left: Option<usize>,
+    /// Refuse what the Durable Object transport refuses, before any SQL runs.
+    hosted_transport: bool,
 }
 impl IndexStorage for ProfiledIndex {
     fn info(&self) -> IndexInfo {
@@ -48,7 +55,7 @@ impl IndexStorage for ProfiledIndex {
                     || statement.sql.contains("/* generic ordered seek */")
                 {
                     let plan = self.inner.run(&Batch {
-                        mode: mdbn_store_file::index::BatchMode::Autocommit,
+                        mode: BatchMode::Autocommit,
                         stmts: vec![Stmt::new(
                             format!("EXPLAIN QUERY PLAN {}", statement.sql),
                             statement.params.clone(),
@@ -60,6 +67,22 @@ impl IndexStorage for ProfiledIndex {
                     );
                 }
             }
+        }
+        if self.hosted_transport
+            && encode_request(&IndexRequest::Run(batch.clone()), CodecLimits::HOSTED).is_err()
+        {
+            return Err(IndexError::new(IndexErrorKind::Full, "request over budget"));
+        }
+        if let Some(left) = &mut self.backfill_pages_left
+            && batch
+                .stmts
+                .iter()
+                .any(|s| s.sql.starts_with("INSERT INTO st_qrecord"))
+        {
+            if *left == 0 {
+                return Err(IndexError::new(IndexErrorKind::Full, "request over budget"));
+            }
+            *left -= 1;
         }
         self.inner.run(batch)
     }
@@ -81,15 +104,21 @@ struct Node {
 }
 
 fn store(name: &str) -> Store {
+    store_and_index(name).0
+}
+
+fn store_and_index(name: &str) -> (Store, Rc<RefCell<ProfiledIndex>>) {
     let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let index = SqliteIndex::open(dir.join("index.sqlite"), IndexDurability::Durable).unwrap();
-    SqlStore::open(Rc::new(RefCell::new(ProfiledIndex {
+    let index = Rc::new(RefCell::new(ProfiledIndex {
         inner: index,
         explain: false,
-    })))
-    .unwrap()
+        backfill_pages_left: None,
+        hosted_transport: false,
+    }));
+    (SqlStore::open(index.clone()).unwrap(), index)
 }
 
 fn open(svc: &FakeLogService, store: Store) -> Node {
@@ -406,6 +435,202 @@ fn reopen_backfills_and_deep_windows_are_paged_by_the_index() {
     // (offset skipped by key), not declined: equal to the per-record answer.
     let (a, b) = both(&mut node, &[types], 250, 50);
     assert_eq!(a, b);
+}
+
+fn sql_count(index: &Rc<RefCell<ProfiledIndex>>, sql: &str) -> i64 {
+    let rows = index
+        .borrow_mut()
+        .inner
+        .run(&Batch {
+            mode: BatchMode::Autocommit,
+            stmts: vec![Stmt::new(sql, vec![])],
+        })
+        .unwrap();
+    match rows[0].values.as_slice() {
+        [SqlValue::Integer(n)] => *n,
+        other => panic!("{other:?}"),
+    }
+}
+
+/// A refused backfill must not stop the open, and the partial index it leaves
+/// must never answer: every query stays complete or declines, and it says so.
+#[test]
+fn reopen_with_a_refused_backfill_serves_complete_answers_and_reports_it() {
+    let svc = FakeLogService::new();
+    let (seeded, index) = store_and_index("indexed_query_refused_backfill");
+    let mut node = open(&svc, seeded);
+    seed(&mut node, 300);
+    let tasks = ("types", Value::List(vec![Value::Text("task".into())]));
+    let done = ("where", Value::Text("status == \"done\"".into()));
+    let by_priority = ("order_by", order("priority", "desc"));
+    let query = |node: &mut Node, y: &[(&str, Value)]| -> Vec<B16> {
+        let answer = node.r.query(node.s, q(y), none()).unwrap();
+        answer.records.iter().map(|r| r.id).collect()
+    };
+    let everything = query(&mut node, std::slice::from_ref(&tasks));
+    assert_eq!(everything.len(), 300);
+    let matching = query(&mut node, &[tasks.clone(), done.clone()]);
+    let window = query(
+        &mut node,
+        &[
+            tasks.clone(),
+            by_priority.clone(),
+            ("limit", Value::Int(50)),
+        ],
+    );
+    let ready = sql_count(&index, "SELECT ready FROM st_qstate");
+    assert_eq!(ready, 1);
+
+    let store = node.r.into_store();
+    exec(&index, "UPDATE st_qstate SET ready=0");
+    index.borrow_mut().backfill_pages_left = Some(3);
+    let mut node = open(&svc, store);
+    node.pump();
+
+    let partial = sql_count(&index, "SELECT count(*) FROM st_qrecord");
+    assert!(partial > 0 && partial < 300, "partial index: {partial}");
+    assert_eq!(sql_count(&index, "SELECT ready FROM st_qstate"), 0);
+    let incidents = node.r.sync_status().incidents;
+    assert!(
+        incidents.iter().any(|i| i.kind == IncidentKind::Integrity),
+        "{incidents:?}"
+    );
+
+    assert_eq!(query(&mut node, std::slice::from_ref(&tasks)), everything);
+    assert_eq!(query(&mut node, &[tasks.clone(), done.clone()]), matching);
+    assert_eq!(
+        query(
+            &mut node,
+            &[
+                tasks.clone(),
+                by_priority.clone(),
+                ("limit", Value::Int(50))
+            ]
+        ),
+        window
+    );
+    assert_eq!(node.r.query_stats().indexed, 0);
+    assert_eq!(
+        node.r.query_stats().last_decline,
+        Some(mdbn_replica::replica::QueryDecline::NotReady.label())
+    );
+    assert_eq!(
+        node.r
+            .indexed_projection(QueryPredicate::All, vec![], false, None, 128, 1 << 20)
+            .unwrap()
+            .unwrap_err(),
+        mdbn_replica::replica::QueryDecline::NotReady
+    );
+
+    // A write on the partial index neither certifies it nor loses the record.
+    // Only the oversized backfill page was refused; one record's commit fits.
+    // A reopened node restarts its entropy: move the clock for a new mutation ID.
+    index.borrow_mut().backfill_pages_left = None;
+    node.clock.set(node.clock.get() + 1_000);
+    submit(&mut node, vec![create(301, "tasks/t00301.md", task(301))]);
+    assert_eq!(query(&mut node, std::slice::from_ref(&tasks)).len(), 301);
+    node.pump();
+    assert_eq!(sql_count(&index, "SELECT ready FROM st_qstate"), 0);
+    assert_eq!(query(&mut node, std::slice::from_ref(&tasks)).len(), 301);
+
+    // The next open with room completes the index.
+    let store = node.r.into_store();
+    let mut node = open(&svc, store);
+    node.pump();
+    assert_eq!(sql_count(&index, "SELECT ready FROM st_qstate"), 1);
+    assert!(node.r.sync_status().incidents.is_empty());
+    let (a, b) = both(&mut node, &[tasks, by_priority], 0, 50);
+    assert_eq!(a, b);
+}
+
+/// Wide tasks whose 128-record and 16-record pages exceed one hosted request.
+fn seed_wide(node: &mut Node, count: u32, strings: usize) {
+    seed_with(node, 0, task);
+    let notes: String = (0..strings)
+        .map(|i| format!("note{i}: {}\n", "x".repeat(60 << 10)))
+        .collect();
+    for n in 1..=count {
+        let wide = format!("---\npriority: {n}\n{notes}---\nTask {n}\n");
+        submit(node, vec![create(n, &format!("tasks/t{n:05}.md"), wide)]);
+        node.pump();
+    }
+}
+
+fn exec(index: &Rc<RefCell<ProfiledIndex>>, sql: &str) {
+    index
+        .borrow_mut()
+        .inner
+        .run(&Batch {
+            mode: BatchMode::Autocommit,
+            stmts: vec![Stmt::new(sql, vec![])],
+        })
+        .unwrap();
+}
+
+#[test]
+fn reopen_reindexes_a_page_larger_than_one_hosted_request() {
+    let svc = FakeLogService::new();
+    let (seeded, index) = store_and_index("indexed_query_reindex_budget");
+    let mut node = open(&svc, seeded);
+    seed_wide(&mut node, 130, 1);
+    let store = node.r.into_store();
+    exec(
+        &index,
+        "DELETE FROM st_meta WHERE k='replica.derived_version'",
+    );
+    index.borrow_mut().hosted_transport = true;
+    let mut node = open(&svc, store);
+    assert_eq!(node.r.stats.reindexed, 130);
+    assert!(node.r.sync_status().incidents.is_empty());
+    assert_eq!(sql_count(&index, "SELECT ready FROM st_qstate"), 1);
+    assert_eq!(
+        sql_count(
+            &index,
+            "SELECT count(*) FROM st_meta WHERE k='replica.derived_version'"
+        ),
+        1
+    );
+    index.borrow_mut().hosted_transport = false;
+    let all = q(&[("types", Value::List(vec![Value::Text("task".into())]))]);
+    assert_eq!(
+        node.r.query(node.s, all, none()).unwrap().records.len(),
+        130
+    );
+}
+
+/// Derived data is rebuilt whole or the open stops: stale links and unique keys
+/// would answer silently. The error names the step for the next diagnosis.
+#[test]
+#[should_panic(expected = r#"StoreAt("reindex", Full)"#)]
+fn a_refused_reindex_stops_the_open_and_names_its_step() {
+    let svc = FakeLogService::new();
+    let (seeded, index) = store_and_index("indexed_query_reindex_refused");
+    let mut node = open(&svc, seeded);
+    seed(&mut node, 20);
+    let store = node.r.into_store();
+    exec(
+        &index,
+        "DELETE FROM st_meta WHERE k='replica.derived_version'",
+    );
+    index.borrow_mut().backfill_pages_left = Some(0);
+    open(&svc, store);
+}
+
+#[test]
+fn reopen_backfills_a_page_larger_than_one_hosted_request() {
+    let svc = FakeLogService::new();
+    let (seeded, index) = store_and_index("indexed_query_backfill_budget");
+    let mut node = open(&svc, seeded);
+    seed_wide(&mut node, 20, 8);
+    let store = node.r.into_store();
+    exec(&index, "UPDATE st_qstate SET ready=0");
+    exec(&index, "UPDATE st_qraw_state SET ready=0,version=0");
+    index.borrow_mut().hosted_transport = true;
+    let node = open(&svc, store);
+    assert!(node.r.sync_status().incidents.is_empty());
+    assert_eq!(sql_count(&index, "SELECT ready FROM st_qstate"), 1);
+    assert_eq!(sql_count(&index, "SELECT ready FROM st_qraw_state"), 1);
+    assert_eq!(sql_count(&index, "SELECT count(*) FROM st_qrecord"), 20);
 }
 
 #[test]

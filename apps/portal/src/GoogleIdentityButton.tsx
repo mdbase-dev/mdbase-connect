@@ -111,11 +111,11 @@ export function GoogleIdentityButton({ client, purpose, onComplete, onError }: {
   const ready = Boolean(google && width);
   return <div ref={container} className={`connect-google-provider ${busy ? "busy" : ""}`} aria-busy={busy || (!ready && !failed)}>
     <div ref={button} className="connect-google-button" inert={busy || !ready} aria-hidden={busy || !ready} />
-    {!ready && <button type="button" className="connect-provider-loading" disabled={!failed}
+    {!ready && <button type="button" className="connect-provider-loading mdbase-button" disabled={!failed}
       onClick={() => setAttempt((value) => value + 1)}>
       {failed ? t(i18n)({ message: "Retry Google sign-in", context: "Connect interface" }) : t(i18n)({ message: "Continue with Google", context: "Connect interface" })}
     </button>}
-    <span className="sr-only" role="status">{busy ? t(i18n)({ message: "Signing in with Google…", context: "Connect interface" }) : !ready && !failed ? t(i18n)({ message: "Loading Google sign-in…", context: "Connect interface" }) : ""}</span>
+    <span className="mdbase-visually-hidden" role="status">{busy ? t(i18n)({ message: "Signing in with Google…", context: "Connect interface" }) : !ready && !failed ? t(i18n)({ message: "Loading Google sign-in…", context: "Connect interface" }) : ""}</span>
   </div>;
 }
 

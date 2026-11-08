@@ -5,6 +5,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 
 #[derive(Clone)]
 struct RetryUploadState {
@@ -321,4 +322,347 @@ async fn stalled_authority_request_returns_a_typed_transport_timeout() {
     assert_eq!(error.code, "mirror_transport_timeout");
     server.abort();
     assert!(server.await.unwrap_err().is_cancelled());
+}
+
+#[tokio::test]
+async fn refusals_carry_their_status_and_only_abandoned_transfers_are_aborted() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let authority_id = Uuid::new_v4();
+    let transfer_id = Uuid::new_v4();
+    // 0: an outage, 1: a stale revision, then an open that finds its transfer closed.
+    let stage = Arc::new(AtomicUsize::new(0));
+    let open_stage = stage.clone();
+    let aborts = Arc::new(AtomicUsize::new(0));
+    let abort_count = aborts.clone();
+    let file_root = format!("/v1/authorities/{authority_id}/files");
+    let app = Router::new()
+        .route(
+            &format!("{file_root}/uploads"),
+            post(move || {
+                let stage = open_stage.load(Ordering::SeqCst);
+                async move {
+                    let refusal = match stage {
+                        0 => Some((StatusCode::SERVICE_UNAVAILABLE, "provider_unavailable")),
+                        1 => Some((StatusCode::CONFLICT, "stale_file_revision")),
+                        _ => None,
+                    };
+                    if let Some((status, code)) = refusal {
+                        return (
+                            status,
+                            Json(serde_json::json!({
+                                "error": { "code": code, "message": "Refused." }
+                            })),
+                        )
+                            .into_response();
+                    }
+                    open_retry_upload(State(RetryUploadState {
+                        transfer_id,
+                        object_url: String::new(),
+                        prepare_attempts: Arc::default(),
+                        upload_attempts: Arc::default(),
+                    }))
+                    .await
+                    .into_response()
+                }
+            }),
+        )
+        .route(
+            &format!("{file_root}/transfers/{transfer_id}"),
+            get(move || async move {
+                Json(FileTransferStatus {
+                    state: FileTransferState::Aborted,
+                    received: Vec::new(),
+                    received_bytes: 0,
+                    uploaded_parts: Vec::new(),
+                    ..upload_status(transfer_id)
+                })
+            })
+            .delete(move || {
+                abort_count.fetch_add(1, Ordering::SeqCst);
+                async move { StatusCode::NOT_FOUND }
+            }),
+        );
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let source = tempfile::NamedTempFile::new().unwrap();
+    fs::write(source.path(), b"12345678").unwrap();
+    let transport = HttpSyncTransport::new(
+        &format!("http://{address}/v1/authorities/{authority_id}/sync"),
+        "token",
+    )
+    .unwrap();
+    let request = OpenFileUploadRequest {
+        protocol_version: FILE_PROTOCOL_VERSION,
+        message_type: OpenFileUploadRequestKind::OpenFileUpload,
+        transfer_id,
+        path: "asset.bin".to_string(),
+        size: 8,
+        content_digest: "sha256:fixture".to_string(),
+        media_type: None,
+        if_revision: None,
+    };
+
+    let outage = transport
+        .upload_file(&request, source.path())
+        .await
+        .unwrap_err();
+    assert_eq!(
+        (outage.code.as_str(), outage.status),
+        ("provider_unavailable", Some(503))
+    );
+    assert_eq!(aborts.load(Ordering::SeqCst), 0, "a retry resumes it");
+    stage.store(1, Ordering::SeqCst);
+    let refused = transport
+        .upload_file(&request, source.path())
+        .await
+        .unwrap_err();
+    assert_eq!(
+        (refused.code.as_str(), refused.status),
+        ("stale_file_revision", Some(409))
+    );
+    assert_eq!(aborts.load(Ordering::SeqCst), 1, "a re-plan abandons it");
+    stage.store(2, Ordering::SeqCst);
+    let closed = transport
+        .upload_file(&request, source.path())
+        .await
+        .unwrap_err();
+    assert_eq!(
+        (closed.code.as_str(), closed.status),
+        ("file_transfer_expired", Some(409))
+    );
+    server.abort();
+    assert!(server.await.unwrap_err().is_cancelled());
+}
+
+/// A resumable multipart authority that fails one upload stage once.
+#[derive(Clone, Default)]
+struct ResumableUpload {
+    object_url: String,
+    failing: Arc<Mutex<Option<&'static str>>>,
+    received: Arc<Mutex<BTreeMap<u64, String>>>,
+    prepares: Arc<AtomicUsize>,
+    puts: Arc<AtomicUsize>,
+    commits: Arc<AtomicUsize>,
+    aborts: Arc<AtomicUsize>,
+}
+
+const RESUMABLE_TRANSFER: Uuid = Uuid::from_u128(0x0194_0000_0000_7000_8000_0000_0000_0005);
+
+impl ResumableUpload {
+    fn fails(&self, stage: &str) -> bool {
+        let mut failing = self.failing.lock().unwrap();
+        let fails = *failing == Some(stage);
+        if fails {
+            *failing = None;
+        }
+        fails
+    }
+
+    fn outage(&self, stage: &str) -> Option<Response> {
+        self.fails(stage).then(|| {
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({
+                    "error": { "code": "provider_unavailable", "message": "Down." }
+                })),
+            )
+                .into_response()
+        })
+    }
+}
+
+async fn resumable_open() -> Json<FileTransferSession> {
+    Json(FileTransferSession {
+        transfer_id: RESUMABLE_TRANSFER,
+        strategy: FileTransferStrategy::ObjectMultipart { part_size: 3 },
+        ..open_retry_upload(State(RetryUploadState {
+            transfer_id: RESUMABLE_TRANSFER,
+            object_url: String::new(),
+            prepare_attempts: Arc::default(),
+            upload_attempts: Arc::default(),
+        }))
+        .await
+        .0
+    })
+}
+
+async fn resumable_status(State(state): State<ResumableUpload>) -> Response {
+    if let Some(outage) = state.outage("status") {
+        return outage;
+    }
+    let received: BTreeMap<u64, String> = state.received.lock().unwrap().clone();
+    Json(FileTransferStatus {
+        protocol_version: FILE_TRANSFER_PROTOCOL_VERSION,
+        message_type: FileTransferStatusKind::FileTransferStatus,
+        transfer_id: RESUMABLE_TRANSFER,
+        state: FileTransferState::Open,
+        received: received.keys().copied().collect(),
+        received_bytes: received.keys().map(|index| 3_u64.min(8 - index * 3)).sum(),
+        uploaded_parts: received
+            .iter()
+            .map(|(index, etag)| UploadedFilePart {
+                part_number: u16::try_from(index + 1).unwrap(),
+                etag: etag.clone(),
+            })
+            .collect(),
+    })
+    .into_response()
+}
+
+async fn resumable_abort(State(state): State<ResumableUpload>) -> StatusCode {
+    state.aborts.fetch_add(1, Ordering::SeqCst);
+    StatusCode::NO_CONTENT
+}
+
+async fn resumable_prepare(
+    State(state): State<ResumableUpload>,
+    Json(request): Json<PrepareFileUploadPartRequest>,
+) -> Response {
+    state.prepares.fetch_add(1, Ordering::SeqCst);
+    if let Some(outage) = state.outage("prepare") {
+        return outage;
+    }
+    let index = u64::from(request.part_number - 1);
+    Json(PreparedFilePart {
+        protocol_version: FILE_PROTOCOL_VERSION,
+        message_type: PreparedFilePartKind::FilePart,
+        transfer_id: RESUMABLE_TRANSFER,
+        part_index: index,
+        offset: index * 3,
+        content_length: request.content_length,
+        method: "PUT".to_string(),
+        url: format!("{}/{index}", state.object_url),
+        headers: BTreeMap::new(),
+        expires_at: "2026-08-12T00:00:00Z".to_string(),
+    })
+    .into_response()
+}
+
+async fn resumable_put(
+    State(state): State<ResumableUpload>,
+    axum::extract::Path(index): axum::extract::Path<u64>,
+) -> Response {
+    state.puts.fetch_add(1, Ordering::SeqCst);
+    // Object storage refuses outright: no retry, and no status from the authority.
+    if state.fails("put") {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    let etag = format!("etag-{index}");
+    let mut received = state.received.lock().unwrap();
+    assert!(
+        received.insert(index, etag.clone()).is_none(),
+        "part {index} uploaded twice"
+    );
+    (StatusCode::OK, [(header::ETAG, etag)]).into_response()
+}
+
+async fn resumable_commit(
+    State(state): State<ResumableUpload>,
+    Json(request): Json<CommitFileUploadRequest>,
+) -> Response {
+    state.commits.fetch_add(1, Ordering::SeqCst);
+    if let Some(outage) = state.outage("commit") {
+        return outage;
+    }
+    assert_eq!(request.parts.len(), 3);
+    Json(CommitFileUploadReceipt {
+        protocol_version: FILE_PROTOCOL_VERSION,
+        message_type: CommitFileUploadReceiptKind::FileUploadCommitted,
+        transfer_id: RESUMABLE_TRANSFER,
+        file: CollectionFileDescriptor {
+            file_id: Uuid::new_v4(),
+            path: "asset.bin".to_string(),
+            revision: "revision".to_string(),
+            content_digest: "sha256:fixture".to_string(),
+            size: 8,
+            media_type: None,
+            media_class: FileMediaClass::Other,
+            modified_at: "2026-08-11T00:00:00Z".to_string(),
+        },
+    })
+    .into_response()
+}
+
+#[tokio::test]
+async fn upload_failures_at_every_stage_keep_the_transfer_for_a_same_id_resume() {
+    for stage in ["status", "prepare", "put", "commit"] {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let authority_id = Uuid::new_v4();
+        let state = ResumableUpload {
+            object_url: format!("http://{address}/object"),
+            failing: Arc::new(Mutex::new(Some(stage))),
+            ..ResumableUpload::default()
+        };
+        let file_root = format!("/v1/authorities/{authority_id}/files");
+        let app = Router::new()
+            .route(&format!("{file_root}/uploads"), post(resumable_open))
+            .route(
+                &format!("{file_root}/transfers/{RESUMABLE_TRANSFER}"),
+                get(resumable_status).delete(resumable_abort),
+            )
+            .route(
+                &format!("{file_root}/uploads/{RESUMABLE_TRANSFER}/parts"),
+                post(resumable_prepare),
+            )
+            .route(
+                &format!("{file_root}/uploads/{RESUMABLE_TRANSFER}/commit"),
+                post(resumable_commit),
+            )
+            .route("/object/{index}", put(resumable_put))
+            .with_state(state.clone());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let source = tempfile::NamedTempFile::new().unwrap();
+        fs::write(source.path(), b"12345678").unwrap();
+        let transport = HttpSyncTransport::new(
+            &format!("http://{address}/v1/authorities/{authority_id}/sync"),
+            "token",
+        )
+        .unwrap();
+        let request = OpenFileUploadRequest {
+            protocol_version: FILE_PROTOCOL_VERSION,
+            message_type: OpenFileUploadRequestKind::OpenFileUpload,
+            transfer_id: RESUMABLE_TRANSFER,
+            path: "asset.bin".to_string(),
+            size: 8,
+            content_digest: "sha256:fixture".to_string(),
+            media_type: None,
+            if_revision: None,
+        };
+
+        let error = transport
+            .upload_file(&request, source.path())
+            .await
+            .unwrap_err();
+        // The executor counts only a definite refusal, so this leaves the count.
+        assert!(!definite_refusal(&error), "{stage}: {error:?}");
+        assert_eq!(state.aborts.load(Ordering::SeqCst), 0, "{stage}");
+        let before = (
+            state.prepares.load(Ordering::SeqCst),
+            state.puts.load(Ordering::SeqCst),
+        );
+        let receipt = transport
+            .upload_file(&request, source.path())
+            .await
+            .unwrap();
+        assert_eq!(receipt.transfer_id, RESUMABLE_TRANSFER);
+        assert_eq!(state.received.lock().unwrap().len(), 3, "{stage}");
+        assert_eq!(state.aborts.load(Ordering::SeqCst), 0, "{stage}");
+        assert_eq!(
+            state.commits.load(Ordering::SeqCst),
+            1 + usize::from(stage == "commit")
+        );
+        if stage == "commit" {
+            // Every part is already in: the retry re-runs only the commit.
+            assert_eq!(
+                (
+                    state.prepares.load(Ordering::SeqCst),
+                    state.puts.load(Ordering::SeqCst)
+                ),
+                before
+            );
+        }
+        server.abort();
+        assert!(server.await.unwrap_err().is_cancelled());
+    }
 }

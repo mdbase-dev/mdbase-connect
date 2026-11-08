@@ -1,13 +1,18 @@
 use super::*;
 use crate::{
     value::{Map, Value},
-    views::bases::{BasesTimezone, Bindings, CapturedClock, CreationObservation, Profile, Program},
+    views::bases::{
+        BasesTimezone, Bindings, CapturedClock, CreationObservation, Profile, Program, SourceTags,
+    },
 };
 use std::collections::BTreeMap;
+fn no_tags() -> SourceTags {
+    SourceTags::exact(vec![])
+}
 fn eval(
     source: &str,
     note: &Map,
-    tags: Option<&[String]>,
+    tags: Option<&SourceTags>,
     created: Option<CreationObservation>,
     modified: Option<i64>,
 ) -> Result<super::super::RuntimeValue, EvaluationFailure> {
@@ -29,7 +34,7 @@ fn captured_identity_fields_use_bases_basename_not_core_filename() {
     let actual = eval(
         "[file.path,file.name,file.basename,file.folder,file.ext,file.size]",
         &Map::new(),
-        Some(&[]),
+        Some(&no_tags()),
         None,
         None,
     )
@@ -47,7 +52,7 @@ fn captured_identity_fields_use_bases_basename_not_core_filename() {
         ])
     );
     assert_eq!(
-        eval("file[\"name\"]", &Map::new(), Some(&[]), None, None)
+        eval("file[\"name\"]", &Map::new(), Some(&no_tags()), None, None)
             .unwrap()
             .to_plain(),
         Value::string("My task")
@@ -55,14 +60,14 @@ fn captured_identity_fields_use_bases_basename_not_core_filename() {
 }
 #[test]
 fn tags_are_explicit_known_empty_or_unavailable_and_do_not_come_from_defaults() {
-    let tags = vec!["task/subtask".into(), "work".into()];
+    let tags = SourceTags::exact(vec!["task/subtask".into(), "work".into()]);
     let note = Map::from_iter([(
         "tags".into(),
         Value::List(vec![Value::string("not-file-tags")]),
     )]);
     assert_eq!(eval("[file.hasTag(\"task\"),file.hasTag(\"#work\"),file.hasTag(\"Task\"),file.hasTag(\"missing\",\"work\"),file.tags.length]",&note,Some(&tags),None,None).unwrap().to_plain(),Value::List(vec![Value::Bool(true),Value::Bool(true),Value::Bool(false),Value::Bool(true),Value::Int(2)]));
     assert_eq!(
-        eval("file.hasTag(\"task\")", &note, Some(&[]), None, None)
+        eval("file.hasTag(\"task\")", &note, Some(&no_tags()), None, None)
             .unwrap()
             .to_plain(),
         Value::Bool(false)
@@ -77,6 +82,36 @@ fn tags_are_explicit_known_empty_or_unavailable_and_do_not_come_from_defaults() 
             .to_plain(),
         Value::Bool(false)
     );
+}
+#[test]
+fn a_bound_decides_absent_names_and_refuses_everything_else() {
+    let note = Map::from_iter([("tags".into(), Value::List(vec![Value::string("#task/sub")]))]);
+    let tags = SourceTags::bounded(vec!["#personal".into(), "#task/sub".into()]);
+    let run = |source| eval(source, &note, Some(&tags), None, None);
+    assert_eq!(
+        run("[file.hasTag('archived'), file.hasTag('archived') != true, file.hasTag('task')]")
+            .unwrap()
+            .to_plain(),
+        Value::List(vec![
+            Value::Bool(false),
+            Value::Bool(true),
+            Value::Bool(true)
+        ])
+    );
+    for expression in [
+        "file.hasTag('personal')",
+        "file.hasTag('personal') != true",
+        "file.hasTag('archived', 'personal')",
+        "file.tags",
+    ] {
+        assert_eq!(
+            run(expression).err(),
+            Some(EvaluationFailure::MetadataUnavailable(
+                "file_tags_not_captured"
+            )),
+            "{expression}"
+        );
+    }
 }
 #[test]
 fn frontmatter_proves_presence_but_not_absence_with_unknown_body_tags() {
@@ -115,7 +150,7 @@ fn property_predicate_uses_actual_raw_presence_and_folder_boundaries() {
         ("empty".into(), Value::string("")),
         ("null".into(), Value::Null),
     ]);
-    assert_eq!(eval("[file.hasProperty(\"false\"),file.hasProperty(\"zero\"),file.hasProperty(\"empty\"),file.hasProperty(\"null\"),file.hasProperty(\"missing\"),file.inFolder(\"Tasks/\"),file.inFolder(\"Task\"),file.inFolder(\"\")]",&note,Some(&[]),None,None).unwrap().to_plain(),Value::List(vec![Value::Bool(true),Value::Bool(true),Value::Bool(true),Value::Bool(true),Value::Bool(false),Value::Bool(true),Value::Bool(false),Value::Bool(false)]));
+    assert_eq!(eval("[file.hasProperty(\"false\"),file.hasProperty(\"zero\"),file.hasProperty(\"empty\"),file.hasProperty(\"null\"),file.hasProperty(\"missing\"),file.inFolder(\"Tasks/\"),file.inFolder(\"Task\"),file.inFolder(\"\")]",&note,Some(&no_tags()),None,None).unwrap().to_plain(),Value::List(vec![Value::Bool(true),Value::Bool(true),Value::Bool(true),Value::Bool(true),Value::Bool(false),Value::Bool(true),Value::Bool(false),Value::Bool(false)]));
 }
 #[test]
 fn typed_time_fields_use_captured_log_provenance_and_zone_not_fallback_epochs() {
@@ -124,7 +159,7 @@ fn typed_time_fields_use_captured_log_provenance_and_zone_not_fallback_epochs() 
         eval(
             "[file.ctime.format(\"MMM D\"),file.mtime.isType(\"Date\")]",
             &Map::new(),
-            Some(&[]),
+            Some(&no_tags()),
             created,
             Some(1781049600000)
         )
@@ -133,11 +168,11 @@ fn typed_time_fields_use_captured_log_provenance_and_zone_not_fallback_epochs() 
         Value::List(vec![Value::string("Jun 10"), Value::Bool(true)])
     );
     assert_eq!(
-        eval("file.ctime", &Map::new(), Some(&[]), None, None).unwrap_err(),
+        eval("file.ctime", &Map::new(), Some(&no_tags()), None, None).unwrap_err(),
         EvaluationFailure::MetadataUnavailable("file_ctime")
     );
     assert_eq!(
-        eval("file.mtime", &Map::new(), Some(&[]), None, None).unwrap_err(),
+        eval("file.mtime", &Map::new(), Some(&no_tags()), None, None).unwrap_err(),
         EvaluationFailure::MetadataUnavailable("file_mtime")
     );
 }
@@ -184,13 +219,13 @@ fn unqualified_casts_prefixes_and_capture_limits_stay_typed_refusals() {
         "file.inFolder(false)",
     ] {
         assert!(matches!(
-            eval(source, &Map::new(), Some(&[]), None, None),
+            eval(source, &Map::new(), Some(&no_tags()), None, None),
             Err(EvaluationFailure::UnsupportedConstruct(_))
         ));
     }
     let mut b = WorkBudget::new();
     let file = CapturedFile::new("x.md", None, None, None, &mut b).unwrap();
-    let tags = vec!["x".into(); MAX_CAPTURE_ITEMS + 1];
+    let tags = SourceTags::exact(vec!["x".into(); MAX_CAPTURE_ITEMS + 1]);
     assert!(matches!(
         CapturedFileBindings::capture(&file, Some(&tags), &mut b),
         Err(EvaluationFailure::BudgetExceeded("file_tag_count"))

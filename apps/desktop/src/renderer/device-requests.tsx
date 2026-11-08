@@ -18,8 +18,8 @@ export function DeviceRequests({ devices, names, busy, onAct, onNotice }: {
   useLocaleRevision();
   if (devices.length === 0) return null;
   return (
-    <section>
-      <SectionHeading title={t(i18n)`Waiting for you`} note={t(i18n)`Allow only a computer you are setting up yourself.`} count={devices.length} />
+    <section className="device-requests">
+      <SectionHeading title={t(i18n)`Waiting for you`} note={t(i18n)`Allow only a computer you are setting up yourself.`} />
       <div className="request-list">{devices.map((device) => (
         <DeviceRequest key={`${device.collection}/${device.device}`} device={device} collection={names[device.collection] ?? device.collection_name ?? t(i18n)`a Private collection`} busy={busy} onAct={onAct} onNotice={onNotice} />
       ))}</div>
@@ -41,6 +41,7 @@ function DeviceRequest({ device, collection, busy, onAct, onNotice }: {
     other: "Another device",
   });
   return <ApprovalPrompt
+    commandId={`device:${device.collection}/${device.device}`}
     title={t(i18n)`${who} wants to open ${collection}`}
     check={<div aria-live="polite">
       {device.sas ? <>

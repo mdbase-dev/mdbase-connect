@@ -4,11 +4,12 @@ import { StrictMode, useEffect, type ReactNode } from "react";
 import { isMdbaseError, type Mdbase } from "@mdbase-dev/sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createEditorMdbase, SdkEditorRoot, type EditorNativeScope } from "./SdkEditorRoot";
+import { AppErrorBoundary } from "./AppErrorBoundary";
 import { closeNativeFixtures, readyFixture, testApp } from "./test/native-fixture";
 
 vi.mock("./CodeEditor", () => ({
-  CodeEditor: ({ value, onChange, label, readOnly, footer }: { value: string; onChange?: (value: string) => void; label: string; readOnly?: boolean; footer?: ReactNode }) =>
-    <><textarea aria-label={label} readOnly={readOnly} value={value} onChange={(event) => onChange?.(event.target.value)} />{footer}</>
+  CodeEditor: ({ header, value, onChange, label, readOnly, footer }: { header?: ReactNode; value: string; onChange?: (value: string) => void; label: string; readOnly?: boolean; footer?: ReactNode }) =>
+    <>{header}<textarea aria-label={label} readOnly={readOnly} value={value} onChange={(event) => onChange?.(event.target.value)} />{footer}</>
 }));
 
 vi.mock("@tanstack/react-virtual", () => ({
@@ -19,6 +20,23 @@ vi.mock("@tanstack/react-virtual", () => ({
 }));
 
 afterEach(() => { closeNativeFixtures(); vi.unstubAllGlobals(); });
+
+it("names the unsupported LAB build before starting an SDK with no authenticated environment links", async () => {
+  const worker = vi.fn();
+  vi.stubGlobal("Worker", worker);
+  vi.stubGlobal("MessageChannel", vi.fn());
+  const sdk = createEditorMdbase({ origin: location.origin, environment: "lab" });
+  const initial = sdk.getSnapshot();
+  expect(initial.status).toBe("not_started");
+  expect(initial.links).toBeNull();
+  const view = render(<SdkEditorRoot sdk={sdk} />);
+  try {
+    expect(screen.getByRole("heading", { name: "This Editor build cannot open collections here" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Back to mdbase Connect" })).toBeInTheDocument();
+    expect(sdk.getSnapshot()).toBe(initial);
+    expect(worker).not.toHaveBeenCalled();
+  } finally { view.unmount(); await sdk.close(); }
+});
 
 function Capture({ scope, publish }: { scope: EditorNativeScope; publish(scope: EditorNativeScope): void }) {
   useEffect(() => { publish(scope); }, [scope, publish]);
@@ -39,6 +57,16 @@ function observed(mdbase: Mdbase) {
 const ARCHIVE = "0190a5a0-0000-7000-8000-0000000000ab";
 
 describe("SdkEditorRoot behind the shared collection gate", () => {
+  it("keeps SDK binding failures inside the crash boundary", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const h = await testApp({ phase: { problem: "application_failed" } });
+      render(<AppErrorBoundary><SdkEditorRoot sdk={h.mdbase} /></AppErrorBoundary>);
+      expect(screen.getByRole("alert")).toHaveTextContent("mdbase editor needs to restart");
+      expect(error).toHaveBeenCalled();
+    } finally { error.mockRestore(); }
+  });
+
   it("StrictMode unmounting releases its subscriptions and never closes the SDK", async () => {
     const h = await testApp({ phase: "signed_out" });
     const { sdk, subscriptions } = observed(h.mdbase);
@@ -68,6 +96,7 @@ describe("SdkEditorRoot behind the shared collection gate", () => {
     render(<SdkEditorRoot sdk={h.mdbase} />);
     await waitFor(() => expect(warn).toHaveBeenCalledWith(expect.stringContaining("invalid manifest: /homepage")));
     expect(document.body).not.toHaveTextContent("/homepage");
+    expect(screen.getByRole("link", { name: "Back to mdbase Connect" })).toBeInTheDocument();
     warn.mockRestore();
   });
 

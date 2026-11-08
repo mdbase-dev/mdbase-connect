@@ -1,44 +1,13 @@
-/* The command palette (./command-palette). Reader's layout in Editor's quiet frame. */
-.mdbase-command-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  width: 100%;
-  max-width: none;
-  height: 100%;
-  max-height: none;
-  display: grid;
-  justify-items: center;
-  align-items: start;
-  margin: 0;
-  padding: min(14vh, 120px) 16px 16px;
-  border: 0;
-  background: color-mix(in oklch, var(--color-scrim) 40%, transparent);
-}
-
-.mdbase-command-dismiss {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  border: 0;
-  background: transparent;
-  cursor: default;
-}
-
-.mdbase-command-palette {
-  position: relative;
-  z-index: 1;
-  width: min(600px, 100%);
-  max-height: calc(100dvh - min(28vh, 240px) - 32px);
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+/* Shared by the portal palette and Editor quick open after its npm repin. */
+.mdbase-dialog.mdbase-command-palette {
+  --accent-soft: var(--color-accent-soft);
+  width: min(var(--palette-width), calc(100vw - 16px));
+  margin: var(--palette-top) auto auto;
+  max-height: calc(100dvh - var(--palette-top) - 16px);
   overflow: hidden;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--control-radius);
-  background: var(--color-surface);
-  animation: mdbase-popover-in var(--motion-base) var(--ease-out);
 }
+.mdbase-command-palette > .mdbase-dialog-body { padding: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; max-height: inherit; }
+.mdbase-command-palette .mdbase-dialog-header { display: none; }
 
 .mdbase-command-search {
   height: 52px;
@@ -73,12 +42,20 @@
 
 .mdbase-command-results {
   min-height: 0;
+  height: 380px;
+  max-height: 100%;
   overflow: auto;
   padding: 4px 6px 8px;
   scroll-padding: 28px 0 8px;
 }
 
+.mdbase-command-results:has(> .mdbase-command-empty) { height: auto; }
+
 .mdbase-command-group {
+  position: sticky;
+  top: -4px;
+  z-index: 1;
+  background: var(--color-surface-overlay);
   padding: 10px 10px 4px;
   color: var(--color-text-muted);
   font-size: var(--font-size-caption);
@@ -102,13 +79,20 @@
   cursor: pointer;
 }
 
-.mdbase-command-results > button[aria-selected="true"],
-.mdbase-command-results > button:hover {
+.mdbase-command-results > button[aria-selected="true"] {
   color: var(--color-text);
-  background: var(--color-selected);
+  background: light-dark(oklch(94% 0.001 286), oklch(29% 0.004 286));
+  box-shadow: inset 0 0 0 1px light-dark(oklch(60% 0.004 286), oklch(63% 0.004 286));
 }
 
-.mdbase-command-results button > span:first-child {
+@media (forced-colors: active) {
+  .mdbase-command-results > button[aria-selected="true"] {
+    outline: 1px solid Highlight;
+    outline-offset: -1px;
+  }
+}
+
+.mdbase-command-results .mdbase-command-copy {
   min-width: 0;
   display: flex;
   align-items: baseline;
@@ -123,9 +107,15 @@
 }
 
 .mdbase-command-results strong {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
+  max-width: 100%;
   font-size: var(--font-size-ui);
   font-weight: var(--font-weight-medium);
+}
+
+.mdbase-command-results mark {
+  color: inherit;
+  background: var(--accent-soft);
 }
 
 .mdbase-command-results small {
@@ -171,15 +161,7 @@
 }
 
 @media (max-width: 680px) {
-  .mdbase-command-backdrop {
-    padding: 56px 8px 8px;
-  }
-
-  .mdbase-command-palette {
-    max-height: calc(100dvh - 64px);
-  }
-
-  .mdbase-command-results button > span:first-child {
+  .mdbase-command-results .mdbase-command-copy {
     display: grid;
     gap: 1px;
   }
@@ -189,8 +171,12 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .mdbase-command-palette {
-    animation: none;
-  }
+.mdbase-command-results > button:has(.mdbase-command-icon) { grid-template-columns: 18px minmax(0, 1fr) auto auto; }
+.mdbase-command-icon { display: flex; color: var(--color-text-muted); }
+.mdbase-command-icon svg { width: 18px; height: 18px; }
+
+@media (pointer: coarse) {
+  .mdbase-command-results kbd,
+  .mdbase-command-footer,
+  .mdbase-command-alternate { display: none; }
 }

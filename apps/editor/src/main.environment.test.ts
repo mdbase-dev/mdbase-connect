@@ -41,13 +41,18 @@ describe("native Editor target entry", () => {
     ["staging", "http://127.0.0.1:48219"],
     ["production", "https://editor-staging.mdbase.dev"],
     ["production", "http://editor.mdbase.dev"],
-    ["unknown", "https://editor-staging.mdbase.dev"],
   ])("refuses %s at %s before constructing the SDK", async (environment, origin) => {
     vi.stubEnv("VITE_MDBASE_ENV", environment);
     vi.stubGlobal("location", new URL(origin));
-    await expect(import("./main")).rejects.toThrow(/environment|origin/);
+    await import("./main");
     expect(createEditorMdbase).not.toHaveBeenCalled();
-    expect(renderRoot).not.toHaveBeenCalled();
+    expect(renderRoot).toHaveBeenCalledOnce();
+  });
+  it("keeps an unknown configured environment an invariant failure", async () => {
+    vi.stubEnv("VITE_MDBASE_ENV", "unknown");
+    vi.stubGlobal("location", new URL("https://editor.mdbase.dev"));
+    await expect(import("./main")).rejects.toThrow(/environment/);
+    expect(createEditorMdbase).not.toHaveBeenCalled();
   });
   it("preserves the explicit demo-only E2E entry at loopback without constructing a native SDK", async () => {
     vi.stubEnv("VITE_MDBASE_ENV", "production");
@@ -62,8 +67,8 @@ describe("native Editor target entry", () => {
     vi.stubEnv("VITE_MDBASE_ENV", "production");
     vi.stubEnv("VITE_MDBASE_EDITOR_DEMO", flag);
     vi.stubGlobal("location", new URL(`http://127.0.0.1:42873/${query}`));
-    await expect(import("./main")).rejects.toThrow(/origin/);
+    await import("./main");
     expect(createEditorMdbase).not.toHaveBeenCalled();
-    expect(renderRoot).not.toHaveBeenCalled();
+    expect(renderRoot).toHaveBeenCalledOnce();
   });
 });

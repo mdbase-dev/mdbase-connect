@@ -179,7 +179,7 @@ impl<S: Store> Replica<S> {
             )
         };
         let source = self.grant_source.as_ref().ok_or_else(denied)?;
-        let effective = self.grant_now(&grant).ok_or_else(denied)?;
+        let effective = self.grant_now(&grant).map_err(|_| denied())?;
         let authorization = source.declared_setup(&grant).ok_or_else(denied)?;
         if authorization.generation == 0
             || authorization.lease_generation == 0
@@ -282,7 +282,7 @@ impl<S: Store> Replica<S> {
                 return Err(changed());
             }
             self.grant_for_client(&expected.grant, &client_pk)
-                .ok_or_else(changed)?;
+                .map_err(|_| changed())?;
         }
         if let Some(expected) = &fence.delegation
             && self.setup_delegation(expected.grant)? != *expected

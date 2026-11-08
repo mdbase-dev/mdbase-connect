@@ -260,8 +260,11 @@ const SCHEMA: &[&str] = &[
     // Used only in the credential registry object (§12).
     "CREATE TABLE IF NOT EXISTS revoked_devices (device BLOB PRIMARY KEY, revoked_at INTEGER NOT NULL)",
     // Single-use HTTPS proofs must survive hibernation and Worker updates.
+    // Replay refusal is the primary key alone. The table holds at most one TTL
+    // of nonces, so pruning scans it instead of keeping an `expires_at` index,
+    // which doubled the rows written by every signed RPC.
     "CREATE TABLE IF NOT EXISTS used_http_nonces (nonce BLOB PRIMARY KEY, expires_at INTEGER NOT NULL)",
-    "CREATE INDEX IF NOT EXISTS used_http_nonces_expiry ON used_http_nonces (expires_at)",
+    "DROP INDEX IF EXISTS used_http_nonces_expiry",
 ];
 
 /// The object named by the nil UUID is the service-wide credential registry
@@ -338,6 +341,8 @@ impl DoBackend {
 
     /// Consume an already authenticated HTTPS nonce durably. No await separates
     /// pruning and insertion, and the unique key serializes concurrent requests.
+    /// A replay is the `INSERT OR IGNORE` conflict on the primary key; it never
+    /// depends on `expires_at`, which only bounds the table.
     fn consume_http_nonce(&self, nonce: &[u8; 32], now: i64) -> LsResult<()> {
         self.exec(
             "DELETE FROM used_http_nonces WHERE expires_at < ?",
@@ -629,6 +634,14 @@ impl Txn for DoTxn<'_> {
         Ok(r.first().map_or(0, |r| as_i64(&r[0]) as u64))
     }
 
+    async fn committed_blob_bytes(&mut self) -> LsResult<u64> {
+        let r = self.be.exec(
+            "SELECT coalesce(sum(size), 0) FROM objects WHERE committed = 1 AND kind = 18",
+            vec![],
+        )?;
+        Ok(r.first().map_or(0, |r| as_i64(&r[0]) as u64))
+    }
+
     async fn gc_candidates(&mut self, before: i64, limit: u64) -> LsResult<Vec<ObjectMeta>> {
         let rows = self.be.exec(
             "SELECT address, kind, size, checksum, committed, created_at FROM objects o
@@ -808,6 +821,10 @@ impl Txn for DoTxn<'_> {
                             vec![int(c as i64)],
                         )?;
                     }
+                    Write::PruneTokens(now) => x(
+                        "DELETE FROM tokens WHERE expires_at <= ? AND seq NOT IN (SELECT seq FROM items)",
+                        vec![int(now)],
+                    )?,
                     Write::Notify(_) => {}
                 }
             }

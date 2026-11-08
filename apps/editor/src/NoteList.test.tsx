@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "./test/locale";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NoteList } from "./NoteList";
 import type { NoteSummary } from "./model";
+import { defaultNoteSort } from "./note-sort";
 import { buildNoteSearchIndex, searchNoteResults } from "./note-search";
 
 // Supply a deterministic viewport, independent of jsdom layout measurements.
@@ -18,22 +19,69 @@ vi.mock("@tanstack/react-virtual", () => ({
 }));
 
 describe("NoteList search presentation", () => {
+  it("reveals the open note again on search return even when its identity has not changed", () => {
+    const notes = Array.from({ length: 40 }, (_, index): NoteSummary => ({ path: `Notes/${index}.md`, frontmatter: {}, effectiveFrontmatter: {}, types: [], body: "", file: { mtime: "2026-01-01T12:00:00Z" } }));
+    const noop = () => {};
+    const onSelection = vi.fn();
+    const props = {
+      entries: notes.map((note) => ({ kind: "note" as const, path: note.path, note })),
+      noteCount: notes.length, fileCount: 0, types: [], selectedPath: notes[35].path, statuses: new Map(),
+      search: "", searchQuery: "", searchContexts: new Map(), sort: defaultNoteSort, sortFields: [],
+      collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
+      contentIndexing: false, contentLoaded: notes.length,
+      onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,
+      onRetryStructure: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: vi.fn(),
+      onSelection, onSelectFile: noop, onCollections: noop
+    };
+    const view = render(<NoteList {...props} />);
+    viewport.scrollToIndex.mockClear();
+    const input = screen.getByRole("combobox", { name: "Search notes and files" });
+    fireEvent.focus(input);
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(onSelection).toHaveBeenLastCalledWith({ paths: [notes[35].path], anchor: notes[35].path, focus: notes[35].path });
+    expect(viewport.scrollToIndex).toHaveBeenCalledWith(36, { align: "auto" });
+    expect(screen.getByRole("listbox")).toHaveFocus();
+    expect(props.onSelect).not.toHaveBeenCalled();
+    view.rerender(<NoteList {...props} entries={[props.entries[35]]} searchQuery="garden" />);
+    fireEvent.keyDown(input, { key: "Escape" });
+    viewport.scrollToIndex.mockClear();
+    view.rerender(<NoteList {...props} />);
+    expect(viewport.scrollToIndex).toHaveBeenCalledWith(36, { align: "auto" });
+  });
+
   it("retains timestamps through a save and does not scroll on a save-driven reorder", () => {
     const first: NoteSummary = { path: "Notes/one.md", frontmatter: {}, effectiveFrontmatter: {}, types: [], body: "One", file: { mtime: "2026-01-01T12:00:00Z" } };
     const second = { ...first, path: "Notes/two.md" };
     const notes = [first, second];
     const noop = () => {};
+    const peek = vi.fn();
     const props = {
       entries: notes.map((note) => ({ kind: "note" as const, path: note.path, note })),
       noteCount: 2, fileCount: 0, types: [], selectedPath: first.path, statuses: new Map(),
-      search: "", searchQuery: "", searchContexts: new Map(), sort: "modified-desc" as const,
+      search: "", searchQuery: "", searchContexts: new Map(), sort: defaultNoteSort, sortFields: [],
       collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
       contentIndexing: false, contentLoaded: 2,
       onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,
-      onRetryStructure: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: noop,
-      onSelectFile: noop, onPreview: noop, onDismissPreview: noop, onCollections: noop
+      onRetryStructure: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: vi.fn(),
+      onSelectFile: noop, onPeek: peek, onCollections: noop
     };
     const view = render(<NoteList {...props} />);
+    const list = screen.getByRole("listbox");
+    fireEvent.keyDown(list, { key: "j" });
+    expect(props.onSelect).toHaveBeenLastCalledWith(second.path, { keyboard: true });
+    props.onSelect.mockClear();
+    fireEvent.keyDown(list, { key: "j", ctrlKey: true });
+    fireEvent.keyDown(list, { key: "j", altKey: true });
+    fireEvent.keyDown(list, { key: "j", shiftKey: true });
+    fireEvent.keyDown(list, { key: "j", isComposing: true });
+    expect(props.onSelect).not.toHaveBeenCalled();
+    view.rerender(<NoteList {...props} selectedPath={second.path} />);
+    fireEvent.keyDown(list, { key: "k" });
+    expect(props.onSelect).toHaveBeenLastCalledWith(first.path, { keyboard: true });
+    viewport.scrollToIndex.mockClear();
+    view.rerender(<NoteList {...props} />);
+    fireEvent.keyDown(screen.getByRole("listbox"), { key: " " });
+    expect(peek).toHaveBeenCalledWith(first.path);
     const row = screen.getAllByRole("option")[0];
     const timestamp = row.querySelector("time")!.textContent;
     expect(viewport.scrollToIndex).toHaveBeenCalledOnce();
@@ -50,12 +98,37 @@ describe("NoteList search presentation", () => {
     view.rerender(<NoteList {...props} selectedPath={second.path} />);
     expect(viewport.scrollToIndex).toHaveBeenCalledTimes(2);
   });
+  it("steps over attachments while a peek is open", () => {
+    const note = (path: string): NoteSummary => ({ path, frontmatter: {}, effectiveFrontmatter: {}, types: [], body: "", file: { mtime: "2026-01-01T12:00:00Z" } });
+    const first = note("Notes/one.md");
+    const second = note("Notes/two.md");
+    const noop = () => {};
+    const props = {
+      entries: [
+        { kind: "note" as const, path: first.path, note: first },
+        { kind: "file" as const, path: "Files/paper.pdf", file: { path: "Files/paper.pdf", name: "paper.pdf", folder: "Files", size: 1, mtime: "", mediaType: "application/pdf", mediaClass: "pdf" } },
+        { kind: "note" as const, path: second.path, note: second }
+      ] as never,
+      noteCount: 2, fileCount: 1, types: [], selectedPath: first.path, statuses: new Map(),
+      search: "", searchQuery: "", searchContexts: new Map(), sort: defaultNoteSort, sortFields: [],
+      collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
+      contentIndexing: false, contentLoaded: 2,
+      onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,
+      onRetryStructure: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: vi.fn(),
+      onSelectFile: vi.fn(), onCollections: noop
+    };
+    render(<NoteList {...props} peek={<p>Peek</p>} peekTitle="One" />);
+    fireEvent.keyDown(screen.getByRole("listbox"), { key: "j" });
+    expect(props.onSelect).toHaveBeenLastCalledWith(second.path, { keyboard: true });
+    expect(props.onSelectFile).not.toHaveBeenCalled();
+  });
+
   it("keeps partial-load failures visible and retryable instead of claiming complete results", () => {
     const retry = vi.fn();
     const noop = () => {};
     const props = {
       entries: [], noteCount: 400, fileCount: 0, types: [], statuses: new Map(),
-      search: "", searchQuery: "", searchContexts: new Map(), sort: "path-asc" as const,
+      search: "", searchQuery: "", searchContexts: new Map(), sort: { key: "path", direction: "asc" } as const, sortFields: [],
       collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
       structureError: "Third page unavailable", contentIndexing: false, contentLoaded: 0,
       onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,
@@ -99,7 +172,7 @@ describe("NoteList search presentation", () => {
     const props = {
       entries: notes.map((note) => ({ kind: "note" as const, path: note.path, note })),
       noteCount: notes.length, fileCount: 0, types: [], statuses: new Map(),
-      search: "needle", searchQuery: "needle", searchContexts, sort: "path-asc" as const,
+      search: "needle", searchQuery: "needle", searchContexts, sort: { key: "path", direction: "asc" } as const, sortFields: [],
       collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
       contentIndexing: false, contentLoaded: notes.length,
       onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,

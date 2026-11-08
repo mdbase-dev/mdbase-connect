@@ -24,60 +24,6 @@
   letter-spacing: -0.01em;
 }
 
-.backlink-list {
-  min-height: 0;
-  flex: 1;
-  margin-top: var(--space-6);
-  overflow-y: auto;
-}
-
-.backlink-list > button {
-  width: 100%;
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  padding: 10px 6px;
-  border-bottom: 1px solid var(--line);
-  color: var(--muted);
-  text-align: left;
-}
-
-.backlink-list > button:hover {
-  background: var(--hover);
-  color: var(--ink);
-}
-
-.backlink-list > button > svg {
-  width: 14px;
-  height: 14px;
-  flex: 0 0 auto;
-  margin-top: 1px;
-  color: var(--faint);
-  stroke-width: 1.6;
-}
-
-.backlink-list > button > span {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
-}
-
-.backlink-list strong {
-  overflow: hidden;
-  font-size: var(--font-size-ui);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.backlink-list small {
-  overflow: hidden;
-  color: var(--faint);
-  font-family: var(--mono);
-  font-size: var(--font-size-caption);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .panel-header p {
   margin: var(--space-1) 0 0;
   overflow: hidden;

@@ -98,7 +98,9 @@ describe("usage report", () => {
       { db, defaultRegistrationMode: "closed" }
     ) as Record<string, any>;
 
-    expect(report.accounts).toEqual({ total: 4, suspended: 0, created_in_window: 2 });
+    expect(report.accounts).toEqual({
+      total: 4, suspended: 0, created_in_window: 2, signed_in_in_window: 0
+    });
     expect(report.activation).toEqual({
       all_accounts: {
         accounts: 4, paired_computer: 1, collection: 2, grant: 2, active_in_window: 1
@@ -156,10 +158,14 @@ describe("usage report", () => {
     });
     expect(report.collections).toEqual({
       local: { registered: 1, registered_in_window: 0, registration_time_unknown: 1 },
-      hosted: { total: 1, created_in_window: 1 }
+      hosted: { total: 1, created_in_window: 1 },
+      native: {
+        total: 0, private: 0, cloud_copy: 0, migrated_from_hosted: 0,
+        created_in_window: 0, active_in_window: 0
+      }
     });
     // Without a configured provider, hosted use is unknown rather than zero.
-    expect(report.transport_users_in_window).toEqual({ direct: 1, relay: 0, hosted: null });
+    expect(report.transport_users_in_window).toMatchObject({ direct: 1, relay: 0, hosted: null });
     expect(report.applications).toEqual([
       {
         family: "bundle:dev.tasks",
@@ -170,6 +176,7 @@ describe("usage report", () => {
         active_grants: 1,
         local_active_grants: 1,
         hosted_active_grants: 0,
+        native_active_grants: 0,
         approved_in_window: 1,
         revoked_in_window: 1,
         consent: {
@@ -190,6 +197,7 @@ describe("usage report", () => {
         active_grants: 1,
         local_active_grants: 0,
         hosted_active_grants: 1,
+        native_active_grants: 0,
         approved_in_window: 1,
         revoked_in_window: 0,
         consent: {
@@ -296,9 +304,96 @@ describe("usage report", () => {
       { db, defaultRegistrationMode: "closed", hostedProvider }
     ) as Record<string, any>;
 
-    expect(report.transport_users_in_window).toEqual({ direct: 0, relay: 0, hosted: 1 });
+    expect(report.transport_users_in_window).toMatchObject({ direct: 0, relay: 0, hosted: 1 });
     expect(report.activation.all_accounts.active_in_window).toBe(1);
     expect(JSON.stringify(report)).not.toContain(hostedAccount);
+  });
+
+  it("counts native collections, grants, devices and installations", async () => {
+    const db = await database();
+    const alice = await user(db, "alice@example.com", 2);
+    const bob = await user(db, "bob@example.com", 2);
+    const carol = await user(db, "carol@example.com", 2);
+    const tasks = await application(db, "dev.tasks", "v1", "Tasks", 1);
+
+    const desktop = await nativeDevice(db, alice, "desktop");
+    const browser = await nativeDevice(db, bob, "app-runtime", tasks);
+    await db.query(
+      `INSERT INTO device_activity_days (connector_id, day)
+       VALUES ($1, CURRENT_DATE), ($1, CURRENT_DATE - 1),
+              ($2, CURRENT_DATE - 1), ($2, CURRENT_DATE - 40)`,
+      [desktop, browser]
+    );
+
+    const active = await nativeCollection(db, alice, "private");
+    const hosted = randomUUID();
+    await db.query(
+      `INSERT INTO hosted_collections (id, user_id, display_name, template)
+       VALUES ($1, $2, 'Hosted', 'blank')`,
+      [hosted, carol]
+    );
+    await nativeCollection(db, carol, "cloud_copy", hosted);
+    await db.query(
+      `INSERT INTO next_migration_collections
+         (collection_id, account_id, s_final, cutover_seq, barrier_f, final_digest)
+       VALUES ($1, $2, 0, 1, 1, 'digest')`,
+      [hosted, carol]
+    );
+    const stale = await nativeCollection(db, carol, "private");
+    await db.query(
+      `INSERT INTO next_collection_activity (collection_id, last_active_on)
+       VALUES ($1, CURRENT_DATE), ($2, CURRENT_DATE - 40)`,
+      [active, stale]
+    );
+    const left = await nativeCollection(db, alice, "private");
+    await db.query("UPDATE next_collections SET left_sync_at = now() WHERE collection_id = $1", [left]);
+
+    await db.query(
+      `INSERT INTO sessions (id, user_id, token_hash, expires_at)
+       VALUES ($1, $2, $3, now() + interval '1 day')`,
+      [randomUUID(), carol, randomUUID()]
+    );
+    await pairing(db, { ageMinutes: 60, approved: true, consumed: true });
+    const installationPairing = randomUUID();
+    await db.query(
+      `INSERT INTO pairing_requests (id, secret_hash, connector_name, expires_at)
+       VALUES ($1, $2, 'Tasks', now() - interval '1 minute')`,
+      [installationPairing, randomUUID()]
+    );
+    await db.query(
+      `INSERT INTO installation_device_pairings
+         (pairing_id, installation_id, device_id, connector_id, app_id, app_origin, kind, challenge)
+       VALUES ($1, $2, $3, $4, $5, 'https://app.example', 'app-runtime', $6)`,
+      [installationPairing, randomUUID(), randomUUID(), randomUUID(), tasks, Buffer.alloc(32, 3)]
+    );
+
+    const report = await runAuthAdminCommand(
+      ["usage", "report", "--days", "30"],
+      { db, defaultRegistrationMode: "closed" }
+    ) as Record<string, any>;
+
+    expect(report.accounts.signed_in_in_window).toBe(1);
+    // The browser installation is not a computer; the left collection is not current.
+    expect(report.activation.all_accounts).toEqual({
+      accounts: 3, paired_computer: 1, collection: 2, grant: 0, active_in_window: 2
+    });
+    expect(report.collections.native).toEqual({
+      total: 3,
+      private: 2,
+      cloud_copy: 1,
+      migrated_from_hosted: 1,
+      created_in_window: 2,
+      active_in_window: 1
+    });
+    expect(report.transport_users_in_window.native).toEqual({
+      desktop: 1, cli: 0, app_runtime: 1, mobile: 0
+    });
+    expect(report.applications).toEqual([
+      expect.objectContaining({ name: "Tasks", active_users_in_window: 1 })
+    ]);
+    expect(report.pairing).toMatchObject({ started: 1, approved: 1, expired_unapproved: 0 });
+    expect(report.app_pairing).toMatchObject({ started: 1, approved: 0, expired_unapproved: 1 });
+    expect(report.retention.cohorts.at(-1).active_by_week).toEqual([2]);
   });
 
   it("rejects an unsupported window", async () => {
@@ -356,8 +451,21 @@ describe("usage retention", () => {
       [owner]
     );
 
+    const connector = randomUUID();
+    await db.query(
+      `INSERT INTO connectors (id, user_id, name, token_hash)
+       VALUES ($1, $2, 'Laptop', $3)`,
+      [connector, owner, randomUUID()]
+    );
+    await db.query(
+      `INSERT INTO device_activity_days (connector_id, day)
+       VALUES ($1, (${old})::date), ($1, (${recent})::date)`,
+      [connector]
+    );
+
     expect(await pruneUsageHistory(db)).toEqual({
       protocol_usage_telemetry: 1,
+      device_activity_days: 1,
       access_tokens: 1,
       refresh_tokens: 1,
       authorization_requests: 1,
@@ -365,6 +473,7 @@ describe("usage retention", () => {
     });
     expect(await pruneUsageHistory(db)).toEqual({
       protocol_usage_telemetry: 0,
+      device_activity_days: 0,
       access_tokens: 0,
       refresh_tokens: 0,
       authorization_requests: 0,
@@ -377,6 +486,51 @@ describe("usage retention", () => {
     expect(Number(remaining.rows[0]!.count)).toBe(1);
   });
 });
+
+async function nativeDevice(
+  db: DatabasePool,
+  userId: string,
+  kind: "desktop" | "app-runtime",
+  appId?: string
+): Promise<string> {
+  const connector = randomUUID();
+  const device = randomUUID();
+  const key = Buffer.alloc(32, 1);
+  await db.query(
+    `INSERT INTO connectors (id, user_id, name, token_hash)
+     VALUES ($1, $2, 'Device', $3)`,
+    [connector, userId, randomUUID()]
+  );
+  await db.query(
+    `INSERT INTO next_devices (id, connector_id, user_id, kind, sign_pk, kem_pk, noise_pk)
+     VALUES ($1, $2, $3, $4, $5, $5, $5)`,
+    [device, connector, userId, kind, key]
+  );
+  if (appId) {
+    await db.query(
+      `INSERT INTO installation_device_credentials
+         (pairing_id, connector_id, device_id, installation_id, app_id, app_origin,
+          kind, sign_pk, kem_pk, noise_pk, token_hash)
+       VALUES ($1, $2, $3, $4, $5, 'https://app.example', $6, $7, $7, $7, $8)`,
+      [randomUUID(), connector, device, randomUUID(), appId, kind, key, randomUUID()]
+    );
+  }
+  return connector;
+}
+
+async function nativeCollection(
+  db: DatabasePool,
+  ownerUserId: string,
+  sync: "private" | "cloud_copy",
+  id = randomUUID()
+): Promise<string> {
+  await db.query(
+    `INSERT INTO next_collections (collection_id, owner_user_id, runtime, sync, root_key_id)
+     VALUES ($1, $2, 'next', $3, $4)`,
+    [id, ownerUserId, sync, Buffer.alloc(16, 2)]
+  );
+  return id;
+}
 
 async function database(): Promise<DatabasePool> {
   const db = await createDatabase("memory");

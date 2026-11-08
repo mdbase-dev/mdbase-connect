@@ -189,7 +189,7 @@ describe("scoped application configuration phase", () => {
     try { expect((await f.helper.configure()).assessment?.status).toBe("incompatible"); expect(f.port.apply).not.toHaveBeenCalled(); }
     finally { await f.close(); }
   });
-  it("a seed Core kept without an upgrade baseline blocks setup instead of reading as nothing to do", () => {
+  it("a seed Core kept without an upgrade baseline blocks setup until the person chooses the app's version", () => {
     const kept = { target: "_types/task.md", kind: "type", mode: "seed" as const, action: "preserve" as const, installed: true,
       currentDigest: digest, reason: "_types/task.md: no upgrade baseline applies to this type's origin" };
     const pack = (status: "current" | "upgrade", resources: readonly unknown[]) => ({ status: status === "current" ? "current" as const : "provision" as const,
@@ -197,16 +197,35 @@ describe("scoped application configuration phase", () => {
         resources: resources as AppResourceReview["packs"][number]["resources"] }] } });
     const input = { canManage: true, canCreateRecords: true, records: [{ path: "Welcome.md", free: true }] };
     const current = setupPlan(pack("current", [kept]), input);
-    expect(current).toMatchObject({ status: "conflict", canApply: false, refusal: { code: "setup_unresolved" },
-      conflicts: [{ target: "_types/task.md", message: expect.stringContaining("changed outside this app") }], records: [] });
+    expect(current).toMatchObject({ status: "conflict", canApply: false, adoptable: { "_types/task.md": digest },
+      refusal: { code: "setup_conflict", message: "One item differs from what this app needs. Choose whether to use this app's version to continue." },
+      conflicts: [{ target: "_types/task.md", adoptable: { digest }, message: "Your note type for this app has changes that can't be combined with the version this app needs. You can replace it with this app's version." }],
+      records: [] });
     expect(current.summary).not.toMatch(/already set up/);
+    expect(describeError(current.refusal)).toMatchObject({ key: "setup_conflict", action: "set_up" });
     // A pending upgrade is not applied around it either.
     const contract = { target: "_contracts/tasks/1.1.0.md", kind: "contract", mode: "managed" as const, action: "create" as const, installed: false };
-    expect(setupPlan(pack("upgrade", [contract, kept]), input)).toMatchObject({ canApply: false, refusal: { code: "setup_unresolved" } });
-    // Alongside a conflict the person can decide, the decision comes first.
+    expect(setupPlan(pack("upgrade", [contract, kept]), input)).toMatchObject({ canApply: false, adoptable: { "_types/task.md": digest }, refusal: { code: "setup_conflict" } });
+    // A seed whose upgrade conflicts with the person's changes is offered the same way.
+    const conflicting = { ...kept, action: "conflict" as const, reason: undefined };
+    expect(setupPlan(pack("upgrade", [conflicting]), input)).toMatchObject({ adoptable: { "_types/task.md": digest }, refusal: { code: "setup_conflict" } });
+    // Alongside a conflict only the collection's owner can resolve, setup says so.
     const edited = { target: "_contracts/tasks.md", kind: "contract", mode: "managed" as const, action: "conflict" as const, installed: true };
-    expect(setupPlan(pack("upgrade", [edited, kept]), input)).toMatchObject({ canApply: false, refusal: { code: "setup_conflict" } });
-    expect(describeError(current.refusal)).toMatchObject({ key: "setup_unresolved", action: "retry" });
+    expect(setupPlan(pack("upgrade", [edited, kept]), input)).toMatchObject({ canApply: false, adoptable: { "_types/task.md": digest },
+      refusal: { code: "setup_conflict", message: expect.stringContaining("can't be set up automatically") } });
+    // Core withholds the digest of a type records use: it is never offered.
+    const { currentDigest: _digest, ...inUse } = kept;
+    expect(setupPlan(pack("upgrade", [inUse]), input)).toMatchObject({ canApply: false, adoptable: {}, refusal: { code: "setup_conflict",
+      message: expect.stringContaining("can't be set up automatically") } });
+    // Chosen: Core stages the app's version over exactly the reviewed revision.
+    const replacing = { ...kept, action: "adopt" as const, reason: undefined };
+    const chosenPlan = setupPlan({ ...pack("upgrade", [replacing]), review: { ...pack("upgrade", [replacing]).review, staged: [{ path: "_types/task.md", document: "app's" }] } }, input);
+    expect(chosenPlan).toMatchObject({ status: "setup", canApply: true, conflicts: [], adoptable: {} });
+    expect(chosenPlan.changes.map(c => [c.kind, c.message])).toEqual([["adopt", "Replace the note type for this app with this app's version. Yours isn't kept."],
+      ["record", "Create the starter note \"Welcome\"."]]);
+    expect(chosenPlan.summary).not.toMatch(/Nothing already in it is changed/);
+    // An identical existing type adopted without a write keeps its own wording.
+    expect(setupPlan(pack("upgrade", [replacing]), input).changes[0]).toMatchObject({ kind: "adopt", message: expect.stringContaining("already matches") });
     // A seed the person chose to keep (no reason) stays quiet.
     const { reason: _reason, ...chosen } = kept;
     expect(setupPlan(pack("current", [chosen]), input)).toMatchObject({ status: "current", conflicts: [] });
@@ -434,7 +453,7 @@ describe("reviewable setup plan/apply", () => {
       if (!decisions) return { status, assessmentDigest };
       return { status, assessmentDigest, review: { configuration: [], staged: adopt ? [{ path: target, document: "Synthetic resource" }] : [],
         packs: [{ id: "org.example.task", version: "1.0.0", status: done ? "current" as const : "install" as const, installedVersion: null,
-          resources: done ? [] : [{ target, kind: "type", mode: "managed" as const, installed: false, currentDigest: live, action: adopt ? "update" as const : "conflict" as const }] }] } };
+          resources: done ? [] : [{ target, kind: "type", mode: "managed" as const, installed: false, currentDigest: live, action: adopt ? "adopt" as const : "conflict" as const }] }] } };
     });
     vi.mocked(f.port.apply).mockImplementation(async () => ({ ...plan, assessmentDigest: adopted,
       resourceOps: [{ kind: "resource_put", path: target, doc: "Synthetic resource", mustNotExist: false, baseRevision: live }] }));
@@ -453,7 +472,7 @@ describe("reviewable setup plan/apply", () => {
       const reviewed = await f.helper.plan({ adopt: blocked.adoptable, records: [{ path: "Welcome.md", document: welcome }, { path: "Taken.md", document: welcome }] });
       expect(reviewed).toMatchObject({ status: "setup", canApply: true, digest: adopted,
         records: [{ path: "Welcome.md", action: "create" }, { path: "Taken.md", action: "skip" }] });
-      expect(reviewed.changes.map(c => c.message)).toEqual(["Update the note type for this app.", "Create the starter note \"Welcome\"."]);
+      expect(reviewed.changes.map(c => c.message)).toEqual(["Replace the note type for this app with this app's version. Yours isn't kept.", "Create the starter note \"Welcome\"."]);
       expect(f.port.apply).not.toHaveBeenCalled();
       const submit = vi.spyOn(f.client, "submit");
       await f.helper.apply(reviewed);

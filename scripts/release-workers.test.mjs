@@ -6,15 +6,16 @@ import { linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, wr
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sha256, REPOSITORY, DO_JOB, CI_JOBS, CI_WORKFLOW, IDENTITY, OPS_VERIFIER_COMMIT,
-  check, inputs, publisher, gate, fileInventory } from './release-workers.mjs';
+  PUBLISHERS, MERGE_QUEUE, authorizedPublisher, authorizedRun, check, inputs, publisher, gate, fileInventory } from './release-workers.mjs';
 
 const source = 'a'.repeat(40), connect = 'b'.repeat(40), trustPublisher = 'c'.repeat(40);
 const base = resolve(dirname(fileURLToPath(import.meta.url)), '../target/release-workers-tests');
 mkdirSync(base, { recursive: true });
 const publicAsset = Buffer.from('{"unit_test_only":true}\n');
 function env(environment = 'staging') {
+  const trust = JSON.stringify({ source_commit: connect, image_run: 101, trust_run: 102, publisher_commit: trustPublisher, asset_sha256: sha256(publicAsset) });
   return { RELEASE_ENVIRONMENT: environment, SOURCE_REVISION: source, CI_RUN_ID: '1', CI_RUN_ATTEMPT: '2', LOG_RUN_ID: '3', LOG_RUN_ATTEMPT: '4',
-    TRUST_RELEASE: JSON.stringify({ source_commit: connect, image_run: 101, trust_run: 102, publisher_commit: trustPublisher, asset_sha256: sha256(publicAsset) }),
+    TRUST_RELEASE: trust, APPROVED_TRUST_RELEASE: trust,
     GITHUB_REPOSITORY: REPOSITORY, GITHUB_REF: 'refs/heads/main', GITHUB_REF_PROTECTED: 'true', GITHUB_EVENT_NAME: 'workflow_dispatch',
     GITHUB_ACTOR: 'callumalpass', GITHUB_TRIGGERING_ACTOR: 'callumalpass', GITHUB_SHA: source,
     GITHUB_WORKFLOW_REF: `${REPOSITORY}/.github/workflows/release-workers.yml@refs/heads/main`, GITHUB_RUN_ID: '9', GITHUB_RUN_ATTEMPT: '2' };
@@ -95,6 +96,53 @@ test('publication equals the protected main dispatch SHA, exact identity, actor 
   }
 });
 
+test('only the owner and exact release App can publish or rerun their own dispatches', () => {
+  assert.deepEqual(PUBLISHERS, ['callumalpass', 'mdbase-dev-release-automation[bot]']);
+  for (const actor of PUBLISHERS) {
+    const e = { ...env(), GITHUB_ACTOR: actor, GITHUB_TRIGGERING_ACTOR: actor };
+    assert.equal(publisher(e, inputs(e)).publisher_commit, source);
+    for (const other of [...PUBLISHERS.filter(value => value !== actor), 'github-actions[bot]', 'other', undefined]) {
+      assert.equal(authorizedPublisher(actor, other), false);
+      assert.throws(() => publisher({ ...e, GITHUB_TRIGGERING_ACTOR: other }, inputs(e)));
+      assert.throws(() => publisher({ ...e, GITHUB_ACTOR: other }, inputs(e)));
+    }
+  }
+});
+
+for (const environment of ['staging', 'production']) {
+  test(`${environment}: owner and App hold before publication on missing or changed approved trust`, () => {
+    for (const actor of PUBLISHERS) {
+      const e = { ...env(environment), GITHUB_ACTOR: actor, GITHUB_TRIGGERING_ACTOR: actor };
+      for (const value of [undefined, '', '{}', 'null', 'not JSON', e.TRUST_RELEASE.replace('{', '{"extra":true,')]) {
+        assert.throws(() => publisher({ ...e, APPROVED_TRUST_RELEASE: value }, inputs(e)), /hold: trust change;/);
+      }
+      for (const [key, value] of Object.entries({ source_commit: source, image_run: 201, trust_run: 202,
+        publisher_commit: source, asset_sha256: 'f'.repeat(64) })) {
+        const changed = { ...JSON.parse(e.TRUST_RELEASE), [key]: value };
+        assert.throws(() => publisher({ ...e, TRUST_RELEASE: JSON.stringify(changed) }, inputs({ ...e, TRUST_RELEASE: JSON.stringify(changed) })), /hold: trust change;/);
+        assert.throws(() => publisher({ ...e, APPROVED_TRUST_RELEASE: JSON.stringify(changed) }, inputs(e)), /hold: trust change;/);
+      }
+      const reordered = Object.fromEntries(Object.entries(JSON.parse(e.TRUST_RELEASE)).reverse());
+      assert.equal(publisher({ ...e, APPROVED_TRUST_RELEASE: JSON.stringify(reordered, null, 2) }, inputs(e)).publisher_commit, source);
+      const duplicate = e.TRUST_RELEASE.replace('{', '{"image_run":101,');
+      assert.throws(() => publisher({ ...e, APPROVED_TRUST_RELEASE: duplicate }, inputs(e)), /hold: trust change;/);
+    }
+  });
+}
+
+test('CLI reports trust hold without exposing input values or invoking git or GitHub', () => {
+  const script = fileURLToPath(new URL('./release-workers.mjs', import.meta.url));
+  for (const actor of PUBLISHERS) {
+    const child = spawnSync(process.execPath, [script, 'verify'], {
+      env: { ...env(), PATH: '', APPROVED_TRUST_RELEASE: 'invalid/private/value', GITHUB_ACTOR: actor, GITHUB_TRIGGERING_ACTOR: actor }, encoding: 'utf8'
+    });
+    assert.equal(child.status, 1);
+    assert.equal(child.stdout, '');
+    assert.match(child.stderr, /^hold: trust change;/);
+    assert.ok(!child.stderr.includes('/private/'));
+  }
+});
+
 test('CLI refuses local/non-main context before invoking git, GitHub, a compiler or signing', () => {
   const script = fileURLToPath(new URL('./release-workers.mjs', import.meta.url));
   const e = { ...env(), PATH: '', GITHUB_REF: 'refs/pull/1/merge' };
@@ -119,6 +167,54 @@ test('successful exact-main CI and log owner dispatches qualify with every manda
       f.lists[1] = f.lists[1].filter(job => job.name !== 'sdk execution');
       assert.throws(() => gate(input, f.api, f.list));
     }
+  }
+});
+
+test('the merge queue qualifies only exact Runtime CI main pushes and never publishes', () => {
+  const input = inputs(env());
+  const queued = () => {
+    const f = apiFixture();
+    for (const run of Object.values(f.runs)) { run.actor.login = MERGE_QUEUE; run.triggering_actor.login = MERGE_QUEUE; }
+    return f;
+  };
+  const fixture = queued();
+  gate(input, fixture.api, fixture.list);
+  for (const id of [1, 3]) {
+    for (const mutate of [r => { r.event = 'workflow_dispatch'; }, r => { r.event = 'pull_request'; }, r => { r.event = 'merge_group'; },
+      r => { r.triggering_actor.login = 'callumalpass'; }, r => { r.triggering_actor.login = PUBLISHERS[1]; },
+      r => { r.actor.login = 'callumalpass'; }, r => { r.actor.login = r.triggering_actor.login = 'github-actions[bot]'; },
+      r => { r.path = '.github/workflows/ci.yml'; }]) {
+      const f = queued(); mutate(f.runs[id]);
+      assert.throws(() => gate(input, f.api, f.list));
+    }
+  }
+  const run = { actor: { login: MERGE_QUEUE }, triggering_actor: { login: MERGE_QUEUE }, event: 'push' };
+  assert.equal(authorizedRun(run, CI_WORKFLOW), true);
+  assert.equal(authorizedRun(run, 'release-workers.yml'), false);
+  assert.equal(authorizedPublisher(MERGE_QUEUE, MERGE_QUEUE), false);
+  assert.ok(!PUBLISHERS.includes(MERGE_QUEUE));
+  const e = { ...env(), GITHUB_ACTOR: MERGE_QUEUE, GITHUB_TRIGGERING_ACTOR: MERGE_QUEUE };
+  assert.throws(() => publisher(e, inputs(e)));
+});
+
+test('the release App qualifies exact-main CI without relaxing required jobs, events or attempt identity', () => {
+  const input = inputs(env());
+  for (const event of ['push', 'workflow_dispatch']) {
+    const fixture = apiFixture();
+    for (const run of Object.values(fixture.runs)) {
+      run.event = event;
+      run.actor.login = 'mdbase-dev-release-automation[bot]';
+      run.triggering_actor.login = run.actor.login;
+    }
+    gate(input, fixture.api, fixture.list);
+    for (const other of ['callumalpass', 'github-actions[bot]', 'other']) {
+      const rejected = apiFixture();
+      Object.assign(rejected.runs[1], clone(fixture.runs[1]));
+      rejected.runs[1].triggering_actor.login = other;
+      assert.throws(() => gate(input, rejected.api, rejected.list));
+    }
+    fixture.lists[1].find(job => job.name === DO_JOB).conclusion = 'skipped';
+    assert.throws(() => gate(input, fixture.api, fixture.list));
   }
 });
 test('PR, schedule, merge-group and workflow-call evidence never qualifies as a main push or dispatch', () => {
@@ -201,6 +297,19 @@ test('missing or changed handoff proof refuses even without signing', () => with
   assert.throws(() => check(dir, digest, input, e));
 }));
 
+for (const environment of ['staging', 'production']) {
+  test(`${environment}: App byte custody retains ops manifest/source/attempt and tier contract`, () => withBundle(({ dir, input, e, manifest, save }) => {
+    e.GITHUB_ACTOR = 'mdbase-dev-release-automation[bot]';
+    e.GITHUB_TRIGGERING_ACTOR = e.GITHUB_ACTOR;
+    assert.deepEqual(publisher(e, input), manifest.publication);
+    assert.equal(manifest.schema, `mdbase-${environment}-next-stack/1`);
+    assert.equal(manifest.next_source, source);
+    assert.equal(manifest.publication.workflow, 'release-workers.yml');
+    assert.equal(check(dir, save(), input, e), save());
+    assert.throws(() => check(dir, save(), input, { ...e, APPROVED_TRUST_RELEASE: '' }), /hold: trust change;/);
+  }, environment));
+}
+
 test('workflow keeps private assembly out of OIDC and binds only this build artifact', () => {
   const yaml = readFileSync(new URL('../.github/workflows/release-workers.yml', import.meta.url), 'utf8');
   const [build, sign] = yaml.split('\n  sign:');
@@ -223,6 +332,15 @@ test('workflow keeps private assembly out of OIDC and binds only this build arti
   assert.ok(sign.includes('run: node scripts/release-workers.mjs check'));
   assert.ok(sign.includes(IDENTITY));
   assert.ok(sign.includes('--certificate-github-workflow-sha "$SOURCE_REVISION"'));
+  for (const job of [build, sign]) {
+    assert.ok(job.includes(`contains(fromJSON('${JSON.stringify(PUBLISHERS)}'), github.actor) && github.triggering_actor == github.actor`));
+    assert.ok(job.includes("APPROVED_TRUST_RELEASE: ${{ vars[format('WORKER_BUILD_TRUST_{0}', inputs.environment)] }}"));
+  }
+  assert.ok(!yaml.includes('environment: ${{ inputs.environment }}'));
+  assert.ok(sign.includes('name: ${{ inputs.environment }}-workers-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}'));
+  assert.ok(build.includes('name: unsigned-${{ inputs.environment }}-workers-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}'));
+  assert.ok(sign.includes('retention-days: 14'));
+  assert.equal((sign.match(/run: node scripts\/release-workers.mjs check/g) ?? []).length, 2);
   assert.ok(!sign.includes('WORKER_RELEASE_READ_TOKEN'));
   assert.ok(!sign.includes('worker-release-deps'));
   assert.ok(!yaml.includes('CLOUDFLARE_API_TOKEN'));
@@ -232,4 +350,15 @@ test('workflow keeps private assembly out of OIDC and binds only this build arti
 test('no LAB profile or runtime signer override', () => {
   for (const environment of ['lab', 'local', '', '../production']) assert.throws(() => inputs(env(environment)));
   assert.equal(IDENTITY, 'https://github.com/mdbase-dev/mdbase-connect/.github/workflows/release-workers.yml@refs/heads/main');
+});
+
+test('pull requests exercise the publication contract without signing privileges or credentials', () => {
+  const yaml = readFileSync(new URL('../.github/workflows/runtime-ci.yml', import.meta.url), 'utf8');
+  const job = yaml.split('\n  publication:')[1].split('\n  native:')[0];
+  assert.ok(yaml.includes('pull_request:'));
+  assert.ok(yaml.includes("'scripts/release-workers*.mjs'"));
+  assert.ok(job.includes('working-directory: .'));
+  assert.ok(job.includes('run: node --test scripts/release-workers.test.mjs'));
+  assert.ok(!job.includes('id-token: write'));
+  assert.ok(!job.includes('secrets.'));
 });

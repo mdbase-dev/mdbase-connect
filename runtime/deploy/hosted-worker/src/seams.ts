@@ -74,12 +74,15 @@ export interface Admission {
   check(ctx: { collection: string; op: AdmissionOp; grant?: string; clientPk?: Uint8Array }): Promise<"allow" | "deny">;
 }
 
+/** No custody configured for this deployment (the managed escrow has none). Not an
+ * outage, so never retried: a transient code held each escrow wake 45 s. An escrow
+ * treats it as a lasting refusal (`HostedCollection.lastingRefusal`). */
 export const DENY_CUSTODY: Custody = {
   openSealer: async () => {
-    throw new Error("custody_unavailable");
+    throw new Error("custody_not_configured");
   },
   logToken: async () => {
-    throw new Error("custody_unavailable");
+    throw new Error("custody_not_configured");
   },
 };
 

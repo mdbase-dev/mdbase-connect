@@ -142,7 +142,14 @@ export async function openMemoryDatabase(): Promise<DatabasePool> {
     const recoveryShape = "-- mdbase:installation-recovery-target-constraints:v1";
     if (sql.includes(recoveryShape)) return memory.public.many(sql.slice(0, sql.indexOf(recoveryShape)));
     const grantTrigger = "-- mdbase:next-grant-revoke-trigger:v1";
-    if (sql.includes(grantTrigger)) return memory.public.many(sql.slice(0, sql.indexOf(grantTrigger)));
+    if (sql.includes(grantTrigger)) {
+      const schema = sql.slice(0, sql.indexOf(grantTrigger));
+      return schema.trim() ? memory.public.many(schema) : [];
+    }
+    // pg-mem cannot run the plpgsql mode-change revocation either: memory keeps
+    // the grant mode column; revocation on mode change needs real PostgreSQL.
+    const modeRevokeTrigger = "-- mdbase:next-grant-mode-revoke-trigger:v1";
+    if (sql.includes(modeRevokeTrigger)) return memory.public.many(sql.slice(0, sql.indexOf(modeRevokeTrigger)));
     // pg-mem does not use PostgreSQL's automatic CHECK name. Name ONLY the
     // original fixed device-kind CHECK so migration0055 replaces it exactly,
     // without editing historical SQL/checksums or weakening either constraint.

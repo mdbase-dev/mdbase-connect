@@ -13,6 +13,7 @@ fn record(doc: &str) -> RecordRow {
         doc: doc.into(),
         revision: B32(Hash::of(doc.as_bytes()).0),
         modified_seq: 0,
+        mtime: None,
         bucket: 0,
         meta: RecordMeta::default(),
     }
@@ -94,8 +95,18 @@ fn unavailable_and_known_empty_are_distinct() {
     );
     assert_eq!(
         tags(&capture(&record("[link](target) #task")).unwrap()),
-        None
+        Some(vec!["#task".into()])
     );
+    // A bound can decide a row only in evaluation, so it stays a candidate.
+    let bound = capture(&record("**#task**")).unwrap();
+    assert!(matches!(
+        cbor::decode(&bound.tags).unwrap(),
+        Cbor::Map(entries) if entries.len() == 1
+    ));
+    assert!(bound.facts.iter().any(|stmt| {
+        stmt.sql.contains("st_qraw_fact(")
+            && matches!(stmt.params.as_slice(), [_, SqlValue::Integer(0)])
+    }));
     assert!(capture(&record("---\na: [\n---\n")).is_none());
     let mut bad = record("plain body");
     bad.revision = B32([0; 32]);

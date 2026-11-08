@@ -53,38 +53,6 @@ fn write_err(e: &writer::WriteError) -> Rejection {
     }
 }
 
-/// Changes that turn `from` into `to`, per top-level key, in `to`'s order then
-/// removals.
-fn diff_changes(from: &Map, to: &Map) -> Vec<(String, Change)> {
-    let mut out: Vec<(String, Change)> = Vec::new();
-    for (k, v) in to.iter() {
-        if from.get(k).is_none_or(|old| !same(old, v)) {
-            out.push((k.to_owned(), Change::Set(v.clone())));
-        }
-    }
-    for k in from.keys() {
-        if !to.contains_key(k) {
-            out.push((k.to_owned(), Change::Remove));
-        }
-    }
-    out
-}
-
-/// Equality that also tells `1` from `1.0` (a write that changes the type
-/// changes the file).
-fn same(a: &Value, b: &Value) -> bool {
-    match (a, b) {
-        (Value::Int(_), Value::Float(_)) | (Value::Float(_), Value::Int(_)) => false,
-        (Value::List(x), Value::List(y)) => {
-            x.len() == y.len() && x.iter().zip(y).all(|(p, q)| same(p, q))
-        }
-        (Value::Map(x), Value::Map(y)) => {
-            x.len() == y.len() && x.iter().all(|(k, v)| y.get(k).is_some_and(|w| same(v, w)))
-        }
-        _ => a == b,
-    }
-}
-
 fn rewrite(
     path: &str,
     src: &str,
@@ -117,6 +85,329 @@ fn allocate(ov: &Overlay<'_>, requested: &str, own: Option<RecordId>) -> String 
         }
         n += 1;
     }
+}
+
+fn path_error(e: crate::paths::PathPatternError) -> Rejection {
+    let mut r = invalid(e.code(), "cannot encode a path value");
+    if let Some(field) = e.field() {
+        r.details = details(&[("field", Value::string(field))]);
+    }
+    r
+}
+
+/// Include lifecycle changes, but never mark untouched decoded values as writes.
+fn mark_changed(written: &mut Map, from: &Map, to: &Map) {
+    for field in from.keys().chain(to.keys()) {
+        if from.get(field) != to.get(field) {
+            written.insert(field, to.get(field).cloned().unwrap_or(Value::Null));
+        }
+    }
+}
+
+fn has_stored_fields(catalog: &Catalog, types: &[String]) -> bool {
+    types
+        .iter()
+        .filter_map(|n| catalog.type_named(n))
+        .filter_map(|t| t.path_policy.as_ref())
+        .any(|p| !p.fields.is_empty())
+}
+fn normalize_path_values(
+    catalog: &Catalog,
+    types: &[String],
+    values: &mut Map,
+    written: &Map,
+) -> Result<(), Rejection> {
+    for p in types
+        .iter()
+        .filter_map(|n| catalog.type_named(n))
+        .filter_map(|t| t.path_policy.as_ref())
+    {
+        let mut assigned = p.clone();
+        assigned.fields.retain(|f| written.contains_key(f));
+        assigned.normalize(values).map_err(path_error)?;
+    }
+    Ok(())
+}
+pub(super) fn strip_path_fields(catalog: &Catalog, types: &[String], values: &mut Map) {
+    for p in types
+        .iter()
+        .filter_map(|n| catalog.type_named(n))
+        .filter_map(|t| t.path_policy.as_ref())
+    {
+        for f in &p.fields {
+            values.remove(f);
+        }
+    }
+}
+fn stored_update_path(
+    catalog: &Catalog,
+    types: &[String],
+    path: &str,
+    values: &Map,
+) -> Result<String, Rejection> {
+    let mut target: Option<String> = None;
+    for p in types
+        .iter()
+        .filter_map(|n| catalog.type_named(n))
+        .filter_map(|t| t.path_policy.as_ref())
+        .filter(|p| !p.fields.is_empty())
+    {
+        let candidate = p.update_path(path, values).map_err(path_error)?;
+        if target.as_ref().is_some_and(|old| old != &candidate) {
+            return Err(invalid(
+                "type_conflict",
+                "types disagree on the stored-field target path",
+            ));
+        }
+        target = Some(candidate);
+    }
+    Ok(target.unwrap_or_else(|| path.to_owned()))
+}
+fn check_stored_path(catalog: &Catalog, types: &[String], path: &str) -> Result<(), Rejection> {
+    for p in types
+        .iter()
+        .filter_map(|n| catalog.type_named(n))
+        .filter_map(|t| t.path_policy.as_ref())
+    {
+        let decoded = p.decode(path);
+        for f in &p.fields {
+            if decoded.as_ref().is_none_or(|d| !d.values.contains_key(f)) {
+                return Err(path_error(crate::paths::PathPatternError::Missing {
+                    field: f.clone(),
+                }));
+            }
+        }
+    }
+    let (_, issues) = catalog.record_values_with_issues(path, types, &Map::new());
+    if let Some(issue) = issues.into_iter().find(|i| i.code == "type_conflict") {
+        let mut r = invalid("type_conflict", issue.message.clone());
+        r.issues.push(issue);
+        return Err(r);
+    }
+    Ok(())
+}
+fn check_written_path(
+    catalog: &Catalog,
+    types: &[String],
+    path: &str,
+    values: &Map,
+) -> Result<(), Rejection> {
+    for policy in types
+        .iter()
+        .filter_map(|n| catalog.type_named(n))
+        .filter_map(|t| t.path_policy.as_ref())
+    {
+        policy
+            .check_written_values(path, values)
+            .map_err(path_error)?;
+    }
+    Ok(())
+}
+
+fn check_move_membership(
+    ctx: &mut Ctx<'_>,
+    catalog: &Catalog,
+    types: &[String],
+    path: &str,
+    raw: &Map,
+) -> Result<(), Rejection> {
+    let target = types_of(catalog, path, raw, &ctx.m.clock);
+    if types.iter().any(|t| !target.contains(t)) {
+        if ctx.resurrect() {
+            ctx.note(
+                crate::ids::Uuid::NIL,
+                "type_membership_changed",
+                "the move changed type membership",
+                None,
+            );
+        } else {
+            return Err(invalid(
+                "type_membership_changed",
+                "the move changed type membership",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn ensure_free(ov: &Overlay<'_>, path: &str, id: RecordId) -> Result<(), Rejection> {
+    if ov
+        .at_path_key(&path_key(path))
+        .is_some_and(|h| h != PathHolder::Record(id))
+    {
+        return Err(conflict("path_conflict", format!("`{path}` is taken")));
+    }
+    Ok(())
+}
+
+/// Emit a record's edit and move exactly once, then its inbound rewrites.
+#[allow(clippy::too_many_arguments)]
+fn finalize_move(
+    ctx: &mut Ctx<'_>,
+    ov: &mut Overlay<'_>,
+    id: RecordId,
+    from: &str,
+    to: &str,
+    mut src: String,
+    previous: Option<&Map>,
+    update_refs: bool,
+) -> Result<(), Rejection> {
+    if from == to {
+        ctx.touch_path(to);
+        return finalize(ctx, ov, id, to, src, previous);
+    }
+    check_path(to)?;
+    let catalog = ov.catalog();
+    if !catalog.is_record_path(to) || RecordFormat::for_path(from) != RecordFormat::for_path(to) {
+        return Err(invalid(
+            "not_a_record_path",
+            "stored-field move must preserve record format",
+        ));
+    }
+    let allocated;
+    let to = if ctx.resurrect() {
+        allocated = allocate(ov, to, Some(id));
+        if allocated != to {
+            relocated(ctx, id, to, &allocated);
+        }
+        &allocated
+    } else {
+        ensure_free(ov, to, id)?;
+        to
+    };
+    let updates = if update_refs {
+        let mut post = Overlay::new(ov);
+        post.apply_effect(&Effect::PutRecord {
+            id,
+            path: to.to_owned(),
+            doc: src.clone(),
+        });
+        let mut updates = crate::links::plan_reference_updates(ov, &post, id, to);
+        prepare_reference_updates(ctx, &post, &mut updates)?;
+        updates
+    } else {
+        Vec::new()
+    };
+    let before = ctx.incoming(ov, id);
+    ctx.record_rewrites(&updates);
+    if let Some(own) = updates.iter().find(|u| u.id == id) {
+        if own.path != to {
+            return Err(invalid(
+                "type_conflict",
+                "self-reference rewrite disagrees with the assigned path",
+            ));
+        }
+        src.clone_from(&own.doc);
+    }
+    ctx.touch_path(from);
+    ctx.touch_path(to);
+    finalize(ctx, ov, id, to, src, previous)?;
+    if path_key(from) != path_key(to) {
+        ctx.alias(ov, from, id);
+    }
+    for upd in updates.into_iter().filter(|u| u.id != id) {
+        emit_reference_update(ctx, ov, upd);
+    }
+    ctx.record_broken(ov, id, before);
+    Ok(())
+}
+
+/// Link rewrites are engine writes too: path-stored link assignments move their
+/// referring record and never leak a synthetic field into persisted YAML.
+pub(super) fn prepare_reference_updates(
+    ctx: &Ctx<'_>,
+    post: &Overlay<'_>,
+    updates: &mut [crate::links::ReferenceUpdate],
+) -> Result<(), Rejection> {
+    let catalog = post.catalog();
+    let mut occupied = Overlay::new(post);
+    for update in updates {
+        let Some(before) = post.record(&update.id) else {
+            continue;
+        };
+        let before_doc = Document::parse_at(&before.path, &*before.source);
+        let types = types_of(
+            &catalog,
+            &before.path,
+            before_doc.frontmatter(),
+            &ctx.m.clock,
+        );
+        if !has_stored_fields(&catalog, &types) {
+            continue;
+        }
+        let doc = Document::parse_at(&update.path, &update.doc);
+        let raw = doc.frontmatter();
+        let mut values = catalog.record_values(&update.path, &types, raw);
+        let mut assigned = Map::new();
+        for policy in types
+            .iter()
+            .filter_map(|n| catalog.type_named(n))
+            .filter_map(|t| t.path_policy.as_ref())
+        {
+            for field in &policy.fields {
+                if update.links.iter().any(|l| l.field.as_ref() == Some(field)) {
+                    if let Some(value) = raw.get(field) {
+                        values.insert(field, value.clone());
+                    }
+                    assigned.insert(field, raw.get(field).cloned().unwrap_or(Value::Null));
+                }
+            }
+        }
+        let path = if !assigned.is_empty() {
+            normalize_path_values(&catalog, &types, &mut values, &assigned)?;
+            let path = stored_update_path(&catalog, &types, &update.path, &values)?;
+            check_path(&path)?;
+            check_stored_path(&catalog, &types, &path)?;
+            if !catalog.is_record_path(&path) {
+                return Err(invalid(
+                    "not_a_record_path",
+                    "a path-stored reference must remain a record",
+                ));
+            }
+            if ctx.resurrect() {
+                allocate(&occupied, &path, Some(update.id))
+            } else {
+                ensure_free(&occupied, &path, update.id)?;
+                path
+            }
+        } else {
+            update.path.clone()
+        };
+        strip_path_fields(&catalog, &types, &mut values);
+        update.doc = rewrite(&update.path, &update.doc, &writer::diff(raw, &values), None)?;
+        update.path = path;
+        occupied.apply_effect(&Effect::PutRecord {
+            id: update.id,
+            path: update.path.clone(),
+            doc: update.doc.clone(),
+        });
+    }
+    Ok(())
+}
+
+pub(super) fn emit_reference_update(
+    ctx: &mut Ctx<'_>,
+    ov: &mut Overlay<'_>,
+    update: crate::links::ReferenceUpdate,
+) {
+    if let Some(before) = ov.record(&update.id)
+        && before.path != update.path
+    {
+        ctx.touch_path(&before.path);
+        ctx.touch_path(&update.path);
+        if path_key(&before.path) != path_key(&update.path) {
+            ctx.alias(ov, &before.path, update.id);
+        }
+    }
+    ctx.touch_id(update.id);
+    ctx.emit(
+        ov,
+        Effect::PutRecord {
+            id: update.id,
+            path: update.path,
+            doc: update.doc,
+        },
+    );
 }
 
 fn types_of(
@@ -238,6 +529,8 @@ fn finalize_with(
         let doc = Document::parse_at(path, &src);
         let fm = doc.frontmatter();
         let types = types_of(&catalog, path, fm, &ctx.m.clock);
+        let values = catalog.record_values(path, &types, fm);
+        let fm = &values;
         let rec = StoredRecord {
             id,
             path: path.to_owned(),
@@ -287,8 +580,12 @@ fn with_lifecycle(
     path: &str,
     draft: Map,
     previous: Option<&Map>,
+    matched: Option<&[String]>,
 ) -> Result<(Map, Vec<String>), Rejection> {
-    let pre = catalog.membership_at(path, &draft, Some(&ctx.m.clock));
+    let mut pre = catalog.membership_at(path, &draft, Some(&ctx.m.clock));
+    if let Some(types) = matched {
+        pre.types = types.to_vec();
+    }
     if !ctx.api() {
         return Ok((draft, pre.types));
     }
@@ -328,7 +625,13 @@ fn with_lifecycle(
         }
         Err(r) => return Err(r),
     };
-    let post = catalog.membership_at(path, &out, Some(&ctx.m.clock));
+    if event == LifecycleEvent::Create && path.is_empty() {
+        // A selected type may match only the path we have not derived yet.
+        return Ok((out, pre.types));
+    }
+    let mut raw = out.clone();
+    strip_path_fields(catalog, &pre.types, &mut raw);
+    let post = catalog.membership_at(path, &raw, Some(&ctx.m.clock));
     if post.types != pre.types && resurrect {
         ctx.note(
             crate::ids::Uuid::NIL,
@@ -388,36 +691,65 @@ pub(super) fn create(ctx: &mut Ctx<'_>, ov: &mut Overlay<'_>, c: &Create) -> Res
     if let Some(sel) = &selected {
         declare_type(&catalog, &mut fm, sel);
     }
+    if let Some(path) = &c.path {
+        let types = types_of(&catalog, path, &fm, &ctx.m.clock);
+        let mut values = catalog.record_values(path, &types, &fm);
+        for (k, v) in fm.iter() {
+            values.insert(k, v.clone());
+        }
+        fm = values;
+    }
+    // A non-storing pattern may provide a provisional membership path. Lifecycle
+    // still runs before the final path is derived, and can supply missing values.
+    let initial_types = types_of(&catalog, c.path.as_deref().unwrap_or(""), &fm, &ctx.m.clock);
+    let pattern = selected
+        .as_ref()
+        .and_then(|s| catalog.type_named(s))
+        .and_then(|t| t.path_pattern.clone())
+        .or_else(|| {
+            initial_types
+                .iter()
+                .find_map(|n| catalog.type_named(n).and_then(|t| t.path_pattern.clone()))
+        });
+    let mut policy_types = initial_types.clone();
+    if let Some(sel) = &selected {
+        policy_types.push(sel.clone());
+    }
+    let provisional = if c.path.is_none() && !has_stored_fields(&catalog, &policy_types) {
+        pattern.as_ref().and_then(|p| derive_path(p, &fm).ok())
+    } else {
+        None
+    };
+    let membership_path = c.path.as_deref().or(provisional.as_deref()).unwrap_or("");
+    let mut create_types = types_of(&catalog, membership_path, &fm, &ctx.m.clock);
+    if let Some(sel) = &selected
+        && !create_types.contains(sel)
+    {
+        create_types.push(sel.clone());
+    }
+    let before_lifecycle = fm.clone();
+    let (mut fm, types) = with_lifecycle(
+        ctx,
+        &catalog,
+        LifecycleEvent::Create,
+        membership_path,
+        fm,
+        None,
+        Some(&create_types),
+    )?;
+    let mut written = if c.path.is_some() {
+        original_fm.clone()
+    } else {
+        fm.clone()
+    };
+    mark_changed(&mut written, &before_lifecycle, &fm);
+    normalize_path_values(&catalog, &types, &mut fm, &written)?;
     // The path.
     let path = match &c.path {
-        Some(p) => {
-            if ov.at_path_key(&path_key(p)).is_some() {
-                if ctx.resurrect() {
-                    let moved = allocate(ov, p, None);
-                    relocated(ctx, c.id, p, &moved);
-                    moved
-                } else {
-                    let mut r = conflict("path_taken", format!("`{p}` is taken"));
-                    r.details = details(&[("path", Value::string(p.clone()))]);
-                    return Err(r);
-                }
-            } else {
-                p.clone()
-            }
-        }
+        Some(p) => p.clone(),
         None => {
-            let pattern = selected
-                .as_ref()
-                .and_then(|s| catalog.type_named(s))
-                .and_then(|t| t.path_pattern.clone())
-                .or_else(|| {
-                    catalog
-                        .membership_at("", &fm, Some(&ctx.m.clock))
-                        .types
-                        .iter()
-                        .find_map(|n| catalog.type_named(n).and_then(|t| t.path_pattern.clone()))
-                })
-                .ok_or_else(|| invalid("path_required", "no path and no path policy"))?;
+            let pattern =
+                pattern.ok_or_else(|| invalid("path_required", "no path and no path policy"))?;
             let derived = derive_path(&pattern, &fm).map_err(|e| {
                 let mut r = invalid(e.code(), format!("cannot derive a path from `{pattern}`"));
                 if let Some(f) = e.field() {
@@ -426,7 +758,8 @@ pub(super) fn create(ctx: &mut Ctx<'_>, ov: &mut Overlay<'_>, c: &Create) -> Res
                 r
             })?;
             check_path(&derived)?;
-            allocate(ov, &derived, None)
+            check_written_path(&catalog, &types, &derived, &fm)?;
+            derived
         }
     };
     check_path(&path)?;
@@ -443,9 +776,55 @@ pub(super) fn create(ctx: &mut Ctx<'_>, ov: &mut Overlay<'_>, c: &Create) -> Res
             "a YAML document record has no body",
         ));
     }
-    let (fm, types) = with_lifecycle(ctx, &catalog, LifecycleEvent::Create, &path, fm, None)?;
+    check_stored_path(&catalog, &types, &path)?;
+    if c.path.is_some() {
+        let decoded = catalog.record_values(&path, &types, &Map::new());
+        for policy in types
+            .iter()
+            .filter_map(|n| catalog.type_named(n))
+            .filter_map(|t| t.path_policy.as_ref())
+        {
+            for field in &policy.fields {
+                if written.contains_key(field) && fm.get(field) != decoded.get(field) {
+                    let mut r = invalid(
+                        "invalid_request",
+                        "explicit path disagrees with the stored field value",
+                    );
+                    r.details = details(&[
+                        ("field", Value::string(field)),
+                        ("reason", Value::string("path_value_mismatch")),
+                    ]);
+                    return Err(r);
+                }
+            }
+        }
+    }
+    let path = if ctx.resurrect() || (c.path.is_none() && !has_stored_fields(&catalog, &types)) {
+        let allocated = allocate(ov, &path, None);
+        if ctx.resurrect() && allocated != path {
+            relocated(ctx, c.id, &path, &allocated);
+        }
+        allocated
+    } else {
+        if ov.at_path_key(&path_key(&path)).is_some() {
+            let reason = if has_stored_fields(&catalog, &types) {
+                "path_conflict"
+            } else {
+                "path_taken"
+            };
+            let mut r = conflict(reason, format!("`{path}` is taken"));
+            r.details = details(&[("path", Value::string(&path))]);
+            return Err(r);
+        }
+        path
+    };
+    strip_path_fields(&catalog, &types, &mut fm);
+    check_move_membership(ctx, &catalog, &types, &path, &fm)?;
+    let final_types = types_of(&catalog, &path, &fm, &ctx.m.clock);
+    let types = final_types;
     if let Some(sel) = &selected
         && !types.iter().any(|t| t.eq_ignore_ascii_case(sel))
+        && !ctx.resurrect()
     {
         return Err(invalid(
             "type_membership_changed",
@@ -454,7 +833,7 @@ pub(super) fn create(ctx: &mut Ctx<'_>, ov: &mut Overlay<'_>, c: &Create) -> Res
     }
     let src = match document {
         Some(d) if fm == original_fm => d,
-        Some(d) => rewrite(&path, &d, &diff_changes(&original_fm, &fm), None)?,
+        Some(d) => rewrite(&path, &d, &writer::diff(&original_fm, &fm), None)?,
         None => {
             writer::render_new(&fm, &body, format, LineEnding::Lf).map_err(|e| write_err(&e))?
         }
@@ -627,11 +1006,56 @@ pub(super) fn update(ctx: &mut Ctx<'_>, ov: &mut Overlay<'_>, u: &Update) -> Res
     if structured && cur_doc.problem().is_some() {
         return Err(frontmatter_problem(&cur_doc));
     }
-    let cur_fm = cur_doc.frontmatter().clone();
+    let mut types = types_of(&catalog, &path, cur_doc.frontmatter(), &ctx.m.clock);
+    let cur_fm = catalog.record_values(&path, &types, cur_doc.frontmatter());
+    for field in &u.unset {
+        if catalog
+            .types()
+            .iter()
+            .filter(|t| types.contains(&t.name))
+            .filter_map(|t| t.path_policy.as_ref())
+            .any(|p| {
+                p.fields
+                    .iter()
+                    .any(|f| field == f || field == &format!("/{f}"))
+            })
+        {
+            return Err(path_error(crate::paths::PathPatternError::Missing {
+                field: field.clone(),
+            }));
+        }
+    }
+    // A stored-field base is a path observation, not a YAML-field conflict.
+    for b in &u.base {
+        if u.patch.as_ref().is_some_and(|p| p.contains_key(&b.key))
+            && types
+                .iter()
+                .filter_map(|n| catalog.type_named(n))
+                .filter_map(|t| t.path_policy.as_ref())
+                .any(|p| p.fields.contains(&b.key))
+            && cur_fm.get(&b.key) != b.observed.as_ref()
+        {
+            let mut r = conflict("renamed", "the path-stored value changed since it was read");
+            r.details = details(&[("path", Value::string(&path))]);
+            if ctx.resurrect() {
+                ctx.merged = true;
+                ctx.note(u.id, "concurrent_modification", r.message, r.details);
+            } else {
+                return Err(r);
+            }
+        }
+    }
+    // Synthetic values exist only in the merge/lifecycle draft, never in emitted bytes.
+    let current_values = rewrite(
+        &path,
+        &current,
+        &writer::diff(cur_doc.frontmatter(), &cur_fm),
+        None,
+    )?;
 
     // 1. patch/unset as a three-way merge of the touched keys: B = current
     //    with the caller's observed values, F = current, S = B with the change.
-    let mut src = current.clone();
+    let mut src = current_values.clone();
     if u.patch.is_some() || !u.unset.is_empty() {
         let mut b_fm = cur_fm.clone();
         for b in &u.base {
@@ -654,8 +1078,8 @@ pub(super) fn update(ctx: &mut Ctx<'_>, ov: &mut Overlay<'_>, u: &Update) -> Res
         for r in &u.unset {
             lifecycle::set_field(&mut s_fm, r, None).map_err(|m| invalid("invalid_request", m))?;
         }
-        let b_src = rewrite(&path, &current, &diff_changes(&cur_fm, &b_fm), None)?;
-        let s_src = rewrite(&path, &b_src, &diff_changes(&b_fm, &s_fm), None)?;
+        let b_src = rewrite(&path, &current_values, &writer::diff(&cur_fm, &b_fm), None)?;
+        let s_src = rewrite(&path, &b_src, &writer::diff(&b_fm, &s_fm), None)?;
         let merged = merge::merge_records(
             Version {
                 path: &path,
@@ -663,7 +1087,7 @@ pub(super) fn update(ctx: &mut Ctx<'_>, ov: &mut Overlay<'_>, u: &Update) -> Res
             },
             Version {
                 path: &path,
-                source: &current,
+                source: &current_values,
             },
             Version {
                 path: &path,
@@ -748,22 +1172,50 @@ pub(super) fn update(ctx: &mut Ctx<'_>, ov: &mut Overlay<'_>, u: &Update) -> Res
     let draft_doc = Document::parse_at(&path, src.as_str());
     if draft_doc.problem().is_none() {
         let draft = draft_doc.frontmatter().clone();
-        let (fm, _) = with_lifecycle(
+        let mut raw_draft = draft.clone();
+        strip_path_fields(&catalog, &types, &mut raw_draft);
+        let draft_types = types_of(&catalog, &path, &raw_draft, &ctx.m.clock);
+        let mut values = catalog.record_values(&path, &draft_types, &draft);
+        for (k, v) in draft.iter() {
+            values.insert(k, v.clone());
+        }
+        let (fm, next_types) = with_lifecycle(
             ctx,
             &catalog,
             LifecycleEvent::Update,
             &path,
-            draft.clone(),
+            values,
             Some(&cur_fm),
+            Some(&draft_types),
         )?;
-        src = rewrite(&path, &src, &diff_changes(&draft, &fm), None)?;
+        types = next_types;
+        src = rewrite(&path, &src, &writer::diff(&draft, &fm), None)?;
     }
 
-    if src == current && !resurrected {
+    let draft = Document::parse_at(&path, &src).frontmatter().clone();
+    let mut values = draft.clone();
+    let mut written = u.patch.clone().unwrap_or_default();
+    mark_changed(&mut written, &cur_fm, &draft);
+    normalize_path_values(&catalog, &types, &mut values, &written)?;
+    let target = stored_update_path(&catalog, &types, &path, &values)?;
+    strip_path_fields(&catalog, &types, &mut values);
+    if target != path {
+        check_move_membership(ctx, &catalog, &types, &target, &values)?;
+    }
+    src = rewrite(&path, &src, &writer::diff(&draft, &values), None)?;
+    if src == current && target == path && !resurrected {
         return Ok(());
     }
-    ctx.touch_path(&path);
-    finalize(ctx, ov, u.id, &path, src, Some(&cur_fm))
+    finalize_move(
+        ctx,
+        ov,
+        u.id,
+        &path,
+        &target,
+        src,
+        Some(&cur_fm),
+        u.update_refs.unwrap_or(true),
+    )
 }
 
 /// The new body of an update, if it changes the body.
@@ -904,6 +1356,43 @@ pub(super) fn document(
             _ => (new.path.clone(), String::new(), false),
         },
     };
+    // Turn API stored-key assignments into a path version BEFORE the three-way
+    // merge. Otherwise two concurrent stored-key document edits look like YAML
+    // edits, bypassing the path conflict rule.
+    let assigned_types = types_of(
+        &catalog,
+        &new.path,
+        Document::parse_at(&new.path, &new.doc).frontmatter(),
+        &ctx.m.clock,
+    );
+    let encoded_new;
+    let new = if ctx.api() {
+        let doc = Document::parse_at(&new.path, &new.doc);
+        let raw = doc.frontmatter();
+        let types = types_of(&catalog, &new.path, raw, &ctx.m.clock);
+        if doc.problem().is_none() && has_stored_fields(&catalog, &types) {
+            let mut values = catalog.record_values(&new.path, &types, raw);
+            for (k, v) in raw.iter() {
+                values.insert(k, v.clone());
+            }
+            // This is only a projection for path merging, not write admission:
+            // lifecycle below may supply or replace an initially unencodable value.
+            let projected = normalize_path_values(&catalog, &types, &mut values, raw)
+                .and_then(|()| stored_update_path(&catalog, &types, &new.path, &values));
+            if let Ok(path) = projected {
+                strip_path_fields(&catalog, &types, &mut values);
+                let source = rewrite(&new.path, &new.doc, &writer::diff(raw, &values), None)?;
+                encoded_new = crate::intent::DocVersion { path, doc: source };
+                &encoded_new
+            } else {
+                new
+            }
+        } else {
+            new
+        }
+    } else {
+        new
+    };
     // The target version: `new` as is when current equals base, else merged.
     let (mut target_path, mut target_doc) = if !exists && d.base.is_none() {
         (new.path.clone(), new.doc.clone())
@@ -958,7 +1447,12 @@ pub(super) fn document(
         check_path(&target_path)?;
         let doc = Document::parse_at(&target_path, target_doc.as_str());
         if doc.problem().is_none() {
-            let draft = doc.frontmatter().clone();
+            let raw = doc.frontmatter().clone();
+            let types = types_of(&catalog, &target_path, &raw, &ctx.m.clock);
+            let mut draft = catalog.record_values(&target_path, &types, &raw);
+            for (k, v) in raw.iter() {
+                draft.insert(k, v.clone());
+            }
             let event = if exists {
                 LifecycleEvent::Update
             } else {
@@ -967,15 +1461,24 @@ pub(super) fn document(
             let prev = Document::parse_at(&cur_path, current.as_str())
                 .frontmatter()
                 .clone();
-            let (fm, _) = with_lifecycle(
+            let prev_types = types_of(&catalog, &cur_path, &prev, &ctx.m.clock);
+            let prev = catalog.record_values(&cur_path, &prev_types, &prev);
+            let (mut fm, _) = with_lifecycle(
                 ctx,
                 &catalog,
                 event,
                 &target_path,
                 draft.clone(),
                 exists.then_some(&prev),
+                Some(&types),
             )?;
-            target_doc = rewrite(&target_path, &target_doc, &diff_changes(&draft, &fm), None)?;
+            let mut written = raw.clone();
+            mark_changed(&mut written, &draft, &fm);
+            normalize_path_values(&catalog, &types, &mut fm, &written)?;
+            let path = stored_update_path(&catalog, &types, &target_path, &fm)?;
+            strip_path_fields(&catalog, &types, &mut fm);
+            target_doc = rewrite(&target_path, &target_doc, &writer::diff(&raw, &fm), None)?;
+            target_path = path;
         }
     }
     // The path collision rule: api rejects, external takes a suffix.
@@ -986,13 +1489,22 @@ pub(super) fn document(
     };
     if taken {
         if ctx.api() && !ctx.resurrect() {
-            return Err(conflict("path_taken", format!("`{target_path}` is taken")));
+            return Err(conflict(
+                "path_conflict",
+                format!("`{target_path}` is taken"),
+            ));
         }
         let requested = target_path.clone();
         target_path = allocate(ov, &target_path, Some(d.id));
         if ctx.resurrect() {
             relocated(ctx, d.id, &requested, &target_path);
         }
+    }
+    if ctx.api() && target_path != cur_path {
+        let raw = Document::parse_at(&target_path, &target_doc)
+            .frontmatter()
+            .clone();
+        check_move_membership(ctx, &catalog, &assigned_types, &target_path, &raw)?;
     }
     if exists && target_path == cur_path && target_doc == current {
         return Ok(());
@@ -1101,24 +1613,49 @@ pub(super) fn rename(ctx: &mut Ctx<'_>, ov: &mut Overlay<'_>, r: &Rename) -> Res
             "a rename cannot change the record format",
         ));
     }
+    let types = types_of(
+        &catalog,
+        &r.to,
+        Document::parse_at(&rec.path, &*rec.source).frontmatter(),
+        &ctx.m.clock,
+    );
+    if !ctx.resurrect() {
+        check_stored_path(&catalog, &types, &r.to)?;
+    }
     match ov.at_path_key(&path_key(&r.to)) {
         Some(PathHolder::Record(id)) if id == r.id => {}
         Some(_) => {
-            let mut rej = conflict("path_taken", format!("`{}` is taken", r.to));
+            let reason = if has_stored_fields(&catalog, &types) {
+                "path_conflict"
+            } else {
+                "path_taken"
+            };
+            let mut rej = conflict(reason, format!("`{}` is taken", r.to));
             rej.details = details(&[("path", Value::string(r.to.clone()))]);
             return Err(rej);
         }
         None => {}
     }
+    let original = Document::parse_at(&r.from, &*rec.source);
+    let mut raw = original.frontmatter().clone();
+    strip_path_fields(&catalog, &types, &mut raw);
+    let source = rewrite(
+        &r.from,
+        &rec.source,
+        &writer::diff(original.frontmatter(), &raw),
+        None,
+    )?;
     // Plan reference updates against the state before and after the move.
     let updates = if r.update_refs {
         let mut post = Overlay::new(ov);
         post.apply_effect(&Effect::PutRecord {
             id: r.id,
             path: r.to.clone(),
-            doc: rec.source.to_string(),
+            doc: source.clone(),
         });
-        crate::links::plan_reference_updates(ov, &post, r.id, &r.to)
+        let mut updates = crate::links::plan_reference_updates(ov, &post, r.id, &r.to);
+        prepare_reference_updates(ctx, &post, &mut updates)?;
+        updates
     } else {
         Vec::new()
     };
@@ -1126,9 +1663,15 @@ pub(super) fn rename(ctx: &mut Ctx<'_>, ov: &mut Overlay<'_>, r: &Rename) -> Res
     ctx.touch_path(&r.to);
     let before = ctx.incoming(ov, r.id);
     ctx.record_rewrites(&updates);
-    let mut moved_doc = rec.source.to_string();
+    let mut moved_doc = source;
     // A self-link rewrite applies to the moved record itself.
     if let Some(own) = updates.iter().find(|u| u.id == r.id) {
+        if own.path != r.to {
+            return Err(invalid(
+                "type_conflict",
+                "self-reference rewrite disagrees with the assigned path",
+            ));
+        }
         moved_doc.clone_from(&own.doc);
     }
     ctx.emit(
@@ -1143,15 +1686,7 @@ pub(super) fn rename(ctx: &mut Ctx<'_>, ov: &mut Overlay<'_>, r: &Rename) -> Res
         ctx.alias(ov, &r.from, r.id);
     }
     for upd in updates.into_iter().filter(|u| u.id != r.id) {
-        ctx.touch_id(upd.id);
-        ctx.emit(
-            ov,
-            Effect::PutRecord {
-                id: upd.id,
-                path: upd.path,
-                doc: upd.doc,
-            },
-        );
+        emit_reference_update(ctx, ov, upd);
     }
     ctx.record_broken(ov, r.id, before);
     Ok(())

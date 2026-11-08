@@ -1,7 +1,11 @@
-// Discovery and relay admission for application grants on a Private native
-// collection (grants.next_collection_id). Account consent is the only user
-// approval. The serving device materializes the exact signed grant and sealed
-// Private folder scope automatically; these checks locate that account's device.
+// Discovery and relay admission for application grants on a native collection
+// (grants.next_collection_id), and their standing. A Private grant is served only
+// by the account's devices; a cloud-copy grant by the collection's hosted replica
+// (hosted-route-target.ts) and, while one is online, by the account's devices
+// through the relay. Either is served only while the collection is still in the
+// mode the grant was approved for. Account consent is the only user approval. The
+// serving device materializes the exact signed grant and sealed Private folder
+// scope automatically; these checks locate that account's device.
 import type { DatabaseQueryable } from "../../database-types.js";
 import { CreateError, DEVICE_REVOCATIONS, currentMember } from "./bootstrap-common.js";
 import { requireCollectionNotDeleted } from "./collection-deletion.js";
@@ -13,6 +17,8 @@ export interface NativeGrant {
   user_id: string;
   policy_active: boolean;
   has_client_key: boolean;
+  /** The mode the grant was approved for. */
+  sync: "private" | "cloud_copy";
 }
 
 export interface NativeDevice {
@@ -30,7 +36,8 @@ export interface NativeDevice {
 export async function nativeGrant(db: DatabaseQueryable, tokenHash: string, collection: string): Promise<NativeGrant | null> {
   const result = await db.query<NativeGrant>(
     `SELECT COALESCE(binding.log_grant_id, g.id) AS grant_id, g.id AS authorization_grant, g.user_id,
-            COALESCE(binding.active, false) AS policy_active, (k.grant_id IS NOT NULL) AS has_client_key
+            COALESCE(binding.active, false) AS policy_active, (k.grant_id IS NOT NULL) AS has_client_key,
+            g.next_collection_sync AS sync
      FROM access_tokens tok
      JOIN grants g ON g.id = tok.grant_id
      JOIN users u ON u.id = g.user_id
@@ -45,16 +52,17 @@ export async function nativeGrant(db: DatabaseQueryable, tokenHash: string, coll
 }
 
 /**
- * Whether the grant can still be served as granted: `current` when the collection is
- * still a synced, undeleted Private collection and the account a current member;
- * `access_removed` when the account is no longer a member; otherwise
- * `sync_required` (the collection left Private sync or was deleted).
+ * Whether a native grant approved for `sync` can still be served as granted:
+ * `current` when the collection is still a synced, undeleted collection in that
+ * mode and the account a current member; `access_removed` when the account is no
+ * longer a member; otherwise `sync_required` (the collection changed mode, left
+ * sync or was deleted).
  */
-export async function nativeGrantStanding(db: DatabaseQueryable, collection: string, account: string): Promise<"current" | "access_removed" | "sync_required"> {
+export async function nativeGrantStanding(db: DatabaseQueryable, collection: string, account: string, sync: "private" | "cloud_copy"): Promise<"current" | "access_removed" | "sync_required"> {
   const current = await db.query(
     `SELECT 1 FROM next_collections WHERE collection_id = $1
-     AND runtime = 'next' AND sync = 'private' AND left_sync_at IS NULL`,
-    [collection]
+     AND runtime = 'next' AND sync = $2 AND left_sync_at IS NULL`,
+    [collection, sync]
   );
   if (!current.rows.length) return "sync_required";
   try {
@@ -123,12 +131,13 @@ export async function nativeDevicesByCollection(db: DatabaseQueryable, collectio
 
 /**
  * Relay admission for a native grant: the connector of the requested device when
- * it is a current serving device of the grant's account. Null refuses.
+ * the grant still stands in the mode it was approved for and the device is a
+ * current serving device of the grant's account. Null refuses.
  */
 export async function nativeAdmission(db: DatabaseQueryable, tokenHash: string, collection: string, grant: string, device: string): Promise<string | null> {
   const row = await nativeGrant(db, tokenHash, collection);
   if (!row || row.grant_id !== grant || !row.has_client_key || !row.policy_active) return null;
-  if (await nativeGrantStanding(db, collection, row.user_id) !== "current") return null;
+  if (await nativeGrantStanding(db, collection, row.user_id, row.sync) !== "current") return null;
   if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(device)) return null;
   // Only the pinned device is checked, at admission and on every revalidation.
   const target = (await nativeDevices(db, collection, row.user_id, device)).find((candidate) => candidate.device_id === device);

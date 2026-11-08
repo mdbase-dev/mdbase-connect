@@ -166,7 +166,7 @@ Inside the collection's actor, for one request:
 1. **Authenticate and authorize** the principal for the collection (§3). Failure:
    `unauthenticated` or `forbidden`.
 2. **Collection state.** If the collection is unknown: `not_found`. If deleted or moved:
-   `gone`. If over its storage quota: `quota_exceeded`.
+   `gone`.
 3. **Shape.**
    - 1–64 items, ≤ 4 MiB in total, each ≤ 1 MiB;
    - each item is a valid `mdb-cbor/1` item envelope of this collection, of a kind this
@@ -175,6 +175,9 @@ Inside the collection's actor, for one request:
    Failure: `invalid` or `too_large`.
 4. **Idempotent replay (I4).** If `expect_seq ≤ head`, and every item is byte-identical
    to the stored item at its position, return the stored `appended` for that range.
+   Then, if the batch holds content items and would put the collection over its
+   storage quota: `quota_exceeded`. A retry of an append that already landed thus
+   gets its receipt, not `quota_exceeded`.
 5. **Head check (I2).** If `expect_seq ≠ head + 1` or `expect_prev ≠ chain(head)`,
    return `head-moved`.
 6. **Chain within the batch.** Each item's `prev` must equal the chain hash of the item
@@ -453,7 +456,8 @@ endorse-snapshot-result = { 0: bool }    ; endorsed
   format 1: `{0: 1, 1: collection, 2: from, 3: to, 4: chain(to), 5: [[seq, item]…]}`,
   at most 8 MiB of item bytes each; the deletion commits only once every segment is
   stored). Archived bytes do not count toward storage. Their tokens stay in the index
-  until they expire.
+  until they expire; compaction also deletes the expired tokens of entries it has
+  already archived. Tokens of retained items are kept with them.
 
 ## 8. Ephemeral per-record streams
 
@@ -559,7 +563,7 @@ error model (`replica-client-api.md` §9).
 | `refs_missing` | referenced objects are absent | upload them and retry |
 | `frozen` | the collection is frozen or rekey-required | rekey-required: perform the rekey (`log-entry.md` §3.1). Frozen: wait for a push |
 | `rate_limited` | over a rate limit | wait `retry_after_ms` |
-| `quota_exceeded` | over the storage quota | stop appending content; surface to the user. Reads continue |
+| `quota_exceeded` | over the storage quota | surface to the user and retry at a slow interval; space can return without a push. Reads continue |
 | `unavailable` | the actor is restarting, moving or overloaded | wait `retry_after_ms`, with jitter |
 | `upgrade_required` | the API version is no longer supported | surface `upgrade_required` |
 
@@ -569,7 +573,8 @@ Quotas are per collection, set by the control plane per plan (§12). Initial val
 
 | Quota | Default |
 |---|---|
-| Storage (retained items + live objects) | per plan, e.g. 1 GiB free tier. Compression and compaction count in the user's favour; the prototype's 4× storage amplification was a hosted-row artifact |
+| Files (committed `blob-part` objects) | the account's plan storage, shared across its collections by `set_file_headroom`; 1 GiB until allocated |
+| Log storage (retained items + other live objects) | 1 GiB, an abuse limit rather than a plan limit. Compression and compaction count in the user's favour; the prototype's 4× storage amplification was a hosted-row artifact |
 | Sustained append rate | 50 items/s and 4 MiB/s per collection, burst 500 items |
 | Read bandwidth | 32 MiB/s per connection |
 | Object upload bandwidth | 32 MiB/s per connection |
@@ -587,7 +592,9 @@ Over the control plane's credential only:
 | Method | Effect |
 |---|---|
 | `create_log {collection, genesis item}` | creates the actor with the genesis policy item at `seq` 1 |
-| `set_quota {collection, quotas}` | |
+| `set_quota {collection, quotas}` | sets the abuse limits: the storage quota on log bytes (everything except files) and the append rates |
+| `set_file_headroom {collection, headroom}` | sets the file quota to the current file bytes plus `headroom` in one transaction, and returns both. The control plane shares an account's plan storage out this way. Headroom 0 blocks new files and keeps existing ones. Backups don't carry the file quota, and a restore isn't held to it |
+| `storage_status {collection}` | returns the collection's used bytes, storage quota, file bytes (committed `blob-part` objects, the figure plans meter) and file quota |
 | `delete_log {collection}` | marks it `gone`; data is deleted after a grace period, per the retention policy |
 | `move_log {collection, target}` | for migrations between backends. The log is `unavailable` during the copy, which is verified by chain hash |
 | `export {collection}` | streams every retained item, snapshot pointer and object, for backups and restore drills |

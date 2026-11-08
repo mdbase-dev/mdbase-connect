@@ -28,6 +28,8 @@ pub const MAX_HAS_OBJECTS: usize = 1024;
 pub const DIRECT_TTL_MS: i64 = 15 * 60 * 1000;
 /// Uncommitted uploads, and unreferenced objects, are kept at least this long (I10).
 pub const OBJECT_GRACE_MS: i64 = 24 * 60 * 60 * 1000;
+/// Objects removed by one `gc` call; a full batch means more may remain.
+pub const GC_BATCH_OBJECTS: u64 = 1000;
 
 /// Idempotency token retention (I5: at least 180 days).
 pub const TOKEN_RETENTION_MS: i64 = 180 * 24 * 60 * 60 * 1000;
@@ -65,8 +67,12 @@ pub const EPH_IDLE_MS: i64 = 60_000;
 /// Server buffer per receiving session.
 pub const EPH_BUFFER_BYTES: usize = 256 * 1024;
 
-/// Default quotas (§11).
+/// Default quotas (§11). The storage quota caps log bytes, everything but
+/// files: an abuse limit set well above any real collection's notes.
 pub const DEFAULT_STORAGE_BYTES: u64 = 1024 * MIB;
+/// File quota until the control plane allocates one, matching the flat quota
+/// collections had when it covered files and log together.
+pub const DEFAULT_FILE_QUOTA_BYTES: u64 = 1024 * MIB;
 /// Sustained append rate, items per second.
 pub const DEFAULT_ITEMS_PER_S: u64 = 50;
 /// Sustained append rate, bytes per second.

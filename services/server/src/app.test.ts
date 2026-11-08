@@ -2900,7 +2900,7 @@ describe("mdbase connect server", () => {
       collection_kind: "hosted",
       capabilities: hostedCapabilities
     });
-    expect(pending.json().hosted_collections_available).toBe(true);
+    expect(pending.json().collection_creation_available).toBe(true);
     expect(pending.json().collections).toEqual([
       expect.objectContaining({ id: collectionId, kind: "hosted" })
     ]);

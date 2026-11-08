@@ -28,8 +28,8 @@ type definitions rather than one domain contract.
 ## Development
 
 The editor lives at `apps/editor` in the mdbase Connect monorepo. It consumes
-the Connect SDK, protocol, UI, and management client through `workspace:*`
-dependencies, so one lockfile describes the complete build.
+the committed production SDK/protocol archives, an exact published npm UI
+version, and workspace management/i18n packages through one frozen lockfile.
 
 The runtime boundaries, state ownership rules, and concurrency invariants are
 documented in [ARCHITECTURE.md](./ARCHITECTURE.md).
@@ -46,12 +46,10 @@ build commands compile before loading catalogues. Direct Vite also compiles via
 its config. Use `pnpm --filter mdbase-editor i18n:check` for authored
 completeness, source guard and composition against both built UI libraries.
 
-The native publisher still requires the authenticated, hash-bound UI file pin.
-This integration branch intentionally uses the workspace UI, so it is **not
-native-publication ready**. Publisher tests exercise historical staging and
-production packets in isolated original-byte fixtures and assert that attempting
-to publish the current workspace UI is rejected. Preparing new trusted release
-pins is separate work; do not weaken that boundary.
+The publisher authenticates the SDK before installing dependencies and compares
+all installed original SDK/UI/protocol members before execution. UI integrity
+comes from its exact npm version and frozen lock. See
+[NATIVE_PUBLISHER.md](./NATIVE_PUBLISHER.md) for intake and rehearsal commands.
 
 Open `http://127.0.0.1:5173/?demo=5000` for a generated local
 collection that does not require authorization.
@@ -80,9 +78,11 @@ The production application is configured for
 both on the Direct Upload Pages project `mdbase-editor` (production branch
 `main`, staging branch `staging`). The `editor-pages.yml` workflow runs the
 complete verification and browser suites on main and pull requests but never
-publishes from them. Both origins change only through the native publication
-path: an explicit dispatch on `release/native-<target>` with that branch's exact
-`source_sha` (see `NATIVE_PUBLISHER.md`). Cloudflare DNS must proxy
+publishes from them. The ops server pipeline dispatches publication on `main`
+with a full `source_sha` reachable from main and `target=staging|production`.
+Main may advance during a run. The unprivileged build, protected upload,
+post-deploy verification and production rollback are described in
+[NATIVE_PUBLISHER.md](./NATIVE_PUBLISHER.md). Cloudflare DNS must proxy
 `editor-staging.mdbase.dev` to `staging.mdbase-editor.pages.dev`.
 
 This monorepo is the sole source and publisher for the editor. The retired

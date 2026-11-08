@@ -238,6 +238,17 @@ A collection has members (accounts) with roles:
 | `owner` | as editor; the control plane accepts sharing, grant and state changes only from owners |
 
 - **Role changes** take effect at the next position.
+  For the hosted membership API, a Viewer role PATCH (and any role change that
+  temporarily projects Viewer authority during provider cleanup) confirms success
+  only after the committed policy is published to the log, using the same barrier
+  as member removal. Failed or uncertain publication returns the existing
+  `503 collection_sharing_unavailable` error with `Retry-After: 2`; the database
+  change remains committed. A write queued before the change may land before the
+  policy position, but cannot land after it. Existing device log tokens remain
+  valid for reads and renewable; they never override the current policy's write
+  authority. Ordinary upgrades without provider cleanup keep their existing API
+  behavior. See [Sharing synced collections](../../../docs/collection-sharing-policy.md) for
+  response and retry semantics.
 - **`member-remove`** revokes all of that account's devices and grants, and puts the
   log into rekey-required.
 - **Viewers' devices are read-only replicas.** A local edit on a viewer's folder is
@@ -367,8 +378,37 @@ these contracts:
 ### 5.1 Account consent and Private scope materialization
 
 Account consent is the sole user approval for Private collections, as for cloud
-collections. The daemon serves only while running and signed in to that account,
-under a fresh account-bound grant feed. It automatically materializes the exact
+collections. The daemon serves only while running and signed in to that account.
+Private relay sessions additionally require the exact cached grant, collection
+and authenticated client key under a live account-bound feed lease, at admission
+and on established-session rechecks. This cache gate only denies; the signed log
+still owns Private capabilities. Delisting denies without waiting for log delivery,
+including an unreachable log or parked policy outbox. Local refusal tombstones deny
+granted sessions on every transport, including IPC, and localhost-link sessions
+using the refused client key. A locally approved replacement grant on that key
+lifts the link refusal on a Local collection; a Private feed row cannot.
+The old grant ID remains refused. The independently authenticated host is not an app
+grant. The feed lease is not required for Private IPC or link use, so confirmed
+signed policy remains usable offline. Native cloud-copy daemon behavior is unchanged.
+
+Log-first admission waits for the feed; feed-first relay admission waits for signed
+policy through the existing bounded activation wait. A lapsed Private lease,
+including a persisted PendingApproval entry after restart, closes with
+`4000 / grant_lease_expired`. A missing cached Private grant under a live lease,
+or signed policy not yet effective, closes with `4000 / authorization_unavailable`.
+These existing reasons are retryable; `grant_inactive` remains terminal `4403`.
+The SDK's existing first-open wait accepts the two retryable reasons, including
+their Noise hello Problems, and stays bounded to 30 seconds. No new consent
+is needed when both arrive. Restart recovery requires a newer snapshot sequence:
+replaying the persisted feed cursor deliberately cannot renew its lease.
+
+The daemon uses one gate over its synchronously published authority snapshot for
+admission and frame rechecks, not the asynchronous global daemon lock. Refusals
+retain their client Problem and retry hint. Replica terminal pushes bypass the
+frame gate; a daemon denial sends a Closed Problem and, for an inbound request,
+a matching refusal response before closing.
+
+The daemon automatically materializes the exact
 client key, capabilities and folder scope as the existing sealed, device-signed
 `grant_approval` item (`sealed-envelope.md` §2). The wire name and effective-grant
 rules stay unchanged; this is scope publication, not another user decision:

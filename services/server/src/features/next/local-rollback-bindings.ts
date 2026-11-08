@@ -108,7 +108,7 @@ async function recoverCarriedBindings(client: DatabaseConnection, input: Input, 
 /** Put a carried-over grant back on its legacy target and binding, and withdraw its native policy grant. */
 async function restoreCarriedGrant(client: DatabaseConnection, grant: string): Promise<void> {
   await client.query(
-    `UPDATE grants SET collection_id = legacy_collection_id, encryption = legacy_encryption, next_collection_id = NULL,
+    `UPDATE grants SET collection_id = legacy_collection_id, encryption = legacy_encryption, next_collection_id = NULL, next_collection_sync = NULL,
        legacy_collection_id = NULL, legacy_encryption = NULL
      WHERE id = $1`, [grant]);
   const native = (await client.query<{ collection_id: string; log_grant_id: string }>(

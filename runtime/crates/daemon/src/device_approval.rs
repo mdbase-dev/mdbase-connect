@@ -305,7 +305,7 @@ impl Daemon {
         let host = session.host.clone();
         let rt = rt.clone();
         let id = id.to_string();
-        tokio::spawn(async move {
+        daemon.clone().spawn(async move {
             let mut stop = daemon.shutdown.subscribe();
             tokio::select! {
                 _ = stop.wait_for(|s| *s) => {}
@@ -513,8 +513,20 @@ impl Daemon {
                 Ok(Reply::Waiting {
                     waiting: true,
                     to_log,
+                    ..
                 }) => to_log,
-                Ok(_) => {
+                Ok(reply) => {
+                    // Keyed by the approver the user allowed this computer on:
+                    // only now is it kept, so its later key grants are used
+                    // after a restart too.
+                    if let Reply::Waiting {
+                        trusted: Some(approver),
+                        ..
+                    } = reply
+                        && let Err(e) = self.trust_signer(&id, &collection, approver)
+                    {
+                        tracing::warn!(collection = %id, reason = ?e.reason, "approver not saved");
+                    }
                     waiting.remove(&id);
                     continue;
                 }
@@ -555,20 +567,10 @@ impl Daemon {
                         {
                             Ok(Reply::Envelope(reveal)) => {
                                 answered = true;
-                                // Its key grant is trusted after a restart too.
-                                let approver =
-                                    c.envelope().message.challenge().binding.approver.device;
-                                match self.trust_signer(&id, &collection, approver) {
-                                    Ok(()) => {
-                                        send_reveal(
-                                            &ctx.cloud, collection, &reveal, &identity, &current,
-                                        )
-                                        .await
-                                    }
-                                    Err(e) => {
-                                        tracing::warn!(collection = %id, reason = ?e.reason, "approver not saved; reveal not sent")
-                                    }
-                                }
+                                // Answering trusts nobody: the approver is kept
+                                // only once its key grant keys this computer.
+                                send_reveal(&ctx.cloud, collection, &reveal, &identity, &current)
+                                    .await
                             }
                             Ok(_) => {}
                             Err(e) if e.reason.as_deref() == Some("runtime_stopped") => break,

@@ -74,14 +74,16 @@ fn config_preserves_user_values_and_records_only_scalar_contributions() {
         CONFIG_PATH,
         "spec_version: '0.3.0'\nsettings:\n  record_extensions: [md, txt]\nx-user: keep\n",
     );
-    let a = assess_collection_resources(&state, &setup()).unwrap();
+    let a = assess_collection_resources(&state, &setup(), &Default::default()).unwrap();
     assert!(a.applicable);
     let dto = a.to_value();
     assert_eq!(dto.get("scope").and_then(Value::as_str), Some("resources"));
     for absent in ["collection_revision", "files", "file_absence"] {
         assert!(dto.get(absent).is_none());
     }
-    let (_, ops) = apply_collection_resources(&state, &setup(), a.assessment_digest).unwrap();
+    let (_, ops) =
+        apply_collection_resources(&state, &setup(), a.assessment_digest, &Default::default())
+            .unwrap();
     assert!(
         matches!(&ops[0], Op::ResourcePut(r) if r.path == CONFIG_PATH && r.base_revision == state.resource(CONFIG_PATH).as_deref().map(revision) && !r.must_not_exist)
     );
@@ -105,9 +107,15 @@ fn two_packs_emit_one_combined_lock_with_the_first_absence_guard() {
     let state = MemState::new();
     let mut declaration = setup();
     declaration.type_packs = vec![pack("one"), pack("two")];
-    let a = assess_collection_resources(&state, &declaration).unwrap();
+    let a = assess_collection_resources(&state, &declaration, &Default::default()).unwrap();
     assert!(a.applicable);
-    let (_, ops) = apply_collection_resources(&state, &declaration, a.assessment_digest).unwrap();
+    let (_, ops) = apply_collection_resources(
+        &state,
+        &declaration,
+        a.assessment_digest,
+        &Default::default(),
+    )
+    .unwrap();
     let locks: Vec<_> = ops
         .iter()
         .filter_map(|op| match op {
@@ -135,14 +143,25 @@ fn existing_lock_keeps_its_original_revision_not_an_intermediate_revision() {
     let state = MemState::new();
     let mut declaration = setup();
     declaration.type_packs = vec![pack("one")];
-    let a = assess_collection_resources(&state, &declaration).unwrap();
-    let (_, ops) = apply_collection_resources(&state, &declaration, a.assessment_digest).unwrap();
+    let a = assess_collection_resources(&state, &declaration, &Default::default()).unwrap();
+    let (_, ops) = apply_collection_resources(
+        &state,
+        &declaration,
+        a.assessment_digest,
+        &Default::default(),
+    )
+    .unwrap();
     let installed = overlay_ops(&state, ops);
     let old = installed.resource(LOCK_PATH).unwrap();
     declaration.type_packs.push(pack("two"));
-    let a = assess_collection_resources(&installed, &declaration).unwrap();
-    let (_, ops) =
-        apply_collection_resources(&installed, &declaration, a.assessment_digest).unwrap();
+    let a = assess_collection_resources(&installed, &declaration, &Default::default()).unwrap();
+    let (_, ops) = apply_collection_resources(
+        &installed,
+        &declaration,
+        a.assessment_digest,
+        &Default::default(),
+    )
+    .unwrap();
     let locks: Vec<_> = ops
         .iter()
         .filter_map(|op| match op {
@@ -163,21 +182,26 @@ fn existing_lock_keeps_its_original_revision_not_an_intermediate_revision() {
 #[test]
 fn any_inventory_or_declaration_change_invalidates_apply() {
     let mut state = MemState::new();
-    let a = assess_collection_resources(&state, &setup()).unwrap();
+    let a = assess_collection_resources(&state, &setup(), &Default::default()).unwrap();
     state.insert_resource("_types/unrelated.md", "changed");
     assert_eq!(
-        apply_collection_resources(&state, &setup(), a.assessment_digest)
+        apply_collection_resources(&state, &setup(), a.assessment_digest, &Default::default())
             .unwrap_err()
             .code,
         "concurrent_modification"
     );
-    let a = assess_collection_resources(&state, &setup()).unwrap();
+    let a = assess_collection_resources(&state, &setup(), &Default::default()).unwrap();
     let mut declaration = setup();
     declaration.declaration_digest = Hash::of(b"different");
     assert_eq!(
-        apply_collection_resources(&state, &declaration, a.assessment_digest)
-            .unwrap_err()
-            .code,
+        apply_collection_resources(
+            &state,
+            &declaration,
+            a.assessment_digest,
+            &Default::default()
+        )
+        .unwrap_err()
+        .code,
         "concurrent_modification"
     );
 }
@@ -185,10 +209,10 @@ fn any_inventory_or_declaration_change_invalidates_apply() {
 fn conflict_is_visible_and_cannot_return_partial_operations() {
     let mut state = MemState::new();
     state.insert_resource(CONFIG_PATH, "settings:\n  record_extensions: bad-shape\n");
-    let a = assess_collection_resources(&state, &setup()).unwrap();
+    let a = assess_collection_resources(&state, &setup(), &Default::default()).unwrap();
     assert!(!a.applicable);
     assert_eq!(
-        apply_collection_resources(&state, &setup(), a.assessment_digest)
+        apply_collection_resources(&state, &setup(), a.assessment_digest, &Default::default())
             .unwrap_err()
             .code,
         "collection_setup_conflict"
@@ -200,7 +224,7 @@ fn source_and_path_limits_fail_explicitly() {
     let mut state = MemState::new();
     state.insert_resource("_types/huge.md", &"x".repeat(MAX_RESOURCE_SOURCE_BYTES + 1));
     assert_eq!(
-        assess_collection_resources(&state, &setup())
+        assess_collection_resources(&state, &setup(), &Default::default())
             .unwrap_err()
             .code,
         "collection_setup_limit_exceeded"
@@ -211,7 +235,7 @@ fn source_and_path_limits_fail_explicitly() {
         "x",
     );
     assert_eq!(
-        assess_collection_resources(&state, &setup())
+        assess_collection_resources(&state, &setup(), &Default::default())
             .unwrap_err()
             .code,
         "collection_setup_limit_exceeded"

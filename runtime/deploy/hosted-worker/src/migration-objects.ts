@@ -6,6 +6,7 @@
 import { decode, encode, type CborValue } from "../../../packages/sdk/src/cbor.ts";
 import type { Engine } from "./engine.js";
 import { sendCall, StaleAppendStore, type LogFence } from "./log.ts";
+import { deadline } from "./deadline.ts";
 
 const MAX_INLINE = 1 << 20;
 const MAX_OBJECT = 9 << 20;
@@ -70,8 +71,9 @@ export async function putGen0Object(log: Fetcher, signer: Pick<Engine, "signRpc"
     || headers.size !== 1 || (headers as Map<CborValue, CborValue>).get("x-amz-checksum-sha256") !== check64) throw new Error("migration_object_put_refused");
   const remaining = expires - Date.now();
   if (remaining <= 5000) throw new Error("migration_object_put_refused");
-  const putSignal = AbortSignal.any([signal, AbortSignal.timeout(Math.min(remaining, 90_000))]);
   if (!live()) throw new Error("migration_object_put_unavailable");
+  const timeout = deadline(Math.min(remaining, 90_000));
+  const putSignal = AbortSignal.any([signal, timeout.signal]);
   let response: Response | null = null;
   try {
     response = await log.fetch(new URL(url.pathname + url.search, "https://log.internal").href, {
@@ -80,6 +82,8 @@ export async function putGen0Object(log: Fetcher, signer: Pick<Engine, "signRpc"
   } catch {
     // A lost PUT reply is UNKNOWN. Only the authenticated commit below proves
     // the exact size/checksum landed; it never becomes a fabricated success.
+  } finally {
+    timeout.clear();
   }
   if (response) {
     await response.body?.cancel();

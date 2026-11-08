@@ -1,0 +1,10 @@
+{
+  "reason": "Four focused boundaries own the names-only account preview, the explicit two-action optimistic reducer, bounded page prefetches, and the shared accessible toast. They replace blocking refresh settlement, the full-page loader, and account success notices without introducing a state library or persisting authority.",
+  "growth": {
+    "productionFiles": 4,
+    "relativeImports": 8,
+    "typeScriptExportDeclarations": 16,
+    "apps/portal": 3,
+    "packages/app-ui": 1
+  }
+}

@@ -13,6 +13,32 @@ the collection's log. Invitation creation alone grants no membership. Device JOI
 requires acknowledged membership and an exact registered-device proof; CREATE
 remains owner-only. Installation credentials retain their explicit collection scope.
 
+A native member role PATCH requesting Viewer waits for the same bounded log
+publication barrier as member removal, including a repeated Viewer request after
+an uncertain response. Role changes awaiting provider cleanup also wait for their
+temporary Viewer policy before returning `202`/`changing`. Ordinary upgrades
+without provider cleanup retain their existing behavior.
+
+Confirmed responses retain the existing membership JSON and `200`/`active` or
+`202`/`changing` status. If publication fails, is parked, is unavailable, or exceeds
+the eight-second HTTP wait, the route instead returns `503`, `Retry-After: 2`, and
+`{ "error": { "code": "collection_sharing_unavailable", "message": "Member role change is not yet confirmed. Retry the request." } }`,
+matching removal's error shape. The database change remains committed; this is an
+uncertain confirmation, not rollback. The durable outbox retains the original batch
+bytes for retry or recovery; the HTTP timeout does not cancel publication. Parked
+batches need the existing operator recovery. Retry a Viewer PATCH once the membership is active, or use
+the member list (which also waits for publication) to confirm a pending change.
+Existing management clients, including the portal linked from Editor/apps, already
+surface non-2xx errors; they must not interpret this response as completed removal
+of write access. No new response fields or membership states are introduced.
+
+A queued offline write can still land before the Viewer policy's log position.
+Once that policy lands, every later content append is checked against Viewer
+authority, including retries using a token minted while Editor. Native device log
+tokens keep their 15-minute lifetime and remain renewable: they identify an enrolled
+device and permit reads, while the current log policy decides write authority.
+Downgrade therefore does not revoke the device or invalidate its log token.
+
 Role changes awaiting legacy provider revocation project viewer authority to the
 native log until cleanup finishes, then publish the requested role. This does not
 restore the old provider credentials: those remain revoked while CP membership is

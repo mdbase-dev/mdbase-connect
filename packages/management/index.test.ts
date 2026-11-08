@@ -7,6 +7,17 @@ afterEach(() => {
 });
 
 describe("ConnectManagementClient", () => {
+  it("retains the server problem code without copying diagnostic payloads", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: { code: "account_collection_quota_exceeded", message: "Quota reached", diagnostic: "private" } }, { status: 429 })));
+    await expect(new ConnectManagementClient("https://connect.example").overview()).rejects.toMatchObject({ status: 429, code: "http_error", details: { code: "account_collection_quota_exceeded" } });
+  });
+  it("accepts a pending grant revocation without retrying for immediate completion", async () => {
+    const fetch = vi.fn(async () => Response.json({ revocation_status: "revoking" }));
+    vi.stubGlobal("fetch", fetch);
+    const client = new ConnectManagementClient("https://connect.example");
+    await expect(client.revokeGrant("private-grant")).resolves.toEqual({ revocation_status: "revoking" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
   it("binds durable mode intent/status to the collection and request, with account credentials only", async () => {
     const fetch = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json({ phase: "waiting_for_device" }));
     vi.stubGlobal("fetch", fetch);

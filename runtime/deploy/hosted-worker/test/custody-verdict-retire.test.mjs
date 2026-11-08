@@ -58,7 +58,7 @@ function coldWake(escrow, code) {
 
 function warmEngine(t) {
   const calls = []; let wiped = 0;
-  const engine = { appliedHead: () => "cached", logBound: false, logCalls: () => [], poll: () => [], nextWakeup: () => null, attachmentObject: () => null,
+  const engine = { appliedHead: () => "cached", logBound: false, logCalls: () => [], poll: () => [], nextWakeup: () => null, installStatus: () => null, snapshotDeclined: () => false, attachmentObject: () => null,
     tick() { calls.push("tick"); }, refresh() { calls.push("refresh"); } };
   Object.assign(t.o, { engine, collection, live: { admitted: true }, log: () => ({}) });
   t.o.readers.set("reader", { wipe() { wiped++; } });
@@ -129,6 +129,25 @@ test("a transient token refusal on a warm engine keeps the engine, cache and pol
   }
 });
 
+test("an escrow without custody stops its timer and keeps its storage", async () => {
+  const t = coldWake(true, "custody_not_configured");
+  t.setAlarm(Date.now() + 60_000);
+  await t.o.alarm();
+  assert.equal(t.opens(), 1);
+  assert.equal(t.alarm(), null);
+  assert.equal(t.data.get("service-open-failures"), undefined);
+  assert.equal(t.data.get("service-collection"), collection);
+  assert.deepEqual([...t.tables].sort(), ["migration_run", "st_meta", "st_records"]);
+});
+
+test("a hosted deployment without custody keeps retrying", async () => {
+  const t = coldWake(false, "custody_not_configured");
+  await assert.rejects(t.o.alarm(), /custody_not_configured/);
+  assert.ok(t.alarm() > Date.now());
+  assert.equal(t.data.get("service-open-failures"), 1);
+  assert.deepEqual([...t.tables].sort(), ["migration_run", "st_meta", "st_records"]);
+});
+
 test("re-activation after a verdict re-evaluates custody and re-arms only on success", async () => {
   const t = coldWake(false, "custody_collection_gone");
   await t.o.alarm();
@@ -139,6 +158,18 @@ test("re-activation after a verdict re-evaluates custody and re-arms only on suc
   await assert.rejects(t.o.ready(collection), /custody_unavailable/);
   assert.ok(t.alarm() > Date.now(), "a re-activated collection is retried again");
   assert.equal(t.data.get("service-open-failures"), 1, "backoff restarts from zero after a verdict");
+});
+
+test("CP activation of an escrow without custody gets the same definite 409", async () => {
+  const token = "s".repeat(40);
+  const t = object(true);
+  t.o.env = { ...t.o.env, HOSTED_SERVICE_TOKEN: token };
+  t.o.custody = { async openSealer() { throw new Error("custody_not_configured"); } };
+  const response = await t.o.fetch(new Request(`https://w.test/v1/hosted/activate?collection=${collection}`, {
+    method: "POST", headers: { authorization: `Bearer ${token}` }, body: JSON.stringify({ collection }) }));
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), { error: "custody_not_configured" });
+  assert.equal(t.alarm(), null);
 });
 
 test("CP activation of a refused collection gets a definite 409 answer, not an uncaught 500", async () => {

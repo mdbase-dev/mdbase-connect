@@ -161,6 +161,11 @@ msgctxt "Collection field mapping"
 msgid "Doesn’t match"
 msgstr "Ne correspond pas"
 
+#: keyboard.tsx
+msgctxt "Connect keyboard shortcuts"
+msgid "Filter the current list"
+msgstr "Filtrer la liste actuelle"
+
 #: access.ts
 msgctxt "Application permission"
 msgid "Inspect saved-view definitions"
@@ -170,6 +175,11 @@ msgstr "Examiner les définitions de vues enregistrées"
 msgctxt "Application permission"
 msgid "Install or update record types"
 msgstr "Installer ou mettre à jour des types de documents"
+
+#: keyboard.tsx
+msgctxt "Connect keyboard shortcuts"
+msgid "Keyboard shortcuts"
+msgstr "Raccourcis clavier"
 
 #. placeholder {0}: url.host
 #: access.ts
@@ -186,10 +196,20 @@ msgctxt "Collection field mapping"
 msgid "Matches"
 msgstr "Correspond"
 
+#: keyboard.tsx
+msgctxt "Connect keyboard shortcuts"
+msgid "Move through the list"
+msgstr "Parcourir la liste"
+
 #: contract-setup.ts
 msgctxt "Collection field mapping"
 msgid "Not shared"
 msgstr "Non partagé"
+
+#: keyboard.tsx
+msgctxt "Connect keyboard shortcuts"
+msgid "Open the focused item"
+msgstr "Ouvrir l’élément ciblé"
 
 #: access.ts
 msgctxt "Application permission"
@@ -210,6 +230,11 @@ msgstr "Lire les détails de la collection, les documents, les vues enregistrée
 msgctxt "Application permission"
 msgid "Read records"
 msgstr "Lire des documents"
+
+#: keyboard.tsx
+msgctxt "Connect keyboard shortcuts"
+msgid "Rename a hosted collection or computer"
+msgstr "Renommer une collection hébergée ou un ordinateur"
 
 #: access.ts
 msgctxt "Application permission"
@@ -241,6 +266,11 @@ msgctxt "Application permission"
 msgid "Schedule app activity"
 msgstr "Planifier l’activité de l’application"
 
+#: keyboard.tsx
+msgctxt "Connect keyboard shortcuts"
+msgid "Search"
+msgstr "Rechercher"
+
 #: access.ts
 msgctxt "Application permission"
 msgid "Search and query"
@@ -266,6 +296,11 @@ msgctxt "Application permission"
 msgid "Set up this app in the collection"
 msgstr "Configurer cette application dans la collection"
 
+#: keyboard.tsx
+msgctxt "Connect keyboard shortcuts"
+msgid "Shortcuts are off while typing or while a dialog is open."
+msgstr "Les raccourcis sont désactivés pendant la saisie ou lorsqu’une boîte de dialogue est ouverte."
+
 #: contract-setup.ts
 msgctxt "Collection field mapping"
 msgid "Some existing records may not have this required value."
@@ -290,6 +325,10 @@ msgstr "Les deux champs autorisent des valeurs différentes."
 msgctxt "Collection field mapping"
 msgid "This optional value will not be shared with the application."
 msgstr "Cette valeur facultative ne sera pas partagée avec l’application."
+
+#: confirm-action.tsx
+msgid "Type {confirmName} to confirm"
+msgstr "Saisissez {confirmName} pour confirmer"
 
 #: access.ts
 msgctxt "Application permission"

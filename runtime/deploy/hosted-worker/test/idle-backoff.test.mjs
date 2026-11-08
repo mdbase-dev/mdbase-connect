@@ -5,6 +5,7 @@ import { mock, test } from "node:test";
 import assert from "node:assert/strict";
 import { build } from "esbuild";
 import { encode } from "../../../packages/sdk/src/cbor.ts";
+import { INSTALL_WAKE_MS, installRetryMs } from "../src/install-retry.ts";
 
 const collection = "0e0e0e0e-0e0e-4e0e-8e0e-0e0e0e0e0e0e";
 const token = "s".repeat(40);
@@ -17,7 +18,14 @@ const compiled = await build({ entryPoints: [new URL("../src/worker.ts", import.
     b.onLoad({ filter: /hosted\.wasm$/ }, () => ({ contents: "export default new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0]));" }));
   },
 }] });
-const { HostedCollection } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text + "\n//# sourceURL=idle-backoff-worker.mjs").toString("base64")}`);
+const worker = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text + "\n//# sourceURL=idle-backoff-worker.mjs").toString("base64")}`);
+const { HostedCollection } = worker;
+
+// Cloudflare lists an exported function as a named handler, and a code-only Worker
+// publication refuses any change to that list, so a new helper belongs in its own module.
+test("the Worker entry adds no export", () => {
+  assert.deepEqual(Object.keys(worker).sort(), ["HostedCollection", "default", "idlePollMs"]);
+});
 
 
 function object(escrow = false, data = new Map()) {
@@ -42,7 +50,7 @@ const frame = (method) => encode(new Map([[2, method], [3, new Map()]]));
 /** A bound engine that queues `methods` once per sync (refresh() re-arms it). */
 function engine(methods = [], outputs = []) {
   let queued = [], applied = 0, sent = [];
-  const e = { appliedHead: () => String(applied), logBound: true, nextWakeup: () => null, attachmentObject: () => null, signRpc: () => new Uint8Array(64),
+  const e = { appliedHead: () => String(applied), logBound: true, nextWakeup: () => null, installStatus: () => null, snapshotDeclined: () => false, attachmentObject: () => null, signRpc: () => new Uint8Array(64),
     logCalls: () => { const q = queued; queued = []; return q; }, logBind: () => true,
     logReply(id) { if (sent[id] === "read") applied++; }, logFailed() {}, poll: () => { const out = outputs; outputs = []; return out; },
     arm(next = methods) { sent = next; queued = next.map((m, id) => ({ id, frame: frame(m) })); } };
@@ -71,6 +79,149 @@ test("idle syncs double the poll from the base up to 10 min, for both roles", as
     assert.deepEqual(delays, expected, escrow ? "escrow" : "hosted");
     mock.restoreAll();
   }
+});
+
+test("a declined snapshot build reports once, with no identifiers or counts", async () => {
+  const lines = [];
+  mock.method(console, "info", (line) => lines.push(JSON.parse(line)));
+  const t = object(); t.o.log = logReplying();
+  const at = 1_000_000_000_000;
+  const e = engine(["get_object"]);
+  let declined = true;
+  e.snapshotDeclined = () => { const was = declined; declined = false; return was; };
+  await syncAt(t, at, e);
+  e.arm(["get_object"]);
+  await syncAt(t, at + 40 * S, e);
+  assert.deepEqual(lines.filter(l => l.event === "hosted_snapshot_declined"), [{ event: "hosted_snapshot_declined", role: "hosted" }]);
+  mock.restoreAll();
+});
+
+test("a Wasm trap logs one line with no identifiers and still fails the alarm", async () => {
+  const lines = [];
+  mock.method(console, "info", (line) => lines.push(JSON.parse(line)));
+  const t = object(true);
+  t.o.runAlarm = async () => { throw new WebAssembly.RuntimeError("unreachable"); };
+  await assert.rejects(t.o.alarm(), WebAssembly.RuntimeError);
+  assert.deepEqual(lines, [{ event: "hosted_wasm_trap", role: "escrow" }]);
+  t.o.runAlarm = async () => { throw new Error("other"); };
+  await assert.rejects(t.o.alarm(), /other/);
+  assert.equal(lines.length, 1, "only a trap");
+  mock.restoreAll();
+});
+
+test("a running snapshot install wakes at once, reports counts only, then falls back to the poll", async (ctx) => {
+  const lines = [];
+  mock.method(console, "info", (line) => lines.push(JSON.parse(line)));
+  const t = object(); t.o.log = logReplying();
+  const at = 1_000_000_000_000;
+  const e = engine(["get_object"]);
+  let status = { done: 64, total: 600 };
+  e.installStatus = () => status;
+  assert.equal(await syncAt(t, at, e), INSTALL_WAKE_MS);
+  assert.deepEqual(lines, [{ event: "hosted_install_progress", role: "hosted", done: 64, total: 600 }]);
+  status = null;
+  e.arm(["get_object"]);
+  assert.equal(await syncAt(t, at + 40 * S, e) / S, 30, "installed: back to the base poll");
+  assert.equal(lines.length, 1);
+  mock.restoreAll();
+});
+
+test("an install whose object keeps failing backs off to 5 min and survives an eviction", async (ctx) => {
+  mock.method(console, "info", () => {});
+  const t = object(); t.o.log = logReplying(503);
+  const at = 1_000_000_000_000;
+  const e = engine(["get_object"]);
+  e.installStatus = () => ({ done: 64, total: 600 });
+  const delays = [];
+  for (let i = 0; i < 12; i++) {
+    e.arm(["get_object"]);
+    delays.push(await syncAt(t, at + i * 1_000 * S, e) / S);
+  }
+  assert.deepEqual(delays, [1, 2, 4, 8, 16, 32, 64, 128, 256, 300, 300, 300]);
+  assert.equal(installRetryMs(1000), 300 * S);
+
+  const evicted = object(false, t.data); evicted.o.log = logReplying(503);
+  e.arm(["get_object"]);
+  assert.equal(await syncAt(evicted, at + 2_000 * S, e) / S, 300, "the delay survives an eviction");
+  mock.restoreAll();
+});
+
+test("an install only clears its back-off past the point that failed", async (ctx) => {
+  mock.method(console, "info", () => {});
+  const t = object(); t.o.log = logReplying(503);
+  const at = 1_000_000_000_000;
+  const e = engine(["get_object"]);
+  let status = { done: 64, total: 600 };
+  e.installStatus = () => status;
+  for (let i = 0; i < 4; i++) { e.arm(["get_object"]); await syncAt(t, at + i * 100 * S, e); }
+  assert.deepEqual(t.data.get("service-install-retry"), { failures: 4, done: 64 });
+
+  // Evicted: the install starts over, and catching up must not wait.
+  const evicted = object(false, t.data); evicted.o.log = logReplying();
+  status = { done: 10, total: 600 };
+  e.arm(["get_object"]);
+  assert.equal(await syncAt(evicted, at + 1_000 * S, e), INSTALL_WAKE_MS);
+  assert.deepEqual(t.data.get("service-install-retry"), { failures: 4, done: 64 }, "catching up is not progress");
+  evicted.o.log = logReplying(503);
+  status = { done: 64, total: 600 };
+  e.arm(["get_object"]);
+  assert.equal(await syncAt(evicted, at + 1_100 * S, e) / S, 16, "the same object failing keeps the count");
+
+  evicted.o.log = logReplying();
+  status = { done: 128, total: 600 };
+  e.arm(["get_object"]);
+  assert.equal(await syncAt(evicted, at + 1_200 * S, e), INSTALL_WAKE_MS);
+  assert.equal(t.data.has("service-install-retry"), false, "past the failure: cleared and persisted");
+
+  evicted.o.log = logReplying(503);
+  status = { done: 192, total: 600 };
+  e.arm(["get_object"]);
+  assert.equal(await syncAt(evicted, at + 1_300 * S, e), INSTALL_WAKE_MS, "a new failure starts from the first retry");
+  status = null;
+  evicted.o.log = logReplying();
+  e.arm(["get_object"]);
+  assert.equal(await syncAt(evicted, at + 1_400 * S, e) / S, 30, "finished: back to the poll");
+  assert.equal(t.data.has("service-install-retry"), false, "finished: cleared");
+  mock.restoreAll();
+});
+
+test("a healthy install never touches back-off storage", async (ctx) => {
+  mock.method(console, "info", () => {});
+  const t = object(); t.o.log = logReplying();
+  const at = 1_000_000_000_000;
+  const e = engine(["get_object"]);
+  let done = 0;
+  e.installStatus = () => done < 300 ? { done, total: 300 } : null;
+  for (let i = 0; i < 6; i++) { done += 64; e.arm(["get_object"]); await syncAt(t, at + i * 100 * S, e); }
+  assert.equal(t.data.has("service-install-retry"), false);
+  mock.restoreAll();
+});
+
+test("a refused session logs counts only, whichever role refused it", async () => {
+  for (const escrow of [false, true]) {
+    const lines = [];
+    mock.method(console, "info", (line) => lines.push(JSON.parse(line)));
+    const t = object(escrow); t.o.wakeId = "wake-1";
+    const closed = [];
+    const e = engine();
+    Object.assign(e, { hello: () => ({ session: null, response: new Uint8Array(1) }), serving: () => false, installStatus: () => ({ done: 64, total: 600 }) });
+    t.o.engine = e;
+    await t.o.webSocketMessage({ deserializeAttachment: () => ({ wake: "wake-1" }), send() {}, close: (...c) => closed.push(c) }, new ArrayBuffer(1));
+    assert.deepEqual(closed, [[1008, "refused"]]);
+    assert.deepEqual(lines, [{ event: "hosted_session_refused", role: escrow ? "escrow" : "hosted", serving: false, installing: true }]);
+    mock.restoreAll();
+  }
+});
+
+test("the install wake stays ahead of any earlier engine deadline", async (ctx) => {
+  mock.method(console, "info", () => {});
+  const t = object(); t.o.log = logReplying();
+  const at = 1_000_000_000_000;
+  const e = engine(["get_object"]);
+  e.installStatus = () => ({ done: 1, total: 2 });
+  e.nextWakeup = () => at + 200;
+  assert.equal(await syncAt(t, at, e), 200);
+  mock.restoreAll();
 });
 
 test("the streak is persisted: an evicted actor keeps backing off", async (ctx) => {

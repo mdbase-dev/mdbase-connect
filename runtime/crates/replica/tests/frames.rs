@@ -218,6 +218,7 @@ fn record(id: Uuid) -> RecordView {
         },
         diagnostics: None,
         values: None,
+        mtime: None,
     }
 }
 

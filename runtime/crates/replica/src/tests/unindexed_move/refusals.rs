@@ -52,6 +52,7 @@ fn native_move_recovery_refuses_lifecycle_authority_and_fence_drift_without_reso
                             doc: "restored record".into(),
                             revision: mdbn_wire::hash::sha256(b"restored record"),
                             modified_seq: a.r.head().seq,
+                            mtime: None,
                             bucket: bucket16(&id),
                             meta: RecordMeta::default(),
                         }],

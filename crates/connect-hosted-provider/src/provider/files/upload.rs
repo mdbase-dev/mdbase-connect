@@ -263,7 +263,7 @@ impl HostedProvider {
     ) -> ApiResult<FileTransferStatus> {
         let replica = self.authenticate_for_file(collection_id, token).await?;
         let data_key = self.load_collection_key(collection_id).await?;
-        if let Some(transfer) = self
+        if let Some(mut transfer) = self
             .load_upload_transfer(collection_id, transfer_id, &data_key)
             .await?
         {
@@ -280,13 +280,29 @@ impl HostedProvider {
                 Some(&transfer.intent.path),
                 request_origin,
             )?;
+            let now = Utc::now();
+            if matches!(transfer.state.as_str(), "open" | "completing")
+                && transfer.expires_at <= now
+            {
+                // A client told the upload expired starts again under a new
+                // ID, so expire the row first. This waits for any commit
+                // publishing it, and stops a later one from publishing too.
+                if self.expire_upload(&transfer).await? {
+                    transfer.state = "expired".to_string();
+                } else {
+                    transfer = self
+                        .load_upload_transfer(collection_id, transfer_id, &data_key)
+                        .await?
+                        .ok_or_else(transfer_not_found)?;
+                }
+            }
             let (received, received_bytes, uploaded_parts) =
                 self.upload_progress(&transfer).await?;
             return Ok(FileTransferStatus {
                 protocol_version: FILE_TRANSFER_PROTOCOL_VERSION,
                 message_type: FileTransferStatusKind::FileTransferStatus,
                 transfer_id,
-                state: transfer_state(&transfer)?,
+                state: transfer_state(&transfer, now)?,
                 received,
                 received_bytes,
                 uploaded_parts,
@@ -347,8 +363,26 @@ impl HostedProvider {
         if let Some(receipt) = transfer.receipt {
             return Ok(receipt);
         }
+        if transfer.state == "aborted" {
+            // Its multipart upload is gone from R2, so validating the parts
+            // would fail as though storage were down. Checked before expiry, to
+            // match what status reports.
+            return Err(ApiError::conflict(
+                "file_transfer_not_open",
+                "This file upload was cancelled.",
+            ));
+        }
         if transfer.expires_at <= Utc::now() {
-            self.expire_upload(&transfer).await?;
+            if !self.expire_upload(&transfer).await? {
+                // A commit already publishing it finished first.
+                if let Some(receipt) = self
+                    .load_upload_transfer(collection_id, request.transfer_id, &data_key)
+                    .await?
+                    .and_then(|transfer| transfer.receipt)
+                {
+                    return Ok(receipt);
+                }
+            }
             return Err(ApiError::conflict(
                 "file_transfer_expired",
                 "This file upload has expired.",
@@ -387,6 +421,8 @@ impl HostedProvider {
         {
             return Err(completion_conflict());
         }
+        self.refuse_commit_over_quota(&transfer, &replica, &data_key, request_origin)
+            .await?;
         if !self.start_finalization_attempt(&mut transfer).await? {
             // Another finalizer published first, or the upload was cancelled.
             return self
@@ -781,35 +817,13 @@ impl HostedProvider {
             (None, None) => {}
             _ => return Err(stale_file_revision()),
         }
-        let old_size = current
-            .as_ref()
-            .map_or(0, |(descriptor, _, _, _)| descriptor.size);
-        let file_count = number(collection.get("file_count"), "file count")?;
-        let file_bytes = number(collection.get("file_bytes"), "current file bytes")?;
-        let stored_file_bytes = number(collection.get("stored_file_bytes"), "stored file bytes")?;
-        let next_count = file_count
-            .checked_add(u64::from(current.is_none()))
-            .ok_or_else(|| ApiError::internal("File count overflowed."))?;
-        let next_bytes = file_bytes
-            .checked_sub(old_size)
-            .and_then(|bytes| bytes.checked_add(transfer.expected_size))
-            .ok_or_else(|| ApiError::internal("Current file byte count overflowed."))?;
-        let next_stored_bytes = stored_file_bytes
-            .checked_add(transfer.expected_size)
-            .ok_or_else(|| ApiError::internal("Stored file byte count overflowed."))?;
-        if next_count > number(collection.get("max_files"), "file quota")?
-            || next_bytes > number(collection.get("max_file_bytes"), "current file byte quota")?
-            || next_stored_bytes
-                > number(
-                    collection.get("max_stored_file_bytes"),
-                    "stored file byte quota",
-                )?
-        {
-            return Err(ApiError::quota(
-                "file_storage_quota_exceeded",
-                "The hosted collection does not have enough file storage for this upload.",
-            ));
-        }
+        let (next_count, next_bytes, next_stored_bytes) = file_usage_after_commit(
+            &collection,
+            current
+                .as_ref()
+                .map(|(descriptor, _, _, _)| descriptor.size),
+            transfer.expected_size,
+        )?;
         let head = number(collection.get("head"), "collection head")?;
         let sequence = head
             .checked_add(1)
@@ -956,20 +970,26 @@ impl HostedProvider {
         Ok(receipt)
     }
 
-    async fn expire_upload(&self, transfer: &HostedFileTransfer) -> ApiResult<()> {
-        let updated = sqlx::query(
+    /// Returns false when the transfer had already left `open`/`completing`.
+    async fn expire_upload(&self, transfer: &HostedFileTransfer) -> ApiResult<bool> {
+        // Clean up the key the row holds now; an attempt may have started
+        // since this transfer was loaded.
+        let current_key = sqlx::query_scalar::<_, String>(
             r#"UPDATE hosted_provider_file_transfers
                SET state = 'expired', updated_at = now()
-               WHERE id = $1 AND state IN ('open', 'completing')"#,
+               WHERE id = $1 AND state IN ('open', 'completing')
+               RETURNING committed_object_key"#,
         )
         .bind(transfer.id)
-        .execute(&self.pool)
+        .fetch_optional(&self.pool)
         .await?;
-        if updated.rows_affected() == 1 {
-            self.schedule_uncommitted_upload_cleanup(transfer.into())
-                .await;
-        }
-        Ok(())
+        let Some(committed_object_key) = current_key else {
+            return Ok(false);
+        };
+        let mut cleanup = HostedUploadCleanup::from(transfer);
+        cleanup.committed_object_key = committed_object_key;
+        self.schedule_uncommitted_upload_cleanup(cleanup).await;
+        Ok(true)
     }
 }
 

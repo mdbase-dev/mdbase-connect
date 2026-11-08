@@ -29,8 +29,8 @@ export default defineConfig({
     // Wall-clock budgets run alone, after the main suite, so a parallel worker
     // (for example the auth portal's Vite dev server compiling on demand) never
     // shares the CPU with the measurement. Budgets are unchanged.
-    { name: "performance", use: { ...devices["Desktop Chrome"] }, grep: /@performance/, dependencies: ["chromium"] },
+    { name: "performance", workers: 1, use: { ...devices["Desktop Chrome"] }, grep: /@performance/, dependencies: ["chromium", "portal"] },
     // Management lives on Portal; keep its migrated coverage in the existing CI browser gate.
-    { name: "portal", testDir: "../portal/tests", use: { ...devices["Desktop Chrome"] } }
+    { name: "portal", testDir: "../portal/tests", testIgnore: ["visual.spec.ts", "review-*.spec.ts", "interaction-budget.spec.ts"], use: { ...devices["Desktop Chrome"] } }
   ]
 });

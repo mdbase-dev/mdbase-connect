@@ -26,7 +26,7 @@ downloading them.
 put_snapshot(seq, manifest address, refs)          ← pointer registered with the log service
     └─ manifest object (kind manifest, sealed, signed)
          ├─ section: resources   → chunk objects
-         ├─ section: index       → one chunk per bucket   (id, kind, path, revision, size, modified_seq)
+         ├─ section: index       → one chunk per bucket   (id, kind, path, revision, size, modified_seq, mtime)
          ├─ section: records     → one chunk per bucket   (id, path, document or blob-ref)
          ├─ section: files       → one chunk per bucket   (id, path, blob-ref)
          ├─ section: tombstones  → chunks
@@ -151,6 +151,7 @@ index-row     = {                                              ; key: id
   3: hash,                 ; revision: SHA-256 of the exact bytes
   4: uint,                 ; size in bytes
   5: seq,                  ; modified_seq: position of the last change (0 = adopted, unchanged)
+  ? 6: int,                ; mtime: record capture time of the last byte change, milliseconds
 }
 record-row    = [uuid, path, snapshot-text]                   ; key: id
 file-row      = [uuid, path, blob-ref, media-class]           ; key: id. The file manifest: ID, path, size, digest
@@ -259,6 +260,12 @@ attachment-runtime-v1-chunk-payload =
   / { 0: 1, 1: 12, 2: uint, 3: [* unindexed-markdown-file-row-v1] }
   / { 0: 1, 1: 13, 2: uint, 3: [* unindexed-markdown-tombstone-row-v1] }
 ```
+
+Record capture time travels in the optional `index-row` key 6, so the strict
+`record-row` tuple and chunk format do not change and old decoders ignore it
+(§6.2); a replica that does not know the key drops the time from any snapshot it
+builds, and the record reads as unknown until its bytes next change. The key is
+absent for files and for records whose time is unknown.
 
 Timestamped AttachmentFiles rows require chunk `fmt=2`: extending a strict
 row tuple is incompatible, unlike optional map fields. Format2 is restricted to

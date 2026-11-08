@@ -1,12 +1,11 @@
 import { render, screen, waitFor } from "./test/locale";
 import { describe, expect, it, vi } from "vitest";
-import { ConfirmDialog } from "./Dialog";
+import { ConfirmDialog } from "@mdbase-dev/ui/confirm-dialog";
 
 describe("ConfirmDialog", () => {
   it("focuses cancel before a destructive confirmation", async () => {
-    render(<ConfirmDialog
+    render(<ConfirmDialog open pendingLabel="Working…"
       title="Discard changes?"
-      body={<p>The draft will not be kept.</p>}
       confirmLabel="Discard"
       tone="danger"
       onConfirm={vi.fn()}
@@ -17,9 +16,10 @@ describe("ConfirmDialog", () => {
   });
 
   it("focuses the primary action for a non-destructive confirmation", async () => {
-    render(<ConfirmDialog
+    render(<ConfirmDialog open pendingLabel="Working…"
       title="Continue?"
-      body={<p>The next step is ready.</p>}
+      initialFocus="confirm"
+      tone="default"
       confirmLabel="Continue"
       onConfirm={vi.fn()}
       onClose={vi.fn()}

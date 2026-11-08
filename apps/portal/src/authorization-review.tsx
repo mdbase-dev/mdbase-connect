@@ -12,14 +12,173 @@ import {
   type SetupContract,
   type SetupType
 } from "@mdbase/connect-ui/contract-setup";
-import { useMemo } from "react";
+import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Brand } from "./portal-ui";
+import { SignedOutFooter } from "./auth-view";
+import { initials, readRememberedCollection } from "./portal-model";
+import { literal } from "./literal";
+import { CloudIcon, DesktopIcon } from "@phosphor-icons/react";
 import { initialContractSetupChoice } from "./application-setup";
 import type { ApplicationFileAction, PendingAuthorization } from "./api";
 import { HIGHER_IMPACT_FILE_ACTIONS, HIGHER_IMPACT_PEOPLE_PERMISSIONS, type AuthorizationCapabilityGroup } from "./authorization-capabilities";
 import { Select } from "@mdbase-dev/ui/select";
 
+export function useRequestExpiry(expiresAt: string | undefined, onExpire: () => void) {
+  useEffect(() => {
+    if (!expiresAt) return;
+    const timer = window.setTimeout(onExpire, Math.max(0, Date.parse(expiresAt) - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [expiresAt, onExpire]);
+}
+
 type FileRequirements = NonNullable<PendingAuthorization["requirements"]["files"]>;
+
+interface CollectionChoice { id: string; name: string; hint?: string; location: string; kind?: "local" | "hosted" | "private" | "cloud_copy" }
+
+/** Manual-selection combobox. Query, highlight and committed choice are
+ * independent: neither filtering nor keyboard navigation grants consent. */
+export function CollectionPicker({ label, labelledBy, collections, value, onChoose, disabled = false, onCreate, creationSelected = false }: {
+  label: string;
+  labelledBy?: string;
+  collections: readonly CollectionChoice[];
+  value: string;
+  onChoose(id: string): void;
+  disabled?: boolean;
+  onCreate?: () => void;
+  creationSelected?: boolean;
+}) {
+  useLocaleRevision();
+  const id = useId(), input = useRef<HTMLInputElement>(null), list = useRef<HTMLDivElement>(null);
+  const [query, setQuery] = useState("");
+  const [highlighted, setHighlighted] = useState<string | null>(null);
+  // Reuse the portal's existing last-used preference as a ranking hint only.
+  const [recent] = useState(readRememberedCollection);
+  const sorted = useMemo(() => [...collections].sort((a, b) =>
+    Number(b.id === recent) - Number(a.id === recent)
+      || a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.id.localeCompare(b.id)
+  ), [collections, recent]);
+  const terms = query.trim().toLocaleLowerCase(i18n.locale).split(/\s+/u).filter(Boolean);
+  const filtered = sorted.filter(collection => terms.every(term => collection.name.toLocaleLowerCase(i18n.locale).includes(term)));
+  const active = filtered.findIndex(collection => collection.id === highlighted);
+  const selected = collections.find(collection => collection.id === value);
+
+  useEffect(() => {
+    if (active >= 0) list.current?.children[active]?.scrollIntoView?.({ block: "nearest" });
+  }, [active, highlighted]);
+
+  function choose(collection: CollectionChoice) {
+    if (disabled) return;
+    setHighlighted(collection.id);
+    onChoose(collection.id);
+    input.current?.focus();
+  }
+
+  return <div className="collection-picker">
+    {!labelledBy && <label id={`${id}-label`} htmlFor={`${id}-input`}>{label}</label>}
+    <input className="mdbase-field"
+      ref={input} id={`${id}-input`} role="combobox" type="search" autoComplete="off" data-value={value}
+      aria-labelledby={labelledBy ?? `${id}-label`} aria-autocomplete="list" aria-expanded="true"
+      aria-controls={`${id}-list`} aria-activedescendant={active >= 0 ? `${id}-option-${active}` : undefined}
+      aria-describedby={`${id}-help`} placeholder={t(i18n)({ message: "Search collections by name" })} value={query} disabled={disabled}
+      onChange={event => { setQuery(event.currentTarget.value); setHighlighted(null); }}
+      onKeyDown={event => {
+        if (disabled || event.nativeEvent.isComposing) return;
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          if (!filtered.length) return;
+          const next = active < 0 ? (event.key === "ArrowDown" ? 0 : filtered.length - 1)
+            : Math.max(0, Math.min(filtered.length - 1, active + (event.key === "ArrowDown" ? 1 : -1)));
+          setHighlighted(filtered[next]!.id);
+        } else if (event.key === "Enter") {
+          event.preventDefault();
+          if (active >= 0) choose(filtered[active]!);
+        } else if (event.key === "Escape") {
+          event.preventDefault(); setHighlighted(null);
+        }
+      }}
+    />
+    <span id={`${id}-help`} className="mdbase-visually-hidden"><Trans>Type to filter. Arrow keys highlight; Enter chooses. Typing does not change your choice.</Trans></span>
+    <div ref={list} id={`${id}-list`} role="listbox" aria-labelledby={labelledBy ?? `${id}-label`} aria-disabled={disabled} className="collection-picker-list">
+      {filtered.map((collection, index) => <div
+        key={collection.id} id={`${id}-option-${index}`} role="option" aria-label={collection.name} data-value={collection.id}
+        aria-selected={collection.id === value} aria-disabled={disabled}
+        aria-describedby={`${id}-hint-${index}`}
+        className={`collection-picker-option${collection.id === value ? " is-selected" : ""}${index === active ? " is-highlighted" : ""}`}
+        onMouseDown={event => event.preventDefault()} onClick={() => choose(collection)}
+      >
+        <span aria-hidden="true"><CollectionIdentity name={collection.name} location={[collection.location, collection.hint].filter(Boolean).join(" · ")} kind={collection.kind} /></span>
+        <small className="mdbase-visually-hidden" id={`${id}-hint-${index}`}>{[collection.location, collection.id === recent ? t(i18n)`Recently used` : null, collection.hint].filter(Boolean).join(" · ")}</small>
+        {collection.id === value && <span className="collection-picker-check" aria-hidden="true">✓</span>}
+      </div>)}
+    </div>
+    {filtered.length === 0 && <p className="field-note" role="status">{collections.length ? t(i18n)({ message: "No collections match. Try another name." }) : t(i18n)({ message: "No collections are available." })}</p>}
+    {onCreate && <button className="mdbase-button is-tertiary collection-picker-create" type="button" disabled={disabled} aria-pressed={creationSelected}
+      onClick={() => { setHighlighted(null); onCreate(); }}><Trans>Create a new collection…</Trans></button>}
+    <p className="mdbase-visually-hidden" aria-live="polite" aria-atomic="true">{selected && <Trans>Selected: <strong>{literal(selected.name)}</strong></Trans>}</p>
+  </div>;
+}
 type PeopleRequirement = import("@mdbase-dev/connect-protocol").ApplicationPeopleRequirement;
+
+export function RequestShell({ children, busy = false }: { children: React.ReactNode; busy?: boolean }) {
+  const shell = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (document.activeElement !== document.body) return;
+    const heading = shell.current?.querySelector<HTMLElement>("h1");
+    if (heading) { heading.tabIndex = -1; heading.focus(); }
+  });
+  useLayoutEffect(() => {
+    const panel = shell.current!.querySelector<HTMLElement>(".authorization-panel")!;
+    const resize = () => {
+      const footer = panel.querySelector(".approval-footer");
+      const height = footer?.getBoundingClientRect().height ?? 0;
+      document.documentElement.style.setProperty("--approval-footer-space", `${height + 16}px`);
+      const scrollport = panel.querySelector<HTMLElement>(".collection-picker-list");
+      if (scrollport) {
+        const available = window.innerHeight - (scrollport.getBoundingClientRect().top + window.scrollY) - height - 16;
+        const rows = Math.max(1, Math.floor((available - 2) / 64));
+        scrollport.style.setProperty("--collection-picker-space", `${rows * 64 + 2}px`);
+      }
+      panel.querySelector<HTMLElement>(".installation-details[open]:focus-within")?.scrollIntoView({ block: "nearest" });
+    };
+    const observer = new ResizeObserver(resize);
+    observer.observe(panel);
+    window.addEventListener("resize", resize);
+    resize();
+    return () => { observer.disconnect(); window.removeEventListener("resize", resize); document.documentElement.style.removeProperty("--approval-footer-space"); };
+  }, []);
+  return <div className="request-shell" aria-busy={busy} ref={shell}>
+    <main className="mdbase-page approval-page">
+      <Brand productLabel />
+      <section className="mdbase-page-panel authorization-panel">{children}</section>
+    </main>
+    <SignedOutFooter />
+  </div>;
+}
+
+export function CollectionIdentity({ name, location, kind }: { name: string; location: string; kind?: string }) {
+  const suffixStart = Math.max(0, name.length - 12);
+  return <span className="collection-identity">
+    {kind === "hosted" || kind === "cloud_copy" ? <CloudIcon size={18} aria-hidden="true" /> : <DesktopIcon size={18} aria-hidden="true" />}
+    <span className="collection-identity-copy">
+      <span className="mdbase-visually-hidden">{name}</span>
+      <strong className="collection-name" title={name} aria-hidden="true">
+        <span>{name.slice(0, suffixStart)}</span><span>{name.slice(suffixStart)}</span>
+      </strong>
+      <small>{location}</small>
+    </span>
+  </span>;
+}
+
+export function GrantMoment({ applicationName, collectionName, collectionKind }: { applicationName: string; collectionName: string; collectionKind?: "local" | "hosted" | "private" | "cloud_copy" }) {
+  return <div className="grant-moment">
+    <span className="request-identity-mark" aria-hidden="true">{initials(applicationName)}</span>
+    <span className="grant-mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none"><path d="m5 12 4.5 4.5L19 7" /></svg>
+    </span>
+    {collectionKind && <span className="grant-collection-glyph" aria-hidden="true">{collectionKind === "hosted" || collectionKind === "cloud_copy" ? <CloudIcon /> : <DesktopIcon />}</span>}
+    <h1 tabIndex={-1}>{t(i18n)`${applicationName} can now use ${collectionName}`}</h1>
+  </div>;
+}
 
 const PEOPLE_PERMISSION_LABELS: Record<string, string> = {
   get identity() { return t(i18n)({ message: "See your account identity and display name" }); },
@@ -71,7 +230,7 @@ export function RequestedAccessSummary({ groups, files, people }: {
     <ul className="requested-access" aria-label={t(i18n)({ message: "Requested access", context: "Application access approval" })}>
       {items.map((item) => <li className={item.higherImpact ? "higher-impact" : undefined} key={item.id}>
         {item.label}
-        {item.higherImpact && <span className="sr-only"><Trans> (higher impact)</Trans></span>}
+        {item.higherImpact && <span className="mdbase-visually-hidden"><Trans> (higher impact)</Trans></span>}
       </li>)}
     </ul>
   );
@@ -95,7 +254,7 @@ function PermissionRow({ id, label, description, locked, required, checked, high
   const content = <>
     {locked
       ? <span className="permission-fixed" aria-hidden="true">✓</span>
-      : <input type="checkbox" checked={checked} disabled={disabled} onChange={onToggle} />}
+      : <input className="mdbase-checkbox" type="checkbox" checked={checked} disabled={disabled} onChange={onToggle} />}
     <span className="permission-copy">
       <strong>{label}</strong>
       {description && <small>{description}</small>}
@@ -188,7 +347,7 @@ export function PermissionList({
     {people && <div className="permission-files">
       <p className="permission-files-heading">
         <strong><Trans>People</Trans></strong>
-        <small><Trans>Account identifiers are the same in every collection, so this application can recognise the same person elsewhere. Email addresses and pending invitations are never shared, and this does not let it manage membership.</Trans></small>
+        <small><Trans>Account identifiers are the same in every collection, so this app can recognise the same person elsewhere. Email addresses and pending invitations are never shared, and this does not let it manage membership.</Trans></small>
       </p>
       <ul className="permission-list" aria-label={t(i18n)({ message: "People permissions", context: "Application access approval" })}>
         {[...(people.required ?? []).map((permission) => ({ permission, required: true })),
@@ -217,7 +376,7 @@ export function NotificationAccess({ applicationName, notifications }: {
   useLocaleRevision();
   if (notifications.criteria.length === 0) return null;
   return (
-    <details className="notification-access">
+    <details className="mdbase-disclosure notification-access">
       <summary>
         <span>
           <strong><Trans>Change notifications</Trans></strong>
@@ -282,11 +441,11 @@ export function ContractSetupEditor({
         <div>
           <strong>{t(i18n)`${applicationName} needs a ${setupLabel(contract).toLocaleLowerCase()} type`}</strong>
           <small>{t(i18n)`Allowing access adds a separate type supplied by ${applicationName}. Existing records stay unchanged.`}</small>
-          <details className="contract-expert-details">
+          <details className="mdbase-disclosure contract-expert-details">
             <summary><Trans>Expert details</Trans></summary>
             <code>{contract.id} · {contract.version}</code>
             {contract.description && <p>{contract.description}</p>}
-            {!canGuideExistingType && suggestions.length > 0 && <p><Trans>This application uses advanced behavior settings, so an existing type cannot be connected during approval.</Trans></p>}
+            {!canGuideExistingType && suggestions.length > 0 && <p><Trans>This app uses advanced behavior settings, so an existing type cannot be connected during approval.</Trans></p>}
           </details>
         </div>
       </div>
@@ -300,7 +459,7 @@ export function ContractSetupEditor({
           <strong>{t(i18n)`Help ${applicationName} understand ${setupLabel(contract).toLocaleLowerCase()}`}</strong>
           <small>{contract.description ?? t(i18n)`Choose whether to add a new ${setupLabel(contract).toLocaleLowerCase()} type or use one you already have.`}</small>
         </div>
-        <details className="contract-expert-details">
+        <details className="mdbase-disclosure contract-expert-details">
           <summary><Trans>Expert details</Trans></summary>
           <code>{contract.id} · {contract.version}</code>
         </details>
@@ -331,7 +490,7 @@ export function ContractSetupEditor({
           const typeField = availableFields.find((candidate) => candidate.reference === mapped);
           const assessment = assessMapping(field, typeField);
           return <label key={field.reference}>
-            <span><strong>{field.label}{field.required ? " *" : ""}</strong><small>{field.description ?? t(i18n)`The application’s ${field.label.toLocaleLowerCase()} value.`}</small></span>
+            <span><strong>{field.label}{field.required ? " *" : ""}</strong><small>{field.description ?? t(i18n)`The app’s ${field.label.toLocaleLowerCase()} value.`}</small></span>
             <Select
               aria-label={field.label}
               value={mapped}
@@ -379,7 +538,7 @@ function SchemaInput({ field, required, value, disabled, onChange }: {
       placeholder={t(i18n)({ message: "Choose", context: "Application access approval" })}
       options={options.map((option) => ({ value: String(option), label: String(option) }))}
       onChange={(chosen) => onChange(options.find((option) => String(option) === chosen))}
-    /> : field.kind === "boolean" ? <input type="checkbox" checked={value === true} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /> : <input
+    /> : field.kind === "boolean" ? <input className="mdbase-checkbox" type="checkbox" checked={value === true} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /> : <input className="mdbase-field"
       type={field.kind === "number" || field.kind === "integer" ? "number" : "text"}
       value={typeof value === "string" || typeof value === "number" ? value : ""}
       disabled={disabled}

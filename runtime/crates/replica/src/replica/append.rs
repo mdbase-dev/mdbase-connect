@@ -14,7 +14,6 @@
 //! The writer plans only when it has applied everything up to the head it knows
 //! (`caught_up`), never during a log move, and never while stalled.
 
-use crate::api::ClientApi;
 use std::collections::BTreeSet;
 
 use mdbn_core::plan::PlanOptions;
@@ -57,6 +56,11 @@ pub struct AppendTuning {
     pub backoff_max_ms: u64,
     /// Wait before retrying after a transient error, ms.
     pub retry_ms: u64,
+    /// Wait before retrying entries the log refused over its quota, ms.
+    pub quota_retry_ms: u64,
+    /// Wait before re-uploading a file the log refused over its quota, ms.
+    /// Longer than the entry retry: the refusal can follow the whole upload.
+    pub quota_upload_retry_ms: u64,
 }
 
 impl Default for AppendTuning {
@@ -67,6 +71,8 @@ impl Default for AppendTuning {
             backoff_after: 3,
             backoff_max_ms: 50,
             retry_ms: 1_000,
+            quota_retry_ms: 60_000,
+            quota_upload_retry_ms: 600_000,
         }
     }
 }
@@ -102,7 +108,7 @@ pub(crate) enum AppendState {
     RetryAt(i64, Sent),
     /// Don't plan before this time (contention backoff, transient errors).
     WaitUntil(i64),
-    /// Stopped until something changes (forbidden, gone, quota, invalid twice).
+    /// Stopped until something changes (forbidden, gone, invalid twice).
     Stopped,
 }
 
@@ -178,13 +184,12 @@ impl<S: Store> Replica<S> {
             return;
         }
         if let Some((kind, _)) = self.stalled {
-            // Missing keys need bounded probes, not a read on every reply and
-            // not permanent silence. A push never supplies key authority.
-            if kind == IncidentKind::WaitingForKey
-                && !self.local_only()
-                && self.log_move == LogMove::None
-            {
-                self.join_ahead_step();
+            // A stall needs bounded probes, not a read on every reply and not
+            // permanent silence. A push never supplies key authority.
+            if !self.local_only() && self.log_move == LogMove::None {
+                if kind == IncidentKind::WaitingForKey {
+                    self.join_ahead_step();
+                }
                 self.request_read();
             }
             return;
@@ -236,17 +241,15 @@ impl<S: Store> Replica<S> {
         {
             return;
         }
-        if let Some((IncidentKind::WaitingForKey, position)) = self.stalled {
+        if let Some((_, position)) = self.stalled {
             if self.local_only()
                 || self.log_move != LogMove::None
-                || !self
-                    .key_wait_read
-                    .due(position, self.now(), self.head_known)
+                || !self.stall_read.due(position, self.now(), self.head_known)
             {
                 return;
             }
         } else {
-            self.key_wait_read.clear();
+            self.stall_read.clear();
         }
         self.reading = true;
         let id = self.queue(LogRequest::Read(ReadParams {
@@ -358,7 +361,7 @@ impl<S: Store> Replica<S> {
             // lost after revocation: the only rejection of an
             // acknowledged write.
             if self.resurrected.contains_key(&row.mutation.id)
-                && row.grant.is_some_and(|g| self.grant_now(&g).is_none())
+                && row.grant.is_some_and(|g| self.grant_now(&g).is_err())
             {
                 let mut problem = crate::api::ErrorCode::Forbidden
                     .problem("the grant was revoked before this lost write could be restored");
@@ -1323,6 +1326,7 @@ impl<S: Store> Replica<S> {
             Ok(LogResponse::Append(AppendResult::Appended(a))) => {
                 self.moved_streak = 0;
                 self.head_known = self.head_known.max(a.last);
+                self.clear_quota_refusal();
                 let items: Vec<mdbn_wire::log_service::SeqItem> = sent
                     .params
                     .items
@@ -1441,8 +1445,12 @@ impl<S: Store> Replica<S> {
                     self.append = AppendState::Stopped;
                 }
                 LogErrorCode::QuotaExceeded => {
+                    // Space can return at any time (a delete elsewhere, a raised
+                    // quota) with no push to announce it: keep probing.
                     self.incident(IncidentKind::QuotaExceeded, None);
-                    self.append = AppendState::Stopped;
+                    self.append = AppendState::WaitUntil(
+                        self.now() + i64::try_from(self.tuning.quota_retry_ms).unwrap_or(0),
+                    );
                 }
                 LogErrorCode::Gone => {
                     self.incident(IncidentKind::Gone, None);
@@ -1577,17 +1585,23 @@ impl<S: Store> Replica<S> {
         }
     }
 
+    /// An accepted append proves the log has room again. A refused file keeps
+    /// the incident until its own retry lands, and a record refused for its
+    /// size (which carries details) was never about the log's quota.
+    fn clear_quota_refusal(&mut self) {
+        let refusal = self
+            .incidents
+            .get(&IncidentKind::QuotaExceeded.value())
+            .is_some_and(|incident| incident.details.is_none());
+        if refusal && !self.attachment_ingest_quota_refused() {
+            self.clear_incident(IncidentKind::QuotaExceeded);
+        }
+    }
+
     /// Run timers: retries and backoff.
     pub fn tick(&mut self) {
         if let Some(session) = self.attachment_read_tick(self.now()) {
-            self.close(session);
-            self.pushes.push((
-                session,
-                crate::api::Push::Closed(
-                    crate::api::ErrorCode::Unavailable
-                        .problem_with_reason("file_read_idle", "file read timed out"),
-                ),
-            ));
+            self.attachment_read_end_idle(session);
         }
         self.prune_hosted_uploads();
         // An unlock's control read-ahead retries after transport trouble.
@@ -1639,8 +1653,8 @@ impl<S: Store> Replica<S> {
         };
         // The escrow's fallback key grant opens at a known time: wake for it.
         let grant = self.key_grant_turn().filter(|t| *t > self.now());
-        let key_probe = match self.stalled {
-            Some((IncidentKind::WaitingForKey, position))
+        let stall_probe = match self.stalled {
+            Some((_, position))
                 if !self.reading
                     && !self.local_only()
                     && !self.apply_fault
@@ -1649,7 +1663,7 @@ impl<S: Store> Replica<S> {
                     && self.log_move == LogMove::None
                     && self.now() != i64::MAX =>
             {
-                self.key_wait_read.deadline(position)
+                self.stall_read.deadline(position)
             }
             _ => None,
         };
@@ -1666,7 +1680,7 @@ impl<S: Store> Replica<S> {
         [
             append,
             grant,
-            key_probe,
+            stall_probe,
             upload,
             fetch,
             ingest,

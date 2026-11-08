@@ -276,13 +276,19 @@ export class LogServiceClient {
 
   /** Exact-position control read; control items are never compacted. */
   async controlItemAt(collection: string, seq: number): Promise<Uint8Array | null> {
-    const result = await this.rpc("read", struct([[0, uuidBytes(collection)], [1, seq - 1], [2, 1], [3, 1]]));
+    const [item] = (await this.controlItemsAfter(collection, seq - 1, 1)).items;
+    return item?.seq === seq ? item.item : null;
+  }
+
+  /** The next control items after a position, in log order; `more` when the page stopped early. */
+  async controlItemsAfter(collection: string, after: number, limit: number): Promise<{ items: Array<{ seq: number; item: Uint8Array }>; more: boolean }> {
+    const result = await this.rpc("read", struct([[0, uuidBytes(collection)], [1, after], [2, limit], [3, 1]]));
     const items = field(result, 0);
     if (!Array.isArray(items)) throw new Error("malformed control read response");
-    if (items.length === 0) return null;
-    const item = items[0];
-    if (!Array.isArray(item) || typeof item[0] !== "number" || !(item[1] instanceof Uint8Array)) throw new Error("malformed control item response");
-    return item[0] === seq ? item[1] : null;
+    return { more: field(result, 6) === true, items: items.map(item => {
+      if (!Array.isArray(item) || typeof item[0] !== "number" || !(item[1] instanceof Uint8Array)) throw new Error("malformed control item response");
+      return { seq: item[0], item: item[1] };
+    }) };
   }
 
   async head(collection: string): Promise<{ seq: number; chain: Uint8Array }> {
@@ -300,6 +306,25 @@ export class LogServiceClient {
     }
   }
 
+  /** What the collection stores: `usedBytes` is everything, `quotaBytes` caps the part that isn't files,
+   * and `fileBytes` (the uploaded files plans meter) is capped by `fileQuotaBytes`. */
+  async storageStatus(collection: string): Promise<{ usedBytes: number; quotaBytes: number; fileBytes: number; fileQuotaBytes: number }> {
+    const result = await this.rpc("storage_status", struct([[0, uuidBytes(collection)]]));
+    return { usedBytes: seqField(result, 0), quotaBytes: seqField(result, 1), fileBytes: seqField(result, 2), fileQuotaBytes: seqField(result, 3) };
+  }
+
+  /** Sets the file quota to the collection's current file bytes plus `headroomBytes`, atomically, and
+   * returns both. Headroom 0 blocks new files and keeps existing ones. */
+  async setFileHeadroom(collection: string, headroomBytes: number): Promise<{ fileBytes: number; fileQuotaBytes: number }> {
+    const result = await this.rpc("set_file_headroom", struct([[0, uuidBytes(collection)], [1, headroomBytes]]));
+    return { fileBytes: seqField(result, 0), fileQuotaBytes: seqField(result, 1) };
+  }
+
+  /** One batch of `gc`; returns the objects removed, and a full batch means more may remain. */
+  async collectGarbage(collection: string): Promise<number> {
+    return seqField(await this.rpc("gc", struct([[0, uuidBytes(collection)]])), 0);
+  }
+
   /** `create_log`: idempotent for the same genesis bytes; `invalid`/`exists` for a different genesis.
    * The placement only matters on the call that creates the log. The reply's key 2 is the
    * region the log service recorded (on a retry too); absent for a collection with no region,
@@ -310,6 +335,7 @@ export class LogServiceClient {
     return isLogRegion(region) ? { region } : {};
   }
 
+  /** The operator's abuse limits: log bytes (everything but files) and append rates. */
   async setQuota(collection: string, quotas: { storageBytes: number; itemsPerSecond: number; bytesPerSecond: number; burstItems: number }): Promise<void> {
     await this.rpc("set_quota", struct([[0, uuidBytes(collection)], [1, [quotas.storageBytes, quotas.itemsPerSecond, quotas.bytesPerSecond, quotas.burstItems]]]));
   }

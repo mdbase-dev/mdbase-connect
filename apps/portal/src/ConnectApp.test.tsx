@@ -7,11 +7,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectApp } from "./ConnectApp";
 import { chooseOption } from "./test/select";
 import { runtime } from "./i18n";
+import { Toaster } from "@mdbase-dev/ui/toast";
+import { writeOverviewPreview } from "./overview-cache";
 
 let overview: ManagementOverview;
 
 beforeEach(() => {
+  vi.stubEnv("VITE_MDBASE_READER_URL", undefined);
+  vi.stubEnv("VITE_MDBASE_WRITER_URL", undefined);
   localStorage.clear();
+  sessionStorage.clear();
   history.replaceState(null, "", "/?collection=collection");
   overview = overviewFixture();
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -31,10 +36,221 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe("ConnectApp", () => {
-  it("opens Hosted first-collection setup for a newly flipped next account without a computer", async () => {
+  it.each([{ computerIds: [] }, { computerIds: ["computer"] }])("only describes synced computer copies when a computer is enrolled: $computerIds", async ({ computerIds }) => {
+    history.replaceState(null, "", "/storage?collection=native");
+    Object.assign(overview, { native_collections: [{ id: "native", display_name: "Cloud notes", sync: "cloud_copy", computer_ids: computerIds,
+      access: { relationship: "owner", role: "owner", can_manage_members: true } }] });
+    render(<ConnectApp />);
+    await screen.findByText("Collection copies");
+    expect(!!screen.queryByText("Copies sync between your computers. App access is managed separately.")).toBe(computerIds.length > 0);
+  });
+  it("keeps an unchanged background load error mounted but announces a Retry result", async () => {
+    vi.mocked(fetch).mockImplementation(async () => Response.json({ error: { message: "diagnostic" } }, { status: 503 }));
+    render(<ConnectApp />);
+    const alert = await screen.findByRole("alert");
+    const retry = within(alert).getByRole("button");
+    await waitFor(() => expect(retry).toHaveAttribute("aria-disabled", "false"));
+    retry.focus();
+    let finish!: () => void;
+    vi.mocked(fetch).mockImplementation(async () => {
+      await new Promise<void>(resolve => { finish = resolve; });
+      return Response.json({ error: { message: "diagnostic" } }, { status: 503 });
+    });
+    fireEvent(window, new Event("focus"));
+    await waitFor(() => expect(retry).toHaveAttribute("aria-disabled", "true"));
+    expect(retry).toHaveFocus();
+    expect(retry).toBeEnabled();
+    const calls = vi.mocked(fetch).mock.calls.length;
+    fireEvent.click(retry);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(calls);
+    await act(async () => finish());
+    await waitFor(() => expect(retry).toHaveAttribute("aria-disabled", "false"));
+    expect(retry).toHaveFocus();
+    expect(screen.getByRole("alert")).toBe(alert);
+    vi.mocked(fetch).mockImplementation(async () => Response.json({ error: { message: "diagnostic" } }, { status: 503 }));
+    fireEvent.click(within(alert).getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(screen.getByRole("alert")).not.toBe(alert));
+    expect(screen.getByRole("alert")).toHaveTextContent("Something went wrong on mdbase. Try again.");
+  });
+
+  it("offers deletion only where available alongside existing-collection and support recovery", async () => {
+    vi.mocked(fetch).mockResolvedValue(Response.json({ error: { code: "account_collection_quota_exceeded", message: "Delete a synced collection before creating another." } }, { status: 429 }));
+    render(<ConnectApp />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Open an existing collection, delete one you own if Delete is available, or contact mdbase support to raise your limit.");
+  });
+
+  it("names each collection launch link in the collection list", async () => {
+    history.replaceState(null, "", "/collections");
+    render(<ConnectApp />);
+    await screen.findByRole("link", { name: "Open in editor: Garden notes" });
+    for (const link of screen.getAllByRole("link", { name: /^Open in editor:/ })) {
+      const name = link.closest("[data-list-item]")!.querySelector(".connect-collection-name strong")!.textContent;
+      expect(link).toHaveAccessibleName(`Open in editor: ${name}`);
+    }
+  });
+  it.each([500, 503])("describes HTTP %s as a server failure", async status => {
+    vi.mocked(fetch).mockResolvedValue(Response.json({ error: { message: "Backend diagnostics" } }, { status }));
+    render(<ConnectApp />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong on mdbase. Try again.");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("Check your connection");
+  });
+
+  it("keeps network failures distinct from server failures", async () => {
+    vi.mocked(fetch).mockRejectedValue(new TypeError("Failed to fetch"));
+    render(<ConnectApp />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Check your connection and try again.");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("Something went wrong on mdbase");
+  });
+
+  it("delays row skeletons until the overview has been pending for 150ms", async () => {
+    vi.mocked(fetch).mockImplementation(() => new Promise(() => {}));
+    render(<ConnectApp />);
+    expect(screen.getByRole("complementary", { name: "mdbase Connect navigation" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Computers" })).toBeInTheDocument();
+    expect(document.querySelector(".connect-skeleton")).not.toBeInTheDocument();
+    await waitFor(() => expect(document.querySelectorAll(".connect-skeleton > div")).toHaveLength(3));
+  });
+
+  it("shows cached names immediately, excludes authority and revalidates", async () => {
+    writeOverviewPreview(overview);
+    const stored = localStorage.getItem("connect-overview-v1:person")!;
+    expect(stored).not.toMatch(/grants|pending_authorizations|email|local_id|access|token/);
+    let resolveOverview!: (response: Response) => void;
+    const original = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation((input, init) => new URL(String(input)).pathname === "/v1/me"
+      ? new Promise(resolve => { resolveOverview = resolve; }) : original(input, init));
+    render(<ConnectApp />);
+    expect(screen.getByText("Garden notes")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Revoke|Approve|Delete/ })).not.toBeInTheDocument();
+    overview.collections[0].display_name = "Fresh notes";
+    await act(async () => resolveOverview(Response.json(overview)));
+    expect(await screen.findByRole("heading", { name: "Fresh notes" })).toBeInTheDocument();
+    expect(localStorage.getItem("connect-overview-v1:person")).toContain("Fresh notes");
+  });
+
+  it("renames immediately and rolls back a failed request", async () => {
+    history.replaceState(null, "", "/computers");
+    let rejectRename!: (error: Error) => void;
+    vi.spyOn(ConnectManagementClient.prototype, "renameConnector").mockImplementation(() => new Promise((_, reject) => { rejectRename = reject; }));
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    await user.click(await screen.findByRole("button", { name: "Actions for Home computer" }));
+    await user.click(screen.getByRole("menuitem", { name: "Rename" }));
+    await user.clear(screen.getByRole("textbox", { name: "Rename Home computer" }));
+    await user.type(screen.getByRole("textbox", { name: "Rename Home computer" }), "Desk computer");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(screen.getByText("Desk computer")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Saving…" })).not.toBeInTheDocument();
+    await act(async () => rejectRename(new Error("Cannot save name")));
+    expect(await screen.findByText("Home computer", { exact: true })).toBeInTheDocument();
+    expect(screen.getByText("Change could not be saved. Your previous value was restored.")).toBeInTheDocument();
+  });
+
+  it("undoes a confirmed rename with a real inverse request", async () => {
+    history.replaceState(null, "", "/computers");
+    const rename = vi.spyOn(ConnectManagementClient.prototype, "renameConnector").mockImplementation(async (_, name) => { overview.connectors[0].name = name; });
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    await user.click(await screen.findByRole("button", { name: "Actions for Home computer" }));
+    await user.click(screen.getByRole("menuitem", { name: "Rename" }));
+    await user.clear(screen.getByRole("textbox", { name: "Rename Home computer" }));
+    await user.type(screen.getByRole("textbox", { name: "Rename Home computer" }), "Desk computer");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(await screen.findByRole("button", { name: "Undo" }));
+    expect(rename).toHaveBeenLastCalledWith("computer", "Home computer", expect.any(Object));
+    expect(await screen.findByText("Home computer", { exact: true })).toBeInTheDocument();
+  });
+
+  it("does not optimistically remove a computer while revocation is pending", async () => {
+    history.replaceState(null, "", "/computers");
+    let resolveRevoke!: () => void;
+    vi.spyOn(ConnectManagementClient.prototype, "revokeConnector").mockImplementation(() => new Promise(resolve => { resolveRevoke = () => { overview.connectors = []; resolve(); }; }));
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    await user.click(await screen.findByRole("button", { name: "Actions for Home computer" }));
+    await user.click(screen.getByRole("menuitem", { name: "Revoke" }));
+    await user.click(screen.getByRole("button", { name: "Revoke computer" }));
+    expect(screen.getByText("Home computer", { exact: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Revoking access…" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
+    await act(async () => resolveRevoke());
+    await waitFor(() => expect(screen.queryByText("Home computer", { exact: true })).not.toBeInTheDocument());
+  });
+
+  it("clears the account preview after signing out", async () => {
+    history.replaceState(null, "", "/account");
+    vi.spyOn(ConnectManagementClient.prototype, "logout").mockResolvedValue();
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    await user.click(await screen.findByRole("button", { name: "Sign out of this browser" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Sign out" }));
+    expect(localStorage.getItem("connect-overview-v1:person")).toBeNull();
+    expect(sessionStorage.getItem("connect-overview-account")).toBeNull();
+  });
+
+  it("clears a cached account when the session expires", async () => {
+    writeOverviewPreview(overview);
+    vi.mocked(fetch).mockResolvedValue(Response.json({ error: { message: "Session expired" } }, { status: 401 }));
+    render(<ConnectApp />);
+    await waitFor(() => expect(localStorage.getItem("connect-overview-v1:person")).toBeNull());
+    expect(sessionStorage.getItem("connect-overview-account")).toBeNull();
+    expect(screen.queryByText("Garden notes")).not.toBeInTheDocument();
+  });
+
+  it("never restores an expired pending authorization from the preview", async () => {
+    overview.pending_authorizations = [{
+      id: "expired", flow: "authorization_code", requested_operations: ["read"], collection_id: "collection",
+      expires_at: new Date(Date.now() - 60_000).toISOString(), application_id: "reader", application_name: "Reader",
+      distribution: "web", homepage: "https://reader.example", project_url: null, icon: null
+    }];
+    writeOverviewPreview(overview);
+    render(<ConnectApp />);
+    await screen.findByRole("heading", { name: "Garden notes" });
+    expect(screen.queryByRole("link", { name: /Review request/ })).not.toBeInTheDocument();
+  });
+
+  it("prefetches account details on navigation intent", async () => {
+    const account = vi.spyOn(ConnectManagementClient.prototype, "account").mockResolvedValue(accountFixture());
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    await screen.findByRole("heading", { name: "Garden notes" });
+    const accountLink = screen.getByRole("link", { name: "Account" });
+    await user.hover(accountLink);
+    expect(account).toHaveBeenCalledTimes(1);
+    await user.click(accountLink);
+    await screen.findByRole("button", { name: "Sign out of this browser" });
+    expect(account).toHaveBeenCalledTimes(1);
+  });
+
+  it("prefetches storage mode on navigation intent without starting a switch", async () => {
+    history.replaceState(null, "", "/?collection=native");
+    Object.assign(overview, { native_collections: [{ id: "native", display_name: "Native notes", sync: "private", access: { relationship: "owner", role: "owner", can_manage_members: false } }] });
+    const original = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation((input, init) => new URL(String(input)).pathname === "/v1/next/collections/native/mode"
+      ? Promise.resolve(Response.json({ current_mode: "private", execution_available: true, change: null })) : original(input, init));
+    const mode = vi.spyOn(ConnectManagementClient.prototype, "collectionModeStatus");
+    const change = vi.spyOn(ConnectManagementClient.prototype, "requestCollectionMode");
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    await screen.findByRole("heading", { name: "Native notes" });
+    const storage = screen.getByRole("link", { name: "Storage" });
+    await user.hover(storage);
+    expect(mode).toHaveBeenCalledTimes(1);
+    await user.click(storage);
+    await screen.findByRole("heading", { name: "Storage mode" });
+    expect(screen.getByRole("heading", { name: "Storage" }).closest("header")).toHaveTextContent("Native notes");
+    expect(screen.queryByText(/is stored on your computers/)).not.toBeInTheDocument();
+    expect(screen.getByText("Collection copies")).toBeInTheDocument();
+    expect(screen.queryByText(/replicas/i)).not.toBeInTheDocument();
+    expect(mode).toHaveBeenCalledTimes(1);
+    expect(change).not.toHaveBeenCalled();
+  });
+
+  it("opens first-collection setup for a newly flipped next account without a computer", async () => {
     history.replaceState(null, "", "/");
     overview.collections = [];
     overview.hosted_collections = [];
@@ -47,16 +263,15 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
 
     expect(await screen.findByText("No collections")).toBeInTheDocument();
-    expect(screen.getByText("Add a collection to get started.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add collection" })).toBeEnabled();
+    expect(screen.getByText("Choose where your first collection lives.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /New collection/ })).toBeEnabled();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     await waitFor(() => expect(location.pathname).toBe("/collections"));
 
-    await user.click(screen.getByRole("button", { name: "Add collection" }));
-    await chooseOption(user, screen.getByRole("combobox", { name: "Location" }), "Hosted");
+    await user.click(screen.getByRole("button", { name: /New collection/ }));
     expect(screen.getByRole("textbox", { name: "Collection name" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create" })).toBeEnabled();
-    expect(screen.queryByText("Hosted creation is unavailable on this server.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Creating collections is unavailable on this server.")).not.toBeInTheDocument();
   });
 
   it.each([false, true])("offers one Add collection flow with a Native handoff when Hosted enabled=%s", async hosted => {
@@ -68,9 +283,8 @@ describe("ConnectApp", () => {
     const add = await screen.findByRole("button", { name: "Add collection" });
     expect(screen.queryByRole("button", { name: "New hosted collection" })).not.toBeInTheDocument();
     await user.click(add);
-    const location = screen.getByRole("combobox", { name: "Location" });
-    if (hosted) await chooseOption(user, location, "On this computer");
-    expect(screen.getByRole("link", { name: "Open mdbase connect" })).toHaveAttribute("href", "mdbase-connect://open");
+    await user.click(screen.getByRole("button", { name: /A folder on this computer/ }));
+    expect(screen.getByRole("link", { name: "Open desktop app" })).toHaveAttribute("href", "mdbase-connect://open");
     expect(screen.queryByRole("button", { name: "Create" })).not.toBeInTheDocument();
     expect(vi.mocked(fetch).mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
   });
@@ -78,11 +292,14 @@ describe("ConnectApp", () => {
   it("keeps Add collection visible without inventing a Native device or Hosted authority", async () => {
     history.replaceState(null, "", "/collections");
     overview.hosted_collections_available = false;
+    overview.collection_creation_available = false;
     Object.assign(overview, { native_collection_creation_available: false });
     const user = userEvent.setup();
     render(<ConnectApp />);
     await user.click(await screen.findByRole("button", { name: "Add collection" }));
-    expect(screen.getByText("Connect a computer to add a collection.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /New collection/ })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: /A folder on this computer/ }));
+    expect(screen.getByRole("link", { name: "Open desktop app" })).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "Location" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Create" })).not.toBeInTheDocument();
   });
@@ -100,24 +317,57 @@ describe("ConnectApp", () => {
     ] });
     render(<ConnectApp />);
     await screen.findByText("Computer notes");
-    const badge = (name: string) => screen.getByText(name).closest(".connect-row")?.querySelector(".connect-status");
-    expect(badge("Computer notes")).toHaveTextContent("On Home computer");
-    expect(badge("Offline notes")).toHaveTextContent("On Sleeping laptop: offline");
+    const badge = (name: string) => screen.getByText(name).closest(".connect-collection-row")?.querySelector(".connect-status");
+    expect(badge("Computer notes")).toHaveTextContent("Connected");
+    expect(badge("Offline notes")).toHaveTextContent("Offline");
     expect(badge("Unlinked notes")).toHaveTextContent("Computer not connected");
-    expect(badge("Cloud notes")).toHaveTextContent("Cloud copy");
+    expect(badge("Cloud notes")).toBeEmptyDOMElement();
+    expect(screen.getByText("Cloud notes").closest(".connect-collection-row")).toHaveTextContent("Cloud copy configured");
     expect(screen.queryByText("Availability unknown")).not.toBeInTheDocument();
   });
 
-  it("lists apps for discovery before any access is approved", async () => {
+  it.each([
+    ["lab", "https://editor-lab.mdbase.dev", "https://lab.mdbase-reader.pages.dev", "https://lab.mdbase-writer.pages.dev"],
+    ["staging", "https://editor-staging.mdbase.dev", "https://staging.mdbase-reader.pages.dev", "https://staging.mdbase-writer.pages.dev"],
+    ["production", "https://editor.mdbase.dev", "https://reader.mdbase.dev", "https://writer.mdbase.dev"],
+  ])("discovers all managed apps in %s before access is approved", async (_environment, editor, reader, writer) => {
+    const fetchData = vi.mocked(fetch).getMockImplementation()!;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+      new URL(String(input)).pathname === "/v1/ui-configuration" ? Response.json({ editor_url: `${editor}/connect` }) : fetchData(input, init)));
+    vi.stubEnv("VITE_MDBASE_ENV", "production");
+    overview.grants = [];
+    history.replaceState(null, "", "/applications");
+    render(<ConnectApp />);
+    await screen.findByRole("link", { name: "Editor" });
+    for (const [name, href] of [["Editor", editor], ["Reader", reader], ["Writer", writer], ["Journal", "https://journal.mdbase.dev"], ["TaskNotes", "https://app.tasknotes.dev"]]) {
+      expect(screen.getByRole("link", { name })).toHaveAttribute("href", href);
+    }
+    expect(screen.getByText("No apps with access")).toBeInTheDocument();
+  });
+
+  it("uses explicit app URLs for a custom deployment", async () => {
+    vi.stubEnv("VITE_MDBASE_READER_URL", "http://127.0.0.1:5321");
+    vi.stubEnv("VITE_MDBASE_WRITER_URL", "http://127.0.0.1:5320");
+    history.replaceState(null, "", "/applications");
+    render(<ConnectApp />);
+    await screen.findByRole("link", { name: "Editor" });
+    expect(screen.getByRole("link", { name: "Editor" })).toHaveAttribute("href", "https://editor.example.test");
+    expect(screen.getByRole("link", { name: "Reader" })).toHaveAttribute("href", "http://127.0.0.1:5321");
+    expect(screen.getByRole("link", { name: "Writer" })).toHaveAttribute("href", "http://127.0.0.1:5320");
+  });
+
+  it("does not guess production URLs for unconfigured custom apps", async () => {
     overview.grants = [];
     history.replaceState(null, "", "/applications");
     render(<ConnectApp />);
     await screen.findByRole("heading", { name: "Apps" });
     await screen.findByRole("link", { name: "Editor" });
-    for (const [name, href] of [["Editor", "https://editor.example.test"], ["Reader", "https://reader.mdbase.dev/"], ["Writer", "https://writer.mdbase.dev/"], ["Journal", "https://journal.mdbase.dev"], ["TaskNotes", "https://app.tasknotes.dev"]]) {
+    for (const [name, href] of [["Editor", "https://editor.example.test"], ["Journal", "https://journal.mdbase.dev"], ["TaskNotes", "https://app.tasknotes.dev"]]) {
       expect(screen.getByRole("link", { name })).toHaveAttribute("href", href);
     }
-    expect(screen.getByText("No connected applications")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Reader" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Writer" })).not.toBeInTheDocument();
+    expect(screen.getByText("No apps with access")).toBeInTheDocument();
   });
 
   it("hides the Editor discovery link when the deployment has no Editor", async () => {
@@ -128,7 +378,8 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
     await screen.findByRole("heading", { name: "Apps" });
     expect(screen.queryByRole("link", { name: "Editor" })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Reader" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Reader" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Writer" })).not.toBeInTheDocument();
   });
 
   it("shows owned cloud-copy and Private collections and the complete deletion count", async () => {
@@ -144,7 +395,7 @@ describe("ConnectApp", () => {
     ];
     const client = new ConnectManagementClient(location.origin);
     vi.spyOn(client, "account").mockResolvedValue(account);
-    render(<AccountManagement client={client} overview={overview} onOverviewRefresh={async () => {}} onDeleted={() => {}} />);
+    render(<AccountManagement client={client} overview={overview} onOverviewRefresh={async () => {}} onSignedOut={() => {}} onDeleted={() => {}} />);
     const heading = await screen.findByRole("heading", { name: "Collections" });
     const collections = within(heading.closest("section")!);
     expect(collections.getByText("Cloud notes")).toBeInTheDocument();
@@ -155,10 +406,30 @@ describe("ConnectApp", () => {
     expect(heading.closest("section")?.querySelector(".connect-section-title")).toHaveTextContent("Collections2");
     expect(collections.getByText("Beta")).toBeInTheDocument();
     expect(collections.getByText("Usage unavailable")).toBeInTheDocument();
+    expect(collections.queryByText(/retained file storage/)).not.toBeInTheDocument();
     expect(collections.getByText(/Documents up to/)).toBeInTheDocument();
     expect(screen.queryByText("0 hosted collections")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Delete account…" }));
     expect(screen.getByText("3 collections and their stored data")).toBeInTheDocument();
+  });
+
+  it("shows what the log service stores for a native account, not legacy totals", async () => {
+    const account = accountFixture();
+    account.backend = "next";
+    account.storage.collections = [];
+    overview.native_collections = [
+      { id: "cloud", display_name: "Cloud notes", sync: "cloud_copy", access: { relationship: "owner", role: "owner", can_manage_members: true } }
+    ];
+    overview.subscription = { ...overview.subscription!, native_storage_bytes: 5 * 1024 * 1024 };
+    const client = new ConnectManagementClient(location.origin);
+    vi.spyOn(client, "account").mockResolvedValue(account);
+    render(<AccountManagement client={client} overview={overview} onOverviewRefresh={async () => {}} onSignedOut={() => {}} onDeleted={() => {}} />);
+    const heading = await screen.findByRole("heading", { name: "Collections" });
+    const collections = within(heading.closest("section")!);
+    expect(collections.getByText("5 MB of 1 GB")).toBeInTheDocument();
+    expect(collections.getByRole("progressbar", { name: "Beta hosted storage" })).toHaveAttribute("aria-valuenow", String(5 * 1024 * 1024));
+    expect(collections.getByText("Counts uploaded files. Notes don't use storage.")).toBeInTheDocument();
+    expect(collections.queryByText(/Markdown ·/)).not.toBeInTheDocument();
   });
 
   it("counts native collections without legacy shadow rows or content authorization", async () => {
@@ -171,10 +442,9 @@ describe("ConnectApp", () => {
     ];
     history.replaceState(null, "", "/collections?server=https%3A%2F%2Funtrusted.example");
     const { container } = render(<ConnectApp />);
-    expect(await screen.findByRole("heading", { name: "Collections" })).toBeInTheDocument();
-    expect(screen.getByText("Native notes")).toBeInTheDocument();
+    expect(await screen.findByText("Native notes")).toBeInTheDocument();
     expect(screen.getByText("Private notes")).toBeInTheDocument();
-    expect(container.querySelector(".connect-section-title")).toHaveTextContent("All collections2");
+    expect(container.querySelectorAll(".connect-collection-row")).toHaveLength(2);
     expect(vi.mocked(fetch).mock.calls.every(([input, init]) => new URL(String(input)).origin === location.origin && (!init?.method || init.method === "GET"))).toBe(true);
   });
 
@@ -183,13 +453,13 @@ describe("ConnectApp", () => {
     overview.installation_access = [installationFixture()];
     const user = userEvent.setup();
     render(<ConnectApp />);
-    await user.click(await screen.findByRole("link", { name: "Applications" }));
+    await user.click(await screen.findByRole("link", { name: "Apps" }));
     expect(await screen.findByText("Reader app")).toBeInTheDocument();
     expect(screen.getByText("Entire collection · Access as your account (owner)")).toBeInTheDocument();
     expect(screen.queryByText(/permissions ·/)).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Revoke collection access" }));
     expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
-    await user.click(screen.getByRole("button", { name: "Revoke collection access" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke collection access" }));
     await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([input, init]) => new URL(String(input)).pathname === "/v1/account/applications/registered-app/remove-installation-access" && init?.body === JSON.stringify({ collection_id: "collection", confirm: true }))).toBe(true));
     expect(vi.mocked(fetch).mock.calls.some(([input]) => new URL(String(input)).pathname.startsWith("/v1/grants"))).toBe(false);
   });
@@ -199,12 +469,12 @@ describe("ConnectApp", () => {
     overview.installation_access = [{ ...installationFixture(), collection_id: null, collection_name: null, sync: null, role: null, create_collections: true }];
     const user = userEvent.setup();
     render(<ConnectApp />);
-    await user.click(await screen.findByRole("link", { name: "Applications" }));
+    await user.click(await screen.findByRole("link", { name: "Apps" }));
     expect(await screen.findByText("No collection access")).toBeInTheDocument();
     expect(screen.getByText("Can create collections for your account")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Revoke application" }));
+    await user.click(screen.getByRole("button", { name: "Revoke app" }));
     expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
-    await user.click(screen.getByRole("button", { name: "Revoke application" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke app" }));
     await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([input, init]) => new URL(String(input)).pathname === "/v1/account/installations/installation-connector" && init?.method === "DELETE")).toBe(true));
     expect(vi.mocked(fetch).mock.calls.some(([input]) => new URL(String(input)).pathname.startsWith("/v1/grants"))).toBe(false);
   });
@@ -212,32 +482,24 @@ describe("ConnectApp", () => {
   it("opens Reader's existing manage-access route on Applications", async () => {
     history.replaceState(null, "", "/account/applications");
     render(<ConnectApp />);
-    expect(await screen.findByRole("heading", { name: "Applications" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Apps", level: 1 })).toBeInTheDocument());
     expect(screen.queryByRole("heading", { name: "Browser sessions" })).not.toBeInTheDocument();
   });
 
   it("opens /account directly on Connect and retains browser-session controls", async () => {
     history.replaceState(null, "", "/account");
     render(<ConnectApp />);
-    expect(await screen.findByRole("heading", { name: "Account" })).toBeInTheDocument();
+    await screen.findByRole("heading", { name: "Browser sessions" });
+    expect(screen.getByRole("heading", { name: "Account" })).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Browser sessions" })).toBeInTheDocument();
     expect(location.pathname).toBe("/account");
     expect(screen.queryByRole("complementary", { name: "Collection navigation" })).not.toBeInTheDocument();
   });
 
-  it("orbits the mark while Connect is opening", () => {
-    vi.mocked(fetch).mockImplementation(() => new Promise<Response>(() => {}));
-    const { container } = render(<ConnectApp />);
-
-    expect(screen.getByText("Opening mdbase connect")).toBeInTheDocument();
-    expect(container.querySelector(".connect-loading .mdbase-mark")).toBeInTheDocument();
-    expect(container.querySelector(".connect-loading .mdbase-motion-orbit")).toBeInTheDocument();
-  });
-
   it("clears password inputs after success even when the following overview refresh fails", async () => {
     const user = userEvent.setup();
     const onOverviewRefresh = vi.fn().mockRejectedValue(new Error("Overview offline"));
-    render(<AccountManagement client={new ConnectManagementClient("http://127.0.0.1:8787")} overview={overview} onOverviewRefresh={onOverviewRefresh} onDeleted={() => {}} />);
+    render(<><AccountManagement client={new ConnectManagementClient("http://127.0.0.1:8787")} overview={overview} onOverviewRefresh={onOverviewRefresh} onSignedOut={() => {}} onDeleted={() => {}} /><Toaster /></>);
     await user.click(await screen.findByRole("button", { name: "Change password" }));
     await user.type(screen.getByLabelText("Current password"), "old password");
     await user.type(screen.getByLabelText("New password"), "a sufficiently long password");
@@ -262,33 +524,12 @@ describe("ConnectApp", () => {
     const user = userEvent.setup();
     const { container } = render(<ConnectApp />);
     await user.click(await screen.findByRole("link", { name: "Computers" }));
-    const rows = () => [...container.querySelectorAll(".connect-main .connect-row")];
+    const rows = () => [...container.querySelectorAll(".connect-main .connect-collection-row")];
     expect(screen.getByRole("heading", { name: "Registered computers" })).toBeInTheDocument();
     expect(rows()).toHaveLength(4);
-    expect(screen.getByText(/ID 11111111/)).toBeInTheDocument();
-    expect(screen.getByText(/ID computer/)).toBeInTheDocument();
-    const search = screen.getByRole("searchbox", { name: "Find a computer" });
-    await user.type(search, "dEsK");
-    expect(rows()).toHaveLength(2);
-    await user.clear(search);
-    await user.type(search, "11111111");
-    expect(rows()).toHaveLength(1);
-    expect(rows()[0]).toHaveTextContent("ID 11111111");
-    await chooseOption(user, screen.getByRole("combobox", { name: "Computer status" }), "Online");
-    expect(screen.getByText("No computers match")).toBeInTheDocument();
-    expect(screen.getByRole("status", { name: "Computer filter results" })).toHaveTextContent("Showing 0 of 4 registered computers.");
-    await user.clear(search);
-    expect(rows()).toHaveLength(1);
-    expect(rows()[0]).toHaveTextContent("ID computer");
-    await chooseOption(user, screen.getByRole("combobox", { name: "Computer status" }), "Offline");
-    expect(rows()).toHaveLength(1);
-    expect(rows()[0]).toHaveTextContent("ID 11111111");
-    await chooseOption(user, screen.getByRole("combobox", { name: "Computer status" }), "Not connected yet");
-    expect(rows()).toHaveLength(1);
-    expect(rows()[0]).toHaveTextContent("ID 22222222");
-    await chooseOption(user, screen.getByRole("combobox", { name: "Computer status" }), "Update required");
-    expect(rows()).toHaveLength(1);
-    expect(rows()[0]).toHaveTextContent("ID 33333333");
+    expect(screen.queryByText(/ID 11111111/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Computer status" })).not.toBeInTheDocument();
     expect(vi.mocked(fetch).mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
   });
 
@@ -307,11 +548,12 @@ describe("ConnectApp", () => {
     const user = userEvent.setup();
     const { container } = render(<ConnectApp />);
     await user.click(await screen.findByRole("link", { name: /Example Person.*person@example\.com/ }));
-    expect(await screen.findByText(/ID 22222222/)).toBeInTheDocument();
-    expect(screen.getByText(/ID 11111111/)).toBeInTheDocument();
+    await screen.findByRole("heading", { name: "Browser sessions" });
+    expect(screen.queryByText(/ID 22222222|ID 11111111/)).not.toBeInTheDocument();
     expect([...container.querySelectorAll("time")].map(time => time.dateTime)).toEqual(sessions.map(session => session.created_at));
     expect(screen.getAllByRole("button", { name: /^Sign out$/ })).toHaveLength(1);
     await user.click(screen.getByRole("button", { name: /^Sign out$/ }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Sign out" }));
     await waitFor(() => expect(vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "DELETE").map(([input]) => new URL(String(input)).pathname)).toEqual(["/v1/account/sessions/other-22222222"]));
   });
 
@@ -328,11 +570,12 @@ describe("ConnectApp", () => {
       sessions={[{id:"current",client_name:"This test browser",provider:"password",
         created_at:"2026-01-01T12:00:00Z",last_seen_at:"2026-01-01T12:00:00Z",
         expires_at:"2027-01-01T12:00:00Z",current:true}]}
-      onOverviewRefresh={refresh} onDeleted={vi.fn()} />);
+      onOverviewRefresh={refresh} onSignedOut={vi.fn()} onDeleted={vi.fn()} />);
     const signOut = await screen.findByRole("button", { name: "Sign out of this browser" });
     expect(signOut.compareDocumentPosition(container.querySelector(".connect-row")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(signOut);
     fireEvent.click(signOut);
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Sign out" }));
     expect(logout).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: "Signing out…" })).toBeDisabled();
     await act(async () => complete());
@@ -345,12 +588,13 @@ describe("ConnectApp", () => {
   it("keeps sign-out available without session results and makes failure retryable", async () => {
     const client = new ConnectManagementClient("http://127.0.0.1:8787");
     const logout = vi.spyOn(client, "logout").mockRejectedValue(new Error("Sign-out failed. Try again."));
-    render(<AccountManagement client={client} overview={overview} onOverviewRefresh={vi.fn()} onDeleted={vi.fn()} />);
+    render(<AccountManagement client={client} overview={overview} onOverviewRefresh={vi.fn()} onSignedOut={vi.fn()} onDeleted={vi.fn()} />);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Sign out of this browser" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Sign-out failed. Try again.");
-    expect(screen.getByRole("button", { name: "Sign out of this browser" })).toBeEnabled();
-    await user.click(screen.getByRole("button", { name: "Sign out of this browser" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Sign out" }));
+    expect(await within(screen.getByRole("dialog")).findByRole("alert")).toHaveTextContent("Sign-out failed. Try again.");
+    expect(within(screen.getByRole("dialog")).getByRole("button", { name: "Sign out" })).toBeEnabled();
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Sign out" }));
     expect(logout).toHaveBeenCalledTimes(2);
   });
 
@@ -363,9 +607,9 @@ describe("ConnectApp", () => {
     expect(calls).toEqual(expect.arrayContaining(["/v1/me", "/v1/account/sessions"]));
     expect(calls.some((path) => path.includes("authorization"))).toBe(false);
 
-    await user.click(screen.getByRole("link", { name: /Applications/ }));
+    await user.click(screen.getByRole("link", { name: "Apps" }));
     await waitFor(() => expect(location.pathname).toBe("/applications"));
-    expect(screen.getByRole("heading", { name: "Applications" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Apps", level: 1 })).toBeInTheDocument();
   });
 
   it("opens feedback from the quiet Connect footer with current context available", async () => {
@@ -389,19 +633,19 @@ describe("ConnectApp", () => {
     const user = userEvent.setup();
     render(<ConnectApp />);
     expect(await screen.findByRole("heading", { name: "Garden notes" })).toBeInTheDocument();
-    const navigation = screen.getByRole("complementary", { name: "mdbase connect navigation" });
-    expect(navigation).toHaveTextContent("All collections");
-    expect(navigation).toHaveTextContent("Account & sessions");
+    const navigation = screen.getByRole("complementary", { name: "mdbase Connect navigation" });
+    expect(navigation).toHaveTextContent("Collections");
+    expect(navigation).toHaveTextContent("Account");
     expect(screen.queryByRole("complementary", { name: "Collection navigation" })).not.toBeInTheDocument();
-    const editor = new URL((await screen.findByRole("link", { name: "Open editor" })).getAttribute("href")!);
+    const editor = new URL((await screen.findByRole("link", { name: "Open in editor: Garden notes" })).getAttribute("href")!);
     expect(editor.origin).toBe("https://editor.example.test");
     expect(editor.pathname).toBe("/");
     expect(editor.searchParams.get("collection")).toBe("collection");
     expect(editor.searchParams.get("server")).toBe(location.origin);
-    await user.click(screen.getByRole("link", { name: "Storage & sync" }));
+    await user.click(screen.getByRole("link", { name: "Storage" }));
     await waitFor(() => expect(location.pathname).toBe("/storage"));
-    expect(screen.getByRole("heading", { name: "Storage & sync" })).toHaveFocus();
-    expect(document.title).toBe("Storage & sync - mdbase connect");
+    expect(screen.getByRole("heading", { name: "Storage" })).toHaveFocus();
+    expect(document.title).toBe("Storage - mdbase Connect");
   });
 
   it("does not fall back to a production Editor when none is configured", async () => {
@@ -410,7 +654,7 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
     expect(await screen.findByRole("heading", { name: "Garden notes" })).toBeInTheDocument();
     await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([input]) => new URL(String(input)).pathname === "/v1/account/sessions")).toBe(true));
-    expect(screen.queryByRole("link", { name: "Open editor" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /^Open in editor:/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Choose or create my person record" })).not.toBeInTheDocument();
   });
 
@@ -428,7 +672,7 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
 
     expect(await screen.findByRole("heading", { name: "Collections" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "All collections" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Collections" })).toHaveAttribute("aria-current", "page");
     await waitFor(() => expect(location.pathname).toBe("/collections"));
     expect(new URLSearchParams(location.search).has("collection")).toBe(false);
   });
@@ -448,8 +692,8 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
 
     expect(await screen.findByRole("heading", { name: "Garden notes" })).toBeInTheDocument();
-    expect(screen.getAllByText("Offline").length).toBeGreaterThan(0);
-    expect(screen.getByText("Open mdbase connect on Home computer to make this collection available.")).toBeInTheDocument();
+    expect(screen.getAllByText(/^Offline/).length).toBeGreaterThan(0);
+    expect(screen.getByText("Open desktop app on Home computer to make this collection available.")).toBeInTheDocument();
     expect(screen.queryByText("The editor can reach this collection now.")).not.toBeInTheDocument();
   });
 
@@ -462,8 +706,8 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
 
     expect(await screen.findByRole("heading", { name: "Garden notes" })).toBeInTheDocument();
-    expect(screen.getAllByText("Update required").length).toBeGreaterThan(0);
-    expect(screen.getByText("Update mdbase connect on Home computer before using this collection."))
+    expect(screen.getAllByText(/^Update required/).length).toBeGreaterThan(0);
+    expect(screen.getByText("Update mdbase Connect on Home computer before using this collection."))
       .toBeInTheDocument();
     expect(screen.queryByText("The editor can reach this collection now.")).not.toBeInTheDocument();
 
@@ -480,7 +724,7 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
 
     await user.click(await screen.findByRole("link", { name: "Computers" }));
-    expect(screen.getByText("Online", { selector: ".connect-status" })).toBeInTheDocument();
+    expect(screen.getByText("Connected", { selector: ".connect-status" })).toBeInTheDocument();
     expect(screen.queryByText("Update required", { selector: ".connect-status" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", {
       name: "Update recommended for current policy protection"
@@ -505,7 +749,9 @@ describe("ConnectApp", () => {
       .mockRejectedValueOnce(new Error("The management request timed out."))
       .mockResolvedValue(overview);
     render(<ConnectApp />);
-    await screen.findByText("mdbase connect is unavailable");
+    await screen.findByText("We couldn't load Overview");
+    expect(document.querySelector(".connect-skeleton")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Computers" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByRole("heading", { name: "Garden notes" })).toBeInTheDocument();
     expect(read).toHaveBeenCalledTimes(2);
@@ -523,14 +769,15 @@ describe("ConnectApp", () => {
     const user = userEvent.setup();
     render(<ConnectApp />);
     await screen.findByRole("heading", { name: "Garden notes" });
-    await user.click(screen.getByRole("link", { name: "All collections" }));
+    await user.click(screen.getByRole("link", { name: "Collections" }));
     await user.click(screen.getByRole("button", { name: "Add collection" }));
-    await chooseOption(user, screen.getByRole("combobox", { name: "Location" }), "Hosted");
+    await user.click(screen.getByRole("button", { name: /New collection/ }));
+    await user.type(screen.getByRole("textbox", {name: "Collection name"}), "Created while loading");
     fireEvent(document, new Event("visibilitychange"));
     expect(read).toHaveBeenCalledTimes(2);
     await user.click(screen.getByRole("button", { name: "Create" }));
     expect(read).toHaveBeenCalledTimes(2);
-    expect(screen.getByRole("button", { name: "Creating…" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Creating…" })).not.toBeInTheDocument();
     await act(async () => finishOld(overview));
     expect(await screen.findByText("Created while loading")).toBeInTheDocument();
     expect(read).toHaveBeenCalledTimes(3);
@@ -583,6 +830,8 @@ describe("ConnectApp", () => {
     await waitFor(() => expect(overviewCall).toBe(1));
 
     fireEvent(document, new Event("visibilitychange"));
+    fireEvent(window, new Event("focus"));
+    fireEvent(window, new Event("online"));
     expect(overviewCall).toBe(1);
     await act(async () => resolveOlder?.(Response.json(older)));
     expect(await screen.findByRole("heading", { name: "Garden notes" })).toBeInTheDocument();
@@ -593,7 +842,7 @@ describe("ConnectApp", () => {
     expect(screen.queryByRole("heading", { name: "Garden notes" })).not.toBeInTheDocument();
   });
 
-  it("keeps the default collection name stable in Italian for initial and subsequent creations", async () => {
+  it("keeps authored collection names in Italian for initial and subsequent creations", async () => {
     history.replaceState(null, "", "/collections");
     await runtime.initialize();
     await runtime.selectLocale("it");
@@ -601,15 +850,18 @@ describe("ConnectApp", () => {
     const view = render(<ConnectApp />);
     try {
       await user.click(await screen.findByRole("button", { name: "Aggiungi raccolta" }));
-      expect(screen.getByLabelText("Nome della raccolta")).toHaveValue("My collection");
+      await user.click(screen.getByRole("button", { name: /Nuova raccolta/ }));
+      expect(screen.getByLabelText("Nome della raccolta")).toHaveValue("");
+      await user.type(screen.getByLabelText("Nome della raccolta"), "La prima raccolta");
       await user.click(screen.getByRole("button", { name: "Crea" }));
       await waitFor(() => expect(screen.queryByLabelText("Nome della raccolta")).not.toBeInTheDocument());
       const request = vi.mocked(fetch).mock.calls.find(([url, init]) =>
         new URL(String(url)).pathname === "/v1/account/collections" && init?.method === "POST")!;
-      expect(JSON.parse(String(request[1]!.body)).display_name).toBe("My collection");
+      expect(JSON.parse(String(request[1]!.body)).display_name).toBe("La prima raccolta");
       await user.click(screen.getByRole("button", { name: "Aggiungi raccolta" }));
+      await user.click(screen.getByRole("button", { name: /Nuova raccolta/ }));
       const name = screen.getByLabelText("Nome della raccolta");
-      expect(name).toHaveValue("My collection");
+      expect(name).toHaveValue("");
       await user.clear(name);
       await user.type(name, "La raccolta scelta da me");
       await user.click(screen.getByRole("button", { name: "Crea" }));
@@ -627,8 +879,9 @@ describe("ConnectApp", () => {
     const user = userEvent.setup();
     render(<ConnectApp />);
     await screen.findByRole("heading", { name: "Garden notes" });
-    await user.click(screen.getByRole("link", { name: "All collections" }));
+    await user.click(screen.getByRole("link", { name: "Collections" }));
     await user.click(await screen.findByRole("button", { name: "Add collection" }));
+    await user.click(screen.getByRole("button", { name: /New collection/ }));
 
     const originalFetch = vi.mocked(fetch).getMockImplementation()!;
     vi.mocked(fetch).mockImplementation((input, init) => {
@@ -643,7 +896,7 @@ describe("ConnectApp", () => {
     await user.type(input, "Field notes");
     await user.click(screen.getByRole("button", { name: "Create" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Storage is temporarily unavailable.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong on mdbase. Try again.");
     expect(input).toHaveValue("Field notes");
     expect(input).toBeDisabled();
     expect(screen.getByRole("button", { name: "Retry creation" })).toBeInTheDocument();
@@ -653,51 +906,54 @@ describe("ConnectApp", () => {
     const second = JSON.parse(String(vi.mocked(fetch).mock.calls.filter(([url,init])=>new URL(String(url)).pathname==="/v1/account/collections"&&init?.method==="POST")[1][1]!.body));
     expect(second).toEqual(first);
     expect(Object.keys(second).sort()).toEqual(["account_id","display_name","request_id","timezone"]);
-    expect(screen.getByRole("combobox", { name: "Location" })).toBeDisabled();
-    expect(screen.queryByRole("link", { name: "Open mdbase connect" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Location" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Open desktop app" })).not.toBeInTheDocument();
   });
 
-  it("restores an uncertain original creation after reload and has one Add action even without hosted availability",async()=>{
+  it("restores an uncertain original creation after reload and has one Add action even without creation availability",async()=>{
     overview.hosted_collections_available=false;
+    overview.collection_creation_available=false;
     const account=overview.user.id;
     localStorage.setItem(`mdbase.connect.collection-creation:${account}`,JSON.stringify({accountId:account,requestId:"11111111-1111-4111-a111-111111111111",displayName:"Uncertain name",timezone:"UTC"}));
     const user=userEvent.setup();render(<ConnectApp/>);
-    await user.click(await screen.findByRole("link",{name:"All collections"}));
+    await user.click(await screen.findByRole("link",{name:"Collections"}));
     await user.click(await screen.findByRole("button",{name:"Add collection"}));
     expect(screen.getByLabelText("Collection name")).toHaveValue("Uncertain name");
     expect(screen.getByLabelText("Collection name")).toBeDisabled();
     expect(screen.getByRole("button",{name:"Retry creation"})).toBeDisabled();
-    expect(screen.getByRole("combobox", { name: "Location" })).toBeDisabled();
-    expect(screen.queryByRole("link", { name: "Open mdbase connect" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Location" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Open desktop app" })).not.toBeInTheDocument();
     expect(screen.queryByRole("radio")).not.toBeInTheDocument();
     expect(vi.mocked(fetch).mock.calls.every(([,init])=>!init?.method||init.method==="GET")).toBe(true);
   });
 
-  it("renames inline and confirms destructive collection actions in the page", async () => {
+  it("renames from overflow and confirms destructive collection actions in a modal", async () => {
     overview.hosted_collections = [hostedCollection()];
     const user = userEvent.setup();
     render(<ConnectApp />);
-    await user.click(await screen.findByRole("link", { name: "All collections" }));
+    await user.click(await screen.findByRole("link", { name: "Collections" }));
 
-    await user.click(screen.getByRole("button", { name: "Rename" }));
-    const rename = screen.getByLabelText("Rename Hosted research");
+    await user.click(screen.getByRole("button", { name: "Actions for Hosted research" }));
+    await user.click(screen.getByRole("menuitem", { name: "Rename" }));
+    const rename = screen.getByRole("textbox", { name: "Rename Hosted research" });
     await user.clear(rename);
     await user.type(rename, "Shared research");
     await user.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(screen.queryByLabelText("Rename Hosted research")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "Rename Hosted research" })).not.toBeInTheDocument());
     expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === "PATCH" && init.body === JSON.stringify({ display_name: "Shared research" }))).toBe(true);
 
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-    expect(screen.getByRole("group", { name: /Delete Hosted research and all of its hosted data/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Actions for Hosted research" }));
+    await user.click(screen.getByRole("menuitem", { name: "Delete" }));
+    expect(screen.getByRole("dialog", { name: "Delete Hosted research?" })).toBeInTheDocument();
     expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("button", { name: "Delete permanently" })).not.toBeInTheDocument();
   });
 
-  it("invites and manages collection members from the collection overview", async () => {
+  it("invites and manages collection members from app access", async () => {
     overview.collections = [];
     overview.hosted_collections = [hostedCollection()];
-    history.replaceState(null, "", "/?collection=hosted");
+    history.replaceState(null, "", "/access?collection=hosted");
     const originalFetch = vi.mocked(fetch).getMockImplementation()!;
     vi.mocked(fetch).mockImplementation(async (input, init) => {
       const path = new URL(String(input)).pathname;
@@ -769,8 +1025,7 @@ describe("ConnectApp", () => {
     history.replaceState(null, "", "/collections?collection=hosted");
     render(<ConnectApp />);
 
-    expect(await screen.findByRole("heading", { name: "Collections" })).toBeInTheDocument();
-    expect(screen.getAllByText("Hosted research").length).toBeGreaterThan(0);
+    expect(await screen.findByText("Hosted research")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Rename" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "People & sharing" })).not.toBeInTheDocument();
@@ -816,7 +1071,7 @@ describe("ConnectApp", () => {
     await user.click(await screen.findByRole("link", { name: "Computers" }));
 
     expect(await screen.findByText("No computers connected")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open mdbase connect" })).toHaveAttribute("href", "mdbase-connect://open");
+    expect(screen.getByRole("link", { name: "Open desktop app" })).toHaveAttribute("href", "mdbase-connect://open");
     expect(screen.getByRole("link", { name: "Install the latest release" })).toHaveAttribute("href", "https://mdbase.dev/downloads/");
   });
 
@@ -824,7 +1079,7 @@ describe("ConnectApp", () => {
     const now = new Date().toISOString();
     overview.pending_authorizations = [{
       id: "request", flow: "authorization_code", requested_operations: ["read", "update"],
-      collection_id: "collection", expires_at: now, application_id: "reading-list",
+      collection_id: "collection", expires_at: new Date(Date.now() + 60_000).toISOString(), application_id: "reading-list",
       application_name: "Reading list", distribution: "web", homepage: "https://reading.example",
       project_url: null, icon: null
     }];
@@ -843,7 +1098,7 @@ describe("ConnectApp", () => {
     expect(screen.getAllByText("Reading list is waiting")).toHaveLength(1);
     expect(screen.getByText("Read and update records")).toBeInTheDocument();
     expect(screen.queryByText(/allowed actions/)).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "App access" })).not.toHaveTextContent("1");
+    expect(screen.getByRole("link", { name: "Access" })).not.toHaveTextContent("1");
   });
 
   it("shows real revoked migration evidence until fresh collection authorization replaces it", async () => {
@@ -863,9 +1118,9 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
 
     await screen.findByRole("heading", { name: "Garden notes" });
-    await user.click(screen.getByRole("link", { name: /Applications/ }));
+    await user.click(screen.getByRole("link", { name: "Apps" }));
 
-    expect(await screen.findByText("Legacy scoped access is revoked. Reauthorize this application for the entire collection.")).toBeInTheDocument();
+    expect(await screen.findByText("Legacy scoped access is revoked. Reauthorize this app for the entire collection.")).toBeInTheDocument();
     expect(screen.getByText("Reauthorization required")).toBeInTheDocument();
 
     overview.grants = [legacy, {
@@ -883,7 +1138,7 @@ describe("ConnectApp", () => {
     expect(screen.getByText("Entire collection")).toBeInTheDocument();
   });
 
-  it.each(["local", "hosted"] as const)("keeps %s pending revocations visible without claiming success", async (kind) => {
+  it.each(["local", "hosted", "private", "cloud_copy"] as const)("keeps %s pending revocations visible without claiming success", async (kind) => {
     overview.grants = [{
       id: "grant", operations: ["read"],
       scope: { contracts: [], access: "full_collection" },
@@ -899,12 +1154,12 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
 
     await screen.findByRole("heading", { name: "Garden notes" });
-    await user.click(screen.getByRole("link", { name: /Applications/ }));
+    await user.click(screen.getByRole("link", { name: "Apps" }));
 
     expect(await screen.findByText("Revoking…")).toBeInTheDocument();
-    expect(screen.getByText(kind === "hosted"
-      ? /Waiting for the hosted authority to confirm enforcement/
-      : /Waiting for the computer holding this collection to confirm enforcement/)).toBeInTheDocument();
+    expect(screen.getByText(kind === "local"
+      ? /Waiting for the computer holding this collection to confirm enforcement/
+      : /Waiting for the hosted authority to confirm enforcement/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Revoke" })).not.toBeInTheDocument();
   });
 
@@ -917,7 +1172,7 @@ describe("ConnectApp", () => {
     const user = userEvent.setup();
     const { container } = render(<ConnectApp />);
     await screen.findByRole("heading", { name: "Garden notes" });
-    await user.click(screen.getByRole("link", { name: /Applications/ }));
+    await user.click(screen.getByRole("link", { name: "Apps" }));
     const grants = [...container.querySelectorAll("details.connect-grant")];
     expect(grants).toHaveLength(2);
     expect(grants.map(grant => grant.querySelector("summary")?.textContent)).toEqual(expect.arrayContaining([
@@ -972,10 +1227,10 @@ describe("ConnectApp", () => {
     });
     const user = userEvent.setup();
     render(<ConnectApp />);
-    await user.click(await screen.findByRole("link", { name: /Applications/ }));
+    await user.click(await screen.findByRole("link", { name: "Apps" }));
     await user.click(screen.getByText("Reading list"));
-    await user.click(screen.getByRole("button", { name: "Revoke application" }));
-    await user.click(screen.getByRole("button", { name: "Revoke application" }));
+    await user.click(screen.getByRole("button", { name: "Revoke app" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke app" }));
 
     await waitFor(() => expect(screen.queryByText("Reading list")).not.toBeInTheDocument());
     const batchCalls = vi.mocked(fetch).mock.calls.filter(([input]) =>
@@ -1006,10 +1261,10 @@ describe("ConnectApp", () => {
     });
     const user = userEvent.setup();
     render(<ConnectApp />);
-    await user.click(await screen.findByRole("link", { name: /Applications/ }));
+    await user.click(await screen.findByRole("link", { name: "Apps" }));
     await user.click(screen.getByText("Reading list"));
-    await user.click(screen.getByRole("button", { name: "Revoke application" }));
-    const confirm = screen.getByRole("button", { name: "Revoke application" });
+    await user.click(screen.getByRole("button", { name: "Revoke app" }));
+    const confirm = within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke app" });
 
     fireEvent.click(confirm);
     fireEvent.click(confirm);
@@ -1039,12 +1294,12 @@ describe("ConnectApp", () => {
     });
     const user = userEvent.setup();
     render(<ConnectApp />);
-    await user.click(await screen.findByRole("link", { name: /Applications/ }));
+    await user.click(await screen.findByRole("link", { name: "Apps" }));
     await user.click(screen.getByText("Reading list"));
-    await user.click(screen.getByRole("button", { name: "Revoke application" }));
-    await user.click(screen.getByRole("button", { name: "Revoke application" }));
+    await user.click(screen.getByRole("button", { name: "Revoke app" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke app" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
+    expect(await within(screen.getByRole("dialog")).findByRole("alert")).toHaveTextContent(
       "1 grants were revoked; 1 changed concurrently. The current state has been refreshed."
     );
     expect(screen.getByText("Reading list")).toBeInTheDocument();
@@ -1057,9 +1312,9 @@ describe("ConnectApp", () => {
     overview.grants = applicationGrants();
     const user = userEvent.setup();
     render(<ConnectApp />);
-    await user.click(await screen.findByRole("link", { name: /Applications/ }));
+    await user.click(await screen.findByRole("link", { name: "Apps" }));
     await user.click(screen.getByText("Reading list"));
-    await user.click(screen.getByRole("button", { name: "Revoke application" }));
+    await user.click(screen.getByRole("button", { name: "Revoke app" }));
     const originalFetch = vi.mocked(fetch).getMockImplementation()!;
     vi.mocked(fetch).mockImplementation((input, init) => {
       if (new URL(String(input)).pathname === "/v1/grants/revoke-batch") {
@@ -1068,13 +1323,13 @@ describe("ConnectApp", () => {
       return originalFetch(input, init);
     });
     vi.useFakeTimers();
-    fireEvent.click(screen.getByRole("button", { name: "Revoke application" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke app" }));
 
     await act(async () => vi.advanceTimersByTimeAsync(30_000));
-    expect(screen.getByRole("alert")).toHaveTextContent(
+    expect(within(screen.getByRole("dialog")).getByRole("alert")).toHaveTextContent(
       "The request timed out after it may have reached the service. Refresh to confirm the current state before trying again."
     );
-    expect(screen.getByRole("button", { name: "Revoke application" })).toBeEnabled();
+    expect(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke app" })).toBeEnabled();
   });
 
   it("aborts an in-flight management mutation on unmount without refreshing", async () => {
@@ -1094,10 +1349,10 @@ describe("ConnectApp", () => {
     });
     const user = userEvent.setup();
     const rendered = render(<ConnectApp />);
-    await user.click(await screen.findByRole("link", { name: /Applications/ }));
+    await user.click(await screen.findByRole("link", { name: "Apps" }));
     await user.click(screen.getByText("Reading list"));
-    await user.click(screen.getByRole("button", { name: "Revoke application" }));
-    await user.click(screen.getByRole("button", { name: "Revoke application" }));
+    await user.click(screen.getByRole("button", { name: "Revoke app" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke app" }));
     await waitFor(() => expect(mutationSignal).toBeDefined());
     const overviewCalls = vi.mocked(fetch).mock.calls.filter(([input]) =>
       new URL(String(input)).pathname === "/v1/me"
@@ -1125,7 +1380,7 @@ describe("ConnectApp", () => {
     });
     const user = userEvent.setup();
     render(<ConnectApp />);
-    await user.click(await screen.findByRole("link", { name: /Account & sessions/ }));
+    await user.click(await screen.findByRole("link", { name: "Account" }));
     await user.click(await screen.findByRole("button", { name: "Generate code" }));
 
     expect(await screen.findByText("ABCD-EFGH")).toBeInTheDocument();
@@ -1212,10 +1467,13 @@ describe("ConnectApp", () => {
     expect(screen.getByText("Local collection files stay on your computers and are not measured here.")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Delete account…" }));
+    expect(screen.getByLabelText("Type DELETE to confirm")).toHaveFocus();
     await user.type(screen.getByLabelText("Type DELETE to confirm"), "DELETE");
     await user.click(screen.getByRole("button", { name: "Delete account permanently" }));
 
     expect(await screen.findByRole("heading", { name: "Your account has been deleted." })).toBeInTheDocument();
+    expect(localStorage.getItem("connect-overview-v1:person")).toBeNull();
+    expect(sessionStorage.getItem("connect-overview-account")).toBeNull();
     expect(location.pathname).toBe("/account-deleted");
     expect(screen.getByText(/local collection and mirror files remain/i)).toBeInTheDocument();
   });
@@ -1254,6 +1512,7 @@ function overviewFixture(): ManagementOverview {
       reconciliation: { entitlement_revision: 1, provider_revision: 1 }
     },
     hosted_collections_available: true,
+    collection_creation_available: true,
     collection_sharing_available: true,
     authentication: { provider: "github", registration: "closed" },
     connectors: [{ id: "computer", name: "Home computer", last_seen_at: now, created_at: now }],

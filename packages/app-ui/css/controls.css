@@ -1,3 +1,5 @@
+@import "./motion.css";
+
 /*
  * Shared controls. Text fields stay native and take Editor's field treatment;
  * Select, menus and the app switcher are the components from ./select,
@@ -6,9 +8,13 @@
  * and --control-font-size; action hierarchy and focus treatment stay shared.
  */
 :root {
-  --control-height: 34px;
+  --control-height: 28px;
   --control-font-size: var(--font-size-ui);
   --control-radius: var(--radius-sm);
+}
+
+@media (pointer: coarse) {
+  :root { --control-height: 40px; }
 }
 
 .mdbase-visually-hidden {
@@ -18,6 +24,62 @@
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
+}
+
+.mdbase-tooltip {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - 16px);
+  box-sizing: border-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-overlay);
+  color: var(--color-text);
+  box-shadow: var(--elevation-low);
+  font: var(--font-size-caption)/1.4 var(--sans);
+  pointer-events: auto;
+  opacity: 1;
+  transition: opacity var(--motion-fast) var(--ease-out);
+}
+.mdbase-tooltip kbd { flex-shrink: 0; color: var(--color-text-muted); font: inherit; }
+@starting-style { .mdbase-tooltip:popover-open { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .mdbase-tooltip { transition: none; } }
+
+.mdbase-message {
+  margin: 1.2rem 0 0;
+  padding: 0.7rem 0;
+  border-bottom: 1px solid var(--color-border-strong);
+  color: var(--color-text-soft);
+  font-size: var(--font-size-ui);
+}
+
+.mdbase-message.is-error {
+  border-color: color-mix(in oklch, var(--color-danger) 35%, var(--color-border));
+  color: var(--color-danger);
+}
+
+.mdbase-message.is-success {
+  border-color: var(--color-success);
+  color: var(--color-success);
+}
+
+.mdbase-message.is-boxed {
+  padding: var(--space-3) 14px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.mdbase-message.is-boxed.is-error {
+  border-color: var(--color-danger);
+  background: var(--color-danger-soft);
 }
 
 /* Fields: native text inputs and textareas. */
@@ -33,7 +95,7 @@
   background: transparent;
   font: inherit;
   font-size: var(--control-font-size);
-  transition: border-color var(--motion-quick) var(--ease-standard), background var(--motion-quick) var(--ease-standard);
+  transition: border-color var(--motion-quick) var(--ease-standard), background var(--motion-quick) var(--ease-standard), transform var(--motion-quick) var(--ease-standard);
 }
 
 .mdbase-field {
@@ -58,7 +120,7 @@ textarea.mdbase-field {
 
 .mdbase-field:focus-visible,
 .mdbase-select:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: var(--focus-ring);
   outline-offset: 1px;
 }
 
@@ -187,7 +249,7 @@ textarea.mdbase-field {
 }
 
 .mdbase-select-list:focus-visible .mdbase-select-option.is-active {
-  outline: 1px solid var(--color-accent);
+  outline: var(--focus-ring);
   outline-offset: -1px;
 }
 
@@ -227,7 +289,7 @@ textarea.mdbase-field {
   border-radius: var(--control-radius);
   outline: 0;
   color: var(--color-text-soft);
-  background: var(--color-surface);
+  background: var(--color-surface-overlay);
   font-size: var(--control-font-size);
   overscroll-behavior: contain;
 }
@@ -260,17 +322,12 @@ textarea.mdbase-field {
   cursor: pointer;
 }
 
+/* Pointer and keyboard share one highlight; hovering moves focus, so only one row is ever marked. */
 .mdbase-menu-item:hover:not(:disabled, [aria-disabled="true"]),
 .mdbase-menu .mdbase-menu-item:focus-visible {
-  color: var(--color-text);
-  background: var(--color-surface-subtle);
-}
-
-/* One focus mark inside the row, instead of an outline around it. */
-.mdbase-menu .mdbase-menu-item:focus-visible {
   outline: 0;
-  outline: 1px solid var(--color-accent);
-  outline-offset: -1px;
+  color: var(--color-text);
+  background: var(--color-accent-soft);
 }
 
 .mdbase-menu-item:disabled {
@@ -282,6 +339,19 @@ textarea.mdbase-field {
   cursor: default;
   background: var(--color-selected);
 }
+
+.mdbase-menu-item.is-danger,
+.mdbase-menu-item.is-danger:hover:not(:disabled, [aria-disabled="true"]),
+.mdbase-menu .mdbase-menu-item.is-danger:focus-visible { color: var(--color-danger); }
+
+.mdbase-disclosure > summary { display: flex; align-items: center; gap: var(--space-2); list-style: none; cursor: pointer; }
+.mdbase-disclosure > summary::-webkit-details-marker { display: none; }
+.mdbase-disclosure > summary::after { content: ""; flex: none; width: 6px; height: 6px; margin-left: auto; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; rotate: -45deg; transition: rotate var(--motion-quick) var(--ease-standard); }
+.mdbase-disclosure[open] > summary::after { rotate: 45deg; }
+.mdbase-disclosure { interpolate-size: allow-keywords; }
+.mdbase-disclosure::details-content { height: 0; overflow: hidden; transition: height var(--motion-enter) var(--ease-out), content-visibility var(--motion-enter) allow-discrete; }
+.mdbase-disclosure[open]::details-content { height: auto; }
+@media (prefers-reduced-motion: reduce) { .mdbase-disclosure > summary::after { transition: none; } }
 
 .mdbase-menu-copy {
   min-width: 0;
@@ -385,24 +455,30 @@ textarea.mdbase-field {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 0 12px;
-  border: 1px solid transparent;
+  padding: 0 10px;
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--control-radius);
   color: var(--color-text);
-  background: var(--color-surface-subtle);
+  background: var(--color-canvas);
   font: inherit;
   font-size: var(--control-font-size);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
   white-space: nowrap;
   cursor: pointer;
   transition: color var(--motion-quick) var(--ease-standard), border-color var(--motion-quick) var(--ease-standard), background var(--motion-quick) var(--ease-standard);
 }
 
 .mdbase-button:hover:not(:disabled) {
-  border-color: var(--color-text-soft);
   color: var(--color-text);
   background: var(--color-surface-subtle);
 }
+
+.mdbase-button:active:not(:disabled) {
+  transform: scale(0.97);
+  transition-duration: 0s;
+}
+@media (prefers-reduced-motion: reduce) { .mdbase-button:active:not(:disabled) { transform: none; } }
 
 .mdbase-button.is-primary {
   border-color: var(--color-accent);
@@ -417,6 +493,7 @@ textarea.mdbase-field {
 }
 
 .mdbase-button.is-tertiary {
+  border-color: transparent;
   color: var(--color-text-soft);
   background: transparent;
 }
@@ -428,8 +505,11 @@ textarea.mdbase-field {
 }
 
 .mdbase-button.is-danger {
-  border-color: var(--color-danger);
   color: var(--color-danger);
+}
+
+.mdbase-button.is-danger:not(.is-tertiary) {
+  border-color: var(--color-danger);
 }
 
 .mdbase-button.is-danger:hover:not(:disabled) {
@@ -492,8 +572,8 @@ textarea.mdbase-field {
 
 .mdbase-button:focus-visible,
 .mdbase-icon-button:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
 }
 
 /* Switch: native button semantics (role="switch", aria-checked), one track and thumb. */
@@ -516,7 +596,7 @@ textarea.mdbase-field {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: var(--color-text-soft);
+  background: var(--color-text-muted);
   pointer-events: none;
   transition: transform var(--motion-base) var(--ease-out), background var(--motion-base) var(--ease-out);
 }
@@ -594,8 +674,8 @@ textarea.mdbase-field {
 
 .mdbase-checkbox:focus-visible,
 .mdbase-switch:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
 }
 
 /* Checkbox row: the label is the 44px target; the box keeps its size. */
@@ -658,20 +738,12 @@ textarea.mdbase-field {
   border: 1px solid var(--color-border-strong);
   border-radius: var(--control-radius);
   color: var(--color-text);
-  background: var(--color-surface);
-  box-shadow: none;
-}
-
-.mdbase-dialog[open] {
-  animation: mdbase-dialog-in var(--motion-base) var(--ease-out);
+  background: var(--color-surface-overlay);
+  box-shadow: var(--elevation-high);
 }
 
 .mdbase-dialog::backdrop {
   background: var(--color-scrim);
-}
-
-@keyframes mdbase-dialog-in {
-  from { opacity: 0; transform: translateY(6px); }
 }
 
 .mdbase-dialog-body {
@@ -694,15 +766,6 @@ textarea.mdbase-field {
   font-size: var(--font-size-prose);
   letter-spacing: -0.01em;
   text-transform: none;
-}
-
-/* Popovers arrive quickly and settle into place. Apps mark their own with .mdbase-popover. */
-:is(.mdbase-select-list, .mdbase-menu, .mdbase-popover):popover-open {
-  animation: mdbase-popover-in var(--motion-quick) var(--ease-out);
-}
-
-@keyframes mdbase-popover-in {
-  from { transform: translateY(-3px); }
 }
 
 /* Save notices: small, quiet, and gone once there is nothing to act on. */
@@ -760,14 +823,6 @@ textarea.mdbase-field {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :is(.mdbase-select-list, .mdbase-menu, .mdbase-popover):popover-open {
-    animation: none;
-  }
-
-  .mdbase-dialog[open] {
-    animation: none;
-  }
-
   /* Without the fade, a confirmation still shows for the same time, then goes. */
   .mdbase-settle {
     animation-timing-function: steps(1, end);
@@ -793,3 +848,11 @@ textarea.mdbase-field {
 .mdbase-collection-mode h3 { font-size: var(--font-size-section); font-weight: var(--font-weight-medium); }
 .mdbase-collection-mode > div:last-child { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .mdbase-collection-mode code { overflow-wrap: anywhere; }
+
+:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+[role="radio"][aria-checked="true"]:focus-visible { outline: var(--focus-ring); }
+.mdbase-dialog-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-6); }
+.mdbase-confirm-dialog { width: min(440px, calc(100vw - 32px)); }

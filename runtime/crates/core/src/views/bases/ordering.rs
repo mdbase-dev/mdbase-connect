@@ -68,6 +68,7 @@ fn cell_at(
     match value {
         RuntimeValue::Null | RuntimeValue::Bool(_) | RuntimeValue::Date(_) => Ok(()),
         RuntimeValue::Number(n) if n.is_finite() => Ok(()),
+        RuntimeValue::Link(link) => link.resolved_path(budget).map(|_| ()),
         RuntimeValue::String(s) if s.len() <= MAX_CAPTURE_TEXT_BYTES => Ok(()),
         RuntimeValue::List(values) => {
             for value in values {
@@ -114,6 +115,15 @@ pub fn compare_typed(
                 ascending.reverse()
             })
         }
+        (left, right) if has_link(left) || has_link(right) => {
+            let (Some(a), Some(b)) = (link_order_text(left), link_order_text(right)) else {
+                return fail(
+                    budget,
+                    EvaluationFailure::UnsupportedConstruct("mixed_ordering_types"),
+                );
+            };
+            compare_text(&a, &b, capture, budget)
+        }
         (RuntimeValue::List(a), RuntimeValue::List(b)) => {
             for (left, right) in a.iter().zip(b) {
                 let ordering = compare_typed(left, right, capture, budget)?;
@@ -130,23 +140,48 @@ pub fn compare_typed(
         (RuntimeValue::Date(a), RuntimeValue::Date(b)) => {
             Ok(a.value().millis().cmp(&b.value().millis()))
         }
-        (RuntimeValue::String(a), RuntimeValue::String(b)) => {
-            work(budget, (a.len() + b.len()) as u64, 0)?;
-            if a == b {
-                return Ok(Ordering::Equal);
-            }
-            match capture.strings {
-                StringOrder::Unavailable => fail(
-                    budget,
-                    EvaluationFailure::MetadataUnavailable("sort_collation_not_captured"),
-                ),
-                StringOrder::Utf16 => Ok(a.encode_utf16().cmp(b.encode_utf16())),
-            }
-        }
+        (RuntimeValue::String(a), RuntimeValue::String(b)) => compare_text(a, b, capture, budget),
         _ => fail(
             budget,
             EvaluationFailure::UnsupportedConstruct("mixed_ordering_types"),
         ),
+    }
+}
+fn compare_text(
+    a: &str,
+    b: &str,
+    capture: OrderingCapture,
+    budget: &mut WorkBudget,
+) -> Result<Ordering, EvaluationFailure> {
+    work(budget, (a.len() + b.len()) as u64, 0)?;
+    if a == b {
+        return Ok(Ordering::Equal);
+    }
+    match capture.strings {
+        StringOrder::Unavailable => fail(
+            budget,
+            EvaluationFailure::MetadataUnavailable("sort_collation_not_captured"),
+        ),
+        StringOrder::Utf16 => Ok(a.encode_utf16().cmp(b.encode_utf16())),
+    }
+}
+fn has_link(value: &RuntimeValue) -> bool {
+    match value {
+        RuntimeValue::Link(_) => true,
+        RuntimeValue::List(values) => values.iter().any(has_link),
+        _ => false,
+    }
+}
+/// Obsidian orders links among text by what it shows: a scalar's alias, or the
+/// written text. Listed links always show as written.
+fn link_order_text(value: &RuntimeValue) -> Option<String> {
+    match value {
+        RuntimeValue::Link(link) => {
+            Some(link.display().map_or_else(|| link.source(), str::to_owned))
+        }
+        RuntimeValue::String(text) => Some(text.clone()),
+        RuntimeValue::List(_) => Some(value.plain_string()),
+        _ => None,
     }
 }
 /// Stable fallible merge-sort of row indices: multilevel ASC/DESC, preserving
@@ -309,6 +344,8 @@ enum GroupKey<'a> {
     Number(u64),
     String(&'a str),
     Date(i64),
+    /// Resolved-file flag and identity; a broken link never equals a file.
+    Link(bool, &'a str),
     List(Vec<GroupKey<'a>>),
 }
 /// Exact partitioning with type tags: number1 != string"1", Null !="".
@@ -414,6 +451,17 @@ fn group_key<'a>(
                 ));
             }
             GroupKey::Date(d.value().millis())
+        }
+        RuntimeValue::Link(link) => {
+            let Some((resolved, identity)) = link.identity() else {
+                return budget.fail(EvaluationFailure::MetadataUnavailable("link_resolution"));
+            };
+            budget.work((identity.len() as u64) * 14, 0)?;
+            GroupKey::Link(resolved, identity)
+        }
+        // Observed: a one-link list is the same group as the bare link.
+        RuntimeValue::List(values) if matches!(values.as_slice(), [RuntimeValue::Link(_)]) => {
+            group_key(&values[0], dates, budget)?
         }
         RuntimeValue::List(values) => {
             budget.work(

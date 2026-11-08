@@ -5,8 +5,7 @@ import {isNativeLoopbackOrigin} from "@mdbase-dev/connect-protocol/manifest";
  * loopback http, or a private-use reverse-DNS scheme derived from the manifest
  * ID (the same rule the CP applies at registration). It carries no credential:
  * sign-in still completes by the SDK's own pairing poll. */
-import { LOCAL_APPLICATION_BUILD, localApplicationHttpOrigin } from "../application/local-build.js";
-const LOOPBACK = ["localhost", "127.0.0.1", "[::1]"];
+import { labLoopbackHttpOrigin } from "../application/local-build.js";
 const RESERVED = ["http", "https", "file", "javascript", "data", "blob", "about", "capacitor", "chrome-extension", "moz-extension"];
 
 export function declaredReturnUrl(value: unknown, manifest: unknown, loopbackHttp: boolean): boolean {
@@ -18,7 +17,7 @@ export function declaredReturnUrl(value: unknown, manifest: unknown, loopbackHtt
   if (url.username || url.password || url.hash) return false;
   if (url.protocol === "https:" || url.protocol === "http:") {
     let home: URL; try { home = new URL(String(homepage)); } catch { return false; }
-    return url.origin === home.origin && (url.protocol === "https:" || (platform === "native" && isNativeLoopbackOrigin(url.origin)) || (loopbackHttp && (LOCAL_APPLICATION_BUILD ? localApplicationHttpOrigin(url.origin) : LOOPBACK.includes(url.hostname))));
+    return url.origin === home.origin && (url.protocol === "https:" || (platform === "native" && isNativeLoopbackOrigin(url.origin)) || (loopbackHttp && labLoopbackHttpOrigin(url.origin)));
   }
   const scheme = url.protocol.slice(0, -1);
   return typeof id === "string" && scheme.includes(".") && /^[a-z][a-z0-9+.-]*$/.test(scheme) && !RESERVED.includes(scheme)

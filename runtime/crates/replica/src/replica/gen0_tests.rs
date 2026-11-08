@@ -65,6 +65,7 @@ fn streamed_state_digest_equals_the_store_digest() {
                 doc: doc.clone(),
                 revision: mdbn_wire::hash::sha256(doc.as_bytes()),
                 modified_seq: 0,
+                mtime: None,
                 bucket: bucket16(rid),
                 meta: RecordMeta::default(),
             });

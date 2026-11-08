@@ -373,7 +373,7 @@ pub fn project_index_fields(
     fields: &[FieldRef],
     max_key_bytes: usize,
 ) -> Result<Vec<(IndexFieldSpec, SortAtom)>, IndexKeyError> {
-    let effective = catalog.effective_frontmatter(record.types, record.frontmatter);
+    let effective = catalog.effective_values(record.path, record.types, record.frontmatter);
     fields
         .iter()
         .map(|field| {

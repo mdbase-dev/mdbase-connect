@@ -25,7 +25,7 @@ function assertPolicyInventory(inventory) {
 export async function assertHostingSource(root,inventory) {
  for(const [name,bytes] of Object.entries(assertPolicyInventory(inventory)))if(await readFile(join(root,name),'utf8')!==bytes)throw Error('Source policy bytes changed '+name);
 }
-function checkHeaders(response,path) {
+function checkHeaders(response,path,immutable) {
  // Pages canonical HTML redirects are validated by the shared helper. Header
  // policy applies to the final static response, not CDN-generated redirects.
  if([301,302,303,307,308].includes(response.status))return;
@@ -35,6 +35,10 @@ function checkHeaders(response,path) {
   if(line && !line.startsWith(' ')){section=line;continue;}
   const match=/^  ([^:]+): (.+)$/.exec(line);
   if(!match || section!=='/*')continue;
+  // The edge can revalidate an unchanged file on the alias and keep the previous
+  // build's headers. The immutable URL proves the policy on every file; documents
+  // are where these headers take effect, so the alias must prove it there.
+  if(!immutable && !response.headers.get('content-type')?.includes('text/html'))continue;
   if(response.headers.get(match[1])!==match[2])throw Error('Live source-owned header policy mismatch: '+match[1]);
  }
  if(path==='/.well-known/mdbase-app.json' && response.headers.get('cache-control')!=='no-store')throw Error('Manifest cache policy mismatch');
@@ -60,11 +64,12 @@ export async function verifyHosting({origin,inventory,deployment,fetchImpl=fetch
  const failures=[],probes=[];
  const transport=async(url,init)=>{
   const response=await fetchImpl(url,init);
-  try {checkHeaders(response,new URL(url).pathname);}
-  catch {
+  try {checkHeaders(response,new URL(url).pathname,origin===deployment.url);}
+  catch(error) {
    // A security-policy refusal is terminal policy evidence, NOT a transient
    // network exception. Still account for the body, without refetching it.
-   failures.push({path:new URL(url).pathname,reason:'trusted-live-header-policy-failed'});
+   // The detail is a fixed message naming the rule (never a header value).
+   failures.push({path:new URL(url).pathname,reason:'trusted-live-header-policy-failed',detail:error.message});
   }
   return response;
  };
@@ -112,7 +117,7 @@ export async function verifyHosting({origin,inventory,deployment,fetchImpl=fetch
 // custom alias re-verified, read-only, inside a bounded settle window, because
 // the alias can keep serving the previous deployment while Pages propagates.
 // Every attempt is a complete verification; a failed attempt is never accepted,
-// and nothing is rebuilt, redeployed or rolled back here.
+// and nothing is rebuilt or redeployed. The protected job handles recovery.
 const ALIAS_SETTLE_MS=300000,ALIAS_RETRY_DELAY_MS=15000,ALIAS_MIN_ATTEMPT_MS=30000;
 const attemptSummary=(report,startedMs)=>({startedMs:Math.round(startedMs),ok:report.ok===true,
  failures:(report.failures??[]).slice(0,20),failureCount:report.failures?.length??0,unverifiedCount:report.unverified?.length??0});
@@ -144,6 +149,14 @@ if(process.argv[1]===fileURLToPath(import.meta.url)) {
   const [planPath,inventoryPath,deploymentPath]=process.argv.slice(2);
   const json=async path=>JSON.parse(await readFile(path,'utf8'));
   const result=await verifyPublication({plan:await json(planPath),inventory:await json(inventoryPath),deployment:await json(deploymentPath)});
-  console.log(JSON.stringify(result,null,2));if(!result.ok)process.exitCode=1;
- }catch(error){console.log(JSON.stringify({ok:false,error:error.message}));process.exitCode=1;}
+  console.log(JSON.stringify(result,null,2));
+  if(!result.ok) {
+   // stdout is the receipt file, so say why on stderr for the job log.
+   for(const report of result.origins)for(const f of (report.failures??[]).slice(0,10))
+    console.error(`${report.ok?'ok':'FAILED'} ${report.origin}: ${f.path} ${f.reason}${f.detail?` (${f.detail})`:''}`);
+   for(const report of result.origins)if(report.unverified?.length)console.error(`${report.origin}: ${report.unverified.length} unverified`);
+   console.error('Editor hosting verification failed.');
+   process.exitCode=1;
+  }
+ }catch(error){console.log(JSON.stringify({ok:false,error:error.message}));console.error('Editor hosting verification failed: '+error.message);process.exitCode=1;}
 }

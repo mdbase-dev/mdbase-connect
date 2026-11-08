@@ -2,9 +2,10 @@
 use super::*;
 use crate::store_query::{QueryPredicate, RawField};
 use mdbn_core::views::bases::{
-    AdmittedBasesView, BasesProjectedRow, BasesTimezone, CapturedClock, CapturedFileBindings,
-    FileTimeAvailability, IncrementalBasesBudget, OrderingCapture, RuntimeValue, TypedSortRow,
-    order_incremental_typed_rows, partition_incremental_typed_refs,
+    AdmittedBasesView, BasesLinkMemo, BasesProjectedRow, BasesTimezone, CapturedClock,
+    CapturedFileBindings, FileTimeAvailability, IncrementalBasesBudget, MAX_BASES_LINK_MEMO_BYTES,
+    OrderingCapture, RuntimeValue, TypedSortRow, order_incremental_typed_rows,
+    partition_incremental_typed_refs,
 };
 mod local;
 mod ownership;
@@ -342,6 +343,8 @@ impl<S: Store> Replica<S> {
                 .iter()
                 .map(|name| name.len() as u64 + 32)
                 .sum::<u64>();
+        ledger.retain(MAX_BASES_LINK_MEMO_BYTES).map_err(failure)?;
+        let links = BasesLinkMemo::default();
         let mut staged: Vec<(BasesExecutionRow, BasesProjectedRow, u64)> = Vec::new();
         let mut after = None;
         loop {
@@ -386,23 +389,32 @@ impl<S: Store> Replica<S> {
                 if self.layer.touches(&crate::convert::uuid(&row.id)) {
                     continue;
                 }
-                let projected = ledger
-                    .row(row.source_bytes, |work| {
-                        let raw = ownership::fields(&requirements.fields, row.fields, work)?;
-                        let file =
-                            CapturedFile::new(&row.path, Some(row.source_bytes), None, None, work)?;
-                        let file = CapturedFileBindings::capture(&file, row.tags.as_deref(), work)?;
-                        let bindings = types
-                            .projected_bindings(&raw, work)?
-                            .with_clock(captured_clock)
-                            .with_file(file);
-                        if window.is_some() {
-                            plan.project_semantic(bindings, work, check_cancelled)
-                        } else {
-                            plan.project(bindings, work, check_cancelled)
-                        }
-                    })
-                    .map_err(failure)?;
+                let projected = self.with_bases_links(&links, |links| {
+                    ledger
+                        .row(row.source_bytes, |work| {
+                            let raw = ownership::fields(&requirements.fields, row.fields, work)?;
+                            let file = CapturedFile::new(
+                                &row.path,
+                                Some(row.source_bytes),
+                                None,
+                                None,
+                                work,
+                            )?;
+                            let file =
+                                CapturedFileBindings::capture(&file, row.tags.as_ref(), work)?;
+                            let bindings = types
+                                .projected_bindings(&raw, work)?
+                                .with_clock(captured_clock)
+                                .with_file(file)
+                                .with_links(links);
+                            if window.is_some() {
+                                plan.project_semantic(bindings, work, check_cancelled)
+                            } else {
+                                plan.project(bindings, work, check_cancelled)
+                            }
+                        })
+                        .map_err(failure)
+                })?;
                 if let Some(projected) = projected {
                     ledger
                         .retain(
@@ -442,23 +454,26 @@ impl<S: Store> Replica<S> {
             else {
                 continue;
             };
-            let projected = ledger
-                .row(row.source_bytes, |work| {
-                    let raw = ownership::fields(&requirements.fields, row.fields, work)?;
-                    let file =
-                        CapturedFile::new(&row.path, Some(row.source_bytes), None, None, work)?;
-                    let file = CapturedFileBindings::capture(&file, row.tags.as_deref(), work)?;
-                    let bindings = types
-                        .projected_bindings(&raw, work)?
-                        .with_clock(captured_clock)
-                        .with_file(file);
-                    if window.is_some() {
-                        plan.project_semantic(bindings, work, check_cancelled)
-                    } else {
-                        plan.project(bindings, work, check_cancelled)
-                    }
-                })
-                .map_err(failure)?;
+            let projected = self.with_bases_links(&links, |links| {
+                ledger
+                    .row(row.source_bytes, |work| {
+                        let raw = ownership::fields(&requirements.fields, row.fields, work)?;
+                        let file =
+                            CapturedFile::new(&row.path, Some(row.source_bytes), None, None, work)?;
+                        let file = CapturedFileBindings::capture(&file, row.tags.as_ref(), work)?;
+                        let bindings = types
+                            .projected_bindings(&raw, work)?
+                            .with_clock(captured_clock)
+                            .with_file(file)
+                            .with_links(links);
+                        if window.is_some() {
+                            plan.project_semantic(bindings, work, check_cancelled)
+                        } else {
+                            plan.project(bindings, work, check_cancelled)
+                        }
+                    })
+                    .map_err(failure)
+            })?;
             if let Some(projected) = projected {
                 ledger
                     .retain(
@@ -579,6 +594,7 @@ impl<S: Store> Replica<S> {
                     clock: captured_clock,
                     snapshot: &snapshot,
                     fence: &fence,
+                    links: &links,
                 },
                 &mut staged,
                 order,

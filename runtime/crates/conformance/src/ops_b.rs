@@ -267,6 +267,7 @@ fn op_of(state: &MemState, kind: &str, input: &Value) -> Result<Op, Value> {
             })
         }
         "update" => Op::Update(it::Update {
+            update_refs: input["update_refs"].as_bool(),
             id: existing()?,
             patch: input.get("patch").map(core_map),
             unset: str_list(&input["unset"]),
@@ -333,7 +334,7 @@ fn spec_code(r: &Rejection) -> String {
     let reason = r.reason.as_deref().unwrap_or("");
     match r.code {
         RejectCode::Conflict => match reason {
-            "path_taken" => "path_conflict",
+            "path_taken" | "path_conflict" => "path_conflict",
             "duplicate_value" => "duplicate_value",
             _ => "concurrent_modification",
         }
@@ -388,7 +389,7 @@ fn record_json(state: &dyn StateView, id: &Uuid) -> Value {
     let doc = Document::parse_at(&rec.path, &*rec.source);
     let fm = doc.frontmatter();
     let types = catalog.membership(&rec.path, fm).types;
-    let effective = catalog.effective_frontmatter(&types, fm);
+    let effective = catalog.effective_values(&rec.path, &types, fm);
     json!({
         "path": rec.path,
         "frontmatter": from_core(&mdbn_core::value::Value::Map(fm.clone())),
@@ -489,7 +490,29 @@ pub fn write(group: Group<'_>, kind: &str, input: &Value) -> Result<Value, Unsup
         _ => Uuid::NIL,
     };
     let before = record_json(&state, &target);
-    let (res, after) = plan_on(&state, vec![op], false);
+    let (res, after) = if let Some(now) = input["now"].as_str() {
+        let mut m = mutation(vec![op]);
+        let instant = mdbn_core::cel::time::Timestamp::parse(now)
+            .map_err(|_| Unsupported::NotImplemented("fixture now"))?;
+        m.clock.instant_ms = instant.seconds * 1000 + i64::from(instant.nanos / 1_000_000);
+        m.clock.local_date = now[..10].to_owned();
+        let res = mdbn_core::plan(
+            &m,
+            &state,
+            &PlanOptions {
+                stage: Stage::Submit {
+                    level: state.catalog().settings().validation,
+                },
+            },
+        );
+        let mut after = state.clone();
+        if let Ok(p) = &res {
+            after.apply(p);
+        }
+        (res, after)
+    } else {
+        plan_on(&state, vec![op], false)
+    };
     let mut out = match res {
         Ok(p) => {
             let mut r = record_json(&after, &target);
@@ -870,7 +893,7 @@ pub fn get_contract_view(group: Group<'_>, input: &Value) -> Result<Value, Unsup
     let contract = catalog
         .contract(&imp.contract, &imp.version)
         .ok_or(Unsupported::NotImplemented("contract"))?;
-    let effective = catalog.effective_frontmatter(&types, doc.frontmatter());
+    let effective = catalog.effective_values(&rec.path, &types, doc.frontmatter());
     Ok(match imp.view(contract, &effective) {
         Ok(v) => {
             json!({"valid": true, "view": from_core(&mdbn_core::value::Value::Map(v)), "type": imp.type_name})

@@ -1,11 +1,28 @@
 import { t } from "@lingui/core/macro";
-import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
-import type { NoteSummary } from "./model";
-import { noteTitle } from "./note";
+import { buildEditorCommands, command, type EditorCommand } from "./editor-commands";
+import { defaultSortDirection, noteSortOptions, type NoteSortPreference, type SortField } from "./note-sort";
 
 export const NOTE_PATHS_MIME = "application/x-mdbase-note-paths";
 export type NoteFilter = { kind: "folder" | "tag" | "type"; value: string };
 export interface SearchFacet { name: string; count: number }
+export function noteFilterCommand(filter: NoteFilter & { kind: "tag" | "type" }, onFilter: (filter: NoteFilter) => void): EditorCommand {
+  const entry = command(filter.kind === "tag" ? "filter-tag" : "filter-type", () => onFilter(filter));
+  return { ...entry, id: `${entry.id}:${filter.value}`, label: `${entry.label}: ${filter.value}` };
+}
+
+export function noteViewCommands(onSort: (sort: NoteSortPreference) => void, onFilter: (filter: NoteFilter) => void, onClear: () => void, tags: SearchFacet[], types: SearchFacet[], fields: readonly SortField[]): EditorCommand[] {
+  return buildEditorCommands({
+    "sort-modified-desc": () => onSort({ key: "modified", direction: "desc" }),
+    "sort-modified-asc": () => onSort({ key: "modified", direction: "asc" }),
+    "sort-title-asc": () => onSort({ key: "title", direction: "asc" }),
+    "sort-path-asc": () => onSort({ key: "path", direction: "asc" }),
+    "clear-filter": onClear
+  }).concat(
+    noteSortOptions(fields).fields.map(({ key, label }) => ({ id: `sort-${key}`, label, run: () => onSort({ key, direction: defaultSortDirection(key) }) })),
+    tags.map(({ name }) => noteFilterCommand({ kind: "tag", value: name }, onFilter)),
+    types.map(({ name }) => noteFilterCommand({ kind: "type", value: name }, onFilter))
+  );
+}
 export interface NoteRowStatus {
   label?: string;
   tone: "quiet" | "busy" | "error";
@@ -23,80 +40,6 @@ export function filterScopeLabel(filter: NoteFilter | undefined): string | undef
   if (filter.kind === "folder") return t`Folder · ${filter.value}`;
   if (filter.kind === "tag") return t`Tag · #${filter.value}`;
   return t`Type · ${filter.value}`;
-}
-
-export const noteSorts = ["modified-desc", "modified-asc", "title-asc", "path-asc"] as const;
-export type NoteSort = (typeof noteSorts)[number];
-
-export const defaultNoteSort: NoteSort = "modified-desc";
-
-export const noteSortOptions: ReadonlyArray<{
-  value: NoteSort;
-  label: string;
-  summary: string;
-}> = [
-  { value: "modified-desc", get label() { return t`Modified newest`; }, get summary() { return t`modified newest`; } },
-  { value: "modified-asc", get label() { return t`Modified oldest`; }, get summary() { return t`modified oldest`; } },
-  { value: "title-asc", get label() { return t`Title A–Z`; }, summary: "title A–Z" },
-  { value: "path-asc", get label() { return t`Path A–Z`; }, summary: "path A–Z" }
-];
-
-const storageKey = "mdbase-editor:note-sort";
-const noteCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
-
-export function loadNoteSort(): NoteSort {
-  try {
-    const value = localStorage.getItem(storageKey);
-    return noteSorts.includes(value as NoteSort) ? value as NoteSort : defaultNoteSort;
-  } catch {
-    return defaultNoteSort;
-  }
-}
-
-export function saveNoteSort(value: NoteSort): void {
-  try {
-    localStorage.setItem(storageKey, value);
-  } catch {
-    // Sorting still works for this session when storage is unavailable.
-  }
-}
-
-export function noteSortSummary(value: NoteSort): string {
-  return noteSortOptions.find((option) => option.value === value)?.summary ?? noteSortOptions[0].summary;
-}
-
-export function sortNotes(
-  notes: NoteSummary[],
-  sort: NoteSort,
-  types: CollectionTypeDescriptor[] = []
-): NoteSummary[] {
-  return [...notes].sort((left, right) => {
-    if (sort === "modified-desc" || sort === "modified-asc") {
-      const modified = compareModified(left, right, sort === "modified-desc" ? -1 : 1);
-      if (modified !== 0) return modified;
-    } else if (sort === "title-asc") {
-      const title = noteCollator.compare(noteTitle(left, types), noteTitle(right, types));
-      if (title !== 0) return title;
-    } else {
-      const path = noteCollator.compare(left.path, right.path);
-      if (path !== 0) return path;
-    }
-    return noteCollator.compare(left.path, right.path);
-  });
-}
-
-function compareModified(left: NoteSummary, right: NoteSummary, direction: -1 | 1): number {
-  const leftTime = modifiedTime(left);
-  const rightTime = modifiedTime(right);
-  if (leftTime === undefined && rightTime === undefined) return 0;
-  if (leftTime === undefined) return 1;
-  if (rightTime === undefined) return -1;
-  return (leftTime - rightTime) * direction;
-}
-
-function modifiedTime(note: NoteSummary): number | undefined {
-  const value = Date.parse(note.file?.mtime ?? "");
-  return Number.isFinite(value) ? value : undefined;
 }
 
 export interface NoteSelection {

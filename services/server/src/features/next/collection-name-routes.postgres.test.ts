@@ -18,6 +18,7 @@ import { localGrantFixture } from "./next-fixtures.test-helper.js";
 import { registerNextRouteRoutes } from "./route-routes.js";
 import { issueApplicationTokens } from "../authorizations/token-service.js";
 
+const noLog = { controlItemsAfter: async () => { throw new Error("no abandoned switch in this suite"); } };
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
 const describePg = testUrl && approved ? describe : describe.skip;
@@ -43,7 +44,7 @@ describePg.each(["cloud_copy", "private"] as const)("%s catalog rename", sync =>
     url.searchParams.set("options", `-csearch_path=${schema}`);
     db = await createDatabase(url.toString());
     registerErrorHandler(app);
-    registerCollectionNameRoutes(app, db, floor);
+    registerCollectionNameRoutes(app, db, noLog, floor);
     registerNextRouteRoutes(app,{db,publicUrl:"https://connect.test",broker:{request:async () => {throw new Error("Catalog reads must not contact a relay.");}}});
   }, 60_000);
   afterAll(async () => {
@@ -219,7 +220,7 @@ describePg.each(["cloud_copy", "private"] as const)("%s catalog rename", sync =>
       }
     };
     const race = Fastify();
-    registerErrorHandler(race); registerCollectionNameRoutes(race, racedb);
+    registerErrorHandler(race); registerCollectionNameRoutes(race, racedb, noLog);
     const policies = (await db.query("SELECT ops FROM next_policy_outbox WHERE collection_id=$1 ORDER BY id", [f.collection])).rows;
     try {
       const first = race.inject({method:"PATCH",url:`/v1/next/collections/${f.collection}/name`,headers:f.headers,payload:{display_name:"First committed"}}).then(response => response);
@@ -297,7 +298,7 @@ describePg.each(["cloud_copy", "private"] as const)("%s catalog rename", sync =>
       }
     };
     const race = Fastify();
-    registerErrorHandler(race); registerCollectionNameRoutes(race,racedb);
+    registerErrorHandler(race); registerCollectionNameRoutes(race,racedb,noLog);
     try {
       const reply = await race.inject({method:"PATCH",url:`/v1/next/collections/${f.collection}/name`,headers:f.headers,payload:{display_name:"Must not commit"}});
       expect(reply.statusCode).toBe(404);
@@ -325,7 +326,7 @@ describePg.each(["cloud_copy", "private"] as const)("%s catalog rename", sync =>
     await db.query("UPDATE grants SET user_id=$2,activated_at=now() WHERE id=$1", [grant, f.user]);
     // And a native grant (a web app reaching the collection through a device).
     const native = await localGrantFixture(db);
-    await db.query("UPDATE grants SET user_id=$2,collection_id=NULL,next_collection_id=$3,activated_at=now() WHERE id=$1", [native, f.user, f.collection]);
+    await db.query("UPDATE grants SET user_id=$2,collection_id=NULL,next_collection_id=$3,next_collection_sync=$4,activated_at=now() WHERE id=$1", [native, f.user, f.collection, sync]);
     const tokens = await issueApplicationTokens(db, undefined, grant);
     const catalog = () => app.inject({ method: "GET", url: "/v1/next/apps/collections", headers: { authorization: `Bearer ${tokens.access_token}` } });
     expect((await catalog()).statusCode).toBe(200);

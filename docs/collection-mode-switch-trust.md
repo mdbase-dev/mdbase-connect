@@ -12,12 +12,32 @@ chain hash and epoch commit with the applied prefix. Hosted and escrow are not
 members of that set. A mode flag alone changes neither chosen mode nor trust.
 
 Only an owner device in that set with previously persisted local switch intent
-may author the exceptional `cloud-copy-off` rekey. Its old key is usable for
-nothing else. Other devices accept only a valid rekey immediately following the
-switch, chaining directly to it, with that reason and a frozen owner signer.
-Actual unwrap/commitment verification must succeed. Any intervening item or
-non-qualifying rekey consumes the exception and reports an untrusted state change.
+may author the exceptional `cloud-copy-off` rekey at the slot immediately after
+the switch. Its old key is usable for nothing else. Other devices accept that
+rekey with that reason, from the frozen epoch, chaining directly to the switch
+and signed by a frozen owner. Actual unwrap/commitment verification must succeed.
+
+If the control plane abandons the switch, the slot holds something else and
+the collection stays Private on the epoch the services held. The exception then
+survives non-rekey items while policy remains e2e on the frozen epoch, and every
+frozen owner that is still an active owner authors the rekey automatically,
+without local intent. The first rekey after the switch decides: it is accepted
+if it qualifies as above (any position, frozen owner still an active owner);
+otherwise it consumes the exception and reports an untrusted state change. Its
+recipients are ordinary policy's keyed devices. A late rekey widens nothing that
+adjacent acceptance did not already trust: the signer was already a frozen owner.
+Devices revoked before it, such as a lost requester, do not receive the key.
+Once no frozen owner is still an active owner, nobody can author it, so the
+exception is consumed with the same untrusted report.
 No later policy can widen the set or restore the consumed exception.
+
+Known limits. Binaries from before late acceptance still refuse a non-adjacent
+rekey, so a fleet that mixes them splits after an abandoned switch; execution
+remains LAB-only, and a capability bump must precede enabling it elsewhere. A
+keyed device outside the switch set may author an ordinary rekey into the
+released slot first, which consumes the exception. A snapshot install across a
+late rekey is refused like any other read-ahead, and read-ahead does not see a
+brief excursion out of e2e that settled replay treats as consuming.
 
 A successful prefix commit records Private, removes Cloud copy consent, and adds
 every still-active member of the frozen set to the local trust anchors. Later

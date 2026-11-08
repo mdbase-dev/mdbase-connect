@@ -202,6 +202,8 @@ export interface ManagementOverview {
       live_storage_bytes: number;
       retained_file_bytes: number;
     };
+    /** Uploaded file bytes across this account's native collections; notes and history don't count. Null when unknown. */
+    native_storage_bytes?: number | null;
     reconciliation: null | {
       entitlement_revision: number;
       provider_revision: number;
@@ -276,7 +278,7 @@ export interface ManagementOverview {
     reauthorization_reason: string | null;
     collection_id: string;
     collection_name: string;
-    collection_kind: "local" | "hosted";
+    collection_kind: "local" | "hosted" | "private" | "cloud_copy";
     application_id: string;
     application_family_id?: string;
     application_name: string;
@@ -431,20 +433,6 @@ export class ConnectManagementClient {
     return this.request("/v1/account/collections", {
       method: "POST",
       body: JSON.stringify({account_id:input.accountId, request_id:input.requestId, display_name:input.displayName, timezone:input.timezone})
-    }, options);
-  }
-
-  createHostedCollection(
-    input: { displayName: string; timezone: string },
-    options?: ManagementRequestOptions
-  ): Promise<void> {
-    return this.request("/v1/hosted/collections", {
-      method: "POST",
-      body: JSON.stringify({
-        display_name: input.displayName,
-        template: "mdbase",
-        timezone: input.timezone
-      })
     }, options);
   }
 
@@ -678,7 +666,10 @@ export class ConnectManagementClient {
           && typeof body.error.message === "string"
           ? body.error.message
           : `Request failed with HTTP ${response.status}.`;
-        throw new ManagementApiError(response.status, "http_error", message);
+        const code = body && typeof body === "object" && "error" in body
+          && body.error && typeof body.error === "object" && "code" in body.error
+          && typeof body.error.code === "string" ? body.error.code : undefined;
+        throw new ManagementApiError(response.status, "http_error", message, code ? { code } : undefined);
       }
       return body as T;
     } catch (cause) {

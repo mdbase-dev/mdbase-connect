@@ -4,15 +4,16 @@ import { describe, expect, it, vi } from "vitest";
 import { OpeningScreen } from "./LoadingScreens";
 
 describe("editor wordmark", () => {
-  it("opens on the launch mark, scanning straight away where the flock cannot fly", () => {
+  it("paints the shell while collection data loads, without a timed entrance", () => {
     const { container } = render(<OpeningScreen />);
 
     expect(screen.getByLabelText("Opening collection")).toHaveAttribute("aria-busy", "true");
-    expect(screen.getByRole("status")).toHaveTextContent("Opening collection");
-    // jsdom has no matchMedia, so the entrance is skipped rather than holding the app.
-    expect(container.querySelector(".mdbase-opening-launch")).toHaveAttribute("data-entrance", "landed");
-    expect(container.querySelector(".mdbase-opening-flock")).not.toBeInTheDocument();
-    expect(container.querySelector(".mdbase-opening-launch-mark .mdbase-motion-scan")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Reading notes and files");
+    expect(screen.getByRole("heading", { name: "All notes" })).toBeInTheDocument();
+    for (const name of ["Back to notes", "New note", "More note actions"]) expect(screen.getByRole("button", { name })).toBeDisabled();
+    expect(container.querySelector(".collection-rail .wordmark")).toBeInTheDocument();
+    expect(container.querySelector(".note-list-pane")).toBeInTheDocument();
+    expect(container.querySelector(".mdbase-opening-launch")).not.toBeInTheDocument();
   });
 });
 

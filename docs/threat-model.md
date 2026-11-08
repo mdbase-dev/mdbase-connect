@@ -134,8 +134,10 @@ frequency. They must not receive exact Markdown or body prose from the projectio
 Logs and telemetry may record bounded counts and timing, never projection payloads.
 The operator usage report reads only control-plane lifecycle rows (accounts,
 pairing and authorization requests, grants, token issuance times, protocol
-counts) and returns aggregates; its inputs are deleted 395 days after they stop
-mattering to authorization. See [Usage report](usage-report.md).
+counts, the day a device was active, a collection's last active day) and returns
+aggregates; its inputs are deleted 395 days after they stop mattering to
+authorization. Device days and collection days are kept apart, so they give no
+history of which account used which collection. See [Usage report](usage-report.md).
 
 Snapshot cursors also make closed query metadata readable. Obsidian Base cursors
 reveal parsed formulas, filters, property references, renderer options,

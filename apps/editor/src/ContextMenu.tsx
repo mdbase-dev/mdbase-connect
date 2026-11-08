@@ -1,22 +1,21 @@
+import { useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Menu } from "@mdbase-dev/ui/menu";
 import { DotsThreeIcon as MoreHorizontal } from "./icons";
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type KeyboardEvent,
-  type ReactNode
-} from "react";
-import { createPortal } from "react-dom";
-import type { ActionMenuItem } from "./ActionMenu";
+
+export interface ActionMenuItem {
+  label: string;
+  icon: ReactNode;
+  tone?: "default" | "danger";
+  disabled?: boolean;
+  title?: string;
+  separatorBefore?: boolean;
+  onSelect: () => void;
+}
 
 interface MenuPosition {
   left: number;
   top: number;
 }
-
-const VIEWPORT_MARGIN = 8;
 
 export function ContextMenu({ label, items, children, className = "", style, showTrigger = true }: {
   label: string;
@@ -28,13 +27,13 @@ export function ContextMenu({ label, items, children, className = "", style, sho
 }) {
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const menu = useRef<HTMLDivElement>(null);
+  const id = useId();
   const restoreFocus = useRef<HTMLElement | undefined>(undefined);
   const [position, setPosition] = useState<MenuPosition>();
 
   const close = (restore = false) => {
     setPosition(undefined);
-    if (restore) requestAnimationFrame(() => restoreFocus.current?.focus());
+    if (restore) restoreFocus.current?.focus();
   };
 
   const openAt = (left: number, top: number, target?: HTMLElement | null) => {
@@ -48,59 +47,6 @@ export function ContextMenu({ label, items, children, className = "", style, sho
   const openBeside = (target: HTMLElement, focusTarget: HTMLElement | null = target) => {
     const bounds = target.getBoundingClientRect();
     openAt(bounds.right - 4, bounds.bottom + 2, focusTarget);
-  };
-
-  useLayoutEffect(() => {
-    if (!position || !menu.current) return;
-    const bounds = menu.current.getBoundingClientRect();
-    const left = Math.max(
-      VIEWPORT_MARGIN,
-      Math.min(position.left, window.innerWidth - bounds.width - VIEWPORT_MARGIN)
-    );
-    const top = Math.max(
-      VIEWPORT_MARGIN,
-      Math.min(position.top, window.innerHeight - bounds.height - VIEWPORT_MARGIN)
-    );
-    if (left !== position.left || top !== position.top) setPosition({ left, top });
-  }, [position]);
-
-  useEffect(() => {
-    if (!position) return;
-    menu.current?.querySelector<HTMLButtonElement>('[role="menuitem"]:not([disabled])')?.focus();
-    const closeForOutsidePress = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (!root.current?.contains(target) && !menu.current?.contains(target)) close();
-    };
-    const closeForViewportChange = () => close();
-    document.addEventListener("pointerdown", closeForOutsidePress);
-    window.addEventListener("resize", closeForViewportChange);
-    window.addEventListener("scroll", closeForViewportChange, true);
-    return () => {
-      document.removeEventListener("pointerdown", closeForOutsidePress);
-      window.removeEventListener("resize", closeForViewportChange);
-      window.removeEventListener("scroll", closeForViewportChange, true);
-    };
-  }, [position]);
-
-  const onMenuKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "Escape" || event.key === "Tab") {
-      event.preventDefault();
-      close(true);
-      return;
-    }
-    const menuItems = [...(menu.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not([disabled])') ?? [])];
-    if (!menuItems.length) return;
-    if (event.key === "Home" || event.key === "End") {
-      event.preventDefault();
-      menuItems[event.key === "Home" ? 0 : menuItems.length - 1]?.focus();
-      return;
-    }
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-    const current = menuItems.indexOf(document.activeElement as HTMLButtonElement);
-    const direction = event.key === "ArrowDown" ? 1 : -1;
-    const next = (current + direction + menuItems.length) % menuItems.length;
-    event.preventDefault();
-    menuItems[next]?.focus();
   };
 
   return <div
@@ -142,28 +88,18 @@ export function ContextMenu({ label, items, children, className = "", style, sho
       aria-expanded={Boolean(position)}
       onClick={() => position ? close(true) : openBeside(trigger.current!)}
     ><MoreHorizontal aria-hidden="true" /></button>}
-    {position && createPortal(
-      <div
-        ref={menu}
-        className="context-menu"
-        role="menu"
-        aria-label={label}
-        style={{ left: position.left, top: position.top }}
-        onKeyDown={onMenuKeyDown}
-      >
+    <Menu open={Boolean(position)} id={id} label={label} triggerRef={root} point={position} onClose={close}>
         {items.map((item) => <button
           key={item.label}
           role="menuitem"
           disabled={item.disabled}
           title={item.title}
-          className={item.tone === "danger" ? "danger-action" : undefined}
+          className={`mdbase-menu-item${item.tone === "danger" ? " is-danger" : ""}`}
           onClick={() => {
             close();
             item.onSelect();
           }}
         >{item.icon}{item.label}</button>)}
-      </div>,
-      document.body
-    )}
+    </Menu>
   </div>;
 }

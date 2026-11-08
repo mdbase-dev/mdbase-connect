@@ -8,7 +8,7 @@ import { bearerToken, requireInstallationDeviceConnector } from "../../platform/
 import { inTransaction, refuse } from "../next/bootstrap-common.js";
 import { nativeCollectionMembers, nextDevicePeople } from "../next/people.js";
 import { requireCollectionNotDeleted } from "../next/collection-deletion.js";
-import { resolveNativeCollectionAccess } from "../authorizations/native-approval-service.js";
+import { resolveNativeCollectionAccess, type NativeSync } from "../authorizations/native-approval-service.js";
 import { apiError } from "../../platform/http-errors.js";
 import { tokenHash } from "../../security.js";
 
@@ -29,6 +29,8 @@ interface PeopleGrant {
   local_collection_id: string | null;
   hosted_collection_id: string | null;
   next_collection_id: string | null;
+  /** Set exactly when next_collection_id is (grants_next_collection_sync_target). */
+  next_collection_sync: NativeSync | null;
   grant_id: string;
   people_permissions: PeoplePermission[] | null;
   membership_id: string | null;
@@ -63,7 +65,7 @@ export function registerPeopleRoutes(app: FastifyInstance, options: PeopleRoutes
       }
       const result = await options.db.query<PeopleGrant>(
         `SELECT g.id AS grant_id, g.user_id, u.account_backend, u.public_subject, u.name, g.collection_id,
-                col.local_id AS local_collection_id, g.hosted_collection_id, g.next_collection_id,
+                col.local_id AS local_collection_id, g.hosted_collection_id, g.next_collection_id, g.next_collection_sync,
                 g.people_permissions,
                 g.membership_id, g.membership_policy_id, g.membership_policy_revision
          FROM access_tokens tok
@@ -92,8 +94,8 @@ export function registerPeopleRoutes(app: FastifyInstance, options: PeopleRoutes
       if (!grant.people_permissions?.includes(permission)) {
         return reply.code(403).send(apiError("insufficient_access", "This application was not approved to read this identity information."));
       }
-      // Private grants use the same account-consent and current-membership
-      // boundary as cloud grants; there is no second computer-side decision.
+      // Native grants (Private or cloud copy) use the same account-consent and
+      // current-membership boundary as hosted grants, in their approved mode; there is no second computer-side decision.
       if (grant.next_collection_id) {
         try { await requireCollectionNotDeleted(options.db, grant.next_collection_id); }
         catch { return reply.code(401).send(apiError("invalid_token", "The collection was deleted.")); }
@@ -103,7 +105,7 @@ export function registerPeopleRoutes(app: FastifyInstance, options: PeopleRoutes
         : grant.collection_id
           ? await resolveLocalCollectionAccess(options.db, grant.user_id, grant.collection_id)
           : grant.next_collection_id
-            ? await resolveNativeCollectionAccess(options.db, grant.user_id, grant.next_collection_id)
+            ? await resolveNativeCollectionAccess(options.db, grant.user_id, grant.next_collection_id, grant.next_collection_sync!)
             : null;
       if (!access || access.collection.authorityState !== "active"
         || !access.actions.has("application.authorize")

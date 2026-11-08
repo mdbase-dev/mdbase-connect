@@ -191,6 +191,13 @@ fn restores_operational_settings_and_readable_object_without_changing_policy() {
             NOW + 60,
         ))
         .unwrap();
+        // The object has no references yet: a sweep must not treat it as garbage.
+        assert_eq!(
+            ready(dst.gc(&c, NOW + 10 * 24 * 60 * 60 * 1000))
+                .unwrap_err()
+                .code,
+            Code::Unavailable
+        );
         complete(&dst, c, &page, field(&page, 3), field(&page, 4)).unwrap();
         assert_eq!(
             ready(src.head(&Principal::ControlPlane, &c)).unwrap(),
@@ -312,7 +319,8 @@ fn source_quota_is_enforced_at_final_object_commit() {
     quota[0] = Cbor::Uint(0);
     start(&dst, c, &page, Cbor::Array(settings)).unwrap();
     let before = meta(&dst, &c);
-    let bytes = object(c, ItemKind::BlobPart, 0, vec![42; 64]);
+    // The storage quota caps log bytes, so this needs a snapshot object.
+    let bytes = object(c, ItemKind::Chunk, 0, vec![42; 64]);
     let address = sha256(&bytes);
     let err = ready(dst.call(
         &Principal::ControlPlane,
@@ -320,7 +328,7 @@ fn source_quota_is_enforced_at_final_object_commit() {
         &map(vec![
             (0, c.to_cbor()),
             (1, address.to_cbor()),
-            (2, Cbor::Uint(18)),
+            (2, Cbor::Uint(ItemKind::Chunk.value())),
             (3, Cbor::Bytes(bytes)),
         ]),
         NOW,
@@ -330,6 +338,34 @@ fn source_quota_is_enforced_at_final_object_commit() {
     assert_eq!(meta(&dst, &c), before);
     let mut tx = ready(dst.backend.begin(&c, Mode::Read)).unwrap();
     assert_eq!(ready(tx.objects(&[address])).unwrap(), vec![None]);
+}
+
+#[test]
+fn a_restore_is_not_held_to_the_file_quota() {
+    let (cp, _, c, page) = source();
+    let dst = svc(&cp);
+    start(&dst, c, &page, field(&page, 7)).unwrap();
+    ready(async {
+        let mut tx = dst.backend.begin(&c, Mode::Write).await.unwrap();
+        let mut m = tx.load().await.unwrap().unwrap().meta;
+        m.file_quota = 0;
+        tx.write(Write::PutMeta(m));
+        tx.commit().await.unwrap();
+    });
+    let bytes = object(c, ItemKind::BlobPart, 0, vec![42; 64]);
+    let address = sha256(&bytes);
+    ready(dst.call(
+        &Principal::ControlPlane,
+        "import_object",
+        &map(vec![
+            (0, c.to_cbor()),
+            (1, address.to_cbor()),
+            (2, Cbor::Uint(ItemKind::BlobPart.value())),
+            (3, Cbor::Bytes(bytes)),
+        ]),
+        NOW,
+    ))
+    .unwrap();
 }
 
 #[test]

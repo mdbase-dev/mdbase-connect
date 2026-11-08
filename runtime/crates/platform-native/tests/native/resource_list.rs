@@ -27,6 +27,7 @@ struct Probe {
     refuse_unbounded: Cell<bool>,
     fault: Cell<Option<Fault>>,
     only_source_fault: Cell<bool>,
+    max_reply_rows: Cell<Option<usize>>,
     path_reads: Cell<usize>,
     source_limits: RefCell<Vec<usize>>,
     projected_text_bytes: RefCell<Vec<usize>>,
@@ -81,6 +82,11 @@ impl IndexStorage for Trace {
             ));
         }
         let mut result = self.inner.run(batch)?;
+        if let Some(max) = self.probe.max_reply_rows.get()
+            && result.iter().map(|r| r.rows().count()).sum::<usize>() > max
+        {
+            return Err(IndexError::new(IndexErrorKind::Full, "reply over budget"));
+        }
         if source {
             self.probe.projected_text_bytes.borrow_mut().push(
                 result
@@ -173,6 +179,18 @@ impl IndexStorage for CompetingWriter {
         }
         self.inner.run(batch)
     }
+}
+
+#[test]
+fn resources_stay_inside_the_hosted_reply_row_budget() {
+    // Past the 4,096-row reply limit of the Durable Object SQL host, and tiny
+    // enough that one 2 MiB document group would otherwise cover every row.
+    let rows: Vec<_> = (0..5_000)
+        .map(|i| (format!("_types/t{i:05}.md"), "x".to_string()))
+        .collect();
+    let (store, _index, probe) = fixture("resources-reply-budget", rows.clone());
+    probe.max_reply_rows.set(Some(4_096));
+    assert_eq!(store.resources().unwrap(), rows);
 }
 
 #[test]

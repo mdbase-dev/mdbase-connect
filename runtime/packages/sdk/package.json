@@ -1,6 +1,6 @@
 {
   "name": "@mdbase-dev/sdk",
-  "version": "0.1.0-beta.149",
+  "version": "0.1.0-beta.152",
   "description": "TypeScript SDK: live queries, optimistic submits, receipts, status, holds, files and presence over the replica client API.",
   "license": "MIT",
   "type": "module",
@@ -71,7 +71,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "api:update": "node scripts/public-api.mjs --update",
     "test": "vitest run && node --test scripts/browser-bundle.node-test.mjs scripts/application-assets.node-test.mjs scripts/production-application.node-test.mjs scripts/offline-shell.node-test.mjs",
-    "size": "node scripts/size.mjs",
+    "bundle-boundaries": "node scripts/bundle-boundaries.mjs",
     "check:vite-consumer": "node scripts/vite-consumer-check.mjs",
     "check:npm-consumer": "node scripts/npm-consumer-check.mjs"
   },

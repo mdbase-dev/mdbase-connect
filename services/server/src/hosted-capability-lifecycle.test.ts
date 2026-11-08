@@ -1,8 +1,11 @@
 import { randomUUID } from "node:crypto";
+import Fastify from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDatabase, type DatabasePool } from "./db.js";
 import { HostedProviderResponseError } from "./hosted-provider.js";
 import { retireLegacyContractScopedGrants } from "./legacy-backfills.js";
+import { RelayHub } from "./relay.js";
+import { registerGrantRevocationRoute } from "./features/authorizations/grant-revocation-route.js";
 import {
   hostedGrantRevocationStatus,
   hostedReplicaRevocationStatus,
@@ -16,6 +19,27 @@ let database: DatabasePool | undefined;
 afterEach(async () => database?.end());
 
 describe("hosted capability lifecycle", () => {
+  it.each([false, true])("projects batch status after provider delivery (completed: %s)", async (completed) => {
+    const { db, userId, grantId } = await capabilityFixture();
+    const relay = new RelayHub(db);
+    const app = Fastify();
+    registerGrantRevocationRoute(app, { db, relay, tailscaleAuth: true, drainProviderRevocations: async () => {
+      if (completed) await db.query("UPDATE provider_revocation_jobs SET state='completed', completed_at=now() WHERE grant_id=$1", [grantId]);
+    } });
+    try {
+      const response = await app.inject({ method: "POST", url: "/v1/grants/revoke-batch",
+        headers: { "tailscale-user-login": `${userId}@example.com` }, payload: { grant_ids: [grantId] } });
+      expect(response.statusCode, response.body).toBe(200);
+      const status = completed ? "revoked" : "revoking";
+      expect(response.json()).toEqual({ ok: true, results: [{ grant_id: grantId, status }] });
+      expect(await hostedGrantRevocationStatus(db, userId, grantId)).toBe(status);
+      expect((await db.query("SELECT event_type, subject_id, metadata FROM audit_events WHERE user_id=$1", [userId])).rows).toEqual([{
+        event_type: completed ? "grant.revoked" : "grant.revocation_requested", subject_id: grantId,
+        metadata: { revocation_status: status, batch: true }
+      }]);
+    } finally { await app.close(); await relay.close(); }
+  });
+
   it("revokes locally and durably queues provider cleanup in one transaction", async () => {
     const fixture = await capabilityFixture();
     expect(await hostedGrantRevocationStatus(

@@ -8,7 +8,7 @@ const source = { event: "workflow_dispatch", ref: "refs/tags/v0.1.0-beta.96", sh
 const responses = [
   { ok: true, service: "mdbase-connect", revision: sha, environment: "production", public_origin: "https://connect.mdbase.dev", protocol_version: 1, capabilities: ["application-authorization-v2-issuance"] },
   { ok: true, service: "mdbase-connect" },
-  { status: "ready", provider: { version: source.version, capabilities: ["application-authorization-v2-issuance"] }, notifications: { recovery: "ok", consecutive_failures: 0 } },
+  { status: "ready", provider: { version: source.version, revision: "c".repeat(40), capabilities: ["application-authorization-v2-issuance"] }, notifications: { recovery: "ok", consecutive_failures: 0 } },
   { ok: true, service: "mdbase-mcp", revision: sha }
 ];
 function fakeFetch(values = structuredClone(responses)) {
@@ -65,27 +65,45 @@ test("HTTP, redirect, timeout and malformed JSON failures cannot qualify", async
   }
 });
 const workflow = async (name) => readFile(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), "utf8");
-test("npm and desktop cannot publish on a tag push; dispatches retain exact qualification", async () => {
+test("client publishers retain qualified source guards and cannot publish on an unqualified tag push", async () => {
   for (const name of ["publish-npm", "desktop-release"]) {
     const text = await workflow(name);
-    assert.doesNotMatch(text, /^  push:/m);
-    assert.match(text, /workflow_dispatch:\n    inputs:\n      production_verified_commit:/);
-    assert.match(text, /if: github.event_name == 'workflow_dispatch' && startsWith\(github.ref, 'refs\/tags\/v'\)/);
-    assert.match(text, /scripts\/ci\/verify-qualified-commit "\$GITHUB_SHA"/);
-    const mutation = text.indexOf(name === "publish-npm" ? "npm publish " : "gh release create ");
-    const guard = text.indexOf("run: node scripts/verify-client-publication.mjs");
-    assert.ok(guard > 0 && guard < mutation);
-    assert.match(text, /PRODUCTION_VERIFIED_COMMIT: \$\{\{ inputs.production_verified_commit \}\}/);
+    if (text.includes("production_verified_commit:")) {
+      assert.doesNotMatch(text, /^  push:/m);
+      assert.match(text, /workflow_dispatch:\n    inputs:\n      production_verified_commit:/);
+      assert.match(text, /if: github.event_name == 'workflow_dispatch' && startsWith\(github.ref, 'refs\/tags\/v'\)/);
+      assert.match(text, /scripts\/ci\/verify-qualified-commit "\$GITHUB_SHA"/);
+      const mutation = text.indexOf(name === "publish-npm" ? "npm publish " : "gh release create ");
+      const guard = text.indexOf("run: node scripts/verify-client-publication.mjs");
+      assert.ok(guard > 0 && guard < mutation);
+      assert.match(text, /PRODUCTION_VERIFIED_COMMIT: \$\{\{ inputs.production_verified_commit \}\}/);
+    } else {
+      assert.match(text, /continuous-(?:desktop|sdk)-release\.mjs/);
+      assert.match(text, /workflow_run:/);
+      assert.match(text, /workflows: \[Server CI(?:, Runtime CI)?\]/);
+      assert.doesNotMatch(text, /^  push:/m);
+      assert.match(text, /compatible/);
+      const source = await readFile(new URL("./continuous-client-release.mjs", import.meta.url), "utf8");
+      assert.match(source, /scripts\/ci\/verify-qualified-commit/);
+    }
     assert.match(text, /node-version: 24/);
   }
   const desktop = await workflow("desktop-release");
   assert.match(desktop, /website-update:[\s\S]*needs: publish/);
-  assert.match(desktop, /test "v\$package_version" = "\$GITHUB_REF_NAME"/);
+  assert.match(desktop, /(?:test "v\$package_version" = "\$GITHUB_REF_NAME"|continuous-desktop-release\.mjs prepare)/);
 });
-test("Editor publishes only through the native dispatch path; main never deploys", async () => {
+test("client release GitHub reads can hold the full paginated release list", async () => {
+  const source = await readFile(new URL("./continuous-client-release.mjs", import.meta.url), "utf8");
+  assert.match(source, /execFileSync\("gh", args, \{ encoding: "utf8", maxBuffer: 256 \* 1024 \* 1024 \}\)/);
+});
+
+test("contract-sensitive commits get images of their own", async () => {
+  assert.match(await workflow("publish-images"), /&& ! node scripts\/client-contract-changed\.mjs "\$parent" "\$SOURCE_COMMIT"/);
+});
+
+test("Editor publishes only through main-ref immutable-source dispatch; pushes never deploy", async () => {
   const text = await workflow("editor-pages");
-  // Main's Editor is the native one: the legacy main/tag Pages jobs are gone, so no
-  // push, pull request or blank-source dispatch can publish anywhere public.
+  // Tests and publication have disjoint triggers; there is one protected uploader.
   assert.doesNotMatch(text, /deploy-cloudflare/);
   assert.doesNotMatch(text, /production_verified_commit/);
   const jobs = text.split("\njobs:\n")[1];
@@ -95,14 +113,15 @@ test("Editor publishes only through the native dispatch path; main never deploys
   assert.match(upload, /pages deploy artifact\/publish/);
   assert.match(upload, /needs: \[native-inputs, native-build\]/);
   const dispatch = jobs.split("  native-dispatch:\n")[1].split("  native-inputs:\n")[0];
-  assert.match(dispatch, /if: github.event_name == 'workflow_dispatch' && inputs.source_sha != ''/);
-  assert.match(dispatch, /\[\[ "\$GITHUB_REF" == "refs\/heads\/release\/native-\$TARGET" \]\]/);
-  assert.match(dispatch, /\[\[ "\$GITHUB_SHA" == "\$SOURCE_SHA" \]\]/);
+  assert.match(dispatch, /if: github.event_name == 'workflow_dispatch'/);
+  assert.match(dispatch, /\[\[ "\$GITHUB_REF" == refs\/heads\/main \]\]/);
+  assert.doesNotMatch(text, /release\/native-|\[\[ "\$GITHUB_SHA" == "\$SOURCE_SHA"/);
   assert.match(jobs.split("  native-inputs:\n")[1], /needs: native-dispatch/);
-  assert.match(jobs.split("  test:\n")[1].split("\n  native-dispatch:")[0], /if: inputs.source_sha == ''/);
-  assert.match(text, /group: editor-pages-\$\{\{ github.ref \}\}/);
-  // Native source dispatches never cancel an uploader; check-only runs supersede.
-  assert.match(text, /cancel-in-progress: \$\{\{ inputs.source_sha == '' \}\}/);
+  assert.match(jobs.split("  test:\n")[1].split("\n  native-dispatch:")[0], /if: github.event_name != 'workflow_dispatch'/);
+  assert.match(text, /group: editor-pages-\$\{\{ github.event_name == 'workflow_dispatch' && inputs.target \|\| github.ref \}\}/);
+  assert.match(text, /cancel-in-progress: \$\{\{ github.event_name != 'workflow_dispatch' \}\}/);
+  assert.match(upload, /rollback.mjs snapshot/);
+  assert.match(upload, /rollback.mjs recover/);
   assert.match(text, /node --test scripts\/lib\/\*publication\*.test.mjs/);
 });
 

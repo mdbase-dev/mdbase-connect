@@ -39,6 +39,7 @@ export type MdbaseMarkSignal = Readonly<{ kind: MdbaseMarkSignalKind; id: number
 
 /** Long enough for each entrance in `motion.css` to finish. */
 const ENTRANCE_MS = 1300;
+let buildOwner: string | undefined;
 
 export function mdbaseMarkMotionClass(motion?: MdbaseMarkMotion): string {
   return motion ? ` mdbase-motion-${motion}` : "";
@@ -133,17 +134,18 @@ export function MdbaseMark({ app, motion, signal, progress, className }: {
   const uid = useId().replaceAll(":", "");
   // An entrance plays once per mark. Dropping its class afterwards stops it replaying when a signal
   // remounts the lines, and remembering it stops a replay when a loop or progress hands back to it.
-  const [entering, setEntering] = useState(isEntrance(motion));
+  const [entering, setEntering] = useState(isEntrance(motion) && (motion !== "keys-first" || !buildOwner));
   const played = useRef<MdbaseMarkMotion | undefined>(undefined);
   useEffect(() => {
-    if (!isEntrance(motion) || played.current === motion) return setEntering(false);
+    if (!isEntrance(motion) || played.current === motion || (motion === "keys-first" && buildOwner !== undefined && buildOwner !== uid)) return setEntering(false);
+    if (motion === "keys-first") buildOwner = uid;
     setEntering(true);
     const timer = setTimeout(() => {
       played.current = motion;
       setEntering(false);
     }, ENTRANCE_MS);
     return () => clearTimeout(timer);
-  }, [motion]);
+  }, [motion, uid]);
 
   const showsProgress = typeof progress === "number" && Number.isFinite(progress);
   const active = signal ? undefined

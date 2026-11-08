@@ -44,7 +44,9 @@ explicit failure over silent recovery, and simplification over expansion.
   clippy checks), others run the fast node gates. It reports every failure at
   once; pass `--node --rust` for every gate, and `--browser` for the Chromium
   suites. Also run `pnpm e2e` before handing off changes that affect the
-  request path.
+  request path. Where `rcargo` is on PATH, these commands and `pnpm test:fast`
+  compile on the build VM and `pnpm test:system` copies back only the binaries
+  its suites run, so a worktree does not grow a full local `target/`.
 - Use `pnpm test:fast`, `pnpm test:integration`, and the narrowest registered
   `pnpm test:system -- --suite ...` selection for test-infrastructure changes;
   use `pnpm test:all` only when every local system boundary is required.

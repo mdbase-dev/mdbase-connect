@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { generateKeyPairSync, randomBytes, randomUUID } from "node:crypto";
 import cookie from "@fastify/cookie";
 import Fastify from "fastify";
 import pg from "pg";
@@ -16,6 +16,10 @@ import { acceptCohortArchive, addToCohort, cohortArchiveBinding, createCohort, f
 import { ZERO_HOSTED_ARCHIVE_SCHEMA } from "./features/next/migration-archive-profile.js";
 import { buildApp } from "./app.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
+import { LogServiceClient } from "./features/next/log-service-client.js";
+import { PolicyEmitter, registerNextCollection } from "./features/next/policy-outbox.js";
+import { ed25519RawPublicKey } from "./features/next/policy-keys.js";
+import { certify, FakeLogService } from "../test/policy-log.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -28,8 +32,8 @@ suite("transactional membership policy and native sharing (isolated PostgreSQL)"
   let admin: pg.Pool;
   let schema: string;
   const app = Fastify();
-  // This suite checks the SQL/HTTP boundary; canonical emission has its own
-  // real-log suite. Assert that HTTP removal waits for this explicit seam.
+  // SQL/HTTP publication boundary; the restart case uses the signed producer
+  // with a synthetic log transport. Rust service tests check content authority.
   const publishCommitted = vi.fn(async (_collection: string) => {});
 
   beforeAll(async () => {
@@ -118,6 +122,58 @@ suite("transactional membership policy and native sharing (isolated PostgreSQL)"
       { op: "member-set", account: f.member.id, role: "viewer" },
       { op: "member-remove", account: f.member.id }
     ]);
+  });
+
+  it.each(["unavailable", "lost-response"] as const)("keeps downgrade durable across publisher restart and confirms exact-byte retry (%s)", async failure => {
+    const f = await fixture("legacy");
+    const root = generateKeyPairSync("ed25519").privateKey;
+    const signer = certify(root, generateKeyPairSync("ed25519").privateKey, Date.now());
+    const issuer = generateKeyPairSync("ed25519").privateKey;
+    const service = new FakeLogService(ed25519RawPublicKey(issuer));
+    const client = new LogServiceClient({ url: "http://log.test",
+      tokenIssuerKeyPem: issuer.export({ format: "pem", type: "pkcs8" }).toString(),
+      transportKeyPem: generateKeyPairSync("ed25519").privateKey.export({ format: "pem", type: "pkcs8" }).toString() }, service.fetch);
+    await registerNextCollection(db, { collectionId: f.collection, ownerUserId: f.owner.id,
+      runtime: "next", sync: "private", rootKeyId: signer.cert.root, ops: [
+      { op: "genesis", owner: f.owner.id, root: signer.cert.root, state: "e2e" },
+      { op: "member-set", account: f.owner.id, role: "owner" },
+    ] });
+    const membership = await createMember(f);
+    const request = { method: "PATCH" as const,
+      url: `/v1/hosted/collections/${f.collection}/members/${membership.membershipId}`,
+      headers: await session(f.owner.id), payload: { role: "viewer" } };
+    let emitter = new PolicyEmitter(db, client, signer);
+    try {
+      await emitter.publishCommitted(f.collection);
+      service.failNextAppend = failure === "unavailable";
+      service.dropNextResponse = failure === "lost-response" ? "append" : false;
+      publishCommitted.mockImplementationOnce(id => emitter.publishCommitted(id));
+      const failed = await app.inject(request);
+      expect(failed.statusCode, failed.body).toBe(503);
+      expect(failed.headers["retry-after"]).toBe("2");
+      expect(failed.json().error.code).toBe("collection_sharing_unavailable");
+      const pending = (await db.query<{ id: string; item: Buffer }>(
+        "SELECT id,item FROM next_policy_batches WHERE collection_id=$1 AND state='sending'", [f.collection]
+      )).rows[0]!;
+      expect(pending).toBeDefined();
+      expect((await memberOps(f)).at(-1)).toEqual({ op: "member-set", account: f.member.id, role: "viewer" });
+      expect(service.logs.get(f.collection.replaceAll("-", ""))).toHaveLength(failure === "unavailable" ? 1 : 2);
+
+      // No in-memory work or acknowledgement survives the producer restart.
+      await emitter.close();
+      emitter = new PolicyEmitter(db, client, signer);
+      publishCommitted.mockImplementationOnce(id => emitter.publishCommitted(id));
+      const retried = await app.inject(request);
+      expect(retried.statusCode, retried.body).toBe(200);
+      expect(retried.json().membership).toMatchObject({ state: "active", role: "viewer" });
+      expect((await db.query("SELECT state,item FROM next_policy_batches WHERE id=$1", [pending.id])).rows)
+        .toEqual([{ state: "appended", item: pending.item }]);
+      expect(service.logs.get(f.collection.replaceAll("-", ""))![1]).toEqual(pending.item);
+      expect((await db.query("SELECT 1 FROM next_policy_outbox o LEFT JOIN next_policy_batches b ON b.id=o.batch_id WHERE o.collection_id=$1 AND (o.batch_id IS NULL OR b.state<>'appended')", [f.collection])).rows).toEqual([]);
+    } finally {
+      publishCommitted.mockReset().mockResolvedValue(undefined);
+      await emitter.close();
+    }
   });
 
   it("does not turn a committed acceptance into a failed consumed link when publication is unavailable", async () => {

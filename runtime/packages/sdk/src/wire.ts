@@ -747,6 +747,7 @@ export type Op =
       bodyBaseText?: string;
       base?: BaseField[];
       ifRevision?: Hash;
+      updateRefs?: boolean;
     }
   | { kind: "document"; id: Uuid; base?: DocVersion; new?: DocVersion; ifRevision?: Hash }
   | { kind: "delete"; id: Uuid; baseRevision?: Hash; ifRevision?: Hash }
@@ -789,6 +790,7 @@ export const op = union<Op>("op", [
       [9, "bodyBaseText", tstr, "opt"],
       [10, "base", list(baseField), "opt1"],
       [11, "ifRevision", hash, "opt"],
+      [12, "updateRefs", bool, "opt"],
     ],
   ],
   [
@@ -1222,6 +1224,16 @@ export const fileChunk = struct<FileChunk>("file-chunk", [
   [3, "last", bool],
 ]);
 
+export interface FileStreamFailure {
+  stream: number;
+  problem: Problem;
+}
+
+export const fileStreamFailure = struct<FileStreamFailure>("file-stream-failure", [
+  [0, "stream", uint],
+  [1, "problem", problem],
+]);
+
 export const TRANSFER_PHASES = [
   "receiving",
   "sealing",
@@ -1355,6 +1367,7 @@ export const PUSH_CODECS: Record<string, Codec<any>> = {
   conflicts: list(conflictEntry),
   presence: presencePush,
   file_chunk: fileChunk,
+  file_stream_failed: fileStreamFailure,
   transfer_progress: transferProgress,
   changes: changesResult,
 };

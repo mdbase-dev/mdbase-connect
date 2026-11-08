@@ -1,5 +1,5 @@
 import { LOCAL_APPLICATION_BUILD } from "../local-build.js";
-export { LOCAL_APPLICATION_BUILD, localApplicationHttpOrigin, localApplicationWebSocketUrl } from "../local-build.js";
+export { LOCAL_APPLICATION_BUILD, labLoopbackHttpOrigin, localApplicationHttpOrigin, localApplicationWebSocketUrl } from "../local-build.js";
 
 export function localApplicationEnvironment(environment: string): boolean {
   return LOCAL_APPLICATION_BUILD && environment === "local";

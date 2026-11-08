@@ -11,10 +11,10 @@ import type {
   GrantEncryption,
   GrantScope
 } from "@mdbase-dev/connect-protocol";
-import { assertFreshApplicationAuthorization, fileRequestForRequirements, requirementContractVersion, type ApplicationRequirements } from "../../application-requirements.js";
+import { assertFreshApplicationAuthorization, requirementContractVersion, signedFileRequestForRequirements, type ApplicationRequirements } from "../../application-requirements.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { verifyApplicationAuthorization } from "../../application-authorization.js";
+import { parseApplicationAuthorization, verifyApplicationAuthorization } from "../../application-authorization.js";
 import { isCanonicalCollectionGrantScope } from "../../application-grant-scope.js";
 import {
   accessView,
@@ -24,6 +24,7 @@ import {
   resolveLocalCollectionAccess
 } from "../../collection-access.js";
 import {
+  accountCollectionCreation,
   listHostedCollectionsVisibleToUser,
   listNativeCollectionsVisibleToUser,
   resolveHostedCollection
@@ -61,7 +62,7 @@ import { declarationIdFromFamilyIdentity } from "../applications/identity.js";
 import { createLocalApprovalService, liveAuthorizationCollections } from "./local-collections.js";
 import { approveHostedAuthorization } from "./hosted-approval-service.js";
 import { unmigratedLocalCollection } from "../next/native-grant-target.js";
-import { approveNativeAuthorization, resolveNativeCollectionAccess } from "./native-approval-service.js";
+import { approveNativeAuthorization, currentNativeSync, resolveNativeCollectionAccess } from "./native-approval-service.js";
 import { createNativeApprovalDelivery } from "./native-approval-delivery.js";
 import { PEOPLE_PERMISSIONS } from "@mdbase-dev/connect-protocol";
 import { registerGrantRevocationRoute } from "./grant-revocation-route.js";
@@ -183,7 +184,12 @@ export function registerAuthorizationRoutes(
         codeChallenge: input.code_challenge,
         requestedOperations,
         semanticCapabilityContractVersion: requirementContractVersion(application.rows[0].requirements),
-        requestedFiles: fileRequestForRequirements(application.rows[0].requirements),
+        // The application signs the declared file actions it is requesting;
+        // consent and approval keep exactly that subset as their ceiling.
+        requestedFiles: signedFileRequestForRequirements(
+          application.rows[0].requirements,
+          parseApplicationAuthorization(input.application_authorization).binding.requested_files
+        ),
         collectionId: input.collection_id
       }
     );
@@ -524,7 +530,12 @@ export function registerAuthorizationRoutes(
         codeChallenge: input.code_challenge,
         requestedOperations,
         semanticCapabilityContractVersion: requirementContractVersion(application.rows[0].requirements),
-        requestedFiles: fileRequestForRequirements(application.rows[0].requirements),
+        // The application signs the declared file actions it is requesting;
+        // consent and approval keep exactly that subset as their ceiling.
+        requestedFiles: signedFileRequestForRequirements(
+          application.rows[0].requirements,
+          parseApplicationAuthorization(input.application_authorization).binding.requested_files
+        ),
         collectionId: input.collection_id
       }
     );
@@ -661,6 +672,7 @@ export function registerAuthorizationRoutes(
               a.homepage, a.project_url, a.icon,
               a.application_declaration->>'platform' AS platform,
               a.requirements, a.provisions, a.notifications,
+              ar.application_authorization->'binding'->'requested_files'->'actions' AS requested_file_actions,
               ${options.nextClientKeys ? "ck.client_pk" : "NULL::bytea"} AS client_pk
        FROM authorization_requests ar JOIN applications a ON a.id = ar.application_id
        JOIN users consenting ON consenting.id = ar.user_id
@@ -670,7 +682,7 @@ export function registerAuthorizationRoutes(
       [requestId, user.id]
     );
     if (!authorization.rows[0]) return reply.code(404).send(apiError("authorization_not_found", "Authorization request expired or was not found."));
-    const {redirect_uri, device_origin, ...pending} = authorization.rows[0];
+    const {redirect_uri, device_origin, requested_file_actions: applicationFileCeiling, ...pending} = authorization.rows[0];
     const applicationOrigin = pending.flow === "device_code" ? device_origin ?? "null" : applicationOriginForRedirect(redirect_uri, pending.homepage);
     const activeGrants = await options.db.query<{
       collection_id: string;
@@ -694,7 +706,8 @@ export function registerAuthorizationRoutes(
       collection_id,
       operations: [...operations].sort()
     }));
-    const local = requiresHostedCollection(authorization.rows[0].requirements)
+    const hostedRequired = requiresHostedCollection(authorization.rows[0].requirements);
+    const local = hostedRequired
       ? { collections: [], unavailable_connectors: [] }
       : await liveAuthorizationCollections(options.db, relay, user.id, requestId);
     const hosted = options.hostedCollections
@@ -732,37 +745,45 @@ export function registerAuthorizationRoutes(
         display_name: collection.locator.displayName,
         template: collection.template,
         kind: "hosted" as const,
-        connector_name: "Hosted by mdbase",
+        connector_name: "Cloud copy",
         spec_version: "0.3.0",
         contracts: contractRequirements(contracts),
         types,
         access: accessView(access),
         authorization: previewCollectionGrant({
           applicationOperationCeiling: authorization.rows[0].requested_operations,
+          applicationFileCeiling: applicationFileCeiling ?? undefined,
           requirements: authorization.rows[0].requirements,
           access
         })
       };
     }));
-    // Private native collections: end-to-end encrypted, so their types are not
-    // visible here; the app checks them once connected. A device approves the grant.
-    const privateCollections = requiresHostedCollection(authorization.rows[0].requirements)
-      || !authorization.rows[0].client_pk ? [] : (await Promise.all(
+    // Synced native collections, Private or cloud copy. The control plane never
+    // reads their types (Private ones are end-to-end encrypted; a cloud copy lives
+    // on its hosted replica): the app checks them once connected. Neither needs
+    // a computer online at consent. A device approves a Private grant before its
+    // replica admits the app; a cloud copy's hosted replica serves the grant.
+    // These collections are runtime "next" ones, which the local and hosted
+    // catalogs above exclude, so no collection is offered twice. A cloud copy
+    // satisfies an application's hosted-collection requirement; a Private
+    // collection does not.
+    const nativeCollections = !authorization.rows[0].client_pk ? [] : (await Promise.all(
       (await listNativeCollectionsVisibleToUser(options.db, user.id))
-        .filter((collection) => collection.sync === "private")
+        .filter((collection) => !hostedRequired || collection.sync === "cloud_copy")
         .map(async (collection) => {
-          const access = await resolveNativeCollectionAccess(options.db, user.id, collection.id);
+          const access = await resolveNativeCollectionAccess(options.db, user.id, collection.id, collection.sync);
           if (!access?.actions.has("application.authorize")) return [];
           return [{
             id: collection.id,
             display_name: access.collection.displayName,
-            kind: "private" as const,
-            connector_name: "Private collection",
+            kind: collection.sync,
+            connector_name: collection.sync === "private" ? "Private collection" : "Cloud copy",
             spec_version: "0.3.0",
             contracts: [],
             access: accessView(access),
             authorization: previewCollectionGrant({
               applicationOperationCeiling: authorization.rows[0].requested_operations,
+              applicationFileCeiling: applicationFileCeiling ?? undefined,
               requirements: authorization.rows[0].requirements,
               access
             })
@@ -771,7 +792,7 @@ export function registerAuthorizationRoutes(
     const availableCollections = [
       ...local.collections,
       ...hostedCollections,
-      ...privateCollections
+      ...nativeCollections
     ];
     return {
       authorization: {
@@ -780,10 +801,10 @@ export function registerAuthorizationRoutes(
         platform: pending.platform === "native" && isNativeLoopbackOrigin(applicationOrigin) ? "native" : undefined,
         existing_access: existingAccess
       },
-      hosted_collections_available: options.hostedCollections === true,
+      collection_creation_available: (await accountCollectionCreation(options.db, user.id, options)).available,
       unavailable_connectors: local.unavailable_connectors,
-      collections: requiresHostedCollection(authorization.rows[0].requirements)
-        ? availableCollections.filter((collection) => collection.kind === "hosted")
+      collections: hostedRequired
+        ? availableCollections.filter((collection) => collection.kind === "hosted" || collection.kind === "cloud_copy")
         : availableCollections
     };
   });
@@ -856,6 +877,7 @@ export function registerAuthorizationRoutes(
       contract_setups: z.array(contractSetupChoiceSchema).max(20).default([])
     }).parse(request.body);
     let approved: boolean;
+    const nativeSync = input.offer_id ? null : await currentNativeSync(options.db, input.collection_id);
     if (input.offer_id) {
       approved = await localApprovals.portal({
         source: "portal",
@@ -868,15 +890,18 @@ export function registerAuthorizationRoutes(
         peoplePermissions: input.people_permissions,
         contractSetups: input.contract_setups
       });
-    } else if (await resolveNativeCollectionAccess(options.db, user.id, input.collection_id)
+    } else if ((nativeSync && await resolveNativeCollectionAccess(options.db, user.id, input.collection_id, nativeSync))
       || (options.nextClientKeys && await unmigratedLocalCollection(options.db, input.collection_id, user.id))) {
       if (input.contract_setups.length > 0) {
-        throw new RequestValidationError("Private collections are set up by the application after it connects.");
+        throw new RequestValidationError("Synced collections are set up by the application after it connects.");
       }
       approved = await approveNativeAuthorization(options.db, {
         requestId,
         userId: user.id,
         collectionId: input.collection_id,
+        // An unmigrated local collection has no mode: approval refuses it with
+        // its explanation before any mode check.
+        sync: nativeSync ?? "private",
         operations: input.operations,
         fileActions: input.file_actions,
         peoplePermissions: input.people_permissions

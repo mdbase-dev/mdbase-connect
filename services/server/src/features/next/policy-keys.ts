@@ -52,6 +52,10 @@ export interface NextControlPlaneConfig {
   privateBootstrap?: true;
   /** Default-off release gate; enabled only by the explicit server setting. */
   collectionModeExecution?: true;
+  /** Default-off release gate for the scheduled object sweep; enabled only by MDBASE_NEXT_OBJECT_GC=1. */
+  objectGc?: true;
+  /** Default-off file quota allocation from plans; MDBASE_NEXT_FILE_QUOTA=report logs it, =enforce applies it. */
+  fileQuota?: "report" | "enforce";
   /** Trusted direct Noise endpoint origin; discovery is not live admission. */
   hostedClientUrl?: string;
   migrationRouting?: MigrationRouting;
@@ -172,6 +176,10 @@ export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPla
   if (pitrAuthorityToken && [hosted, escrow, migration, cloudCopyBootstrap?.hosted.token, cloudCopyBootstrap?.escrow.token].includes(pitrAuthorityToken)) {
     throw new Error("LAB PITR authority token must differ from existing service tokens.");
   }
+  const objectGc = env.MDBASE_NEXT_OBJECT_GC?.trim() ?? "";
+  if (!["", "0", "1"].includes(objectGc)) throw new Error("MDBASE_NEXT_OBJECT_GC must be 0 or 1.");
+  const fileQuota = env.MDBASE_NEXT_FILE_QUOTA?.trim() ?? "";
+  if (!["", "report", "enforce"].includes(fileQuota)) throw new Error("MDBASE_NEXT_FILE_QUOTA must be report or enforce.");
   const collectionModeExecution = env.MDBASE_NEXT_COLLECTION_MODE_EXECUTION?.trim() ?? "";
   if (!["", "0", "1"].includes(collectionModeExecution)) throw new Error("MDBASE_NEXT_COLLECTION_MODE_EXECUTION must be 0 or 1.");
   const privateBootstrap = env.MDBASE_NEXT_PRIVATE_BOOTSTRAP?.trim() ?? "";
@@ -188,6 +196,8 @@ export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPla
     ...(migrationRouting ? { migrationRouting } : {}),
     ...(privateBootstrap === "1" ? { privateBootstrap: true as const } : {}),
     ...(collectionModeExecution === "1" ? { collectionModeExecution: true as const } : {}),
+    ...(objectGc === "1" ? { objectGc: true as const } : {}),
+    ...(fileQuota ? { fileQuota: fileQuota as "report" | "enforce" } : {}),
     ...(env.MDBASE_NEXT_HOSTED_CLIENT_URL?.trim() ? { hostedClientUrl: hostedClientOrigin(env.MDBASE_NEXT_HOSTED_CLIENT_URL.trim()) } : {}),
     ...(labFixtures ? { labFixtures } : {}),
   };

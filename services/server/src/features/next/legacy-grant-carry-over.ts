@@ -63,7 +63,7 @@ async function carryOver(client: DatabaseConnection, collection: string): Promis
     try {
       await client.query(
         `UPDATE grants SET legacy_collection_id = collection_id, legacy_encryption = encryption,
-           collection_id = NULL, next_collection_id = $1, logical_collection_id = $1, encryption = NULL
+           collection_id = NULL, next_collection_id = $1, next_collection_sync = 'private', logical_collection_id = $1, encryption = NULL
          WHERE id = $2`,
         [collection, grant.id]
       );

@@ -234,7 +234,7 @@ function uuidString(bytes: Uint8Array): string {
  * `{type: "pipe_auth", access_token, collection, grant, device, device_noise_pk}`, the
  * target device and its Noise key as the routing endpoint returned them; after `pipe_opened`, binary
  * frames are the client's §12.3 stream bytes. Close codes: 4401 unauthenticated,
- * 4403 grant_inactive, 4404 connector_offline, 4429 connector_busy, 4000 any other
+ * 4403 terminal grant refusal, 4404 connector_offline, 4429 connector_busy, 4000 any other
  * close with the reason as text.
  */
 export function registerNoisePipeClientRoute(
@@ -268,7 +268,7 @@ export function registerNoisePipeClientRoute(
       void binding?.close();
       if (pipeId && published) void options.broker.publishPipe(pipeSubject(pipeId, "device"), closeFrame(deviceReason)).catch(() => undefined);
       if (reason && socket.readyState < 2) {
-        const code = { unauthenticated: 4401, grant_inactive: 4403, connector_offline: 4404, connector_busy: 4429 }[reason] ?? 4000;
+        const code = { unauthenticated: 4401, grant_inactive: 4403, grant_revoked_on_device: 4403, grant_pending_approval: 4403, unknown_grant: 4403, connector_offline: 4404, connector_busy: 4429 }[reason] ?? 4000;
         socket.close(code, reason);
       }
     };

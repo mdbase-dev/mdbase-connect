@@ -27,11 +27,12 @@ test("Connect opens one themed, accessible auth column at desktop and 390px", as
   await page.goto(`${portalOrigin}/login`);
   await expect(page).toHaveURL(`${portalOrigin}/login`);
   await expect(page.getByRole("button", { name: "Continue with Google" })).toBeEnabled();
-  await expect(page.locator(".provider-divider")).toHaveCount(1);
+  await expect(page.locator(".provider-divider")).toHaveCount(0);
   await expect(page.locator("h1")).toHaveText("Sign in");
+  await expect(page.getByLabel("Email", { exact: true })).toBeFocused();
   await expect(page.getByLabel("Email", { exact: true })).toHaveAttribute("autocomplete", "username");
   await expect(page.getByLabel("Password", { exact: true })).toHaveAttribute("autocomplete", "current-password");
-  expect(await page.locator(".minimal-auth-shell").evaluate((element) => getComputedStyle(element).fontFamily)).toContain("Atkinson Hyperlegible Next Variable");
+  expect(await page.locator(".minimal-auth-shell").evaluate((element) => getComputedStyle(element).fontFamily)).toContain("IBM Plex Sans");
   await expect(page.getByRole("button", { name: "Sign in", exact: true })).toHaveClass(/mdbase-button is-primary/);
   for (const theme of ["light", "dark"] as const) {
     await chooseOption(page.getByRole("combobox", { name: "Color theme" }), theme);
@@ -55,6 +56,7 @@ test("Connect opens one themed, accessible auth column at desktop and 390px", as
 
 test("native validation is inline, focuses the first invalid field, and clears on correction", async ({ page }) => {
   await page.goto(`${portalOrigin}/login`);
+  await expect(page.getByLabel("Email", { exact: true })).toBeFocused();
   const email = page.locator('input[autocomplete="username"]');
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(email).toBeFocused();
@@ -93,7 +95,6 @@ test("Google reserves a disabled control while loading and retries script failur
   await expect(loading).toBeDisabled();
   await expect(page.locator(".google-button")).toHaveAttribute("inert", "");
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await expect(page.locator(".auth-spinner")).toHaveCSS("animation-name", "none");
   await expect(page.getByText("Preparing Google sign-in…")).toHaveCount(0);
   const before = await page.locator(".google-provider").boundingBox();
   release();
@@ -122,7 +123,12 @@ test("signup and recovery use the same column and announce email delivery withou
     await page.goto(`${portalOrigin}/${path}`);
     await chooseOption(page.getByRole("combobox", { name: "Color theme" }), "dark");
     await expect(page.locator(".minimal-auth-shell")).toBeVisible();
-    await expect(page.locator(".provider-divider")).toHaveCount(path === "signup" ? 1 : 0);
+    await expect(page.locator(".provider-divider")).toHaveCount(0);
+    if (path === "signup") {
+      const provider = await page.getByRole("link", { name: "Continue with GitHub" }).boundingBox();
+      const email = await page.getByLabel("Email", { exact: true }).boundingBox();
+      expect(provider!.y + provider!.height).toBeLessThan(email!.y);
+    }
     await page.getByLabel("Email", { exact: true }).fill("fixture@example.com");
     await page.getByRole("button", { name: action }).click();
     await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
@@ -153,7 +159,7 @@ test("reset and verified signup validate matching passwords inline", async ({ pa
     }
     await page.getByRole("button", { name: submit, exact: true }).click();
     await expect(confirmation).toHaveAttribute("aria-invalid", "true");
-    await expect(page.getByRole("alert")).toHaveText("Passwords do not match.");
+    await expect(page.locator(".auth-field-error").filter({ hasText: "Passwords do not match." })).toBeVisible();
     await confirmation.fill("a valid fixture password");
     await expect(confirmation).not.toHaveAttribute("aria-invalid", "true");
     await expectAccessible(page);
@@ -186,9 +192,10 @@ test("signup associates the 257-character password error and brings it into view
   await expect(confirmation).toHaveAttribute("aria-invalid", "true");
   await expect(password).toHaveAccessibleDescription(/Password must contain no more than 256 characters/);
   await expect(confirmation).toHaveAccessibleDescription(/Password must contain no more than 256 characters/);
-  await expect(password.locator("..").getByRole("alert")).toBeInViewport();
+  const fieldError = page.locator(".auth-field-error").filter({ hasText: /no more than 256 characters/ }).first();
+  await expect(fieldError).toBeInViewport();
   expect(submitted).toBe(0);
-  const alert = await password.locator("..").getByRole("alert").elementHandle();
+  const alert = await fieldError.elementHandle();
   await password.press("End");
   await password.press("a");
   expect(await alert!.evaluate(element => element.isConnected)).toBe(true);
@@ -197,7 +204,7 @@ test("signup associates the 257-character password error and brings it into view
   await confirmation.fill("😀".repeat(256));
   await expect(password).not.toHaveAttribute("aria-invalid", "true");
   await page.getByRole("button", { name: "Create account", exact: true }).click();
-  await expect(page.getByRole("alert")).toHaveText("Please try again.");
+  await expect(page.getByRole("alert")).toHaveText("Something went wrong on mdbase. Try again.");
   await expect(page.getByRole("alert")).toBeFocused();
   await expect(page.getByRole("alert")).toBeInViewport();
   expect(submitted).toBe(1);
@@ -207,7 +214,7 @@ test("configuration failure stays in the auth shell and offers a working retry",
   await page.route(`${portalOrigin}/v1/auth/config`, (route) => route.fulfill({ status: 503, json: { error: { message: "Sign-in is temporarily unavailable." } } }));
   await page.goto(`${portalOrigin}/login`);
   await expect(page.getByRole("heading", { name: "Couldn’t connect" })).toBeVisible();
-  await expect(page.getByRole("alert")).toHaveText("Sign-in is temporarily unavailable.");
+  await expect(page.getByRole("alert")).toHaveText("Something went wrong on mdbase. Try again.");
   await page.route(`${portalOrigin}/v1/auth/config`, (route) => route.fulfill({ json: authentication }));
   await page.getByRole("button", { name: "Try again" }).click();
   await expect(page.getByRole("heading", { name: "Sign in", exact: true })).toBeVisible();

@@ -74,6 +74,7 @@ fn seeded(records: Vec<(u128, String, String)>) -> MemStore {
                     path,
                     doc,
                     modified_seq: 0,
+                    mtime: None,
                     bucket: 0,
                 })
                 .collect(),
@@ -101,6 +102,122 @@ fn assert_exhausted(result: Result<QueryResult, crate::api::ApiError>) {
         error.problem().reason.as_deref(),
         Some("query_budget_exceeded")
     );
+}
+
+fn filtered_query(linked: bool, selected: bool, offset: u64, limit: u64) -> Value {
+    let Value::Map(mut fields) = query("sources/a.md") else {
+        unreachable!()
+    };
+    for (name, value) in &mut fields {
+        if name == "where" {
+            *value = Value::Text(if linked {
+                "\"source\" in record && record[\"source\"] != null && record[\"source\"].asFile() != null && record[\"source\"].asFile().file.path == \"sources/a.md\"".into()
+            } else {
+                "source == \"[[sources/a]]\"".into()
+            });
+        }
+        if name == "select" {
+            *value = Value::List(vec![Value::Text("source".into())]);
+        }
+    }
+    if !selected {
+        fields.retain(|(name, _)| name != "select");
+    }
+    fields.push(("offset".into(), Value::Int(offset.try_into().unwrap())));
+    fields.push(("limit".into(), Value::Int(limit.try_into().unwrap())));
+    Value::Map(fields)
+}
+
+fn annotation_inventory() -> Vec<(u128, String, String)> {
+    let mut records = vec![
+        (1, "sources/a.md".into(), "---\ntitle: A\n---\n".into()),
+        (2, "sources/b.md".into(), "---\ntitle: B\n---\n".into()),
+    ];
+    records.extend((0..235_u128).map(|number| {
+        (
+            100 + number,
+            format!("annotations/{number:03}.md"),
+            annotation(if number < 144 {
+                "sources/a"
+            } else {
+                "sources/b"
+            }),
+        )
+    }));
+    records
+}
+
+#[test]
+fn filtered_pages_return_every_match_and_explicit_terminal_metadata() {
+    for linked in [true, false] {
+        for selected in [true, false] {
+            let svc = FakeLogService::new();
+            let mut replica = node(&svc, 1, seeded(annotation_inventory()));
+            settle(&mut [&mut replica]);
+            for limit in [100, 128, 72] {
+                let mut offset = 0;
+                let mut found = Vec::new();
+                loop {
+                    let page = replica
+                        .r
+                        .query(
+                            replica.s,
+                            filtered_query(linked, selected, offset, limit),
+                            include(),
+                        )
+                        .unwrap();
+                    assert!(page.complete);
+                    assert!(page.cursor.is_none());
+                    assert_eq!(page.records.len() as u64, limit.min(144 - offset));
+                    offset += page.records.len() as u64;
+                    let more = page.has_more == Some(true);
+                    found.extend(page.records.into_iter().map(|record| record.path));
+                    if !more {
+                        assert_eq!(page.has_more, Some(false));
+                        break;
+                    }
+                    assert!(offset < 144);
+                }
+                assert_eq!(
+                    found,
+                    (0..144)
+                        .map(|number| format!("annotations/{number:03}.md"))
+                        .collect::<Vec<_>>(),
+                    "linked={linked}, selected={selected}, limit={limit}"
+                );
+                for offset in [144, 200] {
+                    let page = replica
+                        .r
+                        .query(
+                            replica.s,
+                            filtered_query(linked, selected, offset, limit),
+                            include(),
+                        )
+                        .unwrap();
+                    assert!(page.records.is_empty());
+                    assert_eq!(page.has_more, Some(false));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn filtered_page_budget_exhaustion_is_an_error_not_a_short_success() {
+    for linked in [true, false] {
+        for selected in [true, false] {
+            let mut records = annotation_inventory();
+            records[145].2.push_str(&"x".repeat(1 << 20));
+            let svc = FakeLogService::new();
+            let mut replica = node(&svc, 1, seeded(records));
+            settle(&mut [&mut replica]);
+            assert_exhausted(replica.r.query(
+                replica.s,
+                filtered_query(linked, selected, 0, 100),
+                include(),
+            ));
+        }
+    }
 }
 
 #[test]

@@ -3,6 +3,8 @@ import { cleanup, configure } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
 
 configure({ asyncUtilTimeout: 5_000 });
+HTMLElement.prototype.checkVisibility = function () { return !this.closest("[hidden]"); };
+HTMLElement.prototype.getAnimations = function () { return []; };
 Object.defineProperty(window, "matchMedia", { configurable: true, value: (media: string) => ({
   matches: false, media, onchange: null, addEventListener() {}, removeEventListener() {},
   addListener() {}, removeListener() {}, dispatchEvent() { return true; }
@@ -62,6 +64,7 @@ class ResizeObserverStub implements ResizeObserver {
 }
 
 globalThis.ResizeObserver = ResizeObserverStub;
+Element.prototype.scrollIntoView = vi.fn();
 
 const emptyRect = (): DOMRect => ({
   x: 0,

@@ -179,7 +179,7 @@ impl<S: Store> Replica<S> {
             let mdbn_core::value::Value::Map(raw) = raw else {
                 unreachable!("frontmatter is a map")
             };
-            let effective = catalog.effective_frontmatter(&record.types, &raw);
+            let effective = catalog.effective_values(&record.path, &record.types, &raw);
             let bytes = mdbn_core::value::Value::Map(effective.clone())
                 .to_json()
                 .len();

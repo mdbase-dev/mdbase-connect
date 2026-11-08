@@ -153,9 +153,12 @@ struct DiskStore {
 }
 
 impl Store for DiskStore {
-    // Retains no lost-tail or own history (the trait's `own_retained` default).
+    // Retains no lost-tail or own history.
     fn own_retained_stats(&self) -> StoreResult<TailStats> {
         Ok(TailStats::default())
+    }
+    fn own_retained(&self, _after: Seq, _limit: u32) -> StoreResult<Vec<(Seq, PendingRow)>> {
+        Ok(Vec::new())
     }
     fn head(&self) -> StoreResult<Head> {
         self.inner.head()
@@ -969,6 +972,88 @@ fn oversized_new_synced_observation_retains_user_bytes_without_ack_or_publish() 
         incident.kind == IncidentKind::QuotaExceeded
             && matches!(&incident.details, Some(Value::Map(details)) if details.iter().any(|(key, value)| key == "reason" && value == &Value::Text("record_too_large".into())))
     }));
+}
+
+/// Exchange calls as `settle` does, refusing every append over quota.
+fn settle_refusing_appends(n: &mut Node) -> usize {
+    use crate::log::{LogClient, LogPort};
+    let mut refused = 0;
+    for _ in 0..100 {
+        n.r.observe(None).unwrap();
+        for call in n.r.take_log_calls() {
+            let reply = if matches!(call.request, crate::log::LogRequest::Append(_)) {
+                refused += 1;
+                Err(crate::log::LogError::code(
+                    crate::log::LogErrorCode::QuotaExceeded,
+                ))
+            } else {
+                n.log.call(call.request)
+            };
+            n.r.on_log_reply(call.id, reply);
+        }
+        n.r.tick();
+    }
+    refused
+}
+
+#[test]
+fn quota_refused_entries_retry_without_a_restart_and_clear_the_incident() {
+    use mdbn_wire::client::IncidentKind;
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    let quota = |n: &Node| {
+        n.r.sync_status()
+            .incidents
+            .iter()
+            .any(|incident| incident.kind == IncidentKind::QuotaExceeded)
+    };
+    create(&mut a, 1, "quota.md", "waiting for room");
+    assert_eq!(settle_refusing_appends(&mut a), 1);
+    assert!(quota(&a));
+    assert_eq!(a.r.store().pending_count().unwrap(), 1, "the entry is kept");
+    let retry = a.r.tuning.quota_retry_ms;
+    assert_eq!(
+        a.r.next_wakeup(),
+        Some(a.r.now() + i64::try_from(retry).unwrap()),
+        "the host wakes the replica for the retry"
+    );
+
+    a.clock.set(a.clock.get() + retry - 1);
+    assert_eq!(
+        settle_refusing_appends(&mut a),
+        0,
+        "no retry before the delay"
+    );
+
+    // Still full: the next attempt waits again rather than stopping.
+    a.clock.set(a.clock.get() + 1);
+    assert_eq!(settle_refusing_appends(&mut a), 1);
+    assert!(quota(&a));
+    assert_eq!(a.r.store().pending_count().unwrap(), 1);
+
+    a.clock.set(a.clock.get() + retry);
+    settle(&mut [&mut a]);
+    assert_eq!(a.r.store().pending_count().unwrap(), 0);
+    assert!(!quota(&a), "an accepted append clears the refusal");
+}
+
+#[test]
+fn an_accepted_append_keeps_a_record_size_refusal() {
+    use mdbn_wire::client::IncidentKind;
+    use mdbn_wire::common::Value;
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    let reason = Value::Map(vec![("reason".into(), Value::Text("record_too_large".into()))]);
+    a.r.incident(IncidentKind::QuotaExceeded, Some(reason));
+    create(&mut a, 1, "fine.md", "fits");
+    settle(&mut [&mut a]);
+    assert_eq!(a.r.store().pending_count().unwrap(), 0);
+    assert!(
+        a.r.sync_status()
+            .incidents
+            .iter()
+            .any(|incident| incident.kind == IncidentKind::QuotaExceeded)
+    );
 }
 
 #[test]
@@ -2303,8 +2388,12 @@ fn local_only_grants_come_from_the_host() {
     #[derive(Clone, Default)]
     struct Access(Rc<RefCell<BTreeMap<Uuid, EffectiveGrant>>>);
     impl GrantSource for Access {
-        fn grant(&self, g: &Uuid) -> Option<EffectiveGrant> {
-            self.0.borrow().get(g).cloned()
+        fn grant(&self, g: &Uuid) -> crate::api::ApiResult<EffectiveGrant> {
+            self.0
+                .borrow()
+                .get(g)
+                .cloned()
+                .ok_or_else(|| crate::api::ErrorCode::Unauthenticated.err("the grant was revoked"))
         }
         fn owner_identity(&self) -> Option<LocalOwnerIdentity> {
             Some(LocalOwnerIdentity {
@@ -2469,6 +2558,66 @@ fn queued_publication_model_resource_path_uses_the_complete_core_registry() {
         assert!(actual.confirmed);
         assert_eq!(actual.text, source);
         assert_eq!(a.file(path).as_deref(), Some(source));
+    }
+}
+
+#[test]
+fn repaired_resource_ingestion_clears_its_refusal_but_not_other_integrity_failures() {
+    for retained_failure in [None, Some("unrelated integrity failure")] {
+        let service = FakeLogService::new();
+        let mut node = node_mode(&service, 1, mdbn_wire::client::SyncMode::LocalOnly);
+        node.r.planner = Box::new(crate::plan::CorePlanner);
+        let config = "spec_version: 0.3.0\nsettings:\n  timezone: UTC\n";
+        node.disk
+            .borrow_mut()
+            .user_write("mdbase.yaml", Some(config));
+        node.r.observe(None).unwrap();
+        assert!(
+            node.r.sync_status().incidents.is_empty(),
+            "initial resource capture: {:?}",
+            node.r.sync_status().incidents
+        );
+        if let Some(message) = retained_failure {
+            node.r.incident(
+                mdbn_wire::client::IncidentKind::Integrity,
+                Some(mdbn_wire::common::Value::Text(message.into())),
+            );
+        }
+        node.disk
+            .borrow_mut()
+            .user_write("mdbase.yaml", Some(&config.replace("0.3.0", "99.0.0")));
+        node.r.observe(None).unwrap();
+        assert!(
+            node.r
+                .sync_status()
+                .incidents
+                .iter()
+                .any(|incident| { incident.kind == mdbn_wire::client::IncidentKind::Integrity })
+        );
+        let deferred = node.disk.borrow_mut().queued.pop().unwrap();
+        assert_eq!(deferred.path, "mdbase.yaml");
+        assert!(node.disk.borrow().queued.is_empty());
+        node.disk
+            .borrow_mut()
+            .user_write("mdbase.yaml", Some(config));
+        node.r.observe(None).unwrap();
+        let status = node.r.sync_status();
+        let integrity = status
+            .incidents
+            .iter()
+            .find(|incident| incident.kind == mdbn_wire::client::IncidentKind::Integrity);
+        match retained_failure {
+            Some(message) => assert_eq!(
+                integrity.unwrap().details,
+                Some(mdbn_wire::common::Value::Text(message.into()))
+            ),
+            None => assert!(
+                integrity.is_none(),
+                "repaired resource capture: {integrity:?}"
+            ),
+        }
+        assert!(node.r.resource_ingest_paths().is_empty());
+        assert!(node.disk.borrow().outstanding.contains_key(&deferred.token));
     }
 }
 

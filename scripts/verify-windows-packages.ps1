@@ -67,6 +67,13 @@ foreach ($file in @($application, $connector, $installer)) {
   }
 }
 
+$connectorImage = [Text.Encoding]::ASCII.GetString(
+  [IO.File]::ReadAllBytes($connector.FullName)
+)
+if ($connectorImage -match "(?i)(vcruntime|msvcp)\d+\S*\.dll") {
+  throw "mdbase.exe imports the Visual C++ runtime ($($Matches[0])); link it statically"
+}
+
 if ($PreviewOnly) {
   $storePackages = @(
     Get-ChildItem (Join-Path $OutPath "make") -Recurse -File -Filter "*.appx"
@@ -149,6 +156,23 @@ if ([string]$properties.PublisherDisplayName -ne $PublisherDisplayName) {
 }
 if ($applicationNode.Executable -ne "app\mdbase-connect.exe") {
   throw "Unexpected Store package executable: $($applicationNode.Executable)"
+}
+$namespaces = New-Object System.Xml.XmlNamespaceManager($manifest.NameTable)
+$namespaces.AddNamespace("f", "http://schemas.microsoft.com/appx/manifest/foundation/windows10")
+$namespaces.AddNamespace("uap", "http://schemas.microsoft.com/appx/manifest/uap/windows10")
+$namespaces.AddNamespace("rescap", "http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities")
+$namespaces.AddNamespace("desktop6", "http://schemas.microsoft.com/appx/manifest/desktop/windows10/6")
+$protocols = $manifest.SelectNodes("/f:Package/f:Applications/f:Application/f:Extensions/uap:Extension[@Category='windows.protocol']/uap:Protocol", $namespaces)
+if ($protocols.Count -ne 1 -or $protocols[0].Name -ne "mdbase-connect") {
+  throw "Store package must register the mdbase-connect deep-link protocol"
+}
+if ($identity.ProcessorArchitecture -ne "x64") {
+  throw "Store package must target x64"
+}
+$virtualization = $manifest.SelectSingleNode("/f:Package/f:Properties/desktop6:FileSystemWriteVirtualization", $namespaces)
+$unvirtualized = $manifest.SelectSingleNode("/f:Package/f:Capabilities/rescap:Capability[@Name='unvirtualizedResources']", $namespaces)
+if (-not $unvirtualized -or $virtualization.InnerText -ne "disabled") {
+  throw "Store package must disable file write virtualization for the daemon's runtime"
 }
 $storeConnector = Join-Path $unpacked "app\resources\mdbase-next\mdbase.exe"
 if (-not (Test-Path $storeConnector -PathType Leaf)) {

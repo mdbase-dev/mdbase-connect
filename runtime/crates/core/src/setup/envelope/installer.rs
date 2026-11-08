@@ -11,7 +11,7 @@ impl CollectionSetup {
         if self.type_packs.is_empty() {
             return Ok(());
         }
-        let initial = assess_collection_resources(state, self)?;
+        let initial = assess_collection_resources(state, self, &Default::default())?;
         for (entry, assessed) in self.type_packs.iter_mut().zip(&initial.type_packs) {
             entry.options.target_overrides = match &assessed.current {
                 None => folder_target_overrides(state, &entry.pack),

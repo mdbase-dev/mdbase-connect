@@ -20,6 +20,7 @@ interface Options {
   noteSessions: RefObject<NoteSessionStore>;
   indexController: CollectionIndexController;
   allNotes: NoteSummary[];
+  noteOrder: string[];
   files: CollectionFile[];
   typeDescriptors: CollectionTypeDescriptor[];
   document?: NoteDocument;
@@ -39,7 +40,11 @@ interface Options {
   replaceNoteHistoryPath(from: string, to: string): void;
   forgetNoteHistoryPath(path: string): void;
   remapPin(from: string, to: string): void;
+  setPin(path: string, pinned: boolean): void;
+  pinnedPaths: string[];
+  onRestore(path: string): void;
   clearSelection(): void;
+  focusNoteList(): void;
   setDocument(document?: NoteDocument): void;
   setDraft(draft?: Draft): void;
   setSelectedPath(path?: string): void;
@@ -53,6 +58,7 @@ interface Options {
 type BatchUndo = { kind: "delete"; document: NoteDocument } | { kind: "properties"; document: NoteDocument; revision: string };
 
 type RecoveryAction =
+  | { kind: "pin"; id: string; path: string; pinned: boolean }
   | { kind: "mention"; path: string; before: string; after: string }
   | { kind: "batch"; changes: BatchUndo[]; message: string }
   | { kind: "delete"; document: NoteDocument; pending?: boolean }
@@ -74,10 +80,10 @@ function batchMessage<Value>(verb: BatchVerb, result: BatchResult<Value>): strin
 
 /** Coordinates explicit note actions through the existing collection scope and session queue.
  * This owns transient action/Undo state, not record documents, navigation or a second write pipeline. */
-export function useNoteActions({ gateway, mutationScope, noteSessions, indexController, allNotes, files,
+export function useNoteActions({ gateway, mutationScope, noteSessions, indexController, allNotes, noteOrder, files,
   typeDescriptors, document, pathDraft, canCreateNotes, canEditNotes, canRenameNotes, canDeleteNotes,
   createSession, flushSession, runNoteOperation, touchSession, updateNoteSummary, refreshCachedNote,
-  openNote, navigateToNote, replaceNoteHistoryPath, forgetNoteHistoryPath, remapPin, clearSelection,
+  openNote, navigateToNote, replaceNoteHistoryPath, forgetNoteHistoryPath, remapPin, setPin, pinnedPaths, onRestore, clearSelection, focusNoteList,
   setDocument, setDraft, setSelectedPath, setPathDraft, setEditingPath, setRenamePlan, setRecentPaths,
   setNotice }: Options) {
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -112,7 +118,8 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
   }
 
   async function renameNote(path: string) {
-    if (!canRenameNotes || mutationScope.current.isFrozen) return;
+    if (!canRenameNotes) { setNotice(t`This application does not have permission to make that change.`, "info"); return; }
+    if (mutationScope.current.isFrozen) return;
     if (await openNote(path)) { setPathDraft(path); setEditingPath(true); }
   }
 
@@ -492,7 +499,8 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
     if (mutationScope.current.isFrozen) return;
     const token = mutationScope.current.token();
     const path = session.document.path;
-    const next = allNotes.find((note) => note.path !== path);
+    const position = noteOrder.indexOf(path);
+    const next = position < 0 ? undefined : noteOrder[position + 1] ?? noteOrder[position - 1];
     session.deleted = true;
     indexController.stageRemoval(path);
     forgetNoteHistoryPath(path);
@@ -501,7 +509,8 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
       setDocument(undefined);
       setDraft(undefined);
       setSelectedPath(undefined);
-      if (next) void openNote(next.path);
+      clearSelection();
+      if (next) void openNote(next);
     }
       // Acknowledge the delete at once: confirmation can take seconds, and the
       // note has already left the list. Undo becomes available once confirmed.
@@ -551,7 +560,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
           if (change.kind === "delete") {
             const restored = await mutationScope.current.register(token, gateway.restore(change.document, restoreId(change.document)));
             if (!mutationScope.current.isCurrent(token)) throw new StaleCollectionOperationError();
-            createSession(restored); indexController.create(summaryFromDocument(restored));
+            createSession(restored); indexController.create(summaryFromDocument(restored)); onRestore(restored.path);
           } else {
             const session = await actionSession(path);
             await flushSession(session);
@@ -565,11 +574,16 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
         if (!mutationScope.current.isCurrent(token)) return;
         const failed = new Set(result.failed.map((item) => item.path));
         const remaining = action.changes.filter((change) => failed.has(change.document.path));
-        setRecoveryAction(remaining.length ? { ...action, changes: remaining, message: batchMessage("Restored", result) } : undefined);
+        setRecoveryAction((current) => {
+          if (current !== action) return current;
+          return remaining.length ? { ...action, changes: remaining, message: batchMessage("Restored", result) } : undefined;
+        });
         if (!remaining.length) setNotice(t`Restored selected notes.`, "success");
         return;
       }
-      if (action.kind === "mention") {
+      if (action.kind === "pin") {
+        setPin(action.path, action.pinned);
+      } else if (action.kind === "mention") {
         const session = await actionSession(action.path);
         await flushSession(session);
         await runNoteOperation(session, "saving", async () => {
@@ -586,7 +600,10 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
         if (!mutationScope.current.isCurrent(token)) return;
         createSession(restored);
         indexController.create(summaryFromDocument(restored));
-        setNotice(t`Restored “${noteTitle(restored, typeDescriptors)}”.`, "success");
+        clearSelection();
+        if (await openNote(restored.path)) { onRestore(restored.path); focusNoteList(); }
+        if (!mutationScope.current.isCurrent(token)) return;
+        setNotice(t`Restored ${noteTitle(restored, typeDescriptors)}`, "success");
       } else {
         const moves = action.kind === "move" ? [...action.paths] : [action];
         const result = await runNoteBatch([...moves].reverse().map((move) => move.to), async (path) => {
@@ -622,13 +639,13 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
         if (!mutationScope.current.isCurrent(token)) return;
         if (result.failed.length) {
           const failed = new Set(result.failed.map((item) => item.path));
-          if (action.kind === "move") setRecoveryAction({ ...action, paths: moves.filter((move) => failed.has(move.to)), message: batchMessage("Restored", result) });
+          if (action.kind === "move") setRecoveryAction((current) => current === action ? { ...action, paths: moves.filter((move) => failed.has(move.to)), message: batchMessage("Restored", result) } : current);
           else setNotice(batchMessage("Restored", result));
           return;
         }
         setNotice(t`Restored note paths.`, "success");
       }
-      setRecoveryAction(undefined);
+      setRecoveryAction((current) => current === action ? undefined : current);
     } catch (error) {
       if (mutationScope.current.isCurrent(token)) setNotice(t`Couldn’t undo that change. ${gatewayError(error)}`);
     } finally {
@@ -649,7 +666,32 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
     deleteRequests.current.clear();
   }
 
-  return { renameNote, duplicateNote, linkUnlinkedMention, applyBulkProperties, deleteSelectedNotes,
+  let recoveryMessage: string | undefined;
+  if (recoveryAction) {
+    switch (recoveryAction.kind) {
+      case "pin": recoveryMessage = recoveryAction.pinned ? t`Unpinned` : t`Pinned`; break;
+      case "mention": recoveryMessage = t`Linked mention.`; break;
+      case "batch": recoveryMessage = recoveryAction.message; break;
+      case "delete": {
+        const title = noteTitle(recoveryAction.document, typeDescriptors);
+        recoveryMessage = recoveryAction.pending ? t`Deleting ${title}…` : t`Deleted ${title}`;
+        break;
+      }
+      case "move": {
+        const moved = plural(recoveryAction.paths.length, { one: "Moved # note.", other: "Moved # notes." });
+        const links = recoveryAction.references ? plural(recoveryAction.references, { one: "Also updated links in # note.", other: "Also updated links in # notes." }) : "";
+        recoveryMessage = recoveryAction.message ?? [moved, links].filter(Boolean).join(" ");
+        break;
+      }
+      case "rename": recoveryMessage = t`Renamed to “${recoveryAction.to}”.`; break;
+    }
+  }
+  function togglePin(path: string) {
+    const pinned = pinnedPaths.includes(path);
+    setPin(path, !pinned);
+    setRecoveryAction({ kind: "pin", id: crypto.randomUUID(), path, pinned });
+  }
+  return { recoveryMessage, togglePin, renameNote, duplicateNote, linkUnlinkedMention, applyBulkProperties, deleteSelectedNotes,
     onMoveNotes, requestRename, performRename, cancelRename, saveProperties, saveRecordSource,
     validateNote, requestDelete, undoRecovery, propertiesError, setPropertiesError, pendingRenameRecovery,
     bulkBusy, recoveryAction, setRecoveryAction, recoveryBusy, setRecoveryBusy, linkingMention,

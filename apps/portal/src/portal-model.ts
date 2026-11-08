@@ -59,6 +59,7 @@ export function rememberCollection(collectionId: string): void {
 
 export function initials(value: string) { return value.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase(); }
 export function message(value: unknown) {
+  if (value instanceof Error && "status" in value && typeof value.status === "number" && value.status >= 500) return t(i18n)`Something went wrong on mdbase. Try again.`;
   let detail = value instanceof Error ? value.message : String(value);
   if (value && typeof value === "object" && "details" in value) {
     const diagnostics = (value.details as { diagnostics?: unknown } | undefined)?.diagnostics;
@@ -73,13 +74,13 @@ export function message(value: unknown) {
     }
   }
   if (/failed to fetch|networkerror|network request failed/i.test(detail)) {
-    return t(i18n)({ message: "mdbase connect could not reach the service. Check your connection and try again." });
+    return t(i18n)({ message: "mdbase Connect could not reach the service. Check your connection and try again." });
   }
   if (/authorization.+(?:expired|not found)|request.+(?:expired|not found)/i.test(detail)) {
-    return t(i18n)({ message: "This application request has expired. Return to the application and start again." });
+    return t(i18n)({ message: "This app request has expired. Return to the app and start again." });
   }
   if (/unsupported.+protocol|up-to-date connector|no longer compatible/i.test(detail)) {
-    return t(i18n)({ message: "The mdbase connect app on this computer needs to be updated before you can continue." });
+    return t(i18n)({ message: "The mdbase Connect app on this computer needs to be updated before you can continue." });
   }
   return detail;
 }
@@ -149,6 +150,13 @@ export function signInUrl(currentLocation: ReturnLocation = location): string {
   const login = new URL("/login", currentLocation.origin);
   login.searchParams.set("return_to", target.href);
   return `${login.pathname}${login.search}`;
+}
+
+export function signInRedirectUrl(baseUrl: string, hadSession: boolean, currentHref: string = location.href): string {
+  const login = new URL("/login", baseUrl);
+  if (hadSession) login.searchParams.set("reason", "session-expired");
+  login.searchParams.set("return_to", currentHref);
+  return login.href;
 }
 export type PortalBootstrapSecrets = Readonly<{
   invitationToken: string;

@@ -1,5 +1,7 @@
 import { LocaleProvider } from "@mdbase-dev/i18n/react";
+import userEvent from "@testing-library/user-event";
 import { fireEvent, render, screen, waitFor } from "../test/locale";
+import { chooseOption } from "../test/select";
 import { describe, expect, it, vi } from "vitest";
 import { DemoCollectionGateway } from "../demo-gateway";
 import { defaultPreferences } from "../preferences";
@@ -11,13 +13,15 @@ import { connectUiCatalogues } from "@mdbase/connect-ui/i18n";
 import { createEditorLocaleRuntime, localeStorageKey } from "./runtime";
 
 describe("editor language preference", () => {
-  it("renders English immediately without a locale download", () => {
+  it("renders English immediately without a locale download", async () => {
     const loadLocale = vi.fn();
     const runtime = createEditorLocaleRuntime({ preferences: ["en"], loadLocale });
     render(<LocaleProvider runtime={runtime} onError={vi.fn()}><LanguageSetting /></LocaleProvider>);
-    expect(screen.getByRole("combobox", { name: "Interface language" })).toHaveValue("en");
+    const picker = screen.getByRole("combobox", { name: "Interface language" });
+    expect(picker).toHaveTextContent("English");
     expect(loadLocale).not.toHaveBeenCalled();
     expect(document.documentElement.lang).toBe("en");
+    await userEvent.setup().click(picker);
     expect(screen.getAllByRole("option")).toHaveLength(10);
   });
 
@@ -26,10 +30,10 @@ describe("editor language preference", () => {
     const runtime = createEditorLocaleRuntime({ preferences: ["en"], loadLocale: async () => { throw new Error("offline"); } });
     render(<LocaleProvider runtime={runtime} onError={vi.fn()}><LanguageSetting /></LocaleProvider>);
     const picker = screen.getByRole("combobox", { name: "Interface language" });
-    fireEvent.change(picker, { target: { value: "ja" } });
+    await chooseOption(userEvent.setup(), picker, "ja");
     expect(await screen.findByRole("alert")).toHaveTextContent("The language choice could not be applied. Please try again.");
     await waitFor(() => expect(picker).not.toBeDisabled());
-    expect(picker).toHaveValue("en");
+    expect(picker).toHaveTextContent("English");
     expect(document.documentElement.lang).toBe("en");
     expect(localStorage.getItem(localeStorageKey)).toBe("en");
   });
@@ -55,7 +59,7 @@ describe("editor language preference", () => {
     </LocaleProvider>);
     const draft = screen.getByRole("textbox", { name: "Draft" });
     fireEvent.change(draft, { target: { value: "Still unsaved, 日本語" } });
-    fireEvent.change(screen.getByRole("combobox", { name: "Interface language" }), { target: { value: "de" } });
+    await chooseOption(userEvent.setup(), screen.getByRole("combobox", { name: "Interface language" }), "de");
     await waitFor(() => expect(document.documentElement.lang).toBe("de"));
     expect(screen.getByText("1.234.567")).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Draft" })).toBe(draft);

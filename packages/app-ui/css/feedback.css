@@ -11,13 +11,10 @@
 .mdbase-feedback-dialog::backdrop { background: var(--color-scrim); }
 .mdbase-feedback-dialog *, .mdbase-feedback-markup * { box-sizing: border-box; }
 .mdbase-feedback-dialog :is(button,input,textarea), .mdbase-feedback-markup button { font: inherit; }
-.mdbase-feedback-dialog :focus-visible, .mdbase-feedback-markup :focus-visible, .mdbase-feedback-trigger:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 3px; }
+.mdbase-feedback-dialog :focus-visible, .mdbase-feedback-markup :focus-visible, .mdbase-feedback-trigger:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
 .mdbase-feedback-dialog button, .mdbase-feedback-markup .mdbase-feedback-actions button, .mdbase-feedback-tools button { border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); padding: 7px 11px; background: var(--color-canvas); color: var(--color-text); cursor: pointer; }
 .mdbase-feedback-dialog button:hover, .mdbase-feedback-markup button:hover { background: var(--color-selected); }
 .mdbase-feedback-dialog button:disabled, .mdbase-feedback-markup button:disabled { opacity: .5; cursor: default; }
-.mdbase-feedback-header { display: flex; justify-content: space-between; align-items: center; gap: 15px; padding: 27px; border-bottom: 1px solid var(--color-border); flex-shrink: 0; }
-.mdbase-feedback-header h2 { font-size: var(--font-size-heading); line-height: 1.25; letter-spacing: -.5px; margin: 0; color: var(--color-text); }
-.mdbase-feedback-header button { border: 0; width: 34px; height: 34px; padding: 0; font-size: var(--font-size-heading); color: var(--color-text-muted); }
 .mdbase-feedback-dialog form { display: flex; flex-direction: column; flex: 1; overflow: hidden; margin: 0; }
 .mdbase-feedback-body { flex: 1; overflow-y: auto; padding: 23px 27px; }
 .mdbase-feedback-topics { display: grid; gap: 6px; border: 0; padding: 0; margin: 0 0 23px; }
@@ -38,7 +35,7 @@
 .mdbase-feedback-screenshot-actions label { display: flex; align-items: center; gap: 7px; }
 .mdbase-feedback-upload { position: relative; color: var(--color-accent); cursor: pointer; padding: 6px 0; }
 .mdbase-feedback-upload input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
-.mdbase-feedback-upload:focus-within { outline: 2px solid var(--color-accent); outline-offset: 3px; }
+.mdbase-feedback-upload:focus-within { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
 .mdbase-feedback-check { display: flex; gap: 8px; align-items: center; font-size: var(--font-size-caption); }
 .mdbase-feedback-details > .mdbase-feedback-check { margin: 14px 0 8px; }
 .mdbase-feedback-help { font-size: var(--font-size-caption); line-height: 1.6; color: var(--color-text-muted); margin: 9px 0; }
@@ -59,4 +56,7 @@
 .mdbase-feedback-canvas { background: var(--color-surface-subtle); border: 1px solid var(--color-border); padding: 12px; overflow: auto; display: flex; justify-content: center; align-items: center; min-height: 0; }
 .mdbase-feedback-canvas canvas { display: block; max-width: 100%; max-height: calc(100dvh - 345px); width: auto; height: auto; background: white; touch-action: none; cursor: crosshair; }
 .mdbase-feedback-markup .mdbase-feedback-actions { padding: 15px 0 0; }
-@media (max-width: 600px) { .mdbase-feedback-header { padding: 23px; } .mdbase-feedback-body { padding: 20px 23px; } .mdbase-feedback-actions { padding: 16px 23px; } .mdbase-feedback-tools { gap: 4px; } .mdbase-feedback-tools button { font-size: var(--font-size-caption); padding: 6px 8px; } }
+@media (max-width: 600px) {  .mdbase-feedback-body { padding: 20px 23px; } .mdbase-feedback-actions { padding: 16px 23px; } .mdbase-feedback-tools { gap: 4px; } .mdbase-feedback-tools button { font-size: var(--font-size-caption); padding: 6px 8px; } }
+
+.mdbase-feedback-dialog.is-capturing { --motion-exit: 0ms; }
+.mdbase-feedback-dialog > .mdbase-dialog-body { padding: 16px; gap: 16px; }

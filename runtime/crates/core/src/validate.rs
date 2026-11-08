@@ -117,7 +117,9 @@ pub fn validate_record_at(
     let fm = doc.frontmatter();
     let membership = catalog.membership_at(path, fm, clock);
     let mut out = membership.issues;
-    let instance = Value::Map(fm.clone());
+    let (values, path_issues) = catalog.record_values_with_issues(path, &membership.types, fm);
+    out.extend(path_issues);
+    let instance = Value::Map(values);
     for name in &membership.types {
         let Some(t) = catalog.type_named(name) else {
             continue;
@@ -166,7 +168,8 @@ pub fn cross_record_issues(state: &dyn StateView, id: crate::ids::RecordId) -> V
             rules.push((field, rule));
         }
     }
-    let mut all = links::frontmatter_links(&catalog, &types, fm);
+    let values = catalog.record_values(&rec.path, &types, fm);
+    let mut all = links::frontmatter_links(&catalog, &types, &values);
     all.extend(links::parse_body(doc.body()));
     for l in &all {
         let field = l.field.as_ref().map(|(f, _)| f.clone());
@@ -233,6 +236,8 @@ pub fn duplicate_values(
     only: Option<crate::types::Enforce>,
 ) -> Vec<Issue> {
     use crate::types::{UniqueScope, select};
+    let values = catalog.record_values(&rec.path, types, fm);
+    let fm = &values;
     let mut out = Vec::new();
     for t in types.iter().filter_map(|n| catalog.type_named(n)) {
         for rule in &t.unique {
@@ -270,7 +275,13 @@ pub fn duplicate_values(
                         .iter()
                         .any(|n| n.eq_ignore_ascii_case(&t.name)),
                 };
-                if in_set && select(ofm, &rule.field).iter().any(|v| mine.contains(v)) {
+                let types = catalog.membership(&other.path, ofm).types;
+                let values = catalog.record_values(&other.path, &types, ofm);
+                if in_set
+                    && select(&values, &rule.field)
+                        .iter()
+                        .any(|v| mine.contains(v))
+                {
                     paths.push(other.path.clone());
                 }
             }

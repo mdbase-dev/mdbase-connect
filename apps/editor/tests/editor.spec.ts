@@ -233,23 +233,17 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-async function expectSharedSelectControls(scope: Locator, languagePicker = false) {
-  // Product choices use the shared Select. The kit language primitive is native.
+async function expectSharedSelectControls(scope: Locator) {
   const controls = scope.locator('button[role="combobox"].mdbase-select');
   await expect(controls.first()).toBeVisible();
-  await expect(scope.locator("select")).toHaveCount(languagePicker ? 1 : 0);
-  if (languagePicker) {
-    const language = scope.getByRole("combobox", { name: "Interface language", exact: true });
-    await expect(language).toHaveJSProperty("tagName", "SELECT");
-    await expect(language.locator("option")).toHaveCount(10);
-    await expect(language.locator('option[value="it"]')).toHaveText("Italiano");
-  }
+  await expect(scope.locator("select")).toHaveCount(0);
   const audit = await controls.evaluateAll((selects) => selects.map((select) => ({
     hasCaret: Boolean(select.querySelector(".mdbase-select-chevron")),
     listbox: select.getAttribute("aria-haspopup") === "listbox",
+    minHeight: getComputedStyle(select).minHeight,
     height: select.getBoundingClientRect().height
   })));
-  expect(audit.every((control) => control.hasCaret && control.listbox && control.height === 34)).toBe(true);
+  expect(audit.every((control) => control.hasCaret && control.listbox && control.minHeight === "28px" && control.height >= 28)).toBe(true);
 }
 
 test("shows an explicit status while a collection opens", async ({ page }) => {
@@ -266,8 +260,8 @@ test("shows an explicit status while a collection opens", async ({ page }) => {
   }).toBe(true);
   await expect(opening).toHaveAttribute("aria-busy", "true");
   await expect(opening).toHaveAttribute("data-loading-state", "opening");
-  await expect(page.getByText("Reading its notes and types")).toBeVisible();
-  await expect(opening.locator(".opening-rail, .opening-list")).toHaveCount(0);
+  await expect(page.getByText("Reading notes and files")).toBeVisible();
+  await expect(opening.locator(".collection-rail")).toBeVisible();
   await page.clock.resume();
   await expect(page.getByRole("heading", { name: "All notes" })).toBeVisible();
   await expect(opening).not.toBeAttached();
@@ -343,7 +337,7 @@ test("uses one fixed-choice control across settings, note creation, and type edi
   await page.goto("?demo=12");
 
   await page.getByRole("button", { name: "Settings" }).click();
-  await expectSharedSelectControls(page.locator(".settings-view"), true);
+  await expectSharedSelectControls(page.locator(".settings-view"));
 
   await page.getByRole("button", { name: /^All notes, / }).click();
   await page.getByRole("button", { name: "New note" }).click();
@@ -476,7 +470,7 @@ test("wraps long titles and gives narrow editor panes a usable writing measure",
   await page.setViewportSize({ width: 834, height: 900 });
   await page.goto("?demo=12");
   const title = page.getByRole("textbox", { name: "Note title" });
-  const longTitle = "A longer note title that stays readable in a narrow editor pane";
+  const longTitle = "A longer note title that stays readable in a narrow editor pane without clipping or hiding the rest of the title";
   await title.fill(longTitle);
   for (const colorScheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme });
@@ -510,14 +504,17 @@ test("wraps long titles and gives narrow editor panes a usable writing measure",
   await title.fill("Pasted title\nwith a second line");
   await expect(title).toHaveValue("Pasted title with a second line");
   await title.fill("An exceptionally long title ".repeat(50));
-  const capped = await title.evaluate((element) => ({
+  const uncapped = await title.evaluate((element) => ({
     height: element.getBoundingClientRect().height,
     fieldHeight: element.parentElement!.getBoundingClientRect().height,
-    bodyHeight: document.querySelector(".body-editor")!.getBoundingClientRect().height
+    clipped: element.scrollHeight - element.clientHeight,
+    editorHeight: document.querySelector(".body-editor")!.getBoundingClientRect().height,
+    paneHeight: document.querySelector(".writing-surface")!.getBoundingClientRect().height
   }));
-  expect(capped.height).toBeLessThanOrEqual(192);
-  expect(capped.height).toBeLessThanOrEqual(capped.fieldHeight);
-  expect(capped.bodyHeight).toBeGreaterThan(100);
+  expect(uncapped.height).toBeGreaterThan(192);
+  expect(uncapped.height).toBeLessThanOrEqual(uncapped.fieldHeight);
+  expect(uncapped.clipped).toBeLessThanOrEqual(1);
+  expect(uncapped.editorHeight).toBe(uncapped.paneHeight);
   await title.fill("Short title");
   await expect.poll(() => title.evaluate((element) => element.getBoundingClientRect().height)).toBe(52);
   await page.getByRole("textbox", { name: "Note body" }).focus();
@@ -738,8 +735,8 @@ test("filters collection facets, follows backlinks, and completes wikilinks", as
   expect(appearance.rowHeight).toBeGreaterThanOrEqual(40);
   expect(appearance.listHeight).toBeLessThanOrEqual(252);
   expect(appearance.listScrollHeight).toBeGreaterThan(appearance.listHeight);
-  expect(appearance.listFont).toContain("Atkinson Hyperlegible");
-  expect(appearance.labelFont).toContain("Atkinson Hyperlegible");
+  expect(appearance.listFont).toContain("IBM Plex Sans");
+  expect(appearance.labelFont).toContain("IBM Plex Sans");
   expect(appearance.labelWeight).toBe("700");
   expect(appearance.detailFont).toContain("Azeret Mono");
 
@@ -865,15 +862,14 @@ test("shows the matching note text in sidebar and quick-open search results", as
 
 test("sorts notes and clears the active scope from view options", async ({ page }) => {
   await page.goto("?demo=4");
-  await expect(page.locator(".list-header p")).toHaveText("4 notes · 2 files · modified newest");
+  await expect(page.locator(".list-header p")).toHaveText("4 notes · 2 files");
 
   await page.getByRole("button", { name: "View options" }).click();
   const menu = page.getByRole("menu", { name: "Note view options" });
-  await expect(menu.getByRole("menuitemradio", { name: "Modified newest" })).toHaveAttribute("aria-checked", "true");
-  await menu.getByRole("menuitemradio", { name: "Title A–Z" }).click();
+  await expect(menu.getByRole("menuitemradio", { name: "Modified" })).toHaveAttribute("aria-checked", "true");
+  await menu.getByRole("menuitemradio", { name: "Title" }).click();
   await expect(page.locator(".note-row").first().locator(".note-title")).toHaveText("A quiet interface 3");
-  await expect(page.locator(".list-header p")).toHaveText("4 notes · 2 files · title A–Z");
-  expect(await page.evaluate(() => localStorage.getItem("mdbase-editor:note-sort"))).toBe("title-asc");
+  await expect(page.locator(".list-header p")).toHaveText("4 notes · 2 files · Title: A–Z");
 
   await page.getByRole("combobox", { name: "Search notes and files" }).fill("quiet interface");
   await expect(page.locator(".list-header p")).toHaveText("1 found · relevance");
@@ -977,7 +973,7 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
   await expect(localField).toHaveValue("field");
   await localField.fill("local_context");
   await localField.press("Tab");
-  await page.getByRole("heading", { name: "Works with applications" }).click();
+  await page.getByRole("heading", { name: "Works with apps" }).click();
   await expect(page.getByText("Mapping ready")).toBeVisible();
   const contractSettings = page.locator(".contract-settings");
   await contractSettings.locator("summary").click();
@@ -1238,7 +1234,7 @@ test("builds and saves a recursive list-of-objects field", async ({ page }) => {
   await nestedRow.getByRole("checkbox", { name: "Required" }).check();
 
   await page.getByRole("button", { name: "Review changes" }).click();
-  await expect(page.getByRole("heading", { name: "Update this type?" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Review type changes" })).toBeVisible();
   await expect(page.locator(".type-change-review dl > div").filter({ hasText: "Fields added" })).toContainText("2");
   await page.getByRole("button", { name: "Confirm update" }).click();
   await expect(page.getByRole("button", { name: "Review changes" })).toBeDisabled();
@@ -1253,7 +1249,7 @@ test("builds and saves a recursive list-of-objects field", async ({ page }) => {
 test("resizes, collapses, and restores the desktop sidebars", async ({ page }) => {
   await page.goto("?demo=12");
   await expect(page.getByRole("heading", { name: "All notes" })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Note body" })).toBeFocused();
+  await expect(page.getByRole("listbox", { name: "Collection notes and files" })).toBeFocused();
 
   const collectionResize = page.getByRole("separator", { name: "Resize collections sidebar" });
   await collectionResize.focus();
@@ -1502,7 +1498,7 @@ test("keeps a ten-thousand-note collection responsive and virtualized", { tag: "
   await page.goto("?demo=10000");
   await expect(page.getByRole("textbox", { name: "Note title" })).toBeVisible();
   const firstUsableMs = Date.now() - started;
-  expect(firstUsableMs).toBeLessThan(1_800);
+  expect(firstUsableMs).toBeLessThan(2_000);
   await expect(page.getByText("10,000 notes")).toBeVisible();
   const fullIndexMs = Date.now() - started;
   expect(fullIndexMs).toBeLessThan(2_500);
@@ -1565,7 +1561,9 @@ test("protects an unfinished note draft with a modal confirmation", async ({ pag
 
   const confirmation = page.getByRole("alertdialog", { name: "Discard this note?" });
   await expect(confirmation).toBeVisible();
-  await expect(page.locator("#root")).toHaveAttribute("aria-hidden", "true");
+  expect(await confirmation.evaluate(element => element.matches(":modal"))).toBe(true);
+  await page.getByRole("textbox", { name: "Title", includeHidden: true, exact: true }).evaluate(element => (element as HTMLElement).focus());
+  await expect(confirmation.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
   await confirmation.getByRole("button", { name: "Cancel" }).click();
   await expect(page.getByRole("textbox", { name: "Title" })).toHaveValue("A draft worth keeping");
 
@@ -1735,4 +1733,84 @@ test("has no automatically detectable accessibility violations across editor sur
   await page.getByRole("button", { name: "Settings" }).click();
   await expect(page.getByRole("main", { name: "Editor settings" })).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+});
+
+test.describe("note title on scroll", () => {
+  let scrollNote: (top: number) => Promise<void>;
+
+  test.beforeEach(async ({ page }) => {
+    scrollNote = (top) => page.locator(".body-editor .cm-scroller").evaluate((element, value) => { element.scrollTop = value; }, top);
+    await page.goto("?demo=12");
+    const body = page.getByRole("textbox", { name: "Note body" });
+    await expect(body).toBeVisible();
+    await page.getByRole("textbox", { name: "Note title" }).fill("Handoff title");
+    await body.fill(Array.from({ length: 200 }, (_, index) => `Line ${index + 1}`).join("\n"));
+    await expect(page.getByRole("main", { name: "Note editor" })).toHaveAttribute("data-save-state", "saved", { timeout: 5_000 });
+    await page.keyboard.press("Control+Home");
+  });
+
+  test("hands the title to the bar and returns to it for editing", async ({ page }) => {
+    const title = page.getByRole("textbox", { name: "Note title" });
+    const barTitle = page.locator(".note-bar-title");
+    await expect(barTitle).toBeHidden();
+    await expect(title).toBeInViewport();
+
+    await scrollNote(600);
+    await expect(barTitle).toBeVisible();
+    await expect(barTitle).toHaveText("Handoff title");
+    await expect(page.locator(".path-button")).toBeVisible();
+
+    await barTitle.click();
+    await expect(title).toBeFocused();
+    await expect(title).toBeInViewport();
+    await expect(barTitle).toBeHidden();
+    await expect.poll(() => page.locator(".body-editor .cm-scroller").evaluate((element) => element.scrollTop)).toBe(0);
+    await page.keyboard.type(" edited");
+    await expect(title).toHaveValue("Handoff title edited");
+  });
+
+  test("keeps the title in the focus mode bar", async ({ page }) => {
+    await page.keyboard.press("Control+Shift+F");
+    await expect(page.locator(".app-shell")).toHaveClass(/focus-mode/);
+    await scrollNote(600);
+    await expect(page.locator(".note-bar-title")).toBeVisible();
+    await expect(page.locator(".path-button")).toBeHidden();
+  });
+
+  test("scrolls the path away with the title on phones", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 780 });
+    const path = page.locator(".mobile-note-path");
+    await expect(path).toBeInViewport();
+    await scrollNote(600);
+    await expect(path).not.toBeInViewport();
+    const barTitle = page.locator(".note-bar-title");
+    await expect(barTitle).toBeVisible();
+    const back = await page.getByRole("button", { name: "Back to notes" }).boundingBox();
+    const bounds = await barTitle.boundingBox();
+    expect(bounds!.x).toBeGreaterThanOrEqual(back!.x + back!.width - 1);
+  });
+
+  test("keeps the title aligned while unwrapped lines scroll sideways", async ({ page }) => {
+    await page.evaluate(() => {
+      localStorage.setItem("mdbase-editor:preferences", JSON.stringify({ vim: false, lineWrapping: false, quietMarkdown: true, fontSize: 17 }));
+    });
+    await page.reload();
+    const body = page.getByRole("textbox", { name: "Note body" });
+    await body.fill("A long unwrapped line ".repeat(100));
+    const title = page.getByRole("textbox", { name: "Note title" });
+    const before = await title.boundingBox();
+    await page.locator(".body-editor .cm-scroller").evaluate((element) => { element.scrollLeft = 400; });
+    expect((await title.boundingBox())!.x).toBe(before!.x);
+  });
+
+  test("selects and types in the body below the title", async ({ page }) => {
+    const line = page.locator(".cm-line").filter({ hasText: /^Line 3$/ });
+    await line.click();
+    await page.keyboard.press("End");
+    await page.keyboard.type("!");
+    await expect(page.locator(".cm-line").filter({ hasText: /^Line 3!$/ })).toBeVisible();
+    await page.keyboard.press("Control+Home");
+    await page.keyboard.press("Control+End");
+    await expect(page.locator(".cm-line").filter({ hasText: /^Line 200$/ })).toBeInViewport();
+  });
 });

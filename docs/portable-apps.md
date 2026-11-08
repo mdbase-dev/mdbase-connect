@@ -35,7 +35,8 @@ requires approval again.
 Portable applications can authorize either computer-owned or hosted
 collections through the same `MdbaseConnection` API. Add
 `"collection_kind": "hosted"` to `requirements` when the application
-specifically needs a durable cloud collection; omit it to let the user choose
+specifically needs a durable cloud collection (a hosted collection or a cloud
+copy); omit it to let the user choose
 any compatible local or hosted collection.
 
 ## Authorization

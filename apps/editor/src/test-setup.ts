@@ -5,6 +5,8 @@ import { cleanup, configure } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
 
 configure({ asyncUtilTimeout: 5_000 });
+HTMLElement.prototype.checkVisibility = function () { return !this.closest("[hidden]"); };
+HTMLElement.prototype.scrollIntoView ??= vi.fn();
 
 // jsdom does not implement native modal dialogs or their top-layer behavior.
 if (typeof HTMLDialogElement.prototype.showModal !== "function") {
@@ -35,6 +37,7 @@ afterEach(() => {
 });
 beforeEach(() => {
   localStorage.clear();
+  vi.stubGlobal("matchMedia", vi.fn((media: string) => ({ matches: false, media, onchange: null, addListener: vi.fn(), removeListener: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn(), dispatchEvent: vi.fn() })));
   vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
     catalog_version: 1,
     id: "mdbase.contracts",
@@ -60,6 +63,18 @@ class ResizeObserverStub implements ResizeObserver {
 }
 
 globalThis.ResizeObserver = ResizeObserverStub;
+
+class IntersectionObserverStub implements IntersectionObserver {
+  readonly root = null;
+  readonly rootMargin = "0px";
+  readonly scrollMargin = "0px";
+  readonly thresholds = [0];
+  disconnect() {}
+  observe() {}
+  takeRecords() { return []; }
+  unobserve() {}
+}
+globalThis.IntersectionObserver = IntersectionObserverStub;
 
 const emptyRect = (): DOMRect => ({
   x: 0,

@@ -32,10 +32,10 @@ const app = { appName: "TaskNotes" };
 
 describe("collectionView", () => {
   it.each([
-    ["joining", "Connecting your collection…"], ["opening_store", "Opening the local collection…"],
+    ["joining", "Connecting your collection…"], ["opening_store", "Preparing your offline copy…"],
     ["connecting_log", "Connecting to sync…"], ["syncing", "Syncing your collection…"],
     ["loading_snapshot", "Loading the collection snapshot…"], ["replaying", "Applying collection updates…"],
-    ["waiting_for_key", "Waiting for the collection key…"], ["verifying_read", "Checking the collection is readable…"],
+    ["waiting_for_key", "Preparing secure access…"], ["verifying_read", "Checking the collection is readable…"],
     ["checking_setup", "Checking collection setup…"],
   ])("shows only truthful fixed progress copy for %s", (progress, lead) => {
     const phase = {kind: "opening" as const, collectionId: A, displayName: "Notes", slow: false, progress};

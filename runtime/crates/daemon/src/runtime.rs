@@ -193,7 +193,7 @@ enum Cmd {
     /// Rescan, then list the confirmed records and resources.
     Inventory(oneshot::Sender<Option<Inventory>>),
     /// Stop admitting writes, settle, take the inventory and hold counts, stop.
-    Freeze(oneshot::Sender<Option<Frozen>>),
+    Freeze(oneshot::Sender<Result<Frozen, Option<crate::sync_failure::Failure>>>),
     #[cfg(test)]
     TestSeedHold(
         Box<Option<mdbn_wire::client::Hold>>,
@@ -341,7 +341,10 @@ pub struct LocalGrantSet {
 pub struct AuthoritySource(pub crate::authority::CollectionAuthority);
 
 impl mdbn_replica::policy::GrantSource for AuthoritySource {
-    fn grant(&self, grant: &B16) -> Option<mdbn_replica::policy::EffectiveGrant> {
+    fn grant(
+        &self,
+        grant: &B16,
+    ) -> mdbn_replica::api::ApiResult<mdbn_replica::policy::EffectiveGrant> {
         self.0.grant(grant)
     }
 
@@ -596,15 +599,19 @@ impl Runtime {
     /// Stop the runtime at a single point for adopt: sessions are closed first,
     /// so no write is admitted after the snapshot; the folder is rescanned; the
     /// inventory and hold counts are taken; then the runtime stops as
-    /// [`Runtime::stop`] does. `None` (and still stopped) when it was already
-    /// stopped or the store could not be read.
-    pub async fn freeze(&self) -> Option<Frozen> {
+    /// [`Runtime::stop`] does. On failure, returns the allowlisted terminal
+    /// diagnostic when known; an absent diagnostic never proves recovery safe.
+    pub async fn freeze(&self) -> Result<Frozen, Option<crate::sync_failure::Failure>> {
         let (tx, rx) = oneshot::channel();
         let sent = self.tx.send(Cmd::Freeze(tx)).is_ok();
-        let frozen = if sent { rx.await.ok().flatten() } else { None };
+        let frozen = if sent {
+            rx.await.unwrap_or(Err(None))
+        } else {
+            Err(None)
+        };
         #[cfg(test)]
         {
-            *self.capture_fixture_frozen.lock().unwrap() = Some(frozen.clone());
+            *self.capture_fixture_frozen.lock().unwrap() = Some(frozen.as_ref().ok().cloned());
         }
         let thread = self.thread.lock().ok().and_then(|mut t| t.take());
         if let Some(t) = thread {
@@ -1235,7 +1242,11 @@ fn on_log_event<S: mdbn_replica::store::Store>(
                 let _ = reply.send(None);
                 return;
             }
-            let proof = rep.log_hello_proof(nonce, &token).ok().map(|s| s.0);
+            let proof = rep
+                .log_hello_proof(nonce, &token)
+                .inspect_err(|e| tracing::warn!(error = ?e, "log hello proof not signed"))
+                .ok()
+                .map(|s| s.0);
             let _ = reply.send(if generation.check().is_ok() {
                 proof
             } else {
@@ -1784,6 +1795,7 @@ fn run(
                     rep.ingest(ingest.drain(..).collect());
                 }
                 rep.store_mut().inner_mut().request_rescan();
+                let mut failure = None;
                 let frozen = match rep.observe(None) {
                     Ok(_) => {
                         // observe() can return Ok after ingest records a terminal
@@ -1817,6 +1829,16 @@ fn run(
                                 })
                             }
                             _ => {
+                                failure = crate::sync_failure::Failure::project(
+                                    &status,
+                                    &rep.adopt_status(),
+                                );
+                                if let Some(failure) = &mut failure
+                                    && failure.cause
+                                        == Some(crate::sync_failure::Cause::ResourceIngestDeferred)
+                                {
+                                    failure.paths = rep.resource_ingest_paths();
+                                }
                                 tracing::warn!(
                                     pending = status.pending,
                                     terminal,
@@ -1833,7 +1855,7 @@ fn run(
                 };
                 drop(link);
                 drop(rep);
-                let _ = reply.send(frozen);
+                let _ = reply.send(frozen.ok_or(failure));
                 return;
             }
             Ok(Cmd::Stop(deleted, done)) => {
@@ -2143,8 +2165,8 @@ mod tests {
         fn grant(
             &self,
             _: &mdbn_wire::common::Uuid,
-        ) -> Option<mdbn_replica::policy::EffectiveGrant> {
-            None
+        ) -> mdbn_replica::api::ApiResult<mdbn_replica::policy::EffectiveGrant> {
+            Err(mdbn_replica::api::ErrorCode::Unauthenticated.err("the grant was revoked"))
         }
     }
 

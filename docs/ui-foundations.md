@@ -1,0 +1,32 @@
+# UI foundations
+
+`@mdbase-dev/ui/dialog`: `Dialog({open, title, onClose, children})`. Native modal semantics, Escape/backdrop dismissal, focus return and exit retention. `closeDisabled` locks consequential pending work; `returnFocusRef` names a surviving invoker when a chooser's row disappears.
+
+`@mdbase-dev/ui/confirm-dialog`: `ConfirmDialog({open, title, consequence?, confirmLabel, pendingLabel, onConfirm, onClose, children?})`. Cancel takes initial focus; an awaited callback keeps the modal pending. The caller closes only after acknowledged success. `disabled` gates validation and `busy` reflects externally owned work.
+
+`@mdbase/connect-ui/confirm-action`: keep `question` to a short dialog title and put explanatory sentences in `consequence`. `pendingLabel` names the work while the callback is awaited. Returning `false` from that callback keeps the dialog open and displays the supplied `error`; acknowledged success closes it.
+
+`@mdbase-dev/ui/menu`: `Menu({open, triggerRef, id, onClose, children})`; `onClose(refocus)` distinguishes Escape from an outside pointer. Existing menu item roles and arrow navigation remain.
+
+`@mdbase-dev/ui/overlay`: `useOverlay<Element>(open)` returns `{ref, present}`. Render while present, put the ref and `mdbase-overlay` / `data-open={open}` on the transitioning node. CSS owns reversal; the node leaves after the exit duration. Motion, focus and palette geometry tokens have one definition. No data-screen entrance choreography is added.
+
+## Portal commands
+
+Portal commands live in `apps/portal/src/portal-commands.ts`: one cached registry and one keyboard hook, replacing the navigation-only palette and independent Mod+K listener. Object entries reveal existing rows; actions activate their existing controls and confirmation flows, never a second mutation path. Opening or filtering the palette does not fetch data. Account-page entry focus and scrolling finish in the layout phase before a command hands focus to a row or preference control.
+
+The shared shortcut vocabulary is Mod+K for search, `?` / Ctrl+/ for help, `c` for Add collection, `/` for the current list filter, J/K and Enter for visible list focus. Navigation is `g c` Collections, `g a` Apps, `g p` Computers, `g s` Account; inside a collection, `g o` Overview, `g t` Storage and `g r` Access. The prefix expires after one second but survives ordinary renders. Typing, composition, dialogs and menus suspend these shortcuts. Sign out and revoke have no single-key binding. Pointer-coarse surfaces keep Search available but hide shortcut hints. Palette dismissal restores its invoker; running a command closes the modal before handing focus to its destination.
+
+## Editor publication boundary
+
+The Editor adoption source uses the shared CommandPalette, Dialog/ConfirmDialog, Menu and Toaster. Its local dialog stack, inert/focus trap, menu lifecycle, palette renderer and notification renderer are deleted. Ranked note/content/path search, fuzzy action search, create-from-search, pending recovery actions and the 30-second Undo window remain Editor domain logic; they feed the shared components directly. Palette geometry, focus and motion use shared tokens.
+
+The Editor consumes an exact npm `@mdbase-dev/ui` version, not workspace source. Its frozen lock supplies the registry integrity and its publisher compares every installed original member before execution. UI adoption must migrate affected adapters and delete replaced lifecycle/trap implementations; palette/focus/type CSS must use the shared tokens.
+
+A merged app-ui change enters the existing **Publish npm packages** workflow (`.github/workflows/publish-npm.yml`) after successful Server CI on main, or its scheduled/manual reconciliation. `scripts/continuous-sdk-release.mjs plan workspace` detects changed public-package inputs (`scripts/public-packages.mjs` includes app-ui), requires qualified main and verified publication provenance, and checks production contract compatibility through `scripts/lib/continuous-client-release.mjs`. TS component changes are contract-sensitive under that conservative classifier: merge alone does not guarantee publication. The release owner must resolve any compatibility hold through the existing release process, not bypass it.
+
+Once an exact version containing the adoption PR's app-ui commit is actually published with verified provenance, finish the draft with the coordinated repin:
+
+1. Take that exact published UI version and its canonical npm tarball integrity (not an assumed beta number or a dist-tag alone).
+2. Update `apps/editor/package.json`'s exact `@mdbase-dev/ui` dependency and regenerate `pnpm-lock.yaml` with the normal install path, following `apps/editor/NATIVE_PUBLISHER.md`. There are no additional UI hash inputs or target configs. Preserve the SDK pin.
+3. The adoption code is already complete. Remove the temporary local tarball install, install with the frozen lock, and verify that the published package supplies the same APIs and shared palette geometry.
+4. Run the native publisher pin tests, frozen install, Editor typecheck/unit/style gates and Playwright (including `tests/demo-smoke.spec.ts`), then the repository PR gates. After merge, the ops pipeline can dispatch the immutable main ancestor through Editor continuous deployment.

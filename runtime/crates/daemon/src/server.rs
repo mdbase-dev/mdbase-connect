@@ -29,7 +29,8 @@ use crate::control::{
     AccountInfo, AddCollection, Check, CollectionRef, CollectionStatus, ConflictSummary,
     ControlError, DaemonStatus, DeleteCollection, DeviceInfo, EnableSync, GrantRef, HoldAction,
     HoldResolved, HoldSummary, JoinCollection, Method, NotReady, Notice, PROTOCOL,
-    READINESS_SCHEMA, Readiness, Request, ResolveHold, Response, Settings, UpdateCollection,
+    READINESS_SCHEMA, Readiness, Request, ResolveHold, Response, SetSyncFiles, Settings, SyncFiles,
+    UpdateCollection,
 };
 use crate::fsutil;
 use crate::instance::{InstanceLock, LockError};
@@ -90,6 +91,9 @@ pub struct Daemon {
     /// The status after the latest change, built once for every subscriber.
     status_feed: watch::Sender<Option<Arc<serde_json::Value>>>,
     shutdown: watch::Sender<bool>,
+    /// Every task the daemon spawns ([`Daemon::spawn`]); shutdown aborts and
+    /// awaits them all before [`run`] returns.
+    tasks: std::sync::Mutex<tokio::task::JoinSet<()>>,
     inner: Mutex<Inner>,
     /// The account link (relay task, pairing in progress).
     account: std::sync::Mutex<Account>,
@@ -127,14 +131,14 @@ pub struct Daemon {
 struct Account {
     epoch: u64,
     pairing_allowed: bool,
-    pairing_task: Option<tokio::task::JoinHandle<()>>,
+    pairing_task: Option<tokio::task::AbortHandle>,
     signed_in: bool,
-    relay: Option<tokio::task::JoinHandle<()>>,
+    relay: Option<tokio::task::AbortHandle>,
     pairing: Option<String>,
     /// Reason code of the last account-link problem; cleared when the relay connects.
     last_error: Option<String>,
     /// Background device registration retries, while registration keeps failing.
-    registration: Option<tokio::task::JoinHandle<()>>,
+    registration: Option<tokio::task::AbortHandle>,
     /// Reason code while this device is not registered with the account; shown as
     /// `last_error` and cleared only by a registration.
     registration_error: Option<String>,
@@ -218,6 +222,7 @@ pub async fn run_with(
         link: std::sync::Mutex::new(None),
         trust: crate::trust::authenticated().ok().map(Arc::new),
         shutdown: watch::channel(false).0,
+        tasks: Default::default(),
         identity: Default::default(),
         account_keys: Default::default(),
         takeover: Default::default(),
@@ -239,13 +244,13 @@ pub async fn run_with(
         "daemon starting"
     );
 
-    let init = tokio::spawn(initialize(daemon.clone()));
-    let signals = tokio::spawn(wait_for_signal(daemon.clone()));
-    let strict_reports = tokio::spawn(daemon.clone().strict_witness_reports());
-    let account_keys = tokio::spawn(daemon.clone().account_key_reconcile());
-    let device_requests = tokio::spawn(daemon.clone().device_approval_requests());
-    let old_connector = tokio::spawn(daemon.clone().watch_old_connector());
-    let status_feed = tokio::spawn(daemon.clone().publish_status());
+    daemon.spawn(initialize(daemon.clone()));
+    daemon.spawn(wait_for_signal(daemon.clone()));
+    daemon.spawn(daemon.clone().strict_witness_reports());
+    daemon.spawn(daemon.clone().account_key_reconcile());
+    daemon.spawn(daemon.clone().device_approval_requests());
+    daemon.spawn(daemon.clone().watch_old_connector());
+    daemon.spawn(daemon.clone().publish_status());
 
     let mut stop = daemon.shutdown.subscribe();
     loop {
@@ -253,7 +258,7 @@ pub async fn run_with(
             accepted = control.accept() => match accepted {
                 Ok(stream) => {
                     let d = daemon.clone();
-                    tokio::spawn(async move {
+                    daemon.spawn(async move {
                         if let Err(e) = serve_control(d, stream).await {
                             tracing::debug!(error = %e, "control connection closed");
                         }
@@ -267,7 +272,7 @@ pub async fn run_with(
             accepted = replica.accept() => match accepted {
                 Ok(stream) => {
                     let d = daemon.clone();
-                    tokio::spawn(async move {
+                    daemon.spawn(async move {
                         let Some(id) = d.identity.get() else {
                             return; // not initialised: close without a handshake
                         };
@@ -293,13 +298,10 @@ pub async fn run_with(
         .readiness
         .send_replace(readiness(false, Some(NotReady::Stopping)));
     daemon.bump();
-    init.abort();
-    signals.abort();
-    strict_reports.abort();
-    account_keys.abort();
-    device_requests.abort();
-    old_connector.abort();
-    status_feed.abort();
+    daemon.stop_tasks().await;
+    if let Some(l) = daemon.link.lock().unwrap_or_else(|p| p.into_inner()).take() {
+        l.stop();
+    }
     let close = async {
         let mut inner = daemon.inner.lock().await;
         for h in &mut inner.hosts {
@@ -309,9 +311,6 @@ pub async fn run_with(
     if tokio::time::timeout(SHUTDOWN_GRACE, close).await.is_err() {
         tracing::warn!("collections did not close within the grace period");
     }
-    if let Some(l) = daemon.link.lock().unwrap_or_else(|p| p.into_inner()).take() {
-        l.stop();
-    }
     control.cleanup();
     replica.cleanup();
     tracing::info!("daemon stopped");
@@ -320,6 +319,15 @@ pub async fn run_with(
 
 /// How long `auth.challenge` waits for a credential retry it started.
 const CREDENTIAL_RETRY_WAIT: Duration = Duration::from_secs(5);
+
+/// Each registered collection's ID and root (the takeover's marker guard).
+fn registered_roots(registry: &Registry) -> Vec<(String, std::path::PathBuf)> {
+    registry
+        .collections
+        .iter()
+        .map(|e| (e.id.clone(), e.root.clone()))
+        .collect()
+}
 
 async fn initialize(d: Arc<Daemon>) {
     let device = loop {
@@ -442,7 +450,7 @@ async fn initialize(d: Arc<Daemon>) {
         }
     }
     // Take over (or resume taking over) an old connector's collections.
-    tokio::spawn(d.clone().takeover_task(false));
+    d.spawn(d.clone().takeover_task(false));
 }
 
 /// Load the device identity and control key from the credential store.
@@ -502,6 +510,14 @@ fn start_relay_locked(d: &Arc<Daemon>, record: &crate::cloud::AccountRecord) {
     {
         return;
     }
+    // Account state signed in by another environment's build (its credential and
+    // connector belong to that control plane) never reconnects from this one.
+    if crate::trust::sign_in_server(Some(&cfg.server_url)).as_deref() != Ok(cfg.server_url.as_str())
+    {
+        tracing::error!(server = %cfg.server_url, "account state is not this build's environment; relay not started");
+        d.set_account_error("environment_mismatch");
+        return;
+    }
     let epoch = record.epoch;
     let Some(identity) = d.identity.get() else {
         return;
@@ -528,7 +544,7 @@ fn start_relay_locked(d: &Arc<Daemon>, record: &crate::cloud::AccountRecord) {
     }
     let d2 = d.clone();
     let stop = d.shutdown.subscribe();
-    let task = tokio::spawn(async move {
+    let task = d.spawn(async move {
         let mut cfg = cfg;
         if !cfg.device_registered {
             match d2.register_device(epoch, &cloud, &mut cfg, &identity).await {
@@ -547,7 +563,7 @@ fn start_relay_locked(d: &Arc<Daemon>, record: &crate::cloud::AccountRecord) {
         }
     });
     let mut a = d.account.lock().unwrap_or_else(|p| p.into_inner());
-    if let Some(old) = a.relay.replace(task) {
+    if let Some(old) = std::mem::replace(&mut a.relay, task) {
         old.abort();
     }
     a.signed_in = true;
@@ -612,6 +628,50 @@ async fn wait_for_signal(d: Arc<Daemon>) {
 impl Daemon {
     fn bump(&self) {
         self.changes.send_modify(|n| *n += 1);
+    }
+
+    /// Spawn a task that [`Self::stop_tasks`] aborts and awaits on shutdown.
+    /// Once shutdown has begun the task is dropped unrun, so nothing spawned
+    /// late outlives [`run`].
+    fn spawn(
+        &self,
+        task: impl Future<Output = ()> + Send + 'static,
+    ) -> Option<tokio::task::AbortHandle> {
+        Some(self.open_tasks()?.spawn(task))
+    }
+
+    /// Run blocking work that [`Self::stop_tasks`] waits for: aborting the task
+    /// awaiting it does not stop a started closure, which could otherwise still
+    /// write after [`run`] returns. `None` once shutdown has begun, or when the
+    /// work panicked.
+    async fn run_blocking<T: Send + 'static>(
+        &self,
+        work: impl FnOnce() -> T + Send + 'static,
+    ) -> Option<T> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.open_tasks()?.spawn_blocking(move || {
+            let _ = tx.send(work());
+        });
+        rx.await.ok()
+    }
+
+    /// The task set with finished tasks reaped, or `None` once shutdown began.
+    /// The flag is read under the lock that [`Self::stop_tasks`] takes.
+    fn open_tasks(&self) -> Option<std::sync::MutexGuard<'_, tokio::task::JoinSet<()>>> {
+        let mut tasks = self.tasks.lock().unwrap_or_else(|p| p.into_inner());
+        if *self.shutdown.borrow() {
+            return None;
+        }
+        while tasks.try_join_next().is_some() {}
+        Some(tasks)
+    }
+
+    /// Abort every spawned task and wait until each has stopped. The shutdown
+    /// flag is set first, so [`Self::spawn`] adds nothing afterwards.
+    async fn stop_tasks(&self) {
+        debug_assert!(*self.shutdown.borrow());
+        let mut tasks = std::mem::take(&mut *self.tasks.lock().unwrap_or_else(|p| p.into_inner()));
+        tasks.shutdown().await;
     }
 
     /// Rebuild status once per change for all `status.subscribe` connections,
@@ -1071,7 +1131,7 @@ impl Daemon {
                 return;
             }
         }
-        tokio::spawn(async move {
+        d.clone().spawn(async move {
             for attempt in 0..300 {
                 if attempt != 0 {
                     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
@@ -1244,7 +1304,6 @@ impl Daemon {
             // Nothing is served in either case; restart also needs a fresh lease.
             inner.access.leases.clear();
             inner.access.monotonic_leases.clear();
-            inner.access.feed_cursor = next.feed_cursor;
             self.authority.publish_access(&inner.access);
             let barrier = publish_grants(&inner);
             drop(inner);
@@ -1360,10 +1419,8 @@ impl Daemon {
         match req.method.as_str() {
             Method::PING => Ok(json!({ "readiness": *self.readiness.borrow() })),
             Method::STATUS | Method::STATUS_SUBSCRIBE => to_value(&self.status().await),
-            Method::SHUTDOWN => {
-                self.shutdown.send_replace(true);
-                Ok(json!({}))
-            }
+            // `serve_control` stops the daemon once this reply is queued.
+            Method::SHUTDOWN => Ok(json!({})),
             Method::COLLECTION_LIST => {
                 let inner = self.inner.lock().await;
                 let taken = self.takeover_record();
@@ -1412,6 +1469,11 @@ impl Daemon {
             }
             Method::COLLECTION_RESOLVE_HOLD => self.resolve_hold(params(req)?).await,
             Method::CONFLICTS_DISMISS => self.dismiss_conflict(params(req)?).await,
+            Method::SYNC_FILES => {
+                let p: CollectionRef = params(req)?;
+                Ok(json!(self.sync_files(&p.collection).await?))
+            }
+            Method::SYNC_FILES_SET => self.set_sync_files(params(req)?).await,
             Method::COLLECTION_CONFLICTS => {
                 let p: CollectionRef = params(req)?;
                 self.conflicts(&p.collection).await
@@ -1456,14 +1518,14 @@ impl Daemon {
             Method::MIGRATE_STATUS => {
                 let refresh =
                     req.params.get("refresh_rollout").and_then(Value::as_bool) == Some(true);
-                tokio::spawn(self.clone().retry_takeover(refresh));
+                self.spawn(self.clone().retry_takeover(refresh));
                 self.takeover_status().await
             }
             Method::MIGRATE_START => {
                 let p: crate::control::MigrateStart = params(req)?;
                 let out = self.clone().takeover_run(p.stop_mirrors, false).await;
                 if out.is_ok() {
-                    tokio::spawn(self.clone().auto_private());
+                    self.spawn(self.clone().auto_private());
                 }
                 out
             }
@@ -1808,6 +1870,94 @@ impl Daemon {
             }
             .into(),
         }))
+    }
+
+    /// The collection's inclusion policy, as `describe` reports it.
+    async fn sync_files(&self, id: &str) -> Result<SyncFiles, ControlError> {
+        use mdbn_wire::Wire;
+        use mdbn_wire::cbor::Cbor;
+        use mdbn_wire::intent::FileInclusion;
+        let rt = self.runtime_of(id).await?;
+        let bad = || ControlError::internal("the replica's description does not decode");
+        let Cbor::Map(m) = host_call(&rt, "describe", Cbor::Map(vec![])).await? else {
+            return Err(bad());
+        };
+        let (_, inclusion) = m
+            .iter()
+            .find(|(k, _)| *k == Cbor::Uint(3))
+            .ok_or_else(bad)?;
+        let f = FileInclusion::from_cbor(inclusion).map_err(|_| bad())?;
+        Ok(SyncFiles {
+            include: f.include.into_iter().map(file_class).collect(),
+            exclude: f.exclude.unwrap_or_default(),
+            max_size: f.max_size,
+        })
+    }
+
+    /// Replace the inclusion policy with an ordinary `sync_settings` mutation.
+    async fn set_sync_files(&self, p: SetSyncFiles) -> Result<Value, ControlError> {
+        use mdbn_wire::Wire;
+        use mdbn_wire::client::{Receipt, ReceiptState, SubmitParams, WaitFor};
+        use mdbn_wire::intent::{FileInclusion, MediaClass, Op, SyncSettings};
+        let mut exclude = Vec::with_capacity(p.files.exclude.len());
+        for folder in &p.files.exclude {
+            let folder = folder.trim_matches('/');
+            if folder.is_empty()
+                || folder
+                    .split('/')
+                    .any(|seg| seg.is_empty() || seg == "." || seg == "..")
+            {
+                return Err(ControlError::invalid(
+                    "invalid_folder",
+                    format!("`{folder}` is not a folder inside the collection"),
+                ));
+            }
+            if !exclude.iter().any(|f: &String| f == folder) {
+                exclude.push(folder.to_string());
+            }
+        }
+        let mut include: Vec<MediaClass> = Vec::new();
+        for c in &p.files.include {
+            let m = match c {
+                crate::control::FileClass::Image => MediaClass::Image,
+                crate::control::FileClass::Audio => MediaClass::Audio,
+                crate::control::FileClass::Video => MediaClass::Video,
+                crate::control::FileClass::Pdf => MediaClass::Pdf,
+                crate::control::FileClass::Other => MediaClass::Other,
+            };
+            if !include.contains(&m) {
+                include.push(m);
+            }
+        }
+        let inclusion = FileInclusion {
+            include,
+            exclude: (!exclude.is_empty()).then_some(exclude),
+            max_size: p.files.max_size,
+        };
+        let rt = self.runtime_of(&p.collection).await?;
+        let submit = SubmitParams {
+            ops: vec![Op::SyncSettings(SyncSettings { inclusion })],
+            mutation_id: None,
+            conflict_mode: None,
+            timezone: None,
+            allow_partial: None,
+            mutation_ids: None,
+            dry_run: None,
+            include: None,
+            wait: Some(WaitFor::Confirmed),
+        };
+        let result = host_call(&rt, "submit", submit.to_cbor()).await?;
+        let receipts: Vec<Receipt> = Wire::from_cbor(&result)
+            .map_err(|_| ControlError::internal("the replica's receipt does not decode"))?;
+        if receipts
+            .first()
+            .is_none_or(|r| r.state == ReceiptState::Rejected)
+        {
+            return Err(ControlError::internal(
+                "the replica rejected the file settings",
+            ));
+        }
+        Ok(json!(self.sync_files(&p.collection).await?))
     }
 
     /// The registered collection `raw` names, as the registry spells it. Only
@@ -2167,20 +2317,34 @@ impl Daemon {
                 "a collection cannot contain or sit inside the daemon's state directory",
             ));
         }
-        let claim = match classify_folder(&root, &self.profile) {
-            Ok(c) => c,
-            Err(e) => return Err(e),
-        };
-        if let FolderClaim::Connect(reason) = claim {
-            // Local migration: the takeover (drain, import, v2 marker) runs first.
-            return Err(ControlError::unavailable(
-                "migration_pending",
-                format!(
-                    "this folder is managed by today's mdbase Connect ({reason}); \
-                     it is taken over by the migration first"
-                ),
-            ));
+        let old_state = crate::takeover::old_state_dir(&self.profile);
+        let claim = classify_folder(&root, &self.profile, old_state.as_deref())?;
+        match claim {
+            FolderClaim::Connect(reason) => {
+                // Local migration: the takeover (drain, import, v2 marker) runs first.
+                return Err(ControlError::unavailable(
+                    "migration_pending",
+                    format!(
+                        "this folder is managed by today's mdbase Connect ({reason}); \
+                         it is taken over by the migration first"
+                    ),
+                ));
+            }
+            FolderClaim::OrphanedIdentity if !p.remove_legacy_identity => {
+                return Err(ControlError::new(
+                    "conflict",
+                    "orphaned_legacy_identity",
+                    format!(
+                        "mdbase.yaml has an mdbase Connect identity (`{LEGACY_IDENTITY_KEY}`) \
+                         that no Connect on this computer manages, for example because the \
+                         folder was copied or removed from Connect; confirm removing that \
+                         key to add the folder"
+                    ),
+                ));
+            }
+            _ => {}
         }
+        let orphaned = claim == FolderClaim::OrphanedIdentity;
         let name = p
             .name
             .as_deref()
@@ -2234,6 +2398,9 @@ impl Daemon {
         let mut inner = self.inner.lock().await;
         let mut next = inner.registry.clone();
         next.add(entry.clone()).map_err(registry_error)?;
+        if orphaned {
+            remove_legacy_identity(&entry.root)?;
+        }
         self.save_registry(&next)?;
         inner.registry = next;
         self.authority.publish_registry(&inner.registry);
@@ -2566,15 +2733,26 @@ impl Daemon {
     /// Close and retain the original entry paused before returning, without any
     /// journal/enrolment/Base. Even a registry write failure stays stopped in
     /// memory; save_registry also invalidates authority on uncertain durability.
-    async fn retain_failed_capture(&self, id: &str) -> Result<(), ControlError> {
+    async fn retain_failed_capture(
+        &self,
+        id: &str,
+        failure: Option<crate::sync_failure::Failure>,
+    ) -> Result<(), ControlError> {
         let mut inner = self.inner.lock().await;
-        inner
+        let host = inner
             .hosts
             .iter_mut()
             .find(|h| h.entry().id == id)
-            .ok_or_else(|| ControlError::internal("registry and hosts disagree"))?
-            .close()
+            .ok_or_else(|| ControlError::internal("registry and hosts disagree"))?;
+        if let Some(failure) = failure {
+            host.close_with_failure(
+                &self.profile.state_dir.join("collections").join(id),
+                failure,
+            )
             .await;
+        } else {
+            host.close().await;
+        }
         let mut stopped = inner.registry.clone();
         let paused = stopped
             .get_mut(id)
@@ -2700,25 +2878,13 @@ impl Daemon {
         }
         let adopting = journal.is_some() || !local_bootstrap_folder_is_empty(&entry.root)?;
         let migrated = entry.origin == crate::registry::Origin::MigratedLocal;
-        let e2e = match (&journal, p.mode) {
-            (Some(j), asked) => {
-                let started = j.mode == crate::adopt::Mode::Private;
-                if asked.is_some_and(|m| (m == SyncMode::SyncedE2e) != started) {
-                    return Err(ControlError::invalid(
-                        "adopt_in_progress",
-                        format!(
-                            "turning sync on was started as {}; run it again with that mode",
-                            if started { "private" } else { "cloud-copy" }
-                        ),
-                    ));
-                }
-                started
-            }
-            (None, Some(m)) => m == SyncMode::SyncedE2e,
-            // Migrated local-authority collections, and folders with files, become
-            // private unless the user asks for a cloud copy.
-            (None, None) => adopting || migrated,
-        };
+        let e2e = sync_e2e(
+            journal
+                .as_ref()
+                .map(|j| j.mode == crate::adopt::Mode::Private),
+            p.mode,
+            migrated,
+        )?;
         let mode = if e2e {
             SyncMode::SyncedE2e
         } else {
@@ -2753,12 +2919,15 @@ impl Daemon {
                     "the collection must be serving to turn sync on; resume it and run again",
                 )
             })?;
-            let Some(frozen) = rt.freeze().await else {
-                self.retain_failed_capture(&entry.id).await?;
-                return Err(ControlError::invalid(
-                    "source_capture_incomplete",
-                    "Source capture did not complete; the original collection remains paused. Resolve the incident or original pending outcome before resuming.",
-                ));
+            let frozen = match rt.freeze().await {
+                Ok(frozen) => frozen,
+                Err(failure) => {
+                    self.retain_failed_capture(&entry.id, failure).await?;
+                    return Err(ControlError::invalid(
+                        "source_capture_incomplete",
+                        "Source capture did not complete; the original collection remains paused. Resolve the incident or original pending outcome before resuming.",
+                    ));
+                }
             };
             let refused = adopt_holds_refusal(
                 &self.profile.state_dir,
@@ -3267,7 +3436,7 @@ impl Daemon {
     ) -> Result<CollectionStatus, ControlError> {
         let deadline = tokio::time::Instant::now() + wait;
         loop {
-            let status = {
+            {
                 let inner = self.inner.lock().await;
                 let host = inner
                     .hosts
@@ -3276,12 +3445,12 @@ impl Daemon {
                     .ok_or_else(|| {
                         ControlError::not_found(format!("no registered collection {id}"))
                     })?;
-                host.status()
-            };
-            if status.state != crate::control::CollectionState::Opening
-                || tokio::time::Instant::now() >= deadline
-            {
-                return Ok(status);
+                if host.state() != crate::control::CollectionState::Opening
+                    || tokio::time::Instant::now() >= deadline
+                {
+                    // Reported like `status`: syncing, not ready, while work is unfinished.
+                    return Ok(host.observed_status().await);
+                }
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
@@ -3359,7 +3528,7 @@ impl Daemon {
 
     fn spawn_auto_private(&self) {
         if let Some(d) = self.self_weak.get().and_then(std::sync::Weak::upgrade) {
-            tokio::spawn(d.auto_private());
+            self.spawn(d.auto_private());
         }
     }
 
@@ -3368,7 +3537,7 @@ impl Daemon {
         if self.auto_private.retrying.swap(true, Ordering::SeqCst) {
             return;
         }
-        tokio::spawn(async move {
+        self.clone().spawn(async move {
             let mut shutdown = self.shutdown.subscribe();
             let mut attempt = 0u32;
             loop {
@@ -3505,7 +3674,7 @@ impl Daemon {
             let now = fsutil::now_ms() as u64;
             match mirror_join::step(&legacy, &id, &mut DaemonJoiner { d: self }, now).await {
                 Ok(mirror_join::Step::Registered(_)) => {}
-                Ok(mirror_join::Step::Removed) => continue,
+                Ok(mirror_join::Step::Removed | mirror_join::Step::NotDue) => continue,
                 Ok(mirror_join::Step::Waiting { reason, .. }) => {
                     tracing::info!(collection = %id, %reason, "hosted collection not joined yet; its unsent edits stay captured");
                     continue;
@@ -3759,19 +3928,21 @@ impl Daemon {
             account_moved: true,
             drain: crate::takeover::DRAIN,
             now: crate::takeover::now_rfc3339(),
+            registered: registered_roots(&self.inner.lock().await.registry),
         };
         let p2 = paths.clone();
         let _own = self.takeover.holding_old_lock();
-        let ran = tokio::task::spawn_blocking(move || {
-            let mut old_service: Box<dyn mdbn_takeover::OldService> = if isolated {
-                Box::new(crate::service::legacy::ForegroundOldService(old.clone()))
-            } else {
-                Box::new(crate::service::legacy::OldConnectorService::new())
-            };
-            crate::takeover::run(&p2, &old, old_service.as_mut(), &opts)
-        })
-        .await
-        .map_err(|e| ControlError::internal(e.to_string()))?;
+        let ran = self
+            .run_blocking(move || {
+                let mut old_service: Box<dyn mdbn_takeover::OldService> = if isolated {
+                    Box::new(crate::service::legacy::ForegroundOldService(old.clone()))
+                } else {
+                    Box::new(crate::service::legacy::OldConnectorService::new())
+                };
+                crate::takeover::run(&p2, &old, old_service.as_mut(), &opts)
+            })
+            .await
+            .ok_or_else(|| ControlError::internal("the takeover stopped"))?;
         let ran = match ran {
             Ok(r) => {
                 *self
@@ -3832,6 +4003,7 @@ impl Daemon {
                     AddCollection {
                         path: t.root.clone(),
                         name: Some(t.name.clone()),
+                        remove_legacy_identity: false,
                     },
                     t.paused,
                 )
@@ -3871,17 +4043,18 @@ impl Daemon {
     async fn refence_old_service(&self, old: std::path::PathBuf) {
         let paths = self.takeover_paths();
         let isolated = self.profile.target == crate::paths::Target::IsolatedProfile;
-        let fenced = tokio::task::spawn_blocking(move || {
-            let mut old_service: Box<dyn mdbn_takeover::OldService> = if isolated {
-                Box::new(crate::service::legacy::ForegroundOldService(old.clone()))
-            } else {
-                Box::new(crate::service::legacy::OldConnectorService::new())
-            };
-            crate::takeover::refence(&paths, &old, old_service.as_mut())
-        })
-        .await;
+        let fenced = self
+            .run_blocking(move || {
+                let mut old_service: Box<dyn mdbn_takeover::OldService> = if isolated {
+                    Box::new(crate::service::legacy::ForegroundOldService(old.clone()))
+                } else {
+                    Box::new(crate::service::legacy::OldConnectorService::new())
+                };
+                crate::takeover::refence(&paths, &old, old_service.as_mut())
+            })
+            .await;
         match fenced {
-            Ok(Ok(Some(revived))) => {
+            Some(Ok(Some(revived))) => {
                 self.takeover
                     .revived
                     .store(revived, std::sync::atomic::Ordering::Relaxed);
@@ -3891,9 +4064,9 @@ impl Daemon {
                     );
                 }
             }
-            Ok(Ok(None)) => {}
-            Ok(Err(e)) => tracing::warn!(error = %e, "could not re-fence the old connector"),
-            Err(e) => tracing::warn!(error = %e, "could not re-fence the old connector"),
+            Some(Ok(None)) => {}
+            Some(Err(e)) => tracing::warn!(error = %e, "could not re-fence the old connector"),
+            None => tracing::warn!("could not re-fence the old connector: stopped"),
         }
     }
 
@@ -3940,33 +4113,34 @@ impl Daemon {
         let paths2 = paths.clone();
         let connector2 = connector.to_owned();
         let _own = self.takeover.holding_old_lock();
-        let locks = tokio::task::spawn_blocking(move || {
-            if !isolated {
-                crate::service::legacy::OldConnectorService::new()
-                    .stop_and_disable()
-                    .map_err(|_| "legacy_service_not_disabled")?;
-            }
-            let mut locks = vec![
-                mdbn_legacy::lock::try_exclusive(&mdbn_legacy::lock::daemon_lock_path(
-                    &p2.old_state_dir,
-                ))
-                .map_err(|_| "legacy_lock_unavailable")?
-                .ok_or("old_connector_revived")?,
-            ];
-            for root in &p2.roots {
-                locks.push(
-                    mdbn_legacy::lock::try_exclusive(&mdbn_legacy::lock::write_lock_path(root))
-                        .map_err(|_| "legacy_lock_unavailable")?
-                        .ok_or("legacy_folder_busy")?,
-                );
-            }
-            if !p2.still_current(&paths2, &connector2) {
-                return Err("retirement_source_changed");
-            }
-            Ok::<_, &'static str>(locks)
-        })
-        .await
-        .map_err(|_| "retirement_local_gate_failed")??;
+        let locks = self
+            .run_blocking(move || {
+                if !isolated {
+                    crate::service::legacy::OldConnectorService::new()
+                        .stop_and_disable()
+                        .map_err(|_| "legacy_service_not_disabled")?;
+                }
+                let mut locks = vec![
+                    mdbn_legacy::lock::try_exclusive(&mdbn_legacy::lock::daemon_lock_path(
+                        &p2.old_state_dir,
+                    ))
+                    .map_err(|_| "legacy_lock_unavailable")?
+                    .ok_or("old_connector_revived")?,
+                ];
+                for root in &p2.roots {
+                    locks.push(
+                        mdbn_legacy::lock::try_exclusive(&mdbn_legacy::lock::write_lock_path(root))
+                            .map_err(|_| "legacy_lock_unavailable")?
+                            .ok_or("legacy_folder_busy")?,
+                    );
+                }
+                if !p2.still_current(&paths2, &connector2) {
+                    return Err("retirement_source_changed");
+                }
+                Ok::<_, &'static str>(locks)
+            })
+            .await
+            .ok_or("retirement_local_gate_failed")??;
         let current = || {
             if self.authority.incarnation() == Some(inc) && plan.still_current(&paths, connector) {
                 Ok(())
@@ -4061,7 +4235,7 @@ impl Daemon {
         )
     }
 
-    fn takeover_check(&self) -> Option<Check> {
+    fn takeover_check(&self, registry: &Registry) -> Option<Check> {
         use crate::takeover::record::{CollectionState, Record, State};
         let record = match Record::load(&self.takeover_paths().record) {
             Ok(Some(r)) => r,
@@ -4109,34 +4283,53 @@ impl Daemon {
         let held = record.held_interrupted_writes();
         // Latched incidents, plus a live read (the record is only updated by runs).
         let paths = self.takeover_paths();
+        let registered = registered_roots(registry);
+        let evidence = |id: &str| {
+            crate::takeover::adapter::Evidence::load(&paths.legacy, id)
+                .ok()
+                .flatten()
+        };
+        // Folders the user registered again as another collection: nothing to report.
+        let superseded: std::collections::BTreeSet<&String> = record
+            .collections
+            .keys()
+            .filter(|id| {
+                evidence(id).is_some_and(|e| crate::takeover::superseded(id, &e.root, &registered))
+            })
+            .collect();
         let incidents: Vec<&String> = record
             .collections
             .iter()
+            .filter(|(id, _)| !superseded.contains(id))
             .filter(|(id, c)| {
                 c.marker_incident
                     || (matches!(c.state, CollectionState::Complete | CollectionState::Held)
                         && c.reason.as_deref() != Some("folder_missing")
-                        && crate::takeover::adapter::Evidence::load(&paths.legacy, id)
-                            .ok()
-                            .flatten()
-                            .is_some_and(|e| {
-                                !crate::takeover::marker_is_ours(&e.root, id, &paths.store_ids)
-                                    .unwrap_or(false)
-                            }))
+                        && evidence(id).is_some_and(|e| {
+                            !crate::takeover::marker_is_ours(&e.root, id, &paths.store_ids)
+                                .unwrap_or(false)
+                        }))
             })
             .map(|(id, _)| id)
             .collect();
-        let unregistered = record
+        let unregistered: Vec<String> = record
             .collections
-            .values()
-            .filter(|c| {
-                c.state.settled() && !c.registered && c.reason.as_deref() != Some("folder_missing")
+            .iter()
+            .filter(|(id, c)| {
+                c.state.settled()
+                    && !c.registered
+                    && c.reason.as_deref() != Some("folder_missing")
+                    && !superseded.contains(id)
             })
-            .count();
+            .map(|(id, c)| format!("{id} ({})", c.reason.as_deref().unwrap_or("pending")))
+            .collect();
+        let overlapping = record.collections.values().any(|c| {
+            !c.registered && c.reason.as_deref() == Some("registration_pending:overlapping_root")
+        });
         let ok = !revived
             && waiting.is_empty()
             && held == 0
-            && unregistered == 0
+            && unregistered.is_empty()
             && incidents.is_empty();
         let mut detail = format!("takeover {:?}", record.state).to_lowercase();
         if self
@@ -4175,9 +4368,10 @@ impl Daemon {
                 "; {held} interrupted legacy write/delete intent(s) held"
             ));
         }
-        if unregistered > 0 {
+        if !unregistered.is_empty() {
             detail.push_str(&format!(
-                "; {unregistered} collection(s) not registered yet"
+                "; not registered yet: {}",
+                unregistered.join(", ")
             ));
         }
         Some(Check {
@@ -4199,11 +4393,63 @@ impl Daemon {
                         .into()
                 } else if revived {
                     "The old mdbase Connect daemon is running again: quit or uninstall it, then run `mdbase migrate start`.".into()
+                } else if overlapping {
+                    "A taken-over folder contains, or sits inside, a registered collection's folder, \
+                     and collections cannot nest. Choose one: keep the registered collection and leave \
+                     the taken-over folder unserved (this check keeps reporting it), or unregister the \
+                     other collection (`mdbase collection remove <id>`, files untouched) or move one \
+                     folder, then run `mdbase migrate start`."
+                        .into()
                 } else {
                     "Run `mdbase migrate status` for details; sign in if collections are waiting to register.".into()
                 }
             }),
         })
+    }
+
+    /// Old hosted mirrors whose captured unsent edits wait because their
+    /// collection could not be joined here (`takeover::mirror_join`).
+    fn mirror_join_checks(&self) -> Vec<Check> {
+        use crate::takeover::{mirror_import::Capture, mirror_join};
+        let legacy = self.takeover_paths().legacy;
+        let ids = crate::takeover::mirror_import::captured(&legacy).unwrap_or_default();
+        ids.into_iter()
+            .filter_map(|id| {
+                let join = mirror_join::JoinState::load(&legacy, &id).ok()?;
+                if join.phase != mirror_join::Phase::Pending {
+                    return None;
+                }
+                let reason = join.last_error?;
+                let capture = Capture::load(&legacy, &id).ok()??;
+                let root = capture.mirror_root.display();
+                let action = match reason.as_str() {
+                    "not_signed_in" => {
+                        "Sign in (`mdbase account sign-in`); the join is retried automatically."
+                            .to_owned()
+                    }
+                    "not_found" => format!(
+                        "Your account has no hosted collection {id}; it may have been deleted. \
+                         The edits are still in {root}, which mdbase never changes: copy what \
+                         you need into another collection. The join is retried every 30 minutes \
+                         in case the collection becomes available again."
+                    ),
+                    _ => format!(
+                        "The join is retried automatically. The edits are still in {root}, \
+                         which mdbase never changes. See `mdbase migrate status --json`."
+                    ),
+                };
+                Some(Check {
+                    id: format!("mirror_import:{id}"),
+                    status: "warn".into(),
+                    detail: format!(
+                        "{} unsent edit(s) from the old hosted mirror at {root} are waiting: \
+                         the hosted collection could not be joined ({reason})",
+                        capture.edits.len()
+                    ),
+                    action: Some(action),
+                })
+            })
+            .collect()
     }
 
     async fn doctor(&self) -> Vec<Check> {
@@ -4325,7 +4571,8 @@ impl Daemon {
                 });
             }
         }
-        checks.extend(self.takeover_check());
+        checks.extend(self.takeover_check(&inner.registry));
+        checks.extend(self.mirror_join_checks());
         let profile = self.profile.clone();
         checks.push(
             tokio::task::spawn_blocking(move || crate::service::doctor_check(&profile))
@@ -4688,6 +4935,18 @@ const OLD_CONNECTOR_POLL: Duration = Duration::from_secs(5);
 /// `SessionAuth::Host` session (the daemon is the host; no grant, so the mutation
 /// is the user's own device's), one request, then the session closes. The
 /// replica's problem becomes the control error (same codes, §9).
+fn file_class(m: mdbn_wire::intent::MediaClass) -> crate::control::FileClass {
+    use crate::control::FileClass;
+    use mdbn_wire::intent::MediaClass;
+    match m {
+        MediaClass::Image => FileClass::Image,
+        MediaClass::Audio => FileClass::Audio,
+        MediaClass::Video => FileClass::Video,
+        MediaClass::Pdf => FileClass::Pdf,
+        MediaClass::Other => FileClass::Other,
+    }
+}
+
 async fn host_call(
     rt: &Arc<crate::runtime::Runtime>,
     method: &str,
@@ -4810,7 +5069,7 @@ fn cloud_refusal(e: crate::cloud::CloudError) -> ControlError {
             ControlError::new(
                 "quota_exceeded",
                 &code,
-                "Your account has reached its synced collection limit. Delete a synced collection before creating another.",
+                include_str!("../../../docs/account-collection-quota-message.txt").trim_end(),
             )
         }
         rate_limit @ crate::cloud::CloudError::RateLimited(_) => {
@@ -4842,6 +5101,34 @@ fn folder_is_empty(root: &std::path::Path) -> Result<bool, ControlError> {
         }
     }
     Ok(true)
+}
+
+/// Whether turning sync on makes the collection Private. `started` is the
+/// mode an interrupted adopt journal began with, which a retry must keep.
+fn sync_e2e(
+    started: Option<bool>,
+    asked: Option<SyncMode>,
+    migrated: bool,
+) -> Result<bool, ControlError> {
+    Ok(match (started, asked) {
+        (Some(started), asked) => {
+            if asked.is_some_and(|m| (m == SyncMode::SyncedE2e) != started) {
+                return Err(ControlError::invalid(
+                    "adopt_in_progress",
+                    format!(
+                        "turning sync on was started as {}; run it again with that mode",
+                        if started { "private" } else { "cloud-copy" }
+                    ),
+                ));
+            }
+            started
+        }
+        (None, Some(m)) => m == SyncMode::SyncedE2e,
+        // A cloud copy unless the user asks for private. Migrated
+        // local-authority collections never had a cloud copy, and the
+        // automatic takeover enables them without asking, so they stay private.
+        (None, None) => migrated,
+    })
 }
 
 /// Only for an authenticated owner's EXISTING local registration: FileStore
@@ -5105,6 +5392,10 @@ fn strip_verbatim(p: std::path::PathBuf) -> std::path::PathBuf {
     }
 }
 
+/// The top-level `mdbase.yaml` key under which today's connector keeps a folder's
+/// collection identity (`x-mdbase-connect.collection_id`).
+const LEGACY_IDENTITY_KEY: &str = "x-mdbase-connect";
+
 /// Who manages a folder, from its role marker and `mdbase.yaml`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FolderClaim {
@@ -5118,16 +5409,23 @@ pub enum FolderClaim {
         /// This daemon's store ID for it.
         replica_id: String,
     },
-    /// Today's connector (a v1 marker, or a Connect identity in `mdbase.yaml` with no
-    /// v2 claim): the takeover runs first.
+    /// Today's connector (a v1 marker, or a Connect identity in `mdbase.yaml` for a
+    /// folder the old connector state on this device lists): the takeover runs first.
     Connect(&'static str),
+    /// A Connect identity in `mdbase.yaml` for a folder no old connector state on
+    /// this device lists (a copied folder, one removed before the migration, or a
+    /// device without the old connector). The takeover never reaches it, so it is
+    /// adopted only once the user confirms removing that key.
+    OrphanedIdentity,
 }
 
-/// Classify a folder. A v2 claim by another runtime or device, or an invalid
-/// marker, is refused (fail closed).
+/// Classify a folder against the old connector state in `old_state` (if any). A
+/// v2 claim by another runtime or device, or an invalid marker, is refused (fail
+/// closed).
 pub fn classify_folder(
     root: &std::path::Path,
     profile: &Profile,
+    old_state: Option<&std::path::Path>,
 ) -> Result<FolderClaim, ControlError> {
     use mdbn_legacy::marker::{self, Marker};
     let m = marker::read(root)
@@ -5158,19 +5456,120 @@ pub fn classify_folder(
             format!("the folder's .mdbase/connect-role.json is invalid ({why})"),
         )),
         Marker::Absent => {
-            let yaml = std::fs::read_to_string(root.join("mdbase.yaml")).unwrap_or_default();
-            if yaml.contains("x-mdbase-connect") {
+            let identity = read_config(root)?
+                .is_some_and(|(_, config)| config.contains_key(LEGACY_IDENTITY_KEY));
+            if !identity {
+                Ok(FolderClaim::Free)
+            } else if crate::takeover::old_state_lists(old_state, root)
+                .map_err(|e| ControlError::unavailable("legacy_state_unreadable", e))?
+            {
                 Ok(FolderClaim::Connect("collection identity in mdbase.yaml"))
             } else {
-                Ok(FolderClaim::Free)
+                Ok(FolderClaim::OrphanedIdentity)
             }
         }
     }
 }
 
+/// A folder's `mdbase.yaml` text and top-level mapping (`None`: no file). An empty
+/// or non-mapping document has no keys.
+fn read_config(
+    root: &std::path::Path,
+) -> Result<Option<(String, mdbn_core::value::Map)>, ControlError> {
+    let text = match std::fs::read_to_string(root.join("mdbase.yaml")) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => {
+            return Err(ControlError::invalid(
+                "unreadable_config",
+                format!("mdbase.yaml: {e}"),
+            ));
+        }
+    };
+    let config = config_map(&text).map_err(|e| {
+        ControlError::invalid(
+            "invalid_config",
+            format!("mdbase.yaml is not valid YAML: {e}"),
+        )
+    })?;
+    Ok(Some((text, config)))
+}
+
+fn config_map(text: &str) -> Result<mdbn_core::value::Map, mdbn_core::yaml::YamlError> {
+    Ok(match mdbn_core::yaml::parse_value(text)? {
+        Some(mdbn_core::value::Value::Map(m)) => m,
+        _ => mdbn_core::value::Map::new(),
+    })
+}
+
+/// `text` without its top-level [`LEGACY_IDENTITY_KEY`] entry, every other byte
+/// kept. `None` unless removing the entry's lines yields exactly the same mapping
+/// minus that key.
+fn without_legacy_identity(text: &str) -> Option<String> {
+    let lines: Vec<&str> = text.split_inclusive('\n').collect();
+    let opens_entry = |line: &str| {
+        let key = [
+            LEGACY_IDENTITY_KEY.to_owned(),
+            format!("\"{LEGACY_IDENTITY_KEY}\""),
+            format!("'{LEGACY_IDENTITY_KEY}'"),
+        ];
+        key.iter().any(|k| {
+            line.strip_prefix(k.as_str())
+                .and_then(|r| r.trim_start_matches([' ', '\t']).strip_prefix(':'))
+                .is_some_and(|r| r.is_empty() || r.starts_with([' ', '\t', '\r', '\n']))
+        })
+    };
+    let start = lines.iter().position(|l| opens_entry(l))?;
+    // The entry runs to the next line at column 0; blank lines before that stay.
+    let mut end = start + 1;
+    while end < lines.len() && (lines[end].trim().is_empty() || lines[end].starts_with([' ', '\t']))
+    {
+        end += 1;
+    }
+    while end > start + 1 && lines[end - 1].trim().is_empty() {
+        end -= 1;
+    }
+    let out: String = lines[..start]
+        .iter()
+        .chain(&lines[end..])
+        .copied()
+        .collect();
+    let mut expected = config_map(text).ok()?;
+    expected.remove(LEGACY_IDENTITY_KEY)?;
+    (config_map(&out).ok()? == expected).then_some(out)
+}
+
+/// Remove the orphaned Connect identity from `root`'s `mdbase.yaml`, as the user
+/// confirmed in `collection.add`.
+fn remove_legacy_identity(root: &std::path::Path) -> Result<(), ControlError> {
+    let path = root.join("mdbase.yaml");
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| ControlError::invalid("unreadable_config", format!("mdbase.yaml: {e}")))?;
+    let out = without_legacy_identity(&text).ok_or_else(|| {
+        ControlError::invalid(
+            "legacy_identity_not_removable",
+            format!(
+                "the `{LEGACY_IDENTITY_KEY}` entry in mdbase.yaml cannot be removed \
+                 automatically; delete that key by hand, then add the folder again"
+            ),
+        )
+    })?;
+    // The user's file keeps its permissions (`write_atomic` creates it private).
+    let permissions = std::fs::metadata(&path).map(|m| m.permissions());
+    permissions
+        .and_then(|p| {
+            fsutil::write_atomic(&path, out.as_bytes())?;
+            std::fs::set_permissions(&path, p)
+        })
+        .map_err(|e| ControlError::internal(format!("mdbase.yaml: {e}")))
+}
+
 async fn serve_control(d: Arc<Daemon>, stream: BoxStream) -> std::io::Result<()> {
     let (mut rd, mut wr) = tokio::io::split(stream);
     let (tx, mut rx) = mpsc::channel::<Response>(64);
+    // Untracked: it only writes to this socket, and it ends once the tracked
+    // connection task (and its subscription) drop their senders. Aborting it
+    // instead could lose the reply to `shutdown`.
     let writer = tokio::spawn(async move {
         while let Some(resp) = rx.recv().await {
             let bytes = serde_json::to_vec(&resp).unwrap_or_default();
@@ -5180,7 +5579,7 @@ async fn serve_control(d: Arc<Daemon>, stream: BoxStream) -> std::io::Result<()>
         }
         let _ = wr.shutdown().await;
     });
-    let mut subscription: Option<tokio::task::JoinHandle<()>> = None;
+    let mut subscription: Option<tokio::task::AbortHandle> = None;
     let mut conn = ConnAuth::default();
     let mut stop = d.shutdown.subscribe();
     loop {
@@ -5217,17 +5616,24 @@ async fn serve_control(d: Arc<Daemon>, stream: BoxStream) -> std::io::Result<()>
                 .await;
             break;
         }
-        let resp = match d.handle_and_note(&req, &mut conn).await {
+        let result = d.handle_and_note(&req, &mut conn).await;
+        let stopping = req.method == Method::SHUTDOWN && result.is_ok();
+        let resp = match result {
             Ok(v) => Response::ok(req.id, v),
             Err(e) => Response::err(req.id, e),
         };
-        if tx.send(resp).await.is_err() {
+        let sent = tx.send(resp).await;
+        // Only after the reply is queued: shutdown aborts this task.
+        if stopping {
+            d.shutdown.send_replace(true);
+        }
+        if sent.is_err() {
             break;
         }
         if req.method == Method::STATUS_SUBSCRIBE && subscription.is_none() {
             let d2 = d.clone();
             let tx2 = tx.clone();
-            subscription = Some(tokio::spawn(async move {
+            subscription = d.spawn(async move {
                 let mut feed = d2.status_feed.subscribe();
                 let mut access = d2.access_events.subscribe();
                 feed.mark_unchanged();
@@ -5248,7 +5654,7 @@ async fn serve_control(d: Arc<Daemon>, stream: BoxStream) -> std::io::Result<()>
                         break;
                     }
                 }
-            }));
+            });
         }
     }
     if let Some(s) = subscription {
@@ -5393,8 +5799,10 @@ fn link_client_secret(collection: &str) -> String {
 
 /// Open a replica session on a runtime and bridge its frames to the transport.
 async fn open_on_runtime(
+    daemon: Arc<Daemon>,
+    collection: String,
     rt: Arc<crate::runtime::Runtime>,
-    auth: mdbn_replica::api::SessionAuth,
+    auth: crate::session::Auth,
     hello: mdbn_wire::client::ClientRequest,
     restricted: bool,
 ) -> crate::session::Opened {
@@ -5402,13 +5810,36 @@ async fn open_on_runtime(
     use mdbn_wire::Wire;
     use mdbn_wire::client::ClientFrame;
     let id = hello.id;
+    let refuse = |reason: crate::access::Refusal| Opened {
+        response: mdbn_wire::client::ClientResponse {
+            id,
+            result: None,
+            problem: Some(reason.problem()),
+        },
+        session: None,
+    };
+    if let Err(error) = daemon.authority.authorize_session(&collection, auth) {
+        return refuse(error);
+    }
+    let replica_auth = match auth {
+        crate::session::Auth::Host { .. } | crate::session::Auth::Link { .. } => {
+            mdbn_replica::api::SessionAuth::Host
+        }
+        crate::session::Auth::Grant {
+            grant, client_pk, ..
+        } => mdbn_replica::api::SessionAuth::Grant {
+            grant: mdbn_wire::common::B16(grant),
+            client_pk,
+        },
+    };
+    let mut changes = daemon.changes.subscribe();
     let Ok(bytes) = ClientFrame::Request(hello).to_bytes() else {
         return Opened {
             response: problem_response(id, "invalid_request", "bad_hello", "hello does not encode"),
             session: None,
         };
     };
-    let Some((session, resp, mut out)) = rt.hello(auth, bytes).await else {
+    let Some((session, resp, mut out)) = rt.hello(replica_auth, bytes).await else {
         return Opened {
             response: problem_response(
                 id,
@@ -5429,35 +5860,85 @@ async fn open_on_runtime(
             session: None,
         };
     };
+    if let Err(error) = daemon.authority.authorize_session(&collection, auth) {
+        rt.close(session);
+        return refuse(error);
+    }
     let (in_tx, mut in_rx) = mpsc::channel::<ClientFrame>(64);
     let (out_tx, out_rx) = mpsc::channel::<ClientFrame>(64);
     let rt2 = rt.clone();
     tokio::spawn(async move {
         loop {
-            tokio::select! {
-                f = in_rx.recv() => match f {
-                    Some(ClientFrame::Request(r)) if restricted && !LINK_ALLOWED.contains(&r.method.as_str()) => {
-                        let resp = crate::session::problem_response(
-                            r.id,
-                            "forbidden",
-                            "confirm_in_daemon_ui",
-                            "approvals and recovery are confirmed in mdbase's own window",
-                        );
-                        if out_tx.send(ClientFrame::Response(resp)).await.is_err() { break; }
+            let (frame, incoming) = tokio::select! {
+                changed = changes.changed() => {
+                    if changed.is_err() { break; }
+                    (None, false)
+                }
+                frame = in_rx.recv() => match frame {
+                    Some(frame) => (Some(frame), true),
+                    None => break,
+                },
+                bytes = out.recv() => match bytes {
+                    Some(bytes) => match ClientFrame::from_bytes(&bytes) {
+                        Ok(frame) => (Some(frame), false),
+                        Err(_) => break,
+                    },
+                    None => break,
+                },
+            };
+            let terminal = !incoming
+                && matches!(&frame, Some(ClientFrame::Push(push)) if push.kind == "closed");
+            if !terminal && let Err(reason) = daemon.authority.authorize_session(&collection, auth)
+            {
+                let problem = reason.problem();
+                if let (Some(ClientFrame::Request(request)), true) = (&frame, incoming) {
+                    let _ = out_tx
+                        .send(ClientFrame::Response(mdbn_wire::client::ClientResponse {
+                            id: request.id,
+                            result: None,
+                            problem: Some(problem.clone()),
+                        }))
+                        .await;
+                }
+                let _ = out_tx
+                    .send(ClientFrame::Push(mdbn_wire::client::ClientPush {
+                        kind: "closed".into(),
+                        payload: problem.to_cbor(),
+                    }))
+                    .await;
+                break;
+            }
+            match (frame, incoming) {
+                (Some(ClientFrame::Request(r)), true)
+                    if restricted && !LINK_ALLOWED.contains(&r.method.as_str()) =>
+                {
+                    let resp = crate::session::problem_response(
+                        r.id,
+                        "forbidden",
+                        "confirm_in_daemon_ui",
+                        "approvals and recovery are confirmed in mdbase's own window",
+                    );
+                    if out_tx.send(ClientFrame::Response(resp)).await.is_err() {
+                        break;
                     }
-                    Some(f) => match f.to_bytes() {
-                        Ok(b) => { if !rt2.frame(session, b) { break; } }
-                        Err(_) => break,
-                    },
-                    None => break,
+                }
+                (Some(f), true) => match f.to_bytes() {
+                    Ok(b) => {
+                        if !rt2.frame(session, b) {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
                 },
-                b = out.recv() => match b {
-                    Some(b) => match ClientFrame::from_bytes(&b) {
-                        Ok(f) => { if out_tx.send(f).await.is_err() { break; } }
-                        Err(_) => break,
-                    },
-                    None => break,
-                },
+                (Some(f), false) => {
+                    if out_tx.send(f).await.is_err() {
+                        break;
+                    }
+                    if terminal {
+                        break;
+                    }
+                }
+                (None, _) => continue,
             }
         }
         rt2.close(session);
@@ -5545,47 +6026,16 @@ impl crate::session::Handler for Daemon {
                     "collection is not authorized for this account",
                 );
             }
-            if let crate::session::Auth::Grant { grant, .. } = auth
-                && host.entry().mode == SyncMode::Local
-                && inner.access.lease_live(&id, fsutil::now_ms() as u64)
-                && source.grant(&mdbn_wire::common::B16(grant)).is_none()
-            {
-                return refuse(
-                    "forbidden",
-                    "grant_account_mismatch",
-                    "grant account is not authorized here",
-                );
+            if let Err(reason) = self.authority.authorize_session(&id, auth) {
+                return Opened {
+                    response: mdbn_wire::client::ClientResponse {
+                        id: hello.id,
+                        result: None,
+                        problem: Some(reason.problem()),
+                    },
+                    session: None,
+                };
             }
-            let replica_auth = match auth {
-                // the host key was checked above, before the lookup.
-                crate::session::Auth::Host { .. } => mdbn_replica::api::SessionAuth::Host,
-                // The Obsidian runtime on a collection the user linked (§12.4):
-                // its key was checked against the keychain below.
-                crate::session::Auth::Link { .. } => mdbn_replica::api::SessionAuth::Host,
-                // Local collections: the session's grant must match an active entry
-                // of the access list under a live lease. Synced
-                // collections check grants against the log's policy in the replica.
-                crate::session::Auth::Grant { grant, client_pk } => {
-                    if host.entry().mode == SyncMode::Local
-                        && let Err(r) = inner.access.authorize(
-                            &id,
-                            &secrets::uuid_string(&grant),
-                            &client_pk,
-                            fsutil::now_ms() as u64,
-                        )
-                    {
-                        return refuse(
-                            "forbidden",
-                            r.reason(),
-                            "this app has no active access here",
-                        );
-                    }
-                    mdbn_replica::api::SessionAuth::Grant {
-                        grant: mdbn_wire::common::B16(grant),
-                        client_pk,
-                    }
-                }
-            };
             let (true, Some(rt)) = (host.is_serving(), host.runtime()) else {
                 let s = host.status();
                 if s.reason.as_deref() == Some("collection_deleted") {
@@ -5627,7 +6077,15 @@ impl crate::session::Handler for Daemon {
                 );
             }
             let restricted = matches!(auth, crate::session::Auth::Link { .. });
-            open_on_runtime(rt, replica_auth, hello, restricted).await
+            open_on_runtime(
+                self.arc().expect("daemon owns its session"),
+                id,
+                rt,
+                auth,
+                hello,
+                restricted,
+            )
+            .await
         })
     }
 }
@@ -5757,6 +6215,53 @@ struct NativeGrantWaitContext {
 }
 
 impl crate::relay::RelayHost for Daemon {
+    fn grant_refusal<'a>(
+        &'a self,
+        collection: &'a str,
+        grant: &'a str,
+    ) -> crate::session::BoxFuture<'a, Option<String>> {
+        Box::pin(async move {
+            if self.grant_live(collection, grant).await {
+                return None;
+            }
+            let inner = self.inner.lock().await;
+            let mode = inner.registry.get(collection).map(|entry| entry.mode);
+            if mode != Some(SyncMode::Synced) {
+                return Some(
+                    match inner.access.entries.iter().find(|entry| {
+                        entry.grant.collection == collection && entry.grant.grant == grant
+                    }) {
+                        Some(entry) if entry.is_refused() => {
+                            crate::access::Refusal::RevokedLocally.reason()
+                        }
+                        _ if mode == Some(SyncMode::SyncedE2e)
+                            && !inner.access.lease_live(collection, fsutil::now_ms() as u64) =>
+                        {
+                            crate::access::Refusal::LeaseExpired.reason()
+                        }
+                        Some(entry)
+                            if entry.state == crate::access::AccessState::PendingApproval =>
+                        {
+                            crate::access::Refusal::PendingApproval.reason()
+                        }
+                        Some(_)
+                            if !inner.access.lease_live(collection, fsutil::now_ms() as u64) =>
+                        {
+                            crate::access::Refusal::LeaseExpired.reason()
+                        }
+                        _ if mode != Some(SyncMode::Local) => {
+                            crate::access::Refusal::Unavailable.reason()
+                        }
+                        Some(_) => "grant_inactive",
+                        None => crate::access::Refusal::UnknownGrant.reason(),
+                    }
+                    .into(),
+                );
+            }
+            Some("grant_inactive".into())
+        })
+    }
+
     fn inventory(&self) -> crate::session::BoxFuture<'_, Vec<(String, Value)>> {
         Box::pin(self.inventory_entries())
     }
@@ -5783,23 +6288,38 @@ impl crate::relay::RelayHost for Daemon {
         grant: &'a str,
     ) -> crate::session::BoxFuture<'a, bool> {
         Box::pin(async move {
-            // Synced end-to-end collections: the replica's log policy decides,
-            // and a local refusal on this device cuts the pipe at once.
-            let (mode, refused) = {
+            let (mode, auth, grant16) = {
                 let inner = self.inner.lock().await;
                 let mode = inner.registry.get(collection).map(|c| c.mode);
-                let refused = inner.access.entries.iter().any(|e| {
-                    e.grant.grant == grant && e.grant.collection == collection && e.is_refused()
-                });
-                (mode, refused)
-            };
-            if mode == Some(SyncMode::SyncedE2e) {
-                if refused {
-                    return false;
+                if mode == Some(SyncMode::Synced) {
+                    return inner
+                        .access
+                        .grant_live(collection, grant, fsutil::now_ms() as u64);
                 }
-                let Some(grant16) = crate::attest::uuid_bytes(grant) else {
+                let Some(entry) = inner.access.entries.iter().find(|entry| {
+                    entry.grant.grant == grant && entry.grant.collection == collection
+                }) else {
                     return false;
                 };
+                let (Some(grant), Some(client_pk)) = (
+                    crate::attest::uuid_bytes(grant),
+                    secrets::hex_decode(&entry.grant.client_pk)
+                        .ok()
+                        .and_then(|bytes| bytes.try_into().ok()),
+                ) else {
+                    return false;
+                };
+                let auth = crate::session::Auth::Grant {
+                    grant,
+                    client_pk,
+                    origin: crate::session::Origin::RelayPipe,
+                };
+                if self.authority.authorize_session(collection, auth).is_err() {
+                    return false;
+                }
+                (mode, auth, grant)
+            };
+            if mode == Some(SyncMode::SyncedE2e) {
                 let Some(rt) = self.collection_runtime(collection).await else {
                     return false;
                 };
@@ -5809,13 +6329,9 @@ impl crate::relay::RelayHost for Daemon {
                     ))
                     .await,
                     Some(crate::runtime::GrantApprovalReply::Effective(true))
-                );
+                ) && self.authority.authorize_session(collection, auth).is_ok();
             }
-            self.inner
-                .lock()
-                .await
-                .access
-                .grant_live(collection, grant, fsutil::now_ms() as u64)
+            true
         })
     }
 
@@ -5963,7 +6479,7 @@ impl Daemon {
         else {
             return;
         };
-        tokio::spawn(async move {
+        self.spawn(async move {
             if let Err(e) = cloud.revoke_grant(&grant).await {
                 tracing::warn!(error = %e, "upstream revocation failed; the local refusal holds");
             }
@@ -6298,7 +6814,7 @@ impl Daemon {
                 tracing::warn!(reason = %code, "device registration refused; registering a new device");
                 if self.begin_identity_replacement(epoch) {
                     let other = code == "device_already_bound";
-                    tokio::spawn(
+                    self.spawn(
                         self.clone()
                             .replace_identity(epoch, identity.device_id, other),
                     );
@@ -6330,7 +6846,7 @@ impl Daemon {
     ) {
         let d = self.clone();
         let mut stop = self.shutdown.subscribe();
-        let task = tokio::spawn(async move {
+        let Some(task) = self.spawn(async move {
             let mut attempt = 0u32;
             loop {
                 attempt = attempt.saturating_add(1);
@@ -6357,7 +6873,9 @@ impl Daemon {
                     }
                 }
             }
-        });
+        }) else {
+            return;
+        };
         let mut a = self.account.lock().unwrap_or_else(|p| p.into_inner());
         if a.epoch != epoch {
             task.abort();
@@ -6572,7 +7090,7 @@ impl Daemon {
         let d = self.clone();
         let p2 = pairing.clone();
         let computer_name = name.clone();
-        let task = tokio::spawn(async move {
+        let task = self.spawn(async move {
             let deadline =
                 tokio::time::Instant::now() + Duration::from_secs(p2.expires_in.min(3600));
             let result = loop {
@@ -6609,7 +7127,7 @@ impl Daemon {
                         d.activity
                             .record(crate::activity::ActivityEntry::now("signed_in"));
                         // Taken-over collections wait for an account to register.
-                        tokio::spawn(d.clone().takeover_task(false));
+                        d.spawn(d.clone().takeover_task(false));
                     }
                 }
             }
@@ -6617,7 +7135,7 @@ impl Daemon {
         self.account
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .pairing_task = Some(task);
+            .pairing_task = task;
         self.bump();
         Ok(
             json!({ "verification_uri": pairing.verification_uri, "expires_in": pairing.expires_in }),

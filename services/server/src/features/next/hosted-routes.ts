@@ -178,9 +178,9 @@ export function registerNextHostedRoutes(
     if (kind === "escrow" || !options.migrationRouting) return true;
     const migrationCaller = safeEqual(bearerToken(request)!, options.migrationRouting.inboundToken);
     for (const id of ids) {
-      // A retired route has no hosted deployment: neither credential reads it.
+      // A retired or moving route has no hosted deployment: neither credential reads it.
       const route = await migrationRoute(options.db, options.migrationRouting, id);
-      if (route === "retired" || (route === "migration") !== migrationCaller) return false;
+      if (route === "retired" || route === "moving" || (route === "migration") !== migrationCaller) return false;
     }
     return true;
   };

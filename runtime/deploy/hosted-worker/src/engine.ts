@@ -23,6 +23,7 @@ interface Exports extends WebAssembly.Exports {
   alloc(n: number): number;
   dealloc(p: number, n: number): void;
   hd_open(p: number, n: number): bigint;
+  hd_snapshot_declined(): number;
   hd_open_cpp_claim(p:number,n:number,ap:number,an:number):bigint;
   hd_cpp_claim_begin():bigint;
   hd_cpp_claim_current(h:number):number;
@@ -70,6 +71,7 @@ interface Exports extends WebAssembly.Exports {
   hd_close(session: number): void;
   hd_tick(now: number): void;
   hd_next_wakeup(): number;
+  hd_install_status(): bigint;
   hd_applied_head(): bigint;
   hd_poll(): bigint;
   hd_log_calls(): bigint;
@@ -729,6 +731,18 @@ export class Engine {
     const bytes = this.take(this.ex.hd_applied_head());
     if (bytes.length < 36 || bytes.length > 44) throw new Error("invalid applied head");
     return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+  }
+
+  /** Snapshot install progress in chunks, or null with none running. Counts only,
+   * safe to log. */
+  installStatus(): { done: number; total: number } | null {
+    const status = this.takeDecoded(this.ex.hd_install_status());
+    if (!Array.isArray(status)) return null;
+    return { done: Number(status[0]), total: Number(status[1]) };
+  }
+
+  snapshotDeclined(): boolean {
+    return this.ex.hd_snapshot_declined() === 1;
   }
 
   nextWakeup(): number | null {

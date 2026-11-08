@@ -96,8 +96,8 @@ const DELETE_REFUSALS: Record<string, string> = {
 const deleteRefusal = (reply: FastifyReply, status: number, code: string) =>
   reply.code(status).send(apiError(code, DELETE_REFUSALS[code] ?? "The collection could not be deleted."));
 
-export function registerCollectionNameRoutes(app: FastifyInstance, db: DatabasePool, deletionFloor?: DeletionFloorRecorder): void {
-  registerCollectionModeRoutes(app, db);
+export function registerCollectionNameRoutes(app: FastifyInstance, db: DatabasePool, log: Parameters<typeof registerCollectionModeRoutes>[2], deletionFloor?: DeletionFloorRecorder): void {
+  registerCollectionModeRoutes(app, db, log);
   app.patch<{ Body: { display_name: string } }>("/v1/next/collections/:id/name", {
     bodyLimit: 4096,
     config: { rateLimit: { max: 30, timeWindow: "1 minute" } }

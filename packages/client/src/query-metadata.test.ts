@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { MdbaseCollectionClient } from "./collection-client.js";
 import { connectError } from "./errors.js";
 import { connectSuccess } from "./outcomes.js";
+import { linksTo } from "./query-predicates.js";
 import type { QueryMetadataInput, QueryMetadataPage } from "./operation-types.js";
 
 const row = { path: "annotations/a.md", types: ["annotation"], revision: "opaque:1", values: { source: "[[book]]", resolved: "sources/book.md" } };
@@ -14,6 +15,38 @@ function fixture(result: unknown, supported = true) {
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe("negotiated metadata output", () => {
+  it("pages all source-link metadata matches using has_more without a cursor", async () => {
+    const records = Array.from({ length: 144 }, (_, index) => ({
+      ...row, path: `annotations/${index}.md`, types: ["reader-annotation"]
+    }));
+    const request = vi.fn(async (_name: string, input: QueryMetadataInput) => {
+      const offset = input.offset ?? 0;
+      const results = records.slice(offset, offset + (input.limit ?? 0));
+      return { valid: true, diagnostics: [], result: {
+        output: "metadata", results, meta: { has_more: offset + results.length < records.length }
+      } };
+    });
+    const client = new MdbaseCollectionClient({ operation: request as any }, 1000, async () => connectSuccess(true));
+    const input = {
+      output: "metadata" as const, types: ["reader-annotation"],
+      where: linksTo("source", "sources/book.md"), select: ["source"],
+      includeBody: false, frontmatterMode: "effective" as const
+    };
+    const pages: QueryMetadataPage[] = [];
+    for await (const page of client.queryPages(input, { firstPageSize: 100, pageSize: 100 })) {
+      expect(page.ok).toBe(true);
+      if (page.ok) pages.push(page.value);
+    }
+    expect(pages.map(page => page.results.length)).toEqual([100, 44]);
+    expect(pages.map(page => page.complete)).toEqual([false, true]);
+    expect(pages.flatMap(page => page.results)).toEqual(records);
+    const { includeBody, frontmatterMode, ...criteria } = input;
+    const wireCriteria = { ...criteria, include_body: includeBody, frontmatter_mode: frontmatterMode };
+    expect(request.mock.calls.map(([, query]) => query)).toEqual([
+      { ...wireCriteria, offset: 0, limit: 100 }, { ...wireCriteria, offset: 100, limit: 100 }
+    ]);
+  });
+
   it("serializes canonical select/projections and exposes only revision-required narrow fields", async () => {
     const { client, request, support } = fixture({ output: "metadata", results: [row], meta: { total_count: 1, has_more: false } });
     const outcome = await client.query({ output: "metadata", types: ["annotation"],

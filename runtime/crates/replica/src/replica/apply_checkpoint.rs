@@ -27,6 +27,7 @@ pub(crate) struct Checkpoint {
     ),
     genesis: Option<mdbn_wire::common::Hash>,
     key_untrusted: bool,
+    requester_trust: super::approval_requester::RequesterTrust,
     hosted_key_delivery: Option<super::admission::HostedKeyDelivery>,
     stalled: Option<(IncidentKind, u64)>,
     incidents: BTreeMap<u64, Incident>,
@@ -52,6 +53,7 @@ impl Checkpoint {
             ),
             genesis: r.genesis,
             key_untrusted: r.key_untrusted,
+            requester_trust: r.requester_trust(),
             hosted_key_delivery: r.hosted_key_delivery,
             stalled: r.stalled,
             incidents: r.incidents.clone(),
@@ -92,6 +94,7 @@ impl Checkpoint {
         ) = self.mode_choice;
         r.genesis = self.genesis;
         r.key_untrusted = self.key_untrusted;
+        r.set_requester_trust(self.requester_trust);
         r.hosted_key_delivery = self.hosted_key_delivery;
         r.stalled = self.stalled;
         r.incidents = self.incidents;

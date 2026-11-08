@@ -35,11 +35,9 @@ impl<S: Store> Replica<S> {
     }
 
     fn local_grant_check(&self, grant: &Uuid, ops: &[Op]) -> Result<(), GrantError> {
-        let Some(g) = self.grant_now(grant) else {
-            return Err(GrantError::Denied(Box::new(
-                ErrorCode::Unauthenticated.problem("the grant is no longer active"),
-            )));
-        };
+        let g = self
+            .grant_now(grant)
+            .map_err(|error| GrantError::Denied(error.0))?;
         if !self.serving_account_matches(&g.account) {
             return Err(GrantError::Denied(Box::new(
                 ErrorCode::Forbidden.problem_with_reason(
