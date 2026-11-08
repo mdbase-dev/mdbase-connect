@@ -201,7 +201,7 @@ for (const manual of [false, true]) {
   });
 }
 
-test("the same overall deadline covers staging and ignores expired progress and completion", async (context) => {
+test("staging gets its own longer deadline and ignores expired progress and completion", async (context) => {
   const { store } = await fixture();
   let finishStaging;
   let reportProgress;
@@ -223,7 +223,8 @@ test("the same overall deadline covers staging and ignores expired progress and 
   await setImmediate();
   context.mock.timers.tick(45_000);
   await started.promise;
-  context.mock.timers.tick(14_999);
+  // Past the 60-second check deadline: a slow download is not a stalled check.
+  context.mock.timers.tick(15 * 60_000 - 1);
   await setImmediate();
   assert.equal(coordinator.status().phase, "downloading");
   context.mock.timers.tick(1);

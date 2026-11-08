@@ -66,6 +66,9 @@ export interface UpdateBackend {
 
 const NEWEST = msg({ message: "This is the newest release on the selected channel.", context: "Desktop application" });
 const CHECK_TIMEOUT_MS = 60_000;
+// Finding and verifying a release is bounded tightly; downloading and staging a
+// full release on a slow link legitimately takes longer, so it gets its own deadline.
+const STAGE_TIMEOUT_MS = 15 * 60_000;
 type UpdateCopy = string | MessageDescriptor;
 type UpdateState = Omit<DesktopUpdateStatus, "message" | "daemon_notice"> & {
   message: UpdateCopy;
@@ -125,10 +128,13 @@ export class UpdateCoordinator {
       return Promise.resolve(this.status());
     }
     const controller = new AbortController();
-    const timeout = setTimeout(() => {
-      controller.abort(new Error("Update check timed out after 60 seconds."));
-    }, CHECK_TIMEOUT_MS);
-    this.operation = this.checkExclusive(manual, controller.signal).finally(() => {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const deadline = (ms: number, reason: string) => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => controller.abort(new Error(reason)), ms);
+    };
+    deadline(CHECK_TIMEOUT_MS, "Update check timed out after 60 seconds.");
+    this.operation = this.checkExclusive(manual, controller.signal, deadline).finally(() => {
       clearTimeout(timeout);
       this.operation = null;
     });
@@ -169,7 +175,11 @@ export class UpdateCoordinator {
     return this.status();
   }
 
-  private async checkExclusive(manual: boolean, signal: AbortSignal): Promise<DesktopUpdateStatus> {
+  private async checkExclusive(
+    manual: boolean,
+    signal: AbortSignal,
+    deadline: (ms: number, reason: string) => void
+  ): Promise<DesktopUpdateStatus> {
     if (!this.backend.packaged) return this.status();
     this.setStatus({
       phase: "checking",
@@ -224,6 +234,8 @@ export class UpdateCoordinator {
         const required = decision.required ? { required: true as const } : {};
         const downloading = msg`Downloading verified version ${manifest.version}…`;
         this.setStatus({ phase: "downloading", ...found, progress: 0, message: downloading, can_check: false, can_install: false });
+        signal.throwIfAborted();
+        deadline(STAGE_TIMEOUT_MS, "Update download timed out after 15 minutes.");
         await this.duringCheck(this.backend.stageAutomatic(manifest, decision.target, (progress) => {
           if (signal.aborted) return;
           this.setStatus({ phase: "downloading", progress, message: downloading, can_check: false, can_install: false });
