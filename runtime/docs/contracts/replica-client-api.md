@@ -298,7 +298,7 @@ query-result = {
   ? 6: [* issue],        ; query diagnostics
   ? 7: view-ref,         ; resolved execute_view source
   ? 8: [* query-group],  ; complete filtered groups/summaries BEFORE pagination
-  ? 9: bool,             ; has_more: flat matches AFTER the requested window
+  ? 9: bool,             ; has_more: flat matches AFTER the returned records
 }
 view-ref = { 0: path, 1: tstr }   ; path, named view
 query-group = {
@@ -348,7 +348,12 @@ with an empty values map; an empty grouped match set has no groups. `complete`
 continues to describe install/local-view completeness, not exact total coverage.
 
 All modes use one request-wide hydration budget of at most 1000 records AND 1 MiB
-source, including paging, retries and restarts. Group/summary/CEL allocations need
+source, including paging, retries and restarts. A keyset page that would exceed
+it ends at the last record that fits and returns `has_more: true` with a cursor,
+so `limit` is a maximum: fewer records than `limit` never means the end, only an
+absent cursor does. A first record that alone exceeds the budget, and windows
+answered without a cursor (pending edits merged into the window), still refuse
+`too_large / query_budget_exceeded`. Group/summary/CEL allocations need
 separate real bounds. An exact indexed aggregate is permitted only with qualified
 Core parity and current catalogue/generation/head coverage. Unsupported semantics
 or insufficient whole-query budget fail explicitly; no full-row fallback, page

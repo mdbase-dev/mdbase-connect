@@ -575,6 +575,7 @@ impl<S: Store> Replica<S> {
                 Payload::Query { frontier, .. } => Some(frontier),
                 Payload::Resource { .. } => None,
             }),
+            super::query_driver::Window::BudgetBounded,
         );
         self.require(session, crate::policy::capability::READ)?;
         if self.cursor_stamp(session)? != stamp {
