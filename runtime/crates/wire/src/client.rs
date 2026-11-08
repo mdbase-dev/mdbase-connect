@@ -3,7 +3,7 @@
 use crate::cbor::Cbor;
 use crate::common::{B16, Bytes, DataMap, Hash, Sem, Uuid, Value, Version};
 use crate::entry::{Conflict, Status};
-use crate::intent::{ConflictMode, MediaClass, Op};
+use crate::intent::{ConflictMode, Level, MediaClass, Op};
 use crate::policy::Role;
 use crate::schema::{Ann, SchemaError, Wire, type_err};
 use crate::snapshot::TextOrBlob;
@@ -681,6 +681,9 @@ wire_struct! {
         7 opt include: Include,
         /// When to return.
         8 opt wait: WaitFor,
+        /// Validation level for this write's single-record checks; absent means
+        /// the collection's `settings.validation` (spec 04).
+        9 opt validation: Level,
     }
 }
 

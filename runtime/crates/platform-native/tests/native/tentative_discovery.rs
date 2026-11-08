@@ -216,6 +216,7 @@ fn submit(app: &mut App, session: SessionId, ops: Vec<Op>, mutation: u8) {
             dry_run: None,
             include: None,
             wait: None,
+            validation: None,
         },
     )
     .unwrap();

@@ -912,7 +912,7 @@ authoritative for S-class checks.
 | `if_revision`, resource `base_revision` (request, **S**) | reject if mismatched locally | **reject** `conflict` reason `revision` | — |
 | `unique.enforce: write` (request, **S**) | reject if visible locally | **reject** `conflict` reason `duplicate_value` | never rejected; reported |
 | Config / type-file validity of a resource write (request) | reject `invalid_record` | **reject** | resources edited on disk are ingested and reported (collection invalid) |
-| Single-record schema, `format_invalid` (single-record) | level `error`: reject `invalid_record`; `warn`: report | **never rejects**; reported on read | reported |
+| Single-record schema, `format_invalid` (single-record) | level `error`: reject `invalid_record`; `warn`/`off`: write (the submit `validation` param, else `settings.validation`) | **never rejects**; reported on read | reported |
 | Cross-record checks (cross-record) | reported | reported | reported |
 
 Two consequences:

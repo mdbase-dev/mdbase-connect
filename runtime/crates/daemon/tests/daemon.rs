@@ -241,6 +241,7 @@ async fn daemon_lifecycle() {
                 dry_run: None,
                 include: None,
                 wait: Some(WaitFor::Confirmed),
+                validation: None,
             };
             sess.send(&ClientFrame::Request(ClientRequest {
                 id: 1,

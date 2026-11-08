@@ -189,6 +189,7 @@ fn run_physical_startup_and_publication(refuse_flush: bool) {
                 dry_run: None,
                 include: None,
                 wait: None,
+                validation: None,
             },
         )
         .unwrap();

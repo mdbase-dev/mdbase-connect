@@ -142,6 +142,7 @@ fn submit(documents: Vec<String>) -> SubmitParams {
         dry_run: None,
         include: None,
         wait: None,
+        validation: None,
     }
 }
 #[test]

@@ -178,6 +178,7 @@ fn verified_legacy_blob_source_uses_the_same_frozen_provider_and_assessment() {
             dry_run: None,
             include: None,
             wait: None,
+            validation: None,
         },
     )
     .unwrap();

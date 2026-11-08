@@ -81,6 +81,7 @@ fn create_publish_outside_edit_reopen() {
                 dry_run: None,
                 include: None,
                 wait: None,
+                validation: None,
             },
         )
         .unwrap();

@@ -719,6 +719,7 @@ impl Collection {
                     dry_run: None,
                     include: None,
                     wait: None,
+                    validation: None,
                 },
             )?;
             rep.tick();

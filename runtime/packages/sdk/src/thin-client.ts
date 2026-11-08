@@ -54,6 +54,7 @@ export type {
   SyncStatus,
   TextOrBlob,
   TransferProgress,
+  ValidationLevel,
   Uuid,
   Hash,
   Value,
