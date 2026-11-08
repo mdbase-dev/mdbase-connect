@@ -70,6 +70,15 @@ export function privateCollectionSetup(input:PrivateSetupInput):MdbasePrivateSet
     if(r.mutation!==mid || (r.state!=="confirmed"&&r.state!=="rejected"))throw unknown(mid);
     await journal.clear(mid);
   }
+  function word(s:Session,review:NativeSetupReview):MdbaseSetupPlan{
+    const result=setupPlan(review.assessment,{canManage:true,canCreateRecords:s.hello.grant.capabilities.includes("records.create"),records:review.records.map(r=>({path:r.path,free:r.action==="create"}))});
+    if(!review.promoted)return result;
+    const changes=Object.freeze([...result.changes,{kind:"record" as const,target:"Existing files",message:`Recognize ${review.promoted} existing ${review.promoted===1?"file":"files"} as notes, preserving their contents.`}]);
+    return Object.freeze({...result,changes,summary:`This app will make ${changes.length} ${changes.length===1?"change":"changes"} to this collection.`});
+  }
+  /** Everything the review screen shows or setup writes, without the digest
+   * (which binds Native's head and review clock, so it differs on every review). */
+  const shown=(p:MdbaseSetupPlan,review:NativeSetupReview)=>JSON.stringify([p.status,p.canApply,p.summary,p.changes,p.conflicts,p.adoptable,p.packs,p.staged,p.records,p.refusal??null,review.promoted,review.retained]);
   const api:MdbasePrivateSetup={
     async assess(options={}){
       const p=await api.plan(options),bound=plans.get(p);
@@ -82,8 +91,7 @@ export function privateCollectionSetup(input:PrivateSetupInput):MdbasePrivateSet
       await fence(undefined,options.signal);
       if(!declared){if(input.operations.includes("apply_collection_setup")||input.operations.includes("assess_collection_setup"))throw unavailable();const empty=setupPlan({status:"current",assessmentDigest:`sha256:${"0".repeat(64)}`,review:{configuration:[],packs:[],staged:[]}},{canManage:false,canCreateRecords:false,records:[]});noops.add(empty);return empty;}
       await reconcile(options.signal);const {s,review,options:original}=await native(options);
-      let result=setupPlan(review.assessment,{canManage:true,canCreateRecords:s.hello.grant.capabilities.includes("records.create"),records:review.records.map(r=>({path:r.path,free:r.action==="create"}))});
-      if(review.promoted){const changes=Object.freeze([...result.changes,{kind:"record" as const,target:"Existing files",message:`Recognize ${review.promoted} existing ${review.promoted===1?"file":"files"} as notes, preserving their contents.`}]);result=Object.freeze({...result,changes,summary:`This app will make ${changes.length} ${changes.length===1?"change":"changes"} to this collection.`});}
+      const result=word(s,review);
       plans.set(result,{session:s,review,options:original,consumed:false});return result;
     });},
     async apply(plan,options={}){return exclusive(async()=>{
@@ -91,14 +99,14 @@ export function privateCollectionSetup(input:PrivateSetupInput):MdbasePrivateSet
       let bound=plans.get(plan);if(!bound)throw new TypeError("setup.apply needs the original plan returned by setup.plan");
       if(bound.consumed)throw changed();
       if(plan.refusal)throw mdbaseError(plan.refusal.code==="setup_conflict"?"conflict":"forbidden",plan.refusal.message,plan.refusal.code);
-      await fence(bound.session,options.signal);if(plan.status==="current"){const after=await native({signal:options.signal});await cancel(after.s,after.review.ticket);if(after.review.assessment.status!=="current")throw changed();return "ready" as const;}
+      if(plan.status==="current"){await fence(bound.session,options.signal);const after=await native({signal:options.signal});await cancel(after.s,after.review.ticket);if(after.review.assessment.status!=="current")throw changed();return "ready" as const;}
       bound.consumed=true;
       for(let retry=0;;retry++){
         const mid=crypto.randomUUID();let original:string;try{original=await journal.begin(mid);}catch(e){throw unknown(mid,e);}if(original!==mid)throw unknown(original);
         let dispatched=false,terminal=false;
         try{
           await fence(bound.session,options.signal);dispatched=true;
-          const reply=await setupRequest(bound.session,"apply",[[2,bound.review.ticket],[3,uuidToBytes(mid)],[4,bound.review.revision],[5,hashBytes(plan.digest)]],options.signal);
+          const reply=await setupRequest(bound.session,"apply",[[2,bound.review.ticket],[3,uuidToBytes(mid)],[4,bound.review.revision],[5,hashBytes(bound.review.assessment.assessmentDigest)]],options.signal);
           await input.assertCurrent();if(reply.kind!=="receipt"||reply.receipt.mutation!==mid)throw unknown(mid);
           const r=reply.receipt.state==="pending"?await client.awaitReceipt(mid,30_000,options.signal):reply.receipt;
           await input.assertCurrent();
@@ -112,27 +120,23 @@ export function privateCollectionSetup(input:PrivateSetupInput):MdbasePrivateSet
         }catch(e){
           if(!dispatched || terminal || isReplicaResponseProblem(e)&&e.code!=="outcome_unknown"){
             await journal.clear(mid);
-            // Only a certified pre-mutation refusal permits a fresh attempt.
-            // Another plan can retire this ticket without changing its consented work.
-            if(!terminal&&isReplicaResponseProblem(e)&&e.code==="not_found"){
+            // A review that went stale before anything was written: the ticket
+            // was retired (`not_found`), Native's recheck failed (`conflict`,
+            // `concurrent_modification`; older daemons send no reason), or the
+            // session was replaced before dispatch. Consent covers what the
+            // person was shown, so review once more and apply only if that is
+            // identical; otherwise they review again. An unready device is
+            // `unavailable` and stays transient.
+            const stale=!terminal&&(isReplicaResponseProblem(e)?e.code==="not_found"||e.code==="conflict":!dispatched&&isMdbaseError(e,"conflict")&&e.reason==="setup_changed");
+            if(stale){
               if(retry)throw changed(mid,e);
-              await fence(bound.session,options.signal);
               const fresh=await native({...bound.options,signal:options.signal});
               try{
-                await fence(bound.session,options.signal);
-                if(fresh.s!==bound.session || fresh.review.assessment.assessmentDigest!==plan.digest
-                  || fresh.review.assessment.status!=="provision"
-                  || fresh.review.promoted!==bound.review.promoted || fresh.review.retained!==bound.review.retained
-                  || fresh.review.records.some((r,i)=>r.action!==bound!.review.records[i]?.action))throw changed(mid,e);
+                await fence(fresh.s,options.signal);
+                if(fresh.review.assessment.status!=="provision"||shown(word(fresh.s,fresh.review),fresh.review)!==shown(plan,bound.review))throw changed(mid,e);
               }catch(error){await cancel(fresh.s,fresh.review.ticket);throw error;}
-              bound={...bound,review:fresh.review};continue;
+              bound={...bound,session:fresh.s,review:fresh.review};continue;
             }
-            // Native refuses a stale review with `conflict` before writing
-            // (`concurrent_modification` when its head, policy or grant lease
-            // moved; older daemons send it without a reason): the same
-            // outcome as a stale plan here, so say so the same way. An unready
-            // device is `unavailable` and stays transient.
-            if(!terminal&&isReplicaResponseProblem(e)&&e.code==="conflict")throw changed(mid,e);
             throw new MdbaseError((isMdbaseError(e)?e:changed()).toProblem(),{mutationId:mid,cause:e});
           }
           throw unknown(mid,e);
