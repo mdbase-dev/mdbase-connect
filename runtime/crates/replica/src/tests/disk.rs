@@ -3780,12 +3780,13 @@ fn a_refused_move_keeps_its_fence_when_another_record_takes_its_path() {
     assert_eq!(a.file("b.md"), Some(big()));
 }
 
-/// A snapshot install does not publish over a fenced record; the next edit
-/// there is planned from the refused edit's base, so it is an ordinary
-/// concurrent edit: it does not overwrite the newer version, and the planner
-/// records the user's text as the conflict's lost side.
+/// A snapshot install does not publish over a fenced record, and the next
+/// edit there, its base no longer the confirmed version, is a conflict hold
+/// (mine: the disk's bytes) as apply would make: the disk keeps the user's
+/// bytes in every state, through a restart too.
 #[test]
-fn a_snapshot_under_a_refused_file_then_an_edit_is_a_conflict() {
+fn a_snapshot_under_a_refused_file_then_an_edit_is_held() {
+    use mdbn_wire::snapshot::TextOrBlob;
     let svc = FakeLogService::new();
     let mut a = node(&svc, 1);
     let mut b = node(&svc, 2);
@@ -3795,6 +3796,7 @@ fn a_snapshot_under_a_refused_file_then_an_edit_is_a_conflict() {
     save(&mut b, "a.md", Some(&big()));
     settle(&mut [&mut b]);
     assert_eq!(refused(&b).len(), 1);
+    assert_eq!(b.file("a.md"), Some(big()));
     save(&mut a, "a.md", Some("theirs"));
     settle(&mut [&mut a]);
     let seq = a.r.head().seq;
@@ -3811,18 +3813,71 @@ fn a_snapshot_under_a_refused_file_then_an_edit_is_a_conflict() {
         "theirs"
     );
     assert_eq!(b.file("a.md"), Some(big()), "the disk is untouched");
-    save(&mut b, "a.md", Some("mine again"));
+    b.disk.borrow_mut().user_write("a.md", Some("mine again"));
     settle(&mut [&mut a, &mut b]);
-    let conflicts = b.r.store().conflicts(Some(&B16([1; 16]))).unwrap();
-    assert_eq!(conflicts.len(), 1);
-    assert!(
-        format!("{conflicts:?}").contains("mine again"),
-        "{conflicts:?}"
-    );
+    assert_eq!(b.file("a.md").as_deref(), Some("mine again"));
+    let holds = b.r.list_holds(b.s).unwrap();
+    assert_eq!(holds.len(), 1, "{holds:?}");
+    assert_eq!(holds[0].reason, mdbn_wire::client::HoldReason::Conflict);
+    assert_eq!(holds[0].path, "a.md");
+    assert_eq!(holds[0].mine, TextOrBlob::Text("mine again".into()));
+    assert_eq!(holds[0].theirs, Some(TextOrBlob::Text("theirs".into())));
+    assert!(b.r.store().conflicts(None).unwrap().is_empty());
+    assert_eq!(b.r.store().pending_count().unwrap(), 0);
+    assert!(refused(&b).is_empty(), "the hold replaces the fence");
     assert_eq!(
         a.r.store().record(&B16([1; 16])).unwrap().unwrap().doc,
         "theirs",
         "not overwritten"
     );
-    assert!(refused(&b).is_empty());
+    let Node { r, log, disk, .. } = b;
+    let mut b = reopen(&svc, 2, r.into_store(), log, disk);
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(b.file("a.md").as_deref(), Some("mine again"));
+    assert_eq!(b.r.list_holds(b.s).unwrap().len(), 1);
+}
+
+/// A resource edited on disk (an `api` write) that the log refuses for its
+/// size keeps its bytes with a notice; a later edit syncs.
+#[test]
+fn a_refused_resource_edit_keeps_its_bytes_until_edited() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    a.r.planner = Box::new(crate::plan::CorePlanner);
+    let config = "spec_version: 0.3.0\nsettings:\n  timezone: UTC\n";
+    a.disk.borrow_mut().user_write("mdbase.yaml", Some(config));
+    settle(&mut [&mut a]);
+    assert_eq!(
+        a.r.store().resource("mdbase.yaml").unwrap().as_deref(),
+        Some(config)
+    );
+    a.log.faults.item_bytes_limit = Some(4096);
+    let large = format!("{config}# {}\n", "x".repeat(8192));
+    a.disk.borrow_mut().user_write("mdbase.yaml", Some(&large));
+    settle(&mut [&mut a]);
+    assert_eq!(
+        a.file("mdbase.yaml"),
+        Some(large.clone()),
+        "the user's bytes are kept"
+    );
+    assert_eq!(
+        a.r.store().resource("mdbase.yaml").unwrap().as_deref(),
+        Some(config)
+    );
+    assert_eq!(
+        refused(&a),
+        vec![("mdbase.yaml".into(), Some("item_bytes".into()))]
+    );
+    assert!(!integrity(&a));
+    assert_eq!(a.r.store().pending_count().unwrap(), 0);
+    let fixed = format!("{config}# fixed\n");
+    a.disk.borrow_mut().user_write("mdbase.yaml", Some(&fixed));
+    settle(&mut [&mut a]);
+    assert_eq!(
+        a.r.store().resource("mdbase.yaml").unwrap().as_deref(),
+        Some(fixed.as_str())
+    );
+    assert_eq!(a.file("mdbase.yaml"), Some(fixed));
+    assert!(refused(&a).is_empty());
+    assert!(!integrity(&a));
 }

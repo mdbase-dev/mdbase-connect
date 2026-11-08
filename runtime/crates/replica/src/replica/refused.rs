@@ -2,18 +2,18 @@
 //!
 //! Rejecting a pending change un-layers it, so the local view goes back to the
 //! confirmed version. Publishing that would overwrite (or recreate, or delete)
-//! what the user just wrote. Instead every record and file a rejected change
-//! targets is fenced: [`Replica::materialize`] and attachment fetch
+//! what the user just wrote. Instead every record, file and resource a
+//! rejected change targets is fenced: [`Replica::materialize`] and attachment fetch
 //! publish nothing there, restart reconciliation leaves it alone, and the host
 //! shows a per-file notice ([`Replica::refused_files`]).
 //!
 //! A fence ends when the user's next disk edit there is captured, in the
 //! capture's own commit; a record edit is then planned from the version the
-//! refused change was based on, so anything confirmed since (a snapshot or a
-//! rollback included) merges or conflicts instead of being overwritten. A
-//! confirmed entry applied to a fenced record becomes an ordinary conflict
-//! hold (mine: what the disk shows; theirs: the new confirmed version).
-//! Persisted in [`meta_keys::REFUSED`].
+//! refused change was based on. A confirmed change of a fenced record from
+//! elsewhere becomes an ordinary conflict hold (mine: what the disk shows;
+//! theirs: the new confirmed version): at apply, or, when a snapshot or a
+//! rollback installed it, at the user's next edit there. Persisted in
+//! [`meta_keys::REFUSED`].
 
 use std::collections::BTreeMap;
 
@@ -191,9 +191,9 @@ pub(crate) fn decode(bytes: Option<&[u8]>) -> Result<Refused, &'static str> {
     Ok(out)
 }
 
-/// One record or file a change targets.
+/// One record, file or resource (no ID) a change targets.
 struct Target {
-    id: Uuid,
+    id: Option<Uuid>,
     path: String,
     mine: Option<String>,
     base: Option<DocVersion>,
@@ -242,13 +242,14 @@ impl<S: Store> Replica<S> {
     /// planner rewrote along with it). An app's record write is found in its
     /// planned `effects`, based on the confirmed record.
     fn targets(&self, m: &rt::Mutation, effects: &[Effect]) -> Result<Vec<Target>, StoreError> {
-        let file = |id: Uuid, path: &str| Target {
+        let at = |id: Option<Uuid>, path: &str| Target {
             id,
             path: path.to_string(),
             mine: None,
             base: None,
             deleted: false,
         };
+        let file = |id: Uuid, path: &str| at(Some(id), path);
         let mut out = Vec::new();
         for op in &m.ops {
             match op {
@@ -309,7 +310,12 @@ impl<S: Store> Replica<S> {
                 rt::Op::RecordToUnindexedMarkdown(f) => out.push(file(f.id, &f.path)),
                 rt::Op::UnindexedMarkdownToRecord(f) => out.push(file(f.id, &f.path)),
                 rt::Op::OrdinaryFileToRecord(f) => out.push(file(f.id, &f.path)),
-                // Resources and settings are not fenced.
+                rt::Op::Legacy(Op::ResourcePut(r)) => out.push(at(None, &r.path)),
+                rt::Op::Legacy(Op::ResourceDelete(r)) => out.push(Target {
+                    deleted: true,
+                    ..at(None, &r.path)
+                }),
+                // Settings are not fenced.
                 rt::Op::Legacy(_) => {}
             }
         }
@@ -327,7 +333,7 @@ impl<S: Store> Replica<S> {
             .targets(m, effects)?
             .into_iter()
             .map(|t| RefusedFile {
-                id: Some(t.id),
+                id: t.id,
                 path: t.path,
                 problem: problem.clone(),
                 at: self.now(),
@@ -339,13 +345,21 @@ impl<S: Store> Replica<S> {
     }
 
     /// A captured disk edit ends the fence of what it targets, in the capture's
-    /// commit. Returns the fence to keep once `tx` commits.
+    /// commit. Returns the fence to keep once `tx` commits. A resource edit
+    /// from disk is an `api` write (app resource writes are submitted, not
+    /// captured here).
     pub(crate) fn release_refused(
         &self,
         m: &rt::Mutation,
         tx: &mut Tx,
     ) -> Result<Option<Refused>, StoreError> {
-        if m.source != Source::External || self.refused.0.is_empty() {
+        let resources = m.ops.iter().all(|op| {
+            matches!(
+                op,
+                rt::Op::Legacy(Op::ResourcePut(_) | Op::ResourceDelete(_))
+            )
+        });
+        if m.source != Source::External && !resources || self.refused.0.is_empty() {
             return Ok(None);
         }
         let mut ids = Vec::new();
@@ -359,7 +373,7 @@ impl<S: Store> Replica<S> {
             }
         }
         for t in self.targets(m, &[])? {
-            ids.push(Some(t.id));
+            ids.push(t.id);
             paths.push(t.path);
         }
         let paths: Vec<&str> = paths.iter().map(String::as_str).collect();
@@ -399,6 +413,58 @@ impl<S: Store> Replica<S> {
         self.store.commit(tx)?;
         self.refused_released(released.then_some(rest));
         Ok(())
+    }
+
+    /// A disk edit of a fenced record whose confirmed version is no longer the
+    /// refused change's base (installed by a snapshot or a rollback; apply
+    /// makes its own holds): held as a conflict, as apply would (mine: the
+    /// disk's bytes), instead of planned. The fence ends and `token` is
+    /// acknowledged in the hold's commit. Returns whether it held.
+    pub(crate) fn hold_moved_refused(
+        &mut self,
+        id: Uuid,
+        fence: &RefusedFile,
+        path: &str,
+        text: Option<&str>,
+        token: crate::store::ObservationId,
+    ) -> Result<bool, StoreError> {
+        let confirmed = self.store.record(&id)?;
+        let moved = match (&fence.base, &confirmed) {
+            (Some(b), Some(r)) => {
+                b.path != r.path || inline(&b.doc).as_deref() != Some(r.doc.as_str())
+            }
+            (None, None) => false,
+            _ => true,
+        };
+        if !moved {
+            return Ok(false);
+        }
+        let mut rest = self.refused.clone();
+        rest.remove(&[Some(id)], &[path]);
+        let hold = Hold {
+            id,
+            path: path.to_string(),
+            reason: HoldReason::Conflict,
+            since: self.now(),
+            base: fence
+                .base
+                .as_ref()
+                .and_then(|b| inline(&b.doc))
+                .map(TextOrBlob::Text),
+            mine: TextOrBlob::Text(text.unwrap_or_default().to_string()),
+            theirs: confirmed.map(|r| TextOrBlob::Text(r.doc)),
+            saves: 1,
+        };
+        self.store.commit(Tx {
+            holds_put: vec![hold],
+            ack_observations: vec![token],
+            meta: vec![rest.meta()],
+            ..Tx::default()
+        })?;
+        self.refused = rest;
+        self.status_dirty = true;
+        self.push_holds();
+        Ok(true)
     }
 
     /// Apply of a confirmed entry touching fenced records, in its transaction:

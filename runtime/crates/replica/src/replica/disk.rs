@@ -1132,6 +1132,11 @@ impl<S: Store> Replica<S> {
         {
             return self.ack_releasing(o.token, id, &o.path);
         }
+        if let (Some(f), Some(i)) = (&fence, id)
+            && self.hold_moved_refused(i, f, &o.path, text.as_deref(), o.token)?
+        {
+            return Ok(());
+        }
         let base = match (&shown, o.base) {
             // The new edit continues the refused one: plan it from what that
             // was based on, so anything confirmed since conflicts.
@@ -1214,7 +1219,7 @@ impl<S: Store> Replica<S> {
             // A deleted resource file: ingested as a resource delete.
             let shown = self.local_view_doc(&DiskKey::Resource(o.path.clone()));
             if shown.is_none() {
-                return self.ack(o.token);
+                return self.ack_releasing(o.token, None, &o.path);
             }
             self.before.insert(DiskKey::Resource(o.path.clone()), None);
             return self.capture_resource(
@@ -1229,7 +1234,7 @@ impl<S: Store> Replica<S> {
             .local_view_doc(&DiskKey::Resource(o.path.clone()))
             .is_some_and(|(_, d)| d == doc)
         {
-            return self.ack(o.token);
+            return self.ack_releasing(o.token, None, &o.path);
         }
         self.before.insert(
             DiskKey::Resource(o.path.clone()),
