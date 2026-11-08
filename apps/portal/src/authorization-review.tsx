@@ -132,12 +132,6 @@ export function RequestShell({ children, busy = false }: { children: React.React
       const footer = panel.querySelector(".approval-footer");
       const height = footer?.getBoundingClientRect().height ?? 0;
       document.documentElement.style.setProperty("--approval-footer-space", `${height + 16}px`);
-      const scrollport = panel.querySelector<HTMLElement>(".collection-picker-list");
-      if (scrollport) {
-        const available = window.innerHeight - (scrollport.getBoundingClientRect().top + window.scrollY) - height - 16;
-        const rows = Math.max(1, Math.floor((available - 2) / 64));
-        scrollport.style.setProperty("--collection-picker-space", `${rows * 64 + 2}px`);
-      }
       panel.querySelector<HTMLElement>(".installation-details[open]:focus-within")?.scrollIntoView({ block: "nearest" });
     };
     const observer = new ResizeObserver(resize);

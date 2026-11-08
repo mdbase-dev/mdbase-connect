@@ -54,8 +54,12 @@ for (const width of [1280, 390]) test(`searches approval collections without cha
   await expect(picker.getByRole("option",{selected:true})).toHaveCount(0);
   await expect(input).toHaveAttribute("data-value", "");
   await expect(input).not.toHaveAttribute("aria-activedescendant");
-  await expect(picker).toHaveCSS("overflow-y", "auto");
-  expect(await picker.evaluate(el=>el.scrollHeight>el.clientHeight && el.clientHeight>0 && el.clientHeight<=innerHeight*0.55)).toBe(true);
+  await input.focus();
+  for (let i=0;i<12;i++) await input.press("ArrowDown");
+  const highlighted=await picker.locator(".is-highlighted").boundingBox();
+  const footer=await page.locator(".approval-footer").boundingBox();
+  expect(highlighted!.y+highlighted!.height).toBeLessThanOrEqual(footer!.y);
+  await input.press("Escape");
   await expect(create).toBeEnabled();
   await expect(create).toHaveAttribute("aria-pressed", "false");
   await expect(picker.getByRole("option",{name:"New collection",exact:true})).toHaveCount(1);
