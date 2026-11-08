@@ -13,7 +13,7 @@ function cbor(v:unknown):CborValue {if(Array.isArray(v))return v.map(cbor);if(v&
 export async function nativeSetupFixture(manifest:Record<string,unknown>,o:{support?:boolean;capabilities?:string[];dropApply?:boolean;dropCode?:"conflict"|"not_found";oversized?:boolean;pending?:boolean;pendingForever?:boolean;receiptPending?:boolean}={}) {
  const bytes=Uint8Array.from((await manifestDigest(manifest)).match(/../g)!,v=>parseInt(v,16));
  const replica=new MemoryReplica({capabilities:o.capabilities??["collection.read","records.create","records.edit"]}),base=replica.connector();
- const state={installed:false,stale:false,drop:!!o.dropApply,digest:3,promoted:0,retireOnApply:0,mid:undefined as string|undefined,attempt:undefined as string|undefined};
+ const state={installed:false,stale:false as boolean|string,drop:!!o.dropApply,digest:3,promoted:0,retireOnApply:0,mid:undefined as string|undefined,attempt:undefined as string|undefined};
  let activeTicket:Uint8Array|undefined,ticketSequence=0;
  const matches=(ticket:unknown)=>ticket instanceof Uint8Array&&activeTicket!==undefined&&ticket.length===activeTicket.length&&ticket.every((v,i)=>v===activeTicket![i]);
  const methods:string[]=[],requests:Map<number,CborValue>[]=[];
@@ -36,7 +36,7 @@ export async function nativeSetupFixture(manifest:Record<string,unknown>,o:{supp
      if(action==="apply"){
        if(state.retireOnApply>0){state.retireOnApply--;activeTicket=undefined;}
        if(!matches(m.get(2))){queueMicrotask(()=>opened.port.onframe?.(clientFrame.enc({kind:"response",id:f.id,problem:mdbaseError("not_found","Setup review not found.").toProblem()})));return;}
-       if(state.stale){queueMicrotask(()=>opened.port.onframe?.(clientFrame.enc({kind:"response",id:f.id,problem:mdbaseError("conflict","changed","setup_changed").toProblem()})));return;}
+       if(state.stale){queueMicrotask(()=>opened.port.onframe?.(clientFrame.enc({kind:"response",id:f.id,problem:mdbaseError("conflict","changed",typeof state.stale==="string"?state.stale:"setup_changed").toProblem()})));return;}
        state.mid=uuidFromBytes(m.get(3) as Uint8Array);state.installed=true;
        if(state.drop){state.drop=false;queueMicrotask(()=>opened.port.onclose?.(mdbaseError(o.dropCode??"conflict","transport closed after capture")));return;}
        respond(encode(new Map<number,CborValue>([[0,1],[1,"receipt"],[3,done()]])));return;

@@ -211,8 +211,15 @@ impl<S: Store> Replica<S> {
         let revision = mdbn_core::ids::Hash(fixed(value(&fields, 4)?)?);
         let digest = mdbn_core::ids::Hash(fixed(value(&fields, 5)?)?);
         let job = self.declared_setup_rpc_job.take().ok_or_else(missing)?;
-        let Stage::Reviewed(review) = job.stage else {
-            return Err(ErrorCode::Conflict.err("setup review is not ready"));
+        // A review whose recheck failed says why (a moved fence is
+        // `concurrent_modification`, an unready device `unavailable`), so the
+        // client can tell a stale review from a transient refusal.
+        let review = match job.stage {
+            Stage::Reviewed(review) => review,
+            Stage::Failed(problem) => return Err(problem.into()),
+            Stage::Collecting(_) => {
+                return Err(ErrorCode::Conflict.err("setup review is not ready"));
+            }
         };
         let plan = self.prepare_reviewed_collection_setup(*review, revision, digest)?;
         let receipt = self.capture_prepared_collection_setup(owner, plan, mutation)?;

@@ -127,6 +127,12 @@ export function privateCollectionSetup(input:PrivateSetupInput):MdbasePrivateSet
               }catch(error){await cancel(fresh.s,fresh.review.ticket);throw error;}
               bound={...bound,review:fresh.review};continue;
             }
+            // Native refuses a stale review with `conflict` before writing
+            // (`concurrent_modification` when its head, policy or grant lease
+            // moved; older daemons send it without a reason): the same
+            // outcome as a stale plan here, so say so the same way. An unready
+            // device is `unavailable` and stays transient.
+            if(!terminal&&isReplicaResponseProblem(e)&&e.code==="conflict")throw changed(mid,e);
             throw new MdbaseError((isMdbaseError(e)?e:changed()).toProblem(),{mutationId:mid,cause:e});
           }
           throw unknown(mid,e);
