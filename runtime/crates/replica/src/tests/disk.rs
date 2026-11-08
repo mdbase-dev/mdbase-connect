@@ -3881,3 +3881,113 @@ fn a_refused_resource_edit_keeps_its_bytes_until_edited() {
     assert!(refused(&a).is_empty());
     assert!(!integrity(&a));
 }
+
+/// The app's whole-document write of record 1 at `a.md`, based on `base`.
+fn app_document(n: &mut Node, base: &str, doc: &str) -> mdbn_wire::client::Receipt {
+    use mdbn_wire::intent::{DocVersion, Document};
+    let version = |d: &str| DocVersion {
+        path: "a.md".into(),
+        doc: Text::Inline(d.into()),
+    };
+    n.r.submit(
+        n.s,
+        SubmitParams {
+            ops: vec![Op::Document(Document {
+                id: B16([1; 16]),
+                base: Some(version(base)),
+                new: Some(version(doc)),
+                if_revision: None,
+            })],
+            mutation_id: None,
+            conflict_mode: None,
+            timezone: None,
+            allow_partial: None,
+            mutation_ids: None,
+            dry_run: None,
+            include: None,
+            wait: None,
+        },
+    )
+    .unwrap()
+    .remove(0)
+}
+
+/// An app's write refused for its size is fenced; the app's own corrected
+/// write then ends the fence and reaches the disk, with no conflict hold.
+#[test]
+fn an_app_fix_after_an_app_refusal_reaches_disk() {
+    let svc = FakeLogService::new();
+    let mut a = item_limited(&svc, 1);
+    let refused_write = app_document(&mut a, "original", &big()).mutation;
+    settle(&mut [&mut a]);
+    rejected_with(&a, &refused_write, "item_bytes");
+    assert_eq!(a.file("a.md"), Some(big()));
+    assert_eq!(refused(&a).len(), 1);
+    let fix = app_document(&mut a, "original", "small").mutation;
+    settle(&mut [&mut a]);
+    assert_eq!(
+        a.r.store().local_receipt(&fix).unwrap().unwrap().state,
+        mdbn_wire::client::ReceiptState::Confirmed
+    );
+    assert_eq!(a.file("a.md").as_deref(), Some("small"));
+    assert!(a.r.list_holds(a.s).unwrap().is_empty());
+    assert!(refused(&a).is_empty());
+}
+
+/// A hold resolved on a fenced record (the resolution is an `api` write)
+/// ends the fence once confirmed, and the resolution reaches the disk.
+#[test]
+fn a_hold_resolution_on_a_refused_file_clears_its_fence() {
+    use mdbn_wire::snapshot::TextOrBlob;
+    let svc = FakeLogService::new();
+    let mut a = item_limited(&svc, 1);
+    save(&mut a, "a.md", Some(&big()));
+    settle(&mut [&mut a]);
+    assert_eq!(refused(&a).len(), 1);
+    a.r.store
+        .commit(Tx {
+            holds_put: vec![Hold {
+                id: B16([1; 16]),
+                path: "a.md".into(),
+                reason: mdbn_wire::client::HoldReason::SuspectWrite,
+                since: 1,
+                base: None,
+                mine: TextOrBlob::Text(big()),
+                theirs: Some(TextOrBlob::Text("original".into())),
+                saves: 1,
+            }],
+            ..Tx::default()
+        })
+        .unwrap();
+    a.r.resolve_hold(a.s, B16([1; 16]), HoldResolution::Use("resolved".into()))
+        .unwrap();
+    settle(&mut [&mut a]);
+    assert_eq!(
+        a.r.store().record(&B16([1; 16])).unwrap().unwrap().doc,
+        "resolved"
+    );
+    assert_eq!(a.file("a.md").as_deref(), Some("resolved"));
+    assert!(a.r.list_holds(a.s).unwrap().is_empty());
+    assert!(refused(&a).is_empty());
+}
+
+/// An app's create refused and fenced, then the app's create of a different
+/// record at that path: the new record reaches the disk and the fence ends.
+#[test]
+fn an_app_create_at_a_refused_path_reaches_disk() {
+    let svc = FakeLogService::new();
+    let mut a = item_limited(&svc, 1);
+    let refused_create = create(&mut a, 2, "new.md", &big()).mutation;
+    settle(&mut [&mut a]);
+    rejected_with(&a, &refused_create, "item_bytes");
+    assert_eq!(a.file("new.md"), Some(big()));
+    let fix = create(&mut a, 3, "new.md", "small").mutation;
+    settle(&mut [&mut a]);
+    assert_eq!(
+        a.r.store().local_receipt(&fix).unwrap().unwrap().state,
+        mdbn_wire::client::ReceiptState::Confirmed
+    );
+    assert_eq!(a.file("new.md").as_deref(), Some("small"));
+    assert!(a.r.list_holds(a.s).unwrap().is_empty());
+    assert!(refused(&a).is_empty());
+}

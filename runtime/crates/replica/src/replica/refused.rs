@@ -27,6 +27,7 @@ use mdbn_wire::schema::Wire;
 use mdbn_wire::snapshot::TextOrBlob;
 
 use super::Replica;
+use super::disk::{DiskKey, Shown};
 use crate::store::{MetaPut, Store, StoreError, Tx, meta_keys};
 
 /// Whether a rejected row's files keep their bytes on disk (fenced) rather
@@ -191,6 +192,10 @@ pub(crate) fn decode(bytes: Option<&[u8]>) -> Result<Refused, &'static str> {
     Ok(out)
 }
 
+/// The fence an apply keeps, and what the disk shows for the fences this
+/// replica's own write ended.
+pub(crate) type RefusedApply = (Refused, Vec<(DiskKey, Option<Shown>)>);
+
 /// One record, file or resource (no ID) a change targets.
 struct Target {
     id: Option<Uuid>,
@@ -310,8 +315,12 @@ impl<S: Store> Replica<S> {
                 rt::Op::RecordToUnindexedMarkdown(f) => out.push(file(f.id, &f.path)),
                 rt::Op::UnindexedMarkdownToRecord(f) => out.push(file(f.id, &f.path)),
                 rt::Op::OrdinaryFileToRecord(f) => out.push(file(f.id, &f.path)),
-                rt::Op::Legacy(Op::ResourcePut(r)) => out.push(at(None, &r.path)),
+                rt::Op::Legacy(Op::ResourcePut(r)) => out.push(Target {
+                    mine: inline(&r.doc),
+                    ..at(None, &r.path)
+                }),
                 rt::Op::Legacy(Op::ResourceDelete(r)) => out.push(Target {
+                    mine: Some(String::new()),
                     deleted: true,
                     ..at(None, &r.path)
                 }),
@@ -393,6 +402,15 @@ impl<S: Store> Replica<S> {
         }
     }
 
+    /// Keep the fence `rest` an apply left, and record what the disk shows
+    /// where this replica's own write ended a fence: the refused bytes, not
+    /// the view the write was layered over, so materialize publishes over them.
+    pub(crate) fn refused_applied(&mut self, (rest, shown): RefusedApply) {
+        self.before.extend(shown);
+        self.refused = rest;
+        self.status_dirty = true;
+    }
+
     /// The user's file kept the local view after all (a revert): its fence
     /// ends with the acknowledgement.
     pub(crate) fn ack_releasing(
@@ -467,18 +485,50 @@ impl<S: Store> Replica<S> {
         Ok(true)
     }
 
-    /// Apply of a confirmed entry touching fenced records, in its transaction:
-    /// an own external edit of the record supersedes the fence; anything else
-    /// becomes a conflict hold so the user's bytes are never published over.
-    /// Matched by record ID only. Files stay fenced. Returns the fence to keep
-    /// after commit.
+    /// Apply of a confirmed entry touching fenced records, in its transaction.
+    /// This replica's `own` write, whatever its source, ends the fence of what
+    /// it targets ([`Self::targets`]: not its planner rewrites), which then
+    /// materializes normally. Any other change of a fenced record becomes a
+    /// conflict hold so the user's bytes are never published over, matched by
+    /// record ID only; files and resources stay fenced. Returns the fence to
+    /// keep after commit and what the disk shows ([`Self::refused_applied`]).
     pub(crate) fn prepare_refused_holds(
         &self,
+        own: Option<&rt::Mutation>,
         effects: &[Effect],
-        own_external: bool,
         tx: &mut Tx,
-    ) -> Result<Option<Refused>, StoreError> {
+    ) -> Result<Option<RefusedApply>, StoreError> {
         let mut rest = self.refused.clone();
+        let mut shown = Vec::new();
+        if let Some(m) = own
+            && !rest.0.is_empty()
+        {
+            let targets = self.targets(m, effects)?;
+            let ids: Vec<_> = targets.iter().map(|t| t.id).collect();
+            let paths: Vec<&str> = targets.iter().map(|t| t.path.as_str()).collect();
+            rest.remove(&ids, &paths);
+            for (k, f) in &self.refused.0 {
+                let Some(mine) = f.mine.as_deref().filter(|_| !rest.0.contains_key(k)) else {
+                    continue;
+                };
+                // The bytes belong to the target that is the fenced record, or
+                // else to the one now written at its path (a new record there).
+                let owner = targets
+                    .iter()
+                    .find(|t| f.id.is_some() && t.id == f.id)
+                    .or_else(|| targets.iter().find(|t| t.path == f.path))
+                    .map_or(f.id, |t| t.id);
+                let key = match owner {
+                    Some(id) => DiskKey::Record(id),
+                    None => DiskKey::Resource(f.path.clone()),
+                };
+                let at = (!f.deleted).then(|| Shown {
+                    path: f.path.clone(),
+                    rev: mdbn_wire::hash::sha256(mine.as_bytes()),
+                });
+                shown.push((key, at));
+            }
+        }
         for e in effects {
             let id = match e {
                 Effect::PutRecord(p) => p.id,
@@ -492,10 +542,7 @@ impl<S: Store> Replica<S> {
                 continue;
             };
             rest.remove(&[f.id], &[]);
-            if own_external
-                || self.store.hold(&id)?.is_some()
-                || tx.holds_put.iter().any(|h| h.id == id)
-            {
+            if self.store.hold(&id)?.is_some() || tx.holds_put.iter().any(|h| h.id == id) {
                 continue;
             }
             let theirs = if let Some(r) = tx.records_put.iter().rev().find(|r| r.id == id) {
@@ -520,7 +567,7 @@ impl<S: Store> Replica<S> {
             return Ok(None);
         }
         tx.meta.push(rest.meta());
-        Ok(Some(rest))
+        Ok(Some((rest, shown)))
     }
 }
 
