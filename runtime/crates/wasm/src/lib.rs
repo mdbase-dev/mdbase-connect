@@ -17,6 +17,9 @@
 //! - `rt_info() -> u64`: [`runtime::info`] (CBOR);
 //! - `rt_open(ptr, len) -> u64`: open the runtime from a CBOR config; out is empty on
 //!   success, else a UTF-8 error; new modules default to MemoryConstrained;
+//! - `rt_app_open_local(ptr, len) -> u64`: trusted open of an unsynced (local-only)
+//!   app collection; config `{0: 1, 1: collection, 2: replica, 3: device, 12: opened,
+//!   13: sqlite}`, no keys or pins;
 //! - `rt_open_profile(ptr, len, tag) -> u64`: trusted one-time bootstrap; fixed
 //!   0 MemoryConstrained / 1 Desktop, others refused (input consumed and wiped);
 //!   config CBOR unchanged. No session/query/grant profile override.
@@ -349,6 +352,39 @@ mod abi {
             zones: Box::new(HostZones),
         };
         match super::app::AppRuntime::open_consuming(&mut config, Box::new(ImportAppSql), host) {
+            Ok(r) => {
+                unsafe { RUNTIME = Some(Active::App(Box::new(r))) };
+                give(Vec::new())
+            }
+            Err(_) => give(b"app runtime open failed; reopen and reconcile".to_vec()),
+        }
+    }
+
+    /// Trusted first-party open of an unsynced (local-only) collection: same
+    /// SQL store and module lifetime rules as `rt_app_open`, no log or keys.
+    ///
+    /// # Safety
+    /// Input must be this instance's alloc(len); consumed and wiped on ordinary returns.
+    #[unsafe(no_mangle)]
+    #[allow(static_mut_refs)]
+    #[cfg(feature = "app-runtime")]
+    pub unsafe extern "C" fn rt_app_open_local(ptr: *mut u8, len: usize) -> u64 {
+        let mut config = unsafe { take(ptr, len) };
+        if unsafe { APP_OPEN_ATTEMPTED || APP_DEVICE_ATTEMPTED || RUNTIME.is_some() } {
+            super::runtime::wipe(&mut config);
+            return give(b"app module already used; discard and reopen".to_vec());
+        }
+        unsafe { APP_OPEN_ATTEMPTED = true };
+        let host = mdbn_replica::Host {
+            clock: Box::new(HostClock),
+            entropy: Box::new(HostEntropy),
+            zones: Box::new(HostZones),
+        };
+        match super::app::AppRuntime::open_local_consuming(
+            &mut config,
+            Box::new(ImportAppSql),
+            host,
+        ) {
             Ok(r) => {
                 unsafe { RUNTIME = Some(Active::App(Box::new(r))) };
                 give(Vec::new())
