@@ -817,6 +817,11 @@ msgstr "Выход…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "Some items changed after they were brought in. Their newer versions are added beside them."
+msgstr "Некоторые элементы изменились после переноса. Их новые версии добавляются рядом."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "Some items get a new name because their names are already taken."
 msgstr "Некоторые элементы получат новые имена, потому что их имена уже заняты."
 
@@ -1087,3 +1092,8 @@ msgstr "Ваше сообщение, адрес для ответа (если о
 msgctxt "Collection access interface"
 msgid "Your work is now in {collection}."
 msgstr "Ваша работа теперь в коллекции «{collection}»."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Your work is now in {collection}. If it's still open in another tab, close it there, then bring it in again."
+msgstr "Ваша работа теперь в коллекции «{collection}». Если она ещё открыта в другой вкладке, закройте её там и перенесите снова."

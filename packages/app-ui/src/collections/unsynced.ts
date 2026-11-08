@@ -18,7 +18,7 @@ export type UnsyncedTransferMap = (record: RecordView) => CreateInput | null | P
 
 export interface UnsyncedPlan {
   readonly destination: string;
-  readonly counts: Readonly<{ create: number; present: number; skipped: number; renamed: number }>;
+  readonly counts: Readonly<{ create: number; present: number; skipped: number; renamed: number; changed?: number }>;
   readonly missingTypes: readonly string[];
   readonly addTypes?: readonly string[];
 }
@@ -56,5 +56,5 @@ export function hasUnsyncedWork(snapshot: object): boolean {
 
 /** Whether bringing this plan in has something for the person to decide first. */
 export function planNeedsReview(plan: UnsyncedPlan): boolean {
-  return plan.counts.renamed > 0 || (plan.addTypes?.length ?? 0) > 0 || plan.missingTypes.length > 0;
+  return plan.counts.renamed > 0 || (plan.counts.changed ?? 0) > 0 || (plan.addTypes?.length ?? 0) > 0 || plan.missingTypes.length > 0;
 }

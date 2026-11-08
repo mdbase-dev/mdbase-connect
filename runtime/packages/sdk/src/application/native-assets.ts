@@ -43,7 +43,10 @@ export function applicationNativeAssets(
       appOrigin:declaration.origin,cpOrigin:environment.cpOrigin}),
     sql,handoff,...(fetcher?{fetch:fetcher}:{}),allowLoopbackHttp:environment.allowLoopbackHttp,allowNativeLoopbackHttp:environment.allowNativeLoopbackHttp,
   });
-  // The unsynced collection: the same runtime, SQL and setup journal, no sign-in or log.
-  const unsynced=Object.freeze({databaseName:declaration.storage.unsyncedDatabaseName,setupJournal:collection.setupJournal,sql,loadRuntime});
+  // The unsynced collection: the same runtime and SQL, no sign-in or log. Its
+  // setup journal is its own: sign-out erases the signed-in one, and the
+  // unsynced collection outlives sign-out.
+  const unsynced=Object.freeze({databaseName:declaration.storage.unsyncedDatabaseName,
+    setupJournal:Object.freeze({...collection.setupJournal,databaseName:`${declaration.storage.unsyncedDatabaseName}.setup`}),sql,loadRuntime});
   return Object.freeze({release,environment,loadRuntime,collection,unsynced});
 }

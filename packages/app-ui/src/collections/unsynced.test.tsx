@@ -12,6 +12,7 @@ import { planNeedsReview, unsyncedApi } from "./unsynced.js";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const A = "11111111-1111-4111-8111-111111111111";
+const B = "22222222-2222-4222-8222-222222222222";
 const U = "99999999-9999-4999-8999-999999999999";
 const app = { name: "TaskNotes" };
 const unsyncedPhase = { kind: "unsynced", collectionId: U, connection: {}, rechecking: false } as unknown as MdbasePhase;
@@ -194,6 +195,38 @@ describe("bringing work in", () => {
     await click(button("Bring it in"));
     expect(mdbase.unsynced.transfer).toHaveBeenCalledTimes(2);
     expect(container.textContent).toContain("Your work is now in Alpha.");
+  });
+
+  it("keeps the outcome with the collection the work went into, and asks again when work stays open elsewhere", async () => {
+    const { mdbase, entry, set } = fakeMdbase(readyPhase, work);
+    mdbase.unsynced.transfer.mockResolvedValueOnce({ failed: [], failedTypes: [], retired: false });
+    await render(<CollectionGate mdbase={entry} app={app} autoStart={false} unsynced>{() => null}</CollectionGate>);
+    await click(button("Bring it in"));
+    expect(container.textContent).toContain("Your work is now in Alpha. If it's still open in another tab, close it there, then bring it in again.");
+    expect(button("Bring it in")).toBeDefined();
+    const beta = { kind: "ready", collectionId: B, collection: { collectionId: B, displayName: "Beta", role: "owner" }, connection: {} as never,
+      rechecking: false, problem: null, unavailableTypes: [] } as MdbasePhase;
+    await act(async () => set({ phase: beta, collections: [...entry.getSnapshot().collections, { collectionId: B, displayName: "Beta", role: "owner" }] as never }));
+    expect(container.textContent).not.toContain("Your work is now in Alpha");
+    expect(container.textContent).toContain("You have work that isn't in Beta yet.");
+  });
+
+  it("shows why bringing work in or discarding it was refused", async () => {
+    const { mdbase, entry } = fakeMdbase(readyPhase, work);
+    mdbase.unsynced.planTransfer.mockRejectedValueOnce(Object.assign(new Error("offline"), { code: "unavailable" }));
+    await render(<CollectionGate mdbase={entry} app={app} autoStart={false} unsynced>{() => null}</CollectionGate>);
+    await click(button("Bring it in"));
+    expect(container.querySelectorAll(".mdbase-collections-notice").length).toBeGreaterThan(1);
+    expect(button("Bring it in")).toBeDefined();
+  });
+
+  it("names items changed since they were brought in before bringing them in again", async () => {
+    const { mdbase, entry } = fakeMdbase(readyPhase, work);
+    mdbase.unsynced.planTransfer.mockResolvedValueOnce(plan({ counts: { create: 0, present: 2, skipped: 0, renamed: 0, changed: 1 } }));
+    await render(<CollectionGate mdbase={entry} app={app} autoStart={false} unsynced>{() => null}</CollectionGate>);
+    await click(button("Bring it in"));
+    expect(dialog()!.textContent).toContain("Some items changed after they were brought in. Their newer versions are added beside them.");
+    expect(dialog()!.textContent).not.toContain("get a new name");
   });
 
   it("discards only after the person confirms, naming the app", async () => {

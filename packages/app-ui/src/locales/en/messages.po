@@ -817,6 +817,11 @@ msgstr "Signing out…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "Some items changed after they were brought in. Their newer versions are added beside them."
+msgstr "Some items changed after they were brought in. Their newer versions are added beside them."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "Some items get a new name because their names are already taken."
 msgstr "Some items get a new name because their names are already taken."
 
@@ -1087,3 +1092,8 @@ msgstr "Your message, any reply email and included screenshot, plus these app an
 msgctxt "Collection access interface"
 msgid "Your work is now in {collection}."
 msgstr "Your work is now in {collection}."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Your work is now in {collection}. If it's still open in another tab, close it there, then bring it in again."
+msgstr "Your work is now in {collection}. If it's still open in another tab, close it there, then bring it in again."

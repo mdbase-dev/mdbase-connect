@@ -817,6 +817,11 @@ msgstr "Déconnexion…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "Some items changed after they were brought in. Their newer versions are added beside them."
+msgstr "Certains éléments ont changé après leur importation. Leurs versions plus récentes sont ajoutées à côté."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "Some items get a new name because their names are already taken."
 msgstr "Certains éléments reçoivent un nouveau nom, car leur nom est déjà utilisé."
 
@@ -1087,3 +1092,8 @@ msgstr "Votre message, l’adresse e-mail de réponse éventuelle et la capture 
 msgctxt "Collection access interface"
 msgid "Your work is now in {collection}."
 msgstr "Votre travail est maintenant dans {collection}."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Your work is now in {collection}. If it's still open in another tab, close it there, then bring it in again."
+msgstr "Votre travail est maintenant dans {collection}. S’il est encore ouvert dans un autre onglet, fermez-le, puis importez-le à nouveau."

@@ -817,6 +817,11 @@ msgstr "サインアウト中…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "Some items changed after they were brought in. Their newer versions are added beside them."
+msgstr "一部の項目は取り込み後に変更されています。新しいバージョンは元の項目の横に追加されます。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "Some items get a new name because their names are already taken."
 msgstr "名前がすでに使われているため、一部の項目には新しい名前が付きます。"
 
@@ -1087,3 +1092,8 @@ msgstr "メッセージ、返信先メールアドレス、添付したスクリ
 msgctxt "Collection access interface"
 msgid "Your work is now in {collection}."
 msgstr "作業は{collection}に取り込まれました。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Your work is now in {collection}. If it's still open in another tab, close it there, then bring it in again."
+msgstr "作業は{collection}に取り込まれました。別のタブでまだ開いている場合は、そこで閉じてからもう一度取り込んでください。"

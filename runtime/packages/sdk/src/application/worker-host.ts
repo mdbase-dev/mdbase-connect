@@ -38,6 +38,8 @@ interface HostClient {
   /** Ports to the unsynced collection held to read it while showing another
    * collection (an unsynced transfer); null: none. */
   source:AppWebCollectionHandoff|null;
+  /** The unsynced collection as this tab last attached it to read: what a retire checks nothing has changed since. */
+  sourceMark:Readonly<{generation:string;writes:number}>|null;
   readonly onMessage:(event:MessageEvent<unknown>)=>void;readonly onMessageError:()=>void;
 }
 type Queued={readonly client:HostClient;readonly request:ApplicationWorkerRequest;readonly job?:undefined}
@@ -156,7 +158,7 @@ export class ApplicationWorkerHost {
     if(client.gone||this.stopping)throw new ApplicationWorkerError("application_worker_fenced");
     const value=connection.attach();
     if(!value)throw new ApplicationWorkerError("application_worker_unavailable");
-    client.source=value;
+    client.source=value;client.sourceMark=Object.freeze({generation:connection.generation,writes:connection.writes});
     this.post(client,[APPLICATION_WORKER_PROTOCOL,client.binding,"handoff",id,value],[value.dataPort,value.controlPort]);
   }
   /** Whether a tab other than `client` shows or reads the unsynced collection. */
@@ -178,7 +180,11 @@ export class ApplicationWorkerHost {
     const name=this.unsyncedOptions?.databaseName,account=this.session.getSnapshot().signIn?.accountId;
     if(!name||!account||client.selected!==destination||this.session.connection(destination)?.isCurrent()!==true)throw new ApplicationWorkerError("application_worker_unavailable");
     if(this.unsyncedHeldElsewhere(client,source))throw new ApplicationWorkerError("application_worker_busy");
-    if(this.unsynced?.scope.collection===source)await this.closeUnsynced(client);else this.releaseSource(client);
+    // Nothing may have been saved there since this tab last read it to check
+    // the transfer was complete (another tab can open, save and leave between).
+    const open=this.unsynced?.scope.collection===source?this.unsynced:null,mark=client.sourceMark;client.sourceMark=null;
+    if(!open||!mark||open.generation!==mark.generation||open.writes!==mark.writes)throw new ApplicationWorkerError("application_worker_busy");
+    await this.closeUnsynced(client);
     // False: already retired or discarded (another tab finished first).
     if(await retireAppUnsynced(name,source,destination,account,this.lifetime.signal))this.noteUnsyncedWork(null);
   }
@@ -190,7 +196,11 @@ export class ApplicationWorkerHost {
     const current=await appUnsyncedIdentity(name,false,this.lifetime.signal);
     const showing=this.showsUnsynced(client);
     if(current){
-      if(this.unsyncedHeldElsewhere(client,current.collection))throw new ApplicationWorkerError("application_worker_busy");
+      if(this.unsyncedHeldElsewhere(client,current.collection)){
+        // The tab let go of its ports to discard: forget them so it can show the collection again.
+        if(showing)this.leave(client);
+        throw new ApplicationWorkerError("application_worker_busy");
+      }
       if(this.unsynced?.scope.collection===current.collection)await this.closeUnsynced(client);else this.releaseSource(client);
       const gone=await discardAppUnsynced(name,current.collection,this.lifetime.signal);
       // Best effort: leftover pages are unreachable once the identity is gone.
@@ -204,7 +214,7 @@ export class ApplicationWorkerHost {
     if(source&&this.unsynced?.generation===source.generation)try{this.unsynced.detach(source);}catch{/* closed with the collection */}
   }
   private client(port:MessagePort,binding:string,primary:boolean):HostClient {
-    const client:HostClient={port,binding,primary,lastId:0,foreground:primary,gone:false,selected:null,generation:null,handoff:null,collection:null,source:null,
+    const client:HostClient={port,binding,primary,lastId:0,foreground:primary,gone:false,selected:null,generation:null,handoff:null,collection:null,source:null,sourceMark:null,
       onMessage:event=>this.onMessage(client,event),onMessageError:()=>primary?this.failStop("application_worker_unavailable"):this.detach(client)};
     this.clients.set(binding,client);
     port.addEventListener("message",client.onMessage);port.addEventListener("messageerror",client.onMessageError);port.start();

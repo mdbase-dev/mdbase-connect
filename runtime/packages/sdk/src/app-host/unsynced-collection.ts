@@ -13,7 +13,7 @@ import { acquireAppReplicaLease, type AppLockPort, type AppReplicaLease, type Ap
 import { AppWasmRuntime } from "./wasm-runtime.js";
 import type { AppWebCollectionHandoff, AppWebNativeCollection } from "./web-collection.js";
 
-const STORE = "unsynced", KEY = "current", WORK = "work", RETIRED = "retired.";
+const STORE = "unsynced", KEY = "current", WORK = "work", RETIRED = "retired.", MOVED = "moved.";
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
 /** Tabs that may show the unsynced collection at once (as for a synced one). */
 const MAX_TABS = 32;
@@ -71,6 +71,8 @@ export interface AppUnsyncedConnection extends AppWebNativeCollection {
   readonly state: "ready" | "setup_required";
   /** Null until the first change is submitted here. */
   readonly work: AppUnsyncedWork | null;
+  /** Changes submitted while this connection is open (refused ones too). */
+  readonly writes: number;
   attach(): AppWebCollectionHandoff | null;
   detach(handoff: AppWebCollectionHandoff): void;
   subscribe(listener: () => void): () => void;
@@ -185,7 +187,7 @@ export function retireAppUnsynced(databaseName: string, source: string, destinat
       try {
         if (read.result === undefined || identity(read.result).collection !== source) { done(false); return; }
         const value = retired({version: 1, identity: read.result, destination, account, retiredAt: Date.now()});
-        rows.put(value, RETIRED + source); rows.delete(KEY); rows.delete(WORK); done(true);
+        rows.put(value, RETIRED + source); rows.delete(KEY); rows.delete(WORK); rows.delete(MOVED + source); done(true);
       } catch (error) { refuse(error); }
     };
   });
@@ -200,7 +202,41 @@ export function discardAppUnsynced(databaseName: string, source: string, signal:
         if (read.result === undefined) { done(null); return; }
         const found = identity(read.result);
         if (found.collection !== source) { done(null); return; }
-        rows.delete(KEY); rows.delete(WORK); done(found);
+        rows.delete(KEY); rows.delete(WORK); rows.delete(MOVED + source); done(found);
+      } catch (error) { refuse(error); }
+    };
+  });
+}
+const REVISION = /^sha256:[0-9a-f]{64}$/;
+/** The transfer ledger row: source record ID → the revision brought in. */
+function moved(value: unknown): Map<string, string> {
+  const row = value as {version?: unknown; revisions?: unknown} | null;
+  if (!row || row.version !== 1 || !row.revisions || typeof row.revisions !== "object" || Array.isArray(row.revisions)) throw fail();
+  const out = new Map<string, string>();
+  for (const [id, revision] of Object.entries(row.revisions as Record<string, unknown>)) {
+    if (!UUID.test(id) || typeof revision !== "string" || !REVISION.test(revision)) throw fail();
+    out.set(id, revision);
+  }
+  return out;
+}
+/** Which revision of each of `source`'s records an unsynced transfer has
+ * brought in (empty before the first). */
+export async function appUnsyncedMoved(databaseName: string, source: string, signal: AbortSignal): Promise<ReadonlyMap<string, string>> {
+  if (!UUID.test(source)) throw fail("binding");
+  return await row(databaseName, MOVED + source, moved, null, signal) ?? new Map();
+}
+/** Add to `source`'s transfer ledger. Refused once `source` is no longer this
+ * scope's collection (retired or discarded): nothing more is transferred from it. */
+export function noteAppUnsyncedMoved(databaseName: string, source: string, revisions: ReadonlyMap<string, string>, signal: AbortSignal): Promise<void> {
+  for (const [id, revision] of revisions) if (!UUID.test(id) || !REVISION.test(revision)) return Promise.reject(fail("binding"));
+  return change<void>(databaseName, signal, (rows, done, refuse) => {
+    const current = rows.get(KEY), previous = rows.get(MOVED + source);
+    previous.onsuccess = () => {
+      try {
+        if (current.result === undefined || identity(current.result).collection !== source) { refuse(fail()); return; }
+        const next = previous.result === undefined ? new Map<string, string>() : moved(previous.result);
+        for (const [id, revision] of revisions) next.set(id, revision);
+        rows.put({version: 1, revisions: Object.fromEntries(next)}, MOVED + source); done();
       } catch (error) { refuse(error); }
     };
   });
@@ -259,7 +295,7 @@ export async function openAppUnsyncedCollection(options: AppUnsyncedCollectionOp
   let runtime: AppWasmRuntime | null = null, sqlClose: (() => Promise<void>) | null = null, fence: (() => void) | null = null;
   let journal: AppCollectionSetupJournal | null = null, ledger: AppLedgerRows | null = null;
   let assessment: "ready" | "setup_required" = "setup_required";
-  let saved: AppUnsyncedWork | null = null, marking = false;
+  let saved: AppUnsyncedWork | null = null, marking = false, writes = 0;
   let mode: AppWebCollectionHandoff["setupMode"] = "approved-new";
   const generation = crypto.randomUUID(), setupTurn: AppCollectionSetupTurn = {owner: null};
   const listeners = new Set<() => void>();
@@ -275,6 +311,7 @@ export async function openAppUnsyncedCollection(options: AppUnsyncedCollectionOp
   // The first submit marks the collection as holding work (once per scope).
   const submitted = (method?: string) => {
     tick();
+    if (method === "submit") writes++;
     if (method !== "submit" || saved || marking || !current()) return;
     marking = true;
     void row(options.databaseName, WORK, work, () => ({version: 1 as const, since: Date.now()}), signal)
@@ -354,6 +391,7 @@ export async function openAppUnsyncedCollection(options: AppUnsyncedCollectionOp
     return Object.freeze({scope, generation, isCurrent: current, setForeground() {}, attach, detach: drop, close,
       get state() { return current() ? assessment : "setup_required" as const; },
       get work() { return saved; },
+      get writes() { return writes; },
       subscribe(listener: () => void) { if (!current()) throw fail("fenced"); listeners.add(listener); return () => { listeners.delete(listener); }; },
     });
   } catch (error) { await close().catch(() => {}); throw error; }

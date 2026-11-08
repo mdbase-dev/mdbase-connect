@@ -5,7 +5,7 @@ import { ConfirmDialog } from "../ConfirmDialog.js";
 import { useLocaleRevision } from "../i18n.js";
 import { CollectionMdbaseContext } from "./CollectionSaveWarning.js";
 import { defaultCollectionCopy } from "./copy.js";
-import { ActionButton } from "./parts.js";
+import { ActionButton, NoticeBlock } from "./parts.js";
 import { unsyncedPhase } from "./unsynced.js";
 import type { CollectionUi } from "./use-collection-ui.js";
 
@@ -40,18 +40,21 @@ export function BringInBanner({ ui, variant = "banner" }: { readonly ui: Collect
   const name = view.current?.name ?? view.heading;
   const notice = ui.unsyncedNotice;
   const review = ui.unsyncedReview;
-  if (!notice && !view.unsyncedWork) return null;
+  if (!notice && !view.unsyncedWork && !ui.error) return null;
   const consequence = review ? [
     review.counts.renamed > 0 ? copy.unsyncedReviewRenamed : null,
+    (review.counts.changed ?? 0) > 0 ? copy.unsyncedReviewChanged : null,
     review.addTypes?.length ? ui.say("unsyncedReviewTypes", { types: review.addTypes.join(", ") }) : null,
     review.missingTypes.length > 0 ? copy.unsyncedReviewMissing : null,
   ].filter(Boolean).join(" ") : undefined;
   return <div className="mdbase-collections">
-    {notice
+    {/* A refusal from bringing work in or discarding it (busy, offline, a stale plan). */}
+    {ui.error && <NoticeBlock notice={ui.error} ui={ui} variant={variant} />}
+    {!notice && !view.unsyncedWork ? null : notice
       ? <div className={`mdbase-collections-notice is-${variant}`} data-tone={notice.tone} role={notice.tone === "info" ? "status" : "alert"}>
         <div className="mdbase-collections-notice-copy"><p className="mdbase-collections-notice-message">{notice.message}</p></div>
         <div className="mdbase-collections-notice-actions">
-          {notice.key === "unsynced_bring_in_failed" && view.unsyncedWork
+          {notice.key !== "unsynced_brought_in" && view.unsyncedWork
             && <ActionButton tone="primary" inert={busy !== null} progress={busy === "bring_in" ? copy.unsyncedBringingIn : null} onClick={actions.bringIn}>{copy.unsyncedBringIn}</ActionButton>}
           <ActionButton tone="quiet" onClick={actions.dismissUnsyncedNotice}>{copy.close}</ActionButton>
         </div>

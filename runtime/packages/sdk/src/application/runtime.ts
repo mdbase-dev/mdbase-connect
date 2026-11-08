@@ -217,12 +217,18 @@ export class ApplicationRuntime {
    * continues in a new, empty one. */
   discardUnsynced(options:MdbaseApplicationRequestOptions={}):Promise<MdbaseApplicationSnapshot>{
     const caller=this.signal(options);return this.action(async()=>{
-      const shown=this.raw.unsynced?.collectionId??null;
-      if(shown!==null&&this.raw.selectedCollectionId===shown){
+      const shown=this.raw.unsynced?.collectionId??null,showing=shown!==null&&this.raw.selectedCollectionId===shown;
+      if(showing){
         ++this.epoch;const retired=this.retireOwn();this.publish();await retired;
         if(this.closed||caller.aborted)throw new ApplicationRuntimeError("application_fenced");
       }
-      return this.complete(await this.worker.request("discardUnsynced",null,caller),caller);
+      try{return this.complete(await this.worker.request("discardUnsynced",null,caller),caller);}
+      catch(error){
+        // Refused (another tab still works in it): show it here again, then report the refusal.
+        if(showing&&error instanceof ApplicationWorkerReplyError&&error.code==="application_worker_busy"&&!this.closed&&!caller.aborted)
+          this.complete(await this.worker.request("openUnsynced",null,caller),caller);
+        throw error;
+      }
     },caller);
   }
   /** Read the unsynced collection beside this tab's open one (an unsynced

@@ -817,6 +817,11 @@ msgstr "Abmeldung läuft…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "Some items changed after they were brought in. Their newer versions are added beside them."
+msgstr "Einige Einträge wurden nach der Übernahme geändert. Ihre neueren Versionen werden daneben hinzugefügt."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "Some items get a new name because their names are already taken."
 msgstr "Einige Einträge erhalten einen neuen Namen, weil ihre Namen bereits vergeben sind."
 
@@ -1087,3 +1092,8 @@ msgstr "Ihre Nachricht, eine etwaige E-Mail-Adresse für Antworten und ein beige
 msgctxt "Collection access interface"
 msgid "Your work is now in {collection}."
 msgstr "Ihre Arbeit ist jetzt in {collection}."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Your work is now in {collection}. If it's still open in another tab, close it there, then bring it in again."
+msgstr "Ihre Arbeit ist jetzt in {collection}. Wenn sie noch in einem anderen Tab geöffnet ist, schließen Sie sie dort und übernehmen Sie sie dann erneut."

@@ -8,7 +8,7 @@ import type {
   MdbaseApplicationRequestOptions, MdbaseApplicationSnapshot, MdbaseCollectionDeleteOptions, MdbaseSignOutOptions,
   MdbaseTransferOptions, MdbaseTransferPlanOptions,
 } from "../application/entry.js";
-import {planUnsyncedTransfer, runUnsyncedTransfer, unsyncedTransferComplete, type MdbaseTransferPlan} from "../application/unsynced-transfer.js";
+import {planUnsyncedTransfer, runUnsyncedTransfer, unsyncedTransferComplete, type MdbaseTransferLedger, type MdbaseTransferPlan} from "../application/unsynced-transfer.js";
 import type {MdbaseSetupPlan} from "../application/setup.js";
 import type {MdbaseAccessRequest, MdbaseAccessRequestOptions, MdbaseAccessResult} from "../application/file-access.js";
 import type {FileAction} from "../files.js";
@@ -93,6 +93,12 @@ export function createApplicationFixture(options: ApplicationFixtureOptions): Ap
   const declaration = applicationDeclaration(options.declaration);
   let snapshot = frozenSnapshot(options.initialSnapshot);
   const unsynced = options.unsynced ?? null;
+  // The transfer ledger, kept in memory as the SDK keeps it per browser.
+  const moved = new Map<string, Map<string, string>>();
+  const ledger: MdbaseTransferLedger = Object.freeze({
+    read: async (source: string) => new Map(moved.get(source) ?? []),
+    record: async (source: string, revisions: ReadonlyMap<string, string>) => { const row = moved.get(source) ?? new Map<string, string>(); for (const [id, revision] of revisions) row.set(id, revision); moved.set(source, row); },
+  });
   let connections = bindings([...options.connections, ...(unsynced ? [unsynced] : [])]);
   const listeners = new Set<() => void>();
   const handlers = new Map<ApplicationFixtureAction, ApplicationFixtureHandler>();
@@ -206,13 +212,13 @@ export function createApplicationFixture(options: ApplicationFixtureOptions): Ap
     openUnsynced: (request?: MdbaseApplicationRequestOptions) => run("openUnsynced", request),
     async planUnsyncedTransfer({map, addTypes, ...request}: MdbaseTransferPlanOptions = {}) {
       await run("planUnsyncedTransfer", request);
-      return planUnsyncedTransfer(transferSource().records, transferDestination().records, {...(map ? {map} : {}), ...(addTypes ? {addTypes} : {}), ...(request.signal ? {signal: request.signal} : {})});
+      return planUnsyncedTransfer(transferSource().records, transferDestination().records, {...(map ? {map} : {}), ...(addTypes ? {addTypes} : {}), ledger, ...(request.signal ? {signal: request.signal} : {})});
     },
     async transferUnsynced(plan: MdbaseTransferPlan, {onProgress, ...request}: MdbaseTransferOptions = {}) {
       await run("transferUnsynced", request);
       const destination = transferDestination().records, signal = request.signal ? {signal: request.signal} : {};
       const result = await runUnsyncedTransfer(plan, destination, {...(onProgress ? {onProgress} : {}), ...signal});
-      if (result.failed.length || !await unsyncedTransferComplete(plan, transferSource().records, destination, request.signal)) return result;
+      if (result.failed.length || result.failedTypes.length || !await unsyncedTransferComplete(plan, transferSource().records, destination, request.signal)) return result;
       // As the SDK does: the work is kept aside and the marker clears.
       publish({...snapshot, unsyncedWork: null});
       return Object.freeze({...result, retired: true});

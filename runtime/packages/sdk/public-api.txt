@@ -4690,7 +4690,8 @@ MdbaseSnapshot@application/front-door.ts
   readonly writes?: WriteLedgerSnapshot | null | undefined
 
 MdbaseTransferItem@application/unsynced-transfer.ts
-  readonly outcome: 'create' | 'present' | 'skipped'
+  readonly copyId?: string | undefined
+  readonly outcome: 'create' | 'changed' | 'present' | 'skipped'
   readonly path?: string | undefined
   readonly renamedFrom?: string | undefined
   readonly sourceId: string
@@ -4705,7 +4706,7 @@ MdbaseTransferOptions@application/entry.ts
 
 MdbaseTransferPlan@application/unsynced-transfer.ts
   readonly addTypes: readonly string[]
-  readonly counts: Readonly<{ create: number; present: number; skipped: number; renamed: number; }>
+  readonly counts: Readonly<{ create: number; present: number; skipped: number; renamed: number; changed: number; }>
   readonly destination: string
   readonly items: readonly MdbaseTransferItem[]
   readonly missingTypes: readonly string[]

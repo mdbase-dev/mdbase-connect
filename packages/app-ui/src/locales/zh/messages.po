@@ -817,6 +817,11 @@ msgstr "正在退出登录…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "Some items changed after they were brought in. Their newer versions are added beside them."
+msgstr "部分项目在导入后有所更改。它们的较新版本会添加在原项目旁边。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "Some items get a new name because their names are already taken."
 msgstr "部分项目的名称已被占用，因此会获得新名称。"
 
@@ -1087,3 +1092,8 @@ msgstr "你的消息、回复邮箱、附加的屏幕截图，以及这些应用
 msgctxt "Collection access interface"
 msgid "Your work is now in {collection}."
 msgstr "你的工作现已在 {collection} 中。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Your work is now in {collection}. If it's still open in another tab, close it there, then bring it in again."
+msgstr "你的工作现已在 {collection} 中。如果它仍在其他标签页中打开，请先在那里关闭，然后再次导入。"

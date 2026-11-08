@@ -22,7 +22,7 @@ describe("unsynced transfer",()=>{
   it("keeps IDs, paths and content, and a second run creates nothing",async()=>{
     const {source,destination}=await pair();
     const plan=await planUnsyncedTransfer(source,destination);
-    expect(plan.counts).toEqual({create:3,present:0,skipped:0,renamed:0});
+    expect(plan.counts).toEqual({create:3,present:0,skipped:0,renamed:0,changed:0});
     expect(plan.missingTypes).toEqual([]);
     const progress:number[]=[];
     const result=await runUnsyncedTransfer(plan,destination,{onProgress:p=>progress.push(p.done)});
@@ -32,7 +32,7 @@ describe("unsynced transfer",()=>{
     expect(records.map(r=>[r.id,r.path]).sort()).toEqual([[A,"notes/first.md"],[B,"todo.md"],[C,"scratch.md"]].sort());
     expect(records.find(r=>r.id===A)!.body).toBe("Started before connecting.\n");
     const again=await planUnsyncedTransfer(source,destination);
-    expect(again.counts).toEqual({create:0,present:3,skipped:0,renamed:0});
+    expect(again.counts).toEqual({create:0,present:3,skipped:0,renamed:0,changed:0});
     expect(await runUnsyncedTransfer(again,destination)).toMatchObject({created:0,present:3,failed:[],mutations:[]});
   });
 
@@ -67,10 +67,36 @@ describe("unsynced transfer",()=>{
     expect((await destination.describe()).types.filter(t=>t.name==="task")).toHaveLength(1);
   });
 
+  it("brings in a record changed here after its transfer as a copy beside it, keeping both versions",async()=>{
+    const {source,destination}=await pair();
+    const rows=new Map<string,Map<string,string>>();
+    const ledger={read:async(id:string)=>new Map(rows.get(id)??[]),record:async(id:string,revisions:ReadonlyMap<string,string>)=>{const row=rows.get(id)??new Map<string,string>();for(const [k,v] of revisions)row.set(k,v);rows.set(id,row);}};
+    const first=await planUnsyncedTransfer(source,destination,{ledger});
+    await runUnsyncedTransfer(first,destination);
+    expect([...rows.get(SOURCE)!.keys()].sort()).toEqual([A,B,C].sort());
+    // Edited in both places after the transfer.
+    await destination.update(B,{body:"Buy milk and eggs\n"});
+    await source.update(B,{body:"Buy oat milk\n"});
+    expect(await unsyncedTransferComplete(first,source,destination)).toBe(false);
+    const plan=await planUnsyncedTransfer(source,destination,{ledger});
+    expect(plan.counts).toEqual({create:0,present:2,skipped:0,renamed:0,changed:1});
+    const item=plan.items.find(i=>i.sourceId===B)!;
+    expect(item).toMatchObject({outcome:"changed",path:"todo 2.md"});
+    expect(await runUnsyncedTransfer(plan,destination)).toMatchObject({created:1,failed:[]});
+    expect((await destination.get(B,{body:true})).body).toBe("Buy milk and eggs\n");
+    expect((await destination.get(item.copyId!,{body:true})).body).toBe("Buy oat milk\n");
+    expect(await unsyncedTransferComplete(plan,source,destination)).toBe(true);
+    // A run interrupted after the copy landed but before its revision was recorded: the copy is found, not made twice.
+    rows.get(SOURCE)!.set(B,(await source.get(B)).revision.replace(/.$/,c=>c==="0"?"1":"0"));
+    const again=await planUnsyncedTransfer(source,destination,{ledger});
+    expect(again.counts).toMatchObject({create:0,changed:0});
+    expect(await all(destination)).toHaveLength(4);
+  });
+
   it("applies the app's map, which may leave records out but not change their IDs",async()=>{
     const {source,destination}=await pair();
     const plan=await planUnsyncedTransfer(source,destination,{map:record=>record.path==="scratch.md"?null:{path:record.path,frontmatter:{...Object.fromEntries([...record.frontmatter].map(([k,v])=>[k,v as never])),moved:true},body:record.body ?? ""}});
-    expect(plan.counts).toEqual({create:2,present:0,skipped:1,renamed:0});
+    expect(plan.counts).toEqual({create:2,present:0,skipped:1,renamed:0,changed:0});
     await runUnsyncedTransfer(plan,destination);
     expect((await destination.get(B)).frontmatter.get("moved")).toBe(true);
     await expect(planUnsyncedTransfer(source,destination,{map:record=>({path:record.path,id:A})})).rejects.toSatisfy(e=>isMdbaseError(e,"invalid_request"));
@@ -87,7 +113,7 @@ describe("unsynced transfer",()=>{
     const first=await runUnsyncedTransfer(plan,flaky);
     expect(first.created).toBe(2);expect(first.failed).toHaveLength(1);
     const retry=await planUnsyncedTransfer(source,destination);
-    expect(retry.counts).toEqual({create:1,present:2,skipped:0,renamed:0});
+    expect(retry.counts).toEqual({create:1,present:2,skipped:0,renamed:0,changed:0});
     expect(await runUnsyncedTransfer(retry,destination)).toMatchObject({created:1,present:2,failed:[]});
     expect(await all(destination)).toHaveLength(3);
   });

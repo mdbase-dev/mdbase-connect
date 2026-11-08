@@ -817,6 +817,11 @@ msgstr "Saindo…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "Some items changed after they were brought in. Their newer versions are added beside them."
+msgstr "Alguns itens mudaram depois de importados. As versões mais recentes são adicionadas ao lado."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "Some items get a new name because their names are already taken."
 msgstr "Alguns itens recebem um novo nome porque os nomes já estão em uso."
 
@@ -1087,3 +1092,8 @@ msgstr "Sua mensagem, eventual e-mail para resposta e captura de tela incluída,
 msgctxt "Collection access interface"
 msgid "Your work is now in {collection}."
 msgstr "Seu trabalho agora está em {collection}."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Your work is now in {collection}. If it's still open in another tab, close it there, then bring it in again."
+msgstr "Seu trabalho agora está em {collection}. Se ele ainda estiver aberto em outra guia, feche-o lá e importe novamente."

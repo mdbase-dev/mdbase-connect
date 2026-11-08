@@ -817,6 +817,11 @@ msgstr "Cerrando sesión…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "Some items changed after they were brought in. Their newer versions are added beside them."
+msgstr "Algunos elementos cambiaron después de incorporarse. Sus versiones más recientes se añaden al lado."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "Some items get a new name because their names are already taken."
 msgstr "Algunos elementos reciben un nombre nuevo porque sus nombres ya están en uso."
 
@@ -1087,3 +1092,8 @@ msgstr "Tu mensaje, el correo para responder y la captura adjunta, además de es
 msgctxt "Collection access interface"
 msgid "Your work is now in {collection}."
 msgstr "Tu trabajo ya está en {collection}."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Your work is now in {collection}. If it's still open in another tab, close it there, then bring it in again."
+msgstr "Tu trabajo ya está en {collection}. Si sigue abierto en otra pestaña, ciérralo allí y vuelve a incorporarlo."

@@ -74,7 +74,8 @@ and application code must not branch on storage") holds unchanged.
 
 On creation, the unsynced collection is configured from the app's
 declaration without a review step. It is new and empty, so there is nothing
-to review.
+to review. Its setup journal is kept in its own database
+(`<unsyncedDatabaseName>.setup`), apart from the synced collections' journal.
 
 ### Runtime work
 
@@ -179,19 +180,26 @@ This path is used when the person picks a collection that already holds work.
   collection in the connect flow opens it; the transfer then runs there.
 - `planTransfer({map})` compares the source with the destination and writes
   nothing. Each record is `create`, `present` (its ID is already in the
-  destination) or `skipped` (the map returned null). A taken path is renamed
+  destination), `changed` (see below) or `skipped` (the map returned null). A taken path is renamed
   beside it (`todo.md` becomes `todo 2.md`), and types the destination lacks
   are listed in `missingTypes`; the records are still created.
 - The app supplies `map(record) => CreateInput | null`. For TaskNotes, that
   is its status, priority and custom-field mapping. Editor needs none. The
   map may not change a record's ID.
 - `transfer(plan)` creates each record using **its source UUID**, with a
-  mutation ID derived from the intent `unsynced/1, source, record`. There is
-  no journal: record IDs are random UUIDs, so an ID already in the
-  destination came from an earlier transfer and counts as done, and the
-  deterministic mutation ID makes a resent create the same write. An
-  interrupted transfer, in this tab, another tab or after a reload, is
-  resumed by planning again. Records that fail are reported in `failed`.
+  mutation ID derived from the intent `unsynced/1, source, record`. Record IDs
+  are random UUIDs, so an ID already in the destination came from an earlier
+  transfer, and the deterministic mutation ID makes a resent create the same
+  write. An interrupted transfer, in this tab, another tab or after a reload,
+  is resumed by planning again. Records that fail are reported in `failed`.
+- A small ledger (`moved.<source>` in the unsynced database: record ID to the
+  source revision) is written before the creates. If a record is present in
+  the destination but its source revision differs from the ledger, it was
+  edited here after it was brought in (for example in another tab that still
+  showed this collection). It is planned as `changed` and created as a copy
+  beside the original, with an ID derived from the record and that revision,
+  so the destination's version is never overwritten and a repeat is still
+  idempotent. A present record with no ledger entry counts as done.
 - The Worker attaches the unsynced collection to the tab only for the
   duration of a plan (`attachUnsynced` / `detachUnsynced`), beside the
   collection the tab shows, and closes it again when nothing holds it.
@@ -212,8 +220,10 @@ every difference.
 - When a transfer leaves nothing behind (no failures, and planning again with
   the same map finds nothing to create, so work saved meanwhile is not left
   out), `transfer` retires the unsynced collection and reports
-  `retired: true`. Its identity moves to a retired row bound to the signed-in
-  account, `unsyncedWork` clears in every tab, and the next open starts a new,
+  `retired: true`. The Worker notes the unsynced collection's generation and
+  write count when the plan attaches it, and refuses to retire it if either
+  changed since (something was saved after the check). Its identity moves
+  to a retired row bound to the signed-in account, `unsyncedWork` clears in every tab, and the next open starts a new,
   empty collection. While another tab still shows the unsynced collection,
   retiring waits (`retired: false`); transferring again from there finishes
   it. Other accounts on this browser never see a retired copy, and signing out
@@ -295,7 +305,7 @@ unsynced collection, and its handoff could become path A or B.
   - one runtime composition (local-only app);
   - one phase;
   - one SDK namespace (`unsynced`);
-  - a stateless transfer engine (no journal).
+  - a transfer engine whose only state is the per-source ledger above.
 
 ## Delivery
 
@@ -305,8 +315,8 @@ unsynced collection, and its handoff could become path A or B.
 3. SDK: the `unsynced` option, phase, Worker host, `unsynced.open()` and the
    `unsyncedWork` marker (built). The real app WASM is exercised by the
    runtime and SDK loader smokes.
-4. Path B: `planTransfer` and `transfer` (built; idempotent without a
-   journal), retiring after a complete transfer, and `discard` (built).
+4. Path B: `planTransfer` and `transfer` (built; idempotent, with the
+   revision ledger for records changed after they were brought in), retiring after a complete transfer, and `discard` (built).
    Retired copies are purged after the recovery window and erased on sign-out
    of their account (built). Still to do: reaching a retired copy from
    settings to transfer it again or delete it.
@@ -330,3 +340,13 @@ unsynced collection, and its handoff could become path A or B.
    again or deleted; there is no separate restore or export.
 4. **Name:** `unsynced`. It matches "sync off" in `PRODUCT.md`; "draft" is
    already used by record leases.
+
+## Known limitations
+
+- Retired copies cannot yet be reached from settings (Delivery step 4).
+- Signing out and choosing to discard local work erases the account's retired
+  copies with the rest of that scope. If a transfer was made offline and its
+  writes are then discarded at sign-out, the retired copy goes with them. The
+  sign-out prompt already warns that unsent work will be lost.
+- A transfer that runs after another tab retired the copy opens a new, empty
+  unsynced collection; the work is already in the destination.

@@ -14,7 +14,8 @@ import {ApplicationCollectionSelection,type ApplicationCollectionSelectionSnapsh
 import {APPLICATION_WORKER_PROTOCOL} from "./worker-protocol.js";
 import {browserApplicationPortalHost,openerApplicationPortalHost,reserveApplicationPortal,type ApplicationPortalHost} from "./portal-reservation.js";
 import {MdbaseError,mdbaseError} from "../errors.js";
-import {planUnsyncedTransfer,runUnsyncedTransfer,unsyncedTransferComplete,type MdbaseTransferMap,type MdbaseTransferPlan,type MdbaseTransferProgress,type MdbaseTransferResult} from "./unsynced-transfer.js";
+import {appUnsyncedMoved,noteAppUnsyncedMoved} from "../app-host/unsynced-collection.js";
+import {planUnsyncedTransfer,runUnsyncedTransfer,unsyncedTransferComplete,type MdbaseTransferLedger,type MdbaseTransferMap,type MdbaseTransferPlan,type MdbaseTransferProgress,type MdbaseTransferResult} from "./unsynced-transfer.js";
 import {awaitFileAccess,consentedFileActions,fileAccessDeclaration,grantedResult,missingFileActions,type MdbaseAccessRequest,type MdbaseAccessRequestOptions,type MdbaseAccessResult} from "./file-access.js";
 import {registrationRefusal} from "./registration-refusal.js";
 import type {MdbaseClient} from "../client.js";
@@ -440,12 +441,13 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
       signOut:(options?:MdbaseSignOutOptions)=>this.signOut(options),
       planUnsyncedTransfer:(options:MdbaseTransferPlanOptions={})=>this.call(runtime=>{
         const destination=this.transferDestination(null);
-        return runtime.withUnsyncedSource((source,signal)=>planUnsyncedTransfer(source.records,destination.records,{...(options.map?{map:options.map}:{}),...(options.addTypes?{addTypes:true}:{}),signal}),options);
+        return runtime.withUnsyncedSource((source,signal)=>planUnsyncedTransfer(source.records,destination.records,{...(options.map?{map:options.map}:{}),...(options.addTypes?{addTypes:true}:{}),ledger:this.transferLedger(),signal}),options);
       }),
       transferUnsynced:(plan:MdbaseTransferPlan,options:MdbaseTransferOptions={})=>this.call(async runtime=>{
         const destination=this.transferDestination(plan?.destination??null);
         const result=await runUnsyncedTransfer(plan,destination.records,{...(options.signal?{signal:options.signal}:{}),...(options.onProgress?{onProgress:options.onProgress}:{})});
-        if(result.failed.length)return result;
+        // A type that could not be added stays only in the unsynced collection's definitions.
+        if(result.failed.length||result.failedTypes.length)return result;
         // Retire only when planning again finds nothing left: work saved after
         // the plan (here or in another tab) is not left behind.
         const request=options.signal?{signal:options.signal}:{};
@@ -901,6 +903,13 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
     });return this.closing;
   }
   application():MdbaseApplication{return this.app;}
+  /** Which revisions of the unsynced collection's records are already in a
+   * destination, shared by this browser's tabs. */
+  private transferLedger():MdbaseTransferLedger{
+    const name=this.declaration.storage.unsyncedDatabaseName,never=new AbortController().signal;
+    return Object.freeze({read:(source:string,signal?:AbortSignal)=>appUnsyncedMoved(name,source,signal??never),
+      record:(source:string,revisions:ReadonlyMap<string,string>,signal?:AbortSignal)=>noteAppUnsyncedMoved(name,source,revisions,signal??never)});
+  }
   /** The tab's open, ready collection: where an unsynced transfer goes. */
   private transferDestination(expected:string|null):MdbaseApplicationConnection{
     const phase=this.getSnapshot().phase;

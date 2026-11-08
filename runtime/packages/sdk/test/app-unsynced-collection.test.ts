@@ -1,6 +1,6 @@
 import {IDBFactory,IDBKeyRange} from "fake-indexeddb";
 import {beforeEach,expect,it} from "vitest";
-import {appUnsyncedIdentity,appUnsyncedRetired,appUnsyncedWork,discardAppUnsynced,eraseAppUnsyncedStorage,forgetAppUnsyncedRetired,openAppUnsyncedCollection,pruneAppUnsyncedRetired,retireAppUnsynced} from "../src/app-host/unsynced-collection.js";
+import {appUnsyncedIdentity,appUnsyncedMoved,appUnsyncedRetired,noteAppUnsyncedMoved,appUnsyncedWork,discardAppUnsynced,eraseAppUnsyncedStorage,forgetAppUnsyncedRetired,openAppUnsyncedCollection,pruneAppUnsyncedRetired,retireAppUnsynced} from "../src/app-host/unsynced-collection.js";
 
 const uuid=/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
 beforeEach(()=>{globalThis.indexedDB=new IDBFactory();globalThis.IDBKeyRange=IDBKeyRange;});
@@ -84,6 +84,24 @@ it("retires the current collection to the account that brought it in, so the nex
   expect(next.collection).not.toBe(first.collection);
   await forgetAppUnsyncedRetired(name,first.collection,signal);
   expect(await appUnsyncedRetired(name,signal)).toEqual([]);
+});
+
+it("keeps a transfer ledger for the current collection only, and drops it when the collection is retired or discarded",async()=>{
+  const signal=new AbortController().signal,name="ledger",rev=(n:number)=>`sha256:${String(n).repeat(64)}`;
+  const made=(await appUnsyncedIdentity(name,true,signal))!,a=crypto.randomUUID(),b=crypto.randomUUID();
+  expect(await appUnsyncedMoved(name,made.collection,signal)).toEqual(new Map());
+  await noteAppUnsyncedMoved(name,made.collection,new Map([[a,rev(1)]]),signal);
+  await noteAppUnsyncedMoved(name,made.collection,new Map([[a,rev(2)],[b,rev(3)]]),signal);
+  expect(await appUnsyncedMoved(name,made.collection,signal)).toEqual(new Map([[a,rev(2)],[b,rev(3)]]));
+  // Nothing is recorded for a collection that is not the current one, or with a malformed entry.
+  await expect(noteAppUnsyncedMoved(name,crypto.randomUUID(),new Map([[a,rev(1)]]),signal)).rejects.toBeInstanceOf(Error);
+  await expect(noteAppUnsyncedMoved(name,made.collection,new Map([[a,"v1"]]),signal)).rejects.toBeInstanceOf(Error);
+  expect(await retireAppUnsynced(name,made.collection,crypto.randomUUID(),crypto.randomUUID(),signal)).toBe(true);
+  expect(await appUnsyncedMoved(name,made.collection,signal)).toEqual(new Map());
+  const next=(await appUnsyncedIdentity(name,true,signal))!;
+  await noteAppUnsyncedMoved(name,next.collection,new Map([[a,rev(1)]]),signal);
+  expect(await discardAppUnsynced(name,next.collection,signal)).toEqual(next);
+  expect(await appUnsyncedMoved(name,next.collection,signal)).toEqual(new Map());
 });
 
 it("discards only the current collection, and lists no copies without creating the database",async()=>{

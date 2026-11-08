@@ -6,9 +6,13 @@
  * mutation ID comes from the intent `unsynced/1 \0 source \0 record` in the
  * destination, so a retry from any tab, after a reload or with a lost reply,
  * resends the same create. A record whose ID is already in the destination
- * came from an earlier transfer (IDs are random UUIDs) and is left as it is.
- * The destination's configuration and types are never replaced; with
- * `addTypes`, types it lacks are added from the source's definitions. */
+ * came from an earlier transfer (IDs are random UUIDs) and is left as it is,
+ * unless the ledger shows it changed here after it was brought in: then the
+ * newer version is created beside it as a copy (never over the destination's,
+ * which may have changed too), under an ID derived from the record and its
+ * revision so a retry finds it. The destination's configuration and types are
+ * never replaced; with `addTypes`, types it lacks are added from the source's
+ * definitions. */
 import type {CreateInput, MdbaseClient} from "../client.js";
 import {isMdbaseError, mdbaseError} from "../errors.js";
 import type {RecordView} from "../wire.js";
@@ -21,10 +25,14 @@ export interface MdbaseTransferItem {
   readonly sourceId: string;
   readonly sourcePath: string;
   /** `create`: it will be created. `present`: an earlier transfer already put
-   * it in the destination. `skipped`: the app's map left it out. */
-  readonly outcome: "create" | "present" | "skipped";
-  /** The destination path (`create` only). */
+   * it in the destination. `skipped`: the app's map left it out. `changed`: an
+   * earlier transfer put it in the destination and it has changed here since;
+   * the newer version is created beside it as a copy. */
+  readonly outcome: "create" | "present" | "skipped" | "changed";
+  /** The destination path (`create` and `changed`). */
   readonly path?: string;
+  /** The copy's ID (`changed` only); otherwise the record keeps `sourceId`. */
+  readonly copyId?: string;
   /** The mapped path, when it was taken and `path` is a free one beside it. */
   readonly renamedFrom?: string;
 }
@@ -40,7 +48,14 @@ export interface MdbaseTransferPlan {
   /** Types the transfer adds to the destination, from the source's own
    * definitions (`addTypes` only). */
   readonly addTypes: readonly string[];
-  readonly counts: Readonly<{create: number; present: number; skipped: number; renamed: number}>;
+  readonly counts: Readonly<{create: number; present: number; skipped: number; renamed: number; changed: number}>;
+}
+/** Which revision of each source record is in the destination, kept across
+ * transfers from one source so a later change there is not mistaken for work
+ * already brought in. Written before records are created. */
+export interface MdbaseTransferLedger {
+  read(source: string, signal?: AbortSignal): Promise<ReadonlyMap<string, string>>;
+  record(source: string, revisions: ReadonlyMap<string, string>, signal?: AbortSignal): Promise<void>;
 }
 export interface MdbaseTransferProgress { readonly done: number; readonly total: number }
 export interface MdbaseTransferResult {
@@ -68,7 +83,8 @@ type Source = Pick<MdbaseClient, "collection" | "pages" | "describe" | "resource
 type Destination = Pick<MdbaseClient, "collection" | "get" | "create" | "describe" | "createType">;
 /** Only plans made here can run: they carry the mapped inputs, and the map
  * that made them, privately. */
-const prepared = new WeakMap<MdbaseTransferPlan, Readonly<{inputs: ReadonlyMap<string, CreateInput>; types: ReadonlyMap<string, string>; map: MdbaseTransferMap | undefined}>>();
+const prepared = new WeakMap<MdbaseTransferPlan, Readonly<{inputs: ReadonlyMap<string, CreateInput>; types: ReadonlyMap<string, string>; map: MdbaseTransferMap | undefined;
+  ledger: MdbaseTransferLedger | undefined; settle: ReadonlyMap<string, string>}>>();
 const MAX_RENAME = 100;
 
 const intentOf = (source: string, record: string) => `unsynced/1\0${source}\0${record}`;
@@ -81,6 +97,13 @@ function renamed(path: string, n: number): string {
   const at = dot > slash + 1 ? dot : path.length;
   return `${path.slice(0, at)} ${n}${path.slice(at)}`;
 }
+/** The copy of `record` at `revision`: the same ID on every retry. */
+async function copyIdOf(record: string, revision: string): Promise<string> {
+  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`unsynced/1\0copy\0${record}\0${revision}`))).slice(0, 16);
+  bytes[6] = (bytes[6]! & 0x0f) | 0x80; bytes[8] = (bytes[8]! & 0x3f) | 0x80; // RFC 9562 version 8, variant 10
+  const hex = [...bytes].map(b => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 function identity(record: RecordView): CreateInput {
   if (record.document === undefined) throw mdbaseError("invalid_request", "the source record has no document");
   return {path: record.path, document: record.document};
@@ -88,9 +111,12 @@ function identity(record: RecordView): CreateInput {
 
 /** Compare the source with the destination. Nothing is written. */
 export async function planUnsyncedTransfer(source: Source, destination: Destination,
-  options: {readonly map?: MdbaseTransferMap; readonly addTypes?: boolean; readonly signal?: AbortSignal} = {}): Promise<MdbaseTransferPlan> {
+  options: {readonly map?: MdbaseTransferMap; readonly addTypes?: boolean; readonly ledger?: MdbaseTransferLedger; readonly signal?: AbortSignal} = {}): Promise<MdbaseTransferPlan> {
   const {signal} = options, map = options.map ?? identity;
   if (source.collection === destination.collection) throw mdbaseError("invalid_request", "a collection cannot be transferred into itself");
+  const moved = options.ledger ? await options.ledger.read(source.collection, signal) : new Map<string, string>();
+  // The revisions this plan brings in, recorded before any create.
+  const settle = new Map<string, string>();
   const described = await destination.describe(signal ? {signal} : {});
   const defined = new Set(described.types.map(t => t.name.toLowerCase()));
   const items: MdbaseTransferItem[] = [], inputs = new Map<string, CreateInput>(), claimed = new Set<string>(), missing = new Set<string>();
@@ -98,10 +124,22 @@ export async function planUnsyncedTransfer(source: Source, destination: Destinat
   for await (const page of source.pages({}, {body: true, document: true}, signal)) {
     for (const record of page.records) {
       signal?.throwIfAborted();
-      if (await present(destination, record.id, signal)) { items.push(Object.freeze({sourceId: record.id, sourcePath: record.path, outcome: "present"})); continue; }
+      let copyId: string | null = null;
+      if (await present(destination, record.id, signal)) {
+        const known = moved.get(record.id);
+        // Present before the ledger knew it (an earlier SDK, or another tab): what is there now counts as brought in.
+        if (known === undefined) settle.set(record.id, record.revision);
+        if (known === undefined || known === record.revision) { items.push(Object.freeze({sourceId: record.id, sourcePath: record.path, outcome: "present"})); continue; }
+        copyId = await copyIdOf(record.id, record.revision);
+        if (await present(destination, copyId, signal)) {
+          settle.set(record.id, record.revision);
+          items.push(Object.freeze({sourceId: record.id, sourcePath: record.path, outcome: "present"})); continue;
+        }
+      }
       const input = await map(record);
       if (input === null) { items.push(Object.freeze({sourceId: record.id, sourcePath: record.path, outcome: "skipped"})); continue; }
       if (!input || typeof input !== "object" || (input.id !== undefined && input.id !== record.id)) throw mdbaseError("invalid_request", "the transfer map must keep the record ID");
+      settle.set(record.id, record.revision);
       const wanted = input.path ?? record.path;
       let path = wanted;
       for (let n = 2; claimed.has(path.toLowerCase()) || await present(destination, {path}, signal); n++) {
@@ -110,9 +148,11 @@ export async function planUnsyncedTransfer(source: Source, destination: Destinat
       }
       claimed.add(path.toLowerCase());
       for (const type of input.type ? [input.type] : record.types) if (!defined.has(type.toLowerCase())) missing.add(type);
-      inputs.set(record.id, Object.freeze({...input, id: record.id, path}));
-      if (path !== wanted) renames++;
-      items.push(Object.freeze({sourceId: record.id, sourcePath: record.path, outcome: "create", path, ...(path !== wanted ? {renamedFrom: wanted} : {})}));
+      inputs.set(record.id, Object.freeze({...input, id: copyId ?? record.id, path}));
+      // A copy always lands beside the original; that is not a rename to report.
+      if (path !== wanted && !copyId) renames++;
+      items.push(Object.freeze({sourceId: record.id, sourcePath: record.path, outcome: copyId ? "changed" : "create", path,
+        ...(copyId ? {copyId} : path !== wanted ? {renamedFrom: wanted} : {})}));
     }
   }
   // Types to add: those the source defines, read as its own type documents.
@@ -133,19 +173,19 @@ export async function planUnsyncedTransfer(source: Source, destination: Destinat
   const count = (outcome: MdbaseTransferItem["outcome"]) => items.filter(item => item.outcome === outcome).length;
   const plan: MdbaseTransferPlan = Object.freeze({source: source.collection, destination: destination.collection, items: Object.freeze(items),
     missingTypes: Object.freeze([...missing].sort()), addTypes: Object.freeze([...types.keys()].sort()),
-    counts: Object.freeze({create: count("create"), present: count("present"), skipped: count("skipped"), renamed: renames})});
-  prepared.set(plan, Object.freeze({inputs, types, map: options.map}));
+    counts: Object.freeze({create: count("create"), present: count("present"), skipped: count("skipped"), renamed: renames, changed: count("changed")})});
+  prepared.set(plan, Object.freeze({inputs, types, map: options.map, ledger: options.ledger, settle}));
   return plan;
 }
 
-/** After a run: whether planning again with the same map finds nothing left
- * to create (everything is present or left out by the map). */
+/** After a run: whether planning again with the same map and ledger finds
+ * nothing left to create (everything is present or left out by the map). */
 export async function unsyncedTransferComplete(plan: MdbaseTransferPlan, source: Source, destination: Destination, signal?: AbortSignal): Promise<boolean> {
   const made = prepared.get(plan);
   if (!made) throw mdbaseError("invalid_request", "plan the transfer first");
   if (source.collection !== plan.source || destination.collection !== plan.destination) return false;
-  const again = await planUnsyncedTransfer(source, destination, {...(made.map ? {map: made.map} : {}), ...(signal ? {signal} : {})});
-  return again.counts.create === 0;
+  const again = await planUnsyncedTransfer(source, destination, {...(made.map ? {map: made.map} : {}), ...(made.ledger ? {ledger: made.ledger} : {}), ...(signal ? {signal} : {})});
+  return again.counts.create === 0 && again.counts.changed === 0;
 }
 
 /** Create the plan's records in the destination. Safe to run again with a
@@ -156,9 +196,11 @@ export async function runUnsyncedTransfer(plan: MdbaseTransferPlan, destination:
   if (!made) throw mdbaseError("invalid_request", "plan the transfer first");
   const {inputs} = made;
   if (destination.collection !== plan.destination) throw mdbaseError("invalid_request", "the plan is for another collection");
-  const work = plan.items.filter(item => item.outcome === "create"), failed: {sourceId: string; code: string}[] = [], mutations: string[] = [];
+  const work = plan.items.filter(item => item.outcome === "create" || item.outcome === "changed"), failed: {sourceId: string; code: string}[] = [], mutations: string[] = [];
   let created = 0, already = plan.counts.present, done = 0;
   const report = () => { try { options.onProgress?.(Object.freeze({done, total: work.length})); } catch { /* progress is advisory */ } };
+  // The ledger first: a record created without it would later count as unchanged.
+  if (made.ledger && made.settle.size) await made.ledger.record(plan.source, made.settle, signal);
   // Types first, so the records validate against them as they arrive.
   const addedTypes: string[] = [], failedTypes: {name: string; code: string}[] = [];
   for (const [name, document] of made.types) {
@@ -175,12 +217,12 @@ export async function runUnsyncedTransfer(plan: MdbaseTransferPlan, destination:
   for (const item of work) {
     signal?.throwIfAborted();
     try {
-      const write = await destination.create(inputs.get(item.sourceId)!, {intent: intentOf(plan.source, item.sourceId), ...(signal ? {signal} : {})});
+      const write = await destination.create(inputs.get(item.sourceId)!, {intent: intentOf(plan.source, item.copyId ?? item.sourceId), ...(signal ? {signal} : {})});
       mutations.push(write.mutationId); created++;
     } catch (error) {
       signal?.throwIfAborted();
       // A lost reply, or another tab got there first: the record is there.
-      if (await present(destination, item.sourceId, signal).catch(() => null)) already++;
+      if (await present(destination, item.copyId ?? item.sourceId, signal).catch(() => null)) already++;
       else failed.push(Object.freeze({sourceId: item.sourceId, code: isMdbaseError(error) ? error.code : "unavailable"}));
     }
     done++; report();

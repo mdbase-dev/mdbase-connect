@@ -77,11 +77,11 @@ function leader(){
     }});
   // The app's unsynced collection: opened on demand, closed by the host.
   const U="99999999-9999-4999-8999-999999999999";
-  const unsynced:Array<{generation:string;closed:boolean;live:Map<MessagePort,string>;attached:number}>=[];
+  const unsynced:Array<{generation:string;closed:boolean;live:Map<MessagePort,string>;attached:number;writes:number}>=[];
   vi.spyOn(Unsynced,"openAppUnsyncedCollection").mockImplementation(async()=>{
-    const generation=crypto.randomUUID(),record={generation,closed:false,live:new Map<MessagePort,string>(),attached:0};unsynced.push(record);
+    const generation=crypto.randomUUID(),record={generation,closed:false,live:new Map<MessagePort,string>(),attached:0,writes:0};unsynced.push(record);
     const scope=Object.freeze({account:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",installation:"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",collection:U});
-    return Object.freeze({scope,generation,isCurrent:()=>!record.closed,setForeground(){},state:"ready" as const,work:null,
+    return Object.freeze({scope,generation,isCurrent:()=>!record.closed,setForeground(){},state:"ready" as const,work:null,get writes(){return record.writes;},
       attach:()=>{record.attached++;const data=new MessageChannel(),control=new MessageChannel();cleanup.push(()=>{data.port1.close();control.port1.close();});
         const value=Object.freeze({schema:"mdbn-app-collection/1" as const,scope,generation,displayName:"Notes",setupMode:"inspect" as const,dataPort:data.port2,controlPort:control.port2,people:true as const});
         record.live.set(value.dataPort,`attach${record.attached}`);return value;},
@@ -285,6 +285,12 @@ describe("per-tab collection selection",()=>{
     await expect(a.client.request("retireUnsynced",[worker.U,Y],life.signal)).rejects.toMatchObject({code:"application_worker_unavailable"});
     expect(worker.lifecycle.retire).not.toHaveBeenCalled();
     b.leave();await vi.waitFor(()=>expect([...u.live.values()]).toEqual(["attach2"]));
+    // Something saved there after this tab read it (another tab opened, saved and left): not retired.
+    u.writes++;
+    await expect(a.client.request("retireUnsynced",[worker.U,X],life.signal)).rejects.toMatchObject({code:"application_worker_busy"});
+    expect(worker.lifecycle.retire).not.toHaveBeenCalled();
+    // Read again (the completeness check), then nothing changed: retired.
+    await a.client.request("detachUnsynced",null,life.signal);await a.client.request("attachUnsynced",null,life.signal);
     await a.client.request("retireUnsynced",[worker.U,X],life.signal);
     expect(worker.lifecycle.retire).toHaveBeenCalledWith("mdbase.test.unsynced.v1",worker.U,X,account,expect.any(AbortSignal));
     expect(u.closed).toBe(true);expect(u.live.size).toBe(0);
@@ -299,6 +305,10 @@ describe("per-tab collection selection",()=>{
     await a.client.request("openUnsynced",null,life.signal);await b.client.request("openUnsynced",null,life.signal);
     await expect(b.client.request("discardUnsynced",null,life.signal)).rejects.toMatchObject({code:"application_worker_busy"});
     expect(worker.lifecycle.discard).not.toHaveBeenCalled();
+    // The refused tab let go of its ports to discard: it gets new ones when it shows the collection again.
+    const refused=b.received.length;
+    await b.client.request("openUnsynced",null,life.signal);
+    expect(b.received.slice(refused).map(value=>value.generation)).toEqual([worker.unsynced[0]!.generation]);
     a.leave();
     const before=b.received.length;
     expect(await b.client.request("discardUnsynced",null,life.signal)).toMatchObject({status:"ready",selectedCollectionId:worker.U,unsynced:{collectionId:worker.U}});

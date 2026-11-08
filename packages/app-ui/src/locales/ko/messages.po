@@ -817,6 +817,11 @@ msgstr "로그아웃 중…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "Some items changed after they were brought in. Their newer versions are added beside them."
+msgstr "일부 항목은 가져온 후에 변경되었습니다. 최신 버전은 원래 항목 옆에 추가됩니다."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "Some items get a new name because their names are already taken."
 msgstr "이름이 이미 사용 중이어서 일부 항목의 이름이 새로 지정됩니다."
 
@@ -1087,3 +1092,8 @@ msgstr "메시지, 답변 이메일(있는 경우), 첨부한 스크린샷과 �
 msgctxt "Collection access interface"
 msgid "Your work is now in {collection}."
 msgstr "이제 작업이 {collection}에 있습니다."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Your work is now in {collection}. If it's still open in another tab, close it there, then bring it in again."
+msgstr "이제 작업이 {collection}에 있습니다. 다른 탭에서 아직 열려 있다면 그 탭을 닫은 후 다시 가져오세요."
