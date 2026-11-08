@@ -525,6 +525,40 @@ async fn daemon_lifecycle() {
         serde_json::from_slice(&std::fs::read(profile.access_file()).unwrap()).unwrap();
     assert_eq!(access["require_grant_approval"], true);
 
+    // Which files sync: everything by default, then a narrower policy in the log.
+    assert_eq!(
+        c.call(Method::SYNC_FILES, json!({ "collection": added.id }))
+            .await
+            .unwrap(),
+        json!({ "include": ["image", "audio", "video", "pdf", "other"], "exclude": [] })
+    );
+    let narrowed = c
+        .call(
+            Method::SYNC_FILES_SET,
+            json!({
+                "collection": added.id,
+                "include": ["image", "pdf", "image"],
+                "exclude": ["/Videos/", "Videos"],
+                "max_size": 1024,
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        narrowed,
+        json!({ "include": ["image", "pdf"], "exclude": ["Videos"], "max_size": 1024 })
+    );
+    match c
+        .call(
+            Method::SYNC_FILES_SET,
+            json!({ "collection": added.id, "include": [], "exclude": ["a/../b"] }),
+        )
+        .await
+    {
+        Err(ClientError::Remote(e)) => assert_eq!(e.reason.as_deref(), Some("invalid_folder")),
+        other => panic!("{other:?}"),
+    }
+
     // Pause persists.
     let paused: CollectionStatus = serde_json::from_value(
         c.call(Method::COLLECTION_PAUSE, json!({ "collection": added.id }))

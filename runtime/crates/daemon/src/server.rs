@@ -29,7 +29,8 @@ use crate::control::{
     AccountInfo, AddCollection, Check, CollectionRef, CollectionStatus, ConflictSummary,
     ControlError, DaemonStatus, DeleteCollection, DeviceInfo, EnableSync, GrantRef, HoldAction,
     HoldResolved, HoldSummary, JoinCollection, Method, NotReady, Notice, PROTOCOL,
-    READINESS_SCHEMA, Readiness, Request, ResolveHold, Response, Settings, UpdateCollection,
+    READINESS_SCHEMA, Readiness, Request, ResolveHold, Response, SetSyncFiles, Settings, SyncFiles,
+    UpdateCollection,
 };
 use crate::fsutil;
 use crate::instance::{InstanceLock, LockError};
@@ -1468,6 +1469,11 @@ impl Daemon {
             }
             Method::COLLECTION_RESOLVE_HOLD => self.resolve_hold(params(req)?).await,
             Method::CONFLICTS_DISMISS => self.dismiss_conflict(params(req)?).await,
+            Method::SYNC_FILES => {
+                let p: CollectionRef = params(req)?;
+                Ok(json!(self.sync_files(&p.collection).await?))
+            }
+            Method::SYNC_FILES_SET => self.set_sync_files(params(req)?).await,
             Method::COLLECTION_CONFLICTS => {
                 let p: CollectionRef = params(req)?;
                 self.conflicts(&p.collection).await
@@ -1864,6 +1870,94 @@ impl Daemon {
             }
             .into(),
         }))
+    }
+
+    /// The collection's inclusion policy, as `describe` reports it.
+    async fn sync_files(&self, id: &str) -> Result<SyncFiles, ControlError> {
+        use mdbn_wire::Wire;
+        use mdbn_wire::cbor::Cbor;
+        use mdbn_wire::intent::FileInclusion;
+        let rt = self.runtime_of(id).await?;
+        let bad = || ControlError::internal("the replica's description does not decode");
+        let Cbor::Map(m) = host_call(&rt, "describe", Cbor::Map(vec![])).await? else {
+            return Err(bad());
+        };
+        let (_, inclusion) = m
+            .iter()
+            .find(|(k, _)| *k == Cbor::Uint(3))
+            .ok_or_else(bad)?;
+        let f = FileInclusion::from_cbor(inclusion).map_err(|_| bad())?;
+        Ok(SyncFiles {
+            include: f.include.into_iter().map(file_class).collect(),
+            exclude: f.exclude.unwrap_or_default(),
+            max_size: f.max_size,
+        })
+    }
+
+    /// Replace the inclusion policy with an ordinary `sync_settings` mutation.
+    async fn set_sync_files(&self, p: SetSyncFiles) -> Result<Value, ControlError> {
+        use mdbn_wire::Wire;
+        use mdbn_wire::client::{Receipt, ReceiptState, SubmitParams, WaitFor};
+        use mdbn_wire::intent::{FileInclusion, MediaClass, Op, SyncSettings};
+        let mut exclude = Vec::with_capacity(p.files.exclude.len());
+        for folder in &p.files.exclude {
+            let folder = folder.trim_matches('/');
+            if folder.is_empty()
+                || folder
+                    .split('/')
+                    .any(|seg| seg.is_empty() || seg == "." || seg == "..")
+            {
+                return Err(ControlError::invalid(
+                    "invalid_folder",
+                    format!("`{folder}` is not a folder inside the collection"),
+                ));
+            }
+            if !exclude.iter().any(|f: &String| f == folder) {
+                exclude.push(folder.to_string());
+            }
+        }
+        let mut include: Vec<MediaClass> = Vec::new();
+        for c in &p.files.include {
+            let m = match c {
+                crate::control::FileClass::Image => MediaClass::Image,
+                crate::control::FileClass::Audio => MediaClass::Audio,
+                crate::control::FileClass::Video => MediaClass::Video,
+                crate::control::FileClass::Pdf => MediaClass::Pdf,
+                crate::control::FileClass::Other => MediaClass::Other,
+            };
+            if !include.contains(&m) {
+                include.push(m);
+            }
+        }
+        let inclusion = FileInclusion {
+            include,
+            exclude: (!exclude.is_empty()).then_some(exclude),
+            max_size: p.files.max_size,
+        };
+        let rt = self.runtime_of(&p.collection).await?;
+        let submit = SubmitParams {
+            ops: vec![Op::SyncSettings(SyncSettings { inclusion })],
+            mutation_id: None,
+            conflict_mode: None,
+            timezone: None,
+            allow_partial: None,
+            mutation_ids: None,
+            dry_run: None,
+            include: None,
+            wait: Some(WaitFor::Confirmed),
+        };
+        let result = host_call(&rt, "submit", submit.to_cbor()).await?;
+        let receipts: Vec<Receipt> = Wire::from_cbor(&result)
+            .map_err(|_| ControlError::internal("the replica's receipt does not decode"))?;
+        if receipts
+            .first()
+            .is_none_or(|r| r.state == ReceiptState::Rejected)
+        {
+            return Err(ControlError::internal(
+                "the replica rejected the file settings",
+            ));
+        }
+        Ok(json!(self.sync_files(&p.collection).await?))
     }
 
     /// The registered collection `raw` names, as the registry spells it. Only
@@ -4841,6 +4935,18 @@ const OLD_CONNECTOR_POLL: Duration = Duration::from_secs(5);
 /// `SessionAuth::Host` session (the daemon is the host; no grant, so the mutation
 /// is the user's own device's), one request, then the session closes. The
 /// replica's problem becomes the control error (same codes, §9).
+fn file_class(m: mdbn_wire::intent::MediaClass) -> crate::control::FileClass {
+    use crate::control::FileClass;
+    use mdbn_wire::intent::MediaClass;
+    match m {
+        MediaClass::Image => FileClass::Image,
+        MediaClass::Audio => FileClass::Audio,
+        MediaClass::Video => FileClass::Video,
+        MediaClass::Pdf => FileClass::Pdf,
+        MediaClass::Other => FileClass::Other,
+    }
+}
+
 async fn host_call(
     rt: &Arc<crate::runtime::Runtime>,
     method: &str,

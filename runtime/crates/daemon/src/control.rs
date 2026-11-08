@@ -228,6 +228,10 @@ impl Method {
     pub const COLLECTION_CONFLICTS: &'static str = "collection.conflicts";
     /// `{collection, id}` → receipt; accept the kept values without changing files.
     pub const CONFLICTS_DISMISS: &'static str = "conflicts.dismiss";
+    /// `{collection}` → [`SyncFiles`]: which files the collection syncs.
+    pub const SYNC_FILES: &'static str = "sync.files";
+    /// [`SetSyncFiles`] → [`SyncFiles`]: replace that policy for every device.
+    pub const SYNC_FILES_SET: &'static str = "sync.files.set";
     /// [`JoinCollection`] → [`CollectionStatus`]: join an account's cloud copy into
     /// an empty folder (enrolled through Connect; hosted then keys this device).
     pub const COLLECTION_JOIN: &'static str = "collection.join";
@@ -613,6 +617,46 @@ pub struct DismissConflict {
     pub id: String,
 }
 
+/// A file type a collection can leave out of sync. Notes and definitions always sync.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FileClass {
+    /// Images.
+    Image,
+    /// Audio.
+    Audio,
+    /// Video.
+    Video,
+    /// PDFs.
+    Pdf,
+    /// Every other file.
+    Other,
+}
+
+/// Which files a collection syncs, on every device: the log's inclusion policy.
+/// Narrowing it leaves files already synced where they are.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyncFiles {
+    /// File types that sync.
+    pub include: Vec<FileClass>,
+    /// Folders left out, relative to the collection.
+    #[serde(default)]
+    pub exclude: Vec<String>,
+    /// Files larger than this many bytes are left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_size: Option<u64>,
+}
+
+/// [`Method::SYNC_FILES_SET`] params.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetSyncFiles {
+    /// Collection ID.
+    pub collection: String,
+    /// The new policy.
+    #[serde(flatten)]
+    pub files: SyncFiles,
+}
+
 /// `collection.resolve_hold` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolveHold {
@@ -807,6 +851,7 @@ pub const PRIVILEGED: &[&str] = &[
     Method::PRIVATE_PASSWORD,
     Method::PRIVATE_STRICT,
     Method::SYNC_ENABLE,
+    Method::SYNC_FILES_SET,
     Method::COLLECTION_MODE,
     Method::COLLECTION_JOIN,
     Method::COLLECTION_DELETE,

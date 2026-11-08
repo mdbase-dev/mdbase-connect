@@ -49,7 +49,7 @@ use mdbn_wire::snapshot::{
 
 use super::Replica;
 use super::append::Inflight;
-use super::apply::{HORIZON_ENTRIES, HORIZON_MS, log_state, media_class};
+use super::apply::{HORIZON_ENTRIES, HORIZON_MS, log_state};
 use crate::log::{LogRequest, LogResponse};
 use crate::plan::record_meta;
 use crate::store::{
@@ -2157,7 +2157,7 @@ impl<S: Store> Replica<S> {
                     tx.files_put.push(FileRow {
                         id: f.id,
                         path_key: mdbn_core::paths::path_key(&f.path),
-                        media: media_class(&f.path),
+                        media: mdbn_wire::intent::MediaClass::of(&f.path),
                         modified_seq: self.install_mseq.get(&f.id).copied().unwrap_or(0),
                         bucket: bucket16(&f.id),
                         local: FileLocal::Remote,
@@ -2247,7 +2247,7 @@ impl<S: Store> Replica<S> {
                     tx.files_put.push(FileRow {
                         id: f.id,
                         path_key: mdbn_core::paths::path_key(&f.path),
-                        media: media_class(&f.path),
+                        media: mdbn_wire::intent::MediaClass::of(&f.path),
                         modified_seq: self.install_mseq.get(&f.id).copied().unwrap_or(0),
                         bucket: bucket16(&f.id),
                         // Nothing is on this device yet: the installed row is

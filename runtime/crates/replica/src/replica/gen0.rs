@@ -1433,7 +1433,7 @@ impl<S: crate::store::Store> super::Replica<S> {
                     whole_plain_hash: written.expected.whole_plain_hash,
                     total_plain_bytes: written.expected.total_plain_bytes,
                 }),
-                media: super::apply::media_class(&stream.path),
+                media: mdbn_wire::intent::MediaClass::of(&stream.path),
                 path: stream.path,
                 unindexed: false,
             })

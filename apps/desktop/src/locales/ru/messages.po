@@ -411,6 +411,10 @@ msgstr "Одобренные вами приложения получают до
 msgid "Apps you used with mdbase Connect appear here once Private sync is on for the {movedWaiting, plural, one {collection} other {collections}} that moved to this computer. mdbase turns it on by itself; you don't need to approve those apps again."
 msgstr "Приложения, которые вы использовали с mdbase connect, появятся здесь, когда для перенесённых на этот компьютер {movedWaiting, plural, one {коллекции} few {коллекций} many {коллекций} other {коллекций}} включится закрытая синхронизация. mdbase включит её автоматически; повторно одобрять приложения не нужно."
 
+#: src/renderer/collections-view.tsx
+msgid "Archive/Recordings"
+msgstr "Архив/Записи"
+
 #: src/renderer/main.tsx
 msgid "Ask before new apps connect"
 msgstr "Спрашивать перед подключением новых приложений"
@@ -419,6 +423,11 @@ msgstr "Спрашивать перед подключением новых пр
 #: src/renderer/access-view.tsx
 msgid "Asked {0}"
 msgstr "Запрос отправлен: {0}"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Audio"
+msgstr "Аудио"
 
 #: src/renderer/main.tsx
 msgid "Available in installed builds"
@@ -558,6 +567,10 @@ msgstr "Выберите, где создать папку коллекции"
 msgctxt "Desktop application"
 msgid "Choose where to create the folder."
 msgstr "Выберите, где создать папку."
+
+#: src/renderer/collections-view.tsx
+msgid "Choose which files this collection syncs, on every device. Notes always sync, and files that already synced stay where they are."
+msgstr "Выберите, какие файлы эта коллекция синхронизирует на всех устройствах. Заметки синхронизируются всегда, а уже синхронизированные файлы остаются на месте."
 
 #: src/renderer/ui-components.tsx
 msgid "Clear filter"
@@ -782,6 +795,15 @@ msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "Введите имя этого компьютера."
 
+#. placeholder {0}: collection.name
+#: src/renderer/collections-view.tsx
+msgid "File sync settings for {0} were saved."
+msgstr "Настройки синхронизации файлов для {0} сохранены."
+
+#: src/renderer/collections-view.tsx
+msgid "File types"
+msgstr "Типы файлов"
+
 #: src/renderer/activity-view.tsx
 msgid "Filter activity"
 msgstr "Фильтр активности"
@@ -806,6 +828,10 @@ msgstr "Пути к папкам никогда не загружаются."
 #: src/renderer/main.tsx
 msgid "Folders on this computer that your apps can use, and how each one syncs."
 msgstr "Папки на этом компьютере, доступные приложениям, и способ синхронизации каждой из них."
+
+#: src/renderer/collections-view.tsx
+msgid "Folders to leave out"
+msgstr "Исключаемые папки"
 
 #: src/renderer/main.tsx
 msgid "Go to {label}"
@@ -833,6 +859,11 @@ msgstr "Как этот компьютер отображается в ваше�
 #: src/renderer/access-view.tsx
 msgid "If you approve, {0} will be able to {1} in {where}, through this computer. You can revoke this at any time."
 msgstr "Если вы одобрите запрос, {0} сможет {1} в {where} через этот компьютер. Вы сможете отозвать доступ в любой момент."
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Images"
+msgstr "Изображения"
 
 #. placeholder {0}: status.target_version
 #. placeholder {0}: update.target_version
@@ -926,6 +957,10 @@ msgid "Leave mdbase Connect's data in place and contact support with a diagnosti
 msgstr "Не удаляйте данные mdbase connect и обратитесь в поддержку с отчётом о диагностике."
 
 #: src/renderer/collections-view.tsx
+msgid "Leave out files larger than"
+msgstr "Исключать файлы больше"
+
+#: src/renderer/collections-view.tsx
 msgid "Loading…"
 msgstr "Загрузка…"
 
@@ -940,6 +975,10 @@ msgstr "Управлять в mdbase"
 #: src/renderer/access-view.tsx
 msgid "Mark as seen"
 msgstr "Отметить как просмотренное"
+
+#: src/renderer/collections-view.tsx
+msgid "MB"
+msgstr "МБ"
 
 #. placeholder {0}: bundled.version
 #. placeholder {1}: result.version
@@ -1232,6 +1271,10 @@ msgctxt "Local connection status"
 msgid "On this computer only"
 msgstr "Только на этом компьютере"
 
+#: src/renderer/collections-view.tsx
+msgid "One folder per line, relative to the collection."
+msgstr "Одна папка на строку, путь относительно коллекции."
+
 #: src/renderer/device-requests.tsx
 msgid "Only allow if this matches the code on {who}"
 msgstr "Разрешайте доступ, только если этот код совпадает с кодом на {who}"
@@ -1279,6 +1322,11 @@ msgstr "Открытие браузера…"
 msgid "Opening…"
 msgstr "Открытие…"
 
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Other files"
+msgstr "Другие файлы"
+
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
 msgctxt "Connect interface"
@@ -1293,6 +1341,11 @@ msgstr "Приостановить"
 #: src/renderer/daemon-view.mts
 msgid "Paused"
 msgstr "Приостановлено"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "PDFs"
+msgstr "PDF"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"
@@ -1416,6 +1469,11 @@ msgid "Revoked"
 msgstr "Доступ отозван"
 
 #: src/renderer/main.tsx
+msgid "Save"
+msgstr "Сохранить"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File sync settings"
 msgid "Save"
 msgstr "Сохранить"
 
@@ -1549,6 +1607,10 @@ msgstr "Вход"
 msgid "Signing out did not finish. Try signing out again."
 msgstr "Выход не завершён. Попробуйте выйти из аккаунта снова."
 
+#: src/renderer/collections-view.tsx
+msgid "Size limit in megabytes"
+msgstr "Ограничение размера в мегабайтах"
+
 #: src/renderer/takeover-state.mts
 msgid "Some edits from before the move need your attention."
 msgstr "Некоторые правки, внесённые до переноса, требуют вашего внимания."
@@ -1606,6 +1668,10 @@ msgstr "Синхронизация остановлена"
 msgctxt "Local connection status"
 msgid "Synced"
 msgstr "Синхронизировано"
+
+#: src/renderer/collections-view.tsx
+msgid "Synced files"
+msgstr "Синхронизируемые файлы"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1966,6 +2032,11 @@ msgstr "Версия {0} развёртывается для {1}% установ
 #: src/main/update-coordinator.ts
 msgid "Version {0} is verified and ready to install."
 msgstr "Версия {0} проверена и готова к установке."
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Video"
+msgstr "Видео"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"

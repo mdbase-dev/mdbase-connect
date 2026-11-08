@@ -118,6 +118,44 @@ fn watcher_events_refresh_unsupported_name_notices() {
 }
 
 #[test]
+fn inclusion_leaves_out_media_classes_and_oversized_files_but_never_text() {
+    use mdbn_wire::intent::{FileInclusion, MediaClass};
+    let w = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);
+    let mut s = w.open_with(Config {
+        move_window_ms: 0,
+        quiescence_ms: 0,
+        ..Config::default()
+    });
+    s.commit(Tx {
+        settings: Some(FileInclusion {
+            include: vec![MediaClass::Image, MediaClass::Other],
+            exclude: None,
+            max_size: Some(4),
+        }),
+        ..Tx::default()
+    })
+    .unwrap();
+    w.p.fs.write_replace("clip.mp4", b"vid").unwrap();
+    w.p.fs.write_replace("big.png", b"too large").unwrap();
+    w.p.fs.write_replace("a.png", b"img").unwrap();
+    w.p.fs
+        .write_replace("long.md", b"longer than the cap\n")
+        .unwrap();
+    let paths = |obs: Vec<Observation>| {
+        let mut p: Vec<String> = obs.into_iter().map(|o| o.path).collect();
+        p.sort();
+        p
+    };
+    s.request_rescan();
+    assert_eq!(paths(s.observe(None).unwrap()), ["a.png", "long.md"]);
+    let watched = ["clip.mp4".into(), "big.png".into()];
+    assert!(
+        s.observe(Some(&watched)).unwrap().is_empty(),
+        "watcher events honour the policy too"
+    );
+}
+
+#[test]
 fn released_refusals_do_not_suppress_reverts_and_report_removal() {
     let w = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);
     let mut s = w.open_with(Config {

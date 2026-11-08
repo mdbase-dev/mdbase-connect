@@ -411,6 +411,10 @@ msgstr "Las aplicaciones que apruebes acceden a tus colecciones a través de est
 msgid "Apps you used with mdbase Connect appear here once Private sync is on for the {movedWaiting, plural, one {collection} other {collections}} that moved to this computer. mdbase turns it on by itself; you don't need to approve those apps again."
 msgstr "Las aplicaciones que usaste con mdbase Connect aparecerán aquí cuando se active la sincronización privada de {movedWaiting, plural, one {la colección} other {las colecciones}} trasladada a este ordenador. mdbase la activa automáticamente; no tienes que aprobar de nuevo esas aplicaciones."
 
+#: src/renderer/collections-view.tsx
+msgid "Archive/Recordings"
+msgstr "Archivo/Grabaciones"
+
 #: src/renderer/main.tsx
 msgid "Ask before new apps connect"
 msgstr "Preguntar antes de conectar aplicaciones nuevas"
@@ -419,6 +423,11 @@ msgstr "Preguntar antes de conectar aplicaciones nuevas"
 #: src/renderer/access-view.tsx
 msgid "Asked {0}"
 msgstr "Solicitado {0}"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Audio"
+msgstr "Audio"
 
 #: src/renderer/main.tsx
 msgid "Available in installed builds"
@@ -558,6 +567,10 @@ msgstr "Elige dónde crear la carpeta de la colección"
 msgctxt "Desktop application"
 msgid "Choose where to create the folder."
 msgstr "Elige dónde crear la carpeta."
+
+#: src/renderer/collections-view.tsx
+msgid "Choose which files this collection syncs, on every device. Notes always sync, and files that already synced stay where they are."
+msgstr "Elige qué archivos sincroniza esta colección en todos los dispositivos. Las notas siempre se sincronizan y los archivos ya sincronizados se quedan donde están."
 
 #: src/renderer/ui-components.tsx
 msgid "Clear filter"
@@ -782,6 +795,15 @@ msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "Introduce un nombre para este ordenador."
 
+#. placeholder {0}: collection.name
+#: src/renderer/collections-view.tsx
+msgid "File sync settings for {0} were saved."
+msgstr "Se guardó la configuración de sincronización de archivos de {0}."
+
+#: src/renderer/collections-view.tsx
+msgid "File types"
+msgstr "Tipos de archivo"
+
 #: src/renderer/activity-view.tsx
 msgid "Filter activity"
 msgstr "Filtrar actividad"
@@ -806,6 +828,10 @@ msgstr "Las ubicaciones de las carpetas nunca se cargan."
 #: src/renderer/main.tsx
 msgid "Folders on this computer that your apps can use, and how each one syncs."
 msgstr "Carpetas de este ordenador que pueden usar tus aplicaciones y forma de sincronización de cada una."
+
+#: src/renderer/collections-view.tsx
+msgid "Folders to leave out"
+msgstr "Carpetas que se omiten"
 
 #: src/renderer/main.tsx
 msgid "Go to {label}"
@@ -833,6 +859,11 @@ msgstr "Cómo aparece este ordenador en tu cuenta de mdbase"
 #: src/renderer/access-view.tsx
 msgid "If you approve, {0} will be able to {1} in {where}, through this computer. You can revoke this at any time."
 msgstr "Si lo apruebas, {0} podrá {1} en {where} a través de este ordenador. Puedes revocar el acceso cuando quieras."
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Images"
+msgstr "Imágenes"
 
 #. placeholder {0}: status.target_version
 #. placeholder {0}: update.target_version
@@ -926,6 +957,10 @@ msgid "Leave mdbase Connect's data in place and contact support with a diagnosti
 msgstr "Deja intactos los datos de mdbase Connect y ponte en contacto con soporte con un informe de diagnóstico."
 
 #: src/renderer/collections-view.tsx
+msgid "Leave out files larger than"
+msgstr "Omitir archivos de más de"
+
+#: src/renderer/collections-view.tsx
 msgid "Loading…"
 msgstr "Cargando…"
 
@@ -940,6 +975,10 @@ msgstr "Administrar en mdbase"
 #: src/renderer/access-view.tsx
 msgid "Mark as seen"
 msgstr "Marcar como visto"
+
+#: src/renderer/collections-view.tsx
+msgid "MB"
+msgstr "MB"
 
 #. placeholder {0}: bundled.version
 #. placeholder {1}: result.version
@@ -1232,6 +1271,10 @@ msgctxt "Local connection status"
 msgid "On this computer only"
 msgstr "Solo en este ordenador"
 
+#: src/renderer/collections-view.tsx
+msgid "One folder per line, relative to the collection."
+msgstr "Una carpeta por línea, relativa a la colección."
+
 #: src/renderer/device-requests.tsx
 msgid "Only allow if this matches the code on {who}"
 msgstr "Permite el acceso solo si este código coincide con el de {who}"
@@ -1279,6 +1322,11 @@ msgstr "Abriendo navegador…"
 msgid "Opening…"
 msgstr "Abriendo…"
 
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Other files"
+msgstr "Otros archivos"
+
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
 msgctxt "Connect interface"
@@ -1293,6 +1341,11 @@ msgstr "Pausar"
 #: src/renderer/daemon-view.mts
 msgid "Paused"
 msgstr "En pausa"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "PDFs"
+msgstr "PDF"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"
@@ -1416,6 +1469,11 @@ msgid "Revoked"
 msgstr "Revocado"
 
 #: src/renderer/main.tsx
+msgid "Save"
+msgstr "Guardar"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File sync settings"
 msgid "Save"
 msgstr "Guardar"
 
@@ -1549,6 +1607,10 @@ msgstr "Iniciando sesión"
 msgid "Signing out did not finish. Try signing out again."
 msgstr "No se completó el cierre de sesión. Intenta cerrar la sesión de nuevo."
 
+#: src/renderer/collections-view.tsx
+msgid "Size limit in megabytes"
+msgstr "Límite de tamaño en megabytes"
+
 #: src/renderer/takeover-state.mts
 msgid "Some edits from before the move need your attention."
 msgstr "Algunos cambios hechos antes del traslado necesitan tu atención."
@@ -1606,6 +1668,10 @@ msgstr "Sincronización detenida"
 msgctxt "Local connection status"
 msgid "Synced"
 msgstr "Sincronizado"
+
+#: src/renderer/collections-view.tsx
+msgid "Synced files"
+msgstr "Archivos sincronizados"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1966,6 +2032,11 @@ msgstr "La versión {0} se está distribuyendo al {1}% de las instalaciones."
 #: src/main/update-coordinator.ts
 msgid "Version {0} is verified and ready to install."
 msgstr "La versión {0} está verificada y lista para instalarse."
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Video"
+msgstr "Vídeo"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"

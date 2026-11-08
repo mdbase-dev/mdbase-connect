@@ -411,6 +411,10 @@ msgstr "承認したアプリは、このコンピューターを経由してコ
 msgid "Apps you used with mdbase Connect appear here once Private sync is on for the {movedWaiting, plural, one {collection} other {collections}} that moved to this computer. mdbase turns it on by itself; you don't need to approve those apps again."
 msgstr "このコンピューターに移動した {movedWaiting, plural, other {コレクション}} でプライベート同期が有効になると、mdbase Connect で使っていたアプリがここに表示されます。mdbase が自動で有効にするため、再承認は不要です。"
 
+#: src/renderer/collections-view.tsx
+msgid "Archive/Recordings"
+msgstr "アーカイブ/録音"
+
 #: src/renderer/main.tsx
 msgid "Ask before new apps connect"
 msgstr "新しいアプリの接続前に確認"
@@ -419,6 +423,11 @@ msgstr "新しいアプリの接続前に確認"
 #: src/renderer/access-view.tsx
 msgid "Asked {0}"
 msgstr "要求日時 {0}"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Audio"
+msgstr "オーディオ"
 
 #: src/renderer/main.tsx
 msgid "Available in installed builds"
@@ -558,6 +567,10 @@ msgstr "コレクションのフォルダーを作成する場所を選択"
 msgctxt "Desktop application"
 msgid "Choose where to create the folder."
 msgstr "フォルダーを作成する場所を選んでください。"
+
+#: src/renderer/collections-view.tsx
+msgid "Choose which files this collection syncs, on every device. Notes always sync, and files that already synced stay where they are."
+msgstr "このコレクションがすべてのデバイスで同期するファイルを選択します。ノートは常に同期され、すでに同期されたファイルはそのまま残ります。"
 
 #: src/renderer/ui-components.tsx
 msgid "Clear filter"
@@ -782,6 +795,15 @@ msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "このコンピューターの名前を入力してください。"
 
+#. placeholder {0}: collection.name
+#: src/renderer/collections-view.tsx
+msgid "File sync settings for {0} were saved."
+msgstr "{0} のファイル同期設定を保存しました。"
+
+#: src/renderer/collections-view.tsx
+msgid "File types"
+msgstr "ファイルの種類"
+
 #: src/renderer/activity-view.tsx
 msgid "Filter activity"
 msgstr "アクティビティを絞り込む"
@@ -806,6 +828,10 @@ msgstr "フォルダーの場所はアップロードされません。"
 #: src/renderer/main.tsx
 msgid "Folders on this computer that your apps can use, and how each one syncs."
 msgstr "アプリが利用できるこのコンピューター上のフォルダーと、それぞれの同期方法です。"
+
+#: src/renderer/collections-view.tsx
+msgid "Folders to leave out"
+msgstr "除外するフォルダー"
 
 #: src/renderer/main.tsx
 msgid "Go to {label}"
@@ -833,6 +859,11 @@ msgstr "mdbase アカウントに表示されるこのコンピューターの�
 #: src/renderer/access-view.tsx
 msgid "If you approve, {0} will be able to {1} in {where}, through this computer. You can revoke this at any time."
 msgstr "承認すると、{0} はこのコンピューター経由で {where} 内の {1} を実行できます。いつでも取り消せます。"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Images"
+msgstr "画像"
 
 #. placeholder {0}: status.target_version
 #. placeholder {0}: update.target_version
@@ -926,6 +957,10 @@ msgid "Leave mdbase Connect's data in place and contact support with a diagnosti
 msgstr "mdbase Connect のデータをそのまま残し、診断レポートを添えてサポートに連絡してください。"
 
 #: src/renderer/collections-view.tsx
+msgid "Leave out files larger than"
+msgstr "次のサイズより大きいファイルを除外"
+
+#: src/renderer/collections-view.tsx
 msgid "Loading…"
 msgstr "読み込み中…"
 
@@ -940,6 +975,10 @@ msgstr "mdbase で管理"
 #: src/renderer/access-view.tsx
 msgid "Mark as seen"
 msgstr "確認済みにする"
+
+#: src/renderer/collections-view.tsx
+msgid "MB"
+msgstr "MB"
 
 #. placeholder {0}: bundled.version
 #. placeholder {1}: result.version
@@ -1232,6 +1271,10 @@ msgctxt "Local connection status"
 msgid "On this computer only"
 msgstr "このコンピューター上のみ"
 
+#: src/renderer/collections-view.tsx
+msgid "One folder per line, relative to the collection."
+msgstr "1 行に 1 フォルダー、コレクションからの相対パスで入力します。"
+
 #: src/renderer/device-requests.tsx
 msgid "Only allow if this matches the code on {who}"
 msgstr "このコードが{who}のコードと一致する場合のみ許可してください"
@@ -1279,6 +1322,11 @@ msgstr "ブラウザーを開いています…"
 msgid "Opening…"
 msgstr "開いています…"
 
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Other files"
+msgstr "その他のファイル"
+
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
 msgctxt "Connect interface"
@@ -1293,6 +1341,11 @@ msgstr "一時停止"
 #: src/renderer/daemon-view.mts
 msgid "Paused"
 msgstr "一時停止中"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "PDFs"
+msgstr "PDF"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"
@@ -1416,6 +1469,11 @@ msgid "Revoked"
 msgstr "取り消し済み"
 
 #: src/renderer/main.tsx
+msgid "Save"
+msgstr "保存"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File sync settings"
 msgid "Save"
 msgstr "保存"
 
@@ -1549,6 +1607,10 @@ msgstr "ログイン中"
 msgid "Signing out did not finish. Try signing out again."
 msgstr "サインアウトが完了しませんでした。もう一度サインアウトしてください。"
 
+#: src/renderer/collections-view.tsx
+msgid "Size limit in megabytes"
+msgstr "サイズ上限（メガバイト）"
+
 #: src/renderer/takeover-state.mts
 msgid "Some edits from before the move need your attention."
 msgstr "移行前の一部の編集に対応が必要です。"
@@ -1606,6 +1668,10 @@ msgstr "同期は停止しました"
 msgctxt "Local connection status"
 msgid "Synced"
 msgstr "同期済み"
+
+#: src/renderer/collections-view.tsx
+msgid "Synced files"
+msgstr "同期するファイル"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1966,6 +2032,11 @@ msgstr "バージョン {0} はインストールの {1}% に段階的に配信�
 #: src/main/update-coordinator.ts
 msgid "Version {0} is verified and ready to install."
 msgstr "バージョン {0} は検証済みで、インストールできます。"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Video"
+msgstr "動画"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"

@@ -1369,7 +1369,7 @@ impl<S: Store> Replica<S> {
                             .as_ref()
                             .filter(|o| o.content == f.payload.content)
                             .and_then(|o| o.mtime),
-                        media: media_class(&f.path),
+                        media: mdbn_wire::intent::MediaClass::of(&f.path),
                         modified_seq: p,
                         bucket: bucket16(&f.id),
                         local,
@@ -1582,7 +1582,7 @@ impl<S: Store> Replica<S> {
                                 .and_then(|o| o.mtime)
                         }),
                         content,
-                        media: media_class(&f.path),
+                        media: mdbn_wire::intent::MediaClass::of(&f.path),
                         modified_seq: p,
                         bucket: bucket16(&f.id),
                         local,
@@ -1716,7 +1716,7 @@ impl<S: Store> Replica<S> {
                         kind: mdbn_wire::unindexed_markdown::FileKindV1::Ordinary,
                         content: mdbn_wire::attachment::FileContent::Blob(f.blob.clone()),
                         mtime: None,
-                        media: media_class(&f.path),
+                        media: mdbn_wire::intent::MediaClass::of(&f.path),
                         modified_seq: p,
                         bucket: bucket16(&f.id),
                         local,
@@ -2257,23 +2257,6 @@ pub(crate) fn log_state(log_time: i64, ratchet: u64) -> Option<Vec<u8>> {
 /// Whether a decode error is an unknown variant anywhere (critical, §6.2).
 fn is_unknown_deep(e: &SchemaError) -> bool {
     e.is_unknown()
-}
-
-/// Media class from the extension (`intent.md` §3.7).
-pub(crate) fn media_class(path: &str) -> mdbn_wire::intent::MediaClass {
-    use mdbn_wire::intent::MediaClass as M;
-    let ext = path
-        .rsplit_once('.')
-        .map(|(_, e)| e.to_ascii_lowercase())
-        .unwrap_or_default();
-    match ext.as_str() {
-        "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "avif" | "heic" | "tif"
-        | "tiff" => M::Image,
-        "mp3" | "wav" | "m4a" | "ogg" | "flac" | "aac" | "opus" => M::Audio,
-        "mp4" | "mov" | "webm" | "mkv" | "avi" | "m4v" => M::Video,
-        "pdf" => M::Pdf,
-        _ => M::Other,
-    }
 }
 
 #[allow(dead_code)]

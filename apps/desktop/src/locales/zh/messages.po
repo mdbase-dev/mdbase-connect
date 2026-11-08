@@ -411,6 +411,10 @@ msgstr "你批准的应用会通过此电脑访问你的集合"
 msgid "Apps you used with mdbase Connect appear here once Private sync is on for the {movedWaiting, plural, one {collection} other {collections}} that moved to this computer. mdbase turns it on by itself; you don't need to approve those apps again."
 msgstr "你使用过的 mdbase Connect 应用会在迁移到此电脑的{movedWaiting, plural, other {集合}}开启私有同步后显示在这里。mdbase 会自行开启同步，你无需重新批准这些应用。"
 
+#: src/renderer/collections-view.tsx
+msgid "Archive/Recordings"
+msgstr "归档/录音"
+
 #: src/renderer/main.tsx
 msgid "Ask before new apps connect"
 msgstr "新应用连接前询问"
@@ -419,6 +423,11 @@ msgstr "新应用连接前询问"
 #: src/renderer/access-view.tsx
 msgid "Asked {0}"
 msgstr "请求于 {0}"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Audio"
+msgstr "音频"
 
 #: src/renderer/main.tsx
 msgid "Available in installed builds"
@@ -558,6 +567,10 @@ msgstr "选择创建集合文件夹的位置"
 msgctxt "Desktop application"
 msgid "Choose where to create the folder."
 msgstr "选择创建文件夹的位置。"
+
+#: src/renderer/collections-view.tsx
+msgid "Choose which files this collection syncs, on every device. Notes always sync, and files that already synced stay where they are."
+msgstr "选择此收藏集在所有设备上同步哪些文件。笔记始终同步，已同步的文件保持不变。"
 
 #: src/renderer/ui-components.tsx
 msgid "Clear filter"
@@ -782,6 +795,15 @@ msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "输入此电脑的名称。"
 
+#. placeholder {0}: collection.name
+#: src/renderer/collections-view.tsx
+msgid "File sync settings for {0} were saved."
+msgstr "已保存 {0} 的文件同步设置。"
+
+#: src/renderer/collections-view.tsx
+msgid "File types"
+msgstr "文件类型"
+
 #: src/renderer/activity-view.tsx
 msgid "Filter activity"
 msgstr "筛选活动"
@@ -806,6 +828,10 @@ msgstr "文件夹位置绝不会上传。"
 #: src/renderer/main.tsx
 msgid "Folders on this computer that your apps can use, and how each one syncs."
 msgstr "此电脑上供应用使用的文件夹，以及每个文件夹的同步方式。"
+
+#: src/renderer/collections-view.tsx
+msgid "Folders to leave out"
+msgstr "要排除的文件夹"
 
 #: src/renderer/main.tsx
 msgid "Go to {label}"
@@ -833,6 +859,11 @@ msgstr "此电脑在 mdbase 账户中的显示方式"
 #: src/renderer/access-view.tsx
 msgid "If you approve, {0} will be able to {1} in {where}, through this computer. You can revoke this at any time."
 msgstr "如果你批准，{0} 将能够通过此电脑在 {where} 中{1}。你可以随时撤销。"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Images"
+msgstr "图片"
 
 #. placeholder {0}: status.target_version
 #. placeholder {0}: update.target_version
@@ -926,6 +957,10 @@ msgid "Leave mdbase Connect's data in place and contact support with a diagnosti
 msgstr "保留 mdbase Connect 的数据，并携诊断报告联系支持人员。"
 
 #: src/renderer/collections-view.tsx
+msgid "Leave out files larger than"
+msgstr "排除大于以下大小的文件"
+
+#: src/renderer/collections-view.tsx
 msgid "Loading…"
 msgstr "正在加载…"
 
@@ -940,6 +975,10 @@ msgstr "在 mdbase 中管理"
 #: src/renderer/access-view.tsx
 msgid "Mark as seen"
 msgstr "标记为已查看"
+
+#: src/renderer/collections-view.tsx
+msgid "MB"
+msgstr "MB"
 
 #. placeholder {0}: bundled.version
 #. placeholder {1}: result.version
@@ -1232,6 +1271,10 @@ msgctxt "Local connection status"
 msgid "On this computer only"
 msgstr "仅在此电脑上"
 
+#: src/renderer/collections-view.tsx
+msgid "One folder per line, relative to the collection."
+msgstr "每行一个文件夹，路径相对于收藏集。"
+
 #: src/renderer/device-requests.tsx
 msgid "Only allow if this matches the code on {who}"
 msgstr "仅在此代码与{who}上的代码一致时允许"
@@ -1279,6 +1322,11 @@ msgstr "正在打开浏览器…"
 msgid "Opening…"
 msgstr "正在打开…"
 
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Other files"
+msgstr "其他文件"
+
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
 msgctxt "Connect interface"
@@ -1293,6 +1341,11 @@ msgstr "暂停"
 #: src/renderer/daemon-view.mts
 msgid "Paused"
 msgstr "已暂停"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "PDFs"
+msgstr "PDF"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"
@@ -1416,6 +1469,11 @@ msgid "Revoked"
 msgstr "已撤销"
 
 #: src/renderer/main.tsx
+msgid "Save"
+msgstr "保存"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File sync settings"
 msgid "Save"
 msgstr "保存"
 
@@ -1549,6 +1607,10 @@ msgstr "正在登录"
 msgid "Signing out did not finish. Try signing out again."
 msgstr "退出登录未完成。请再次尝试退出登录。"
 
+#: src/renderer/collections-view.tsx
+msgid "Size limit in megabytes"
+msgstr "大小上限（MB）"
+
 #: src/renderer/takeover-state.mts
 msgid "Some edits from before the move need your attention."
 msgstr "迁移前的一些编辑需要你处理。"
@@ -1606,6 +1668,10 @@ msgstr "同步已停止"
 msgctxt "Local connection status"
 msgid "Synced"
 msgstr "已同步"
+
+#: src/renderer/collections-view.tsx
+msgid "Synced files"
+msgstr "同步的文件"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1966,6 +2032,11 @@ msgstr "版本 {0} 正逐步推送至 {1}% 的安装实例。"
 #: src/main/update-coordinator.ts
 msgid "Version {0} is verified and ready to install."
 msgstr "版本 {0} 已通过验证，可供安装。"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Video"
+msgstr "视频"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"

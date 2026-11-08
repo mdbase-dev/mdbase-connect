@@ -411,6 +411,10 @@ msgstr "Apps you approve reach your collections through this computer"
 msgid "Apps you used with mdbase Connect appear here once Private sync is on for the {movedWaiting, plural, one {collection} other {collections}} that moved to this computer. mdbase turns it on by itself; you don't need to approve those apps again."
 msgstr "Apps you used with mdbase Connect appear here once Private sync is on for the {movedWaiting, plural, one {collection} other {collections}} that moved to this computer. mdbase turns it on by itself; you don't need to approve those apps again."
 
+#: src/renderer/collections-view.tsx
+msgid "Archive/Recordings"
+msgstr "Archive/Recordings"
+
 #: src/renderer/main.tsx
 msgid "Ask before new apps connect"
 msgstr "Ask before new apps connect"
@@ -419,6 +423,11 @@ msgstr "Ask before new apps connect"
 #: src/renderer/access-view.tsx
 msgid "Asked {0}"
 msgstr "Asked {0}"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Audio"
+msgstr "Audio"
 
 #: src/renderer/main.tsx
 msgid "Available in installed builds"
@@ -558,6 +567,10 @@ msgstr "Choose where to create the collection folder"
 msgctxt "Desktop application"
 msgid "Choose where to create the folder."
 msgstr "Choose where to create the folder."
+
+#: src/renderer/collections-view.tsx
+msgid "Choose which files this collection syncs, on every device. Notes always sync, and files that already synced stay where they are."
+msgstr "Choose which files this collection syncs, on every device. Notes always sync, and files that already synced stay where they are."
 
 #: src/renderer/ui-components.tsx
 msgid "Clear filter"
@@ -782,6 +795,15 @@ msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "Enter a name for this computer."
 
+#. placeholder {0}: collection.name
+#: src/renderer/collections-view.tsx
+msgid "File sync settings for {0} were saved."
+msgstr "File sync settings for {0} were saved."
+
+#: src/renderer/collections-view.tsx
+msgid "File types"
+msgstr "File types"
+
 #: src/renderer/activity-view.tsx
 msgid "Filter activity"
 msgstr "Filter activity"
@@ -806,6 +828,10 @@ msgstr "Folder locations are never uploaded."
 #: src/renderer/main.tsx
 msgid "Folders on this computer that your apps can use, and how each one syncs."
 msgstr "Folders on this computer that your apps can use, and how each one syncs."
+
+#: src/renderer/collections-view.tsx
+msgid "Folders to leave out"
+msgstr "Folders to leave out"
 
 #: src/renderer/main.tsx
 msgid "Go to {label}"
@@ -833,6 +859,11 @@ msgstr "How this computer appears in your mdbase account"
 #: src/renderer/access-view.tsx
 msgid "If you approve, {0} will be able to {1} in {where}, through this computer. You can revoke this at any time."
 msgstr "If you approve, {0} will be able to {1} in {where}, through this computer. You can revoke this at any time."
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Images"
+msgstr "Images"
 
 #. placeholder {0}: status.target_version
 #. placeholder {0}: update.target_version
@@ -926,6 +957,10 @@ msgid "Leave mdbase Connect's data in place and contact support with a diagnosti
 msgstr "Leave mdbase Connect's data in place and contact support with a diagnostics report."
 
 #: src/renderer/collections-view.tsx
+msgid "Leave out files larger than"
+msgstr "Leave out files larger than"
+
+#: src/renderer/collections-view.tsx
 msgid "Loading…"
 msgstr "Loading…"
 
@@ -940,6 +975,10 @@ msgstr "Manage in mdbase"
 #: src/renderer/access-view.tsx
 msgid "Mark as seen"
 msgstr "Mark as seen"
+
+#: src/renderer/collections-view.tsx
+msgid "MB"
+msgstr "MB"
 
 #. placeholder {0}: bundled.version
 #. placeholder {1}: result.version
@@ -1232,6 +1271,10 @@ msgctxt "Local connection status"
 msgid "On this computer only"
 msgstr "On this computer only"
 
+#: src/renderer/collections-view.tsx
+msgid "One folder per line, relative to the collection."
+msgstr "One folder per line, relative to the collection."
+
 #: src/renderer/device-requests.tsx
 msgid "Only allow if this matches the code on {who}"
 msgstr "Only allow if this matches the code on {who}"
@@ -1279,6 +1322,11 @@ msgstr "Opening browser…"
 msgid "Opening…"
 msgstr "Opening…"
 
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Other files"
+msgstr "Other files"
+
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
 msgctxt "Connect interface"
@@ -1293,6 +1341,11 @@ msgstr "Pause"
 #: src/renderer/daemon-view.mts
 msgid "Paused"
 msgstr "Paused"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "PDFs"
+msgstr "PDFs"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"
@@ -1416,6 +1469,11 @@ msgid "Revoked"
 msgstr "Revoked"
 
 #: src/renderer/main.tsx
+msgid "Save"
+msgstr "Save"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File sync settings"
 msgid "Save"
 msgstr "Save"
 
@@ -1549,6 +1607,10 @@ msgstr "Signing in"
 msgid "Signing out did not finish. Try signing out again."
 msgstr "Signing out did not finish. Try signing out again."
 
+#: src/renderer/collections-view.tsx
+msgid "Size limit in megabytes"
+msgstr "Size limit in megabytes"
+
 #: src/renderer/takeover-state.mts
 msgid "Some edits from before the move need your attention."
 msgstr "Some edits from before the move need your attention."
@@ -1606,6 +1668,10 @@ msgstr "Sync stopped"
 msgctxt "Local connection status"
 msgid "Synced"
 msgstr "Synced"
+
+#: src/renderer/collections-view.tsx
+msgid "Synced files"
+msgstr "Synced files"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1966,6 +2032,11 @@ msgstr "Version {0} is rolling out to {1}% of installations."
 #: src/main/update-coordinator.ts
 msgid "Version {0} is verified and ready to install."
 msgstr "Version {0} is verified and ready to install."
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Video"
+msgstr "Video"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"
