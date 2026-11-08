@@ -25,7 +25,7 @@ export { InstallationPairingError } from "./installation-pairing-error.js";
 import { CutoverProblemError } from "../next/cutover-problems.js";
 import { accountUpgradeRolledBack } from "../next/migration-rollback-state.js";
 import { unmigratedLocalCollection } from "../next/native-grant-target.js";
-import { attachNativeAuthorization, approveInstallationNativeChoice, privateInstallationChoices } from "./installation-native-authorization.js";
+import { attachNativeAuthorization, approveInstallationNativeChoice, closeUnusedNativeAuthorization, privateInstallationChoices } from "./installation-native-authorization.js";
 function fail(code: string, status = 409): never {
   throw new InstallationPairingError(
     status,
@@ -654,6 +654,7 @@ export async function approveInstallationPairing(
         "UPDATE pairing_requests SET approved_at=now(),expires_at=GREATEST(expires_at,now()+interval '10 minutes') WHERE id=$1",
         [id],
       );
+      await closeUnusedNativeAuthorization(c, id, user, "superseded_by_installation_approval");
       if (r.scope_only && consent.timer_consent !== undefined) {
         await requireInstallationScope(c,{id:r.connector_id,user_id:user,installation_device_id:r.device_id});
         // The credential already exists: make withdrawal/new consent effective
@@ -719,6 +720,7 @@ export async function denyInstallationPairing(
     // An approved file-access decision is already recorded; deny cannot undo it.
     if (r.file_access_collection_id && r.approved_at) fail("installation_approval_already_recorded");
     await c.query("UPDATE pairing_requests SET revoked_at=now() WHERE id=$1", [id]);
+    await closeUnusedNativeAuthorization(c, id, user, "installation_pairing_denied");
     await c.query(`UPDATE next_background_grants SET revoked_at=clock_timestamp()
       WHERE principal_kind='installation' AND approval_request_id=$1 AND revoked_at IS NULL`, [id]);
     return { ok: true };

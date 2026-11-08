@@ -243,8 +243,11 @@ export function registerAccountOverviewRoute(
               a.requirements, a.provisions, a.notifications
        FROM authorization_requests ar
        JOIN applications a ON a.id = ar.application_id
+       -- Only the app's original collection chooser can complete a linked
+       -- Native companion, so the portal cannot act on it.
+       LEFT JOIN installation_native_authorizations na ON na.authorization_request_id = ar.id
        WHERE ar.user_id = $1 AND ar.completed_at IS NULL AND ar.denied_at IS NULL
-         AND ar.expires_at > now()
+         AND ar.expires_at > now() AND na.pairing_id IS NULL
        ORDER BY ar.expires_at`,
       [user.id]
     );

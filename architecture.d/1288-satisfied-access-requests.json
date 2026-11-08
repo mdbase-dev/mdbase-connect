@@ -1,0 +1,7 @@
+{
+  "reason": "Closing an unused Native companion belongs with the companion's attach/approve lifecycle in installation-native-authorization.ts (one export, plus its audit import). installation-pairing.ts is at its line budget and only calls it.",
+  "growth": {
+    "relativeImports": 1,
+    "typeScriptExportDeclarations": 1
+  }
+}
