@@ -251,7 +251,8 @@ The candidate package exports are:
   interface remain at the root because every application session needs one;
 - `@mdbase-dev/connect/crypto`: key stores, application identity/signing,
   relay/file encryption, and cryptographic binding types;
-- `@mdbase-dev/connect-sync`: optional offline replica/sync runtime;
+- `@mdbase-dev/connect-sync`: offline replica/sync runtime (workspace-internal,
+  no longer published);
 - notification runtime remains independently adoptable and must not become a
   mandatory root dependency.
 

@@ -15,7 +15,6 @@ export const packagePaths = [
   "packages/devkit/package.json",
   "packages/i18n/package.json",
   "packages/management/package.json",
-  "packages/pickle/package.json",
   "packages/protocol/package.json",
   "packages/sync/package.json",
   "packages/testing/package.json",

@@ -110,7 +110,7 @@ are rechecked immediately before every npm publication.
 
 Workspace planning runs this same `verifyCompatibility` proof before packing,
 for **every** public workspace package, including `@mdbase-dev/connect`, protocol,
-sync, devkit, testing, webhooks and pickle. There are no server-independent
+devkit and webhooks. There are no server-independent
 exemptions: i18n, UI and newly added public packages are gated too. The existing
 fail-closed contract-path classification is shared unchanged with the source SDK.
 

@@ -22,7 +22,6 @@
     "packages/devkit": 3,
     "packages/i18n": 23,
     "packages/management": 1,
-    "packages/pickle": 2,
     "packages/protocol": 20,
     "packages/sync": 47,
     "packages/testing": 3,
