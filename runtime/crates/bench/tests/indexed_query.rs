@@ -1244,7 +1244,7 @@ fn query_keysets_profile_midpage_50k() {
 }
 
 #[test]
-fn query_keysets_source_budget_is_per_published_page_and_never_silently_truncates() {
+fn query_keysets_end_pages_at_the_source_budget_and_continue_by_cursor() {
     fn large(n: u32) -> String {
         format!(
             "---\npriority: {n}\nstatus: open\n---\n{}",
@@ -1260,15 +1260,37 @@ fn query_keysets_source_budget_is_per_published_page_and_never_silently_truncate
         600,
         "records confirmed, not refused fixture writes"
     );
+    // 600 records exceed the 1 MiB source budget: the page ends at the last
+    // record that fits and says so with has_more and a cursor, never a refusal
+    // and never a short page without a way to continue.
     let all = q(&[
         ("order_by", order("priority", "asc")),
         ("limit", Value::Int(600)),
     ]);
-    let err = node.r.query(node.s, all, none()).unwrap_err();
-    assert_eq!(err.problem().code, "too_large");
+    let mut page = node.r.query(node.s, all.clone(), none()).unwrap();
+    assert!(!page.records.is_empty() && page.records.len() < 600);
+    let mut seen = Vec::new();
+    let mut pages = 0;
+    loop {
+        pages += 1;
+        assert!(page.records.len() <= 600);
+        seen.extend(page.records.iter().map(|r| r.id));
+        let Some(cursor) = page.cursor.clone() else {
+            assert_eq!(page.has_more, Some(false));
+            break;
+        };
+        assert_eq!(page.has_more, Some(true));
+        page = node
+            .r
+            .query(node.s, with_cursor(&all, &cursor), none())
+            .unwrap();
+    }
+    assert!(pages >= 2);
+    assert_eq!(seen.len(), 600);
     assert_eq!(
-        err.problem().reason.as_deref(),
-        Some("query_budget_exceeded")
+        seen.iter().collect::<std::collections::BTreeSet<_>>().len(),
+        600,
+        "budget-short pages neither repeat nor skip records"
     );
     let original = q(&[
         ("order_by", order("priority", "asc")),
@@ -1288,6 +1310,18 @@ fn query_keysets_source_budget_is_per_published_page_and_never_silently_truncate
     assert!(second.cursor.is_none());
     assert_eq!(second.has_more, Some(false));
     assert_ne!(first.records[0].id, second.records[0].id);
+    // Pending edits merge into the whole window and mint no cursor: that path
+    // still refuses explicitly instead of returning a short page.
+    submit(
+        &mut node,
+        vec![create(9001, "tasks/pending.md", large(9001))],
+    );
+    let err = node.r.query(node.s, all, none()).unwrap_err();
+    assert_eq!(err.problem().code, "too_large");
+    assert_eq!(
+        err.problem().reason.as_deref(),
+        Some("query_budget_exceeded")
+    );
 }
 
 #[test]

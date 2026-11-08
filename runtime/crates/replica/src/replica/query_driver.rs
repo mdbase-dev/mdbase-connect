@@ -32,6 +32,16 @@ use crate::plan::QueryProjectionContext;
 use crate::store::{RecordRow, Store, StoreError};
 use crate::store_query::{QueryBudget, QueryIndexRequest, QueryKeyedId};
 
+/// Whether an indexed page may end early at the request's source budget.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Window {
+    /// The caller returns no cursor: the whole requested window or a refusal.
+    Whole,
+    /// The caller mints a cursor from the frontier: a page that would exceed
+    /// the source budget ends at the last record that fits, with `has_more`.
+    BudgetBounded,
+}
+
 pub(crate) struct IndexedQueryPage {
     pub(crate) result: QueryResult,
     pub(crate) frontier: Option<QueryKeyedId>,
@@ -85,6 +95,21 @@ impl Decline {
             Self::Projection => "projection_unsupported",
         }
     }
+}
+
+/// How many leading rows fit `bytes` and `records` together.
+fn fitting_prefix(rows: &[&QueryKeyedId], bytes: u64, records: u32) -> usize {
+    let mut used = 0u64;
+    rows.iter()
+        .take(usize::try_from(records).unwrap_or(usize::MAX))
+        .take_while(|r| match used.checked_add(r.encoded_bytes) {
+            Some(n) if n <= bytes => {
+                used = n;
+                true
+            }
+            _ => false,
+        })
+        .count()
 }
 
 fn budget_error(what: &str) -> ApiError {
@@ -222,7 +247,7 @@ impl<S: Store> Replica<S> {
         env: &QueryEnv,
         include: &Include,
     ) -> ApiResult<Result<QueryResult, Decline>> {
-        self.indexed_query_page(plan, lv, env, include, None)
+        self.indexed_query_page(plan, lv, env, include, None, Window::Whole)
             .map(|out| out.map(|page| page.result))
     }
 
@@ -234,8 +259,9 @@ impl<S: Store> Replica<S> {
         env: &QueryEnv,
         include: &Include,
         after: Option<&QueryKeyedId>,
+        window: Window,
     ) -> ApiResult<Result<IndexedQueryPage, Decline>> {
-        let out = self.indexed_query_inner(plan, lv, env, include, after);
+        let out = self.indexed_query_inner(plan, lv, env, include, after, window);
         let mut stats = self.query_stats.get();
         match &out {
             Ok(Ok(_)) => stats.indexed += 1,
@@ -387,6 +413,7 @@ impl<S: Store> Replica<S> {
         env: &QueryEnv,
         include: &Include,
         after: Option<&QueryKeyedId>,
+        window_mode: Window,
     ) -> ApiResult<Result<IndexedQueryPage, Decline>> {
         let q = &plan.query;
         if self.install.is_some() {
@@ -541,7 +568,7 @@ impl<S: Store> Replica<S> {
             )
         };
         // Without layered matches the index order is final: hydrate only the page.
-        let hydrate: Vec<_> = if layered.is_empty() {
+        let mut hydrate: Vec<_> = if layered.is_empty() {
             confirmed
                 .iter()
                 .skip(offset)
@@ -550,12 +577,17 @@ impl<S: Store> Replica<S> {
         } else {
             confirmed.iter().collect()
         };
-        let bytes = hydrate
-            .iter()
-            .try_fold(0u64, |n, r| n.checked_add(r.encoded_bytes))
-            .unwrap_or(u64::MAX);
-        if bytes > budget.bytes_left() || hydrate.len() as u64 > u64::from(budget.records_left()) {
-            return Err(budget_error("the matching records"));
+        // A keyset page ends at the last record that fits the source budget; its
+        // frontier continues from there. Whole windows, merged pending edits and
+        // a first record beyond the budget on its own still refuse explicitly.
+        let fits = fitting_prefix(&hydrate, budget.bytes_left(), budget.records_left());
+        let short = fits < hydrate.len();
+        if short {
+            if window_mode != Window::BudgetBounded || !paged || fits == 0 {
+                return Err(budget_error("the matching records"));
+            }
+            hydrate.truncate(fits);
+            has_more = true;
         }
         let ids: Vec<Uuid> = hydrate.iter().map(|r| r.id).collect();
         self.trace_query("hydrate_start");
@@ -653,6 +685,10 @@ impl<S: Store> Replica<S> {
                 .collect::<ApiResult<_>>()?
         };
         self.trace_query("project_end");
+        if short {
+            // Paged: the hydrated rows are exactly this prefix of `confirmed`.
+            confirmed.truncate(fits);
+        }
         let frontier = paged.then(|| confirmed.pop()).flatten();
         Ok(Ok(IndexedQueryPage {
             frontier,
