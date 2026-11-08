@@ -75,7 +75,7 @@ export function renderBetaWelcomeEmail(
   input: Pick<EmailRenderContext, "name" | "email" | "unsubscribeUrl">
 ): TransactionalEmail {
   return renderWelcomeEmail(input,
-    "Because you joined during the beta, your account has a 1 GB hosted-storage allowance that does not expire when the beta ends. It is shared across your Markdown files and other files. You can create up to 10 hosted collections, connect up to 10 replicas to each collection, store Markdown documents up to 2 MB, and store individual files up to 250 MB. I hope to offer paid plans with more storage later, and you'll be able to add one without losing your beta allowance."
+    "Because you joined during the beta, your account has a 1 GB hosted-storage allowance that does not expire when the beta ends. It is shared across your Markdown files and other files. You can create up to 10 hosted collections, connect up to 10 replicas to each collection, store Markdown documents up to 1 MB, and store individual files up to 250 MB. I hope to offer paid plans with more storage later, and you'll be able to add one without losing your beta allowance."
   );
 }
 
@@ -83,7 +83,7 @@ export function renderOpenBetaWelcomeEmail(
   input: Pick<EmailRenderContext, "name" | "email" | "unsubscribeUrl">
 ): TransactionalEmail {
   return renderWelcomeEmail(input,
-    "Because you joined during the open beta, your account has a 1 GB hosted-storage allowance that does not expire when the beta ends. It is shared across your Markdown files and other files. Your account also includes a 2 GB retained-file allowance, and each collection can contain up to 10,000 files. You can have up to 3 hosted collections in total, including the starter collection created with your account. Each collection can connect up to 10 synced folders and 50 application installations. Markdown documents can be up to 2 MB and individual files up to 250 MB. I hope to offer paid plans with more storage later, and you'll be able to add one without losing your beta allowance."
+    "Because you joined during the open beta, your account has a 1 GB hosted-storage allowance that does not expire when the beta ends. It is shared across your Markdown files and other files. Your account also includes a 2 GB retained-file allowance, and each collection can contain up to 10,000 files. You can have up to 3 hosted collections in total, including the starter collection created with your account. Each collection can connect up to 10 synced folders and 50 application installations. Markdown documents can be up to 1 MB and individual files up to 250 MB. I hope to offer paid plans with more storage later, and you'll be able to add one without losing your beta allowance."
   );
 }
 

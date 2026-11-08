@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { afterEach, expect, it } from "vitest";
 import { buildApp } from "../../app.js";
+import { renderBetaWelcomeEmail, renderOpenBetaWelcomeEmail } from "../../beta-welcome-email.js";
 import { createDatabase } from "../../db.js";
 import { effectiveEntitlement } from "../../entitlements.js";
 
@@ -34,4 +35,12 @@ it("reports the native replica's record cap as a next account's document limit",
   expect(await documentLimit()).toBe(entitlement!.maxDocumentBytes);
   await db.query("UPDATE users SET account_backend='next' WHERE id=$1", [owner]);
   expect(await documentLimit()).toBe(cap);
+});
+
+it("states the native record cap in the welcome emails", () => {
+  const cap = rustConstant("wire/src/unindexed_markdown.rs", "RECORD_SOURCE_CAP_BYTES");
+  const recipient = { name: "Ada", email: "ada@example.test", unsubscribeUrl: "https://connect.test/unsubscribe" };
+  for (const message of [renderBetaWelcomeEmail(recipient), renderOpenBetaWelcomeEmail(recipient)]) {
+    expect(message.text).toMatch(new RegExp(`Markdown documents (can be )?up to ${cap / 1_048_576} MB`, "u"));
+  }
 });
