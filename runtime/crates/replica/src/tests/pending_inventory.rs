@@ -156,6 +156,7 @@ fn pending_inventory_excludes_settled_rejection_even_if_capture_returned_pending
         dry_run: None,
         include: None,
         wait: None,
+        validation: None,
     };
     let receipt = a.r.submit(a.s, params).unwrap().remove(0);
     assert_eq!(receipt.state, mdbn_wire::client::ReceiptState::Pending);

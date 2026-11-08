@@ -94,6 +94,7 @@ import {
   RecordView,
   submitParams,
   SubmitParams,
+  ValidationLevel,
   submitResult,
   syncStatus,
   SyncStatus,
@@ -305,6 +306,13 @@ export interface WriteOptions {
   dryRun?: boolean;
   /** Hold for log confirmation, or final local file publication (not confirmation). */
   wait?: "pending" | "confirmed" | "published";
+  /**
+   * Validation level for this write's single-record checks (spec 04); default
+   * the collection's `settings.validation`. Only `error` refuses a write with
+   * `invalid_record`. A sync tool sends `warn`: files it carries are never
+   * rejected for validity. Older replicas ignore it and refuse at `error`.
+   */
+  validation?: ValidationLevel;
   signal?: AbortSignal;
 }
 
@@ -1722,6 +1730,7 @@ export class MdbaseClient {
     if (o.dryRun) p.dryRun = true;
     if (o.include) p.include = o.include;
     if (o.wait) p.wait = o.wait;
+    if (o.validation) p.validation = o.validation;
     // The ledger holds the intent before the replica can capture it.
     if (!o.dryRun) {
       this.startLedger();

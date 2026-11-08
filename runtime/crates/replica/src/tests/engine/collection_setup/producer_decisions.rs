@@ -60,6 +60,7 @@ fn put(a: &mut Node, document: &str, base: Option<B32>) {
             dry_run: None,
             include: None,
             wait: None,
+            validation: None,
         },
     )
     .unwrap();

@@ -157,6 +157,7 @@ fn bundled_task_policy_local_identity_path_children_restore_and_confirm() {
                 dry_run: None,
                 include: Some(include()),
                 wait: Some(WaitFor::Pending),
+                validation: None,
             },
         )
         .unwrap()

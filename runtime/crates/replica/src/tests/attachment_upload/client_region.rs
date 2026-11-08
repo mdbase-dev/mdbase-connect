@@ -203,6 +203,7 @@ fn native_capture_mtime_survives_move_snapshot_and_fresh_replica_replay() {
             dry_run: None,
             include: None,
             wait: None,
+            validation: None,
         },
     )
     .unwrap();
@@ -812,6 +813,7 @@ fn replacement_refuses_a_target_changed_after_open() {
             dry_run: None,
             include: None,
             wait: None,
+            validation: None,
         },
     )
     .unwrap();

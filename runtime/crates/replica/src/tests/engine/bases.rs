@@ -47,6 +47,7 @@ fn configured() -> (FakeLogService, Node, String) {
             dry_run: None,
             include: None,
             wait: None,
+            validation: None,
         },
     )
     .unwrap();

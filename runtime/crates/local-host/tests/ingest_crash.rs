@@ -134,6 +134,7 @@ fn ingest_crash_child() {
                     dry_run: None,
                     include: None,
                     wait: None,
+                    validation: None,
                 },
             )
             .unwrap();

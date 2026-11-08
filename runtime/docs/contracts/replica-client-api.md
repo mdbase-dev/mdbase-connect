@@ -515,6 +515,7 @@ submit-params = {
   ? 6: bool,             ; dry_run: plan at the local view, capture nothing
   ? 7: include,          ; what to return in the optimistic record views
   ? 8: &( pending: 0, confirmed: 1, published: 2 ),   ; wait: return now (default), after confirmation, or after local file publication
+  ? 9: level,            ; validation: single-record check level for this write (default: the collection's settings.validation)
 }
 submit-result = [+ receipt]     ; one per mutation (several when allow_partial)
 ```
@@ -527,7 +528,10 @@ submit-result = [+ receipt]     ; one per mutation (several when allow_partial)
 
    Clients never set those fields.
 2. **Optimistic plan.** The replica plans the mutation at its local view, applying the
-   submit-time checks (`intent.md` §6).
+   submit-time checks (`intent.md` §6) at the write's `validation` level, or else the
+   collection's `settings.validation`. Only `error` rejects a single-record issue.
+   A sync tool sends `warn`: spec 04 never rejects files it carries for validity. The
+   level is recorded as the mutation's `validated_at`.
    - **Rejection** returns a receipt in state `rejected` immediately.
    - **Acceptance** queues the mutation, applies it to the local view, and returns a
      receipt in state `pending` with the **optimistic results**: the affected records

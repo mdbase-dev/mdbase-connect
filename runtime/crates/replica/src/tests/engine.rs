@@ -286,6 +286,7 @@ impl Node {
                     dry_run: None,
                     include: None,
                     wait: None,
+                    validation: None,
                 },
             )
             .expect("submit");
@@ -1018,6 +1019,7 @@ fn rebase_reflects_remote_changes() {
                 dry_run: None,
                 include: None,
                 wait: None,
+                validation: None,
             },
         )
         .unwrap();
@@ -1038,6 +1040,7 @@ fn rebase_reflects_remote_changes() {
                 dry_run: None,
                 include: None,
                 wait: None,
+                validation: None,
             },
         )
         .unwrap();
@@ -1082,6 +1085,7 @@ fn many_pending_submits() {
                     dry_run: None,
                     include: None,
                     wait: None,
+                    validation: None,
                 },
             )
             .unwrap();
@@ -2619,6 +2623,7 @@ fn app_keyring_is_never_stored_and_is_rebuilt_from_the_log_on_reopen() {
                 dry_run: None,
                 include: None,
                 wait: None,
+                validation: None,
             },
         )
         .expect("offline capture")
@@ -3649,6 +3654,7 @@ fn folder_scoped_grant_sees_only_its_files() {
         dry_run: None,
         include: None,
         wait: None,
+        validation: None,
     };
     assert_eq!(
         a.r.submit(s, put("private/c.png")).unwrap_err().code(),
@@ -4989,6 +4995,7 @@ fn a_resurrected_create_at_a_taken_path_lands_renamed_and_verifies() {
                 dry_run: None,
                 include: None,
                 wait: None,
+                validation: None,
             },
         )
         .expect("config");
@@ -6527,6 +6534,7 @@ fn change_feed_marks_file_puts_and_removals_as_files() {
         dry_run: None,
         include: None,
         wait: None,
+        validation: None,
     };
     let put = Op::FilePut(FilePut {
         id,

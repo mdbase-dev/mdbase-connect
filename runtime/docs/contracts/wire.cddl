@@ -1001,6 +1001,7 @@ submit-params = {
   ? 6: bool,             ; dry_run: plan at the local view, capture nothing
   ? 7: include,          ; what to return in the optimistic record views
   ? 8: &( pending: 0, confirmed: 1, published: 2 ),   ; wait: return now (default), after confirmation, or after local file publication
+  ? 9: level,            ; validation: single-record check level for this write (default: the collection's settings.validation)
 }
 submit-result = [+ receipt]     ; one per mutation (several when allow_partial)
 

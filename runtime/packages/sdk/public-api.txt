@@ -363,6 +363,7 @@ UploadSource -> UploadSource@files.ts
 Uuid -> Uuid@wire.ts
 uuidv7 -> uuidv7@values.ts
 ValidationIssue -> ValidationIssue@validation.ts
+ValidationLevel -> ValidationLevel@wire.ts
 Value -> Value@wire.ts
 valueEquals -> valueEquals@values.ts
 versionRelation -> versionRelation@semver.ts
@@ -615,6 +616,7 @@ UploadSource -> UploadSource@files.ts
 Uuid -> Uuid@wire.ts
 uuidv7 -> uuidv7@values.ts
 ValidationIssue -> ValidationIssue@validation.ts
+ValidationLevel -> ValidationLevel@wire.ts
 Value -> Value@wire.ts
 valueEquals -> valueEquals@values.ts
 ViewSourceCreateInput -> ViewSourceCreateInput@view-sources.ts
@@ -996,6 +998,7 @@ UploadSource -> UploadSource@files.ts
 Uuid -> Uuid@wire.ts
 uuidv7 -> uuidv7@values.ts
 ValidationIssue -> ValidationIssue@validation.ts
+ValidationLevel -> ValidationLevel@wire.ts
 Value -> Value@wire.ts
 valueEquals -> valueEquals@values.ts
 versionRelation -> versionRelation@semver.ts
@@ -1703,6 +1706,7 @@ problemCodeOf -> problemCodeOf@describe-error.ts
   export Op
   export op
   export SubmitParams
+  export ValidationLevel
   export submitParams
   export ConflictValue
   export conflictValue
@@ -5599,6 +5603,7 @@ SubmitParams@wire.ts
   mutationIds?: string[] | undefined
   ops: Op[]
   timezone?: string | undefined
+  validation?: ValidationLevel | undefined
   wait?: 'pending' | 'confirmed' | 'published' | undefined
 
 SyncMode@wire.ts
@@ -5911,6 +5916,9 @@ ValidationIssue@validation.ts
   tier: 'request' | 'single_record' | 'cross_record'
   typeName?: string | undefined
 
+ValidationLevel@wire.ts
+  = 'error' | 'off' | 'warn'
+
 Value@wire.ts
   = string | number | bigint | boolean | import("src/cbor").CborMap | import("src/cbor").Float64 | Uint8Array<ArrayBufferLike> | CborValue[] | null
 
@@ -5967,6 +5975,7 @@ ViewSourceWriteOptions@view-sources.ts
   mutationId: string
   signal?: AbortSignal | undefined
   timezone?: string | undefined
+  validation?: ValidationLevel | undefined
   wait?: 'pending' | 'confirmed' | 'published' | undefined
 
 WasmRuntime@runtime/wasm.ts
@@ -6045,6 +6054,7 @@ WriteOptions@client.ts
   mutationId?: string | undefined
   signal?: AbortSignal | undefined
   timezone?: string | undefined
+  validation?: ValidationLevel | undefined
   wait?: 'pending' | 'confirmed' | 'published' | undefined
 
 accountKeyRewrapDigest@account-key.ts
