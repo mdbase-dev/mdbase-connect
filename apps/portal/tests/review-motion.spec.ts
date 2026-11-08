@@ -90,7 +90,7 @@ test("Connected fixture glyphs change only on confirmed readback in 240ms", asyn
   const row = page.locator(".connect-collection-row").filter({ has: page.getByRole("link", { name: "Field research", exact: true }) });
   await expect(row.locator('.status-glyph[data-state="online"]')).toBeVisible();
   await page.keyboard.press("j");
-  await page.route("**/v1/me", async route => {
+  await page.route(url => url.pathname === "/v1/me", async route => {
     const response = await route.fetch();
     const data = await response.json();
     data.connectors[0].last_seen_at = "2026-10-30T08:20:00.000Z";
@@ -111,7 +111,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) test(`status g
   const glyph = page.locator('[data-command="collection:collection-0"] .status-glyph');
   const ring = glyph.locator(".status-glyph-ring");
   let online = false;
-  await page.route("**/v1/me", async route => {
+  await page.route(url => url.pathname === "/v1/me", async route => {
     const response = await route.fetch();
     const data = await response.json();
     data.connectors[0].last_seen_at = online ? new Date().toISOString() : "2026-10-30T08:20:00.000Z";

@@ -13,7 +13,7 @@ test("W35 approved access names the next step without figurative copy", async ({
 test("W28 Retry keeps keyboard focus and ignores activation during a background refresh", async ({ page }) => {
   let requests = 0;
   let finish: (() => void) | undefined;
-  await page.route("**/v1/me", async route => {
+  await page.route(url => url.pathname === "/v1/me", async route => {
     if (++requests > 1) await new Promise<void>(resolve => { finish = resolve; });
     await route.fulfill({ status: 503, json: { error: { message: "Diagnostic" } } });
   });
@@ -39,7 +39,7 @@ test("W28 post-approval inspection redirects a 401 without replaying approval", 
   await page.getByRole("option").first().click();
   const original = page.url();
   let approvals = 0;
-  await page.route("**/v1/me", route => route.fulfill({ status: 401, json: { error: { message: "Sign in" } } }));
+  await page.route(url => url.pathname === "/v1/me", route => route.fulfill({ status: 401, json: { error: { message: "Sign in" } } }));
   await page.route(`**/v1/pairing-requests/${pairingId}**`, async route => {
     if (route.request().method() === "POST" && route.request().url().endsWith("/approve")) approvals++;
     if (route.request().method() === "GET" && approvals) return route.fulfill({ status: 401, json: { error: { message: "Sign in" } } });
@@ -432,7 +432,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   for (const colorScheme of ["light", "dark"] as const) test(`W11 list slots and shell ${viewport.width} ${colorScheme}`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
     await page.emulateMedia({ colorScheme, reducedMotion: "no-preference" });
-    await page.route("**/v1/me", async route => {
+    await page.route(url => url.pathname === "/v1/me", async route => {
       const response = await route.fetch();
       const data = await response.json();
       data.connectors[0].compatibility = "upgrade_required";
@@ -888,7 +888,7 @@ test("a first visit asks for sign-in without claiming the session expired", asyn
 
 test("an expired session says so and keeps the destination", async ({ page }) => {
   await openScenario(page, "account-sessions");
-  await page.route("**/v1/me", route => route.fulfill({ status: 401, json: { error: { code: "unauthenticated", message: "Sign in" } } }));
+  await page.route(url => url.pathname === "/v1/me", route => route.fulfill({ status: 401, json: { error: { code: "unauthenticated", message: "Sign in" } } }));
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect(page.getByRole("status").filter({ hasText: "Your session expired." })).toBeVisible();
   expect(new URL(new URL(page.url()).searchParams.get("return_to")!).pathname).toBe("/account");

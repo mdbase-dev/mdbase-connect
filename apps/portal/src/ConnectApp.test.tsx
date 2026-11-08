@@ -808,9 +808,46 @@ describe("ConnectApp", () => {
       fireEvent(window, new Event("focus"));
       await settle();
       expect(overviewReads().at(-1)).toBe("");
+      await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
       fireEvent(document, new Event("visibilitychange"));
       await settle();
-      expect(overviewReads()).toEqual(["", omitted, omitted, omitted, "", ""]);
+      expect(overviewReads()).toEqual(["", omitted, omitted, omitted, "", omitted, omitted, ""]);
+    });
+
+    it("doesn't read storage again on focus within 30 seconds of the last read", async () => {
+      render(<ConnectApp />);
+      await settle();
+      fireEvent(window, new Event("focus"));
+      await settle();
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      fireEvent(document, new Event("visibilitychange"));
+      await settle();
+      expect(overviewReads()).toEqual(["", omitted, omitted, omitted]);
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      fireEvent(window, new Event("focus"));
+      await settle();
+      expect(overviewReads()).toEqual(["", omitted, omitted, omitted, omitted, ""]);
+    });
+
+    it("retries a failed storage read on the next 15-second refresh, and counts an unknown figure as read", async () => {
+      overview.subscription = { ...overview.subscription!, native_storage_bytes: null };
+      let failStorage = false;
+      const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+      vi.mocked(fetch).mockImplementation(async (input, init) => {
+        const url = new URL(String(input));
+        if (failStorage && url.pathname === "/v1/me" && url.search === "") return Response.json({ error: { message: "unavailable" } }, { status: 503 });
+        return originalFetch(input, init);
+      });
+      render(<ConnectApp />);
+      await settle();
+      await act(async () => { await vi.advanceTimersByTimeAsync(5 * 60_000 - 15_000); });
+      failStorage = true;
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      expect(overviewReads().slice(19)).toEqual([omitted, ""]);
+      failStorage = false;
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      expect(overviewReads().slice(19)).toEqual([omitted, "", "", omitted]);
     });
 
     it("includes storage in the background refresh at most every 5 minutes", async () => {
@@ -826,7 +863,7 @@ describe("ConnectApp", () => {
       expect(overviewReads().at(-1)).toBe("");
     });
 
-    it("reads storage when the account page opens", async () => {
+    it("reads storage when the account page opens, even within 30 seconds of the last read", async () => {
       render(<ConnectApp />);
       await settle();
       await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
@@ -845,7 +882,7 @@ describe("ConnectApp", () => {
         if (new URL(String(input)).search === omitted) await new Promise<void>(resolve => { finish = resolve; });
         return originalFetch(input, init);
       });
-      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
       fireEvent(window, new Event("focus"));
       await settle();
       expect(overviewReads()).toEqual(["", omitted]);

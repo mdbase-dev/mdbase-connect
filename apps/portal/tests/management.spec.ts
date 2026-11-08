@@ -51,7 +51,7 @@ test("opens the shell before the network and reuses names without cached authori
   await expect(page.getByText("Garden notes", { exact: true }).first()).toBeVisible();
   let release!: () => void;
   const delayed = new Promise<void>(resolve => { release = resolve; });
-  await page.route(`${portalOrigin}/v1/me`, async route => { await delayed; await route.fulfill({ json: overview }); });
+  await page.route(url => url.origin === portalOrigin && url.pathname === "/v1/me", async route => { await delayed; await route.fulfill({ json: overview }); });
   try {
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(page.getByRole("complementary", { name: "mdbase Connect navigation" })).toBeVisible();
@@ -74,7 +74,7 @@ test("renames before the server responds, rolls back failures, and offers real U
     pending();
   }
   let fail = true;
-  await page.route(`${portalOrigin}/v1/me`, route => route.fulfill({ json: { ...overview, connectors: [{ ...overview.connectors[0], name }] } }));
+  await page.route(url => url.origin === portalOrigin && url.pathname === "/v1/me", route => route.fulfill({ json: { ...overview, connectors: [{ ...overview.connectors[0], name }] } }));
   await page.route(`${portalOrigin}/v1/connectors/computer`, async route => {
     await new Promise<void>(resolve => { finish = resolve; });
     if (fail) return route.fulfill({ status: 503, json: { error: { message: "Cannot save name" } } });
@@ -108,7 +108,7 @@ test("styles footer links and separates account details on desktop and mobile", 
   for (const width of [1280, 390]) {
     let release!: () => void;
     const account = new Promise<void>(resolve => { release = resolve; });
-    await page.route(`${portalOrigin}/v1/me`, async route => {
+    await page.route(url => url.origin === portalOrigin && url.pathname === "/v1/me", async route => {
       await account;
       await route.fulfill({ json: overview });
     });
@@ -183,7 +183,7 @@ test("condenses portal navigation on mobile", async ({ page }) => {
 });
 
 test("keeps application summaries and access links separate at narrow widths", async ({ page }) => {
-  await page.route(`${portalOrigin}/v1/me`, (route) => route.fulfill({
+  await page.route(url => url.origin === portalOrigin && url.pathname === "/v1/me", (route) => route.fulfill({
     json: {
       ...overview,
       grants: ["mdbase editor", "MDBase Workouts", "ApplicationWithAnUnusuallyLongUnbrokenName"].map((name, index) => ({
