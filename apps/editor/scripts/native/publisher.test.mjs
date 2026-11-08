@@ -1,7 +1,7 @@
 // Public data and transport doubles; no deployment or credentials.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { cp, readFile, mkdtemp, writeFile, mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -12,7 +12,7 @@ import { assertDispatch, assertCheckout, assertAncestor, deploymentFor } from '.
 import { loadOriginals, productionPin, compareInstalled, protectedHashes } from './originals.mjs';
 import { authenticateProduction, stagingArchive } from './authentication.mjs';
 import { prepareInstall } from './install-inputs.mjs';
-import { capturePrevious, recoveryFailure, rollback } from './rollback.mjs';
+import { capturePrevious, rollback } from './rollback.mjs';
 import { assertArtifactMetadata, assertArtifactRun, assertArtifactDirectory } from './artifact.mjs';
 import { inventoryDirectory } from './native-publish-bytes.mjs';
 import { headersPolicy, redirectsPolicy, assertHostingSource, verifyHosting, verifyPublication } from './hosting.mjs';
@@ -333,8 +333,13 @@ it('re-verifies only the custom alias inside a bounded settle window after the i
 });
 
 it('recovery failures name the fixed refusal or only the error type', () => {
- assert.equal(recoveryFailure(Error('Editor recovery refusal: alias changed during snapshot')),'Editor recovery operation failed: alias changed during snapshot');
- const timeout=new DOMException('The operation was aborted due to timeout https://x.test/?token=secret','TimeoutError');
- assert.equal(recoveryFailure(timeout),'Editor recovery operation failed: transport or runtime error (TimeoutError)');
- assert.equal(recoveryFailure(Object.assign(Error('Bearer secret'),{name:'bad name with spaces'})),'Editor recovery operation failed: transport or runtime error (unknown)');
+ const script=new URL('./rollback.mjs',import.meta.url).pathname;
+ const run=(...args)=>spawnSync(process.execPath,[script,...args],{encoding:'utf8',
+  env:{PATH:process.env.PATH,TARGET:'production',CLOUDFLARE_API_TOKEN:'',CLOUDFLARE_ACCOUNT_ID:''}});
+ const refused=run('snapshot',tmpdir());
+ assert.equal(refused.status,1);
+ assert.equal(refused.stderr,'Editor recovery operation failed: Pages credentials required\n');
+ const other=run('unknown-command',tmpdir());
+ assert.equal(other.status,1);
+ assert.equal(other.stderr,'Editor recovery operation failed: transport or runtime error (Error)\n');
 });

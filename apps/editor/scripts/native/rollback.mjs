@@ -121,7 +121,7 @@ export async function rollback(previous,options,{source,sleep=ms=>new Promise(re
 }
 // Name the fixed refusal, or only the error type for transport and API failures:
 // never a message that could carry a payload, URL or credential.
-export function recoveryFailure(error) {
+function recoveryFailure(error) {
  const message=String(error?.message??'');
  if(message.startsWith('Editor recovery refusal: '))return 'Editor recovery operation failed: '+message.slice(25);
  const name=/^[A-Za-z]{1,40}$/.test(error?.name??'')?error.name:'unknown';
