@@ -1794,10 +1794,12 @@ impl<S: Store> Replica<S> {
             grant,
             uploads: Vec::new(),
             refs: f.refs.clone(),
+            submitted: !up.origin.external,
         };
         check_row_refs(&row)?;
         // A disk edit ends the fence of a refused one there (`refused.rs`).
         let mutation = row.mutation.clone();
+        let submitted = row.submitted;
         let mut tx = Tx {
             pending_put: vec![row],
             meta: std::iter::once((
@@ -1817,7 +1819,7 @@ impl<S: Store> Replica<S> {
             ..Tx::default()
         };
         let refused = self
-            .release_refused(&mutation, &mut tx)
+            .release_refused(&mutation, submitted, &mut tx)
             .map_err(store_problem)?;
         let committed = self.store.commit(tx);
         if let Err(error) = committed {

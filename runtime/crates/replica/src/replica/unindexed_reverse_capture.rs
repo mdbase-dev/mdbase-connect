@@ -106,6 +106,7 @@ impl<S: Store> Replica<S> {
             grant: None,
             uploads: vec![p.source],
             refs: p.refs,
+            submitted: observation.is_none(),
         };
         // The pending inline text is data for Core replanning; only wire emission
         // externalizes it. Preflight includes BOTH op/result references and GC refs.

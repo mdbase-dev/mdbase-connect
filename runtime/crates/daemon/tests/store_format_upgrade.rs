@@ -145,6 +145,7 @@ fn pending() -> PendingRow {
         grant: None,
         uploads: Vec::new(),
         refs: Vec::new(),
+        submitted: false,
     }
 }
 

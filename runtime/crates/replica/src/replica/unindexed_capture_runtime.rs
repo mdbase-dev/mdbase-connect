@@ -46,8 +46,12 @@ impl<S: Store> Replica<S> {
         unknown_reason: &str,
     ) -> StoreResult<()> {
         // A disk edit ends the fence of a refused one there (`refused.rs`).
-        let refused = match tx.pending_put.first().map(|r| r.mutation.clone()) {
-            Some(m) => self.release_refused(&m, &mut tx)?,
+        let refused = match tx
+            .pending_put
+            .first()
+            .map(|r| (r.mutation.clone(), r.submitted))
+        {
+            Some((m, submitted)) => self.release_refused(&m, submitted, &mut tx)?,
             None => None,
         };
         match self.store.commit(tx) {
@@ -149,6 +153,7 @@ impl<S: Store> Replica<S> {
             grant: None,
             uploads: Vec::new(),
             refs: refs.clone(),
+            submitted: token.is_none(),
         };
         // Reuse the append row checker; complete closure came only from the
         // opaque uploader, never from caller-declared refs.

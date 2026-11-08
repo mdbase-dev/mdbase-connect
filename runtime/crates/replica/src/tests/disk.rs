@@ -2628,6 +2628,7 @@ fn local_only_grants_come_from_the_host() {
                 grant: Some(gid),
                 uploads: Vec::new(),
                 refs: Vec::new(),
+                submitted: false,
             }],
             ..Tx::default()
         })
@@ -3888,6 +3889,16 @@ fn a_refused_resource_edit_keeps_its_bytes_until_edited() {
 
 /// The app's whole-document write of record 1 at `a.md`, based on `base`.
 fn app_document(n: &mut Node, base: &str, doc: &str) -> mdbn_wire::client::Receipt {
+    app_document_at(n, base, doc, None)
+}
+
+/// [`app_document`] at the write's own validation `level`.
+fn app_document_at(
+    n: &mut Node,
+    base: &str,
+    doc: &str,
+    level: Option<mdbn_wire::intent::Level>,
+) -> mdbn_wire::client::Receipt {
     use mdbn_wire::intent::{DocVersion, Document};
     let version = |d: &str| DocVersion {
         path: "a.md".into(),
@@ -3910,7 +3921,7 @@ fn app_document(n: &mut Node, base: &str, doc: &str) -> mdbn_wire::client::Recei
             dry_run: None,
             include: None,
             wait: None,
-            validation: None,
+            validation: level,
         },
     )
     .unwrap()
@@ -4040,6 +4051,51 @@ fn an_app_refusal_over_a_refused_disk_edit_keeps_the_users_fence() {
         holds.iter().any(|h| h.mine == TextOrBlob::Text(big())),
         "the user's bytes are held: {holds:?}"
     );
+}
+
+/// [`an_app_refusal_over_a_refused_disk_edit_keeps_the_users_fence`] with the
+/// app writing at `warn`: the fence's provenance comes from how the change was
+/// made, not the validation level it carries.
+#[test]
+fn a_warn_level_app_refusal_over_a_refused_disk_edit_keeps_the_users_fence() {
+    use mdbn_wire::snapshot::TextOrBlob;
+    let warn = Some(mdbn_wire::intent::Level::Warn);
+    let svc = FakeLogService::new();
+    let mut a = item_limited(&svc, 1);
+    save(&mut a, "a.md", Some(&big()));
+    settle(&mut [&mut a]);
+    assert_eq!(refused(&a).len(), 1);
+    app_document_at(&mut a, "original", &"y".repeat(8192), warn);
+    settle(&mut [&mut a]);
+    assert_eq!(refused(&a).len(), 1);
+    assert_eq!(a.file("a.md"), Some(big()));
+    app_document_at(&mut a, "original", "app", warn);
+    settle(&mut [&mut a]);
+    assert_eq!(a.file("a.md"), Some(big()));
+    let holds = a.r.list_holds(a.s).unwrap();
+    assert!(
+        holds.iter().any(|h| h.mine == TextOrBlob::Text(big())),
+        "the user's bytes are held: {holds:?}"
+    );
+}
+
+/// [`an_app_fix_after_an_app_refusal_reaches_disk`] with the app writing at
+/// `warn`: its own fence ends and the fix reaches the disk, with no hold.
+#[test]
+fn a_warn_level_app_fix_after_its_refusal_reaches_disk() {
+    let warn = Some(mdbn_wire::intent::Level::Warn);
+    let svc = FakeLogService::new();
+    let mut a = item_limited(&svc, 1);
+    let refused_write = app_document_at(&mut a, "original", &big(), warn).mutation;
+    settle(&mut [&mut a]);
+    rejected_with(&a, &refused_write, "item_bytes");
+    assert_eq!(refused(&a).len(), 1);
+    app_document_at(&mut a, "original", "small", warn);
+    settle(&mut [&mut a]);
+    let holds = a.r.list_holds(a.s).unwrap();
+    assert!(holds.is_empty(), "no hold: {holds:?}");
+    assert_eq!(a.file("a.md").as_deref(), Some("small"));
+    assert!(refused(&a).is_empty());
 }
 
 /// The user's new file refused for its size, then an app's create of a

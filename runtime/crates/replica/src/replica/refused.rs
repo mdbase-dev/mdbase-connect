@@ -254,7 +254,12 @@ impl<S: Store> Replica<S> {
                 continue;
             };
             if fences(row.mutation.source, problem, self.store.has_files()) {
-                out.extend(self.refused_targets(&row.mutation, &row.effects, problem)?);
+                out.extend(self.refused_targets(
+                    &row.mutation,
+                    row.submitted,
+                    &row.effects,
+                    problem,
+                )?);
             }
         }
         Ok(out)
@@ -349,17 +354,18 @@ impl<S: Store> Replica<S> {
     }
 
     /// The fence entries for a refused change.
+    /// `submitted`: the change is an app's submission
+    /// ([`crate::store::PendingRow::submitted`]),
+    /// not a capture from disk or a hold resolution.
     pub(crate) fn refused_targets(
         &self,
         m: &rt::Mutation,
+        submitted: bool,
         effects: &[Effect],
         problem: &Problem,
     ) -> Result<Vec<RefusedFile>, StoreError> {
-        // Disk captures (and hold resolutions) are captured unvalidated; an
-        // app's submission is validated. `source` alone cannot tell: resource
-        // edits from disk are `api` writes.
-        let from_app =
-            m.source != Source::External && m.validated_at == Some(mdbn_wire::intent::Level::Error);
+        // `source` alone cannot tell: resource edits from disk are `api` writes.
+        let from_app = m.source != Source::External && submitted;
         Ok(self
             .targets(m, effects)?
             .into_iter()
@@ -378,17 +384,19 @@ impl<S: Store> Replica<S> {
 
     /// A captured disk edit, or a hold resolution (the user chose), ends the
     /// fence of what it targets, in the capture's commit. Returns the fence to
-    /// keep once `tx` commits. A resource edit from disk is an `api` write (app
-    /// resource writes are submitted, not captured here).
+    /// keep once `tx` commits. `submitted` marks an app's submission
+    /// ([`crate::store::PendingRow::submitted`]), which ends no fence here
+    /// (apply ends an app's own, [`Self::prepare_refused_holds`]).
     pub(crate) fn release_refused(
         &self,
         m: &rt::Mutation,
+        submitted: bool,
         tx: &mut Tx,
     ) -> Result<Option<Refused>, StoreError> {
-        // A disk resource capture is an unvalidated `api` write; an app's
-        // validated resource write (e.g. a collection setup) must not end a
-        // fence over the user's refused disk edit.
-        let resources = m.validated_at != Some(mdbn_wire::intent::Level::Error)
+        // A resource edit from disk is a captured `api` write; an app's resource
+        // write (e.g. a collection setup) must not end a fence over the user's
+        // refused disk edit.
+        let resources = !submitted
             && m.ops.iter().all(|op| {
                 matches!(
                     op,

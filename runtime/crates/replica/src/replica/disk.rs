@@ -1438,7 +1438,7 @@ impl<S: Store> Replica<S> {
                     // A disk edit: a durable rejection, and its files fenced with a
                     // per-file notice (`refused.rs`).
                     self.before.clear();
-                    let fence = self.refused_targets(&m.clone().into(), &[], &problem)?;
+                    let fence = self.refused_targets(&m.clone().into(), false, &[], &problem)?;
                     self.resolve_rejected_fencing(vec![(m.id, None, problem.clone())], fence)?;
                     self.ack_all(tokens)?;
                     return Ok(rejected_receipt(m.id, problem));
@@ -1521,7 +1521,7 @@ impl<S: Store> Replica<S> {
             meta: vec![(meta_keys::COUNTERS.into(), i64_meta(self.clock_floor))],
             ..Tx::default()
         };
-        let refused = self.release_refused(&mutation, &mut tx)?;
+        let refused = self.release_refused(&mutation, false, &mut tx)?;
         tx.pending_put.push(PendingRow {
             order,
             mutation,
@@ -1530,6 +1530,7 @@ impl<S: Store> Replica<S> {
             grant: None,
             uploads: Vec::new(),
             refs: Vec::new(),
+            submitted: false,
         });
         self.store.commit(tx)?;
         self.refused_released(refused);
