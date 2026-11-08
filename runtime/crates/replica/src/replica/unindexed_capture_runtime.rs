@@ -153,7 +153,7 @@ impl<S: Store> Replica<S> {
             grant: None,
             uploads: Vec::new(),
             refs: refs.clone(),
-            submitted: token.is_none(),
+            submitted: token.is_none() && self.store.has_files(),
         };
         // Reuse the append row checker; complete closure came only from the
         // opaque uploader, never from caller-declared refs.

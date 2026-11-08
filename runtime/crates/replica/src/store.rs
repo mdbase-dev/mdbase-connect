@@ -333,11 +333,14 @@ pub struct PendingRow {
     /// distinct ciphertext chunk and manifest Item hashes of an uploaded
     /// attachment (`log-entry.md` §2.1). Empty for every other row.
     pub refs: Vec<Hash>,
-    /// An app's validated submission (a client `submit`, an attachment upload,
-    /// a collection setup), not a capture from disk or a hold resolution.
-    /// Device-local provenance for refused-change fences (`refused.rs`), which
-    /// `validated_at` cannot give since a write may set its own level; never on
-    /// the wire. Rows written before it read as captured.
+    /// An app's submission (a client `submit`, an app attachment upload, a
+    /// collection setup, an API unindexed capture), not a capture from disk, a
+    /// hold resolution or a native move. Device-local provenance for
+    /// refused-change fences (`refused.rs`), which `validated_at` cannot give
+    /// since a write may set its own level; never on the wire. Set only on
+    /// stores with files (the only ones that fence an app's write), so rows of
+    /// other stores (browser, hosted) keep their earlier bytes for a rollback.
+    /// Rows written before it read as captured.
     pub submitted: bool,
 }
 

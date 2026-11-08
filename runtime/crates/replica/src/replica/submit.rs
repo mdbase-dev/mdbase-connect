@@ -526,7 +526,7 @@ impl<S: Store> Replica<S> {
             grant,
             uploads: Vec::new(),
             refs: Vec::new(),
-            submitted: true,
+            submitted: self.store.has_files(),
         };
         self.store
             .commit(Tx {

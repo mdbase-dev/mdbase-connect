@@ -1794,7 +1794,7 @@ impl<S: Store> Replica<S> {
             grant,
             uploads: Vec::new(),
             refs: f.refs.clone(),
-            submitted: !up.origin.external,
+            submitted: !up.origin.external && self.store.has_files(),
         };
         check_row_refs(&row)?;
         // A disk edit ends the fence of a refused one there (`refused.rs`).

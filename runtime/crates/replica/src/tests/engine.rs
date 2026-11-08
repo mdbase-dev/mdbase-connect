@@ -6610,3 +6610,18 @@ fn change_feed_marks_file_puts_and_removals_as_files() {
         "{kinds:?}"
     );
 }
+
+/// An app's submission on a store without files records no provenance: its
+/// pending row keeps the bytes an older build decodes (a hosted or browser
+/// rollback), since only a store with files fences an app's write.
+#[test]
+fn a_submitted_row_without_files_keeps_its_earlier_bytes() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1, MemStore::new());
+    a.log.faults.offline = true;
+    let m = a.create(1, "a.md", "hello").mutation;
+    let row = crate::Store::pending_get(a.r.store(), &m).unwrap().unwrap();
+    assert!(!row.submitted);
+    let c = mdbn_wire::cbor::decode(&row.to_bytes()).unwrap();
+    assert!(matches!(c, mdbn_wire::cbor::Cbor::Array(ref a) if a.len() == 6));
+}

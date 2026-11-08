@@ -146,7 +146,7 @@ impl<S: Store> Replica<S> {
             grant: Some(grant),
             uploads: vec![],
             refs: plan.source_refs().to_vec(),
-            submitted: true,
+            submitted: self.store.has_files(),
         };
         // Certified abort is retryable only through a new explicit review. An
         // uncertain commit permanently fences this actor; never replay its MID.
