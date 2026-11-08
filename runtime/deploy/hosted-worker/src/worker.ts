@@ -83,23 +83,21 @@ const openRetryMs = (failures: number) =>
 /** The escrow learns of new enrolments at least this often (no push from the log). */
 const ESCROW_POLL_MS = 60_000;
 /** Idle back-off: each sync that learns nothing new doubles the polling interval
- * (hosted 30 s, escrow 60 s) up to this cap. Every idle actor polled the log, and
- * minted a log token, every 30-60 s; with hundreds of collections that held the
- * control plane busy. Any activity resets to the base interval: a client request
+ * (hosted 30 s, escrow 60 s) up to this cap of an hour. Every idle actor polled the
+ * log, and minted a log token, every 30-60 s; with hundreds of collections that held
+ * the control plane busy. Any activity resets to the base interval: a client request
  * or open client socket, a CP activation, a local write, or a sync that moved
  * anything but head checks (a new remote head means reads). The log has no push
- * to hosted actors, so there is no notification to reset on. */
-const IDLE_POLL_CAP_MS = 10 * 60_000;
+ * to hosted actors, so there is no notification to reset on. Erasure does not wait
+ * for this poll: deleting a collection or account, or switching it to Private,
+ * wakes the copy through a CP activation; the poll is only the backstop. */
+const IDLE_POLL_CAP_MS = 60 * 60_000;
 const IDLE_STREAK_KEY = "service-idle-streak";
 const IDLE_SAME_LOOK_MS = 5_000;
 /** Doublings that reach the cap from the smaller (hosted) base. */
-const IDLE_MAX_STREAK = 5;
-/** LAB only (cost): most LAB collections are idle test fixtures, so an idle LAB
- * actor backs off to an hour. Clients and CP activations still wake it at once. */
-const LAB_IDLE_POLL_CAP_MS = 60 * 60_000;
-const LAB_IDLE_MAX_STREAK = 7;
-export const idlePollMs = (base: number, streak: number, lab = false) =>
-  Math.min(lab ? LAB_IDLE_POLL_CAP_MS : IDLE_POLL_CAP_MS, base * 2 ** Math.min(Math.max(0, Math.floor(streak)), lab ? LAB_IDLE_MAX_STREAK : IDLE_MAX_STREAK));
+const IDLE_MAX_STREAK = 7;
+export const idlePollMs = (base: number, streak: number) =>
+  Math.min(IDLE_POLL_CAP_MS, base * 2 ** Math.min(Math.max(0, Math.floor(streak)), IDLE_MAX_STREAK));
 const INSTALL_RETRY_KEY = "service-install-retry";
 /** Largest client frame accepted. */
 const MAX_FRAME_BYTES = 1 << 20;
@@ -973,26 +971,24 @@ export class HostedCollection extends DurableObject<Env> {
    * changes, so an evicted idle actor keeps backing off. */
   private async idlePoll(active: boolean, current: () => boolean): Promise<number> {
     const base = this.escrow ? ESCROW_POLL_MS : REFRESH_MS;
-    const lab = this.env.LAB === "1";
-    const max = lab ? LAB_IDLE_MAX_STREAK : IDLE_MAX_STREAK;
     let prior = this.idleStreak;
     if (prior == null) {
-      try { prior = Math.max(0, Math.min(max, Math.floor(Number(await this.ctx.storage.get<number>(IDLE_STREAK_KEY) ?? 0)) || 0)); }
+      try { prior = Math.max(0, Math.min(IDLE_MAX_STREAK, Math.floor(Number(await this.ctx.storage.get<number>(IDLE_STREAK_KEY) ?? 0)) || 0)); }
       catch { prior = 0; }
     }
     // Syncs moments apart (a cold open's sync, then the alarm's or activation's)
     // are one look at the log: only the first can lengthen the interval.
     const now = Date.now();
-    const next = active ? 0 : now - (this.idleDecidedAt ?? 0) < IDLE_SAME_LOOK_MS ? prior : Math.min(prior + 1, max);
+    const next = active ? 0 : now - (this.idleDecidedAt ?? 0) < IDLE_SAME_LOOK_MS ? prior : Math.min(prior + 1, IDLE_MAX_STREAK);
     this.idleDecidedAt = now;
     this.idleStreak = next;
     if (next !== prior && current()) {
       try { await (next === 0 ? this.ctx.storage.delete(IDLE_STREAK_KEY) : this.ctx.storage.put(IDLE_STREAK_KEY, next)); } catch { /* RAM still backs off. */ }
       if (this.env.LAB === "1") {
-        try { console.info(JSON.stringify({ event: "hosted_idle_poll", role: this.escrow ? "escrow" : "hosted", streak: next, poll_ms: idlePollMs(base, next, lab) })); } catch { /* Logging is not authority. */ }
+        try { console.info(JSON.stringify({ event: "hosted_idle_poll", role: this.escrow ? "escrow" : "hosted", streak: next, poll_ms: idlePollMs(base, next) })); } catch { /* Logging is not authority. */ }
       }
     }
-    return idlePollMs(base, next, lab);
+    return idlePollMs(base, next);
   }
 
   /** Delay to the next wake of a running install; null when none is running. */

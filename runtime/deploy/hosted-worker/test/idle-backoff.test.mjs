@@ -70,13 +70,14 @@ async function syncAt(t, at, e = engine(["subscribe"])) {
   return t.alarm() - at;
 }
 
-test("idle syncs double the poll from the base up to 10 min, for both roles", async (ctx) => {
-  for (const [escrow, expected] of [[false, [60, 120, 240, 480, 600, 600, 600]], [true, [120, 240, 480, 600, 600, 600]]]) {
+test("idle syncs double the poll from the base up to 1 h, for both roles", async (ctx) => {
+  for (const [escrow, expected] of [[false, [60, 120, 240, 480, 960, 1920, 3600, 3600]], [true, [120, 240, 480, 960, 1920, 3600, 3600]]]) {
     const t = object(escrow); t.o.log = logReplying();
     let at = 1_000_000_000_000;
     const delays = [];
-    for (let i = 0; i < expected.length; i++) { delays.push(await syncAt(t, at) / S); at += 11 * 60 * S; }
+    for (let i = 0; i < expected.length; i++) { delays.push(await syncAt(t, at) / S); at += 61 * 60 * S; }
     assert.deepEqual(delays, expected, escrow ? "escrow" : "hosted");
+    assert.equal(t.data.get("service-idle-streak"), 7, "the streak stops at the cap");
     mock.restoreAll();
   }
 });
@@ -274,7 +275,7 @@ test("activity resets to the base interval: activation/client request, open clie
 test("a socket from an earlier wake or already closed does not hold the base rate", async (ctx) => {
   const { t, at } = await backedOff(ctx);
   t.sockets([{ readyState: 1, deserializeAttachment: () => ({ wake: "wake-0" }) }, { readyState: 3, deserializeAttachment: () => ({ wake: "wake-1" }) }]);
-  assert.equal(await syncAt(t, at) / S, 600);
+  assert.equal(await syncAt(t, at) / S, 960);
   mock.restoreAll();
 });
 
@@ -323,7 +324,7 @@ function labObject(escrow = false, data = new Map()) {
 /** A serving engine (LAB checks `serving()` when idle). */
 const servingEngine = (...args) => Object.assign(engine(...args), { serving: () => true });
 
-test("LAB: idle syncs back off to 1 h, for both roles", async (ctx) => {
+test("LAB: idle syncs back off to the same 1 h, for both roles", async (ctx) => {
   for (const [escrow, expected] of [[false, [60, 120, 240, 480, 960, 1920, 3600, 3600]], [true, [120, 240, 480, 960, 1920, 3600, 3600]]]) {
     mock.method(console, "info", () => {});
     const t = labObject(escrow);
