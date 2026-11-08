@@ -407,10 +407,13 @@ fn file_usage_after_commit(
     Ok((next_count, next_bytes, next_stored_bytes))
 }
 
-fn transfer_state(transfer: &HostedFileTransfer) -> ApiResult<FileTransferState> {
+fn transfer_state(
+    transfer: &HostedFileTransfer,
+    now: DateTime<Utc>,
+) -> ApiResult<FileTransferState> {
     Ok(match transfer.state.as_str() {
         "open" | "completing" => {
-            if transfer.expires_at <= Utc::now() {
+            if transfer.expires_at <= now {
                 FileTransferState::Expired
             } else {
                 FileTransferState::Open
