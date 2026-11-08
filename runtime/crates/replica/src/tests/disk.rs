@@ -3664,6 +3664,7 @@ fn an_app_write_too_large_to_append_keeps_its_files() {
                 dry_run: None,
                 include: None,
                 wait: None,
+                validation: None,
             },
         )
         .unwrap()
@@ -3909,6 +3910,7 @@ fn app_document(n: &mut Node, base: &str, doc: &str) -> mdbn_wire::client::Recei
             dry_run: None,
             include: None,
             wait: None,
+            validation: None,
         },
     )
     .unwrap()
@@ -4087,6 +4089,7 @@ fn an_app_resource_write_over_a_refused_resource_edit_keeps_the_users_file() {
             dry_run: None,
             include: None,
             wait: None,
+            validation: None,
         },
     )
     .unwrap();
