@@ -47,13 +47,13 @@ The runtime already has the parts needed to do this once:
 - `TentativeStore` (`crates/store-file/src/tentative.rs`) is the browser and
   Capacitor SQL store (sqlite-wasm over OPFS `opfs-sahpool`). It keeps pending
   work across reopens and declares itself Disposable.
-- **Adopt** (`crates/replica/src/replica/adopt.rs`, `snapshot.md` §7) turns
-  sync on for existing content. It builds generation 0 from a source that
-  names record IDs, uploads it and appends a `base`. Record IDs are kept.
-  Policy lets a keyed non-hosted device sign a `folder` base.
+- Connect's cloud-copy creation appends only policy items (`genesis`,
+  `member-set`, enrolments) and a rekey. It never writes an `entry`. App
+  setup (`approved-new-collection`) runs only after the app opens the new
+  collection, so the SDK controls what is written first.
 - The generic WASM runtime already opens local-only replicas, but only over
-  `MemStore`. The first-party app composition (`crates/wasm/src/app.rs`) is
-  synced-only, with trust pins.
+  `MemStore`. Before this work, the first-party app composition
+  (`crates/wasm/src/app.rs`) was synced-only, with trust pins.
 
 ## Model: an unsynced collection
 
@@ -64,8 +64,11 @@ never registered with Connect. It has its own UUID, which is never sent to the
 control plane.
 
 Apps reach it through the same `MdbaseApplicationConnection` they use for a
-synced collection. Records, files, queries, `describe`, types, record leases,
-`observe` and link preflights all run in the same core. App code does not
+synced collection. Records, queries, `describe`, types, record leases,
+`observe` and link preflights all run in the same core. Files are the
+exception in this version: a local-only replica refuses attachment uploads
+with `upgrade_required`, and the grant's file actions omit `"add"`, so apps
+hide attach as they already do for a read-only grant. App code does not
 branch on whether the collection is synced. TaskNotes' repository rule ("UI
 and application code must not branch on storage") holds unchanged.
 
@@ -75,13 +78,16 @@ to review.
 
 ### Runtime work
 
-- A local-only first-party composition: `TentativeStore` plus `LocalOnly` mode,
-  with no log endpoint, genesis or policy pins. It reuses the existing owner
-  lease, tabs and Worker. `TentativeStore` currently assumes that only a log
-  receipt means saved. Local-only gets its own durability statement: committed
-  locally, origin storage may be evicted.
-- An `AdoptSource` that reads from an unsynced replica, for turning sync on
-  (below).
+- `rt_app_open_local` opens a local-only first-party composition:
+  `TentativeStore` plus `LocalOnly` mode, with no log endpoint, genesis, policy
+  pins or HTTP signer. Device keys are drawn fresh on every open and never
+  stored; nothing is signed. The bootstrap is a small canonical CBOR map
+  (collection, replica, device, opened state, SQLite version) with no secrets.
+  Log binding, reconnect and control-plane binding are refused.
+- It reuses the existing owner lease, tabs and Worker. `TentativeStore` assumes
+  that only a log receipt means saved; for local-only, local confirmation is
+  final, and the SDK reports it as `saved_in_browser` (origin storage may be
+  evicted).
 
 ## API sketch
 
@@ -134,19 +140,21 @@ to connect becomes more prominent.
 This is the default path when the person has no collection yet, or chooses
 "New collection" while connecting.
 
-1. Sign in if needed. Connect creates an empty cloud-copy collection and
-   approves it for the app in the same window.
-2. The SDK opens a **fresh synced replica** for that collection and calls
-   `begin_adopt` with an `AdoptSource` over the unsynced replica. The source
-   names every record ID, the configuration and type resources, the inclusion
-   settings and the files.
-3. The base installs through the ordinary staged install. Record IDs, paths,
-   types and settings are unchanged, so app caches and links by ID remain
-   valid.
+1. Sign in if needed. The existing portal "New collection" flow creates an
+   empty cloud-copy collection and approves it for the app in the same window
+   (`created_collection_ids`, opened as `approved-new-collection`).
+2. Instead of applying the declaration's setup, the SDK copies the unsynced
+   collection's configuration and type resources into the new collection.
+3. It then runs the same transfer engine as path B, with an identity map.
+   Record IDs, paths, types and settings are unchanged, so app caches and
+   links by ID remain valid.
 
-This path has no mapping and nothing to reconcile. It relies on Connect
-writing no `entry` before the app appends the `base`; a log may hold policy
-and rekey items before it (`snapshot.md` §7).
+This path has no mapping and nothing to reconcile. It does not use adopt:
+adopt in the browser would mean building and uploading a generation-0
+snapshot from the app Worker, signed by a device the service just enrolled,
+for collections that are small by construction. One engine for both paths
+is less to maintain, and every transferred record goes through the ordinary
+create and upload lanes.
 
 ### B. Bring it into an existing collection
 
@@ -163,8 +171,8 @@ This path is used when the person picks a collection that already holds work.
   existing destination record with the same ID and digest counts as done.
   Progress is journalled in the unsynced store's host table. An interrupted
   transfer resumes after a reload, and a second tab sees the same progress.
-- The destination's configuration is never replaced. Files are uploaded
-  through the ordinary upload lane.
+- The destination's configuration is never replaced. (There are no files to
+  move in this version; see above.)
 
 A file-level join (`snapshot.md` §9) is not used here. A join assumes both
 sides are copies of the same collection; joining unrelated content would hold
@@ -178,9 +186,9 @@ every difference.
   destination's account scope: other accounts on this browser never see it,
   and signing out of that account erases it with the rest of that scope.
 - The browser copy is kept until the destination has confirmed every
-  transferred item, plus a recovery window (proposed: 30 days). It is
-  reachable only from the app's collection settings, and the person can
-  delete it there earlier.
+  transferred item, plus 30 days. It is reachable only from the app's
+  collection settings, where the person can transfer it again (path B, which
+  is idempotent) or delete it earlier. There is no separate restore.
 - Starting fresh later (signed out, or after deleting the copy) creates a new
   empty unsynced collection. It never reopens a transferred one.
 
@@ -213,8 +221,8 @@ every difference.
 
 - Gains a workspace before sign-in: the gate renders `unsynced` like
   `ready`.
-- Must stop treating `confirmedSeq` as the definition of a saved upload or
-  readable file (`native-gateway.ts` file reads and uploads). For an unsynced
+- Hides attach for the unsynced collection (its grant omits file `"add"`),
+  and must not treat a missing `confirmedSeq` as unsaved: for an unsynced
   collection, local confirmation is the final state.
 - Its per-collection preferences keyed by `collectionId` need no change.
 
@@ -225,8 +233,8 @@ unsynced collection, and its handoff could become path A or B.
 
 - TaskNotes' local repository and transfer ledger, and Journal's draft store
   and adoption logic: three app-specific mechanisms become one SDK mechanism.
-- No new storage engine: the existing replica, `TentativeStore`, Worker,
-  owner lease and adopt code are reused. The additions are:
+- No new storage engine: the existing replica, `TentativeStore`, Worker and
+  owner lease are reused. The additions are:
   - one runtime composition (local-only app);
   - one phase;
   - one save state;
@@ -240,25 +248,22 @@ unsynced collection, and its handoff could become path A or B.
    for reopening, the owner lease across tabs, and storage faults.
 3. SDK: the `unsynced` option, phase, summary, `saved_in_browser`, scope and
    persistence request.
-4. Path A: an `AdoptSource` over an unsynced replica, and the Connect step
-   that creates the collection and approves it for adoption.
-5. Path B: `planTransfer` and `transfer`, with the resumable journal.
+4. Path B: `planTransfer` and `transfer`, with the resumable journal.
+5. Path A: the portal's new-collection flow, resource copy, then the same
+   transfer.
 6. Shared UI.
 7. Editor adoption, in this repository.
 8. SDK release, then TaskNotes adoption and PR #362.
 
-## Open questions
+## Decisions
 
-1. Does creating a collection in Connect ever append an `entry`, such as
-   initial configuration, before the app could append `base`? If it does, path
-   A needs Connect to create the collection "for adoption".
-2. Base source: reuse `folder`, or add a `browser` value to the wire enum? The
-   current proposal is to reuse `folder` unless provenance is needed for
-   support.
-3. Files and attachments in the unsynced collection: does the adopt source
-   carry them in generation 0, or are they ingested after the base as ordinary
-   creates, as folder adoption does?
-4. Recovery window length (30 days proposed), and whether the person can
-   restore from the browser copy or only export it.
-5. Name: `unsynced` (matches "sync off" in `PRODUCT.md`) versus
-   `beforeConnecting`. "Draft" is already used by record leases.
+1. **Does Connect write an `entry` at creation?** No. Cloud-copy creation
+   writes policy items and a rekey only, and app setup runs after open. Path A
+   no longer depends on this, because it uses the transfer engine, not adopt.
+2. **Files before connecting:** not in this version. The runtime refuses
+   local-only attachments, and the grant hides attach. This can be revisited
+   once a transfer can move attachment bytes through the upload lane.
+3. **Recovery window:** confirmed plus 30 days. The copy can be transferred
+   again or deleted; there is no separate restore or export.
+4. **Name:** `unsynced`. It matches "sync off" in `PRODUCT.md`; "draft" is
+   already used by record leases.
