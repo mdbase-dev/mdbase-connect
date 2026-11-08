@@ -12,7 +12,7 @@ import { acquireAppReplicaLease, type AppLockPort, type AppReplicaLease, type Ap
 import { AppWasmRuntime } from "./wasm-runtime.js";
 import type { AppWebCollectionHandoff, AppWebNativeCollection } from "./web-collection.js";
 
-const STORE = "unsynced", KEY = "current";
+const STORE = "unsynced", KEY = "current", WORK = "work";
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
 /** Tabs that may show the unsynced collection at once (as for a synced one). */
 const MAX_TABS = 32;
@@ -34,6 +34,14 @@ export interface AppUnsyncedIdentity {
   readonly replica: string;
   readonly device: string;
 }
+/** Set once something has been saved in the unsynced collection: the app may
+ * then offer to connect it. A marker, not a count; it is never cleared by
+ * deleting records, only by discarding the collection. */
+export interface AppUnsyncedWork {
+  readonly version: 1;
+  /** When the first change was saved (ms since the epoch). */
+  readonly since: number;
+}
 export interface AppUnsyncedCollectionOptions {
   /** This app storage scope's own database (declaration storage). */
   readonly databaseName: string;
@@ -47,6 +55,8 @@ export interface AppUnsyncedCollectionOptions {
 export interface AppUnsyncedConnection extends AppWebNativeCollection {
   /** The latest semantic assessment a tab reported. */
   readonly state: "ready" | "setup_required";
+  /** Null until the first change is submitted here. */
+  readonly work: AppUnsyncedWork | null;
   attach(): AppWebCollectionHandoff | null;
   detach(handoff: AppWebCollectionHandoff): void;
   subscribe(listener: () => void): () => void;
@@ -60,6 +70,12 @@ function identity(value: unknown): AppUnsyncedIdentity {
   const ids = [row.account, row.installation, row.collection, row.replica, row.device];
   if (row.version !== 1 || ids.some(id => typeof id !== "string" || !UUID.test(id)) || new Set(ids).size !== ids.length) throw fail();
   return Object.freeze({...row});
+}
+function work(value: unknown): AppUnsyncedWork {
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).sort().join() !== "since,version") throw fail();
+  const row = value as AppUnsyncedWork;
+  if (row.version !== 1 || !Number.isSafeInteger(row.since) || row.since < 0) throw fail();
+  return Object.freeze({version: 1, since: row.since});
 }
 function database(name: string, signal: AbortSignal): Promise<IDBDatabase> {
   signal.throwIfAborted(); if (!globalThis.indexedDB) throw fail();
@@ -81,28 +97,42 @@ function database(name: string, signal: AbortSignal): Promise<IDBDatabase> {
     };
   });
 }
-/** Read this scope's identity; with `create`, make it first (one transaction,
- * so two Workers racing agree on one collection). */
-export async function appUnsyncedIdentity(databaseName: string, create: boolean, signal: AbortSignal): Promise<AppUnsyncedIdentity | null> {
+/** Read one row, adding `make()` first when it is absent and `make` is given
+ * (one transaction, so racing Workers agree on one value). */
+async function row<T>(databaseName: string, key: string, parse: (value: unknown) => T, make: (() => T) | null, signal: AbortSignal): Promise<T | null> {
   const db = await database(databaseName, signal);
   try {
-    return await new Promise<AppUnsyncedIdentity | null>((resolve, reject) => {
-      const tx = db.transaction(STORE, create ? "readwrite" : "readonly", {durability: "strict"});
-      let result: AppUnsyncedIdentity | null = null, problem: unknown = null;
+    return await new Promise<T | null>((resolve, reject) => {
+      const tx = db.transaction(STORE, make ? "readwrite" : "readonly", {durability: "strict"});
+      let result: T | null = null, problem: unknown = null;
       tx.onabort = tx.onerror = () => reject(problem ?? fail());
       tx.oncomplete = () => resolve(result);
-      const rows = tx.objectStore(STORE), read = rows.get(KEY);
+      const rows = tx.objectStore(STORE), read = rows.get(key);
       read.onsuccess = () => {
         try {
-          if (read.result !== undefined) { result = identity(read.result); return; }
-          if (!create) return;
-          const made = identity({version: 1, account: crypto.randomUUID(), installation: crypto.randomUUID(),
-            collection: crypto.randomUUID(), replica: crypto.randomUUID(), device: crypto.randomUUID()});
-          rows.add(made, KEY); result = made;
+          if (read.result !== undefined) { result = parse(read.result); return; }
+          if (!make) return;
+          const made = parse(make());
+          rows.add(made, key); result = made;
         } catch (error) { problem = error; tx.abort(); }
       };
     });
   } finally { db.close(); }
+}
+/** Read this scope's identity; with `create`, make it first. */
+export function appUnsyncedIdentity(databaseName: string, create: boolean, signal: AbortSignal): Promise<AppUnsyncedIdentity | null> {
+  return row(databaseName, KEY, identity, create ? () => ({version: 1, account: crypto.randomUUID(), installation: crypto.randomUUID(),
+    collection: crypto.randomUUID(), replica: crypto.randomUUID(), device: crypto.randomUUID()}) : null, signal);
+}
+/** Whether this scope's unsynced collection holds work, without opening it or
+ * creating its database. Null where the browser cannot list databases. */
+export async function appUnsyncedWork(databaseName: string, signal: AbortSignal): Promise<AppUnsyncedWork | null> {
+  const list = globalThis.indexedDB?.databases;
+  if (typeof list !== "function") return null;
+  const names = await list.call(globalThis.indexedDB);
+  signal.throwIfAborted();
+  if (!names.some(entry => entry.name === databaseName)) return null;
+  return row(databaseName, WORK, work, null, signal);
 }
 
 /** Open (creating if needed) this scope's unsynced collection. Busy (another
@@ -118,6 +148,7 @@ export async function openAppUnsyncedCollection(options: AppUnsyncedCollectionOp
   let runtime: AppWasmRuntime | null = null, sqlClose: (() => Promise<void>) | null = null, fence: (() => void) | null = null;
   let journal: AppCollectionSetupJournal | null = null, ledger: AppLedgerRows | null = null;
   let assessment: "ready" | "setup_required" = "setup_required";
+  let saved: AppUnsyncedWork | null = null, marking = false;
   let mode: AppWebCollectionHandoff["setupMode"] = "approved-new";
   const generation = crypto.randomUUID(), setupTurn: AppCollectionSetupTurn = {owner: null};
   const listeners = new Set<() => void>();
@@ -129,6 +160,16 @@ export async function openAppUnsyncedCollection(options: AppUnsyncedCollectionOp
   const tick = () => {
     if (ticking || !current()) return; ticking = true;
     queueMicrotask(() => { ticking = false; try { if (current()) runtime?.tick(); } catch { void close().catch(() => {}); } });
+  };
+  // The first submit marks the collection as holding work (once per scope).
+  const submitted = (method?: string) => {
+    tick();
+    if (method !== "submit" || saved || marking || !current()) return;
+    marking = true;
+    void row(options.databaseName, WORK, work, () => ({version: 1 as const, since: Date.now()}), signal)
+      .then(value => { if (value && current()) { saved = value; changed(); } })
+      .catch(() => { /* retried on the next submit */ })
+      .finally(() => { marking = false; });
   };
   const drop = (handoff: AppWebCollectionHandoff) => {
     const tab = tabs.get(handoff.dataPort); if (!tab) return;
@@ -168,6 +209,8 @@ export async function openAppUnsyncedCollection(options: AppUnsyncedCollectionOp
     // As for a synced collection: an interrupted setup is reconciled, never redone.
     const intent = await journal.load(signal);
     if (!current()) throw fail("fenced");
+    saved = await row(options.databaseName, WORK, work, null, signal);
+    if (!current()) throw fail("fenced");
     if (intent && intent.version !== 1 && (intent.phase === "attempted" || intent.phase === "confirmed")) mode = "reconcile-original";
     const native = runtime, local = Object.freeze({...scope, isCurrent: current});
     const attach = (): AppWebCollectionHandoff | null => {
@@ -175,7 +218,7 @@ export async function openAppUnsyncedCollection(options: AppUnsyncedCollectionOp
       const data = new MessageChannel(), command = new MessageChannel();
       let control: ReturnType<typeof attachAppCollectionControl> | null = null, facade: ReturnType<typeof attachAppLocalFacade> | null = null;
       try {
-        facade = attachAppLocalFacade(native, data.port1, local, tick);
+        facade = attachAppLocalFacade(native, data.port1, local, submitted);
         let value: AppWebCollectionHandoff | null = null;
         control = attachAppCollectionControl(command.port1, {scope, generation}, {journal: journal!, resourceSetup: facade.resourceSetup, signal, isCurrent: current,
           ledger: () => current() ? ledger : null, setupTurn,
@@ -199,6 +242,7 @@ export async function openAppUnsyncedCollection(options: AppUnsyncedCollectionOp
     };
     return Object.freeze({scope, generation, isCurrent: current, setForeground() {}, attach, detach: drop, close,
       get state() { return current() ? assessment : "setup_required" as const; },
+      get work() { return saved; },
       subscribe(listener: () => void) { if (!current()) throw fail("fenced"); listeners.add(listener); return () => { listeners.delete(listener); }; },
     });
   } catch (error) { await close().catch(() => {}); throw error; }

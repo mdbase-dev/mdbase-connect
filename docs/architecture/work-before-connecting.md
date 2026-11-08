@@ -111,9 +111,14 @@ open behind it. Choosing a collection leaves it.
 
 There is no new save state. Local commits confirm at once, so the write
 ledger reads `"saved"`; the phase tells the app to say "Saved only in this
-browser" instead of "Saved". (A later step adds `snapshot.unsynced` with an
-item count, so a ready app can offer "N items are saved only in this
-browser".)
+browser" instead of "Saved".
+
+Every tab's snapshot carries `unsyncedWork: {since} | null`, whichever
+collection it shows. It is set by the first submit to the unsynced collection
+and read at Worker start without opening the collection (or creating its
+database). It is a marker, not a count: deleting records does not clear it;
+only discarding the collection does. Apps use it to offer "Connect to sync
+your work" and, when signed in elsewhere, to keep offering the transfer.
 
 How it fits the existing session: the Worker keeps the unsynced collection
 beside the sign-in session's collections and reports it as the tab's open
@@ -131,10 +136,11 @@ mdbase.unsynced.transfer(plan, { map })       // B: execute a reviewed plan
 mdbase.unsynced.discard()                     // explicit, confirmed by the person
 ```
 
-The SDK requests persistent storage on the first committed write. Losing
+The SDK already requests persistent storage at app start and reports the
+answer as `snapshot.storage.persistent`; nothing new is needed here. Losing
 browser storage is the main risk, and Safari may clear script-written storage
-for sites that are not used for a while. When `persisted` is false, the prompt
-to connect becomes more prominent.
+for sites that are not used for a while. When `persistent` is false, the
+prompt to connect becomes more prominent.
 
 ## Connecting
 
@@ -199,7 +205,7 @@ every difference.
 
 - `CollectionGate` and `CollectionPanel` render `unsynced` as usable. They
   show the persistent "Saved only in this browser · Connect to sync your work"
-  line once `items > 0`.
+  line once `unsyncedWork` is set.
 - The connect flow is the existing sign-in and chooser, with one change. When
   there is unsynced work, the chooser leads with "New collection from this
   work" (A) and lists existing collections as "Add to …" (B). Path B goes
@@ -248,8 +254,9 @@ unsynced collection, and its handoff could become path A or B.
 1. This note.
 2. Runtime: the local-only app composition over `TentativeStore`, with tests
    for reopening, the owner lease across tabs, and storage faults.
-3. SDK: the `unsynced` option, phase, Worker host and `unsynced.open()`
-   (built); then the summary and persistence request.
+3. SDK: the `unsynced` option, phase, Worker host, `unsynced.open()` and the
+   `unsyncedWork` marker (built). The real app WASM is exercised by the
+   runtime and SDK loader smokes.
 4. Path B: `planTransfer` and `transfer`, with the resumable journal.
 5. Path A: the portal's new-collection flow, resource copy, then the same
    transfer.

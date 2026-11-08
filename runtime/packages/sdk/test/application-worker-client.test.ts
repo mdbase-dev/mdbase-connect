@@ -26,6 +26,17 @@ describe("SDK original UI Worker request ownership",()=>{
     const f=fixture(),pending=f.client.request("start",null,f.caller.signal),rejected=expect(pending).rejects.toMatchObject({code:"application_worker_binding"});await f.arrived.promise;
     f.send("reply",1,{ok:true,snapshot:{...snapshot,openingProgress:progress}});await rejected;
   });
+  it("accepts the unsynced views and refuses malformed ones",async()=>{
+    const id="11111111-1111-4111-8111-111111111111";
+    for(const extra of [{unsyncedWork:{since:1}},{unsyncedWork:null},{selectedCollectionId:id,unsynced:{collectionId:id,sessionStatus:"signed_out"}}]){
+      const f=fixture(),pending=f.client.request("start",null,f.caller.signal);await f.arrived.promise;
+      f.send("reply",1,{ok:true,snapshot:{...snapshot,...extra}});await expect(pending).resolves.toMatchObject(extra);
+    }
+    for(const extra of [{unsyncedWork:{since:-1}},{unsyncedWork:{since:"1"}},{unsyncedWork:1},{unsynced:{collectionId:id,sessionStatus:"signed_out"}}]){
+      const f=fixture(),pending=f.client.request("start",null,f.caller.signal),rejected=expect(pending).rejects.toMatchObject({code:"application_worker_binding"});await f.arrived.promise;
+      f.send("reply",1,{ok:true,snapshot:{...snapshot,...extra}});await rejected;
+    }
+  });
   it("routes Native preparation on the original portal after its authorize reply, with no second operation slot",async()=>{
     const app="11111111-1111-4111-8111-111111111111",nativeAuthorization=vi.fn(async()=>({applicationId:app,authorizationId:app,manifestDigest:"cc".repeat(32)}));
     const f=fixture(undefined,nativeAuthorization),portal={navigate:vi.fn(),close:vi.fn()},pending=f.client.request("authorize",null,f.caller.signal,portal);

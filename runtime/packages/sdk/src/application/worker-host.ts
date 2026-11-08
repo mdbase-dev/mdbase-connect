@@ -11,7 +11,7 @@ import type {AppFileAction} from "../app-host/installation-sign-in.js";
 import {APPLICATION_WORKER_PROTOCOL,ApplicationWorkerError,applicationWorkerBinding,applicationWorkerProblem,applicationWorkerRequest,
   type ApplicationWorkerEvent,type ApplicationWorkerProblem,type ApplicationWorkerRequest} from "./worker-protocol.js";
 import {webSignInProblem} from "../app-host/web-sign-in-problem.js";
-import {openAppUnsyncedCollection,type AppUnsyncedConnection} from "../app-host/unsynced-collection.js";
+import {appUnsyncedWork,openAppUnsyncedCollection,type AppUnsyncedConnection} from "../app-host/unsynced-collection.js";
 import type {AppWebNativeCollection} from "../app-host/web-collection.js";
 import type {AppWebSignInSnapshot} from "../app-host/web-sign-in-session.js";
 
@@ -72,6 +72,8 @@ export class ApplicationWorkerHost {
    * shows it, beside the session's collections. Never listed or remembered. */
   private readonly unsyncedOptions:ReturnType<typeof applicationWorkerSession>["unsynced"];private readonly unsyncedName:string;
   private unsynced:AppUnsyncedConnection|null=null;private unsyncedProblem:string|null=null;
+  /** Whether the unsynced collection holds work, shown to every tab. */
+  private unsyncedWork:Readonly<{since:number}>|null=null;
   constructor(port:MessagePort,binding:string,declaration:Readonly<ApplicationDeclarationSnapshot>,packaged:PackagedApplicationNativeAssets,locks:AppLockPort|undefined,storageNamespace:string|null,fetcher?:typeof fetch){
     if(!applicationWorkerBinding(binding))throw new ApplicationWorkerError("application_worker_binding");
     const composed=applicationWorkerSession(declaration,packaged,{signal:this.lifetime.signal,locks,storageNamespace,
@@ -87,18 +89,27 @@ export class ApplicationWorkerHost {
       this.reconcile();
     });
     this.post(this.primary,[APPLICATION_WORKER_PROTOCOL,binding,"nativeSnapshot",0,this.view(this.primary)]);
+    // Read without opening the collection or creating its database.
+    const name=this.unsyncedOptions?.databaseName;
+    if(name)void appUnsyncedWork(name,this.lifetime.signal).then(found=>{if(found)this.noteUnsyncedWork(found);}).catch(()=>{});
+  }
+  private noteUnsyncedWork(found:Readonly<{since:number}>):void{
+    if(this.stopping||this.unsyncedWork?.since===found.since)return;
+    this.unsyncedWork=Object.freeze({since:found.since});
+    for(const client of [...this.clients.values()])this.post(client,[APPLICATION_WORKER_PROTOCOL,client.binding,"nativeSnapshot",0,this.view(client)]);
   }
   /** What one tab sees: the shared sign-in with its own collection. A tab that
    * did not start an approval in progress keeps showing its open collection. */
   private view(client:HostClient):AppWebSignInSnapshot{
     const bystander=this.approval?.client!==client;
-    if(!this.showsUnsynced(client))return this.session.viewFor(client.selected,{bystander});
+    const work=this.unsyncedWork;
+    if(!this.showsUnsynced(client)){const view=this.session.viewFor(client.selected,{bystander});return work?Object.freeze({...view,unsyncedWork:work}):view;}
     // The tab's open collection is the unsynced one; the sign-in session behind
     // it keeps its own status (signing in shows over it).
     const base=this.session.viewFor(null,{bystander}),open=this.unsynced?.isCurrent()===true;
     const status=base.status==="authorizing"?base.status:open?this.unsynced!.state:this.unsyncedProblem?"blocked":"opening";
     return Object.freeze({...base,status,selectedCollectionId:client.selected,problem:status==="blocked"?this.unsyncedProblem:base.status==="authorizing"?base.problem:null,
-      openingProgress:null,transport:null,live:null,unsynced:Object.freeze({collectionId:client.selected!,sessionStatus:base.status})});
+      openingProgress:null,transport:null,live:null,unsynced:Object.freeze({collectionId:client.selected!,sessionStatus:base.status}),unsyncedWork:work});
   }
   private showsUnsynced(client:HostClient):boolean{return client.selected!==null&&client.selected===this.unsynced?.scope.collection;}
   /** The open collection with this id: the unsynced one or the session's. */
@@ -112,7 +123,7 @@ export class ApplicationWorkerHost {
       catch(error){this.unsyncedProblem=applicationWorkerReplyProblem(error).code;throw error;}
       if(this.stopping||this.lifetime.signal.aborted){await connection.close().catch(()=>{});throw new ApplicationWorkerError("application_worker_fenced");}
       this.unsynced=connection;
-      connection.subscribe(()=>{if(this.stopping)return;for(const other of [...this.clients.values()])if(this.showsUnsynced(other))this.post(other,[APPLICATION_WORKER_PROTOCOL,other.binding,"nativeSnapshot",0,this.view(other)]);});
+      connection.subscribe(()=>{if(this.stopping)return;const found=connection!.work;if(found&&this.unsyncedWork?.since!==found.since){this.noteUnsyncedWork(found);return;}for(const other of [...this.clients.values()])if(this.showsUnsynced(other))this.post(other,[APPLICATION_WORKER_PROTOCOL,other.binding,"nativeSnapshot",0,this.view(other)]);});
     }
     const collection=connection.scope.collection;
     if(client.selected!==collection){this.leave(client);client.selected=collection;}

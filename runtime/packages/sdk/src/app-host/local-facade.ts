@@ -109,7 +109,7 @@ function queuesLogWork(frame: CborValue): boolean {
 /** Worker-side attachment, AFTER ownership and genuine native bootstrap/adoption.
  * AppWasmRuntime checks the original collection; a caller cannot choose a grant
  * or request a different native authority. No host-control RPC is exposed. */
-export function attachAppLocalFacade(runtime: Pick<AppWasmRuntime, "connect"> & Partial<Pick<AppWasmRuntime, "executeBases" | "discoverBases" | "setupResources" | "resourceRejected">>, channel: MessagePort, source: AppLocalScope, logWork?: () => void): { close(): void; readonly resourceSetup: AppResourceSetupPort } {
+export function attachAppLocalFacade(runtime: Pick<AppWasmRuntime, "connect"> & Partial<Pick<AppWasmRuntime, "executeBases" | "discoverBases" | "setupResources" | "resourceRejected">>, channel: MessagePort, source: AppLocalScope, logWork?: (method: string) => void): { close(): void; readonly resourceSetup: AppResourceSetupPort } {
   const original = pin(source);
   if (!original.current()) throw unavailable();
   let native: FramePort;
@@ -119,7 +119,7 @@ export function attachAppLocalFacade(runtime: Pick<AppWasmRuntime, "connect"> & 
   try {
     wire = bridge(channel, source, frame => {
       native.send(frame);
-      if (logWork && queuesLogWork(frame)) { try { logWork(); } catch { /* a drive hint, never a call outcome */ } }
+      if (logWork && queuesLogWork(frame)) { try { logWork((frame as Map<unknown, unknown>).get(2) as string); } catch { /* a drive hint, never a call outcome */ } }
     }, () => native.close(), (kind, id, bytes) => {
       let reply: Uint8Array;
       try {

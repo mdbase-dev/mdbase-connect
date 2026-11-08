@@ -3251,6 +3251,7 @@ AppWebSignInSnapshot@app-host/web-sign-in-session.ts
   readonly timing: Readonly<{ firstScreenMs: number | null; readyMs: number | null; }> | null
   readonly transport?: AppLogHealth | null | undefined
   readonly unsynced?: Readonly<{ collectionId: string; sessionStatus: AppWebSignInSnapshot['status']; }> | null | undefined
+  readonly unsyncedWork?: Readonly<{ since: number; }> | null | undefined
 
 AppWebSignOutResult@app-host/web-sign-in-session.ts
   readonly grants?: 'erased' | 'incomplete' | undefined
@@ -4321,6 +4322,7 @@ MdbaseApplicationSnapshot@application/entry.ts
   readonly timing: Readonly<{ firstScreenMs: number | null; readyMs: number | null; }> | null
   readonly transport?: AppLogHealth | null | undefined
   readonly unsynced?: Readonly<{ collectionId: string; sessionStatus: AppWebSignInSnapshot['status']; }> | null | undefined
+  readonly unsyncedWork?: Readonly<{ since: number; }> | null | undefined
   readonly writes?: WriteLedgerSnapshot | null | undefined
 
 MdbaseApplicationUnavailableError@application/entry.ts
@@ -4666,6 +4668,7 @@ MdbaseSnapshot@application/front-door.ts
   readonly timing: Readonly<{ firstScreenMs: number | null; readyMs: number | null; }> | null
   readonly transport?: AppLogHealth | null | undefined
   readonly unsynced?: Readonly<{ collectionId: string; sessionStatus: AppWebSignInSnapshot['status']; }> | null | undefined
+  readonly unsyncedWork?: Readonly<{ since: number; }> | null | undefined
   readonly writes?: WriteLedgerSnapshot | null | undefined
 
 MdbaseUnavailableType@application/entry.ts
@@ -6031,7 +6034,7 @@ approvalReadiness@private.ts
   : Codec<ApprovalReadiness>
 
 attachAppLocalFacade@app-host/local-facade.ts
-  : (runtime: Pick<AppWasmRuntime, 'connect'> & Partial<Pick<AppWasmRuntime, 'executeBases' | 'discoverBases' | 'setupResources' | 'resourceRejected'>>, channel: MessagePort, source: AppLocalScope, logWork?: () => void) => { close(): void; readonly resourceSetup: AppResourceSetupPort; }
+  : (runtime: Pick<AppWasmRuntime, 'connect'> & Partial<Pick<AppWasmRuntime, 'executeBases' | 'discoverBases' | 'setupResources' | 'resourceRejected'>>, channel: MessagePort, source: AppLocalScope, logWork?: (method: string) => void) => { close(): void; readonly resourceSetup: AppResourceSetupPort; }
 
 buildOfflineShell@offline-shell-build.ts
   : (options: OfflineShellBuildOptions) => Promise<OfflineShellManifest>
