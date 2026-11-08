@@ -734,6 +734,103 @@ test("a failed turn-on of sync is explained inside the dialog, which stays open 
   } finally { await page.close(); }
 });
 
+for (const theme of ["light", "dark"]) {
+  test(`paused source recovery is visible and historical details stay collapsed in ${theme}`, async () => {
+    const { page, errors, calls } = await desktop({ collections: [collection({ state: "paused", notices: [
+      { code: "resource_ingest_deferred", path: "mdbase.yaml", message: "Awaiting resource ingestion at the last failure." },
+      { code: "resource_ingest_deferred", path: "_types/note.md", message: "Awaiting resource ingestion at the last failure." },
+      { code: "resource_ingest_paths_omitted", message: "2 more paths were omitted." },
+      { code: "sync_unreachable", message: "The sync service is unavailable." }
+    ] })] });
+    try {
+      await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
+      await page.setViewportSize({ width: 430, height: 760 });
+      await page.clock.runFor(500);
+      await page.keyboard.press("g"); await page.keyboard.press("c");
+      const card = page.locator(".collection-card");
+      const resume = card.getByRole("button", { name: "Resume", exact: true });
+      await resume.waitFor();
+      await page.clock.runFor(500);
+      assert.equal(await resume.isEnabled(), true);
+      assert.equal(await card.getByText("Resume this collection to check its files before turning on sync.").isVisible(), true);
+      assert.equal(await card.getByText("The sync service is unavailable.").isVisible(), true);
+      assert.equal(await card.getByText("Awaiting resource ingestion at the last failure.").first().isVisible(), false);
+      assert.deepEqual(await calls("setCollectionEnabled"), []);
+      assert.deepEqual(await calls("enableSync"), []);
+      await screenshot(page, `paused-source-${theme}`);
+      await card.getByText("Technical details", { exact: true }).click();
+      await page.clock.runFor(500);
+      await card.getByText("From the last sync attempt, not a current file check.").waitFor();
+      assert.equal(await card.locator(".collection-history li").count(), 3);
+      assert.equal(await card.locator(".collection-history code").first().innerText(), "mdbase.yaml");
+      const widths = await card.evaluate(element => ({ scroll: element.scrollWidth, client: element.clientWidth }));
+      assert.ok(widths.scroll <= widths.client + 1, JSON.stringify(widths));
+      await screenshot(page, `paused-source-details-${theme}`);
+      await card.getByRole("button", { name: /^Actions for / }).click();
+      await page.getByRole("menuitem", { name: "Details", exact: true }).waitFor();
+      assert.equal(await page.getByRole("menuitem", { name: "Resume", exact: true }).count(), 0);
+      await page.keyboard.press("Escape");
+      await page.evaluate(() => {
+        window.mdbaseConnect.setCollectionEnabled = async (...args) => {
+          window.fixture.calls.push(["setCollectionEnabled", ...args]);
+          window.fixture.collections[0].state = "ready";
+        };
+      });
+      await resume.click();
+      await resume.waitFor({ state: "detached" });
+      assert.deepEqual(await calls("setCollectionEnabled"), [["c-notes", true]]);
+      assert.deepEqual(await calls("enableSync"), []);
+      assert.deepEqual(await calls("removeCollection"), []);
+      await collectionAction(page, "Turn on sync", card);
+      await page.getByRole("dialog").getByRole("button", { name: "Turn on sync", exact: true }).waitFor();
+      assert.deepEqual(errors, []);
+    } finally { await page.close(); }
+  });
+}
+
+test("a refused source capture returns to the retained collection instead of offering another sync attempt", async () => {
+  const { page, errors, calls } = await desktop({ collections: [collection()] });
+  try {
+    await nav(page, "Collections").click();
+    await collectionAction(page, "Turn on sync");
+    const dialog = page.getByRole("dialog");
+    await page.evaluate(() => {
+      window.mdbaseConnect.enableSync = async (...args) => {
+        window.fixture.calls.push(["enableSync", ...args]);
+        window.fixture.collections[0].state = "paused";
+        throw new Error("Source capture did not complete; the original collection remains paused. Resolve the incident or original pending outcome before resuming.");
+      };
+    });
+    await dialog.getByRole("button", { name: "Turn on sync", exact: true }).click();
+    await dialog.getByRole("button", { name: "Back to collection", exact: true }).waitFor();
+    assert.match(await dialog.getByRole("alert").innerText(), /^Sync setup stopped, and the collection is paused\./);
+    assert.equal(await dialog.getByRole("button", { name: "Turn on sync", exact: true }).count(), 0);
+    assert.equal(await dialog.getByText("Advanced", { exact: true }).count(), 0);
+    assert.deepEqual(await calls("setCollectionEnabled"), []);
+    await page.waitForFunction(() => !document.querySelector('[role="dialog"] button.mdbase-button.is-primary')?.disabled);
+    await screenshot(page, "source-capture-stopped");
+    await dialog.getByRole("button", { name: "Back to collection", exact: true }).click();
+    await dialog.waitFor({ state: "detached" });
+    const resume = page.locator(".collection-card").getByRole("button", { name: "Resume", exact: true });
+    await page.evaluate(() => {
+      window.mdbaseConnect.setCollectionEnabled = (...args) => {
+        window.fixture.calls.push(["setCollectionEnabled", ...args]);
+        return new Promise((_resolve, reject) => { window.fixture.rejectResume = () => reject(new Error("The original pending change still needs attention.")); });
+      };
+    });
+    await resume.click();
+    assert.equal(await resume.isDisabled(), true);
+    assert.equal((await calls("enableSync")).length, 1);
+    await page.evaluate(() => window.fixture.rejectResume());
+    await page.getByRole("alert").filter({ hasText: "The original pending change still needs attention." }).waitFor();
+    assert.equal(await resume.isEnabled(), true);
+    assert.deepEqual(await calls("setCollectionEnabled"), [["c-notes", true]]);
+    assert.equal((await calls("enableSync")).length, 1);
+    assert.deepEqual(await calls("removeCollection"), []);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
 test("turning on sync for a taken-over folder shows the files held at takeover and needs them checked", async () => {
   const { page, errors, calls } = await desktop({ collections: [collection()] });
   try {

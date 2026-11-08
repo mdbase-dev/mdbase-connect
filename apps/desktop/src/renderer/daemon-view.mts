@@ -75,6 +75,7 @@ export interface CollectionPresentation {
   status: string;
   detail?: string;
   canEnableSync: boolean;
+  canResume: boolean;
   paused: boolean;
   holds: number;
 }
@@ -117,6 +118,7 @@ export function presentCollection(collection: CollectionLike): CollectionPresent
   const base = {
     mode: MODES[collection.mode] ?? collection.mode,
     canEnableSync: collection.mode === "local" && collection.state === "ready",
+    canResume: collection.state === "paused" && collection.reason !== "private_sync_pending" && collection.reason !== "collection_deleted",
     paused: collection.state === "paused",
     holds
   };
@@ -130,7 +132,9 @@ export function presentCollection(collection: CollectionLike): CollectionPresent
       if (collection.reason === "private_sync_pending") {
         return { ...base, status: t(i18n)`Turning on Private sync…`, detail: reasonText(collection.reason) };
       }
-      return { ...base, status: t(i18n)`Paused`, detail: t(i18n)`Apps cannot use it until you resume it.` };
+      return { ...base, status: t(i18n)`Paused`, detail: collection.mode === "local"
+        ? t(i18n)`Resume this collection to check its files before turning on sync.`
+        : t(i18n)`Apps cannot use it until you resume it.` };
     case "opening":
       return { ...base, status: t(i18n)`Opening…`, detail: pendingText ?? reasonText(collection.reason) };
     case "moving":

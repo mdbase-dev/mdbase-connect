@@ -14,6 +14,20 @@ test("plain errors and internal invariant failures retain their detail", () => {
   assert.equal(message(new Error("Error invoking remote method 'connect:status': TypeError: Invalid internal state")), "TypeError: Invalid internal state");
 });
 
+test("source capture refusal explains the paused recovery without exposing runtime jargon", () => {
+  for (const detail of [
+    "source_capture_incomplete",
+    "Source capture did not complete; the original collection remains paused. Resolve the incident or original pending outcome before resuming."
+  ]) {
+    const error = new Error(`Error invoking remote method 'connect:collections:sync-enable': DaemonControlError: ${detail}`);
+    const result = syncEnableMessage(error);
+    assert.match(result, /^Sync setup stopped, and the collection is paused\./);
+    assert.match(result, /choose Resume before trying again/);
+    assert.match(result, /The folder and its files are unchanged\./);
+    assert.doesNotMatch(result, /source.capture|incident|pending outcome/i);
+  }
+});
+
 test("sync quota guidance survives the daemon and Electron wrappers", () => {
   const detail = "Your account has reached its synced collection limit. Delete a synced collection before creating another.";
   const error = new Error(`Error invoking remote method 'connect:collections:sync-enable': DaemonControlError: ${detail}`);
