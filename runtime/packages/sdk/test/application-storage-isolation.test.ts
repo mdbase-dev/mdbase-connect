@@ -63,7 +63,7 @@ it.each([undefined,`bundle:${manifestId}`])("rejects a storage namespace with le
 it("no-override declaration, owner, database and locks retain their exact legacy names and identity",async()=>{
   const b=await browser(),d=declaration();
   expect(applicationStorageNamespace(d)).toBeNull();expect(applicationStorageOwner(manifestId,null)).toBe(`bundle:${manifestId}`);
-  expect(d.storage).toEqual({applicationNamespace:appId,joinDatabaseName:`mdbase.${appId}.native-collection-join.v1`,setupDatabaseName:`mdbase.${appId}.native-model-setup.v1`});
+  expect(d.storage).toEqual({applicationNamespace:appId,joinDatabaseName:`mdbase.${appId}.native-collection-join.v1`,setupDatabaseName:`mdbase.${appId}.native-model-setup.v1`,unsyncedDatabaseName:`mdbase.${appId}.unsynced.v1`});
   const p={origin,cpOrigin,appId,appName:"Notes",environment:"production" as const,mode:"open" as const,owner:`bundle:${manifestId}`,signal:new AbortController().signal,locks:b.locks};
   const f=await AppProtectedInstallationSignIn.open(p),view=f.view();await f.close();
   expect(b.names).toEqual([`mdbase-app-sign-in-v1-${appId}-${cpOrigin}`,`mdbase-app-sign-in-v2-${JSON.stringify([cpOrigin,p.owner,appId])}`]);

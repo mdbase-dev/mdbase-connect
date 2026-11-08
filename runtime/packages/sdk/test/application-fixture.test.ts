@@ -12,8 +12,8 @@ function snapshot(patch: Partial<MdbaseApplicationSnapshot> = {}): MdbaseApplica
 }
 const clients: MdbaseClient[] = [];
 afterEach(() => {for (const client of clients.splice(0)) client.close(); vi.restoreAllMocks();});
-async function native() {
-  const replica = new MemoryReplica({confirmDelayMs: 0});
+async function native(collection?: string) {
+  const replica = new MemoryReplica({confirmDelayMs: 0, ...(collection ? {collection} : {})});
   const seeded = replica.seed({path: "fixture.md", body: "Original native record"});
   const records = await connect({connector: replica.connector(), app: {name: "fixture-test", version: "test"}, reconnect: false});
   clients.push(records);
@@ -36,6 +36,35 @@ function deferred<T>() {
 }
 
 describe("public application fixture (metadata stand-in, not runtime evidence)", () => {
+  it("opens the unsynced collection and brings its work into the open collection", async () => {
+    const local = await native("0192f3a4-6000-7abc-8def-0000000000f1"), synced = await native("0192f3a4-6000-7abc-8def-0000000000f2");
+    const fixture = createApplicationFixture({declaration, connections: [synced.connection], unsynced: local.connection, initialSnapshot: snapshot()});
+    const mdbase = mdbaseFront(fixture.entry);
+    await mdbase.unsynced.open();
+    const working = mdbase.getSnapshot().phase;
+    expect(working).toMatchObject({kind: "unsynced", collectionId: local.records.collection});
+    if (working?.kind !== "unsynced") throw new Error("unreachable");
+    await working.connection.records.create({path: "started.md", body: "Before connecting\n"});
+    // Signed in, with a collection open: bring the work in.
+    const ready = (since: number) => snapshot({status: "ready", selectedCollectionId: synced.records.collection, unsynced: null, unsyncedWork: {since},
+      collections: [{collectionId: synced.records.collection, displayName: "Notes", role: "owner"}],
+      readiness: {...snapshot().readiness, assessment: {status: "ready"}} as MdbaseApplicationSnapshot["readiness"]});
+    fixture.controls.publishSnapshot(ready(1));
+    expect(mdbase.getSnapshot().phase?.kind).toBe("ready");
+    const plan = await mdbase.unsynced.planTransfer();
+    expect(plan).toMatchObject({source: local.records.collection, destination: synced.records.collection, counts: {create: 2, present: 0, skipped: 0, renamed: 1}});
+    expect(plan.items.find(item => item.sourcePath === "started.md")).toMatchObject({outcome: "create", path: "started.md"});
+    expect(plan.items.find(item => item.sourcePath === "fixture.md")).toMatchObject({outcome: "create", path: "fixture 2.md", renamedFrom: "fixture.md"});
+    const result = await mdbase.unsynced.transfer(plan);
+    expect(result).toMatchObject({created: 2, failed: [], retired: true});
+    expect(mdbase.getSnapshot().unsyncedWork).toBeNull();
+    expect((await mdbase.unsynced.planTransfer()).counts).toMatchObject({create: 0, present: 2});
+    fixture.controls.publishSnapshot(ready(2));
+    await mdbase.unsynced.discard();
+    expect(mdbase.getSnapshot().unsyncedWork).toBeNull();
+    expect(fixture.controls.observedActions().map(call => call.action)).toEqual(["openUnsynced", "planUnsyncedTransfer", "transferUnsynced", "planUnsyncedTransfer", "discardUnsynced"]);
+  });
+
   it.each([true, false])("Private Add is the same null-hint Add, even without an optional legacy port (%s)", async legacyPort => {
     const fixture = createApplicationFixture({declaration, connections: [], initialSnapshot: snapshot()});
     const approve = vi.fn(async () => snapshot());

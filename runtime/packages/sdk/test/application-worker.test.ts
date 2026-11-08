@@ -36,6 +36,20 @@ describe("private SDK Worker bounded lifecycle",()=>{
     expect(applicationWorkerRequest([schema,binding,APPLICATION_WORKER_MAX_ID,"close",null],binding)).toEqual([schema,binding,APPLICATION_WORKER_MAX_ID,"close",null]);
     for(const frame of [[schema,"foreign_binding_123",1,"start",null],[schema,binding,0,"start",null],[schema,binding,APPLICATION_WORKER_MAX_ID+1,"start",null],[schema,binding,1,"submit",null],[schema,binding,1,"start",{}],[schema,binding,1,"select",""],[schema,binding,1,"foreground","true"],[schema,binding,1,"approvalClosed",true],[schema,binding,0,"approvalClosed",false],[schema,binding,0,"approvalClosed",null]])expect(()=>applicationWorkerRequest(frame,binding)).toThrow(ApplicationWorkerError);
     expect(applicationWorkerRequest([schema,binding,0,"approvalClosed",true],binding)).toEqual([schema,binding,0,"approvalClosed",true]);
+    // Work before connecting: no payload; the Worker chooses the collection.
+    expect(applicationWorkerRequest([schema,binding,1,"openUnsynced",null],binding)).toEqual([schema,binding,1,"openUnsynced",null]);
+    for(const payload of ["11111111-1111-4111-8111-111111111111",true,{}])expect(()=>applicationWorkerRequest([schema,binding,1,"openUnsynced",payload],binding)).toThrow(ApplicationWorkerError);
+    expect(()=>applicationWorkerRequest([schema,binding,0,"openUnsynced",null],binding)).toThrow(ApplicationWorkerError);
+    // Retire: [unsynced collection, destination], two different UUIDs.
+    const u="11111111-1111-4111-8111-111111111111",d="22222222-2222-4222-8222-222222222222";
+    expect(applicationWorkerRequest([schema,binding,3,"retireUnsynced",[u,d]],binding)).toEqual([schema,binding,3,"retireUnsynced",[u,d]]);
+    for(const payload of [null,[u],[u,u],[u,d,d],[u,"X"],u])expect(()=>applicationWorkerRequest([schema,binding,3,"retireUnsynced",payload],binding)).toThrow(ApplicationWorkerError);
+    expect(()=>applicationWorkerRequest([schema,binding,0,"retireUnsynced",[u,d]],binding)).toThrow(ApplicationWorkerError);
+    for(const action of ["attachUnsynced","detachUnsynced","discardUnsynced"] as const){
+      expect(applicationWorkerRequest([schema,binding,2,action,null],binding)).toEqual([schema,binding,2,action,null]);
+      expect(()=>applicationWorkerRequest([schema,binding,2,action,"11111111-1111-4111-8111-111111111111"],binding)).toThrow(ApplicationWorkerError);
+      expect(()=>applicationWorkerRequest([schema,binding,0,action,null],binding)).toThrow(ApplicationWorkerError);
+    }
   });
   it("rejects a nil collection hint at the Worker boundary, while retaining the optional null hint",()=>{
     expect(applicationWorkerRequest([schema,binding,1,"authorize",null],binding)[4]).toBeNull();

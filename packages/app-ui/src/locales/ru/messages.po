@@ -105,6 +105,21 @@ msgstr "Вернуться к работе"
 msgid "Blackout"
 msgstr "Закрасить"
 
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Bring it in"
+msgstr "Перенести"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Bring your work into {collection}?"
+msgstr "Перенести работу в коллекцию «{collection}»?"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Bringing in…"
+msgstr "Перенос…"
+
 #: src/apps.ts
 msgid "Browse and edit records"
 msgstr "Просмотр и редактирование записей"
@@ -235,6 +250,11 @@ msgstr "Команды"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "Connect to sync your work"
+msgstr "Подключиться для синхронизации работы"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "Connecting to sync…"
 msgstr "Подключение к синхронизации…"
 
@@ -263,6 +283,11 @@ msgstr "Продолжите в окне mdbase"
 msgctxt "Collection storage mode"
 msgid "Continue on this device"
 msgstr "Продолжить на этом устройстве"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Continue without connecting"
+msgstr "Продолжить без подключения"
 
 #: src/AppSwitcher.tsx
 msgid "Current"
@@ -296,6 +321,26 @@ msgstr "Удаление…"
 #: src/screens.tsx
 msgid "Details"
 msgstr "Подробности"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discard"
+msgstr "Удалить"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discard work that isn't in a collection?"
+msgstr "Удалить работу, которой нет ни в одной коллекции?"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discard…"
+msgstr "Удалить…"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discarding…"
+msgstr "Удаление…"
 
 #: src/Toaster.tsx
 msgid "Dismiss"
@@ -384,6 +429,11 @@ msgstr "Приложить снимок экрана"
 #: src/Feedback.tsx
 msgid "Include technical diagnostics"
 msgstr "Приложить технические сведения для диагностики"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "It's erased from {app} on this device. This can't be undone."
+msgstr "Она будет стёрта из приложения {app} на этом устройстве. Это действие нельзя отменить."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -649,6 +699,16 @@ msgstr "Перед отправкой проверьте, нет ли на сн�
 msgid "Saved"
 msgstr "Сохранено"
 
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Saved only in this browser"
+msgstr "Сохранено только в этом браузере"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Saved only on this device"
+msgstr "Сохранено только на этом устройстве"
+
 #: src/SaveNotice.tsx
 msgid "Saving"
 msgstr "Сохранение"
@@ -757,6 +817,26 @@ msgstr "Выход…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "Some items changed after they were brought in. Their newer versions are added beside them."
+msgstr "Некоторые элементы изменились после переноса. Их новые версии добавляются рядом."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Some items get a new name because their names are already taken."
+msgstr "Некоторые элементы получат новые имена, потому что их имена уже заняты."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Some items use types this collection doesn't have. They're brought in as they are."
+msgstr "Некоторые элементы используют типы, которых нет в этой коллекции. Они переносятся как есть."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Some of your work couldn't be brought in. Try again."
+msgstr "Часть работы не удалось перенести. Повторите попытку."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "Starting {app}…"
 msgstr "Запуск {app}…"
 
@@ -844,6 +924,11 @@ msgstr "Снимок экрана больше 3 МБ. Выберите изоб
 msgctxt "Collection storage mode"
 msgid "The switch to Private didn’t finish. Revoke the device that started it. Your other owner devices will then replace the collection key."
 msgstr "Переход в режим «Приватная» не завершился. Отзовите устройство, которое его начало. После этого другие ваши устройства владельца заменят ключ коллекции."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "These types are added: {types}."
+msgstr "Будут добавлены типы: {types}."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -981,6 +1066,11 @@ msgstr "Написание рукописей со ссылками на ваш�
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "You have work that isn't in {collection} yet."
+msgstr "У вас есть работа, которой ещё нет в коллекции «{collection}»."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "You've signed out of {app} on this device."
 msgstr "Вы вышли из {app} на этом устройстве."
 
@@ -997,3 +1087,13 @@ msgstr "Ваши коллекции"
 #: src/Feedback.tsx
 msgid "Your message, any reply email and included screenshot, plus these app and build details."
 msgstr "Ваше сообщение, адрес для ответа (если он указан), приложенный снимок экрана, а также эти сведения о приложении и сборке."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Your work is now in {collection}."
+msgstr "Ваша работа теперь в коллекции «{collection}»."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Your work is now in {collection}. If it's still open in another tab, close it there, then bring it in again."
+msgstr "Ваша работа теперь в коллекции «{collection}». Если она ещё открыта в другой вкладке, закройте её там и перенесите снова."

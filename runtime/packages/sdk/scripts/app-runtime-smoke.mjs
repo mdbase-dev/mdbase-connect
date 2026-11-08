@@ -15,7 +15,8 @@ const file = process.argv[2]; if (!file) throw new Error("explicit app-runtime.w
 const out = new URL("../../../target/app-sdk-smoke/", import.meta.url); mkdirSync(out, { recursive: true });
 await build({ stdin: { contents: 'export * from "./src/app-host/wasm-runtime.ts"; export * from "./src/app-host/cp-authority.ts"; export { uuidToBytes } from "./src/codec.ts"; export * from "./src/cbor.ts"; export { ed25519 } from "@noble/curves/ed25519.js"; export { sha256 } from "@noble/hashes/sha2.js"; export * from "./src/app-storage/app-binary-index.ts";', resolveDir: new URL("../", import.meta.url).pathname }, bundle: true, platform: "node", format: "esm", outfile: new URL("helpers.mjs", out).pathname });
 const { AppWasmRuntime, AppCpLogAuthority, AppBinaryIndexHost, appSqlHost, encode, decode, uuidToBytes, ed25519, sha256 } = await import(new URL("helpers.mjs", out));
-const bytes = readFileSync(file), db = new DatabaseSync(":memory:");
+const bytes = readFileSync(file);
+let db = new DatabaseSync(":memory:");
 const v = db.prepare("SELECT sqlite_version() AS v").get().v.split(".").map(Number);
 const version = v[0] * 1_000_000 + v[1] * 1_000 + v[2]; let turns = 0;
 function index() {
@@ -106,5 +107,19 @@ try {
   assert.throws(() => rt.openAppConsuming(config("existing")));
   const warm = await AppWasmRuntime.create(bytes, index()); warm.openAppConsuming(config("existing")); assert.equal(warm.observations().requiresReopen, false); assert.equal(await warm.close(), true);
   assert(!db.prepare("SELECT k FROM st_meta").all().some(r => /keyring/i.test(r.k)));
-  console.log(JSON.stringify({ actualSdk: true, actualAppWasm: true, actualSqlite: version, turns, keyBuffersConsumed: true, warmReopen: true, scopedLogBind: true, protectedHttpSigner: true, actualCpHttpFixture: true, actualCpWasmProof: true, explicitBuildTrustFixture: Boolean(trustModule), exactNativeRootPins: true, tokenBeforeBind: true, callerDigestIgnored: true, consumedScopeRefused: true, drainedShutdown: true, activationQualified: false }));
+  // Unsynced collection (work before connecting) through the actual SDK
+  // loader: a secret-free bootstrap, local-only mode, no log and no binding.
+  db.close(); db = new DatabaseSync(":memory:");
+  const unsynced = (opened = "fresh") => ({ collection: "0192f3a4-6000-7abc-8def-0123456789b1", replicaId: "0192f3a4-6000-7abc-8def-0123456789b2", deviceId: "0192f3a4-6000-7abc-8def-0123456789b3", opened, sqliteVersion: version });
+  const local = await AppWasmRuntime.create(bytes, index()); local.openUnsyncedConsuming(unsynced());
+  assert.equal(local.observations().status.mode, "local_only"); assert.deepEqual(local.takeLogCalls(), []);
+  assert.throws(() => local.bindLogTransport({ endpoint: 0, collection: unsynced().collection, isCurrent: () => true }));
+  assert.throws(() => local.signCpLogToken(new Uint8Array(32)));
+  assert.equal(await local.close(), true);
+  const reopened = await AppWasmRuntime.create(bytes, index()); reopened.openUnsyncedConsuming(unsynced("existing"));
+  assert.equal(reopened.observations().status.mode, "local_only"); assert.equal(await reopened.close(), true);
+  const both = await AppWasmRuntime.create(bytes, index()); both.openUnsyncedConsuming(unsynced("existing"));
+  // One open per module; a second fails closed (fenced, never a clean close).
+  assert.throws(() => both.openAppConsuming(config("existing"))); assert.equal(await both.close(), false);
+  console.log(JSON.stringify({ actualSdk: true, unsyncedOpen: true, actualAppWasm: true, actualSqlite: version, turns, keyBuffersConsumed: true, warmReopen: true, scopedLogBind: true, protectedHttpSigner: true, actualCpHttpFixture: true, actualCpWasmProof: true, explicitBuildTrustFixture: Boolean(trustModule), exactNativeRootPins: true, tokenBeforeBind: true, callerDigestIgnored: true, consumedScopeRefused: true, drainedShutdown: true, activationQualified: false }));
 } finally { if (cpServer) { cpServer.closeAllConnections(); await new Promise(r => cpServer.close(r)); } db.close(); }

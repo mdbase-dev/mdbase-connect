@@ -50,5 +50,6 @@ export function applicationWorkerSession(
     // account has none to pick); the user still decides in Connect.
     freshRequestedCreateCollections:true,
   });
-  return Object.freeze({session,compiled,collection});
+  const unsynced=Object.freeze({...assets.unsynced,locks});
+  return Object.freeze({session,compiled,collection,unsynced,displayName:binding.name});
 }

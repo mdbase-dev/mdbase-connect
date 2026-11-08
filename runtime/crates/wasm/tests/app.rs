@@ -755,3 +755,69 @@ fn original_log_scopes_are_bound_before_send_and_retired_before_replacement() {
     assert!(!r.log_push(&[0]));
     assert!(r.healthy());
 }
+fn local_config() -> Vec<u8> {
+    cbor::encode(&Cbor::Map(vec![
+        (Cbor::Uint(0), Cbor::Uint(1)),
+        (Cbor::Uint(1), B16([1; 16]).to_cbor()),
+        (Cbor::Uint(2), B16([2; 16]).to_cbor()),
+        (Cbor::Uint(3), B16([3; 16]).to_cbor()),
+        (Cbor::Uint(12), Cbor::Uint(0)),
+        (Cbor::Uint(13), Cbor::Uint(3_053_004)),
+    ]))
+    .unwrap()
+}
+#[test]
+fn unsynced_open_is_local_only_with_no_log_signer_or_binding() {
+    let mut bytes = local_config();
+    let count = Rc::new(Cell::new(0));
+    let mut r =
+        AppRuntime::open_local_consuming(&mut bytes, Box::new(Schema(count.clone())), host())
+            .unwrap();
+    assert!(bytes.iter().all(|b| *b == 0), "bootstrap wiped");
+    assert!(count.get() > 0, "opened the tentative SQL store");
+    assert!(r.is_local());
+    assert!(r.healthy());
+    assert_eq!(r.log_generation(), 0, "no HTTP signer lifetime");
+    assert_eq!(
+        cbor::decode(&r.log_calls_encoded()).unwrap(),
+        Cbor::Array(vec![])
+    );
+    assert!(!r.bind_cp_connector(B16([6; 16])));
+    assert!(!r.bind_log(EndpointId(0), B16([1; 16])));
+    assert!(!r.reconnect_log(EndpointId(0), B16([1; 16])));
+    assert!(r.sign_cp_log_token_consuming(&mut [11; 32]).is_empty());
+    assert!(r.healthy(), "refused bindings do not fence the store");
+}
+#[test]
+fn unsynced_bootstrap_refuses_partial_trailing_nil_and_keyed_input_and_wipes() {
+    let open = |bytes: &mut Vec<u8>| {
+        AppRuntime::open_local_consuming(bytes, Box::new(Schema(Rc::new(Cell::new(0)))), host())
+            .is_err()
+    };
+    let valid = local_config();
+    for end in 0..valid.len() {
+        let mut bytes = valid[..end].to_vec();
+        assert!(open(&mut bytes));
+        assert!(bytes.iter().all(|b| *b == 0));
+    }
+    let mut trailing = [valid.clone(), vec![0]].concat();
+    assert!(open(&mut trailing));
+    assert!(trailing.iter().all(|b| *b == 0));
+    // A nil identity, a wrong version and a synced bootstrap are all refused.
+    let with = |key: u64, value: Cbor| {
+        let Cbor::Map(mut f) = cbor::decode(&valid).unwrap() else {
+            unreachable!()
+        };
+        f.iter_mut().find(|(k, _)| *k == Cbor::Uint(key)).unwrap().1 = value;
+        cbor::encode(&Cbor::Map(f)).unwrap()
+    };
+    for mut bytes in [
+        with(2, B16([0; 16]).to_cbor()),
+        with(0, Cbor::Uint(2)),
+        with(12, Cbor::Uint(3)),
+        config(),
+    ] {
+        assert!(open(&mut bytes));
+        assert!(bytes.iter().all(|b| *b == 0));
+    }
+}

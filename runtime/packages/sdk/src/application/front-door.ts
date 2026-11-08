@@ -9,8 +9,9 @@ import type { MdbaseApplicationDeclaration } from "./declaration.js";
 import {
   MdbaseConnect, type MdbaseApplication, type MdbaseApplicationConnection, type MdbaseApplicationReadinessSnapshot,
   type MdbaseApplicationRequestOptions, type MdbaseApplicationSnapshot, type MdbaseCollectionDeleteOptions, type MdbaseConnectOptions, type MdbaseLinks,
-  type MdbaseSignOutOptions,
+  type MdbaseSignOutOptions, type MdbaseTransferOptions, type MdbaseTransferPlanOptions,
 } from "./entry.js";
+import type { MdbaseTransferPlan, MdbaseTransferResult } from "./unsynced-transfer.js";
 import type { MdbasePhase } from "./phase.js";
 import type { StatusSummary } from "../status.js";
 import type { MdbaseSetupPlan, MdbaseSetupPlanOptions } from "./setup.js";
@@ -73,6 +74,24 @@ export interface Mdbase {
    * unless `{discard: true}`. */
   signOut(options?: MdbaseSignOutOptions): Promise<MdbaseSnapshot>;
   close(): Promise<void>;
+  /** Work before connecting (the `unsynced` option). */
+  readonly unsynced: {
+    /** Open the app's unsynced collection in this tab, creating it on first
+     * use: for "Continue without connecting". Signed out with nothing
+     * requested, `start()` already does this. */
+    open(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>;
+    /** Compare the unsynced collection with the open (ready) collection: what
+     * would be created, what an earlier transfer already brought, what `map`
+     * leaves out, renamed paths and types the destination lacks. Writes nothing. */
+    planTransfer(options?: MdbaseTransferPlanOptions): Promise<MdbaseTransferPlan>;
+    /** Create a plan's records in the open collection, keeping their IDs.
+     * Interrupted? Plan and transfer again: only what is missing is created. */
+    transfer(plan: MdbaseTransferPlan, options?: MdbaseTransferOptions): Promise<MdbaseTransferResult>;
+    /** Erase the unsynced collection from this browser. Ask the person to
+     * confirm first: it cannot be undone. A tab showing it continues in a new,
+     * empty one. */
+    discard(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>;
+  };
   /** The underlying application, for code written against `MdbaseConnect`. */
   readonly application: MdbaseApplication;
 }
@@ -126,6 +145,24 @@ export function mdbaseFront(entry: Pick<MdbaseConnect, "application" | "connecti
       return strict(await app.signOut(o));
     },
     close: () => app.close(),
+    unsynced: Object.freeze({
+      open: async (o?: MdbaseApplicationRequestOptions) => {
+        if (!app.openUnsynced) throw mdbaseError("unavailable", "Working before connecting isn't available here.", "application_not_yet_available");
+        return strict(await app.openUnsynced(o));
+      },
+      planTransfer: (o?: MdbaseTransferPlanOptions) => {
+        if (!app.planUnsyncedTransfer) throw mdbaseError("unavailable", "Bringing in work isn't available here.", "application_not_yet_available");
+        return app.planUnsyncedTransfer(o);
+      },
+      transfer: (plan: MdbaseTransferPlan, o?: MdbaseTransferOptions) => {
+        if (!app.transferUnsynced) throw mdbaseError("unavailable", "Bringing in work isn't available here.", "application_not_yet_available");
+        return app.transferUnsynced(plan, o);
+      },
+      discard: async (o?: MdbaseApplicationRequestOptions) => {
+        if (!app.discardUnsynced) throw mdbaseError("unavailable", "Discarding work isn't available here.", "application_not_yet_available");
+        return strict(await app.discardUnsynced(o));
+      },
+    }),
     application: app,
   });
 }

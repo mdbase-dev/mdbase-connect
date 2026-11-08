@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactN
 
 import { defaultCollectionCopy, fill, type CollectionCopy } from "./copy.js";
 import { actionNotice, collectionView, type CollectionNotice, type CollectionRow, type CollectionView, type ProblemControl } from "./model.js";
+import { planNeedsReview, unsyncedApi, type UnsyncedPlan, type UnsyncedResult, type UnsyncedTransferMap } from "./unsynced.js";
 
 /** The only app-specific input: what the app is called, and its mark. */
 export interface CollectionAppIdentity {
@@ -13,6 +14,14 @@ export interface CollectionAppIdentity {
 }
 
 export type LeaveIntent = "switch" | "add" | "choose_another" | "sign_out";
+
+/** Work before connecting: the app created its entry with `{unsynced: true}`. */
+export interface CollectionUnsyncedOptions {
+  /** Where that work is kept: "Saved only in this browser" (default) or, in a native shell, "on this device". */
+  readonly storage?: "browser" | "device" | undefined;
+  /** Reshape or leave out records when bringing the work into a collection. Default: as they are. */
+  readonly map?: UnsyncedTransferMap | undefined;
+}
 
 /** A collection the app lists itself (one the SDK doesn't), in an app section. */
 export interface CollectionSectionItem {
@@ -97,10 +106,12 @@ export interface CollectionUiOptions {
   readonly sections?: readonly CollectionSection[] | undefined;
   /** A second line for an SDK collection row (where it lives, which account), from the row and its SDK entry. */
   readonly rowDetail?: ((row: CollectionRow) => string | null | undefined) | undefined;
+  /** Work before connecting: "Continue without connecting" when signed out, the "Saved only in this browser" line, and bringing that work into the collection the person opens. */
+  readonly unsynced?: CollectionUnsyncedOptions | boolean | undefined;
 }
 
 /** `add_private` remains available to legacy track callers; both add APIs now emit `add`. */
-export type CollectionActionName = "sign_in" | "add" | "add_private" | "approve" | "select" | "choose_another" | "assess" | "start" | "sign_out" | "setup";
+export type CollectionActionName = "sign_in" | "add" | "add_private" | "approve" | "select" | "choose_another" | "assess" | "start" | "sign_out" | "setup" | "open_unsynced" | "bring_in" | "discard_unsynced";
 
 interface ActionError { readonly kind: CollectionView["kind"]; readonly notice: CollectionNotice }
 
@@ -117,6 +128,10 @@ export interface CollectionUi {
   readonly signOutPrompt: MdbaseProblem | null;
   /** The open app section item, which takes the place of the SDK's current collection. */
   readonly appOpen: OpenSectionItem | null;
+  /** A plan to bring unsynced work in that has something to confirm (renames, types). */
+  readonly unsyncedReview: UnsyncedPlan | null;
+  /** How bringing unsynced work in ended, until dismissed or the screen changes. */
+  readonly unsyncedNotice: CollectionNotice | null;
   readonly actions: CollectionActions;
 }
 
@@ -144,6 +159,17 @@ export interface CollectionActions {
   perform(control: ProblemControl, onSetUp?: () => void): void;
   /** Track an app-ui call that is not a button above (setup), so errors show the same way. */
   track(name: CollectionActionName, call: () => Promise<unknown>): Promise<unknown>;
+  /** "Connect to sync your work": sign in, or choose a collection when signed in. */
+  connect(): void;
+  /** Open the app's unsynced collection (work before connecting). */
+  continueWithoutConnecting(): void;
+  /** Bring unsynced work into the open collection; asks first (`unsyncedReview`) when there is something to confirm. */
+  bringIn(): void;
+  confirmBringIn(): void;
+  dismissBringIn(): void;
+  /** Erase the unsynced work. Only after the person confirmed it. */
+  discardUnsynced(): void;
+  dismissUnsyncedNotice(): void;
 }
 
 const popupActions: ReadonlySet<CollectionActionName> = new Set(["sign_in", "add", "add_private", "approve"]);
@@ -188,9 +214,13 @@ export function useCollectionUi(options: CollectionUiOptions): CollectionUi {
     setError(previous => previous?.notice.key === "account_collection_quota_exceeded" ? null : previous);
   }, [snapshot.collections.length]);
   const [signOutPrompt, setSignOutPrompt] = useState<MdbaseProblem | null>(null);
+  const [unsyncedReview, setUnsyncedReview] = useState<UnsyncedPlan | null>(null);
+  const reviewing = useRef<UnsyncedPlan | null>(null);
+  /** How bringing work in ended, for the collection it went into. */
+  const [unsyncedNotice, setUnsyncedNotice] = useState<{ readonly collectionId: string; readonly notice: CollectionNotice } | null>(null);
   const running = useRef<{ name: CollectionActionName; controller: AbortController } | null>(null);
-  const latest = useRef({ options, view });
-  latest.current = { options, view };
+  const latest = useRef({ options, view, copy });
+  latest.current = { options, view, copy };
 
   const actions = useMemo<CollectionActions>(() => {
     /**
@@ -229,6 +259,28 @@ export function useCollectionUi(options: CollectionUiOptions): CollectionUi {
       else if (answer !== false) void answer.then((ok) => { if (ok) go(); }, () => {});
     };
     const addCollection = () => leave("add", () => { void run("add", (signal) => mdbase.addCollection({ signal })); });
+    const review = (plan: UnsyncedPlan | null): void => { reviewing.current = plan; setUnsyncedReview(plan); };
+    const unsyncedMap = (): UnsyncedTransferMap | undefined => {
+      const value = latest.current.options.unsynced;
+      return typeof value === "object" ? value.map : undefined;
+    };
+    /** Report how a transfer into `into` ended. A retired copy leaves nothing more to bring in. */
+    const brought = (result: UnsyncedResult, into: { readonly id: string; readonly name: string }): void => {
+      const words = latest.current.copy;
+      const failed = result.failed.length > 0 || (result.failedTypes?.length ?? 0) > 0;
+      // Everything planned went in, but the work stays: it is still open (or was saved to) elsewhere.
+      const open = !failed && result.retired === false;
+      const notice: CollectionNotice = failed
+        ? { key: "unsynced_bring_in_failed", tone: "warning", title: null, message: words.unsyncedBringInFailed, control: null, transient: false }
+        : { key: open ? "unsynced_brought_in_open" : "unsynced_brought_in", tone: "info", title: null,
+          message: fill(open ? words.unsyncedBroughtInOpen : words.unsyncedBroughtIn, { collection: into.name }), control: null, transient: false };
+      setUnsyncedNotice({ collectionId: into.id, notice });
+    };
+    /** The open collection work would be brought into. */
+    const destination = (): { readonly id: string; readonly name: string } | null => {
+      const now = latest.current.view;
+      return now.kind === "ready" && now.current ? { id: now.current.id, name: now.current.name } : null;
+    };
     const actions: CollectionActions = {
       signIn: () => { void run("sign_in", (signal) => mdbase.signIn({ signal })); },
       addCollection,
@@ -291,6 +343,35 @@ export function useCollectionUi(options: CollectionUiOptions): CollectionUi {
         }
       },
       track: (name, call) => run(name, call, true),
+      connect: () => { if (latest.current.view.signedIn) addCollection(); else actions.signIn(); },
+      continueWithoutConnecting: () => {
+        const api = unsyncedApi(mdbase);
+        if (api) void run("open_unsynced", (signal) => api.open({ signal }));
+      },
+      bringIn: () => {
+        const api = unsyncedApi(mdbase), into = destination();
+        if (!api || !into) return;
+        setUnsyncedNotice(null);
+        const map = unsyncedMap();
+        void run("bring_in", async (signal) => {
+          // New types come from the work's own definitions; adding them, or renaming, is confirmed first.
+          const plan = await api.planTransfer({ ...(map ? { map } : {}), addTypes: true, signal });
+          if (planNeedsReview(plan)) { review(plan); return; }
+          brought(await api.transfer(plan, { signal }), into);
+        });
+      },
+      confirmBringIn: () => {
+        const api = unsyncedApi(mdbase), plan = reviewing.current, into = destination();
+        review(null);
+        // A plan for a collection that is no longer open is dropped, not run.
+        if (plan && api && into?.id === plan.destination) void run("bring_in", async (signal) => { brought(await api.transfer(plan, { signal }), into); });
+      },
+      dismissBringIn: () => review(null),
+      discardUnsynced: () => {
+        const api = unsyncedApi(mdbase);
+        if (api) void run("discard_unsynced", (signal) => api.discard({ signal }));
+      },
+      dismissUnsyncedNotice: () => setUnsyncedNotice(null),
     };
     return actions;
   }, [mdbase]);
@@ -302,5 +383,7 @@ export function useCollectionUi(options: CollectionUiOptions): CollectionUi {
     view, copy, say, options, busy, signOutPrompt, actions,
     appOpen: appOpenItem(options.sections),
     error: error && error.kind === view.kind ? error.notice : null,
+    unsyncedReview: view.kind === "ready" && unsyncedReview?.destination === view.current?.id ? unsyncedReview : null,
+    unsyncedNotice: view.kind === "ready" && unsyncedNotice && unsyncedNotice.collectionId === view.current?.id ? unsyncedNotice.notice : null,
   };
 }

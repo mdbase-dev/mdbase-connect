@@ -283,6 +283,58 @@ impl Bootstrap {
     }
 }
 
+/// The unsynced-collection bootstrap: identity and index-open facts only.
+/// `{0: 1, 1: collection, 2: replica, 3: device, 12: opened, 13: sqlite}`, the
+/// same slot numbers as [`Bootstrap`]; no keys, pins, genesis or endpoint.
+struct LocalBootstrap {
+    collection: Uuid,
+    replica_id: Uuid,
+    device_id: Uuid,
+    opened: OpenState,
+    sqlite_version: u32,
+}
+impl LocalBootstrap {
+    fn parse(bytes: &[u8]) -> Result<Self, OpenFailure> {
+        let mut r = Reader { bytes, pos: 0 };
+        if r.arg(5)? != 6 {
+            return Err(invalid());
+        }
+        r.field(0)?;
+        if r.arg(0)? != 1 {
+            return Err(invalid());
+        }
+        r.field(1)?;
+        let collection = B16(r.fixed()?);
+        r.field(2)?;
+        let replica_id = B16(r.fixed()?);
+        r.field(3)?;
+        let device_id = B16(r.fixed()?);
+        r.field(12)?;
+        let opened = match r.arg(0)? {
+            0 => OpenState::Fresh,
+            1 => OpenState::Existing,
+            2 => OpenState::Unclean,
+            _ => return Err(invalid()),
+        };
+        r.field(13)?;
+        let sqlite_version = u32::try_from(r.arg(0)?).map_err(|_| invalid())?;
+        if r.pos != bytes.len()
+            || [collection, replica_id, device_id]
+                .iter()
+                .any(|id| id.0 == [0; 16])
+        {
+            return Err(invalid());
+        }
+        Ok(Self {
+            collection,
+            replica_id,
+            device_id,
+            opened,
+            sqlite_version,
+        })
+    }
+}
+
 /// Canonical public pins produced by the SHARED environment trust-asset verifier
 /// at build time, not the signed asset parser itself. Reuse native PolicyPins
 /// validation; never learn authority from CP replies, the log or UI metadata.
@@ -329,6 +381,8 @@ pub struct AppRuntime {
     http_subscribes: std::collections::BTreeSet<CallId>,
     collection: Uuid,
     endpoint: EndpointId,
+    /// An unsynced collection: a local-only replica with no log, ever.
+    local: bool,
 }
 impl std::fmt::Debug for AppRuntime {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -352,6 +406,63 @@ impl AppRuntime {
         );
         Self::compose_bootstrap(b, sql, host, http, None, None)
     }
+    /// Trusted first-party open of an **unsynced collection**: a local-only
+    /// replica over the same `TentativeStore`, with no log, genesis, trust pins
+    /// or control-plane identity. Local commits are never signed, so the device
+    /// keys are fresh per open from host entropy and never cross the ABI. The
+    /// log/HTTP signer is retired at once; every log binding refuses.
+    pub fn open_local_consuming(
+        bytes: &mut [u8],
+        sql: Box<dyn AppSqlHost>,
+        mut host: Host,
+    ) -> Result<Self, OpenFailure> {
+        let parsed = if bytes.len() > MAX_BOOTSTRAP {
+            Err(invalid())
+        } else {
+            LocalBootstrap::parse(bytes)
+        };
+        wipe(bytes);
+        let l = parsed?;
+        let mut secrets = DeviceSecrets {
+            sign_sk: [0; 32],
+            kem_sk: [0; 32],
+        };
+        host.entropy.fill(&mut secrets.sign_sk);
+        host.entropy.fill(&mut secrets.kem_sk);
+        let cfg = ReplicaConfig {
+            collection: l.collection,
+            replica_id: l.replica_id,
+            device_id: l.device_id,
+            mode: mdbn_wire::client::SyncMode::LocalOnly,
+            log_endpoint: EndpointId(0),
+            verify: false,
+            runtime_version: RUNTIME_VERSION.into(),
+            trusted_roots: Vec::new(),
+            trusted_signers: vec![l.device_id],
+            e2e: false,
+            chosen_state: None,
+            user_enabled_cloud_copy: false,
+            key_grants_only: false,
+            expected_genesis: None,
+            policy_pins: None,
+        };
+        cfg.validate_host_trust()
+            .map_err(|e| OpenFailure(format!("host trust: {e}")))?;
+        let mut http =
+            http::HttpSigner::new(&secrets.sign_sk, l.collection, EndpointId(0), l.device_id);
+        http.retire();
+        let b = Bootstrap {
+            cfg,
+            secrets,
+            opened: l.opened,
+            sqlite_version: l.sqlite_version,
+        };
+        Self::compose_bootstrap(b, sql, host, http, None, None)
+    }
+    /// Whether this is an unsynced (local-only) collection.
+    pub fn is_local(&self) -> bool {
+        self.local
+    }
     fn compose_bootstrap(
         b: Bootstrap,
         sql: Box<dyn AppSqlHost>,
@@ -365,6 +476,7 @@ impl AppRuntime {
             .map_err(|_| OpenFailure("app store open failed; reopen and reconcile".into()))?;
         let collection = b.cfg.collection;
         let endpoint = b.cfg.log_endpoint;
+        let local = b.cfg.mode == mdbn_wire::client::SyncMode::LocalOnly;
         let runtime = Runtime::compose(
             b.cfg,
             store,
@@ -384,12 +496,16 @@ impl AppRuntime {
             http_subscribes: std::collections::BTreeSet::new(),
             collection,
             endpoint,
+            local,
         })
     }
     /// HOST ONLY, after actual endpoint authentication plus the post-await scope check.
     /// One binding only. Retirement destroys ALL replica/device key owners and
     /// requires a fresh module + protected unwrap, never a silent rebind.
     pub fn bind_log(&mut self, endpoint: EndpointId, collection: Uuid) -> bool {
+        if self.local {
+            return false;
+        }
         if endpoint != self.endpoint || collection != self.collection || self.session.is_some() {
             return false;
         }
@@ -412,6 +528,9 @@ impl AppRuntime {
     /// UNKNOWN before replacement, preserves same-byte recovery/keys, resubscribes
     /// via native HTTP head admission. No remote push or fresh identity fallback.
     pub fn reconnect_log(&mut self, endpoint: EndpointId, collection: Uuid) -> bool {
+        if self.local {
+            return false;
+        }
         if endpoint != self.endpoint
             || collection != self.collection
             || self.session.is_none()
@@ -500,7 +619,8 @@ impl AppRuntime {
     /// Never exposed through grant/client frames. All other identity pins come
     /// from protected registered-device bootstrap, not the signing caller.
     pub fn bind_cp_connector(&mut self, connector: Uuid) -> bool {
-        self.runtime.is_some()
+        !self.local
+            && self.runtime.is_some()
             && self.session.is_none()
             && self.healthy()
             && self.http.bind_connector(connector)

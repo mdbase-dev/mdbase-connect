@@ -10,6 +10,7 @@ import type { MdbaseErrorAction, MdbaseLinks, MdbasePhase, MdbaseProblem, Mdbase
 import { describeError } from "@mdbase-dev/sdk/describe";
 
 import { defaultCollectionCopy, fill, type CollectionCopy } from "./copy.js";
+import { hasUnsyncedWork, unsyncedPhase, type UnsyncedPhase } from "./unsynced.js";
 
 export type CollectionRole = "owner" | "editor" | "viewer";
 
@@ -71,6 +72,8 @@ interface Common {
   readonly links: MdbaseLinks | null;
   /** True when "Choose a different collection" leaves something open or requested. */
   readonly canChooseAnother: boolean;
+  /** Work saved before connecting that is not in a collection yet. */
+  readonly unsyncedWork: boolean;
 }
 
 export type CollectionView = Common & (
@@ -83,6 +86,8 @@ export type CollectionView = Common & (
   | { readonly kind: "needs_setup"; readonly collectionId: string }
   | { readonly kind: "problem"; readonly collectionId: string | null; readonly notice: CollectionNotice }
   | { readonly kind: "ready"; readonly collectionId: string; readonly phase: Extract<MdbasePhase, { kind: "ready" }>; readonly notice: CollectionNotice | null }
+  /** The app's unsynced collection is open: render the app, saved only on this device. */
+  | { readonly kind: "unsynced"; readonly collectionId: string; readonly phase: UnsyncedPhase }
   | { readonly kind: "unavailable"; readonly notice: CollectionNotice }
   | { readonly kind: "closed" }
 );
@@ -116,7 +121,11 @@ export function collectionView(snapshot: Snapshot, options: CollectionViewOption
     current,
     links: snapshot.links ?? null,
     canChooseAnother: signedIn && (currentId !== null || (snapshot.selection.requested.collectionId ?? null) !== null),
+    unsyncedWork: hasUnsyncedWork(snapshot),
   };
+  // Not part of every SDK's phase union yet (see unsynced.ts).
+  const unsynced = unsyncedPhase(phase);
+  if (unsynced) return { ...common, kind: "unsynced", collectionId: unsynced.collectionId, phase: unsynced, heading: app, lead: null };
 
   switch (phase.kind) {
     case "starting":

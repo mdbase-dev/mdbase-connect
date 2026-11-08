@@ -18,6 +18,7 @@ import type {AppWebCollectionHandoff,AppWebNativeCollection} from "../src/app-ho
 import type {AppBundledReleaseTrust} from "../src/app-host/cloud-copy-bootstrap.js";
 import * as ownership from "../src/app-host/owner.js";
 import * as erasure from "../src/app-host/sign-out-erase.js";
+import * as Unsynced from "../src/app-host/unsynced-collection.js";
 
 const origin="https://notes.example.test",cpOrigin="https://cp.example.test",appId="5cdfa020-c201-4da8-845a-f2cc9969eade";
 const account="11111111-1111-4111-8111-111111111111",installation="22222222-2222-4222-8222-222222222222";
@@ -74,14 +75,34 @@ function leader(){
       callbacks!.handoff(original);
       return {state:"ready",connection,close:async()=>{record.closed=true;},subscribe:(listener:()=>void)=>{listeners.add(listener);return()=>{listeners.delete(listener);};},get ended(){return ended;}};
     }});
-  vi.spyOn(WorkerSession,"applicationWorkerSession").mockImplementation((_declaration,_packaged,host)=>{callbacks=host;return {session} as unknown as ReturnType<typeof WorkerSession.applicationWorkerSession>;});
+  // The app's unsynced collection: opened on demand, closed by the host.
+  const U="99999999-9999-4999-8999-999999999999";
+  const unsynced:Array<{generation:string;closed:boolean;live:Map<MessagePort,string>;attached:number;writes:number}>=[];
+  vi.spyOn(Unsynced,"openAppUnsyncedCollection").mockImplementation(async()=>{
+    const generation=crypto.randomUUID(),record={generation,closed:false,live:new Map<MessagePort,string>(),attached:0,writes:0};unsynced.push(record);
+    const scope=Object.freeze({account:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",installation:"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",collection:U});
+    return Object.freeze({scope,generation,isCurrent:()=>!record.closed,setForeground(){},state:"ready" as const,work:null,get writes(){return record.writes;},
+      attach:()=>{record.attached++;const data=new MessageChannel(),control=new MessageChannel();cleanup.push(()=>{data.port1.close();control.port1.close();});
+        const value=Object.freeze({schema:"mdbn-app-collection/1" as const,scope,generation,displayName:"Notes",setupMode:"inspect" as const,dataPort:data.port2,controlPort:control.port2,people:true as const});
+        record.live.set(value.dataPort,`attach${record.attached}`);return value;},
+      detach:(value:AppWebCollectionHandoff)=>{record.live.delete(value.dataPort);},
+      subscribe:()=>()=>{},close:async()=>{record.closed=true;}});
+  });
+  const lifecycle={
+    retire:vi.spyOn(Unsynced,"retireAppUnsynced").mockResolvedValue(true),
+    identity:vi.spyOn(Unsynced,"appUnsyncedIdentity").mockResolvedValue(Object.freeze({version:1 as const,account:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",installation:"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",collection:U,replica:"cccccccc-cccc-4ccc-8ccc-cccccccccccc",device:"dddddddd-dddd-4ddd-8ddd-dddddddddddd"})),
+    discard:vi.spyOn(Unsynced,"discardAppUnsynced").mockImplementation(async()=>({version:1 as const,account:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",installation:"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",collection:U,replica:"cccccccc-cccc-4ccc-8ccc-cccccccccccc",device:"dddddddd-dddd-4ddd-8ddd-dddddddddddd"})),
+    erase:vi.spyOn(Unsynced,"eraseAppUnsyncedStorage").mockResolvedValue(true),
+    prune:vi.spyOn(Unsynced,"pruneAppUnsyncedRetired").mockResolvedValue(0),
+  };
+  vi.spyOn(WorkerSession,"applicationWorkerSession").mockImplementation((_declaration,_packaged,host)=>{callbacks=host;return {session,unsynced:{databaseName:"mdbase.test.unsynced.v1"},displayName:"Notes"} as unknown as ReturnType<typeof WorkerSession.applicationWorkerSession>;});
   const declaration=applicationDeclaration({id:appId,name:"Notes",origin,environment:"production",manifest:{manifest_version:1,id:"dev.example.notes",name:"Notes",homepage:origin,redirect_uris:[`${origin}/callback`],requirements:{access:"full_collection",contracts:[],capabilities:{contract_version:2,required:["collection.read"],optional:[]}}}});
   const packaged={release:()=>release} as unknown as PackagedApplicationNativeAssets;
   const primary=new MessageChannel();
   const host=new ApplicationWorkerHost(primary.port1,"leader_binding_00001",declaration,packaged,undefined,null);
   cleanup.push(()=>host.stop().catch(()=>{}));
   const open=(id:string)=>opened.filter(value=>value.id===id&&!value.closed);
-  return {host,session,hosts,opened,open,primary:primary.port2,flow};
+  return {host,session,hosts,opened,open,primary:primary.port2,flow,U,unsynced,lifecycle};
 }
 
 /** One browser tab: its own URL and history, Worker client and selection. */
@@ -223,5 +244,102 @@ describe("per-tab collection selection",()=>{
     for(const t of [a,b,c])await vi.waitFor(()=>expect(t.snapshot()).toMatchObject({status:"signed_out",selectedCollectionId:null}));
     expect(worker.open(X)).toHaveLength(0);expect(worker.session.heldCollections()).toEqual([]);
     for(const host of worker.hosts)expect(host.close).toHaveBeenCalled();
+  });
+
+  it("a tab reads the unsynced collection beside the one it shows, and the host closes it once no tab needs it",async()=>{
+    const worker=leader(),life=new AbortController();cleanup.push(()=>life.abort());
+    const a=tab(worker,"leader_binding_00001",`${origin}/?collection=${X}`,worker.primary);await a.ready();
+    await vi.waitFor(()=>a.shows(X));
+    // The source: its own ports, with A's selection and snapshot unchanged.
+    await a.client.request("attachUnsynced",null,life.signal);
+    expect(worker.unsynced).toHaveLength(1);const u=worker.unsynced[0]!;
+    expect([...u.live.values()]).toEqual(["attach1"]);
+    expect(a.received.at(-1)!.scope.collection).toBe(worker.U);a.shows(X);expect(a.snapshot().unsynced??null).toBeNull();
+    // One source per tab.
+    await expect(a.client.request("attachUnsynced",null,life.signal)).rejects.toMatchObject({code:"application_worker_busy"});
+    // B shows the unsynced collection; A lets go of its source: still open for B.
+    // (B has no URL selection here: the SDK entry hides the unsynced collection from it.)
+    const b=tab(worker,"follower_binding_0001",`${origin}/`);await vi.waitFor(()=>expect(b.snapshot()).not.toBeNull());
+    expect(await b.client.request("openUnsynced",null,life.signal)).toMatchObject({status:"ready",selectedCollectionId:worker.U,unsynced:{collectionId:worker.U,sessionStatus:"unselected"}});
+    expect(worker.unsynced).toHaveLength(1);expect(u.live.size).toBe(2);
+    await a.client.request("detachUnsynced",null,life.signal);
+    expect([...u.live.values()]).toEqual(["attach2"]);expect(u.closed).toBe(false);
+    // A attaches again, then B leaves: A's source keeps it open; A leaving closes it.
+    await a.client.request("attachUnsynced",null,life.signal);
+    b.leave();await vi.waitFor(()=>expect([...u.live.values()]).toEqual(["attach3"]));expect(u.closed).toBe(false);
+    await a.client.request("detachUnsynced",null,life.signal);
+    await vi.waitFor(()=>expect(u.closed).toBe(true));
+    a.shows(X);
+  });
+
+  it("retires the unsynced collection into the collection a tab shows, but not while another tab works in it",async()=>{
+    const worker=leader(),life=new AbortController();cleanup.push(()=>life.abort());
+    const a=tab(worker,"leader_binding_00001",`${origin}/?collection=${X}`,worker.primary);await a.ready();
+    await vi.waitFor(()=>a.shows(X));
+    const b=tab(worker,"follower_binding_0001",`${origin}/`);await vi.waitFor(()=>expect(b.snapshot()).not.toBeNull());
+    await b.client.request("openUnsynced",null,life.signal);
+    await a.client.request("attachUnsynced",null,life.signal);
+    const u=worker.unsynced[0]!;
+    await expect(a.client.request("retireUnsynced",[worker.U,X],life.signal)).rejects.toMatchObject({code:"application_worker_busy"});
+    // Only into the collection this tab shows.
+    await expect(a.client.request("retireUnsynced",[worker.U,Y],life.signal)).rejects.toMatchObject({code:"application_worker_unavailable"});
+    expect(worker.lifecycle.retire).not.toHaveBeenCalled();
+    b.leave();await vi.waitFor(()=>expect([...u.live.values()]).toEqual(["attach2"]));
+    // Something saved there after this tab read it (another tab opened, saved and left): not retired.
+    u.writes++;
+    await expect(a.client.request("retireUnsynced",[worker.U,X],life.signal)).rejects.toMatchObject({code:"application_worker_busy"});
+    expect(worker.lifecycle.retire).not.toHaveBeenCalled();
+    // Read again (the completeness check), then nothing changed: retired.
+    await a.client.request("detachUnsynced",null,life.signal);await a.client.request("attachUnsynced",null,life.signal);
+    await a.client.request("retireUnsynced",[worker.U,X],life.signal);
+    expect(worker.lifecycle.retire).toHaveBeenCalledWith("mdbase.test.unsynced.v1",worker.U,X,account,expect.any(AbortSignal));
+    expect(u.closed).toBe(true);expect(u.live.size).toBe(0);
+    a.shows(X);expect(a.snapshot().unsyncedWork??null).toBeNull();
+  });
+
+  it("discarding moves a tab showing the unsynced collection to a new one, and is refused while another tab shows it",async()=>{
+    const worker=leader(),life=new AbortController();cleanup.push(()=>life.abort());
+    const leaderTab=tab(worker,"leader_binding_00001",`${origin}/`,worker.primary);await vi.waitFor(()=>expect(leaderTab.snapshot()).not.toBeNull());
+    const a=tab(worker,"follower_binding_0002",`${origin}/`);await vi.waitFor(()=>expect(a.snapshot()).not.toBeNull());
+    const b=tab(worker,"follower_binding_0001",`${origin}/`);await vi.waitFor(()=>expect(b.snapshot()).not.toBeNull());
+    await a.client.request("openUnsynced",null,life.signal);await b.client.request("openUnsynced",null,life.signal);
+    await expect(b.client.request("discardUnsynced",null,life.signal)).rejects.toMatchObject({code:"application_worker_busy"});
+    expect(worker.lifecycle.discard).not.toHaveBeenCalled();
+    // The refused tab let go of its ports to discard: it gets new ones when it shows the collection again.
+    const refused=b.received.length;
+    await b.client.request("openUnsynced",null,life.signal);
+    expect(b.received.slice(refused).map(value=>value.generation)).toEqual([worker.unsynced[0]!.generation]);
+    a.leave();
+    const before=b.received.length;
+    expect(await b.client.request("discardUnsynced",null,life.signal)).toMatchObject({status:"ready",selectedCollectionId:worker.U,unsynced:{collectionId:worker.U}});
+    expect(worker.lifecycle.discard).toHaveBeenCalledWith("mdbase.test.unsynced.v1",worker.U,expect.any(AbortSignal));
+    expect(worker.lifecycle.erase).toHaveBeenCalledTimes(1);
+    expect(worker.unsynced).toHaveLength(2);expect(worker.unsynced[0]!.closed).toBe(true);
+    expect(b.received.slice(before).map(value=>value.generation)).toEqual([worker.unsynced[1]!.generation]);
+  });
+
+  it("prunes expired retired copies at start, and erases the account's own copies when it signs out",async()=>{
+    const worker=leader(),life=new AbortController();cleanup.push(()=>life.abort());
+    const a=tab(worker,"leader_binding_00001",`${origin}/?collection=${X}`,worker.primary);await a.ready();
+    await vi.waitFor(()=>a.shows(X));
+    const [name,expired]=worker.lifecycle.prune.mock.calls[0]!;
+    expect(name).toBe("mdbase.test.unsynced.v1");
+    const copy=(account:string,retiredAt:number)=>({version:1 as const,identity:{} as never,destination:X,account,retiredAt});
+    expect(expired(copy(account,0))).toBe(true);expect(expired(copy(account,Date.now()))).toBe(false);
+    await a.client.request("signOut",null,life.signal);
+    expect(worker.lifecycle.prune).toHaveBeenCalledTimes(2);
+    const [,mine]=worker.lifecycle.prune.mock.calls[1]!;
+    expect(mine(copy(account,Date.now()))).toBe(true);expect(mine(copy("55555555-5555-4555-8555-555555555555",0))).toBe(false);
+  });
+
+  it("a follower that leaves releases its unsynced source",async()=>{
+    const worker=leader(),life=new AbortController();cleanup.push(()=>life.abort());
+    const a=tab(worker,"leader_binding_00001",`${origin}/?collection=${X}`,worker.primary);await a.ready();
+    await vi.waitFor(()=>a.shows(X));
+    const b=tab(worker,"follower_binding_0001",`${origin}/?collection=${X}`);await b.ready();await vi.waitFor(()=>b.shows(X));
+    await b.client.request("attachUnsynced",null,life.signal);
+    const u=worker.unsynced[0]!;expect(u.live.size).toBe(1);
+    b.leave();
+    await vi.waitFor(()=>expect(u.closed).toBe(true));expect(u.live.size).toBe(0);a.shows(X);
   });
 });

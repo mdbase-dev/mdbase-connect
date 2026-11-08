@@ -17,18 +17,18 @@ const dir = new URL("../target/app-wasm-smoke/", import.meta.url);
 mkdirSync(dir, { recursive: true });
 // Bundle source, never silently consume stale installed SDK/index artifacts.
 await build({
-  stdin: { contents: 'export * from "../../packages/sdk/src/cbor.ts"; export * from "../../packages/obsidian-runtime/src/index/appIndexHost.ts";', resolveDir: new URL(".", dir).pathname },
+  stdin: { contents: 'export * from "../../packages/sdk/src/cbor.ts"; export * from "../../packages/obsidian-runtime/src/index/appIndexHost.ts"; export { submitParams, receipt as receiptCodec, recordView } from "../../packages/sdk/src/wire.ts"; export { uuidToBytes } from "../../packages/sdk/src/codec.ts";', resolveDir: new URL(".", dir).pathname },
   // Runtime compatibility reexports resolve to this checkout's canonical engine,
   // even in the standalone WASM lane (SDK dependencies only, no runtime install
   // or SDK dist build). Never fall back to a stale installed SDK artifact.
   alias: { "@mdbase-dev/sdk/app-storage": fileURLToPath(new URL("../packages/sdk/src/app-storage/index.ts", import.meta.url)) },
   bundle: true, platform: "node", format: "esm", outfile: new URL("helpers.mjs", dir).pathname,
 });
-const { encode, decode, AppBinaryIndexHost, appSqlHost } = await import(new URL("helpers.mjs", dir));
+const { encode, decode, AppBinaryIndexHost, appSqlHost, submitParams, receiptCodec, recordView, uuidToBytes } = await import(new URL("helpers.mjs", dir));
 const wasm = readFileSync(file);
 const module = await WebAssembly.compile(wasm);
 assert(WebAssembly.Module.imports(module).some(i => i.name === "host_app_sql"));
-const db = new DatabaseSync(":memory:");
+let db = new DatabaseSync(":memory:");
 const [major, minor, patch] = db.prepare("select sqlite_version() AS v").get().v.split(".").map(Number);
 const version = major * 1_000_000 + minor * 1_000 + patch;
 let sqlCalls = 0;
@@ -219,5 +219,52 @@ try {
   const unordered = encode([1, 0, setupManifest, null, [["b.md", "x"], ["a.md", "y"]]]);
   assert.equal(decode(planner.take(planner.x.rt_app_setup_assess(planner.put(unordered), unordered.length)))[1], false);
   assert.equal(sqlCalls, sqlBefore);
+  // Unsynced collection (work before connecting): rt_app_open_local over a
+  // fresh actual SQLite database. A local commit confirms on a tick with no
+  // log, nothing binds, and the record survives a new module's reopen.
+  const syncedSql = sqlCalls;
+  db.close(); db = new DatabaseSync(":memory:");
+  const localConfig = opened => encode(new Map([[0, 1], [1, new Uint8Array(16).fill(0x21)],
+    [2, new Uint8Array(16).fill(0x22)], [3, new Uint8Array(16).fill(0x23)], [12, opened], [13, version]]));
+  const openLocal = (h, bytes) => new TextDecoder().decode(h.take(h.x.rt_app_open_local(h.put(bytes), bytes.length)));
+  const localSession = h => {
+    const [id] = decode(h.take(h.x.rt_hello(0, 0, h.put(hello), hello.length)));
+    assert(BigInt(id) > 0n, "unsynced owner hello refused");
+    let next = 100;
+    return (name, params) => {
+      const n = ++next, input = encode(new Map([[0, 0], [1, n], [2, name], [3, params]]));
+      h.x.rt_frame(BigInt(id), h.put(input), input.length);
+      const frames = decode(h.take(h.x.rt_poll())).filter(row => BigInt(row[0]) === BigInt(id) && row[1]).map(row => decode(row[1]));
+      const response = frames.find(frame => frame.get(0) === 1 && frame.get(1) === n);
+      assert(response, `missing unsynced response for ${name}`);
+      assert.equal(response.get(3), undefined, `${name} refused: ${JSON.stringify([...(response.get(3) ?? new Map())])}`);
+      return response.get(2);
+    };
+  };
+  const recordId = "01960000-0000-7000-8000-000000000042", mutationId = "01960000-0000-7000-8000-000000000043";
+  const u1 = await create();
+  assert.match(openLocal(u1, config()), /open failed/, "a synced bootstrap is refused by the unsynced open");
+  const u2 = await create();
+  assert.equal(openLocal(u2, localConfig(0)), "");
+  assert(sqlCalls > syncedSql, "unsynced open uses the tentative SQL store");
+  assert.equal(u2.x.rt_app_log_bind(0n, u2.put(new Uint8Array(16).fill(0x21)), 16), 0, "no log binding");
+  assert.equal(decode(u2.take(u2.x.rt_app_log_calls())).length, 0, "no log calls");
+  const call = localSession(u2);
+  call("submit", submitParams.enc({ ops: [{ kind: "create", id: recordId, path: "first.md", body: "Started before connecting.\n" }], mutationId }));
+  u2.x.rt_tick(1_800_000_000_000);
+  const receipt = receiptCodec.dec(call("receipt", new Map([[0, uuidToBytes(mutationId)]])));
+  assert.equal(receipt.state, "confirmed", "a tick confirms the local commit");
+  assert.equal(receipt.mutation, mutationId);
+  assert.equal(decode(u2.take(u2.x.rt_app_log_calls())).length, 0, "a local commit makes no log call");
+  const byId = () => new Map([[0, uuidToBytes(recordId)], [1, new Map([[1, true]])]]);
+  const got = recordView.dec(call("get", byId()));
+  assert.equal(got.path, "first.md"); assert.equal(got.body, "Started before connecting.\n");
+  assert.equal(u2.x.rt_app_shutdown(), 1);
+  const u3 = await create(); assert.equal(openLocal(u3, localConfig(1)), "");
+  const again = recordView.dec(localSession(u3)("get", byId()));
+  assert.equal(again.body, got.body, "the unsynced record survives a new module's reopen");
+  assert.equal(again.revision, got.revision);
+  assert.equal(u3.x.rt_app_shutdown(), 1);
+  console.log(JSON.stringify({ unsynced: true, localCommitConfirmed: true, logCalls: 0, logBindRefused: true, syncedBootstrapRefused: true, reopened: true }));
   console.log(JSON.stringify({ actualWasm: true, sqliteVersion: version, sqlCalls, metadataRows: meta.length, staging: true, keyringPersisted: false, warmReopen: true, singleUseModule: true, legacyMemStoreRefused: true, staleLogReplyRefused: true, statelessSetup: true, scopedHttpSigner: true, terminalRetirement: true, physicalDurabilityQualified: false }));
 } finally { db.close(); }
