@@ -29,6 +29,7 @@ The SDK implements transport, session and typed client-API boundaries.
 | `src/records.ts`, `src/records/` | Shared record editor leases, bounded drafts and exact receipt recovery |
 | `src/timers.ts` | Opaque control-plane timers and push channel registration (`connection.timers`) |
 | `src/notifications.ts` (`@mdbase-dev/sdk/notifications`) | The push delivery envelope (`docs/contracts/push-envelope.md`) and service-worker helpers |
+| `src/manifest.ts` (`@mdbase-dev/sdk/manifest`) | Build-time `mdbase-app.json` validation (`validateAppManifest`, `parseAppManifest`, `formatManifestValidationIssues`) and `MDBASE_TIMER_FIRED_CONTRACT`, using the validator Connect runs. For build scripts and tests; never needed at runtime |
 | `src/describe-error.ts` (`@mdbase-dev/sdk/describe`) | `describeError()`: plain-language title, message and suggested action for any SDK error, sign-in/open problem (including `collection_migrating`, `account_suspended`, `update_required`) or readiness facet |
 | `src/collection-availability.ts` | `CollectionAvailability` (`available`, `opening`, `unavailable` + reason): Private collections served by one of the account's computers, and listed cloud copies (`AppInstallationCollection.availability`, absent meaning available) |
 | `src/app-grant/` (`@mdbase-dev/sdk/app-grant`) | `MdbaseAppGrants`: grants for Private collections (OAuth PKCE + an attested client Noise key), listing with availability, bounded waits, relay connector |
