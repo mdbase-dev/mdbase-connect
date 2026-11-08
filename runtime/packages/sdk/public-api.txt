@@ -1314,6 +1314,17 @@ parseMdbasePush -> parseMdbasePush@notifications.ts
 readMdbaseNotificationData -> readMdbaseNotificationData@notifications.ts
 showMdbaseNotification -> showMdbaseNotification@notifications.ts
 
+## entry ./manifest
+AppManifestValidationError (external)
+formatManifestValidationIssues (external)
+ManifestValidationIssue (external)
+ManifestValidationOptions (external)
+ManifestValidationResult (external)
+MDBASE_TIMER_FIRED_CONTRACT (external)
+parseAppManifest (external)
+validateAppManifest (external)
+ValidatedAppManifest (external)
+
 ## entry ./app-grant
 AppGrantCallbackPort -> AppGrantCallbackPort@app-grant/client.ts
 AppGrantPopup -> AppGrantPopup@app-grant/client.ts
