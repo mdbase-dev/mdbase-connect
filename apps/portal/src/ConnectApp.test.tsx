@@ -387,6 +387,7 @@ describe("ConnectApp", () => {
     account.backend = "next";
     account.deletion.owned_collections = 3;
     account.deletion.hosted_collections = 0;
+    overview.subscription!.limits.max_document_bytes = 1_048_576;
     account.storage.collections = [];
     overview.native_collections = [
       { id: "cloud", display_name: "Cloud notes", sync: "cloud_copy", access: { relationship: "owner", role: "owner", can_manage_members: true } },
@@ -407,7 +408,7 @@ describe("ConnectApp", () => {
     expect(collections.getByText("Beta")).toBeInTheDocument();
     expect(collections.getByText("Usage unavailable")).toBeInTheDocument();
     expect(collections.queryByText(/retained file storage/)).not.toBeInTheDocument();
-    expect(collections.getByText(/Documents up to/)).toBeInTheDocument();
+    expect(collections.getByText(/^Documents up to 1 MB ·/)).toBeInTheDocument();
     expect(screen.queryByText("0 hosted collections")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Delete account…" }));
     expect(screen.getByText("3 collections and their stored data")).toBeInTheDocument();

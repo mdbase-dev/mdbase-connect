@@ -26,6 +26,11 @@ import type { LogServiceClient } from "../next/log-service-client.js";
 import { nativeDevicesByCollection } from "../next/native-grant-target.js";
 import { nextFileBytes } from "../next/storage-usage.js";
 
+/** The native replica's record source cap (`RECORD_SOURCE_CAP_BYTES`, pinned by
+ * document-limit.test.ts). It bounds every next-backend document; an entitlement's
+ * document limit is the legacy hosted provider's. */
+const NATIVE_DOCUMENT_MAX_BYTES = 1_048_576;
+
 interface AccountOverviewRouteOptions {
   db: DatabasePool;
   relay: RelayHub;
@@ -291,7 +296,8 @@ export function registerAccountOverviewRoute(
         limits: {
           hosted_storage_bytes: entitlement.hostedStorageBytes,
           retained_file_bytes: entitlement.retainedFileBytes,
-          max_document_bytes: entitlement.maxDocumentBytes,
+          max_document_bytes: creation.backend === "next"
+            ? NATIVE_DOCUMENT_MAX_BYTES : entitlement.maxDocumentBytes,
           max_single_file_bytes: entitlement.maxSingleFileBytes,
           max_mirror_replicas_per_collection:
             entitlement.maxMirrorReplicasPerCollection,
