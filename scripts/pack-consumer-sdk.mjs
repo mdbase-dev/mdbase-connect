@@ -9,7 +9,6 @@ const packageDirectories = new Map([
   ["devkit", "packages/devkit"],
   ["protocol", "packages/protocol"],
   ["sync", "packages/sync"],
-  ["pickle", "packages/pickle"],
   ["testing", "packages/testing"],
   ["ui", "packages/app-ui"],
 ]);

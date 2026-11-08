@@ -140,8 +140,7 @@ Application tests should cover at least:
 - malformed configuration and invalid type-file diagnostics;
 - an uncertain mutation that must be reconciled rather than repeated.
 
-Use problem/outcome builders from `@mdbase-dev/connect-testing` for application
-fixtures. Protocol-author tests can import `MdbaseCollectionClient` from
+Protocol-author tests can import `MdbaseCollectionClient` from
 `@mdbase-dev/connect/advanced` with a small fake transport.
 Keep connector/server integration fixtures for the wire boundary, where the
 canonical problem object is schema-validated before the SDK accepts it.

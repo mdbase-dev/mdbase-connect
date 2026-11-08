@@ -42,14 +42,14 @@ async function fixture(t) {
 test("dry run plans the release cohort and SDK locks, without writes", async (t) => {
   const { root, files } = await fixture(t);
   const plan = await prepareVersion(root, newVersion, { dryRun: true });
-  assert.equal(plan.updates.size, 26);
+  assert.equal(plan.updates.size, 25);
   // Release cohort including the shared i18n kit: do not accidentally bump
   // independently versioned products or omit a release input.
   assert.deepEqual([...plan.updates.keys()].filter((file) => !["CHANGELOG.md", "config/architecture-budgets.json"].includes(file)).sort(), [
     "Cargo.lock", "Cargo.toml", "apps/desktop/package.json", "apps/portal/package.json",
     "deploy/docker/Cargo.lock.hosted-provider", "package.json", "packages/app-ui/package.json",
     "packages/client/package.json", "packages/devkit/package.json", "packages/i18n/package.json", "packages/management/package.json",
-    "packages/pickle/package.json", "packages/protocol/package.json", "packages/sync/package.json",
+    "packages/protocol/package.json", "packages/sync/package.json",
     "packages/testing/package.json", "packages/ui/package.json", "packages/webhooks/package.json",
     "runtime/packages/sdk/package.json", "runtime/packages/sdk/package-lock.json",
     "runtime/packages/obsidian-runtime/package.json", "runtime/packages/obsidian-runtime/package-lock.json",

@@ -8,11 +8,9 @@ for the v1 manifest, device-code flow, version-pinned CDN URL, SRI metadata,
 and `file://` storage boundary.
 
 Ordinary applications install only `@mdbase-dev/connect`. Add
-`@mdbase-dev/connect-dev` for declaration/type-pack authoring,
-`@mdbase-dev/connect-testing` for supported test fixtures,
-`@mdbase-dev/connect-sync` for an offline mirror, or the Pickle package only
-when the application uses that feature. Wire and authority implementations use
-`@mdbase-dev/connect-protocol`; ordinary application code does not.
+`@mdbase-dev/connect-dev` for declaration/type-pack authoring. Wire and
+authority implementations use `@mdbase-dev/connect-protocol`; ordinary
+application code does not.
 
 The complete developer guide covers
 [setup](https://mdbase.dev/sdk/quickstart/),
