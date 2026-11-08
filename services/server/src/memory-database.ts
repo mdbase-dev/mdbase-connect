@@ -150,6 +150,10 @@ export async function openMemoryDatabase(): Promise<DatabasePool> {
     // the grant mode column; revocation on mode change needs real PostgreSQL.
     const modeRevokeTrigger = "-- mdbase:next-grant-mode-revoke-trigger:v1";
     if (sql.includes(modeRevokeTrigger)) return memory.public.many(sql.slice(0, sql.indexOf(modeRevokeTrigger)));
+    // Memory keeps the retire-wake table only; queuing on deletion and on
+    // service-device removal is qualified by real PostgreSQL.
+    const retireWakeTrigger = "-- mdbase:next-service-retire-wake-trigger:v1";
+    if (sql.includes(retireWakeTrigger)) return memory.public.many(sql.slice(0, sql.indexOf(retireWakeTrigger)));
     // pg-mem does not use PostgreSQL's automatic CHECK name. Name ONLY the
     // original fixed device-kind CHECK so migration0055 replaces it exactly,
     // without editing historical SQL/checksums or weakening either constraint.

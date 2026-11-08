@@ -22,7 +22,7 @@ const compiled = await build({ entryPoints: [new URL("../src/worker.ts", import.
     b.onLoad({ filter: /hosted\.wasm$/ }, () => ({ contents: "export default new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0]));" }));
   },
 }] });
-const { HostedCollection } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text + "\n//# sourceURL=custody-verdict-worker.mjs").toString("base64")}`);
+const { HostedCollection, idlePollMs } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text + "\n//# sourceURL=custody-verdict-worker.mjs").toString("base64")}`);
 
 function object(escrow = false) {
   const data = new Map(); let alarm = null;
@@ -217,4 +217,53 @@ test("activation of a warm engine whose fresh token carries a verdict answers 40
   t.o.token = async () => { throw new Error("custody_unavailable"); };
   await assert.rejects(t.o.fetch(activate()), /custody_unavailable/);
   assert.equal(t.o.engine, w.engine);
+});
+
+// Server push on deletion / leaving cloud copy (services/server service-activation.ts):
+// the CP wakes the copy through the existing activation route. The request carries no
+// verdict; the copy asks custody (the CP) and erases on the lasting refusal it gets.
+const activation = (token) => new Request(`https://w.test/v1/hosted/activate?collection=${collection}`, {
+  method: "POST", headers: { authorization: `Bearer ${token}` }, body: JSON.stringify({ collection }) });
+
+test("deletion push: a CP wake for a deleted collection erases the store and deletes the alarm", async () => {
+  const token = "s".repeat(40);
+  for (const escrow of [false, true]) for (const warm of [false, true]) {
+    const label = `${escrow ? "escrow" : "hosted"} ${warm ? "warm" : "evicted"}`;
+    const t = warm ? object(escrow) : coldWake(escrow, "custody_collection_gone");
+    const w = warm ? warmEngine(t) : null;
+    if (warm) t.o.token = async () => { throw new Error("custody_collection_gone"); };
+    t.o.env = { ...t.o.env, HOSTED_SERVICE_TOKEN: token };
+    t.setAlarm(Date.now() + idlePollMs(30_000, 5)); // an idle copy's next poll
+    const response = await t.o.fetch(activation(token));
+    assert.equal(response.status, 409, label);
+    assert.deepEqual(await response.json(), { error: "custody_collection_gone" }, label);
+    if (!warm) assert.equal(t.opens(), 1, `${label}: the verdict came from custody, not the request`);
+    assert.equal(t.o.engine ?? null, null, `${label}: nothing serves the collection`);
+    if (w) assert.equal(w.wiped(), 1, label);
+    assert.equal(t.alarm(), null, `${label}: no wake remains armed`);
+    assert.deepEqual([...t.tables], ["migration_run"], `${label}: st_* store erased, ledger kept`);
+  }
+});
+
+test("deletion push: a wake while custody still serves the collection keeps the copy", async () => {
+  const token = "s".repeat(40);
+  const t = coldWake(false, "custody_unavailable");
+  t.o.env = { ...t.o.env, HOSTED_SERVICE_TOKEN: token };
+  await assert.rejects(t.o.fetch(activation(token)), /custody_unavailable/); // the CP retries on its backoff
+  assert.ok(t.alarm() > Date.now());
+  assert.deepEqual([...t.tables].sort(), ["migration_run", "st_meta", "st_records"]);
+});
+
+test("backstop: with the deletion push lost, the next idle wake still erases", async () => {
+  for (const escrow of [false, true]) for (const warm of [false, true]) {
+    const label = `${escrow ? "escrow" : "hosted"} ${warm ? "warm" : "evicted"}`;
+    const t = warm ? object(escrow) : coldWake(escrow, "custody_collection_gone");
+    if (warm) { warmEngine(t); t.o.token = async () => { throw new Error("custody_collection_gone"); }; }
+    // No activation arrives. The idle poll the copy armed for itself fires.
+    t.setAlarm(Date.now() + idlePollMs(30_000, 5));
+    await t.o.alarm();
+    assert.equal(t.o.engine ?? null, null, label);
+    assert.equal(t.alarm(), null, `${label}: no wake remains armed`);
+    assert.deepEqual([...t.tables], ["migration_run"], `${label}: st_* store erased, ledger kept`);
+  }
 });
