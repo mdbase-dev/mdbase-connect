@@ -144,11 +144,11 @@ describe("log HTTP PoP client interoperability", () => {
     await expect(call()).rejects.toMatchObject({ code: "not_found" });
     expect(f.request().method).toBe(method);
   });
-  it("reads storage_status from a log service that predates the file quota (CD deploys the server first)", async () => {
-    const f = fixture(() => new Response(encodeCbor({ struct: [[0, 1], [1, 1], [2, { struct: [[0, 30], [1, 100], [2, 10]] }]] }),
+  it("reads the file quota from storage_status key 3", async () => {
+    const f = fixture(() => new Response(encodeCbor({ struct: [[0, 1], [1, 1], [2, { struct: [[0, 30], [1, 100], [2, 10], [3, 50]] }]] }),
       { headers: { "content-type": "application/vnd.mdbase.v1+cbor" } }));
     await expect(f.client.storageStatus("22222222-2222-4222-8222-222222222222"))
-      .resolves.toEqual({ usedBytes: 30, quotaBytes: 100, fileBytes: 10 });
+      .resolves.toEqual({ usedBytes: 30, quotaBytes: 100, fileBytes: 10, fileQuotaBytes: 50 });
   });
   it("encodes create_log placement as key 2 {4: timezone, 5: [owner timezones]}, omitted when there is none", async () => {
     const f = fixture();

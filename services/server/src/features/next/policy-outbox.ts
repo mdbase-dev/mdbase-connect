@@ -243,7 +243,8 @@ export class PolicyEmitter {
     private readonly pollIntervalMs = 2_000,
     private readonly now: () => number = Date.now,
     private readonly activateServices: (collectionId?: string) => Promise<void> = async () => undefined,
-    private readonly onVerificationSweep: (sweep: PolicyVerificationSweep) => void = () => undefined
+    private readonly onVerificationSweep: (sweep: PolicyVerificationSweep) => void = () => undefined,
+    private readonly onLogCreated: (collectionId: string) => void = () => undefined
   ) {}
 
   private reportFailure(error: unknown, collectionId?: string, phase?: "recover"): void {
@@ -469,6 +470,7 @@ export class PolicyEmitter {
           "SELECT id, ops FROM next_policy_outbox WHERE collection_id = $1 ORDER BY id LIMIT 1", [collectionId]
         )).rows[0];
         const { region } = await this.log.createLog(collectionId, batch.item, storedPlacement(genesis?.ops));
+        this.onLogCreated(collectionId);
         // Recorded before the batch counts as appended, so activation (which waits for
         // an appended genesis) always sees it. A retry answers the same stored region.
         if (region && genesis) {

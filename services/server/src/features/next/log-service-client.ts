@@ -306,12 +306,11 @@ export class LogServiceClient {
     }
   }
 
-  /** What the collection stores: `usedBytes` is everything, `quotaBytes` caps the part that isn't
-   * files, and `fileBytes` is the uploaded files plans meter. The file quota (key 3) is not read:
-   * CD deploys the server before the log service, which answers it only from this release. */
-  async storageStatus(collection: string): Promise<{ usedBytes: number; quotaBytes: number; fileBytes: number }> {
+  /** What the collection stores: `usedBytes` is everything, `quotaBytes` caps the part that isn't files,
+   * and `fileBytes` (the uploaded files plans meter) is capped by `fileQuotaBytes`. */
+  async storageStatus(collection: string): Promise<{ usedBytes: number; quotaBytes: number; fileBytes: number; fileQuotaBytes: number }> {
     const result = await this.rpc("storage_status", struct([[0, uuidBytes(collection)]]));
-    return { usedBytes: seqField(result, 0), quotaBytes: seqField(result, 1), fileBytes: seqField(result, 2) };
+    return { usedBytes: seqField(result, 0), quotaBytes: seqField(result, 1), fileBytes: seqField(result, 2), fileQuotaBytes: seqField(result, 3) };
   }
 
   /** Sets the file quota to the collection's current file bytes plus `headroomBytes`, atomically, and

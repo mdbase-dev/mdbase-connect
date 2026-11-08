@@ -47,6 +47,10 @@ describe("private bootstrap configuration", () => {
     expect(parseNextControlPlaneEnv(base)?.objectGc).toBeUndefined();
     expect(parseNextControlPlaneEnv({ ...base, MDBASE_NEXT_OBJECT_GC: "1" })?.objectGc).toBe(true);
     expect(() => parseNextControlPlaneEnv({ ...base, MDBASE_NEXT_OBJECT_GC: "yes" })).toThrow(/0 or 1/);
+    expect(parseNextControlPlaneEnv(base)?.fileQuota).toBeUndefined();
+    expect(parseNextControlPlaneEnv({ ...base, MDBASE_NEXT_FILE_QUOTA: "report" })?.fileQuota).toBe("report");
+    expect(parseNextControlPlaneEnv({ ...base, MDBASE_NEXT_FILE_QUOTA: "enforce" })?.fileQuota).toBe("enforce");
+    expect(() => parseNextControlPlaneEnv({ ...base, MDBASE_NEXT_FILE_QUOTA: "1" })).toThrow(/report or enforce/);
   });
 });
 
