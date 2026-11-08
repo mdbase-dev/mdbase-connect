@@ -12,7 +12,7 @@ import { assertDispatch, assertCheckout, assertAncestor, deploymentFor } from '.
 import { loadOriginals, productionPin, compareInstalled, protectedHashes } from './originals.mjs';
 import { authenticateProduction, stagingArchive } from './authentication.mjs';
 import { prepareInstall } from './install-inputs.mjs';
-import { capturePrevious, rollback } from './rollback.mjs';
+import { capturePrevious, recoveryFailure, rollback } from './rollback.mjs';
 import { assertArtifactMetadata, assertArtifactRun, assertArtifactDirectory } from './artifact.mjs';
 import { inventoryDirectory } from './native-publish-bytes.mjs';
 import { headersPolicy, redirectsPolicy, assertHostingSource, verifyHosting, verifyPublication } from './hosting.mjs';
@@ -330,4 +330,11 @@ it('re-verifies only the custom alias inside a bounded settle window after the i
  assert.ok(stuck.calls.every(c=>c.totalTimeoutMs>0 && c.totalTimeoutMs<=180000));
  assert.ok(never.aliasAttempts.at(-1).startedMs<=300000);
  await assert.rejects(verifyPublication({...stuck.options,deployment:{...deployment,sourceSha:'c'.repeat(40)}}),/mismatch/);
+});
+
+it('recovery failures name the fixed refusal or only the error type', () => {
+ assert.equal(recoveryFailure(Error('Editor recovery refusal: alias changed during snapshot')),'Editor recovery operation failed: alias changed during snapshot');
+ const timeout=new DOMException('The operation was aborted due to timeout https://x.test/?token=secret','TimeoutError');
+ assert.equal(recoveryFailure(timeout),'Editor recovery operation failed: transport or runtime error (TimeoutError)');
+ assert.equal(recoveryFailure(Object.assign(Error('Bearer secret'),{name:'bad name with spaces'})),'Editor recovery operation failed: transport or runtime error (unknown)');
 });
