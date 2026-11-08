@@ -3277,7 +3277,7 @@ fn save(n: &mut Node, path: &str, text: Option<&str>) -> Uuid {
 
 fn refused(n: &Node) -> Vec<(String, Option<String>)> {
     n.r.refused_files()
-        .map(|(p, problem)| (p.to_string(), problem.reason.clone()))
+        .map(|(p, problem, _)| (p.to_string(), problem.reason.clone()))
         .collect()
 }
 
@@ -3448,24 +3448,78 @@ fn a_refused_edit_stays_refused_after_a_restart() {
     assert!(a.r.list_holds(a.s).unwrap().is_empty());
 }
 
-/// (e) The same refusal again with nothing appended between is not one
-/// change's fault: the loop stops with an integrity incident. Nothing is
-/// rejected or published.
+/// (e) An edit shrunk but still too large is refused again, its notice still
+/// shown; the real fix then syncs. No circuit breaker stops the loop.
 #[test]
-fn the_same_refusal_twice_in_a_row_stops() {
+fn a_still_too_large_edit_is_refused_again_then_a_fix_syncs() {
     let svc = FakeLogService::new();
     let mut a = item_limited(&svc, 1);
     let first = save(&mut a, "a.md", Some(&big()));
     settle(&mut [&mut a]);
     rejected_with(&a, &first, "item_bytes");
-    assert!(!integrity(&a));
-    let second = save(&mut a, "b.md", Some(&big()));
+    let smaller = "x".repeat(6000);
+    let second = save(&mut a, "a.md", Some(&smaller));
     settle(&mut [&mut a]);
-    assert!(integrity(&a));
-    assert_eq!(a.r.append, crate::replica::append::AppendState::Stopped);
-    assert!(a.r.store().pending_get(&second).unwrap().is_some());
-    assert_eq!(a.file("b.md"), Some(big()));
+    rejected_with(&a, &second, "item_bytes");
+    assert_eq!(
+        refused(&a),
+        vec![("a.md".into(), Some("item_bytes".into()))]
+    );
+    assert_eq!(a.file("a.md"), Some(smaller));
+    assert!(!integrity(&a));
+    let fixed = save(&mut a, "a.md", Some("fixed"));
+    settle(&mut [&mut a]);
+    assert_eq!(
+        a.r.store().local_receipt(&fixed).unwrap().unwrap().state,
+        mdbn_wire::client::ReceiptState::Confirmed
+    );
+    assert_eq!(
+        a.r.store().record(&B16([1; 16])).unwrap().unwrap().doc,
+        "fixed"
+    );
+    assert!(refused(&a).is_empty());
+    assert!(a.r.list_holds(a.s).unwrap().is_empty());
+}
+
+/// (e) Two oversized autosaves of one file in one batch are both rejected; the
+/// loop does not stop.
+#[test]
+fn two_oversized_autosaves_in_one_batch_are_both_rejected() {
+    let svc = FakeLogService::new();
+    let mut a = item_limited(&svc, 1);
+    let first = save(&mut a, "a.md", Some(&big()));
+    let later = "y".repeat(8192);
+    let second = save(&mut a, "a.md", Some(&later));
+    assert_ne!(first, second);
+    settle(&mut [&mut a]);
+    for m in [first, second] {
+        assert_eq!(
+            a.r.store().local_receipt(&m).unwrap().unwrap().state,
+            mdbn_wire::client::ReceiptState::Rejected
+        );
+    }
+    assert_eq!(a.file("a.md"), Some(later));
     assert_eq!(refused(&a).len(), 1);
+    assert_eq!(a.r.store().pending_count().unwrap(), 0);
+    assert!(!integrity(&a));
+    assert_ne!(a.r.append, crate::replica::append::AppendState::Stopped);
+}
+
+/// (e) Two different oversized files are both rejected; the loop does not stop.
+#[test]
+fn two_different_oversized_files_are_both_rejected() {
+    let svc = FakeLogService::new();
+    let mut a = item_limited(&svc, 1);
+    let one = save(&mut a, "a.md", Some(&big()));
+    settle(&mut [&mut a]);
+    let two = save(&mut a, "b.md", Some(&big()));
+    settle(&mut [&mut a]);
+    rejected_with(&a, &one, "item_bytes");
+    rejected_with(&a, &two, "item_bytes");
+    assert_eq!(refused(&a).len(), 2);
+    assert_eq!(a.file("b.md"), Some(big()));
+    assert!(!integrity(&a));
+    assert_ne!(a.r.append, crate::replica::append::AppendState::Stopped);
 }
 
 /// (f) A refused batch is probed one row at a time: only the guilty edit is
@@ -3510,6 +3564,8 @@ fn a_refused_batch_rejects_only_the_guilty_item() {
 fn chain_signature_epoch_and_not_found_refusals_still_stop() {
     use crate::log::{LogError, LogErrorCode};
     for (code, reason) in [
+        (LogErrorCode::Invalid, Some("kind")),
+        (LogErrorCode::Invalid, Some("shape")),
         (LogErrorCode::Invalid, Some("chain")),
         (LogErrorCode::Invalid, Some("signature")),
         (LogErrorCode::Invalid, Some("epoch")),
@@ -3534,10 +3590,46 @@ fn chain_signature_epoch_and_not_found_refusals_still_stop() {
     }
 }
 
-/// (h) A change rejected while planning its append (over 1 MiB sealed) keeps
-/// the bytes its records left on disk.
+/// (h) A disk edit rejected while planning its append (over 1 MiB sealed, with
+/// the real planner) keeps the user's bytes, and the store knows those bytes,
+/// so nothing overwrites them, now or after a restart.
 #[test]
-fn a_change_too_large_to_append_keeps_its_files() {
+fn a_disk_edit_too_large_to_append_keeps_its_bytes() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    a.r.planner = Box::new(crate::plan::CorePlanner);
+    a.disk.borrow_mut().user_write("a.md", Some("original"));
+    settle(&mut [&mut a]);
+    assert_eq!(a.r.store().record_count().unwrap(), 1);
+    let doc = "y".repeat(1_000_000);
+    a.disk.borrow_mut().user_write("a.md", Some(&doc));
+    settle(&mut [&mut a]);
+    assert_eq!(a.r.store().pending_count().unwrap(), 0);
+    let id = crate::Store::record_at(a.r.store(), &mdbn_core::paths::path_key("a.md"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(a.r.store().record(&id).unwrap().unwrap().doc, "original");
+    let problems: Vec<_> =
+        a.r.refused_files()
+            .map(|(p, problem, _)| (p.to_string(), problem.code.clone()))
+            .collect();
+    assert_eq!(problems, vec![("a.md".into(), "too_large".into())]);
+    assert_eq!(a.file("a.md").as_deref(), Some(doc.as_str()));
+    assert_eq!(a.disk.borrow().known.get("a.md"), Some(&h(&doc)));
+    assert!(!integrity(&a));
+    let Node { r, log, disk, .. } = a;
+    let mut a = reopen(&svc, 1, r.into_store(), log, disk);
+    a.r.planner = Box::new(crate::plan::CorePlanner);
+    settle(&mut [&mut a]);
+    assert_eq!(a.file("a.md").as_deref(), Some(doc.as_str()));
+    assert_eq!(a.disk.borrow().known.get("a.md"), Some(&h(&doc)));
+    assert_eq!(refused(&a).len(), 1);
+}
+
+/// (h) An app's write too large to append keeps the bytes its records left on
+/// disk (a store with files).
+#[test]
+fn an_app_write_too_large_to_append_keeps_its_files() {
     let svc = FakeLogService::new();
     let mut a = node(&svc, 1);
     settle(&mut [&mut a]);
@@ -3611,4 +3703,126 @@ fn a_remote_change_to_a_refused_file_is_held_as_a_conflict() {
     assert!(refused(&a).is_empty(), "the hold replaces the fence");
     assert!(!integrity(&a));
     assert_eq!(b.file("a.md").as_deref(), Some("theirs"));
+}
+
+/// An app's write the log refuses for its size, on a store with files: its
+/// bytes stay on disk with a notice, and a later edit of the file syncs.
+#[test]
+fn an_app_write_refused_for_its_size_keeps_its_bytes_until_edited() {
+    let svc = FakeLogService::new();
+    let mut a = item_limited(&svc, 1);
+    let m = create(&mut a, 2, "app.md", &big()).mutation;
+    settle(&mut [&mut a]);
+    rejected_with(&a, &m, "item_bytes");
+    assert_eq!(a.file("app.md"), Some(big()));
+    assert_eq!(
+        refused(&a),
+        vec![("app.md".into(), Some("item_bytes".into()))]
+    );
+    assert!(!integrity(&a));
+    let edit = save(&mut a, "app.md", Some("typed"));
+    settle(&mut [&mut a]);
+    assert_eq!(
+        a.r.store().local_receipt(&edit).unwrap().unwrap().state,
+        mdbn_wire::client::ReceiptState::Confirmed
+    );
+    let row = a.r.store().record(&B16([2; 16])).unwrap().unwrap();
+    assert_eq!((row.path.as_str(), row.doc.as_str()), ("app.md", "typed"));
+    assert!(refused(&a).is_empty());
+}
+
+/// An app's write rejected for anything but the change itself (here a
+/// conflict) reverts as before: no fence, no notice.
+#[test]
+fn an_app_write_rejected_for_a_conflict_reverts() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    let mut b = node(&svc, 2);
+    settle(&mut [&mut a, &mut b]);
+    let m = create(&mut a, 2, "same.md", "app").mutation;
+    a.r.observe(None).unwrap();
+    create(&mut b, 3, "same.md", "theirs");
+    settle(&mut [&mut b]);
+    settle(&mut [&mut a, &mut b]);
+    let r = a.r.store().local_receipt(&m).unwrap().unwrap();
+    assert_eq!(r.state, mdbn_wire::client::ReceiptState::Rejected);
+    assert_eq!(r.problem.unwrap().code, "conflict");
+    assert!(refused(&a).is_empty());
+    assert_eq!(a.file("same.md").as_deref(), Some("theirs"));
+}
+
+/// A refused move whose new path another device then takes with a different
+/// record: the fence (matched by record) survives, the old path is not
+/// recreated, and the new path keeps the user's bytes.
+#[test]
+fn a_refused_move_keeps_its_fence_when_another_record_takes_its_path() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    let mut b = node(&svc, 2);
+    create(&mut a, 1, "a.md", "original");
+    settle(&mut [&mut a, &mut b]);
+    a.log.faults.item_bytes_limit = Some(4096);
+    move_file(&mut a, "a.md", "b.md", &big());
+    settle(&mut [&mut a]);
+    assert_eq!(refused(&a).len(), 1);
+    create(&mut b, 2, "b.md", "another");
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(
+        a.r.store().record(&B16([2; 16])).unwrap().unwrap().path,
+        "b.md"
+    );
+    assert_eq!(
+        refused(&a),
+        vec![("b.md".into(), Some("item_bytes".into()))]
+    );
+    assert!(a.r.list_holds(a.s).unwrap().is_empty());
+    assert!(a.file("a.md").is_none(), "not recreated");
+    assert_eq!(a.file("b.md"), Some(big()));
+}
+
+/// A snapshot install does not publish over a fenced record; the next edit
+/// there is planned from the refused edit's base, so it is an ordinary
+/// concurrent edit: it does not overwrite the newer version, and the planner
+/// records the user's text as the conflict's lost side.
+#[test]
+fn a_snapshot_under_a_refused_file_then_an_edit_is_a_conflict() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    let mut b = node(&svc, 2);
+    create(&mut a, 1, "a.md", "original");
+    settle(&mut [&mut a, &mut b]);
+    b.log.faults.item_bytes_limit = Some(4096);
+    save(&mut b, "a.md", Some(&big()));
+    settle(&mut [&mut b]);
+    assert_eq!(refused(&b).len(), 1);
+    save(&mut a, "a.md", Some("theirs"));
+    settle(&mut [&mut a]);
+    let seq = a.r.head().seq;
+    a.r.build_snapshot_now().unwrap();
+    settle(&mut [&mut a]);
+    svc.compact(&COL, seq);
+    // B missed the entries: it finds them compacted and installs the snapshot.
+    let _ = crate::log::LogClient::poll_pushes(&mut b.log);
+    crate::log::LogPort::on_log_push(&mut b.r, crate::log::LogPush::Reconnected);
+    settle(&mut [&mut b]);
+    assert_eq!(b.r.stats.snapshots_installed, 1);
+    assert_eq!(
+        b.r.store().record(&B16([1; 16])).unwrap().unwrap().doc,
+        "theirs"
+    );
+    assert_eq!(b.file("a.md"), Some(big()), "the disk is untouched");
+    save(&mut b, "a.md", Some("mine again"));
+    settle(&mut [&mut a, &mut b]);
+    let conflicts = b.r.store().conflicts(Some(&B16([1; 16]))).unwrap();
+    assert_eq!(conflicts.len(), 1);
+    assert!(
+        format!("{conflicts:?}").contains("mine again"),
+        "{conflicts:?}"
+    );
+    assert_eq!(
+        a.r.store().record(&B16([1; 16])).unwrap().unwrap().doc,
+        "theirs",
+        "not overwritten"
+    );
+    assert!(refused(&b).is_empty());
 }

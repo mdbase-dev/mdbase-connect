@@ -1,17 +1,19 @@
-//! Refused files: the disk keeps the bytes of a rejected change.
+//! Refused files: the disk keeps the bytes of a rejected change ([`fences`]).
 //!
 //! Rejecting a pending change un-layers it, so the local view goes back to the
 //! confirmed version. Publishing that would overwrite (or recreate, or delete)
-//! the file the user just edited. Instead every record, file and resource a
-//! rejected change touched is fenced: [`Replica::materialize`] publishes nothing
-//! there, restart reconciliation leaves it alone, and the host shows a per-file
-//! notice ([`Replica::refused_files`]).
+//! what the user just wrote. Instead every record and file a rejected change
+//! targets is fenced: [`Replica::materialize`] and attachment fetch
+//! publish nothing there, restart reconciliation leaves it alone, and the host
+//! shows a per-file notice ([`Replica::refused_files`]).
 //!
-//! A fence ends when the user changes the file again: ingest releases it and
-//! plans the new bytes from the local view. A confirmed change of a fenced
-//! record from elsewhere becomes an ordinary conflict hold (mine: what the disk
-//! shows; theirs: the new confirmed version). Persisted in
-//! [`meta_keys::REFUSED`].
+//! A fence ends when the user's next disk edit there is captured, in the
+//! capture's own commit; a record edit is then planned from the version the
+//! refused change was based on, so anything confirmed since (a snapshot or a
+//! rollback included) merges or conflicts instead of being overwritten. A
+//! confirmed entry applied to a fenced record becomes an ordinary conflict
+//! hold (mine: what the disk shows; theirs: the new confirmed version).
+//! Persisted in [`meta_keys::REFUSED`].
 
 use std::collections::BTreeMap;
 
@@ -20,18 +22,38 @@ use mdbn_wire::cbor::{self, Cbor};
 use mdbn_wire::client::{Hold, HoldReason, Problem};
 use mdbn_wire::common::{B16, Text, Uuid};
 use mdbn_wire::entry::Effect;
-use mdbn_wire::intent::{Mutation, Op};
+use mdbn_wire::intent::{Create, Delete, DocVersion, Op, Rename, Source, Update};
 use mdbn_wire::schema::Wire;
 use mdbn_wire::snapshot::TextOrBlob;
 
 use super::Replica;
-use super::disk::DiskKey;
 use crate::store::{MetaPut, Store, StoreError, Tx, meta_keys};
+
+/// Whether a rejected row's files keep their bytes on disk (fenced) rather
+/// than going back to the confirmed version: the user's own disk edits, and
+/// on a store with files an app's write refused for the change itself (too
+/// large, invalid, unencodable, a stale setup review), whose typed content the
+/// app may not keep. Access and revocation rejections, and conflicts, revert.
+pub(crate) fn fences(source: Source, problem: &Problem, has_files: bool) -> bool {
+    let item = matches!(
+        problem.code.as_str(),
+        "too_large" | "invalid_request" | "invalid_record"
+    ) || problem.reason.as_deref() == Some("setup_changed");
+    source == Source::External || has_files && item
+}
+
+/// Whether the log's refusal of one change (`too_large`) rejects it. An app's
+/// write on a store without files stays pending and the append stops instead,
+/// so its content is not lost: these wait on the SDK keeping the app's draft
+/// on a late rejection.
+pub(crate) fn rejects_log_refusal(source: Source, has_files: bool) -> bool {
+    source == Source::External || has_files
+}
 
 /// One fenced file.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct RefusedFile {
-    /// The record or file whose change was refused; `None` for a resource.
+    /// The record or file whose change was refused.
     pub(crate) id: Option<Uuid>,
     /// Where the disk keeps the refused bytes.
     pub(crate) path: String,
@@ -40,8 +62,12 @@ pub(crate) struct RefusedFile {
     /// When (host clock).
     pub(crate) at: i64,
     /// A record's text as the disk shows it (empty: deleted), for a conflict
-    /// hold. `None` for files and resources, which stay fenced instead.
+    /// hold. `None` for files, which stay fenced instead.
     pub(crate) mine: Option<String>,
+    /// The record version the refused edit was based on (none: a create).
+    pub(crate) base: Option<DocVersion>,
+    /// The refused change deleted the file.
+    pub(crate) deleted: bool,
 }
 
 /// The fenced files, by path key.
@@ -55,8 +81,13 @@ fn key(path: &str) -> String {
 impl Refused {
     /// Whether `id` or any of `paths` is fenced.
     pub(crate) fn fenced(&self, id: Option<B16>, paths: &[Option<&str>]) -> bool {
-        paths.iter().flatten().any(|p| self.0.contains_key(&key(p)))
-            || id.is_some_and(|i| self.0.values().any(|f| f.id == Some(i)))
+        self.get(id, paths).is_some()
+    }
+
+    /// The entry for `id`, else for the first fenced of `paths`.
+    pub(crate) fn get(&self, id: Option<B16>, paths: &[Option<&str>]) -> Option<&RefusedFile> {
+        id.and_then(|i| self.0.values().find(|f| f.id == Some(i)))
+            .or_else(|| paths.iter().flatten().find_map(|p| self.0.get(&key(p))))
     }
 
     /// Fence `files`, replacing earlier entries at the same paths.
@@ -66,14 +97,14 @@ impl Refused {
         }
     }
 
-    /// Drop the entries for `id` or any of `paths`, returning them.
-    pub(crate) fn remove(&mut self, id: Option<B16>, paths: &[Option<&str>]) -> Vec<RefusedFile> {
-        let keys: Vec<String> = paths.iter().flatten().map(|p| key(p)).collect();
-        let (gone, rest) = std::mem::take(&mut self.0)
-            .into_iter()
-            .partition(|(k, f)| keys.contains(k) || (id.is_some() && f.id == id));
-        self.0 = rest;
-        gone.into_values().collect()
+    /// Drop the entries for any of `ids` or `paths`. Returns whether any was.
+    fn remove(&mut self, ids: &[Option<B16>], paths: &[&str]) -> bool {
+        let n = self.0.len();
+        self.0.retain(|k, f| {
+            let named = paths.iter().any(|p| key(p) == *k);
+            !(named || f.id.is_some() && ids.contains(&f.id))
+        });
+        self.0.len() != n
     }
 
     pub(crate) fn meta(&self) -> MetaPut {
@@ -95,6 +126,8 @@ fn encode(refused: &Refused) -> Vec<u8> {
                 f.problem.to_cbor(),
                 Cbor::int(f.at),
                 f.mine.clone().map_or(Cbor::Null, Cbor::Text),
+                f.base.as_ref().map_or(Cbor::Null, Wire::to_cbor),
+                Cbor::Bool(f.deleted),
             ])
         })
         .collect();
@@ -114,7 +147,16 @@ pub(crate) fn decode(bytes: Option<&[u8]>) -> Result<Refused, &'static str> {
         let Cbor::Array(e) = e else {
             return Err("entry");
         };
-        let [Cbor::Text(path), id, problem, at, mine] = e.as_slice() else {
+        let [
+            Cbor::Text(path),
+            id,
+            problem,
+            at,
+            mine,
+            base,
+            Cbor::Bool(deleted),
+        ] = e.as_slice()
+        else {
             return Err("entry");
         };
         let id = match id {
@@ -132,161 +174,238 @@ pub(crate) fn decode(bytes: Option<&[u8]>) -> Result<Refused, &'static str> {
             Cbor::Text(t) => Some(t.clone()),
             _ => return Err("mine"),
         };
+        let base = match base {
+            Cbor::Null => None,
+            b => Some(DocVersion::from_cbor(b).map_err(|_| "base")?),
+        };
         out.add(vec![RefusedFile {
             id,
             path: path.clone(),
             problem: Problem::from_cbor(problem).map_err(|_| "problem")?,
             at,
             mine,
+            base,
+            deleted: *deleted,
         }]);
     }
     Ok(out)
 }
 
-/// What a change touches on disk: (ID, path, is a record), from its effects
-/// and, for what is not layered (attachments, unplanned edits), its operations.
-fn targets(mutation: &rt::Mutation, effects: &[Effect]) -> Vec<(Option<B16>, String, bool)> {
-    let mut out = Vec::new();
-    for e in effects {
-        match e {
-            Effect::PutRecord(p) => out.push((Some(p.id), p.path.clone(), true)),
-            Effect::RemoveRecord(p) => out.push((Some(p.id), p.path.clone(), true)),
-            Effect::PutFile(p) => out.push((Some(p.id), p.path.clone(), false)),
-            Effect::RemoveFile(p) => out.push((Some(p.id), p.path.clone(), false)),
-            Effect::PutResource(p) => out.push((None, p.path.clone(), false)),
-            Effect::RemoveResource(p) => out.push((None, p.path.clone(), false)),
-            _ => {}
-        }
+/// One record or file a change targets.
+struct Target {
+    id: Uuid,
+    path: String,
+    mine: Option<String>,
+    base: Option<DocVersion>,
+    deleted: bool,
+}
+
+fn inline(t: &Text) -> Option<String> {
+    match t {
+        Text::Inline(s) => Some(s.clone()),
+        Text::Index(_) => None,
     }
-    for op in &mutation.ops {
-        match op {
-            rt::Op::Legacy(Op::Document(d)) => {
-                if let Some(v) = d.new.as_ref().or(d.base.as_ref()) {
-                    out.push((Some(d.id), v.path.clone(), true));
-                }
-            }
-            rt::Op::Legacy(Op::ResourcePut(r)) => out.push((None, r.path.clone(), false)),
-            rt::Op::Legacy(Op::ResourceDelete(r)) => out.push((None, r.path.clone(), false)),
-            rt::Op::Legacy(Op::FilePut(f)) => out.push((Some(f.id), f.path.clone(), false)),
-            rt::Op::FileAttach(f) => out.push((Some(f.id), f.path.clone(), false)),
-            rt::Op::OrdinaryAttachmentContinuation(f) => {
-                out.push((Some(f.id), f.path.clone(), false));
-            }
-            _ => {}
-        }
-    }
-    out
 }
 
 impl<S: Store> Replica<S> {
-    /// Files whose change was rejected, kept as the user left them on disk,
-    /// with why. Each clears when the file is changed again.
-    pub fn refused_files(&self) -> impl ExactSizeIterator<Item = (&str, &Problem)> {
+    /// Files whose change was rejected, kept as the user left them, with
+    /// why and whether the edit was a delete. Each clears when the user's next
+    /// change there is captured.
+    pub fn refused_files(&self) -> impl ExactSizeIterator<Item = (&str, &Problem, bool)> {
         self.refused
             .0
             .values()
-            .map(|f| (f.path.as_str(), &f.problem))
+            .map(|f| (f.path.as_str(), &f.problem, f.deleted))
     }
 
-    /// The fence entries for rejected pending rows, read before they are
-    /// un-layered: a record's text is what the local view (so the disk) shows.
+    /// The fence entries for rejected pending rows ([`fences`]).
     pub(crate) fn refused_rows(
         &self,
         rejected: &[(Uuid, Option<Uuid>, Problem)],
     ) -> Result<Vec<RefusedFile>, StoreError> {
         let mut out = Vec::new();
-        if !self.store.has_files() {
+        if !self.store.has_files() && !self.store.materializes_attachments() {
             return Ok(out);
         }
         for (id, _, problem) in rejected {
             let Some(row) = self.store.pending_get(id)? else {
                 continue;
             };
-            out.extend(self.refused_targets(&row.mutation, &row.effects, problem));
+            if fences(row.mutation.source, problem, self.store.has_files()) {
+                out.extend(self.refused_targets(&row.mutation, &row.effects, problem)?);
+            }
         }
         Ok(out)
     }
 
+    /// What a change targets, from its operations alone (never files a
+    /// planner rewrote along with it). An app's record write is found in its
+    /// planned `effects`, based on the confirmed record.
+    fn targets(&self, m: &rt::Mutation, effects: &[Effect]) -> Result<Vec<Target>, StoreError> {
+        let file = |id: Uuid, path: &str| Target {
+            id,
+            path: path.to_string(),
+            mine: None,
+            base: None,
+            deleted: false,
+        };
+        let mut out = Vec::new();
+        for op in &m.ops {
+            match op {
+                rt::Op::Legacy(Op::Document(d)) => {
+                    let Some(v) = d.new.as_ref().or(d.base.as_ref()) else {
+                        continue;
+                    };
+                    out.push(Target {
+                        mine: match &d.new {
+                            Some(n) => inline(&n.doc),
+                            None => Some(String::new()),
+                        },
+                        base: d.base.clone(),
+                        deleted: d.new.is_none(),
+                        ..file(d.id, &v.path)
+                    });
+                }
+                rt::Op::Legacy(
+                    Op::Create(Create { id, .. })
+                    | Op::Update(Update { id, .. })
+                    | Op::Delete(Delete { id, .. })
+                    | Op::Rename(Rename { id, .. }),
+                ) => {
+                    let Some((path, mine, deleted)) = effects.iter().rev().find_map(|e| match e {
+                        Effect::PutRecord(p) if p.id == *id => {
+                            Some((&p.path, inline(&p.doc), false))
+                        }
+                        Effect::RemoveRecord(r) if r.id == *id => {
+                            Some((&r.path, Some(String::new()), true))
+                        }
+                        _ => None,
+                    }) else {
+                        continue;
+                    };
+                    out.push(Target {
+                        mine,
+                        base: self.store.record(id)?.map(|r| DocVersion {
+                            path: r.path,
+                            doc: Text::Inline(r.doc),
+                        }),
+                        deleted,
+                        ..file(*id, path)
+                    });
+                }
+                rt::Op::Legacy(Op::FilePut(f)) => out.push(file(f.id, &f.path)),
+                rt::Op::Legacy(Op::FileMove(f)) => out.push(file(f.id, &f.to)),
+                rt::Op::Legacy(Op::FileDelete(f)) => {
+                    if let Some(row) = self.store.file(&f.id)? {
+                        out.push(Target {
+                            deleted: true,
+                            ..file(f.id, &row.path)
+                        });
+                    }
+                }
+                rt::Op::FileAttach(f) => out.push(file(f.id, &f.path)),
+                rt::Op::OrdinaryAttachmentContinuation(f) => out.push(file(f.id, &f.path)),
+                rt::Op::UnindexedMarkdownPut(f) => out.push(file(f.id, &f.path)),
+                rt::Op::RecordToUnindexedMarkdown(f) => out.push(file(f.id, &f.path)),
+                rt::Op::UnindexedMarkdownToRecord(f) => out.push(file(f.id, &f.path)),
+                rt::Op::OrdinaryFileToRecord(f) => out.push(file(f.id, &f.path)),
+                // Resources and settings are not fenced.
+                rt::Op::Legacy(_) => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The fence entries for a refused change.
     pub(crate) fn refused_targets(
         &self,
-        mutation: &rt::Mutation,
+        m: &rt::Mutation,
         effects: &[Effect],
         problem: &Problem,
-    ) -> Vec<RefusedFile> {
-        let mut out: Vec<RefusedFile> = Vec::new();
-        for (id, path, record) in targets(mutation, effects) {
-            let shown = match id {
-                Some(i) if record => self.local_view_doc(&DiskKey::Record(i)),
-                _ => None,
-            };
-            let path = shown.as_ref().map_or(path, |(p, _)| p.clone());
-            if out.iter().any(|f| f.id == id && key(&f.path) == key(&path)) {
-                continue;
-            }
-            out.push(RefusedFile {
-                id,
-                path,
+    ) -> Result<Vec<RefusedFile>, StoreError> {
+        Ok(self
+            .targets(m, effects)?
+            .into_iter()
+            .map(|t| RefusedFile {
+                id: Some(t.id),
+                path: t.path,
                 problem: problem.clone(),
                 at: self.now(),
-                mine: record.then(|| shown.map(|(_, d)| d).unwrap_or_default()),
-            });
-        }
-        out
-    }
-
-    /// The fence entries for an external edit refused before it was queued:
-    /// the disk shows its new bytes (none: deleted).
-    pub(crate) fn refused_edit(&self, m: &Mutation, problem: &Problem) -> Vec<RefusedFile> {
-        m.ops
-            .iter()
-            .filter_map(|op| {
-                let Op::Document(d) = op else {
-                    return None;
-                };
-                let v = d.new.as_ref().or(d.base.as_ref())?;
-                let mine = match &d.new {
-                    Some(n) => match &n.doc {
-                        Text::Inline(t) => t.clone(),
-                        _ => return None,
-                    },
-                    None => String::new(),
-                };
-                Some(RefusedFile {
-                    id: Some(d.id),
-                    path: v.path.clone(),
-                    problem: problem.clone(),
-                    at: self.now(),
-                    mine: Some(mine),
-                })
+                mine: t.mine,
+                base: t.base,
+                deleted: t.deleted,
             })
-            .collect()
+            .collect())
     }
 
-    /// The user changed (or moved) a refused file: lift its fence so ingest
-    /// takes the new bytes normally. Returns the lifted entries.
+    /// A captured disk edit ends the fence of what it targets, in the capture's
+    /// commit. Returns the fence to keep once `tx` commits.
     pub(crate) fn release_refused(
-        &mut self,
-        id: Option<B16>,
-        paths: &[Option<&str>],
-    ) -> Result<Vec<RefusedFile>, StoreError> {
-        if !self.refused.fenced(id, paths) {
-            return Ok(Vec::new());
+        &self,
+        m: &rt::Mutation,
+        tx: &mut Tx,
+    ) -> Result<Option<Refused>, StoreError> {
+        if m.source != Source::External || self.refused.0.is_empty() {
+            return Ok(None);
         }
+        let mut ids = Vec::new();
+        let mut paths = Vec::new();
+        for op in &m.ops {
+            if let rt::Op::Legacy(Op::Document(d)) = op {
+                // A move or delete names the record's other path as its base.
+                if let Some(b) = &d.base {
+                    paths.push(b.path.clone());
+                }
+            }
+        }
+        for t in self.targets(m, &[])? {
+            ids.push(Some(t.id));
+            paths.push(t.path);
+        }
+        let paths: Vec<&str> = paths.iter().map(String::as_str).collect();
         let mut rest = self.refused.clone();
-        let lifted = rest.remove(id, paths);
-        self.store.commit(Tx {
-            meta: vec![rest.meta()],
+        if !rest.remove(&ids, &paths) {
+            return Ok(None);
+        }
+        tx.meta.push(rest.meta());
+        Ok(Some(rest))
+    }
+
+    /// Keep the fence `release_refused` left, once its transaction committed.
+    pub(crate) fn refused_released(&mut self, rest: Option<Refused>) {
+        if let Some(rest) = rest {
+            self.refused = rest;
+            self.status_dirty = true;
+        }
+    }
+
+    /// The user's file kept the local view after all (a revert): its fence
+    /// ends with the acknowledgement.
+    pub(crate) fn ack_releasing(
+        &mut self,
+        token: crate::store::ObservationId,
+        id: Option<B16>,
+        path: &str,
+    ) -> Result<(), StoreError> {
+        let mut rest = self.refused.clone();
+        let mut tx = Tx {
+            ack_observations: vec![token],
             ..Tx::default()
-        })?;
-        self.refused = rest;
-        self.status_dirty = true;
-        Ok(lifted)
+        };
+        let released = rest.remove(&[id], &[path]);
+        if released {
+            tx.meta.push(rest.meta());
+        }
+        self.store.commit(tx)?;
+        self.refused_released(released.then_some(rest));
+        Ok(())
     }
 
     /// Apply of a confirmed entry touching fenced records, in its transaction:
     /// an own external edit of the record supersedes the fence; anything else
     /// becomes a conflict hold so the user's bytes are never published over.
-    /// Files and resources stay fenced. Returns the fence to keep after commit.
+    /// Matched by record ID only. Files stay fenced. Returns the fence to keep
+    /// after commit.
     pub(crate) fn prepare_refused_holds(
         &self,
         effects: &[Effect],
@@ -295,23 +414,18 @@ impl<S: Store> Replica<S> {
     ) -> Result<Option<Refused>, StoreError> {
         let mut rest = self.refused.clone();
         for e in effects {
-            let (id, path) = match e {
-                Effect::PutRecord(p) => (p.id, &p.path),
-                Effect::RemoveRecord(p) => (p.id, &p.path),
+            let id = match e {
+                Effect::PutRecord(p) => p.id,
+                Effect::RemoveRecord(p) => p.id,
                 _ => continue,
             };
-            let Some(f) = rest
-                .0
-                .values()
-                .find(|f| f.id == Some(id) || key(&f.path) == key(path))
-                .cloned()
-            else {
+            let Some(f) = rest.0.values().find(|f| f.id == Some(id)).cloned() else {
                 continue;
             };
             let Some(mine) = f.mine.clone() else {
                 continue;
             };
-            rest.remove(f.id, &[Some(&f.path)]);
+            rest.remove(&[f.id], &[]);
             if own_external
                 || self.store.hold(&id)?.is_some()
                 || tx.holds_put.iter().any(|h| h.id == id)
@@ -341,5 +455,62 @@ impl<S: Store> Replica<S> {
         }
         tx.meta.push(rest.meta());
         Ok(Some(rest))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::ErrorCode;
+
+    /// Who keeps a rejected change's bytes: a disk edit always; an app's write
+    /// only on a store with files and only for the change itself.
+    #[test]
+    fn which_rejections_are_fenced() {
+        let mut revoked = ErrorCode::Forbidden.problem("revoked");
+        revoked.reason = Some("revoked_after_loss".into());
+        let too_large = ErrorCode::TooLarge.problem_with_reason("item_bytes", "too large");
+        let setup = ErrorCode::Conflict.problem_with_reason("setup_changed", "review again");
+        for (source, problem, files, fenced) in [
+            (Source::External, &revoked, true, true),
+            (Source::External, &too_large, true, true),
+            (Source::Api, &too_large, true, true),
+            (
+                Source::Api,
+                &ErrorCode::InvalidRequest.problem("bad"),
+                true,
+                true,
+            ),
+            (Source::Api, &setup, true, true),
+            (Source::Api, &too_large, false, false),
+            (Source::Api, &revoked, true, false),
+            (
+                Source::Api,
+                &ErrorCode::Unauthenticated.problem("no session"),
+                true,
+                false,
+            ),
+            (
+                Source::Api,
+                &ErrorCode::Forbidden.problem("no capability"),
+                true,
+                false,
+            ),
+            (
+                Source::Api,
+                &ErrorCode::Conflict.problem("path taken"),
+                true,
+                false,
+            ),
+        ] {
+            assert_eq!(
+                fences(source, problem, files),
+                fenced,
+                "{source:?} {problem:?} {files}"
+            );
+        }
+        assert!(rejects_log_refusal(Source::External, false));
+        assert!(rejects_log_refusal(Source::Api, true));
+        assert!(!rejects_log_refusal(Source::Api, false));
     }
 }

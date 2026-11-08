@@ -42,11 +42,19 @@ impl<S: Store> Replica<S> {
     }
     pub(super) fn commit_native_capture_tx(
         &mut self,
-        tx: Tx,
+        mut tx: Tx,
         unknown_reason: &str,
     ) -> StoreResult<()> {
+        // A disk edit ends the fence of a refused one there (`refused.rs`).
+        let refused = match tx.pending_put.first().map(|r| r.mutation.clone()) {
+            Some(m) => self.release_refused(&m, &mut tx)?,
+            None => None,
+        };
         match self.store.commit(tx) {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                self.refused_released(refused);
+                Ok(())
+            }
             Err(e) => {
                 if !matches!(e, StoreError::CommitAborted(_)) {
                     self.terminal_store_fault(unknown_reason);

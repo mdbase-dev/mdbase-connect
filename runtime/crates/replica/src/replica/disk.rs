@@ -1072,9 +1072,6 @@ impl<S: Store> Replica<S> {
         {
             return self.ack(o.token);
         }
-        // The user changed a refused file again: its fence ends here.
-        let paths = [Some(o.path.as_str()), o.moved_from.as_deref()];
-        let lifted = self.release_refused(None, &paths)?;
         // Attachment files (and deletes of files) go to attachment ingest (T6).
         if self.ingest_attachment(&o)? {
             return Ok(());
@@ -1094,16 +1091,21 @@ impl<S: Store> Replica<S> {
         }
         // Which record is this?
         let from = o.moved_from.clone().unwrap_or_else(|| o.path.clone());
-        // A refused move or create: the record the fence was for.
+        // A refused disk edit here (`refused.rs`): the disk kept its bytes, and
+        // a refused move or create names the record it was for.
+        let paths = [Some(o.path.as_str()), o.moved_from.as_deref()];
+        let refused = |id| {
+            self.refused
+                .get(id, &paths)
+                .filter(|f| f.mine.is_some())
+                .cloned()
+        };
+        let fence = refused(None);
         let id = self
             .holder_at(&from)
             .or_else(|| self.holder_at(&o.path))
-            .or_else(|| {
-                lifted
-                    .iter()
-                    .find_map(|f| f.id.filter(|_| f.mine.is_some()))
-            });
-        let refused = !lifted.is_empty() || !self.release_refused(id, &[])?.is_empty();
+            .or_else(|| fence.as_ref().and_then(|f| f.id));
+        let fence = refused(id).or(fence);
         // A held record collects saves.
         if let Some(i) = id
             && let Some(mut h) = self.store.hold(&i)?
@@ -1128,15 +1130,12 @@ impl<S: Store> Replica<S> {
             && *p == o.path
             && d == t
         {
-            return self.ack(o.token);
+            return self.ack_releasing(o.token, id, &o.path);
         }
         let base = match (&shown, o.base) {
-            // The disk kept a refused change's bytes, which this replica no
-            // longer shows: the new edit applies to the local view.
-            (shown, _) if refused => shown.as_ref().map(|(p, d)| DocVersion {
-                path: p.clone(),
-                doc: Text::Inline(d.clone()),
-            }),
+            // The new edit continues the refused one: plan it from what that
+            // was based on, so anything confirmed since conflicts.
+            _ if fence.is_some() => fence.as_ref().and_then(|f| f.base.clone()),
             (Some((p, d)), Some(b)) if rev(d) == b => Some(DocVersion {
                 path: p.clone(),
                 doc: Text::Inline(d.clone()),
@@ -1164,10 +1163,11 @@ impl<S: Store> Replica<S> {
             && *p == o.path
             && d == t
         {
-            return self.ack(o.token);
+            return self.ack_releasing(o.token, id, &o.path);
         }
-        if id.is_none() && text.is_none() {
-            return self.ack(o.token);
+        // Gone, and nothing here to delete (a refused create, removed).
+        if shown.is_none() && text.is_none() {
+            return self.ack_releasing(o.token, id, &o.path);
         }
         let id = match id {
             Some(i) => i,
@@ -1427,11 +1427,13 @@ impl<S: Store> Replica<S> {
                 // here is a bug or a resource write that is invalid. Keep the user's
                 // bytes (nothing is published) and report.
                 let problem = super::submit::rejection_problem(&rej);
-                if !retain_on_refusal && session.is_none() {
+                if !retain_on_refusal
+                    && super::refused::fences(m.source, &problem, self.store.has_files())
+                {
                     // A disk edit: a durable rejection, and its files fenced with a
                     // per-file notice (`refused.rs`).
                     self.before.clear();
-                    let fence = self.refused_edit(&m, &problem);
+                    let fence = self.refused_targets(&m.clone().into(), &[], &problem)?;
                     self.resolve_rejected_fencing(vec![(m.id, None, problem.clone())], fence)?;
                     self.ack_all(tokens)?;
                     return Ok(rejected_receipt(m.id, problem));
@@ -1507,21 +1509,25 @@ impl<S: Store> Replica<S> {
         let order = self.next_order;
         self.next_order += 1;
         let id = m.id;
-        self.store.commit(Tx {
-            pending_put: vec![PendingRow {
-                order,
-                mutation: m.into(),
-                effects: effects.clone(),
-                touches: touches.clone(),
-                grant: None,
-                uploads: Vec::new(),
-                refs: Vec::new(),
-            }],
+        let mutation = m.into();
+        let mut tx = Tx {
             ack_observations: tokens,
             holds_del,
             meta: vec![(meta_keys::COUNTERS.into(), i64_meta(self.clock_floor))],
             ..Tx::default()
-        })?;
+        };
+        let refused = self.release_refused(&mutation, &mut tx)?;
+        tx.pending_put.push(PendingRow {
+            order,
+            mutation,
+            effects: effects.clone(),
+            touches: touches.clone(),
+            grant: None,
+            uploads: Vec::new(),
+            refs: Vec::new(),
+        });
+        self.store.commit(tx)?;
+        self.refused_released(refused);
         {
             let view = StoreView::new(&self.store, self.catalog.clone());
             for e in &planned.effects {

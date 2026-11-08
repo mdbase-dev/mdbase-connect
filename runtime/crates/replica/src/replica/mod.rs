@@ -511,9 +511,6 @@ pub struct Replica<S: Store> {
     pub(crate) moved_streak: u32,
     /// Send only the head row next: a batch was refused for one of its items.
     pub(crate) append_probe: bool,
-    /// The log's last single-item refusal that rejected a change (code,
-    /// reason), until an append succeeds. The same refusal again stops.
-    pub(crate) last_refusal: Option<(crate::log::LogErrorCode, String)>,
     pub(crate) stalled: Option<(IncidentKind, u64)>,
     stall_read: stall_read::ReadBackoff,
     /// Control read-ahead while waiting for a key (`join_ahead.rs`).
@@ -881,7 +878,6 @@ impl<S: Store> Replica<S> {
             caught_up: false,
             moved_streak: 0,
             append_probe: false,
-            last_refusal: None,
             stalled: None,
             stall_read: Default::default(),
             join_ahead: None,

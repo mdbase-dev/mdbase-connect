@@ -455,9 +455,8 @@ fn a_captured_attachment_whose_objects_vanished_fails_terminally() {
     assert_eq!(a.r.store().pending_count().unwrap(), 0);
     let lr = a.r.store().local_receipt(&m).unwrap().unwrap();
     assert_eq!(lr.state, ReceiptState::Rejected);
-    // Reported per file, not as a terminal integrity incident.
     assert!(
-        !a.r.sync_status()
+        a.r.sync_status()
             .incidents
             .iter()
             .any(|i| i.kind == IncidentKind::Integrity)

@@ -1226,8 +1226,8 @@ impl<S: Store> Replica<S> {
     /// The log refused an append as `refs_missing`. Captured attachment rows of
     /// the batch whose refs are among `missing` (all of them when the service
     /// named none) fail with a typed terminal problem after
-    /// [`MAX_REFS_MISSING`] refusals: rejected receipt, upload status and a
-    /// refused-file notice. Returns whether any row was failed (the batch is re-planned).
+    /// [`MAX_REFS_MISSING`] refusals: rejected receipt, upload status and an
+    /// incident. Returns whether any row was failed (the batch is re-planned).
     pub(crate) fn fail_attachment_refs_missing(
         &mut self,
         mutations: &[Uuid],
@@ -1260,12 +1260,17 @@ impl<S: Store> Replica<S> {
         if failed.is_empty() {
             return Ok(false);
         }
-        // The rejected receipt and the refused-file fence and notice report it;
-        // no integrity incident, which hosts treat as terminal.
         for (id, _, problem) in &failed {
             if let Some(up) = self.attachment_uploads.map.get_mut(id) {
                 up.phase = Phase::Done(Box::new(AttachmentUploadStatus::Failed(problem.clone())));
             }
+            self.incident(
+                mdbn_wire::client::IncidentKind::Integrity,
+                Some(mdbn_wire::common::Value::Text(format!(
+                    "attachment_objects_missing: mutation {} was refused as refs_missing",
+                    id.to_hex()
+                ))),
+            );
         }
         self.resolve_rejected(failed)?;
         Ok(true)
@@ -1791,7 +1796,9 @@ impl<S: Store> Replica<S> {
             refs: f.refs.clone(),
         };
         check_row_refs(&row)?;
-        let committed = self.store.commit(Tx {
+        // A disk edit ends the fence of a refused one there (`refused.rs`).
+        let mutation = row.mutation.clone();
+        let mut tx = Tx {
             pending_put: vec![row],
             meta: std::iter::once((
                 meta_keys::COUNTERS.into(),
@@ -1808,7 +1815,11 @@ impl<S: Store> Replica<S> {
             .collect(),
             ack_observations: up.origin.acks.clone(),
             ..Tx::default()
-        });
+        };
+        let refused = self
+            .release_refused(&mutation, &mut tx)
+            .map_err(store_problem)?;
+        let committed = self.store.commit(tx);
         if let Err(error) = committed {
             if up.origin.delegated.is_some() {
                 if matches!(error, crate::store::StoreError::CommitAborted(_)) {
@@ -1821,6 +1832,7 @@ impl<S: Store> Replica<S> {
             }
             return Err(store_problem(error));
         }
+        self.refused_released(refused);
         self.touch.add(order, &touches);
         self.pending_keys.insert(order, touches);
         self.status_dirty = true;

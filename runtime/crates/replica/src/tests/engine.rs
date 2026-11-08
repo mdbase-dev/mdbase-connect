@@ -4832,6 +4832,38 @@ fn concurrent_repairers_converge_and_late_devices_read_the_restored_items() {
     assert_eq!(c.doc(3).as_deref(), Some("x"));
 }
 
+/// On a store without files the log's size refusal of an app's write does not
+/// reject it (the app may not keep the content): the append stops with an
+/// integrity incident and the row stays pending (`refused.rs`).
+#[test]
+fn a_refused_app_write_without_files_stops_and_stays_pending() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1, MemStore::new());
+    a.create(1, "a.md", "x");
+    settle(&mut [&mut a]);
+    a.log.faults.item_bytes_limit = Some(4096);
+    let m = a.create(2, "big.md", &"x".repeat(8192)).mutation;
+    settle(&mut [&mut a]);
+    assert!(
+        a.r.sync_status()
+            .incidents
+            .iter()
+            .any(|i| i.kind == mdbn_wire::client::IncidentKind::Integrity)
+    );
+    assert_eq!(a.r.append, crate::replica::append::AppendState::Stopped);
+    assert!(
+        crate::Store::pending_get(a.r.store(), &m)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        crate::Store::local_receipt(a.r.store(), &m)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(a.r.refused_files().len(), 0);
+}
+
 /// When another writer already took the lost positions (`L < S`), re-appending is
 /// impossible. The fallback (§5) rolls this replica back to the service's history
 /// and resurrects its own acknowledged writes at new positions: no acknowledged
@@ -5223,9 +5255,8 @@ fn a_lost_revocation_rekey_is_recreated_after_the_revocation_returns() {
     assert_eq!(a.r.head(), b.r.head());
 }
 
-/// A false `duplicate` for a position holding someone else's item never
-/// confirms the write and doesn't stop the append loop (no integrity
-/// incident, which hosts treat as terminal): the
+/// A false `duplicate` for a position holding someone else's item is
+/// reported, never confirms the write, and doesn't stop the append loop: the
 /// mutation stays pending and is appended once the service answers honestly.
 #[test]
 fn false_duplicate_does_not_stop_appending() {
@@ -5262,7 +5293,7 @@ fn false_duplicate_does_not_stop_appending() {
         ReceiptState::Confirmed
     );
     assert!(
-        !a.r.sync_status()
+        a.r.sync_status()
             .incidents
             .iter()
             .any(|i| i.kind == mdbn_wire::client::IncidentKind::Integrity)

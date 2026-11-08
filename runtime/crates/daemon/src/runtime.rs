@@ -2023,7 +2023,7 @@ fn file_notices(rep: &Replica<Store>) -> Vec<crate::control::Notice> {
             .unwrap_or_else(|| problem.code.clone()),
         message: problem.message.clone(),
     });
-    let edits = edits.map(|(path, problem)| edit_refused_notice(path, problem));
+    let edits = edits.map(|(path, problem, deleted)| edit_refused_notice(path, problem, deleted));
     let held = holds.into_iter().map(|hold| {
         let collision = rep
             .store()
@@ -2076,20 +2076,33 @@ fn file_notices(rep: &Replica<Store>) -> Vec<crate::control::Notice> {
     )
 }
 
-/// A file whose change was rejected; the disk keeps the user's bytes.
-fn edit_refused_notice(path: &str, problem: &mdbn_wire::client::Problem) -> crate::control::Notice {
+/// A file whose change was rejected; the disk keeps what was written there.
+fn edit_refused_notice(
+    path: &str,
+    problem: &mdbn_wire::client::Problem,
+    deleted: bool,
+) -> crate::control::Notice {
     let why = match (problem.code.as_str(), problem.reason.as_deref()) {
         (_, Some("refs")) => "it refers to too many files",
+        (_, Some("attachment_objects_missing")) => "a file it attaches could not be uploaded",
         ("too_large", _) => "it is too large",
         _ => "it is not a valid change",
+    };
+    let message = if deleted {
+        format!(
+            "This deletion could not be synced ({why}). The file is deleted on this \
+             device only and still exists elsewhere. Put the file back to sync it again."
+        )
+    } else {
+        format!(
+            "This change could not be synced ({why}). The content is kept in the file. \
+             Edit the file to try again."
+        )
     };
     crate::control::Notice {
         path: Some(path.into()),
         code: "edit_refused".into(),
-        message: format!(
-            "This change could not be synced: the server refused it ({why}). \
-             Your edit is kept in the file. Edit the file to try again."
-        ),
+        message,
     }
 }
 
@@ -2264,13 +2277,29 @@ mod tests {
     fn a_refused_edit_is_noticed_on_its_file() {
         let problem = mdbn_replica::api::ErrorCode::TooLarge
             .problem_with_reason("item_bytes", "the log refused this change");
-        let notice = super::edit_refused_notice("notes/big.md", &problem);
+        let notice = super::edit_refused_notice("notes/big.md", &problem, false);
         assert_eq!(notice.path.as_deref(), Some("notes/big.md"));
         assert_eq!(notice.code, "edit_refused");
         assert_eq!(
             notice.message,
-            "This change could not be synced: the server refused it (it is too large). \
-             Your edit is kept in the file. Edit the file to try again."
+            "This change could not be synced (it is too large). The content is kept in \
+             the file. Edit the file to try again."
+        );
+        let missing = mdbn_replica::api::ErrorCode::NotFound
+            .problem_with_reason("attachment_objects_missing", "upload it again");
+        let notice = super::edit_refused_notice("media/a.png", &missing, false);
+        assert!(
+            notice
+                .message
+                .contains("(a file it attaches could not be uploaded)")
+        );
+        let invalid = mdbn_replica::api::ErrorCode::InvalidRequest.problem("refused");
+        let notice = super::edit_refused_notice("notes/gone.md", &invalid, true);
+        assert_eq!(
+            notice.message,
+            "This deletion could not be synced (it is not a valid change). The file is \
+             deleted on this device only and still exists elsewhere. Put the file back to \
+             sync it again."
         );
     }
 
