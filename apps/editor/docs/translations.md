@@ -94,9 +94,7 @@ The zh allowlist preserves `.md`, ICU-only layout, shortcuts, YAML, Phosphor
 Regular and literal schema/search/path tokens (`status`, `tasks`, `type:{0}`, path
 globs and templates). These are reviewed identical values, not English filler.
 The Italian scaffold adds a ninth target PO with all 1407 translations deliberately
-empty; shared UI and CodeMirror Italian are complete. See
-[`translations-italian.md`](../../../docs/translations-italian.md) for the pending
-scopes. Ten-locale release readiness requires the full strict gates and browser
+empty; shared UI and CodeMirror Italian are complete. Ten-locale release readiness requires the full strict gates and browser
 acceptance; a scoped authored audit or authoring compile never replaces them.
 
 The approved mechanical-only plural delta replaces positional aliases for the
