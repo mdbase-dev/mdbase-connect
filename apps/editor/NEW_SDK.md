@@ -32,15 +32,8 @@ publication is implied.
 
 ## Work before connecting
 
-`editorUnsyncedEnabled()` currently returns `false` for the SDK entry, gate
-and switcher. This temporarily restores Sign in on fresh signed-out visits
-until Connect #1321 fixes automatic unsynced startup, stale readiness and
-recovery controls. Keep #1320's implementation, explicit-opt-in tests and
-storage identity intact; disabling the feature does not delete browser work.
-
-When explicitly enabled, `createEditorMdbase` passes `unsynced: true`, and the
-gate and switcher take `unsynced` (see
-`docs/architecture/work-before-connecting.md`). A signed-out
+`createEditorMdbase` passes `unsynced: true`, and the gate and switcher take
+`unsynced` (see `docs/architecture/work-before-connecting.md`). A signed-out
 start, or **Continue without connecting** on the signed-out screen, opens this
 browser's unsynced collection; the gate hands its connection to the editor as
 in phase `ready`, under the same native gateway. It is never listed in the
