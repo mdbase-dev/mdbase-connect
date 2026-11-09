@@ -1,0 +1,175 @@
+/* Comments: threads beside a record (CommentsPanel), and their anchors and
+   tracked changes in a CodeMirror editor (comment-anchors). */
+.mdbase-comments {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: 12px;
+  color: var(--color-text);
+  font-family: var(--sans);
+  font-size: var(--font-size-ui);
+}
+
+.mdbase-comments-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mdbase-comments-filter {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.mdbase-comments-filter button {
+  min-height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.mdbase-comments-filter button:hover { color: var(--color-text); }
+.mdbase-comments-filter button[aria-pressed="true"] { color: var(--color-text); background: var(--color-selected); }
+.mdbase-comments-filter button:focus-visible,
+.mdbase-thread-anchor:focus-visible,
+.mdbase-thread-action:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.mdbase-comments-count { color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+
+.mdbase-comments-note,
+.mdbase-comments-empty p,
+.mdbase-comments-error { margin: 0; }
+.mdbase-comments-note,
+.mdbase-comments-empty { color: var(--color-text-muted); }
+.mdbase-comments-empty { display: grid; gap: 4px; padding: 8px 0; }
+.mdbase-comments-empty strong { color: var(--color-text); font-weight: 600; }
+.mdbase-comments-empty kbd { font-family: var(--mono); font-size: 0.92em; }
+.mdbase-comments-error { color: var(--color-danger); }
+
+/* Why new comments are unsigned, and where to put that right. */
+.mdbase-comments-signing {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--color-warning-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-warning-text);
+  background: var(--color-warning-surface);
+}
+.mdbase-comments-signing p { margin: 0; }
+.mdbase-comments-signing strong { color: var(--color-warning-strong); }
+
+/* Threads are rows ruled apart; the one selected in the editor is the selected surface. */
+.mdbase-threads {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mdbase-thread {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding: 12px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.mdbase-threads > .mdbase-thread + .mdbase-thread { border-top: 1px solid var(--color-border); }
+.mdbase-thread.is-active { background: var(--color-selected); }
+.mdbase-threads > .mdbase-thread.is-active,
+.mdbase-threads > .mdbase-thread.is-active + .mdbase-thread { border-top-color: transparent; }
+.mdbase-thread.mdbase-comment-composer { margin: 0; padding: 12px; border: 1px solid var(--color-border-strong); }
+
+.mdbase-thread-anchor {
+  display: grid;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mdbase-thread-quote {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-text-soft);
+  font-style: italic;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+blockquote.mdbase-thread-quote::before { content: "“"; }
+blockquote.mdbase-thread-quote::after { content: "”"; }
+.mdbase-thread-whole,
+.mdbase-thread-detached { margin: 0; color: var(--color-text-muted); font-style: italic; }
+.mdbase-thread-resolved { margin: 0; color: var(--color-text-muted); }
+
+.mdbase-thread-suggestion { line-height: 1.5; }
+.mdbase-thread-suggestion del,
+.cm-suggest-delete { color: var(--color-danger); text-decoration: line-through; text-decoration-thickness: 1.5px; }
+.mdbase-thread-suggestion ins,
+.cm-suggest-insert { color: var(--color-success); text-decoration: underline; text-decoration-thickness: 1.5px; text-underline-offset: 2px; }
+.mdbase-thread-suggestion :is(del, ins) { padding: 0 2px; border-radius: var(--radius-sm); }
+.mdbase-thread-suggestion del { background: color-mix(in oklch, var(--color-danger) 10%, transparent); }
+.mdbase-thread-suggestion ins { background: color-mix(in oklch, var(--color-success) 12%, transparent); }
+
+.mdbase-thread-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.mdbase-thread-reply { display: grid; gap: 6px; }
+.mdbase-thread textarea.mdbase-field { width: 100%; resize: vertical; }
+
+/* A quiet text action: reply, resolve, withdraw. */
+.mdbase-thread-action {
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  color: var(--color-accent);
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+.mdbase-thread-action:hover:not(:disabled) { text-decoration: underline; }
+.mdbase-thread-action:disabled { color: var(--color-text-faint); cursor: default; }
+.mdbase-thread-action.is-quiet { color: var(--color-text-muted); }
+
+.mdbase-comment-composer-title { display: flex; align-items: baseline; gap: 6px; margin: 0; }
+.mdbase-comment-composer-title span { overflow: hidden; color: var(--color-text-muted); text-overflow: ellipsis; white-space: nowrap; }
+
+/* A comment: who and when, the text beneath; replies are indented under the first. */
+.mdbase-comment { display: grid; gap: 2px; }
+.mdbase-comment.is-reply { margin-left: 12px; }
+.mdbase-comment-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; margin: 0; color: var(--color-text-muted); }
+.mdbase-comment-meta strong { overflow: hidden; color: var(--color-text); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.mdbase-comment-meta .mdbase-thread-action { margin-left: auto; }
+.mdbase-comment-text { margin: 0; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mdbase-comment-text code { padding: 0 3px; border-radius: var(--radius-sm); background: var(--color-surface-subtle); font-family: var(--mono); font-size: 0.92em; }
+.mdbase-comment-text a { color: var(--color-accent); }
+.mdbase-comment-withdrawn { margin: 0; color: var(--color-text-muted); font-style: italic; }
+
+/* In the editor: a commented passage is a quiet fill, stronger while its thread is selected. */
+.cm-comment { border-radius: var(--radius-sm); background: color-mix(in oklch, var(--color-warning) 20%, transparent); }
+.cm-comment.is-active { background: color-mix(in oklch, var(--color-warning) 42%, transparent); }
+.cm-comment-point {
+  display: inline-block;
+  width: 0;
+  height: 1.1em;
+  margin: 0 1px;
+  border-left: 2px solid var(--color-warning);
+  vertical-align: text-bottom;
+}
+:is(.cm-suggest-delete, .cm-suggest-insert).is-active { border-radius: var(--radius-sm); background: var(--color-selected); }
+.cm-tooltip .cm-comment-tip { display: grid; gap: 2px; max-width: 320px; padding: 8px 10px; font-size: var(--font-size-ui); }
+.cm-comment-who { color: var(--color-text-muted); font-size: var(--font-size-caption); }
+.cm-comment-said { line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }

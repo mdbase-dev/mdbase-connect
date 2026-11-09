@@ -20,6 +20,7 @@ import { deliverAppGrantCallbackFrom, isAppGrantCallback } from "./private-colle
 import "@mdbase-dev/ui/motion.css";
 import "@mdbase-dev/ui/palette.css";
 import "@mdbase-dev/ui/toast.css";
+import "@mdbase-dev/ui/comments.css";
 import "./styles.css";
 import "./environment-badge.css";
 import { offlineShell } from "./offline-shell";

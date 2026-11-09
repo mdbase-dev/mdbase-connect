@@ -7,6 +7,10 @@ msgstr ""
 "X-Generator: @lingui/cli\n"
 "Language: en\n"
 
+#: src/CommentsPanel.tsx
+msgid "(a point in the text)"
+msgstr "(a point in the text)"
+
 #: src/AppSwitcher.tsx
 msgid "(opens in a new tab)"
 msgstr "(opens in a new tab)"
@@ -15,6 +19,11 @@ msgstr "(opens in a new tab)"
 #: src/text-diff.ts
 msgid "{0, plural, one {# more changed line} other {# more changed lines}}"
 msgstr "{0, plural, one {# more changed line} other {# more changed lines}}"
+
+#. placeholder {0}: info.replies
+#: src/comment-anchors.ts
+msgid "{0, plural, one {# reply} other {# replies}}"
+msgstr "{0, plural, one {# reply} other {# replies}}"
 
 #. placeholder {0}: signIn.accountLogin
 #: src/collections/model.ts
@@ -56,9 +65,21 @@ msgstr "{app} stops showing it on this device. Nothing in the collection is dele
 msgid "{count, plural, one {# mark applied.} other {# marks applied.}}"
 msgstr "{count, plural, one {# mark applied.} other {# marks applied.}}"
 
+#: src/CommentsPanel.tsx
+msgid "{count, plural, one {# open comment} other {# open comments}}"
+msgstr "{count, plural, one {# open comment} other {# open comments}}"
+
 #: src/Feedback.tsx
 msgid "A problem occurred. You can use Send feedback to report it."
 msgstr "A problem occurred. You can use Send feedback to report it."
+
+#: src/CommentsPanel.tsx
+msgid "Accept"
+msgstr "Accept"
+
+#: src/CommentsPanel.tsx
+msgid "Accepted"
+msgstr "Accepted"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -118,6 +139,14 @@ msgstr "Applying collection updates…"
 msgid "Applying…"
 msgstr "Applying…"
 
+#: src/CommentsPanel.tsx
+msgid "as {signer}"
+msgstr "as {signer}"
+
+#: src/CommentsPanel.tsx
+msgid "At the cursor"
+msgstr "At the cursor"
+
 #: src/Feedback.tsx
 msgid "Attach screenshot"
 msgstr "Attach screenshot"
@@ -153,6 +182,10 @@ msgstr "Browse and edit records"
 msgid "Browser, OS, viewport and recent error codes. No note contents, paths or credentials."
 msgstr "Browser, OS, viewport and recent error codes. No note contents, paths or credentials."
 
+#: src/CommentsPanel.tsx
+msgid "by {resolver}"
+msgstr "by {resolver}"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Can edit"
@@ -173,6 +206,7 @@ msgctxt "Collection access interface"
 msgid "Can't open {collection}"
 msgstr "Can't open {collection}"
 
+#: src/CommentsPanel.tsx
 #: src/ConfirmDialog.tsx
 #: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
@@ -287,6 +321,19 @@ msgstr "Column options"
 msgid "Commands"
 msgstr "Commands"
 
+#: src/comment-anchors.ts
+#: src/CommentsPanel.tsx
+msgid "Comment"
+msgstr "Comment"
+
+#: src/CommentsPanel.tsx
+msgid "Comments"
+msgstr "Comments"
+
+#: src/CommentsPanel.tsx
+msgid "Comments could not be loaded: {problem}"
+msgstr "Comments could not be loaded: {problem}"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Connect to sync your work"
@@ -372,6 +419,10 @@ msgstr "Danger"
 msgctxt "Color theme"
 msgid "Dark"
 msgstr "Dark"
+
+#: src/CommentsPanel.tsx
+msgid "Delete “{exact}”"
+msgstr "Delete “{exact}”"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -539,6 +590,10 @@ msgctxt "callout type"
 msgid "Info"
 msgstr "Info"
 
+#: src/CommentsPanel.tsx
+msgid "Insert “{replacement}”"
+msgstr "Insert “{replacement}”"
+
 #: src/live-preview/table-controls.ts
 msgctxt "table"
 msgid "Insert column left"
@@ -578,6 +633,10 @@ msgctxt "Color theme"
 msgid "Light"
 msgstr "Light"
 
+#: src/CommentsPanel.tsx
+msgid "Loading comments…"
+msgstr "Loading comments…"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Loading the collection snapshot…"
@@ -587,6 +646,10 @@ msgstr "Loading the collection snapshot…"
 msgctxt "Collection storage mode"
 msgid "Make private"
 msgstr "Make private"
+
+#: src/CommentsPanel.tsx
+msgid "Make this edit"
+msgstr "Make this edit"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -657,6 +720,10 @@ msgstr "Needs a decision"
 msgid "Needs attention"
 msgstr "Needs attention"
 
+#: src/CommentsPanel.tsx
+msgid "New comment"
+msgstr "New comment"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "No collection was added."
@@ -670,6 +737,10 @@ msgstr "No collections match “{query}”."
 #: src/live-preview/inline.ts
 msgid "No note or file matches “{target}”."
 msgstr "No note or file matches “{target}”."
+
+#: src/CommentsPanel.tsx
+msgid "No open comments"
+msgstr "No open comments"
 
 #: src/Feedback.tsx
 msgid "No screenshot taken. You can still send feedback."
@@ -689,10 +760,27 @@ msgstr "Nothing in your collection will change."
 msgid "Nothing matches"
 msgstr "Nothing matches"
 
+#: src/CommentsPanel.tsx
+msgid "Nothing resolved yet."
+msgstr "Nothing resolved yet."
+
+#: src/CommentsPanel.tsx
+msgid "On the whole note"
+msgstr "On the whole note"
+
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content."
 msgstr "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content."
+
+#: src/CommentsPanel.tsx
+msgctxt "Comment status"
+msgid "Open"
+msgstr "Open"
+
+#: src/CommentsPanel.tsx
+msgid "Open file"
+msgstr "Open file"
 
 #: src/AppSwitcher.tsx
 msgid "Open in another mdbase app"
@@ -802,6 +890,14 @@ msgctxt "Collection storage mode"
 msgid "Refresh status"
 msgstr "Refresh status"
 
+#: src/CommentsPanel.tsx
+msgid "Reject"
+msgstr "Reject"
+
+#: src/CommentsPanel.tsx
+msgid "Rejected"
+msgstr "Rejected"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Reload"
@@ -831,9 +927,21 @@ msgctxt "Collection access interface"
 msgid "Remove from this list"
 msgstr "Remove from this list"
 
+#: src/CommentsPanel.tsx
+msgid "Reopen"
+msgstr "Reopen"
+
+#: src/CommentsPanel.tsx
+msgid "Replace “{exact}” with “{replacement}”"
+msgstr "Replace “{exact}” with “{replacement}”"
+
 #: src/Feedback.tsx
 msgid "Replies aren’t guaranteed. Not for security reports or urgent support."
 msgstr "Replies aren’t guaranteed. Not for security reports or urgent support."
+
+#: src/CommentsPanel.tsx
+msgid "Reply"
+msgstr "Reply"
 
 #: src/Feedback.tsx
 msgid "Reply email"
@@ -848,6 +956,19 @@ msgstr "Report a problem"
 msgctxt "Screenshot annotations"
 msgid "Reset"
 msgstr "Reset"
+
+#: src/CommentsPanel.tsx
+msgid "Resolve"
+msgstr "Resolve"
+
+#: src/CommentsPanel.tsx
+msgid "Resolved"
+msgstr "Resolved"
+
+#: src/CommentsPanel.tsx
+msgctxt "Comment status"
+msgid "Resolved"
+msgstr "Resolved"
 
 #: src/CommandPalette.tsx
 msgid "Results"
@@ -965,6 +1086,14 @@ msgstr "Setting up…"
 msgid "Share something you like"
 msgstr "Share something you like"
 
+#: src/CommentsPanel.tsx
+msgid "Show"
+msgstr "Show"
+
+#: src/CommentsPanel.tsx
+msgid "Show in the note"
+msgstr "Show in the note"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Sign in"
@@ -1049,6 +1178,14 @@ msgstr "Success"
 msgid "Suggest an improvement"
 msgstr "Suggest an improvement"
 
+#: src/comment-anchors.ts
+msgid "Suggested edit"
+msgstr "Suggested edit"
+
+#: src/comment-anchors.ts
+msgid "Suggested insertion"
+msgstr "Suggested insertion"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Switch collection, current: {collection}"
@@ -1125,10 +1262,18 @@ msgstr "The screenshot does not contain a valid PNG or JPEG image."
 msgid "The screenshot is larger than 3 MB. Choose a smaller image."
 msgstr "The screenshot is larger than 3 MB. Choose a smaller image."
 
+#: src/CommentsPanel.tsx
+msgid "The suggested text is no longer there"
+msgstr "The suggested text is no longer there"
+
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "The switch to Private didn’t finish. Revoke the device that started it. Your other owner devices will then replace the collection key."
 msgstr "The switch to Private didn’t finish. Revoke the device that started it. Your other owner devices will then replace the collection key."
+
+#: src/CommentsPanel.tsx
+msgid "The text it was on has changed"
+msgstr "The text it was on has changed"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -1149,6 +1294,10 @@ msgstr "This device is still listed under your account until you remove it there
 msgctxt "Collection access interface"
 msgid "This is taking longer than usual."
 msgstr "This is taking longer than usual."
+
+#: src/CommentsPanel.tsx
+msgid "This passage is no longer in the text"
+msgstr "This passage is no longer in the text"
 
 #: src/live-preview/blocks.ts
 msgctxt "callout type"
@@ -1172,6 +1321,7 @@ msgctxt "callout type"
 msgid "Todo"
 msgstr "Todo"
 
+#: src/CommentsPanel.tsx
 #: src/screens.tsx
 msgid "Try again"
 msgstr "Try again"
@@ -1203,6 +1353,10 @@ msgstr "Undo"
 #: src/SaveNotice.tsx
 msgid "Unsaved"
 msgstr "Unsaved"
+
+#: src/CommentsPanel.tsx
+msgid "Unsigned"
+msgstr "Unsigned"
 
 #: src/FeedbackMarkup.tsx
 msgid "Up to 100 marks can be applied. Undo or reset to make another mark."
@@ -1274,6 +1428,14 @@ msgstr "What would you like to improve?"
 #: src/feedback-data.ts
 msgid "What’s working well for you?"
 msgstr "What’s working well for you?"
+
+#: src/CommentsPanel.tsx
+msgid "Withdraw"
+msgstr "Withdraw"
+
+#: src/CommentsPanel.tsx
+msgid "Withdrawn."
+msgstr "Withdrawn."
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"

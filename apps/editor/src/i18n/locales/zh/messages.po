@@ -236,6 +236,11 @@ msgstr "目前找到 {0} 项 · 正在搜索 {1}/{2} 项"
 msgid "{0} implements Person through multiple types. Resolve its mappings in Types before linking."
 msgstr "{0} 通过多个类型实现了 Person。关联前，请在“类型”中解决映射问题。"
 
+#. placeholder {0}: comment.path
+#: src/use-note-comments.ts
+msgid "{0} is no longer a comment."
+msgstr "{0} 已不再是评论。"
+
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
 msgid "{0} link format"
@@ -1286,6 +1291,7 @@ msgstr "调整笔记文字大小，不改变周围的界面。"
 msgid "Changed elsewhere"
 msgstr "已在其他位置更改"
 
+#: src/NoteCommentsPanel.tsx
 #: src/pending-note-mutation.ts
 msgid "Check again"
 msgstr "重新检查"
@@ -1450,6 +1456,10 @@ msgstr "清除选择"
 msgid "Clear type search"
 msgstr "清除类型搜索"
 
+#: src/NoteCommentsPanel.tsx
+msgid "Close comments"
+msgstr "关闭评论"
+
 #: src/FileViewer.tsx
 msgid "Close file preview"
 msgstr "关闭文件预览"
@@ -1589,6 +1599,20 @@ msgstr "命令 · {0}"
 #: src/NoteSearchField.tsx
 msgid "Commands · {0} outside text"
 msgstr "命令 · 在文本外按 {0}"
+
+#: src/editor-commands.ts
+msgid "Comment on the selection"
+msgstr "评论所选内容"
+
+#: src/App.tsx
+#: src/editor-commands.ts
+#: src/NoteCommentsPanel.tsx
+msgid "Comments"
+msgstr "评论"
+
+#: src/use-note-comments.ts
+msgid "Comments are not set up in this collection."
+msgstr "此集合尚未设置评论。"
 
 #: src/TypeBrowser.tsx
 msgid "Common icons"
@@ -3180,6 +3204,10 @@ msgstr "更多笔记操作"
 msgid "More than one note matches this transclusion."
 msgstr "多篇笔记与此嵌入引用匹配。"
 
+#: src/NoteCommentsPanel.tsx
+msgid "More than one person record claims your account, so the editor will not guess which is you."
+msgstr "有多条人员记录声明了你的账户，因此编辑器不会猜测哪一条是你。"
+
 #: src/MoveNoteDialog.tsx
 msgid "Move"
 msgstr "移动"
@@ -3674,6 +3702,10 @@ msgstr "打开 {name}"
 msgid "Open {primaryTypeLabel}"
 msgstr "打开 {primaryTypeLabel}"
 
+#: src/use-note-comments.ts
+msgid "Open a note to comment on it."
+msgstr "打开一篇笔记即可评论。"
+
 #: src/ConnectionScreens.tsx
 msgid "open and search notes"
 msgstr "打开并搜索笔记"
@@ -3703,6 +3735,7 @@ msgid "Open original"
 msgstr "打开原文件"
 
 #: src/editor-commands.ts
+#: src/NoteCommentsPanel.tsx
 msgid "Open Settings"
 msgstr "打开设置"
 
@@ -4605,6 +4638,10 @@ msgstr "笔记中的章节"
 msgid "Select a note, or start a new one."
 msgstr "选择一篇笔记，或新建一篇。"
 
+#: src/NoteCommentsPanel.tsx
+msgid "Select a passage and press <0>{mod}</0> to comment on it."
+msgstr "选择一段文字并按 <0>{mod}</0> 即可评论。"
+
 #: src/YourPersonPanel.tsx
 msgid "Select a person record."
 msgstr "选择一条人员记录。"
@@ -4924,6 +4961,10 @@ msgstr "该笔记在建立链接后已更改。撤销会覆盖其较新的文本
 msgid "That note changed. Find its mentions again before linking."
 msgstr "该笔记已更改。请重新查找提及它的位置后再建立链接。"
 
+#: src/use-note-comments.ts
+msgid "That passage is no longer in the note. Select it again to comment on it."
+msgstr "这段文字已不在笔记中。请重新选择后再评论。"
+
 #. placeholder {0}: implementation.typeName
 #: src/person-records.ts
 msgid "The {0} type needs a writable {field} mapping for mdbase.person."
@@ -5054,6 +5095,10 @@ msgstr "打开的集合不是你选择的集合。"
 msgid "The collection watch stopped."
 msgstr "集合监听已停止。"
 
+#: src/use-note-comments.ts
+msgid "The comment could not be saved."
+msgstr "无法保存评论。"
+
 #: src/next-editor-records.ts
 msgid "The complete note source does not match its native revision. No source was reconstructed or submitted."
 msgstr "完整的笔记源码与其原生修订版本不匹配。未重建或提交任何源码。"
@@ -5126,6 +5171,10 @@ msgstr "编辑器可打开 mdbase 0.3 集合。对于旧版集合，请使用 md
 #: src/native-gateway.ts
 msgid "The editor requires its original SDK collection client."
 msgstr "编辑器需要使用其原始 SDK 集合客户端。"
+
+#: src/NoteCommentsPanel.tsx
+msgid "The editor was not allowed to see your account for this collection."
+msgstr "编辑器未获准查看你在此集合中的账户。"
 
 #: src/YourPersonPanel.tsx
 msgid "The Editor was not approved."
@@ -5233,6 +5282,10 @@ msgstr "人员身份字段必须是数组。"
 #: src/person-records.ts
 msgid "The Person mappings conflict with existing Contact fields. Configure non-overlapping mappings first."
 msgstr "Person 映射与现有的 Contact 字段冲突。请先配置互不重叠的映射。"
+
+#: src/NoteCommentsPanel.tsx
+msgid "The person record that claims your account is not valid."
+msgstr "声明你账户的人员记录无效。"
 
 #: src/YourPersonPanel.tsx
 msgid "The record's display name belongs to this collection and is not synchronised with your account."
@@ -5484,6 +5537,10 @@ msgstr "此联系人具有其他显式类型。请先在编辑器中审阅其类
 #: src/TypeBrowser.tsx
 msgid "This contract does not expose simple top-level properties. Configure its field references in YAML."
 msgstr "此契约未公开简单的顶层属性。请在 YAML 中配置其字段引用。"
+
+#: src/use-note-comments.ts
+msgid "This edit cannot be made here: its passage is no longer in the note’s text."
+msgstr "无法在此应用这项修改：其所针对的文字已不在笔记正文中。"
 
 #: src/main.tsx
 #: src/SdkEditorRoot.tsx
@@ -5840,6 +5897,10 @@ msgstr "新集合打开时，未保存的类型更改或创建操作中的更改
 msgid "Unsaved type or creation changes will be discarded."
 msgstr "未保存的类型更改或创建操作中的更改将被丢弃。"
 
+#: src/use-note-comments.ts
+msgid "Unsigned"
+msgstr "未署名"
+
 #: src/App.tsx
 #: src/ConflictResolver.tsx
 #: src/MarkdownNoteEditor.tsx
@@ -6061,6 +6122,15 @@ msgstr "你将前往 mdbase。如有提示，请登录，然后选择一个集�
 msgid "Your account"
 msgstr "你的账户"
 
+#. placeholder {0}: signing.reason
+#: src/NoteCommentsPanel.tsx
+msgid "Your account could not be checked ({0})."
+msgstr "无法检查你的账户（{0}）。"
+
+#: src/NoteCommentsPanel.tsx
+msgid "Your account is not linked to a person in this collection."
+msgstr "你的账户未关联到此集合中的人员。"
+
 #: src/pending-note-mutation.ts
 msgid "Your change from {date} isn’t confirmed yet. Check again to finish saving it."
 msgstr "你在 {date} 所做的更改尚未确认。请再次检查以完成保存。"
@@ -6068,6 +6138,10 @@ msgstr "你在 {date} 所做的更改尚未确认。请再次检查以完成保�
 #: src/AppErrorBoundary.tsx
 msgid "Your collection was not deleted. Changes that had already finished saving are safe."
 msgstr "你的集合未被删除。已完成保存的更改是安全的。"
+
+#: src/NoteCommentsPanel.tsx
+msgid "Your comments will not be signed."
+msgstr "你的评论将不带署名。"
 
 #: src/pending-note-mutation.ts
 msgid "Your deletion from {date} isn’t confirmed yet. Check again to finish saving it."

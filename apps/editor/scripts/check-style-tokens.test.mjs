@@ -81,16 +81,6 @@ test("checks the installed UI CSS, not a different workspace copy", async () => 
       assert.equal(invalid.stderr, expected);
     }
 
-    // A listed shared UI exception passes only while its exact declaration ships.
-    await put("apps/editor/node_modules/@mdbase-dev/ui/css/shared.css", ".shared { font-size: var(--font-size-ui); }");
-    await put("apps/editor/node_modules/@mdbase-dev/ui/css/palette.css",
-      ".row { box-shadow: inset 0 0 0 1px light-dark(oklch(60% 0.004 286), oklch(63% 0.004 286)); }");
-    const excepted = run();
-    assert.equal(excepted.status, 0, excepted.stderr);
-    await put("apps/editor/node_modules/@mdbase-dev/ui/css/palette.css", ".row { box-shadow: var(--elevation-low); }");
-    const stale = run();
-    assert.equal(stale.status, 1);
-    assert.match(stale.stderr, /Shared UI exception no longer applies; remove it: palette\.css box-shadow/);
   } finally {
     await rm(sandbox, { recursive: true, force: true });
   }

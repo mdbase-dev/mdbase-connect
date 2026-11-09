@@ -236,6 +236,11 @@ msgstr "これまでの検索結果 {0} 件 · {2} 件中 {1} 件を検索中"
 msgid "{0} implements Person through multiple types. Resolve its mappings in Types before linking."
 msgstr "{0} は複数の型を通じて Person を実装しています。リンクする前に「型」で対応付けを解決してください。"
 
+#. placeholder {0}: comment.path
+#: src/use-note-comments.ts
+msgid "{0} is no longer a comment."
+msgstr "{0} はもうコメントではありません。"
+
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
 msgid "{0} link format"
@@ -1286,6 +1291,7 @@ msgstr "周囲の画面を変えずにノート本文を編集します。"
 msgid "Changed elsewhere"
 msgstr "別の場所で変更されました"
 
+#: src/NoteCommentsPanel.tsx
 #: src/pending-note-mutation.ts
 msgid "Check again"
 msgstr "もう一度確認"
@@ -1450,6 +1456,10 @@ msgstr "選択をクリア"
 msgid "Clear type search"
 msgstr "型の検索を消去"
 
+#: src/NoteCommentsPanel.tsx
+msgid "Close comments"
+msgstr "コメントを閉じる"
+
 #: src/FileViewer.tsx
 msgid "Close file preview"
 msgstr "ファイルのプレビューを閉じる"
@@ -1589,6 +1599,20 @@ msgstr "コマンド · {0}"
 #: src/NoteSearchField.tsx
 msgid "Commands · {0} outside text"
 msgstr "コマンド · テキスト外で {0}"
+
+#: src/editor-commands.ts
+msgid "Comment on the selection"
+msgstr "選択範囲にコメント"
+
+#: src/App.tsx
+#: src/editor-commands.ts
+#: src/NoteCommentsPanel.tsx
+msgid "Comments"
+msgstr "コメント"
+
+#: src/use-note-comments.ts
+msgid "Comments are not set up in this collection."
+msgstr "このコレクションではコメントが設定されていません。"
 
 #: src/TypeBrowser.tsx
 msgid "Common icons"
@@ -3180,6 +3204,10 @@ msgstr "その他のノート操作"
 msgid "More than one note matches this transclusion."
 msgstr "この埋め込みに一致するノートが複数あります。"
 
+#: src/NoteCommentsPanel.tsx
+msgid "More than one person record claims your account, so the editor will not guess which is you."
+msgstr "複数の人物レコードがあなたのアカウントを主張しているため、エディターはどれがあなたかを推測しません。"
+
 #: src/MoveNoteDialog.tsx
 msgid "Move"
 msgstr "移動"
@@ -3674,6 +3702,10 @@ msgstr "{name}を開く"
 msgid "Open {primaryTypeLabel}"
 msgstr "{primaryTypeLabel}を開く"
 
+#: src/use-note-comments.ts
+msgid "Open a note to comment on it."
+msgstr "コメントするにはノートを開いてください。"
+
 #: src/ConnectionScreens.tsx
 msgid "open and search notes"
 msgstr "ノートを開いて検索"
@@ -3703,6 +3735,7 @@ msgid "Open original"
 msgstr "元のファイルを開く"
 
 #: src/editor-commands.ts
+#: src/NoteCommentsPanel.tsx
 msgid "Open Settings"
 msgstr "設定を開く"
 
@@ -4605,6 +4638,10 @@ msgstr "ノート内のセクション"
 msgid "Select a note, or start a new one."
 msgstr "ノートを選択するか、新規作成してください。"
 
+#: src/NoteCommentsPanel.tsx
+msgid "Select a passage and press <0>{mod}</0> to comment on it."
+msgstr "箇所を選択して <0>{mod}</0> を押すとコメントできます。"
+
 #: src/YourPersonPanel.tsx
 msgid "Select a person record."
 msgstr "人物レコードを選択してください。"
@@ -4924,6 +4961,10 @@ msgstr "リンク後にそのノートが変更されました。元に戻すと
 msgid "That note changed. Find its mentions again before linking."
 msgstr "そのノートが変更されました。リンクする前にメンションを再検索してください。"
 
+#: src/use-note-comments.ts
+msgid "That passage is no longer in the note. Select it again to comment on it."
+msgstr "その箇所はもうノートにありません。コメントするにはもう一度選択してください。"
+
 #. placeholder {0}: implementation.typeName
 #: src/person-records.ts
 msgid "The {0} type needs a writable {field} mapping for mdbase.person."
@@ -5054,6 +5095,10 @@ msgstr "開いたコレクションは選択したものと異なります。"
 msgid "The collection watch stopped."
 msgstr "コレクションの監視が停止しました。"
 
+#: src/use-note-comments.ts
+msgid "The comment could not be saved."
+msgstr "コメントを保存できませんでした。"
+
 #: src/next-editor-records.ts
 msgid "The complete note source does not match its native revision. No source was reconstructed or submitted."
 msgstr "ノートの完全なソースはネイティブのリビジョンと一致しません。ソースの再構築や送信は行われていません。"
@@ -5126,6 +5171,10 @@ msgstr "エディターはmdbase 0.3のコレクションを開きます。古�
 #: src/native-gateway.ts
 msgid "The editor requires its original SDK collection client."
 msgstr "エディターには元の SDK コレクションクライアントが必要です。"
+
+#: src/NoteCommentsPanel.tsx
+msgid "The editor was not allowed to see your account for this collection."
+msgstr "エディターはこのコレクションであなたのアカウントを参照する許可を得ていません。"
 
 #: src/YourPersonPanel.tsx
 msgid "The Editor was not approved."
@@ -5233,6 +5282,10 @@ msgstr "人物の識別情報フィールドは配列にしてください。"
 #: src/person-records.ts
 msgid "The Person mappings conflict with existing Contact fields. Configure non-overlapping mappings first."
 msgstr "Person の対応付けが既存の Contact フィールドと競合しています。まず重複しない対応付けを設定してください。"
+
+#: src/NoteCommentsPanel.tsx
+msgid "The person record that claims your account is not valid."
+msgstr "あなたのアカウントを主張する人物レコードが有効ではありません。"
 
 #: src/YourPersonPanel.tsx
 msgid "The record's display name belongs to this collection and is not synchronised with your account."
@@ -5484,6 +5537,10 @@ msgstr "この連絡先には別の明示的な型があります。まずエデ
 #: src/TypeBrowser.tsx
 msgid "This contract does not expose simple top-level properties. Configure its field references in YAML."
 msgstr "この契約は単純な最上位プロパティを公開していません。YAML でフィールド参照を設定してください。"
+
+#: src/use-note-comments.ts
+msgid "This edit cannot be made here: its passage is no longer in the note’s text."
+msgstr "この編集はここでは適用できません。対象の箇所がノートの本文にもうありません。"
 
 #: src/main.tsx
 #: src/SdkEditorRoot.tsx
@@ -5840,6 +5897,10 @@ msgstr "新しいコレクションを開くと、未保存の型または作成
 msgid "Unsaved type or creation changes will be discarded."
 msgstr "未保存の型または作成途中の変更は破棄されます。"
 
+#: src/use-note-comments.ts
+msgid "Unsigned"
+msgstr "署名なし"
+
 #: src/App.tsx
 #: src/ConflictResolver.tsx
 #: src/MarkdownNoteEditor.tsx
@@ -6061,6 +6122,15 @@ msgstr "mdbaseに進みます。求められたらサインインし、コレク
 msgid "Your account"
 msgstr "アカウント"
 
+#. placeholder {0}: signing.reason
+#: src/NoteCommentsPanel.tsx
+msgid "Your account could not be checked ({0})."
+msgstr "アカウントを確認できませんでした ({0})。"
+
+#: src/NoteCommentsPanel.tsx
+msgid "Your account is not linked to a person in this collection."
+msgstr "あなたのアカウントはこのコレクションの人物にリンクされていません。"
+
 #: src/pending-note-mutation.ts
 msgid "Your change from {date} isn’t confirmed yet. Check again to finish saving it."
 msgstr "{date}の変更はまだ確認されていません。再確認して保存を完了してください。"
@@ -6068,6 +6138,10 @@ msgstr "{date}の変更はまだ確認されていません。再確認して保
 #: src/AppErrorBoundary.tsx
 msgid "Your collection was not deleted. Changes that had already finished saving are safe."
 msgstr "コレクションは削除されていません。すでに保存が完了した変更は保持されています。"
+
+#: src/NoteCommentsPanel.tsx
+msgid "Your comments will not be signed."
+msgstr "コメントは署名されません。"
 
 #: src/pending-note-mutation.ts
 msgid "Your deletion from {date} isn’t confirmed yet. Check again to finish saving it."

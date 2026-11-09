@@ -918,3 +918,26 @@ label.schema-value {
 }
 
 
+
+/* The comments inspector: the shared thread list, scrolling under the header. */
+.comments-panel-body {
+  min-height: 0;
+  flex: 1;
+  margin: var(--space-3) calc(-1 * var(--space-2)) 0;
+  padding: 0 var(--space-2) var(--space-2);
+  overflow-y: auto;
+}
+
+.comments-toggle:has(.comments-toggle-count) {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  width: auto;
+  gap: var(--space-1);
+  padding-inline: var(--space-2);
+}
+
+.comments-toggle-count {
+  font-size: var(--font-size-caption);
+  font-variant-numeric: tabular-nums;
+}

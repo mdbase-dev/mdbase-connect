@@ -7,6 +7,10 @@ msgstr ""
 "X-Generator: @lingui/cli\n"
 "Language: ko\n"
 
+#: src/CommentsPanel.tsx
+msgid "(a point in the text)"
+msgstr "(본문의 한 지점)"
+
 #: src/AppSwitcher.tsx
 msgid "(opens in a new tab)"
 msgstr "(새 탭에서 열림)"
@@ -15,6 +19,11 @@ msgstr "(새 탭에서 열림)"
 #: src/text-diff.ts
 msgid "{0, plural, one {# more changed line} other {# more changed lines}}"
 msgstr "{0, plural, other {변경된 줄 #개 더}}"
+
+#. placeholder {0}: info.replies
+#: src/comment-anchors.ts
+msgid "{0, plural, one {# reply} other {# replies}}"
+msgstr "{0, plural, other {답글 #개}}"
 
 #. placeholder {0}: signIn.accountLogin
 #: src/collections/model.ts
@@ -56,9 +65,21 @@ msgstr "{app}에서 이 기기에 컬렉션을 표시하지 않습니다. 컬렉
 msgid "{count, plural, one {# mark applied.} other {# marks applied.}}"
 msgstr "{count, plural, other {표시 #개를 적용했습니다.}}"
 
+#: src/CommentsPanel.tsx
+msgid "{count, plural, one {# open comment} other {# open comments}}"
+msgstr "{count, plural, other {열린 댓글 #개}}"
+
 #: src/Feedback.tsx
 msgid "A problem occurred. You can use Send feedback to report it."
 msgstr "문제가 발생했습니다. ‘피드백 보내기’를 통해 문제를 알려주세요."
+
+#: src/CommentsPanel.tsx
+msgid "Accept"
+msgstr "수락"
+
+#: src/CommentsPanel.tsx
+msgid "Accepted"
+msgstr "수락됨"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -118,6 +139,14 @@ msgstr "컬렉션 업데이트 적용 중…"
 msgid "Applying…"
 msgstr "적용 중…"
 
+#: src/CommentsPanel.tsx
+msgid "as {signer}"
+msgstr "{signer}(으)로"
+
+#: src/CommentsPanel.tsx
+msgid "At the cursor"
+msgstr "커서 위치"
+
 #: src/Feedback.tsx
 msgid "Attach screenshot"
 msgstr "스크린샷 첨부"
@@ -153,6 +182,10 @@ msgstr "레코드 탐색 및 편집"
 msgid "Browser, OS, viewport and recent error codes. No note contents, paths or credentials."
 msgstr "브라우저, 운영체제, 뷰포트 및 최근 오류 코드입니다. 노트 내용, 경로 또는 인증 정보는 포함되지 않습니다."
 
+#: src/CommentsPanel.tsx
+msgid "by {resolver}"
+msgstr "{resolver} 님이"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Can edit"
@@ -173,6 +206,7 @@ msgctxt "Collection access interface"
 msgid "Can't open {collection}"
 msgstr "{collection}을(를) 열 수 없습니다"
 
+#: src/CommentsPanel.tsx
 #: src/ConfirmDialog.tsx
 #: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
@@ -287,6 +321,19 @@ msgstr "열 옵션"
 msgid "Commands"
 msgstr "명령"
 
+#: src/comment-anchors.ts
+#: src/CommentsPanel.tsx
+msgid "Comment"
+msgstr "댓글"
+
+#: src/CommentsPanel.tsx
+msgid "Comments"
+msgstr "댓글"
+
+#: src/CommentsPanel.tsx
+msgid "Comments could not be loaded: {problem}"
+msgstr "댓글을 불러오지 못했습니다: {problem}"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Connect to sync your work"
@@ -372,6 +419,10 @@ msgstr "위험"
 msgctxt "Color theme"
 msgid "Dark"
 msgstr "어둡게"
+
+#: src/CommentsPanel.tsx
+msgid "Delete “{exact}”"
+msgstr "“{exact}” 삭제"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -539,6 +590,10 @@ msgctxt "callout type"
 msgid "Info"
 msgstr "정보"
 
+#: src/CommentsPanel.tsx
+msgid "Insert “{replacement}”"
+msgstr "“{replacement}” 삽입"
+
 #: src/live-preview/table-controls.ts
 msgctxt "table"
 msgid "Insert column left"
@@ -578,6 +633,10 @@ msgctxt "Color theme"
 msgid "Light"
 msgstr "밝게"
 
+#: src/CommentsPanel.tsx
+msgid "Loading comments…"
+msgstr "댓글을 불러오는 중…"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Loading the collection snapshot…"
@@ -587,6 +646,10 @@ msgstr "컬렉션 스냅샷 불러오는 중…"
 msgctxt "Collection storage mode"
 msgid "Make private"
 msgstr "비공개로 전환"
+
+#: src/CommentsPanel.tsx
+msgid "Make this edit"
+msgstr "이 편집 적용"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -657,6 +720,10 @@ msgstr "결정 필요"
 msgid "Needs attention"
 msgstr "확인 필요"
 
+#: src/CommentsPanel.tsx
+msgid "New comment"
+msgstr "새 댓글"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "No collection was added."
@@ -670,6 +737,10 @@ msgstr "“{query}”와 일치하는 컬렉션이 없습니다."
 #: src/live-preview/inline.ts
 msgid "No note or file matches “{target}”."
 msgstr "“{target}”과(와) 일치하는 노트나 파일이 없습니다."
+
+#: src/CommentsPanel.tsx
+msgid "No open comments"
+msgstr "열린 댓글이 없습니다"
 
 #: src/Feedback.tsx
 msgid "No screenshot taken. You can still send feedback."
@@ -689,10 +760,27 @@ msgstr "컬렉션의 내용은 변경되지 않습니다."
 msgid "Nothing matches"
 msgstr "일치하는 항목 없음"
 
+#: src/CommentsPanel.tsx
+msgid "Nothing resolved yet."
+msgstr "아직 해결된 항목이 없습니다."
+
+#: src/CommentsPanel.tsx
+msgid "On the whole note"
+msgstr "노트 전체에 대해"
+
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content."
 msgstr "전환이 완료되면 사용자의 기기만 새 콘텐츠를 읽을 수 있습니다. 이전 콘텐츠는 mdbase가 여전히 읽을 수 있습니다."
+
+#: src/CommentsPanel.tsx
+msgctxt "Comment status"
+msgid "Open"
+msgstr "열림"
+
+#: src/CommentsPanel.tsx
+msgid "Open file"
+msgstr "파일 열기"
 
 #: src/AppSwitcher.tsx
 msgid "Open in another mdbase app"
@@ -802,6 +890,14 @@ msgctxt "Collection storage mode"
 msgid "Refresh status"
 msgstr "상태 새로고침"
 
+#: src/CommentsPanel.tsx
+msgid "Reject"
+msgstr "거절"
+
+#: src/CommentsPanel.tsx
+msgid "Rejected"
+msgstr "거절됨"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Reload"
@@ -831,9 +927,21 @@ msgctxt "Collection access interface"
 msgid "Remove from this list"
 msgstr "이 목록에서 삭제"
 
+#: src/CommentsPanel.tsx
+msgid "Reopen"
+msgstr "다시 열기"
+
+#: src/CommentsPanel.tsx
+msgid "Replace “{exact}” with “{replacement}”"
+msgstr "“{exact}”을(를) “{replacement}”(으)로 바꾸기"
+
 #: src/Feedback.tsx
 msgid "Replies aren’t guaranteed. Not for security reports or urgent support."
 msgstr "답변을 보장하지 않습니다. 보안 신고나 긴급 지원에는 사용하지 마세요."
+
+#: src/CommentsPanel.tsx
+msgid "Reply"
+msgstr "답글"
 
 #: src/Feedback.tsx
 msgid "Reply email"
@@ -848,6 +956,19 @@ msgstr "문제 신고"
 msgctxt "Screenshot annotations"
 msgid "Reset"
 msgstr "초기화"
+
+#: src/CommentsPanel.tsx
+msgid "Resolve"
+msgstr "해결"
+
+#: src/CommentsPanel.tsx
+msgid "Resolved"
+msgstr "해결됨"
+
+#: src/CommentsPanel.tsx
+msgctxt "Comment status"
+msgid "Resolved"
+msgstr "해결됨"
 
 #: src/CommandPalette.tsx
 msgid "Results"
@@ -965,6 +1086,14 @@ msgstr "설정 중…"
 msgid "Share something you like"
 msgstr "마음에 드는 점 공유하기"
 
+#: src/CommentsPanel.tsx
+msgid "Show"
+msgstr "표시"
+
+#: src/CommentsPanel.tsx
+msgid "Show in the note"
+msgstr "노트에서 보기"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Sign in"
@@ -1049,6 +1178,14 @@ msgstr "성공"
 msgid "Suggest an improvement"
 msgstr "개선 사항 제안"
 
+#: src/comment-anchors.ts
+msgid "Suggested edit"
+msgstr "편집 제안"
+
+#: src/comment-anchors.ts
+msgid "Suggested insertion"
+msgstr "삽입 제안"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Switch collection, current: {collection}"
@@ -1125,10 +1262,18 @@ msgstr "스크린샷에 올바른 PNG 또는 JPEG 이미지가 없습니다."
 msgid "The screenshot is larger than 3 MB. Choose a smaller image."
 msgstr "스크린샷이 3MB보다 큽니다. 더 작은 이미지를 선택하세요."
 
+#: src/CommentsPanel.tsx
+msgid "The suggested text is no longer there"
+msgstr "제안된 텍스트가 더 이상 없습니다"
+
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "The switch to Private didn’t finish. Revoke the device that started it. Your other owner devices will then replace the collection key."
 msgstr "비공개로 전환이 완료되지 않았습니다. 전환을 시작한 기기를 해지하세요. 그러면 다른 소유자 기기가 컬렉션 키를 교체합니다."
+
+#: src/CommentsPanel.tsx
+msgid "The text it was on has changed"
+msgstr "대상 텍스트가 변경되었습니다"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -1149,6 +1294,10 @@ msgstr "이 기기를 계정에서 삭제할 때까지 계정에 계속 표시�
 msgctxt "Collection access interface"
 msgid "This is taking longer than usual."
 msgstr "평소보다 시간이 더 걸리고 있습니다."
+
+#: src/CommentsPanel.tsx
+msgid "This passage is no longer in the text"
+msgstr "이 구절은 더 이상 본문에 없습니다"
 
 #: src/live-preview/blocks.ts
 msgctxt "callout type"
@@ -1172,6 +1321,7 @@ msgctxt "callout type"
 msgid "Todo"
 msgstr "할 일"
 
+#: src/CommentsPanel.tsx
 #: src/screens.tsx
 msgid "Try again"
 msgstr "다시 시도"
@@ -1203,6 +1353,10 @@ msgstr "실행 취소"
 #: src/SaveNotice.tsx
 msgid "Unsaved"
 msgstr "저장되지 않음"
+
+#: src/CommentsPanel.tsx
+msgid "Unsigned"
+msgstr "서명 없음"
 
 #: src/FeedbackMarkup.tsx
 msgid "Up to 100 marks can be applied. Undo or reset to make another mark."
@@ -1274,6 +1428,14 @@ msgstr "어떤 점을 개선하면 좋을까요?"
 #: src/feedback-data.ts
 msgid "What’s working well for you?"
 msgstr "어떤 점이 잘 작동하나요?"
+
+#: src/CommentsPanel.tsx
+msgid "Withdraw"
+msgstr "철회"
+
+#: src/CommentsPanel.tsx
+msgid "Withdrawn."
+msgstr "철회됨."
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"

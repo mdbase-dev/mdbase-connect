@@ -1,0 +1,10 @@
+{
+  "reason": "Comments (the mdbase.comment contract) come to the Editor through one implementation shared by every app. packages/app-ui gains three modules: comments.ts is the contract's pure reading, ported from Writer so both apps agree (record parsing, link resolution, threads, quote and position anchoring, suggestions, and the fields a new comment or a change writes; 34 exports, each used by the Editor, the panel, the anchors or their tests); CommentsPanel.tsx is the thread list (4 exports); comment-anchors.ts is the CodeMirror extension that shows commented passages (5 exports). apps/editor gains three: note-comments.ts maps the contract onto a collection's own field names and the index (7 exports), use-note-comments.ts is the open note's comment state and writes (3 exports), and NoteCommentsPanel.tsx is the lazily loaded inspector (1 export). Two more exports are the ChatText icon and the editor selection reader. The fifteen relative imports are those six modules' own. App.tsx stays within its budget: the wiring replaced the properties-only inspector flag and consolidated repeated resets.",
+  "growth": {
+    "productionFiles": 6,
+    "apps/editor": 3,
+    "packages/app-ui": 3,
+    "relativeImports": 15,
+    "typeScriptExportDeclarations": 56
+  }
+}

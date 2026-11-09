@@ -208,8 +208,8 @@ importers:
         specifier: file:vendor/sdk-76d4ffd9-production-beta167.tgz
         version: file:apps/editor/vendor/sdk-76d4ffd9-production-beta167.tgz
       '@mdbase-dev/ui':
-        specifier: 0.1.0-beta.163
-        version: 0.1.0-beta.163(@codemirror/view@6.43.12)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-76d4ffd9-production-beta167.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        specifier: file:vendor/mdbase-dev-ui-0.1.0-beta.152-74c273f8c5f8.tgz
+        version: file:apps/editor/vendor/mdbase-dev-ui-0.1.0-beta.152-74c273f8c5f8.tgz(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-76d4ffd9-production-beta167.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@mdbase/connect-ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -2322,11 +2322,15 @@ packages:
     bundledDependencies:
       - '@mdbase-dev/connect-protocol'
 
-  '@mdbase-dev/ui@0.1.0-beta.163':
-    resolution: {integrity: sha512-YfKxLy18ocvJfm42yUhTLvBy8LfboMpU8jR7qPKsGd1oi8z8lHGuuuCHgtkB6B+PehzHjlF6I3pYmwWs8mclJg==}
-    version: 0.1.0-beta.163
+  '@mdbase-dev/ui@file:apps/editor/vendor/mdbase-dev-ui-0.1.0-beta.152-74c273f8c5f8.tgz':
+    resolution: {integrity: sha512-jWjFG4VOtZpDHqqVg8ReW4z0q2zBHX9dVenW+Tb70W6PxkjHZSFN17LP9aoQfj1LLU6SAhnAm49JnxCe/J6t0A==, tarball: file:apps/editor/vendor/mdbase-dev-ui-0.1.0-beta.152-74c273f8c5f8.tgz}
+    version: 0.1.0-beta.152
     peerDependencies:
-      '@codemirror/view': ^6.0.0
+      '@codemirror/commands': ^6.0.0
+      '@codemirror/language': ^6.0.0
+      '@codemirror/state': ^6.0.0
+      '@codemirror/view': ^6.42.1
+      '@lezer/common': ^1.0.0
       '@lingui/core': 6.9.0
       '@lingui/react': 6.9.0
       '@mdbase-dev/i18n': '*'
@@ -2334,7 +2338,15 @@ packages:
       react: ^19.2.0
       react-dom: ^19.2.0
     peerDependenciesMeta:
+      '@codemirror/commands':
+        optional: true
+      '@codemirror/language':
+        optional: true
+      '@codemirror/state':
+        optional: true
       '@codemirror/view':
+        optional: true
+      '@lezer/common':
         optional: true
       '@mdbase-dev/sdk':
         optional: true
@@ -8161,7 +8173,7 @@ snapshots:
       '@noble/curves': 2.4.0
       '@noble/hashes': 2.4.0
 
-  '@mdbase-dev/ui@0.1.0-beta.163(@codemirror/view@6.43.12)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-76d4ffd9-production-beta167.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@mdbase-dev/ui@file:apps/editor/vendor/mdbase-dev-ui-0.1.0-beta.152-74c273f8c5f8.tgz(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-76d4ffd9-production-beta167.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@fontsource/azeret-mono': 5.3.0
       '@fontsource/ibm-plex-sans': 5.3.0
@@ -8170,7 +8182,11 @@ snapshots:
       '@mdbase-dev/i18n': link:packages/i18n
       react: 19.3.0
     optionalDependencies:
+      '@codemirror/commands': 6.11.1
+      '@codemirror/language': 6.12.4
+      '@codemirror/state': 6.7.5
       '@codemirror/view': 6.43.12
+      '@lezer/common': 1.5.2
       '@mdbase-dev/sdk': file:apps/editor/vendor/sdk-76d4ffd9-production-beta167.tgz
       react-dom: 19.3.0(react@19.3.0)
 
