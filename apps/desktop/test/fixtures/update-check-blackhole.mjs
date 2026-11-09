@@ -47,8 +47,9 @@ const backend = {
       }
     });
   },
+  installsAutomatically: (target) => target.mode === "automatic",
   async stageAutomatic() { throw new Error("Unverified releases must not be staged."); },
-  installAutomatic() { throw new Error("Unverified releases must not be installed."); },
+  async installAutomatic() { throw new Error("Unverified releases must not be installed."); },
   async openExternal() {}
 };
 const coordinator = new UpdateCoordinator(store, backend);

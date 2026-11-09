@@ -12,8 +12,9 @@ import { UpdateStateStore } from "./update-state";
 
 /**
  * Updating the app through its existing release channel: the signed GitHub release
- * manifest (sigstore provenance), staged by Squirrel.Mac on macOS, opened in the
- * Microsoft Store or the package download elsewhere.
+ * manifest (sigstore provenance), staged by Squirrel.Mac on macOS or into a Linux
+ * app folder the user owns, opened in the Microsoft Store or the package download
+ * elsewhere.
  *
  * The app update is also the daemon update: the new app bundles its mdbase daemon and
  * installs it at the next launch (`next-daemon.ts`). Nothing here starts, stops or
@@ -54,13 +55,15 @@ export interface UpdateBackend {
   platformKey: string;
   packaged: boolean;
   findLatest(signal: AbortSignal): Promise<{ manifest: UpdateManifest } | null>;
+  /** Whether this installation downloads and installs the target itself. */
+  installsAutomatically(target: UpdateTarget): boolean;
   stageAutomatic(
     manifest: UpdateManifest,
     target: UpdateTarget,
     onProgress: (progress: number) => void,
     signal: AbortSignal
   ): Promise<void>;
-  installAutomatic(): void;
+  installAutomatic(): Promise<void>;
   openExternal(url: string): Promise<void>;
 }
 
@@ -143,7 +146,7 @@ export class UpdateCoordinator {
 
   async install(): Promise<DesktopUpdateStatus> {
     if (!this.candidate) throw new Error(t(i18n)({ message: "No update is ready to install.", context: "Desktop application" }));
-    if (this.candidate.target.mode !== "automatic") {
+    if (!this.backend.installsAutomatically(this.candidate.target)) {
       if (this.statusValue.phase !== "external" || !this.statusValue.can_install) {
         throw new Error(t(i18n)({ message: "The external update is not ready to open.", context: "Desktop application" }));
       }
@@ -160,7 +163,7 @@ export class UpdateCoordinator {
       can_install: false
     });
     try {
-      this.backend.installAutomatic();
+      await this.backend.installAutomatic();
     } catch (error) {
       this.candidate = null;
       this.setStatus({
@@ -230,7 +233,7 @@ export class UpdateCoordinator {
           can_check: true,
           can_install: false
         });
-      } else if (decision.target.mode === "automatic") {
+      } else if (this.backend.installsAutomatically(decision.target)) {
         const required = decision.required ? { required: true as const } : {};
         const downloading = msg`Downloading verified version ${manifest.version}…`;
         this.setStatus({ phase: "downloading", ...found, progress: 0, message: downloading, can_check: false, can_install: false });

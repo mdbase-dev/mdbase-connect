@@ -780,7 +780,8 @@ app.whenReady().then(async () => {
     packaged: app.isPackaged,
     platform: process.platform,
     arch: process.arch,
-    userDataDirectory: app.getPath("userData")
+    userDataDirectory: app.getPath("userData"),
+    executablePath: process.execPath
   }));
   updater.subscribe((status) => {
     mainWindow?.webContents.send("connect:update-status", status);

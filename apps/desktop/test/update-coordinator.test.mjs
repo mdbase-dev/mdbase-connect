@@ -58,12 +58,15 @@ function backend(overrides = {}) {
       events.push("find");
       return { manifest: signedManifest() };
     },
+    installsAutomatically(target) {
+      return target.mode === "automatic";
+    },
     async stageAutomatic(_manifest, _target, progress) {
       events.push("stage");
       progress(35);
       progress(90);
     },
-    installAutomatic() {
+    async installAutomatic() {
       events.push("install");
     },
     async openExternal(url) {
@@ -100,6 +103,34 @@ test("a verified automatic release downloads, becomes ready and installs the app
   const saved = JSON.parse(await readFile(path, "utf8"));
   assert.equal(saved.highest_trusted_version, "0.1.0-beta.9");
   assert.equal(saved.transaction, undefined);
+});
+
+test("a package target that this installation replaces itself is staged, not opened", async () => {
+  const { store } = await fixture();
+  const packageTarget = {
+    mode: "manual",
+    action_url: "https://example.com/release",
+    artifacts: [{
+      name: "update.deb",
+      url: "https://example.com/update.deb",
+      sigstore_url: "https://example.com/update.deb.sigstore.json",
+      sha256: "c".repeat(64),
+      size: 100,
+      kind: "deb"
+    }]
+  };
+  const runtime = backend({
+    async findLatest() {
+      runtime.events.push("find");
+      return { manifest: signedManifest(packageTarget) };
+    },
+    installsAutomatically: (target) => target.artifacts.some((artifact) => artifact.kind === "deb")
+  });
+  const coordinator = new UpdateCoordinator(store, runtime);
+  await coordinator.initialize();
+  assert.equal((await coordinator.check()).phase, "ready");
+  assert.equal((await coordinator.install()).phase, "installing");
+  assert.deepEqual(runtime.events, ["find", "stage", "install"]);
 });
 
 test("only one network check runs while a check is in flight", async () => {

@@ -1,12 +1,14 @@
-import { autoUpdater, shell } from "electron";
+import { app, autoUpdater, shell } from "electron";
 import { createReadStream } from "node:fs";
 import { chmod, mkdir, rm, stat } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { join } from "node:path";
+import { stageDebApp, swapStagedApp, userOwnedAppDirectory } from "./linux-update";
 import { findLatestRelease, verifyArtifactBundle } from "./release-source";
 import type { UpdateBackend } from "./update-coordinator";
 import {
   channelForVersion,
+  type UpdateArtifact,
   type UpdateManifest,
   type UpdateTarget
 } from "./update-policy";
@@ -20,6 +22,7 @@ export interface ElectronUpdateBackendOptions {
   platform: NodeJS.Platform;
   arch: string;
   userDataDirectory: string;
+  executablePath: string;
 }
 
 /** The app's release channel; see update-coordinator.ts. */
@@ -29,6 +32,8 @@ export class ElectronUpdateBackend implements UpdateBackend {
   readonly platformKey: string;
   readonly packaged: boolean;
   private readonly options: ElectronUpdateBackendOptions;
+  /** A Linux app unpacked into a folder the user owns, which replaces itself. */
+  private readonly linuxAppDirectory: string | null;
 
   constructor(options: ElectronUpdateBackendOptions) {
     this.options = options;
@@ -36,6 +41,14 @@ export class ElectronUpdateBackend implements UpdateBackend {
     this.channel = channelForVersion(options.currentVersion);
     this.platformKey = `${options.platform}-${options.arch}`;
     this.packaged = options.packaged;
+    this.linuxAppDirectory = options.platform === "linux" && options.packaged
+      ? userOwnedAppDirectory(options.executablePath, process.getuid!())
+      : null;
+  }
+
+  installsAutomatically(target: UpdateTarget): boolean {
+    return target.mode === "automatic" ||
+      (this.linuxAppDirectory !== null && target.artifacts.some((artifact) => artifact.kind === "deb"));
   }
 
   async findLatest(signal: AbortSignal): Promise<{ manifest: UpdateManifest } | null> {
@@ -52,11 +65,33 @@ export class ElectronUpdateBackend implements UpdateBackend {
     onProgress: (progress: number) => void,
     signal: AbortSignal
   ): Promise<void> {
+    if (this.linuxAppDirectory && target.mode !== "automatic") {
+      const artifact = target.artifacts.find((candidate) => candidate.kind === "deb");
+      if (!artifact) throw new Error("The Linux update does not contain a Debian package.");
+      const deb = await this.downloadVerified(manifest, artifact, (progress) => onProgress(Math.min(80, progress * 0.8)), signal);
+      onProgress(85);
+      await stageDebApp(deb, this.linuxAppDirectory, signal);
+      await rm(deb, { force: true });
+      onProgress(100);
+      return;
+    }
     if (this.options.platform !== "darwin" || target.mode !== "automatic") {
       throw new Error("Automatic installation is only enabled for signed macOS releases.");
     }
     const artifact = target.artifacts.find((candidate) => candidate.kind === "zip");
     if (!artifact) throw new Error("The macOS update does not contain a ZIP artifact.");
+    const archive = await this.downloadVerified(manifest, artifact, (progress) => onProgress(Math.min(90, progress * 0.9)), signal);
+    onProgress(94);
+    await stageMacUpdate(archive, manifest, onProgress, signal);
+  }
+
+  /** Downloads an artifact to the private cache and checks its digest and Sigstore bundle. */
+  private async downloadVerified(
+    manifest: UpdateManifest,
+    artifact: UpdateArtifact,
+    onProgress: (progress: number) => void,
+    signal: AbortSignal
+  ): Promise<string> {
     const directory = join(this.options.userDataDirectory, "updates", "downloads", manifest.version);
     await mkdir(directory, { recursive: true, mode: 0o700 });
     await chmod(directory, 0o700).catch(() => undefined);
@@ -67,9 +102,9 @@ export class ElectronUpdateBackend implements UpdateBackend {
     signal.throwIfAborted();
     if (!cached) {
       await rm(archive, { force: true });
-      await downloadArtifact(artifact, archive, (progress) => onProgress(Math.min(90, progress * 0.9)), fetch, undefined, signal);
+      await downloadArtifact(artifact, archive, onProgress, fetch, undefined, signal);
     } else {
-      onProgress(90);
+      onProgress(100);
     }
     await verifyArtifactBundle({
       bundleBytes,
@@ -82,12 +117,18 @@ export class ElectronUpdateBackend implements UpdateBackend {
       throw error;
     });
     signal.throwIfAborted();
-    onProgress(94);
-    await stageMacUpdate(archive, manifest, onProgress, signal);
+    return archive;
   }
 
-  installAutomatic(): void {
-    autoUpdater.quitAndInstall();
+  async installAutomatic(): Promise<void> {
+    if (!this.linuxAppDirectory) {
+      autoUpdater.quitAndInstall();
+      return;
+    }
+    await swapStagedApp(this.linuxAppDirectory);
+    // The same path now holds the new app. A window was asked for, so not --hidden.
+    app.relaunch({ args: process.argv.slice(1).filter((argument) => argument !== "--hidden") });
+    app.quit();
   }
 
   async openExternal(url: string): Promise<void> {

@@ -16,6 +16,7 @@ await build({
     "src/main/deep-link.ts",
     "src/main/editor-url.ts",
     "src/main/electron-update-backend.ts",
+    "src/main/linux-update.ts",
     "src/main/process-output.ts",
     "src/main/release-source.ts",
     "src/main/update-actions.ts",
