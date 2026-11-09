@@ -124,7 +124,7 @@ import {
 } from "./note-search";
 import { initialEditorSurface, loadPreferences, savePreferences, type EditorPreferences } from "./preferences";
 import { revealMarkdownLine } from "./code-editor-reveal";
-import { forgetRecentPath, loadRecentPaths, rememberRecentPath } from "./recent-notes";
+import { forgetRecentPath, loadRecentPaths, rememberRecentPath, saveRecentPaths } from "./recent-notes";
 import { buildEditorCommands, command, matchesCommandShortcut, type CommandId } from "./editor-commands";
 import { unlinkedMentions } from "./unlinked-mentions";
 import { loadThemePreference, saveThemePreference } from "@mdbase-dev/ui/theme";
@@ -253,6 +253,10 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   useEffect(() => { setSelection((current) => current?.anchor === selectedPath ? current : undefined); setBulkPropertyKind(undefined); }, [selectedPath]);
   useEffect(() => { setSelection(undefined); setBulkPropertyKind(undefined); }, [search, noteFilter, surface]);
   useEffect(() => { setPinnedPaths(description ? loadPinnedNotes(description.collectionId) : []); }, [description?.collectionId]);
+  useEffect(() => {
+    const collectionId = description?.collectionId;
+    setRecent(collectionId ? { collectionId, paths: loadRecentPaths(collectionId) } : { paths: [] });
+  }, [description?.collectionId]);
   useEffect(() => { onFeedbackContext?.(surface, description?.displayName); }, [surface, description?.displayName, onFeedbackContext]);
   useEffect(() => { if (noteOpenFailure) reportError({ code: "source_open_failed" }); }, [noteOpenFailure, reportError]);
   const [selectedTypeName, setSelectedTypeName] = useState<string>();
@@ -278,7 +282,14 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const shortcutPrefix = useRef(0);
   const [confirmation, setConfirmation] = useState<Confirmation>();
-  const [recentPaths, setRecentPaths] = useState(loadRecentPaths);
+  // Recently opened notes belong to one collection; the list is saved with it.
+  const [recent, setRecent] = useState<{ collectionId?: string; paths: string[] }>({ paths: [] });
+  const recentPaths = recent.paths;
+  const setRecentPaths = useCallback((change: (current: string[]) => string[]) => setRecent((current) => {
+    const paths = change(current.paths);
+    if (current.collectionId) saveRecentPaths(current.collectionId, paths);
+    return { ...current, paths };
+  }), []);
   const [noteHistoryState, setNoteHistoryState] = useState<NoteNavigationHistory>({ paths: [], index: -1 });
   const [mobilePane, setMobilePane] = useState<MobilePane>("notes");
   const [preferences, setPreferences] = useState<EditorPreferences>(loadPreferences);
