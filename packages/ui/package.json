@@ -24,11 +24,11 @@
     "./styles.css": "./styles.css"
   },
   "devDependencies": {
-    "@lingui/core": "6.9.0",
-    "@lingui/react": "6.9.0",
+    "@lingui/core": "6.12.0",
+    "@lingui/react": "6.12.0",
     "@mdbase-dev/i18n": "workspace:*",
     "@types/react": "^19.3.0",
-    "react": "^19.3.0",
+    "react": "^19.3.1",
     "typescript": "^7.0.2"
   },
   "dependencies": {
@@ -36,8 +36,8 @@
     "yaml": "^2.9.1"
   },
   "peerDependencies": {
-    "@lingui/core": "6.9.0",
-    "@lingui/react": "6.9.0",
+    "@lingui/core": "6.12.0",
+    "@lingui/react": "6.12.0",
     "@mdbase-dev/i18n": "*",
     "react": "^19.2.0"
   }
