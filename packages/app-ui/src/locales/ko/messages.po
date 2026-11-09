@@ -80,6 +80,31 @@ msgctxt "Collection access interface"
 msgid "Add a Private collection"
 msgstr "비공개 컬렉션 추가"
 
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Add column"
+msgstr "열 추가"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Add row"
+msgstr "행 추가"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Align center"
+msgstr "가운데 정렬"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Align left"
+msgstr "왼쪽 정렬"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Align right"
+msgstr "오른쪽 정렬"
+
 #: src/FeedbackMarkup.tsx
 msgid "Apply changes"
 msgstr "변경 사항 적용"
@@ -210,6 +235,11 @@ msgctxt "Collection access interface"
 msgid "Choose or create a collection there."
 msgstr "그곳에서 컬렉션을 선택하거나 만드세요."
 
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Clear cells"
+msgstr "셀 지우기"
+
 #: src/Dialog.tsx
 msgid "Close"
 msgstr "닫기"
@@ -223,6 +253,10 @@ msgstr "닫기"
 msgctxt "Collection storage mode"
 msgid "Cloud copy"
 msgstr "클라우드 사본"
+
+#: src/live-preview/blocks.ts
+msgid "Collapse callout"
+msgstr "콜아웃 접기"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -243,6 +277,11 @@ msgstr "컬렉션"
 msgctxt "Color theme"
 msgid "Color theme"
 msgstr "색상 테마"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Column options"
+msgstr "열 옵션"
 
 #: src/CommandPalette.tsx
 msgid "Commands"
@@ -289,9 +328,45 @@ msgctxt "Collection access interface"
 msgid "Continue without connecting"
 msgstr "연결하지 않고 계속"
 
+#: src/live-preview/blocks.ts
+msgid "Copied"
+msgstr "복사됨"
+
+#: src/live-preview/blocks.ts
+msgid "Copy"
+msgstr "복사"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Copy cells"
+msgstr "셀 복사"
+
+#: src/live-preview/blocks.ts
+msgid "Copy code"
+msgstr "코드 복사"
+
+#: src/live-preview/blocks.ts
+msgid "Copy failed"
+msgstr "복사 실패"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Copy table"
+msgstr "표 복사"
+
 #: src/AppSwitcher.tsx
 msgid "Current"
 msgstr "현재"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Cut cells"
+msgstr "셀 잘라내기"
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Danger"
+msgstr "위험"
 
 #: src/ThemeSelect.tsx
 msgctxt "Color theme"
@@ -312,6 +387,26 @@ msgstr "컬렉션 삭제"
 msgctxt "Collection access interface"
 msgid "Delete collection…"
 msgstr "컬렉션 삭제…"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Delete column"
+msgstr "열 삭제"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Delete columns"
+msgstr "열 삭제"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Delete row"
+msgstr "행 삭제"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Delete rows"
+msgstr "행 삭제"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -362,6 +457,15 @@ msgstr "Esc"
 msgctxt "Collection access interface"
 msgid "Everyone, including you, loses access to it on every device and app right away. This can't be undone."
 msgstr "나를 포함한 모든 사용자가 모든 기기와 앱에서 즉시 접근 권한을 잃습니다. 이 작업은 되돌릴 수 없습니다."
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Example"
+msgstr "예시"
+
+#: src/live-preview/blocks.ts
+msgid "Expand callout"
+msgstr "콜아웃 펼치기"
 
 #: src/feedback-data.ts
 msgid "Feedback could not be sent. Check your connection and try again."
@@ -430,6 +534,31 @@ msgstr "스크린샷 포함"
 msgid "Include technical diagnostics"
 msgstr "기술 진단 정보 포함"
 
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Info"
+msgstr "정보"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Insert column left"
+msgstr "왼쪽에 열 삽입"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Insert column right"
+msgstr "오른쪽에 열 삽입"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Insert row above"
+msgstr "위에 행 삽입"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Insert row below"
+msgstr "아래에 행 삽입"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "It's erased from {app} on this device. This can't be undone."
@@ -460,6 +589,14 @@ msgctxt "Collection access interface"
 msgid "Manage access"
 msgstr "접근 관리"
 
+#: src/live-preview/inline.ts
+msgid "Mark task complete"
+msgstr "작업 완료로 표시"
+
+#: src/live-preview/inline.ts
+msgid "Mark task incomplete"
+msgstr "작업 미완료로 표시"
+
 #: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
 msgid "Mark up screenshot"
@@ -487,6 +624,26 @@ msgctxt "Collection access interface"
 msgid "More for {collection}"
 msgstr "{collection} 추가 옵션"
 
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Move column left"
+msgstr "열을 왼쪽으로 이동"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Move column right"
+msgstr "열을 오른쪽으로 이동"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Move row down"
+msgstr "행을 아래로 이동"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Move row up"
+msgstr "행을 위로 이동"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Needs a decision"
@@ -506,9 +663,18 @@ msgctxt "Collection access interface"
 msgid "No collections match “{query}”."
 msgstr "“{query}”와 일치하는 컬렉션이 없습니다."
 
+#: src/live-preview/inline.ts
+msgid "No note or file matches “{target}”."
+msgstr "“{target}”과(와) 일치하는 노트나 파일이 없습니다."
+
 #: src/Feedback.tsx
 msgid "No screenshot taken. You can still send feedback."
 msgstr "스크린샷을 찍지 않았습니다. 그래도 피드백을 보낼 수 있습니다."
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Note"
+msgstr "노트"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -609,6 +775,16 @@ msgstr "비공개"
 msgid "Private feedback to the mdbase team."
 msgstr "mdbase 팀에 비공개로 전달되는 피드백입니다."
 
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Question"
+msgstr "질문"
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Quote"
+msgstr "인용"
+
 #: src/apps.ts
 msgid "Read and annotate sources"
 msgstr "자료를 읽고 주석 달기"
@@ -690,6 +866,11 @@ msgstr "그곳에서 {collection} 접근 권한을 검토하세요."
 #: src/Feedback.tsx
 msgid "Review for private information before sending."
 msgstr "보내기 전에 개인정보가 포함되어 있는지 확인하세요."
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Row options"
+msgstr "행 옵션"
 
 #: src/SaveNotice.tsx
 msgid "Saved"
@@ -831,6 +1012,16 @@ msgctxt "Collection access interface"
 msgid "Some of your work couldn't be brought in. Try again."
 msgstr "일부 작업을 가져오지 못했습니다. 다시 시도하세요."
 
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Sort ascending"
+msgstr "오름차순 정렬"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Sort descending"
+msgstr "내림차순 정렬"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Starting {app}…"
@@ -840,6 +1031,11 @@ msgstr "{app} 시작 중…"
 msgctxt "Collection storage mode"
 msgid "Storage mode"
 msgstr "저장 모드"
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Success"
+msgstr "성공"
 
 #: src/feedback-data.ts
 msgid "Suggest an improvement"
@@ -859,6 +1055,11 @@ msgstr "컬렉션 동기화 중…"
 msgctxt "Color theme"
 msgid "System"
 msgstr "시스템"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Table options"
+msgstr "표 옵션"
 
 #: src/Feedback.tsx
 msgid "Taking screenshot…"
@@ -941,6 +1142,11 @@ msgctxt "Collection access interface"
 msgid "This is taking longer than usual."
 msgstr "평소보다 시간이 더 걸리고 있습니다."
 
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Tip"
+msgstr "팁"
+
 #: src/CommandPalette.tsx
 msgid "to close"
 msgstr "닫기"
@@ -952,6 +1158,11 @@ msgstr "이동"
 #: src/CommandPalette.tsx
 msgid "to run"
 msgstr "실행"
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Todo"
+msgstr "할 일"
 
 #: src/screens.tsx
 msgid "Try again"
@@ -1016,6 +1227,11 @@ msgstr "기기 업데이트를 기다리고 있습니다."
 msgctxt "Collection storage mode"
 msgid "Waiting for older device connections to expire. Cloud copy remains on until the switch finishes."
 msgstr "이전 기기 연결의 만료를 기다리고 있습니다. 전환이 완료될 때까지 클라우드 사본은 켜진 상태로 유지됩니다."
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Warning"
+msgstr "경고"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"

@@ -82,7 +82,8 @@
 .mdbase-command-results > button[aria-selected="true"] {
   color: var(--color-text);
   background: light-dark(oklch(94% 0.001 286), oklch(29% 0.004 286));
-  box-shadow: inset 0 0 0 1px light-dark(oklch(60% 0.004 286), oklch(63% 0.004 286));
+  outline: 1px solid light-dark(oklch(60% 0.004 286), oklch(63% 0.004 286));
+  outline-offset: -1px;
 }
 
 @media (forced-colors: active) {

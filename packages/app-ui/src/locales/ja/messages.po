@@ -80,6 +80,31 @@ msgctxt "Collection access interface"
 msgid "Add a Private collection"
 msgstr "プライベートコレクションを追加"
 
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Add column"
+msgstr "列を追加"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Add row"
+msgstr "行を追加"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Align center"
+msgstr "中央揃え"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Align left"
+msgstr "左揃え"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Align right"
+msgstr "右揃え"
+
 #: src/FeedbackMarkup.tsx
 msgid "Apply changes"
 msgstr "変更を適用"
@@ -210,6 +235,11 @@ msgctxt "Collection access interface"
 msgid "Choose or create a collection there."
 msgstr "そこでコレクションを選択または作成してください。"
 
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Clear cells"
+msgstr "セルをクリア"
+
 #: src/Dialog.tsx
 msgid "Close"
 msgstr "閉じる"
@@ -223,6 +253,10 @@ msgstr "閉じる"
 msgctxt "Collection storage mode"
 msgid "Cloud copy"
 msgstr "クラウド上のコピー"
+
+#: src/live-preview/blocks.ts
+msgid "Collapse callout"
+msgstr "コールアウトを折りたたむ"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -243,6 +277,11 @@ msgstr "コレクション"
 msgctxt "Color theme"
 msgid "Color theme"
 msgstr "カラーテーマ"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Column options"
+msgstr "列のオプション"
 
 #: src/CommandPalette.tsx
 msgid "Commands"
@@ -289,9 +328,45 @@ msgctxt "Collection access interface"
 msgid "Continue without connecting"
 msgstr "接続せずに続ける"
 
+#: src/live-preview/blocks.ts
+msgid "Copied"
+msgstr "コピーしました"
+
+#: src/live-preview/blocks.ts
+msgid "Copy"
+msgstr "コピー"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Copy cells"
+msgstr "セルをコピー"
+
+#: src/live-preview/blocks.ts
+msgid "Copy code"
+msgstr "コードをコピー"
+
+#: src/live-preview/blocks.ts
+msgid "Copy failed"
+msgstr "コピーに失敗しました"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Copy table"
+msgstr "表をコピー"
+
 #: src/AppSwitcher.tsx
 msgid "Current"
 msgstr "現在"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Cut cells"
+msgstr "セルを切り取り"
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Danger"
+msgstr "危険"
 
 #: src/ThemeSelect.tsx
 msgctxt "Color theme"
@@ -312,6 +387,26 @@ msgstr "コレクションを削除"
 msgctxt "Collection access interface"
 msgid "Delete collection…"
 msgstr "コレクションを削除…"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Delete column"
+msgstr "列を削除"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Delete columns"
+msgstr "列を削除"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Delete row"
+msgstr "行を削除"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Delete rows"
+msgstr "行を削除"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -362,6 +457,15 @@ msgstr "Esc"
 msgctxt "Collection access interface"
 msgid "Everyone, including you, loses access to it on every device and app right away. This can't be undone."
 msgstr "あなたを含む全員が、すべてのデバイスとアプリから直ちにアクセスできなくなります。この操作は取り消せません。"
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Example"
+msgstr "例"
+
+#: src/live-preview/blocks.ts
+msgid "Expand callout"
+msgstr "コールアウトを展開"
 
 #: src/feedback-data.ts
 msgid "Feedback could not be sent. Check your connection and try again."
@@ -430,6 +534,31 @@ msgstr "スクリーンショットを含める"
 msgid "Include technical diagnostics"
 msgstr "技術診断情報を含める"
 
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Info"
+msgstr "情報"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Insert column left"
+msgstr "左に列を挿入"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Insert column right"
+msgstr "右に列を挿入"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Insert row above"
+msgstr "上に行を挿入"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Insert row below"
+msgstr "下に行を挿入"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "It's erased from {app} on this device. This can't be undone."
@@ -460,6 +589,14 @@ msgctxt "Collection access interface"
 msgid "Manage access"
 msgstr "アクセスを管理"
 
+#: src/live-preview/inline.ts
+msgid "Mark task complete"
+msgstr "タスクを完了にする"
+
+#: src/live-preview/inline.ts
+msgid "Mark task incomplete"
+msgstr "タスクを未完了にする"
+
 #: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
 msgid "Mark up screenshot"
@@ -487,6 +624,26 @@ msgctxt "Collection access interface"
 msgid "More for {collection}"
 msgstr "{collection}のその他の操作"
 
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Move column left"
+msgstr "列を左へ移動"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Move column right"
+msgstr "列を右へ移動"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Move row down"
+msgstr "行を下へ移動"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Move row up"
+msgstr "行を上へ移動"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Needs a decision"
@@ -506,9 +663,18 @@ msgctxt "Collection access interface"
 msgid "No collections match “{query}”."
 msgstr "「{query}」に一致するコレクションはありません。"
 
+#: src/live-preview/inline.ts
+msgid "No note or file matches “{target}”."
+msgstr "「{target}」に一致するノートまたはファイルはありません。"
+
 #: src/Feedback.tsx
 msgid "No screenshot taken. You can still send feedback."
 msgstr "スクリーンショットは撮影されませんでした。フィードバックは送信できます。"
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Note"
+msgstr "ノート"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -609,6 +775,16 @@ msgstr "プライベート"
 msgid "Private feedback to the mdbase team."
 msgstr "mdbaseチームへの非公開フィードバックです。"
 
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Question"
+msgstr "質問"
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Quote"
+msgstr "引用"
+
 #: src/apps.ts
 msgid "Read and annotate sources"
 msgstr "出典の閲覧と注釈"
@@ -690,6 +866,11 @@ msgstr "そこで{collection}へのアクセスを確認してください。"
 #: src/Feedback.tsx
 msgid "Review for private information before sending."
 msgstr "送信前に個人情報が含まれていないか確認してください。"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Row options"
+msgstr "行のオプション"
 
 #: src/SaveNotice.tsx
 msgid "Saved"
@@ -831,6 +1012,16 @@ msgctxt "Collection access interface"
 msgid "Some of your work couldn't be brought in. Try again."
 msgstr "一部の作業を取り込めませんでした。もう一度お試しください。"
 
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Sort ascending"
+msgstr "昇順で並べ替え"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Sort descending"
+msgstr "降順で並べ替え"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Starting {app}…"
@@ -840,6 +1031,11 @@ msgstr "{app}を起動しています…"
 msgctxt "Collection storage mode"
 msgid "Storage mode"
 msgstr "保存モード"
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Success"
+msgstr "成功"
 
 #: src/feedback-data.ts
 msgid "Suggest an improvement"
@@ -859,6 +1055,11 @@ msgstr "コレクションを同期しています…"
 msgctxt "Color theme"
 msgid "System"
 msgstr "システム"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Table options"
+msgstr "表のオプション"
 
 #: src/Feedback.tsx
 msgid "Taking screenshot…"
@@ -941,6 +1142,11 @@ msgctxt "Collection access interface"
 msgid "This is taking longer than usual."
 msgstr "通常より時間がかかっています。"
 
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Tip"
+msgstr "ヒント"
+
 #: src/CommandPalette.tsx
 msgid "to close"
 msgstr "閉じる"
@@ -952,6 +1158,11 @@ msgstr "移動"
 #: src/CommandPalette.tsx
 msgid "to run"
 msgstr "実行"
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Todo"
+msgstr "タスク"
 
 #: src/screens.tsx
 msgid "Try again"
@@ -1016,6 +1227,11 @@ msgstr "デバイスの更新を待っています。"
 msgctxt "Collection storage mode"
 msgid "Waiting for older device connections to expire. Cloud copy remains on until the switch finishes."
 msgstr "古いデバイス接続の有効期限が切れるのを待っています。切り替えが完了するまで、クラウド上のコピーは有効なままです。"
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Warning"
+msgstr "警告"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"

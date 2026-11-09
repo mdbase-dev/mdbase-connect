@@ -387,9 +387,24 @@ importers:
       '@babel/plugin-transform-react-jsx':
         specifier: ^7.29.7
         version: 7.29.7(@babel/core@7.29.7(supports-color@10.2.2))(supports-color@10.2.2)
+      '@codemirror/commands':
+        specifier: ^6.10.2
+        version: 6.11.1
+      '@codemirror/lang-markdown':
+        specifier: ^6.5.2
+        version: 6.5.2
+      '@codemirror/language':
+        specifier: ^6.12.4
+        version: 6.12.4
+      '@codemirror/state':
+        specifier: ^6.7.5
+        version: 6.7.5
       '@codemirror/view':
         specifier: ^6.43.12
         version: 6.43.12
+      '@lezer/common':
+        specifier: ^1.5.2
+        version: 1.5.2
       '@lingui/babel-plugin-lingui-macro':
         specifier: 6.9.0
         version: 6.9.0(@babel/core@7.29.7(supports-color@10.2.2))

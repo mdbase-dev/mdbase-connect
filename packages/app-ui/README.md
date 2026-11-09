@@ -96,6 +96,47 @@ and `showAll` values as stable IDs. Group order, browsing limits and search matc
 still use those IDs; translated headings do not change matching or merge groups.
 Re-render with the current locale's callback to update the presentation.
 
+## Live preview
+
+`livePreview()` from `@mdbase-dev/ui/live-preview` renders Markdown in a
+CodeMirror 6 editor while keeping the document plain text. Import
+`@mdbase-dev/ui/live-preview.css` beside it. Parse with GitHub-flavoured
+Markdown (`markdownLanguage`) so tables, strikethrough and tasks render.
+
+```ts
+import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
+import { indentListItem, livePreview, outdentListItem } from "@mdbase-dev/ui/live-preview";
+
+const extensions = [
+  markdown({ base: markdownLanguage }),
+  livePreview({ linkMissing: (state, link) => !resolves(link) }),
+  keymap.of([{ key: "Tab", run: indentListItem }, { key: "Shift-Tab", run: outdentListItem }])
+];
+```
+
+- Source shows only where a focused selection touches it, so an unfocused note
+  always reads as rendered text. While the mouse button is down the reveal
+  holds still, so a click never turns into a drag across moving text.
+- Revealed heading and quote marks sit in the margin and list prefixes keep
+  their width, so revealing source never moves the text being edited.
+- Home stops at an item's or heading's text before the line start. Task
+  checkboxes toggle with a click or Space.
+- The app owns link resolution: `linkMissing` marks links that point nowhere,
+  and `refresh` rebuilds when app state behind it changes. Rendered links carry
+  `data-link-*` attributes for the app's own click handling.
+- Tables are edited in place as a grid over their Markdown source. Tab,
+  Shift-Tab and Enter move between cells and grow the table, a typed `|` is
+  escaped, and edits across cells keep every row's columns. Dragging a grip
+  moves its row or column; clicking it, or the context menu (Shift-F10),
+  inserts, moves, aligns, sorts and deletes rows and columns; the menu uses
+  the shared `mdbase-menu` styles. A selection running from one cell into
+  another selects the block of cells between them: Delete empties it, and copy
+  writes Markdown (`text/plain`) and an HTML table (`text/html`). Pasted
+  spreadsheet, Markdown and HTML grids fill cells. Tables need
+  `@codemirror/view` 6.42.1 or later.
+- `isRevealed(state, from, to)` and `livePreviewReveal` let an app's own
+  decorations (embeds, for example) follow the same reveal.
+
 ## Collections
 
 Import `@mdbase-dev/ui/collections` and `@mdbase-dev/ui/collections.css`.
