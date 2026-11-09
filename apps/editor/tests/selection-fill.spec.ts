@@ -99,11 +99,13 @@ for (const theme of ["light", "dark"] as const) {
       await page.goto("?demo=12");
       await expect(page.locator(".title-input")).toBeVisible();
       if (width === 390) await page.getByRole("button", { name: "Back to notes", exact: true }).click();
+      // The demo's Note type declares an icon, so every note row starts its text past the 15px icon gutter (18 + 15 + 8).
       const note = await measureSurface(page.locator(".note-row.selected"));
-      expectPlainFill(note, "18px");
-      await expect(page.locator(".note-row:not(.selected)").first()).toHaveCSS("padding-left", "18px");
+      expectPlainFill(note, "41px");
+      await expect(page.locator(".note-row:not(.selected)").first()).toHaveCSS("padding-left", "41px");
       await expect(page.locator(".note-row:not(.selected)").first()).toHaveCSS("border-left-width", "0px");
-      await expect(page.locator(".note-row.selected")).toHaveCSS("border-bottom-width", "1px");
+      // Rows are separated by space and fills, not rules.
+      await expect(page.locator(".note-row.selected")).toHaveCSS("border-bottom-width", "0px");
       await page.screenshot({ path: testInfo.outputPath("note-fill.png") });
       await page.keyboard.press("Control+k");
       const input = page.getByRole("combobox", { name: "Find a note or action" });
