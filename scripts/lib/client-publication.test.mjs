@@ -94,7 +94,7 @@ test("client publishers retain qualified source guards and cannot publish on an 
 });
 test("client release GitHub reads can hold the full paginated release list", async () => {
   const source = await readFile(new URL("./continuous-client-release.mjs", import.meta.url), "utf8");
-  assert.match(source, /execFileSync\("gh", args, \{ encoding: "utf8", maxBuffer: 256 \* 1024 \* 1024 \}\)/);
+  assert.match(source, /execFileSync\("gh", args, \{ encoding: "utf8", stdio: "pipe", maxBuffer: 256 \* 1024 \* 1024 \}\)/);
 });
 
 test("contract-sensitive commits get images of their own", async () => {
