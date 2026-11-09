@@ -4,6 +4,7 @@ export interface LayoutPreferences {
   inspectorWidth: number;
   collectionCollapsed: boolean;
   listCollapsed: boolean;
+  compactList: boolean;
 }
 
 export const COLLECTION_WIDTH = { default: 176, min: 144, max: 280 } as const;
@@ -17,7 +18,8 @@ export const defaultLayoutPreferences: LayoutPreferences = {
   listWidth: LIST_WIDTH.default,
   inspectorWidth: INSPECTOR_WIDTH.default,
   collectionCollapsed: false,
-  listCollapsed: false
+  listCollapsed: false,
+  compactList: false
 };
 
 export function loadLayoutPreferences(): LayoutPreferences {
@@ -28,7 +30,8 @@ export function loadLayoutPreferences(): LayoutPreferences {
       listWidth: storedWidth(value?.listWidth, LIST_WIDTH),
       inspectorWidth: storedWidth(value?.inspectorWidth, INSPECTOR_WIDTH),
       collectionCollapsed: typeof value?.collectionCollapsed === "boolean" ? value.collectionCollapsed : narrowDesktop(),
-      listCollapsed: typeof value?.listCollapsed === "boolean" ? value.listCollapsed : false
+      listCollapsed: typeof value?.listCollapsed === "boolean" ? value.listCollapsed : false,
+      compactList: value?.compactList === true
     };
   } catch {
     return { ...defaultLayoutPreferences, collectionCollapsed: narrowDesktop() };

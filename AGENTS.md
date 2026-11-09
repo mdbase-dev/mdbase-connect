@@ -27,9 +27,6 @@ Before handing off a change, ask:
 Prefer strong invariants over defensive hedging, replacement over accumulation,
 explicit failure over silent recovery, and simplification over expansion.
 
-- Read `PRODUCT.md` for product intent and `DESIGN.md` for interface direction
-  before changing user-facing flows.
-
 - Keep mdbase collection semantics in `mdbase-rs`; do not duplicate them here.
 - During v0.3 development, the Rust workspace intentionally uses `../mdbase-rs`
   as a path dependency.

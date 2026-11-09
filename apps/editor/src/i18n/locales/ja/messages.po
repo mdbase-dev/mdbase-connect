@@ -1593,6 +1593,10 @@ msgstr "コマンド · テキスト外で {0}"
 msgid "Common icons"
 msgstr "よく使うアイコン"
 
+#: src/NoteListViewOptions.tsx
+msgid "Compact"
+msgstr "コンパクト"
+
 #: src/settings/SettingsView.tsx
 msgctxt "editor text size"
 msgid "Compact"
@@ -2125,6 +2129,7 @@ msgstr "型を破棄"
 msgid "Discard type changes?"
 msgstr "型の変更を破棄しますか？"
 
+#: src/NoteListViewOptions.tsx
 #: src/type-presentation.ts
 #: src/TypeBrowser.tsx
 msgid "Display"
@@ -3328,6 +3333,10 @@ msgstr "次のノート"
 #: src/editor-commands.ts
 msgid "Next note in the list"
 msgstr "リスト内の次のノート"
+
+#: src/NoteList.tsx
+msgid "No additional text"
+msgstr "追加のテキストはありません"
 
 #: src/TypeBrowser.tsx
 msgid "No app contracts are installed"

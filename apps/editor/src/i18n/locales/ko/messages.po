@@ -1593,6 +1593,10 @@ msgstr "명령 · 텍스트 밖에서 {0}"
 msgid "Common icons"
 msgstr "일반 아이콘"
 
+#: src/NoteListViewOptions.tsx
+msgid "Compact"
+msgstr "간단히"
+
 #: src/settings/SettingsView.tsx
 msgctxt "editor text size"
 msgid "Compact"
@@ -2125,6 +2129,7 @@ msgstr "유형 취소"
 msgid "Discard type changes?"
 msgstr "유형 변경사항을 취소할까요?"
 
+#: src/NoteListViewOptions.tsx
 #: src/type-presentation.ts
 #: src/TypeBrowser.tsx
 msgid "Display"
@@ -3328,6 +3333,10 @@ msgstr "다음 노트"
 #: src/editor-commands.ts
 msgid "Next note in the list"
 msgstr "목록의 다음 노트"
+
+#: src/NoteList.tsx
+msgid "No additional text"
+msgstr "추가 텍스트 없음"
 
 #: src/TypeBrowser.tsx
 msgid "No app contracts are installed"
