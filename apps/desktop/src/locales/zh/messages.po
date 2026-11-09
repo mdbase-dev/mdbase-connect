@@ -1659,10 +1659,6 @@ msgstr "禁止 {0} 通过此电脑使用 {1}？"
 msgid "Stopped"
 msgstr "已停止"
 
-#: src/renderer/collections-view.tsx
-#~ msgid "Sync"
-#~ msgstr "同步"
-
 #. placeholder {0}: /[.!?]$/.test(sentence) ? sentence : `${sentence}.`
 #: src/renderer/view-model.ts
 msgid "Sync could not be turned on: {0} {unchanged}"

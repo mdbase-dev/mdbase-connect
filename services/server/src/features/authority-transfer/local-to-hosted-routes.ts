@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { requireAccountNotMigrationFrozen, requireHostedCollectionNotMigrationFrozen } from "../next/migration-topology.js";
+import { requireHostedCollectionNotMigrationFrozen } from "../next/migration-topology.js";
+import { requireLegacyHostedAccount } from "../hosted/service.js";
 import { recoverAccountImportCancellation } from "./account-cancellation.js";
 import type { FastifyInstance } from "fastify";
 import type { CollectionContractDescriptor } from "@mdbase-dev/connect-protocol";
@@ -78,7 +79,7 @@ export function registerLocalToHostedTransferRoutes(
         await connection.query("BEGIN");
         // Inventory, lookup and intent creation use one authority snapshot.
         // Concurrent starts must find the same transfer, not stage twice.
-        await requireAccountNotMigrationFrozen(connection, connector.user_id);
+        await requireLegacyHostedAccount(connection, connector.user_id);
         const source = await connection.query<LocalAuthoritySource>(
           `SELECT id, local_id, display_name, authority_epoch, contracts,
                   authority_state, enabled, reported_enabled

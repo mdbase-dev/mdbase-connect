@@ -1659,10 +1659,6 @@ msgstr "{0}이(가) 이 컴퓨터를 통해 {1}을(를) 사용하지 못하게 �
 msgid "Stopped"
 msgstr "중단됨"
 
-#: src/renderer/collections-view.tsx
-#~ msgid "Sync"
-#~ msgstr "동기화"
-
 #. placeholder {0}: /[.!?]$/.test(sentence) ? sentence : `${sentence}.`
 #: src/renderer/view-model.ts
 msgid "Sync could not be turned on: {0} {unchanged}"
