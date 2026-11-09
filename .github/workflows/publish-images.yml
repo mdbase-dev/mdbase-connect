@@ -243,7 +243,9 @@ jobs:
           grep -F -- "$expected" <<<"$actual"
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        uses: ./.github/actions/install-cosign
+        with:
+          token: ${{ github.token }}
 
       - name: Sign image and attest its release identity
         env:
@@ -321,7 +323,9 @@ jobs:
           --publication-run-attempt "$GITHUB_RUN_ATTEMPT"
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        uses: ./.github/actions/install-cosign
+        with:
+          token: ${{ github.token }}
 
       - name: Sign the release bundle with the publishing workflow identity
         run: >-
@@ -386,7 +390,9 @@ jobs:
             test "${actual_asset%% *}" = "$EXPECTED_TRUST_ASSET_SHA256"
           fi
           scripts/ci/verify-qualified-commit "$GITHUB_SHA"
-      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - uses: ./.github/actions/install-cosign
+        with:
+          token: ${{ github.token }}
       - name: Authenticate the existing immutable image release bundle
         run: |
           mkdir "$RUNNER_TEMP/image-release"
@@ -429,6 +435,10 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      - name: Prefetch pinned Electron through authenticated release assets
+        uses: ./.github/actions/prefetch-electron
+        with:
+          token: ${{ github.token }}
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @mdbase-dev/connect-protocol build
       - name: Validate reference payload and construct release-linked trust inventory

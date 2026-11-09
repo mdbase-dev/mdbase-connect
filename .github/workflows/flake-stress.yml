@@ -63,6 +63,11 @@ jobs:
           workspaces: mdbase-connect -> target
           shared-key: connect-debug-${{ steps.engine.outputs.revision }}
           save-if: false
+      - name: Prefetch pinned Electron through authenticated release assets
+        uses: ./mdbase-connect/.github/actions/prefetch-electron
+        with:
+          token: ${{ github.token }}
+          root: mdbase-connect
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:packages
       - if: runner.os == 'macOS'

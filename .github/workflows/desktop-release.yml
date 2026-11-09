@@ -83,7 +83,9 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24
-      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+      - uses: ./.github/actions/install-cosign
+        with:
+          token: ${{ github.token }}
       - run: node scripts/continuous-desktop-release.mjs coordinate
 
   select-tests:
@@ -275,6 +277,11 @@ jobs:
             -PackageVersion "1.0.$build.0"
           "WINDOWS_STORE_MODE=store" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
+      - name: Prefetch pinned Electron through authenticated release assets
+        uses: ./mdbase-connect/.github/actions/prefetch-electron
+        with:
+          token: ${{ github.token }}
+          root: mdbase-connect
       - run: pnpm install --frozen-lockfile
       - name: Enforce release-readiness gates
         shell: bash
@@ -368,7 +375,9 @@ jobs:
           }
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        uses: ./mdbase-connect/.github/actions/install-cosign
+        with:
+          token: ${{ github.token }}
 
       - name: Stage Microsoft Store submission
         if: matrix.platform == 'windows' && env.WINDOWS_STORE_MODE == 'store'
@@ -599,7 +608,9 @@ jobs:
           merge-multiple: true
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        uses: ./.github/actions/install-cosign
+        with:
+          token: ${{ github.token }}
 
       - name: Create and verify permanent update bootstrap
         shell: bash
@@ -786,6 +797,10 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      - name: Prefetch pinned Electron through authenticated release assets
+        uses: ./.github/actions/prefetch-electron
+        with:
+          token: ${{ github.token }}
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:packages
       - name: Build the shipped desktop JS bundles without native packaging
@@ -829,6 +844,11 @@ jobs:
           cache: pnpm
           cache-dependency-path: mdbase-connect/pnpm-lock.yaml
 
+      - name: Prefetch pinned Electron through authenticated release assets
+        uses: ./mdbase-connect/.github/actions/prefetch-electron
+        with:
+          token: ${{ github.token }}
+          root: mdbase-connect
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:packages
       - name: Exercise the complete editor release build
@@ -881,6 +901,11 @@ jobs:
             -PublisherDisplayName "mdbase" `
             -PackageVersion "1.0.${{ github.run_number }}.0"
 
+      - name: Prefetch pinned Electron through authenticated release assets
+        uses: ./mdbase-connect/.github/actions/prefetch-electron
+        with:
+          token: ${{ github.token }}
+          root: mdbase-connect
       - run: pnpm install --frozen-lockfile
       - id: version
         shell: bash

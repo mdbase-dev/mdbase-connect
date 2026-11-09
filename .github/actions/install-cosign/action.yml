@@ -1,0 +1,13 @@
+name: Install verified cosign
+description: Install pinned cosign v3.0.6 via authenticated GitHub release assets
+inputs:
+  token:
+    description: Job token with contents read
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
+      run: node "$GITHUB_ACTION_PATH/../../../scripts/ci/prefetch-release.mjs" cosign

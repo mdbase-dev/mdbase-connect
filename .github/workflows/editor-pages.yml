@@ -61,6 +61,10 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      - name: Prefetch pinned Electron through authenticated release assets
+        uses: ./.github/actions/prefetch-electron
+        with:
+          token: ${{ github.token }}
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:packages
       - run: pnpm --filter mdbase-editor i18n:check

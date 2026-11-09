@@ -79,6 +79,11 @@ jobs:
           workspaces: mdbase-connect -> target
           key: performance-core-${{ steps.mdbase_revision.outputs.revision }}
           cache-on-failure: true
+      - name: Prefetch pinned Electron through authenticated release assets
+        uses: ./mdbase-connect/.github/actions/prefetch-electron
+        with:
+          token: ${{ github.token }}
+          root: mdbase-connect
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:packages
       - run: cargo build --locked --release -p mdbase-cli
@@ -193,6 +198,11 @@ jobs:
           workspaces: mdbase-connect -> target
           key: performance-provider-${{ steps.mdbase_revision.outputs.revision }}
           cache-on-failure: true
+      - name: Prefetch pinned Electron through authenticated release assets
+        uses: ./mdbase-connect/.github/actions/prefetch-electron
+        with:
+          token: ${{ github.token }}
+          root: mdbase-connect
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - name: Restore Playwright cache
