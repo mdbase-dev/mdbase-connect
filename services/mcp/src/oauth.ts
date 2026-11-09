@@ -172,15 +172,29 @@ export class OAuthService {
       }
       return { kind: "additional", error: "Collection access was not approved." };
     }
+    // Claim once before exchanging the upstream code or persisting a connection.
+    // Concurrent/replayed callbacks must never attach a second grant to this request.
+    const claimed = await this.db.query(
+      `UPDATE mcp_upstream_authorizations SET completed_at = now()
+       WHERE id = $1 AND completed_at IS NULL AND expires_at > now() RETURNING id`,
+      [pending.id]
+    );
+    if (!claimed.rows[0]) {
+      throw new OAuthError("invalid_request", "This Connect authorization has expired or was already used.");
+    }
+    if (pending.kind === "initial" && pending.authorization_request_id) {
+      await this.authorizationRequest(pending.authorization_request_id);
+    }
     const application = await this.gateway.registerApplication();
     const connection = await this.gateway.exchangeAuthorization({
+      authorizationId: pending.id,
+      manifestDigest: application.manifestDigest,
       code: input.code,
       verifier: pending.code_verifier,
       applicationId: application.id,
       connectionSetId: pending.connection_set_id,
       keyHandle: pending.key_handle
     });
-    await this.db.query("UPDATE mcp_upstream_authorizations SET completed_at = now() WHERE id = $1", [pending.id]);
     if (pending.kind === "additional") {
       return { kind: "additional", connectionName: connection.display_name };
     }
@@ -374,9 +388,11 @@ export class OAuthService {
     const state = randomToken("state");
     const verifier = randomToken("pkce");
     const keyHandle = `mcp:${randomUUID()}`;
+    const upstreamAuthorizationId = randomUUID();
     const key = await this.keyStore.create(keyHandle);
     try {
       const authorizationUri = await this.gateway.createAuthorizationRequest({
+        authorizationId: upstreamAuthorizationId,
         state,
         codeChallenge: pkceChallenge(verifier),
         operations: operationsForScopes(scopes),
@@ -389,7 +405,7 @@ export class OAuthService {
             scopes, code_verifier, key_handle, expires_at)
          VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)`,
         [
-          randomUUID(),
+          upstreamAuthorizationId,
           tokenHash(state),
           kind,
           authorizationRequestId,
