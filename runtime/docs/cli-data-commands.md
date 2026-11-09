@@ -5,8 +5,9 @@ Status: implemented in `crates/daemon/src/data.rs` (phases 1 to 4).
 The `mdbase` binary (`crates/daemon`, `src/cli.rs`) administers the daemon,
 collections, sync, devices and app access. These commands add record reads and
 writes. The retired connector CLI supported them (`mdbase --root PATH query …`,
-`mdbase --collection ID read …`), and scripts and agents relied on that. This restores record access
-for local collections. Thin-client access to hosted collections is out of scope.
+`mdbase --collection ID read …`), and scripts and agents relied on that. This
+restores record access for local collections. Thin-client access to hosted
+collections is out of scope.
 
 ## Commands
 

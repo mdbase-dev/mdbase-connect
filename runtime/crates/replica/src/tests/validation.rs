@@ -477,6 +477,49 @@ fn collection_unique() -> (FakeLogService, Node) {
     (service, a)
 }
 
+#[test]
+fn validation_unique_candidates_follow_pending_path_policy_changes() {
+    use mdbn_core::ids::Uuid;
+    use mdbn_core::plan::Effect;
+    use mdbn_core::state::{MemState, Overlay, StateView};
+    use mdbn_core::value::Value;
+
+    let mut base = MemState::new();
+    base.insert_resource("mdbase.yaml", "spec_version: '0.3.0'\n");
+    let definition = "---\nkind: mdbase.type\nname: Task\nmatch: {path_glob: 'tasks/*.md'}\nschema:\n  dialect: json-schema-2020-12\n  value: {type: object, properties: {title: {type: string}}}\ncollection:\n  path: {pattern: 'tasks/{title}.md', fields: [title]}\n  unique: [{field: title, enforce: report}]\n---\n";
+    base.insert_resource("_types/task.md", definition);
+    let id = Uuid([10; 16]);
+    base.insert_record(id, "tasks/A Same.md", "body");
+    let changed = Effect::PutResource {
+        path: "_types/task.md".into(),
+        doc: definition.replace("tasks/{title}.md", "tasks/{prefix} {title}.md"),
+    };
+    let mut overlay = Overlay::new(&base);
+    overlay.apply_effect(&changed);
+    let mut layer = crate::layer::Layer::default();
+    layer.apply_effect(&base, &changed);
+    let local = crate::layer::LayerView {
+        base: &base,
+        layer: &layer,
+    };
+    assert!(
+        base.with_value("title", &Value::string("A Same"))
+            .contains(&id)
+    );
+    assert!(
+        !base
+            .with_value("title", &Value::string("Same"))
+            .contains(&id)
+    );
+    for view in [&overlay as &dyn StateView, &local] {
+        assert!(view.catalog().is_valid(), "{:?}", view.catalog().issues());
+        assert!(
+            view.with_value("title", &Value::string("Same"))
+                .contains(&id)
+        );
+    }
+}
+
 fn duplicates(a: &mut Node, n: u8) -> Vec<String> {
     let rows =
         a.r.validate(a.s, Validate::Targets(vec![target(n)]))

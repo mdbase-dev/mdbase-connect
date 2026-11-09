@@ -680,20 +680,9 @@ impl StateView for StoreView<'_> {
             .collect()
     }
     fn with_value(&self, field: &str, value: &CValue) -> Vec<RecordId> {
-        if unique_fields(&self.catalog).contains(field) {
-            return self
-                .ok(self.store.unique_holders(field, &value_key(value)))
-                .iter()
-                .map(convert::uuid)
-                .collect();
-        }
-        // A field only a pending catalog change names is not indexed yet.
-        self.record_ids()
-            .into_iter()
-            .filter(|id| {
-                self.record(id)
-                    .is_some_and(|r| mdbn_core::state::holds_value(&r, field, value))
-            })
+        self.ok(self.store.unique_holders(field, &value_key(value)))
+            .iter()
+            .map(convert::uuid)
             .collect()
     }
     fn record_ids(&self) -> Vec<RecordId> {

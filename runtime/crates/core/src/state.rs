@@ -124,11 +124,13 @@ pub trait StateView {
     fn record_ids(&self) -> Vec<RecordId>;
 }
 
-/// Whether `field` selects a value equal to `value` in the record's
-/// frontmatter: the exact test behind [`StateView::with_value`].
-pub fn holds_value(record: &StoredRecord, field: &str, value: &Value) -> bool {
+/// Whether `field` selects a persisted value equal to `value` in the record:
+/// the exact test behind [`StateView::with_value`].
+pub fn holds_value(catalog: &Catalog, record: &StoredRecord, field: &str, value: &Value) -> bool {
     let doc = crate::doc::Document::parse_at(&record.path, &*record.source);
-    crate::types::select(doc.frontmatter(), field)
+    let membership = catalog.membership(&record.path, doc.frontmatter());
+    let values = catalog.record_values(&record.path, &membership.types, doc.frontmatter());
+    crate::types::select(&values, field)
         .into_iter()
         .any(|v| v == value)
 }
@@ -381,9 +383,10 @@ impl StateView for MemState {
             .collect()
     }
     fn with_value(&self, field: &str, value: &Value) -> Vec<RecordId> {
+        let catalog = self.catalog();
         self.records
             .values()
-            .filter(|r| holds_value(r, field, value))
+            .filter(|r| holds_value(&catalog, r, field, value))
             .map(|r| r.id)
             .collect()
     }
@@ -688,9 +691,13 @@ impl StateView for Overlay<'_> {
         })
     }
     fn with_value(&self, field: &str, value: &Value) -> Vec<RecordId> {
-        self.merge_ids(self.base.with_value(field, value), |r| {
-            holds_value(r, field, value)
-        })
+        let catalog = self.catalog();
+        let candidates = if self.catalog.is_some() {
+            self.base.record_ids()
+        } else {
+            self.base.with_value(field, value)
+        };
+        self.merge_ids(candidates, |r| holds_value(&catalog, r, field, value))
     }
     fn record_ids(&self) -> Vec<RecordId> {
         self.merge_ids(self.base.record_ids(), |_| true)
