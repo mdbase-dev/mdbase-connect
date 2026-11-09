@@ -255,6 +255,11 @@
   gap: 0;
 }
 
+/* A title is the whole compact row, so medium weight on every row emphasises none; only the selection keeps it. */
+.note-scroll.compact .note-row:not(.selected) .note-title {
+  font-weight: var(--font-weight-regular);
+}
+
 .note-scroll.compact .note-transition {
   flex: 0 1 auto;
   margin-left: auto;
