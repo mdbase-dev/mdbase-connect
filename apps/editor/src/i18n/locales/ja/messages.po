@@ -1190,6 +1190,7 @@ msgstr "ブロック · {0}"
 msgid "Body differences"
 msgstr "本文の差分"
 
+#: src/CodeEditor.tsx
 #: src/editor-commands.ts
 msgid "Bold"
 msgstr "太字"
@@ -1203,6 +1204,7 @@ msgid "Browse ready-made types"
 msgstr "既成の型を探す"
 
 #: src/code-editor-completions.ts
+#: src/CodeEditor.tsx
 msgid "Bulleted list"
 msgstr "箇条書き"
 
@@ -2130,6 +2132,7 @@ msgid "Documentation"
 msgstr "ドキュメント"
 
 #: src/FolderChangeDialog.tsx
+#: src/writing-toolbar.tsx
 msgid "Done"
 msgstr "完了"
 
@@ -2507,6 +2510,10 @@ msgstr "このブラウザーから削除"
 msgid "Format"
 msgstr "形式"
 
+#: src/writing-toolbar.tsx
+msgid "Formatting"
+msgstr "書式"
+
 #: src/editor-commands.ts
 msgid "Forward"
 msgstr "進む"
@@ -2570,6 +2577,10 @@ msgstr "ノートのタイトルへ移動"
 msgid "Guide compatible tools when they create or rename records of this type."
 msgstr "対応ツールによるこの型のレコードの作成や名前変更時の動作を指定します。"
 
+#: src/CodeEditor.tsx
+msgid "Heading"
+msgstr "見出し"
+
 #: src/code-editor-completions.ts
 msgid "Heading 1"
 msgstr "見出し 1"
@@ -2630,6 +2641,10 @@ msgstr "リスト内"
 #: src/type-contracts.ts
 msgid "Incompatible"
 msgstr "互換性なし"
+
+#: src/CodeEditor.tsx
+msgid "Indent"
+msgstr "インデント"
 
 #: src/editor-commands.ts
 msgid "Inline code"
@@ -2699,6 +2714,7 @@ msgstr "JSON が無効です。"
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
 msgstr "追加後に編集されていないため、新しい初期データに置き換えられます。"
 
+#: src/CodeEditor.tsx
 #: src/editor-commands.ts
 msgid "Italic"
 msgstr "斜体"
@@ -2809,6 +2825,10 @@ msgstr "このレコードを自分にリンク"
 #: src/code-editor-reference-diagnostics.ts
 msgid "Link to {title}"
 msgstr "{title} にリンク"
+
+#: src/CodeEditor.tsx
+msgid "Link to note"
+msgstr "ノートにリンク"
 
 #: src/code-editor-completions.ts
 msgid "Link to note or file"
@@ -3763,6 +3783,10 @@ msgstr "その他のコレクションルール"
 #: src/TypeBrowser.tsx
 msgid "Other fields are allowed"
 msgstr "ほかのフィールドも許可"
+
+#: src/CodeEditor.tsx
+msgid "Outdent"
+msgstr "インデント解除"
 
 #: src/editor-commands.ts
 msgid "outside text inputs"
@@ -4833,6 +4857,7 @@ msgid "Tags must be text or a list of text before they can be changed together."
 msgstr "タグをまとめて変更するには、テキストまたはテキストのリストにしてください。"
 
 #: src/code-editor-completions.ts
+#: src/CodeEditor.tsx
 msgid "Task"
 msgstr "タスク"
 

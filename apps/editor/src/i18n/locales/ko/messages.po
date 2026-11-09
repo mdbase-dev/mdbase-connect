@@ -1190,6 +1190,7 @@ msgstr "블록 · {0}"
 msgid "Body differences"
 msgstr "본문 차이"
 
+#: src/CodeEditor.tsx
 #: src/editor-commands.ts
 msgid "Bold"
 msgstr "굵게"
@@ -1203,6 +1204,7 @@ msgid "Browse ready-made types"
 msgstr "준비된 유형 찾아보기"
 
 #: src/code-editor-completions.ts
+#: src/CodeEditor.tsx
 msgid "Bulleted list"
 msgstr "글머리 기호 목록"
 
@@ -2130,6 +2132,7 @@ msgid "Documentation"
 msgstr "문서"
 
 #: src/FolderChangeDialog.tsx
+#: src/writing-toolbar.tsx
 msgid "Done"
 msgstr "완료"
 
@@ -2507,6 +2510,10 @@ msgstr "이 브라우저에서 잊기"
 msgid "Format"
 msgstr "형식"
 
+#: src/writing-toolbar.tsx
+msgid "Formatting"
+msgstr "서식"
+
 #: src/editor-commands.ts
 msgid "Forward"
 msgstr "앞으로"
@@ -2570,6 +2577,10 @@ msgstr "노트 제목으로 이동"
 msgid "Guide compatible tools when they create or rename records of this type."
 msgstr "호환 도구가 이 유형의 레코드를 만들거나 이름을 바꿀 때 참고하도록 안내합니다."
 
+#: src/CodeEditor.tsx
+msgid "Heading"
+msgstr "제목"
+
 #: src/code-editor-completions.ts
 msgid "Heading 1"
 msgstr "제목 1"
@@ -2630,6 +2641,10 @@ msgstr "목록에"
 #: src/type-contracts.ts
 msgid "Incompatible"
 msgstr "호환되지 않음"
+
+#: src/CodeEditor.tsx
+msgid "Indent"
+msgstr "들여쓰기"
 
 #: src/editor-commands.ts
 msgid "Inline code"
@@ -2699,6 +2714,7 @@ msgstr "잘못된 JSON입니다."
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
 msgstr "추가된 이후 편집되지 않아 새 기본 유형으로 대체됩니다."
 
+#: src/CodeEditor.tsx
 #: src/editor-commands.ts
 msgid "Italic"
 msgstr "기울임꼴"
@@ -2809,6 +2825,10 @@ msgstr "이 레코드를 나에게 연결"
 #: src/code-editor-reference-diagnostics.ts
 msgid "Link to {title}"
 msgstr "{title}에 링크"
+
+#: src/CodeEditor.tsx
+msgid "Link to note"
+msgstr "노트에 연결"
 
 #: src/code-editor-completions.ts
 msgid "Link to note or file"
@@ -3763,6 +3783,10 @@ msgstr "기타 컬렉션 규칙"
 #: src/TypeBrowser.tsx
 msgid "Other fields are allowed"
 msgstr "다른 필드도 허용됩니다."
+
+#: src/CodeEditor.tsx
+msgid "Outdent"
+msgstr "내어쓰기"
 
 #: src/editor-commands.ts
 msgid "outside text inputs"
@@ -4833,6 +4857,7 @@ msgid "Tags must be text or a list of text before they can be changed together."
 msgstr "태그를 함께 변경하려면 텍스트 또는 텍스트 목록이어야 합니다."
 
 #: src/code-editor-completions.ts
+#: src/CodeEditor.tsx
 msgid "Task"
 msgstr "작업"
 

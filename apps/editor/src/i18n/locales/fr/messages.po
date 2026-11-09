@@ -1190,6 +1190,7 @@ msgstr "Bloc · {0}"
 msgid "Body differences"
 msgstr "Différences du corps"
 
+#: src/CodeEditor.tsx
 #: src/editor-commands.ts
 msgid "Bold"
 msgstr "Gras"
@@ -1203,6 +1204,7 @@ msgid "Browse ready-made types"
 msgstr "Parcourir les types prêts à l’emploi"
 
 #: src/code-editor-completions.ts
+#: src/CodeEditor.tsx
 msgid "Bulleted list"
 msgstr "Liste à puces"
 
@@ -2130,6 +2132,7 @@ msgid "Documentation"
 msgstr "Documentation"
 
 #: src/FolderChangeDialog.tsx
+#: src/writing-toolbar.tsx
 msgid "Done"
 msgstr "Terminé"
 
@@ -2507,6 +2510,10 @@ msgstr "Oublier dans ce navigateur"
 msgid "Format"
 msgstr "Format du fichier"
 
+#: src/writing-toolbar.tsx
+msgid "Formatting"
+msgstr "Mise en forme"
+
 #: src/editor-commands.ts
 msgid "Forward"
 msgstr "Suivant"
@@ -2570,6 +2577,10 @@ msgstr "Aller au titre de la note"
 msgid "Guide compatible tools when they create or rename records of this type."
 msgstr "Guidez les outils compatibles lorsqu’ils créent ou renomment des documents de ce type."
 
+#: src/CodeEditor.tsx
+msgid "Heading"
+msgstr "Titre"
+
 #: src/code-editor-completions.ts
 msgid "Heading 1"
 msgstr "Titre 1"
@@ -2630,6 +2641,10 @@ msgstr "dans la liste"
 #: src/type-contracts.ts
 msgid "Incompatible"
 msgstr "Incompatible"
+
+#: src/CodeEditor.tsx
+msgid "Indent"
+msgstr "Augmenter le retrait"
 
 #: src/editor-commands.ts
 msgid "Inline code"
@@ -2699,6 +2714,7 @@ msgstr "JSON non valide."
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
 msgstr "Il n’a pas été modifié depuis son ajout ; il est donc remplacé par le nouveau modèle de départ."
 
+#: src/CodeEditor.tsx
 #: src/editor-commands.ts
 msgid "Italic"
 msgstr "Italique"
@@ -2809,6 +2825,10 @@ msgstr "Me lier à ce document"
 #: src/code-editor-reference-diagnostics.ts
 msgid "Link to {title}"
 msgstr "Lier à {title}"
+
+#: src/CodeEditor.tsx
+msgid "Link to note"
+msgstr "Lier à une note"
 
 #: src/code-editor-completions.ts
 msgid "Link to note or file"
@@ -3763,6 +3783,10 @@ msgstr "Autres règles de la collection"
 #: src/TypeBrowser.tsx
 msgid "Other fields are allowed"
 msgstr "Les autres champs sont autorisés"
+
+#: src/CodeEditor.tsx
+msgid "Outdent"
+msgstr "Réduire le retrait"
 
 #: src/editor-commands.ts
 msgid "outside text inputs"
@@ -4833,6 +4857,7 @@ msgid "Tags must be text or a list of text before they can be changed together."
 msgstr "Les étiquettes doivent être du texte ou une liste de textes pour pouvoir être modifiées ensemble."
 
 #: src/code-editor-completions.ts
+#: src/CodeEditor.tsx
 msgid "Task"
 msgstr "Tâche"
 

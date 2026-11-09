@@ -1190,6 +1190,7 @@ msgstr "Block · {0}"
 msgid "Body differences"
 msgstr "Body differences"
 
+#: src/CodeEditor.tsx
 #: src/editor-commands.ts
 msgid "Bold"
 msgstr "Bold"
@@ -1203,6 +1204,7 @@ msgid "Browse ready-made types"
 msgstr "Browse ready-made types"
 
 #: src/code-editor-completions.ts
+#: src/CodeEditor.tsx
 msgid "Bulleted list"
 msgstr "Bulleted list"
 
@@ -2130,6 +2132,7 @@ msgid "Documentation"
 msgstr "Documentation"
 
 #: src/FolderChangeDialog.tsx
+#: src/writing-toolbar.tsx
 msgid "Done"
 msgstr "Done"
 
@@ -2507,6 +2510,10 @@ msgstr "Forget from this browser"
 msgid "Format"
 msgstr "Format"
 
+#: src/writing-toolbar.tsx
+msgid "Formatting"
+msgstr "Formatting"
+
 #: src/editor-commands.ts
 msgid "Forward"
 msgstr "Forward"
@@ -2570,6 +2577,10 @@ msgstr "Go to note title"
 msgid "Guide compatible tools when they create or rename records of this type."
 msgstr "Guide compatible tools when they create or rename records of this type."
 
+#: src/CodeEditor.tsx
+msgid "Heading"
+msgstr "Heading"
+
 #: src/code-editor-completions.ts
 msgid "Heading 1"
 msgstr "Heading 1"
@@ -2630,6 +2641,10 @@ msgstr "in the list"
 #: src/type-contracts.ts
 msgid "Incompatible"
 msgstr "Incompatible"
+
+#: src/CodeEditor.tsx
+msgid "Indent"
+msgstr "Indent"
 
 #: src/editor-commands.ts
 msgid "Inline code"
@@ -2699,6 +2714,7 @@ msgstr "Invalid JSON."
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
 msgstr "It has not been edited since it was added, so it is replaced with the new starter."
 
+#: src/CodeEditor.tsx
 #: src/editor-commands.ts
 msgid "Italic"
 msgstr "Italic"
@@ -2809,6 +2825,10 @@ msgstr "Link this record to me"
 #: src/code-editor-reference-diagnostics.ts
 msgid "Link to {title}"
 msgstr "Link to {title}"
+
+#: src/CodeEditor.tsx
+msgid "Link to note"
+msgstr "Link to note"
 
 #: src/code-editor-completions.ts
 msgid "Link to note or file"
@@ -3763,6 +3783,10 @@ msgstr "Other collection rules"
 #: src/TypeBrowser.tsx
 msgid "Other fields are allowed"
 msgstr "Other fields are allowed"
+
+#: src/CodeEditor.tsx
+msgid "Outdent"
+msgstr "Outdent"
 
 #: src/editor-commands.ts
 msgid "outside text inputs"
@@ -4833,6 +4857,7 @@ msgid "Tags must be text or a list of text before they can be changed together."
 msgstr "Tags must be text or a list of text before they can be changed together."
 
 #: src/code-editor-completions.ts
+#: src/CodeEditor.tsx
 msgid "Task"
 msgstr "Task"
 

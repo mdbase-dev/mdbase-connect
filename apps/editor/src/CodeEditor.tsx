@@ -4,7 +4,7 @@ import { englishCodeMirrorPhrases, loadCodeMirrorPhrases } from "@mdbase-dev/i18
 import { t } from "@lingui/core/macro";
 import { commandDefinitions } from "./editor-commands";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
-import { defaultKeymap, history, historyField, historyKeymap } from "@codemirror/commands";
+import { defaultKeymap, history, historyField, historyKeymap, indentLess, indentMore } from "@codemirror/commands";
 import { markdown, markdownKeymap, markdownLanguage, pasteURLAsLink } from "@codemirror/lang-markdown";
 import {
   bracketMatching,
@@ -29,7 +29,10 @@ import {
   type DecorationSet
 } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { cycleHeading, insertNoteLink, toggleBulletList, toggleTask } from "./writing-commands";
+import { WritingToolbar, type WritingAction } from "./writing-toolbar";
+import { LinkIcon, ListBulletsIcon, ListChecksIcon, TextBIcon, TextHTwoIcon, TextIndentIcon, TextItalicIcon, TextOutdentIcon } from "./icons";
 import { createPortal } from "react-dom";
 import { parseDocument as parseYamlDocument } from "yaml";
 import type { FileAssetSnapshot } from "./file-asset-store";
@@ -223,6 +226,17 @@ export function CodeEditor({
   // forward to the latest prop rather than capture that render's callback.
   const openEmbeddedNote = useRef((path: string) => onOpenLinkRef.current?.(path)).current;
   const openEmbeddedFile = useRef((asset: Extract<FileAssetSnapshot, { status: "ready" }>) => onOpenFileRef.current?.(asset)).current;
+  const writingActions = useMemo((): WritingAction[] => [
+    { label: t`Heading`, icon: TextHTwoIcon, run: cycleHeading },
+    { label: t`Bold`, icon: TextBIcon, run: markdownFormatCommand("bold") },
+    { label: t`Italic`, icon: TextItalicIcon, run: markdownFormatCommand("italic") },
+    { label: t`Link to note`, icon: LinkIcon, run: insertNoteLink },
+    { label: t`Bulleted list`, icon: ListBulletsIcon, run: toggleBulletList },
+    { label: t`Task`, icon: ListChecksIcon, run: toggleTask },
+    { label: t`Outdent`, icon: TextOutdentIcon, run: (view) => outdentListItem(view) || indentLess(view) },
+    { label: t`Indent`, icon: TextIndentIcon, run: (view) => indentListItem(view) || indentMore(view) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- labels follow the locale
+  ], [i18n.locale]);
   const canOpenEmbeddedNote = Boolean(onOpenLink);
   const canOpenEmbeddedFile = Boolean(onOpenFile);
   const filesRef = useRef(files);
@@ -240,6 +254,15 @@ export function CodeEditor({
   const onUploadAttachmentRef = useRef(onUploadAttachment);
   onUploadAttachmentRef.current = variant === "writer" && language === "markdown" ? onUploadAttachment : undefined;
   const lineSeparator = useRef(lineSeparatorFor(value));
+  const [focused, setFocused] = useState(false);
+  const [touch] = useState(() => typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches);
+  // The bottom of the screen the touch formatting bar and keyboard cover; the caret scrolls clear of it.
+  const covered = useRef(0);
+  const reserve = useCallback((bottom: number) => {
+    covered.current = bottom;
+    // Let the end of the note scroll up past the bar too.
+    viewRef.current?.scrollDOM.style.setProperty("padding-bottom", bottom ? `${bottom}px` : "");
+  }, []);
 
   linkSuggestionsRef.current = linkSuggestions;
   linkTypesRef.current = linkTypes;
@@ -320,7 +343,9 @@ export function CodeEditor({
       editorAttributes.current.of(EditorView.contentAttributes.of(contentAttributes(label, variant, language))),
       placeholderMode.current.of(placeholder ? editorPlaceholder(placeholder) : []),
       phraseMode.current.of(EditorState.phrases.of(englishCodeMirrorPhrases)),
+      EditorView.scrollMargins.of(() => ({ bottom: covered.current })),
       EditorView.updateListener.of((update) => {
+        if (update.focusChanged) setFocused(update.view.hasFocus);
         if (update.docChanged && !syncing.current) {
           onChangeRef.current?.(restoreLineSeparators(update.state.doc.toString(), lineSeparator.current));
         }
@@ -614,7 +639,10 @@ export function CodeEditor({
       if (next instanceof Node && event.currentTarget.contains(next)) return;
       onBlur?.();
     }}
-  >{headerHost && createPortal(header, headerHost)}{footerHost && footer && createPortal(footer, footerHost)}</div>;
+  >{headerHost && createPortal(header, headerHost)}{footerHost && footer && createPortal(footer, footerHost)}
+    {touch && focused && variant === "writer" && language === "markdown" && !readOnly && viewRef.current
+      && <WritingToolbar view={viewRef.current} actions={writingActions} reserve={reserve} />}
+  </div>;
 }
 
 export function lineSeparatorFor(value: string): "\n" | "\r\n" {

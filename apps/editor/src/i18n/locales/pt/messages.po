@@ -1190,6 +1190,7 @@ msgstr "Bloco · {0}"
 msgid "Body differences"
 msgstr "Diferenças no corpo"
 
+#: src/CodeEditor.tsx
 #: src/editor-commands.ts
 msgid "Bold"
 msgstr "Negrito"
@@ -1203,6 +1204,7 @@ msgid "Browse ready-made types"
 msgstr "Explorar tipos prontos"
 
 #: src/code-editor-completions.ts
+#: src/CodeEditor.tsx
 msgid "Bulleted list"
 msgstr "Lista com marcadores"
 
@@ -2130,6 +2132,7 @@ msgid "Documentation"
 msgstr "Documentação"
 
 #: src/FolderChangeDialog.tsx
+#: src/writing-toolbar.tsx
 msgid "Done"
 msgstr "Concluído"
 
@@ -2507,6 +2510,10 @@ msgstr "Esquecer neste navegador"
 msgid "Format"
 msgstr "Formato"
 
+#: src/writing-toolbar.tsx
+msgid "Formatting"
+msgstr "Formatação"
+
 #: src/editor-commands.ts
 msgid "Forward"
 msgstr "Avançar"
@@ -2570,6 +2577,10 @@ msgstr "Ir para o título da nota"
 msgid "Guide compatible tools when they create or rename records of this type."
 msgstr "Oriente ferramentas compatíveis quando criarem ou renomearem registros deste tipo."
 
+#: src/CodeEditor.tsx
+msgid "Heading"
+msgstr "Título"
+
 #: src/code-editor-completions.ts
 msgid "Heading 1"
 msgstr "Título 1"
@@ -2630,6 +2641,10 @@ msgstr "na lista"
 #: src/type-contracts.ts
 msgid "Incompatible"
 msgstr "Incompatível"
+
+#: src/CodeEditor.tsx
+msgid "Indent"
+msgstr "Aumentar recuo"
 
 #: src/editor-commands.ts
 msgid "Inline code"
@@ -2699,6 +2714,7 @@ msgstr "JSON inválido."
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
 msgstr "Não foi editado desde que foi adicionado, então será substituído pelo novo modelo inicial."
 
+#: src/CodeEditor.tsx
 #: src/editor-commands.ts
 msgid "Italic"
 msgstr "Itálico"
@@ -2809,6 +2825,10 @@ msgstr "Vincular este registro a mim"
 #: src/code-editor-reference-diagnostics.ts
 msgid "Link to {title}"
 msgstr "Vincular a {title}"
+
+#: src/CodeEditor.tsx
+msgid "Link to note"
+msgstr "Vincular a nota"
 
 #: src/code-editor-completions.ts
 msgid "Link to note or file"
@@ -3763,6 +3783,10 @@ msgstr "Outras regras da coleção"
 #: src/TypeBrowser.tsx
 msgid "Other fields are allowed"
 msgstr "Outros campos são permitidos"
+
+#: src/CodeEditor.tsx
+msgid "Outdent"
+msgstr "Diminuir recuo"
 
 #: src/editor-commands.ts
 msgid "outside text inputs"
@@ -4833,6 +4857,7 @@ msgid "Tags must be text or a list of text before they can be changed together."
 msgstr "As etiquetas precisam ser texto ou uma lista de textos para serem alteradas em conjunto."
 
 #: src/code-editor-completions.ts
+#: src/CodeEditor.tsx
 msgid "Task"
 msgstr "Tarefa"
 
