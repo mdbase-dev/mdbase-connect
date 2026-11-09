@@ -13,7 +13,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
         const title = el.querySelector(".title-input")!.getBoundingClientRect();
         const line = el.querySelector(".cm-line")!.getBoundingClientRect();
         const pane = el.closest(".editor-pane")!.getBoundingClientRect();
-        return { left: title.left, right: title.right, width: title.width, lineHeight: line.height, paneWidth: pane.width, paneRight: pane.right };
+        return { left: title.left, right: title.right, width: title.width, lineHeight: line.height, paneLeft: pane.left, paneWidth: pane.width, paneRight: pane.right };
       });
       const before = await measure();
       expect(before.width).toBe(760);
@@ -28,13 +28,12 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
       expect(after.paneRight).toBeCloseTo(panelLeft, 0);
       expect(after.right).toBeLessThanOrEqual(panelLeft);
       expect(after.left).toBeLessThan(before.left);
-      if (width >= 1600) {
-        expect(after.width).toBe(760);
-        expect(after.lineHeight).toBe(before.lineHeight);
-      } else {
-        expect(after.paneWidth).toBeLessThan(760);
-        expect(after.width).toBeLessThan(760);
-      }
+      // A docked inspector narrows the measure before it eats the side margins.
+      expect(after.left - after.paneLeft).toBeGreaterThanOrEqual(24);
+      expect(after.paneRight - after.right).toBeGreaterThanOrEqual(24);
+      expect(after.width).toBeLessThanOrEqual(760);
+      expect(after.lineHeight).toBe(before.lineHeight);
+      if (width < 1600) expect(after.paneWidth).toBeLessThan(760);
       await expect(page.getByRole("dialog", { name: "Note properties" })).toHaveCount(0);
       await expect(page.locator(".inspector-scrim")).toHaveCount(0);
       const handle = page.getByRole("separator", { name: "Resize note inspector" });
@@ -42,7 +41,9 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
       await page.keyboard.press("ArrowLeft");
       await settle();
       expect((await measure()).paneRight).toBeCloseTo((await panel.boundingBox())!.x, 0);
-      if (width >= 1600) expect((await measure()).width).toBe(760);
+      const resized = await measure();
+      expect(resized.left - resized.paneLeft).toBeGreaterThanOrEqual(24);
+      expect(resized.paneRight - resized.right).toBeGreaterThanOrEqual(24);
       await panel.getByRole("button", { name: "Close properties" }).click();
       await settle();
       expect(await measure()).toEqual(before);
