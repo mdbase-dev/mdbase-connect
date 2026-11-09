@@ -85,8 +85,8 @@ describe("shared attachment pipeline", () => {
     expect(upload.mock.calls.map(([path]) => path)).toEqual([
       "Notes/Attachments/Screenshot.png", "Notes/Attachments/Screenshot (2).png"
     ]);
-    expect(result.current.insertion?.text).toBe("![Screenshot.png](<Notes/Attachments/Screenshot.png>)");
-    expect(reference).toBe("![Screenshot (2).png](<Notes/Attachments/Screenshot (2).png>)");
+    expect(result.current.insertion?.text).toBe("![Screenshot.png](<Attachments/Screenshot.png>)");
+    expect(reference).toBe("![Screenshot (2).png](<Attachments/Screenshot (2).png>)");
     expect(inventory.getSnapshot().files).toHaveLength(2);
   });
 

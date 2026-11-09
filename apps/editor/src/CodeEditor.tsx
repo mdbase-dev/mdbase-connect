@@ -131,7 +131,7 @@ const remoteChangeLines = StateField.define<DecorationSet>({
   provide: (field) => EditorView.decorations.from(field)
 });
 
-export { internalLinkPathAt } from "./code-editor-writer-interactions";
+export { internalLinkAt } from "./code-editor-writer-interactions";
 export { linkCompletion, mentionScope } from "./code-editor-completions";
 
 export function CodeEditor({
