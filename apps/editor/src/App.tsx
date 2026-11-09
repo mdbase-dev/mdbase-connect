@@ -142,6 +142,7 @@ import {
   searchNoteResults
 } from "./note-search";
 import { initialEditorSurface, loadPreferences, savePreferences, type EditorPreferences } from "./preferences";
+import { takeQuickCapture } from "./quick-capture";
 import { activeEditorSelection, revealMarkdownLine } from "./code-editor-reveal";
 import { forgetRecentPath, rememberRecentPath, useRecentPaths } from "./recent-notes";
 import { buildEditorCommands, command, matchesCommandShortcut, type CommandId } from "./editor-commands";
@@ -1223,6 +1224,26 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     // One that arrives with its title, from a search that found nothing, is written at once.
     if (!newNoteWrites.current.has(note.id)) void writeNewNote(note.id);
   }
+
+  // A capture link or the share sheet starts a new note once the collection and its first note have loaded.
+  // What it carries comes from another page or app, so nothing is written until the person agrees.
+  useEffect(() => {
+    if (phase !== "ready" || !description || noteLoading) return;
+    const capture = takeQuickCapture();
+    if (!capture) return;
+    if (capture.title === undefined && capture.body === undefined) { openNewNote(); return; }
+    const excerpt = capture.body && capture.body.length > 280 ? `${capture.body.slice(0, 280)}…` : capture.body;
+    setConfirmation({
+      title: t`Create a note from what was shared?`,
+      body: <>
+        {capture.title && <p><strong>{capture.title}</strong></p>}
+        {excerpt && <p>{excerpt}</p>}
+      </>,
+      confirmLabel: t`Create note`,
+      onConfirm: () => openNewNote({ ...newNoteContext(noteFilter, typeDescriptors), ...capture })
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once the collection is ready; the capture is consumed from the URL
+  }, [phase, description, noteLoading]);
 
   function editNewNote(id: string, change: Partial<NewNote>) {
     const state = newNoteState.current;
