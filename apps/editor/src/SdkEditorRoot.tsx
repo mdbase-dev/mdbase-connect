@@ -17,6 +17,7 @@ import "@mdbase-dev/ui/collections.css";
 import "./styles/shared-collections.css";
 import { EditorEntryPage } from "./ConnectionScreens";
 import { configuredConnectServerUrl, editorPortalUrl } from "./connect-endpoint";
+import { editorUnsyncedEnabled } from "./editor-unsynced";
 
 const EditorApp = lazy(() => import("./App").then((module) => ({ default: module.App })));
 
@@ -31,9 +32,7 @@ export function createEditorMdbase(input: {
     origin: input.origin, environment: input.environment, manifest };
   // The SDK owns Native approvals, account-bound inventory and client lifetime.
   // Unbound browser history is not a fallback source of collection authority.
-  // Work before connecting: signed out, the SDK opens this browser's unsynced
-  // collection; it is never listed among collections.
-  const sdk = createMdbase(declaration, { privateCollections: true, unsynced: true });
+  const sdk = createMdbase(declaration, { privateCollections: true, unsynced: editorUnsyncedEnabled() });
   declarations.set(sdk, declaration);
   return sdk;
 }
@@ -70,6 +69,7 @@ let privateGeneration = 0;
  * supply an app-owned collection section, never a production fallback. */
 export function SdkEditorRoot({ sdk, renderNative, onFeedbackContext, privateCollections }: SdkEditorRootProps) {
   useLingui();
+  const unsynced = editorUnsyncedEnabled();
   const declaration = declarations.get(sdk);
   const privates = import.meta.env.MODE === "test" ? privateCollections ?? null : null;
   const snapshot = useSyncExternalStore((listener) => sdk.subscribe(listener), () => sdk.getSnapshot(), () => sdk.getSnapshot());
@@ -79,7 +79,7 @@ export function SdkEditorRoot({ sdk, renderNative, onFeedbackContext, privateCol
   useEffect(() => { if (developerMessage) console.warn(t`mdbase editor: ${developerMessage}`); }, [developerMessage]);
   const priv = usePrivateSection(sdk, privates);
   const sections = priv.section ? [priv.section] : undefined;
-  const switcher: EditorCollectionSwitcher = (onBeforeLeave) => <CollectionSwitcher mdbase={sdk} app={editorCollectionApp} allowDelete unsynced
+  const switcher: EditorCollectionSwitcher = (onBeforeLeave) => <CollectionSwitcher mdbase={sdk} app={editorCollectionApp} allowDelete unsynced={unsynced}
     variant="full" allowPrivate={false} className="editor-collection-switcher" sections={sections} onBeforeLeave={onBeforeLeave} />;
   const extraActions = (view: CollectionView) => <>
     <a className="mdbase-button" href={editorPortalUrl() ?? configuredConnectServerUrl}><Trans>Back to mdbase Connect</Trans></a>
@@ -98,7 +98,7 @@ export function SdkEditorRoot({ sdk, renderNative, onFeedbackContext, privateCol
   // once a collection is open, it offers to bring that work in. The frame stacks
   // those lines above the editor without pushing it past the viewport.
   return <div className="editor-collection-frame">
-    <CollectionGate mdbase={sdk} app={editorCollectionApp} allowPrivate={false} allowDelete unsynced extraActions={extraActions} sections={sections}
+    <CollectionGate mdbase={sdk} app={editorCollectionApp} allowPrivate={false} allowDelete unsynced={unsynced} extraActions={extraActions} sections={sections}
       renderAppCollection={() => priv.scope && <NativeScopeView key={priv.scope.connection.generation} application={priv.scope.actions}
         connection={priv.scope.connection} declaration={declaration} switcher={switcher} renderNative={renderNative} onFeedbackContext={onFeedbackContext} />}>
       {(connection) => <NativeScopeView key={`${connection.id}:${connection.generation}`} application={sdk.application} connection={connection}
