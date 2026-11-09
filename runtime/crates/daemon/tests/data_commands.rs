@@ -478,12 +478,18 @@ async fn daemon_route_matches_in_process() {
     let keys = std::sync::Arc::new(MemoryStore::default());
     let (p, k2) = (profile.clone(), keys.clone());
     let daemon = tokio::spawn(async move { server::run(p, Some(Box::new(k2))).await });
-    let mut c = loop {
-        if let Ok(c) = ControlClient::connect(&profile.control).await {
-            break c;
+    let mut c = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Ok(readiness) = mdbn_daemon::client::ping(&profile.control).await
+                && readiness.ready
+            {
+                break ControlClient::connect(&profile.control).await.unwrap();
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
         }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    };
+    })
+    .await
+    .expect("isolated daemon did not become ready");
     pairing::pair(&profile, &keys).await;
     let added: CollectionStatus = serde_json::from_value(
         c.call(
