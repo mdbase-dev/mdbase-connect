@@ -171,8 +171,10 @@ describe("usage report", () => {
         family: "bundle:dev.tasks",
         name: "TaskNotes",
         distribution: "portable",
+        synthetic: false,
         active_users_in_window: 1,
         users_with_active_grant: 1,
+        users_with_installation: 0,
         active_grants: 1,
         local_active_grants: 1,
         hosted_active_grants: 0,
@@ -186,14 +188,17 @@ describe("usage report", () => {
           installations_approved: 1,
           installations_abandoned_only: 1,
           abandoned_from_installations_that_approved: 1
-        }
+        },
+        pairing: { started: 0, approved: 0, completed: 0, expired_unapproved: 0, pending: 0 }
       },
       {
         family: "bundle:dev.reader",
         name: "Reader",
         distribution: "portable",
+        synthetic: false,
         active_users_in_window: 0,
         users_with_active_grant: 1,
+        users_with_installation: 0,
         active_grants: 1,
         local_active_grants: 0,
         hosted_active_grants: 1,
@@ -207,7 +212,8 @@ describe("usage report", () => {
           installations_approved: 0,
           installations_abandoned_only: 0,
           abandoned_from_installations_that_approved: 0
-        }
+        },
+        pairing: { started: 0, approved: 0, completed: 0, expired_unapproved: 0, pending: 0 }
       }
     ]);
 
@@ -354,18 +360,7 @@ describe("usage report", () => {
       [randomUUID(), carol, randomUUID()]
     );
     await pairing(db, { ageMinutes: 60, approved: true, consumed: true });
-    const installationPairing = randomUUID();
-    await db.query(
-      `INSERT INTO pairing_requests (id, secret_hash, connector_name, expires_at)
-       VALUES ($1, $2, 'Tasks', now() - interval '1 minute')`,
-      [installationPairing, randomUUID()]
-    );
-    await db.query(
-      `INSERT INTO installation_device_pairings
-         (pairing_id, installation_id, device_id, connector_id, app_id, app_origin, kind, challenge)
-       VALUES ($1, $2, $3, $4, $5, 'https://app.example', 'app-runtime', $6)`,
-      [installationPairing, randomUUID(), randomUUID(), randomUUID(), tasks, Buffer.alloc(32, 3)]
-    );
+    await installationPairing(db, tasks);
 
     const report = await runAuthAdminCommand(
       ["usage", "report", "--days", "30"],
@@ -373,9 +368,10 @@ describe("usage report", () => {
     ) as Record<string, any>;
 
     expect(report.accounts.signed_in_in_window).toBe(1);
-    // The browser installation is not a computer; the left collection is not current.
+    // The browser installation is not a computer, but it is an approved app;
+    // the left collection is not current.
     expect(report.activation.all_accounts).toEqual({
-      accounts: 3, paired_computer: 1, collection: 2, grant: 0, active_in_window: 2
+      accounts: 3, paired_computer: 1, collection: 2, grant: 1, active_in_window: 2
     });
     expect(report.collections.native).toEqual({
       total: 3,
@@ -389,11 +385,53 @@ describe("usage report", () => {
       desktop: 1, cli: 0, app_runtime: 1, mobile: 0
     });
     expect(report.applications).toEqual([
-      expect.objectContaining({ name: "Tasks", active_users_in_window: 1 })
+      expect.objectContaining({
+        name: "Tasks",
+        active_users_in_window: 1,
+        users_with_active_grant: 0,
+        users_with_installation: 1,
+        approved_in_window: 1,
+        pairing: { started: 1, approved: 0, completed: 0, expired_unapproved: 1, pending: 0 }
+      })
     ]);
     expect(report.pairing).toMatchObject({ started: 1, approved: 1, expired_unapproved: 0 });
     expect(report.app_pairing).toMatchObject({ started: 1, approved: 0, expired_unapproved: 1 });
     expect(report.retention.cohorts.at(-1).active_by_week).toEqual([2]);
+  });
+
+  it("lists release canaries and test fixtures without counting them in totals", async () => {
+    const db = await database();
+    const alice = await user(db, "alice@example.com", 2);
+    const tasks = await application(db, "dev.tasks", "v1", "Tasks", 1);
+    const canary = await application(db, "dev.mdbase.release-canary", "v1", "Canary", 1);
+    const webCanary = await application(db, "dev.mdbase.release-canary.web", "v1", "Web canary", 1);
+    const fixture = await application(db, "dev.mdbase.test.fixture", "v1", "[test] fixture", 1);
+
+    await authorization(db, tasks, { userId: alice, expiresInMinutes: -60, outcome: "completed" });
+    await authorization(db, canary, { userId: null, expiresInMinutes: -60, flow: "device_code" });
+    await authorization(db, webCanary, { userId: null, expiresInMinutes: -60 });
+    await authorization(db, fixture, { userId: null, expiresInMinutes: -60 });
+    await installationPairing(db, tasks);
+    await installationPairing(db, canary);
+
+    const report = await runAuthAdminCommand(
+      ["usage", "report", "--days", "30"],
+      { db, defaultRegistrationMode: "closed" }
+    ) as Record<string, any>;
+
+    expect(report.consent).toMatchObject({ started: 1, approved: 1, abandoned: 0, installations: 1 });
+    expect(Object.keys(report.consent_by_flow)).toEqual(["authorization_code"]);
+    expect(report.app_pairing).toMatchObject({ started: 1, expired_unapproved: 1 });
+    expect(
+      report.applications.map((entry: Record<string, any>) => [
+        entry.name, entry.synthetic, entry.consent.started, entry.pairing.started
+      ]).sort()
+    ).toEqual([
+      ["Canary", true, 1, 1],
+      ["Tasks", false, 1, 1],
+      ["Web canary", true, 1, 0],
+      ["[test] fixture", true, 1, 0]
+    ]);
   });
 
   it("rejects an unsupported window", async () => {
@@ -516,6 +554,22 @@ async function nativeDevice(
     );
   }
   return connector;
+}
+
+// An app installation's pairing window that expired without approval.
+async function installationPairing(db: DatabasePool, appId: string): Promise<void> {
+  const id = randomUUID();
+  await db.query(
+    `INSERT INTO pairing_requests (id, secret_hash, connector_name, expires_at)
+     VALUES ($1, $2, 'Tasks', now() - interval '1 minute')`,
+    [id, randomUUID()]
+  );
+  await db.query(
+    `INSERT INTO installation_device_pairings
+       (pairing_id, installation_id, device_id, connector_id, app_id, app_origin, kind, challenge)
+     VALUES ($1, $2, $3, $4, $5, 'https://app.example', 'app-runtime', $6)`,
+    [id, randomUUID(), randomUUID(), randomUUID(), appId, Buffer.alloc(32, 3)]
+  );
 }
 
 async function nativeCollection(
