@@ -10,7 +10,7 @@ import type { MdbaseErrorAction, MdbaseLinks, MdbasePhase, MdbaseProblem, Mdbase
 import { describeError } from "@mdbase-dev/sdk/describe";
 
 import { defaultCollectionCopy, fill, type CollectionCopy } from "./copy.js";
-import { hasUnsyncedWork, unsyncedCollectionId, unsyncedPhase, type UnsyncedPhase } from "./unsynced.js";
+import { hasUnsyncedWork, unsyncedPhase, type UnsyncedPhase } from "./unsynced.js";
 
 export type CollectionRole = "owner" | "editor" | "viewer";
 
@@ -256,6 +256,12 @@ function currentCollectionId(phase: MdbasePhase): string | null {
 
 function isOpen(snapshot: Snapshot): boolean {
   return snapshot.status === "ready" || snapshot.status === "setup_required";
+}
+
+/** The ID of the unsynced collection this tab shows, read structurally (see unsynced.ts), or null. */
+function unsyncedCollectionId(snapshot: Snapshot): string | null {
+  const shown = (snapshot as { readonly unsynced?: { readonly collectionId?: unknown } | null }).unsynced;
+  return typeof shown?.collectionId === "string" ? shown.collectionId : null;
 }
 
 const roleLabels = (copy: CollectionCopy): Record<CollectionRole, string> =>
