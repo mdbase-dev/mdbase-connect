@@ -48,6 +48,12 @@ export function unsyncedPhase(phase: MdbasePhase): UnsyncedPhase | null {
   return value.kind === "unsynced" && typeof value.collectionId === "string" && value.connection ? value as UnsyncedPhase : null;
 }
 
+/** The ID of the unsynced collection this tab shows (`snapshot.unsynced`), or null. */
+export function unsyncedCollectionId(snapshot: object): string | null {
+  const shown = (snapshot as { readonly unsynced?: { readonly collectionId?: unknown } | null }).unsynced;
+  return typeof shown?.collectionId === "string" ? shown.collectionId : null;
+}
+
 /** Something has been saved in the unsynced collection and not yet brought in. */
 export function hasUnsyncedWork(snapshot: object): boolean {
   const work = (snapshot as { readonly unsyncedWork?: unknown }).unsyncedWork;
