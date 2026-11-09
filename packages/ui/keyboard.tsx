@@ -5,7 +5,7 @@ import { Dialog } from "@mdbase-dev/ui/dialog";
 import { i18n, useLocaleRevision } from "@mdbase-dev/ui/i18n";
 
 export const navigationShortcuts = {
-  collections: "g c", applications: "g a", computers: "g o", account: "g u",
+  home: "g h", collections: "g c", applications: "g a", computers: "g o", account: "g u",
   overview: "g v", storage: "g t", access: "g r", settings: "g s", activity: "g l"
 } as const;
 

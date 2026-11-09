@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { appsByCollection, homeApps, letterMark } from "../src/renderer/home-model.mts";
+import { appsByCollection, homeApps, letterMark, officialAppsAt } from "./dist/home.js";
 
 const official = [
   { id: "editor", name: "Editor", url: "https://editor.mdbase.dev", description: "Edit" },
@@ -46,4 +46,16 @@ test("letter marks are stable", () => {
   assert.deepEqual(letterMark("tasknotes"), letterMark("tasknotes"));
   assert.equal(letterMark(" écrit").letter, "É");
   assert.ok(letterMark("Journal").tone >= 0 && letterMark("Journal").tone < 5);
+});
+
+test("only a managed environment has official apps", () => {
+  assert.deepEqual(officialAppsAt(undefined), []);
+  const apps = officialAppsAt({
+    editorOrigin: "https://editor.lab.example", readerOrigin: "https://reader.lab.example", writerOrigin: "https://writer.lab.example",
+    journalOrigin: "https://journal.lab.example", tasknotesOrigin: "https://tasks.lab.example"
+  });
+  assert.deepEqual(apps.map(app => [app.id, app.url]), [
+    ["editor", "https://editor.lab.example"], ["reader", "https://reader.lab.example"], ["writer", "https://writer.lab.example"],
+    ["journal", "https://journal.lab.example"], ["tasknotes", "https://tasks.lab.example"]
+  ]);
 });

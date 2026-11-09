@@ -13,7 +13,7 @@ import {
   type ManagementRequestOptions
 } from "@mdbase/connect-management";
 import { AppAccess, applicationGroups } from "./ApplicationAccess";
-import { useCallback, useEffect, useRef, useState, Component, type FormEvent, type MouseEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, Component, type FormEvent, type ReactNode } from "react";
 import { AccountManagement, DeletedAccount } from "./AccountManagement";
 import {readCollectionCreation, keepCollectionCreation, finishCollectionCreation, type CollectionCreationIntent} from "./collection-creation-intent";
 import { Brand, ThemeMenu } from "./portal-ui";
@@ -42,10 +42,14 @@ import {
   ConnectPreview,
   ListFilter,
   DesktopLink,
+  RouteLink,
+  type ConnectView,
   relativeTime,
   errorMessage
 } from "./ConnectPrimitives";
 import { FeedbackPage } from "./FeedbackPage";
+import { HomePage } from "./HomePage";
+import { managedAppOrigins } from "../../../scripts/lib/managed-app-origins.mjs";
 import { FeedbackButton, FeedbackProvider, feedbackApplication, useFeedback, resolveFeedbackEndpoint, type FeedbackFailure } from "@mdbase-dev/ui/feedback";
 import {
   CloudIcon as Cloud,
@@ -60,7 +64,7 @@ import "./connect.css";
 import "@mdbase-dev/ui/feedback.css";
 import { Select } from "@mdbase-dev/ui/select";
 import { literal } from "./literal";
-import { usePortalCommands, type ConnectView } from "./portal-commands";
+import { usePortalCommands } from "./portal-commands";
 import { NativeStorageReads, useOverviewRefresh } from "./overview-refresh";
 
 type MemberRole = "viewer" | "editor";
@@ -73,6 +77,8 @@ type BusyOperations = ReadonlySet<string>;
 
 const management = new ConnectManagementClient(location.origin);
 const desktopReleaseUrl = "https://mdbase.dev/downloads/";
+/** This portal's managed environment, whose official apps Home suggests; none for a custom server. */
+const environmentOrigins = Object.values(managedAppOrigins).find((origins) => origins.connectOrigin === location.origin);
 export function ConnectApp() {
   useLocaleRevision();
   const [context, setContext] = useState<{ view: ConnectView; collectionName?: string }>({ view: viewFromPath() });
@@ -274,10 +280,11 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
 
   function navigate(next: ConnectView, collectionId?: string) {
     keyboard.cancel();
-    const path = next === "overview" ? "/" : `/${next}`;
+    const path = next === "overview" || next === "home" ? "/" : `/${next}`;
     const url = new URL(location.href);
     url.pathname = path;
-    if (collectionId) {
+    if (next === "home") url.searchParams.delete("collection");
+    else if (collectionId) {
       url.searchParams.set("collection", collectionId);
       rememberCollection(collectionId);
     }
@@ -297,7 +304,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
   useEffect(() => { onFeedbackContext(view, selectedCollection?.name); }, [view, selectedCollection?.name, onFeedbackContext]);
 
   useEffect(() => {
-    if (!data || accountDeleted) return;
+    if (!data || accountDeleted || view === "home") return;
     if (selectedCollectionId) {
       rememberCollection(selectedCollectionId);
       if (requestedCollectionId !== selectedCollectionId) {
@@ -329,6 +336,8 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
       && !freshlyAuthorized.has(`${grant.application_id}\0${grant.collection_id}`))) ?? [];
   const installations = data?.installation_access ?? [];
   const applications = applicationGroups(activeGrants, installations);
+  // Home lists what the account can use now, as the desktop's account listing does: active grants and installations holding a collection.
+  const homeApplications = applicationGroups(data?.grants.filter((grant) => grant.revocation_status === "active") ?? [], installations.filter((entry) => entry.collection_id));
   const selectedGrants = selectedCollection
     ? activeGrants.filter((grant) => grant.collection_id === selectedCollection.id)
     : [];
@@ -354,6 +363,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
       <NavLink label={t(i18n)({ message: "Access", context: "Connect interface" })} selected={activeView === "access"} view="access" collectionId={selectedCollection.id} navigate={navigate} prefetch={() => { if (selectedCollection.kind !== "local" && selectedCollection.source.access.can_manage_members) prefetchSharing(management, selectedCollection.id); }} />
     </section>}
     <section className="connect-nav-group">
+      <NavLink label={t(i18n)({ message: "Home", context: "Connect interface" })} selected={activeView === "home"} view="home" navigate={navigate} />
       <NavLink label={t(i18n)({ message: "Collections", context: "Connect interface" })} selected={activeView === "collections"} view="collections" collectionId={selectedCollection?.id} navigate={navigate} />
     </section>
     <section className="connect-nav-group connect-account-navigation">
@@ -379,6 +389,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
         onDismiss={dismissSharedCollection}
       />}
       {pendingRequest && <PendingRequestBanner request={pendingRequest} collectionName={pendingCollection?.name} count={data.pending_authorizations.length} />}
+      {activeView === "home" && <HomePage data={data} collections={collections} applications={homeApplications} origins={environmentOrigins} navigate={navigate} />}
       {activeView === "overview" && (selectedCollection
         ? <CollectionOverview editorOrigin={editorOrigin} collection={selectedCollection} applications={selectedApplications} />
         : <Collections error={mutationError} key={data.user.id} editorOrigin={editorOrigin} data={data} busy={busy} perform={perform} navigate={navigate} />)}
@@ -391,7 +402,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
       {activeView === "applications" && !refreshError && <AppAccess error={mutationError} editorOrigin={editorOrigin} groups={applications} client={management} busy={busy} perform={perform} />}
       {activeView === "computers" && <Computers error={mutationError} data={data} busy={busy} perform={perform} />}
       {activeView === "account" && <AccountManagement client={management} overview={data} sessions={sessions} onOverviewRefresh={refresh} onSignedOut={endSession} onDeleted={() => { clearOverviewPreview(); lifecycleRef.current?.abort(); setAccountDeleted(true); }} />}
-      {activeView === "feedback" && feedbackEnabled && <FeedbackPage onDone={() => navigate("overview", selectedCollection?.id)} />}
+      {activeView === "feedback" && feedbackEnabled && <FeedbackPage onDone={() => selectedCollection ? navigate("overview", selectedCollection.id) : navigate("home")} />}
       {activeView === "feedback" && !feedbackEnabled && <Page title={t(i18n)({ message: "Feedback unavailable", context: "Connect interface" })} intro={t(i18n)({ message: "This deployment has not configured a feedback destination." })}><section><Empty title={t(i18n)({ message: "Feedback is unavailable", context: "Connect interface" })} body={t(i18n)({ message: "Contact the person who operates this mdbase Connect deployment." })} /></section></Page>}
       </>}
     </main>
@@ -877,34 +888,19 @@ function NavLink({ label, selected, view, collectionId, navigate, prefetch }: {
   return <RouteLink className={selected ? "selected" : ""} ariaCurrent={selected ? "page" : undefined} view={view} collectionId={collectionId} navigate={navigate} prefetch={prefetch}><strong>{label}</strong></RouteLink>;
 }
 
-function RouteLink({ view, collectionId, navigate, children, className = "", ariaCurrent, prefetch }: {
-  view: ConnectView;
-  collectionId?: string;
-  navigate(view: ConnectView, collectionId?: string): void;
-  children: ReactNode;
-  className?: string;
-  ariaCurrent?: "page";
-  prefetch?(): void;
-}) {
-  useLocaleRevision();
-  function activate(event: MouseEvent<HTMLAnchorElement>) {
-    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    event.preventDefault();
-    navigate(view, collectionId);
-  }
-  return <a className={className} href={connectViewUrl(view, collectionId)} aria-current={ariaCurrent} onClick={activate} onMouseEnter={prefetch} onFocus={prefetch}>{children}</a>;
-}
-
 function viewFromPath(): ConnectView {
   // Reader/SDK manage-access links still use this route; keep until those clients use /applications.
   if (location.pathname === "/account/applications") return "applications";
   const segment = location.pathname.split("/")[1];
-  return segment === "storage" || segment === "access" || segment === "collections" || segment === "applications" || segment === "computers" || segment === "account" || segment === "feedback" ? segment : "overview";
+  if (segment === "storage" || segment === "access" || segment === "collections" || segment === "applications" || segment === "computers" || segment === "account" || segment === "feedback") return segment;
+  // The Editor links to a collection as `/?collection=`; `/` alone is Home.
+  return new URLSearchParams(location.search).has("collection") ? "overview" : "home";
 }
 
 function isCollectionView(view: ConnectView): boolean { return view === "overview" || view === "storage" || view === "access"; }
 
 function viewLabel(view: ConnectView): string {
+  if (view === "home") return t(i18n)({ message: "Home", context: "Connect interface" });
   if (view === "overview") return t(i18n)({ message: "Overview", context: "Connect interface" });
   if (view === "storage") return t(i18n)({ message: "Storage", context: "Connect interface" });
   if (view === "access") return t(i18n)({ message: "Access", context: "Connect interface" });
@@ -957,12 +953,6 @@ function joinWords(words: string[]): string {
   if (words.length < 2) return words[0] ?? "";
   if (words.length === 2) return t(i18n)`${words[0]} and ${words[1]}`;
   return t(i18n)`${words.slice(0, -1).join(", ")}, and ${words.at(-1)}`;
-}
-
-function connectViewUrl(view: ConnectView, collectionId?: string): string {
-  const url = new URL(view === "overview" ? "/" : `/${view}`, management.baseUrl);
-  if (collectionId) url.searchParams.set("collection", collectionId);
-  return `${url.pathname}${url.search}`;
 }
 
 function editorSurfaceUrls(collectionId: string | undefined, editorOrigin: string): { notes: string; types: string; settings: string } {

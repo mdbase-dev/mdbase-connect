@@ -555,6 +555,7 @@ msgid "Add a new {0} type"
 msgstr "Adicionar um novo tipo {0}"
 
 #: src/ConnectApp.tsx
+#: src/HomePage.tsx
 #: src/portal-commands.ts
 msgid "Add collection"
 msgstr "Adicionar coleção"
@@ -580,6 +581,10 @@ msgstr "Adicionar novos registros a esta coleção."
 #: src/authorization-view.tsx
 msgid "Add or connect another collection"
 msgstr "Adicionar ou conectar outra coleção"
+
+#: src/HomePage.tsx
+msgid "Add your first collection"
+msgstr "Adicione sua primeira coleção"
 
 #: src/authority-workflows.tsx
 msgid "Additional collection access"
@@ -688,6 +693,10 @@ msgstr "O acesso já autorizado mantém-se. Revogue-o separadamente se já não 
 msgid "Always on"
 msgstr "Sempre ativado"
 
+#: src/HomePage.tsx
+msgid "An app asks for access to a collection the first time you use it, and you choose what it can do."
+msgstr "Um app pede acesso a uma coleção na primeira vez que você o usa, e você escolhe o que ele pode fazer."
+
 #: src/authorization-view.tsx
 msgid "an app running on this computer"
 msgstr "uma aplicação em execução neste computador"
@@ -782,6 +791,10 @@ msgstr "Os aplicativos perderão o acesso por este computador. Seus arquivos loc
 msgctxt "Connect interface"
 msgid "Apps with access to the entire collection"
 msgstr "Apps com acesso a toda a coleção"
+
+#: src/HomePage.tsx
+msgid "Apps you approve appear here."
+msgstr "Os apps que você aprovar aparecem aqui."
 
 #: src/AccountManagement.tsx
 msgid "Authentication"
@@ -994,6 +1007,7 @@ msgid "Choose the folder in mdbase Connect."
 msgstr "Escolha a pasta no mdbase Connect."
 
 #: src/ConnectApp.tsx
+#: src/HomePage.tsx
 msgid "Choose where your first collection lives."
 msgstr "Escolha onde guardar sua primeira coleção."
 
@@ -1078,6 +1092,7 @@ msgstr "Permissões da coleção"
 
 #: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
+#: src/HomePage.tsx
 msgctxt "Connect interface"
 msgid "Collections"
 msgstr "Coleções"
@@ -1751,6 +1766,12 @@ msgstr "A entrada com Google não foi carregada corretamente."
 msgid "Help {applicationName} understand {0}"
 msgstr "Ajude {applicationName} a entender {0}"
 
+#: src/ConnectApp.tsx
+#: src/HomePage.tsx
+msgctxt "Connect interface"
+msgid "Home"
+msgstr "Início"
+
 #: src/AccountManagement.tsx
 msgid "Hosted access was removed immediately. Hosted data deletion continues automatically in the background. Any local collection and mirror files remain on your computers."
 msgstr "O acesso hospedado foi removido imediatamente. A exclusão dos dados hospedados continua automaticamente em segundo plano. A coleção local e os arquivos espelhados permanecem nos seus computadores."
@@ -2113,6 +2134,10 @@ msgctxt "Connect interface"
 msgid "More access required"
 msgstr "Mais acesso necessário"
 
+#: src/HomePage.tsx
+msgid "More apps from mdbase"
+msgstr "Mais apps do mdbase"
+
 #: src/AccountManagement.tsx
 msgid "More regular updates about new features and improvements."
 msgstr "Atualizações mais frequentes sobre novos recursos e melhorias."
@@ -2259,6 +2284,10 @@ msgstr "Nenhum aplicativo corresponde"
 msgid "No apps with access"
 msgstr "Nenhum aplicativo com acesso"
 
+#: src/HomePage.tsx
+msgid "No apps yet"
+msgstr "Nenhum app ainda"
+
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "No collection access"
@@ -2371,8 +2400,14 @@ msgstr "Somente {0}. Pastas ocultas sempre são excluídas."
 msgid "Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active."
 msgstr "Somente a definição deste tipo muda. Os registros existentes permanecem no lugar. A configuração é validada antes de o acesso ser ativado."
 
+#: src/HomePage.tsx
+msgid "Open"
+msgstr "Abrir"
+
+#. placeholder {0}: app.name
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
+#: src/HomePage.tsx
 msgid "Open {0}"
 msgstr "Abrir {0}"
 
@@ -3240,6 +3275,10 @@ msgstr "Ocorreu um erro no mdbase. Tente novamente."
 msgid "Start signup again"
 msgstr "Reiniciar cadastro"
 
+#: src/HomePage.tsx
+msgid "Start with an app"
+msgstr "Comece com um app"
+
 #: src/ConnectApp.tsx
 msgid "Starts with a cloud copy"
 msgstr "Começa com uma cópia na nuvem"
@@ -3911,6 +3950,10 @@ msgstr "A sua conta atingiu o limite de coleções sincronizadas. Abra uma cole�
 #: src/onboarding-view.tsx
 msgid "Your account is ready. Create a collection now, or continue without one."
 msgstr "Sua conta está pronta. Crie uma coleção agora ou continue sem nenhuma."
+
+#: src/HomePage.tsx
+msgid "Your apps"
+msgstr "Seus apps"
 
 #: src/AccountManagement.tsx
 msgid "Your change was saved, but account details could not refresh. Reload to check the latest details."

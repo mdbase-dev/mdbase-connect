@@ -134,6 +134,7 @@ const definitions = [
     state.overview.native_collections = [{ id: "native-cloud", display_name: "New cloud notes", sync: "cloud_copy", computer_ids: [], access: { relationship: "owner", role: "owner", can_manage_members: false } }];
   }],
   ["single-collection", "/?collection=collection-0", "Field research", 1],
+  ["home", "/", "Your apps", 5],
   ["typical-account", "/collections", "Collections", 5],
   ["sync-conflict", "/access?collection=hosted-0", "Resolve the conflicting changes in the desktop app", 5],
   ["computer-connected", "/collections", "Connected", 5, state => { state.overview.connectors[0].last_seen_at = new Date().toISOString(); }],

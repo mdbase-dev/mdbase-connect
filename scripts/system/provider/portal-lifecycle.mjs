@@ -21,6 +21,9 @@ export async function portalLifecycleE2E({
     const page = await browser.newPage();
     await page.goto(`${controlUrl}/login`);
     await page.getByRole("button", { name: "Continue" }).click();
+    // A new account lands on Home, which sends its first collection to Collections.
+    await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
+    await page.getByRole("link", { name: "Add collection", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Collections", exact: true })).toBeVisible();
 
     await expect(page.getByRole("button", { name: "Add collection" })).toHaveCount(0);

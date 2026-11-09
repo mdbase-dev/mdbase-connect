@@ -1,12 +1,10 @@
 import { t, plural } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
-import { officialApps, withAppUrls } from "@mdbase-dev/ui/apps";
-import { MdbaseMark } from "@mdbase-dev/ui/brand";
+import { AppTile, appsByCollection, homeApps, officialAppsAt, type LaunchableApp } from "@mdbase/connect-ui/home";
 import { i18n, useLocaleRevision } from "@mdbase-dev/ui/i18n";
 import React, { useEffect, useMemo, useState } from "react";
 import { managedAppOrigins } from "../../../../scripts/lib/managed-app-origins.mjs";
 import { presentCollection } from "./daemon-view.mjs";
-import { appsByCollection, homeApps, letterMark, type LaunchableApp } from "./home-model.mjs";
 import { Empty } from "./ui-components";
 import { pollWhileVisible } from "./visible-poll.mjs";
 import { message, type Route } from "./view-model";
@@ -16,17 +14,7 @@ const APPS_POLL_MS = 60_000;
 const listFormat = (names: string[]) => new Intl.ListFormat(i18n.locale, { type: "conjunction" }).format(names);
 
 /** The official apps of the environment this computer is signed in to; none for a custom server. */
-function officialFor(environment: string | undefined) {
-  const origins = managedAppOrigins[environment as keyof typeof managedAppOrigins];
-  if (!origins) return [];
-  return withAppUrls({
-    editor: origins.editorOrigin,
-    reader: origins.readerOrigin,
-    writer: origins.writerOrigin,
-    journal: origins.journalOrigin,
-    tasknotes: origins.tasknotesOrigin
-  }, officialApps);
-}
+const officialFor = (environment: string | undefined) => officialAppsAt(managedAppOrigins[environment as keyof typeof managedAppOrigins]);
 
 export function HomeView({ environment, collections, pendingApps, busy, onNavigate, onReview, onAdd, onCreate, onAct }: {
   environment: string | undefined;
@@ -71,13 +59,13 @@ export function HomeView({ environment, collections, pendingApps, busy, onNaviga
         <h2 id="home-apps" className="home-heading">{t(i18n)`Your apps`}</h2>
         {failure && <div className="mdbase-message is-error" role="alert">{t(i18n)`Your apps could not be listed. ${failure}`}</div>}
         {yours.length > 0
-          ? <ul className="app-grid">{yours.map(app => <AppTile key={app.key} app={app} busy={busy} onOpen={open} />)}</ul>
+          ? <ul className="app-grid">{yours.map(app => <OpenTile key={app.key} app={app} busy={busy} onOpen={open} />)}</ul>
           : !failure && <p className="home-note">{t(i18n)`Apps you approve appear here.`}</p>}
       </section>}
 
       {suggested.length > 0 && <section aria-labelledby="home-more">
         <h2 id="home-more" className="home-heading">{yours.length > 0 ? t(i18n)`More apps from mdbase` : t(i18n)`Start with an app`}</h2>
-        <ul className="app-grid">{suggested.map(app => <AppTile key={app.key} app={app} busy={busy} onOpen={open} />)}</ul>
+        <ul className="app-grid">{suggested.map(app => <OpenTile key={app.key} app={app} busy={busy} onOpen={open} />)}</ul>
         <p className="home-note">{t(i18n)`An app asks for access to a collection the first time you use it, and you choose what it can do.`}</p>
       </section>}
 
@@ -113,25 +101,9 @@ export function HomeView({ environment, collections, pendingApps, busy, onNaviga
   );
 }
 
-function AppTile({ app, busy, onOpen }: { app: LaunchableApp; busy: boolean; onOpen(url: string): void }) {
+function OpenTile({ app, busy, onOpen }: { app: LaunchableApp; busy: boolean; onOpen(url: string): void }) {
   useLocaleRevision();
-  const [iconFailed, setIconFailed] = useState(false);
-  const mark = letterMark(app.name);
-  const detail = app.collections.length > 0 ? listFormat(app.collections.map(collection => collection.name)) : app.description;
-  return (
-    <li className="app-tile">
-      {app.official === "editor" || app.official === "reader" || app.official === "writer"
-        ? <span className="app-mark is-bundled" aria-hidden="true"><MdbaseMark app={app.official === "editor" ? undefined : app.official} /></span>
-        : app.icon && !iconFailed
-          ? <img className="app-mark is-icon" src={app.icon} alt="" referrerPolicy="no-referrer" onError={() => setIconFailed(true)} />
-          : <span className="app-mark" data-tone={mark.tone} aria-hidden="true">{mark.letter}</span>}
-      <span className="app-tile-text">
-        <strong>{app.name}</strong>
-        {detail && <small>{detail}</small>}
-      </span>
-      {app.url
-        ? <button className="mdbase-button" disabled={busy} aria-label={t(i18n)`Open ${app.name}`} onClick={() => onOpen(app.url!)}><Trans>Open</Trans></button>
-        : null}
-    </li>
-  );
+  return <AppTile app={app}>
+    {app.url && <button className="mdbase-button" disabled={busy} aria-label={t(i18n)`Open ${app.name}`} onClick={() => onOpen(app.url!)}><Trans>Open</Trans></button>}
+  </AppTile>;
 }

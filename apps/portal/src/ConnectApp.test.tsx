@@ -262,11 +262,13 @@ describe("ConnectApp", () => {
     const user = userEvent.setup();
     render(<ConnectApp />);
 
-    expect(await screen.findByText("No collections")).toBeInTheDocument();
+    expect(await screen.findByText("Add your first collection")).toBeInTheDocument();
     expect(screen.getByText("Choose where your first collection lives.")).toBeInTheDocument();
+    await user.click(screen.getByRole("link", { name: "Add collection" }));
+    expect(await screen.findByText("No collections")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /New collection/ })).toBeEnabled();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    await waitFor(() => expect(location.pathname).toBe("/collections"));
+    expect(location.pathname).toBe("/collections");
 
     await user.click(screen.getByRole("button", { name: /New collection/ }));
     expect(screen.getByRole("textbox", { name: "Collection name" })).toBeInTheDocument();
@@ -658,17 +660,40 @@ describe("ConnectApp", () => {
     expect(screen.queryByRole("link", { name: "Choose or create my person record" })).not.toBeInTheDocument();
   });
 
-  it("opens the only collection directly and records its context in the URL", async () => {
+  it("lands on Home and opens a collection's overview from it", async () => {
+    overview.grants = applicationGrants();
+    localStorage.setItem(`mdbase-connect:last-collection:${location.origin}`, "collection");
     history.replaceState(null, "", "/");
+    const user = userEvent.setup();
     render(<ConnectApp />);
 
+    const yours = await screen.findByRole("region", { name: "Your apps" });
+    expect(screen.getByRole("heading", { name: "Home", level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("aria-current", "page");
+    expect(within(yours).getByRole("link", { name: "Open Reading list" })).toHaveAttribute("href", "https://reading.example");
+    // A remembered collection does not turn Home into its overview.
+    expect(location.search).toBe("");
+    await user.click(within(screen.getByRole("region", { name: "Collections" })).getByRole("link", { name: /Garden notes/ }));
     expect(await screen.findByRole("heading", { name: "Garden notes" })).toBeInTheDocument();
-    await waitFor(() => expect(new URLSearchParams(location.search).get("collection")).toBe("collection"));
+    expect(new URLSearchParams(location.search).get("collection")).toBe("collection");
+    await user.click(screen.getByRole("link", { name: "Home" }));
+    expect(await screen.findByRole("region", { name: "Your apps" })).toBeInTheDocument();
+    expect(`${location.pathname}${location.search}`).toBe("/");
   });
 
-  it("opens all collections when a direct entry has no unambiguous collection", async () => {
-    overview.collections.push(secondCollection());
+  it("shows the load failure on Home with a retry", async () => {
     history.replaceState(null, "", "/");
+    vi.mocked(fetch).mockImplementation(async () => Response.json({ error: { message: "diagnostic" } }, { status: 503 }));
+    render(<ConnectApp />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("We couldn't load Home");
+    expect(within(alert).getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  });
+
+  it("opens all collections when a collection link has no unambiguous collection", async () => {
+    overview.collections.push(secondCollection());
+    history.replaceState(null, "", "/?collection=missing");
     render(<ConnectApp />);
 
     expect(await screen.findByRole("heading", { name: "Collections" })).toBeInTheDocument();
@@ -680,10 +705,10 @@ describe("ConnectApp", () => {
   it("restores the last selected collection on direct entry", async () => {
     overview.collections.push(secondCollection());
     localStorage.setItem(`mdbase-connect:last-collection:${location.origin}`, "collection-two");
-    history.replaceState(null, "", "/");
+    history.replaceState(null, "", "/storage");
     render(<ConnectApp />);
 
-    expect(await screen.findByRole("heading", { name: "Research notes" })).toBeInTheDocument();
+    expect(await screen.findByText(/Research notes keeps its main copy/)).toBeInTheDocument();
     await waitFor(() => expect(new URLSearchParams(location.search).get("collection")).toBe("collection-two"));
   });
 

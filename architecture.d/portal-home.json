@@ -1,0 +1,10 @@
+{
+  "reason": "Portal Home: the desktop's home-model.mts moves to @mdbase/connect-ui/home (home.tsx) with the app tile both Homes render, so the desktop loses a file and the shared package gains one; HomePage.tsx is the portal's Home view, kept out of the 980-line ConnectApp.tsx. New exports are officialAppsAt and AppTile (shared by desktop and portal), HomePage, and RouteLink, which moves from ConnectApp.tsx to ConnectPrimitives.tsx so Home can link to collections. Relative imports: ConnectApp to HomePage and HomePage to ApplicationAccess and ConnectPrimitives, less the desktop's removed import of home-model.",
+  "growth": {
+    "productionFiles": 1,
+    "apps/portal": 1,
+    "packages/ui": 1,
+    "relativeImports": 2,
+    "typeScriptExportDeclarations": 4
+  }
+}

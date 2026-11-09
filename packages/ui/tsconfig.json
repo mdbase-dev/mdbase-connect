@@ -3,5 +3,5 @@
     "target": "ES2022", "module": "NodeNext", "moduleResolution": "NodeNext",
     "jsx": "react-jsx", "strict": true, "declaration": true, "resolveJsonModule": true, "outDir": "dist", "skipLibCheck": true
   },
-  "include": ["access.ts", "contract-setup.ts", "provider-button.ts", "status-glyph.tsx", "state-transition.ts", "confirm-action.tsx", "nav-pill.ts", "keyboard.tsx", "i18n.ts"]
+  "include": ["access.ts", "contract-setup.ts", "provider-button.ts", "status-glyph.tsx", "state-transition.ts", "confirm-action.tsx", "nav-pill.ts", "keyboard.tsx", "i18n.ts", "home.tsx"]
 }

@@ -555,6 +555,7 @@ msgid "Add a new {0} type"
 msgstr "添加新的 {0} 类型"
 
 #: src/ConnectApp.tsx
+#: src/HomePage.tsx
 #: src/portal-commands.ts
 msgid "Add collection"
 msgstr "添加集合"
@@ -580,6 +581,10 @@ msgstr "向此集合添加新记录。"
 #: src/authorization-view.tsx
 msgid "Add or connect another collection"
 msgstr "添加或连接其他集合"
+
+#: src/HomePage.tsx
+msgid "Add your first collection"
+msgstr "添加你的第一个集合"
 
 #: src/authority-workflows.tsx
 msgid "Additional collection access"
@@ -688,6 +693,10 @@ msgstr "已允许的访问权限保持不变。如果不再需要，请单独撤
 msgid "Always on"
 msgstr "始终开启"
 
+#: src/HomePage.tsx
+msgid "An app asks for access to a collection the first time you use it, and you choose what it can do."
+msgstr "应用首次使用时会请求访问集合，由你决定它可以做什么。"
+
 #: src/authorization-view.tsx
 msgid "an app running on this computer"
 msgstr "在此计算机上运行的应用"
@@ -782,6 +791,10 @@ msgstr "应用将无法再通过此电脑访问。你的本地文件不会被删
 msgctxt "Connect interface"
 msgid "Apps with access to the entire collection"
 msgstr "可访问整个集合的应用"
+
+#: src/HomePage.tsx
+msgid "Apps you approve appear here."
+msgstr "你批准的应用会显示在这里。"
 
 #: src/AccountManagement.tsx
 msgid "Authentication"
@@ -994,6 +1007,7 @@ msgid "Choose the folder in mdbase Connect."
 msgstr "在 mdbase Connect 中选择文件夹。"
 
 #: src/ConnectApp.tsx
+#: src/HomePage.tsx
 msgid "Choose where your first collection lives."
 msgstr "选择第一个集合的存储位置。"
 
@@ -1078,6 +1092,7 @@ msgstr "集合权限"
 
 #: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
+#: src/HomePage.tsx
 msgctxt "Connect interface"
 msgid "Collections"
 msgstr "集合"
@@ -1751,6 +1766,12 @@ msgstr "Google 登录未正确加载。"
 msgid "Help {applicationName} understand {0}"
 msgstr "帮助 {applicationName} 理解 {0}"
 
+#: src/ConnectApp.tsx
+#: src/HomePage.tsx
+msgctxt "Connect interface"
+msgid "Home"
+msgstr "主页"
+
 #: src/AccountManagement.tsx
 msgid "Hosted access was removed immediately. Hosted data deletion continues automatically in the background. Any local collection and mirror files remain on your computers."
 msgstr "托管访问权限已立即移除。托管数据会继续在后台自动删除。电脑上的所有本地集合及镜像文件都会保留。"
@@ -2113,6 +2134,10 @@ msgctxt "Connect interface"
 msgid "More access required"
 msgstr "需要更多访问权限"
 
+#: src/HomePage.tsx
+msgid "More apps from mdbase"
+msgstr "更多 mdbase 应用"
+
 #: src/AccountManagement.tsx
 msgid "More regular updates about new features and improvements."
 msgstr "更定期地接收新功能和改进的动态。"
@@ -2259,6 +2284,10 @@ msgstr "没有匹配的应用"
 msgid "No apps with access"
 msgstr "没有具有访问权限的应用"
 
+#: src/HomePage.tsx
+msgid "No apps yet"
+msgstr "暂无应用"
+
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "No collection access"
@@ -2371,8 +2400,14 @@ msgstr "仅 {0}。隐藏文件夹始终排除在外。"
 msgid "Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active."
 msgstr "只更改此类型定义。现有记录保持不变。访问权限生效前会验证设置。"
 
+#: src/HomePage.tsx
+msgid "Open"
+msgstr "打开"
+
+#. placeholder {0}: app.name
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
+#: src/HomePage.tsx
 msgid "Open {0}"
 msgstr "打开 {0}"
 
@@ -3240,6 +3275,10 @@ msgstr "mdbase出现了问题。请重试。"
 msgid "Start signup again"
 msgstr "重新开始注册"
 
+#: src/HomePage.tsx
+msgid "Start with an app"
+msgstr "从一个应用开始"
+
 #: src/ConnectApp.tsx
 msgid "Starts with a cloud copy"
 msgstr "从云端副本开始"
@@ -3911,6 +3950,10 @@ msgstr "你的账户已达到同步集合数量上限。请打开现有集合；
 #: src/onboarding-view.tsx
 msgid "Your account is ready. Create a collection now, or continue without one."
 msgstr "您的账户已就绪。现在创建集合，或暂不创建并继续。"
+
+#: src/HomePage.tsx
+msgid "Your apps"
+msgstr "你的应用"
 
 #: src/AccountManagement.tsx
 msgid "Your change was saved, but account details could not refresh. Reload to check the latest details."

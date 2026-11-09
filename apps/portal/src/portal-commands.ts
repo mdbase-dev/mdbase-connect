@@ -6,11 +6,10 @@ import { t } from "@lingui/core/macro";
 import { i18n } from "@mdbase-dev/ui/i18n";
 import { type AccountSession, type HostedCollection, type NativeCollection, type ManagementOverview } from "@mdbase/connect-management";
 import { type applicationGroups } from "./ApplicationAccess";
-import { relativeTime } from "./ConnectPrimitives";
+import { relativeTime, type ConnectView } from "./ConnectPrimitives";
 import { countLabel } from "./count-label";
 import { CloudIcon, DesktopIcon, SquaresFourIcon } from "@phosphor-icons/react";
 
-export type ConnectView = "overview" | "storage" | "access" | "collections" | "applications" | "computers" | "account" | "feedback";
 
 type CommandCollection = { id: string; name: string; detail: string } & ({ kind: "hosted"; source: HostedCollection } | { kind: "native"; source: NativeCollection } | { kind: "local" });
 
@@ -60,7 +59,7 @@ export function usePortalCommands({ data, collections, applications, sessions, s
     ...applications.map(application => ({ id: `app:${application.applicationId}`, label: application.applicationName, detail: countLabel(application.collectionCount, "collection"), keywords: [...application.grants.map(grant => grant.collection_name), ...application.installations.map(entry => entry.collection_name)].filter(Boolean).join(" "), icon: createElement(SquaresFourIcon), group: "apps", run: () => reveal("applications", [`${target(`app:${application.applicationId}`)} > summary`], true) })),
     ...(data?.connectors ?? []).map(computer => ({ id: `computer:${computer.id}`, label: computer.name, detail: countLabel(data!.collections.filter(collection => collection.connector_id === computer.id).length, "collection"), icon: createElement(DesktopIcon), group: "computers", run: () => reveal("computers", [target(`computer:${computer.id}`)]) })),
     ...(sessions ?? []).map(session => ({ id: `session:${session.id}`, label: session.client_name, detail: session.current ? t(i18n)`This browser, active now` : t(i18n)`Last used ${relativeTime(session.last_seen_at)}`, group: "sessions", run: () => reveal("account", [target(`session:${session.id}`)]) })),
-    ...(["collections", "applications", "computers", "account", ...(selectedCollectionId ? ["overview", "storage", "access"] as const : [])] as const).map(view => ({ id: view, label: t(i18n)`Go to ${viewLabel(view)}`, shortcut: navigationShortcuts[view], group: "navigation", run: () => navigate(view, selectedCollectionId) })),
+    ...(["home", "collections", "applications", "computers", "account", ...(selectedCollectionId ? ["overview", "storage", "access"] as const : [])] as const).map(view => ({ id: view, label: t(i18n)`Go to ${viewLabel(view)}`, shortcut: navigationShortcuts[view], group: "navigation", run: () => navigate(view, view === "home" ? undefined : selectedCollectionId) })),
     { id: "create", label: t(i18n)`Add collection`, shortcut: "c", group: "commands", run: () => reveal("collections", [target("create")], true) },
     ...collections.flatMap(collection => {
       if (collection.kind !== "hosted") return [];
