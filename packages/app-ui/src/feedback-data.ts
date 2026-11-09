@@ -6,7 +6,7 @@ export const FEEDBACK_ERROR_CODES = ["cancelled", "http_error", "invalid_respons
 export type FeedbackErrorCode = typeof FEEDBACK_ERROR_CODES[number];
 export type FeedbackTopic = "problem" | "idea" | "appreciation";
 export interface FeedbackApplication {
-  product: "mdbase editor" | "mdbase reader" | "mdbase writer" | "mdbase connect";
+  product: "mdbase editor" | "mdbase reader" | "mdbase writer" | "mdbase connect" | "tasknotes";
   source_view: string;
   build_revision: string | null;
   environment: "production" | "staging" | "development" | "lab";
