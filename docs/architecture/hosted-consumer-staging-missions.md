@@ -77,7 +77,6 @@ pnpm test:integration
 pnpm --filter @mdbase-dev/connect test:consumer-spikes
 pnpm --filter @mdbase-dev/connect test:public-api
 pnpm e2e:provider
-pnpm check:consumer-artifacts
 ```
 
 The live mission covers `describe`, `read`, `query`, `queryPages`, `queryAll`,
