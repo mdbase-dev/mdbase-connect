@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { forgetRecentPath, loadRecentPaths, rememberRecentPath, saveRecentPaths } from "./recent-notes";
+import { forgetRecentPath, loadRecentPaths, rememberRecentPath } from "./recent-notes";
 
 const KEY = "mdbase-editor:recent-notes:one";
 
@@ -22,8 +22,8 @@ describe("recent note storage", () => {
 
   it("keeps each collection's recents apart and retires the shared list", () => {
     localStorage.setItem("mdbase-editor:recent-notes", JSON.stringify(["mixed.md"]));
-    saveRecentPaths("one", ["a.md"]);
-    saveRecentPaths("two", ["b.md"]);
+    localStorage.setItem(KEY, JSON.stringify(["a.md"]));
+    localStorage.setItem("mdbase-editor:recent-notes:two", JSON.stringify(["b.md"]));
     expect(loadRecentPaths("one")).toEqual(["a.md"]);
     expect(loadRecentPaths("two")).toEqual(["b.md"]);
     expect(localStorage.getItem("mdbase-editor:recent-notes")).toBeNull();

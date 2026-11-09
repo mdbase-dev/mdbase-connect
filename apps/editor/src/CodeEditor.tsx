@@ -621,7 +621,7 @@ export function markdownEdit(doc: string, from: number, to: number, format: Mark
 
 /** Prose gets the platform's spelling, autocorrect and sentence capitals
  * (CodeMirror turns the last two off by default); source text gets none. */
-export function contentAttributes(label: string, variant: EditorVariant, language: string): Record<string, string> {
+function contentAttributes(label: string, variant: EditorVariant, language: string): Record<string, string> {
   const prose = variant === "writer" && language === "markdown";
   return {
     "aria-label": label,

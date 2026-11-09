@@ -52,7 +52,7 @@ import { ConnectScreen } from "./ConnectionScreens";
 import type { LeaveIntent } from "@mdbase-dev/ui/collections";
 import type { EditorCollectionSwitcher } from "./editor-collections";
 import { ConflictResolver } from "./ConflictResolver";
-import { DraftRecovery, frontmatterPatch, recoveryDraftMatchesRecord } from "./draft-recovery";
+import { frontmatterPatch, recoveryDraftMatchesRecord, useDraftRecovery } from "./draft-recovery";
 import { connectServerUrl } from "./connect-endpoint";
 import { ConfirmDialog } from "@mdbase-dev/ui/confirm-dialog";
 import { CommandPalette, shortcutLabel } from "@mdbase-dev/ui/command-palette";
@@ -124,7 +124,7 @@ import {
 } from "./note-search";
 import { initialEditorSurface, loadPreferences, savePreferences, type EditorPreferences } from "./preferences";
 import { revealMarkdownLine } from "./code-editor-reveal";
-import { forgetRecentPath, loadRecentPaths, rememberRecentPath, saveRecentPaths } from "./recent-notes";
+import { forgetRecentPath, rememberRecentPath, useRecentPaths } from "./recent-notes";
 import { buildEditorCommands, command, matchesCommandShortcut, type CommandId } from "./editor-commands";
 import { unlinkedMentions } from "./unlinked-mentions";
 import { loadThemePreference, saveThemePreference } from "@mdbase-dev/ui/theme";
@@ -253,10 +253,6 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   useEffect(() => { setSelection((current) => current?.anchor === selectedPath ? current : undefined); setBulkPropertyKind(undefined); }, [selectedPath]);
   useEffect(() => { setSelection(undefined); setBulkPropertyKind(undefined); }, [search, noteFilter, surface]);
   useEffect(() => { setPinnedPaths(description ? loadPinnedNotes(description.collectionId) : []); }, [description?.collectionId]);
-  useEffect(() => {
-    const collectionId = description?.collectionId;
-    setRecent(collectionId ? { collectionId, paths: loadRecentPaths(collectionId) } : { paths: [] });
-  }, [description?.collectionId]);
   useEffect(() => { onFeedbackContext?.(surface, description?.displayName); }, [surface, description?.displayName, onFeedbackContext]);
   useEffect(() => { if (noteOpenFailure) reportError({ code: "source_open_failed" }); }, [noteOpenFailure, reportError]);
   const [selectedTypeName, setSelectedTypeName] = useState<string>();
@@ -282,14 +278,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const shortcutPrefix = useRef(0);
   const [confirmation, setConfirmation] = useState<Confirmation>();
-  // Recently opened notes belong to one collection; the list is saved with it.
-  const [recent, setRecent] = useState<{ collectionId?: string; paths: string[] }>({ paths: [] });
-  const recentPaths = recent.paths;
-  const setRecentPaths = useCallback((change: (current: string[]) => string[]) => setRecent((current) => {
-    const paths = change(current.paths);
-    if (current.collectionId) saveRecentPaths(current.collectionId, paths);
-    return { ...current, paths };
-  }), []);
+  const [recentPaths, setRecentPaths] = useRecentPaths(description?.collectionId);
   const [noteHistoryState, setNoteHistoryState] = useState<NoteNavigationHistory>({ paths: [], index: -1 });
   const [mobilePane, setMobilePane] = useState<MobilePane>("notes");
   const [preferences, setPreferences] = useState<EditorPreferences>(loadPreferences);
@@ -308,20 +297,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const workspaceCollectionId = useRef<string | undefined>(undefined);
   const noteSessions = useRef(new NoteSessionStore());
   const noteReadOnly = mutationsFrozen || !canEditNotes || Boolean(noteSessions.current.active?.recoveryDraft);
-  const [deviceDraftRecovery] = useState(() => {
-    try { return new DraftRecovery(localStorage, connectServerUrl()); }
-    catch { return undefined; }
-  });
   const privateCollection = connectionSummary?.private === true;
-  const privateCollectionId = privateCollection ? connectionSummary.collectionId : undefined;
-  // Earlier builds checkpointed Private text in localStorage; erase it on open.
-  useEffect(() => {
-    if (!privateCollectionId) return;
-    try { deviceDraftRecovery?.forgetCollection(privateCollectionId); } catch { /* storage unavailable */ }
-  }, [deviceDraftRecovery, privateCollectionId]);
-  // Private collections are end-to-end encrypted, so their text never goes to
-  // plain localStorage; the unload guard still protects unsaved edits there.
-  const draftRecovery = privateCollection ? undefined : deviceDraftRecovery;
+  const draftRecovery = useDraftRecovery(connectServerUrl, privateCollection ? connectionSummary.collectionId : undefined);
   const noteHistory = useRef<NoteNavigationHistory>({ paths: [], index: -1 });
   const linkCreations = useRef(new Set<string>());
   /** One record ID per link target until its create is confirmed: following the

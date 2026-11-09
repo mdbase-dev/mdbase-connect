@@ -1,4 +1,5 @@
 import type { JsonObject } from "@mdbase-dev/connect";
+import { useEffect, useState } from "react";
 
 const PREFIX = "mdbase-editor:draft:v1:";
 export const DRAFT_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
@@ -88,4 +89,22 @@ export function frontmatterPatch(base: JsonObject, current: JsonObject): JsonObj
   return Object.fromEntries([...new Set([...Object.keys(base), ...Object.keys(current)])]
     .filter((key) => JSON.stringify(base[key]) !== JSON.stringify(current[key]))
     .map((key) => [key, current[key] ?? null]));
+}
+
+/**
+ * This device's draft store, or none for a Private collection: its text is
+ * end-to-end encrypted, so it never goes to plain localStorage (the unload
+ * guard still protects unsaved edits). Earlier builds did checkpoint Private
+ * text, so opening one erases what they left.
+ */
+export function useDraftRecovery(server: () => string, privateCollectionId: string | undefined): DraftRecovery | undefined {
+  const [store] = useState(() => {
+    try { return new DraftRecovery(localStorage, server()); }
+    catch { return undefined; }
+  });
+  useEffect(() => {
+    if (!privateCollectionId) return;
+    try { store?.forgetCollection(privateCollectionId); } catch { /* storage unavailable */ }
+  }, [store, privateCollectionId]);
+  return privateCollectionId ? undefined : store;
 }
