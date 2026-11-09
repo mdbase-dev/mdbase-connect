@@ -112,6 +112,32 @@ describe("SDK current aggregate readiness",()=>{
     set({checking:false,assessment:null,problem:{code:"configuration_unavailable"}});expect(f.assess.getSnapshot().problem?.code).toBe("configuration_unavailable");
     f.retire();expect(f.assess.getSnapshot().problem?.code).toBe("readiness_fenced");
   });
+  it.each([
+    {name:"re-assesses a stale native setup_required once configuration applied setup",after:"ready",starts:2},
+    {name:"re-assesses a genuine native setup_required only once",after:"setup_required",starts:2},
+  ] as const)("$name",async({after,starts})=>{
+    // Regression (staging, unsynced TaskNotes): the native witness was taken
+    // before configuration applied setup and no change notice reached it, so a
+    // terminal contract_missing showed until a reload.
+    let native:"setup_required"|"ready"="setup_required";const start=vi.fn(async()=>{});
+    vi.spyOn(CollectionReadiness,"createAppCollectionReadiness").mockImplementation((_client,_declared,binding)=>({start,close:async()=>{},subscribe:()=>()=>{},
+      getSnapshot:()=>({checking:false,problem:native==="ready"?null:{reason:"contract_missing"},assessment:{status:native,problem:native==="ready"?null:{reason:"contract_missing"},witness:{collection:binding.collection,generation:binding.generation,resources:[]}}})}) as unknown as CollectionReadiness.AppCollectionReadiness);
+    start.mockImplementationOnce(async()=>{}).mockImplementationOnce(async()=>{native=after;});
+    const configuration=source();
+    const f=await fixture({configuration,files:source(),people:source()},{} as never);
+    const view=await f.assess.refresh();
+    expect(start).toHaveBeenCalledTimes(starts);
+    expect(view.assessment?.status).toBe(after);
+    if(after==="ready")expect(view.problem).toBeNull();
+  });
+  it("does not re-assess native while configuration still needs setup",async()=>{
+    const start=vi.fn(async()=>{});
+    vi.spyOn(CollectionReadiness,"createAppCollectionReadiness").mockImplementation((_client,_declared,binding)=>({start,close:async()=>{},subscribe:()=>()=>{},
+      getSnapshot:()=>({checking:false,problem:{reason:"contract_missing"},assessment:{status:"setup_required",problem:{reason:"contract_missing"},witness:{collection:binding.collection,generation:binding.generation,resources:[]}}})}) as unknown as CollectionReadiness.AppCollectionReadiness);
+    const f=await fixture({configuration:source({checking:false,assessment:{status:"setup_required",problem:null},problem:null}),files:source(),people:source()},{} as never);
+    expect((await f.assess.refresh()).assessment?.status).toBe("setup_required");
+    expect(start).toHaveBeenCalledTimes(1);
+  });
   it("opens READY with the real files and notification producers when reminders are left off",async()=>{
     // Regression (LAB 2026-10-12): no files producer and blocking notifications
     // left every opened collection "blocked", shown as "Something went wrong".

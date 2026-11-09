@@ -115,6 +115,22 @@ describe("scoped application configuration phase", () => {
       expect(problems).toEqual([]);
     } finally { await f.close(); }
   });
+  it("a local-only replica's unchanged status push re-assesses a definitions-only commit", async () => {
+    // A local-only replica's status reads the same before and after a commit
+    // (no log positions; pending back to 0), so the push itself is the notice.
+    const f = await fixture();
+    const push = (f.client as unknown as { setStatus(s: unknown): void }).setStatus.bind(f.client);
+    const local = { mode: "local_only", confirmedThrough: 0, headKnown: 0, pending: 0, holds: 0, unresolved: 0, connection: "online", incidents: [] };
+    try {
+      expect((await f.helper.assess()).assessment?.status).toBe("ready");
+      push(local);
+      await new Promise(resolve => setTimeout(resolve, 60));
+      expect(f.helper.getSnapshot().assessment?.status).toBe("ready");
+      f.status("provision"); f.catalogChanged(); // e.g. another tab removed a definition
+      push({ ...local });
+      await vi.waitFor(() => expect(f.helper.getSnapshot().assessment?.status).toBe("setup_required"), { timeout: 3000 });
+    } finally { await f.close(); }
+  });
   it("a background re-assessment that fails transiently retries, never a configuration_unavailable problem", async () => {
     // Regression (LAB 2026-10-12): right after setup a background re-check hit a
     // transient failure and left the app on "Can't connect right now".

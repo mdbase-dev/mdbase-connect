@@ -2,7 +2,7 @@
  * The factory composes other manifest facets and ORIGINAL setup recovery. */
 import type { MdbaseClient, ChangesWatch } from "../client.js";
 import type { Session } from "../session.js";
-import type { DescribeResult, ResourceView } from "../wire.js";
+import type { DescribeResult, ResourceView, SyncStatus } from "../wire.js";
 import { mdbaseError, isMdbaseError } from "../errors.js";
 
 export interface AppCollectionReadinessRequirements {
@@ -222,6 +222,16 @@ export function statusStamp(client: MdbaseClient): string {
   ]);
 }
 
+/** Whether a status push counts as a change notice although its stamp did not
+ * move. A local-only replica (the unsynced collection) has no log positions
+ * and commits within the submitting call, so its status reads the same before
+ * and after a commit; and its change feed carries records only. A commit that
+ * changes only definitions (setup, a type edit) is then visible solely as
+ * another status push. The catalog probe still decides whether to re-check (P1). */
+export function localCommitSignal(status: SyncStatus): boolean {
+  return status.mode === "local_only";
+}
+
 /** P1: a fingerprint of what readiness evaluates (types, contracts, settings,
  * inclusion, issues). Record changes and sync progress leave it unchanged, so
  * a re-check runs only when definitions or settings change. */
@@ -432,9 +442,9 @@ export class AppCollectionReadiness {
     this.stops.push(
       this.watch.subscribe(this.invalidate),
       this.client.onLink(this.invalidate),
-      this.client.onStatus(() => {
+      this.client.onStatus((status) => {
         const next = statusStamp(this.client);
-        if (next !== this.lastStatus) {
+        if (next !== this.lastStatus || localCommitSignal(status)) {
           this.lastStatus = next;
           this.invalidate();
         }
