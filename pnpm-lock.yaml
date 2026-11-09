@@ -208,8 +208,8 @@ importers:
         specifier: file:vendor/sdk-2eb5d7de-production-beta165.tgz
         version: file:apps/editor/vendor/sdk-2eb5d7de-production-beta165.tgz
       '@mdbase-dev/ui':
-        specifier: 0.1.0-beta.157
-        version: 0.1.0-beta.157(@codemirror/view@6.43.12)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-2eb5d7de-production-beta165.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        specifier: 0.1.0-beta.163
+        version: 0.1.0-beta.163(@codemirror/view@6.43.12)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-2eb5d7de-production-beta165.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@mdbase/connect-ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -2307,9 +2307,9 @@ packages:
     bundledDependencies:
       - '@mdbase-dev/connect-protocol'
 
-  '@mdbase-dev/ui@0.1.0-beta.157':
-    resolution: {integrity: sha512-oj9xrKGpr6LX2FwpRwHBCRoVDWzVmZuulYk4wna8YXwQWg5OXUiDusMVOklUiiU1cv56sJ27OHDP0K4+w5WLmw==}
-    version: 0.1.0-beta.157
+  '@mdbase-dev/ui@0.1.0-beta.163':
+    resolution: {integrity: sha512-YfKxLy18ocvJfm42yUhTLvBy8LfboMpU8jR7qPKsGd1oi8z8lHGuuuCHgtkB6B+PehzHjlF6I3pYmwWs8mclJg==}
+    version: 0.1.0-beta.163
     peerDependencies:
       '@codemirror/view': ^6.0.0
       '@lingui/core': 6.9.0
@@ -8146,7 +8146,7 @@ snapshots:
       '@noble/curves': 2.4.0
       '@noble/hashes': 2.4.0
 
-  '@mdbase-dev/ui@0.1.0-beta.157(@codemirror/view@6.43.12)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-2eb5d7de-production-beta165.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@mdbase-dev/ui@0.1.0-beta.163(@codemirror/view@6.43.12)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-2eb5d7de-production-beta165.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@fontsource/azeret-mono': 5.3.0
       '@fontsource/ibm-plex-sans': 5.3.0

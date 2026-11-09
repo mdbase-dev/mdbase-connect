@@ -71,7 +71,7 @@ auditConfig:
 
 minimumReleaseAgeExclude:
   - hono@4.13.7
-  - '@mdbase-dev/ui@0.1.0-beta.157'
+  - '@mdbase-dev/ui@0.1.0-beta.163'
   - '@mdbase-dev/sdk@0.1.0-beta.160'
 
 patchedDependencies:
