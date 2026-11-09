@@ -440,12 +440,15 @@ export interface LinkResolution {
   kind: LinkTargetKind;
   target?: Uuid;
   path?: string;
+  /** Sorted candidate paths; present only when `kind` is `ambiguous`. */
+  candidates?: string[];
 }
 
 export const linkResolution = struct<LinkResolution>("link-resolution", [
   [0, "kind", enumOf<LinkTargetKind>("link-kind", ["record", "file", "ambiguous", "not_found", "invalid"])],
   [1, "target", uuid, "opt"],
   [2, "path", tstr, "opt"],
+  [3, "candidates", list(tstr, { nonEmpty: true }), "opt"],
 ]);
 
 /** An outgoing link or embed, resolved at the local view (§3.1). */
@@ -1498,6 +1501,19 @@ export const backlinksResult = struct<BacklinksResult>("backlinks-result", [
   [1, "cursor", tstr, "opt"],
   [2, "complete", bool],
   [3, "asOf", uint],
+]);
+
+/** Links resolved where they are written (§4.3), one per requested link. */
+export interface ResolveLinksResult {
+  resolutions: LinkResolution[];
+  asOf: number;
+  complete: boolean;
+}
+
+export const resolveLinksResult = struct<ResolveLinksResult>("resolve-links-result", [
+  [0, "resolutions", list(linkResolution)],
+  [1, "asOf", uint],
+  [2, "complete", bool],
 ]);
 
 export interface ViewProperty {

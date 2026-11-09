@@ -952,6 +952,81 @@ fn dispatch(api: &mut dyn ClientApi, s: SessionId, method: &str, params: &Cbor) 
             let q: Value = dec(req(m, 0)?)?;
             Ok(api.query(s, q, include(m, 1)?)?.to_cbor())
         }
+        "backlinks" => {
+            let m = m?;
+            if m.iter().any(|(key, _)| !matches!(key, Cbor::Uint(0..=3))) {
+                return Err(ErrorCode::InvalidRequest
+                    .err_with_reason("unknown_param", "backlinks supports only params 0–3"));
+            }
+            let limit = match field(m, 2) {
+                None => None,
+                Some(Cbor::Uint(value @ 1..=1000)) => Some(*value as u32),
+                Some(Cbor::Uint(value)) if *value > 1000 => {
+                    return Err(ErrorCode::TooLarge.err_with_reason(
+                        "backlinks_budget_exceeded",
+                        "backlinks limit exceeds the 1000-record cap",
+                    ));
+                }
+                _ => return Err(bad("backlinks limit must be 1–1000")),
+            };
+            let cursor = match field(m, 3) {
+                None => None,
+                Some(Cbor::Text(token)) => Some(token.clone()),
+                _ => {
+                    return Err(ErrorCode::InvalidRequest.err_with_reason(
+                        "invalid_backlinks_cursor",
+                        "cursor must be opaque text",
+                    ));
+                }
+            };
+            let request = crate::api::Backlinks {
+                target: target(req(m, 0)?)?,
+                include: include(m, 1)?,
+                limit,
+                cursor,
+            };
+            Ok(api.backlinks(s, request)?.to_cbor())
+        }
+        "resolve_links" => {
+            let m = m?;
+            if m.iter().any(|(key, _)| !matches!(key, Cbor::Uint(0..=1))) {
+                return Err(ErrorCode::InvalidRequest
+                    .err_with_reason("unknown_param", "resolve_links supports only params 0–1"));
+            }
+            let Cbor::Text(from) = req(m, 0)? else {
+                return Err(bad("resolve_links from must be a path"));
+            };
+            let Cbor::Array(entries) = req(m, 1)? else {
+                return Err(bad("resolve_links links must be a list"));
+            };
+            if entries.is_empty() {
+                return Err(bad("resolve_links needs at least one link"));
+            }
+            let budget = || {
+                ErrorCode::TooLarge.err_with_reason(
+                    "resolve_links_budget_exceeded",
+                    "resolve_links takes at most 512 links of at most 4096 bytes each",
+                )
+            };
+            if entries.len() > 512 {
+                return Err(budget());
+            }
+            let mut links = Vec::with_capacity(entries.len());
+            for entry in entries {
+                let Cbor::Text(raw) = entry else {
+                    return Err(bad("each resolve_links link must be text"));
+                };
+                if raw.len() > 4096 {
+                    return Err(budget());
+                }
+                links.push(raw.clone());
+            }
+            let request = crate::api::ResolveLinks {
+                from: from.clone(),
+                links,
+            };
+            Ok(api.resolve_links(s, request)?.to_cbor())
+        }
         "query_contract_v1" => {
             let m = m?;
             if m.iter().any(|(key, _)| !matches!(key, Cbor::Uint(0..=5)))

@@ -177,6 +177,8 @@ All of these require `collection.read`.
 | `new_type_file` | `{0: tstr source}` (exactly one field) | `{0: tstr name, 1: path}`: where a type file created from `source` goes in the local view, `<types_folder>/<name>.md`, for a `resource_put` with `mustNotExist` (`definitions.manage`). Core derives it: `invalid_record`/`invalid_type_definition` (with the issue) for a missing or unusable name, `conflict`/`type_conflict` (details: existing path) when the name exists under any casing, `conflict`/`path_taken` (details: revision) for an occupied path. The definition is validated when written. READ required |
 | `list_resources` | `list-resources-params` below | `list-resources-result`; unrestricted collection READ required |
 | `query` | `{0: query, ? 1: include}` | `query-result` |
+| `backlinks` | `{0: uuid / path, ? 1: include, ? 2: 1..1000 limit, ? 3: tstr cursor}` | `backlinks-result` (§4.2): the records whose links resolve to the target, one page at a time |
+| `resolve_links` | `{0: path from, 1: [1*512 tstr] links}` | `resolve-links-result` (§4.3): where each link, written in `from`, resolves in the local view |
 | `subscribe` | `{0: query, ? 1: include}` | `{0: sub ID}`, then `query-update` pushes |
 | `unsubscribe` | `{0: sub ID}` | — |
 | `changes` | `{0: cursor?, ? 1: limit, ? 2: watch: bool}` | `{0: [change], 1: cursor, 2: reset: bool}`, then `changes` pushes if `watch` |
@@ -385,6 +387,100 @@ a fresh cursor, never an error. The app re-reads what it caches. That replaces
 **While installing** (`snapshot.md` §8), queries answer over installed rows with
 `complete: false`, and point reads fetch the record's bucket first. That replaces
 `file_index_warming`.
+
+### 4.2 Backlinks
+
+`backlinks` answers "which records link to this one" from the replica's link
+index, so an app never has to load and parse every record to show a backlinks
+panel. Each referring record is resolved with Core's spec 08 rules over the
+local view (pending changes included), the same resolution that rename uses to
+rewrite links, and only links that actually resolve to the target are returned.
+
+- **Target.** A record by ID or path in the local view; `not_found` otherwise.
+  The target's links to itself are not backlinks and are never returned.
+- **Order.** Referring records in bytewise path order. A record's links are in
+  position order: frontmatter link fields, then the body, embeds included.
+- **Pages.** `limit` (default 128, at most 1000) caps the records per page. A page
+  also ends early at the last record whose source fits the 1 MiB per-page
+  hydration budget, so fewer records than `limit` never means the end; only an
+  absent cursor does. A first record that alone exceeds the budget refuses with
+  `too_large` / `backlinks_budget_exceeded`.
+- **Continuations** are opaque, replica-local and resident, sharing the query
+  cursor pool and its per-session bounds (§4). A continuation binds the session,
+  grant, target, include and limit, and the head, local view version and Store
+  generation it was issued at. Any local change in between refuses the next page
+  with `invalid_request` / `cursor_stale`; callers restart from the first page and
+  never combine pages from different views. Expiry is `cursor_expired`; a
+  malformed continuation or one issued for another selection is
+  `invalid_backlinks_cursor`.
+- **`complete`** has the `query-result` meaning: false while a snapshot install is
+  in progress (`snapshot.md` §8), when the answer covers installed rows only.
+- READ is required. Records are not folder-scoped, so every referring record the
+  local view holds is visible to a READ session.
+
+A replica without this method answers `invalid_request` / `unknown_method`; the
+SDK reports that as `upgrade_required` / `backlinks_unsupported`.
+
+```cddl
+backlinks-result = {
+  0: [* backlink],
+  ? 1: tstr,             ; cursor for the next page
+  2: bool,               ; complete: false while a snapshot install is in progress
+  3: uint,               ; as_of: local view version
+}
+backlink = {
+  0: record-view,        ; the referring record
+  1: [+ link-view],      ; its links that resolve to the target
+}
+link-view = {
+  0: tstr,               ; raw: the occurrence exactly as written
+  1: bool,               ; embed
+  2: link-resolution,
+  ? 3: tstr,             ; field: the frontmatter field holding it (absent: the body)
+}
+link-resolution = {
+  0: &( record: 0, file: 1, ambiguous: 2, not_found: 3, invalid: 4 ),
+  ? 1: uuid,             ; target: the resolved record or file
+  ? 2: path,             ; its path
+  ? 3: [+ path],         ; candidates: sorted candidate paths (ambiguous only)
+}
+```
+
+### 4.3 Resolve links
+
+`resolve_links` resolves link occurrences written in the record at `from`
+against the local view (pending changes included), with the same Core spec 08
+parsing and resolution that `backlinks`, rename and the link index use. It lets
+an app follow, preview and diagnose the links in a note being edited, including
+an unsaved draft, without a second resolver of its own.
+
+- **`from`** is the collection path the links are written in. It need not name a
+  record or an existing folder (a draft not yet created), but it must be a valid
+  relative collection path; otherwise `invalid_request`.
+- **`links`** are occurrences exactly as written: `[[target]]`, `![[target|alias]]`,
+  `[text](destination)` or `![alt](destination)`, with an optional `#anchor`. Each
+  must parse as exactly one link spanning the whole entry; anything else (plain
+  text, two links, an external URI) resolves as `invalid`. An entry is not
+  rewritten or normalized.
+- **Bounds.** At least one and at most 512 entries, each at most 4096 bytes; more
+  refuses with `too_large` / `resolve_links_budget_exceeded`.
+- **Result.** One `link-resolution` per entry, in request order. A record or file
+  carries its ID and path; `ambiguous` carries the sorted candidate paths;
+  `not_found` and `invalid` carry neither. Titles and aliases are not link keys
+  (spec 08), so a link that names only a title resolves as `not_found`.
+- **`complete`** has the `query-result` meaning (§4.2).
+- READ is required.
+
+A replica without this method answers `invalid_request` / `unknown_method`; the
+SDK reports that as `upgrade_required` / `resolve_links_unsupported`.
+
+```cddl
+resolve-links-result = {
+  0: [* link-resolution], ; one per requested link, in request order
+  1: uint,                ; as_of: local view version
+  2: bool,                ; complete: false while a snapshot install is in progress
+}
+```
 
 ### 4.1 Describe
 
