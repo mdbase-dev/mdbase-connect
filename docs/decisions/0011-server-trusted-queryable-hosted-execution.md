@@ -8,7 +8,8 @@
 - Reconsiders: ADR 0010's post-Phase-1 encrypted query/storage decisions
 - Retains regardless of outcome: provider-neutral mdbase-rs semantics, direct
   point reads, bounded execution, horizontal providers, and `WorkingSet` deletion
-- Tracked benchmark record: `docs/benchmarks/hosted-storage-model/README.md`
+- Benchmark record: removed from the tree; `docs/benchmarks/hosted-storage-model/`
+  is in git history at commit `0c23f1a2d`
 - Local execution task: `.ops/tasks/Queryable hosted collection execution.md`
 - Decision accepted: 2026-08-16, Candidate B selected by the user
 - Production gate: explicit user approval before migrating existing beta/production
@@ -304,8 +305,9 @@ budget outcome. Existing defaults such as the 100,000-record/30-second scan ceil
 remain visible; the benchmark must not silently increase them to make a candidate
 pass.
 
-The comparative run is preserved under
-`docs/benchmarks/hosted-storage-model/results/2026-08-16-postgres18-local/`.
+The comparative run was recorded under
+`docs/benchmarks/hosted-storage-model/results/2026-08-16-postgres18-local/`,
+which is preserved in git history at commit `0c23f1a2d`.
 No candidate passed its prototype executor gates. That result motivates production
 page-at-a-time planning and reliable cancellation; it is not evidence that the
 selected storage boundary is unsound. The frozen workloads, semantic results,

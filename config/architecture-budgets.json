@@ -12,7 +12,6 @@
     "crates/connect-cli": 8,
     "crates/connect-core": 36,
     "crates/connect-hosted-provider": 117,
-    "crates/connect-hosted-storage-benchmark": 6,
     "crates/connect-mirror": 18,
     "crates/connect-protocol": 19,
     "crates/connect-runtime": 3,
@@ -32,9 +31,7 @@
     "services/server": 263
   },
   "deadCodeReferencesByFile": {
-    "crates/connect-hosted-provider/src/workspace.rs": 1,
-    "crates/connect-hosted-storage-benchmark/src/main/legacy_query.rs": 1,
-    "crates/connect-hosted-storage-benchmark/src/main/query.rs": 1
+    "crates/connect-hosted-provider/src/workspace.rs": 1
   },
   "externalGuards": {
     "directWireOnlyConstructors": 0,
