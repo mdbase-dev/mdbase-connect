@@ -325,3 +325,19 @@ fn deletes_and_snapshot_swaps_preserve_atomic_coverage_rules() {
         invalidate()
     );
 }
+
+#[test]
+fn an_unready_projection_rechecks_coverage_only_when_a_record_changes() {
+    let p = probe(false);
+    // An attachment or metadata commit touches no record: coverage cannot
+    // change, so no whole-collection scan.
+    let mut quiet = tx(record("body"));
+    quiet.records_put.clear();
+    quiet.query_index.as_mut().unwrap().rows.clear();
+    let quiet = maintenance(&p, &quiet).unwrap();
+    assert!(quiet.iter().all(|s| s.sql != COVERAGE));
+    assert!(quiet.iter().all(|s| s.sql != invalidate()[0].sql));
+    // A record write may complete it.
+    let statements = maintenance(&p, &tx(record("body"))).unwrap();
+    assert_eq!(statements.last().unwrap().sql, COVERAGE);
+}

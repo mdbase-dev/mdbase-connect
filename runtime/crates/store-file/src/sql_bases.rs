@@ -305,7 +305,11 @@ pub(crate) fn maintenance<I: IndexStorage>(
             for id in &ids {
                 out.push(Stmt::new(TOUCHED, vec![blob(&id.0), blob(&id.0)]));
             }
-        } else {
+        } else if reset || !ids.is_empty() {
+            // Coverage compares the record and raw ID sets, which a commit that
+            // neither resets nor touches a record cannot change. Skipping it
+            // keeps an unready (for example settled) projection from scanning
+            // the whole collection on every unrelated commit.
             out.push(Stmt::new(
                 COVERAGE,
                 vec![blob(&update.generation), SqlValue::Integer(VERSION)],
