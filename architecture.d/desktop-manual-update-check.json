@@ -1,0 +1,9 @@
+{
+  "reason": "One pure Desktop update-action selector replaces the duplicated tray and Settings choice that hid checking during an external update. Both surfaces now use the same action set, with no new dependencies, persisted state or protocol.",
+  "growth": {
+    "productionFiles": 1,
+    "apps/desktop": 1,
+    "relativeImports": 2,
+    "typeScriptExportDeclarations": 1
+  }
+}

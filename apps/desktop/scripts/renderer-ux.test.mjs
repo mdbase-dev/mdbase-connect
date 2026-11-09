@@ -32,17 +32,19 @@ after(async () => {
 
 // Lean UX checks for the daemon-backed renderer, on a mocked preload API. Pure
 // presentation (wording, grouping) is covered by test/daemon-view.test.mjs.
-async function desktop({ signedIn = true, collections = [], access = [], devices = [], activity = [] } = {}) {
+const unavailableUpdate = { phase: "unavailable", current_version: "test", channel: "beta", message: "Development build", can_check: false, can_install: false };
+
+async function desktop({ signedIn = true, collections = [], access = [], devices = [], activity = [], updateStatus = unavailableUpdate } = {}) {
   const page = await browser.newPage({ viewport: { width: 1060, height: 720 } });
   await page.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.clock.install();
-  await page.addInitScript(({ signedIn, collections, access, devices, activity }) => {
+  await page.addInitScript(({ signedIn, collections, access, devices, activity, updateStatus }) => {
     const calls = [];
     const record = (name) => async (...args) => { calls.push([name, ...args]); return null; };
     const fixture = {
-      calls, collections, access, devices, activity, requireApproval: false,
+      calls, collections, access, devices, activity, updateStatus, requireApproval: false,
       account: { configured: signedIn, serverUrl: signedIn ? "https://connect.example.test" : null, online: signedIn, pairing: null, lastError: null },
       status: () => ({ target: "isolated_profile", state_dir: "/disposable", account: { signed_in: fixture.account.configured, online: fixture.account.configured }, collections: fixture.collections })
     };
@@ -51,7 +53,9 @@ async function desktop({ signedIn = true, collections = [], access = [], devices
       getLocale: async () => localStorage.getItem("fixture:locale") ?? "en",
       setLocale: async (locale) => { calls.push(["setLocale", locale]); localStorage.setItem("fixture:locale", locale); },
       status: async () => fixture.status(),
-      updateStatus: async () => ({ phase: "unavailable", current_version: "test", channel: "beta", message: "Development build", can_check: false, can_install: false }),
+      updateStatus: async () => fixture.updateStatus,
+      checkForUpdates: async () => { calls.push(["checkForUpdates"]); return fixture.updateStatus; },
+      installUpdate: async () => { calls.push(["installUpdate"]); return fixture.updateStatus; },
       migrationStatus: async () => fixture.migration ?? { record: null, running: false },
       listCollections: async () => fixture.collections,
       getCloudConfig: async () => ({ ...fixture.account }),
@@ -97,7 +101,7 @@ async function desktop({ signedIn = true, collections = [], access = [], devices
       reopenSignIn: async () => {},
       onNavigate: () => () => {}, onUpdateStatus: () => () => {}
     };
-  }, { signedIn, collections, access, devices, activity });
+  }, { signedIn, collections, access, devices, activity, updateStatus });
   await page.goto(origin);
   await page.getByText(signedIn ? "Connected securely" : "Not signed in", { exact: true }).first().waitFor().catch(error => { throw new Error(`${error.message}\nRenderer errors: ${errors.join("; ")}`); });
   const calls = (name) => page.evaluate((name) => window.fixture.calls.filter((call) => call[0] === name).map((call) => call.slice(1)), name);
@@ -125,6 +129,57 @@ test("renderer loads real locale chunks and restores the preload language prefer
 });
 
 const nav = (page, name) => page.locator(".product-sidebar-link").filter({ hasText: name });
+
+for (const phase of ["external", "ready"]) {
+  test(`a ${phase} update keeps Check for updates next to its install action in Settings`, async () => {
+    const { page, errors, calls } = await desktop({
+      updateStatus: {
+        phase,
+        current_version: "0.1.0-beta.8",
+        channel: "beta",
+        target_version: "0.1.0-beta.9",
+        checked_at: "2026-11-09T00:00:00.000Z",
+        message: phase === "external" ? "Version 0.1.0-beta.9 is available through the signed package channel." : "Version 0.1.0-beta.9 is verified and ready to install.",
+        can_check: true,
+        can_install: true
+      }
+    });
+    const dialogs = [];
+    page.on("dialog", (dialog) => { dialogs.push(dialog.type()); void dialog.dismiss(); });
+    try {
+      await nav(page, "Settings").click();
+      await page.getByRole("heading", { name: "Settings", exact: true }).waitFor();
+      const install = page.getByRole("button", { name: `${phase === "external" ? "Open" : "Install"} 0.1.0-beta.9`, exact: true });
+      const check = page.getByRole("button", { name: "Check for updates", exact: true });
+      await install.waitFor();
+      await check.waitFor();
+      assert.equal(await install.isEnabled(), true);
+      assert.equal(await check.isEnabled(), true);
+      await page.setViewportSize({ width: 820, height: 720 });
+      const bounds = await page.locator(".setting-row").filter({ has: check }).evaluate((row) => {
+        const version = document.createRange();
+        version.selectNodeContents(row.querySelector("strong"));
+        return { versionRight: version.getBoundingClientRect().right, actionsLeft: row.querySelector(".update-actions").getBoundingClientRect().left };
+      });
+      assert.ok(bounds.versionRight <= bounds.actionsLeft, `version overlaps update actions: ${JSON.stringify(bounds)}`);
+      await check.click();
+      await page.waitForFunction(() => window.fixture.calls.some((call) => call[0] === "checkForUpdates"));
+      await page.waitForFunction(() => !document.querySelector(".update-actions button:disabled"));
+      assert.equal((await calls("checkForUpdates")).length, 1);
+      await check.click();
+      await page.waitForFunction(() => window.fixture.calls.filter((call) => call[0] === "checkForUpdates").length === 2 && !document.querySelector(".update-actions button:disabled"));
+      assert.equal(await install.count(), 1);
+      assert.equal(await check.count(), 1);
+      assert.deepEqual(await calls("installUpdate"), []);
+      await install.click();
+      await page.waitForFunction(() => window.fixture.calls.some((call) => call[0] === "installUpdate"));
+      assert.equal((await calls("installUpdate")).length, 1);
+      assert.equal(await page.getByRole("alert").count(), 0);
+      assert.deepEqual(dialogs, []);
+      assert.deepEqual(errors, []);
+    } finally { await page.close(); }
+  });
+}
 
 async function collectionAction(page, name, card = page.locator(".collection-card")) {
   await card.getByRole("button", { name: /^Actions for / }).click();

@@ -20,6 +20,7 @@ import { ActivityView } from "./activity-view";
 import { CollectionsView } from "./collections-view";
 import { DeviceRequests } from "./device-requests";
 import { groupAccess, presentConnection } from "./daemon-view.mjs";
+import { updateActions } from "../main/update-actions";
 import { consumePairingCompleted } from "./onboarding-state.mjs";
 import { SignInPanel } from "./sign-in-panel";
 import { TakeoverPanel } from "./takeover-panel";
@@ -474,18 +475,23 @@ function UpdateRow({ status, busy, onAct }: {
   onAct(action: () => Promise<unknown>): Promise<void>;
 }) {
   useLocaleRevision();
-  const install = status?.can_install === true;
-  const label = install
-    ? status.phase === "ready" ? t(i18n)`Install ${status.target_version}` : status.target_version ? t(i18n)`Open ${status.target_version}` : t(i18n)`Open update`
-    : t(i18n)({ message: "Check for updates", context: "Connect interface" });
-  const enabled = install || status?.can_check === true;
+  const installLabel = status?.phase === "ready"
+    ? t(i18n)`Install ${status.target_version}`
+    : status?.target_version ? t(i18n)`Open ${status.target_version}` : t(i18n)`Open update`;
+  const actions = updateActions(status ?? { can_check: false, can_install: false });
   return (
     <div className="setting-row">
       <span><Trans>Application</Trans></span>
       <div><strong>{status?.current_version ? t(i18n)`Version ${status.current_version}` : t(i18n)`Checking version…`}</strong><small>{status?.message ?? t(i18n)({ message: "Reading update status…", context: "Connect interface" })}</small></div>
       {status && status.phase !== "unavailable" ? (
-        <button className="mdbase-button is-tertiary" disabled={busy || !enabled} onClick={() => void onAct(() =>
-          install ? window.mdbaseConnect.installUpdate() : window.mdbaseConnect.checkForUpdates())}>{label}</button>
+        <div className="update-actions">
+          {actions.map((option) => (
+            <button key={option.action} className="mdbase-button is-tertiary" disabled={busy || !option.enabled} onClick={() => void onAct(() =>
+              option.action === "install" ? window.mdbaseConnect.installUpdate() : window.mdbaseConnect.checkForUpdates())}>
+              {option.action === "install" ? installLabel : t(i18n)({ message: "Check for updates", context: "Connect interface" })}
+            </button>
+          ))}
+        </div>
       ) : null}
     </div>
   );

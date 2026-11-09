@@ -32,6 +32,7 @@ import { createTrayImage } from "./tray-image";
 import { ElectronUpdateBackend } from "./electron-update-backend";
 import { ensureNextDaemon, nextDaemonRunner } from "./next-daemon";
 import { UpdateCoordinator } from "./update-coordinator";
+import { updateActions } from "./update-actions";
 import { removeOldRuntimeCopies, UpdateStateStore } from "./update-state";
 
 guardDesktopProcessOutput();
@@ -696,21 +697,22 @@ function createTray(): void {
 function refreshTrayMenu(): void {
   if (!tray) return;
   const update = updater?.status();
-  const updateReady = update?.can_install === true;
+  const actions = updateActions(update ?? { can_check: false, can_install: false });
+  const installLabel = update?.phase === "ready"
+    ? t(i18n)`Install ${update.target_version}`
+    : update?.target_version ? t(i18n)`Open ${update.target_version}` : t(i18n)`Open update`;
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: t(i18n)({ message: "Show mdbase connect", context: "Desktop application" }), click: () => mainWindow?.show() },
       { type: "separator" },
       { label: startupFailed ? t(i18n)`mdbase needs attention` : healthLabel(session?.current ?? { phase: "starting" }), enabled: false },
-      {
-        label: updateReady
-          ? update?.phase === "ready"
-            ? t(i18n)`Install ${update.target_version}`
-            : update?.target_version ? t(i18n)`Open ${update.target_version}` : t(i18n)`Open update`
+      ...actions.map((option) => ({
+        label: option.action === "install"
+          ? installLabel
           : t(i18n)({ message: "Check for updates", context: "Desktop application" }),
-        enabled: update?.can_check === true || updateReady,
+        enabled: option.enabled,
         click: () => {
-          if (updateReady) {
+          if (option.action === "install") {
             void bootGate.install(() => updater.install()).catch((error) => {
               dialog.showErrorBox(
                 t(i18n)({ message: "mdbase connect could not install the update", context: "Desktop application" }),
@@ -722,7 +724,7 @@ function refreshTrayMenu(): void {
               .catch((error) => dialog.showErrorBox(t(i18n)({ message: "Could not check for updates", context: "Desktop application" }), String(error)));
           }
         }
-      },
+      })),
       { type: "separator" },
       {
         label: t(i18n)({ message: "Quit mdbase connect", context: "Desktop application" }),
