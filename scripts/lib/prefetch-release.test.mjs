@@ -12,6 +12,7 @@ const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 test('uses the lockfile resolution after workspace overrides, and guards the qualified cache consumer', async () => {
   const lock = await readFile(new URL('../../pnpm-lock.yaml', import.meta.url), 'utf8');
   assert.equal(lockedElectronVersion(lock), '43.8.1');
+  assert.equal(lockedElectronVersion(lock.replaceAll('\n', '\r\n')), '43.8.1');
   assert.throws(() => lockedElectronVersion(lock.replaceAll("'@electron/get': 5.1.0(", "'@electron/get': 6.0.0(")), /Requalify/);
   assert.throws(() => lockedElectronVersion(''), /Exact locked Electron/);
 });

@@ -18,6 +18,7 @@ export function electronPlan(version, cacheRoot, platform = process.platform, ar
 }
 
 export function lockedElectronVersion(lock) {
+  lock = lock.replaceAll('\r\n', '\n');
   const importer = lock.split('\n  apps/desktop:\n')[1]?.split(/\n  \S/)[0];
   const entry = /^      electron:\n        specifier: ([^\n]+)\n        version: (\d+\.\d+\.\d+)(?:\([^\n]*\))?\n/m.exec(importer ?? '');
   assert(entry, 'Exact locked Electron dependency required');
