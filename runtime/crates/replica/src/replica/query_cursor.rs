@@ -59,9 +59,51 @@ enum Payload {
         env: QueryEnv,
         frontier: QueryKeyedId,
     },
-    Resource {
-        after: String,
-    },
+    /// A keyset position in a path-ordered list.
+    Path { list: PathList, after: String },
+}
+
+/// The path-ordered lists that page through one shared continuation shape.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum PathList {
+    /// `list_resources`: tracked definition paths.
+    Resources,
+    /// `backlinks`: referring record paths.
+    Backlinks,
+}
+
+impl PathList {
+    fn prefix(self) -> &'static str {
+        match self {
+            PathList::Resources => "r1.",
+            PathList::Backlinks => "b1.",
+        }
+    }
+    fn invalid(self) -> crate::api::ApiError {
+        match self {
+            PathList::Resources => resource_invalid(),
+            PathList::Backlinks => ErrorCode::InvalidRequest.err_with_reason(
+                "invalid_backlinks_cursor",
+                "backlinks cursor method, session or selection changed",
+            ),
+        }
+    }
+    fn full(self) -> crate::api::ApiError {
+        match self {
+            PathList::Resources => resource_full(),
+            PathList::Backlinks => ErrorCode::TooLarge.err_with_reason(
+                "backlinks_budget_exceeded",
+                "backlinks continuation exceeds its fixed budget",
+            ),
+        }
+    }
+    fn cursor_error(self, error: crate::api::ApiError) -> crate::api::ApiError {
+        match error.problem().reason.as_deref() {
+            Some("invalid_query_cursor") => self.invalid(),
+            Some("query_budget_exceeded") => self.full(),
+            _ => error,
+        }
+    }
 }
 struct Entry {
     handle: Handle,
@@ -72,8 +114,8 @@ struct Entry {
     bytes: usize,
 }
 
-/// Temporary inventory position; no source or catalog is retained in the pool.
-pub(super) struct ResourcePosition {
+/// Temporary path-list position; no source or catalog is retained in the pool.
+pub(super) struct PathPosition {
     pub(super) after: Option<String>,
     stamp: Stamp,
     invocation: Hash,
@@ -164,7 +206,7 @@ impl Cursors {
         }
         let prefix = match entry.payload {
             Payload::Query { .. } => TOKEN_PREFIX,
-            Payload::Resource { .. } => "r1.",
+            Payload::Path { list, .. } => list.prefix(),
         };
         entries.bytes += entry.bytes;
         entries.entries.push_back(Arc::new(entry));
@@ -292,13 +334,6 @@ fn resource_full() -> crate::api::ApiError {
         "resource continuation exceeds its fixed budget",
     )
 }
-fn resource_cursor_error(error: crate::api::ApiError) -> crate::api::ApiError {
-    match error.problem().reason.as_deref() {
-        Some("invalid_query_cursor") => resource_invalid(),
-        Some("query_budget_exceeded") => resource_full(),
-        _ => error,
-    }
-}
 fn owned_bytes(frontier: &QueryKeyedId, env: &QueryEnv) -> ApiResult<usize> {
     // Conservative entry + Arc/deque + TWO BTree ownership nodes. Keys use
     // actual capacity; this bound is allocation admission, not heap evidence.
@@ -387,7 +422,7 @@ impl<S: Store> Replica<S> {
         text: bool,
         limit: u32,
         cursor: Option<&str>,
-    ) -> ApiResult<ResourcePosition> {
+    ) -> ApiResult<PathPosition> {
         let stamp = self.resource_stamp(session).map_err(|error| {
             if cursor.is_none() && error.problem().reason.as_deref() == Some("cursor_stale") {
                 ErrorCode::Unavailable.err_with_reason(
@@ -406,71 +441,141 @@ impl<S: Store> Replica<S> {
         ]))
         .map_err(|_| resource_invalid())?;
         let fingerprint = mdbn_wire::hash::sha256(&bytes);
-        let now = self.now();
-        let saved = cursor
-            .map(|token| {
-                let handle =
-                    parse_token_with_prefix(token, "r1.").map_err(resource_cursor_error)?;
-                self.query_cursors
-                    .get(session, handle, now)
-                    .map_err(resource_cursor_error)
-            })
-            .transpose()?;
-        if let Some(saved) = saved {
-            let Payload::Resource { after } = &saved.payload else {
-                return Err(resource_invalid());
-            };
-            if saved.invocation != fingerprint {
-                return Err(resource_invalid());
-            }
-            if saved.stamp != stamp {
-                return Err(stale());
-            }
-            Ok(ResourcePosition {
-                after: Some(after.clone()),
-                stamp,
-                invocation: fingerprint,
-                expires_at: saved.expires_at,
-            })
-        } else {
-            Ok(ResourcePosition {
-                after: None,
-                stamp,
-                invocation: fingerprint,
-                expires_at: self
-                    .query_cursors
-                    .now(now)
-                    .checked_add(TTL_MS)
-                    .ok_or_else(resource_full)?,
-            })
-        }
+        self.begin_path_page(session, PathList::Resources, stamp, fingerprint, cursor)
     }
 
     pub(super) fn finish_resource_page(
         &mut self,
         session: SessionId,
-        position: ResourcePosition,
+        position: PathPosition,
         after: Option<String>,
     ) -> ApiResult<Option<String>> {
-        if self.resource_stamp(session)? != position.stamp {
+        let current = self.resource_stamp(session)?;
+        self.finish_path_page(session, PathList::Resources, current, position, after)
+    }
+
+    /// Backlinks are recomputed from the layered local view on every page, so
+    /// pending changes need no qualification: the view version alone says
+    /// whether the next page continues the same answer.
+    fn backlinks_stamp(&self, session: SessionId) -> Stamp {
+        Stamp {
+            generation: None,
+            head: self.head,
+            as_of: self.view_version,
+            store_generation: self.store_generation,
+            grant: self.sessions.get(&session).and_then(super::Session::grant),
+        }
+    }
+
+    pub(super) fn begin_backlinks_page(
+        &mut self,
+        session: SessionId,
+        target: Uuid,
+        include: &Include,
+        limit: u32,
+        cursor: Option<&str>,
+    ) -> ApiResult<PathPosition> {
+        let stamp = self.backlinks_stamp(session);
+        let bytes = mdbn_wire::cbor::encode(&Cbor::Array(vec![
+            Cbor::Text("mdbase/backlinks-invocation/v1".into()),
+            target.to_cbor(),
+            include.to_cbor(),
+            Cbor::Uint(u64::from(limit)),
+        ]))
+        .map_err(|_| PathList::Backlinks.invalid())?;
+        let fingerprint = mdbn_wire::hash::sha256(&bytes);
+        self.begin_path_page(session, PathList::Backlinks, stamp, fingerprint, cursor)
+    }
+
+    pub(super) fn finish_backlinks_page(
+        &mut self,
+        session: SessionId,
+        position: PathPosition,
+        after: Option<String>,
+    ) -> ApiResult<Option<String>> {
+        let current = self.backlinks_stamp(session);
+        self.finish_path_page(session, PathList::Backlinks, current, position, after)
+    }
+
+    fn begin_path_page(
+        &mut self,
+        session: SessionId,
+        list: PathList,
+        stamp: Stamp,
+        invocation: Hash,
+        cursor: Option<&str>,
+    ) -> ApiResult<PathPosition> {
+        let now = self.now();
+        let saved = cursor
+            .map(|token| {
+                let handle = parse_token_with_prefix(token, list.prefix())
+                    .map_err(|e| list.cursor_error(e))?;
+                self.query_cursors
+                    .get(session, handle, now)
+                    .map_err(|e| list.cursor_error(e))
+            })
+            .transpose()?;
+        if let Some(saved) = saved {
+            let Payload::Path {
+                list: saved_list,
+                after,
+            } = &saved.payload
+            else {
+                return Err(list.invalid());
+            };
+            if *saved_list != list || saved.invocation != invocation {
+                return Err(list.invalid());
+            }
+            if saved.stamp != stamp {
+                return Err(stale());
+            }
+            Ok(PathPosition {
+                after: Some(after.clone()),
+                stamp,
+                invocation,
+                expires_at: saved.expires_at,
+            })
+        } else {
+            Ok(PathPosition {
+                after: None,
+                stamp,
+                invocation,
+                expires_at: self
+                    .query_cursors
+                    .now(now)
+                    .checked_add(TTL_MS)
+                    .ok_or_else(|| list.full())?,
+            })
+        }
+    }
+
+    fn finish_path_page(
+        &mut self,
+        session: SessionId,
+        list: PathList,
+        current: Stamp,
+        position: PathPosition,
+        after: Option<String>,
+    ) -> ApiResult<Option<String>> {
+        if current != position.stamp {
             return Err(stale());
         }
         let Some(after) = after else { return Ok(None) };
         let bytes = 1024usize
             .checked_add(after.capacity())
-            .ok_or_else(resource_full)?;
+            .ok_or_else(|| list.full())?;
         let entry = Entry {
             handle: [0; 16],
             stamp: position.stamp,
             invocation: position.invocation,
-            payload: Payload::Resource { after },
+            payload: Payload::Path { list, after },
             expires_at: position.expires_at,
             bytes,
         };
         self.query_cursors
             .issue(session, entry, &mut *self.host.entropy)
             .map(Some)
-            .map_err(resource_cursor_error)
+            .map_err(|e| list.cursor_error(e))
     }
 
     /// Ordinary no-cursor calls retain their fallback. Cursor calls never do.
@@ -573,7 +678,7 @@ impl<S: Store> Replica<S> {
             include,
             saved.as_ref().and_then(|s| match &s.payload {
                 Payload::Query { frontier, .. } => Some(frontier),
-                Payload::Resource { .. } => None,
+                Payload::Path { .. } => None,
             }),
             super::query_driver::Window::BudgetBounded,
         );
@@ -770,7 +875,8 @@ mod tests {
             .unwrap();
         let mut resource = entry(MAX_CURSOR_BYTES / 2);
         resource.stamp.generation = None;
-        resource.payload = Payload::Resource {
+        resource.payload = Payload::Path {
+            list: PathList::Resources,
             after: "_types/a.md".into(),
         };
         let resource = registry.issue(session, resource, &mut entropy).unwrap();
@@ -781,7 +887,13 @@ mod tests {
         assert_eq!(registry.sessions[&session].bytes, MAX_CURSOR_BYTES);
         let handle = parse_token_with_prefix(&resource, "r1.").unwrap();
         let saved = registry.get(session, handle, 10).unwrap();
-        assert!(matches!(saved.payload, Payload::Resource { .. }));
+        assert!(matches!(
+            saved.payload,
+            Payload::Path {
+                list: PathList::Resources,
+                ..
+            }
+        ));
         assert_eq!(saved.expires_at, 300_001);
         registry
             .issue(session, entry(MAX_CURSOR_BYTES / 2), &mut entropy)

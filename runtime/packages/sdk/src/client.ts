@@ -45,6 +45,8 @@ import {
 import {
   BacklinksResult,
   backlinksResult,
+  ResolveLinksResult,
+  resolveLinksResult,
   DescribeResult,
   describeResult,
   newTypeFile,
@@ -1298,7 +1300,17 @@ export class MdbaseClient {
     return result;
   }
 
-  /** Records whose links resolve to `target` (index-backed, §4.2). */
+  /**
+   * One page of the records whose links resolve to `target`, from the
+   * replica's link index with Core resolution over the local view (pending
+   * changes included; the target's links to itself excluded). Referrers come
+   * in path order, each with its links to the target. Pass the returned
+   * `cursor` for the next page (`limit` 1–1000, default 128); a page may hold
+   * fewer than `limit`, and only an absent cursor ends the list. Any local
+   * change between pages refuses the continuation with `cursor_stale`: start
+   * again from the first page. A replica without the method refuses with
+   * `upgrade_required` / `backlinks_unsupported` (§4.2).
+   */
   backlinks(
     target: RecordRef,
     o: { include?: Include; limit?: number; cursor?: string; signal?: AbortSignal } = {},
@@ -1312,7 +1324,40 @@ export class MdbaseClient {
         [3, o.cursor],
       ]),
       { codec: backlinksResult, retry: true, ...(o.signal ? { signal: o.signal } : {}) },
-    );
+    ).catch((e: unknown) => {
+      if (isMdbaseError(e, "invalid_request") && e.reason === "unknown_method") {
+        throw mdbaseError("upgrade_required", "This collection's replica can't list backlinks yet.", "backlinks_unsupported");
+      }
+      throw e;
+    });
+  }
+
+  /**
+   * Resolve link occurrences written in the note at `from`, exactly as the
+   * replica resolves them for backlinks and rename: Core parsing and spec 08
+   * resolution over the local view, pending changes included. `from` need not
+   * exist yet (an unsaved draft). Each entry is one occurrence as written —
+   * `[[target]]`, `![[target#anchor|alias]]`, `[text](path)`, `![alt](path)` —
+   * and the result holds one resolution per entry, in order: a record or file
+   * with its ID and path, `ambiguous` with sorted candidate paths, or
+   * `not_found` / `invalid`. Titles and aliases are not link keys. 1–512
+   * entries of at most 4096 bytes each. A replica without the method refuses
+   * with `upgrade_required` / `resolve_links_unsupported` (§4.3).
+   */
+  resolveLinks(from: string, links: readonly string[], o: { signal?: AbortSignal } = {}): Promise<ResolveLinksResult> {
+    return this.call(
+      "resolve_links",
+      params([
+        [0, from],
+        [1, [...links]],
+      ]),
+      { codec: resolveLinksResult, retry: true, ...(o.signal ? { signal: o.signal } : {}) },
+    ).catch((e: unknown) => {
+      if (isMdbaseError(e, "invalid_request") && e.reason === "unknown_method") {
+        throw mdbaseError("upgrade_required", "This collection's replica can't resolve links yet.", "resolve_links_unsupported");
+      }
+      throw e;
+    });
   }
 
   /** Definitions: `mdbase.yaml`, type files, contract files (§4.1). */

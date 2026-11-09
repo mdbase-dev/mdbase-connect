@@ -254,6 +254,13 @@ fn markdown_link_at(s: &str, at: usize) -> Option<(Link, usize)> {
     Some((link, len))
 }
 
+/// One link occurrence exactly as written (`[[t]]`, `![a](p)`, ...): the
+/// link when `raw` parses, as a body, to exactly one link spanning all of it.
+pub fn parse_one(raw: &str) -> Option<Link> {
+    let mut links = parse_body(raw);
+    (links.len() == 1 && links[0].raw == raw).then(|| links.remove(0))
+}
+
 /// Links in a Markdown body, in order of appearance: wikilinks and Markdown
 /// links (embeds included, flagged). Fenced code blocks and inline code spans
 /// are skipped (spec 08).
@@ -633,33 +640,78 @@ pub struct IncomingLink {
     pub link: Link,
 }
 
-/// Every link in another record that resolves to `target` (a record or file
-/// ID) in `state`, ordered by referring path then position. Found through the
-/// link index ([`StateView::referrers`]) and re-resolved.
-pub fn links_to(state: &dyn StateView, target: Uuid) -> Vec<IncomingLink> {
+/// One record whose links resolve to a target, with those links in position
+/// order (frontmatter, then body).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Referrer {
+    /// The referring record.
+    pub id: RecordId,
+    /// Its path.
+    pub path: String,
+    /// Its links that resolve to the target; never empty.
+    pub links: Vec<Link>,
+}
+
+/// Visit every record whose links resolve to `target` (a record or file ID,
+/// itself included when it links to itself) in `state`, in bytewise referring-path order, starting strictly after
+/// `after`. Candidates come from the link index ([`StateView::referrers`]) and
+/// are re-resolved, so index over-approximation never reaches `visit`. Only
+/// visited candidates are parsed: `visit` returns `false` to stop, which lets
+/// a caller page through a heavily linked target without parsing every
+/// referrer on every page.
+pub fn referrers_of(
+    state: &dyn StateView,
+    target: Uuid,
+    after: Option<&str>,
+    visit: &mut dyn FnMut(Referrer) -> bool,
+) {
     let catalog = state.catalog();
     let (path, source) = match (state.record(&target), state.file(&target)) {
         (Some(r), _) => (r.path, Some(r.source)),
         (None, Some(f)) => (f.path, None),
-        (None, None) => return Vec::new(),
+        (None, None) => return,
     };
     let keys = target_keys(&catalog, &path, source.as_deref());
-    let mut out: Vec<IncomingLink> = Vec::new();
-    for rid in state.referrers(&keys) {
+    let mut candidates: Vec<(String, RecordId)> = state
+        .referrers(&keys)
+        .into_iter()
+        .filter_map(|rid| state.record(&rid).map(|r| (r.path, rid)))
+        .filter(|(path, _)| after.is_none_or(|after| path.as_str() > after))
+        .collect();
+    candidates.sort();
+    for (_, rid) in candidates {
         let Some(r) = state.record(&rid) else {
             continue;
         };
-        for l in record_links(&catalog, &r.path, &r.source) {
-            if resolve(&l, &r.path, state).target() == Some(target) {
-                out.push(IncomingLink {
-                    id: rid,
-                    path: r.path.clone(),
-                    link: l,
-                });
-            }
+        let links: Vec<Link> = record_links(&catalog, &r.path, &r.source)
+            .into_iter()
+            .filter(|l| resolve(l, &r.path, state).target() == Some(target))
+            .collect();
+        if links.is_empty() {
+            continue;
+        }
+        if !visit(Referrer {
+            id: rid,
+            path: r.path,
+            links,
+        }) {
+            return;
         }
     }
-    out.sort_by(|a, b| a.path.cmp(&b.path));
+}
+
+/// Every link that resolves to `target` (a record or file ID) in `state`,
+/// ordered by referring path then position.
+pub fn links_to(state: &dyn StateView, target: Uuid) -> Vec<IncomingLink> {
+    let mut out: Vec<IncomingLink> = Vec::new();
+    referrers_of(state, target, None, &mut |r| {
+        out.extend(r.links.into_iter().map(|link| IncomingLink {
+            id: r.id,
+            path: r.path.clone(),
+            link,
+        }));
+        true
+    });
     out
 }
 

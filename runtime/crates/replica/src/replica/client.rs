@@ -1,10 +1,12 @@
 //! The in-process client API (`replica-client-api.md`), implemented on [`Replica`].
 
+mod backlinks;
 mod contract_query;
 mod contract_records;
 mod describe;
 pub(crate) mod pending;
 mod projected_query;
+mod resolve_links;
 mod resources;
 mod type_packs;
 mod validation;
@@ -960,6 +962,22 @@ impl<S: Store> ClientApi for Replica<S> {
     ) -> ApiResult<QueryResult> {
         self.require(session, crate::policy::capability::READ)?;
         self.query_keyset(session, &query, &include)
+    }
+
+    fn backlinks(
+        &mut self,
+        session: SessionId,
+        request: crate::api::Backlinks,
+    ) -> ApiResult<mdbn_wire::client::BacklinksResult> {
+        self.backlinks_page(session, request)
+    }
+
+    fn resolve_links(
+        &mut self,
+        session: SessionId,
+        request: crate::api::ResolveLinks,
+    ) -> ApiResult<mdbn_wire::client::ResolveLinksResult> {
+        self.resolve_links_now(session, request)
     }
 
     fn query_contract(

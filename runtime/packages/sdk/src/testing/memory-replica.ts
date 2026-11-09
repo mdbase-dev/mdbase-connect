@@ -767,6 +767,12 @@ export class MemoryReplica {
           .map((x) => ({ record: this.view(x.r, inc), links: x.links }));
         return w.backlinksResult.enc({ backlinks, complete: true, asOf: this.viewVersion });
       }
+      case "resolve_links": {
+        const from = m.get(0) as string;
+        const links = m.get(1) as string[];
+        const resolutions = links.map((raw) => this.resolveRaw(from, raw));
+        return w.resolveLinksResult.enc({ resolutions, asOf: this.viewVersion, complete: true });
+      }
       case "list_pending": {
         const pending = this.pendingQueue
           // Owner-scoped like the replica: one grant per MemoryReplica, so every
@@ -1130,6 +1136,52 @@ export class MemoryReplica {
       });
     }
     return out;
+  }
+
+  /** A simplified spec 08 resolution of one occurrence written in `from`: wiki
+   * paths are root-relative, Markdown destinations source-relative, and a
+   * simple name ranks basenames by source folder, depth, then code-point order;
+   * only a tie on the case-folded path is ambiguous. Titles are not keys. */
+  private resolveRaw(from: string, raw: string): w.LinkResolution {
+    const invalid: w.LinkResolution = { kind: "invalid" };
+    const wiki = /^!?\[\[([^\]|#]*)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]$/.exec(raw);
+    const md = wiki ? null : /^!?\[[^\]]*\]\(([^)#\s]*)(?:#[^)]*)?\)$/.exec(raw);
+    const target = (wiki?.[1] ?? md?.[1])?.trim();
+    if (!target || /^[a-z][a-z\d+.-]*:/i.test(target)) return invalid;
+    const folder = from.includes("/") ? from.slice(0, from.lastIndexOf("/")) : "";
+    const entries = [
+      ...[...this.records.values()].map((r) => ({ kind: "record" as const, id: r.id, path: r.path })),
+      ...[...this.files.values()].map((f) => ({ kind: "file" as const, id: f.id, path: f.path })),
+    ];
+    const found = (e: (typeof entries)[number]): w.LinkResolution => ({ kind: e.kind, target: e.id, path: e.path });
+    const atPath = (path: string) => {
+      const parts: string[] = [];
+      for (const part of path.split("/")) {
+        if (part === "..") {
+          if (!parts.length) return invalid;
+          parts.pop();
+        } else if (part && part !== ".") parts.push(part);
+      }
+      const key = parts.join("/").toLowerCase();
+      const hit = entries.find((e) => e.path.toLowerCase() === key) ?? entries.find((e) => e.path.toLowerCase() === `${key}.md`);
+      return hit ? found(hit) : { kind: "not_found" as const };
+    };
+    if (md) return atPath(target.startsWith("/") ? target : `${folder}/${target}`);
+    if (target.startsWith("./") || target.startsWith("../")) return atPath(`${folder}/${target}`);
+    if (target.includes("/")) return atPath(target.replace(/^\//, ""));
+    const name = target.replace(/\.md$/i, "").toLowerCase();
+    const dir = (p: string) => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
+    const ranked = entries
+      .filter((e) => (e.path.split("/").pop() ?? "").replace(/\.md$/i, "").toLowerCase() === name)
+      .sort((a, b) =>
+        Number(dir(b.path) === folder) - Number(dir(a.path) === folder)
+        || a.path.split("/").length - b.path.split("/").length
+        || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    const winner = ranked[0];
+    if (!winner) return { kind: "not_found" };
+    const tied = ranked.filter((e) => e.path.toLowerCase() === winner.path.toLowerCase());
+    if (tied.length > 1) return { kind: "ambiguous", candidates: tied.map((e) => e.path).sort() };
+    return found(winner);
   }
 
   /** Dry-run preflight: links a delete breaks, links a rename rewrites. */

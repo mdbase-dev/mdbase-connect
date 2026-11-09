@@ -241,6 +241,7 @@ const ALIASES: Readonly<Record<string, ProblemCode>> = Object.assign(Object.crea
   declared_setup_unsupported: "update_required", resource_setup_unsupported: "update_required",
   type_packs_unsupported: "update_required", describe_definitions_unsupported: "update_required",
   contract_records_unsupported: "update_required", record_links_unsupported: "update_required",
+  backlinks_unsupported: "update_required", resolve_links_unsupported: "update_required",
   change_entity_unsupported: "update_required", timer_operation_recovery_unavailable: "update_required",
   contract_query_version: "update_required", unsupported_push_version: "update_required",
   // The SDK re-checks a concurrent change or an occupied step by itself.
@@ -316,7 +317,7 @@ export const INTERNAL_PROBLEM_CODES = [
   // their own words (describeError gives the "unknown" key so their copy wins).
   "application_registration_binding",
   "view_not_found", "view_source_changed", "view_source_witness_required", "bases_read_backpressure",
-  "contract_query_response", "contract_query_version", "contract_records_unsupported", "describe_definitions_unsupported",
+  "backlinks_unsupported", "resolve_links_unsupported", "contract_query_response", "contract_query_version", "contract_records_unsupported", "describe_definitions_unsupported",
   "prefix_response", "type_pack_contract_setups_unsupported", "type_packs_unsupported", "resource_setup_unavailable",
   "resource_setup_unsupported", "timer_operation_recovery_unavailable", "declared_setup_unsupported", "setup_outcome_unknown",
   // Storage probe (describes as `unavailable`).
