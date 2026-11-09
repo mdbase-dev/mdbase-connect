@@ -98,6 +98,7 @@ fn raw_backfill_reuses_index_transactions_and_unavailable_is_not_empty() {
                 replace_specs: Some(query_index_fields(&refs, 8192).unwrap()),
                 rows: vec![project_record_query_index_row(&catalog(), &r, &refs, 8192).unwrap()],
                 publish_at: Some(Head::GENESIS),
+                completes_backfill: false,
             }),
             ..Tx::default()
         })
@@ -121,6 +122,7 @@ fn raw_backfill_reuses_index_transactions_and_unavailable_is_not_empty() {
                     fields: vec![],
                 }],
                 publish_at: Some(Head::GENESIS),
+                completes_backfill: false,
             }),
             ..Tx::default()
         })
@@ -146,6 +148,7 @@ fn invalidated_payload_cannot_reactivate_from_id_coverage_alone() {
                 replace_specs: None,
                 rows: vec![projected; 501],
                 publish_at: Some(Head::GENESIS),
+                completes_backfill: false,
             }),
             ..Tx::default()
         })
@@ -162,6 +165,7 @@ fn invalidated_payload_cannot_reactivate_from_id_coverage_alone() {
                     project_record_query_index_row(&catalog(), &unrelated, &refs, 8192).unwrap(),
                 ],
                 publish_at: Some(Head::GENESIS),
+                completes_backfill: false,
             }),
             ..Tx::default()
         })
@@ -182,6 +186,7 @@ fn invalidated_payload_cannot_reactivate_from_id_coverage_alone() {
                     project_record_query_index_row(&catalog(), &unrelated, &refs, 8192).unwrap(),
                 ],
                 publish_at: Some(Head::GENESIS),
+                completes_backfill: false,
             }),
             ..Tx::default()
         })
@@ -214,7 +219,8 @@ fn raw_storage_failure_is_atomic_with_authoritative_record_write() {
                     rows: vec![
                         project_record_query_index_row(&catalog(), &changed, &refs, 8192).unwrap()
                     ],
-                    publish_at: Some(Head::GENESIS)
+                    publish_at: Some(Head::GENESIS),
+                    completes_backfill: false,
                 }),
                 ..Tx::default()
             })
@@ -256,6 +262,7 @@ fn raw_publication_head_mismatch_never_certifies_or_recovers_from_retained_ids()
                     replace_specs: None,
                     rows: vec![projected.clone()],
                     publish_at: Some(if advance { Head::GENESIS } else { next }),
+                    completes_backfill: false,
                 }),
                 ..Tx::default()
             })
@@ -293,6 +300,7 @@ fn raw_publication_head_mismatch_never_certifies_or_recovers_from_retained_ids()
                     replace_specs: None,
                     rows: vec![projected.clone()],
                     publish_at: Some(actual),
+                    completes_backfill: false,
                 }),
                 ..Tx::default()
             })
@@ -305,6 +313,7 @@ fn raw_publication_head_mismatch_never_certifies_or_recovers_from_retained_ids()
                     replace_specs: Some(query_index_fields(&refs, 8192).unwrap()),
                     rows: vec![projected],
                     publish_at: Some(actual),
+                    completes_backfill: false,
                 }),
                 ..Tx::default()
             })

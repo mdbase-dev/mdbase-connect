@@ -114,6 +114,7 @@ fn raw_uuid_pages_cross_legacy_window_without_source_hydration() {
                     replace_specs: None,
                     rows: projected,
                     publish_at: Some(Head::GENESIS),
+                    completes_backfill: false,
                 }),
                 ..Tx::default()
             })
@@ -494,6 +495,7 @@ fn raw_metadata_limit_preserves_rows_without_sqlite_reprepare() {
                 replace_specs: Some(query_index_fields(&refs, 8192).unwrap()),
                 rows: projected,
                 publish_at: Some(Head::GENESIS),
+                completes_backfill: false,
             }),
             ..Tx::default()
         })
