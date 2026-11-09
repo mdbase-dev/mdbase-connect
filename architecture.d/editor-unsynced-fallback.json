@@ -1,9 +1,0 @@
-{
-  "reason": "One Editor feature-policy module keeps SDK startup and both shared collection controls disabled together until #1321 is fixed; isolated tests explicitly opt back into #1320 without changing storage identity.",
-  "growth": {
-    "productionFiles": 1,
-    "relativeImports": 1,
-    "typeScriptExportDeclarations": 1,
-    "apps/editor": 1
-  }
-}

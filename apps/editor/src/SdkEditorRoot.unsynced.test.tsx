@@ -5,8 +5,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { SdkEditorRoot } from "./SdkEditorRoot";
 import { closeNativeFixtures, unsyncedFixture } from "./test/native-fixture";
 
-vi.mock("./editor-unsynced", () => ({ editorUnsyncedEnabled: () => true }));
-
 vi.mock("./CodeEditor", () => ({
   CodeEditor: ({ header, value, onChange, label, readOnly, footer }: { header?: ReactNode; value: string; onChange?: (value: string) => void; label: string; readOnly?: boolean; footer?: ReactNode }) =>
     <>{header}<textarea aria-label={label} readOnly={readOnly} value={value} onChange={(event) => onChange?.(event.target.value)} />{footer}</>
