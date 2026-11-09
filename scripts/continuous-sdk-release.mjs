@@ -81,8 +81,27 @@ async function published(item, workflow) {
   const baseline = publicationBaseline(metadata, item, workflow);
   const source = await provenSource(item.name, baseline);
   git("fetch", "--no-tags", "origin", source.commit);
-  git("merge-base", "--is-ancestor", source.commit, "HEAD");
   return { ...item, ...baseline, commit: source.commit };
+}
+
+// Status 1 is a history relationship, not a broken git invocation (128).
+export function baselineHistory(baseline, head, runGit = git) {
+  const ancestor = (from, to) => {
+    try { runGit("merge-base", "--is-ancestor", from, to); return true; }
+    catch (error) {
+      if (error.status === 1) return false;
+      throw new Error("publication-ancestry-unavailable");
+    }
+  };
+  if (ancestor(baseline, head)) return "contained";
+  if (ancestor(head, baseline)) return "ahead";
+  throw new Error("publication-baseline-diverged");
+}
+
+function summarizePackage(item, production, run, decision, env) {
+  const line = `${item.name}: selected production ${production}; run ${run}; published baseline ${item.baseline.version} at ${item.baseline.commit}; ${decision}.`;
+  console.log(line);
+  if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, `- ${line}\n`);
 }
 
 export function contentChanged(path, before, after) {
@@ -196,7 +215,10 @@ function checkPriorAttempts(kind, env) {
   }
 }
 
-export async function plan(kind, output, env = process.env) {
+export async function plan(kind, output, env = process.env, {
+  selectProduction = checkoutProductionCommit, qualify = requireGreenMain, readPublished = published,
+  waitForCi = awaitPublicationCi, checkAttempts = checkPriorAttempts, verify = verifyCompatibility
+} = {}) {
   assert(["source", "workspace"].includes(kind));
   assert.equal(env.GITHUB_REPOSITORY, repository);
   assert.equal(env.GITHUB_REF, "refs/heads/main");
@@ -205,37 +227,67 @@ export async function plan(kind, output, env = process.env) {
   // Qualify the selection without step outputs; the publishing commit's own
   // qualification below names the artifacts that are packed.
   const { GITHUB_OUTPUT: _, ...quiet } = env;
-  const production = await checkoutProductionCommit(env, { qualify: commit => requireGreenMain(commit, quiet) });
+  const run = env.GITHUB_SHA;
+  const production = await selectProduction(env, { qualify: commit => qualify(commit, quiet) });
   const packages = kind === "source" ? [sdk] : await publicPackages();
   const equivalent = publicationCommit(production, env.GITHUB_SHA, packages, kind);
   let current = equivalent !== null;
-  if (!current) console.log(`Selected ${production} is not this run's commit and differs in published inputs; publishing nothing.`);
-  else if (equivalent !== production && !await awaitPublicationCi(equivalent, kind)) {
+  let waitingForCi = false;
+  if (current && equivalent !== production && !await waitForCi(equivalent, kind)) {
     current = false;
-    console.log(`This run's ${equivalent} matches selected ${production} but its CI did not pass in time; publishing nothing.`);
+    waitingForCi = true;
   }
   const commit = current ? equivalent : production;
   git("checkout", "--detach", commit);
-  if (current) requireGreenMain(commit, env);
-  if (current && commit !== production) console.log(`Selected ${production}; this run's ${commit} has the same published inputs and contract, so it publishes as ${commit}.`);
+  if (current) qualify(commit, env);
   env = { ...env, GITHUB_SHA: commit };
-  if (env.LIVE_PUBLICATION === "true") checkPriorAttempts(kind, env);
   const inventory = [];
   const changed = [];
   for (const item of packages) {
     const manifest = readJson(join(item.directory, "package.json"));
-    const baseline = await published(item, kind === "source" ? "publish-sdk-npm.yml" : "publish-npm.yml");
-    const paths = git("diff", "--no-renames", "--name-only", "-z", baseline.commit, env.GITHUB_SHA).split("\0").filter(Boolean);
-    if (current && paths.some(path => inputChanged(path, item, kind, baseline.commit, env.GITHUB_SHA))) changed.push(item.name);
-    inventory.push({ name: item.name, directory: item.directory, manifest, baseline: baseline.version,
+    const baseline = await readPublished(item, kind === "source" ? "publish-sdk-npm.yml" : "publish-npm.yml");
+    let history;
+    try { history = baselineHistory(baseline.commit, commit); }
+    catch (error) { history = error.message; }
+    const paths = history === "contained" ? git("diff", "--no-renames", "--name-only", "-z", baseline.commit, commit).split("\0").filter(Boolean) : [];
+    if (current && paths.some(path => inputChanged(path, item, kind, baseline.commit, commit))) changed.push(item.name);
+    inventory.push({ name: item.name, directory: item.directory, manifest, baseline, history,
       version: nextBetaVersion([...baseline.versions, manifest.version]) });
   }
-  const selected = dependentPackages(inventory, changed).map(item => ({ name: item.name, directory: item.directory, version: item.version }));
+  const invalidHistory = inventory.find(item => !["contained", "ahead"].includes(item.history));
+  if (invalidHistory) {
+    for (const item of inventory) summarizePackage(item, production, run, `blocked: ${invalidHistory.history}`, env);
+    throw new Error(invalidHistory.history);
+  }
+  // Never repack older source through dependency expansion while any package's
+  // verified baseline is ahead of the selected source. Reconcile the line once
+  // production catches up, retaining the existing highest-version baselines.
+  const ahead = inventory.find(item => item.history === "ahead");
+  const selected = ahead ? [] : dependentPackages(inventory, changed).map(item => ({ name: item.name, directory: item.directory, version: item.version }));
   const result = { schema: 1, commit: env.GITHUB_SHA, kind, packages: selected,
-    dependencies: Object.fromEntries(inventory.map(item => [item.name, selected.some(value => value.name === item.name) ? item.version : item.baseline])) };
+    dependencies: Object.fromEntries(inventory.map(item => [item.name, selected.some(value => value.name === item.name) ? item.version : item.baseline.version])) };
   writeFileSync(output, `${JSON.stringify(result, null, 2)}\n`, { flag: "wx" });
-  if (kind === "workspace") result.compatibility = await qualifyWorkspace(output, env);
-  if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `commit=${commit}\nchanged=${selected.length > 0}\nversion=${selected[0]?.version ?? ""}\n`);
+  let blocked;
+  let gate = "publication-prior-attempt-unreconciled";
+  try {
+    if (selected.length && env.LIVE_PUBLICATION === "true") checkAttempts(kind, env);
+    gate = "production-compatibility-unproven";
+    if (selected.length && kind === "workspace") result.compatibility = await qualifyWorkspace(output, env, verify);
+  } catch {
+    blocked = gate;
+  }
+  for (const item of inventory) {
+    const publishing = selected.some(value => value.name === item.name);
+    let decision = "nothing to publish";
+    if (blocked || result.compatibility?.status === "blocked") decision = `blocked: ${blocked ?? "production-compatibility-unproven"}`;
+    else if (ahead) decision = `nothing to publish; waiting for production to reach commit ${ahead.baseline.commit}${current ? "" : `; merged changes publish on the first eligible run after Server CD promotes a commit containing ${run}, with exact run qualification and production compatibility`}`;
+    else if (waitingForCi) decision = `nothing to publish; waiting for successful qualification of commit ${run}`;
+    else if (!current) decision = `nothing to publish; waiting for production to reach commit ${run}; publishes on the first eligible run after Server CD promotes a commit containing ${run}, with exact run qualification and production compatibility`;
+    else if (publishing) decision = `publishing ${item.version} from ${commit}${env.LIVE_PUBLICATION === "true" ? "" : " (dry run)"}`;
+    summarizePackage(item, production, run, decision, env);
+  }
+  if (blocked) throw new Error(blocked);
+  if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `commit=${commit}\nchanged=${selected.length > 0}\npublish=${selected.length > 0 && env.LIVE_PUBLICATION === "true"}\nversion=${selected[0]?.version ?? ""}\n`);
   console.log(JSON.stringify(result));
 }
 
@@ -247,8 +299,8 @@ export async function qualifyWorkspace(planFile, env = process.env, verify = ver
   let compatibility;
   try {
     compatibility = { status: "passed", evidence: await verify(env) };
-  } catch (error) {
-    compatibility = { status: "blocked", error: error.message };
+  } catch {
+    compatibility = { status: "blocked", error: "production-compatibility-unproven" };
   }
   writeFileSync(planFile, `${JSON.stringify({ ...record, compatibility }, null, 2)}\n`);
   console.log(JSON.stringify({ compatibility }));
