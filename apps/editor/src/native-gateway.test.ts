@@ -56,6 +56,16 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     expect(await f.gateway.checkDirectAccess()).toBeNull();
   });
 
+  it("marks a Private collection so the editor keeps its text out of plain browser storage", async () => {
+    const f = await fixture();
+    const before = f.gateway.sessionSnapshot();
+    expect(before.status === "ready" && before.connection.private).toBeUndefined();
+    const snapshot = f.application.getSnapshot();
+    f.controls.publishSnapshot({ ...snapshot, collections: snapshot.collections.map((entry) => ({ ...entry, kind: "private" as const })) });
+    const after = f.gateway.sessionSnapshot();
+    expect(after.status === "ready" && after.connection.private).toBe(true);
+  });
+
   it("a Viewer grant exposes no write operations or misleading access-update prompts", async () => {
     const f = await fixture({ capabilities: ["collection.read"], role: "viewer" });
     const membership = f.application.getSnapshot();

@@ -297,10 +297,20 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const workspaceCollectionId = useRef<string | undefined>(undefined);
   const noteSessions = useRef(new NoteSessionStore());
   const noteReadOnly = mutationsFrozen || !canEditNotes || Boolean(noteSessions.current.active?.recoveryDraft);
-  const [draftRecovery] = useState(() => {
+  const [deviceDraftRecovery] = useState(() => {
     try { return new DraftRecovery(localStorage, connectServerUrl()); }
     catch { return undefined; }
   });
+  const privateCollection = connectionSummary?.private === true;
+  const privateCollectionId = privateCollection ? connectionSummary.collectionId : undefined;
+  // Earlier builds checkpointed Private text in localStorage; erase it on open.
+  useEffect(() => {
+    if (!privateCollectionId) return;
+    try { deviceDraftRecovery?.forgetCollection(privateCollectionId); } catch { /* storage unavailable */ }
+  }, [deviceDraftRecovery, privateCollectionId]);
+  // Private collections are end-to-end encrypted, so their text never goes to
+  // plain localStorage; the unload guard still protects unsaved edits there.
+  const draftRecovery = privateCollection ? undefined : deviceDraftRecovery;
   const noteHistory = useRef<NoteNavigationHistory>({ paths: [], index: -1 });
   const linkCreations = useRef(new Set<string>());
   /** One record ID per link target until its create is confirmed: following the
@@ -542,7 +552,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     const collection = mutationScope.current.token().collectionId!;
     try { session.recoveryDraft = draftRecovery?.read(collection, next.path, next); }
     catch { session.recoveryError = t`Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes.`; }
-    if (!draftRecovery) session.recoveryError = t`Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes.`;
+    if (!draftRecovery && !privateCollection) session.recoveryError = t`Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes.`;
     session.record.subscribe(() => {
       const current = session.record.snapshot;
       if (session.recoveryDraft && current.state === "saved" && recoveryDraftMatchesRecord(session.recoveryDraft, current.record)) {
@@ -564,7 +574,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       previous = current;
     });
     return session;
-  }, [draftRecovery, sessionChanged, sessionRecords]);
+  }, [draftRecovery, privateCollection, sessionChanged, sessionRecords]);
 
   const activateSession = useCallback((session: NoteSession) => {
     const previous = noteSessions.current.active;

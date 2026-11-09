@@ -59,6 +59,18 @@ export class DraftRecovery {
     this.storage.setItem(this.key(collection, path), JSON.stringify({ ...draft, savedAt: Date.now() }));
   }
 
+  /** Drop every checkpoint for one collection, e.g. a Private collection whose
+   * text must not stay in plain browser storage. */
+  forgetCollection(collection: string): void {
+    for (const key of Object.keys(this.storage)) {
+      if (!key.startsWith(PREFIX)) continue;
+      try {
+        const [server, owner] = JSON.parse(key.slice(PREFIX.length)) as unknown[];
+        if (server === this.server && owner === collection) this.storage.removeItem(key);
+      } catch { this.storage.removeItem(key); }
+    }
+  }
+
   remove(collection: string, path: string, saved?: SavedDraftRecord): void {
     const key = this.key(collection, path);
     const draft = saved && this.readKey(key);

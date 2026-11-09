@@ -529,6 +529,7 @@ export class NativeEditorGateway implements CollectionGateway {
   private summary(): ConnectionSummary {
     const missing = this.missingCapabilities();
     return { collectionId: this.connection.id, role: this.role(), displayName: this.connection.displayName, operations: this.operations(), fileActions: this.fileActions(),
+      ...(this.entry()?.kind === "private" ? { private: true as const } : {}),
       ...(missing.length ? { missingCapabilities: missing } : {}) };
   }
 
@@ -560,7 +561,11 @@ export class NativeEditorGateway implements CollectionGateway {
   }
 
   private membershipRole() {
-    return this.application.getSnapshot?.().collections.find((entry) => entry.collectionId === this.connection.id)?.role;
+    return this.entry()?.role;
+  }
+
+  private entry() {
+    return this.application.getSnapshot?.().collections.find((entry) => entry.collectionId === this.connection.id);
   }
 
   private async checkWritable(): Promise<void> {
