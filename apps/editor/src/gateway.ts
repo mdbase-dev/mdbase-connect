@@ -27,6 +27,7 @@ import { persistedBody } from "./note";
 import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
 import type {
   CollectionGateway,
+  LinkTarget,
   CollectionFile,
   CollectionAuthorizationTarget,
   CollectionAuthorizationOptions,
@@ -183,6 +184,16 @@ export class ConnectCollectionGateway implements CollectionGateway {
     return this.requireConnection().observe({ frontmatterMode: "both" }, {
       firstPageSize: FIRST_PAGE_SIZE, pageSize: PAGE_SIZE, ...options
     });
+  }
+
+  async backlinks(): Promise<string[]> {
+    const label = "backlinks";
+    throw new Error(t`${label} is not supported.`);
+  }
+
+  async resolveLinks(): Promise<LinkTarget[]> {
+    const label = "resolveLinks";
+    throw new Error(t`${label} is not supported.`);
   }
 
   async mostRecentNote(): Promise<string | undefined> {

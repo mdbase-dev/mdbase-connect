@@ -2,7 +2,6 @@ import { isMdbaseError, MdbaseError } from "@mdbase-dev/sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { editorPermissions } from "./gateway";
 import { CollectionIndexController } from "./collection-index-controller";
-import { backlinksFor } from "./links";
 import type { EditorCollectionChange, NoteObservationSnapshot } from "./model";
 import { NativeEditorGateway } from "./native-gateway";
 import { outdatedPersonStarter } from "./person-setup";
@@ -313,27 +312,31 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     } finally { index.reset(); }
   });
 
-  it("hydrates native bodies into Linked from and removes backlinks after a saved edit", async () => {
+  it("lists Linked from through the replica and drops a backlink after a saved edit", async () => {
     const f = await fixture({}, replica => {
-      replica.seed({ path: "notes/alpha.md", types: ["note"], frontmatter: {}, body: "# Alpha note\n\n[[Beta note]]" });
-      replica.seed({ path: "notes/beta.md", types: ["note"], frontmatter: {}, body: "# Beta note\n\n[[Alpha note]]" });
+      replica.seed({ path: "notes/alpha.md", types: ["note"], frontmatter: {}, body: "# Alpha note\n\n[[beta]]" });
+      replica.seed({ path: "notes/beta.md", types: ["note"], frontmatter: {}, body: "# Beta note\n\n[[alpha]] and ![[alpha]]" });
+      replica.seed({ path: "notes/gamma.md", types: ["note"], frontmatter: {}, body: "# Gamma\n\nMentions alpha without a link." });
     });
-    const index = new CollectionIndexController(f.gateway);
-    try {
-      await index.reload();
-      expect(index.getSnapshot().contentComplete).toBe(false);
-      await index.hydrate();
-      expect(index.getSnapshot().contentComplete).toBe(true);
-      expect(index.getSnapshot().notes.every(note => note.file?.links === undefined)).toBe(true);
-      const linkedFrom = (path: string) => backlinksFor(path, index.getSnapshot().notes).map(note => note.path);
-      expect(linkedFrom("notes/alpha.md")).toEqual(["notes/beta.md"]);
-      expect(linkedFrom("notes/beta.md")).toEqual(["notes/alpha.md"]);
+    // No hydration: backlinks come from the collection, not from loaded bodies.
+    expect(await f.gateway.backlinks("notes/alpha.md")).toEqual(["notes/beta.md"]);
+    expect(await f.gateway.backlinks("notes/beta.md")).toEqual(["notes/alpha.md"]);
 
-      const beta = await f.gateway.read("notes/beta.md");
-      await f.gateway.update(beta, { body: "# Beta note\n\nNo outgoing link." });
-      await vi.waitFor(() => expect(linkedFrom("notes/alpha.md")).toEqual([]));
-      expect(linkedFrom("notes/beta.md")).toEqual(["notes/alpha.md"]);
-    } finally { index.reset(); }
+    const beta = await f.gateway.read("notes/beta.md");
+    await f.gateway.update(beta, { body: "# Beta note\n\nNo outgoing link." });
+    expect(await f.gateway.backlinks("notes/alpha.md")).toEqual([]);
+    expect(await f.gateway.backlinks("notes/beta.md")).toEqual(["notes/alpha.md"]);
+  });
+
+  it("restarts backlink paging when the view changes between pages", async () => {
+    const f = await fixture({}, replica => {
+      replica.seed({ path: "notes/target.md", types: ["note"], frontmatter: {}, body: "# Target" });
+      replica.seed({ path: "notes/a.md", types: ["note"], frontmatter: {}, body: "[[target]]" });
+    });
+    const backlinks = vi.spyOn(f.connection.records, "backlinks")
+      .mockRejectedValueOnce(new MdbaseError({ code: "invalid_request", recovery: "fix_request", reason: "cursor_stale", message: "stale" }));
+    expect(await f.gateway.backlinks("notes/target.md")).toEqual(["notes/a.md"]);
+    expect(backlinks).toHaveBeenCalledTimes(2);
   });
 
   it("optimistic overlays show until settled and roll back exactly", async () => {

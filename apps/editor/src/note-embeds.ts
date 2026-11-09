@@ -1,11 +1,10 @@
 import { t } from "@lingui/core/macro";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { resolveFileReference } from "./file-reference-resolution";
-import { resolveLinkSuggestionMatches, type LinkSuggestion } from "./links";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import type { LinkTargets } from "./collection-links";
 import type { MarkdownReference } from "./markdown-references";
 import { markdownFragment } from "./markdown-fragments";
-import type { CollectionFile, CollectionGateway, NoteDocument, NoteSummary } from "./model";
-import { noteTitle } from "./note";
+import type { CollectionGateway, NoteDocument, NoteSummary } from "./model";
+import { basename, noteTitle } from "./note";
 
 export type ResolvedNoteEmbed = MarkdownReference & {
   key: string;
@@ -18,6 +17,7 @@ export type ResolvedNoteEmbed = MarkdownReference & {
 };
 
 const EMPTY_REFERENCES: MarkdownReference[] = [];
+const NO_TARGETS = { subscribe: () => () => undefined, getVersion: () => 0 };
 
 type EmbedCacheOwner = { collectionId: string | undefined; epoch: number };
 type EmbedCacheStore = {
@@ -34,12 +34,13 @@ export function useEmbeddedNoteReferences(
   owner: EmbedCacheOwner,
   source: string,
   notes: readonly NoteSummary[],
-  suggestions: LinkSuggestion[],
-  files: readonly CollectionFile[],
-  sourcePath?: string,
+  linkTargets: LinkTargets | undefined,
   visibleKeys?: ReadonlySet<string>
 ): ResolvedNoteEmbed[] {
   const [cacheVersion, rerender] = useState(0);
+  const targets = linkTargets ?? NO_TARGETS;
+  const targetsVersion = useSyncExternalStore(targets.subscribe, targets.getVersion, targets.getVersion);
+  const sourcePath = linkTargets?.from;
   const store = useMemo<EmbedCacheStore>(() => ({
     gateway, collectionId: owner.collectionId, epoch: owner.epoch,
     documents: new Map(), errors: new Map(), pending: new Map()
@@ -73,13 +74,27 @@ export function useEmbeddedNoteReferences(
     return () => { active = false; };
   }, [source]);
 
+  useEffect(() => {
+    const raws = references.filter((reference) => reference.target)
+      .map((reference) => parsed.source.slice(reference.from, reference.to));
+    // A failed lookup is shown on each embed through `linkTargets.failure`.
+    if (raws.length) linkTargets?.resolveAll(raws).catch(() => undefined);
+  }, [linkTargets, parsed.source, references]);
+
   const notesByPath = useMemo(() => new Map(notes.map((note) => [note.path, note])), [notes]);
   const resolved = useMemo(() => references.flatMap((reference): ResolvedNoteEmbed[] => {
     const key = `${reference.from}:${reference.to}`;
-    const matches = reference.target
-      ? resolveLinkSuggestionMatches(reference.target, suggestions, sourcePath, reference.format)
-      : suggestions.filter((candidate) => candidate.path === sourcePath);
-    if (matches.length > 1) {
+    const named = (reference.label ?? reference.target) || t`Missing note`;
+    const target = reference.target
+      ? linkTargets?.get(source.slice(reference.from, reference.to))
+      : sourcePath ? { kind: "note" as const, path: sourcePath } : undefined;
+    if (!target) {
+      const failure = linkTargets?.failure;
+      return [{ ...reference, key, status: failure ? "error" : "loading", title: named, ...(failure ? { error: failure } : {}) }];
+    }
+    if (target.kind === "file") return [];
+    if (target.kind === "ambiguous") {
+      const matches = target.candidates;
       return [{
         ...reference,
         key,
@@ -88,16 +103,13 @@ export function useEmbeddedNoteReferences(
         error: t`${matches.length} notes match this reference.`
       }];
     }
-    const suggestion = matches[0];
-    if (!suggestion) {
-      if (reference.target && resolveFileReference(reference.target, reference.format, files, sourcePath)) return [];
-      return [{ ...reference, key, status: "missing", title: (reference.label ?? reference.target) || t`Missing note` }];
-    }
-    const path = suggestion.path;
-    if (path === sourcePath) {
-      return [{ ...reference, key, status: "cycle", path, title: suggestion.title }];
-    }
+    if (target.kind !== "note") return [{ ...reference, key, status: "missing", title: named }];
+    const path = target.path;
     const note = notesByPath.get(path);
+    const title = note ? noteTitle(note) : basename(path);
+    if (path === sourcePath) {
+      return [{ ...reference, key, status: "cycle", path, title }];
+    }
     const cached = cache.get(path);
     const body = typeof note?.body === "string" ? note.body : cached?.body;
     const error = errors.get(path);
@@ -107,7 +119,7 @@ export function useEmbeddedNoteReferences(
         key,
         status: error ? "error" : "loading",
         path,
-        title: suggestion.title,
+        title,
         ...(cached?.revision ? { revision: cached.revision } : {}),
         ...(error ? { error } : {})
       }];
@@ -122,7 +134,8 @@ export function useEmbeddedNoteReferences(
       body: fragment,
       revision: cached?.revision
     }];
-  }), [references, suggestions, sourcePath, files, notesByPath, store, cache, errors, cacheVersion]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- targetsVersion marks new answers in linkTargets
+  }), [references, source, linkTargets, targetsVersion, sourcePath, notesByPath, store, cache, errors, cacheVersion]);
 
   const requests = resolved.filter((reference) => (
     reference.status === "loading"

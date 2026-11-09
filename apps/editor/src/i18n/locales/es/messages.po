@@ -495,6 +495,7 @@ msgid "{itemLabel} suggestions"
 msgstr "Sugerencias para {itemLabel}"
 
 #: src/contract-catalog.ts
+#: src/gateway.ts
 msgid "{label} is not supported."
 msgstr "{label} tiene un valor no admitido."
 
@@ -2454,10 +2455,6 @@ msgstr "Buscar una propiedad"
 msgid "Find in note"
 msgstr "Buscar en la nota"
 
-#: src/WorkspaceChrome.tsx
-msgid "Find linked notes"
-msgstr "Buscar notas enlazadas"
-
 #: src/CollectionRail.tsx
 msgid "Finding folders…"
 msgstr "Buscando carpetas…"
@@ -2860,6 +2857,10 @@ msgstr "Reglas de enlace"
 #: src/YourPersonPanel.tsx
 msgid "Link this record to me"
 msgstr "Vincular este registro conmigo"
+
+#: src/code-editor-reference-diagnostics.ts
+msgid "Link to {title}"
+msgstr "Enlazar a {title}"
 
 #: src/code-editor-completions.ts
 msgid "Link to note or file"
@@ -4383,6 +4384,7 @@ msgstr "Reanudar el cambio de nombre"
 
 #: src/code-editor-file-embeds.ts
 #: src/CollectionRail.tsx
+#: src/WorkspaceChrome.tsx
 #: src/YourPersonPanel.tsx
 msgid "Retry"
 msgstr "Reintentar"

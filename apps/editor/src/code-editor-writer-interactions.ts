@@ -1,16 +1,14 @@
 import type { Extension } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
 import { EditorView } from "@codemirror/view";
-import { resolveFileReference } from "./file-reference-resolution";
-import { resolveLinkSuggestion, type LinkSuggestion } from "./links";
+import { internalLink, type LinkTargets } from "./collection-links";
 import { markdownReferenceAt } from "./markdown-references";
-import type { CollectionFile } from "./model";
+import type { CollectionFile, LinkTarget } from "./model";
 import type { NotePreviewAnchor, NotePreviewSource } from "./NotePreview";
 
 export function writerInteractions(
-  suggestions: () => LinkSuggestion[],
+  linkTargets: () => LinkTargets | undefined,
   files: () => CollectionFile[],
-  currentPath: () => string | undefined,
   onOpenLink: () => ((path: string) => void) | undefined,
   onOpenFileLink: () => ((file: CollectionFile) => void) | undefined,
   onCreateLink: () => ((target: string, label: string | undefined, format: "wikilink" | "markdown") => void) | undefined,
@@ -57,27 +55,29 @@ export function writerInteractions(
         window.open(link.target, "_blank", "noopener,noreferrer");
         return true;
       }
-      if (!link.target || /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(link.target)) return false;
-      const path = resolveLinkSuggestion(link.target, suggestions(), currentPath(), link.format)?.path;
-      const file = resolveFileReference(link.target, link.format, files(), currentPath());
-      const openLink = onOpenLink();
-      const openFileLink = onOpenFileLink();
-      const createLink = onCreateLink();
-      if (!path && !file && !createLink) return false;
-      if (path && !openLink) return false;
-      if (file && !openFileLink) return false;
+      const targets = linkTargets();
+      if (!link.target || !internalLink(link.target) || !targets) return false;
+      const raw = view.state.sliceDoc(link.from, link.to);
       event.preventDefault();
       dismissPreview(view);
-      if (path) openLink?.(path);
-      else if (file) openFileLink?.(file);
-      else createLink?.(link.target, link.label, link.format);
+      const follow = (target: LinkTarget) => {
+        if (target.kind === "note") onOpenLink()?.(target.path);
+        else if (target.kind === "file") {
+          const file = files().find(candidate => candidate.path === target.path);
+          if (file) onOpenFileLink()?.(file);
+        } else if (target.kind === "missing") onCreateLink()?.(link.target, link.label, link.format);
+      };
+      const known = targets.get(raw);
+      if (known) follow(known);
+      // A failed lookup is shown on the link by the reference diagnostics.
+      else void targets.resolve(raw).then(follow, () => undefined);
       return true;
     },
     mousemove(event, view) {
       const position = view.posAtCoords({ x: event.clientX, y: event.clientY });
       const path = position === null
         ? undefined
-        : internalLinkPathAt(view.state.doc.toString(), position, suggestions(), currentPath());
+        : internalLinkPathAt(view.state.doc.toString(), position, linkTargets());
       if (!path) {
         dismissPreview(view);
         return false;
@@ -122,13 +122,10 @@ function toggleTask(view: EditorView, target: HTMLElement, event: Event): boolea
   return true;
 }
 
-export function internalLinkPathAt(
-  doc: string,
-  position: number,
-  suggestions: LinkSuggestion[],
-  sourcePath?: string
-): string | undefined {
+/** The note a link at `position` leads to, if the collection has said so. */
+export function internalLinkPathAt(doc: string, position: number, targets?: LinkTargets): string | undefined {
   const link = markdownReferenceAt(doc, position, "link");
-  if (!link || /^https?:\/\//i.test(link.target)) return undefined;
-  return resolveLinkSuggestion(link.target, suggestions, sourcePath, link.format)?.path;
+  if (!link || !internalLink(link.target)) return undefined;
+  const target = targets?.get(doc.slice(link.from, link.to));
+  return target?.kind === "note" ? target.path : undefined;
 }

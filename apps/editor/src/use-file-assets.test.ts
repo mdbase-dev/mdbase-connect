@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { FileAssetStore } from "./file-asset-store";
 import { fileAssetKey } from "./file-reference-resolution";
 import type { CollectionFile, FileReadRequest } from "./model";
+import { linkTargets } from "./test/link-targets";
 import { useEmbeddedFileAssets } from "./use-file-assets";
 
 const file: CollectionFile = {
@@ -11,6 +12,7 @@ const file: CollectionFile = {
 };
 const files = [file];
 const hidden = new Set<string>();
+const targets = linkTargets("source.md", { "![[image.png]]": { kind: "file", path: "image.png" } });
 
 describe("embedded file asset identity", () => {
   it.each(["contentProfile", "confirmedSeq"] as const)("reacquires a stable-reference selection after its %s changes without a digest change", async field => {
@@ -22,7 +24,7 @@ describe("embedded file asset identity", () => {
       return new Promise<Blob>(() => {});
     });
     const store = new FileAssetStore({ readFile });
-    const hook = renderHook(() => useEmbeddedFileAssets(store, "![[image.png]]", selectedFiles));
+    const hook = renderHook(() => useEmbeddedFileAssets(store, "![[image.png]]", selectedFiles, targets));
     await waitFor(() => expect(readFile).toHaveBeenCalledTimes(1));
     if (field === "contentProfile") selected.contentProfile = "ordinary_attachment_v1";
     else selected.confirmedSeq = 8;
@@ -40,7 +42,7 @@ describe("embedded file asset identity", () => {
     let resolve!: (blob: Blob) => void;
     const readFile = vi.fn(() => new Promise<Blob>((done) => { resolve = done; }));
     const store = new FileAssetStore({ readFile });
-    const hook = renderHook(({ store }) => useEmbeddedFileAssets(store, "![[image.png]]", files), { initialProps: { store } });
+    const hook = renderHook(({ store }) => useEmbeddedFileAssets(store, "![[image.png]]", files, targets), { initialProps: { store } });
     await waitFor(() => expect(hook.result.current[0]?.asset.status).toBe("loading"));
     const loading = hook.result.current;
     hook.rerender({ store });
@@ -68,7 +70,7 @@ describe("embedded file asset identity", () => {
     const store = new FileAssetStore({ readFile });
     // The CodeMirror viewport plugin reports fileAssetKey values; any other key shape never matches.
     const visible = new Set([fileAssetKey(file)]);
-    const hook = renderHook(() => useEmbeddedFileAssets(store, "![[image.png]]", files, "source.md", visible));
+    const hook = renderHook(() => useEmbeddedFileAssets(store, "![[image.png]]", files, targets, visible));
     await waitFor(() => expect(readFile).toHaveBeenCalledTimes(1));
     expect(readFile.mock.calls[0][0]).toMatchObject({ fileId: "image" });
     hook.unmount();
@@ -78,7 +80,7 @@ describe("embedded file asset identity", () => {
   it("retains arrays on unchanged renders but publishes asset versions and store resets", async () => {
     const readFile = vi.fn(async () => { throw new Error("asset failed"); });
     const store = new FileAssetStore({ readFile });
-    const hook = renderHook(() => useEmbeddedFileAssets(store, "![[image.png]]", files, "source.md", hidden));
+    const hook = renderHook(() => useEmbeddedFileAssets(store, "![[image.png]]", files, targets, hidden));
     const empty = hook.result.current;
     hook.rerender();
     expect(hook.result.current).toBe(empty);

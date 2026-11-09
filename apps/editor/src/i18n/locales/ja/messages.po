@@ -495,6 +495,7 @@ msgid "{itemLabel} suggestions"
 msgstr "{itemLabel}の候補"
 
 #: src/contract-catalog.ts
+#: src/gateway.ts
 msgid "{label} is not supported."
 msgstr "{label}には対応していません。"
 
@@ -2454,10 +2455,6 @@ msgstr "プロパティを検索"
 msgid "Find in note"
 msgstr "ノート内を検索"
 
-#: src/WorkspaceChrome.tsx
-msgid "Find linked notes"
-msgstr "リンクされたノートを検索"
-
 #: src/CollectionRail.tsx
 msgid "Finding folders…"
 msgstr "フォルダーを検索中…"
@@ -2860,6 +2857,10 @@ msgstr "リンクルール"
 #: src/YourPersonPanel.tsx
 msgid "Link this record to me"
 msgstr "このレコードを自分にリンク"
+
+#: src/code-editor-reference-diagnostics.ts
+msgid "Link to {title}"
+msgstr "{title} にリンク"
 
 #: src/code-editor-completions.ts
 msgid "Link to note or file"
@@ -4383,6 +4384,7 @@ msgstr "名前の変更を再開"
 
 #: src/code-editor-file-embeds.ts
 #: src/CollectionRail.tsx
+#: src/WorkspaceChrome.tsx
 #: src/YourPersonPanel.tsx
 msgid "Retry"
 msgstr "再試行"

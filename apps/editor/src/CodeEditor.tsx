@@ -45,6 +45,7 @@ import type { AttachmentUploader } from "./AttachmentUpload";
 import { noteEmbedPresentation } from "./code-editor-note-embeds";
 import { MISSING_REFERENCE_CLASS, referenceDiagnostics } from "./code-editor-reference-diagnostics";
 import { writerInteractions } from "./code-editor-writer-interactions";
+import type { LinkTargets } from "./collection-links";
 import type { LinkSuggestion } from "./links";
 import { markdownReferences } from "./markdown-references";
 import type { ResolvedNoteEmbed } from "./note-embeds";
@@ -73,6 +74,8 @@ interface CodeEditorProps {
   className?: string;
   documentId?: string;
   currentPath?: string;
+  /** The collection's resolution of this note's links; without it, links are not checked. */
+  linkTargets?: LinkTargets;
   recentPaths?: string[];
   linkSuggestions?: LinkSuggestion[];
   linkTypes?: string[];
@@ -147,6 +150,7 @@ export function CodeEditor({
   className = "",
   documentId,
   currentPath,
+  linkTargets,
   recentPaths = EMPTY_STRINGS,
   linkSuggestions = EMPTY_SUGGESTIONS,
   linkTypes = EMPTY_STRINGS,
@@ -201,6 +205,7 @@ export function CodeEditor({
   const linkTypesRef = useRef(linkTypes);
   const recentPathsRef = useRef(recentPaths);
   const currentPathRef = useRef(currentPath);
+  const linkTargetsRef = useRef(linkTargets);
   const onOpenLinkRef = useRef(onOpenLink);
   const onCreateLinkRef = useRef(onCreateLink);
   const onPreviewLinkRef = useRef(onPreviewLink);
@@ -228,6 +233,7 @@ export function CodeEditor({
   linkTypesRef.current = linkTypes;
   recentPathsRef.current = recentPaths;
   currentPathRef.current = currentPath;
+  linkTargetsRef.current = linkTargets;
   onOpenLinkRef.current = onOpenLink;
   onCreateLinkRef.current = onCreateLink;
   onPreviewLinkRef.current = onPreviewLink;
@@ -271,13 +277,13 @@ export function CodeEditor({
         () => currentPathRef.current,
         () => recentPathsRef.current,
         () => filesRef.current,
-        () => notesRef.current
+        () => notesRef.current,
+        () => linkTargetsRef.current
       ) : []),
       writerLint.current.of(variant === "writer" && language === "markdown" ? referenceDiagnostics(
+        () => linkTargetsRef.current,
         () => linkSuggestionsRef.current,
-        () => filesRef.current,
-        () => notesRef.current,
-        () => currentPathRef.current
+        () => notesRef.current
       ) : []),
       writerPresentation.current.of(variant === "writer" && quietMarkdown ? quietMarkdownPresentation : []),
       fileEmbeds.current.of(variant === "writer" && language === "markdown" ? fileEmbedPresentation(
@@ -291,9 +297,8 @@ export function CodeEditor({
         () => onVisibleNoteEmbedsRef.current
       ) : []),
       variant === "writer" ? writerInteractions(
-        () => linkSuggestionsRef.current,
+        () => linkTargetsRef.current,
         () => filesRef.current,
-        () => currentPathRef.current,
         () => onOpenLinkRef.current,
         () => onOpenFileLinkRef.current,
         () => onCreateLinkRef.current,
@@ -412,7 +417,8 @@ export function CodeEditor({
         () => currentPathRef.current,
         () => recentPathsRef.current,
         () => filesRef.current,
-        () => notesRef.current
+        () => notesRef.current,
+        () => linkTargetsRef.current
       ) : [])
     });
   }, [language, variant]);
@@ -422,13 +428,12 @@ export function CodeEditor({
     if (!view) return;
     view.dispatch({ effects: writerLint.current.reconfigure(
       variant === "writer" && language === "markdown" ? referenceDiagnostics(
+        () => linkTargetsRef.current,
         () => linkSuggestionsRef.current,
-        () => filesRef.current,
-        () => notesRef.current,
-        () => currentPathRef.current
+        () => notesRef.current
       ) : []
     ) });
-  }, [currentPath, files, language, linkSuggestions, notes, variant]);
+  }, [currentPath, language, linkSuggestions, linkTargets, notes, variant]);
 
   useEffect(() => {
     const view = viewRef.current;

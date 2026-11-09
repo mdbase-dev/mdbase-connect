@@ -13,9 +13,11 @@ export interface CollectionIndexState {
   contentIndexing: boolean;
   contentLoaded: number;
   contentError?: string;
+  /** Advances when records change, not when pages of an unchanged view arrive. */
+  revision: number;
 }
 export interface CollectionIndexLoadResult { cancelled: boolean; notes: NoteSummary[] }
-const EMPTY_STATE: CollectionIndexState = { notes: [], listLoading: false, structureLoading: false, structureComplete: false, contentComplete: false, contentIndexing: false, contentLoaded: 0 };
+const EMPTY_STATE: CollectionIndexState = { notes: [], listLoading: false, structureLoading: false, structureComplete: false, contentComplete: false, contentIndexing: false, contentLoaded: 0, revision: 0 };
 
 /** Editor presentation only. The SDK owns reads, watch, generations and overlays. */
 export class CollectionIndexController {
@@ -44,10 +46,10 @@ export class CollectionIndexController {
       this.observation = observation;
       observation.subscribe((snapshot, delta) => {
         if (delta.reason === "status" && snapshot.state === "ready") this.publish(this.state);
-        else this.accept(snapshot);
+        else this.accept(snapshot, delta.reason !== "page");
       });
       observation.subscribeChanges(change => { for (const listener of this.changeListeners) listener(change); });
-      this.accept(observation.getSnapshot());
+      this.accept(observation.getSnapshot(), false);
     }
     const observation = this.observation;
     const load = observation.getSnapshot().generation === 1 && observation.getSnapshot().state === "loading" ? observation.ready : observation.refresh();
@@ -91,7 +93,7 @@ export class CollectionIndexController {
     this.hydration = undefined;
     this.publish(EMPTY_STATE);
   }
-  private accept(snapshot: NoteObservationSnapshot): void {
+  private accept(snapshot: NoteObservationSnapshot, changed: boolean): void {
     const notes = snapshot.records.map(record => {
       const existing = this.summaries.get(record);
       if (existing) return existing;
@@ -106,7 +108,8 @@ export class CollectionIndexController {
     this.publish({ ...this.state, notes, total: snapshot.total ?? this.state.total,
       listLoading: !hydrating && snapshot.state === "loading", structureLoading: !hydrating && snapshot.state === "loading", structureComplete: hydrating ? this.state.structureComplete : complete,
       structureError: snapshot.problem ? this.errorMessage(observationError(snapshot.problem)) : undefined,
-      contentComplete: complete && contentLoaded === notes.length, contentLoaded });
+      contentComplete: complete && contentLoaded === notes.length, contentLoaded,
+      revision: changed ? this.state.revision + 1 : this.state.revision });
   }
   private publish(state: CollectionIndexState): void {
     this.state = state;

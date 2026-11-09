@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { fileReferences, resolveFileReference } from "./file-references";
+import { fileReferences } from "./file-references";
+import { linkTargets } from "./test/link-targets";
 import type { CollectionFile } from "./model";
 
 const files = [
@@ -10,7 +11,7 @@ const files = [
 ];
 
 describe("file references", () => {
-  it("parses wiki and Markdown embeds while ignoring code", () => {
+  it("parses wiki and Markdown embeds while ignoring code", async () => {
     const source = [
       "![[Photos/cat photo.png|Cat]]",
       "![Diagram](diagram.svg)",
@@ -19,24 +20,30 @@ describe("file references", () => {
       "![[Documents/paper.pdf]]",
       "```"
     ].join("\n");
-    const references = fileReferences(source, files, "Notes/today.md");
+    const targets = linkTargets("Notes/today.md", {
+      "![[Photos/cat photo.png|Cat]]": { kind: "file", path: "Photos/cat photo.png" },
+      "![Diagram](diagram.svg)": { kind: "file", path: "Notes/diagram.svg" }
+    });
+    expect(fileReferences(source, files, targets).map(({ raw }) => raw)).toEqual([
+      "![[Photos/cat photo.png|Cat]]",
+      "![Diagram](diagram.svg)"
+    ]);
+    await targets.resolveAll(fileReferences(source, files, targets).map(({ raw }) => raw));
+    const references = fileReferences(source, files, targets);
     expect(references.map(({ target, label, format, block, file }) => ({ target, label, format, block, path: file?.path }))).toEqual([
       { target: "Photos/cat photo.png", label: "Cat", format: "wikilink", block: true, path: "Photos/cat photo.png" },
       { target: "diagram.svg", label: "Diagram", format: "markdown", block: true, path: "Notes/diagram.svg" }
     ]);
   });
 
-  it("decodes URLs, rejects traversal, and leaves ambiguous basenames unresolved", () => {
-    expect(resolveFileReference("../Photos/cat%20photo.png", "markdown", files, "Notes/today.md")?.path).toBe("Photos/cat photo.png");
-    expect(resolveFileReference("../../cat.png", "markdown", files, "Notes/today.md")).toBeUndefined();
-    expect(resolveFileReference("paper.pdf", "wikilink", files, "Notes/today.md")).toBeUndefined();
-    expect(resolveFileReference("https://example.com/cat.png", "markdown", files, "Notes/today.md")).toBeUndefined();
-  });
-
-  it("prefers source-relative Markdown files over legacy collection-root paths", () => {
-    const duplicateFiles = [file("diagram.svg", "5", "image"), ...files];
-    expect(resolveFileReference("diagram.svg", "markdown", duplicateFiles, "Notes/today.md")?.path).toBe("Notes/diagram.svg");
-    expect(resolveFileReference("/diagram.svg", "markdown", duplicateFiles, "Notes/today.md")?.path).toBe("diagram.svg");
+  it("attaches only files the collection resolves the embed to", async () => {
+    const source = "![[paper.pdf]]\n\n![[Target]]\n\n![[gone.png]]";
+    const targets = linkTargets("Notes/today.md", {
+      "![[paper.pdf]]": { kind: "ambiguous", candidates: ["Archive/paper.pdf", "Documents/paper.pdf"] },
+      "![[Target]]": { kind: "note", path: "Target.md" }
+    });
+    await targets.resolveAll(fileReferences(source, files, targets).map(({ raw }) => raw));
+    expect(fileReferences(source, files, targets).map(({ file }) => file)).toEqual([undefined, undefined, undefined]);
   });
 });
 

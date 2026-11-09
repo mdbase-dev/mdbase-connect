@@ -1,0 +1,9 @@
+{
+  "reason": "collection-links owns the editor's questions about links: Linked from (replica backlinks per open note, refetched on record changes) and where each written link leads (replica resolve_links, batched per note and revision). It replaces backlinksFor, resolveLinkSuggestion(Matches) and resolveFileReference, the editor's own resolvers, which diverged from Core; App.tsx is at its line budget. The extra imports carry the per-note LinkTargets through the editor components and embed hooks in place of the suggestion lists, files and source paths they took for local resolution.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 7,
+    "typeScriptExportDeclarations": 2,
+    "apps/editor": 1
+  }
+}
