@@ -3422,7 +3422,9 @@ msgid "No nested fields yet."
 msgstr "아직 중첩 필드가 없습니다."
 
 #. placeholder {0}: reference.target
+#. placeholder {0}: this.target
 #: src/code-editor-reference-diagnostics.ts
+#: src/CodeEditor.tsx
 msgid "No note or file matches “{0}”."
 msgstr "“{0}”과(와) 일치하는 노트나 파일이 없습니다."
 

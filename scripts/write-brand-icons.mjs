@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -85,6 +85,15 @@ function appIcon({ title, unit = 10, offset = 48 } = {}) {
 }
 
 /**
+ * A square, full-bleed icon for platforms that apply their own mask (iOS home
+ * screen, Android adaptive "maskable" icons). The mark spans 55% of the tile, so
+ * it stays inside the 80% maskable safe zone.
+ */
+function fullBleedIcon() {
+  return appIcon().replace(tile.map((line) => `  ${line}`).join("\n"), `  <rect width="256" height="256" fill="${paper}"/>`);
+}
+
+/**
  * The app icon for one pixel size. Up to 50 px the mark uses whole pixels per grid
  * unit, centred on whole pixels; above that the master scales cleanly enough.
  */
@@ -118,6 +127,13 @@ try {
   for (const size of [120, 256, 512, 1024]) {
     await png(appIconAt(size), size, resolve(root, `assets/mdbase-app-icon-${size}.png`));
   }
+
+  // The editor's installable web app (public/manifest.webmanifest).
+  const editorIcons = resolve(root, "apps/editor/public/icons");
+  await mkdir(editorIcons, { recursive: true });
+  for (const size of [192, 512]) await png(appIconAt(size), size, resolve(editorIcons, `app-icon-${size}.png`));
+  await png(fullBleedIcon(), 512, resolve(editorIcons, "app-icon-maskable-512.png"));
+  await png(fullBleedIcon(), 180, resolve(editorIcons, "apple-touch-icon.png"));
 
   const desktop = resolve(root, "apps/desktop/assets");
   await png(appIconAt(1024), 1024, resolve(desktop, "app-icon.png"));

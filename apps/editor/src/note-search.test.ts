@@ -177,6 +177,34 @@ describe("note search", () => {
       { from: 11, to: 16 }
     ]);
   });
+
+  it("matches and highlights across accents", () => {
+    const index = buildNoteSearchIndex([summary("Cafés.md", { title: "Café notes" }, [], "Résumé draft.")]);
+    expect(searchNotes(index, "cafe").map((note) => note.path)).toEqual(["Cafés.md"]);
+    expect(searchTextRanges("Café notes", "cafe")).toEqual([{ from: 0, to: 4 }]);
+    expect(searchTextRanges("Cafe notes", "café")).toEqual([{ from: 0, to: 4 }]);
+    expect(searchNoteResults(index, "resume")[0].context).toMatchObject({ kind: "body", text: "Résumé draft.", ranges: [{ from: 0, to: 6 }] });
+  });
+
+  it("ranks an alias match just behind a title match and ahead of path and body matches", () => {
+    const index = buildNoteSearchIndex([
+      summary("Notes/Countess.md", {}, [], "Mentions Ada in passing."),
+      summary("People/Lovelace.md", { title: "Augusta King", aliases: ["Ada"] }, [], ""),
+      summary("People/Ada.md", { title: "Ada" }, [], "")
+    ]);
+    expect(searchNotes(index, "ada").map((note) => note.path)).toEqual(["People/Ada.md", "People/Lovelace.md", "Notes/Countess.md"]);
+    expect(searchNoteResults(index, "ada")[1].context).toMatchObject({ kind: "metadata", ranges: [expect.anything()] });
+  });
+
+  it("lets a bonus decide between equally good matches without overriding a better one", () => {
+    const index = buildNoteSearchIndex([
+      summary("A/Plan.md", {}, [], ""),
+      summary("B/Plan.md", {}, [], ""),
+      summary("Planning.md", {}, [], "")
+    ]);
+    const recent = (note: NoteSummary) => note.path === "B/Plan.md" || note.path === "Planning.md" ? 0.3 : 0;
+    expect(searchNoteResults(index, "plan", Infinity, recent).map((result) => result.note.path)).toEqual(["B/Plan.md", "A/Plan.md", "Planning.md"]);
+  });
 });
 
 function displayType(name: string): CollectionTypeDescriptor {

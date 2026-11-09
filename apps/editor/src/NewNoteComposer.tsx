@@ -184,7 +184,7 @@ export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType,
         ]} onChange={selectType} /></label>}
         {!folderCreation && <details className="new-note-path">
           <summary aria-label={t`Edit file path`}><span><Trans>File path</Trans></span><output aria-label={t`Suggested path`}>{!pathEdited && !title.trim() ? <>{pathFolderPrefix(path)}<span className="path-pending"><Trans>‹title›</Trans></span><Trans>.md</Trans></> : path}</output><ChevronRight aria-hidden="true" /></summary>
-          <label><span className="sr-only"><Trans>File path</Trans></span><input aria-label={t`Path`} value={path} onChange={(event) => { setPathEdited(true); setPath(event.target.value); }} spellCheck="false" /></label>
+          <label><span className="sr-only"><Trans>File path</Trans></span><input aria-label={t`Path`} value={path} onChange={(event) => { setPathEdited(true); setPath(event.target.value); }} spellCheck="false" autoCapitalize="none" autoCorrect="off" /></label>
         </details>}
         {folderCreation && folderName.trim() && title.trim() && <div className="new-folder-path"><span><Trans>File path</Trans></span><output>{resolvedPath}</output></div>}
       </div>

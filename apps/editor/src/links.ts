@@ -316,7 +316,7 @@ function isSubsequence(query: string, value: string): boolean {
   return false;
 }
 
-function noteAliases(note: NoteSummary): string[] {
+export function noteAliases(note: NoteSummary): string[] {
   const values = [
     note.effectiveFrontmatter.aliases,
     note.effectiveFrontmatter.alias
