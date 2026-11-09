@@ -46,11 +46,18 @@ async function check(chromium,source,target,at) {
   assertEntryAsset(entries[0],source,target);
   const entry=await context.request.get(entries[0]);
   need(entry.ok() && (await entry.body()).length>0,'entry-asset-unavailable');
-  at('sign-in');
-  await page.getByRole('button',{name:'Sign in',exact:true}).waitFor({state:'visible',timeout:60000});
-  need(!/readiness_fenced/i.test(await page.locator('body').innerText()),'readiness-fenced');
+  // Signed out, Editor opens this browser's unsynced collection; Sign in is the
+  // first screen when work before connecting is off.
+  at('first-screen');
+  const signIn=page.getByRole('button',{name:'Sign in',exact:true});
+  const unsynced=page.getByRole('status',{name:'Saved only in this browser',exact:true});
+  await signIn.or(unsynced).first().waitFor({state:'visible',timeout:60000});
+  const text=await page.locator('body').innerText();
+  need(!/readiness_fenced/i.test(text),'readiness-fenced');
+  need(!/Can.t continue/.test(text),'first-screen-blocked');
   need(failures.size===0,[...failures].sort().join(','));
-  return {ok:true,source:source.slice(0,12),signIn:true,cacheDisabled:true};
+  const started=await unsynced.isVisible();
+  return {ok:true,source:source.slice(0,12),signIn:!started,unsynced:started,cacheDisabled:true};
  }finally{await browser.close();}
 }
 if(process.argv[1]===fileURLToPath(import.meta.url)) {
