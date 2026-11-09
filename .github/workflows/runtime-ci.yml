@@ -321,6 +321,11 @@ jobs:
         run: npm ci --prefix deploy/cloudflare-do --no-audit --no-fund
       - name: DO rustfmt
         run: cargo fmt --manifest-path deploy/cloudflare-do/Cargo.toml --check
+      - name: Prefetch worker-build release tools through authenticated assets
+        working-directory: ${{ github.workspace }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/ci/prefetch-worker-tools.mjs .
       - name: Build Worker (wasm32)
         working-directory: runtime/deploy/cloudflare-do
         run: worker-build --release --locked

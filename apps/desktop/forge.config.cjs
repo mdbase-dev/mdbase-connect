@@ -128,6 +128,9 @@ const platformMakers =
 
 module.exports = {
   packagerConfig: {
+    download: process.env.electron_config_cache
+      ? { cacheRoot: process.env.electron_config_cache }
+      : undefined,
     asar: true,
     appBundleId: "dev.mdbase.connect",
     executableName: "mdbase-connect",

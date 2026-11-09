@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { appendFile, chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { publicBytes } from '../lib/github-release-download.mjs';
+import { githubReleaseAsset, publicBytes } from '../lib/github-release-download.mjs';
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const api = 'https://api.github.com/repos/';
@@ -41,11 +41,6 @@ function headers(token, accept) {
   assert(token, 'GitHub token required for release prefetch');
   return { authorization: `Bearer ${token}`, accept };
 }
-async function releaseAsset(repository, asset, token, fetchImpl, delays) {
-  assert(Number.isSafeInteger(asset.id) && asset.id > 0, 'Invalid release asset id');
-  return publicBytes(`${api}${repository}/releases/assets/${asset.id}`, fetchImpl, delays,
-    headers(token, 'application/octet-stream'));
-}
 function checksum(sums, name) {
   const matches = sums.toString('utf8').split('\n').filter(line => line.endsWith(` ${name}`) || line.endsWith(`*${name}`));
   assert(matches.length === 1 && /^[a-f0-9]{64} [ *]/.test(matches[0]), 'Exact Electron checksum required');
@@ -65,7 +60,7 @@ export async function prefetchElectron(plan, { token, fetchImpl = fetch, delays 
   const download = async name => {
     const assets = release.assets.filter(asset => asset.name === name);
     assert(assets.length === 1, 'Exact Electron release asset required');
-    return releaseAsset(repository, assets[0], token, fetchImpl, delays);
+    return githubReleaseAsset(repository, assets[0], { token, fetchImpl, delays });
   };
   const newSums = await download('SHASUMS256.txt');
   const expected = checksum(newSums, plan.name);
@@ -88,7 +83,7 @@ export const cosignAssets = {
 export async function installCosign(directory, { token, fetchImpl = fetch, delays, platform = process.platform, arch = process.arch } = {}) {
   const asset = cosignAssets[`${platform}-${arch}`];
   assert(asset, 'Unsupported cosign platform');
-  const bytes = await releaseAsset('sigstore/cosign', { id: asset[0] }, token, fetchImpl, delays);
+  const bytes = await githubReleaseAsset('sigstore/cosign', { id: asset[0] }, { token, fetchImpl, delays });
   assert.equal(sha256(bytes), asset[1], 'Cosign checksum mismatch');
   await mkdir(directory, { recursive: true });
   const path = join(directory, platform === 'win32' ? 'cosign.exe' : 'cosign');
