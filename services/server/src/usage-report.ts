@@ -23,6 +23,9 @@ type Timestamp = Date | string;
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
 const MAX_RETENTION_COHORTS = 52;
+// Release canaries and test fixtures register real applications and start real
+// requests. They are listed in `applications`, flagged, and left out of totals.
+const SYNTHETIC_FAMILY = /^bundle:dev\.mdbase\.(release-canary|test)(\.|$)/;
 
 interface GrantRow {
   id: string;
@@ -38,16 +41,19 @@ interface GrantRow {
 interface ApplicationUsage {
   name: string;
   distribution: string;
+  synthetic: boolean;
   named_at: number;
   active_grants: number;
   local_active_grants: number;
   hosted_active_grants: number;
   native_active_grants: number;
   users_with_active_grant: Set<string>;
+  users_with_installation: Set<string>;
   active_users_in_window: Set<string>;
   approved_in_window: number;
   revoked_in_window: number;
   consent: ConsentCounts;
+  pairing: ReturnType<typeof emptyPairing>;
 }
 
 interface ConsentCounts {
@@ -92,6 +98,7 @@ export async function usageReport(
     nativeCollections,
     applications,
     grants,
+    installations,
     tokenGrants,
     tokenDays,
     deviceDays,
@@ -175,6 +182,13 @@ export async function usageReport(
               created_at, activated_at, revoked_at
        FROM grants`
     ),
+    // A native app is approved by pairing its installation, which leaves a
+    // device credential and no grant. Removing the device deletes the row.
+    db.query<{ user_id: string; app_id: string; created_at: Timestamp }>(
+      `SELECT c.user_id, k.app_id, k.created_at
+       FROM installation_device_credentials k
+       JOIN connectors c ON c.id = k.connector_id`
+    ),
     // Access tokens last one hour, so an application using a grant through the
     // relay or a hosted collection refreshes here at least hourly.
     db.query<{ grant_id: string }>(
@@ -238,9 +252,10 @@ export async function usageReport(
       consumed_at: Timestamp | null;
       expires_at: Timestamp;
       installation_pairing_id: string | null;
+      app_id: string | null;
     }>(
       `SELECT p.created_at, p.approved_at, p.consumed_at, p.expires_at,
-              i.pairing_id AS installation_pairing_id
+              i.pairing_id AS installation_pairing_id, i.app_id
        FROM pairing_requests p
        LEFT JOIN installation_device_pairings i ON i.pairing_id = p.id
        WHERE p.created_at >= $1`,
@@ -261,9 +276,10 @@ export async function usageReport(
     ...nativeCollections.rows.map((row) => row.owner_user_id)
   ]);
   const grantsById = new Map(grants.rows.map((grant) => [grant.id, grant]));
-  const grantUsers = new Set(
-    grants.rows.filter((grant) => grant.activated_at).map((grant) => grant.user_id)
-  );
+  const approvedUsers = new Set([
+    ...grants.rows.filter((grant) => grant.activated_at).map((grant) => grant.user_id),
+    ...installations.rows.map((row) => row.user_id)
+  ]);
   const userByStorageAccount = new Map(
     storageAccounts.rows.map((row) => [row.provider_account_id, row.user_id])
   );
@@ -286,7 +302,7 @@ export async function usageReport(
     accounts: userIds.length,
     paired_computer: userIds.filter((id) => pairedUsers.has(id)).length,
     collection: userIds.filter((id) => collectionUsers.has(id)).length,
-    grant: userIds.filter((id) => grantUsers.has(id)).length,
+    grant: userIds.filter((id) => approvedUsers.has(id)).length,
     active_in_window: userIds.filter((id) => activeUsers.has(id)).length
   });
   const userCreatedAt = new Map(
@@ -337,16 +353,19 @@ export async function usageReport(
       usage.set(family, {
         name: application.name,
         distribution: application.distribution,
+        synthetic: SYNTHETIC_FAMILY.test(family),
         named_at: namedAt,
         active_grants: 0,
         local_active_grants: 0,
         hosted_active_grants: 0,
         native_active_grants: 0,
         users_with_active_grant: new Set(),
+        users_with_installation: new Set(),
         active_users_in_window: new Set(),
         approved_in_window: 0,
         revoked_in_window: 0,
-        consent: emptyConsent()
+        consent: emptyConsent(),
+        pairing: emptyPairing()
       });
     } else if (namedAt > existing.named_at) {
       existing.name = application.name;
@@ -356,6 +375,11 @@ export async function usageReport(
   }
   const usageFor = (applicationId: string) =>
     usage.get(applicationFamily.get(applicationId)!)!;
+  // Installation rows name their application by ID without a foreign key.
+  const installedApplication = (applicationId: string | null) =>
+    applicationId !== null && applicationFamily.has(applicationId)
+      ? usageFor(applicationId)
+      : undefined;
   for (const grant of grants.rows) {
     if (!grant.activated_at) continue;
     const entry = usageFor(grant.application_id);
@@ -370,13 +394,19 @@ export async function usageReport(
     else if (grant.next_collection_id) entry.native_active_grants += 1;
     else entry.local_active_grants += 1;
   }
+  for (const installation of installations.rows) {
+    const entry = installedApplication(installation.app_id);
+    if (!entry) continue;
+    entry.users_with_installation.add(installation.user_id);
+    if (instant(installation.created_at) >= start) entry.approved_in_window += 1;
+  }
   for (const { grant_id } of tokenGrants.rows) {
     const grant = grantsById.get(grant_id);
     if (grant) usageFor(grant.application_id).active_users_in_window.add(grant.user_id);
   }
   // Desktops and the CLI serve every app, so only installations name one.
   for (const { app_id: appId, user_id: userId } of deviceDays.rows) {
-    if (appId && applicationFamily.has(appId)) usageFor(appId).active_users_in_window.add(userId);
+    installedApplication(appId)?.active_users_in_window.add(userId);
   }
   const consentByFlow = new Map<string, ConsentCounts>();
   for (const request of authorizations.rows) {
@@ -387,12 +417,13 @@ export async function usageReport(
         : instant(request.expires_at) <= now
           ? "abandoned"
           : "pending";
-    if (!consentByFlow.has(request.flow)) consentByFlow.set(request.flow, emptyConsent());
-    for (const counts of [
-      consentTotals,
-      consentByFlow.get(request.flow)!,
-      usageFor(request.application_id).consent
-    ]) {
+    const entry = usageFor(request.application_id);
+    const recorded = [entry.consent];
+    if (!entry.synthetic) {
+      if (!consentByFlow.has(request.flow)) consentByFlow.set(request.flow, emptyConsent());
+      recorded.push(consentTotals, consentByFlow.get(request.flow)!);
+    }
+    for (const counts of recorded) {
       recordConsent(counts, outcome, request.user_id, request.application_installation_id);
     }
   }
@@ -401,12 +432,16 @@ export async function usageReport(
   const pairing = emptyPairing();
   const appPairing = emptyPairing();
   for (const request of pairings.rows) {
-    const counts = request.installation_pairing_id ? appPairing : pairing;
-    counts.started += 1;
-    if (request.consumed_at) counts.completed += 1;
-    if (request.approved_at) counts.approved += 1;
-    else if (instant(request.expires_at) <= now) counts.expired_unapproved += 1;
-    else counts.pending += 1;
+    const entry = installedApplication(request.app_id);
+    const recorded = entry ? [entry.pairing] : [];
+    if (!entry?.synthetic) recorded.push(request.installation_pairing_id ? appPairing : pairing);
+    for (const counts of recorded) {
+      counts.started += 1;
+      if (request.consumed_at) counts.completed += 1;
+      if (request.approved_at) counts.approved += 1;
+      else if (instant(request.expires_at) <= now) counts.expired_unapproved += 1;
+      else counts.pending += 1;
+    }
   }
 
   const activeLocal = localCollections.rows.filter((row) => !row.removed_at);
@@ -488,7 +523,7 @@ export async function usageReport(
         created_at: new Date(userCreatedAt.get(userId)!).toISOString(),
         paired_computer: pairedUsers.has(userId),
         collection: collectionUsers.has(userId),
-        grant: grantUsers.has(userId),
+        grant: approvedUsers.has(userId),
         active_in_window: activeUsers.has(userId)
       }))
     },
@@ -546,20 +581,25 @@ export async function usageReport(
         || entry.approved_in_window > 0
         || entry.revoked_in_window > 0
         || entry.consent.started > 0
+        || entry.users_with_installation.size > 0
+        || entry.pairing.started > 0
       )
       .map(([family, entry]) => ({
         family,
         name: entry.name,
         distribution: entry.distribution,
+        synthetic: entry.synthetic,
         active_users_in_window: entry.active_users_in_window.size,
         users_with_active_grant: entry.users_with_active_grant.size,
+        users_with_installation: entry.users_with_installation.size,
         active_grants: entry.active_grants,
         local_active_grants: entry.local_active_grants,
         hosted_active_grants: entry.hosted_active_grants,
         native_active_grants: entry.native_active_grants,
         approved_in_window: entry.approved_in_window,
         revoked_in_window: entry.revoked_in_window,
-        consent: consentSummary(entry.consent)
+        consent: consentSummary(entry.consent),
+        pairing: entry.pairing
       }))
       .sort((left, right) =>
         right.active_users_in_window - left.active_users_in_window

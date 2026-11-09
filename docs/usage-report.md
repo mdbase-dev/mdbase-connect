@@ -19,16 +19,41 @@ identifier, email address, path, query, or record content.
 | Figure | Source | Decision it informs |
 | --- | --- | --- |
 | `accounts` | `users`; `sessions.last_seen_at` for `signed_in_in_window` | Growth after public signup. Signing in shows a person, not use, so it does not count as active. |
-| `activation` | ever-paired computer (app installations excluded), any local, hosted, or current native collection, any activated grant, activity in the window | Which setup step loses people. `created_in_window` isolates the recent cohort. |
+| `activation` | ever-paired computer (app installations excluded), any local, hosted, or current native collection, an approved application (`grant`: any activated grant or a current app installation), activity in the window | Which setup step loses people. `created_in_window` isolates the recent cohort. |
 | `beta` | `beta_access_requests` matched to accounts by normalized email, `invitations` | Request-to-signup conversion; replaces the paginated client-side report. |
 | `pairing` | `pairing_requests` created in the window, without an installation pairing | Whether computer pairing fails before approval. |
-| `app_pairing` | the same requests with an `installation_device_pairings` row | Whether app installations fail before approval. |
+| `app_pairing` | the same requests with an `installation_device_pairings` row | Whether app installations fail before approval. Each application's `pairing` splits it by application. |
 | `consent` | `authorization_requests` expiring in the window | Whether the approval screen loses people. `abandoned_before_sign_in` counts requests that never reached a signed-in account. |
 | `consent_by_flow` | the same requests split by `authorization_code` and `device_code` | Which authorization flow loses people. |
 | `collections` | `collections`, `hosted_collections`, `next_collections` | Local, hosted, and native adoption. |
 | `transport_users_in_window` | `protocol_usage_telemetry` for direct and relay; the hosted provider's protocol usage, mapped through `account_storage_accounts`, for hosted; `device_activity_days` by device kind for `native` | Direct, relay, hosted, and native reliance. `hosted` is `null` when no provider is configured. |
 | `retention` | `users.created_at`, `access_tokens` issuance days, and `device_activity_days` | Whether people come back after setup. |
-| `applications` | `grants`, `applications`, `authorization_requests`, `access_tokens`, `device_activity_days` through `installation_device_credentials` | Which applications are connected and in use, and which lose people at consent. |
+| `applications` | `grants`, `applications`, `authorization_requests`, `access_tokens`, `installation_device_pairings`, `installation_device_credentials` and `device_activity_days` through them | Which applications are connected and in use, and which lose people at consent. |
+
+## Application approval
+
+An application is approved in one of two ways, and the report counts both:
+
+- a grant, for applications using the relay, a hosted collection or a local
+  collection through the connector. Consent figures describe this path;
+- an app installation, for applications on the next runtime. Pairing the
+  installation leaves a device credential and no grant. `app_pairing`, and each
+  application's `pairing`, describe this path.
+
+`activation.grant` counts accounts with either. Per application,
+`approved_in_window` adds grants and installations approved in the window,
+`users_with_active_grant` and `users_with_installation` count the accounts that
+hold each, and `revoked_in_window` counts grants only: removing an installation
+deletes its credential, so a removed installation is no longer counted anywhere.
+
+## Synthetic applications
+
+Release canaries and test fixtures register real applications and start real
+requests on every deployment. Applications whose family is
+`bundle:dev.mdbase.release-canary`, `bundle:dev.mdbase.test`, or a dotted child
+of either are listed in `applications` with `synthetic: true`, and their
+requests are left out of `consent`, `consent_by_flow` and `app_pairing`.
+Account figures are not filtered: the canaries never sign in.
 
 ## Native collections
 
