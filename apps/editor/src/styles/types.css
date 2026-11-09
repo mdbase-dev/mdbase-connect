@@ -1459,11 +1459,12 @@
 }
 
 .contract-catalog-pack-title span {
-  padding: 2px 5px;
-  border: 1px solid var(--line);
-  border-radius: 50%;
-  color: var(--faint);
-  font-size: var(--font-size-ui);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--hover);
+  color: var(--muted);
+  font-size: var(--font-size-caption);
+  line-height: 18px;
 }
 
 .contract-catalog-pack-copy > p {
