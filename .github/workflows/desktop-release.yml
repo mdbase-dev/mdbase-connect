@@ -337,6 +337,18 @@ jobs:
           rpm="$(find apps/desktop/out/make -type f -name '*.rpm' -print -quit)"
           node apps/desktop/test/linux-packages/verify.mjs "$deb" "$rpm"
 
+      # An app unpacked into a folder the user owns updates itself from this .deb.
+      - name: Verify the Linux package stages a user-folder update
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          deb="$(find apps/desktop/out/make -type f -name '*.deb' -print -quit)"
+          app="$(mktemp -d)/mdbase-connect"
+          mkdir "$app"
+          node -e 'require("./apps/desktop/dist/main/linux-update.js").stageDebApp(process.argv[1], process.argv[2], new AbortController().signal).catch((error) => { console.error(error); process.exit(1); })' "$deb" "$app"
+          test -x "$app.next/mdbase-connect"
+          "$app.next/resources/mdbase-next/mdbase" --version
+
       - name: Verify macOS release mode
         if: matrix.platform == 'macos'
         shell: bash

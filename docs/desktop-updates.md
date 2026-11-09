@@ -75,9 +75,20 @@ the platform trust channel owns replacement:
 - Microsoft Store builds open the product's Store page. Store certification,
   signing, rollout, replacement, and platform rollback remain authoritative.
   Unsigned Squirrel and portable artifacts are never automatic targets.
-- Linux builds open the signed release/package channel. The package manager
-  owns dependencies, replacement, and rollback; Electron never mutates `/usr`
-  or invokes privilege elevation.
+- Linux package installs open the signed release/package channel. The package
+  manager owns dependencies, replacement, and rollback; Electron never mutates
+  `/usr` or invokes privilege elevation.
+- A Linux app unpacked into a folder the user owns (its folder and the parent
+  are owned by and writable for the user, so never a root-owned package
+  install) replaces itself from the release's `.deb`. The client decides
+  this from its own installation; the manifest target stays `manual`, so
+  clients without this support keep opening the release page. The `.deb` is
+  verified like any automatic artifact, its `data.tar.zst` is unpacked beside
+  the app as `<app>.next`, and **Restart and update** renames the running app
+  to `<app>.previous` (replacing the one kept by the previous update), moves
+  the new one into place and relaunches. Moving `.previous` back is the manual
+  rollback. The release workflow stages each published `.deb` this way before
+  publishing it.
 - Unsigned macOS or Windows previews can be announced as manual downloads, but
   are never automatic targets.
 
@@ -138,7 +149,8 @@ Before enabling a non-zero automatic rollout:
    returns, Settings reports it, and the next launch does not retry it;
 6. publish a higher signed release that blocks the bad version and verify it
    bypasses a 0% rollout;
-7. test Store and Linux actions without package-manager privilege in Electron;
+7. test Store and Linux package actions without package-manager privilege in
+   Electron, and a Linux user-folder install updating and relaunching;
 8. raise rollout gradually while watching privacy-minimal startup and recovery
    telemetry.
 
