@@ -80,6 +80,31 @@ msgctxt "Collection access interface"
 msgid "Add a Private collection"
 msgstr "Añadir una colección privada"
 
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Add column"
+msgstr "Añadir columna"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Add row"
+msgstr "Añadir fila"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Align center"
+msgstr "Centrar"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Align left"
+msgstr "Alinear a la izquierda"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Align right"
+msgstr "Alinear a la derecha"
+
 #: src/FeedbackMarkup.tsx
 msgid "Apply changes"
 msgstr "Aplicar cambios"
@@ -210,6 +235,11 @@ msgctxt "Collection access interface"
 msgid "Choose or create a collection there."
 msgstr "Elige o crea allí una colección."
 
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Clear cells"
+msgstr "Vaciar celdas"
+
 #: src/Dialog.tsx
 msgid "Close"
 msgstr "Cerrar"
@@ -223,6 +253,10 @@ msgstr "Cerrar"
 msgctxt "Collection storage mode"
 msgid "Cloud copy"
 msgstr "Copia en la nube"
+
+#: src/live-preview/blocks.ts
+msgid "Collapse callout"
+msgstr "Contraer aviso"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -243,6 +277,11 @@ msgstr "Colecciones"
 msgctxt "Color theme"
 msgid "Color theme"
 msgstr "Tema de color"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Column options"
+msgstr "Opciones de columna"
 
 #: src/CommandPalette.tsx
 msgid "Commands"
@@ -289,9 +328,45 @@ msgctxt "Collection access interface"
 msgid "Continue without connecting"
 msgstr "Continuar sin conectar"
 
+#: src/live-preview/blocks.ts
+msgid "Copied"
+msgstr "Copiado"
+
+#: src/live-preview/blocks.ts
+msgid "Copy"
+msgstr "Copiar"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Copy cells"
+msgstr "Copiar celdas"
+
+#: src/live-preview/blocks.ts
+msgid "Copy code"
+msgstr "Copiar código"
+
+#: src/live-preview/blocks.ts
+msgid "Copy failed"
+msgstr "No se pudo copiar"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Copy table"
+msgstr "Copiar tabla"
+
 #: src/AppSwitcher.tsx
 msgid "Current"
 msgstr "Actual"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Cut cells"
+msgstr "Cortar celdas"
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Danger"
+msgstr "Peligro"
 
 #: src/ThemeSelect.tsx
 msgctxt "Color theme"
@@ -312,6 +387,26 @@ msgstr "Eliminar colección"
 msgctxt "Collection access interface"
 msgid "Delete collection…"
 msgstr "Eliminar colección…"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Delete column"
+msgstr "Eliminar columna"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Delete columns"
+msgstr "Eliminar columnas"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Delete row"
+msgstr "Eliminar fila"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Delete rows"
+msgstr "Eliminar filas"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -362,6 +457,15 @@ msgstr "Esc"
 msgctxt "Collection access interface"
 msgid "Everyone, including you, loses access to it on every device and app right away. This can't be undone."
 msgstr "Todos, incluido tú, perderán el acceso de inmediato en todos los dispositivos y aplicaciones. Esta acción no se puede deshacer."
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Example"
+msgstr "Ejemplo"
+
+#: src/live-preview/blocks.ts
+msgid "Expand callout"
+msgstr "Expandir aviso"
 
 #: src/feedback-data.ts
 msgid "Feedback could not be sent. Check your connection and try again."
@@ -430,6 +534,31 @@ msgstr "Incluir captura de pantalla"
 msgid "Include technical diagnostics"
 msgstr "Incluir diagnósticos técnicos"
 
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Info"
+msgstr "Información"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Insert column left"
+msgstr "Insertar columna a la izquierda"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Insert column right"
+msgstr "Insertar columna a la derecha"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Insert row above"
+msgstr "Insertar fila arriba"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Insert row below"
+msgstr "Insertar fila debajo"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "It's erased from {app} on this device. This can't be undone."
@@ -460,6 +589,14 @@ msgctxt "Collection access interface"
 msgid "Manage access"
 msgstr "Gestionar el acceso"
 
+#: src/live-preview/inline.ts
+msgid "Mark task complete"
+msgstr "Marcar tarea como completada"
+
+#: src/live-preview/inline.ts
+msgid "Mark task incomplete"
+msgstr "Marcar tarea como incompleta"
+
 #: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
 msgid "Mark up screenshot"
@@ -487,6 +624,26 @@ msgctxt "Collection access interface"
 msgid "More for {collection}"
 msgstr "Más opciones para {collection}"
 
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Move column left"
+msgstr "Mover columna a la izquierda"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Move column right"
+msgstr "Mover columna a la derecha"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Move row down"
+msgstr "Mover fila abajo"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Move row up"
+msgstr "Mover fila arriba"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Needs a decision"
@@ -506,9 +663,18 @@ msgctxt "Collection access interface"
 msgid "No collections match “{query}”."
 msgstr "Ninguna colección coincide con “{query}”."
 
+#: src/live-preview/inline.ts
+msgid "No note or file matches “{target}”."
+msgstr "Ninguna nota ni archivo coincide con «{target}»."
+
 #: src/Feedback.tsx
 msgid "No screenshot taken. You can still send feedback."
 msgstr "No se tomó ninguna captura de pantalla. Aun así, puedes enviar comentarios."
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Note"
+msgstr "Nota"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -609,6 +775,16 @@ msgstr "Privada"
 msgid "Private feedback to the mdbase team."
 msgstr "Comentarios privados para el equipo de mdbase."
 
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Question"
+msgstr "Pregunta"
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Quote"
+msgstr "Cita"
+
 #: src/apps.ts
 msgid "Read and annotate sources"
 msgstr "Leer y anotar fuentes"
@@ -690,6 +866,11 @@ msgstr "Revisa allí el acceso a {collection}."
 #: src/Feedback.tsx
 msgid "Review for private information before sending."
 msgstr "Revisa si contiene información privada antes de enviarlo."
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Row options"
+msgstr "Opciones de fila"
 
 #: src/SaveNotice.tsx
 msgid "Saved"
@@ -831,6 +1012,16 @@ msgctxt "Collection access interface"
 msgid "Some of your work couldn't be brought in. Try again."
 msgstr "Parte de tu trabajo no se pudo incorporar. Inténtalo de nuevo."
 
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Sort ascending"
+msgstr "Orden ascendente"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Sort descending"
+msgstr "Orden descendente"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Starting {app}…"
@@ -840,6 +1031,11 @@ msgstr "Iniciando {app}…"
 msgctxt "Collection storage mode"
 msgid "Storage mode"
 msgstr "Modo de almacenamiento"
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Success"
+msgstr "Éxito"
 
 #: src/feedback-data.ts
 msgid "Suggest an improvement"
@@ -859,6 +1055,11 @@ msgstr "Sincronizando tu colección…"
 msgctxt "Color theme"
 msgid "System"
 msgstr "Sistema"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Table options"
+msgstr "Opciones de tabla"
 
 #: src/Feedback.tsx
 msgid "Taking screenshot…"
@@ -941,6 +1142,11 @@ msgctxt "Collection access interface"
 msgid "This is taking longer than usual."
 msgstr "Esto está tardando más de lo habitual."
 
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Tip"
+msgstr "Consejo"
+
 #: src/CommandPalette.tsx
 msgid "to close"
 msgstr "para cerrar"
@@ -952,6 +1158,11 @@ msgstr "para mover"
 #: src/CommandPalette.tsx
 msgid "to run"
 msgstr "para ejecutar"
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Todo"
+msgstr "Tarea"
 
 #: src/screens.tsx
 msgid "Try again"
@@ -1016,6 +1227,11 @@ msgstr "Esperando a que se actualicen los dispositivos."
 msgctxt "Collection storage mode"
 msgid "Waiting for older device connections to expire. Cloud copy remains on until the switch finishes."
 msgstr "Esperando a que caduquen las conexiones antiguas de los dispositivos. La copia en la nube seguirá activa hasta que finalice el cambio."
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Warning"
+msgstr "Advertencia"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"

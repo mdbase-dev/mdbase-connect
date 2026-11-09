@@ -44,6 +44,10 @@
       "types": "./dist/codemirror.d.ts",
       "import": "./dist/codemirror.js"
     },
+    "./live-preview": {
+      "types": "./dist/live-preview.d.ts",
+      "import": "./dist/live-preview.js"
+    },
     "./collections": {
       "types": "./dist/collections.d.ts",
       "import": "./dist/collections.js"
@@ -112,6 +116,7 @@
     "./collections.css": "./css/collections.css",
     "./controls.css": "./css/controls.css",
     "./fonts.css": "./css/fonts.css",
+    "./live-preview.css": "./css/live-preview.css",
     "./feedback.css": "./css/feedback.css",
     "./motion.css": "./css/motion.css",
     "./palette.css": "./css/palette.css",
@@ -138,18 +143,26 @@
     "@fontsource/ibm-plex-sans": "^5.3.0"
   },
   "peerDependencies": {
-    "@codemirror/view": "^6.0.0",
+    "@codemirror/language": "^6.0.0",
+    "@codemirror/state": "^6.0.0",
+    "@codemirror/view": "^6.42.1",
+    "@lezer/common": "^1.0.0",
     "@lingui/core": "6.9.0",
     "@lingui/react": "6.9.0",
     "@mdbase-dev/i18n": "*",
     "@mdbase-dev/sdk": "*",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "@codemirror/commands": "^6.0.0"
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",
     "@babel/plugin-transform-react-jsx": "^7.29.7",
+    "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/state": "^6.7.5",
     "@codemirror/view": "^6.43.12",
+    "@lezer/common": "^1.5.2",
     "@lingui/babel-plugin-lingui-macro": "6.9.0",
     "@lingui/cli": "6.9.0",
     "@lingui/core": "6.9.0",
@@ -165,16 +178,29 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.11",
+    "@codemirror/commands": "^6.10.2"
   },
   "peerDependenciesMeta": {
+    "@codemirror/language": {
+      "optional": true
+    },
+    "@codemirror/state": {
+      "optional": true
+    },
     "@codemirror/view": {
+      "optional": true
+    },
+    "@lezer/common": {
       "optional": true
     },
     "@mdbase-dev/sdk": {
       "optional": true
     },
     "react-dom": {
+      "optional": true
+    },
+    "@codemirror/commands": {
       "optional": true
     }
   }
