@@ -3422,7 +3422,9 @@ msgid "No nested fields yet."
 msgstr "Aún no hay campos anidados."
 
 #. placeholder {0}: reference.target
+#. placeholder {0}: this.target
 #: src/code-editor-reference-diagnostics.ts
+#: src/CodeEditor.tsx
 msgid "No note or file matches “{0}”."
 msgstr "Ninguna nota ni archivo coincide con «{0}»."
 

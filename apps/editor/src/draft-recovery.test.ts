@@ -47,3 +47,17 @@ it("retires already-saved checkpoints but preserves unsaved properties and anoth
   store.remove("one", "note.md", saved);
   expect(store.read("one", "note.md")?.body).toBe("Other tab's unsaved writing");
 });
+
+it("forgets every checkpoint of one collection on one server only", () => {
+  const store = new DraftRecovery(localStorage, "server");
+  store.write("private", "a.md", draft);
+  store.write("private", "nested/b.md", draft);
+  store.write("other", "a.md", draft);
+  const elsewhere = new DraftRecovery(localStorage, "other-server");
+  elsewhere.write("private", "a.md", draft);
+  store.forgetCollection("private");
+  expect(store.read("private", "a.md")).toBeUndefined();
+  expect(store.read("private", "nested/b.md")).toBeUndefined();
+  expect(store.read("other", "a.md")).toMatchObject(draft);
+  expect(elsewhere.read("private", "a.md")).toMatchObject(draft);
+});

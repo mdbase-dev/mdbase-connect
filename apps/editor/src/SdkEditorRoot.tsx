@@ -31,7 +31,9 @@ export function createEditorMdbase(input: {
     origin: input.origin, environment: input.environment, manifest };
   // The SDK owns Native approvals, account-bound inventory and client lifetime.
   // Unbound browser history is not a fallback source of collection authority.
-  const sdk = createMdbase(declaration, { privateCollections: true });
+  // Work before connecting: signed out, the SDK opens this browser's unsynced
+  // collection; it is never listed among collections.
+  const sdk = createMdbase(declaration, { privateCollections: true, unsynced: true });
   declarations.set(sdk, declaration);
   return sdk;
 }
@@ -77,7 +79,7 @@ export function SdkEditorRoot({ sdk, renderNative, onFeedbackContext, privateCol
   useEffect(() => { if (developerMessage) console.warn(t`mdbase editor: ${developerMessage}`); }, [developerMessage]);
   const priv = usePrivateSection(sdk, privates);
   const sections = priv.section ? [priv.section] : undefined;
-  const switcher: EditorCollectionSwitcher = (onBeforeLeave) => <CollectionSwitcher mdbase={sdk} app={editorCollectionApp} allowDelete
+  const switcher: EditorCollectionSwitcher = (onBeforeLeave) => <CollectionSwitcher mdbase={sdk} app={editorCollectionApp} allowDelete unsynced
     variant="full" allowPrivate={false} className="editor-collection-switcher" sections={sections} onBeforeLeave={onBeforeLeave} />;
   const extraActions = (view: CollectionView) => <>
     <a className="mdbase-button" href={editorPortalUrl() ?? configuredConnectServerUrl}><Trans>Back to mdbase Connect</Trans></a>
@@ -92,12 +94,17 @@ export function SdkEditorRoot({ sdk, renderNative, onFeedbackContext, privateCol
     <Trans>Return to Collections and open the collection again.</Trans>
   </EditorEntryPage>;
   if (problem?.key === "application_failed") throw new Error(`Editor SDK invariant failed: ${snapshot.problem}`);
-  return <CollectionGate mdbase={sdk} app={editorCollectionApp} allowPrivate={false} allowDelete extraActions={extraActions} sections={sections}
-    renderAppCollection={() => priv.scope && <NativeScopeView key={priv.scope.connection.generation} application={priv.scope.actions}
-      connection={priv.scope.connection} declaration={declaration} switcher={switcher} renderNative={renderNative} onFeedbackContext={onFeedbackContext} />}>
-    {(connection) => <NativeScopeView key={`${connection.id}:${connection.generation}`} application={sdk.application} connection={connection}
-      declaration={declaration} switcher={switcher} renderNative={renderNative} onFeedbackContext={onFeedbackContext} />}
-  </CollectionGate>;
+  // Before connecting, the gate shows where the work is kept above the editor;
+  // once a collection is open, it offers to bring that work in. The frame stacks
+  // those lines above the editor without pushing it past the viewport.
+  return <div className="editor-collection-frame">
+    <CollectionGate mdbase={sdk} app={editorCollectionApp} allowPrivate={false} allowDelete unsynced extraActions={extraActions} sections={sections}
+      renderAppCollection={() => priv.scope && <NativeScopeView key={priv.scope.connection.generation} application={priv.scope.actions}
+        connection={priv.scope.connection} declaration={declaration} switcher={switcher} renderNative={renderNative} onFeedbackContext={onFeedbackContext} />}>
+      {(connection) => <NativeScopeView key={`${connection.id}:${connection.generation}`} application={sdk.application} connection={connection}
+        declaration={declaration} switcher={switcher} renderNative={renderNative} onFeedbackContext={onFeedbackContext} />}
+    </CollectionGate>
+  </div>;
 }
 
 /** Session fence only: this never assigns account ownership to a stored custom grant. */

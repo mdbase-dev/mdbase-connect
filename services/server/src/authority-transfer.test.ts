@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
 import {
@@ -875,4 +875,71 @@ describe("local-to-hosted authority transfer", () => {
     })).statusCode).toBe(200);
     expect((await db.query("SELECT connector_id FROM authority_import_abort_receipts WHERE transfer_id = $1", [expiredId])).rows).toEqual([{ connector_id: connectorId }]);
   }, 10_000);
+});
+
+describe("legacy hosted creation for accounts on mdbase-next", () => {
+  it("refuses local-to-hosted transfer and adoption approval without creating a legacy hosted collection", async () => {
+    const prepare = vi.fn();
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const { app } = await buildApp({
+      db,
+      devAuth: true,
+      hostedCollections: true,
+      hostedProvider: {
+        url: "https://provider.test",
+        upsertAccount: async () => ({}),
+        prepareAuthorityImport: prepare
+      } as unknown as HostedProviderClient,
+      publicUrl: "http://connect.test"
+    });
+    resources.push(() => app.close());
+    const session = await app.inject({
+      method: "POST", url: "/v1/dev/session", payload: { name: "Owner", email: "next-owner@example.com" }
+    });
+    const setCookie = session.headers["set-cookie"]!;
+    const cookie = (Array.isArray(setCookie) ? setCookie[0] : setCookie).split(";")[0];
+    const userId = (await db.query<{ id: string }>(
+      "SELECT id FROM users WHERE email = 'next-owner@example.com'"
+    )).rows[0].id;
+    const connector = await app.inject({
+      method: "POST", url: "/v1/connectors", headers: { cookie }, payload: { name: "[test] Desktop" }
+    });
+    const localId = randomUUID();
+    await db.query(
+      `INSERT INTO collections (id, user_id, connector_id, local_id, display_name, spec_version, present)
+       VALUES ($1, $2, $3, $4, '[test] Local', '0.3.0', true)`,
+      [randomUUID(), userId, connector.json().connector.id, localId]
+    );
+    await db.query("UPDATE users SET account_backend = 'next' WHERE id = $1", [userId]);
+
+    const transfer = await app.inject({
+      method: "POST",
+      url: `/v1/connectors/collections/${localId}/authority-transfers`,
+      headers: { authorization: `Bearer ${connector.json().token}` },
+      payload: {}
+    });
+    expect(transfer.statusCode).toBe(400);
+    expect(transfer.json().error.message).toMatch(/moved to mdbase-next/);
+
+    const adoptedId = randomUUID();
+    const begun = await app.inject({
+      method: "POST",
+      url: "/v1/authority-adoptions",
+      payload: { collection_id: adoptedId, display_name: "[test] Adopted", source_name: "[test] Folder", retain_mirror: false }
+    });
+    expect(begun.statusCode).toBe(201);
+    const approval = await app.inject({
+      method: "POST",
+      url: `/v1/authority-adoptions/${begun.json().adoption_id}/approve`,
+      headers: { cookie },
+      payload: {}
+    });
+    expect(approval.statusCode).toBe(400);
+    expect(approval.json().error.message).toMatch(/moved to mdbase-next/);
+
+    expect((await db.query("SELECT id FROM hosted_collections WHERE user_id = $1", [userId])).rows).toEqual([]);
+    expect((await db.query("SELECT id FROM authority_transfers WHERE user_id = $1", [userId])).rows).toEqual([]);
+    expect(prepare).not.toHaveBeenCalled();
+  });
 });

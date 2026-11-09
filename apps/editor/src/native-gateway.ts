@@ -169,11 +169,14 @@ export class NativeEditorGateway implements CollectionGateway {
 
   /** The SDK's own sync state: its write ledger keeps changes on this device
    * while the collection can't be reached; the application's sync summary (or,
-   * for a Private collection, the client's link) reports being offline. */
+   * for a Private collection, the client's link) reports being offline. The
+   * app's unsynced collection (work before connecting) never syncs: a local
+   * confirmation is final, and it is saved only in this browser. */
   syncState(): EditorSyncState {
     if (!this.current()) return "synced";
-    if (this.client.ledger.getSnapshot().saveState === "saved_on_device") return "saved_on_device";
     const phase = this.application.getSnapshot?.().phase;
+    if (phase?.kind === "unsynced" && phase.collectionId === this.connection.id) return "unsynced";
+    if (this.client.ledger.getSnapshot().saveState === "saved_on_device") return "saved_on_device";
     const sync = phase?.kind === "ready" && phase.collectionId === this.connection.id ? this.application.getSnapshot?.().sync : null;
     return sync?.kind === "offline" || this.client.status.connection === "offline" || this.client.link !== "open" ? "offline" : "synced";
   }
@@ -529,6 +532,7 @@ export class NativeEditorGateway implements CollectionGateway {
   private summary(): ConnectionSummary {
     const missing = this.missingCapabilities();
     return { collectionId: this.connection.id, role: this.role(), displayName: this.connection.displayName, operations: this.operations(), fileActions: this.fileActions(),
+      ...(this.entry()?.kind === "private" ? { private: true as const } : {}),
       ...(missing.length ? { missingCapabilities: missing } : {}) };
   }
 
@@ -560,7 +564,11 @@ export class NativeEditorGateway implements CollectionGateway {
   }
 
   private membershipRole() {
-    return this.application.getSnapshot?.().collections.find((entry) => entry.collectionId === this.connection.id)?.role;
+    return this.entry()?.role;
+  }
+
+  private entry() {
+    return this.application.getSnapshot?.().collections.find((entry) => entry.collectionId === this.connection.id);
   }
 
   private async checkWritable(): Promise<void> {

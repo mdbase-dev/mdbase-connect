@@ -52,7 +52,7 @@ import { ConnectScreen } from "./ConnectionScreens";
 import type { LeaveIntent } from "@mdbase-dev/ui/collections";
 import type { EditorCollectionSwitcher } from "./editor-collections";
 import { ConflictResolver } from "./ConflictResolver";
-import { DraftRecovery, frontmatterPatch, recoveryDraftMatchesRecord } from "./draft-recovery";
+import { frontmatterPatch, recoveryDraftMatchesRecord, useDraftRecovery } from "./draft-recovery";
 import { connectServerUrl } from "./connect-endpoint";
 import { ConfirmDialog } from "@mdbase-dev/ui/confirm-dialog";
 import { CommandPalette, shortcutLabel } from "@mdbase-dev/ui/command-palette";
@@ -124,7 +124,7 @@ import {
 } from "./note-search";
 import { initialEditorSurface, loadPreferences, savePreferences, type EditorPreferences } from "./preferences";
 import { revealMarkdownLine } from "./code-editor-reveal";
-import { forgetRecentPath, loadRecentPaths, rememberRecentPath } from "./recent-notes";
+import { forgetRecentPath, rememberRecentPath, useRecentPaths } from "./recent-notes";
 import { buildEditorCommands, command, matchesCommandShortcut, type CommandId } from "./editor-commands";
 import { unlinkedMentions } from "./unlinked-mentions";
 import { loadThemePreference, saveThemePreference } from "@mdbase-dev/ui/theme";
@@ -278,7 +278,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const shortcutPrefix = useRef(0);
   const [confirmation, setConfirmation] = useState<Confirmation>();
-  const [recentPaths, setRecentPaths] = useState(loadRecentPaths);
+  const [recentPaths, setRecentPaths] = useRecentPaths(description?.collectionId);
   const [noteHistoryState, setNoteHistoryState] = useState<NoteNavigationHistory>({ paths: [], index: -1 });
   const [mobilePane, setMobilePane] = useState<MobilePane>("notes");
   const [preferences, setPreferences] = useState<EditorPreferences>(loadPreferences);
@@ -297,10 +297,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const workspaceCollectionId = useRef<string | undefined>(undefined);
   const noteSessions = useRef(new NoteSessionStore());
   const noteReadOnly = mutationsFrozen || !canEditNotes || Boolean(noteSessions.current.active?.recoveryDraft);
-  const [draftRecovery] = useState(() => {
-    try { return new DraftRecovery(localStorage, connectServerUrl()); }
-    catch { return undefined; }
-  });
+  const privateCollection = connectionSummary?.private === true;
+  const draftRecovery = useDraftRecovery(connectServerUrl, privateCollection ? connectionSummary.collectionId : undefined);
   const noteHistory = useRef<NoteNavigationHistory>({ paths: [], index: -1 });
   const linkCreations = useRef(new Set<string>());
   /** One record ID per link target until its create is confirmed: following the
@@ -542,7 +540,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     const collection = mutationScope.current.token().collectionId!;
     try { session.recoveryDraft = draftRecovery?.read(collection, next.path, next); }
     catch { session.recoveryError = t`Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes.`; }
-    if (!draftRecovery) session.recoveryError = t`Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes.`;
+    if (!draftRecovery && !privateCollection) session.recoveryError = t`Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes.`;
     session.record.subscribe(() => {
       const current = session.record.snapshot;
       if (session.recoveryDraft && current.state === "saved" && recoveryDraftMatchesRecord(session.recoveryDraft, current.record)) {
@@ -564,7 +562,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       previous = current;
     });
     return session;
-  }, [draftRecovery, sessionChanged, sessionRecords]);
+  }, [draftRecovery, privateCollection, sessionChanged, sessionRecords]);
 
   const activateSession = useCallback((session: NoteSession) => {
     const previous = noteSessions.current.active;
@@ -1863,7 +1861,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     requestAnimationFrame(focusNoteList);
   }}>
     <label className="sr-only" htmlFor="note-path"><Trans>Markdown path</Trans></label>
-    <input id="note-path" className="path-input" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} onBlur={() => void requestRename()} disabled={mutationsFrozen || !canRenameNotes} autoFocus />
+    <input id="note-path" className="path-input" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} onBlur={() => void requestRename()} disabled={mutationsFrozen || !canRenameNotes} spellCheck="false" autoCapitalize="none" autoCorrect="off" autoFocus />
   </form> : mobileLayout ? <p className="mobile-note-path" title={document.path}><PathLabel path={document.path} /></p>
     : <button className="path-button" disabled={!canRenameNotes || mutationsFrozen} onClick={() => setEditingPath(true)} title={t`Rename Markdown path`} aria-label={document.path}><PathLabel path={document.path} /><Pencil aria-hidden="true" /></button>);
   const noteSaveIndicator = <><CollectionSaveWarning /><SaveIndicator

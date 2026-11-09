@@ -79,6 +79,30 @@ describe("rendered Markdown links", () => {
   });
 });
 
+describe("writer presentation", () => {
+  it("gives prose the platform's autocorrect and sentence capitals", () => {
+    render(<CodeEditor value="Prose" label="Note body" language="markdown" variant="writer" />);
+    const body = screen.getByRole("textbox", { name: "Note body" });
+    expect(body).toHaveAttribute("autocorrect", "on");
+    expect(body).toHaveAttribute("autocapitalize", "sentences");
+    expect(body).toHaveAttribute("spellcheck", "true");
+  });
+
+  it("parses GitHub-flavoured strikethrough and quiets its markers", () => {
+    const { container } = render(<CodeEditor value={"Start.\nThis is ~~gone~~ now."} label="Note body" language="markdown" variant="writer" quietMarkdown />);
+    expect([...container.querySelectorAll(".cm-markdown-mark")].map((mark) => mark.textContent)).toEqual(["~~", "~~"]);
+  });
+
+  it("shows a link to a missing note differently from a working one", async () => {
+    render(<CodeEditor value={"Start.\nSee [[Known]] and [[Missing]]."} label="Note body" language="markdown" variant="writer" quietMarkdown
+      linkSuggestions={[{ path: "Known.md", title: "Known" }]} />);
+    const missing = await screen.findByRole("link", { name: "Missing" });
+    await vi.waitFor(() => expect(missing.ownerDocument.querySelector(".cm-rendered-link-missing")).not.toBeNull(), { timeout: 3_000 });
+    expect(screen.getByRole("link", { name: "Missing" })).toHaveClass("cm-rendered-link-missing");
+    expect(screen.getByRole("link", { name: "Known" })).not.toHaveClass("cm-rendered-link-missing");
+  });
+});
+
 describe("note transclusions", () => {
   it("names a full note once and keeps its content keyboard-scrollable", async () => {
     render(<CodeEditor value={"Intro.\n\n![[Notes/plan]]"} label="Note body" language="markdown" variant="writer"

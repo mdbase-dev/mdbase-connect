@@ -50,6 +50,9 @@ export interface ConnectionSummary {
   operations: string[];
   missingCapabilities?: string[];
   authorityKind?: "hosted" | "connector";
+  /** A Private (end-to-end encrypted) collection: its content is never kept in
+   * plain browser storage outside the SDK. */
+  private?: true;
   directAccess?: DirectAccessStatus;
   fileActions?: string[];
 }

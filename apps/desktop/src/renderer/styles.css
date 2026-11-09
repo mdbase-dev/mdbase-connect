@@ -108,6 +108,7 @@ fieldset legend { margin-bottom: 6px; }
 .setting-row strong { font-size: var(--font-size-ui); font-weight: var(--font-weight-semibold); }
 .setting-row strong.mono { font-family: var(--mono); font-size: var(--font-size-caption); font-weight: var(--font-weight-regular); }
 .setting-row small { color: var(--muted); font-size: var(--font-size-caption); }
+.setting-row .update-actions { display: flex; gap: 8px; }
 .setting-toggle.disabled .toggle-copy strong { color: var(--muted); }
 .setting-toggle.disabled .toggle-copy small { color: var(--faint); }
 .portal-connection-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }

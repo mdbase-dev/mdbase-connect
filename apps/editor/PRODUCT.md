@@ -55,6 +55,9 @@ durable provenance rather than editor-private metadata.
 - The editor opens one separately authorized collection and supports notes,
   paths, frontmatter, types, application contracts, search, and revision-aware
   mutations.
+- Before connecting, people can write in a workspace saved only in this
+  browser. It is a way to begin, not a collection: it is never listed or named,
+  and once a collection is open its work can be brought in or discarded.
 - The Connect workspace manages collection inventory, storage, application
   grants, computers, sign-in methods, browser sessions, and the account.
 - An account-management session may reveal that a collection exists but never

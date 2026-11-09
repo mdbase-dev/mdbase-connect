@@ -18,7 +18,7 @@ export function quickOpenResults({ index, recentPaths, types, commands, onSelect
 }, query: string): Command[] {
   const commandMode = query.trimStart().startsWith(">");
   const commandQuery = (commandMode ? query.trimStart().slice(1) : query).trim();
-  const results = commandMode ? [] : commandQuery ? searchNoteResults(index, commandQuery, 12) : recentNotes(index, recentPaths).slice(0, 12);
+  const results = commandMode ? [] : commandQuery ? searchNoteResults(index, commandQuery, 12, recentBonus(recentPaths)) : recentNotes(index, recentPaths).slice(0, 12);
   const entries: Command[] = results.map(result => {
     const title = noteTitle(result.note, types);
     return {
@@ -38,6 +38,15 @@ export function quickOpenResults({ index, recentPaths, types, commands, onSelect
     run: () => { rememberCommand(command.id); command.run(); }
   })));
   return entries;
+}
+
+/** Less than one match tier (exact, prefix, word start: 0.4 apart), so recency only breaks near-ties. */
+function recentBonus(paths: string[]): (note: NoteSearchEntry["note"]) => number {
+  const rank = new Map(paths.map((path, index) => [path, index]));
+  return (note) => {
+    const index = rank.get(note.path);
+    return index === undefined ? 0 : 0.3 * (1 - index / paths.length);
+  };
 }
 
 function recentNotes(index: NoteSearchEntry[], paths: string[]): NoteSearchResult[] {

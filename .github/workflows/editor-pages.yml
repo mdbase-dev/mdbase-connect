@@ -77,21 +77,24 @@ jobs:
         id: playwright-cache
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          key: playwright-webkit-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - name: "Cache marker: playwright hit"
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: echo 'Playwright cache hit.'
       - name: "Cache marker: playwright miss"
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: echo 'Playwright cache miss.'
-      - name: Install Chromium (cache miss)
+      # The mobile-webkit project checks the phone layout in Safari's engine.
+      # Its system libraries are not on the runner image, so even a cache hit
+      # installs them.
+      - name: Install Chromium and WebKit (cache miss)
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm exec playwright install --with-deps chromium webkit
         timeout-minutes: 30
-      - name: Install Chromium (cache hit)
+      - name: Install Chromium and WebKit (cache hit)
         if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: pnpm exec playwright install chromium
-        timeout-minutes: 5
+        run: pnpm exec playwright install chromium && pnpm exec playwright install --with-deps webkit
+        timeout-minutes: 15
       - run: pnpm --filter mdbase-editor test:e2e
       - run: pnpm --filter mdbase-editor build
         env:

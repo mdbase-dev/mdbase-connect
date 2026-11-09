@@ -7,6 +7,8 @@ import { afterEach, beforeEach, vi } from "vitest";
 configure({ asyncUtilTimeout: 5_000 });
 HTMLElement.prototype.checkVisibility = function () { return !this.closest("[hidden]"); };
 HTMLElement.prototype.scrollIntoView ??= vi.fn();
+// jsdom has no Web Animations; shared overlays wait for exit animations before unmounting.
+HTMLElement.prototype.getAnimations ??= function () { return []; };
 
 // jsdom does not implement native modal dialogs or their top-layer behavior.
 if (typeof HTMLDialogElement.prototype.showModal !== "function") {

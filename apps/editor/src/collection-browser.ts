@@ -25,7 +25,16 @@ export function collectionBrowserEntries(
   const noteEntries: CollectionBrowserEntry[] = notes.map((note) => ({ kind: "note", path: note.path, note }));
   const fileEntries: CollectionBrowserEntry[] = files.map((file) => ({ kind: "file", path: file.path, file }));
   if (preserveNoteOrder) return [...noteEntries, ...fileEntries.sort((left, right) => collator.compare(left.path, right.path))];
-  return [...noteEntries, ...fileEntries].sort((left, right) => compareEntries(left, right, sort, types));
+  // Compute each entry's sort key once, not on every comparison (n log n
+  // title, field and date parses for a large collection).
+  const direction = sort.direction === "desc" ? -1 : 1;
+  return [...noteEntries, ...fileEntries]
+    .map((entry) => ({ entry, key: entrySortKey(entry, sort, types) }))
+    .sort((left, right) => (sort.key === "field" || sort.key === "modified"
+      ? compareOptional(left.key, right.key, direction)
+      : collator.compare(left.key as string, right.key as string) * direction)
+      || collator.compare(left.entry.path, right.entry.path))
+    .map(({ entry }) => entry);
 }
 
 export function useCollectionBrowserEntries(
@@ -65,18 +74,11 @@ export function formatFileSize(size: number): string {
   return `${trimNumber(size / 1_000_000_000)} GB`;
 }
 
-function compareEntries(
-  left: CollectionBrowserEntry,
-  right: CollectionBrowserEntry,
-  sort: NoteSort,
-  types: CollectionTypeDescriptor[]
-): number {
-  const direction = sort.direction === "desc" ? -1 : 1;
-  const order = sort.key === "field" ? compareOptional(entryFieldValue(left, sort.field), entryFieldValue(right, sort.field), direction)
-    : sort.key === "modified" ? compareOptional(modifiedTime(left), modifiedTime(right), direction)
-    : sort.key === "title" ? collator.compare(entryTitle(left, types), entryTitle(right, types)) * direction
-    : collator.compare(left.path, right.path) * direction;
-  return order || collator.compare(left.path, right.path);
+function entrySortKey(entry: CollectionBrowserEntry, sort: NoteSort, types: CollectionTypeDescriptor[]): number | string | undefined {
+  return sort.key === "field" ? entryFieldValue(entry, sort.field)
+    : sort.key === "modified" ? modifiedTime(entry)
+    : sort.key === "title" ? entryTitle(entry, types)
+    : entry.path;
 }
 
 /** Entries without a value stay last in either direction. */
@@ -113,8 +115,20 @@ function fieldGroupLabel(value: number | string | undefined, field: SortField): 
   if (field.kind === "choice") return String(field.choices[value as number]);
   if (field.kind === "text") return titleGroupLabel(value as string);
   if (field.kind === "number") return field.label;
-  // Date-only values parse as UTC midnight, which is the previous day west of Greenwich.
-  return new Intl.DateTimeFormat(displayLocale(), { month: "long", year: "numeric", ...(field.kind === "date" ? { timeZone: "UTC" } : {}) }).format(value as number);
+  return monthFormat(field.kind === "date").format(value as number);
+}
+
+const monthFormats = new Map<string, Intl.DateTimeFormat>();
+/** One formatter per locale, not one per list entry. */
+function monthFormat(dateOnly: boolean): Intl.DateTimeFormat {
+  const locale = displayLocale(), key = `${locale}|${dateOnly}`;
+  let format = monthFormats.get(key);
+  if (!format) {
+    // Date-only values parse as UTC midnight, which is the previous day west of Greenwich.
+    format = new Intl.DateTimeFormat(locale, { month: "long", year: "numeric", ...(dateOnly ? { timeZone: "UTC" } : {}) });
+    monthFormats.set(key, format);
+  }
+  return format;
 }
 
 function entryPathFolder(path: string): string {

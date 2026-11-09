@@ -4,6 +4,7 @@ import { t, plural } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import { defaultCollectionCopy } from "@mdbase-dev/ui/collections";
 import {
   CaretDownIcon as ChevronDown,
   CaretRightIcon as ChevronRight,
@@ -324,10 +325,11 @@ export function ConnectionStatus({ state, issue, onReconnect }: { state: ShownCo
     reconnecting: t`Collection reconnecting`,
     stopped: t`Collection stopped`,
     offline: t`Collection offline`,
-    saved_on_device: t`Collection changes saved on this device; waiting for sync`
+    saved_on_device: t`Collection changes saved on this device; waiting for sync`,
+    unsynced: label
   }[state];
   return <>
-    <p role="status" aria-label={ariaLabel} title={issue ?? label}><span className={`status-dot ${state === "connected" ? state : state === "stopped" ? "stopped" : "reconnecting"}`} aria-hidden="true" /><span>{label}</span></p>
+    <p role="status" aria-label={ariaLabel} title={issue ?? label}><span className={`status-dot ${state === "connected" || state === "unsynced" ? state : state === "stopped" ? "stopped" : "reconnecting"}`} aria-hidden="true" /><span>{label}</span></p>
     {(state === "reconnecting" || state === "stopped") && <button className="reconnect-action" aria-label={t`Retry connection`} onClick={onReconnect}><Trans>Retry</Trans></button>}
   </>;
 }
@@ -339,5 +341,7 @@ const connectionLabels: Record<ShownConnectionState, string> = {
   get reconnecting() { return t`Reconnecting`; },
   get stopped() { return t`Sync stopped`; },
   get offline() { return t`Offline`; },
-  get saved_on_device() { return t`Saved on this device; waiting for sync`; }
+  get saved_on_device() { return t`Saved on this device; waiting for sync`; },
+  // Work before connecting: the shared wording, never "Connected" or "Saved".
+  get unsynced() { return defaultCollectionCopy.unsyncedSavedBrowser; }
 };
