@@ -148,27 +148,13 @@ impl Daemon {
                 .await?;
             }
         }
-        let mut result = ctx
+        // The server's answer, as-is: this computer's registration may lag it.
+        let result = ctx
             .cloud
             .collection_mode_status(id, &current)
             .await
             .map_err(cloud_refusal)?;
         current().map_err(|_| ControlError::unavailable("account_changed", "account changed"))?;
-        if let Some(entry) = self.inner.lock().await.registry.get(id) {
-            result
-                .as_object_mut()
-                .ok_or_else(|| {
-                    ControlError::unavailable("mode_status_invalid", "Switch status is unavailable")
-                })?
-                .insert(
-                    "current_mode".into(),
-                    json!(if entry.mode == crate::registry::SyncMode::SyncedE2e {
-                        "private"
-                    } else {
-                        "cloud_copy"
-                    }),
-                );
-        }
         Ok(result)
     }
     pub(super) async fn change_collection_mode(
@@ -280,7 +266,18 @@ impl Daemon {
                 );
             }
             if p.resume && !p.cancel {
-                return Ok(json!({"phase":"waiting_for_device","target_mode":p.target_mode}));
+                return Err(ControlError::invalid(
+                    "mode_nothing_to_resume",
+                    "There is no switch to resume on this computer; start the switch again",
+                ));
+            }
+            // Ask only for a switch that can run: without the server's executor
+            // the confirmed switch could only be rolled back.
+            if !p.cancel && status.get("execution_available") != Some(&Value::Bool(true)) {
+                return Err(ControlError::unavailable(
+                    "mode_switch_unavailable",
+                    "Switching this collection isn't available yet.",
+                ));
             }
             if !p.cancel {
                 self.confirm(if private {"Make private"}else{"Turn on cloud copy"},if private {"Only your devices will read new content after the switch finishes. mdbase may still read older content."}else{"mdbase will be able to read and serve this collection, including its existing history, even when your devices are off."}).await?;
