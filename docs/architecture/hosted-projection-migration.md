@@ -1,5 +1,10 @@
 # Hosted semantic projection cutover
 
+> **Legacy, not authoritative.** This describes the legacy Connect stack and its
+> deprecated `mdbase-rs` engine. It does not define current mdbase semantics, which
+> live in the runtime ([`runtime/`](../../runtime/README.md), with spec interpretations in
+> `runtime/docs/spec-notes.md`).
+
 Status: final Candidate B production-cutover design; explicit production rollout approval granted 2026-08-18, with protected operational gates still mandatory.
 
 The live production baseline is beta69 with successful SQLx migrations 1–34. The final cutover adds exactly:

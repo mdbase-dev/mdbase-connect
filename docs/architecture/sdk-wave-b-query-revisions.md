@@ -1,5 +1,10 @@
 # Wave B B3: Record revisions and revision-bearing batch reads
 
+> **Legacy, not authoritative.** This describes the legacy Connect stack and its
+> deprecated `mdbase-rs` engine. It does not define current mdbase semantics, which
+> live in the runtime ([`runtime/`](../../runtime/README.md), with spec interpretations in
+> `runtime/docs/spec-notes.md`).
+
 Status: proposed; depends on [B1](sdk-wave-b-capability-negotiation.md).
 Baseline and report provenance are recorded there. This is stage 2 of readMany,
 not a new mutation protocol or a collection-generation proposal.

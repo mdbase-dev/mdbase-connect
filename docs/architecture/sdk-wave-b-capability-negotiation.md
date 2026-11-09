@@ -1,5 +1,10 @@
 # Wave B B1: Authority feature negotiation
 
+> **Legacy, not authoritative.** This describes the legacy Connect stack and its
+> deprecated `mdbase-rs` engine. It does not define current mdbase semantics, which
+> live in the runtime ([`runtime/`](../../runtime/README.md), with spec interpretations in
+> `runtime/docs/spec-notes.md`).
+
 Status: proposed; documentation only. Evidence baseline: Connect `dfc28fd9`, shared
 mdbase-rs `f60adfe` (`sdk-upgrade/authority`, read only). Consumer evidence is
 `~/projects/sdk-review/reports/{sdk-bench,survey-apps,survey-platform}.md`; those

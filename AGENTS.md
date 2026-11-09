@@ -27,9 +27,13 @@ Before handing off a change, ask:
 Prefer strong invariants over defensive hedging, replacement over accumulation,
 explicit failure over silent recovery, and simplification over expansion.
 
-- Keep mdbase collection semantics in `mdbase-rs`; do not duplicate them here.
-- During v0.3 development, the Rust workspace intentionally uses `../mdbase-rs`
-  as a path dependency.
+- mdbase collection semantics live in the runtime (`runtime/`, see
+  `runtime/AGENTS.md`), which implements the mdbase specification. Apps and
+  services ask it; they do not duplicate its semantics.
+- `mdbase-rs` is the deprecated legacy engine and is **not authoritative**. Do
+  not cite its code, docs or conformance corpora as mdbase behaviour. Only the
+  legacy Connect stack in root `crates/` still uses `../mdbase-rs` as a path
+  dependency, until that stack is retired.
 - Treat the local connector as the final authorization boundary. Every remote
   filesystem operation must be checked against its locally cached exact grant.
 - Never send local collection paths to the control plane or persist record

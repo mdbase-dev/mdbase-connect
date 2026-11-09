@@ -1,5 +1,10 @@
 # Wave B B4: Exact file metadata lookup
 
+> **Legacy, not authoritative.** This describes the legacy Connect stack and its
+> deprecated `mdbase-rs` engine. It does not define current mdbase semantics, which
+> live in the runtime ([`runtime/`](../../runtime/README.md), with spec interpretations in
+> `runtime/docs/spec-notes.md`).
+
 Status: proposed; depends only on [B1](sdk-wave-b-capability-negotiation.md).
 Baseline/provenance: B1. Batch stat is deliberately deferred until point lookup is
 qualified; document batches (B3) and binary descriptors are different APIs.
