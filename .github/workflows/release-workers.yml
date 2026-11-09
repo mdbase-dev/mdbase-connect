@@ -126,9 +126,9 @@ jobs:
             --ignore-pnpmfile --config.manage-package-manager-versions=false --filter @mdbase/connect-server...
           COREPACK_ENABLE_PROJECT_SPEC=0 pnpm --filter @mdbase-dev/connect-protocol --fail-if-no-match build
       - name: Install pinned cosign for the existing trust verifier
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        uses: ./.github/actions/install-cosign
         with:
-          cosign-release: v3.0.6
+          token: ${{ github.token }}
       - name: Authenticate Connect trust using the existing pinned verifier
         env:
           GH_TOKEN: ${{ github.token }}
@@ -248,9 +248,9 @@ jobs:
           EXPECTED_MANIFEST_SHA256: ${{ needs.build.outputs.manifest_sha256 }}
         run: node scripts/release-workers.mjs check
       - name: Install pinned cosign (no cross-repository read token in this job)
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        uses: ./.github/actions/install-cosign
         with:
-          cosign-release: v3.0.6
+          token: ${{ github.token }}
       - name: Keyless sign and verify exact manifest identity
         env:
           CERTIFICATE_IDENTITY: https://github.com/mdbase-dev/mdbase-connect/.github/workflows/release-workers.yml@refs/heads/main

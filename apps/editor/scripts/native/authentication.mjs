@@ -8,23 +8,8 @@ import { provenSource } from '../../../../scripts/continuous-sdk-release.mjs';
 const repository='mdbase-dev/mdbase-connect';
 const workflow='publish-sdk-npm.yml';
 const need=(ok,message)=>{if(!ok)throw Error('SDK authentication refusal: '+message);};
-const retryable=status=>status===403||status===408||status===429||status>=500;
-// Authentication judges the bytes, so repeating a public read cannot weaken it.
-export async function publicBytes(url,fetchImpl=fetch,delays=[5000,20000,60000,120000],headers={}) {
- for(const delay of [...delays,null]) {
-  let status='no response';
-  try {
-   const response=await fetchImpl(url,{headers,redirect:'follow',signal:AbortSignal.timeout(30000)});
-   if(response.ok)return Buffer.from(await response.arrayBuffer());
-   status=response.status;
-   need(retryable(status),`public artifact unavailable (${status})`);
-  } catch(error) {
-   if(String(error.message).startsWith('SDK authentication refusal'))throw error;
-  }
-  need(delay!==null,`public artifact unavailable (${status})`);
-  await new Promise(resolve=>setTimeout(resolve,delay));
- }
-}
+import { publicBytes } from '../../../../scripts/lib/github-release-download.mjs';
+export { publicBytes };
 function releaseAsset(release,tag,name) {
  const matches=release.assets?.filter(asset=>asset.name===name)??[];
  need(matches.length===1 && /^sha256:[a-f0-9]{64}$/.test(matches[0].digest??''),'release asset digest required');
