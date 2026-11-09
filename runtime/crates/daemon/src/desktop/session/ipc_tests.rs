@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::access::{AccessList, AccessState, CachedGrant};
-use crate::confirm::{Answer, Confirmer};
+use crate::confirm::{Answer, Confirmer, Prompt};
 use crate::secrets::{CONTROL_KEY, MemoryStore};
 use crate::testutil::TestDir;
 use std::sync::{
@@ -38,14 +38,10 @@ struct Counted {
 }
 
 impl Confirmer for Counted {
-    fn ask<'a>(
-        &'a self,
-        title: &'a str,
-        message: &'a str,
-    ) -> crate::session::BoxFuture<'a, Answer> {
-        assert_eq!(title, "Approve app access");
-        assert!(message.contains("Fixture app"));
-        assert!(message.contains("App key:"));
+    fn ask<'a>(&'a self, prompt: &'a Prompt) -> crate::session::BoxFuture<'a, Answer> {
+        assert_eq!(prompt.title(), "Approve app access");
+        assert!(prompt.message().contains("Fixture app"));
+        assert!(prompt.message().contains("App key:"));
         self.calls.fetch_add(1, Ordering::SeqCst);
         Box::pin(async move { self.answer })
     }

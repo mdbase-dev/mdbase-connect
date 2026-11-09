@@ -259,6 +259,11 @@ msgstr "その場所には「{0}」というフォルダーがすでにありま
 msgid "a Private collection"
 msgstr "プライベートコレクション"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Access: {access}"
+msgstr "アクセス: {access}"
+
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Account"
@@ -309,6 +314,16 @@ msgstr "詳細設定"
 msgid "Allow"
 msgstr "許可"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Allow"
+msgstr "許可"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Allow {app} to use {collection} through this computer?"
+msgstr "{app} がこのコンピューターを通じて {collection} を使用することを許可しますか？"
+
 #: src/renderer/device-requests.tsx
 msgid "Allow only a computer you are setting up yourself."
 msgstr "自分で設定しているコンピューターだけを許可してください。"
@@ -355,6 +370,11 @@ msgstr "アプリの承認"
 msgid "App key"
 msgstr "アプリのキー"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "App key: {key}"
+msgstr "アプリのキー: {key}"
+
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Appearance"
@@ -363,6 +383,11 @@ msgstr "外観"
 #: src/renderer/main.tsx
 msgid "Application"
 msgstr "アプリケーション"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Approve app access"
+msgstr "アプリのアクセスを承認"
 
 #: src/renderer/sign-in-panel.tsx
 msgid "Approve this computer in your browser. This window updates automatically."
@@ -494,6 +519,11 @@ msgstr "更新を確認"
 #: src/renderer/access-view.tsx
 msgid "Check that {0} shows the same key."
 msgstr "{0} に同じキーが表示されていることを確認してください。"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Check that the app's access request in your browser shows the same key."
+msgstr "ブラウザーに表示されているアプリのアクセス要求に同じキーが表示されていることを確認してください。"
 
 #: src/renderer/takeover-state.mts
 msgid "Check that the disk is not full, then try again. Nothing was changed."
@@ -701,6 +731,11 @@ msgstr "レコードを作成・編集する"
 msgid "Create collection"
 msgstr "コレクションを作成"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "create records and files"
+msgstr "レコードとファイルを作成する"
+
 #: src/renderer/main.tsx
 msgid "Create the folder in"
 msgstr "フォルダーの作成先"
@@ -724,11 +759,21 @@ msgctxt "Local connection status"
 msgid "delete records"
 msgstr "レコードを削除する"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "delete records and files"
+msgstr "レコードとファイルを削除する"
+
 #: src/renderer/collections-view.tsx
 msgid "Deleted on another device"
 msgstr "別のデバイスで削除されました"
 
 #: src/renderer/device-requests.tsx
+msgid "Deny"
+msgstr "拒否"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
 msgid "Deny"
 msgstr "拒否"
 
@@ -774,6 +819,11 @@ msgstr "検証済みバージョン {0} をダウンロード中…"
 #: src/renderer/collections-view.tsx
 msgid "Each folder stays where it is. Sync is optional."
 msgstr "各フォルダーは元の場所に残ります。同期は任意です。"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "edit records and files"
+msgstr "レコードとファイルを編集する"
 
 #: src/renderer/collections-view.tsx
 msgid "Edited here before the move but never uploaded, and changed elsewhere since; the current version is in the folder"
@@ -834,6 +884,11 @@ msgstr "アプリが利用できるこのコンピューター上のフォルダ
 #: src/renderer/collections-view.tsx
 msgid "Folders to leave out"
 msgstr "除外するフォルダー"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Folders: {folders}"
+msgstr "フォルダー: {folders}"
 
 #: src/renderer/collections-view.tsx
 msgid "From the last sync attempt, not a current file check."
@@ -915,6 +970,11 @@ msgctxt "Local connection status"
 msgid "Joining this collection…"
 msgstr "このコレクションに参加中…"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "keep an offline copy"
+msgstr "オフラインのコピーを保持する"
+
 #: src/renderer/collections-view.tsx
 msgid "Keep both"
 msgstr "両方保持"
@@ -972,6 +1032,21 @@ msgstr "mdbase Connect のデータをそのまま残し、診断レポートを
 msgid "Leave out files larger than"
 msgstr "次のサイズより大きいファイルを除外"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Let new apps use your local collections without asking you first?"
+msgstr "新しいアプリが事前の確認なしでローカルコレクションを使用できるようにしますか？"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Let Obsidian on this computer use {collection}?"
+msgstr "このコンピューターの Obsidian が {collection} を使用することを許可しますか？"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Link Obsidian"
+msgstr "Obsidian をリンク"
+
 #: src/renderer/collections-view.tsx
 msgid "Loading…"
 msgstr "読み込み中…"
@@ -980,9 +1055,29 @@ msgstr "読み込み中…"
 msgid "Looked like an accidental overwrite"
 msgstr "誤った上書きの可能性があります"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Make {collection} private?"
+msgstr "{collection} をプライベートにしますか？"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Make private"
+msgstr "プライベートにする"
+
 #: src/renderer/main.tsx
 msgid "Manage in mdbase"
 msgstr "mdbase で管理"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "manage saved views"
+msgstr "保存済みのビューを管理する"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "manage types and collection setup"
+msgstr "タイプとコレクションの設定を管理する"
 
 #: src/renderer/access-view.tsx
 msgid "Mark as seen"
@@ -1137,6 +1232,11 @@ msgstr "mdbase を起動中"
 #: src/renderer/collections-view.tsx
 msgid "mdbase stores only encrypted changes. Web apps and agents can use this collection only while one of your devices with the desktop app is online."
 msgstr "mdbase は暗号化された変更だけを保存します。Web アプリやエージェントがこのコレクションを使えるのは、デスクトップアプリのあるデバイスのいずれかがオンラインのときだけです。"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off."
+msgstr "mdbase は既存の履歴を含むコレクションを読み取り、デバイスの電源がオフの間もアクセスを提供できるようになります。"
 
 #. placeholder {0}: reason.replaceAll("_", " ")
 #: src/renderer/takeover-state.mts
@@ -1295,6 +1395,11 @@ msgstr "1 行に 1 フォルダー、コレクションからの相対パスで�
 msgid "Only allow if this matches the code on {who}"
 msgstr "このコードが{who}のコードと一致する場合のみ許可してください"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content."
+msgstr "切り替えが完了すると、新しい内容を読み取れるのはお使いのデバイスだけになります。古い内容は引き続き mdbase が読み取れる場合があります。"
+
 #: src/renderer/home-view.tsx
 msgid "Open"
 msgstr "開く"
@@ -1403,6 +1508,11 @@ msgctxt "Local connection status"
 msgid "read records"
 msgstr "レコードを読み取る"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "read records and files"
+msgstr "レコードとファイルを読み取る"
+
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Reading update status…"
@@ -1496,6 +1606,11 @@ msgstr "アクセスを取り消す"
 msgctxt "Connect interface"
 msgid "Revoked"
 msgstr "取り消し済み"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "run scheduled background tasks"
+msgstr "スケジュールされたバックグラウンドタスクを実行する"
 
 #: src/renderer/main.tsx
 msgid "Save"
@@ -1966,6 +2081,21 @@ msgstr "このバージョンの mdbase はサポート対象外です。バー�
 msgid "This version of mdbase is too old for the service. Update mdbase."
 msgstr "このバージョンの mdbase は古すぎるためサービスを利用できません。mdbase を更新してください。"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Turn off approval"
+msgstr "承認をオフにする"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Turn on Cloud copy"
+msgstr "クラウド上のコピーを有効にする"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Turn on Cloud copy for {collection}?"
+msgstr "{collection} のクラウド上のコピーを有効にしますか？"
+
 #: src/renderer/collections-view.tsx
 msgid "Turn on sync"
 msgstr "同期をオンにする"
@@ -2123,6 +2253,11 @@ msgstr "オンにすると、mdbase で承認したアプリにも、このコ�
 msgid "When this folder moved to the new sync engine, mdbase kept another version of {0, plural, one {# file} other {# files}}. The folder has this computer's version; check it before sync starts from it."
 msgstr "このフォルダーを新しい同期エンジンに移動した際、mdbase は {0, plural, other {# 件のファイル}} の別のバージョンを保持しました。フォルダーにはこのコンピューターのバージョンがあります。ここから同期を始める前に確認してください。"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "whole collection"
+msgstr "コレクション全体"
+
 #: src/renderer/main.tsx
 msgid "Workouts"
 msgstr "ワークアウト"
@@ -2138,6 +2273,11 @@ msgstr "{collection} で {app} を拒否しました"
 #: src/renderer/daemon-view.mts
 msgid "You revoked {app} on {collection}"
 msgstr "{collection} で {app} のアクセスを取り消しました"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "You will still be notified."
+msgstr "引き続き通知は届きます。"
 
 #: src/renderer/takeover-state.mts
 msgid "Your account still uses mdbase Connect"

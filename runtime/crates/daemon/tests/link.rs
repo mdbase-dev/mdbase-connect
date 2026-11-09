@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use mdbn_daemon::client::{self, ControlClient};
-use mdbn_daemon::confirm::{Answer, Confirmer};
+use mdbn_daemon::confirm::{Answer, Confirmer, Prompt};
 use mdbn_daemon::control::{CollectionStatus, Method};
 use mdbn_daemon::paths::Profile;
 use mdbn_daemon::secrets::{self, MemoryStore};
@@ -63,7 +63,7 @@ struct Scripted {
 }
 
 impl Confirmer for Scripted {
-    fn ask<'a>(&'a self, _t: &'a str, _m: &'a str) -> mdbn_daemon::session::BoxFuture<'a, Answer> {
+    fn ask<'a>(&'a self, _p: &'a Prompt) -> mdbn_daemon::session::BoxFuture<'a, Answer> {
         self.asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let a = self
             .answers

@@ -259,6 +259,11 @@ msgstr "此位置已有名为“{0}”的文件夹。请选择其他名称，或
 msgid "a Private collection"
 msgstr "一个私有集合"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Access: {access}"
+msgstr "访问权限：{access}"
+
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Account"
@@ -309,6 +314,16 @@ msgstr "高级"
 msgid "Allow"
 msgstr "允许"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Allow"
+msgstr "允许"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Allow {app} to use {collection} through this computer?"
+msgstr "允许 {app} 通过这台电脑使用 {collection} 吗？"
+
 #: src/renderer/device-requests.tsx
 msgid "Allow only a computer you are setting up yourself."
 msgstr "仅允许您正在亲自设置的电脑。"
@@ -355,6 +370,11 @@ msgstr "应用批准"
 msgid "App key"
 msgstr "应用密钥"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "App key: {key}"
+msgstr "应用密钥：{key}"
+
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Appearance"
@@ -363,6 +383,11 @@ msgstr "外观"
 #: src/renderer/main.tsx
 msgid "Application"
 msgstr "应用"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Approve app access"
+msgstr "批准应用访问"
 
 #: src/renderer/sign-in-panel.tsx
 msgid "Approve this computer in your browser. This window updates automatically."
@@ -494,6 +519,11 @@ msgstr "检查更新"
 #: src/renderer/access-view.tsx
 msgid "Check that {0} shows the same key."
 msgstr "检查 {0} 是否显示相同的密钥。"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Check that the app's access request in your browser shows the same key."
+msgstr "请确认浏览器中该应用的访问请求显示的是同一个密钥。"
 
 #: src/renderer/takeover-state.mts
 msgid "Check that the disk is not full, then try again. Nothing was changed."
@@ -701,6 +731,11 @@ msgstr "创建和编辑记录"
 msgid "Create collection"
 msgstr "创建集合"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "create records and files"
+msgstr "创建记录和文件"
+
 #: src/renderer/main.tsx
 msgid "Create the folder in"
 msgstr "在以下位置创建文件夹："
@@ -724,11 +759,21 @@ msgctxt "Local connection status"
 msgid "delete records"
 msgstr "删除记录"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "delete records and files"
+msgstr "删除记录和文件"
+
 #: src/renderer/collections-view.tsx
 msgid "Deleted on another device"
 msgstr "已在另一台设备上删除"
 
 #: src/renderer/device-requests.tsx
+msgid "Deny"
+msgstr "拒绝"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
 msgid "Deny"
 msgstr "拒绝"
 
@@ -774,6 +819,11 @@ msgstr "正在下载经过验证的版本 {0}…"
 #: src/renderer/collections-view.tsx
 msgid "Each folder stays where it is. Sync is optional."
 msgstr "每个文件夹会保留在原位置。同步可选。"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "edit records and files"
+msgstr "编辑记录和文件"
 
 #: src/renderer/collections-view.tsx
 msgid "Edited here before the move but never uploaded, and changed elsewhere since; the current version is in the folder"
@@ -834,6 +884,11 @@ msgstr "此电脑上供应用使用的文件夹，以及每个文件夹的同步
 #: src/renderer/collections-view.tsx
 msgid "Folders to leave out"
 msgstr "要排除的文件夹"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Folders: {folders}"
+msgstr "文件夹：{folders}"
 
 #: src/renderer/collections-view.tsx
 msgid "From the last sync attempt, not a current file check."
@@ -915,6 +970,11 @@ msgctxt "Local connection status"
 msgid "Joining this collection…"
 msgstr "正在加入此集合…"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "keep an offline copy"
+msgstr "保留离线副本"
+
 #: src/renderer/collections-view.tsx
 msgid "Keep both"
 msgstr "两者都保留"
@@ -972,6 +1032,21 @@ msgstr "保留 mdbase Connect 的数据，并携诊断报告联系支持人员�
 msgid "Leave out files larger than"
 msgstr "排除大于以下大小的文件"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Let new apps use your local collections without asking you first?"
+msgstr "允许新应用无需事先询问即可使用你的本地集合吗？"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Let Obsidian on this computer use {collection}?"
+msgstr "允许这台电脑上的 Obsidian 使用 {collection} 吗？"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Link Obsidian"
+msgstr "关联 Obsidian"
+
 #: src/renderer/collections-view.tsx
 msgid "Loading…"
 msgstr "正在加载…"
@@ -980,9 +1055,29 @@ msgstr "正在加载…"
 msgid "Looked like an accidental overwrite"
 msgstr "疑似意外覆盖"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Make {collection} private?"
+msgstr "将 {collection} 设为私有吗？"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Make private"
+msgstr "设为私有"
+
 #: src/renderer/main.tsx
 msgid "Manage in mdbase"
 msgstr "在 mdbase 中管理"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "manage saved views"
+msgstr "管理已保存的视图"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "manage types and collection setup"
+msgstr "管理类型和集合设置"
 
 #: src/renderer/access-view.tsx
 msgid "Mark as seen"
@@ -1137,6 +1232,11 @@ msgstr "mdbase 正在启动"
 #: src/renderer/collections-view.tsx
 msgid "mdbase stores only encrypted changes. Web apps and agents can use this collection only while one of your devices with the desktop app is online."
 msgstr "mdbase 只存储加密后的更改。只有当你某台装有桌面应用的设备在线时，网页应用和智能体才能使用此集合。"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off."
+msgstr "mdbase 将能够读取此集合及其现有历史记录，并在你的设备关闭时提供访问。"
 
 #. placeholder {0}: reason.replaceAll("_", " ")
 #: src/renderer/takeover-state.mts
@@ -1295,6 +1395,11 @@ msgstr "每行一个文件夹，路径相对于收藏集。"
 msgid "Only allow if this matches the code on {who}"
 msgstr "仅在此代码与{who}上的代码一致时允许"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content."
+msgstr "切换完成后，只有你的设备能够读取新内容。mdbase 可能仍能读取旧内容。"
+
 #: src/renderer/home-view.tsx
 msgid "Open"
 msgstr "打开"
@@ -1403,6 +1508,11 @@ msgctxt "Local connection status"
 msgid "read records"
 msgstr "读取记录"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "read records and files"
+msgstr "读取记录和文件"
+
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Reading update status…"
@@ -1496,6 +1606,11 @@ msgstr "撤销访问权限"
 msgctxt "Connect interface"
 msgid "Revoked"
 msgstr "已撤销"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "run scheduled background tasks"
+msgstr "运行计划的后台任务"
 
 #: src/renderer/main.tsx
 msgid "Save"
@@ -1966,6 +2081,21 @@ msgstr "此版本的 mdbase 已不受支持。版本 {0} 已通过验证；请�
 msgid "This version of mdbase is too old for the service. Update mdbase."
 msgstr "此版本的 mdbase 太旧，无法使用该服务。请更新 mdbase。"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Turn off approval"
+msgstr "关闭审批"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Turn on Cloud copy"
+msgstr "启用云端副本"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Turn on Cloud copy for {collection}?"
+msgstr "为 {collection} 启用云端副本吗？"
+
 #: src/renderer/collections-view.tsx
 msgid "Turn on sync"
 msgstr "开启同步"
@@ -2123,6 +2253,11 @@ msgstr "开启后，你在 mdbase 中批准的应用还需要等待你在此电�
 msgid "When this folder moved to the new sync engine, mdbase kept another version of {0, plural, one {# file} other {# files}}. The folder has this computer's version; check it before sync starts from it."
 msgstr "此文件夹迁移到新同步引擎时，mdbase 保留了 {0, plural, other {# 个文件}} 的另一个版本。文件夹中是此电脑的版本；从该版本开始同步前，请先检查。"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "whole collection"
+msgstr "整个集合"
+
 #: src/renderer/main.tsx
 msgid "Workouts"
 msgstr "锻炼记录"
@@ -2138,6 +2273,11 @@ msgstr "你已拒绝 {app} 访问 {collection}"
 #: src/renderer/daemon-view.mts
 msgid "You revoked {app} on {collection}"
 msgstr "你已撤销 {app} 对 {collection} 的访问权限"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "You will still be notified."
+msgstr "你仍会收到通知。"
 
 #: src/renderer/takeover-state.mts
 msgid "Your account still uses mdbase Connect"

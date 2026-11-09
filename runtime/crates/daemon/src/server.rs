@@ -1578,7 +1578,7 @@ impl Daemon {
                     self.spawn_native_grant_publisher(entry.grant.grant.clone());
                     return to_value(&entry);
                 }
-                let (expected, what) = {
+                let (expected, prompt) = {
                     let inner = self.inner.lock().await;
                     let e = inner
                         .access
@@ -1591,21 +1591,16 @@ impl Daemon {
                         .get(&e.grant.collection)
                         .map(|c| c.name.clone())
                         .unwrap_or_else(|| e.grant.collection.clone());
-                    let what = format!(
-                        "Allow {} to use the collection \"{}\" through this computer?\n\nAccess: {}\nFolders: {}\nApp key: {}\n\nCompare this key with the app's access request in your browser.",
-                        e.grant.app_name,
-                        name,
-                        crate::access::plain_capabilities(&e.grant.capabilities),
-                        e.grant
-                            .folders
-                            .as_ref()
-                            .map(|f| f.join(", "))
-                            .unwrap_or_else(|| "whole collection".into()),
-                        e.grant.fingerprint()
-                    );
-                    (e.clone(), what)
+                    let prompt = crate::confirm::Prompt::ApproveApp {
+                        app: e.grant.app_name.clone(),
+                        collection: name,
+                        capabilities: e.grant.capabilities.clone(),
+                        folders: e.grant.folders.clone(),
+                        key: e.grant.fingerprint(),
+                    };
+                    (e.clone(), prompt)
                 };
-                self.confirm("Approve app access", &what).await?;
+                self.confirm(&prompt).await?;
                 self.approve_confirmed(&expected).await
             }
             Method::ACCESS_ACK => {
@@ -1644,11 +1639,8 @@ impl Daemon {
                     .get("require_grant_approval")
                     .and_then(Value::as_bool);
                 if want == Some(false) {
-                    self.confirm(
-                        "Turn off approval",
-                        "Let new apps use your local collections without asking you first?\n\nYou will still be notified.",
-                    )
-                    .await?;
+                    self.confirm(&crate::confirm::Prompt::DisableApproval)
+                        .await?;
                 }
                 let mut inner = self.inner.lock().await;
                 if let Some(v) = want {
@@ -7212,10 +7204,9 @@ impl Daemon {
                 "another link request is waiting for confirmation",
             ));
         };
-        self.confirm(
-            "Link Obsidian",
-            &format!("Let Obsidian on this computer use \"{name}\"?"),
-        )
+        self.confirm(&crate::confirm::Prompt::LinkObsidian {
+            collection: name.to_owned(),
+        })
         .await
         .map_err(|e| {
             ControlError::new(
@@ -7231,21 +7222,23 @@ impl Daemon {
         Ok(())
     }
 
-    /// Replace how confirmations are asked (the desktop companion registers itself
-    /// here once its authenticated channel exists; native dialogs until then).
-    pub fn set_confirmer(&self, c: Arc<dyn crate::confirm::Confirmer>) {
+    /// Replace how confirmations are asked (tests). Nothing on the control
+    /// endpoint can: a confirmation is trusted only because the daemon starts the
+    /// dialog process itself ([`crate::confirm`]).
+    #[cfg(test)]
+    pub(crate) fn set_confirmer(&self, c: Arc<dyn crate::confirm::Confirmer>) {
         *self.confirmer.write().unwrap_or_else(|p| p.into_inner()) = c;
     }
 
     /// Ask the user on screen; refuse unless they confirm.
-    async fn confirm(&self, title: &str, message: &str) -> Result<(), ControlError> {
+    async fn confirm(&self, prompt: &crate::confirm::Prompt) -> Result<(), ControlError> {
         use crate::confirm::Answer;
         let c = self
             .confirmer
             .read()
             .unwrap_or_else(|p| p.into_inner())
             .clone();
-        match c.ask(title, message).await {
+        match c.ask(prompt).await {
             Answer::Yes => Ok(()),
             Answer::No => Err(ControlError::new(
                 "forbidden",
@@ -7254,7 +7247,8 @@ impl Daemon {
             )),
             Answer::Unavailable => Err(ControlError::unavailable(
                 "confirmation_unavailable",
-                "this needs a confirmation on this computer's screen, and no display is available",
+                "this needs a confirmation on this computer's screen, and none could be shown; \
+                 install the mdbase connect app on this computer and try again from its desktop",
             )),
         }
     }

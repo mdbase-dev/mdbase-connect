@@ -259,6 +259,11 @@ msgstr "Папка с именем «{0}» уже существует в это
 msgid "a Private collection"
 msgstr "закрытая коллекция"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Access: {access}"
+msgstr "Доступ: {access}"
+
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Account"
@@ -309,6 +314,16 @@ msgstr "Дополнительно"
 msgid "Allow"
 msgstr "Разрешить"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Allow"
+msgstr "Разрешить"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Allow {app} to use {collection} through this computer?"
+msgstr "Разрешить {app} использовать {collection} через этот компьютер?"
+
 #: src/renderer/device-requests.tsx
 msgid "Allow only a computer you are setting up yourself."
 msgstr "Разрешайте доступ только компьютеру, который настраиваете сами."
@@ -355,6 +370,11 @@ msgstr "Одобрение приложения"
 msgid "App key"
 msgstr "Ключ приложения"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "App key: {key}"
+msgstr "Ключ приложения: {key}"
+
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Appearance"
@@ -363,6 +383,11 @@ msgstr "Оформление"
 #: src/renderer/main.tsx
 msgid "Application"
 msgstr "Приложение"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Approve app access"
+msgstr "Одобрить доступ приложения"
 
 #: src/renderer/sign-in-panel.tsx
 msgid "Approve this computer in your browser. This window updates automatically."
@@ -494,6 +519,11 @@ msgstr "Проверить обновления"
 #: src/renderer/access-view.tsx
 msgid "Check that {0} shows the same key."
 msgstr "Убедитесь, что {0} показывает тот же ключ."
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Check that the app's access request in your browser shows the same key."
+msgstr "Убедитесь, что запрос доступа приложения в браузере показывает тот же ключ."
 
 #: src/renderer/takeover-state.mts
 msgid "Check that the disk is not full, then try again. Nothing was changed."
@@ -701,6 +731,11 @@ msgstr "создавать и редактировать записи"
 msgid "Create collection"
 msgstr "Создать коллекцию"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "create records and files"
+msgstr "создавать записи и файлы"
+
 #: src/renderer/main.tsx
 msgid "Create the folder in"
 msgstr "Создать папку в"
@@ -724,11 +759,21 @@ msgctxt "Local connection status"
 msgid "delete records"
 msgstr "удалять записи"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "delete records and files"
+msgstr "удалять записи и файлы"
+
 #: src/renderer/collections-view.tsx
 msgid "Deleted on another device"
 msgstr "Удалено на другом устройстве"
 
 #: src/renderer/device-requests.tsx
+msgid "Deny"
+msgstr "Отказать"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
 msgid "Deny"
 msgstr "Отказать"
 
@@ -774,6 +819,11 @@ msgstr "Загрузка проверенной версии {0}…"
 #: src/renderer/collections-view.tsx
 msgid "Each folder stays where it is. Sync is optional."
 msgstr "Каждая папка остаётся на своём месте. Синхронизация необязательна."
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "edit records and files"
+msgstr "редактировать записи и файлы"
 
 #: src/renderer/collections-view.tsx
 msgid "Edited here before the move but never uploaded, and changed elsewhere since; the current version is in the folder"
@@ -834,6 +884,11 @@ msgstr "Папки на этом компьютере, доступные при
 #: src/renderer/collections-view.tsx
 msgid "Folders to leave out"
 msgstr "Исключаемые папки"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Folders: {folders}"
+msgstr "Папки: {folders}"
 
 #: src/renderer/collections-view.tsx
 msgid "From the last sync attempt, not a current file check."
@@ -915,6 +970,11 @@ msgctxt "Local connection status"
 msgid "Joining this collection…"
 msgstr "Подключение этой коллекции…"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "keep an offline copy"
+msgstr "хранить офлайн-копию"
+
 #: src/renderer/collections-view.tsx
 msgid "Keep both"
 msgstr "Сохранить обе"
@@ -972,6 +1032,21 @@ msgstr "Не удаляйте данные mdbase connect и обратитес�
 msgid "Leave out files larger than"
 msgstr "Исключать файлы больше"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Let new apps use your local collections without asking you first?"
+msgstr "Разрешить новым приложениям использовать ваши локальные коллекции без предварительного запроса?"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Let Obsidian on this computer use {collection}?"
+msgstr "Разрешить Obsidian на этом компьютере использовать {collection}?"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Link Obsidian"
+msgstr "Связать Obsidian"
+
 #: src/renderer/collections-view.tsx
 msgid "Loading…"
 msgstr "Загрузка…"
@@ -980,9 +1055,29 @@ msgstr "Загрузка…"
 msgid "Looked like an accidental overwrite"
 msgstr "Похоже на случайную перезапись"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Make {collection} private?"
+msgstr "Сделать {collection} приватной?"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Make private"
+msgstr "Сделать приватной"
+
 #: src/renderer/main.tsx
 msgid "Manage in mdbase"
 msgstr "Управлять в mdbase"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "manage saved views"
+msgstr "управлять сохранёнными представлениями"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "manage types and collection setup"
+msgstr "управлять типами и настройкой коллекции"
 
 #: src/renderer/access-view.tsx
 msgid "Mark as seen"
@@ -1137,6 +1232,11 @@ msgstr "Запуск mdbase"
 #: src/renderer/collections-view.tsx
 msgid "mdbase stores only encrypted changes. Web apps and agents can use this collection only while one of your devices with the desktop app is online."
 msgstr "mdbase хранит только зашифрованные изменения. Веб-приложения и агенты могут работать с этой коллекцией, только пока в сети одно из ваших устройств с настольным приложением."
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off."
+msgstr "mdbase сможет читать коллекцию, включая её существующую историю, и предоставлять к ней доступ, когда ваши устройства выключены."
 
 #. placeholder {0}: reason.replaceAll("_", " ")
 #: src/renderer/takeover-state.mts
@@ -1295,6 +1395,11 @@ msgstr "Одна папка на строку, путь относительно
 msgid "Only allow if this matches the code on {who}"
 msgstr "Разрешайте доступ, только если этот код совпадает с кодом на {who}"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content."
+msgstr "После завершения переключения только ваши устройства смогут читать новые данные. mdbase по-прежнему может иметь доступ к старым данным."
+
 #: src/renderer/home-view.tsx
 msgid "Open"
 msgstr "Открыть"
@@ -1403,6 +1508,11 @@ msgctxt "Local connection status"
 msgid "read records"
 msgstr "читать записи"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "read records and files"
+msgstr "читать записи и файлы"
+
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Reading update status…"
@@ -1496,6 +1606,11 @@ msgstr "Отозвать доступ"
 msgctxt "Connect interface"
 msgid "Revoked"
 msgstr "Доступ отозван"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "run scheduled background tasks"
+msgstr "выполнять запланированные фоновые задачи"
 
 #: src/renderer/main.tsx
 msgid "Save"
@@ -1966,6 +2081,21 @@ msgstr "Эта версия mdbase больше не поддерживаетс�
 msgid "This version of mdbase is too old for the service. Update mdbase."
 msgstr "Эта версия mdbase слишком старая для сервиса. Обновите mdbase."
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Turn off approval"
+msgstr "Отключить одобрение"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Turn on Cloud copy"
+msgstr "Включить облачную копию"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Turn on Cloud copy for {collection}?"
+msgstr "Включить облачную копию для {collection}?"
+
 #: src/renderer/collections-view.tsx
 msgid "Turn on sync"
 msgstr "Включить синхронизацию"
@@ -2123,6 +2253,11 @@ msgstr "Если настройка включена, одобренное ва�
 msgid "When this folder moved to the new sync engine, mdbase kept another version of {0, plural, one {# file} other {# files}}. The folder has this computer's version; check it before sync starts from it."
 msgstr "При переносе этой папки на новый механизм синхронизации mdbase сохранил другую версию {0, plural, one {# файл} few {# файла} many {# файлов} other {# файла}}. В папке находится версия этого компьютера; проверьте её перед началом синхронизации."
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "whole collection"
+msgstr "вся коллекция"
+
 #: src/renderer/main.tsx
 msgid "Workouts"
 msgstr "Тренировки"
@@ -2138,6 +2273,11 @@ msgstr "Вы отклонили доступ {app} к {collection}"
 #: src/renderer/daemon-view.mts
 msgid "You revoked {app} on {collection}"
 msgstr "Вы отозвали доступ {app} к {collection}"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "You will still be notified."
+msgstr "Уведомления по-прежнему будут приходить."
 
 #: src/renderer/takeover-state.mts
 msgid "Your account still uses mdbase Connect"
