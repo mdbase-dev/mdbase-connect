@@ -9,7 +9,7 @@ Migration0055 replaces ONLY the named kind CHECK with desktop/mobile/app-runtime
 Bootstrap, exact enrolment/log-token, approval-peer metadata and route types preserve actual app kinds. Canonical numeric mapping is reused by policy encoding and peer tuples, replacing the old `non-desktop => CLI3` fallback. Routing ordering stays online first, desktop/CLI priority, activity, UUID. Metadata routing remains non-authoritative; no automatic provider switch.
 
 Qualification on Node24.19.0:
-- Full `pnpm ci:local --node` green (install/version/release/audit/generated/architecture/build/typecheck/test/package audit). Exact growth declaration permits only one relative type import and two internal server exports; no global/package budgets widened.
+- Full `pnpm ci:local --node` green (install/version/release/audit/generated/architecture/build/typecheck/test/package audit).
 - Rust CI equivalents through rcargo: workspace clippy/tests771 passed,117 existing ignored, formatting/feature graph + four retry/harness tests pass. No Rust/dependency/pin changes.
 - 87 focused cases all actually run, including fresh dedicated loopback PostgreSQL registration, single-use/immutable/connector-binding/reserved-kind negatives, acknowledged exact app enrolment before token mint (kind drift refuses), mobile/app-runtime peer kind1/2 (kind drift refuses), legacy policy fixture byte equality, migration memory CHECK and existing route ordering.
 - `pnpm e2e --no-prepare` local connector/control/browser/grant MVP path passes using freshly rcargo-built/pulled CLI and prebuilt Node packages (not local Cargo); private loopback fixtures only.

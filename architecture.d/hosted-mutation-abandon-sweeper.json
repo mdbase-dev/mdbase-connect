@@ -1,8 +1,0 @@
-{
-  "reason": "The expired-prepared mutation sweep (ADR 0005 amendment) lives in one new file beside the mutation journal it closes; its public surface is the counts type and the sweep and log entry points the maintenance loop calls, plus the abandoned-receipt helper and timer-takeover hook shared with dispatch.",
-  "growth": {
-    "productionFiles": 1,
-    "rustPublicDeclarations": 6,
-    "crates/connect-hosted-provider": 1
-  }
-}

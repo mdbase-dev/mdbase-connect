@@ -1,6 +1,0 @@
-{
-  "reason": "A file commit is refused for quota before its object is copied and re-hashed. The pre-check sits beside the other upload reads, shares the collection usage calculation with publication, and builds the account refusal from the same constructor as the usage trigger's error mapping.",
-  "growth": {
-    "rustPublicDeclarations": 2
-  }
-}

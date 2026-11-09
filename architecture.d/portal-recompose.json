@@ -1,7 +1,0 @@
-{
-  "reason": "One list filter replaces per-list controls; shared relative-time and connection-error formatting replace divergent copies. The existing primitives module also owns the launch-failure link. A single operation signature replaces repeated component signatures without a reverse component import. Five exports and two relative imports (Account preferences and the canonical operation type) are private Portal boundaries, not new packages or public API.",
-  "growth": {
-    "relativeImports": 2,
-    "typeScriptExportDeclarations": 5
-  }
-}

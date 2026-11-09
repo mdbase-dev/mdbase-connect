@@ -1,6 +1,0 @@
-{
-  "reason": "One private Desktop ListFilter export replaces the raw collection filter and is reused for the existing Apps and Activity lists. It uses the shared mdbase-field control and the existing shared keyboard handler; no new package, dependency, state flag, protocol, registry or mutation path.",
-  "growth": {
-    "typeScriptExportDeclarations": 1
-  }
-}

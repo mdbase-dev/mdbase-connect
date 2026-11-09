@@ -53,10 +53,10 @@ protected. Do not infer safety from mtime alone at an authorization/read boundar
   metadata still advances. Inspector paths that deliberately skip reading retain
   their existing write behavior rather than guessing equality.
 
-### Reviewed architecture budget changes
+### Module boundaries
 
 One production module, `registry/files/index.rs`, isolates the existing SQLite row
-codec and queries rather than extending the 1,000-line coordinator. Seven internal
+codec and queries rather than extending the coordinator. Seven internal
 Rust declarations are introduced: three SQLite helpers, two point lookup methods,
 the target reconciler, and targeted file discovery. One additional engine
 collection reference belongs to targeted discovery. These are concrete boundaries,

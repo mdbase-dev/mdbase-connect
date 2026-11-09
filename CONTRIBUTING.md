@@ -29,43 +29,13 @@ inventory or release log. Put SDK change/migration notes in fragments and focuse
 `docs/sdk-<topic>.md` pages; only edit the README when onboarding itself changes.
 This avoids appending every SDK PR to the same shared page.
 
-## Architecture growth
+## Architecture check
 
-`pnpm check:architecture` compares the working tree to the merge base with
-`origin/main` (override with `ARCHITECTURE_BASE=<ref>`). CI supplies the PR base,
-merge-group base, or push predecessor SHA and fetches full history. It does not
-use labels or PR-body text, which would be lost when multiple PRs enter a group.
-
-First reduce unnecessary growth. If growth is warranted, add a uniquely named
-`architecture.d/<pr-or-slug>.json` (create the directory if needed):
-
-```json
-{
-  "reason": "The new authority adapter owns a separate transport boundary; merging it into the domain module would invert dependencies.",
-  "growth": {
-    "productionFiles": 1,
-    "typeScriptExportDeclarations": 2,
-    "packages/client": 1
-  }
-}
-```
-
-The checker reports exact deltas. Declare positive integer **maximum deltas** only
-for counters that grow: `productionFiles`, `relativeImports`, `workspacePackages`,
-`rustPublicDeclarations`, `typeScriptExportDeclarations`,
-`mdbaseCollectionReferences`, `typedCollectionReferences`, and per-package paths
-such as `packages/client` or `crates/connect-core`. Review the justification, not
-just the numbers. A reason must have at least 20 characters after trimming.
-Declarations already in the merge base cannot be edited or spent again; new
-ones add across queued PRs. Deleting source does not require a declaration.
-
-Do not adjust shared package/public-surface counters in
-`config/architecture-budgets.json` in ordinary PRs. Release prep replaces them
-with exact current measurements (down as well as up) and consumes declarations.
-`pnpm check:architecture --absolute` checks that release snapshot, including in
-npm publication. The 1,000-line cap, exceptional legacy file caps, cycle checks,
-dead-code inventory, and runtime/engine semantic guards remain hard gates: a
-growth declaration cannot waive them.
+`pnpm check:architecture` rejects relative import cycles, workspace package
+cycles, and the runtime/engine boundary seams it names (typed local runtime
+outcomes, canonical operation construction, the mdbase manifest features, and
+the semantic projection format assertion). Fix the structure; the check has no
+waivers.
 
 ## Generated files and rebases
 
@@ -105,14 +75,13 @@ pnpm version:set 0.1.0-beta.N --dry-run
 pnpm version:set 0.1.0-beta.N
 pnpm version:check
 pnpm check:changelog
-pnpm check:architecture --absolute
 pnpm ci:local
 ```
 
 Replace `N` with a higher positive beta number. The command validates all inputs
 before writing, updates the release cohort including the SDK manifest, npm lock
-and Obsidian SDK peer/local lock, assembles notes, refreshes architecture counters,
-and consumes both kinds of fragments. It leaves the independently versioned
+and Obsidian SDK peer/local lock, assembles notes,
+and consumes the changelog fragments. It leaves the independently versioned
 editor, feedback service and Obsidian runtime's own version, registry dependencies,
 lock checksums, and engine pins unchanged. Review the
 resulting diff, then follow [Releasing](docs/releasing.md). The command does not

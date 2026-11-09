@@ -1,9 +1,0 @@
-{
-  "reason": "The daemon starts the Linux desktop app as its confirmation dialog. entry.ts chooses that one-dialog mode or loads the unchanged main.ts. confirmation.ts holds the pure parsing and localized wording, so it can be tested without Electron. Its five exports are the allow line, the timeout, and the argument, parse and describe functions.",
-  "growth": {
-    "productionFiles": 2,
-    "apps/desktop": 2,
-    "relativeImports": 2,
-    "typeScriptExportDeclarations": 5
-  }
-}

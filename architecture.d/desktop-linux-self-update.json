@@ -1,9 +1,0 @@
-{
-  "reason": "Linux user-folder self-update needs one module (linux-update.ts) that unpacks a verified .deb and swaps the app folder. It stays out of electron-update-backend.ts so it loads without Electron: the unit tests and the release workflow's staging check require it directly. Its three exports are the eligibility check, staging and the swap.",
-  "growth": {
-    "productionFiles": 1,
-    "relativeImports": 1,
-    "typeScriptExportDeclarations": 3,
-    "apps/desktop": 1
-  }
-}

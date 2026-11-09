@@ -224,10 +224,6 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 20
-    env:
-      # PR merge commits and merge groups both compare against their exact base;
-      # committed per-change declarations compose across every PR in a group.
-      ARCHITECTURE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
