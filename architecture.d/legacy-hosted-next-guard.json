@@ -1,0 +1,7 @@
+{
+  "reason": "One exported guard (requireLegacyHostedAccount in hosted/service.ts) replaces two inline copies of the mdbase-next account check and is imported by the two other routes that create legacy hosted collections (local-to-hosted transfer, adoption approval), which previously skipped it.",
+  "growth": {
+    "relativeImports": 2,
+    "typeScriptExportDeclarations": 1
+  }
+}

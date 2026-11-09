@@ -1659,10 +1659,6 @@ msgstr "Empêcher {0} d’utiliser {1} par cet ordinateur ?"
 msgid "Stopped"
 msgstr "Arrêté"
 
-#: src/renderer/collections-view.tsx
-#~ msgid "Sync"
-#~ msgstr "Synchronisation"
-
 #. placeholder {0}: /[.!?]$/.test(sentence) ? sentence : `${sentence}.`
 #: src/renderer/view-model.ts
 msgid "Sync could not be turned on: {0} {unchanged}"

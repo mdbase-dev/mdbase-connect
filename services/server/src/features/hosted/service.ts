@@ -282,16 +282,23 @@ async function hostedTypeCandidates(
   }
 }
 
+/** Every path that creates a legacy hosted collection runs this on its guarded
+ * transaction: an account that has moved to mdbase-next creates collections there. */
+export async function requireLegacyHostedAccount(client: DatabaseConnection, userId: string): Promise<void> {
+  await requireAccountNotMigrationFrozen(client, userId);
+  const backend = (await client.query<{ account_backend: string }>(
+    "SELECT account_backend FROM users WHERE id = $1 FOR SHARE", [userId]
+  )).rows[0]?.account_backend;
+  if (!backend) throw new RequestValidationError("Account unavailable.");
+  if (backend === "next") throw new RequestValidationError("This account has moved to mdbase-next; create collections there.");
+}
+
 /** Insert on the caller's guarded transaction; never open a late nested transaction. */
 export async function insertLegacyHostedCollection(
   client: DatabaseConnection,
   row: { id: string; userId: string; displayName: string; template: string; providerUrl: string | null; contracts: string }
 ): Promise<{ rows: { created_at: string | Date }[] }> {
-  await requireAccountNotMigrationFrozen(client, row.userId);
-  const backend = (await client.query<{ account_backend: string }>(
-    "SELECT account_backend FROM users WHERE id = $1 FOR SHARE", [row.userId]
-  )).rows[0]?.account_backend;
-  if (backend === "next") throw new RequestValidationError("This account has moved to mdbase-next; create collections there.");
+  await requireLegacyHostedAccount(client, row.userId);
   const inserted = await client.query<{ created_at: string | Date }>(
     `INSERT INTO hosted_collections
        (id, user_id, display_name, template, provider_url, contracts)
@@ -328,12 +335,7 @@ export async function createHostedCollectionForUser(
   let effectStarted = false;
   try {
     await connection.query("BEGIN");
-    await requireAccountNotMigrationFrozen(connection, userId);
-    const backend = (await connection.query<{ account_backend: string }>(
-      "SELECT account_backend FROM users WHERE id = $1 FOR SHARE", [userId]
-    )).rows[0]?.account_backend;
-    if (!backend) throw new RequestValidationError("Account unavailable.");
-    if (backend === "next") throw new RequestValidationError("This account has moved to mdbase-next; create collections there.");
+    await requireLegacyHostedAccount(connection, userId);
     await creation.current?.(connection);
     if (await creation.alreadyPublished?.(connection)) {
       const existing = (await connection.query("SELECT * FROM hosted_collections WHERE id=$1 AND user_id=$2 AND authority_state='active' FOR SHARE", [collectionId,userId])).rows[0];
