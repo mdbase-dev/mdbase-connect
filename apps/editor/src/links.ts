@@ -1,7 +1,6 @@
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import type { NoteSummary } from "./model";
 import { basename, folder, noteTitle } from "./note";
-import { markdownReferences } from "./markdown-references";
 
 export interface LinkSuggestion {
   path: string;
@@ -24,19 +23,6 @@ export interface LinkMatchContext {
 export interface UnresolvedNoteTarget {
   path: string;
   title: string;
-}
-
-interface LinkReference {
-  target: string;
-  format?: string;
-  isRelative?: boolean;
-}
-
-interface LinkIndex {
-  paths: Map<string, NoteSummary>;
-  foldedPaths: Map<string, NoteSummary>;
-  ids: Map<string, NoteSummary[]>;
-  filenames: Map<string, NoteSummary[]>;
 }
 
 interface IndexedSuggestion {
@@ -94,125 +80,11 @@ export function linkMatches(
     .map(({ suggestion, label, rank }) => ({ suggestion, label, rank }));
 }
 
-// Backlinks scan every hydrated body each time the open note changes. Parse a
-// body once per summary object, and skip the parser for bodies that cannot hold
-// a link or embed: every Link/Image node, wikilinks included, needs "[".
-const parsedBodies = new WeakMap<NoteSummary, { body: string; references: ReturnType<typeof markdownReferences> }>();
-function bodyReferences(note: NoteSummary): ReturnType<typeof markdownReferences> {
-  const body = note.body;
-  if (body === undefined || !body.includes("[")) return [];
-  const cached = parsedBodies.get(note);
-  if (cached?.body === body) return cached.references;
-  const references = markdownReferences(body);
-  parsedBodies.set(note, { body, references });
-  return references;
-}
-
-export function backlinksFor(
-  targetPath: string,
-  notes: NoteSummary[],
-  types: CollectionTypeDescriptor[] = []
-): NoteSummary[] {
-  const index = linkIndex(notes);
-  const suggestions = linkSuggestions(notes, [], types);
-  return notes
-    .filter((note) => {
-      // Native records expose hydrated bodies, not the connector's file link
-      // projections. Use the same parser and resolution as forward navigation.
-      const bodyLinked = bodyReferences(note).some(reference =>
-        resolveLinkSuggestion(reference.target, suggestions, note.path, reference.format)?.path === targetPath);
-      // Connector projections also include frontmatter references.
-      return bodyLinked || referencesFor(note).some(reference => resolveReference(note.path, reference, index)?.path === targetPath);
-    })
-    .sort((left, right) => noteTitle(left, types).localeCompare(noteTitle(right, types)) || left.path.localeCompare(right.path));
-}
-
 export function wikilinkFor(suggestion: LinkSuggestion, label = suggestion.title): string {
   const target = suggestion.path.replace(/\.md$/i, "");
   return basename(suggestion.path).localeCompare(label, undefined, { sensitivity: "accent" }) === 0
     ? target
     : `${target}|${label}`;
-}
-
-export function resolveLinkSuggestion(
-  target: string,
-  suggestions: LinkSuggestion[],
-  sourcePath?: string,
-  format: "wikilink" | "markdown" = "wikilink"
-): LinkSuggestion | undefined {
-  return resolveLinkSuggestionMatches(target, suggestions, sourcePath, format)[0];
-}
-
-export function resolveLinkSuggestionMatches(
-  target: string,
-  suggestions: LinkSuggestion[],
-  sourcePath?: string,
-  format: "wikilink" | "markdown" = "wikilink"
-): LinkSuggestion[] {
-  let decoded = target.trim().replaceAll("\\", "/");
-  try { decoded = decodeURIComponent(decoded); } catch { /* Literal percent signs remain usable. */ }
-  if (!decoded || /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(decoded)) return [];
-
-  const sourceFolder = sourcePath ? folder(sourcePath) : "";
-  const rootRelative = decoded.startsWith("/");
-  const explicitlyRelative = decoded.startsWith("./") || decoded.startsWith("../");
-  const normalized = safeReferencePath(rootRelative
-    ? decoded.slice(1)
-    : format === "markdown" || explicitlyRelative
-      ? `${sourceFolder}/${decoded}`
-      : decoded);
-  if (!normalized) return [];
-  const normalizedWithoutExtension = normalized.replace(/\.md$/i, "").toLocaleLowerCase();
-  const exact = suggestions.find((suggestion) => (
-    suggestion.path.replace(/\.md$/i, "").toLocaleLowerCase() === normalizedWithoutExtension
-  ));
-  if (exact) return [exact];
-
-  // Markdown destinations are relative to the source document, but older Editor
-  // content also used collection-root paths without a leading slash. Prefer the
-  // standards-based relative match above and retain the root form as a fallback.
-  if (format === "markdown" && !rootRelative && !explicitlyRelative) {
-    const legacyPath = safeReferencePath(decoded);
-    const legacyRoot = legacyPath?.replace(/\.md$/i, "").toLocaleLowerCase();
-    const legacyRootMatch = suggestions.find((suggestion) => (
-      legacyRoot && suggestion.path.replace(/\.md$/i, "").toLocaleLowerCase() === legacyRoot
-    ));
-    if (legacyRootMatch) return [legacyRootMatch];
-  }
-
-  if (decoded.includes("/") && format === "wikilink" && !rootRelative && !explicitlyRelative) {
-    const relative = safeReferencePath(`${sourceFolder}/${decoded}`)?.replace(/\.md$/i, "").toLocaleLowerCase();
-    const relativeMatch = suggestions.find((suggestion) => suggestion.path.replace(/\.md$/i, "").toLocaleLowerCase() === relative);
-    if (relativeMatch) return [relativeMatch];
-  }
-
-  const name = decoded.replace(/^\.\//, "").replace(/\.md$/i, "").toLocaleLowerCase();
-  if (name.includes("/")) return [];
-  const candidates = suggestions.filter((suggestion) => {
-    const filename = suggestion.path.split("/").at(-1)?.replace(/\.md$/i, "").toLocaleLowerCase();
-    return filename === name
-      || suggestion.title.toLocaleLowerCase() === name
-      || suggestion.aliases?.some((alias) => alias.toLocaleLowerCase() === name);
-  });
-  return candidates.sort((left, right) => {
-    const leftFolder = folder(left.path);
-    const rightFolder = folder(right.path);
-    return Number(rightFolder === sourceFolder) - Number(leftFolder === sourceFolder)
-      || left.path.length - right.path.length
-      || left.path.localeCompare(right.path);
-  });
-}
-
-function safeReferencePath(value: string): string | undefined {
-  const parts: string[] = [];
-  for (const part of value.split("/")) {
-    if (!part || part === ".") continue;
-    if (part === "..") {
-      if (!parts.length) return undefined;
-      parts.pop();
-    } else parts.push(part);
-  }
-  return parts.join("/") || undefined;
 }
 
 export function unresolvedNoteTarget(
@@ -327,105 +199,4 @@ export function noteAliases(note: NoteSummary): string[] {
     return [];
   }).map((value) => value.trim()).filter(Boolean);
   return [...new Set(aliases)];
-}
-
-function referencesFor(note: NoteSummary): LinkReference[] {
-  return [...referenceList(note.file?.links), ...referenceList(note.file?.embeds)];
-}
-
-function referenceList(values: unknown): LinkReference[] {
-  if (!Array.isArray(values)) return [];
-  return values.flatMap((value) => {
-    if (typeof value === "string") return value.trim() ? [{ target: value }] : [];
-    if (!value || Array.isArray(value) || typeof value !== "object") return [];
-    const record = value as Record<string, unknown>;
-    const target = [record.target, record.path, record.raw].find((candidate) => typeof candidate === "string" && candidate.trim());
-    if (typeof target !== "string") return [];
-    return [{
-      target,
-      format: typeof record.format === "string" ? record.format : undefined,
-      isRelative: typeof record.is_relative === "boolean" ? record.is_relative : undefined
-    }];
-  });
-}
-
-function resolveReference(sourcePath: string, reference: LinkReference, index: LinkIndex): NoteSummary | undefined {
-  const target = cleanTarget(reference.target);
-  if (!target || /^(?:[a-z][a-z\d+.-]*:|#)/i.test(target)) return undefined;
-  const sourceFolder = folder(sourcePath);
-
-  if (target.startsWith("/")) return findPath(target.slice(1), index);
-  if (reference.isRelative || reference.format === "markdown" || reference.format === "path" || target.startsWith("./") || target.startsWith("../")) {
-    return findPath(joinPath(sourceFolder, target), index);
-  }
-  if (target.includes("/")) {
-    return findPath(target, index) ?? findPath(joinPath(sourceFolder, target), index);
-  }
-
-  const idMatches = index.ids.get(target) ?? [];
-  if (idMatches.length === 1) return idMatches[0];
-
-  const name = target.replace(/\.md$/i, "");
-  const filenameMatches = index.filenames.get(name) ?? [];
-  return [...filenameMatches].sort((left, right) => {
-    const leftSameFolder = folder(left.path) === sourceFolder ? 0 : 1;
-    const rightSameFolder = folder(right.path) === sourceFolder ? 0 : 1;
-    return leftSameFolder - rightSameFolder || left.path.length - right.path.length || left.path.localeCompare(right.path);
-  })[0];
-}
-
-function findPath(value: string, index: LinkIndex): NoteSummary | undefined {
-  const normalized = normalizePath(value);
-  if (!normalized || normalized.startsWith("../")) return undefined;
-  const candidates = /\.[^/]+$/.test(normalized) ? [normalized] : [normalized, `${normalized}.md`];
-  for (const candidate of candidates) {
-    const exact = index.paths.get(candidate);
-    if (exact) return exact;
-  }
-  for (const candidate of candidates) {
-    const folded = index.foldedPaths.get(candidate.toLocaleLowerCase());
-    if (folded) return folded;
-  }
-  return undefined;
-}
-
-function linkIndex(notes: NoteSummary[]): LinkIndex {
-  const index: LinkIndex = { paths: new Map(), foldedPaths: new Map(), ids: new Map(), filenames: new Map() };
-  for (const note of notes) {
-    index.paths.set(note.path, note);
-    index.foldedPaths.set(note.path.toLocaleLowerCase(), note);
-    const id = note.effectiveFrontmatter.id;
-    if (typeof id === "string") appendIndex(index.ids, id, note);
-    appendIndex(index.filenames, basename(note.path), note);
-  }
-  return index;
-}
-
-function appendIndex(index: Map<string, NoteSummary[]>, key: string, note: NoteSummary) {
-  const values = index.get(key);
-  if (values) values.push(note);
-  else index.set(key, [note]);
-}
-
-function cleanTarget(value: string): string {
-  const unaliased = value.split("|", 1)[0].split("#", 1)[0].trim().replaceAll("\\", "/");
-  try {
-    return decodeURIComponent(unaliased);
-  } catch {
-    return unaliased;
-  }
-}
-
-function joinPath(parent: string, child: string): string {
-  return normalizePath(parent ? `${parent}/${child}` : child);
-}
-
-function normalizePath(value: string): string {
-  const parts: string[] = [];
-  for (const part of value.split("/")) {
-    if (!part || part === ".") continue;
-    if (part === "..") parts.pop();
-    else parts.push(part);
-  }
-  return parts.join("/");
 }

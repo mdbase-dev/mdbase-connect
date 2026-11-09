@@ -495,6 +495,7 @@ msgid "{itemLabel} suggestions"
 msgstr "{itemLabel} 建议"
 
 #: src/contract-catalog.ts
+#: src/gateway.ts
 msgid "{label} is not supported."
 msgstr "不支持 {label}。"
 
@@ -2454,10 +2455,6 @@ msgstr "查找属性"
 msgid "Find in note"
 msgstr "在笔记中查找"
 
-#: src/WorkspaceChrome.tsx
-msgid "Find linked notes"
-msgstr "查找链接的笔记"
-
 #: src/CollectionRail.tsx
 msgid "Finding folders…"
 msgstr "正在查找文件夹…"
@@ -2860,6 +2857,10 @@ msgstr "链接规则"
 #: src/YourPersonPanel.tsx
 msgid "Link this record to me"
 msgstr "将此记录关联到我"
+
+#: src/code-editor-reference-diagnostics.ts
+msgid "Link to {title}"
+msgstr "链接到 {title}"
 
 #: src/code-editor-completions.ts
 msgid "Link to note or file"
@@ -4383,6 +4384,7 @@ msgstr "继续重命名"
 
 #: src/code-editor-file-embeds.ts
 #: src/CollectionRail.tsx
+#: src/WorkspaceChrome.tsx
 #: src/YourPersonPanel.tsx
 msgid "Retry"
 msgstr "重试"

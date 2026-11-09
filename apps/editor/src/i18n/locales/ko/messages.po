@@ -495,6 +495,7 @@ msgid "{itemLabel} suggestions"
 msgstr "{itemLabel} 제안"
 
 #: src/contract-catalog.ts
+#: src/gateway.ts
 msgid "{label} is not supported."
 msgstr "{label}은(는) 지원되지 않습니다."
 
@@ -2454,10 +2455,6 @@ msgstr "속성 찾기"
 msgid "Find in note"
 msgstr "노트에서 찾기"
 
-#: src/WorkspaceChrome.tsx
-msgid "Find linked notes"
-msgstr "연결된 노트 찾기"
-
 #: src/CollectionRail.tsx
 msgid "Finding folders…"
 msgstr "폴더 찾는 중…"
@@ -2860,6 +2857,10 @@ msgstr "링크 규칙"
 #: src/YourPersonPanel.tsx
 msgid "Link this record to me"
 msgstr "이 레코드를 나에게 연결"
+
+#: src/code-editor-reference-diagnostics.ts
+msgid "Link to {title}"
+msgstr "{title}에 링크"
 
 #: src/code-editor-completions.ts
 msgid "Link to note or file"
@@ -4383,6 +4384,7 @@ msgstr "이름 변경 재개"
 
 #: src/code-editor-file-embeds.ts
 #: src/CollectionRail.tsx
+#: src/WorkspaceChrome.tsx
 #: src/YourPersonPanel.tsx
 msgid "Retry"
 msgstr "다시 시도"

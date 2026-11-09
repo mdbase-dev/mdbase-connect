@@ -495,6 +495,7 @@ msgid "{itemLabel} suggestions"
 msgstr "Vorschläge für {itemLabel}"
 
 #: src/contract-catalog.ts
+#: src/gateway.ts
 msgid "{label} is not supported."
 msgstr "{label} wird nicht unterstützt."
 
@@ -2454,10 +2455,6 @@ msgstr "Eigenschaft suchen"
 msgid "Find in note"
 msgstr "In Notiz suchen"
 
-#: src/WorkspaceChrome.tsx
-msgid "Find linked notes"
-msgstr "Verlinkte Notizen suchen"
-
 #: src/CollectionRail.tsx
 msgid "Finding folders…"
 msgstr "Ordner werden gesucht…"
@@ -2860,6 +2857,10 @@ msgstr "Linkregeln"
 #: src/YourPersonPanel.tsx
 msgid "Link this record to me"
 msgstr "Diesen Datensatz mit mir verknüpfen"
+
+#: src/code-editor-reference-diagnostics.ts
+msgid "Link to {title}"
+msgstr "Mit „{title}“ verknüpfen"
 
 #: src/code-editor-completions.ts
 msgid "Link to note or file"
@@ -4383,6 +4384,7 @@ msgstr "Umbenennung fortsetzen"
 
 #: src/code-editor-file-embeds.ts
 #: src/CollectionRail.tsx
+#: src/WorkspaceChrome.tsx
 #: src/YourPersonPanel.tsx
 msgid "Retry"
 msgstr "Erneut versuchen"

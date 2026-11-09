@@ -495,6 +495,7 @@ msgid "{itemLabel} suggestions"
 msgstr "{itemLabel} suggerimenti"
 
 #: src/contract-catalog.ts
+#: src/gateway.ts
 msgid "{label} is not supported."
 msgstr "{label} non è supportata."
 
@@ -2454,10 +2455,6 @@ msgstr "Trova una proprietà"
 msgid "Find in note"
 msgstr "Trova nella nota"
 
-#: src/WorkspaceChrome.tsx
-msgid "Find linked notes"
-msgstr "Trova note collegate"
-
 #: src/CollectionRail.tsx
 msgid "Finding folders…"
 msgstr "Ricerca delle cartelle..."
@@ -2860,6 +2857,10 @@ msgstr "Regole di collegamento"
 #: src/YourPersonPanel.tsx
 msgid "Link this record to me"
 msgstr "Collega questo record all'account"
+
+#: src/code-editor-reference-diagnostics.ts
+msgid "Link to {title}"
+msgstr "Collega a {title}"
 
 #: src/code-editor-completions.ts
 msgid "Link to note or file"
@@ -4383,6 +4384,7 @@ msgstr "Riprendi la ridenominazione"
 
 #: src/code-editor-file-embeds.ts
 #: src/CollectionRail.tsx
+#: src/WorkspaceChrome.tsx
 #: src/YourPersonPanel.tsx
 msgid "Retry"
 msgstr "Riprova"

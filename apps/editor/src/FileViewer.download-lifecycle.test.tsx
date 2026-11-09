@@ -54,7 +54,7 @@ function download(id: number) {
 // controls isolate component/store cancellation rather than claim SDK wire or
 // Native cleanup qualification.
 function Workspace({ store, files }: { store: FileAssetStore; files: readonly CollectionFile[] }) {
-  const workspace = useFileWorkspace(store, files, "", "note.md");
+  const workspace = useFileWorkspace(store, files, "");
   return <>
     {files.map(file => <button key={file.fileId} onClick={() => workspace.setSelectedFile(file)}>Select {file.path}</button>)}
     {workspace.selectedFile && workspace.selectedAsset && <FileWorkspace

@@ -4,6 +4,7 @@ import { Compartment } from "@codemirror/state";
 import { CodeEditor } from "./CodeEditor";
 import type { ResolvedFileReference } from "./use-file-assets";
 import type { ResolvedNoteEmbed } from "./note-embeds";
+import { linkTargets } from "./test/link-targets";
 
 vi.mock("./inline-pdf-viewer", () => ({
   mountInlinePdfViewer: vi.fn(() => ({ unmount: vi.fn() }))
@@ -95,7 +96,8 @@ describe("writer presentation", () => {
 
   it("shows a link to a missing note differently from a working one", async () => {
     render(<CodeEditor value={"Start.\nSee [[Known]] and [[Missing]]."} label="Note body" language="markdown" variant="writer" quietMarkdown
-      linkSuggestions={[{ path: "Known.md", title: "Known" }]} />);
+      linkSuggestions={[{ path: "Known.md", title: "Known" }]}
+      linkTargets={linkTargets("Today.md", { "[[Known]]": { kind: "note", path: "Known.md" } })} />);
     const missing = await screen.findByRole("link", { name: "Missing" });
     await vi.waitFor(() => expect(missing.ownerDocument.querySelector(".cm-rendered-link-missing")).not.toBeNull(), { timeout: 3_000 });
     expect(screen.getByRole("link", { name: "Missing" })).toHaveClass("cm-rendered-link-missing");
@@ -226,17 +228,19 @@ describe("PDF links and embeds", () => {
       language="markdown"
       variant="writer"
       files={[pdfReference.asset.file]}
+      linkTargets={linkTargets("Today.md", { "[[Documents/paper.pdf]]": { kind: "file", path: "Documents/paper.pdf" } })}
       onOpenFileLink={openFile}
     />);
 
     fireEvent.click(await screen.findByRole("link", { name: "Documents/paper.pdf" }));
-    expect(openFile).toHaveBeenCalledWith(pdfReference.asset.file);
+    await vi.waitFor(() => expect(openFile).toHaveBeenCalledWith(pdfReference.asset.file));
   });
 });
 
 const pdfReference: ResolvedFileReference = {
   from: 8,
   to: 32,
+  raw: "![[Documents/paper.pdf]]",
   target: "Documents/paper.pdf",
   format: "wikilink",
   block: true,

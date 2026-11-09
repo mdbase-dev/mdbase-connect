@@ -1,17 +1,18 @@
+import type { LinkTargets } from "./collection-links";
 import { markdownReferences, type MarkdownReferenceFormat } from "./markdown-references";
-import { resolveFileReference } from "./file-reference-resolution";
 import type { CollectionFile } from "./model";
 
 export {
   fileAssetKey,
   isInlinePreviewable,
-  isTextPreviewable,
-  resolveFileReference
+  isTextPreviewable
 } from "./file-reference-resolution";
 
 export interface FileReference {
   from: number;
   to: number;
+  /** The embed as written, which the collection resolves. */
+  raw: string;
   target: string;
   label?: string;
   anchor?: string;
@@ -21,17 +22,20 @@ export interface FileReference {
 }
 
 /**
- * Resolves parsed embeds only against authority-provided file descriptors.
+ * Embeds in `source` with the listed file each one leads to, once the
+ * collection has resolved it.
  */
 export function fileReferences(
   source: string,
   files: readonly CollectionFile[],
-  sourcePath?: string
+  linkTargets: LinkTargets | undefined
 ): FileReference[] {
   return markdownReferences(source)
-    .filter((reference) => reference.kind === "embed")
-    .map(({ kind: _kind, ...reference }) => ({
-      ...reference,
-      file: resolveFileReference(reference.target, reference.format, files, sourcePath)
-    }));
+    .filter((reference) => reference.kind === "embed" && reference.target)
+    .map(({ kind: _kind, ...reference }) => {
+      const raw = source.slice(reference.from, reference.to);
+      const target = linkTargets?.get(raw);
+      const file = target?.kind === "file" ? files.find((candidate) => candidate.path === target.path) : undefined;
+      return { ...reference, raw, ...(file ? { file } : {}) };
+    });
 }

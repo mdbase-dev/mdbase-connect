@@ -3,6 +3,7 @@ import { createElement, startTransition, Suspense, useState, type ReactNode } fr
 import { describe, expect, it, vi } from "vitest";
 import { markdownFragment } from "./markdown-fragments";
 import { useEmbeddedNoteReferences } from "./note-embeds";
+import { linkTargets } from "./test/link-targets";
 
 function deferred<T>() {
   let resolve!: (value: T) => void, reject!: (error: unknown) => void;
@@ -11,10 +12,11 @@ function deferred<T>() {
 }
 const target = { path: "Shared/target.md", title: "Target" };
 const document = (body: string) => ({ path: target.path, revision: body, body, frontmatter: {}, effectiveFrontmatter: {}, types: [], document: body, file: { name: "target.md", folder: "Shared", size: body.length, mtime: "", tags: [], links: [], embeds: [] } });
+const targets = linkTargets("Shared/source.md", { "![[Target]]": { kind: "note", path: target.path } });
 const summary = (body?: string) => ({ ...document(body ?? ""), ...(body === undefined ? { body: undefined } : {}) });
 function embedHarness(read: (path: string) => Promise<ReturnType<typeof document>>, body?: string) {
-  const props = { gateway: { read }, owner: { collectionId: "a" as string | undefined, epoch: 1 }, notes: [summary(body)], suggestions: [target], files: [] };
-  const hook = renderHook(() => useEmbeddedNoteReferences(props.gateway, props.owner, "![[Target]]", props.notes as never, props.suggestions, props.files, "Shared/source.md"));
+  const props = { gateway: { read }, owner: { collectionId: "a" as string | undefined, epoch: 1 }, notes: [summary(body)] };
+  const hook = renderHook(() => useEmbeddedNoteReferences(props.gateway, props.owner, "![[Target]]", props.notes as never, targets));
   return { props, ...hook };
 }
 
@@ -120,7 +122,7 @@ describe("embedded note owner cache", () => {
       const [owner, setOwner] = useState({ collectionId: "a" as string | undefined, epoch: 1 });
       selectOwner = setOwner;
       const embeds = useEmbeddedNoteReferences(
-        gateway, owner, "![[Target]]", [summary()] as never, [target], [], "Shared/source.md"
+        gateway, owner, "![[Target]]", [summary()] as never, targets
       );
       if (owner.collectionId === "b") {
         attemptedB += 1;

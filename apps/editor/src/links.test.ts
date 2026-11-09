@@ -2,11 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import type { NoteSummary } from "./model";
 import {
-  backlinksFor,
   linkMatches,
   linkSuggestions,
-  resolveLinkSuggestion,
-  resolveLinkSuggestionMatches,
   unresolvedNoteTarget,
   wikilinkFor
 } from "./links";
@@ -20,47 +17,6 @@ describe("collection links", () => {
     note("Archive/project.md", "Old project"),
     note("Notes/embed.md", "Embed", [], ["Projects/project"])
   ];
-
-  it("builds backlinks from links, simple names, and embeds", () => {
-    expect(backlinksFor("Projects/project.md", notes, types).map((candidate) => candidate.path)).toEqual([
-      "Notes/alpha.md",
-      "Projects/brief.md",
-      "Notes/embed.md"
-    ]);
-  });
-
-  it("finds native body backlinks with the same titles, aliases and relative targets as forward links", () => {
-    // Native summaries carry bodies after hydration, not file.links/file.embeds.
-    const nativeNote = (path: string, title: string, body: string): NoteSummary => ({
-      ...note(path, title), file: { path }, body
-    });
-    const target = nativeNote("Projects/project.md", "Launch project", "# Launch project");
-    target.effectiveFrontmatter.aliases = ["Launch"];
-    const sources = [
-      nativeNote("Notes/wiki.md", "Wiki", "[[Launch project#Plan|the project]]"),
-      nativeNote("Notes/alias.md", "Alias", "[[Launch]]"),
-      nativeNote("Notes/markdown.md", "Markdown", "[Project](../Projects/project.md#Plan)"),
-      nativeNote("Notes/embed.md", "Embed", "![[Projects/project]]"),
-      nativeNote("Notes/duplicate.md", "Duplicate", "[[Launch project]] and [[Launch project]]"),
-      nativeNote("Notes/code.md", "Code", "`[[Launch project]]`\n```md\n[[Launch project]]\n```"),
-      nativeNote("Notes/external.md", "External", "[Elsewhere](https://example.com/Projects/project.md)"),
-      nativeNote("Notes/escape.md", "Escape", "[Outside](../../Projects/project.md)")
-    ];
-    expect(backlinksFor(target.path, [target, ...sources], types).map(candidate => candidate.path)).toEqual([
-      "Notes/alias.md", "Notes/duplicate.md", "Notes/embed.md", "Notes/markdown.md", "Notes/wiki.md"
-    ]);
-    sources[0].body = "The link was removed.";
-    expect(backlinksFor(target.path, [target, sources[0]], types)).toEqual([]);
-    // Parsed bodies are cached per summary object; an edited body is reparsed.
-    sources[1].body = "[[Elsewhere]]";
-    expect(backlinksFor(target.path, [target, sources[1]], types)).toEqual([]);
-    sources[1].body = "Now [[Launch]] again";
-    expect(backlinksFor(target.path, [target, sources[1]], types).map(candidate => candidate.path)).toEqual(["Notes/alias.md"]);
-  });
-
-  it("prefers a simple-name target in the referring note's folder", () => {
-    expect(backlinksFor("Archive/project.md", notes, types)).toEqual([]);
-  });
 
   it("creates readable, path-stable wikilinks", () => {
     const suggestions = linkSuggestions(notes, [], types);
@@ -115,19 +71,6 @@ describe("collection links", () => {
     expect(linkMatches(suggestions, "adlv")).toMatchObject([{
       suggestion: { path: "People/ada-lovelace.md" }
     }]);
-  });
-
-  it("exposes ambiguous simple names and rejects collection traversal", () => {
-    const suggestions = linkSuggestions([
-      note("Notes/project.md", "Project"),
-      note("Archive/project.md", "Project")
-    ], [], types);
-
-    expect(resolveLinkSuggestionMatches("project", suggestions, "Notes/source.md").map((item) => item.path)).toEqual([
-      "Notes/project.md",
-      "Archive/project.md"
-    ]);
-    expect(resolveLinkSuggestion("../../Archive/project", suggestions, "Notes/source.md", "markdown")).toBeUndefined();
   });
 
   it("turns unresolved Markdown and wiki targets into nearby notes", () => {

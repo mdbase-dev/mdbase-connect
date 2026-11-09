@@ -495,6 +495,7 @@ msgid "{itemLabel} suggestions"
 msgstr "Предложения для {itemLabel}"
 
 #: src/contract-catalog.ts
+#: src/gateway.ts
 msgid "{label} is not supported."
 msgstr "{label} не поддерживается."
 
@@ -2454,10 +2455,6 @@ msgstr "Найти свойство"
 msgid "Find in note"
 msgstr "Найти в заметке"
 
-#: src/WorkspaceChrome.tsx
-msgid "Find linked notes"
-msgstr "Найти связанные заметки"
-
 #: src/CollectionRail.tsx
 msgid "Finding folders…"
 msgstr "Поиск папок…"
@@ -2860,6 +2857,10 @@ msgstr "Правила ссылок"
 #: src/YourPersonPanel.tsx
 msgid "Link this record to me"
 msgstr "Связать эту запись со мной"
+
+#: src/code-editor-reference-diagnostics.ts
+msgid "Link to {title}"
+msgstr "Сослаться на «{title}»"
 
 #: src/code-editor-completions.ts
 msgid "Link to note or file"
@@ -4383,6 +4384,7 @@ msgstr "Продолжить переименование"
 
 #: src/code-editor-file-embeds.ts
 #: src/CollectionRail.tsx
+#: src/WorkspaceChrome.tsx
 #: src/YourPersonPanel.tsx
 msgid "Retry"
 msgstr "Повторить попытку"

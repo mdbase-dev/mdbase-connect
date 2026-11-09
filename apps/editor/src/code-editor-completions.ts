@@ -7,7 +7,8 @@ import {
 } from "@codemirror/autocomplete";
 import { EditorSelection, type Extension } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
-import { linkMatches, resolveLinkSuggestion, wikilinkFor, type LinkSuggestion } from "./links";
+import type { LinkTargets } from "./collection-links";
+import { linkMatches, wikilinkFor, type LinkSuggestion } from "./links";
 import type { CollectionFile, NoteSummary } from "./model";
 
 export function writerAutocomplete(
@@ -16,7 +17,8 @@ export function writerAutocomplete(
   currentPath: () => string | undefined,
   recentPaths: () => string[],
   files: () => CollectionFile[],
-  notes: () => NoteSummary[]
+  notes: () => NoteSummary[],
+  linkTargets: () => LinkTargets | undefined
 ): Extension {
   return autocompletion({
     activateOnTyping: true,
@@ -28,7 +30,8 @@ export function writerAutocomplete(
       currentPath(),
       recentPaths(),
       files(),
-      notes()
+      notes(),
+      linkTargets()
     ) ?? slashCompletion(context)]
   });
 }
@@ -40,7 +43,8 @@ export function linkCompletion(
   currentPath?: string,
   recentPaths: string[] = [],
   files: CollectionFile[] = [],
-  notes: NoteSummary[] = []
+  notes: NoteSummary[] = [],
+  linkTargets?: LinkTargets
 ) {
   const wikilink = context.matchBefore(/!?\[\[[^\]\n]*/);
   const mention = context.matchBefore(/(?:^|[\s([{])@[^@\n]*/);
@@ -52,10 +56,9 @@ export function linkCompletion(
       wikilink.from + openerLength,
       context.pos,
       query,
-      suggestions,
       notes,
-      currentPath,
-      context.state.doc.toString()
+      context.state.doc.toString(),
+      linkTargets
     );
     return heading ?? objectCompletions(
       wikilink.from + openerLength,
@@ -154,22 +157,27 @@ function headingCompletions(
   from: number,
   to: number,
   query: string,
-  suggestions: LinkSuggestion[],
   notes: NoteSummary[],
-  currentPath: string | undefined,
-  currentBody: string
+  currentBody: string,
+  linkTargets?: LinkTargets
 ) {
   const hash = query.indexOf("#");
   if (hash < 0) return undefined;
   const target = query.slice(0, hash).trim();
   const fragmentQuery = query.slice(hash + 1).toLocaleLowerCase();
-  const suggestion = target
-    ? resolveLinkSuggestion(target, suggestions, currentPath)
-    : suggestions.find((candidate) => candidate.path === currentPath);
-  const body = suggestion
-    ? notes.find((note) => note.path === suggestion.path)?.body
-    : currentBody;
-  if (body === undefined) return { from: from + hash + 1, to, options: [], filter: false };
+  const complete = (body: string | undefined) => body === undefined
+    ? { from: from + hash + 1, to, options: [], filter: false }
+    : anchorCompletions(from + hash + 1, to, body, fragmentQuery);
+  if (!target) return complete(currentBody);
+  // The section list belongs to the note the collection resolves the target to.
+  if (!linkTargets) return complete(undefined);
+  return linkTargets.resolve(`[[${target}]]`).then(
+    (resolved) => complete(resolved.kind === "note" ? notes.find((note) => note.path === resolved.path)?.body : undefined),
+    () => complete(undefined)
+  );
+}
+
+function anchorCompletions(from: number, to: number, body: string, fragmentQuery: string) {
   const options = markdownAnchors(body)
     .filter((anchor) => !fragmentQuery || anchor.label.toLocaleLowerCase().includes(fragmentQuery))
     .map((anchor) => ({
@@ -178,7 +186,7 @@ function headingCompletions(
       type: "text",
       apply: `${anchor.value}]]`
     }));
-  return { from: from + hash + 1, to, options, filter: false };
+  return { from, to, options, filter: false };
 }
 
 function markdownAnchors(body: string): Array<{ label: string; value: string; kind: "heading" | "block"; preview?: string }> {

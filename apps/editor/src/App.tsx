@@ -68,7 +68,8 @@ import { CollectionMutationScope, StaleCollectionOperationError, type Collection
 import { useTypeDefinitionLifecycle } from "./use-type-definition-lifecycle";
 import { OpeningScreen, TypeWorkspaceLoading } from "./LoadingScreens";
 import { MarkdownNoteEditor } from "./MarkdownNoteEditor";
-import { backlinksFor, linkSuggestions, unresolvedNoteTarget } from "./links";
+import { linkSuggestions, unresolvedNoteTarget } from "./links";
+import { useBacklinks, useLinkTargets } from "./collection-links";
 import {
   COLLECTION_WIDTH,
   INSPECTOR_WIDTH,
@@ -214,7 +215,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     contentComplete,
     contentIndexing,
     contentLoaded,
-    contentError
+    contentError, revision: collectionRevision
   } = collectionIndex;
   const [phase, setPhase] = useState<AppPhase>("starting");
   const [description, setDescription] = useState<CollectionDescription>();
@@ -265,7 +266,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const [remoteApplyToken, setRemoteApplyToken] = useState(0);
   const [notice, setNoticeState] = useState<{ message: string; tone: ToastTone } | undefined>();
   const [propertiesOpen, setPropertiesOpen] = useState(false);
-  const [backlinksOpen, setBacklinksOpen] = useState(false);
+  const [mentionsOpen, setMentionsOpen] = useState(false);
   const [editingPath, setEditingPath] = useState(false);
   const [pathDraft, setPathDraft] = useState("");
   const [movePaths, setMovePaths] = useState<string[]>();
@@ -341,11 +342,12 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }, [loadTypeSource, phase, selectedTypeName, surface, typeCreating, typeDocument, typeError, typeLoading, typeWorkspace]);
 
   const notePreviewController = useNotePreview(gateway, allNotes, typeDescriptors);
+  const linkTargets = useLinkTargets(gateway, document?.path, collectionRevision);
   const fileWorkspace = useFileWorkspace(
     fileAssetStore,
     fileInventory.files,
     draft?.body ?? "",
-    document?.path,
+    linkTargets,
     visibleFileEmbedKeys
   );
   const { selectedFile: selectedCollectionFile, setSelectedFile: setSelectedCollectionFile, selectedAsset: selectedFileAsset,
@@ -394,7 +396,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       setMobilePane(event.state.pane);
       if (event.state.surface === "notes" && event.state.pane === "notes") focusNoteList();
       setPropertiesOpen(false);
-      setBacklinksOpen(false);
+      setMentionsOpen(false);
     };
     window.addEventListener("popstate", onPopState);
     if (!mobileHistoryInitialized.current) {
@@ -632,7 +634,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     setPropertiesError(undefined);
     if (mobileLayout) {
       setPropertiesOpen(false);
-      setBacklinksOpen(false);
+      setMentionsOpen(false);
     }
     setMovePaths(undefined);
     setOutlineOpen(false);
@@ -739,9 +741,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
 
   useEffect(() => {
     if (phase !== "ready" || !structureComplete || listLoading || contentComplete || contentIndexing || contentError) return;
-    if (!deferredSearch.trim() && !backlinksOpen && !allNotes.some(note => noteNeedsBodyTitle(note, typeDescriptors))) return;
+    if (!deferredSearch.trim() && !mentionsOpen && !allNotes.some(note => noteNeedsBodyTitle(note, typeDescriptors))) return;
     void loadContentIndex();
-  }, [allNotes, backlinksOpen, contentComplete, contentError, contentIndexing, deferredSearch, listLoading, loadContentIndex, phase, structureComplete, typeDescriptors]);
+  }, [allNotes, mentionsOpen, contentComplete, contentError, contentIndexing, deferredSearch, listLoading, loadContentIndex, phase, structureComplete, typeDescriptors]);
 
   useEffect(() => {
     if (phase !== "ready" || !connectionSummary) return;
@@ -832,7 +834,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     setCreationContext({});
     setCreationDirty(false);
     setPropertiesOpen(false);
-    setBacklinksOpen(false);
+    setMentionsOpen(false);
     setSelectedCollectionFile(file);
     setPendingFilePath(file.path);
     setPendingNotePath(undefined);
@@ -924,12 +926,10 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     { collectionId: workspaceCollectionId.current, epoch: collectionEpoch.current },
     draft?.body ?? "",
     allNotes,
-    linkOptions,
-    fileInventory.files,
-    document?.path,
+    linkTargets,
     visibleNoteEmbedKeys
   );
-  const backlinkNotes = useMemo(() => document ? backlinksFor(document.path, allNotes, typeDescriptors) : [], [allNotes, document, typeDescriptors, i18n.locale]);
+  const backlinks = useBacklinks(gateway, document?.path, collectionRevision, allNotes, typeDescriptors);
   const mentions = useMemo(() => document ? unlinkedMentions(searchIndex, document.path, draft?.title ?? noteTitle(document, typeDescriptors)) : [], [searchIndex, document, draft?.title, typeDescriptors, i18n.locale]);
   const focusMode = preferences.focusMode && surface === "notes" && Boolean(document) && !creationMode && !selectedCollectionFile;
 
@@ -1050,7 +1050,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     setCreationContext({});
     setCreationDirty(false);
     setPropertiesOpen(false);
-    setBacklinksOpen(false);
+    setMentionsOpen(false);
     setEditingPath(false);
     setPathDraft("");
     setMovePaths(undefined);
@@ -1137,7 +1137,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     saveCurrentInBackground();
     setSurface("notes");
     setPropertiesOpen(false);
-    setBacklinksOpen(false);
+    setMentionsOpen(false);
     setRenamePlan(undefined);
     clearRenameRequest();
     setCreationDirty(false);
@@ -1190,7 +1190,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     setNotice(undefined);
     setPropertiesError(undefined);
     setPropertiesOpen(false);
-    setBacklinksOpen(false);
+    setMentionsOpen(false);
     setCreationDirty(false);
     setCreationContext({});
     setMobilePane("editor");
@@ -1529,7 +1529,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     setCreationContext({});
     setCreationDirty(false);
     setPropertiesOpen(false);
-    setBacklinksOpen(false);
+    setMentionsOpen(false);
     setRenamePlan(undefined);
     clearRenameRequest();
     if (next === "notes") focusNoteList();
@@ -1826,7 +1826,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       focus: toggleFocus,
       properties: () => { if (focusMode) toggleFocus(); setPropertiesOpen((value) => !value); },
       outline: () => setOutlineOpen((value) => !value),
-      backlinks: () => { setBacklinksOpen(true); window.document.getElementById("linked-from")?.focus(); },
+      backlinks: () => { window.document.getElementById("linked-from")?.focus(); },
       "check-note": !mutationsFrozen ? () => void validateNote() : undefined
     } : {})
   }, { focus: focusMode ? t`Exit focus mode` : t`Focus mode`, "attach-file": attachFileAction.label }).concat(noteViewCommands(chooseNoteSort, setNoteFilter, () => { setSearch(""); setNoteFilter(undefined); }, tagFacets, typeFacets, noteSortFields));
@@ -2043,7 +2043,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             </div>}
             {!mobileLayout && <button className={`icon-button${propertiesOpen ? " active" : ""}`} aria-label={t`Note properties`} aria-keyshortcuts="Enter Space" aria-pressed={propertiesOpen} onClick={() => {
               setPropertiesOpen((value) => {
-                if (!value) setBacklinksOpen(false);
+                if (!value) setMentionsOpen(false);
                 return !value;
               });
             }}><Info aria-hidden="true" /></button>}
@@ -2056,9 +2056,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
               ...(mobileLayout ? [menuCommand("quick-open", <Search aria-hidden="true" />, () => { setQuickOpenCommandMode(false); setQuickOpen(true); })] : []),
               ...noteActions(document.path, mobileLayout ? t`Rename path` : undefined),
               { ...menuCommand("outline", <ListBullets aria-hidden="true" />, () => setOutlineOpen(true)), separatorBefore: true },
-              menuCommand("backlinks", <Link2 aria-hidden="true" />, () => { setBacklinksOpen(true); window.document.getElementById("linked-from")?.focus(); }),
+              menuCommand("backlinks", <Link2 aria-hidden="true" />, () => { window.document.getElementById("linked-from")?.focus(); }),
               menuCommand("focus", <ListBullets aria-hidden="true" />, toggleFocus, false, focusMode ? t`Exit focus mode` : undefined),
-              ...(mobileLayout ? [menuCommand("properties", <Info aria-hidden="true" />, () => { if (focusMode) toggleFocus(); setBacklinksOpen(false); setPropertiesOpen(true); })] : []),
+              ...(mobileLayout ? [menuCommand("properties", <Info aria-hidden="true" />, () => { if (focusMode) toggleFocus(); setMentionsOpen(false); setPropertiesOpen(true); })] : []),
               { ...attachFileAction, separatorBefore: true },
               { ...menuCommand("shortcuts", <Keyboard aria-hidden="true" />, () => setShortcutsOpen(true)), separatorBefore: true },
               menuCommand("check-note", <Check aria-hidden="true" />, () => void validateNote(), mutationsFrozen)
@@ -2105,7 +2105,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             <button onClick={cancelRename}><Trans>Cancel</Trans></button>
             <button className="primary-confirm-action mdbase-button is-primary" onClick={() => void performRename(renamePlan, true)}><Trans>Rename and update links</Trans></button>
           </div>}
-          <MarkdownNoteEditor footer={<BacklinksPanel key={document.path} mentions={mentions} onLinkMention={canEditNotes && !mutationsFrozen ? (mention) => void linkUnlinkedMention(mention) : undefined} linking={linkingMention} notes={backlinkNotes} types={typeDescriptors} loading={contentIndexing} error={contentError} onFind={!contentComplete && !contentIndexing && !contentError ? () => setBacklinksOpen(true) : undefined} onRetry={() => void loadContentIndex()} onOpen={navigateToNote} />} editorKey={noteSessions.current.active?.editorSessionKey ?? document.path}
+          <MarkdownNoteEditor footer={<BacklinksPanel key={document.path} mentions={mentions} onLinkMention={canEditNotes && !mutationsFrozen ? (mention) => void linkUnlinkedMention(mention) : undefined} linking={linkingMention} notes={backlinks.notes} types={typeDescriptors} loading={backlinks.loading} error={backlinks.error} onRetry={backlinks.retry} mentionsLoading={contentIndexing} mentionsError={contentError} onFindMentions={!contentComplete && !contentIndexing && !contentError ? () => setMentionsOpen(true) : undefined} onRetryMentions={() => void loadContentIndex()} onOpen={navigateToNote} />} editorKey={noteSessions.current.active?.editorSessionKey ?? document.path}
             draft={draft} preferences={preferences} documentId={noteSessions.current.active?.editorSessionKey} readOnly={noteReadOnly}
             provenance={mobileLayout ? <>
               {notePathControl}
@@ -2114,7 +2114,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
               {noteLoading && <span role="status" className="note-opening-status"><Trans>Opening “{pendingNotePath}”…</Trans></span>}
             </> : undefined}
             remoteApplyToken={remoteApplyToken} autoFocus={editorAutoFocus}
-            currentPath={document.path} recentPaths={recentPaths} linkSuggestions={linkOptions} linkTypes={linkTypeNames}
+            currentPath={document.path} linkTargets={linkTargets} recentPaths={recentPaths} linkSuggestions={linkOptions} linkTypes={linkTypeNames}
             embeddedFiles={embeddedFiles} embeddedNotes={embeddedNotes} files={fileInventory.files} notes={allNotes}
             onUploadAttachment={canAttachFiles && !attachments.disabled ? attachments.uploadReference : undefined}
             insertion={attachments.insertion} onTitleVisibilityChange={setNoteTitleVisible} onTitleChange={(title) => changeActiveDraft((current) => ({ ...current, title }))}
