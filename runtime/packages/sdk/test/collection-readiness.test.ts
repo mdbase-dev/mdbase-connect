@@ -9,6 +9,8 @@ import {
   describeResult,
   listResourcesResult,
   resourceView,
+  syncStatus,
+  type SyncStatus,
   type DescribeResult,
   type ResourceView,
   type Problem,
@@ -61,6 +63,7 @@ async function fixture() {
     opens = 0,
     inventories = 0;
   let beforeReply: (() => void) | undefined;
+  let wrapped: FramePort | undefined;
   let responseGate: Promise<void> | undefined;
   let pageReply:
     ((cursor: CborValue | undefined) => ListResourcesResult) | undefined;
@@ -121,6 +124,7 @@ async function fixture() {
       };
       opened.port.onframe = (value) => port.onframe?.(value);
       opened.port.onclose = (value) => port.onclose?.(value);
+      wrapped = port;
       return { ...opened, port };
     },
   };
@@ -167,6 +171,12 @@ async function fixture() {
     },
     pages: (value: (cursor: CborValue | undefined) => ListResourcesResult) => {
       pageReply = value;
+    },
+    /** A replica status push, as the native replica sends one. */
+    status: (value: SyncStatus) => {
+      wrapped?.onframe?.(
+        clientFrame.enc({ kind: "push", type: "status", payload: syncStatus.enc(value) }),
+      );
     },
   };
 }
@@ -642,6 +652,49 @@ describe("original selected collection semantic readiness", () => {
       expect(f.opens()).toBe(1);
     } finally {
       stop();
+      await assessor.close();
+      f.client.close();
+    }
+  });
+  it("a local-only replica's unchanged status push re-checks a definitions-only commit", async () => {
+    // Regression (staging, unsynced TaskNotes): automatic setup committed the
+    // contracts locally, but the status read the same before and after (no log
+    // positions, pending back to 0) and the change feed carries records only,
+    // so the settled setup_required was never re-checked.
+    const f = await fixture(),
+      assessor = f.make();
+    const local: SyncStatus = {
+      mode: "local_only",
+      confirmedThrough: 0,
+      headKnown: 0,
+      pending: 0,
+      holds: 0,
+      unresolved: 0,
+      connection: "online",
+      incidents: [],
+    };
+    const describes = () => f.requests.filter((m) => m === "describe").length;
+    try {
+      await assessor.start();
+      // The first local-only status differs from the synced hello status.
+      let probes = describes();
+      f.status(local);
+      await vi.waitFor(() => expect(describes()).toBe(probes + 1));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(assessor.getSnapshot().assessment?.status).toBe("ready");
+      // A definitions-only commit: same status, no change batch.
+      const next = `sha256:${"44".repeat(32)}`;
+      f.setRows(f.rows().map((row) => ({ ...row, revision: next })));
+      f.setCatalog({ ...f.catalog(), specVersion: `${f.catalog().specVersion}-changed` });
+      probes = describes();
+      f.status(local);
+      await vi.waitFor(() =>
+        expect(
+          assessor.getSnapshot().assessment?.witness.resources[0]?.revision,
+        ).toBe(next),
+      );
+      expect(describes()).toBeGreaterThan(probes);
+    } finally {
       await assessor.close();
       f.client.close();
     }

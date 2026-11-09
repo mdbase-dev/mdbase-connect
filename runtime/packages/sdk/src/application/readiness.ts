@@ -149,6 +149,7 @@ export class ApplicationReadiness {
         if(!this.current())break;
         if(source)await source.refresh(); // original lifetime READ, no caller cancellation loan
       }
+      await this.reassessAfterSetup();
       return this.getSnapshot();
     }).finally(()=>{
       if(this.pending!==pending)return;
@@ -159,6 +160,20 @@ export class ApplicationReadiness {
     }).then(()=>this.getSnapshot());
     this.pending=pending;this.changed();
     return pending.then(value=>{const detail=this.fenceDetail()??(caller?.aborted?"caller_aborted":null);if(detail)throw new ApplicationReadinessError("application_readiness_fenced",detail);return value;});
+  }
+  /** The native witness is taken before configuration, which may then apply
+   * setup (automatically for a new or unsynced collection). Its change notice
+   * can arrive after this refresh settles, so a settled native setup_required
+   * beside a configuration that settled ready is assessed once more here.
+   * One extra READ at most: a genuine disagreement stays setup_required. */
+  private async reassessAfterSetup():Promise<void>{
+    if(!this.native||!this.current())return;
+    const native=this.native.getSnapshot();
+    let configured:MdbaseApplicationFacetSnapshot|null=null;
+    try{configured=this.sources.configuration?.getSnapshot()??null;}catch{/* read() reports it */}
+    if(native.checking||native.assessment?.status!=="setup_required"||configured?.checking||configured?.assessment?.status!=="ready")return;
+    // A change notice may have started the same re-check already.
+    await this.native.start().catch((error:unknown)=>{if(!(isMdbaseError(error)&&error.reason==="readiness_busy"))throw error;});
   }
   close():Promise<void>{
     if(this.closing)return this.closing;

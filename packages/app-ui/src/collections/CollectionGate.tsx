@@ -221,7 +221,13 @@ function GateBody({ ui, layout, extraActions, onDialog }: {
     case "needs_setup":
       return <SetupReview key={view.collectionId} ui={ui} layout={layout} />;
     case "problem":
-      return <NoticeBlock notice={view.notice} ui={ui} />;
+      return <>
+        <NoticeBlock notice={view.notice} ui={ui} />
+        {/* The unsynced collection's own problem: signing in is the way past it. */}
+        {view.unsynced && !view.signedIn && <div className="mdbase-collections-actions">
+          <ActionButton tone="secondary" inert={inert} progress={busy === "sign_in" ? copy.addingCollection : null} onClick={actions.signIn}>{copy.signIn}</ActionButton>
+        </div>}
+      </>;
     case "unavailable":
     case "closed":
       return <>

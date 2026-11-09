@@ -19,6 +19,8 @@ use w::intent::{Create, Op, ResourcePut};
 mod asfile_query;
 #[path = "tentative_discovery/host_views.rs"]
 mod host_views;
+#[path = "tentative_discovery/local_only.rs"]
+mod local_only;
 #[path = "tentative_discovery/local_reads.rs"]
 mod local_reads;
 #[path = "tentative_discovery/missing_contract.rs"]
@@ -232,6 +234,10 @@ fn create(id: B16, path: &str, source: &str) -> Op {
     })
 }
 fn configure_resources(app: &mut App, session: SessionId, service: &FakeLogService) {
+    submit(app, session, resource_ops(), 21);
+    settle(app, service);
+}
+fn resource_ops() -> Vec<Op> {
     // Reuse the checked-in resolved Base contract/type, not extension-only
     // classification or caller-authored native discovery descriptors.
     let fixture = mdbn_core::yaml::parse_value(
@@ -256,8 +262,7 @@ fn configure_resources(app: &mut App, session: SessionId, service: &FakeLogServi
             must_not_exist: None,
         }));
     }
-    submit(app, session, ops, 21);
-    settle(app, service);
+    ops
 }
 fn configure(app: &mut App, session: SessionId, service: &FakeLogService) {
     configure_resources(app, session, service);

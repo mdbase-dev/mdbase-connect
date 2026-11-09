@@ -4,7 +4,7 @@ import type { Op, Receipt } from "../wire.js";
 import { MdbaseError, isMdbaseError, mdbaseError } from "../errors.js";
 import { decode, modelResourcePlan } from "../app-host/collection-setup-journal.js";
 import type { ModelResourceSetupJournal, ModelSetupIntent } from "../app-host/collection-setup-types.js";
-import { catalogFingerprint, statusStamp } from "../app-host/collection-readiness.js";
+import { catalogFingerprint, localCommitSignal, statusStamp } from "../app-host/collection-readiness.js";
 import { AppCollectionControlError, resourceDecisions, type AppResourceAssessment, type AppResourceDecisions, type AppResourceSetupPort } from "../app-host/collection-control.js";
 import { versionRelation } from "../semver.js";
 import { setupPlan, setupRecords, type MdbaseSetupPlan, type MdbaseSetupPlanOptions, type MdbaseSetupRecord } from "./setup.js";
@@ -301,7 +301,11 @@ export function createApplicationConfiguration(source: ApplicationConfigurationI
     check(signal);
     const session = await input.client.readyForRead(readSignal);
     check(signal, session);
-    if (!stops.length) { lastStamp = stamp(); stops.push(input.client.onStatus(invalidate), input.client.onLink(invalidate)); }
+    if (!stops.length) {
+      lastStamp = stamp();
+      // An unchanged local-only status still follows a commit (see localCommitSignal).
+      stops.push(input.client.onStatus(status => { if (localCommitSignal(status)) lastStamp = null; invalidate(); }), input.client.onLink(invalidate));
+    }
     dirty = false;
     const { journaled, previous } = await recover(signal, session);
     if (!resources) throw failure("unsupported");

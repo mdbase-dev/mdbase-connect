@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import "../../test/dialog.js";
 import type { Mdbase, MdbasePhase, MdbaseSnapshot } from "@mdbase-dev/sdk";
+import { describeError } from "@mdbase-dev/sdk/describe";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -133,6 +134,31 @@ describe("working before connecting", () => {
     expect(label).toBe("Saved only in this browser");
     await act(async () => set({ phase: readyPhase }));
     expect(label).toBeNull();
+  });
+
+  it("checks a settled unsynced setup problem again and offers signing in instead", async () => {
+    const problem = describeError("contract_missing")!;
+    const shown = { status: "setup_required", selectedCollectionId: U, unsynced: { collectionId: U, sessionStatus: "signed_out" } } as unknown as Partial<MdbaseSnapshot>;
+    const { mdbase, entry } = fakeMdbase({ kind: "problem", collectionId: U, problem } as MdbasePhase, shown, false);
+    const view = collectionView(entry.getSnapshot(), { appName: app.name });
+    expect(view.kind === "problem" && view.unsynced).toBe(true);
+    await render(<CollectionGate mdbase={entry} app={app} autoStart={false} unsynced>{() => null}</CollectionGate>);
+    // Never a setup review: the unsynced collection sets itself up when it opens.
+    expect(() => button(problem.actionLabel!)).toThrow();
+    await click(button("Try again"));
+    expect(mdbase.assess).toHaveBeenCalledWith(expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(mdbase.setup.plan).not.toHaveBeenCalled();
+    await render(<CollectionGate mdbase={entry} app={app} autoStart={false} unsynced key="again">{() => null}</CollectionGate>);
+    await click(button("Sign in"));
+    expect(mdbase.signIn).toHaveBeenCalled();
+  });
+
+  it("leaves another collection's setup problem as it was", () => {
+    const problem = describeError("contract_missing")!;
+    const { entry } = fakeMdbase({ kind: "problem", collectionId: A, problem } as MdbasePhase,
+      { status: "setup_required", selectedCollectionId: A } as Partial<MdbaseSnapshot>);
+    const view = collectionView(entry.getSnapshot(), { appName: app.name });
+    expect(view.kind === "problem" && { unsynced: view.unsynced, control: view.notice.control?.kind }).toEqual({ unsynced: false, control: "set_up" });
   });
 
   it("shows where the work is kept in a settings panel", async () => {

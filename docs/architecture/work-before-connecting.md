@@ -65,7 +65,8 @@ control plane.
 
 Apps reach it through the same `MdbaseApplicationConnection` they use for a
 synced collection. Records, queries, `describe`, types, record leases,
-`observe` and link preflights all run in the same core. Files are the
+`observe`, link preflights and Bases views (`.base` discovery, source reads
+and execution) all run in the same core. Files are the
 exception in this version: a local-only replica refuses attachment uploads
 with `upgrade_required`, and the grant's file actions omit `"add"`, so apps
 hide attach as they already do for a read-only grant. App code does not
@@ -126,6 +127,18 @@ beside the sign-in session's collections and reports it as the tab's open
 collection, with the session's own status alongside. Readiness, automatic
 setup, tabs and ports therefore run unchanged. The URL selection never sees
 it.
+
+Two details differ underneath. A local-only replica's sync status reads the
+same before and after a commit (nothing is pending or confirmed by a log), so
+readiness treats every local-only status push as a possible commit and checks
+the catalogue again. And because the native readiness check runs before
+automatic setup applies, readiness checks native once more, in the same
+refresh, when setup has just made the collection ready. Bases reads on a
+local-only replica take a local authority in place of a keyed device: the
+session must still have READ on the whole collection, the replica must be
+healthy, and every read is fenced by the same head, store, repair and
+catalogue generations as a synced read. Synced and hosted replicas still
+require a current keyed device.
 
 Actions, each called from the user's gesture:
 
