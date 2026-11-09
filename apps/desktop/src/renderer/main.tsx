@@ -478,7 +478,7 @@ function UpdateRow({ status, busy, onAct }: {
   const installLabel = status?.phase === "ready"
     ? t(i18n)`Install ${status.target_version}`
     : status?.target_version ? t(i18n)`Open ${status.target_version}` : t(i18n)`Open update`;
-  const actions = updateActions(status ?? { phase: "unavailable", can_check: false, can_install: false });
+  const actions = updateActions(status ?? { can_check: false, can_install: false });
   return (
     <div className="setting-row">
       <span><Trans>Application</Trans></span>

@@ -697,7 +697,7 @@ function createTray(): void {
 function refreshTrayMenu(): void {
   if (!tray) return;
   const update = updater?.status();
-  const actions = updateActions(update ?? { phase: "unavailable", can_check: false, can_install: false });
+  const actions = updateActions(update ?? { can_check: false, can_install: false });
   const installLabel = update?.phase === "ready"
     ? t(i18n)`Install ${update.target_version}`
     : update?.target_version ? t(i18n)`Open ${update.target_version}` : t(i18n)`Open update`;

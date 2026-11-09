@@ -295,9 +295,11 @@ test("a repeated manual check while an external update is available stays extern
       }
     ]
   };
+  let checks = 0;
   let downloads = 0;
   const runtime = backend({
     async findLatest() {
+      checks += 1;
       return { manifest: signedManifest(external) };
     },
     async openExternal() {
@@ -314,6 +316,7 @@ test("a repeated manual check while an external update is available stays extern
   assert.equal(second.message, first.message);
   assert.equal(second.can_check, true);
   assert.equal(second.can_install, true);
+  assert.equal(checks, 2);
   assert.equal(downloads, 0);
   const installed = await coordinator.install();
   assert.equal(installed.phase, "external");
@@ -335,17 +338,38 @@ test("two manual checks while external share the in-flight check", async () => {
   const coordinator = new UpdateCoordinator(store, backend({
     async findLatest() {
       calls += 1;
-      await gate;
+      if (calls > 1) await gate;
       return { manifest: signedManifest(external) };
     }
   }));
   await coordinator.initialize();
+  assert.equal((await coordinator.check(true)).phase, "external");
   const first = coordinator.check(true);
   const second = coordinator.check(true);
   assert.equal(first, second);
+  await setImmediate();
+  assert.equal(coordinator.status().phase, "checking");
+  assert.equal(coordinator.status().can_check, false);
+  assert.equal(coordinator.status().can_install, false);
+  assert.equal(calls, 2);
   release();
   assert.equal((await first).phase, "external");
-  assert.equal(calls, 1);
+  assert.equal((await second).phase, "external");
+  assert.equal(calls, 2);
+});
+
+test("manual checks preserve a staged automatic update without downloading again", async () => {
+  const { store } = await fixture();
+  const runtime = backend();
+  const coordinator = new UpdateCoordinator(store, runtime);
+  await coordinator.initialize();
+  const staged = await coordinator.check();
+  assert.equal(staged.phase, "ready");
+  assert.deepEqual(await coordinator.check(true), staged);
+  assert.deepEqual(await coordinator.check(true), staged);
+  assert.deepEqual(runtime.events, ["find", "stage"]);
+  assert.equal((await coordinator.install()).phase, "installing");
+  assert.deepEqual(runtime.events, ["find", "stage", "install"]);
 });
 
 test("download and verification failures never enable installation", async () => {

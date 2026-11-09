@@ -130,36 +130,56 @@ test("renderer loads real locale chunks and restores the preload language prefer
 
 const nav = (page, name) => page.locator(".product-sidebar-link").filter({ hasText: name });
 
-test("an external update keeps Check for updates next to Open in Settings", async () => {
-  const { page, errors, calls } = await desktop({
-    updateStatus: {
-      phase: "external",
-      current_version: "0.1.0-beta.8",
-      channel: "beta",
-      target_version: "0.1.0-beta.9",
-      checked_at: "2026-11-09T00:00:00.000Z",
-      message: "Version 0.1.0-beta.9 is available through the signed package channel.",
-      can_check: true,
-      can_install: true
-    }
+for (const phase of ["external", "ready"]) {
+  test(`a ${phase} update keeps Check for updates next to its install action in Settings`, async () => {
+    const { page, errors, calls } = await desktop({
+      updateStatus: {
+        phase,
+        current_version: "0.1.0-beta.8",
+        channel: "beta",
+        target_version: "0.1.0-beta.9",
+        checked_at: "2026-11-09T00:00:00.000Z",
+        message: phase === "external" ? "Version 0.1.0-beta.9 is available through the signed package channel." : "Version 0.1.0-beta.9 is verified and ready to install.",
+        can_check: true,
+        can_install: true
+      }
+    });
+    const dialogs = [];
+    page.on("dialog", (dialog) => { dialogs.push(dialog.type()); void dialog.dismiss(); });
+    try {
+      await nav(page, "Settings").click();
+      await page.getByRole("heading", { name: "Settings", exact: true }).waitFor();
+      const install = page.getByRole("button", { name: `${phase === "external" ? "Open" : "Install"} 0.1.0-beta.9`, exact: true });
+      const check = page.getByRole("button", { name: "Check for updates", exact: true });
+      await install.waitFor();
+      await check.waitFor();
+      assert.equal(await install.isEnabled(), true);
+      assert.equal(await check.isEnabled(), true);
+      await page.setViewportSize({ width: 820, height: 720 });
+      const bounds = await page.locator(".setting-row").filter({ has: check }).evaluate((row) => {
+        const version = document.createRange();
+        version.selectNodeContents(row.querySelector("strong"));
+        return { versionRight: version.getBoundingClientRect().right, actionsLeft: row.querySelector(".update-actions").getBoundingClientRect().left };
+      });
+      assert.ok(bounds.versionRight <= bounds.actionsLeft, `version overlaps update actions: ${JSON.stringify(bounds)}`);
+      await check.click();
+      await page.waitForFunction(() => window.fixture.calls.some((call) => call[0] === "checkForUpdates"));
+      await page.waitForFunction(() => !document.querySelector(".update-actions button:disabled"));
+      assert.equal((await calls("checkForUpdates")).length, 1);
+      await check.click();
+      await page.waitForFunction(() => window.fixture.calls.filter((call) => call[0] === "checkForUpdates").length === 2 && !document.querySelector(".update-actions button:disabled"));
+      assert.equal(await install.count(), 1);
+      assert.equal(await check.count(), 1);
+      assert.deepEqual(await calls("installUpdate"), []);
+      await install.click();
+      await page.waitForFunction(() => window.fixture.calls.some((call) => call[0] === "installUpdate"));
+      assert.equal((await calls("installUpdate")).length, 1);
+      assert.equal(await page.getByRole("alert").count(), 0);
+      assert.deepEqual(dialogs, []);
+      assert.deepEqual(errors, []);
+    } finally { await page.close(); }
   });
-  try {
-    await nav(page, "Settings").click();
-    await page.getByRole("heading", { name: "Settings", exact: true }).waitFor();
-    const open = page.getByRole("button", { name: "Open 0.1.0-beta.9", exact: true });
-    const check = page.getByRole("button", { name: "Check for updates", exact: true });
-    await open.waitFor();
-    await check.waitFor();
-    assert.equal(await open.isEnabled(), true);
-    assert.equal(await check.isEnabled(), true);
-    await check.click();
-    await page.waitForFunction(() => window.fixture.calls.some((call) => call[0] === "checkForUpdates"));
-    assert.equal((await calls("checkForUpdates")).length, 1);
-    assert.equal(await open.count(), 1);
-    assert.equal(await page.getByRole("alert").count(), 0);
-    assert.deepEqual(errors, []);
-  } finally { await page.close(); }
-});
+}
 
 async function collectionAction(page, name, card = page.locator(".collection-card")) {
   await card.getByRole("button", { name: /^Actions for / }).click();
