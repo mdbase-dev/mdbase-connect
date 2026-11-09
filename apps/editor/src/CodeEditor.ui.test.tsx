@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from "./test/locale";
 import { describe, expect, it, vi } from "vitest";
 import { Compartment } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
 import { CodeEditor } from "./CodeEditor";
 import type { ResolvedFileReference } from "./use-file-assets";
 import type { ResolvedNoteEmbed } from "./note-embeds";
@@ -109,7 +110,7 @@ describe("writer presentation", () => {
 describe("note transclusions", () => {
   it("names a full note once and keeps its content keyboard-scrollable", async () => {
     render(<CodeEditor value={"Intro.\n\n![[Notes/plan]]"} label="Note body" language="markdown" variant="writer"
-      embeddedNotes={[{ ...noteReference, to: 23, key: "8:23", anchor: undefined, body: "# Project plan\n\nUseful content." }]} onOpenLink={vi.fn()} />);
+      embeddedNotes={{ source: "Intro.\n\n![[Notes/plan]]", references: [{ ...noteReference, to: 23, key: "8:23", anchor: undefined, body: "# Project plan\n\nUseful content." }] }} onOpenLink={vi.fn()} />);
     const region = await screen.findByRole("region", { name: "Transclusion of Project plan" });
     expect(region.querySelector("h1")).toBeNull();
     expect(region).toHaveTextContent("Useful content.");
@@ -122,9 +123,10 @@ describe("note transclusions", () => {
     const reconfigure = vi.spyOn(Compartment.prototype, "reconfigure");
     const first = vi.fn();
     const latest = vi.fn();
-    const embeddedNotes = [noteReference];
+    const value = "Intro.\n\n![[Notes/plan#Decisions]]";
+    const embeddedNotes = { source: value, references: [noteReference] };
     const props = {
-      value: "Intro.\n\n![[Notes/plan#Decisions]]", label: "Note body",
+      value, label: "Note body",
       language: "markdown" as const, variant: "writer" as const, embeddedNotes,
       onOpenLink: first, onVisibleNoteEmbeds: vi.fn(), onVisibleFileEmbeds: vi.fn(), onOpenFile: vi.fn()
     };
@@ -138,9 +140,9 @@ describe("note transclusions", () => {
     fireEvent.click(button);
     expect(first).not.toHaveBeenCalled();
     expect(latest).toHaveBeenCalledWith("Notes/plan.md");
-    const updatedNotes = [{ ...noteReference, body: "Updated fragment", revision: "2" }];
+    const updatedNotes = { source: value, references: [{ ...noteReference, body: "Updated fragment", revision: "2" }] };
     editor.rerender(<CodeEditor {...props} onOpenLink={latest} embeddedNotes={updatedNotes} />);
-    expect(reconfigure).toHaveBeenCalledTimes(1);
+    expect(reconfigure).not.toHaveBeenCalled();
     expect(screen.getByRole("region", { name: "Transclusion of Project plan" })).toHaveTextContent("Updated fragment");
     editor.rerender(<CodeEditor {...props} onOpenLink={undefined} embeddedNotes={updatedNotes} />);
     expect(screen.queryByRole("button", { name: "Open Project plan" })).not.toBeInTheDocument();
@@ -156,7 +158,7 @@ describe("note transclusions", () => {
       label="Note body"
       language="markdown"
       variant="writer"
-      embeddedNotes={[noteReference]}
+      embeddedNotes={{ source: "Intro.\n\n![[Notes/plan#Decisions]]", references: [noteReference] }}
       onOpenLink={open}
     />);
 
@@ -175,10 +177,11 @@ describe("PDF links and embeds", () => {
     const reference: ResolvedFileReference = {
       ...pdfReference, file, asset: { status: "ready", file, url: "blob:first" }
     };
-    const embeddedFiles = [reference];
+    const value = "Intro.\n\n![[Documents/image.png]]";
+    const embeddedFiles = { source: value, references: [reference] };
     const first = vi.fn(), latest = vi.fn();
     const props = {
-      value: "Intro.\n\n![[Documents/image.png]]", label: "Note body",
+      value, label: "Note body",
       language: "markdown" as const, variant: "writer" as const, embeddedFiles
     };
     const editor = render(<CodeEditor {...props} onOpenFile={first} />);
@@ -191,17 +194,32 @@ describe("PDF links and embeds", () => {
     expect(first).not.toHaveBeenCalled();
     expect(latest).toHaveBeenCalledWith(reference.asset);
     const asset = { status: "ready" as const, file, url: "blob:updated" };
-    editor.rerender(<CodeEditor {...props} onOpenFile={latest} embeddedFiles={[{ ...reference, asset }]} />);
-    expect(reconfigure).toHaveBeenCalledTimes(1);
+    editor.rerender(<CodeEditor {...props} onOpenFile={latest} embeddedFiles={{ source: value, references: [{ ...reference, asset }] }} />);
+    expect(reconfigure).not.toHaveBeenCalled();
     expect(screen.getByRole("img", { name: "image.png" })).toHaveAttribute("src", "blob:updated");
     fireEvent.click(screen.getByRole("button", { name: "Open image.png" }));
     expect(latest).toHaveBeenLastCalledWith(asset);
-    const updatedFiles = [{ ...reference, asset }];
+    const updatedFiles = { source: value, references: [{ ...reference, asset }] };
     editor.rerender(<CodeEditor {...props} onOpenFile={undefined} embeddedFiles={updatedFiles} />);
     expect(screen.queryByRole("button", { name: "Open image.png" })).not.toBeInTheDocument();
     editor.rerender(<CodeEditor {...props} onOpenFile={latest} embeddedFiles={updatedFiles} />);
     expect(screen.getByRole("button", { name: "Open image.png" })).toBeInTheDocument();
     reconfigure.mockRestore();
+  });
+
+  it("keeps an image embed in place while typing above it, before the next parse lands", async () => {
+    const file = { ...pdfReference.file, path: "Documents/image.png", mediaType: "image/png", mediaClass: "image" as const };
+    const value = "Intro.\n\n![[Documents/image.png]]";
+    const reference: ResolvedFileReference = { ...pdfReference, file, asset: { status: "ready", file, url: "blob:image" } };
+    const embeddedFiles = { source: value, references: [reference] };
+    const editor = render(<CodeEditor value={value} label="Note body" language="markdown" variant="writer" embeddedFiles={embeddedFiles} />);
+    const image = await screen.findByRole("img", { name: "image.png" });
+    const view = EditorView.findFromDOM(editor.container.querySelector(".cm-editor") as HTMLElement)!;
+    view.dispatch({ changes: { from: 6, insert: " More" } });
+    // The parse handed over still describes the text before the edit.
+    editor.rerender(<CodeEditor value={view.state.doc.toString()} label="Note body" language="markdown" variant="writer" embeddedFiles={embeddedFiles} />);
+    expect(screen.getByRole("img", { name: "image.png" })).toBe(image);
+    expect(view.state.sliceDoc(0, view.state.doc.lineAt(view.state.doc.length).from)).toBe("Intro. More\n\n");
   });
 
   it("focuses an embedded PDF in place without opening a modal", async () => {
@@ -210,7 +228,7 @@ describe("PDF links and embeds", () => {
       label="Note body"
       language="markdown"
       variant="writer"
-      embeddedFiles={[pdfReference]}
+      embeddedFiles={{ source: "Intro.\n\n![[Documents/paper.pdf]]", references: [pdfReference] }}
     />);
 
     const open = await screen.findByRole("button", { name: "Open paper.pdf" });

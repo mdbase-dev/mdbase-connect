@@ -35,9 +35,10 @@ import { parseDocument as parseYamlDocument } from "yaml";
 import type { FileAssetSnapshot } from "./file-asset-store";
 import type { ResolvedFileReference } from "./use-file-assets";
 import { writerAutocomplete } from "./code-editor-completions";
-import { attachmentCapture, blockAttachmentInsertion, fileEmbedPresentation } from "./code-editor-file-embeds";
+import { attachmentCapture, blockAttachmentInsertion, fileEmbedPresentation, parsedFileEmbeds } from "./code-editor-file-embeds";
 import type { AttachmentUploader } from "./AttachmentUpload";
-import { noteEmbedPresentation } from "./code-editor-note-embeds";
+import { noteEmbedPresentation, parsedNoteEmbeds } from "./code-editor-note-embeds";
+import type { ParsedEmbeds } from "./code-editor-embed-positions";
 import { MISSING_REFERENCE_CLASS, referenceDiagnostics } from "./code-editor-reference-diagnostics";
 import { writerInteractions } from "./code-editor-writer-interactions";
 import type { LinkTargets } from "./collection-links";
@@ -79,8 +80,8 @@ interface CodeEditorProps {
   onCreateLink?: (target: string, label: string | undefined, format: "wikilink" | "markdown") => void;
   onPreviewLink?: (path: string, anchor: NotePreviewAnchor, source: NotePreviewSource) => void;
   onDismissLinkPreview?: () => void;
-  embeddedFiles?: ResolvedFileReference[];
-  embeddedNotes?: ResolvedNoteEmbed[];
+  embeddedFiles?: ParsedEmbeds<ResolvedFileReference>;
+  embeddedNotes?: ParsedEmbeds<ResolvedNoteEmbed>;
   onOpenFile?: (asset: Extract<FileAssetSnapshot, { status: "ready" }>) => void;
   files?: CollectionFile[];
   notes?: NoteSummary[];
@@ -118,8 +119,6 @@ interface MarkdownEdit {
 
 const EMPTY_STRINGS: string[] = [];
 const EMPTY_SUGGESTIONS: LinkSuggestion[] = [];
-const EMPTY_FILE_EMBEDS: ResolvedFileReference[] = [];
-const EMPTY_NOTE_EMBEDS: ResolvedNoteEmbed[] = [];
 const EMPTY_FILES: CollectionFile[] = [];
 const EMPTY_NOTES: NoteSummary[] = [];
 const EMPTY_ANCHORS: readonly CommentAnchor[] = [];
@@ -162,8 +161,8 @@ export function CodeEditor({
   onCreateLink,
   onPreviewLink,
   onDismissLinkPreview,
-  embeddedFiles = EMPTY_FILE_EMBEDS,
-  embeddedNotes = EMPTY_NOTE_EMBEDS,
+  embeddedFiles,
+  embeddedNotes,
   onOpenFile,
   files = EMPTY_FILES,
   notes = EMPTY_NOTES,
@@ -219,8 +218,6 @@ export function CodeEditor({
   const onCreateLinkRef = useRef(onCreateLink);
   const onPreviewLinkRef = useRef(onPreviewLink);
   const onDismissLinkPreviewRef = useRef(onDismissLinkPreview);
-  const embeddedFilesRef = useRef(embeddedFiles);
-  const embeddedNotesRef = useRef(embeddedNotes);
   const onOpenFileRef = useRef(onOpenFile);
   // Widgets capture callbacks during decoration creation; retained DOM must
   // forward to the latest prop rather than capture that render's callback.
@@ -253,8 +250,6 @@ export function CodeEditor({
   onCreateLinkRef.current = onCreateLink;
   onPreviewLinkRef.current = onPreviewLink;
   onDismissLinkPreviewRef.current = onDismissLinkPreview;
-  embeddedFilesRef.current = embeddedFiles;
-  embeddedNotesRef.current = embeddedNotes;
   onOpenFileRef.current = onOpenFile;
   filesRef.current = files;
   notesRef.current = notes;
@@ -301,12 +296,10 @@ export function CodeEditor({
       ) : []),
       writerPresentation.current.of(writerPresentationFor(variant, quietMarkdown)),
       fileEmbeds.current.of(variant === "writer" && language === "markdown" ? fileEmbedPresentation(
-        () => embeddedFilesRef.current,
         () => onOpenFileRef.current ? openEmbeddedFile : undefined,
         () => onVisibleFileEmbedsRef.current
       ) : []),
       noteEmbeds.current.of(variant === "writer" && language === "markdown" ? noteEmbedPresentation(
-        () => embeddedNotesRef.current,
         () => onOpenLinkRef.current ? openEmbeddedNote : undefined,
         () => onVisibleNoteEmbedsRef.current
       ) : []),
@@ -468,13 +461,12 @@ export function CodeEditor({
     view.dispatch({
       effects: fileEmbeds.current.reconfigure(
         variant === "writer" && language === "markdown" ? fileEmbedPresentation(
-          () => embeddedFilesRef.current,
           () => onOpenFileRef.current ? openEmbeddedFile : undefined,
           () => onVisibleFileEmbedsRef.current
         ) : []
       )
     });
-  }, [embeddedFiles, language, canOpenEmbeddedFile, variant, i18n.locale]);
+  }, [language, canOpenEmbeddedFile, variant, i18n.locale]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -482,13 +474,22 @@ export function CodeEditor({
     view.dispatch({
       effects: noteEmbeds.current.reconfigure(
         variant === "writer" && language === "markdown" ? noteEmbedPresentation(
-          () => embeddedNotesRef.current,
           () => onOpenLinkRef.current ? openEmbeddedNote : undefined,
           () => onVisibleNoteEmbedsRef.current
         ) : []
       )
     });
-  }, [embeddedNotes, language, canOpenEmbeddedNote, variant, i18n.locale]);
+  }, [language, canOpenEmbeddedNote, variant, i18n.locale]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    const effects = [
+      ...(embeddedFiles ? [parsedFileEmbeds.of(embeddedFiles)] : []),
+      ...(embeddedNotes ? [parsedNoteEmbeds.of(embeddedNotes)] : [])
+    ];
+    if (effects.length) view.dispatch({ effects });
+  }, [embeddedFiles, embeddedNotes, language, variant]);
 
   useEffect(() => {
     const view = viewRef.current;

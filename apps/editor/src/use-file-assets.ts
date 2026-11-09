@@ -3,6 +3,7 @@ import type { LinkTargets } from "./collection-links";
 import { FileAssetStore, type FileAssetSnapshot } from "./file-asset-store";
 import { fileAssetKey, isInlinePreviewable } from "./file-reference-resolution";
 import type { FileReference } from "./file-references";
+import type { ParsedEmbeds } from "./code-editor-embed-positions";
 import type { CollectionFile, CollectionGateway } from "./model";
 
 export interface ResolvedFileReference extends Omit<FileReference, "file"> {
@@ -11,7 +12,6 @@ export interface ResolvedFileReference extends Omit<FileReference, "file"> {
 }
 
 const EMPTY_REFERENCES: Array<FileReference & { file: CollectionFile }> = [];
-const EMPTY_FILES: readonly CollectionFile[] = [];
 const NO_TARGETS = { subscribe: () => () => undefined, getVersion: () => 0 };
 
 export function useFileAssetStore(gateway: CollectionGateway): FileAssetStore {
@@ -35,20 +35,15 @@ export function useEmbeddedFileAssets(
   files: readonly CollectionFile[],
   linkTargets: LinkTargets | undefined,
   visibleKeys?: ReadonlySet<string>
-): ResolvedFileReference[] {
+): ParsedEmbeds<ResolvedFileReference> {
   const version = useSyncExternalStore(store.subscribe, store.getVersion, store.getVersion);
   const targets = linkTargets ?? NO_TARGETS;
   const targetsVersion = useSyncExternalStore(targets.subscribe, targets.getVersion, targets.getVersion);
-  const [parsed, setParsed] = useState<{
-    source: string;
-    files: readonly CollectionFile[];
-    from?: string;
-    references: Array<FileReference & { file: CollectionFile }>;
-  }>(() => ({ source: "", files: EMPTY_FILES, references: EMPTY_REFERENCES }));
-  // A renewed LinkTargets for the same note keeps its embeds until re-parsed.
-  const references = parsed.source === source && parsed.files === files && parsed.from === linkTargets?.from
-    ? parsed.references
-    : EMPTY_REFERENCES;
+  const [parsed, setParsed] = useState<{ source: string; references: Array<FileReference & { file: CollectionFile }> }>(
+    () => ({ source: "", references: EMPTY_REFERENCES })
+  );
+  // The last parse stands until the next one lands; the editor keeps its positions current meanwhile.
+  const { references } = parsed;
   useEffect(() => {
     let active = true;
     void import("./file-references").then(({ fileReferences }) => {
@@ -58,8 +53,6 @@ export function useEmbeddedFileAssets(
       linkTargets?.resolveAll(all.map((reference) => reference.raw)).catch(() => undefined);
       setParsed({
         source,
-        files,
-        from: linkTargets?.from,
         references: all.filter((reference): reference is FileReference & { file: CollectionFile } => Boolean(reference.file))
       });
     });
@@ -75,5 +68,8 @@ export function useEmbeddedFileAssets(
     // key captures complete selection metadata and viewport membership.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, store]);
-  return useMemo(() => references.map((reference) => ({ ...reference, asset: store.get(reference.file) })), [references, store, version]);
+  return useMemo(() => ({
+    source: parsed.source,
+    references: references.map((reference) => ({ ...reference, asset: store.get(reference.file) }))
+  }), [parsed.source, references, store, version]);
 }
