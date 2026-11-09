@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { cosignAssets, electronPlan, installCosign, lockedElectronVersion, prefetchElectron } from '../ci/prefetch-release.mjs';
+
+import { prefetchWorkerTools, workerTools } from '../ci/prefetch-worker-tools.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 test('uses the lockfile resolution after workspace overrides, and guards the qualified cache consumer', async () => {
@@ -141,4 +144,60 @@ test('every workflow workspace install prefetches Electron and no cosign install
     }
   }
   assert.ok(installs >= 15);
+});
+
+test('Forge packaging consumes the same verified cache through its actual @electron/get version', async t => {
+  const f = await fixture(t);
+  const require = createRequire(new URL('../../apps/desktop/package.json', import.meta.url));
+  const configPath = require.resolve('../../apps/desktop/forge.config.cjs');
+  const previous = process.env.electron_config_cache;
+  process.env.electron_config_cache = dirname(f.plan.directory);
+  t.after(() => {
+    if (previous === undefined) delete process.env.electron_config_cache;
+    else process.env.electron_config_cache = previous;
+    delete require.cache[configPath];
+  });
+  delete require.cache[configPath];
+  const { packagerConfig } = require(configPath);
+  assert.deepEqual(packagerConfig.download, { cacheRoot: dirname(f.plan.directory) });
+  const packagerRequire = createRequire(require.resolve('@electron/packager'));
+  const { downloadArtifact } = await import(pathToFileURL(packagerRequire.resolve('@electron/get')));
+  await prefetchElectron(f.plan, f.options);
+  const archive = await downloadArtifact({
+    version: f.plan.version, artifactName: 'electron', platform: process.platform, arch: process.arch,
+    ...packagerConfig.download, checksums: { [f.plan.name]: hash(f.zip) },
+    downloader: { download() { throw Error('packaging network forbidden'); } }
+  });
+  assert.equal(archive, join(f.plan.directory, f.plan.name));
+});
+
+test('worker-build uses authenticated, pinned archives and re-extracts verified cache bytes', async t => {
+  const f = await fixture(t);
+  const archiveRoot = join(dirname(f.plan.directory), 'source');
+  const extracted = join(archiveRoot, 'tool');
+  await mkdir(join(extracted, 'bin'), { recursive: true });
+  await writeFile(join(extracted, 'wasm-bindgen'), 'bindgen fixture');
+  await writeFile(join(extracted, 'bin/wasm-opt'), 'binaryen fixture');
+  const bytes = execFileSync('tar', ['-czf', '-', '-C', archiveRoot, 'tool']);
+  const tools = workerTools.map(tool => ({ ...tool, sha256: hash(bytes) }));
+  const destination = join(dirname(f.plan.directory), 'worker-tools');
+  const root = fileURLToPath(new URL('../../', import.meta.url));
+  const calls = [];
+  const options = { token: 'test-token', tools, fetchImpl: async (url, options) => {
+    assert.equal(options.headers.authorization, 'Bearer test-token');
+    assert.equal(options.headers.accept, 'application/octet-stream');
+    calls.push(url);
+    return new Response(bytes);
+  } };
+  const environment = await prefetchWorkerTools(root, destination, options);
+  assert.deepEqual(calls, workerTools.map(tool => `https://api.github.com/repos/${tool.repository}/releases/assets/${tool.id}`));
+  assert.equal(await readFile(environment.WASM_BINDGEN_BIN, 'utf8'), 'bindgen fixture');
+  assert.equal(await readFile(environment.WASM_OPT_BIN, 'utf8'), 'binaryen fixture');
+  await writeFile(environment.WASM_OPT_BIN, 'poisoned extraction');
+  await prefetchWorkerTools(root, destination, { ...options, token: '', fetchImpl: () => assert.fail('verified cache must not download') });
+  assert.equal(await readFile(environment.WASM_OPT_BIN, 'utf8'), 'binaryen fixture');
+  await writeFile(join(destination, tools[0].name), 'poisoned archive');
+  await assert.rejects(prefetchWorkerTools(root, destination, { ...options, fetchImpl: () => new Response('bad bytes') }), /checksum mismatch/);
+  await assert.rejects(prefetchWorkerTools(root, destination, { ...options, token: '', fetchImpl: () => assert.fail() }), /token required/);
+  await assert.rejects(prefetchWorkerTools(root, destination, { ...options, platform: 'win32' }), /Linux x64/);
 });

@@ -7,6 +7,8 @@
     "node": ">=24 <25"
   },
   "scripts": {
+    "check:release-downloads": "node scripts/check-release-downloads.mjs",
+    "test:release-downloads": "node --test scripts/check-release-downloads.test.mjs scripts/lib/prefetch-release.test.mjs apps/editor/scripts/native/authentication.test.mjs",
     "portal:review": "node apps/portal/tests/review/server.mjs",
     "test:portal-review": "playwright test --config apps/portal/playwright.config.ts",
     "build": "pnpm i18n:check && pnpm -r build",

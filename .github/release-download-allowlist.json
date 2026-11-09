@@ -1,0 +1,32 @@
+[
+  {
+    "path": "apps/editor/scripts/native/authentication.mjs",
+    "line": "need(matches[0].browser_download_url===`https://github.com/${repository}/releases/download/${tag}/${name}`,'release asset URL mismatch');",
+    "reason": "Release URL identity check or returned provenance metadata; no network request."
+  },
+  {
+    "path": "apps/editor/scripts/native/authentication.mjs",
+    "line": "if(!token)return publicBytes(asset.browser_download_url,fetchImpl);",
+    "reason": "Verbatim tasknotes-app #367 local-only no-token fallback; CI intake, install and comparison token wiring is mandatory in check-release-downloads.mjs."
+  },
+  {
+    "path": "apps/editor/scripts/native/authentication.mjs",
+    "line": "const prefix=`https://github.com/${repository}/releases/download/`;",
+    "reason": "Release URL identity check or returned provenance metadata; no network request."
+  },
+  {
+    "path": "apps/editor/scripts/native/authentication.mjs",
+    "line": "return {bytes,path:archive.browser_download_url,authentication:{kind:'github-attestation',version:pin.version,source:pin.sourceCommit,sha256:archive.digest.slice(7)}};",
+    "reason": "Release URL identity check or returned provenance metadata; no network request."
+  },
+  {
+    "path": "scripts/ci/prefetch-release.mjs",
+    "line": "const directory = sha256(`https://github.com/electron/electron/releases/download/${tag}`);",
+    "reason": "Electron URL directory hash required by @electron/get cache layout; no request."
+  },
+  {
+    "path": "scripts/generate-update-manifest.mjs",
+    "line": "const downloadRoot = `https://github.com/${repository}/releases/download/${tag}`;",
+    "reason": "Published update-manifest URL for product clients; this script does not download it."
+  }
+]

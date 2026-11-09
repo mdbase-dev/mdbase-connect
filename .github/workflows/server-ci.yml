@@ -252,6 +252,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: pnpm check:mdbase-rs-pin
+      - run: pnpm check:release-downloads && pnpm test:release-downloads
       - run: pnpm check:release-readiness
       - run: pnpm check:release-components
       - run: pnpm audit:dependencies
@@ -464,6 +465,9 @@ jobs:
       # Cargo cache mounts publish-images.yml saves from main; restore only.
       - id: buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        env:
+          GITHUB_TOKEN: token ${{ github.token }}
+
       - name: Restore hosted-provider Cargo cache mounts
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -555,6 +559,11 @@ jobs:
           node-version: 24
       - run: rustup toolchain install 1.94.0 --profile minimal --target wasm32-unknown-unknown
       - run: cargo install worker-build --version 0.8.7 --locked
+      - name: Prefetch worker-build release tools through authenticated assets
+        working-directory: ${{ github.workspace }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/ci/prefetch-worker-tools.mjs .
       - run: worker-build --release --locked
       - run: cargo build --locked -p mdbn-log-conformance --bin logsvc-bench
         working-directory: runtime

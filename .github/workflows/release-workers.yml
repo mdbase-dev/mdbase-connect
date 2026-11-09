@@ -148,6 +148,11 @@ jobs:
             "$CP_ORIGIN" "$LOG_ORIGIN" \
             "$GITHUB_WORKSPACE/target/worker-release-deps/connect" \
             "$GITHUB_WORKSPACE/runtime/target/$RELEASE_ENVIRONMENT-worker-release/verified-trust"
+      - name: Prefetch worker-build release tools through authenticated assets
+        working-directory: ${{ github.workspace }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/ci/prefetch-worker-tools.mjs .
       - name: Build native inputs from this exact source (GitHub-hosted runner)
         working-directory: runtime
         run: |
