@@ -173,6 +173,7 @@ fn tx(row: RecordRow) -> Tx {
                 fields: vec![],
             }],
             publish_at: Some(Head::GENESIS),
+            completes_backfill: false,
         }),
         records_put: vec![row],
         ..Tx::default()
@@ -230,11 +231,26 @@ fn rebuild_and_bad_optional_rows_never_publish_empty_success() {
             .any(|s| s.sql == "DELETE FROM st_qraw WHERE id=?")
     );
     assert!(bad.iter().all(|s| s.sql != COVERAGE));
-    assert_eq!(bad.last().unwrap().sql, invalidate()[0].sql);
+    // Unready without poisoning the version: a rebuild would only reach this
+    // same state, so it must not be forced on every open.
+    assert_eq!(
+        bad.last().unwrap().sql,
+        "UPDATE st_qraw_state SET ready=0 WHERE slot=0"
+    );
+    assert!(bad.iter().all(|s| s.sql != invalidate()[0].sql));
+    // Only the final transaction of a complete pass settles it.
+    let mut last = tx(record("---\na: [\n---\n"));
+    last.query_index.as_mut().unwrap().completes_backfill = true;
+    let last = maintenance(&p, &last).unwrap();
+    assert_eq!(last.last().unwrap().sql, SETTLE);
+    assert!(invalidate().iter().any(|s| s.sql == UNSETTLE));
     let mut cold = tx(record("body"));
     cold.records_put.clear();
     let cold = maintenance(&p, &cold).unwrap();
-    assert_eq!(cold.last().unwrap().sql, invalidate()[0].sql);
+    assert_eq!(
+        cold.last().unwrap().sql,
+        "UPDATE st_qraw_state SET ready=0 WHERE slot=0"
+    );
     assert!(
         p.borrow().calls.last().unwrap().stmts[0]
             .sql
