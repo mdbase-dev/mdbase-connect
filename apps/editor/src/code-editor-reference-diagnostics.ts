@@ -9,6 +9,9 @@ import { markdownReferences } from "./markdown-references";
 import { markdownFragment } from "./markdown-fragments";
 import type { CollectionFile, NoteSummary } from "./model";
 
+/** Marks a link whose target matches no note or file. */
+export const MISSING_REFERENCE_CLASS = "cm-reference-missing";
+
 export function referenceDiagnostics(
   suggestions: () => LinkSuggestion[],
   files: () => CollectionFile[],
@@ -46,7 +49,7 @@ export function diagnosticsForReferences(
     const note = noteMatches[0];
     const file = resolveFileReference(reference.target, reference.format, files, sourcePath);
     if (!note && !file) {
-      return [diagnostic(reference.from, reference.to, t`No note or file matches “${reference.target}”.`)];
+      return [{ ...diagnostic(reference.from, reference.to, t`No note or file matches “${reference.target}”.`), markClass: MISSING_REFERENCE_CLASS }];
     }
     if (note && reference.anchor) {
       const body = note.path === sourcePath
