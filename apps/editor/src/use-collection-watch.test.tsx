@@ -42,6 +42,13 @@ describe("observation app effects", () => {
     expect(f.input.files.reload).toHaveBeenCalledOnce();
     expect(f.input.refreshDescription).toHaveBeenCalledOnce();
   });
+  it("applies a removed file in place without re-listing every file", async () => {
+    const f = setup();
+    f.emit("file_remove", { file_id: "01911111-1111-7111-8111-111111111111" } as any);
+    await flush();
+    expect(f.input.files.remove).toHaveBeenCalledExactlyOnceWith("01911111-1111-7111-8111-111111111111");
+    expect(f.input.files.reload).not.toHaveBeenCalled();
+  });
   it("forwards reconnect state and ignores queued work after unmount", async () => {
     const f = setup();
     f.status({ state: "connected", cursor: 1, recovered: true });
