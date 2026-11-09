@@ -117,7 +117,7 @@ The `notification-timer` implementation uses the independently versioned
 binary release must not invalidate a scheduled timer. Exact event-contract,
 collection, grant and criterion checks remain unchanged. An incompatible
 adapter change requires an explicit persisted-timer transition; do not bump
-this version with the release train or accept arbitrary historical sources.
+this version with a release or accept arbitrary historical sources.
 
 Hosted migration `0043_notification_timer_source_identity.sql` and the local
 connector's idempotent SQLite data migration correct only Connect-owned timer

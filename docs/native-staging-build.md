@@ -1,8 +1,8 @@
 # Native staging daemon
 
 `cargo build -p mdbn-daemon --features staging` builds the `mdbase` daemon for
-the staging service. Release trains use it to run the native two-computer S0
-lane against staging with the exact candidate source. It is never a shipped
+the staging service. Runtime CI builds it, and staging qualification uses it to
+run the native two-computer S0 lane against staging with the exact candidate source. It is never a shipped
 artifact (`runtime/scripts/check-release-features.sh` denies the feature).
 
 ## Environment
