@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { replaceOpeningNoteBody } from "./note-body";
 
 for (const reducedMotion of ["no-preference", "reduce"] as const) {
   for (const width of [1920, 1600, 1440]) {
@@ -100,7 +101,7 @@ test("quick open uses P inside and outside the writer; K only creates links", as
   await page.keyboard.press("Control+k");
   await expect(search).toBeFocused();
   await expect(page.getByRole("dialog", { name: "Quick open" })).toHaveCount(0);
-  await body.fill("");
+  await replaceOpeningNoteBody(body, "");
   await body.focus();
   await page.keyboard.press("Control+k");
   await expect(body).toContainText("[link](https://)");

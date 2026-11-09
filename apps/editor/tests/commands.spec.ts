@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { replaceOpeningNoteBody } from "./note-body";
 
 test("shared native overlays keep nested focus, trap Tab, and use Portal shortcut aliases", async ({ page }) => {
   await page.setViewportSize({ width: 1024, height: 900 });
@@ -263,7 +264,7 @@ test("typewriter scrolling centres the caret and stays opt-in", async ({ page })
   await page.goto("?demo=4");
   const body = page.getByRole("textbox", { name: "Note body", exact: true });
   await expect(body).toBeVisible();
-  await body.fill(Array.from({ length: 40 }, (_, i) => `Line ${i + 1}`).join("\n"));
+  await replaceOpeningNoteBody(body, Array.from({ length: 40 }, (_, i) => `Line ${i + 1}`).join("\n"));
   await body.focus();
   await page.keyboard.press("Control+End");
   await expect.poll(async () => {

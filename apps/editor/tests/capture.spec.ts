@@ -1,10 +1,11 @@
 import { expect, test } from "@playwright/test";
+import { replaceOpeningNoteBody } from "./note-body";
 
 test("pastes a screenshot through the attachment pipeline and undoes only its reference", async ({ page, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.goto("/?demo=300");
   const body = page.getByRole("textbox", { name: "Note body", exact: true });
-  await body.fill("Before after.");
+  await replaceOpeningNoteBody(body, "Before after.");
   await body.press("Control+Home");
   for (let character = 0; character < 7; character += 1) await body.press("ArrowRight");
   await page.evaluate(async () => {
@@ -38,7 +39,7 @@ test("pastes a screenshot through the attachment pipeline and undoes only its re
 test("drops an image mid-paragraph as a block embed", async ({ page }) => {
   await page.goto("/?demo=300");
   const body = page.getByRole("textbox", { name: "Note body", exact: true });
-  await body.fill("Before after.");
+  await replaceOpeningNoteBody(body, "Before after.");
   await body.press("Control+End");
   const data = await page.evaluateHandle(async () => {
     const canvas = document.createElement("canvas");
@@ -70,7 +71,7 @@ test("drops an image mid-paragraph as a block embed", async ({ page }) => {
 test("drops multiple files at the coordinates rather than the current caret", async ({ page }) => {
   await page.goto("/?demo=300");
   const body = page.getByRole("textbox", { name: "Note body", exact: true });
-  await body.fill("Before.\n\nAfter.");
+  await replaceOpeningNoteBody(body, "Before.\n\nAfter.");
   await body.press("Control+End"); // the drop deliberately targets the start instead
   const data = await page.evaluateHandle(() => {
     const transfer = new DataTransfer();
