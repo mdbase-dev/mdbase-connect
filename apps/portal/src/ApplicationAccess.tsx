@@ -1,4 +1,4 @@
-import { withAppUrls } from "@mdbase-dev/ui/apps";
+import { officialApps, withAppUrls } from "@mdbase-dev/ui/apps";
 import { managedAppOrigins } from "../../../scripts/lib/managed-app-origins.mjs";
 import { formatters } from "@mdbase-dev/i18n";
 import { countLabel } from "./count-label";
@@ -118,9 +118,9 @@ export function AppAccess({ error, groups, client, busy, perform, collectionName
           editor: editorOrigin,
           reader: import.meta.env.VITE_MDBASE_READER_URL ?? deployment?.readerOrigin,
           writer: import.meta.env.VITE_MDBASE_WRITER_URL ?? deployment?.writerOrigin,
-        }).map(app => <a key={app.id} href={app.url}>{app.name}</a>)}
-        <a href="https://journal.mdbase.dev">Journal</a>
-        <a href="https://app.tasknotes.dev">TaskNotes</a>
+          journal: deployment?.journalOrigin,
+          tasknotes: deployment?.tasknotesOrigin,
+        }, officialApps).map(app => <a key={app.id} href={app.url}>{app.name}</a>)}
       </div>
     </section>}
     {children}

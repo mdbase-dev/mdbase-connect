@@ -18,6 +18,7 @@ import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { hostname } from "node:os";
+import { launchUrl, linuxDefaultBrowser, openApp, startDetached, type DefaultBrowser } from "./app-launcher";
 import { checkApprovalUrl } from "./approval-url";
 import { BootGate } from "./boot-gate";
 import { DaemonCli, previousRuntimeBinary, type DaemonProfile } from "./daemon-cli";
@@ -130,6 +131,22 @@ async function openSignInPage(uri: unknown): Promise<string> {
   const href = checkApprovalUrl(uri, approvalPolicy(await account()));
   await shell.openExternal(href);
   return href;
+}
+
+async function defaultBrowser(): Promise<DefaultBrowser | null> {
+  if (process.platform === "linux") return linuxDefaultBrowser();
+  const info = await app.getApplicationInfoForProtocol("https://");
+  return { name: info.name, path: info.path };
+}
+
+/** An app in its own browser window where the default browser supports it. */
+function openAppWindow(url: string): Promise<void> {
+  return openApp(url, {
+    platform: process.platform,
+    defaultBrowser,
+    start: startDetached,
+    openExternal: (href) => shell.openExternal(href)
+  });
 }
 
 function daemonSession(): DaemonSession {
@@ -413,7 +430,15 @@ function registerIpc(): void {
   });
   ipcMain.handle("connect:editor:open", async (event, collectionId: unknown) => {
     trustedIpc(event);
-    return shell.openExternal(buildEditorUrl(collectionId));
+    return openAppWindow(buildEditorUrl(collectionId));
+  });
+  ipcMain.handle("connect:apps:list", async (event) => {
+    trustedIpc(event);
+    return requestReadyAgent("account.applications", {}, 20_000);
+  });
+  ipcMain.handle("connect:apps:open", async (event, url: unknown) => {
+    trustedIpc(event);
+    return openAppWindow(launchUrl(url, !app.isPackaged));
   });
   ipcMain.handle("connect:startup:get", async (event) => {
     trustedIpc(event);

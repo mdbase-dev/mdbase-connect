@@ -25,15 +25,18 @@ msgstr " 이전 폴더 {0}은(는) 그대로 유지됩니다."
 msgid ", and the files already in it become the first synced version"
 msgstr ", 이미 있던 파일은 첫 동기화 버전이 됩니다"
 
+#. placeholder {0}: pendingApps.length
+#: src/renderer/home-view.tsx
+msgid "{0, plural, one {# app is waiting for your approval.} other {# apps are waiting for your approval.}}"
+msgstr "{0, plural, other {앱 #개가 승인을 기다리고 있습니다.}}"
+
 #. placeholder {0}: collection.sync.pending
 #: src/renderer/daemon-view.mts
 msgid "{0, plural, one {# change to sync} other {# changes to sync}}"
 msgstr "{0, plural, other {동기화할 변경 #개}}"
 
 #. placeholder {0}: app.grants.length
-#. placeholder {0}: collections.length
 #: src/renderer/access-view.tsx
-#: src/renderer/main.tsx
 msgid "{0, plural, one {# collection} other {# collections}}"
 msgstr "{0, plural, other {컬렉션 #개}}"
 
@@ -137,10 +140,6 @@ msgstr "{app}에서 이제 {collection} 사용 가능"
 msgid "{app} lost access to {collection} in your account"
 msgstr "내 계정에서 {app}이(가) {collection} 액세스 권한을 잃음"
 
-#: src/renderer/main.tsx
-msgid "{attention, plural, one {# item needs you} other {# items need you}}"
-msgstr "{attention, plural, other {확인이 필요한 항목 #개}}"
-
 #: src/renderer/daemon-view.mts
 msgid "{collection} moved here from mdbase Connect (its files were not touched)"
 msgstr "{collection}이(가) mdbase Connect에서 여기로 이동함(파일은 변경되지 않음)"
@@ -205,10 +204,6 @@ msgstr "{safe} mdbase가 서버에 연결해 계정 업그레이드를 확인하
 #: src/renderer/takeover-state.mts
 msgid "{safe} They will move automatically when your account is upgraded, shortly."
 msgstr "{safe} 곧 계정이 업그레이드되면 자동으로 이동합니다."
-
-#: src/renderer/main.tsx
-msgid "{synced} synced"
-msgstr "{synced}개 동기화됨"
 
 #: src/renderer/takeover-state.mts
 msgid "{waiting, plural, one {“{name}” syncs again{location}. # edit made in “{name}” before the move is added once it has caught up.{after}{oldFolder}} other {“{name}” syncs again{location}. # edits made in “{name}” before the move are added once it has caught up.{after}{oldFolder}}}"
@@ -297,21 +292,18 @@ msgstr "Markdown 노트가 있는 폴더를 추가하거나 새 컬렉션을 만
 msgid "Add existing"
 msgstr "기존 항목 추가"
 
+#: src/renderer/home-view.tsx
 #: src/renderer/main.tsx
 msgid "Add existing folder"
 msgstr "기존 폴더 추가"
 
-#: src/renderer/main.tsx
+#: src/renderer/home-view.tsx
 msgid "Add your first collection"
 msgstr "첫 컬렉션 추가"
 
 #: src/renderer/collections-view.tsx
 msgid "Advanced"
 msgstr "고급"
-
-#: src/renderer/main.tsx
-msgid "All on this computer only"
-msgstr "모두 이 컴퓨터에만 있음"
 
 #: src/renderer/device-requests.tsx
 msgid "Allow"
@@ -329,6 +321,10 @@ msgstr "{who} 허용 중…"
 msgctxt "Local connection status"
 msgid "An app"
 msgstr "앱"
+
+#: src/renderer/home-view.tsx
+msgid "An app asks for access to a collection the first time you use it, and you choose what it can do."
+msgstr "앱은 처음 사용할 때 컬렉션 접근을 요청하며, 무엇을 허용할지는 직접 선택합니다."
 
 #: src/renderer/daemon-view.mts
 msgid "Another app, such as Obsidian, is using this folder right now. mdbase opens it when that app lets go."
@@ -391,9 +387,17 @@ msgstr "재개할 때까지 앱에서 사용할 수 없습니다."
 msgid "Apps keep working while the change finishes."
 msgstr "변경이 완료되는 동안에도 앱은 계속 작동합니다."
 
+#: src/renderer/home-view.tsx
+msgid "Apps open in a window of their own in your default browser."
+msgstr "앱은 기본 브라우저의 별도 창에서 열립니다."
+
 #: src/renderer/access-view.tsx
 msgid "Apps that can use your collections through this computer."
 msgstr "이 컴퓨터를 통해 내 컬렉션을 사용할 수 있는 앱"
+
+#: src/renderer/home-view.tsx
+msgid "Apps you approve appear here."
+msgstr "승인한 앱이 여기에 표시됩니다."
 
 #: src/renderer/access-view.tsx
 msgid "Apps you approve in mdbase appear here before they can connect."
@@ -402,10 +406,6 @@ msgstr "mdbase에서 승인한 앱은 연결되기 전에 여기에 표시됩니
 #: src/renderer/main.tsx
 msgid "Apps you approve in mdbase reach your local collections through this computer."
 msgstr "mdbase에서 승인한 앱은 이 컴퓨터를 통해 로컬 컬렉션에 접근합니다."
-
-#: src/renderer/main.tsx
-msgid "Apps you approve reach your collections through this computer"
-msgstr "승인한 앱은 이 컴퓨터를 통해 내 컬렉션에 접근합니다"
 
 #: src/renderer/access-view.tsx
 msgid "Apps you used with mdbase Connect appear here once Private sync is on for the {movedWaiting, plural, one {collection} other {collections}} that moved to this computer. mdbase turns it on by itself; you don't need to approve those apps again."
@@ -535,7 +535,7 @@ msgctxt "Desktop application"
 msgid "Choose a collection folder"
 msgstr "컬렉션 폴더 선택"
 
-#: src/renderer/main.tsx
+#: src/renderer/home-view.tsx
 msgid "Choose a folder of Markdown notes, or create a new one. It stays on this computer; your apps reach it through mdbase."
 msgstr "Markdown 노트 폴더를 선택하거나 새로 만드세요. 폴더는 이 컴퓨터에 남고 앱은 mdbase를 통해 접근합니다."
 
@@ -602,6 +602,7 @@ msgctxt "Desktop application"
 msgid "Collection name must be between 1 and 100 characters."
 msgstr "컬렉션 이름은 1~100자여야 합니다."
 
+#: src/renderer/home-view.tsx
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
 msgctxt "Connect interface"
@@ -611,10 +612,6 @@ msgstr "컬렉션"
 #: src/renderer/main.tsx
 msgid "Collections stay on this computer. Synced collections send changes to mdbase; private sync encrypts them so mdbase cannot read them. Your account only receives collection names and app-access details."
 msgstr "컬렉션은 이 컴퓨터에 남습니다. 동기화된 컬렉션은 변경 사항을 mdbase로 보냅니다. 비공개 동기화에서는 암호화하므로 mdbase에서 읽을 수 없습니다. 계정에는 컬렉션 이름과 앱 액세스 정보만 전달됩니다."
-
-#: src/renderer/main.tsx
-msgid "Collections, app access and sync status in one place."
-msgstr "컬렉션, 앱 액세스, 동기화 상태를 한곳에서 관리하세요."
 
 #: src/renderer/main.tsx
 msgid "Color theme"
@@ -699,6 +696,7 @@ msgctxt "Local connection status"
 msgid "create and edit records"
 msgstr "레코드 생성 및 편집"
 
+#: src/renderer/home-view.tsx
 #: src/renderer/main.tsx
 msgid "Create collection"
 msgstr "컬렉션 만들기"
@@ -849,6 +847,12 @@ msgstr "{label}(으)로 이동"
 #: src/renderer/collections-view.tsx
 msgid "Hide {0, plural, one {# file} other {# files}}"
 msgstr "{0, plural, other {파일 #개 숨기기}}"
+
+#: src/renderer/main.tsx
+#: src/renderer/ui-components.tsx
+msgctxt "Connect interface"
+msgid "Home"
+msgstr "홈"
 
 #: src/renderer/takeover-state.mts
 msgid "hosted collections still have edits waiting to upload"
@@ -1165,6 +1169,10 @@ msgstr "마이그레이션 연기됨"
 msgid "Migration postponed: {0}"
 msgstr "마이그레이션 연기됨: {0}"
 
+#: src/renderer/home-view.tsx
+msgid "More apps from mdbase"
+msgstr "mdbase의 다른 앱"
+
 #: src/renderer/takeover-panel.tsx
 #: src/renderer/takeover-state.mts
 msgid "Move to the new sync engine"
@@ -1219,6 +1227,10 @@ msgctxt "Connect interface"
 msgid "No apps connected"
 msgstr "연결된 앱 없음"
 
+#: src/renderer/home-view.tsx
+msgid "No apps yet"
+msgstr "아직 앱 없음"
+
 #: src/renderer/collections-view.tsx
 msgctxt "Local collection management"
 msgid "No collections yet"
@@ -1247,10 +1259,6 @@ msgstr "대기 중인 항목 없음"
 #: src/renderer/collections-view.tsx
 msgid "Nothing is waiting."
 msgstr "대기 중인 항목이 없습니다."
-
-#: src/renderer/main.tsx
-msgid "Nothing waiting"
-msgstr "대기 항목 없음"
 
 #: src/renderer/takeover-state.mts
 msgid "Nothing was changed. Contact support with a diagnostics report."
@@ -1287,9 +1295,15 @@ msgstr "한 줄에 폴더 하나씩, 컬렉션 기준 경로로 입력하세요.
 msgid "Only allow if this matches the code on {who}"
 msgstr "이 코드가 {who}의 코드와 일치하는 경우에만 허용하세요"
 
+#: src/renderer/home-view.tsx
+msgid "Open"
+msgstr "열기"
+
+#. placeholder {0}: app.name
 #. placeholder {0}: status.target_version
 #. placeholder {0}: update.target_version
 #: src/main/main.ts
+#: src/renderer/home-view.tsx
 #: src/renderer/main.tsx
 msgid "Open {0}"
 msgstr "{0} 열기"
@@ -1321,6 +1335,10 @@ msgstr "사용할 앱을 열어 mdbase에 연결하세요. 브라우저에서 �
 msgid "Open update"
 msgstr "업데이트 열기"
 
+#: src/renderer/main.tsx
+msgid "Open your apps and see the collections they use."
+msgstr "앱을 열고 각 앱이 사용하는 컬렉션을 확인하세요."
+
 #: src/renderer/sign-in-panel.tsx
 msgctxt "Connect interface"
 msgid "Opening browser…"
@@ -1334,12 +1352,6 @@ msgstr "여는 중…"
 msgctxt "File types that sync"
 msgid "Other files"
 msgstr "기타 파일"
-
-#: src/renderer/main.tsx
-#: src/renderer/ui-components.tsx
-msgctxt "Connect interface"
-msgid "Overview"
-msgstr "개요"
 
 #: src/renderer/collections-view.tsx
 msgctxt "Local collection management"
@@ -1454,6 +1466,10 @@ msgstr "동기화를 켜기 전에 이 컬렉션을 재개하여 파일을 확�
 #: src/renderer/takeover-panel.tsx
 msgid "Returned to the old engine"
 msgstr "이전 엔진으로 복귀함"
+
+#: src/renderer/home-view.tsx
+msgid "Review"
+msgstr "검토"
 
 #. placeholder {0}: view.holds
 #: src/renderer/collections-view.tsx
@@ -1645,6 +1661,10 @@ msgctxt "Connect interface"
 msgid "Start at login"
 msgstr "로그인 시 시작"
 
+#: src/renderer/home-view.tsx
+msgid "Start with an app"
+msgstr "앱으로 시작하기"
+
 #: src/renderer/takeover-state.mts
 msgid "Stay online until uploads finish, then try again."
 msgstr "업로드가 끝날 때까지 온라인 상태를 유지한 뒤 다시 시도하세요."
@@ -1658,10 +1678,6 @@ msgstr "{0}이(가) 이 컴퓨터를 통해 {1}을(를) 사용하지 못하게 �
 #: src/renderer/daemon-view.mts
 msgid "Stopped"
 msgstr "중단됨"
-
-#: src/renderer/collections-view.tsx
-#~ msgid "Sync"
-#~ msgstr "동기화"
 
 #. placeholder {0}: /[.!?]$/.test(sentence) ? sentence : `${sentence}.`
 #: src/renderer/view-model.ts
@@ -2130,6 +2146,14 @@ msgstr "내 계정은 아직 mdbase Connect를 사용함"
 #: src/renderer/sign-in-panel.tsx
 msgid "Your application request will keep waiting. Sign in so you can choose a folder on this computer, then continue the same request."
 msgstr "애플리케이션 요청은 계속 대기합니다. 이 컴퓨터에서 폴더를 선택할 수 있도록 로그인한 다음 동일한 요청을 계속하세요."
+
+#: src/renderer/home-view.tsx
+msgid "Your apps"
+msgstr "내 앱"
+
+#: src/renderer/home-view.tsx
+msgid "Your apps could not be listed. {failure}"
+msgstr "앱 목록을 불러올 수 없습니다. {failure}"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"

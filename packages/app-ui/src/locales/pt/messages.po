@@ -435,6 +435,10 @@ msgctxt "Collection access interface"
 msgid "It's erased from {app} on this device. This can't be undone."
 msgstr "Ele será apagado de {app} neste dispositivo. Não é possível desfazer."
 
+#: src/apps.ts
+msgid "Keep a daily journal"
+msgstr "Manter um diário"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Kept on your computers, not stored by mdbase"
@@ -584,6 +588,10 @@ msgstr "Opcional"
 msgctxt "Collection access interface"
 msgid "Owner"
 msgstr "Proprietário"
+
+#: src/apps.ts
+msgid "Plan tasks and projects"
+msgstr "Planejar tarefas e projetos"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"

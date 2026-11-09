@@ -28,6 +28,7 @@
 //! `shutdown`, `collection.list|add|remove|delete|pause|resume|holds|conflicts`,
 //! `sync.enable|disable`, `device.pending|approve|reject`,
 //! `recovery.status|create|import`, `access.list|revoke|approve|deny|ack`,
+//! `account.sign_in|sign_out|rename|applications`, `activity.list`,
 //! `settings.get|set`, `doctor`.
 //!
 //! **Pushes** after `status.subscribe`: `status` ([`DaemonStatus`]) and `access`
@@ -297,6 +298,10 @@ impl Method {
     /// `{name}` → `{name}`: rename this computer in the account (1 to 100
     /// characters). Needs sign-in and a reachable account.
     pub const ACCOUNT_RENAME: &'static str = "account.rename";
+    /// → `{applications: [AccountApplication]}`: apps approved anywhere in the
+    /// account, with the account collections each can use. Needs sign-in and a
+    /// reachable account; never includes local paths.
+    pub const ACCOUNT_APPLICATIONS: &'static str = "account.applications";
     /// → `{nonce}`: start caller authentication on this connection.
     pub const AUTH_CHALLENGE: &'static str = "auth.challenge";
     /// `{proof}` → `{}`: `proof = hex(HMAC-SHA256(control key, "mdbase/v1/control-auth" ‖ nonce))`.

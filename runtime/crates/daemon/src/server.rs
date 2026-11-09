@@ -1631,6 +1631,7 @@ impl Daemon {
                 let name = req.params.get("name").and_then(Value::as_str).unwrap_or("");
                 self.rename_computer(name).await
             }
+            Method::ACCOUNT_APPLICATIONS => self.account_applications().await,
             Method::SETTINGS_GET => {
                 let inner = self.inner.lock().await;
                 to_value(&Settings {
@@ -3340,6 +3341,29 @@ impl Daemon {
         drop(_gate);
         self.bump();
         Ok(json!({ "name": stored }))
+    }
+
+    /// The apps approved anywhere in the account. A read: no account gate, no
+    /// status bump, no activity entry.
+    async fn account_applications(&self) -> Result<Value, ControlError> {
+        let ctx = self.sync_ctx().ok_or_else(|| {
+            ControlError::new(
+                "unauthenticated",
+                "not_signed_in",
+                "sign this computer in first",
+            )
+        })?;
+        let applications = ctx
+            .cloud
+            .account_applications()
+            .await
+            .map_err(|e| match e {
+                crate::cloud::CloudError::Unauthenticated => {
+                    ControlError::new("unauthenticated", "authentication_required", e.to_string())
+                }
+                e => ControlError::unavailable("account_unreachable", e.to_string()),
+            })?;
+        Ok(json!({ "applications": applications }))
     }
 
     async fn update_collection(&self, p: UpdateCollection) -> Result<Value, ControlError> {

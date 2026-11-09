@@ -1399,6 +1399,21 @@ impl Cloud {
             .ok_or_else(|| CloudError::Server(status, "invalid_connector_rename".into()))
     }
 
+    /// The apps approved anywhere in this computer's account
+    /// (`GET /v1/connectors/self/applications`). Only well-formed entries are
+    /// returned; a malformed reply is refused whole.
+    pub async fn account_applications(&self) -> Result<Vec<AccountApplication>, CloudError> {
+        let r = self
+            .http
+            .get(format!("{}/v1/connectors/self/applications", self.server))
+            .bearer_auth(self.token.as_str())
+            .send()
+            .await
+            .map_err(|e| CloudError::Network(e.to_string()))?;
+        let (status, v) = json_response(r).await?;
+        parse_account_applications(v).ok_or_else(|| CloudError::Server(status, "malformed".into()))
+    }
+
     /// Publish the collection inventory (`POST /v1/connectors/sync`).
     pub async fn inventory(
         &self,
@@ -1427,6 +1442,58 @@ impl Cloud {
         json_response(r).await?;
         Ok(())
     }
+}
+
+/// An app approved somewhere in the account, as `account.applications` reports it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccountApplication {
+    /// Application ID.
+    pub id: String,
+    /// Display name.
+    pub name: String,
+    /// How the app is delivered.
+    pub distribution: AppDistribution,
+    /// Where the app is opened, when it has a web home.
+    pub homepage: Option<String>,
+    /// Icon URL.
+    pub icon: Option<String>,
+    /// The account collections it is approved for.
+    pub collections: Vec<AccountApplicationCollection>,
+}
+
+/// How an approved app is delivered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AppDistribution {
+    /// Served from the web.
+    Web,
+    /// Installed locally.
+    Portable,
+}
+
+/// A collection an approved app can use, by account ID and name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccountApplicationCollection {
+    /// Account collection ID.
+    pub id: String,
+    /// Display name.
+    pub name: String,
+}
+
+fn parse_account_applications(value: Value) -> Option<Vec<AccountApplication>> {
+    #[derive(Deserialize)]
+    struct Reply {
+        applications: Vec<AccountApplication>,
+    }
+    let reply: Reply = serde_json::from_value(value).ok()?;
+    let well_formed = reply.applications.iter().all(|a| {
+        !a.id.is_empty()
+            && !a.name.is_empty()
+            && a.collections
+                .iter()
+                .all(|c| !c.id.is_empty() && !c.name.is_empty())
+    });
+    well_formed.then_some(reply.applications)
 }
 
 fn parse_legacy_retirement(value: Value, expected: &str) -> Result<(), CloudError> {

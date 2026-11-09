@@ -8,6 +8,7 @@ await build({
   entryPoints: [
     "src/main/main.ts",
     "src/main/i18n.ts",
+    "src/main/app-launcher.ts",
     "src/main/approval-url.ts",
     "src/main/ipc-trust.ts",
     "src/main/preload.ts",

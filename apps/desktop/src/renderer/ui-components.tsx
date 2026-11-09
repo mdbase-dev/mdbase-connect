@@ -53,7 +53,7 @@ export function ProductSidebar({
     <button className="sidebar-search" onClick={onSearch}><span>{t(i18n)({ message: "Search", context: "Connect interface" })}</span><kbd>{shortcutLabel("mod+k")}</kbd></button>
     <nav ref={nav} className="product-sidebar-nav" aria-label={t(i18n)({ message: "mdbase connect navigation" })}>
       <span ref={pill} className="nav-pill" aria-hidden="true" hidden />
-      <NavButton route="overview" current={route} label={t(i18n)({ message: "Overview", context: "Connect interface" })} onSelect={onSelect} />
+      <NavButton route="overview" current={route} label={t(i18n)({ message: "Home", context: "Connect interface" })} onSelect={onSelect} />
       <NavButton route="collections" current={route} label={t(i18n)({ message: "Collections", context: "Connect interface" })} count={collectionCount} attention={deviceCount} onSelect={onSelect} />
       <NavButton route="access" current={route} label={t(i18n)({ message: "Apps", context: "Connect interface" })} attention={pendingCount} onSelect={onSelect} />
       <NavButton route="activity" current={route} label={t(i18n)({ message: "Activity", context: "Connect interface" })} onSelect={onSelect} />

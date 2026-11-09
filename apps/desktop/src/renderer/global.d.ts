@@ -85,6 +85,16 @@ interface AccessEntry {
   terms_unavailable?: boolean;
 }
 
+/** `account.applications`: an app approved anywhere in the account. */
+interface AccountApplication {
+  id: string;
+  name: string;
+  distribution: "web" | "portable";
+  homepage: string | null;
+  icon: string | null;
+  collections: Array<{ id: string; name: string }>;
+}
+
 /** `device.pending` entry: another computer asking to open a Private collection. */
 interface PendingDevice {
   /** Raw six-digit comparison code; null while the exchange is preparing. */
@@ -175,6 +185,8 @@ interface Window {
     resolveHold(collectionId: string, id: string, how: "keep_mine" | "take_theirs" | "keep_both" | "delete"): Promise<unknown>;
     openCollectionFolder(collectionId: string): Promise<void>;
     openEditor(collectionId: string): Promise<void>;
+    listApps(): Promise<{ applications: AccountApplication[] }>;
+    openApp(url: string): Promise<void>;
     getLaunchAtLogin(): Promise<StartupSetting>;
     setLaunchAtLogin(enabled: boolean): Promise<StartupSetting>;
     getCloudConfig(): Promise<CloudSetting>;

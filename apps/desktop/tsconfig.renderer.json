@@ -12,6 +12,7 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "strict": true,
+    "allowJs": true,
     "skipLibCheck": true
   },
   "include": ["src/renderer/**/*.ts", "src/renderer/**/*.tsx"]

@@ -32,19 +32,19 @@ after(async () => {
 
 // Lean UX checks for the daemon-backed renderer, on a mocked preload API. Pure
 // presentation (wording, grouping) is covered by test/daemon-view.test.mjs.
-async function desktop({ signedIn = true, collections = [], access = [], devices = [], activity = [] } = {}) {
+async function desktop({ signedIn = true, collections = [], access = [], devices = [], activity = [], apps = [] } = {}) {
   const page = await browser.newPage({ viewport: { width: 1060, height: 720 } });
   await page.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.clock.install();
-  await page.addInitScript(({ signedIn, collections, access, devices, activity }) => {
+  await page.addInitScript(({ signedIn, collections, access, devices, activity, apps }) => {
     const calls = [];
     const record = (name) => async (...args) => { calls.push([name, ...args]); return null; };
     const fixture = {
-      calls, collections, access, devices, activity, requireApproval: false,
+      calls, collections, access, devices, activity, apps, requireApproval: false,
       account: { configured: signedIn, serverUrl: signedIn ? "https://connect.example.test" : null, online: signedIn, pairing: null, lastError: null },
-      status: () => ({ target: "isolated_profile", state_dir: "/disposable", account: { signed_in: fixture.account.configured, online: fixture.account.configured }, collections: fixture.collections })
+      status: () => ({ target: "isolated_profile", state_dir: "/disposable", account: { signed_in: fixture.account.configured, online: fixture.account.configured, environment: "production" }, collections: fixture.collections })
     };
     window.fixture = fixture;
     window.mdbaseConnect = {
@@ -56,6 +56,8 @@ async function desktop({ signedIn = true, collections = [], access = [], devices
       listCollections: async () => fixture.collections,
       getCloudConfig: async () => ({ ...fixture.account }),
       listAccess: async () => fixture.access,
+      listApps: async () => ({ applications: fixture.apps }),
+      openApp: record("openApp"),
       getSettings: async () => ({ require_grant_approval: fixture.requireApproval }),
       getLaunchAtLogin: async () => ({ enabled: false, available: false }),
       addCollection: record("addCollection"),
@@ -97,7 +99,7 @@ async function desktop({ signedIn = true, collections = [], access = [], devices
       reopenSignIn: async () => {},
       onNavigate: () => () => {}, onUpdateStatus: () => () => {}
     };
-  }, { signedIn, collections, access, devices, activity });
+  }, { signedIn, collections, access, devices, activity, apps });
   await page.goto(origin);
   await page.getByText(signedIn ? "Connected securely" : "Not signed in", { exact: true }).first().waitFor().catch(error => { throw new Error(`${error.message}\nRenderer errors: ${errors.join("; ")}`); });
   const calls = (name) => page.evaluate((name) => window.fixture.calls.filter((call) => call[0] === name).map((call) => call.slice(1)), name);
@@ -141,12 +143,18 @@ const collection = (overrides = {}) => ({
 });
 
 for (const theme of ["light", "dark"]) {
-  test(`desktop parity: overview links, collection search and overflow in ${theme}`, async () => {
-    const { page, errors, calls } = await desktop({ collections: [collection(), collection({ id: "c-work", name: "Work" })] });
+  test(`desktop parity: home apps, collection search and overflow in ${theme}`, async () => {
+    const { page, errors, calls } = await desktop({
+      collections: [collection(), collection({ id: "c-work", name: "Work" })],
+      apps: [
+        { id: "editor", name: "Editor", distribution: "web", homepage: "https://editor.mdbase.dev/", icon: "https://editor.mdbase.dev/icon.svg", collections: [{ id: "c-notes", name: "Notes" }] },
+        { id: "board", name: "Board", distribution: "web", homepage: "https://board.example/", icon: "https://board.example/icon.png", collections: [] }
+      ]
+    });
     try {
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
-      const current = nav(page, "Overview");
+      const current = nav(page, "Home");
       for (let attempt = 0; attempt < 40 && !await current.evaluate(element => element === document.activeElement); attempt++) await page.keyboard.press("Tab");
       assert.equal(await current.evaluate(element => element === document.activeElement), true);
       const selection = await current.evaluate(element => {
@@ -159,12 +167,22 @@ for (const theme of ["light", "dark"]) {
       assert.equal(selection.before, "none");
       assert.notEqual(selection.background, "rgba(0, 0, 0, 0)");
       assert.equal(selection.outline, "solid");
-      assert.equal(await page.getByRole("heading", { name: "Overview", exact: true }).count(), 1);
-      assert.equal(await page.locator(".overview-row").count(), 3);
-      assert.equal(await page.locator(".overview-row button").count(), 0);
-      await screenshot(page, `parity-overview-${theme}`);
-      await page.getByRole("link", { name: /^Apps / }).click();
-      await page.getByRole("heading", { name: "Apps", exact: true }).waitFor();
+      assert.equal(await page.getByRole("heading", { name: "Home", exact: true }).count(), 1);
+      const yours = page.getByRole("region", { name: "Your apps" });
+      await yours.getByText("Editor", { exact: true }).waitFor();
+      // Official apps draw their bundled mark; others load their manifest icon and fall back to a letter when it fails.
+      assert.equal(await yours.locator(".app-tile").filter({ hasText: "Editor" }).locator(".app-mark.is-bundled svg").count(), 1);
+      await yours.locator(".app-tile").filter({ hasText: "Board" }).locator(".app-mark[data-tone]").filter({ hasText: "B" }).waitFor();
+      assert.equal(await page.locator("img.app-mark").count(), 0);
+      assert.deepEqual(await page.getByRole("region", { name: "More apps from mdbase" }).locator(".app-tile strong").allTextContents(),
+        ["Reader", "Writer", "Journal", "TaskNotes"]);
+      assert.equal(await page.getByRole("link", { name: /^Notes .*Editor$/ }).count(), 1);
+      await screenshot(page, `parity-home-${theme}`);
+      await yours.getByRole("button", { name: "Open Editor" }).click();
+      await page.waitForFunction(() => window.fixture.calls.some(call => call[0] === "openApp"));
+      assert.deepEqual(await calls("openApp"), [["https://editor.mdbase.dev/"]]);
+      await page.getByRole("link", { name: /^Work / }).click();
+      await page.getByRole("heading", { name: "Collections", exact: true }).waitFor();
       for (const name of ["Collections", "Apps", "Activity", "Settings"]) {
         await nav(page, name).click();
         await page.getByRole("heading", { name, exact: true }).waitFor();
@@ -515,14 +533,13 @@ for (const theme of ["light", "dark"]) {
         }));
         assert.notEqual(surfaces.sidebar, surfaces.canvas);
         assert.equal(surfaces.border, "1px");
-        for (const [label, heading] of [[/^Collections 1 collection/, "Collections"], [/^Apps 1 item needs you/, "Apps"]]) {
-          const link = page.getByRole("link", { name: label });
-          await link.focus();
+        for (const [control, heading] of [[page.getByRole("link", { name: /^Notes / }), "Collections"], [page.getByRole("button", { name: "Review", exact: true }), "Apps"]]) {
+          await control.focus();
           await page.keyboard.press("Enter");
           await page.getByRole("heading", { name: heading, exact: true }).waitFor();
-          await nav(page, "Overview").click();
+          await nav(page, "Home").click();
         }
-        await screenshot(page, `finish-overview-${viewport.width}-${theme}`);
+        await screenshot(page, `finish-home-${viewport.width}-${theme}`);
         for (const route of ["Collections", "Apps"]) {
           await nav(page, route).click();
           const prompt = page.locator(".approval-prompt");
