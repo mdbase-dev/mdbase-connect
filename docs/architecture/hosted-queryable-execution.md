@@ -10,12 +10,6 @@ Status: selected architecture; implementation in progress; not production-enable
 Governing decision:
 [ADR 0011](../decisions/0011-server-trusted-queryable-hosted-execution.md)
 
-Additive schema and rollout state:
-[Hosted semantic projection migration](./hosted-projection-migration.md)
-
-Isolated consumer validation:
-[Hosted Candidate B consumer staging missions](./hosted-consumer-staging-missions.md)
-
 ## Authority boundary
 
 Encrypted exact Markdown is the sole canonical record authority. A full

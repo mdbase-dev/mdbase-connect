@@ -48,20 +48,44 @@ pub(super) fn head<I: IndexStorage>(index: &Rc<RefCell<I>>) -> StoreResult<Head>
 pub(crate) fn projection_state<I: IndexStorage>(
     index: &Rc<RefCell<I>>,
 ) -> StoreResult<QueryProjectionState> {
-    let snapshot = head(index)?;
-    let (generation, ready) = state(index)?.unwrap_or(([0; 32], false));
+    let (generation, head, ready) = serving_state(index)?;
+    let settled = !ready && settled(index)?;
     Ok(QueryProjectionState {
         generation,
-        head: snapshot,
+        head,
         ready,
+        settled,
     })
+}
+fn serving_state<I: IndexStorage>(index: &Rc<RefCell<I>>) -> StoreResult<([u8; 32], Head, bool)> {
+    let snapshot = head(index)?;
+    let (generation, ready) = state(index)?.unwrap_or(([0; 32], false));
+    Ok((generation, snapshot, ready))
+}
+/// The settled marker names the current generation and the version is current
+/// (an invalidation zeroes the version and removes the marker together).
+fn settled<I: IndexStorage>(index: &Rc<RefCell<I>>) -> StoreResult<bool> {
+    let result = run(
+        index,
+        Stmt::new(
+            format!(
+                "SELECT 1 FROM st_qraw_state s JOIN st_kv k ON k.k='{SETTLED_KEY}' AND k.v=s.generation WHERE s.slot=0 AND s.version=?"
+            ),
+            vec![SqlValue::Integer(VERSION)],
+        ),
+    )?;
+    match result.values.as_slice() {
+        [] => Ok(false),
+        [SqlValue::Integer(1)] if result.columns == 1 => Ok(true),
+        _ => Err(corrupt()),
+    }
 }
 fn fence<I: IndexStorage>(
     index: &Rc<RefCell<I>>,
     request: &QueryProjectionRequest,
 ) -> StoreResult<()> {
-    let state = projection_state(index)?;
-    if !state.ready || state.generation != request.generation || state.head != request.head {
+    let (generation, head, ready) = serving_state(index)?;
+    if !ready || generation != request.generation || head != request.head {
         return Err(StoreError::Io(
             "SQL raw projection snapshot changed or is not ready".into(),
         ));

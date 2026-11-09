@@ -2114,8 +2114,14 @@ impl<S: Store> Replica<S> {
     }
 
     /// Recompute every record's index entries under the current catalog, then
-    /// stamp which catalog they were derived under.
+    /// stamp which catalog they were derived under. The pages and the stamp share
+    /// one deferred-durability window: the stamp is written last, so a crash
+    /// leaves it missing and the next open reindexes again.
     pub(super) fn reindex(&mut self) -> Result<(), StoreError> {
+        self.with_deferred_durability(Self::reindex_pages)
+    }
+
+    fn reindex_pages(&mut self) -> Result<(), StoreError> {
         let mut after = None;
         loop {
             let page = self

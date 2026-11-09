@@ -1,6 +1,6 @@
 # Portal, desktop and shared UI translations
 
-This branch is stacked on `feat/i18n-kit`; see `packages/i18n/README.md` for
+See `packages/i18n/README.md` for
 catalogue contracts and the ten supported locales. Portuguese is Brazilian
 Portuguese and Chinese is Simplified Chinese.
 

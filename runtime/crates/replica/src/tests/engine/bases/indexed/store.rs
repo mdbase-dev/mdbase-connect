@@ -120,6 +120,7 @@ impl Store for ProjectionStore {
             generation: self.generation,
             head: self.inner.head()?,
             ready: self.ready.get() && self.head == self.inner.head()?,
+            settled: false,
         }))
     }
     fn query_projection_page(

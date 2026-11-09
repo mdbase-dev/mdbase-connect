@@ -94,6 +94,9 @@ struct Trace {
     calls: Rc<RefCell<Vec<Call>>>,
     polls: Rc<Cell<usize>>,
     drops: Rc<Cell<usize>>,
+    /// The inner store's durability window, and whether each commit ran in one.
+    deferred: Rc<Cell<bool>>,
+    commits_deferred: Rc<RefCell<Vec<bool>>>,
 }
 impl Trace {
     fn push(&self, call: Call) {
@@ -236,7 +239,16 @@ impl Store for ResourceProbe {
         self.mem.conflict_count()
     }
     fn commit(&mut self, tx: Tx) -> StoreResult<CommitReport> {
+        let deferred = self.trace.deferred.get();
+        self.trace.commits_deferred.borrow_mut().push(deferred);
         self.mem.commit(tx)
+    }
+    fn defer_durability(&mut self, on: bool) -> StoreResult<()> {
+        self.trace.deferred.set(on);
+        Ok(())
+    }
+    fn durability_deferred(&self) -> bool {
+        self.trace.deferred.get()
     }
     fn defer_disk_observations(&mut self, tokens: &[ObservationId]) -> StoreResult<()> {
         self.trace.push(Call::Defer {
@@ -593,4 +605,26 @@ fn empty_resource_batches_and_token_slices_are_forwarded_not_accepted_locally() 
             mutation: MUTATION,
         });
     }
+}
+
+/// The replica's deferred-durability windows (disk ingest, index rebuilds) reach
+/// the inner store, and a keyring commit, whose keychain entry is an outside
+/// effect, first closes the window so the generation it names is durable.
+#[test]
+fn durability_windows_reach_the_inner_store_and_close_before_a_keyring_write() {
+    let (mut store, trace) = wrapped(Answer::Present, true);
+    store.defer_durability(true).unwrap();
+    assert!(store.durability_deferred());
+    store.commit(Tx::default()).unwrap();
+    assert_eq!(*trace.commits_deferred.borrow(), [true]);
+    store
+        .commit(Tx {
+            meta: vec![(meta_keys::KEYRING.to_string(), Some(b"keyring".to_vec()))],
+            ..Tx::default()
+        })
+        .unwrap();
+    assert!(!store.durability_deferred());
+    assert_eq!(*trace.commits_deferred.borrow(), [true, false]);
+    // The caller's own close after that is harmless.
+    store.defer_durability(false).unwrap();
 }

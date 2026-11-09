@@ -123,6 +123,7 @@ fn open(name: &str, rows: Vec<RecordRow>, names: &[&str]) -> Fixture {
                 replace_specs: Some(specs),
                 rows: projected,
                 publish_at: Some(Head::GENESIS),
+                completes_backfill: false,
             }),
             ..Tx::default()
         })
@@ -308,6 +309,7 @@ fn core_profile_maps_mixed_case_membership_and_unknown_types_without_hydration()
                 replace_specs: Some(ctx.fields().to_vec()),
                 rows: projected,
                 publish_at: Some(Head::GENESIS),
+                completes_backfill: false,
             }),
             ..Tx::default()
         })
@@ -391,6 +393,7 @@ fn optional_projection_failures_commit_valid_records_but_fence_queries() {
                 replace_specs: None,
                 rows: vec![projection],
                 publish_at: None,
+                completes_backfill: false,
             })
         };
         store
@@ -415,6 +418,7 @@ fn optional_projection_failures_commit_valid_records_but_fence_queries() {
                     replace_specs: None,
                     rows: vec![other_projection],
                     publish_at: Some(Head::GENESIS),
+                    completes_backfill: false,
                 }),
                 ..Tx::default()
             })
@@ -445,6 +449,7 @@ fn indexed_sql_warm_10k_backend_timing() {
                     replace_specs: None,
                     rows: projected,
                     publish_at: Some(Head::GENESIS),
+                    completes_backfill: false,
                 }),
                 ..Tx::default()
             })
@@ -562,6 +567,7 @@ fn deletion_keeps_null_coverage_and_nonlive_projection_cannot_keep_ready() {
                 replace_specs: None,
                 rows: vec![fake],
                 publish_at: None,
+                completes_backfill: false,
             }),
             ..Tx::default()
         })
@@ -593,6 +599,7 @@ fn statement_overflow_fallback_erases_stale_coverage_before_later_publication() 
                 replace_specs: Some(query_index_fields(&refs, 8192).unwrap()),
                 rows: vec![projected],
                 publish_at: Some(Head::GENESIS),
+                completes_backfill: false,
             }),
             ..Tx::default()
         })
@@ -615,6 +622,7 @@ fn statement_overflow_fallback_erases_stale_coverage_before_later_publication() 
                 replace_specs: None,
                 rows: vec![p],
                 publish_at: Some(Head::GENESIS),
+                completes_backfill: false,
             }),
             ..Tx::default()
         })
@@ -640,6 +648,7 @@ fn coverage_publication_and_real_sql_failure_are_not_fake_ready_or_ack() {
                 replace_specs: Some(query_index_fields(&refs, 8192).unwrap()),
                 rows: vec![p],
                 publish_at: Some(Head::GENESIS),
+                completes_backfill: false,
             }),
             ..Tx::default()
         })
@@ -659,7 +668,8 @@ fn coverage_publication_and_real_sql_failure_are_not_fake_ready_or_ack() {
                     generation: [8; 32],
                     replace_specs: None,
                     rows: vec![p],
-                    publish_at: None
+                    publish_at: None,
+                    completes_backfill: false,
                 }),
                 ..Tx::default()
             })
@@ -708,6 +718,7 @@ fn incremental_publication_checks_touched_records_only() {
                         replace_specs: None,
                         rows: projected,
                         publish_at: Some(Head::GENESIS),
+                        completes_backfill: false,
                     }),
                     ..Tx::default()
                 })
