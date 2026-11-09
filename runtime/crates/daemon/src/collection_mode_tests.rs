@@ -93,7 +93,7 @@ mod live {
     #[derive(Default)]
     struct Declines(AtomicU64);
     impl Confirmer for Declines {
-        fn ask<'a>(&'a self, _: &'a str, _: &'a str) -> crate::session::BoxFuture<'a, Answer> {
+        fn ask<'a>(&'a self, _: &'a crate::confirm::Prompt) -> crate::session::BoxFuture<'a, Answer> {
             self.0.fetch_add(1, Ordering::SeqCst);
             Box::pin(async { Answer::No })
         }
