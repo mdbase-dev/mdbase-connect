@@ -3,11 +3,27 @@ import { t } from "@lingui/core/macro";
 import type { CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
 import type { EditableNote, NoteDocument, NoteSummary, TitleSource } from "./model";
 import {
+  collectionDisplayField,
   fieldReferencePath,
   fieldReferencePatch,
   readFieldReference,
   recordDisplayField
 } from "./field-reference";
+
+/** A type name as a reader sees it: `obsidian_base` → "Obsidian base". The name itself stays the identifier everywhere else. */
+export function typeDisplayName(name: string): string {
+  const words = name.replace(/[_-]+/g, " ").trim();
+  return words ? words[0].toLocaleUpperCase() + words.slice(1) : name;
+}
+
+/** The icon a note's type declares, if any. */
+export function noteTypeIcon(note: NoteSummary, types: CollectionTypeDescriptor[]): string | undefined {
+  return recordDisplayField(note.types, types, "icon");
+}
+
+export function collectionDeclaresTypeIcons(types: CollectionTypeDescriptor[]): boolean {
+  return types.some((type) => collectionDisplayField(type, "icon"));
+}
 
 export function summaryFromDocument(document: NoteDocument): NoteSummary {
   const { revision: _revision, ...summary } = document;

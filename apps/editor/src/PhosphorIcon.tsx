@@ -1,7 +1,6 @@
-import type { CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
 import type { HTMLAttributes } from "react";
 import { PHOSPHOR_ICON_NAMES } from "./phosphor-icon-names.generated";
-// Only the lazy Types workspace renders metadata icon glyphs or the icon picker.
+// Loaded lazily (Types workspace, note-list type icons) so the glyph font stays out of the initial bundle.
 import "./phosphor-icons.generated.css";
 
 const PHOSPHOR_ICON_NAME_SET = new Set<string>(PHOSPHOR_ICON_NAMES);
@@ -37,22 +36,12 @@ export function isPhosphorIconName(value?: string): boolean {
   return PHOSPHOR_ICON_NAME_SET.has(normalizePhosphorIconName(value));
 }
 
-export function collectionTypeIcon(type?: CollectionTypeDescriptor): string | undefined {
-  const collection = objectValue(type?.collection) ?? objectValue(objectValue(type?.definition)?.collection);
-  const display = objectValue(collection?.display);
-  return typeof display?.icon === "string" ? display.icon : undefined;
-}
-
 export function PhosphorIcon({ name, className = "", ...props }: {
   name?: string;
 } & Omit<HTMLAttributes<HTMLElement>, "children">) {
   const normalized = normalizePhosphorIconName(name);
   if (!PHOSPHOR_ICON_NAME_SET.has(normalized)) return null;
   return <i {...props} className={`ph ph-${normalized}${className ? ` ${className}` : ""}`} />;
-}
-
-function objectValue(value: unknown): JsonObject | undefined {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as JsonObject : undefined;
 }
 
 export { PHOSPHOR_ICON_NAMES };

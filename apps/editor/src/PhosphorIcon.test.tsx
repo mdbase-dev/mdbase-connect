@@ -1,8 +1,6 @@
 import { render } from "./test/locale";
-import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import { describe, expect, it } from "vitest";
 import {
-  collectionTypeIcon,
   isPhosphorIconName,
   normalizePhosphorIconName,
   PhosphorIcon
@@ -17,14 +15,6 @@ describe("Phosphor icons", () => {
     expect(isPhosphorIconName("not-a-real-icon")).toBe(false);
   });
 
-  it("reads display icons from normalized and portable type definitions", () => {
-    expect(collectionTypeIcon(typeDescriptor({ display: { icon: "notebook" } }))).toBe("notebook");
-    expect(collectionTypeIcon({
-      ...typeDescriptor(),
-      definition: { collection: { display: { icon: "book-open" } } }
-    })).toBe("book-open");
-  });
-
   it("renders only known icons", () => {
     const { container, rerender } = render(<PhosphorIcon name="BookOpen" aria-hidden="true" />);
     expect(container.querySelector(".ph-book-open")).toBeInTheDocument();
@@ -32,12 +22,3 @@ describe("Phosphor icons", () => {
     expect(container).toBeEmptyDOMElement();
   });
 });
-
-function typeDescriptor(collection?: CollectionTypeDescriptor["collection"]): CollectionTypeDescriptor {
-  return {
-    name: "note",
-    schema: {},
-    collection,
-    extensions: {}
-  };
-}

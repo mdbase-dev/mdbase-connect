@@ -1,0 +1,7 @@
+{
+  "reason": "Note-list type icons: NoteList lazily imports PhosphorIcon so the glyph font stays out of the initial bundle, and TypeBrowser reads icons through field-reference's collectionDisplayField, replacing PhosphorIcon's own collectionTypeIcon reader (deleted). note.ts gains typeDisplayName, noteTypeIcon and collectionDeclaresTypeIcons for the list rows.",
+  "growth": {
+    "relativeImports": 2,
+    "typeScriptExportDeclarations": 2
+  }
+}

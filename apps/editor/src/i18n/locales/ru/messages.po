@@ -1593,6 +1593,10 @@ msgstr "Команды · {0} вне текста"
 msgid "Common icons"
 msgstr "Часто используемые значки"
 
+#: src/NoteListViewOptions.tsx
+msgid "Compact"
+msgstr "Компактно"
+
 #: src/settings/SettingsView.tsx
 msgctxt "editor text size"
 msgid "Compact"
@@ -2125,6 +2129,7 @@ msgstr "Отменить создание типа"
 msgid "Discard type changes?"
 msgstr "Отменить изменения типа?"
 
+#: src/NoteListViewOptions.tsx
 #: src/type-presentation.ts
 #: src/TypeBrowser.tsx
 msgid "Display"
@@ -3328,6 +3333,10 @@ msgstr "Следующая заметка"
 #: src/editor-commands.ts
 msgid "Next note in the list"
 msgstr "Следующая заметка в списке"
+
+#: src/NoteList.tsx
+msgid "No additional text"
+msgstr "Нет дополнительного текста"
 
 #: src/TypeBrowser.tsx
 msgid "No app contracts are installed"
