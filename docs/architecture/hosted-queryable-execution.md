@@ -1,5 +1,10 @@
 # Hosted queryable execution
 
+> **Legacy, not authoritative.** This describes the legacy Connect stack and its
+> deprecated `mdbase-rs` engine. It does not define current mdbase semantics, which
+> live in the runtime ([`runtime/`](../../runtime/README.md), with spec interpretations in
+> `runtime/docs/spec-notes.md`).
+
 Status: selected architecture; implementation in progress; not production-enabled
 
 Governing decision:

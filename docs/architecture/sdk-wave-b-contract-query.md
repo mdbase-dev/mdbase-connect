@@ -1,5 +1,10 @@
 # Wave B B5: Contract bodies and filters within the approval boundary
 
+> **Legacy, not authoritative.** This describes the legacy Connect stack and its
+> deprecated `mdbase-rs` engine. It does not define current mdbase semantics, which
+> live in the runtime ([`runtime/`](../../runtime/README.md), with spec interpretations in
+> `runtime/docs/spec-notes.md`).
+
 Status: proposed; security review required before implementation. Depends on
 [B1](sdk-wave-b-capability-negotiation.md); B2/B3 integration follows their shared
 row/read contracts. Baseline/provenance: B1. This does **not** revive type-scoped grants.

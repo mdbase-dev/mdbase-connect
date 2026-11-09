@@ -1,5 +1,10 @@
 # Wave B authority implementation (B3 → B2)
 
+> **Legacy, not authoritative.** This describes the legacy Connect stack and its
+> deprecated `mdbase-rs` engine. It does not define current mdbase semantics, which
+> live in the runtime ([`runtime/`](../../runtime/README.md), with spec interpretations in
+> `runtime/docs/spec-notes.md`).
+
 Collection semantics live in `mdbase-rs`. Connect authenticates, selects exact
 storage inputs, binds cursors and transports the canonical result.
 

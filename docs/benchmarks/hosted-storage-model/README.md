@@ -1,5 +1,10 @@
 # Hosted storage-model benchmark
 
+> **Legacy, not authoritative.** This describes the legacy Connect stack and its
+> deprecated `mdbase-rs` engine. It does not define current mdbase semantics, which
+> live in the runtime ([`runtime/`](../../../runtime/README.md), with spec interpretations in
+> `runtime/docs/spec-notes.md`).
+
 - Status: benchmark complete; Candidate B selected; production implementation active
 - Decision: Candidate B-no-GIN baseline, accepted 2026-08-16
 - Governing decision: `docs/decisions/0011-server-trusted-queryable-hosted-execution.md`

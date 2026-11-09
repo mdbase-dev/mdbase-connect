@@ -1,5 +1,10 @@
 # Wave B B2: Narrow query output
 
+> **Legacy, not authoritative.** This describes the legacy Connect stack and its
+> deprecated `mdbase-rs` engine. It does not define current mdbase semantics, which
+> live in the runtime ([`runtime/`](../../runtime/README.md), with spec interpretations in
+> `runtime/docs/spec-notes.md`).
+
 Status: proposed; depends on [B1](sdk-wave-b-capability-negotiation.md) and
 [B3 revisions](sdk-wave-b-query-revisions.md). Baseline/provenance: B1.
 

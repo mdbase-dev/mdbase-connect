@@ -1,5 +1,10 @@
 # SDK Wave B: Design index and implementation split
 
+> **Legacy, not authoritative.** This describes the legacy Connect stack and its
+> deprecated `mdbase-rs` engine. It does not define current mdbase semantics, which
+> live in the runtime ([`runtime/`](../../runtime/README.md), with spec interpretations in
+> `runtime/docs/spec-notes.md`).
+
 Status: proposed; docs-only phase. No runtime, public API or persisted representation
 has changed. Evidence baseline: Connect `dfc28fd9`, read-only shared mdbase-rs
 `sdk-upgrade/authority` at `f60adfe`; consumer/benchmark reports under

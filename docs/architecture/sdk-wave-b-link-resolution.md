@@ -1,5 +1,10 @@
 # Wave B B6: One link-resolution specification, explicit policy options
 
+> **Legacy, not authoritative.** This describes the legacy Connect stack and its
+> deprecated `mdbase-rs` engine. It does not define current mdbase semantics, which
+> live in the runtime ([`runtime/`](../../runtime/README.md), with spec interpretations in
+> `runtime/docs/spec-notes.md`).
+
 Status: proposed; depends on [B1](sdk-wave-b-capability-negotiation.md) for new
 options, not for documenting existing native resolution. Baseline/provenance: B1.
 Normative collection semantics must land in mdbase-rs/spec fixtures; this Connect
