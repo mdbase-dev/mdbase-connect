@@ -1,6 +1,6 @@
 {
   "source": {
-    "commit": "419d7ddfaade89b3795836674685f99738db9427",
+    "commit": "3a624e49834343413bbb1e32a36b06cec5e47701",
     "path": "runtime/crates/replica/src/frames.rs"
   },
   "methods": [
@@ -14,6 +14,7 @@
     "approve_device",
     "approve_grant",
     "await",
+    "backlinks",
     "cancel",
     "cancel_stream",
     "changes",
@@ -49,6 +50,7 @@
     "receipt",
     "reject_device",
     "resolve_hold",
+    "resolve_links",
     "set_materialization",
     "submit",
     "subscribe",
