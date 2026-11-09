@@ -41,6 +41,12 @@ impl std::fmt::Display for ClientError {
 
 impl std::error::Error for ClientError {}
 
+impl From<ControlError> for ClientError {
+    fn from(e: ControlError) -> Self {
+        ClientError::Remote(e)
+    }
+}
+
 /// A connected control client.
 pub struct ControlClient {
     stream: BoxStream,

@@ -1448,7 +1448,10 @@ pub type MetaPut = (String, Option<Vec<u8>>);
 /// Version of replica-derived record metadata. Bump when `record_meta` changes
 /// incompatibly: open reuses the catalog reindex before replaying pending work.
 /// This is separate from backend schema/codec and query-projection versions.
-pub const DERIVED_DATA_VERSION: u64 = 1;
+///
+/// 2: unique index entries for every field a `unique` rule names, with
+/// canonical value keys.
+pub const DERIVED_DATA_VERSION: u64 = 2;
 
 /// Meta keys the replica uses. Stores treat values as opaque bytes.
 pub mod meta_keys {
@@ -1500,4 +1503,7 @@ pub mod meta_keys {
     /// The installed generation-0 `base`: what its payload names and where it
     /// sits, committed with the install. Log-derived; a rebuild re-creates it.
     pub const BASE: &str = "replica.base";
+    /// The catalog the records' index entries were derived under
+    /// (`plan::record_meta_stamp`). Device-local; a mismatch reindexes on open.
+    pub const RECORD_META: &str = "replica.record_meta";
 }
