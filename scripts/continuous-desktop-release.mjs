@@ -11,7 +11,7 @@ const marker = "Continuous desktop status: stopped";
 const day = 24 * 60 * 60 * 1000;
 
 export function desktopChanged(paths, contents) {
-  return paths.some(path => /^(?:apps\/(?:desktop|editor)\/|packages\/|runtime\/(?:crates|xtask|tools)\/|runtime\/packages\/sdk\/|runtime\/Cargo\.|runtime\/rust-toolchain|runtime\/\.cargo\/|pnpm-|package\.json|deploy\/docker\/mdbase-rs-revision|config\/desktop-update-minimum\.json)/.test(path)
+  return paths.some(path => /^(?:apps\/(?:desktop|editor)\/|packages\/|runtime\/(?:crates|xtask|tools)\/|runtime\/packages\/sdk\/|runtime\/Cargo\.|runtime\/rust-toolchain|runtime\/\.cargo\/|pnpm-|package\.json|config\/desktop-update-minimum\.json)/.test(path)
     && !/(?:^|\/)(?:test|tests|__tests__)\//.test(path) && !/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path)
     && !/\.(?:md|mdx)$/.test(path) && (() => {
       if (!contents || !/(?:^|\/)package(?:-lock)?\.json$/.test(path)) return true;

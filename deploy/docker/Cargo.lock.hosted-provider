@@ -1230,26 +1230,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "connect-hosted-storage-benchmark"
-version = "0.1.0-beta.152"
-dependencies = [
- "aes-gcm",
- "chrono",
- "clap",
- "futures-util",
- "hmac 0.12.1",
- "mdbase",
- "serde",
- "serde_jcs",
- "serde_json",
- "sha2 0.10.9",
- "sqlx",
- "thiserror",
- "tokio",
- "uuid",
-]
-
-[[package]]
 name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -144,4 +144,4 @@ Complete projection rows remain for diagnosis and fast roll-forward. Deleting li
 
 ## Evidence
 
-The consolidated schema comparison and intentional differences are recorded in [candidate-b-consolidated-schema-diff.md](candidate-b-consolidated-schema-diff.md). The branch test suite covers beta69 migration replay, atomic bootstrap/import activation, interruption/retry, stale source recovery, digest/integrity failure, snapshot-safe write-through, cursor replay, cancellation, authorization fallback, relationship behavior, and high-cardinality budget paths. Fresh beta69 staging, full rollback/roll-forward, consumer missions, and release-candidate soak remain required before the production gate.
+The branch test suite covers beta69 migration replay, atomic bootstrap/import activation, interruption/retry, stale source recovery, digest/integrity failure, snapshot-safe write-through, cursor replay, cancellation, authorization fallback, relationship behavior, and high-cardinality budget paths. Fresh beta69 staging, full rollback/roll-forward, consumer missions, and release-candidate soak remain required before the production gate.
