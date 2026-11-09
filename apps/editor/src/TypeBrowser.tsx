@@ -41,8 +41,8 @@ import {
   type ContractCatalogPack
 } from "./contract-catalog";
 import type { NoteSummary, TypeDocument } from "./model";
+import { collectionDisplayField } from "./field-reference";
 import {
-  collectionTypeIcon,
   isPhosphorIconName,
   normalizePhosphorIconName,
   PHOSPHOR_ICON_NAMES,
@@ -144,8 +144,8 @@ export function TypeList({ types, selectedName, packsSelected = false, leadingAc
     </nav>
     <div className={`type-list${!visible.length ? " empty" : ""}`} role="listbox" aria-label={t`Collection types`}>
       {visible.map((type) => <button key={type.name} role="option" aria-selected={selectedName === type.name} className={`type-row${selectedName === type.name ? " selected" : ""}`} onClick={() => onSelect(type.name)}>
-        <span className="type-row-icon">{isPhosphorIconName(collectionTypeIcon(type))
-          ? <PhosphorIcon name={collectionTypeIcon(type)} aria-hidden="true" />
+        <span className="type-row-icon">{isPhosphorIconName(collectionDisplayField(type, "icon"))
+          ? <PhosphorIcon name={collectionDisplayField(type, "icon")} aria-hidden="true" />
           : <FileCode2 aria-hidden="true" />}</span>
         <span className="type-row-copy"><strong>{type.name}</strong><small>{type.description || t`${propertyCount(type)} schema properties`}</small></span>
       </button>)}
@@ -284,7 +284,7 @@ export function TypeInspector({ readOnly = false, type, availableTypes = [], con
     </header>
     <section className="type-heading">
       <div className="type-heading-title">
-        {!creating && isPhosphorIconName(collectionTypeIcon(type)) && <PhosphorIcon name={collectionTypeIcon(type)} aria-hidden="true" />}
+        {!creating && isPhosphorIconName(collectionDisplayField(type, "icon")) && <PhosphorIcon name={collectionDisplayField(type, "icon")} aria-hidden="true" />}
         <h1>{name}</h1>
       </div>
       {creating ? <p><Trans>Give the type a name, then add the fields its notes need.</Trans></p> : type!.description && <p>{type!.description}</p>}

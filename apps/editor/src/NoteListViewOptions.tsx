@@ -6,12 +6,14 @@ import { Menu, useMenuTrigger } from "@mdbase-dev/ui/menu";
 import { defaultSortDirection, noteSortDirections, noteSortKey, noteSortOptions, type NoteSort, type NoteSortPreference, type SortField } from "./note-sort";
 import { command, commandDefinitions } from "./editor-commands";
 
-export function NoteListViewOptions({ sort, fields, scopeLabel, onSort, onClearScope }: {
+export function NoteListViewOptions({ sort, fields, scopeLabel, compact, onSort, onClearScope, onCompact }: {
   sort: NoteSort;
   fields: readonly SortField[];
   scopeLabel?: string;
+  compact: boolean;
   onSort: (sort: NoteSortPreference) => void;
   onClearScope: () => void;
+  onCompact?: (compact: boolean) => void;
 }) {
   useLingui();
   const { id, open, close, trigger, triggerProps } = useMenuTrigger();
@@ -69,6 +71,16 @@ export function NoteListViewOptions({ sort, fields, scopeLabel, onSort, onClearS
         aria-checked={!scopeLabel}
         onClick={() => select(command("clear-filter", onClearScope).run)}
       ><span className="view-option-check">{!scopeLabel && <Check aria-hidden="true" />}</span><span>{commandDefinitions["clear-filter"].label}</span></button>
+      {onCompact && <>
+        <div className="view-options-divider" role="separator" />
+        <p className="view-options-heading"><Trans>Display</Trans></p>
+        <button
+          className="mdbase-menu-item"
+          role="menuitemcheckbox"
+          aria-checked={compact}
+          onClick={() => select(() => onCompact(!compact))}
+        ><span className="view-option-check">{compact && <Check aria-hidden="true" />}</span><span><Trans>Compact</Trans></span></button>
+      </>}
     </Menu>
   </div>;
 }

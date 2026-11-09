@@ -1,6 +1,6 @@
 import type { CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
 
-type DisplayField = "name_field" | "description_field" | "color_field";
+type DisplayField = "name_field" | "description_field" | "color_field" | "icon";
 
 const descriptorIndexes = new WeakMap<
   CollectionTypeDescriptor[],

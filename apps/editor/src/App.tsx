@@ -1961,6 +1961,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         collectionName={filterLabel(noteFilter, t`All notes`)}
         onSearch={setSearch}
         onSort={chooseNoteSort}
+        compact={layout.compactList}
+        onCompact={(compactList) => setLayout((current) => ({ ...current, compactList }))}
         onClearScope={() => setNoteFilter(undefined)}
         onQuickOpen={() => { setQuickOpenCommandMode(true); setQuickOpen(true); }}
         onRetryStructure={() => void loadIndex().catch(() => undefined)}

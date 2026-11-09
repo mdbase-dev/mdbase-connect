@@ -70,6 +70,11 @@ describe("collection display field references", () => {
     expect(recordDisplayField(["unknown"], [contact, organization], "name_field")).toBeUndefined();
   });
 
+  it("reads display icons from normalized and portable type definitions", () => {
+    expect(collectionDisplayField({ name: "note", schema: {}, extensions: {}, collection: { display: { icon: "notebook" } } }, "icon")).toBe("notebook");
+    expect(collectionDisplayField({ name: "note", schema: {}, extensions: {}, definition: { collection: { display: { icon: "book-open" } } } }, "icon")).toBe("book-open");
+  });
+
   it("does not treat collection path expansion as a scalar display field", () => {
     expect(fieldReferencePath("contacts[].value")).toBeUndefined();
   });

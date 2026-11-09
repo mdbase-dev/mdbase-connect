@@ -1593,6 +1593,10 @@ msgstr "Comandos · {0} fora do texto"
 msgid "Common icons"
 msgstr "Ícones comuns"
 
+#: src/NoteListViewOptions.tsx
+msgid "Compact"
+msgstr "Compacto"
+
 #: src/settings/SettingsView.tsx
 msgctxt "editor text size"
 msgid "Compact"
@@ -2125,6 +2129,7 @@ msgstr "Descartar tipo"
 msgid "Discard type changes?"
 msgstr "Descartar alterações do tipo?"
 
+#: src/NoteListViewOptions.tsx
 #: src/type-presentation.ts
 #: src/TypeBrowser.tsx
 msgid "Display"
@@ -3328,6 +3333,10 @@ msgstr "Próxima nota"
 #: src/editor-commands.ts
 msgid "Next note in the list"
 msgstr "Próxima nota na lista"
+
+#: src/NoteList.tsx
+msgid "No additional text"
+msgstr "Sem texto adicional"
 
 #: src/TypeBrowser.tsx
 msgid "No app contracts are installed"
