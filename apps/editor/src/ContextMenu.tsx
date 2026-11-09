@@ -12,6 +12,12 @@ export interface ActionMenuItem {
   onSelect: () => void;
 }
 
+/** iOS Safari never fires `contextmenu` for a touch long-press, so touch holds
+ * open the menu here. Android also fires `contextmenu`; opening twice at the
+ * same point is harmless. */
+const LONG_PRESS_MS = 500;
+const LONG_PRESS_SLOP_PX = 8;
+
 interface MenuPosition {
   left: number;
   top: number;
@@ -30,6 +36,11 @@ export function ContextMenu({ label, items, children, className = "", style, sho
   const id = useId();
   const restoreFocus = useRef<HTMLElement | undefined>(undefined);
   const [position, setPosition] = useState<MenuPosition>();
+  const press = useRef<{ timer: number; x: number; y: number; opened: boolean } | undefined>(undefined);
+  const cancelPress = () => {
+    if (press.current) clearTimeout(press.current.timer);
+    if (!press.current?.opened) press.current = undefined;
+  };
 
   const close = (restore = false) => {
     setPosition(undefined);
@@ -53,6 +64,31 @@ export function ContextMenu({ label, items, children, className = "", style, sho
     ref={root}
     className={`context-menu-target ${className}`.trim()}
     style={style}
+    onPointerDown={(event) => {
+      if (press.current) clearTimeout(press.current.timer);
+      press.current = undefined;
+      if (event.pointerType !== "touch" || !items.length) return;
+      const { clientX: x, clientY: y } = event;
+      const target = event.target instanceof Element ? event.target.closest<HTMLElement>("button") : null;
+      press.current = { x, y, opened: false, timer: window.setTimeout(() => {
+        if (!press.current) return;
+        press.current.opened = true;
+        openAt(x, y, target);
+      }, LONG_PRESS_MS) };
+    }}
+    onPointerMove={(event) => {
+      const start = press.current;
+      if (start && !start.opened && Math.hypot(event.clientX - start.x, event.clientY - start.y) > LONG_PRESS_SLOP_PX) cancelPress();
+    }}
+    onPointerUp={cancelPress}
+    onPointerCancel={cancelPress}
+    onClickCapture={(event) => {
+      // The tap that ends a long-press opened the menu; it must not also open the row.
+      if (!press.current?.opened) return;
+      press.current = undefined;
+      event.preventDefault();
+      event.stopPropagation();
+    }}
     onContextMenu={(event) => {
       event.preventDefault();
       const keyboardInvocation = event.clientX === 0 && event.clientY === 0;

@@ -1873,7 +1873,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     requestAnimationFrame(focusNoteList);
   }}>
     <label className="sr-only" htmlFor="note-path"><Trans>Markdown path</Trans></label>
-    <input id="note-path" className="path-input" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} onBlur={() => void requestRename()} disabled={mutationsFrozen || !canRenameNotes} autoFocus />
+    <input id="note-path" className="path-input" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} onBlur={() => void requestRename()} disabled={mutationsFrozen || !canRenameNotes} spellCheck="false" autoCapitalize="none" autoCorrect="off" autoFocus />
   </form> : mobileLayout ? <p className="mobile-note-path" title={document.path}><PathLabel path={document.path} /></p>
     : <button className="path-button" disabled={!canRenameNotes || mutationsFrozen} onClick={() => setEditingPath(true)} title={t`Rename Markdown path`} aria-label={document.path}><PathLabel path={document.path} /><Pencil aria-hidden="true" /></button>);
   const noteSaveIndicator = <><CollectionSaveWarning /><SaveIndicator
