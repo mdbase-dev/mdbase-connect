@@ -125,7 +125,8 @@ describe("SdkEditorRoot behind the shared collection gate", () => {
     expect(await screen.findByRole("textbox", { name: "Note body" }, { timeout: 10_000 })).toHaveValue("Native body\n");
     const trigger = container.querySelector<HTMLButtonElement>(".collection-rail .mdbase-collections-trigger");
     if (!trigger) throw new Error("No collection switcher in the rail");
-    expect(trigger).toHaveAccessibleName("Switch collection, current: Notes");
+    // Named by its visible text (Label in Name); the rail hides the role label with CSS.
+    expect(trigger).toHaveAccessibleName(/^Notes\b/);
     fireEvent.click(trigger);
     const archive = [...document.querySelectorAll<HTMLElement>("[role=radio]")].find((row) => within(row).queryByText("Archive"));
     if (!archive) throw new Error("No Archive row in the switcher");

@@ -26,3 +26,9 @@
 .rail-collection-heading .editor-collection-switcher .mdbase-collections-trigger-name { flex: 1 1 auto; text-align: left; }
 /* The rail is narrow; the role shows in the switcher itself. */
 .rail-collection-heading .editor-collection-switcher .mdbase-collections-trigger-role { display: none; }
+
+/* The gate's lines above the editor (saved only in this browser; bring work
+   in) take their height, and the editor or gate screen takes the rest. */
+.editor-collection-frame { display: flex; flex-direction: column; width: 100%; height: 100%; }
+.editor-collection-frame > * { flex: 1 1 0; min-height: 0; }
+.editor-collection-frame > .mdbase-collections:not(.mdbase-collections-gate) { flex: none; }
