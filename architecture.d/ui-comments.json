@@ -1,0 +1,9 @@
+{
+  "reason": "Comments (the mdbase.comment contract) get one implementation shared by every app. comments.ts is the contract's pure reading, ported from Writer so apps agree (record parsing, link resolution, threads, quote and position anchoring, suggestions, and the fields a new comment or a change writes; 34 exports, each used by the panel, the anchors, the Editor or their tests). CommentsPanel.tsx is the thread list (4 exports) and comment-anchors.ts is the CodeMirror extension that shows commented passages (5 exports). The relative imports are those modules' own.",
+  "growth": {
+    "productionFiles": 3,
+    "packages/app-ui": 3,
+    "relativeImports": 4,
+    "typeScriptExportDeclarations": 43
+  }
+}

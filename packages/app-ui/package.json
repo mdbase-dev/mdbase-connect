@@ -40,6 +40,18 @@
       "types": "./dist/Checkbox.d.ts",
       "import": "./dist/Checkbox.js"
     },
+    "./comments": {
+      "types": "./dist/comments.d.ts",
+      "import": "./dist/comments.js"
+    },
+    "./comment-anchors": {
+      "types": "./dist/comment-anchors.d.ts",
+      "import": "./dist/comment-anchors.js"
+    },
+    "./comments-panel": {
+      "types": "./dist/CommentsPanel.d.ts",
+      "import": "./dist/CommentsPanel.js"
+    },
     "./codemirror": {
       "types": "./dist/codemirror.d.ts",
       "import": "./dist/codemirror.js"
@@ -115,6 +127,7 @@
     "./brand.css": "./css/brand.css",
     "./collections.css": "./css/collections.css",
     "./controls.css": "./css/controls.css",
+    "./comments.css": "./css/comments.css",
     "./fonts.css": "./css/fonts.css",
     "./live-preview.css": "./css/live-preview.css",
     "./feedback.css": "./css/feedback.css",
