@@ -250,6 +250,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const [directAccessBusy, setDirectAccessBusy] = useState(false);
   const [selectedPath, setSelectedPath] = useState<string>();
   const [selection, setSelection] = useState<NoteSelection>();
+  // Touch selection mode, started from a held note's Select action.
+  const [selectingNotes, setSelectingNotes] = useState(false);
   const [pinnedPaths, setPinnedPaths] = useState<string[]>([]);
   const [bulkPropertyKind, setBulkPropertyKind] = useState<BulkPropertyChange["kind"]>();
   const [document, setDocument] = useState<NoteDocument>();
@@ -937,6 +939,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }, [browserEntries, deferredSearch, noteFilter, pinnedPaths]);
   const visibleNotePaths = useMemo(() => new Set(visibleBrowserEntries.filter((entry) => entry.kind === "note").map((entry) => entry.path)), [visibleBrowserEntries, i18n.locale]);
   const listSelection = useMemo(() => selectedCollectionFile || openNew ? { paths: [] } : selection ? { ...selection, paths: selection.paths.filter((path) => visibleNotePaths.has(path)) } : { paths: selectedPath && visibleNotePaths.has(selectedPath) ? [selectedPath] : [], anchor: selectedPath, focus: selectedPath }, [openNew, selectedCollectionFile, selectedPath, selection, visibleNotePaths, i18n.locale]);
+  // Selection mode ends with its selection: after a bulk action, or when the last note is deselected.
+  const selectionEmpty = listSelection.paths.length === 0;
+  useEffect(() => { if (selectionEmpty) setSelectingNotes(false); }, [selectionEmpty]);
   const selectionFields = useMemo(() => {
     const paths = new Set(listSelection.paths);
     return bulkFields(allNotes.filter((note) => paths.has(note.path)), typeDescriptors);
@@ -2074,8 +2079,10 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         entries={visibleBrowserEntries}
         selection={listSelection}
         onSelection={setSelection}
+        selecting={selectingNotes}
+        onStartSelecting={() => setSelectingNotes(true)}
         pinnedPaths={pinnedPaths}
-        selectionBar={listSelection.paths.length > 1 && <div className="note-selection" role="group" aria-label={t`Selected notes`} aria-busy={bulkBusy}>
+        selectionBar={(listSelection.paths.length > 1 || selectingNotes) && <div className="note-selection" role="group" aria-label={t`Selected notes`} aria-busy={bulkBusy}>
           <div className="note-selection-bar"><span role="status"><Trans>{listSelection.paths.length} selected</Trans></span>
             <div className="note-actions">
               <button {...selectionMenu.triggerProps} className="icon-button" aria-label={t`Selection actions`}><MoreHorizontal aria-hidden="true" /></button>
@@ -2083,7 +2090,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
                 {bulkActions(listSelection.paths).map(item => <button key={item.label} role="menuitem" className={`mdbase-menu-item${item.tone === "danger" ? " is-danger" : ""}`} disabled={item.disabled} title={item.title} onClick={() => { selectionMenu.close(true); item.onSelect(); }}>{item.icon}{item.label}</button>)}
               </Menu>
             </div>
-            <button className="mdbase-button is-tertiary" aria-label={t`Clear selection`} onClick={() => { setSelection({ ...listSelection, paths: [] }); setBulkPropertyKind(undefined); }}><Trans>Clear</Trans></button></div>
+            <button className="mdbase-button is-tertiary" aria-label={selectingNotes ? undefined : t`Clear selection`} onClick={() => { setSelection({ ...listSelection, paths: [] }); setSelectingNotes(false); setBulkPropertyKind(undefined); }}>{selectingNotes ? <Trans>Done</Trans> : <Trans>Clear</Trans>}</button></div>
           {bulkPropertyKind && <Suspense fallback={<p><Trans>Loading properties…</Trans></p>}><BulkNoteProperties key={bulkPropertyKind} kind={bulkPropertyKind} fields={selectionFields} busy={bulkBusy} onApply={(change) => applyBulkProperties(listSelection.paths, change)} onClose={() => setBulkPropertyKind(undefined)} /></Suspense>}
         </div>}
         noteCount={visibleNotes.length}

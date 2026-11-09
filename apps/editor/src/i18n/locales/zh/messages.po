@@ -2131,6 +2131,7 @@ msgstr "文档大纲"
 msgid "Documentation"
 msgstr "文档"
 
+#: src/App.tsx
 #: src/FolderChangeDialog.tsx
 #: src/writing-toolbar.tsx
 msgid "Done"
@@ -4597,6 +4598,10 @@ msgstr "章节标题"
 #: src/code-editor-completions.ts
 msgid "Section in note"
 msgstr "笔记中的章节"
+
+#: src/NoteList.tsx
+msgid "Select"
+msgstr "选择"
 
 #: src/WorkspaceChrome.tsx
 msgid "Select a note, or start a new one."

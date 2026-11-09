@@ -312,3 +312,35 @@ describe("NoteList search presentation", () => {
     expect(accessed).toHaveLength(40);
   });
 });
+
+describe("NoteList touch selection", () => {
+  it("starts selecting from a held note, then taps add and remove notes without opening them", () => {
+    const notes = ["Notes/one.md", "Notes/two.md"].map((path): NoteSummary => ({ path, frontmatter: {}, effectiveFrontmatter: {}, types: [], body: "", file: { mtime: "2026-01-01T12:00:00Z" } }));
+    const noop = () => {};
+    const coarse = vi.spyOn(window, "matchMedia").mockImplementation((query) => ({ matches: query === "(pointer: coarse)", media: query, addEventListener: noop, removeEventListener: noop } as unknown as MediaQueryList));
+    const props = {
+      entries: notes.map((note) => ({ kind: "note" as const, path: note.path, note })),
+      noteCount: 2, fileCount: 0, types: [], selectedPath: undefined, statuses: new Map(),
+      search: "", searchQuery: "", searchContexts: new Map(), sort: defaultNoteSort, sortFields: [],
+      collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
+      contentIndexing: false, contentLoaded: 2,
+      onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,
+      onRetryStructure: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: vi.fn(),
+      onSelection: vi.fn(), onStartSelecting: vi.fn(), onSelectFile: noop, onCollections: noop,
+      noteActions: () => []
+    };
+    const view = render(<NoteList {...props} />);
+    fireEvent.contextMenu(screen.getAllByRole("option")[0]);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Select" }));
+    expect(props.onSelection).toHaveBeenLastCalledWith({ paths: ["Notes/one.md"], anchor: "Notes/one.md", focus: "Notes/one.md" });
+    expect(props.onStartSelecting).toHaveBeenCalledOnce();
+
+    view.rerender(<NoteList {...props} selecting selection={{ paths: ["Notes/one.md"], anchor: "Notes/one.md", focus: "Notes/one.md" }} />);
+    fireEvent.click(screen.getAllByRole("option")[1]);
+    expect(props.onSelection).toHaveBeenLastCalledWith({ paths: ["Notes/one.md", "Notes/two.md"], anchor: "Notes/one.md", focus: "Notes/two.md" });
+    fireEvent.click(screen.getAllByRole("option")[0]);
+    expect(props.onSelection).toHaveBeenLastCalledWith({ paths: [], anchor: "Notes/one.md", focus: "Notes/one.md" });
+    expect(props.onSelect).not.toHaveBeenCalled();
+    coarse.mockRestore();
+  });
+});

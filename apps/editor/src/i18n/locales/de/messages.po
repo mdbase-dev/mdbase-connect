@@ -2131,6 +2131,7 @@ msgstr "Dokumentgliederung"
 msgid "Documentation"
 msgstr "Dokumentation"
 
+#: src/App.tsx
 #: src/FolderChangeDialog.tsx
 #: src/writing-toolbar.tsx
 msgid "Done"
@@ -4597,6 +4598,10 @@ msgstr "Abschnittsüberschrift"
 #: src/code-editor-completions.ts
 msgid "Section in note"
 msgstr "Abschnitt in Notiz"
+
+#: src/NoteList.tsx
+msgid "Select"
+msgstr "Auswählen"
 
 #: src/WorkspaceChrome.tsx
 msgid "Select a note, or start a new one."

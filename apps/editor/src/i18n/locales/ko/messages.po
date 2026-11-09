@@ -2131,6 +2131,7 @@ msgstr "문서 개요"
 msgid "Documentation"
 msgstr "문서"
 
+#: src/App.tsx
 #: src/FolderChangeDialog.tsx
 #: src/writing-toolbar.tsx
 msgid "Done"
@@ -4597,6 +4598,10 @@ msgstr "섹션 제목"
 #: src/code-editor-completions.ts
 msgid "Section in note"
 msgstr "노트 내 섹션"
+
+#: src/NoteList.tsx
+msgid "Select"
+msgstr "선택"
 
 #: src/WorkspaceChrome.tsx
 msgid "Select a note, or start a new one."

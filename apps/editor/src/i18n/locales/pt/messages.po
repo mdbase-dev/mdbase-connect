@@ -2131,6 +2131,7 @@ msgstr "Sumário do documento"
 msgid "Documentation"
 msgstr "Documentação"
 
+#: src/App.tsx
 #: src/FolderChangeDialog.tsx
 #: src/writing-toolbar.tsx
 msgid "Done"
@@ -4597,6 +4598,10 @@ msgstr "Título de seção"
 #: src/code-editor-completions.ts
 msgid "Section in note"
 msgstr "Seção na nota"
+
+#: src/NoteList.tsx
+msgid "Select"
+msgstr "Selecionar"
 
 #: src/WorkspaceChrome.tsx
 msgid "Select a note, or start a new one."

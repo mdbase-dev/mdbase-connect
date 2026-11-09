@@ -2131,6 +2131,7 @@ msgstr "Структура документа"
 msgid "Documentation"
 msgstr "Документация"
 
+#: src/App.tsx
 #: src/FolderChangeDialog.tsx
 #: src/writing-toolbar.tsx
 msgid "Done"
@@ -4597,6 +4598,10 @@ msgstr "Заголовок раздела"
 #: src/code-editor-completions.ts
 msgid "Section in note"
 msgstr "Раздел в заметке"
+
+#: src/NoteList.tsx
+msgid "Select"
+msgstr "Выбрать"
 
 #: src/WorkspaceChrome.tsx
 msgid "Select a note, or start a new one."

@@ -2131,6 +2131,7 @@ msgstr "文書のアウトライン"
 msgid "Documentation"
 msgstr "ドキュメント"
 
+#: src/App.tsx
 #: src/FolderChangeDialog.tsx
 #: src/writing-toolbar.tsx
 msgid "Done"
@@ -4597,6 +4598,10 @@ msgstr "セクション見出し"
 #: src/code-editor-completions.ts
 msgid "Section in note"
 msgstr "ノート内のセクション"
+
+#: src/NoteList.tsx
+msgid "Select"
+msgstr "選択"
 
 #: src/WorkspaceChrome.tsx
 msgid "Select a note, or start a new one."
