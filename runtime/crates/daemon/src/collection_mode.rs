@@ -280,7 +280,11 @@ impl Daemon {
                 ));
             }
             if !p.cancel {
-                self.confirm(if private {"Make private"}else{"Turn on cloud copy"},if private {"Only your devices will read new content after the switch finishes. mdbase may still read older content."}else{"mdbase will be able to read and serve this collection, including its existing history, even when your devices are off."}).await?;
+                self.confirm(&crate::confirm::Prompt::CollectionMode {
+                    collection: entry.name.clone(),
+                    private,
+                })
+                .await?;
             }
             let request = active
                 .and_then(|v| v.get("request_id"))

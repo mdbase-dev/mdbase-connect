@@ -12,7 +12,7 @@ use super::*;
 #[path = "server_grant_session_tests.rs"]
 mod grant_sessions;
 use crate::access::{AccessState, FeedCursor};
-use crate::confirm::{Answer, Confirmer};
+use crate::confirm::{Answer, Confirmer, Prompt};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -303,9 +303,9 @@ struct Suspended {
     message: std::sync::Mutex<String>,
 }
 impl Confirmer for Suspended {
-    fn ask<'a>(&'a self, _: &'a str, message: &'a str) -> crate::session::BoxFuture<'a, Answer> {
+    fn ask<'a>(&'a self, prompt: &'a Prompt) -> crate::session::BoxFuture<'a, Answer> {
         Box::pin(async move {
-            *self.message.lock().unwrap() = message.into();
+            *self.message.lock().unwrap() = prompt.message();
             self.shown.notify_one();
             self.answer.notified().await;
             Answer::Yes

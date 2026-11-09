@@ -5,7 +5,7 @@
   "description": "Connect applications to authorized mdbase collections.",
   "author": "mdbase",
   "private": true,
-  "main": "dist/main/main.js",
+  "main": "dist/main/entry.js",
   "scripts": {
     "i18n:extract": "mdbase-i18n extract",
     "i18n:compile": "mdbase-i18n compile",

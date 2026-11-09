@@ -6,7 +6,7 @@ import { rm } from "node:fs/promises";
 await rm("dist/main", { recursive: true, force: true });
 await build({
   entryPoints: [
-    "src/main/main.ts",
+    "src/main/entry.ts",
     "src/main/i18n.ts",
     "src/main/app-launcher.ts",
     "src/main/approval-url.ts",
