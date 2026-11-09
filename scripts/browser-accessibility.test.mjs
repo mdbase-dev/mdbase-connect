@@ -965,7 +965,7 @@ async function auditDesktopRoutes() {
     window.mdbaseConnect = {
       getLocale: async () => "en",
       setLocale: async () => {},
-      status: async () => ({ target: "isolated_profile", state_dir: "/home/example/.mdbase", account: { signed_in: true, online: true }, collections: [collection] }),
+      status: async () => ({ target: "isolated_profile", state_dir: "/home/example/.mdbase", account: { signed_in: true, online: true, environment: "production" }, collections: [collection] }),
       updateStatus: async () => updateStatus,
       checkForUpdates: async () => updateStatus,
       installUpdate: async () => updateStatus,
@@ -986,14 +986,17 @@ async function auditDesktopRoutes() {
       chooseCreateFolder: async () => "/home/example/new",
       createCollection: async () => { throw new Error("This folder already has a collection. Choose another folder."); },
       openCollectionFolder: async () => undefined,
+      listApps: async () => ({ applications: [] }),
+      openApp: async () => undefined,
       onNavigate: () => () => undefined,
       onUpdateStatus: () => () => undefined
     };
   });
   await page.goto(servers[1].origin);
-  await page.getByRole("heading", { name: "Overview", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "Home", exact: true }).waitFor();
   await page.getByText("Connected securely", { exact: true }).first().waitFor();
-  await auditPage(page, "desktop overview", { keyboard: true });
+  await page.getByRole("button", { name: "Open Reader" }).waitFor();
+  await auditPage(page, "desktop home", { keyboard: true });
 
   const nav = (name) => page.locator(".product-sidebar-link").filter({ hasText: name });
   for (const route of [

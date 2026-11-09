@@ -25,7 +25,7 @@ for (const leaking of [false, true]) {
 }
 
 test("managed app origins contain only public origins shared with deployment tooling", () => {
-  const originKeys = ["connectOrigin", "editorOrigin", "readerOrigin", "writerOrigin"];
+  const originKeys = ["connectOrigin", "editorOrigin", "journalOrigin", "readerOrigin", "tasknotesOrigin", "writerOrigin"];
   assert.deepEqual(Object.keys(managedAppOrigins).sort(), ["lab", "production", "staging"]);
   for (const [name, origins] of Object.entries(managedAppOrigins)) {
     assert.deepEqual(Object.keys(origins).sort(), originKeys);

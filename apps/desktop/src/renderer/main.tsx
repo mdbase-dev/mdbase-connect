@@ -19,13 +19,13 @@ import { AccessView } from "./access-view";
 import { ActivityView } from "./activity-view";
 import { CollectionsView } from "./collections-view";
 import { DeviceRequests } from "./device-requests";
+import { HomeView } from "./home-view";
 import { groupAccess, presentConnection } from "./daemon-view.mjs";
 import { updateActions } from "../main/update-actions";
 import { consumePairingCompleted } from "./onboarding-state.mjs";
 import { SignInPanel } from "./sign-in-panel";
 import { TakeoverPanel } from "./takeover-panel";
 import {
-  Empty,
   MobileProductBar,
   ProductSidebar,
   SectionHeading,
@@ -37,8 +37,8 @@ import "./styles.css";
 
 const routeCopy: Record<Route, { title: string; lede: string }> = {
   overview: {
-    get title() { return t(i18n)({ message: "Overview", context: "Connect interface" }); },
-    get lede() { return t(i18n)({ message: "Collections, app access and sync status in one place." }); }
+    get title() { return t(i18n)({ message: "Home", context: "Connect interface" }); },
+    get lede() { return t(i18n)({ message: "Open your apps and see the collections they use." }); }
   },
   collections: {
     get title() { return t(i18n)({ message: "Collections", context: "Connect interface" }); },
@@ -173,6 +173,7 @@ function App() {
 
   const names = useMemo(() => Object.fromEntries(collections.map((c) => [c.id, c.name])), [collections]);
   const groups = useMemo(() => groupAccess(access), [access]);
+  const pendingApps = useMemo(() => [...new Set(groups.pending.map(entry => entry.app_name))], [groups]);
   const connection = presentConnection(status, checked);
   const copy = routeCopy[route];
   const selectRoute = (next: Route) => {
@@ -194,7 +195,7 @@ function App() {
   const commands: Command[] = [
     ...groups.pending.map(entry => ({ id: `approval:${entry.grant}`, label: t(i18n)`Review ${entry.app_name}`, detail: names[entry.collection] ?? entry.collection, group: "approvals", run: () => reviewApproval("access", `approval:${entry.grant}`) })),
     ...devices.map(device => ({ id: `device:${device.collection}/${device.device}`, label: t(i18n)`Review ${device.name ?? unnamedDevice}`, detail: names[device.collection] ?? device.collection_name ?? device.collection, group: "approvals", run: () => reviewApproval("collections", `device:${device.collection}/${device.device}`) })),
-    ...([["overview", t(i18n)({ message: "Overview", context: "Connect interface" })], ["collections", t(i18n)({ message: "Collections", context: "Connect interface" })], ["access", t(i18n)({ message: "Apps", context: "Connect interface" })], ["activity", t(i18n)({ message: "Activity", context: "Connect interface" })], ["settings", t(i18n)({ message: "Settings", context: "Connect interface" })]] as const)
+    ...([["overview", t(i18n)({ message: "Home", context: "Connect interface" })], ["collections", t(i18n)({ message: "Collections", context: "Connect interface" })], ["access", t(i18n)({ message: "Apps", context: "Connect interface" })], ["activity", t(i18n)({ message: "Activity", context: "Connect interface" })], ["settings", t(i18n)({ message: "Settings", context: "Connect interface" })]] as const)
       .map(([id, label]) => ({ id, label: t(i18n)`Go to ${label}`, shortcut: id === "access" ? navigationShortcuts.applications : navigationShortcuts[id], group: "commands", run: () => selectRoute(id) })),
     { id: "add", label: t(i18n)({ message: "Add existing folder" }), group: "commands", run: addExisting },
     { id: "create", label: t(i18n)({ message: "Create collection" }), shortcut: "c", group: "commands", run: openCreate },
@@ -242,16 +243,17 @@ function App() {
             <DeviceRequests devices={devices} names={names} busy={busy} onAct={act} onNotice={setNotice} />}
 
           {route === "overview" ? (
-            <Overview
-              cloud={cloud}
-              connectionLabel={connection.label}
+            cloud?.configured ? <HomeView
+              environment={status?.account.environment}
               collections={collections}
-              attention={groups.attention}
+              pendingApps={pendingApps}
               busy={busy}
               onNavigate={selectRoute}
+              onReview={() => groups.pending[0] ? reviewApproval("access", `approval:${groups.pending[0].grant}`) : selectRoute("access")}
               onAdd={addExisting}
               onCreate={openCreate}
-            />
+              onAct={act}
+            /> : null
           ) : route === "collections" ? (
             <CollectionsView collections={collections} computerName={cloud?.computerName ?? t(i18n)`This computer`} busy={busy} onAdd={addExisting} onCreate={openCreate} onAct={act} onNotice={setNotice} />
           ) : route === "access" ? (
@@ -290,44 +292,6 @@ function App() {
       </div>
     </div>
   );
-}
-
-function Overview({ cloud, connectionLabel, collections, attention, busy, onNavigate, onAdd, onCreate }: {
-  cloud: CloudSetting | null;
-  connectionLabel: string;
-  collections: DaemonCollection[];
-  attention: number;
-  busy: boolean;
-  onNavigate(route: Route): void;
-  onAdd(): void;
-  onCreate(): void;
-}) {
-  useLocaleRevision();
-  if (!cloud?.configured) return null;
-  const synced = collections.filter((collection) => collection.mode !== "local" && collection.reason !== "collection_deleted").length;
-  return (
-    <div className="workspace-stack">
-      {collections.length === 0 && <section>
-        <Empty title={t(i18n)({ message: "Add your first collection" })} text={t(i18n)({ message: "Choose a folder of Markdown notes, or create a new one. It stays on this computer; your apps reach it through mdbase." })} />
-        <div className="collection-config-actions">
-          <button className="mdbase-button is-primary" disabled={busy} onClick={onAdd}><Trans>Add existing folder</Trans></button>
-          <button className="mdbase-button" disabled={busy} onClick={onCreate}><Trans>Create collection</Trans></button>
-        </div>
-      </section>}
-      <section>
-        <div className="overview-list">
-          <OverviewRow label={t(i18n)({ message: "Account", context: "Connect interface" })} value={connectionLabel} detail={cloud.serverUrl ?? ""} route="settings" onNavigate={onNavigate} />
-          <OverviewRow label={t(i18n)({ message: "Collections", context: "Connect interface" })} value={t(i18n)`${plural(collections.length, { one: "# collection", other: "# collections" })}`} detail={synced > 0 ? t(i18n)`${synced} synced` : t(i18n)`All on this computer only`} route="collections" onNavigate={onNavigate} />
-          <OverviewRow label={t(i18n)({ message: "Apps", context: "Connect interface" })} value={attention > 0 ? t(i18n)`${plural(attention, { one: "# item needs you", other: "# items need you" })}` : t(i18n)`Nothing waiting`} detail={t(i18n)`Apps you approve reach your collections through this computer`} route="access" onNavigate={onNavigate} />
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function OverviewRow({ label, value, detail, route, onNavigate }: { label: string; value: string; detail: string; route: Route; onNavigate(route: Route): void }) {
-  useLocaleRevision();
-  return <a className="overview-row" href={`#${route}`} onClick={(event) => { event.preventDefault(); onNavigate(route); }}><span>{label}</span><div><strong>{value}</strong><small>{detail}</small></div></a>;
 }
 
 function CreateCollectionDialog({ open, busy, onClose, onCreate }: {

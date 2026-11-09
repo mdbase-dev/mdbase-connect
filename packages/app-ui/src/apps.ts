@@ -35,16 +35,37 @@ export const mdbaseApps: readonly MdbaseApp[] = [
   }
 ];
 
+/** Every app mdbase makes: the family above plus apps with their own identity. */
+export interface OfficialApp extends Omit<MdbaseApp, "id"> {
+  readonly id: MdbaseAppId | "journal" | "tasknotes";
+}
+
+export const officialApps: readonly OfficialApp[] = [
+  ...mdbaseApps,
+  {
+    id: "journal",
+    name: "Journal",
+    get description() { return t({ message: "Keep a daily journal" }); },
+    url: ""
+  },
+  {
+    id: "tasknotes",
+    name: "TaskNotes",
+    get description() { return t({ message: "Plan tasks and projects" }); },
+    url: ""
+  }
+];
+
 /**
  * Replaces app URLs for a lab or local build, for example from
  * `import.meta.env.VITE_MDBASE_WRITER_URL`. Apps without a URL are omitted.
  */
-export function withAppUrls(
-  urls: Partial<Record<MdbaseAppId, string | undefined>>,
-  apps: readonly MdbaseApp[] = mdbaseApps
-): readonly MdbaseApp[] {
+export function withAppUrls<App extends OfficialApp = MdbaseApp>(
+  urls: Partial<Record<App["id"], string | undefined>>,
+  apps: readonly App[] = mdbaseApps as readonly OfficialApp[] as readonly App[]
+): readonly App[] {
   return apps.map((app) => {
-    const url = urls[app.id];
+    const url = urls[app.id as App["id"]];
     return url ? { ...app, url } : app;
   }).filter((app) => app.url);
 }

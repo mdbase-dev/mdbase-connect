@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { mdbaseAppHref, mdbaseApps, withAppUrls } from "./apps.js";
+import { mdbaseAppHref, mdbaseApps, officialApps, withAppUrls } from "./apps.js";
 
 describe("mdbaseAppHref", () => {
   it("carries the collection and server to the other app", () => {
@@ -50,5 +50,13 @@ describe("mdbaseApps", () => {
     expect(withAppUrls({})).toEqual([]);
     expect(withAppUrls({ editor: "https://editor.lab.example/", reader: "https://reader.lab.example/", writer: "https://writer.lab.example/" })
       .map(app => app.url)).toEqual(["https://editor.lab.example/", "https://reader.lab.example/", "https://writer.lab.example/"]);
+  });
+});
+
+describe("officialApps", () => {
+  it("adds Journal and TaskNotes after the mdbase family, with URLs from the deployment", () => {
+    expect(officialApps.map((app) => app.id)).toEqual(["editor", "reader", "writer", "journal", "tasknotes"]);
+    expect(withAppUrls({ tasknotes: "https://tasks.lab.example/", editor: "https://editor.lab.example/" }, officialApps)
+      .map((app) => [app.id, app.url])).toEqual([["editor", "https://editor.lab.example/"], ["tasknotes", "https://tasks.lab.example/"]]);
   });
 });

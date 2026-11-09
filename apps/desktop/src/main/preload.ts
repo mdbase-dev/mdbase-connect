@@ -32,6 +32,8 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
     ipcRenderer.invoke("connect:collections:resolve-hold", { collectionId, id, how }),
   openCollectionFolder: (collectionId: string) => ipcRenderer.invoke("connect:collections:open-folder", collectionId),
   openEditor: (collectionId: string) => ipcRenderer.invoke("connect:editor:open", collectionId),
+  listApps: () => ipcRenderer.invoke("connect:apps:list"),
+  openApp: (url: string) => ipcRenderer.invoke("connect:apps:open", url),
   getLaunchAtLogin: () => ipcRenderer.invoke("connect:startup:get"),
   setLaunchAtLogin: (enabled: boolean) => ipcRenderer.invoke("connect:startup:set", enabled),
   getCloudConfig: () => ipcRenderer.invoke("connect:cloud:get"),

@@ -327,10 +327,10 @@ describe("ConnectApp", () => {
   });
 
   it.each([
-    ["lab", "https://editor-lab.mdbase.dev", "https://lab.mdbase-reader.pages.dev", "https://lab.mdbase-writer.pages.dev"],
-    ["staging", "https://editor-staging.mdbase.dev", "https://staging.mdbase-reader.pages.dev", "https://staging.mdbase-writer.pages.dev"],
-    ["production", "https://editor.mdbase.dev", "https://reader.mdbase.dev", "https://writer.mdbase.dev"],
-  ])("discovers all managed apps in %s before access is approved", async (_environment, editor, reader, writer) => {
+    ["lab", "https://editor-lab.mdbase.dev", "https://lab.mdbase-reader.pages.dev", "https://lab.mdbase-writer.pages.dev", "https://lab.mdbase-journal-lab.pages.dev", "https://lab.tasknotes-app.pages.dev"],
+    ["staging", "https://editor-staging.mdbase.dev", "https://staging.mdbase-reader.pages.dev", "https://staging.mdbase-writer.pages.dev", "https://staging.mdbase-journal.pages.dev", "https://staging.tasknotes-app.pages.dev"],
+    ["production", "https://editor.mdbase.dev", "https://reader.mdbase.dev", "https://writer.mdbase.dev", "https://journal.mdbase.dev", "https://app.tasknotes.dev"],
+  ])("discovers all managed apps in %s before access is approved", async (_environment, editor, reader, writer, journal, tasknotes) => {
     const fetchData = vi.mocked(fetch).getMockImplementation()!;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
       new URL(String(input)).pathname === "/v1/ui-configuration" ? Response.json({ editor_url: `${editor}/connect` }) : fetchData(input, init)));
@@ -339,7 +339,7 @@ describe("ConnectApp", () => {
     history.replaceState(null, "", "/applications");
     render(<ConnectApp />);
     await screen.findByRole("link", { name: "Editor" });
-    for (const [name, href] of [["Editor", editor], ["Reader", reader], ["Writer", writer], ["Journal", "https://journal.mdbase.dev"], ["TaskNotes", "https://app.tasknotes.dev"]]) {
+    for (const [name, href] of [["Editor", editor], ["Reader", reader], ["Writer", writer], ["Journal", journal], ["TaskNotes", tasknotes]]) {
       expect(screen.getByRole("link", { name })).toHaveAttribute("href", href);
     }
     expect(screen.getByText("No apps with access")).toBeInTheDocument();
@@ -362,11 +362,10 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
     await screen.findByRole("heading", { name: "Apps" });
     await screen.findByRole("link", { name: "Editor" });
-    for (const [name, href] of [["Editor", "https://editor.example.test"], ["Journal", "https://journal.mdbase.dev"], ["TaskNotes", "https://app.tasknotes.dev"]]) {
-      expect(screen.getByRole("link", { name })).toHaveAttribute("href", href);
+    expect(screen.getByRole("link", { name: "Editor" })).toHaveAttribute("href", "https://editor.example.test");
+    for (const name of ["Reader", "Writer", "Journal", "TaskNotes"]) {
+      expect(screen.queryByRole("link", { name })).not.toBeInTheDocument();
     }
-    expect(screen.queryByRole("link", { name: "Reader" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Writer" })).not.toBeInTheDocument();
     expect(screen.getByText("No apps with access")).toBeInTheDocument();
   });
 
