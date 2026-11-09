@@ -22,7 +22,7 @@ interface FeedbackScreenshot {
 }
 
 interface FeedbackApplication {
-  product: "mdbase editor" | "mdbase reader" | "mdbase writer" | "mdbase connect";
+  product: "mdbase editor" | "mdbase reader" | "mdbase writer" | "mdbase connect" | "tasknotes";
   source_view: string;
   build_revision: string | null;
   environment: "production" | "staging" | "development" | "lab";
@@ -136,7 +136,7 @@ function validateSubmission(value: unknown): FeedbackSubmission {
 function validateApplication(value: unknown): FeedbackApplication {
   const input = object(value, "Application information is required.");
   exactKeys(input, ["product", "source_view", "build_revision", "environment"]);
-  if (typeof input.product !== "string" || !["mdbase editor", "mdbase reader", "mdbase writer", "mdbase connect"].includes(input.product)) throw new RequestError(400, "invalid_application", "The feedback application is invalid.");
+  if (typeof input.product !== "string" || !["mdbase editor", "mdbase reader", "mdbase writer", "mdbase connect", "tasknotes"].includes(input.product)) throw new RequestError(400, "invalid_application", "The feedback application is invalid.");
   const sourceView = text(input.source_view, "source_view", 64);
   if (!/^[a-z][a-z0-9_-]{0,63}$/u.test(sourceView)) throw new RequestError(400, "invalid_application", "The feedback view must be a fixed identifier.");
   if (input.build_revision !== null && (typeof input.build_revision !== "string" || !/^[a-zA-Z0-9._-]{1,64}$/u.test(input.build_revision))) throw new RequestError(400, "invalid_application", "The application revision is invalid.");
