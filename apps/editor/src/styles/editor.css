@@ -1,8 +1,7 @@
 .writing-surface, .new-note-composer {
   --writing-measure: 760px;
-  /* A fitting desktop column keeps its full measure as the inspector docks.
-     Gutters grow only once the pane is narrower than that measure. */
-  --writing-gutter: clamp(0px, calc((var(--writing-measure) - 100cqi) / 4), var(--space-6));
+  /* The minimum side margin; wider panes centre the measure beyond it. */
+  --writing-gutter: var(--space-6);
 }
 
 .writing-surface {
