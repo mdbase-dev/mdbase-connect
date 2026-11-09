@@ -831,9 +831,12 @@ function markdownDecorations(view: EditorView): DecorationSet {
       if (!visibleLines.has(line.from)) {
         visibleLines.add(line.from);
         const marker = /^\s*(?:[-+*]|\d+[.)])\s+(?:\[[ xX]\]\s+)?/.exec(line.text);
-        if (marker && view.lineWrapping) ranges.push(Decoration.line({
-          class: "cm-list-line", attributes: { style: `--list-indent: ${marker[0].length}ch` }
-        }).range(line.from));
+        if (marker && view.lineWrapping) {
+          // The marker box is exactly as wide as the indent, so wrapped text lines up in any font.
+          const style = `--list-indent: ${marker[0].length}ch`;
+          ranges.push(Decoration.line({ class: "cm-list-line", attributes: { style } }).range(line.from));
+          ranges.push(Decoration.mark({ class: "cm-list-prefix" }).range(line.from, line.from + marker[0].length));
+        }
         const task = /^(\s*(?:[-+*]|\d+[.)])\s+)\[([ xX])\](?=\s|$)/.exec(line.text);
         if (task && !activeLines.has(line.from)) {
           const from = line.from + task[1].length;

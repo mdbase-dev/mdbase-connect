@@ -169,6 +169,13 @@
   text-indent: calc(-1 * var(--list-indent));
 }
 
+.code-editor-writer .cm-list-prefix {
+  display: inline-block;
+  min-width: var(--list-indent);
+  text-indent: 0;
+  white-space: pre;
+}
+
 .code-editor-writer .cm-task-checkbox {
   margin: 0 2px 0 1px;
   vertical-align: -2px;
