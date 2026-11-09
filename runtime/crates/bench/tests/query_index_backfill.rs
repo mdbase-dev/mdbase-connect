@@ -332,3 +332,33 @@ fn an_unprojectable_record_settles_the_raw_projection_instead_of_rebuilding_on_e
     let raw = store.query_projection_state().unwrap().unwrap();
     assert!(!raw.ready && !raw.settled);
 }
+
+/// A collection whose size is an exact multiple of the backfill page ends the
+/// pass on an empty page: that final, row-less transaction must still certify
+/// raw coverage, or the projection stays unready and rebuilds on every open.
+#[test]
+fn a_backfill_ending_on_an_empty_page_still_certifies_raw_coverage() {
+    use mdbn_replica::store::{Store as _, Tx};
+    use mdbn_replica::store_query::QueryIndexTx;
+    let svc = FakeLogService::new();
+    let mut node = open(&svc, store("query_index_backfill_exact_pages"));
+    seed(&mut node, 32);
+    let mut store = node.r.into_store();
+    store
+        .commit(Tx {
+            query_index: Some(QueryIndexTx {
+                generation: [9; 32],
+                replace_specs: Some(Vec::new()),
+                rows: Vec::new(),
+                publish_at: None,
+                completes_backfill: false,
+            }),
+            ..Tx::default()
+        })
+        .unwrap();
+    let node = open(&svc, store);
+    let store = node.r.store();
+    assert!(store.query_index_state().unwrap().unwrap().ready);
+    let raw = store.query_projection_state().unwrap().unwrap();
+    assert!(raw.ready, "raw coverage certified: {raw:?}");
+}

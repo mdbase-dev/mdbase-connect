@@ -340,4 +340,13 @@ fn an_unready_projection_rechecks_coverage_only_when_a_record_changes() {
     // A record write may complete it.
     let statements = maintenance(&p, &tx(record("body"))).unwrap();
     assert_eq!(statements.last().unwrap().sql, COVERAGE);
+    // So may the final transaction of a backfill pass, even with no rows (a
+    // trailing empty page after earlier unpublished pages).
+    let mut last = tx(record("body"));
+    last.records_put.clear();
+    let update = last.query_index.as_mut().unwrap();
+    update.rows.clear();
+    update.completes_backfill = true;
+    let last = maintenance(&p, &last).unwrap();
+    assert!(last.iter().any(|s| s.sql == COVERAGE));
 }

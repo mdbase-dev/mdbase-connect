@@ -305,11 +305,14 @@ pub(crate) fn maintenance<I: IndexStorage>(
             for id in &ids {
                 out.push(Stmt::new(TOUCHED, vec![blob(&id.0), blob(&id.0)]));
             }
-        } else if reset || !ids.is_empty() {
-            // Coverage compares the record and raw ID sets, which a commit that
-            // neither resets nor touches a record cannot change. Skipping it
-            // keeps an unready (for example settled) projection from scanning
-            // the whole collection on every unrelated commit.
+        } else if reset || !ids.is_empty() || update.completes_backfill {
+            // Coverage compares the record and raw ID sets. Only a backfill
+            // pass changes them without checking (its pages do not publish),
+            // and its final transaction always checks, even when it carries
+            // no rows (a trailing empty page). Any other commit that neither
+            // resets nor touches a record cannot change them: skipping it keeps
+            // an unready (for example settled) projection from scanning the
+            // whole collection on every unrelated commit.
             out.push(Stmt::new(
                 COVERAGE,
                 vec![blob(&update.generation), SqlValue::Integer(VERSION)],
