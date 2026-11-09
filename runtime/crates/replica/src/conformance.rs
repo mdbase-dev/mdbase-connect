@@ -498,6 +498,7 @@ pub fn pending_row(order: u64, m: u64) -> PendingRow {
         grant: None,
         uploads: Vec::new(),
         refs: Vec::new(),
+        submitted: false,
     }
 }
 

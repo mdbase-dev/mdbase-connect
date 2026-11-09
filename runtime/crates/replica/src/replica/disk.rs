@@ -156,6 +156,14 @@ impl<S: Store> Replica<S> {
                 settled.push((key, PublishState::NotPublished));
                 continue;
             }
+            // A refused change: the file keeps the user's bytes (`refused.rs`).
+            if self
+                .refused
+                .fenced(id, &[path, was.as_ref().map(|w| w.path.as_str())])
+            {
+                settled.push((key, PublishState::NotPublished));
+                continue;
+            }
             let publish = match (was, now) {
                 (None, None) => None,
                 (None, Some((path, doc))) => Some(Publish::Write {
@@ -443,7 +451,10 @@ impl<S: Store> Replica<S> {
         // interrupted move or delete.
         let mut stray = Vec::new();
         for (path, rev) in &known {
-            if wanted.contains_key(path) || held.contains(path) {
+            if wanted.contains_key(path)
+                || held.contains(path)
+                || self.refused.fenced(None, &[Some(path)])
+            {
                 continue;
             }
             // Stored file identity owns this path, including native Markdown and
@@ -1080,7 +1091,21 @@ impl<S: Store> Replica<S> {
         }
         // Which record is this?
         let from = o.moved_from.clone().unwrap_or_else(|| o.path.clone());
-        let id = self.holder_at(&from).or_else(|| self.holder_at(&o.path));
+        // A refused disk edit here (`refused.rs`): the disk kept its bytes, and
+        // a refused move or create names the record it was for.
+        let paths = [Some(o.path.as_str()), o.moved_from.as_deref()];
+        let refused = |id| {
+            self.refused
+                .get(id, &paths)
+                .filter(|f| f.mine.is_some())
+                .cloned()
+        };
+        let fence = refused(None);
+        let id = self
+            .holder_at(&from)
+            .or_else(|| self.holder_at(&o.path))
+            .or_else(|| fence.as_ref().and_then(|f| f.id));
+        let fence = refused(id).or(fence);
         // A held record collects saves.
         if let Some(i) = id
             && let Some(mut h) = self.store.hold(&i)?
@@ -1105,9 +1130,17 @@ impl<S: Store> Replica<S> {
             && *p == o.path
             && d == t
         {
-            return self.ack(o.token);
+            return self.ack_releasing(o.token, id, &o.path);
+        }
+        if let (Some(f), Some(i)) = (&fence, id)
+            && self.hold_moved_refused(i, f, &o.path, text.as_deref(), o.token)?
+        {
+            return Ok(());
         }
         let base = match (&shown, o.base) {
+            // The new edit continues the refused one: plan it from what that
+            // was based on, so anything confirmed since conflicts.
+            _ if fence.is_some() => fence.as_ref().and_then(|f| f.base.clone()),
             (Some((p, d)), Some(b)) if rev(d) == b => Some(DocVersion {
                 path: p.clone(),
                 doc: Text::Inline(d.clone()),
@@ -1135,10 +1168,11 @@ impl<S: Store> Replica<S> {
             && *p == o.path
             && d == t
         {
-            return self.ack(o.token);
+            return self.ack_releasing(o.token, id, &o.path);
         }
-        if id.is_none() && text.is_none() {
-            return self.ack(o.token);
+        // Gone, and nothing here to delete (a refused create, removed).
+        if shown.is_none() && text.is_none() {
+            return self.ack_releasing(o.token, id, &o.path);
         }
         let id = match id {
             Some(i) => i,
@@ -1185,7 +1219,7 @@ impl<S: Store> Replica<S> {
             // A deleted resource file: ingested as a resource delete.
             let shown = self.local_view_doc(&DiskKey::Resource(o.path.clone()));
             if shown.is_none() {
-                return self.ack(o.token);
+                return self.ack_releasing(o.token, None, &o.path);
             }
             self.before.insert(DiskKey::Resource(o.path.clone()), None);
             return self.capture_resource(
@@ -1200,7 +1234,7 @@ impl<S: Store> Replica<S> {
             .local_view_doc(&DiskKey::Resource(o.path.clone()))
             .is_some_and(|(_, d)| d == doc)
         {
-            return self.ack(o.token);
+            return self.ack_releasing(o.token, None, &o.path);
         }
         self.before.insert(
             DiskKey::Resource(o.path.clone()),
@@ -1397,10 +1431,21 @@ impl<S: Store> Replica<S> {
                 // An external edit is never rejected by contract; a planner refusal
                 // here is a bug or a resource write that is invalid. Keep the user's
                 // bytes (nothing is published) and report.
+                let problem = super::submit::rejection_problem(&rej);
+                if !retain_on_refusal
+                    && super::refused::fences(m.source, &problem, self.store.has_files())
+                {
+                    // A disk edit: a durable rejection, and its files fenced with a
+                    // per-file notice (`refused.rs`).
+                    self.before.clear();
+                    let fence = self.refused_targets(&m.clone().into(), false, &[], &problem)?;
+                    self.resolve_rejected_fencing(vec![(m.id, None, problem.clone())], fence)?;
+                    self.ack_all(tokens)?;
+                    return Ok(rejected_receipt(m.id, problem));
+                }
                 if !retain_on_refusal {
                     self.ack_all(tokens)?;
                 }
-                let problem = super::submit::rejection_problem(&rej);
                 self.incident(
                     mdbn_wire::client::IncidentKind::Integrity,
                     Some(mdbn_wire::common::Value::Text(format!(
@@ -1469,21 +1514,26 @@ impl<S: Store> Replica<S> {
         let order = self.next_order;
         self.next_order += 1;
         let id = m.id;
-        self.store.commit(Tx {
-            pending_put: vec![PendingRow {
-                order,
-                mutation: m.into(),
-                effects: effects.clone(),
-                touches: touches.clone(),
-                grant: None,
-                uploads: Vec::new(),
-                refs: Vec::new(),
-            }],
+        let mutation = m.into();
+        let mut tx = Tx {
             ack_observations: tokens,
             holds_del,
             meta: vec![(meta_keys::COUNTERS.into(), i64_meta(self.clock_floor))],
             ..Tx::default()
-        })?;
+        };
+        let refused = self.release_refused(&mutation, false, &mut tx)?;
+        tx.pending_put.push(PendingRow {
+            order,
+            mutation,
+            effects: effects.clone(),
+            touches: touches.clone(),
+            grant: None,
+            uploads: Vec::new(),
+            refs: Vec::new(),
+            submitted: false,
+        });
+        self.store.commit(tx)?;
+        self.refused_released(refused);
         {
             let view = StoreView::new(&self.store, self.catalog.clone());
             for e in &planned.effects {
@@ -1635,7 +1685,7 @@ impl<S: Store> Replica<S> {
         id: B16,
         path: Option<&str>,
     ) -> Result<bool, StoreError> {
-        if self.store.hold(&id)?.is_some() {
+        if self.store.hold(&id)?.is_some() || self.refused.fenced(Some(id), &[path]) {
             return Ok(true);
         }
         if let Some(path) = path

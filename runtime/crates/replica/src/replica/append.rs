@@ -311,7 +311,12 @@ impl<S: Store> Replica<S> {
         if self.adopt_step() {
             return Ok(());
         }
-        let rows = self.store.pending(None, self.tuning.max_items.min(64))?;
+        let limit = if std::mem::take(&mut self.append_probe) {
+            1
+        } else {
+            self.tuning.max_items.min(64)
+        };
+        let rows = self.store.pending(None, limit)?;
         if rows.is_empty() {
             return Ok(());
         }
@@ -1166,15 +1171,31 @@ impl<S: Store> Replica<S> {
     }
 
     /// Rejected at head: resolve the receipt, drop from pending, rebuild the view.
+    /// The files the rejected rows touched keep their bytes (`refused.rs`).
     pub(crate) fn resolve_rejected(
         &mut self,
         rejected: Vec<(Uuid, Option<Uuid>, mdbn_wire::client::Problem)>,
+    ) -> Result<(), StoreError> {
+        let refused = self.refused_rows(&rejected)?;
+        self.resolve_rejected_fencing(rejected, refused)
+    }
+
+    /// [`Self::resolve_rejected`] with the files to fence, in the same commit.
+    pub(crate) fn resolve_rejected_fencing(
+        &mut self,
+        rejected: Vec<(Uuid, Option<Uuid>, mdbn_wire::client::Problem)>,
+        refused: Vec<super::refused::RefusedFile>,
     ) -> Result<(), StoreError> {
         if rejected.is_empty() {
             return Ok(());
         }
         let now = self.now();
         let mut tx = Tx::default();
+        let mut fence = self.refused.clone();
+        if !refused.is_empty() {
+            fence.add(refused);
+            tx.meta.push(fence.meta());
+        }
         let mut resolved = Vec::new();
         let mut forget = Vec::new();
         for (id, grant, problem) in rejected {
@@ -1227,6 +1248,7 @@ impl<S: Store> Replica<S> {
             ));
         }
         self.store.commit(tx)?;
+        self.refused = fence;
         for id in forget {
             self.resurrected.remove(&id);
         }
@@ -1421,9 +1443,9 @@ impl<S: Store> Replica<S> {
             }
             Err(LogError::Service {
                 code,
+                reason,
                 retry_after_ms,
                 missing,
-                ..
             }) => match code {
                 LogErrorCode::Unavailable
                 | LogErrorCode::RateLimited
@@ -1460,9 +1482,30 @@ impl<S: Store> Replica<S> {
                     self.incident(IncidentKind::UpgradeRequired, None);
                     self.append = AppendState::Stopped;
                 }
-                LogErrorCode::TooLarge if sent.mutations.len() > 1 => {
-                    self.tuning.max_items = 1;
+                LogErrorCode::TooLarge if sent.params.items.len() > 1 => {
+                    // The batch, or one of its items: send the head row alone
+                    // next, so an item's refusal can be pinned on it.
+                    self.append_probe = true;
                     self.append = AppendState::Idle;
+                }
+                LogErrorCode::TooLarge
+                    if sent.mutations.len() == 1
+                        && item_refusal(reason.as_deref())
+                        && self.rejects_log_refusal(sent.mutations[0]) =>
+                {
+                    // The log measured this one change too large: reject it
+                    // (its files keep their bytes, `refused.rs`) instead of
+                    // stopping the whole collection behind it.
+                    match self.reject_refused(sent.mutations[0], reason.as_deref()) {
+                        Ok(()) => self.append = AppendState::Idle,
+                        Err(e) => {
+                            self.incident(
+                                IncidentKind::Integrity,
+                                Some(mdbn_wire::common::Value::Text(format!("store: {e}"))),
+                            );
+                            self.append = AppendState::Stopped;
+                        }
+                    }
                 }
                 LogErrorCode::RefsMissing => {
                     // An uploaded attachment whose objects the log no longer has
@@ -1485,8 +1528,9 @@ impl<S: Store> Replica<S> {
                     }
                 }
                 _ => {
-                    // invalid / not_found / too_large on one item: a bug or a stale
-                    // replica. Re-read and stop until something changes.
+                    // invalid / not_found / too_large for anything but the item
+                    // itself: a bug or a stale replica, not one change. Re-read
+                    // and stop until something changes.
                     self.incident(
                         IncidentKind::Integrity,
                         Some(mdbn_wire::common::Value::Text(format!(
@@ -1500,6 +1544,32 @@ impl<S: Store> Replica<S> {
                 }
             },
         }
+    }
+
+    /// Whether the log's refusal of pending row `id` rejects it
+    /// ([`super::refused::rejects_log_refusal`]); otherwise the append stops.
+    fn rejects_log_refusal(&self, id: Uuid) -> bool {
+        self.store
+            .pending_get(&id)
+            .ok()
+            .flatten()
+            .is_some_and(|row| {
+                super::refused::rejects_log_refusal(row.mutation.source, self.store.has_files())
+            })
+    }
+
+    /// Reject the one change the log measured too large (`item_refusal`),
+    /// with the log's reason as its problem's.
+    fn reject_refused(&mut self, id: Uuid, reason: Option<&str>) -> Result<(), StoreError> {
+        let Some(row) = self.store.pending_get(&id)? else {
+            return Ok(());
+        };
+        let reason = reason.unwrap_or_default();
+        let problem = crate::api::ErrorCode::TooLarge.problem_with_reason(
+            reason,
+            format!("the log refused this change: too_large ({reason})"),
+        );
+        self.resolve_rejected(vec![(id, row.grant, problem)])
     }
 
     fn on_read_reply(
@@ -1942,6 +2012,12 @@ impl<S: Store> Replica<S> {
 #[allow(dead_code)]
 fn _other() -> Inflight {
     Inflight::Other
+}
+
+/// Whether a `too_large` refusal measured the item itself (`log-service-api.md`
+/// §10), not the batch. Every other refusal of an append stops it.
+fn item_refusal(reason: Option<&str>) -> bool {
+    matches!(reason, Some("item_bytes" | "refs"))
 }
 
 /// The canonical payload of a legacy row: exactly the legacy codec, whose

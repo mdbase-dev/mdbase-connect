@@ -593,6 +593,11 @@ pub struct Faults {
     /// Fault (lost objects): the next this-many appends are refused
     /// `refs_missing`, without being performed.
     pub refs_missing_appends: u32,
+    /// Appends carrying an item larger than this are refused `too_large` /
+    /// `item_bytes`, as the service does, without being performed.
+    pub item_bytes_limit: Option<usize>,
+    /// The next appends fail with these errors in order, without being performed.
+    pub fail_appends: Vec<LogError>,
 }
 
 /// One device's client of a [`FakeLogService`].
@@ -641,6 +646,21 @@ impl LogClient for FakeLog {
                 retry_after_ms: None,
                 missing: vec![mdbn_wire::common::B32([0xee; 32])],
             });
+        }
+        if let LogRequest::Append(p) = &request {
+            if !self.faults.fail_appends.is_empty() {
+                return Err(self.faults.fail_appends.remove(0));
+            }
+            if let Some(limit) = self.faults.item_bytes_limit
+                && p.items.iter().any(|i| i.0.len() > limit)
+            {
+                return Err(LogError::Service {
+                    code: LogErrorCode::TooLarge,
+                    reason: Some("item_bytes".into()),
+                    retry_after_ms: None,
+                    missing: Vec::new(),
+                });
+            }
         }
         let lie = self.faults.lie_behind > 0
             && matches!(&request, LogRequest::Read(p) if p.kinds.is_none());

@@ -333,6 +333,15 @@ pub struct PendingRow {
     /// distinct ciphertext chunk and manifest Item hashes of an uploaded
     /// attachment (`log-entry.md` §2.1). Empty for every other row.
     pub refs: Vec<Hash>,
+    /// An app's submission (a client `submit`, an app attachment upload, a
+    /// collection setup, an API unindexed capture), not a capture from disk, a
+    /// hold resolution or a native move. Device-local provenance for
+    /// refused-change fences (`refused.rs`), which `validated_at` cannot give
+    /// since a write may set its own level; never on the wire. Set only on
+    /// stores with files (the only ones that fence an app's write), so rows of
+    /// other stores (browser, hosted) keep their earlier bytes for a rollback.
+    /// Rows written before it read as captured.
+    pub submitted: bool,
 }
 
 impl PendingRow {
@@ -349,9 +358,17 @@ impl PendingRow {
             },
             self.uploads.to_cbor(),
         ];
-        // Rows without refs keep their earlier six-element bytes.
-        if !self.refs.is_empty() {
-            fields.push(self.refs.to_cbor());
+        // Captured rows without refs keep their earlier six-element bytes; a
+        // submitted row appends `true` after its refs (null when empty).
+        if !self.refs.is_empty() || self.submitted {
+            fields.push(if self.refs.is_empty() {
+                Cbor::Null
+            } else {
+                self.refs.to_cbor()
+            });
+        }
+        if self.submitted {
+            fields.push(Cbor::Bool(true));
         }
         let c = Cbor::Array(fields);
         // Encoding a well-formed value cannot fail; the codec only rejects
@@ -363,9 +380,15 @@ impl PendingRow {
     pub fn from_bytes(bytes: &[u8]) -> Result<PendingRow, SchemaError> {
         let c = cbor::decode(bytes)?;
         let a = mdbn_wire::schema::array(&c, "PendingRow")?;
-        let (order, m, e, t, g, u, refs) = match a {
-            [order, m, e, t, g, u] => (order, m, e, t, g, u, None),
-            [order, m, e, t, g, u, refs] => (order, m, e, t, g, u, Some(refs)),
+        let (order, m, e, t, g, u, refs, submitted) = match a {
+            [order, m, e, t, g, u] => (order, m, e, t, g, u, None, false),
+            [order, m, e, t, g, u, refs] => (order, m, e, t, g, u, Some(refs), false),
+            [order, m, e, t, g, u, Cbor::Null, Cbor::Bool(true)] => {
+                (order, m, e, t, g, u, None, true)
+            }
+            [order, m, e, t, g, u, refs, Cbor::Bool(true)] => {
+                (order, m, e, t, g, u, Some(refs), true)
+            }
             _ => {
                 return Err(SchemaError::Invalid {
                     ty: "PendingRow",
@@ -398,6 +421,7 @@ impl PendingRow {
             },
             uploads: Vec::<BlobRef>::from_cbor(u)?,
             refs,
+            submitted,
         })
     }
 }
@@ -1477,6 +1501,9 @@ pub mod meta_keys {
     /// Lost-tail orphans: other authors' lost entries, and own writes lost after
     /// revocation (49-byte records).
     pub const ORPHANS: &str = "replica.orphans";
+    /// Files whose change was rejected and whose disk bytes nothing may
+    /// overwrite until the user edits them again (`refused.rs`). Device-local.
+    pub const REFUSED: &str = "replica.refused";
     /// Device materialization policy.
     pub const MATERIALIZATION: &str = "replica.materialization";
     /// Local-only grants (collections without a log, policy.md preamble).
