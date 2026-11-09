@@ -17,6 +17,7 @@ await build({
     "src/main/electron-update-backend.ts",
     "src/main/process-output.ts",
     "src/main/release-source.ts",
+    "src/main/update-actions.ts",
     "src/main/update-coordinator.ts",
     "src/main/update-download.ts",
     "src/main/update-policy.ts",

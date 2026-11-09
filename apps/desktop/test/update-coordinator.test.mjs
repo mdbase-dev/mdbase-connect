@@ -279,6 +279,75 @@ test("Store and package-manager updates open the signed action target", async ()
   assert.ok(runtime.events.includes("open:https://apps.microsoft.com/detail/example"));
 });
 
+test("a repeated manual check while an external update is available stays external", async () => {
+  const { store } = await fixture();
+  const external = {
+    mode: "manual",
+    action_url: "https://example.com/mdbase-connect.deb",
+    artifacts: [
+      {
+        name: "mdbase-connect.deb",
+        url: "https://example.com/mdbase-connect.deb",
+        sigstore_url: "https://example.com/mdbase-connect.deb.sigstore.json",
+        sha256: "c".repeat(64),
+        size: 100,
+        kind: "deb"
+      }
+    ]
+  };
+  let downloads = 0;
+  const runtime = backend({
+    async findLatest() {
+      return { manifest: signedManifest(external) };
+    },
+    async openExternal() {
+      downloads += 1;
+    }
+  });
+  const coordinator = new UpdateCoordinator(store, runtime);
+  await coordinator.initialize();
+  const first = await coordinator.check(true);
+  assert.equal(first.phase, "external");
+  const second = await coordinator.check(true);
+  assert.equal(second.phase, "external");
+  assert.equal(second.target_version, first.target_version);
+  assert.equal(second.message, first.message);
+  assert.equal(second.can_check, true);
+  assert.equal(second.can_install, true);
+  assert.equal(downloads, 0);
+  const installed = await coordinator.install();
+  assert.equal(installed.phase, "external");
+  assert.equal(downloads, 1);
+});
+
+test("two manual checks while external share the in-flight check", async () => {
+  const { store } = await fixture();
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  let calls = 0;
+  const external = {
+    mode: "store",
+    action_url: "https://apps.microsoft.com/detail/example",
+    artifacts: []
+  };
+  const coordinator = new UpdateCoordinator(store, backend({
+    async findLatest() {
+      calls += 1;
+      await gate;
+      return { manifest: signedManifest(external) };
+    }
+  }));
+  await coordinator.initialize();
+  const first = coordinator.check(true);
+  const second = coordinator.check(true);
+  assert.equal(first, second);
+  release();
+  assert.equal((await first).phase, "external");
+  assert.equal(calls, 1);
+});
+
 test("download and verification failures never enable installation", async () => {
   const { store } = await fixture();
   const runtime = backend({
