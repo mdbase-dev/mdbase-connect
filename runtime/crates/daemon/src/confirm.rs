@@ -21,6 +21,10 @@ use std::time::Duration;
 /// How long a dialog waits.
 pub const TIMEOUT: Duration = Duration::from_secs(120);
 
+/// The longest [`NativeDialog`] takes to answer: the dialog's own timeout, plus
+/// a grace period before its process is killed.
+pub const ANSWER_BOUND: Duration = Duration::from_secs(TIMEOUT.as_secs() + 5);
+
 /// The user's answer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Answer {
@@ -148,7 +152,7 @@ impl Confirmer for NativeDialog {
                 .stderr(std::process::Stdio::null());
             let mut cmd = tokio::process::Command::from(cmd);
             cmd.kill_on_drop(true);
-            match tokio::time::timeout(TIMEOUT + Duration::from_secs(5), cmd.output()).await {
+            match tokio::time::timeout(ANSWER_BOUND, cmd.output()).await {
                 Ok(Ok(out)) => {
                     dialog_answer(out.status.success(), &out.stdout, cfg!(target_os = "macos"))
                 }

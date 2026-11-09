@@ -384,7 +384,8 @@ function registerIpc(): void {
     trustedIpc(event);
     const value = asObject(input, "Invalid mode input.");
     if ((value.targetMode !== "private" && value.targetMode !== "cloud_copy") || typeof value.resume !== "boolean" || (value.cancel !== undefined && typeof value.cancel !== "boolean")) throw new Error("Invalid mode input.");
-    return bootGate.request(() => daemonCli().run(["sync", "mode", collectionIdOf(value.collectionId), value.targetMode === "private" ? "private" : "cloud-copy", ...(value.resume ? ["--resume"] : []), ...(value.cancel ? ["--cancel"] : [])], 120_000));
+    // Outlasts the CLI's own bound: the on-screen confirmation, then the switch's requests.
+    return bootGate.request(() => daemonCli().run(["sync", "mode", collectionIdOf(value.collectionId), value.targetMode === "private" ? "private" : "cloud-copy", ...(value.resume ? ["--resume"] : []), ...(value.cancel ? ["--cancel"] : [])], 300_000));
   });
   ipcMain.handle("connect:collections:sync-files", async (event, collectionId: unknown) => {
     trustedIpc(event);
