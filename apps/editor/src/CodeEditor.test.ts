@@ -2,7 +2,7 @@ import { CompletionContext, type CompletionResult } from "@codemirror/autocomple
 import { EditorState } from "@codemirror/state";
 import { describe, expect, it } from "vitest";
 import {
-  internalLinkPathAt,
+  internalLinkAt,
   lineSeparatorFor,
   linkCompletion,
   markdownEdit,
@@ -201,20 +201,13 @@ describe("object link completion", () => {
 });
 
 describe("internal link previews", () => {
-  it("previews the note the collection resolved a link to, never an external URL", async () => {
+  it("asks the collection about the link as written, never an external URL", () => {
     const wiki = "See [[Ada]].";
     const markdown = "Read [the engine](Projects/Engine.md).";
     const external = "Visit [mdbase](https://mdbase.dev).";
-    const targets = linkTargets("Notes/Today.md", {
-      "[[Ada]]": { kind: "note", path: "People/Ada.md" },
-      "[the engine](Projects/Engine.md)": { kind: "missing" }
-    });
-
-    // Nothing is shown before the collection has answered.
-    expect(internalLinkPathAt(wiki, wiki.indexOf("Ada"), targets)).toBeUndefined();
-    await targets.resolveAll(["[[Ada]]", "[the engine](Projects/Engine.md)"]);
-    expect(internalLinkPathAt(wiki, wiki.indexOf("Ada"), targets)).toBe("People/Ada.md");
-    expect(internalLinkPathAt(markdown, markdown.indexOf("engine"), targets)).toBeUndefined();
-    expect(internalLinkPathAt(external, external.indexOf("mdbase"), targets)).toBeUndefined();
+    expect(internalLinkAt(wiki, wiki.indexOf("Ada"))).toEqual({ raw: "[[Ada]]" });
+    expect(internalLinkAt(markdown, markdown.indexOf("engine"))).toEqual({ raw: "[the engine](Projects/Engine.md)" });
+    expect(internalLinkAt(external, external.indexOf("mdbase"))).toBeUndefined();
+    expect(internalLinkAt(wiki, 0)).toBeUndefined();
   });
 });

@@ -42,10 +42,11 @@ export function useEmbeddedFileAssets(
   const [parsed, setParsed] = useState<{
     source: string;
     files: readonly CollectionFile[];
-    linkTargets?: LinkTargets;
+    from?: string;
     references: Array<FileReference & { file: CollectionFile }>;
   }>(() => ({ source: "", files: EMPTY_FILES, references: EMPTY_REFERENCES }));
-  const references = parsed.source === source && parsed.files === files && parsed.linkTargets === linkTargets
+  // A renewed LinkTargets for the same note keeps its embeds until re-parsed.
+  const references = parsed.source === source && parsed.files === files && parsed.from === linkTargets?.from
     ? parsed.references
     : EMPTY_REFERENCES;
   useEffect(() => {
@@ -58,7 +59,7 @@ export function useEmbeddedFileAssets(
       setParsed({
         source,
         files,
-        linkTargets,
+        from: linkTargets?.from,
         references: all.filter((reference): reference is FileReference & { file: CollectionFile } => Boolean(reference.file))
       });
     });

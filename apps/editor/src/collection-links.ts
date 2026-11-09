@@ -4,7 +4,7 @@ import { useLingui } from "@lingui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import { gatewayError } from "./gateway";
-import type { CollectionGateway, LinkTarget, NoteSummary } from "./model";
+import type { CollectionFile, CollectionGateway, LinkTarget, NoteSummary } from "./model";
 import { noteTitle } from "./note";
 
 export interface Backlinks {
@@ -83,7 +83,7 @@ export class LinkTargets {
       else if (!this.confirmed.has(raw)) wanted.push(raw);
     }
     if (wanted.length) {
-      const request = this.gateway.resolveLinks(this.from, wanted).then(targets => {
+      const request = this.resolveWithRootedFiles(wanted).then(targets => {
         wanted.forEach((raw, index) => { this.targets.set(raw, targets[index]!); this.confirmed.add(raw); });
         this.failure = undefined;
       }, (error: unknown) => {
@@ -100,18 +100,48 @@ export class LinkTargets {
     return Promise.all(waits).then(() => undefined);
   }
 
+  /** Compatibility for attachments linked by Editor builds before 2026-11,
+   * which wrote Markdown destinations from the collection root without a
+   * leading slash. The collection reads them from the note's folder; a missing
+   * one is asked again as rooted and kept only if that names a file. Remove
+   * once those notes are rewritten. */
+  private async resolveWithRootedFiles(raws: string[]): Promise<LinkTarget[]> {
+    const targets = [...await this.gateway.resolveLinks(this.from, raws)];
+    const retry = raws.flatMap((raw, index) => {
+      const rooted = targets[index]!.kind === "missing" ? rootedMarkdownLink(raw) : undefined;
+      return rooted ? [{ index, rooted }] : [];
+    });
+    if (!retry.length) return targets;
+    const again = await this.gateway.resolveLinks(this.from, retry.map(({ rooted }) => rooted));
+    retry.forEach(({ index }, position) => {
+      if (again[position]!.kind === "file") targets[index] = again[position]!;
+    });
+    return targets;
+  }
+
   async resolve(raw: string): Promise<LinkTarget> {
     await this.resolveAll([raw]);
     return this.targets.get(raw)!;
   }
 }
 
-/** The open note's link answers, renewed when records change. */
-export function useLinkTargets(gateway: CollectionGateway, path: string | undefined, revision: number): LinkTargets | undefined {
+/** The open note's link answers, renewed when records or files change: an
+ * upload can turn a missing link into a file. */
+export function useLinkTargets(gateway: CollectionGateway, path: string | undefined, revision: number,
+  files: readonly CollectionFile[]): LinkTargets | undefined {
   const previous = useRef<LinkTargets>(undefined);
   return useMemo(() => path ? (previous.current = new LinkTargets(gateway, path, previous.current)) : undefined,
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new revision asks again
-    [gateway, path, revision]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new revision or file list asks again
+    [gateway, path, revision, files]);
+}
+
+/** `raw`, a Markdown link with a folder-relative destination, with that
+ * destination read from the collection root instead. */
+function rootedMarkdownLink(raw: string): string | undefined {
+  const link = /^(!?\[[^\]]*\]\(<?)([^)>]*)/.exec(raw);
+  const target = link?.[2];
+  if (!link || !target || /^(?:\/|\.\.?\/)/.test(target) || !internalLink(target)) return undefined;
+  return `${link[1]}/${raw.slice(link[1].length)}`;
 }
 
 /** Links an editor can ask the collection about: not external URLs. */

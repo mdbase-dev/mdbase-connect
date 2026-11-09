@@ -87,7 +87,8 @@ for (const theme of ["light", "dark"] as const) for (const reducedMotion of ["no
       await page.goto("?demo=40");
       const list = page.locator(".note-scroll");
       await expect(list).toBeFocused();
-      const title = page.locator(".title-input");
+      // Measure the editor's own title, not the loading shell's copy it replaces.
+      const title = page.locator(".body-editor .title-input");
       await expect(title).toBeVisible();
       const noteX = (await title.boundingBox())!.x;
       await page.keyboard.press("?");

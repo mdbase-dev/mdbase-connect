@@ -16,6 +16,9 @@ export function writerInteractions(
   onDismissLinkPreview: () => (() => void) | undefined
 ): Extension {
   let hoveredPath: string | undefined;
+  // The link under the pointer, as written; a lookup that returns after the
+  // pointer has moved on shows nothing.
+  let hoveredRaw: string | undefined;
   const dismissPreview = (view: EditorView) => {
     if (!hoveredPath) return;
     hoveredPath = undefined;
@@ -75,28 +78,39 @@ export function writerInteractions(
     },
     mousemove(event, view) {
       const position = view.posAtCoords({ x: event.clientX, y: event.clientY });
-      const path = position === null
-        ? undefined
-        : internalLinkPathAt(view.state.doc.toString(), position, linkTargets());
-      if (!path) {
+      const link = position === null ? undefined : internalLinkAt(view.state.doc.toString(), position);
+      const targets = linkTargets();
+      hoveredRaw = link && targets ? link.raw : undefined;
+      if (!link || !targets) {
         dismissPreview(view);
         return false;
       }
-      if (hoveredPath === path) return false;
-      if (hoveredPath) onDismissLinkPreview()?.();
-      hoveredPath = path;
-      view.dom.classList.add("cm-hovering-link");
-      const coordinates = view.coordsAtPos(position ?? 0);
-      const anchor: NotePreviewAnchor = {
-        left: event.clientX,
-        right: event.clientX,
-        top: coordinates?.top ?? event.clientY,
-        bottom: coordinates?.bottom ?? event.clientY
+      const show = (target: LinkTarget | undefined) => {
+        if (hoveredRaw !== link.raw) return;
+        if (target?.kind !== "note") {
+          dismissPreview(view);
+          return;
+        }
+        if (hoveredPath === target.path) return;
+        if (hoveredPath) onDismissLinkPreview()?.();
+        hoveredPath = target.path;
+        view.dom.classList.add("cm-hovering-link");
+        const coordinates = view.coordsAtPos(position ?? 0);
+        const anchor: NotePreviewAnchor = {
+          left: event.clientX,
+          right: event.clientX,
+          top: coordinates?.top ?? event.clientY,
+          bottom: coordinates?.bottom ?? event.clientY
+        };
+        onPreviewLink()?.(target.path, anchor, "editor");
       };
-      onPreviewLink()?.(path, anchor, "editor");
+      const known = targets.get(link.raw);
+      if (known) show(known);
+      else void targets.resolve(link.raw).then(show, () => undefined);
       return false;
     },
     mouseleave(_event, view) {
+      hoveredRaw = undefined;
       dismissPreview(view);
       return false;
     }
@@ -122,10 +136,9 @@ function toggleTask(view: EditorView, target: HTMLElement, event: Event): boolea
   return true;
 }
 
-/** The note a link at `position` leads to, if the collection has said so. */
-export function internalLinkPathAt(doc: string, position: number, targets?: LinkTargets): string | undefined {
+/** The internal link at `position`, as written in the note: what the hover
+ * preview asks the collection about. */
+export function internalLinkAt(doc: string, position: number): { raw: string } | undefined {
   const link = markdownReferenceAt(doc, position, "link");
-  if (!link || !internalLink(link.target)) return undefined;
-  const target = targets?.get(doc.slice(link.from, link.to));
-  return target?.kind === "note" ? target.path : undefined;
+  return link && internalLink(link.target) ? { raw: doc.slice(link.from, link.to) } : undefined;
 }

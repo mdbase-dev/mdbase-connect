@@ -342,7 +342,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }, [loadTypeSource, phase, selectedTypeName, surface, typeCreating, typeDocument, typeError, typeLoading, typeWorkspace]);
 
   const notePreviewController = useNotePreview(gateway, allNotes, typeDescriptors);
-  const linkTargets = useLinkTargets(gateway, document?.path, collectionRevision);
+  const linkTargets = useLinkTargets(gateway, document?.path, collectionRevision, fileInventory.files);
   const fileWorkspace = useFileWorkspace(
     fileAssetStore,
     fileInventory.files,
