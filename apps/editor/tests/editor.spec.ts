@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { expect, test, type Locator } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { chooseOption } from "./select";
+import { replaceOpeningNoteBody } from "./note-body";
 
 const contactSchema = JSON.stringify({
   type: "object",
@@ -355,7 +356,7 @@ test("edits and autosaves a Markdown note", async ({ page }) => {
   const title = page.getByRole("textbox", { name: "Note title" });
   await expect(title).toHaveValue("The shape of useful tools");
   await title.fill("Useful tools, revised");
-  await page.getByRole("textbox", { name: "Note body" }).fill("A deliberately quiet editing surface.");
+  await replaceOpeningNoteBody(page.getByRole("textbox", { name: "Note body" }), "A deliberately quiet editing surface.");
   await expect(page.getByRole("main", { name: "Note editor" })).toHaveAttribute("data-save-state", "saved", { timeout: 2_000 });
   await expect(page.getByText("Saved", { exact: true })).toHaveCount(0);
 
@@ -381,7 +382,7 @@ test("recovers unsent note edits after reload without silently saving them", asy
   await page.clock.install({ time });
   await page.clock.pauseAt(new Date(time.getTime() + 1_000));
   const draft = "Writing that never reached autosave.";
-  await body.fill(draft);
+  await replaceOpeningNoteBody(body, draft);
   // Let CodeMirror consume the DOM input, without reaching the 650ms autosave.
   await page.clock.runFor(50);
   await expect.poll(() => page.evaluate((text) => Object.keys(localStorage)
@@ -406,7 +407,7 @@ test("keeps the writing measure while placing editor scrollbars at the pane edge
   const title = page.getByRole("textbox", { name: "Note title" });
   const body = page.getByRole("textbox", { name: "Note body" });
   const longLine = "A long readable line ".repeat(100);
-  await body.fill(Array.from({ length: 80 }, (_, index) => `${index + 1}. ${longLine}`).join("\n"));
+  await replaceOpeningNoteBody(body, Array.from({ length: 80 }, (_, index) => `${index + 1}. ${longLine}`).join("\n"));
   await expect(page.getByRole("main", { name: "Note editor" })).toHaveAttribute("data-save-state", "saved", { timeout: 5_000 });
 
   const wrapped = await page.locator(".writing-surface").evaluate((surface) => {
@@ -528,7 +529,7 @@ test("wraps long titles and gives narrow editor panes a usable writing measure",
 test("formats, finds, and checks Markdown without adding permanent editor chrome", async ({ page }) => {
   await page.goto("?demo=12");
   const body = page.getByRole("textbox", { name: "Note body" });
-  await body.fill("alpha beta");
+  await replaceOpeningNoteBody(body, "alpha beta");
   await page.keyboard.press("Control+a");
   await page.keyboard.press("Control+b");
   await expect(body).toHaveText("**alpha beta**");
@@ -572,7 +573,7 @@ test("formats, finds, and checks Markdown without adding permanent editor chrome
 test("restores each note's caret and undo history", async ({ page }) => {
   await page.goto("?demo=12");
   const body = page.getByRole("textbox", { name: "Note body" });
-  await body.fill("alpha beta");
+  await replaceOpeningNoteBody(body, "alpha beta");
   await page.keyboard.press("ArrowLeft");
   await page.keyboard.press("ArrowLeft");
   await page.keyboard.press("ArrowLeft");
@@ -594,7 +595,7 @@ test("restores each note's caret and undo history", async ({ page }) => {
 test("modifier-clicks an internal Markdown link to open its note", async ({ page }) => {
   await page.goto("?demo=12");
   const body = page.getByRole("textbox", { name: "Note body" });
-  await body.fill("[[Journal/garden-notes-2|Garden notes 2]]\n\nKeep writing.");
+  await replaceOpeningNoteBody(body, "[[Journal/garden-notes-2|Garden notes 2]]\n\nKeep writing.");
   await page.locator(".body-editor .cm-line").filter({ hasText: "Garden notes 2" }).click({ modifiers: ["Control"] });
 
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
@@ -603,7 +604,7 @@ test("modifier-clicks an internal Markdown link to open its note", async ({ page
 test("creates a note from an unresolved Markdown link", async ({ page }) => {
   await page.goto("?demo=12");
   const body = page.getByRole("textbox", { name: "Note body" });
-  await body.fill("[Fresh idea](fresh-idea.md)\n\nKeep writing.");
+  await replaceOpeningNoteBody(body, "[Fresh idea](fresh-idea.md)\n\nKeep writing.");
   await page.locator(".body-editor .cm-line").filter({ hasText: "Fresh idea" }).click({ modifiers: ["Control"] });
 
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Fresh idea");
@@ -642,7 +643,7 @@ test("previews internal editor links on hover, but not sidebar rows", async ({ p
   await expect(preview).not.toBeVisible();
 
   const body = page.getByRole("textbox", { name: "Note body" });
-  await body.fill("[[Journal/garden-notes-2|Garden notes 2]]\n\nKeep writing.");
+  await replaceOpeningNoteBody(body, "[[Journal/garden-notes-2|Garden notes 2]]\n\nKeep writing.");
   const linkedLine = page.locator(".body-editor .cm-line").filter({ hasText: "Garden notes 2" });
   const box = await linkedLine.boundingBox();
   expect(box).not.toBeNull();
