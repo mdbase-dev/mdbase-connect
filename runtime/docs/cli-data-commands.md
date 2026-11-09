@@ -3,9 +3,9 @@
 Status: implemented in `crates/daemon/src/data.rs` (phases 1 to 4).
 
 The `mdbase` binary (`crates/daemon`, `src/cli.rs`) administers the daemon,
-collections, sync, devices and app access. It cannot read or write records. The
-retired connector CLI could (`mdbase --root PATH query …`, `mdbase --collection ID
-read …`), and scripts and agents relied on that. This plan restores record access
+collections, sync, devices and app access. These commands add record reads and
+writes. The retired connector CLI supported them (`mdbase --root PATH query …`,
+`mdbase --collection ID read …`), and scripts and agents relied on that. This restores record access
 for local collections. Thin-client access to hosted collections is out of scope.
 
 ## Commands
@@ -56,6 +56,12 @@ use, and the facade calls it. That is a move, not a copy.
 - A folder registered with a daemon that is not running fails with
   `daemon_not_running`. It is not opened in process instead, because record IDs
   would then differ from the daemon's (below).
+- An in-process command finishes the runtime's existing scan and move-pairing
+  timers before answering. Otherwise a one-shot host can repeatedly report
+  deleted files or assign a new ID to an externally moved file. A scan that
+  does not settle within the request timeout fails rather than answering from
+  an incomplete view. Daemon reads retain the runtime's ordinary live view,
+  including its three-second external-move pairing window.
 
 ## Contracts
 

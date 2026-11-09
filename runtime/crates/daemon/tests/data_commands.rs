@@ -377,6 +377,29 @@ fn writes_apply_and_report() {
 }
 
 #[test]
+fn in_process_commands_finish_external_deletions_and_moves() {
+    let fixture = fixture("external");
+    let (code, original) = fixture.json(&["read", "tasks/a.md"]);
+    assert_eq!(code, 0);
+    std::fs::rename(
+        fixture.root.join("tasks/a.md"),
+        fixture.root.join("tasks/moved.md"),
+    )
+    .unwrap();
+    std::fs::remove_file(fixture.root.join("tasks/bad.md")).unwrap();
+    let (code, query) = fixture.json(&["query"]);
+    assert_eq!(code, 0, "{query}");
+    let mut found = paths(&query);
+    found.sort_unstable();
+    assert_eq!(found, vec!["tasks/b.md", "tasks/moved.md"]);
+    let (code, moved) = fixture.json(&["read", "tasks/moved.md"]);
+    assert_eq!(code, 0, "{moved}");
+    assert_eq!(moved["id"], original["id"]);
+    let output = fixture.run(&["validate"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stdout(&output));
+}
+
+#[test]
 fn refuses_folders_it_must_not_open() {
     let f = fixture("rf");
 

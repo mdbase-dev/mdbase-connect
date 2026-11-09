@@ -753,6 +753,13 @@ fn in_process(root: &Path) -> Result<Transport, ClientError> {
         },
     )
     .map_err(folder_error)?;
+    if !folder
+        .replica
+        .settle(REQUEST_TIMEOUT.as_millis() as u64)
+        .map_err(|error| ControlError::internal(format!("collection scan: {error}")))?
+    {
+        return Err(ClientError::Timeout);
+    }
     let mut frames = Frames::new();
     let outcome = frames.hello(
         folder.replica.replica(),
@@ -1054,6 +1061,7 @@ async fn submit(
                     body_edits: None,
                     body_base: None,
                     body_base_text: None,
+                    update_refs: None,
                     base: None,
                     if_revision: revision(if_revision)?,
                 }));
@@ -1100,6 +1108,7 @@ async fn submit(
         // A fresh mutation per call: a rerun is a new write, never a replay.
         mutation_id: Some(B16(mdbn_local_host::host::uuid_v7(now, &mut OsEntropy))),
         conflict_mode: Some(ConflictMode::Reject),
+        validation: None,
         timezone: None,
         allow_partial: None,
         mutation_ids: None,
