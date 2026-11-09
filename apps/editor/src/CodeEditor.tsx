@@ -788,7 +788,7 @@ class MarkdownLinkWidget extends WidgetType {
   toDOM() {
     const link = document.createElement("a");
     link.className = this.missing ? "cm-rendered-link cm-rendered-link-missing" : "cm-rendered-link";
-    if (this.missing) link.title = t`No note or file matches “${this.target}”`;
+    if (this.missing) link.title = t`No note or file matches “${this.target}”.`;
     link.dataset.linkFrom = String(this.from);
     link.href = /^https?:\/\//i.test(this.target) ? this.target : "#";
     if (/^https?:\/\//i.test(this.target)) {

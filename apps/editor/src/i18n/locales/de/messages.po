@@ -3422,7 +3422,9 @@ msgid "No nested fields yet."
 msgstr "Noch keine verschachtelten Felder."
 
 #. placeholder {0}: reference.target
+#. placeholder {0}: this.target
 #: src/code-editor-reference-diagnostics.ts
+#: src/CodeEditor.tsx
 msgid "No note or file matches “{0}”."
 msgstr "Keine Notiz oder Datei passt zu „{0}“."
 
