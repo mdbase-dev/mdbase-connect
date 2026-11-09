@@ -419,6 +419,13 @@ impl<S: Store> Store for KeychainKeyring<S> {
         let Some(keyring) = keyring else {
             return self.inner.commit(tx);
         };
+        // The keychain write is an outside effect: never inside a window whose
+        // commits a crash could still take back (the generation it names would
+        // be lost while the keychain keeps it). Closing is a barrier; this commit
+        // and everything after it in the caller's window are then durable.
+        if self.inner.durability_deferred() {
+            self.inner.defer_durability(false)?;
+        }
         let committed = self.generation()?;
         let next = match keyring {
             Some(mut bytes) => {
@@ -438,6 +445,15 @@ impl<S: Store> Store for KeychainKeyring<S> {
             tx.meta.push((RETAINED_META.into(), Some(retained)));
         }
         self.inner.commit(tx)
+    }
+    // Without these the trait defaults silently keep every commit durable, so
+    // the replica's deferred windows (disk ingest, index rebuilds) did nothing
+    // in the daemon. Keyring commits close any open window (see `commit`).
+    fn defer_durability(&mut self, on: bool) -> StoreResult<()> {
+        self.inner.defer_durability(on)
+    }
+    fn durability_deferred(&self) -> bool {
+        self.inner.durability_deferred()
     }
     // Query index and attachment-v1 disk operations pass straight through; the
     // wrapper only intercepts the keyring.

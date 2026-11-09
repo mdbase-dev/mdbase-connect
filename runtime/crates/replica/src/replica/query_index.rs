@@ -2,7 +2,7 @@
 //! authoritative writes. Storage errors are never recategorized as optional.
 use super::Replica;
 use crate::plan::QueryProjectionContext;
-use crate::store::{RecordRow, Store, StoreResult, Tx};
+use crate::store::{Head, RecordRow, Store, StoreResult, Tx};
 use crate::store_query::QueryIndexTx;
 use mdbn_core::query::FieldRef;
 use mdbn_wire::common::Sem;
@@ -106,6 +106,7 @@ impl<S: Store> Replica<S> {
             replace_specs: replace.then(|| context.fields().to_vec()),
             rows,
             publish_at: Some(tx.head.unwrap_or(self.head)),
+            completes_backfill: false,
         });
         Ok(Some(context))
     }
@@ -148,6 +149,11 @@ impl<S: Store> Replica<S> {
     /// last publishes at the current head, and the backend alone decides readiness
     /// from verified coverage. A projection failure leaves the index unready, so
     /// queries keep using the per-record path; store errors propagate.
+    ///
+    /// A raw projection the backend reports settled (a complete pass found some
+    /// records unprojectable and nothing invalidated it since) is not rebuilt:
+    /// another pass would end in the same unready state. It is still unready, so
+    /// raw pages are never served for it.
     pub(crate) fn backfill_query_index(&mut self) -> StoreResult<()> {
         if self.install.is_some() || !self.store.query_index_supported() {
             return Ok(());
@@ -167,15 +173,22 @@ impl<S: Store> Replica<S> {
         // A newly installed or invalidated raw payload cannot be certified by
         // existing sort-field coverage. Reuse this same bounded backfill loop.
         // None preserves stores that do not implement raw projection reads.
-        let raw_ready = self
-            .store
-            .query_projection_state()?
-            .is_none_or(|s| s.ready && s.generation == context.generation() && s.head == head);
-        if fields_ready && raw_ready {
+        let raw_complete = self.store.query_projection_state()?.is_none_or(|s| {
+            (s.ready || s.settled) && s.generation == context.generation() && s.head == head
+        });
+        if fields_ready && raw_complete {
             self.query_context = Some(context);
             return Ok(());
         }
         self.query_cursors.clear();
+        self.with_deferred_durability(|r| r.backfill_pass(&context, head))?;
+        self.query_context = Some(context);
+        Ok(())
+    }
+
+    /// One full backfill pass. Returns early, leaving the index unready, when a
+    /// record cannot be projected for the field index.
+    fn backfill_pass(&mut self, context: &QueryProjectionContext, head: Head) -> StoreResult<()> {
         let mut after = None;
         let mut first = true;
         loop {
@@ -192,29 +205,49 @@ impl<S: Store> Replica<S> {
                 for row in batch {
                     match context.project_row(row) {
                         Ok(r) => rows.push(r),
-                        Err(_) => {
-                            // Optional: stays unready; the per-record path answers.
-                            self.query_context = Some(context);
-                            return Ok(());
-                        }
+                        // Optional: stays unready; the per-record path answers.
+                        Err(_) => return Ok(()),
                     }
                 }
+                let completes = done && at == last;
                 self.store.commit(Tx {
                     query_index: Some(QueryIndexTx {
                         generation: context.generation(),
                         replace_specs: first.then(|| context.fields().to_vec()),
                         rows,
-                        publish_at: (done && at == last).then_some(head),
+                        publish_at: completes.then_some(head),
+                        completes_backfill: completes,
                     }),
                     ..Tx::default()
                 })?;
                 first = false;
             }
             if done {
-                break;
+                return Ok(());
             }
         }
-        self.query_context = Some(context);
-        Ok(())
+    }
+
+    /// Run derived-data rebuild commits (backfill, reindex) inside one
+    /// deferred-durability window: one barrier instead of one per page. Safe
+    /// because every commit in it can be redone from authoritative rows: their
+    /// completion stamps (index publication, derived/record-meta versions) are
+    /// written last, and durability is prefix-ordered, so a crash leaves them
+    /// unstamped and the next open redoes the work. A window the caller already
+    /// holds is left to the caller. Closing is a barrier and is attempted even
+    /// after a failure.
+    pub(super) fn with_deferred_durability<T>(
+        &mut self,
+        work: impl FnOnce(&mut Self) -> StoreResult<T>,
+    ) -> StoreResult<T> {
+        if self.store.durability_deferred() {
+            return work(self);
+        }
+        self.store.defer_durability(true)?;
+        let result = work(self);
+        let closed = self.store.defer_durability(false);
+        let value = result?;
+        closed?;
+        Ok(value)
     }
 }

@@ -1104,6 +1104,9 @@ fn external_edits_sync() {
     let svc = FakeLogService::new();
     let mut a = node(&svc, 1);
     let mut b = node(&svc, 2);
+    // Opening may rebuild derived data in a window of its own, closed before
+    // the replica syncs; only ingest is measured.
+    let opened = [&a, &b].map(|n| n.r.store().inner.data().borrow().windows);
     create(&mut a, 1, "a.md", "one");
     settle(&mut [&mut a, &mut b]);
     b.disk.borrow_mut().user_write("a.md", Some("two"));
@@ -1119,8 +1122,8 @@ fn external_edits_sync() {
     settle(&mut [&mut a, &mut b]);
     assert!(a.file("new.md").is_none());
     // Synced ingest never defers durability: its entries leave the device.
-    for n in [&a, &b] {
-        assert_eq!(n.r.store().inner.data().borrow().windows, (0, 0));
+    for (n, opened) in [&a, &b].into_iter().zip(opened) {
+        assert_eq!(n.r.store().inner.data().borrow().windows, opened);
     }
 }
 

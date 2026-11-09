@@ -162,6 +162,7 @@ pub(super) fn run_case(case: &Case) -> Run {
                 replace_specs: Some(context.fields().to_vec()),
                 rows: projected,
                 publish_at: Some(Head::GENESIS),
+                completes_backfill: false,
             }),
             ..Tx::default()
         })

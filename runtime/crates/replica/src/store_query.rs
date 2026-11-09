@@ -67,6 +67,11 @@ pub struct QueryIndexTx {
     pub rows: Vec<QueryIndexedRow>,
     /// Publish ONLY after backend checks complete coverage and this current head.
     pub publish_at: Option<Head>,
+    /// The final transaction of a backfill pass that started with
+    /// `replace_specs` and attempted every record. A backend may then record that
+    /// its raw projection is settled: every record is projected or was found
+    /// unavailable, so another backfill could not make it more complete.
+    pub completes_backfill: bool,
 }
 /// An eligible column in the bounded index plan.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -402,6 +407,11 @@ pub struct QueryProjectionState {
     pub head: Head,
     /// Complete for every record at `head` (backfill done, version current).
     pub ready: bool,
+    /// Not ready only because some records cannot be projected (for example a
+    /// document with a frontmatter problem): a complete backfill pass ran and
+    /// nothing has invalidated it since. Never authority to serve raw pages;
+    /// only tells the opener a rebuild would reach the same state.
+    pub settled: bool,
 }
 
 /// A bounded page of raw per-record projections under a captured index

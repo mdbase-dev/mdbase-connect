@@ -117,8 +117,7 @@ Each phase is one PR.
    folder lock forces the daemon route.
 3. **Writes.** `create`, `update`, `delete`, `rename` and `batch`, with
    `--if-revision`, `--dry-run` and a fresh mutation ID per call.
-4. **Docs.** `docs/headless.md`, the README and the CLI help. The repository
-   root's `docs/unified-cli.md` is marked as describing the connector CLI.
+4. **Docs.** `docs/headless.md`, the README and the CLI help.
 
 ## Open questions
 
