@@ -59,9 +59,10 @@ use, and the facade calls it. That is a move, not a copy.
   would then differ from the daemon's (below).
 - An in-process command finishes the runtime's existing scan and move-pairing
   timers before answering. Otherwise a one-shot host can repeatedly report
-  deleted files or assign a new ID to an externally moved file. A scan that
-  does not settle within the request timeout fails rather than answering from
-  an incomplete view. Daemon reads retain the runtime's ordinary live view,
+  deleted files or assign a new ID to an externally moved file. The wait uses
+  the store's configured move window plus the existing short scan window;
+  unrelated later retention work remains deferred. Daemon reads retain the
+  runtime's ordinary live view,
   including its three-second external-move pairing window.
 
 ## Contracts

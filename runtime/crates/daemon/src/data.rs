@@ -753,13 +753,12 @@ fn in_process(root: &Path) -> Result<Transport, ClientError> {
         },
     )
     .map_err(folder_error)?;
-    if !folder
+    let scan_window = mdbn_store_file::Config::default().move_window_ms
+        + mdbn_local_host::replica::SHORT_TIMERS_MS;
+    folder
         .replica
-        .settle(REQUEST_TIMEOUT.as_millis() as u64)
-        .map_err(|error| ControlError::internal(format!("collection scan: {error}")))?
-    {
-        return Err(ClientError::Timeout);
-    }
+        .settle(scan_window)
+        .map_err(|error| ControlError::internal(format!("collection scan: {error}")))?;
     let mut frames = Frames::new();
     let outcome = frames.hello(
         folder.replica.replica(),
