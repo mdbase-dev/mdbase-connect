@@ -177,7 +177,8 @@ blockquote.mdbase-thread-quote::after { content: "”"; }
 .mdbase-thread-action.is-quiet { color: var(--color-text-muted); }
 
 .mdbase-comment-composer-title { display: flex; align-items: baseline; gap: 6px; margin: 0; }
-.mdbase-comment-composer-title span { overflow: hidden; color: var(--color-text-muted); text-overflow: ellipsis; white-space: nowrap; }
+.mdbase-comment-composer-title strong { flex: none; white-space: nowrap; }
+.mdbase-comment-composer-title span { min-width: 0; overflow: hidden; color: var(--color-text-muted); text-overflow: ellipsis; white-space: nowrap; }
 
 /* A comment: who and when, the text beneath; replies are indented under the first. */
 .mdbase-comment { display: grid; gap: 2px; }
