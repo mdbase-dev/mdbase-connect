@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import type { DatabasePool } from "./db.js";
+import type { DatabasePool } from "../../db.js";
 
 export interface AuthRateLimitRule {
   maxAttempts: number;

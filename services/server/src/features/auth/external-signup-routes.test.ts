@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { buildApp } from "./app.js";
+import { buildApp } from "../../app.js";
 import { AuthenticationPolicyStore } from "./authentication-policy.js";
-import { createDatabase } from "./db.js";
+import { createDatabase } from "../../db.js";
 import { createExternalSession } from "./external-auth.js";
-import { tokenHash } from "./security.js";
+import { tokenHash } from "../../security.js";
 import { ExternalSignupService } from "./external-signup.js";
 
 const resources: Array<() => Promise<void>> = [];

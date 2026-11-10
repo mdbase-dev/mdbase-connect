@@ -2,10 +2,10 @@ import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AuthenticationPolicyStore } from "./authentication-policy.js";
-import { createDatabase, type DatabasePool } from "./db.js";
+import { createDatabase, type DatabasePool } from "../../db.js";
 import { ExternalSignupService } from "./external-signup.js";
 import { AccountUnavailableError, createExternalSession } from "./external-auth.js";
-import { tokenHash } from "./security.js";
+import { tokenHash } from "../../security.js";
 
 // Only an explicitly approved, local disposable database is accepted. The suite
 // creates and drops its own unique schema, never public or another test's data.

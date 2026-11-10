@@ -4,8 +4,8 @@ import { resolve, join } from "node:path";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { openDatabase, type DatabasePool } from "../../db.js";
-import { AuthenticationPolicyStore } from "../../authentication-policy.js";
-import { PasswordAccountService } from "../../password-auth.js";
+import { AuthenticationPolicyStore } from "../auth/authentication-policy.js";
+import { PasswordAccountService } from "../auth/password-auth.js";
 import { runControlPlaneMigrations } from "../../migrations.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;

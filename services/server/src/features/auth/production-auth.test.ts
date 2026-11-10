@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildApp } from "./app.js";
-import { createDatabase } from "./db.js";
+import { buildApp } from "../../app.js";
+import { createDatabase } from "../../db.js";
 
 const resources: Array<() => Promise<void>> = [];
 

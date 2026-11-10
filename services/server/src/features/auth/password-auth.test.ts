@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { hash } from "@node-rs/argon2";
 import { afterEach, describe, expect, it } from "vitest";
 import { AuthenticationPolicyStore } from "./authentication-policy.js";
-import { createDatabase, type DatabasePool } from "./db.js";
+import { createDatabase, type DatabasePool } from "../../db.js";
 import { createExternalSession } from "./external-auth.js";
 import {
   InvalidInvitationError,
@@ -11,8 +11,8 @@ import {
   PasswordAuthenticationUnavailableError,
   PasswordLoginRejectedError
 } from "./password-auth.js";
-import { tokenHash } from "./security.js";
-import { flipEvidenceDigest } from "./features/next/migration-rollout.js";
+import { tokenHash } from "../../security.js";
+import { flipEvidenceDigest } from "../next/migration-rollout.js";
 import {
   PASSWORD_HASH_PARAMETERS,
   passwordHashNeedsUpgrade

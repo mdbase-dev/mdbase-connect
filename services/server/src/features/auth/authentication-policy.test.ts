@@ -3,7 +3,7 @@ import {
   AuthenticationPolicyStore,
   AuthenticationSettingsConflictError
 } from "./authentication-policy.js";
-import { createDatabase } from "./db.js";
+import { createDatabase } from "../../db.js";
 
 const resources: Array<() => Promise<void>> = [];
 

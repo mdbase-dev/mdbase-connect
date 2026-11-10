@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { AuthenticationPolicyStore } from "./authentication-policy.js";
-import { createDatabase, type DatabasePool } from "./db.js";
+import { createDatabase, type DatabasePool } from "../../db.js";
 import { createExternalSession } from "./external-auth.js";
 import {
   InvalidPublicSignupVerificationError,
   PublicSignupService,
   PublicSignupUnavailableError
 } from "./public-signup.js";
-import { tokenHash } from "./security.js";
+import { tokenHash } from "../../security.js";
 
 const resources: Array<() => Promise<void>> = [];
 

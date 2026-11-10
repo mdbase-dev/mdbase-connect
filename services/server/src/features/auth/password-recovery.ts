@@ -2,14 +2,14 @@ import { randomUUID } from "node:crypto";
 import type {
   DatabasePool,
   DatabaseQueryable
-} from "./db.js";
+} from "../../db.js";
 import { normalizeEmailAddress } from "./email-identity.js";
 import {
   AuthenticationPolicyStore,
   type AuthenticationSettings
 } from "./authentication-policy.js";
 import { hashPassword } from "./password.js";
-import { randomToken, tokenHash } from "./security.js";
+import { randomToken, tokenHash } from "../../security.js";
 
 const PASSWORD_RESET_LIFETIME_SECONDS = 60 * 60;
 

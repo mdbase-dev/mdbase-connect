@@ -6,7 +6,7 @@ import type {
   DatabasePool,
   DatabaseQueryable
 } from "./db.js";
-import { normalizeEmailAddress } from "./email-identity.js";
+import { normalizeEmailAddress } from "./features/auth/email-identity.js";
 import {
   invitationStatusCondition,
   invitationSummary,

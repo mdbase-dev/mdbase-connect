@@ -8,7 +8,7 @@ import { resolveApplicationRegistration } from "../../../../../runtime/packages/
 import { registerApplicationRoutes } from "../applications/routes.js";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { deleteAccountLocally } from "../account/account-management.js";
-import { createExternalSession } from "../../external-auth.js";
+import { createExternalSession } from "../auth/external-auth.js";
 import { capabilityOperationsForContractVersion, MDBASE_TIMER_FIRED_CONTRACT } from "@mdbase-dev/connect-protocol";
 import { createTestApplicationIdentity, testApplicationAuthorization } from "../../application-authorization.test-helper.js";
 import { clientNoiseKeyMessage, storeRequestClientNoiseKey, verifiedClientNoiseKey } from "../next/client-key.js";
@@ -19,7 +19,7 @@ import { ZERO_HOSTED_ARCHIVE_SCHEMA } from "../next/migration-archive-profile.js
 import { randomToken, tokenHash } from "../../security.js";
 import { pruneUsageHistory } from "../../usage-report.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
-import { AuthenticationPolicyStore } from "../../authentication-policy.js";
+import { AuthenticationPolicyStore } from "../auth/authentication-policy.js";
 import { RelayHub } from "../../relay.js";
 import { registerAccountOverviewRoute } from "../account/me-routes.js";
 import { connectorFromRequest, requireInstallationDeviceConnector } from "../../platform/request-authentication.js";

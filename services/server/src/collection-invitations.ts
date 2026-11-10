@@ -9,7 +9,7 @@ import {
   type MembershipPolicySnapshot
 } from "./collection-policy.js";
 import type { DatabaseConnection, DatabasePool, DatabaseQueryable } from "./db.js";
-import { normalizeEmailAddress } from "./email-identity.js";
+import { normalizeEmailAddress } from "./features/auth/email-identity.js";
 import { effectiveEntitlement } from "./features/account/entitlements.js";
 import { audit } from "./platform/audit-events.js";
 import { canonicalUserCode, randomToken, randomUserCode, tokenHash } from "./security.js";

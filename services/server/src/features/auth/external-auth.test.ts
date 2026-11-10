@@ -3,7 +3,7 @@ import {
   AccountUnavailableError,
   createExternalSession
 } from "./external-auth.js";
-import { createDatabase } from "./db.js";
+import { createDatabase } from "../../db.js";
 
 const resources: Array<() => Promise<void>> = [];
 

@@ -3,7 +3,7 @@ import {
   accountCreationEmailClaimed,
   reserveAccountCreationEmail
 } from "./account-creation-email-claims.js";
-import type { DatabasePool, DatabaseQueryable } from "./database-types.js";
+import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import {
   EMAIL_NORMALIZATION_VERSION,
   normalizeEmailAddress
@@ -12,10 +12,10 @@ import {
   AuthenticationPolicyStore,
   type AuthenticationSettings
 } from "./authentication-policy.js";
-import { completePublicAccountOnboarding } from "./public-account-onboarding.js";
+import { completePublicAccountOnboarding } from "../../public-account-onboarding.js";
 import { hashPassword } from "./password.js";
-import { randomToken, tokenHash } from "./security.js";
-import { provisionNewAccountBackend, type AccountBackend } from "./features/next/account-backend-flip.js";
+import { randomToken, tokenHash } from "../../security.js";
+import { provisionNewAccountBackend, type AccountBackend } from "../next/account-backend-flip.js";
 
 const PUBLIC_SIGNUP_LIFETIME_SECONDS = 60 * 60;
 

@@ -3,13 +3,13 @@ import {
   accountCreationEmailClaimed,
   reserveAccountCreationEmail
 } from "./account-creation-email-claims.js";
-import type { DatabasePool, DatabaseQueryable } from "./database-types.js";
+import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import {
   EMAIL_NORMALIZATION_VERSION,
   normalizeEmailAddress
 } from "./email-identity.js";
-import { randomToken, tokenHash } from "./security.js";
-import { provisionNewAccountBackend, type AccountBackend } from "./features/next/account-backend-flip.js";
+import { randomToken, tokenHash } from "../../security.js";
+import { provisionNewAccountBackend, type AccountBackend } from "../next/account-backend-flip.js";
 
 export type ExternalProvider = "github" | "google";
 

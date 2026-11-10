@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OAuth2Client } from "google-auth-library";
-import { buildApp } from "./app.js";
+import { buildApp } from "../../app.js";
 import { AuthenticationPolicyStore } from "./authentication-policy.js";
-import { createDatabase } from "./db.js";
+import { createDatabase } from "../../db.js";
 import {
   GoogleIdentityError,
   verifyGoogleCredential,

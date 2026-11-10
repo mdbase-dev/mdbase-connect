@@ -11,24 +11,24 @@ import {
   linkExternalIdentity
 } from "../account/account-management.js";
 import { sessionClientName } from "../account/account-sessions.js";
-import type { AuthenticationPolicyStore } from "../../authentication-policy.js";
+import type { AuthenticationPolicyStore } from "./authentication-policy.js";
 import type { DatabasePool } from "../../database-types.js";
-import { createExternalSession, type VerifiedExternalIdentity } from "../../external-auth.js";
-import { ExternalSignupService, ExternalSignupEmailRequiredError } from "../../external-signup.js";
+import { createExternalSession, type VerifiedExternalIdentity } from "./external-auth.js";
+import { ExternalSignupService, ExternalSignupEmailRequiredError } from "./external-signup.js";
 import type { AccountBackend } from "../next/account-backend-flip.js";
-import { PublicSignupUnavailableError } from "../../public-signup.js";
-import { AuthRateLimiter } from "../../auth-rate-limit.js";
+import { PublicSignupUnavailableError } from "./public-signup.js";
+import { AuthRateLimiter } from "./auth-rate-limit.js";
 import { ianaTimezoneSchema } from "../../platform/timezones.js";
 import {
   exchangeGitHubCode,
   GitHubIdentityError,
   type GitHubAuthConfig
-} from "../../github-auth.js";
+} from "./github-auth.js";
 import {
   GoogleIdentityError,
   verifyGoogleCredential,
   type GoogleAuthConfig
-} from "../../google-auth.js";
+} from "./google-auth.js";
 import type { AuthenticationLegalDocuments } from "../../platform/runtime-config.js";
 import {
   pkceChallenge,

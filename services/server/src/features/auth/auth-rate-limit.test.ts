@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { AuthRateLimiter } from "./auth-rate-limit.js";
-import { createDatabase } from "./db.js";
+import { createDatabase } from "../../db.js";
 
 const resources: Array<() => Promise<void>> = [];
 const rule = {

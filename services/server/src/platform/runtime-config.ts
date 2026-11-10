@@ -1,5 +1,5 @@
-import type { GitHubAuthConfig } from "../github-auth.js";
-import type { GoogleAuthConfig } from "../google-auth.js";
+import type { GitHubAuthConfig } from "../features/auth/github-auth.js";
+import type { GoogleAuthConfig } from "../features/auth/google-auth.js";
 import type { HostedProviderConfig } from "../hosted-provider.js";
 import type { RelayBrokerConfig } from "../relay-broker.js";
 import type { VapidConfig } from "../web-push.js";

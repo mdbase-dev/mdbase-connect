@@ -11,11 +11,11 @@ import { queueNextPolicy } from "../next/policy-outbox.js";
 import type {
   ExternalProvider,
   VerifiedExternalIdentity
-} from "../../external-auth.js";
+} from "../auth/external-auth.js";
 import {
   EMAIL_NORMALIZATION_VERSION,
   normalizeEmailAddress
-} from "../../email-identity.js";
+} from "../auth/email-identity.js";
 import { audit } from "../../platform/audit-events.js";
 import { randomToken, tokenHash } from "../../security.js";
 

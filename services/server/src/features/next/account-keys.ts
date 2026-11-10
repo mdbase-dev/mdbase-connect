@@ -24,7 +24,7 @@
 // and never keys a device: a device keys itself from the account key, in the log.
 import { createHash, verify } from "node:crypto";
 import type { FastifyInstance } from "fastify";
-import { AuthRateLimiter, type AuthRateLimitRule } from "../../auth-rate-limit.js";
+import { AuthRateLimiter, type AuthRateLimitRule } from "../auth/auth-rate-limit.js";
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
 import { requireConnector } from "../../platform/request-authentication.js";

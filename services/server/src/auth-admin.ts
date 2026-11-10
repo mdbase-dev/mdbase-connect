@@ -13,9 +13,9 @@ import {
 import {
   AuthenticationPolicyStore,
   type AuthenticationSettings
-} from "./authentication-policy.js";
-import { PasswordAccountService } from "./password-auth.js";
-import { normalizeEmailAddress } from "./email-identity.js";
+} from "./features/auth/authentication-policy.js";
+import { PasswordAccountService } from "./features/auth/password-auth.js";
+import { normalizeEmailAddress } from "./features/auth/email-identity.js";
 import type { RegistrationMode } from "./platform/runtime-config.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
 import {

@@ -3,7 +3,7 @@ import type { DatabasePool } from "./database-types.js";
 import {
   EMAIL_NORMALIZATION_VERSION,
   normalizeEmailAddress
-} from "./email-identity.js";
+} from "./features/auth/email-identity.js";
 
 export class BetaAccessRequestService {
   constructor(private readonly db: DatabasePool) {}

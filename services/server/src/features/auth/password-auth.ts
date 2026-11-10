@@ -6,7 +6,7 @@ import {
 import type {
   DatabasePool,
   DatabaseQueryable
-} from "./db.js";
+} from "../../db.js";
 import {
   EMAIL_NORMALIZATION_VERSION,
   normalizeEmailAddress
@@ -20,15 +20,15 @@ import {
   passwordHashNeedsUpgrade,
   verifyPassword
 } from "./password.js";
-import { randomToken, tokenHash } from "./security.js";
+import { randomToken, tokenHash } from "../../security.js";
 import {
   BETA_ENTITLEMENT_PROFILE,
   attachInvitationEntitlement,
   materializeInvitationEntitlement
-} from "./features/account/entitlements.js";
-import { scheduleBetaWelcomeEmail } from "./beta-welcome-email.js";
-import { scheduleStarterCollection } from "./account-onboarding.js";
-import { provisionNewAccountBackend, type AccountBackend } from "./features/next/account-backend-flip.js";
+} from "../account/entitlements.js";
+import { scheduleBetaWelcomeEmail } from "../../beta-welcome-email.js";
+import { scheduleStarterCollection } from "../../account-onboarding.js";
+import { provisionNewAccountBackend, type AccountBackend } from "../next/account-backend-flip.js";
 
 const DEFAULT_INVITATION_LIFETIME_SECONDS = 7 * 24 * 60 * 60;
 const MIN_INVITATION_LIFETIME_SECONDS = 5 * 60;

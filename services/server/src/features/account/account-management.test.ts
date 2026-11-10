@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { deleteAccountLocally } from "./account-management.js";
 import { buildApp } from "../../app.js";
 import { createDatabase } from "../../db.js";
-import { hashPassword } from "../../password.js";
+import { hashPassword } from "../auth/password.js";
 import { randomToken, tokenHash } from "../../security.js";
 import { HostedProviderClient } from "../../hosted-provider.js";
 

@@ -1,5 +1,5 @@
 import { OAuth2Client } from "google-auth-library";
-import { safeEqual } from "./security.js";
+import { safeEqual } from "../../security.js";
 
 const googleVerifier = new OAuth2Client();
 

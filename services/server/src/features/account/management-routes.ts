@@ -5,7 +5,7 @@ import {
   deleteAccountLocally,
   removeExternalIdentity
 } from "./account-management.js";
-import type { AuthenticationPolicyStore } from "../../authentication-policy.js";
+import type { AuthenticationPolicyStore } from "../auth/authentication-policy.js";
 import type { DatabasePool } from "../../database-types.js";
 import {
   readEmailPreferences,
@@ -19,8 +19,8 @@ import type {
 import {
   PasswordAccountService,
   PasswordAuthenticationUnavailableError
-} from "../../password-auth.js";
-import { PASSWORD_MAX_UTF8_BYTES } from "../../password.js";
+} from "../auth/password-auth.js";
+import { PASSWORD_MAX_UTF8_BYTES } from "../auth/password.js";
 import { audit } from "../../platform/audit-events.js";
 import { apiError } from "../../platform/http-errors.js";
 import {

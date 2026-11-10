@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { AuthenticationPolicyStore } from "./authentication-policy.js";
-import { createDatabase, type DatabasePool } from "./db.js";
+import { createDatabase, type DatabasePool } from "../../db.js";
 import { PasswordAccountService } from "./password-auth.js";
 import {
   InvalidPasswordResetError,
   PasswordRecoveryService,
   PasswordRecoveryUnavailableError
 } from "./password-recovery.js";
-import { tokenHash } from "./security.js";
+import { tokenHash } from "../../security.js";
 import { verifyPassword } from "./password.js";
 
 const resources: Array<() => Promise<void>> = [];

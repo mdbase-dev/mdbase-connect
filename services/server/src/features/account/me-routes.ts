@@ -16,7 +16,7 @@ import {
 } from "../../hosted.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";
 import type { RelayHub } from "../../relay.js";
-import type { AuthenticationPolicyStore } from "../../authentication-policy.js";
+import type { AuthenticationPolicyStore } from "../auth/authentication-policy.js";
 import { requireUser } from "../../platform/request-authentication.js";
 import { sqlPlaceholders } from "../../platform/sql.js";
 import { liveAuthorizationCollections } from "../authorizations/local-collections.js";
