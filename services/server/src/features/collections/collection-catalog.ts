@@ -1,7 +1,7 @@
 import type { CollectionContractDescriptor } from "@mdbase-dev/connect-protocol";
 import type { DatabaseQueryable } from "../../db.js";
 import type { HostedTemplate } from "../hosted/hosted.js";
-import { decodeStoredMembershipPolicy, resolveActiveMembershipPolicy, type CollectionRole } from "./collection-policy.js";
+import { decodeStoredMembershipPolicy, type CollectionMembershipPolicy, type CollectionRole } from "./collection-policy.js";
 import { projectNextMigrationFreeze, type NextMigrationFreezeRow } from "../next/migration-topology.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 
@@ -55,10 +55,13 @@ export async function resolveHostedCollection(
   return result.rows[0] ? hostedEntry(result.rows[0]) : null;
 }
 
+/** A catalog entry with the viewer's current membership policy, or null for the owner. */
+export type VisibleHostedCollection = HostedCollectionCatalogEntry & { membershipPolicy: CollectionMembershipPolicy | null };
+
 export async function listHostedCollectionsVisibleToUser(
   db: DatabaseQueryable,
   userId: string
-): Promise<HostedCollectionCatalogEntry[]> {
+): Promise<VisibleHostedCollection[]> {
   const result = await db.query<{
     id: string;
     user_id: string;
@@ -70,14 +73,20 @@ export async function listHostedCollectionsVisibleToUser(
     authority_epoch: string | number;
     transferred_collection_id: string | null;
     created_at: string | Date;
-  }>(
+  } & Record<string, unknown>>(
     `SELECT hosted.id, hosted.user_id, hosted.display_name, hosted.template,
             hosted.provider_url, hosted.contracts, hosted.authority_state,
             hosted.authority_epoch, hosted.transferred_collection_id,
-            hosted.created_at
+            hosted.created_at,
+            policy.id AS policy_id, membership.id AS membership_id,
+            membership.user_id AS member_user_id,
+            identity.owner_user_id AS policy_owner_user_id, policy.revision,
+            policy.role, policy.preset_version, policy.actions, policy.operations,
+            policy.scope_ceiling, policy.file_ceiling
      FROM hosted_collections hosted
      LEFT JOIN next_collections native
        ON native.collection_id = hosted.id AND native.runtime = 'next'
+     LEFT JOIN collection_identities identity ON identity.id = hosted.id
      LEFT JOIN collection_memberships membership
        ON membership.collection_id = hosted.id
       AND membership.user_id = $1
@@ -93,16 +102,16 @@ export async function listHostedCollectionsVisibleToUser(
      ORDER BY hosted.display_name`,
     [userId]
   );
-  const visible = await Promise.all(result.rows.map(async (row) => {
-    if (row.user_id === userId) return row;
-    const policy = await resolveActiveMembershipPolicy(db, {
-      collectionId: row.id,
-      ownerUserId: row.user_id,
-      userId
-    });
-    return policy ? row : null;
-  }));
-  return visible.flatMap((row) => row ? [hostedEntry(row)] : []);
+  return result.rows.flatMap((row): VisibleHostedCollection[] => {
+    if (row.user_id === userId) return [{ ...hostedEntry(row), membershipPolicy: null }];
+    const policy = decodeStoredMembershipPolicy({
+      id: row.policy_id, membership_id: row.membership_id, collection_id: row.id,
+      user_id: row.member_user_id, owner_user_id: row.policy_owner_user_id, revision: row.revision,
+      role: row.role, preset_version: row.preset_version, actions: row.actions,
+      operations: row.operations, scope_ceiling: row.scope_ceiling, file_ceiling: row.file_ceiling
+    }, row.user_id);
+    return policy ? [{ ...hostedEntry(row), membershipPolicy: policy }] : [];
+  });
 }
 
 export async function resolveLocalCollection(
