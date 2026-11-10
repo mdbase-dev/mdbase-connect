@@ -1,21 +1,21 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { repairAuthorityImportSources } from "./migrations.js";
+import { repairAuthorityImportSources } from "../../migrations.js";
 import { vi } from "vitest";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createDatabase, type DatabasePool } from "./db.js";
-import { materializePublicSignupEntitlement } from "./features/account/entitlements.js";
-import { finishAuthorityImportAbort } from "./features/authority-transfer/lifecycle.js";
-import { buildApp } from "./app.js";
-import { audit } from "./platform/audit-events.js";
-import { tokenHash } from "./security.js";
-import type { HostedProviderClient } from "./features/hosted/hosted-provider.js";
-import { recoverAccountImportCancellation } from "./features/authority-transfer/account-cancellation.js";
-import { addToCohort, createCohort, setCohortFrozen } from "./features/next/migration-rollout.js";
+import { createDatabase, type DatabasePool } from "../../db.js";
+import { materializePublicSignupEntitlement } from "../account/entitlements.js";
+import { finishAuthorityImportAbort } from "./lifecycle.js";
+import { buildApp } from "../../app.js";
+import { audit } from "../../platform/audit-events.js";
+import { tokenHash } from "../../security.js";
+import type { HostedProviderClient } from "../hosted/hosted-provider.js";
+import { recoverAccountImportCancellation } from "./account-cancellation.js";
+import { addToCohort, createCohort, setCohortFrozen } from "../next/migration-rollout.js";
 
 const repairChecksum = createHash("sha256").update(await readFile(new URL(
-  "../migrations/0036_authority_import_source_repair.sql", import.meta.url
+  "../../../migrations/0036_authority_import_source_repair.sql", import.meta.url
 ))).digest("hex");
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL ===

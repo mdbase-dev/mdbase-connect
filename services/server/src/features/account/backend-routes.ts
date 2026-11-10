@@ -3,7 +3,7 @@
 // errors, collection ownership or the deployment's NEXT feature flag.
 import type { FastifyInstance } from "fastify";
 import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
-import { AuthorityProofError, verifyAuthorityRequestProof } from "../../authority-proof.js";
+import { AuthorityProofError, verifyAuthorityRequestProof } from "../authority-transfer/authority-proof.js";
 import { apiError } from "../../platform/http-errors.js";
 import { bearerToken } from "../../platform/request-authentication.js";
 import { tokenHash } from "../../security.js";

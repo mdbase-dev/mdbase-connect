@@ -3,7 +3,7 @@ import { z } from "zod";
 import {
   AuthorityProofError,
   verifyAuthorityRequestProof
-} from "../../authority-proof.js";
+} from "../authority-transfer/authority-proof.js";
 import {
   pkceChallenge,
   safeEqual,

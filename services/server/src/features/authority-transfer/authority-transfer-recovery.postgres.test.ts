@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { createDatabase, type DatabasePool } from "./db.js";
-import { buildApp } from "./app.js";
-import { HostedProviderResponseError, type HostedProviderClient } from "./features/hosted/hosted-provider.js";
-import { recoverExpiredAuthorityTransfers } from "./features/authority-transfer/lifecycle.js";
-import { addToCohort, createCohort, setCohortFrozen } from "./features/next/migration-rollout.js";
+import { createDatabase, type DatabasePool } from "../../db.js";
+import { buildApp } from "../../app.js";
+import { HostedProviderResponseError, type HostedProviderClient } from "../hosted/hosted-provider.js";
+import { recoverExpiredAuthorityTransfers } from "./lifecycle.js";
+import { addToCohort, createCohort, setCohortFrozen } from "../next/migration-rollout.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL ===

@@ -4,7 +4,7 @@ import Fastify from "fastify";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { AUTHORITY_PROOF_HEADERS, AUTHORITY_PROOF_VERSION } from "@mdbase-dev/connect-protocol";
-import { authorityProofMessage } from "../../authority-proof.js";
+import { authorityProofMessage } from "../authority-transfer/authority-proof.js";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { tokenHash } from "../../security.js";
 import { localGrantFixture } from "../next/next-fixtures.test-helper.js";

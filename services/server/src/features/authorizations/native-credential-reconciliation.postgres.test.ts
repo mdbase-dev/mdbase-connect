@@ -15,7 +15,7 @@ import type { RelayHub } from "../relay/relay.js";
 import { createHostedCollectionMembership } from "../collections/collection-policy.js";
 import { registerAuthorizationPollingRoutes } from "./polling-routes.js";
 import { AUTHORITY_PROOF_HEADERS, AUTHORITY_PROOF_VERSION } from "@mdbase-dev/connect-protocol";
-import { authorityProofMessage } from "../../authority-proof.js";
+import { authorityProofMessage } from "../authority-transfer/authority-proof.js";
 import { clientNoiseKeyMessage, copyClientNoiseKeyToGrant, storeRequestClientNoiseKey, verifiedClientNoiseKey } from "../next/client-key.js";
 import { registerNextCollection } from "../next/policy-outbox.js";
 import { localGrantFixture } from "../next/next-fixtures.test-helper.js";

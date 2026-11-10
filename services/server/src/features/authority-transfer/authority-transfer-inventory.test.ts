@@ -1,15 +1,15 @@
 import { createHash, randomUUID } from "node:crypto";
-import { runAuthAdminCommand } from "./auth-admin.js";
-import { assertControlPlaneMigrationsCurrent, runControlPlaneMigrations, repairAuthorityImportSources, migrationExecutableSha256 } from "./migrations.js";
+import { runAuthAdminCommand } from "../../auth-admin.js";
+import { assertControlPlaneMigrationsCurrent, runControlPlaneMigrations, repairAuthorityImportSources, migrationExecutableSha256 } from "../../migrations.js";
 import { readFile } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildApp } from "./app.js";
-import { createDatabase } from "./db.js";
+import { buildApp } from "../../app.js";
+import { createDatabase } from "../../db.js";
 import {
   HostedProviderResponseError,
   HostedProviderUnavailableError,
   type HostedProviderClient
-} from "./features/hosted/hosted-provider.js";
+} from "../hosted/hosted-provider.js";
 
 const resources: Array<() => Promise<void>> = [];
 const snapshot = {
@@ -18,7 +18,7 @@ const snapshot = {
   source_head: 41
 };
 const repairSql = await readFile(new URL(
-  "../migrations/0036_authority_import_source_repair.sql", import.meta.url
+  "../../../migrations/0036_authority_import_source_repair.sql", import.meta.url
 ), "utf8");
 const repairChecksum = createHash("sha256").update(repairSql).digest("hex");
 

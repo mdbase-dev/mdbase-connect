@@ -22,7 +22,7 @@ try {
     "--", "--ignored", "--test-threads=1"], { MDBASE_PROJECTION_DATABASE_URL: recoveryUrl });
   await run("pnpm", ["build:packages"]);
   await run("pnpm", ["--filter", "@mdbase/connect-server", "exec", "vitest", "run",
-    "src/authority-import-abort.postgres.test.ts"], {
+    "src/features/authority-transfer/authority-import-abort.postgres.test.ts"], {
     MDBASE_CONNECT_TEST_DATABASE_URL: recoveryUrl,
     MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL: "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS"
   });

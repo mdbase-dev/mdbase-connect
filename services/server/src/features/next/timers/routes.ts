@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { AuthorityProofError, verifyAuthorityRequestProof } from "../../../authority-proof.js";
+import { AuthorityProofError, verifyAuthorityRequestProof } from "../../authority-transfer/authority-proof.js";
 import { canonicalJson } from "../../../canonical-json.js";
 import { lookupTimerReceipt, recordTimerReconcile } from "./receipts.js";
 import { z } from "zod";

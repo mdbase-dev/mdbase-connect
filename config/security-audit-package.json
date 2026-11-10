@@ -120,11 +120,11 @@
         "crates/connect-hosted-provider/src/provider/capabilities.rs",
         "crates/connect-hosted-provider/src/provider/crypto_state.rs",
         "crates/connect-hosted-provider/src/symmetric_crypto.rs",
-        "services/server/src/authority-proof.ts"
+        "services/server/src/features/authority-transfer/authority-proof.ts"
       ],
       "tests": [
         "crates/connect-hosted-provider/src/provider/tests.rs",
-        "services/server/src/authority-proof.test.ts",
+        "services/server/src/features/authority-transfer/authority-proof.test.ts",
         "scripts/hosted-provider-e2e.mjs",
         "scripts/hosted-files-e2e.mjs"
       ],
@@ -188,7 +188,7 @@
       "id": "authority-request-proof-v1",
       "construction": "P-256 ECDSA with SHA-256 over a newline-delimited request transcript with canonical base64url fields and a five-minute freshness window",
       "binding": "method, target, body digest, credential digest, timestamp, and UUID nonce",
-      "source": "services/server/src/authority-proof.ts"
+      "source": "services/server/src/features/authority-transfer/authority-proof.ts"
     },
     {
       "id": "aws-kms-v1",

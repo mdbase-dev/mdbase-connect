@@ -32,7 +32,7 @@ import {
   HostedProviderUnavailableError,
   HostedProviderResponseError
 } from "./features/hosted/hosted-provider.js";
-import { authorityProofMessage } from "./authority-proof.js";
+import { authorityProofMessage } from "./features/authority-transfer/authority-proof.js";
 import { pkceChallenge, tokenHash } from "./security.js";
 import {
   createTestApplicationIdentity,
