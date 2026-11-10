@@ -21,7 +21,7 @@
 // - A deleted account is terminal: its rows cascade away and
 //   every route answers not found; nothing restores it.
 // - Routes accept only the dedicated migration token; every change is audited.
-import { localBuild } from "../../local-deployment.js";
+import { localBuild } from "../../platform/local-deployment.js";
 import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";

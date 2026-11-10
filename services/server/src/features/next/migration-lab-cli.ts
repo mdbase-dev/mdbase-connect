@@ -17,12 +17,12 @@
 // Progress is one JSON line per step on stdout. An operator stop prints
 // {"stopped":{step,reason,inspect,resume}} and exits 2. Nothing secret is printed.
 import { createDatabase, openDatabase } from "../../db.js";
-import { localBuild, localDeployment } from "../../local-deployment.js";
+import { localBuild, localDeployment } from "../../platform/local-deployment.js";
 import { HostedProviderClient } from "../../hosted-provider.js";
 import { captureLabWorkerError, sanitizedLabOutcome } from "./migration-lab-raw-error.js";
 import { labLegacySourceConnection } from "./migration-lab-source-tls.js";
 import { labTargetBootstrap, migrationJobEnvironment, requireMigrationTargetOrigin } from "./migration-lab-target.js";
-import { hostedProviderConfigFromEnv } from "../../runtime-config.js";
+import { hostedProviderConfigFromEnv } from "../../platform/runtime-config.js";
 import { labRun, resumeLab, labStatus, labWorkerClient, postgresLabConnect, routeBack, type LabOutcome } from "./migration-lab.js";
 import { postgresRearm, rearm } from "./migration-rearm.js";
 

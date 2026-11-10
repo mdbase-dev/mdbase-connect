@@ -29,7 +29,7 @@ import {
   verifyGoogleCredential,
   type GoogleAuthConfig
 } from "../../google-auth.js";
-import type { AuthenticationLegalDocuments } from "../../runtime-config.js";
+import type { AuthenticationLegalDocuments } from "../../platform/runtime-config.js";
 import {
   pkceChallenge,
   randomToken,

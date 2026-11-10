@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildApp } from "../../app.js";
 import { AuthenticationPolicyStore } from "../../authentication-policy.js";
 import { createDatabase } from "../../db.js";
-import { runtimeConfigFromEnv } from "../../runtime-config.js";
+import { runtimeConfigFromEnv } from "../../platform/runtime-config.js";
 import { parsePasswordSignupIpMaxAttempts, passwordSignupIpRule } from "./password-signup-limit.js";
 
 const setting = "MDBASE_CONNECT_PASSWORD_SIGNUP_IP_MAX_ATTEMPTS";

@@ -41,7 +41,7 @@ import {
   randomUserCode,
   tokenHash
 } from "../../security.js";
-import { contractSetupChoiceSchema } from "../../protocol-schemas.js";
+import { contractSetupChoiceSchema } from "../../platform/protocol-schemas.js";
 import { audit } from "../../platform/audit-events.js";
 import { apiError, RequestValidationError } from "../../platform/http-errors.js";
 import {

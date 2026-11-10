@@ -1,15 +1,15 @@
-import type { GitHubAuthConfig } from "./github-auth.js";
-import type { GoogleAuthConfig } from "./google-auth.js";
-import type { HostedProviderConfig } from "./hosted-provider.js";
-import type { RelayBrokerConfig } from "./relay-broker.js";
-import type { VapidConfig } from "./web-push.js";
-import type { WebhookSigningConfig } from "./webhook.js";
-import { parsePushTargetSealerEnv, type PushTargetSealerConfig } from "./features/next/push-target-seal.js";
-import { loadPolicySigner, parseNextControlPlaneEnv, type NextControlPlaneConfig } from "./features/next/policy-keys.js";
-import type { AccountBackend } from "./features/next/account-backend-flip.js";
+import type { GitHubAuthConfig } from "../github-auth.js";
+import type { GoogleAuthConfig } from "../google-auth.js";
+import type { HostedProviderConfig } from "../hosted-provider.js";
+import type { RelayBrokerConfig } from "../relay-broker.js";
+import type { VapidConfig } from "../web-push.js";
+import type { WebhookSigningConfig } from "../webhook.js";
+import { parsePushTargetSealerEnv, type PushTargetSealerConfig } from "../features/next/push-target-seal.js";
+import { loadPolicySigner, parseNextControlPlaneEnv, type NextControlPlaneConfig } from "../features/next/policy-keys.js";
+import type { AccountBackend } from "../features/next/account-backend-flip.js";
 
-import { DEFAULT_CLIENT_UPDATE_POLICY, type ClientUpdatePolicy } from "./features/next/cutover-problems.js";
-import { parsePasswordSignupIpMaxAttempts, passwordSignupIpRule } from "./features/auth/password-signup-limit.js";
+import { DEFAULT_CLIENT_UPDATE_POLICY, type ClientUpdatePolicy } from "../features/next/cutover-problems.js";
+import { parsePasswordSignupIpMaxAttempts, passwordSignupIpRule } from "../features/auth/password-signup-limit.js";
 
 export type RegistrationMode = "closed" | "invite" | "open";
 

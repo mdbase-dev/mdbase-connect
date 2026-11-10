@@ -13,7 +13,7 @@ import {
 import {
   hostedProviderConfigFromEnv,
   type RegistrationMode
-} from "./runtime-config.js";
+} from "./platform/runtime-config.js";
 
 const db = await openDatabase();
 const requestEnvelope = process.argv[2] === "request";

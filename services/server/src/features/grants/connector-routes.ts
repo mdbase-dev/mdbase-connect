@@ -8,7 +8,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { COLLECTION_OPERATIONS } from "../../collection-access.js";
 import type { DatabasePool } from "../../db.js";
-import { collectionContractDescriptorSchema } from "../../protocol-schemas.js";
+import { collectionContractDescriptorSchema } from "../../platform/protocol-schemas.js";
 import type { RelayHub } from "../../relay.js";
 import { deliverGrantRevocations, localGrantRevocationStatus, queueLocalGrantRevocations } from "../../local-grant-revocation.js";
 import { audit } from "../../platform/audit-events.js";

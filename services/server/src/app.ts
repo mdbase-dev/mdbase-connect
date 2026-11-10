@@ -63,7 +63,7 @@ import { LocalRelayBroker, type RelayBroker } from "./relay-broker.js";
 import type {
   AuthenticationLegalDocuments,
   RegistrationMode
-} from "./runtime-config.js";
+} from "./platform/runtime-config.js";
 import { registerAccountOverviewRoute } from "./features/account/me-routes.js";
 import { registerAccountCollectionCreationRoutes } from "./features/account/collection-creation-routes.js";
 import { registerAccountManagementRoutes } from "./features/account/management-routes.js";
@@ -106,7 +106,7 @@ import { registerLifecycleDiagnosticRoute } from "./features/system/lifecycle-di
 import { registerErrorHandler } from "./platform/error-handler.js";
 import type { ClientUpdatePolicy } from "./features/next/cutover-problems.js";
 import { authorityUrl } from "./platform/authority-url.js";
-import { installationEnvironment } from "./local-deployment.js";
+import { installationEnvironment } from "./platform/local-deployment.js";
 import { apiError, RateLimitError } from "./platform/http-errors.js";
 import { sessionToken } from "./platform/session-cookies.js";
 import type { AccountBackend } from "./features/next/account-backend-flip.js";

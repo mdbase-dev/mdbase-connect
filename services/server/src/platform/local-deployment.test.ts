@@ -1,9 +1,9 @@
 import { expect, it } from "vitest";
 import { localBuild, localDeployment } from "./local-deployment.js";
-import { labTargetBootstrap } from "./features/next/migration-lab-target.js";
-import { labWorkerClient } from "./features/next/migration-lab.js";
-import { parseNextControlPlaneEnv } from "./features/next/policy-keys.js";
-import { configuredClaimAudience } from "./features/next/migration-claim-auth.js";
+import { labTargetBootstrap } from "../features/next/migration-lab-target.js";
+import { labWorkerClient } from "../features/next/migration-lab.js";
+import { parseNextControlPlaneEnv } from "../features/next/policy-keys.js";
+import { configuredClaimAudience } from "../features/next/migration-claim-auth.js";
 
 it("managed build refuses runtime local configuration, canonical loopback targets and factories", () => {
   expect(localBuild()).toBe(false);

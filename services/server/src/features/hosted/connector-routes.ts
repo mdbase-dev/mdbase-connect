@@ -16,7 +16,7 @@ import type { HostedAuthorityRegistry } from "../../hosted.js";
 import { audit } from "../../platform/audit-events.js";
 import { apiError } from "../../platform/http-errors.js";
 import { requireConnector } from "../../platform/request-authentication.js";
-import { contractSetupChoiceSchema } from "../../protocol-schemas.js";
+import { contractSetupChoiceSchema } from "../../platform/protocol-schemas.js";
 import {
   createHostedCollectionForUser,
   deleteHostedCollectionForUser,

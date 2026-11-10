@@ -3,7 +3,7 @@ import { buildApp } from "./app.js";
 import { PushTargetSealer } from "./features/next/push-target-seal.js";
 import { createDatabase, openDatabase } from "./db.js";
 import { assertControlPlaneMigrationsCurrent } from "./migrations.js";
-import { runtimeConfigFromEnv } from "./runtime-config.js";
+import { runtimeConfigFromEnv } from "./platform/runtime-config.js";
 import { HostedProviderClient } from "./hosted-provider.js";
 import { createRelayBroker } from "./relay-broker.js";
 import { WebPushTransport } from "./web-push.js";

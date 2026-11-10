@@ -2,7 +2,7 @@ import type {
   DatabasePool,
   DatabaseQueryable
 } from "./db.js";
-import type { RegistrationMode } from "./runtime-config.js";
+import type { RegistrationMode } from "./platform/runtime-config.js";
 
 export interface AuthenticationSettings {
   registrationMode: RegistrationMode;

@@ -18,7 +18,7 @@ import {
 } from "@mdbase-dev/connect-protocol";
 import { hostedReplicaCollectionOperations } from "./hosted-replica-policy.js";
 import { safeEqual } from "./security.js";
-import { collectionContractDescriptorSchema } from "./protocol-schemas.js";
+import { collectionContractDescriptorSchema } from "./platform/protocol-schemas.js";
 import { z } from "zod";
 import { asProviderError, readResponse, HostedProviderResponseError, HostedProviderUnavailableError,
   type LegacyMigrationDrain, type LegacyMigrationFence, type LegacyMigrationRollbackEnvelope,

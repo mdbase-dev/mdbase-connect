@@ -33,7 +33,7 @@ import {
 } from "../../public-signup.js";
 import { sendPublicSignupVerificationEmail } from "../../public-signup-email.js";
 import { PASSWORD_MAX_UTF8_BYTES } from "../../password.js";
-import type { AuthenticationLegalDocuments } from "../../runtime-config.js";
+import type { AuthenticationLegalDocuments } from "../../platform/runtime-config.js";
 import {
   apiError,
   RequestValidationError

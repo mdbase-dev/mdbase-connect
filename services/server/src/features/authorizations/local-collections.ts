@@ -13,7 +13,7 @@ import type { DatabasePool } from "../../db.js";
 import { ConnectorOperationError, RelayUnavailableError, type RelayHub } from "../../relay.js";
 import { GrantPlanningError, planCollectionGrant } from "../../grant-planner.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
-import { contractSetupChoiceSchema } from "../../protocol-schemas.js";
+import { contractSetupChoiceSchema } from "../../platform/protocol-schemas.js";
 import { approvePortalAuthorization } from "./approval-service.js";
 import { sqlPlaceholders } from "../../platform/sql.js";
 

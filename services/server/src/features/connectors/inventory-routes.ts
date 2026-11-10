@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { resolveHostedCollectionAccess } from "../../collection-access.js";
 import type { DatabasePool } from "../../database-types.js";
-import { collectionContractDescriptorSchema } from "../../protocol-schemas.js";
+import { collectionContractDescriptorSchema } from "../../platform/protocol-schemas.js";
 import { isP256PublicKey, tokenHash } from "../../security.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 import { bearerToken, requireConnector } from "../../platform/request-authentication.js";

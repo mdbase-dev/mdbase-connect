@@ -29,7 +29,7 @@ state and locks, public endpoints):
   `/ready` returns 200. Every server CD rebuilds and redeploys it at the same
   revision as Connect.
 - Production sets `MDBASE_NEW_ACCOUNT_BACKEND=next` in the Render env only. The code
-  default is still `legacy` (`services/server/src/runtime-config.ts`), and
+  default is still `legacy` (`services/server/src/platform/runtime-config.ts`), and
   `render.yaml` does not declare the variable.
 - `config/desktop-update-minimum.json` sets the desktop minimum to `0.1.0-beta.130`,
   the first build that bundles `mdbn-daemon`. `packages/protocol` still accepts
