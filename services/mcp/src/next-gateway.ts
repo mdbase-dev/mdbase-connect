@@ -131,7 +131,7 @@ export class NextGateway {
     const existing = this.sessions.get(connection.id);
     if (existing) {
       const session = await abortable(existing.catch(() => null), signal);
-      if (session && !session.ended && session.keyHandle === connection.key_handle) {
+      if (session && !session.ended && !this.dropped.has(existing) && session.keyHandle === connection.key_handle) {
         session.token.value = accessToken;
         return session;
       }
