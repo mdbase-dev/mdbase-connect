@@ -1,6 +1,6 @@
 {
   "source": {
-    "commit": "ebd3f8633599d16ed26deca4c4bf149fb4a2ea8d",
+    "commit": "e3c370e6a3785ee6adcc29d7aad4ec1891876085",
     "path": "runtime/crates/replica/src/frames.rs"
   },
   "methods": [
