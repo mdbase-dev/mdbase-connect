@@ -1296,6 +1296,11 @@ msgstr "Questo dispositivo rimane elencato nell'account finché non viene rimoss
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "This is a Private collection, and this device doesn't have its key yet."
+msgstr "Questa è una raccolta privata e questo dispositivo non ha ancora la sua chiave."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "This is taking longer than usual."
 msgstr "L'operazione sta richiedendo più tempo del solito."
 

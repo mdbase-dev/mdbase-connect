@@ -146,6 +146,21 @@ describe("PrivateAccount (AK1 §7)", () => {
     expect(await code(c.unlock({ recoveryKey: other }))).toBe("wrong_secret");
   });
 
+  it("refuses a malformed recovery key before the bundle is fetched: the account's fetch budget is not spent", async () => {
+    const cp = controlPlane();
+    const { recoveryKey } = await account(cp.port, replica([COLL_A]).port).setup(PASSWORD);
+    const rep = replica(), b = account(cp.port, rep.port);
+    vi.mocked(cp.port.fetch).mockClear(); vi.mocked(cp.port.status).mockClear(); vi.mocked(cp.port.challenge).mockClear();
+    for (const typed of ["", "not a recovery key", "MDB1-000G4-0R40M", "MDB1-" + recoveryKey.slice(5, -1) + (recoveryKey.endsWith("0") ? "1" : "0")])
+      expect(await code(b.unlock({ recoveryKey: typed }))).toMatch(/^invalid_recovery_key/);
+    expect(cp.port.fetch).not.toHaveBeenCalled(); expect(cp.port.status).not.toHaveBeenCalled(); expect(cp.port.challenge).not.toHaveBeenCalled();
+    expect(rep.granted).toEqual([]);
+    // A well-formed key of another account key is still told apart only by the bundle.
+    expect(await code(b.unlock({ recoveryKey: "MDB1-000G4-0R40M-30E20-9185G-R38E1-W8124-GK2GA-HC5RR-34D1P-70X3R-FJNC8" }))).toBe("wrong_secret");
+    expect(cp.port.fetch).toHaveBeenCalledTimes(1);
+    expect(await b.unlock({ recoveryKey })).toEqual({});
+  });
+
   it("reports collections whose grant failed without losing R, and never keys with a different key", async () => {
     const cp = controlPlane();
     const a = account(cp.port, replica([COLL_A]).port);

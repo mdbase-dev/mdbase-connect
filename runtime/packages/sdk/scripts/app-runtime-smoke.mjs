@@ -66,6 +66,10 @@ try {
   rt.openAppConsuming(c); assert(c.signSecretKey.every(b => b === 0) && c.kemSecretKey.every(b => b === 0));
   const observed = rt.observations(); assert.equal(observed.status.mode, "synced"); assert.equal(observed.snapshotInstallAvailable, true); assert.equal(observed.requiresReopen, false);
   assert.deepEqual(rt.takeLogCalls(), []);
+  // The pinned artifact carries the one account-key fetch proof the SDK seam
+  // expects. Signing needs an adopted Private device pin, which this fixture
+  // does not have; the proof bytes are verified by scripts/app-wasm-smoke.mjs.
+  assert.equal(rt.supportsAccountKeyFetchProof, true);
   // Actual CP protocol over loopback HTTP, verifying the actual WASM signature.
   // Public test account/device fixture only: not deployed CP/PG/enrolment acceptance.
   const connectorId = "66666666-6666-6666-6666-666666666666", deviceId = c.deviceId;
@@ -121,5 +125,5 @@ try {
   const both = await AppWasmRuntime.create(bytes, index()); both.openUnsyncedConsuming(unsynced("existing"));
   // One open per module; a second fails closed (fenced, never a clean close).
   assert.throws(() => both.openAppConsuming(config("existing"))); assert.equal(await both.close(), false);
-  console.log(JSON.stringify({ actualSdk: true, unsyncedOpen: true, actualAppWasm: true, actualSqlite: version, turns, keyBuffersConsumed: true, warmReopen: true, scopedLogBind: true, protectedHttpSigner: true, actualCpHttpFixture: true, actualCpWasmProof: true, explicitBuildTrustFixture: Boolean(trustModule), exactNativeRootPins: true, tokenBeforeBind: true, callerDigestIgnored: true, consumedScopeRefused: true, drainedShutdown: true, activationQualified: false }));
+  console.log(JSON.stringify({ actualSdk: true, unsyncedOpen: true, actualAppWasm: true, actualSqlite: version, turns, keyBuffersConsumed: true, warmReopen: true, scopedLogBind: true, protectedHttpSigner: true, actualCpHttpFixture: true, actualCpWasmProof: true, accountKeyFetchProofExport: true, explicitBuildTrustFixture: Boolean(trustModule), exactNativeRootPins: true, tokenBeforeBind: true, callerDigestIgnored: true, consumedScopeRefused: true, drainedShutdown: true, activationQualified: false }));
 } finally { if (cpServer) { cpServer.closeAllConnections(); await new Promise(r => cpServer.close(r)); } db.close(); }

@@ -49,6 +49,10 @@ export function applicationWorkerSession(
     // collections so first-run approval can offer "New collection…" (a new
     // account has none to pick); the user still decides in Connect.
     freshRequestedCreateCollections:true,
+    // `offline.replica` in the declaration's capabilities (required or
+    // optional) is the request to join Private collections as a keyed device.
+    // Connect offers it only to an app it has allowed; the person still decides.
+    freshRequestedPrivateDevice:compiled.privateDeviceDeclared,
   });
   const unsynced=Object.freeze({...assets.unsynced,locks});
   return Object.freeze({session,compiled,collection,unsynced,displayName:binding.name});

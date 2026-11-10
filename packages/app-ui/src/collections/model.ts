@@ -107,8 +107,8 @@ type Snapshot = Pick<MdbaseSnapshot, "phase" | "collections" | "signIn" | "selec
 export function collectionView(snapshot: Snapshot, options: CollectionViewOptions): CollectionView {
   const copy = { ...defaultCollectionCopy, ...options.copy };
   const app = options.appName;
-  const phase = snapshot.phase;
-  const currentId = currentCollectionId(phase);
+  const shown = snapshot.phase;
+  const currentId = currentCollectionId(shown);
   const collections = collectionRows(snapshot.collections, currentId, copy);
   const current = collections.find((row) => row.current) ?? null;
   const nameOf = (id: string | null, fallback: string | null = null): string | null =>
@@ -125,9 +125,24 @@ export function collectionView(snapshot: Snapshot, options: CollectionViewOption
     unsyncedWork: hasUnsyncedWork(snapshot),
   };
   // Not part of every SDK's phase union yet (see unsynced.ts).
-  const unsynced = unsyncedPhase(phase);
+  const unsynced = unsyncedPhase(shown);
   if (unsynced) return { ...common, kind: "unsynced", collectionId: unsynced.collectionId, phase: unsynced, heading: app, lead: null };
+  // A Private collection this device has joined but holds no key for. These
+  // screens have no unlock form, so it is shown as a collection that cannot be
+  // opened here: the SDK's description of a failed unlock when there is one,
+  // otherwise why it is closed. The person can still choose another collection.
+  const locked = lockedPhase(shown);
+  if (locked) {
+    const name = nameOf(locked.collectionId, locked.displayName);
+    const notice: CollectionNotice = locked.problem ? quietNotice(locked.problem)
+      : { key: "needs_unlock", tone: "info", title: null, message: copy.lockedNotice, control: null, transient: false };
+    return { ...common, kind: "problem", collectionId: locked.collectionId, notice, unsynced: false,
+      heading: name ? say(copy.problemHeading, name) : say(copy.problemHeadingUnnamed), lead: null };
+  }
 
+  // Both phases above have returned; what is left is exhaustive against SDK
+  // releases with or without them.
+  const phase = shown as Exclude<MdbasePhase, { readonly kind: "unsynced" | "needs_unlock" }>;
   switch (phase.kind) {
     case "starting":
       return { ...common, kind: "starting", heading: say(copy.startingHeading), lead: null };
@@ -244,7 +259,24 @@ function approvalNotice(outcome: Extract<MdbasePhase, { kind: "choosing" }>["las
   return { key: `approval_${outcome.outcome}`, tone: "info", title: null, message, control: null, transient: false };
 }
 
+/** The SDK's `needs_unlock` phase, read structurally like `unsyncedPhase`:
+ * SDK releases before Private collections on the app's own copy lack it. */
+interface LockedPhase {
+  readonly kind: "needs_unlock";
+  readonly collectionId: string;
+  readonly displayName: string | null;
+  readonly problem: MdbaseProblem | null;
+}
+function lockedPhase(phase: MdbasePhase): LockedPhase | null {
+  const value = phase as unknown as Partial<LockedPhase> & { readonly kind: string };
+  if (value.kind !== "needs_unlock" || typeof value.collectionId !== "string") return null;
+  return { kind: "needs_unlock", collectionId: value.collectionId,
+    displayName: typeof value.displayName === "string" ? value.displayName : null, problem: value.problem ?? null };
+}
+
 function currentCollectionId(phase: MdbasePhase): string | null {
+  const locked = lockedPhase(phase);
+  if (locked) return locked.collectionId;
   switch (phase.kind) {
     case "opening":
     case "needs_setup":

@@ -214,6 +214,7 @@ MdbaseTransferPlanOptions -> MdbaseTransferPlanOptions@application/entry.ts
 MdbaseTransferProgress -> MdbaseTransferProgress@application/unsynced-transfer.ts
 MdbaseTransferResult -> MdbaseTransferResult@application/unsynced-transfer.ts
 MdbaseUnavailableType -> MdbaseUnavailableType@application/entry.ts
+MdbaseUnlockSecret -> MdbaseUnlockSecret@application/entry.ts
 MdbaseVersion -> MdbaseVersion@semver.ts
 MdbaseVersionRelation -> MdbaseVersionRelation@semver.ts
 memoryKeyStorage -> memoryKeyStorage@keys.ts
@@ -849,6 +850,7 @@ MdbaseTransferPlanOptions -> MdbaseTransferPlanOptions@application/entry.ts
 MdbaseTransferProgress -> MdbaseTransferProgress@application/unsynced-transfer.ts
 MdbaseTransferResult -> MdbaseTransferResult@application/unsynced-transfer.ts
 MdbaseUnavailableType -> MdbaseUnavailableType@application/entry.ts
+MdbaseUnlockSecret -> MdbaseUnlockSecret@application/entry.ts
 MdbaseVersion -> MdbaseVersion@semver.ts
 MdbaseVersionRelation -> MdbaseVersionRelation@semver.ts
 memoryKeyStorage -> memoryKeyStorage@keys.ts
@@ -1023,6 +1025,14 @@ acquireAppInstallationLease -> acquireAppInstallationLease@app-host/owner.ts
 acquireAppReplicaLease -> acquireAppReplicaLease@app-host/owner.ts
 APP_BASES_PROFILE -> APP_BASES_PROFILE@app-host/bases-wire.ts
 APP_COLLECTION_SETUP_LIMITS -> MODEL_SETUP_LIMITS@app-host/collection-setup-types.ts
+AppAccountKeyHostOptions -> AppAccountKeyHostOptions@app-host/account-key-host.ts
+AppAccountKeyNative -> AppAccountKeyNative@app-host/account-key-host.ts
+AppAccountKeyProofUnavailableError -> AppAccountKeyProofUnavailableError@app-host/wasm-runtime.ts
+AppAccountKeySealedBundle -> AppAccountKeySealedBundle@app-host/account-key-host.ts
+AppAccountKeySecret -> AppAccountKeySecret@app-host/account-key-host.ts
+AppAccountKeySession -> AppAccountKeySession@app-host/account-key-host.ts
+AppAccountKeyUnlockError -> AppAccountKeyUnlockError@app-host/account-key-host.ts
+AppAccountKeyUnlockProblem -> AppAccountKeyUnlockProblem@app-host/account-key-host.ts
 AppBasesCell -> AppBasesCell@app-host/bases-wire.ts
 AppBasesDescriptor -> AppBasesDescriptor@app-host/bases-wire.ts
 AppBasesDiscoveryRequest -> AppBasesDiscoveryRequest@app-host/bases-wire.ts
@@ -1066,6 +1076,7 @@ AppCollectionJoinLedgerOptions -> AppCollectionJoinLedgerOptions@app-host/collec
 AppCollectionSetupError -> AppCollectionSetupError@app-host/collection-setup-journal.ts
 AppCollectionSetupJournal -> AppCollectionSetupJournal@app-host/collection-setup-journal.ts
 AppCollectionSetupJournalOptions -> AppCollectionSetupJournalOptions@app-host/collection-setup-journal.ts
+AppCpAccountKeyControl -> AppCpAccountKeyControl@app-host/account-key-host.ts
 AppCpAuthorityError -> AppCpAuthorityError@app-host/cp-authority.ts
 AppCpCloudCopyBootstrap -> AppCpCloudCopyBootstrap@app-host/cloud-copy-bootstrap.ts
 AppCpCloudCopySession -> AppCpCloudCopySession@app-host/cloud-copy-bootstrap.ts
@@ -1169,6 +1180,7 @@ AppWebCollectionClient -> AppWebCollectionClient@app-host/web-collection.ts
 AppWebCollectionConnection -> AppWebCollectionConnection@app-host/web-sign-in-session.ts
 AppWebCollectionError -> AppWebCollectionError@app-host/web-collection.ts
 AppWebCollectionHandoff -> AppWebCollectionHandoff@app-host/web-collection.ts
+AppWebCollectionLock -> AppWebCollectionLock@app-host/web-sign-in-session.ts
 AppWebDeviceKeyCustody -> AppWebDeviceKeyCustody@app-host/device-key-custody.ts
 AppWebNativeCollection -> AppWebNativeCollection@app-host/web-collection.ts
 AppWebNoiseCustody -> AppWebNoiseCustody@app-host/noise-custody.ts
@@ -1196,7 +1208,9 @@ PersistencePort -> PersistencePort@app-host/status.ts
 probeAppStorage -> probeAppStorage@app-host/storage-probe.ts
 ProbeDirectory -> ProbeDirectory@app-host/storage-probe.ts
 ProbeSyncHandle -> ProbeSyncHandle@app-host/storage-probe.ts
+readAccountKeyMode -> readAccountKeyMode@app-host/account-key-host.ts
 selectAppEnvironment -> selectAppEnvironment@app-host/app-environment.ts
+unlockPrivateDevice -> unlockPrivateDevice@app-host/account-key-host.ts
 UNSYNCED_STORAGE_WARNING -> UNSYNCED_STORAGE_WARNING@app-host/status.ts
 verifyAppHandover -> verifyAppHandover@app-host/handover.ts
 
@@ -1465,6 +1479,7 @@ problemCodeOf -> problemCodeOf@describe-error.ts
   export AppLogHttpOptions
   export AppWasmRuntime
   export AppStrictDeviceApprovalError
+  export AppAccountKeyProofUnavailableError
   export AppBootstrap
   export AppCpConnectorPin
   export AppHandoverSource
@@ -1571,7 +1586,18 @@ problemCodeOf -> problemCodeOf@describe-error.ts
   export AppWebSignInSnapshot
   export AppWebSignOutResult
   export AppWebCollectionConnection
+  export AppWebCollectionLock
   export AppWebSignInPortal
+  export AppAccountKeySealedBundle
+  export AppCpAccountKeyControl
+  export AppAccountKeyUnlockError
+  export readAccountKeyMode
+  export unlockPrivateDevice
+  export AppAccountKeySecret
+  export AppAccountKeyUnlockProblem
+  export AppAccountKeySession
+  export AppAccountKeyNative
+  export AppAccountKeyHostOptions
   export AppWebCloudCopyHost
   export AppCloudCopyHostError
   export AppCloudCopyHostSession
@@ -1843,10 +1869,10 @@ AccountKeyError@account-key.ts
   static stackTraceLimit: number
 
 AccountKeyErrorCode@account-key.ts
-  = 'unavailable' | 'conflict' | 'rate_limited' | 'internal' | 'wrong_secret' | 'locked' | 'weak_password' | 'already_set_up' | 'no_account_key' | 'cancelled' | 'invalid_recovery_key' | 'params' | 'encoding' | 'strict_mode'
+  = 'unavailable' | 'conflict' | 'rate_limited' | 'internal' | 'wrong_secret' | 'locked' | 'weak_password' | 'already_set_up' | 'no_account_key' | 'invalid_recovery_key' | 'cancelled' | 'params' | 'encoding' | 'strict_mode'
 
 AccountKeyMode@private-account.ts
-  = 'none' | 'strict' | 'password'
+  = 'none' | 'password' | 'strict'
 
 AccountKeyProof@account-key.ts
   pk: Uint8Array<ArrayBufferLike>
@@ -1878,16 +1904,77 @@ AccountSecretStore@private-account.ts
 AppAccountKeyDeviceSetupState@app-host/wasm-runtime.ts
   = { readonly state: 'recovery_pending' | 'recovery_keyed'; } | { readonly state: 'refused'; readonly reason: AppAccountKeyRefusal; }
 
+AppAccountKeyHostOptions@app-host/account-key-host.ts
+  readonly allowLoopbackHttp?: boolean | undefined
+  readonly argon2id?: Argon2idRunner | undefined
+  readonly fetch?: { (input: RequestInfo | URL, init?: RequestInit): Promise<Response>; (input: string | URL | Request, init?: RequestInit): Promise<Response>; } | undefined
+  readonly now?: (() => number) | undefined
+  readonly settleMs?: number | undefined
+
+AppAccountKeyNative@app-host/account-key-host.ts
+  drive: (options: { signal: AbortSignal; }) => Promise<void>
+  headKnown: () => number
+  signFetch: (challenge: Uint8Array) => Uint8Array
+  status: () => AppAccountKeyState
+  supportsFetchProof: () => boolean
+  unlockConsuming: (secret: Uint8Array) => AppAccountKeyState
+
 AppAccountKeyPin@app-host/wasm-runtime.ts
-  readonly approvalMode: 'password-ak1' | 'strict'
+  readonly approvalMode: 'strict' | 'password-ak1'
   readonly collection: string
   readonly connectorId: string
   readonly deviceId: string
   readonly installationId: string
   isCurrent: () => boolean
 
+AppAccountKeyProofUnavailableError@app-host/wasm-runtime.ts
+  cause?: unknown
+  message: string
+  name: string
+  readonly reason: 'account_key_proof_unavailable'
+  stack?: string | undefined
+  static new (): AppAccountKeyProofUnavailableError
+  static captureStackTrace: (targetObject: object, constructorOpt?: Function) => void
+  static prepareStackTrace: (err: Error, stackTraces: NodeJS.CallSite[]) => any
+  static stackTraceLimit: number
+
+AppAccountKeySealedBundle@app-host/account-key-host.ts
+  clear: () => void
+  readonly holding: boolean
+  keep: (session: HeldSession, answer: unknown) => void
+  take: (session: HeldSession, version: number | null, keyId: string | null) => Record<string, unknown> | null
+  static new (): AppAccountKeySealedBundle
+
+AppAccountKeySecret@app-host/account-key-host.ts
+  = Readonly<{ password: string; }> | Readonly<{ recoveryKey: string; }>
+
+AppAccountKeySession@app-host/account-key-host.ts
+  readonly accountId: string
+  readonly collection: string
+  connectorBearer: (options: { signal: AbortSignal; }) => Promise<string>
+  readonly connectorId: string
+  readonly cpOrigin: string
+  readonly deviceId: string
+  isCurrent: () => boolean
+
 AppAccountKeyState@app-host/wasm-runtime.ts
   = { readonly state: 'pending' | 'keyed'; } | { readonly state: 'refused'; readonly reason: AppAccountKeyRefusal; }
+
+AppAccountKeyUnlockError@app-host/account-key-host.ts
+  cause?: unknown
+  readonly detail?: string | undefined
+  message: string
+  name: string
+  readonly reason: AppAccountKeyUnlockProblem
+  readonly retryAfterMs?: number | undefined
+  stack?: string | undefined
+  static new (reason: AppAccountKeyUnlockProblem, detail?: string | undefined, retryAfterMs?: number | undefined): AppAccountKeyUnlockError
+  static captureStackTrace: (targetObject: object, constructorOpt?: Function) => void
+  static prepareStackTrace: (err: Error, stackTraces: NodeJS.CallSite[]) => any
+  static stackTraceLimit: number
+
+AppAccountKeyUnlockProblem@app-host/account-key-host.ts
+  = 'unavailable' | 'rate_limited' | 'wrong_secret' | 'no_account_key' | 'invalid_recovery_key' | 'unlock_strict' | 'unlock_unavailable' | 'unlock_failed'
 
 AppBasesCell@app-host/bases-wire.ts
   = { kind: 'null'; } | { kind: 'boolean'; value: boolean; } | { kind: 'number'; value: number; } | { kind: 'text'; value: string; } | { kind: 'date'; millis: number; display: string; authoritativeZone: string; dateOnly: boolean; } | { kind: 'duration'; components: readonly [number, number, number, number, number, number, number, number]; display: string; } | { kind: 'list'; values: readonly AppBasesCell[]; } | { kind: 'map'; values: ReadonlyMap<string, AppBasesCell>; } | { kind: 'error'; message: string; } | { kind: 'unavailable'; code: string; detail: string; }
@@ -2029,7 +2116,7 @@ AppCloudCopyBootstrapPersistence@app-host/cloud-copy-bootstrap.ts
   restore: (options: { signal: AbortSignal; }) => Promise<AppCloudCopyOutcome>
 
 AppCloudCopyCollectionPin@app-host/wasm-runtime.ts
-  readonly approvalMode: 'password-ak1' | 'strict'
+  readonly approvalMode: 'strict' | 'password-ak1'
   readonly collection: string
   readonly connectorId: string
   readonly deviceId: string
@@ -2041,9 +2128,9 @@ AppCloudCopyHostError@app-host/cloud-copy-host.ts
   cause?: unknown
   message: string
   name: string
-  readonly reason: 'unavailable' | 'recovery_required' | 'binding' | 'fenced' | 'sync_stalled'
+  readonly reason: 'unavailable' | 'recovery_required' | 'private_device_limit' | 'binding' | 'fenced' | 'sync_stalled'
   stack?: string | undefined
-  static new (reason: 'binding' | 'fenced' | 'recovery_required' | 'unavailable' | 'sync_stalled'): AppCloudCopyHostError
+  static new (reason: 'binding' | 'fenced' | 'recovery_required' | 'unavailable' | 'sync_stalled' | 'private_device_limit'): AppCloudCopyHostError
   static captureStackTrace: (targetObject: object, constructorOpt?: Function) => void
   static prepareStackTrace: (err: Error, stackTraces: NodeJS.CallSite[]) => any
   static stackTraceLimit: number
@@ -2053,7 +2140,7 @@ AppCloudCopyHostRelease@app-host/cloud-copy-host.ts
 
 AppCloudCopyHostSession@app-host/cloud-copy-host.ts
   readonly accountId: string
-  readonly approvalMode: 'password-ak1' | 'strict'
+  readonly approvalMode: 'strict' | 'password-ak1'
   connectorBearer: (options: { signal: AbortSignal; }) => Promise<string>
   readonly connectorId: string
   readonly cpOrigin: string
@@ -2083,7 +2170,7 @@ AppCloudCopyOutcome@app-host/cloud-copy-bootstrap.ts
   = { readonly state: 'none'; } | { readonly state: 'pending'; readonly operation: AppCloudCopyOperation; } | { readonly state: 'completed'; readonly metadata: AppCloudCopyBootstrapMetadata; }
 
 AppCollectionBootstrap@app-host/wasm-runtime.ts
-  = { collection: string; state: 'e2e' | 'cloud_copy'; replicaId: string; deviceId: string; endpoint: number | bigint; trustedRoots: readonly Uint8Array[]; policyPins: Uint8Array; trustedSigners: readonly string[]; expectedGenesis: string; cloudCopyOptIn: boolean; opened: 'fresh' | 'existing' | 'unclean'; sqliteVersion: number; }
+  = { collection: string; state: 'e2e' | 'cloud_copy'; deviceId: string; replicaId: string; endpoint: number | bigint; trustedRoots: readonly Uint8Array[]; policyPins: Uint8Array; trustedSigners: readonly string[]; expectedGenesis: string; cloudCopyOptIn: boolean; opened: 'fresh' | 'existing' | 'unclean'; sqliteVersion: number; }
 
 AppCollectionControlBinding@app-host/collection-control.ts
   readonly generation: string
@@ -2188,6 +2275,17 @@ AppCollectionSqlOptions@app-storage/collection-sql.ts
   readonly maxWasmBytes: number
   readonly wasmSha256: string
 
+AppCpAccountKeyControl@app-host/account-key-host.ts
+  readonly accountId: string
+  challenge: (options: PrivateAccountRequestOptions) => Promise<unknown>
+  close: () => void
+  enrolRecoveryDevice: () => Promise<unknown>
+  fetch: (options: PrivateAccountRequestOptions) => Promise<unknown>
+  put: () => Promise<unknown>
+  status: (options: PrivateAccountRequestOptions) => Promise<unknown>
+  strict: () => Promise<unknown>
+  static new (session: AppAccountKeySession, sign: (challenge: Uint8Array) => Uint8Array, options?: AppAccountKeyHostOptions): AppCpAccountKeyControl
+
 AppCpAuthorityError@app-host/cp-authority.ts
   cause?: unknown
   message: string
@@ -2208,7 +2306,7 @@ AppCpCloudCopyBootstrap@app-host/cloud-copy-bootstrap.ts
 
 AppCpCloudCopySession@app-host/cloud-copy-bootstrap.ts
   readonly accountId: string
-  readonly approvalMode: 'password-ak1' | 'strict'
+  readonly approvalMode: 'strict' | 'password-ak1'
   readonly collection: string
   connectorBearer: (options: { signal: AbortSignal; }) => Promise<string>
   readonly connectorId: string
@@ -2346,6 +2444,7 @@ AppExports@app-host/wasm-runtime.ts
   dealloc: (ptr: number, len: number) => void
   memory: WebAssembly.Memory
   rt_app_account_key_device_setup: (p: number, n: number) => bigint
+  rt_app_account_key_fetch_sign?: ((p: number, n: number) => bigint) | undefined
   rt_app_account_key_status: () => bigint
   rt_app_account_key_unlock: (p: number, n: number) => bigint
   rt_app_bases_execute?: ((session: bigint, p: number, n: number) => bigint) | undefined
@@ -2496,6 +2595,7 @@ AppInstallationCollection@app-host/installation-sign-in.ts
   readonly displayName: string
   readonly fileActions?: readonly AppFileAction[] | undefined
   readonly kind?: 'cloud_copy' | 'private' | undefined
+  readonly mode?: 'private' | undefined
   readonly role: 'owner' | 'editor' | 'viewer'
 
 AppInstallationCollectionConsentView@app-host/installation-sign-in.ts
@@ -2506,6 +2606,7 @@ AppInstallationCollectionConsentView@app-host/installation-sign-in.ts
   readonly addedCollectionIds: readonly string[]
   readonly approvedCreateCollections: boolean
   readonly requestedCreateCollections: boolean
+  readonly requestedPrivateDevice?: true | undefined
   readonly requestId: string
   readonly state: 'pending' | 'scope_updated'
   readonly verificationUri: string
@@ -2555,6 +2656,7 @@ AppInstallationSignInOptions@app-host/installation-sign-in.ts
   readonly environmentSelection?: AppEnvironmentSelection | undefined
   readonly fetch?: { (input: RequestInfo | URL, init?: RequestInit): Promise<Response>; (input: string | URL | Request, init?: RequestInit): Promise<Response>; } | undefined
   readonly freshRequestedCreateCollections?: boolean | undefined
+  readonly freshRequestedPrivateDevice?: boolean | undefined
   readonly installationKind?: 'mobile' | 'app-runtime' | undefined
   readonly locks: AppLockPort | undefined
   readonly mode: 'open' | 'fresh' | 'existing'
@@ -2579,6 +2681,7 @@ AppInstallationSignInView@app-host/installation-sign-in.ts
   readonly kind: 'mobile' | 'app-runtime'
   readonly nativeGrants?: readonly Readonly<{ version: 1; } & Record<'account_id' | 'authorization_request_id' | 'application_id' | 'application_declaration_id' | 'application_manifest_digest' | 'application_installation_id' | 'application_origin' | 'collection_id' | 'grant_id' | 'grant_signing_public_key' | 'client_noise_public_key', string>>[] | undefined
   readonly nativeSelection?: AppNativeSelection | null | undefined
+  readonly privateDeviceCollectionIds?: readonly string[] | undefined
   readonly requestedCreateCollections: boolean
   readonly requestId: string
   readonly state: 'pending' | 'account_selected' | 'account_confirmed' | 'awaiting_approval' | 'paired'
@@ -2809,7 +2912,7 @@ AppPrivateCollectionOpen@app-host/wasm-runtime.ts
   = { readonly mode: 'fresh'; } | { readonly mode: 'existing'; readonly marker: AppPrivateEnrolOperationMarker; }
 
 AppPrivateCollectionPin@app-host/wasm-runtime.ts
-  readonly approvalMode: 'password-ak1' | 'strict'
+  readonly approvalMode: 'strict' | 'password-ak1'
   readonly collection: string
   readonly connectorId: string
   readonly deviceId: string
@@ -2864,7 +2967,7 @@ AppProtectedInstallationSignIn@app-host/installation-sign-in.ts
   session: (logOrigin: string) => AppCloudCopyHostSession
   signOutInstallation: () => Promise<'revoked' | 'already_signed_out'>
   start: (options?: AppInstallationStartOptions) => Promise<AppInstallationSignInView>
-  startCollectionConsent: (installation: AppInstallationCustodyAuthority, requestedCreateCollections?: boolean, options?: AppInstallationStartOptions) => Promise<AppInstallationCollectionConsentView>
+  startCollectionConsent: (installation: AppInstallationCustodyAuthority, requestedCreateCollections?: boolean, options?: AppInstallationStartOptions, requestedPrivateDevice?: boolean) => Promise<AppInstallationCollectionConsentView>
   startFileAccess: (installation: AppInstallationCustodyAuthority, collectionId: string, actions: readonly AppFileAction[], reason: string) => Promise<AppInstallationFileAccessRequest>
   view: () => AppInstallationSignInView
   static new (store: AppInstallationStore, state: State, options: Readonly<AppInstallationSignInOptions>): AppProtectedInstallationSignIn
@@ -3042,6 +3145,7 @@ AppWasmRuntime@app-host/wasm-runtime.ts
   setupAccountKeyDeviceConsuming: (pin: AppAccountKeyPin, secret: Uint8Array) => AppAccountKeyDeviceSetupState
   setupResources: { (port: ReturnType<WasmRuntime['connect']>, operation: 'assess', manifest: unknown, expectedDigest?: undefined, decisions?: AppResourceDecisions): AppResourceAssessment; (port: ReturnType<WasmRuntime['connect']>, operation: 'apply', manifest: unknown, expectedDigest: string, decisions?: AppResourceDecisions): ModelResourcePlan; }
   shutdown: () => boolean
+  signAccountKeyFetch: (pin: AppAccountKeyPin, accountId: string, challenge: Uint8Array) => Uint8Array
   signCloudCopyCreate: (challenge: Uint8Array) => Uint8Array
   signCloudCopyJoin: (challenge: Uint8Array) => Uint8Array
   signCpEnrol: (challenge: Uint8Array) => AppCpEnrolProof
@@ -3050,6 +3154,7 @@ AppWasmRuntime@app-host/wasm-runtime.ts
   signLogHttp: (proof: AppLogHttpProof) => Uint8Array
   signPrivateCreate: (challenge: Uint8Array) => Uint8Array
   signPrivateDeviceEnrol: (challenge: Uint8Array) => AppPrivateDeviceEnrolProof
+  readonly supportsAccountKeyFetchProof: boolean
   readonly supportsLogPush: boolean
   takeLogCalls: () => readonly AppLogCall[]
   tick: () => void
@@ -3061,10 +3166,12 @@ AppWasmRuntime@app-host/wasm-runtime.ts
   static instantiate: (bytes: BufferSource) => Promise<WasmRuntime>
 
 AppWebCloudCopyHost@app-host/cloud-copy-host.ts
+  accountKeyMode: (options: { signal: AbortSignal; }) => Promise<AccountKeyMode>
   adoptCloudCopy: (options: AppCloudCopyAdoptionOptions, sql: AppSqlLifetime) => void
   attachDataFacade: (channel: MessagePort) => ReturnType<typeof attachAppLocalFacade>['resourceSetup']
   attestInstallation: () => Promise<AppInstallationSignInView>
   bootstrapCloudCopy: (options: { scope: Readonly<AppReplicaScope>; collectionCurrent(): boolean; purpose: 'create' | 'join'; outcomeMode: 'fresh' | 'existing'; signal: AbortSignal; reconcile?: 'explicit-unknown-outcome'; displayName?: string; fetch?: typeof fetch; allowLoopbackHttp?: boolean; }) => Promise<AppCloudCopyBootstrapMetadata>
+  bootstrapPrivateDevice: (options: { scope: Readonly<AppReplicaScope>; collectionCurrent(): boolean; signal: AbortSignal; fetch?: typeof fetch; allowLoopbackHttp?: boolean; }) => Promise<void>
   close: () => Promise<void>
   completeInstallationSignIn: () => Promise<AppDeviceRegistrationReceipt>
   detachDataFacade: (channel: MessagePort) => void
@@ -3077,11 +3184,14 @@ AppWebCloudCopyHost@app-host/cloud-copy-host.ts
   openTimersPort: (options: { scope: Readonly<AppReplicaScope>; generation: string; signal: AbortSignal; }) => { port: MessagePort; close(): Promise<void>; } | null
   pendingWrites: () => number
   peopleAuthority: () => PeopleAuthority
+  readonly privateDevice: boolean
   pushLog: (frame: Uint8Array) => boolean
   registeredReceipt: () => AppDeviceRegistrationReceipt
   serverProblem: () => AppServerProblem | null
+  settlePrivateKey: (options: { signal: AbortSignal; timeoutMs?: number; }) => Promise<'keyed' | 'locked'>
   startCollectionLog: (options: { signal: AbortSignal; fetch?: typeof fetch; allowLoopbackHttp?: boolean; }) => Promise<void>
   transportHealth: () => AppLogHealth | null
+  unlockAccountKey: (secret: AppAccountKeySecret, options: { signal: AbortSignal; onMode?(mode: AccountKeyMode): void; }) => Promise<void>
   waitForVerifiedRead: (options: { signal: AbortSignal; timeoutMs?: number; onProgress?: (progress: import("./opening-progress.js").AppOpeningProgress) => void; cold?: boolean; }) => Promise<void>
   wakeCollectionLog: (options: { signal: AbortSignal; }) => Promise<void>
   static new (source: AppCloudCopyHostSession, installation: AppInstallationCustodyAuthority, originalRelease: AppCloudCopyHostRelease, origin: string, lifetime: AbortSignal): AppWebCloudCopyHost
@@ -3116,9 +3226,11 @@ AppWebCollectionConnection@app-host/web-sign-in-session.ts
   readonly ended?: 'forbidden' | 'gone' | 'revoked' | null | undefined
   readonly health?: AppLogHealth | null | undefined
   readonly live?: boolean | null | undefined
+  readonly locked?: Readonly<{ mode: 'password' | 'strict' | 'none'; unlocking: boolean; problem: string | null; }> | null | undefined
   readonly problem?: AppServerProblem | null | undefined
-  readonly state: 'setup_required' | 'ready'
+  readonly state: 'setup_required' | 'ready' | 'needs_unlock'
   subscribe?: ((listener: () => void) => () => void) | undefined
+  unlock?: ((secret: AppAccountKeySecret) => Promise<void>) | undefined
 
 AppWebCollectionError@app-host/web-collection.ts
   cause?: unknown
@@ -3137,18 +3249,23 @@ AppWebCollectionHandoff@app-host/web-collection.ts
   readonly displayName: string
   readonly generation: string
   readonly people?: true | undefined
+  readonly privateDevice?: true | undefined
   readonly schema: 'mdbn-app-collection/1'
   readonly scope: Readonly<AppReplicaScope>
   readonly setupMode: 'inspect' | 'approved-new' | 'reconcile-original'
   readonly timerPort?: MessagePort | undefined
+
+AppWebCollectionLock@app-host/web-sign-in-session.ts
+  = { readonly mode: 'password' | 'strict' | 'none'; readonly unlocking: boolean; readonly problem: string | null; }
 
 AppWebCollectionView@app-host/web-sign-in-session.ts
   readonly live: boolean | null
   readonly openingProgress?: import("src/app-host/opening-progress").AppOpeningProgress | null | undefined
   readonly problem: string | null
   readonly problemDetail?: AppWebSignInProblemDetail | undefined
-  readonly status: 'opening' | 'setup_required' | 'ready' | 'blocked' | 'unselected'
+  readonly status: 'opening' | 'setup_required' | 'ready' | 'needs_unlock' | 'blocked' | 'unselected'
   readonly transport: AppLogHealth | null
+  readonly unlock?: Readonly<{ mode: 'password' | 'strict' | 'none'; unlocking: boolean; problem: string | null; }> | null | undefined
 
 AppWebDeviceKeyCustody@app-host/device-key-custody.ts
   openNativeDevice: (runtime: Pick<AppWasmRuntime, 'openDeviceConsuming' | 'retireLog'>, options: AppOpenOriginalDeviceOptions) => Promise<AppNoiseCustodyResult>
@@ -3215,6 +3332,7 @@ AppWebSignInSession@app-host/web-sign-in-session.ts
   snapshot: () => AppWebSignInSnapshot
   start: () => Promise<AppWebSignInSnapshot>
   subscribe: (listener: () => void) => () => void
+  unlockCollection: (collectionId: string, secret: AppAccountKeySecret) => Promise<AppWebSignInSnapshot>
   viewFor: (collectionId: string | null, options?: { readonly bystander?: boolean; }) => AppWebSignInSnapshot
   static new <Connection>(options: AppWebSignInSessionOptions<Connection>): AppWebSignInSession<Connection>
 
@@ -3228,6 +3346,7 @@ AppWebSignInSessionOptions@app-host/web-sign-in-session.ts
   readonly environment: 'lab' | 'staging' | 'production' | 'local'
   readonly fetch?: { (input: RequestInfo | URL, init?: RequestInit): Promise<Response>; (input: string | URL | Request, init?: RequestInit): Promise<Response>; } | undefined
   readonly freshRequestedCreateCollections?: boolean | undefined
+  readonly freshRequestedPrivateDevice?: boolean | undefined
   readonly installationKind?: 'mobile' | 'app-runtime' | undefined
   loadRuntime: (options: { signal: AbortSignal; }) => Promise<Uint8Array>
   readonly localDatabases?: readonly string[] | undefined
@@ -3256,9 +3375,10 @@ AppWebSignInSnapshot@app-host/web-sign-in-session.ts
   readonly selectedCollectionId: string | null
   readonly signIn: AppInstallationSignInView | null
   readonly signOutResult?: AppWebSignOutResult | null | undefined
-  readonly status: 'starting' | 'closed' | 'opening' | 'setup_required' | 'ready' | 'signed_out' | 'authorizing' | 'blocked' | 'not_started' | 'unselected'
+  readonly status: 'starting' | 'closed' | 'opening' | 'setup_required' | 'ready' | 'signed_out' | 'authorizing' | 'needs_unlock' | 'blocked' | 'not_started' | 'unselected'
   readonly timing: Readonly<{ firstScreenMs: number | null; readyMs: number | null; }> | null
   readonly transport?: AppLogHealth | null | undefined
+  readonly unlock?: Readonly<{ mode: 'password' | 'strict' | 'none'; unlocking: boolean; problem: string | null; }> | null | undefined
   readonly unsynced?: Readonly<{ collectionId: string; sessionStatus: AppWebSignInSnapshot['status']; }> | null | undefined
   readonly unsyncedWork?: Readonly<{ since: number; }> | null | undefined
 
@@ -3289,7 +3409,7 @@ ApplicationFixture@testing/application.ts
   readonly entry: MdbaseApplicationEntry
 
 ApplicationFixtureAction@testing/application.ts
-  = 'reauthorize' | 'approve' | 'assess' | 'start' | 'authorize' | 'refreshCollectionList' | 'select' | 'clearSelection' | 'chooseAnother' | 'forget' | 'deleteCollection' | 'requestAccess' | 'configure' | 'planSetup' | 'applySetup' | 'signOut' | 'openUnsynced' | 'planUnsyncedTransfer' | 'transferUnsynced' | 'discardUnsynced' | 'close'
+  = 'unlock' | 'reauthorize' | 'approve' | 'assess' | 'start' | 'authorize' | 'refreshCollectionList' | 'select' | 'clearSelection' | 'chooseAnother' | 'forget' | 'deleteCollection' | 'requestAccess' | 'configure' | 'planSetup' | 'applySetup' | 'signOut' | 'openUnsynced' | 'planUnsyncedTransfer' | 'transferUnsynced' | 'discardUnsynced' | 'close'
 
 ApplicationFixtureCall@testing/application.ts
   readonly action: ApplicationFixtureAction | 'setForeground'
@@ -3299,6 +3419,7 @@ ApplicationFixtureCall@testing/application.ts
   readonly discard?: boolean | undefined
   readonly files?: readonly FileAction[] | undefined
   readonly reason?: string | undefined
+  readonly secret?: 'password' | 'recoveryKey' | undefined
   readonly signal?: AbortSignal | undefined
 
 ApplicationFixtureControls@testing/application.ts
@@ -3565,6 +3686,7 @@ ConsentRequest@app-host/installation-sign-in.ts
   completed: boolean
   portalConfirmed?: true | undefined
   requestedCreateCollections: boolean
+  requestedPrivateDevice?: true | undefined
   requestId: string
   secret: string
 
@@ -3682,7 +3804,7 @@ DaemonIdentity@node.ts
 
 DescribeErrorOptions@describe-error.ts
   readonly cpOrigin?: string | undefined
-  readonly messages?: Readonly<Partial<Record<'refused' | 'device_offline' | 'desktop_update_required' | 'old_connector_running' | 'approval_required' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'collection_migrating' | 'collection_not_yet_migrated' | 'collection_deleted' | 'unavailable' | 'read_only' | 'capability_missing' | 'collection_unavailable' | 'moved_to_next_runtime' | 'device_approval_required' | 'account_suspended' | 'update_required' | 'account_collection_quota_exceeded' | 'invalid_request' | 'invalid_record' | 'not_found' | 'conflict' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'expired' | 'approval_window_closed' | 'account_confirmation_required' | 'recovery_required' | 'open_failed' | 'busy' | 'open_in_another_tab' | 'not_authorized' | 'sign_out_pending_writes' | 'sign_out_failed' | 'application_popup_blocked' | 'sign_in_window' | 'application_not_yet_available' | 'application_failed' | 'application_worker_unavailable' | 'browser_unsupported' | 'application_storage_unavailable' | 'storage_may_be_evicted' | 'application_registration_unsupported' | 'application_registration_refused' | 'application_selection_not_approved' | 'application_selection_invalid' | 'installation_scope_removed' | 'recovery_account_mismatch' | 'assets' | 'setup_required' | 'incompatible' | 'contract_mismatch' | 'contract_missing' | 'implementation_missing' | 'catalog_invalid' | 'catalog_response' | 'type_invalid' | 'readiness_budget' | 'readiness_unsupported' | 'notifications_consent_required' | 'timer_channel_reapproval_required' | 'notifications_unsupported' | 'people_unsupported' | 'people_permission_declined' | 'people_access' | 'configuration_conflict' | 'configuration_unavailable' | 'configuration_unsupported' | 'configuration_busy_timeout' | 'readiness_busy_timeout' | 'setup_forbidden' | 'setup_conflict' | 'setup_unresolved' | 'collection_setup_conflict' | 'setup_records_forbidden' | 'setup_changed' | 'installed_newer' | 'type_pack_conflict' | 'invalid_type_pack' | 'access_required' | 'access_declined' | 'access_undeclared' | 'files_access_missing' | 'files_scope_missing' | 'file_read_failed' | 'file_read_idle' | 'collection_delete_name_mismatch' | 'collection_delete_not_owner' | 'collection_delete_not_found' | 'collection_delete_frozen' | 'collection_delete_busy' | 'collection_delete_not_approved' | 'collection_delete_sign_in' | 'collection_delete_invalid' | 'collection_delete_outcome_unknown' | 'collection_delete_failed' | 'wrong_secret' | 'locked' | 'weak_password' | 'already_set_up' | 'no_account_key' | 'unknown', MdbaseProblemMessages>>> | undefined
+  readonly messages?: Readonly<Partial<Record<'refused' | 'device_offline' | 'desktop_update_required' | 'old_connector_running' | 'approval_required' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'collection_migrating' | 'collection_not_yet_migrated' | 'collection_deleted' | 'unavailable' | 'read_only' | 'capability_missing' | 'collection_unavailable' | 'moved_to_next_runtime' | 'device_approval_required' | 'account_suspended' | 'update_required' | 'account_collection_quota_exceeded' | 'invalid_request' | 'invalid_record' | 'not_found' | 'conflict' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'expired' | 'approval_window_closed' | 'account_confirmation_required' | 'recovery_required' | 'open_failed' | 'busy' | 'open_in_another_tab' | 'not_authorized' | 'sign_out_pending_writes' | 'sign_out_failed' | 'application_popup_blocked' | 'sign_in_window' | 'application_not_yet_available' | 'application_failed' | 'application_worker_unavailable' | 'browser_unsupported' | 'application_storage_unavailable' | 'storage_may_be_evicted' | 'application_registration_unsupported' | 'application_registration_refused' | 'application_selection_not_approved' | 'application_selection_invalid' | 'installation_scope_removed' | 'recovery_account_mismatch' | 'assets' | 'setup_required' | 'incompatible' | 'contract_mismatch' | 'contract_missing' | 'implementation_missing' | 'catalog_invalid' | 'catalog_response' | 'type_invalid' | 'readiness_budget' | 'readiness_unsupported' | 'notifications_consent_required' | 'timer_channel_reapproval_required' | 'notifications_unsupported' | 'people_unsupported' | 'people_permission_declined' | 'people_access' | 'configuration_conflict' | 'configuration_unavailable' | 'configuration_unsupported' | 'configuration_busy_timeout' | 'readiness_busy_timeout' | 'setup_forbidden' | 'setup_conflict' | 'setup_unresolved' | 'collection_setup_conflict' | 'setup_records_forbidden' | 'setup_changed' | 'installed_newer' | 'type_pack_conflict' | 'invalid_type_pack' | 'access_required' | 'access_declined' | 'access_undeclared' | 'files_access_missing' | 'files_scope_missing' | 'file_read_failed' | 'file_read_idle' | 'collection_delete_name_mismatch' | 'collection_delete_not_owner' | 'collection_delete_not_found' | 'collection_delete_frozen' | 'collection_delete_busy' | 'collection_delete_not_approved' | 'collection_delete_sign_in' | 'collection_delete_invalid' | 'collection_delete_outcome_unknown' | 'collection_delete_failed' | 'wrong_secret' | 'locked' | 'weak_password' | 'already_set_up' | 'no_account_key' | 'invalid_recovery_key' | 'unlock_strict' | 'unlock_unavailable' | 'unlock_failed' | 'private_device_limit' | 'unknown', MdbaseProblemMessages>>> | undefined
   readonly recoveryAccountLabel?: string | undefined
 
 DescribeHoldOptions@holds.ts
@@ -3871,6 +3993,9 @@ HandleMdbasePushOptions@notifications.ts
 Hash@wire.ts
   = string
 
+HeldSession@app-host/account-key-host.ts
+  = { readonly accountId: string; readonly connectorId: string; readonly deviceId: string; }
+
 HelloParams@wire.ts
   clientName: string
   clientVersion: string
@@ -3935,7 +4060,7 @@ HoldResolution@wire.ts
   = 'delete' | 'keep_mine' | 'take_theirs' | 'use' | 'keep_both'
 
 INTERNAL_PROBLEM_CODES@describe-error.ts
-  : readonly ['duplicate_key', 'float', 'hash', 'indefinite', 'int', 'mixed_map_keys', 'non_canonical_head', 'simple', 'tag', 'too_deep', 'too_long', 'trailing_bytes', 'tstr', 'uint', 'unencodable', 'unexpected_end', 'unsorted_keys', 'utf8', 'uuid', 'value', 'unknown_method', 'unknown_variant', 'unsupported', 'storage', 'noise', 'declared_setup_codec', 'body', 'data_contract_ambiguous', 'data_contract_field_conflict', 'data_contract_field_unmapped', 'data_contract_not_found', 'data_contract_not_implemented', 'data_contract_promote_typed', 'digest_mismatch', 'invalid_type_definition', 'path_taken', 'revision', 'size_mismatch', 'transfer_expired', 'type_conflict', 'account_secret_length', 'access_invalid', 'access_no_collection', 'application_sign_in_opener', 'change_entity_unsupported', 'click_target_cross_origin', 'context_required', 'context_type_mismatch', 'cursor_expired', 'file_upload_identity_mismatch', 'invalid_autosave', 'invalid_binding', 'invalid_call', 'invalid_push_payload', 'invalid_sas', 'invalid_scope', 'invalid_timeout', 'invalid_timer_response', 'invalid_typing_response', 'invalid_validation_result', 'invalid_view', 'key_id_changed', 'query_cursor_required', 'read_many_bounds', 'read_many_identity_mismatch', 'read_many_selection', 'record_identity_mismatch', 'record_lease_policy', 'record_links_bounds', 'record_links_missing', 'record_links_response', 'record_links_unsupported', 'record_recovery_mismatch', 'record_session_budget', 'record_validation_stale', 'record_witness_required', 'strength', 'strict_mode', 'typing_bounds', 'unsupported_push_version', 'validation_bounds', 'validation_selection', 'unsynced_transfer_needs_collection', 'unsynced_transfer_plan_stale', 'application_registration_binding', 'view_not_found', 'view_source_changed', 'view_source_witness_required', 'bases_read_backpressure', 'backlinks_unsupported', 'resolve_links_unsupported', 'contract_query_response', 'contract_query_version', 'contract_records_unsupported', 'describe_definitions_unsupported', 'prefix_response', 'type_pack_contract_setups_unsupported', 'type_packs_unsupported', 'resource_setup_unavailable', 'resource_setup_unsupported', 'timer_operation_recovery_unavailable', 'declared_setup_unsupported', 'setup_outcome_unknown', 'cleanup_failed', 'opfs_unavailable', 'probe_failed', 'sync_handle_unavailable', 'worker_required', 'shutdown_failed', 'authorization_binding', 'authorization_callback', 'authorization_cancelled', 'authorization_denied', 'authorization_signature', 'authorization_start', 'authorization_timed_out', 'client_key_required', 'collection_mismatch', 'control_error', 'control_unreachable', 'daemon_not_running', 'grant_invalid', 'grant_storage', 'key_storage', 'redirect_uri', 'relay_insecure', 'relay_unauthenticated', 'relay_unavailable', 'relay_url', 'route_mismatch', 'token_error', 'token_response', 'untrusted_identity']
+  : readonly ['duplicate_key', 'float', 'hash', 'indefinite', 'int', 'mixed_map_keys', 'non_canonical_head', 'simple', 'tag', 'too_deep', 'too_long', 'trailing_bytes', 'tstr', 'uint', 'unencodable', 'unexpected_end', 'unsorted_keys', 'utf8', 'uuid', 'value', 'unknown_method', 'unknown_variant', 'unsupported', 'storage', 'noise', 'declared_setup_codec', 'body', 'data_contract_ambiguous', 'data_contract_field_conflict', 'data_contract_field_unmapped', 'data_contract_not_found', 'data_contract_not_implemented', 'data_contract_promote_typed', 'digest_mismatch', 'invalid_type_definition', 'path_taken', 'revision', 'size_mismatch', 'transfer_expired', 'type_conflict', 'account_secret_length', 'access_invalid', 'access_no_collection', 'application_sign_in_opener', 'change_entity_unsupported', 'click_target_cross_origin', 'context_required', 'context_type_mismatch', 'cursor_expired', 'file_upload_identity_mismatch', 'invalid_autosave', 'invalid_binding', 'invalid_call', 'invalid_push_payload', 'invalid_sas', 'invalid_scope', 'invalid_timeout', 'invalid_timer_response', 'invalid_typing_response', 'invalid_validation_result', 'invalid_view', 'key_id_changed', 'query_cursor_required', 'read_many_bounds', 'read_many_identity_mismatch', 'read_many_selection', 'record_identity_mismatch', 'record_lease_policy', 'record_links_bounds', 'record_links_missing', 'record_links_response', 'record_links_unsupported', 'record_recovery_mismatch', 'record_session_budget', 'record_validation_stale', 'record_witness_required', 'strength', 'strict_mode', 'typing_bounds', 'unsupported_push_version', 'validation_bounds', 'validation_selection', 'unsynced_transfer_needs_collection', 'unsynced_transfer_plan_stale', 'unlock_not_locked', 'unlock_secret_invalid', 'application_registration_binding', 'view_not_found', 'view_source_changed', 'view_source_witness_required', 'bases_read_backpressure', 'backlinks_unsupported', 'resolve_links_unsupported', 'contract_query_response', 'contract_query_version', 'contract_records_unsupported', 'describe_definitions_unsupported', 'prefix_response', 'type_pack_contract_setups_unsupported', 'type_packs_unsupported', 'resource_setup_unavailable', 'resource_setup_unsupported', 'timer_operation_recovery_unavailable', 'declared_setup_unsupported', 'setup_outcome_unknown', 'cleanup_failed', 'opfs_unavailable', 'probe_failed', 'sync_handle_unavailable', 'worker_required', 'shutdown_failed', 'sync_stalled', 'authorization_binding', 'authorization_callback', 'authorization_cancelled', 'authorization_denied', 'authorization_signature', 'authorization_start', 'authorization_timed_out', 'client_key_required', 'collection_mismatch', 'control_error', 'control_unreachable', 'daemon_not_running', 'grant_invalid', 'grant_storage', 'key_storage', 'redirect_uri', 'relay_insecure', 'relay_unauthenticated', 'relay_unavailable', 'relay_url', 'route_mismatch', 'token_error', 'token_response', 'untrusted_identity']
 
 IkInitiator@transport/noise.ts
   readMessage2: (msg: Uint8Array) => Promise<{ payload: Uint8Array; transport: NoiseTransport; }>
@@ -4188,6 +4313,7 @@ Mdbase@application/front-door.ts
   signOut: (options?: MdbaseSignOutOptions) => Promise<MdbaseSnapshot>
   start: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
   subscribe: (listener: () => void) => () => void
+  unlock: (collectionId: string, secret: MdbaseUnlockSecret, options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
   readonly unsynced: { open(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>; planTransfer(options?: MdbaseTransferPlanOptions): Promise<MdbaseTransferPlan>; transfer(plan: MdbaseTransferPlan, options?: MdbaseTransferOptions): Promise<MdbaseTransferResult>; discard(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>; }
 
 MdbaseAccessRequest@application/file-access.ts
@@ -4247,6 +4373,7 @@ MdbaseApplication@application/entry.ts
   start: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>
   subscribe: (listener: () => void) => () => void
   transferUnsynced?: ((plan: MdbaseTransferPlan, options?: MdbaseTransferOptions) => Promise<MdbaseTransferResult>) | undefined
+  unlock?: ((collectionId: string, secret: MdbaseUnlockSecret, options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>) | undefined
 
 MdbaseApplicationAssessment@application/entry.ts
   readonly problem: MdbaseApplicationProblem | null
@@ -4330,11 +4457,12 @@ MdbaseApplicationSnapshot@application/entry.ts
   readonly selection: ApplicationCollectionSelectionSnapshot
   readonly signIn: AppInstallationSignInView | null
   readonly signOutResult?: AppWebSignOutResult | null | undefined
-  readonly status: 'starting' | 'closed' | 'opening' | 'setup_required' | 'ready' | 'signed_out' | 'authorizing' | 'blocked' | 'not_started' | 'unselected'
+  readonly status: 'starting' | 'closed' | 'opening' | 'setup_required' | 'ready' | 'signed_out' | 'authorizing' | 'needs_unlock' | 'blocked' | 'not_started' | 'unselected'
   readonly storage?: AppStoragePolicy | null | undefined
   readonly sync?: StatusSummary | null | undefined
   readonly timing: Readonly<{ firstScreenMs: number | null; readyMs: number | null; }> | null
   readonly transport?: AppLogHealth | null | undefined
+  readonly unlock?: Readonly<{ mode: 'password' | 'strict' | 'none'; unlocking: boolean; problem: string | null; }> | null | undefined
   readonly unsynced?: Readonly<{ collectionId: string; sessionStatus: AppWebSignInSnapshot['status']; }> | null | undefined
   readonly unsyncedWork?: Readonly<{ since: number; }> | null | undefined
   readonly writes?: WriteLedgerSnapshot | null | undefined
@@ -4554,10 +4682,10 @@ MdbasePeopleClient@people.ts
   static new (client: PeopleRecords, authority: PeopleAuthority): MdbasePeopleClient
 
 MdbasePhase@application/phase.ts
-  = { readonly kind: 'starting'; } | { readonly kind: 'signed_out'; readonly notice: MdbaseProblem | null; } | { readonly kind: 'authorizing'; readonly purpose: 'sign_in' | 'add' | 'approve'; readonly collectionId: string | null; } | { readonly kind: 'choosing'; readonly lastApproval: MdbaseApprovalOutcome | null; } | { readonly kind: 'opening'; readonly collectionId: string; readonly displayName: string | null; readonly slow: boolean; readonly progress?: import("../app-host/opening-progress.js").AppOpeningProgress | null; } | { readonly kind: 'needs_approval'; readonly collectionId: string; readonly displayName: string | null; readonly declined: boolean; } | { readonly kind: 'needs_setup'; readonly collectionId: string; readonly collection: MdbaseCollectionSummary; } | { readonly kind: 'ready'; readonly collectionId: string; readonly collection: MdbaseCollectionSummary; readonly connection: MdbaseApplicationConnection; readonly rechecking: boolean; readonly problem: MdbaseProblem | null; readonly unavailableTypes: readonly MdbaseUnavailableType[]; } | { readonly kind: 'unsynced'; readonly collectionId: string; readonly connection: MdbaseApplicationConnection; readonly rechecking: boolean; } | { readonly kind: 'problem'; readonly collectionId: string | null; readonly problem: MdbaseProblem; } | { readonly kind: 'unavailable'; readonly problem: MdbaseProblem; } | { readonly kind: 'closed'; }
+  = { readonly kind: 'starting'; } | { readonly kind: 'signed_out'; readonly notice: MdbaseProblem | null; } | { readonly kind: 'authorizing'; readonly purpose: 'sign_in' | 'add' | 'approve'; readonly collectionId: string | null; } | { readonly kind: 'choosing'; readonly lastApproval: MdbaseApprovalOutcome | null; } | { readonly kind: 'opening'; readonly collectionId: string; readonly displayName: string | null; readonly slow: boolean; readonly progress?: import("../app-host/opening-progress.js").AppOpeningProgress | null; } | { readonly kind: 'needs_approval'; readonly collectionId: string; readonly displayName: string | null; readonly declined: boolean; } | { readonly kind: 'needs_unlock'; readonly collectionId: string; readonly displayName: string | null; readonly mode: 'password' | 'strict' | 'none'; readonly unlocking: boolean; readonly problem: MdbaseProblem | null; } | { readonly kind: 'needs_setup'; readonly collectionId: string; readonly collection: MdbaseCollectionSummary; } | { readonly kind: 'ready'; readonly collectionId: string; readonly collection: MdbaseCollectionSummary; readonly connection: MdbaseApplicationConnection; readonly rechecking: boolean; readonly problem: MdbaseProblem | null; readonly unavailableTypes: readonly MdbaseUnavailableType[]; } | { readonly kind: 'unsynced'; readonly collectionId: string; readonly connection: MdbaseApplicationConnection; readonly rechecking: boolean; } | { readonly kind: 'problem'; readonly collectionId: string | null; readonly problem: MdbaseProblem; } | { readonly kind: 'unavailable'; readonly problem: MdbaseProblem; } | { readonly kind: 'closed'; }
 
 MdbasePhaseKind@application/phase.ts
-  = 'problem' | 'unsynced' | 'starting' | 'closed' | 'opening' | 'unavailable' | 'ready' | 'signed_out' | 'authorizing' | 'choosing' | 'needs_approval' | 'needs_setup'
+  = 'problem' | 'unsynced' | 'starting' | 'closed' | 'opening' | 'unavailable' | 'ready' | 'signed_out' | 'authorizing' | 'choosing' | 'needs_approval' | 'needs_unlock' | 'needs_setup'
 
 MdbasePrepareAuthorizationOptions@app-grant/client.ts
   readonly authorizationNonce?: string | undefined
@@ -4677,11 +4805,12 @@ MdbaseSnapshot@application/front-door.ts
   readonly selection: ApplicationCollectionSelectionSnapshot
   readonly signIn: AppInstallationSignInView | null
   readonly signOutResult?: AppWebSignOutResult | null | undefined
-  readonly status: 'starting' | 'closed' | 'opening' | 'setup_required' | 'ready' | 'signed_out' | 'authorizing' | 'blocked' | 'not_started' | 'unselected'
+  readonly status: 'starting' | 'closed' | 'opening' | 'setup_required' | 'ready' | 'signed_out' | 'authorizing' | 'needs_unlock' | 'blocked' | 'not_started' | 'unselected'
   readonly storage?: AppStoragePolicy | null | undefined
   readonly sync: StatusSummary | null
   readonly timing: Readonly<{ firstScreenMs: number | null; readyMs: number | null; }> | null
   readonly transport?: AppLogHealth | null | undefined
+  readonly unlock?: Readonly<{ mode: 'password' | 'strict' | 'none'; unlocking: boolean; problem: string | null; }> | null | undefined
   readonly unsynced?: Readonly<{ collectionId: string; sessionStatus: AppWebSignInSnapshot['status']; }> | null | undefined
   readonly unsyncedWork?: Readonly<{ since: number; }> | null | undefined
   readonly writes?: WriteLedgerSnapshot | null | undefined
@@ -4735,6 +4864,9 @@ MdbaseUnavailableType@application/entry.ts
   readonly name: string
   readonly path: string
   readonly problem: MdbaseApplicationProblem
+
+MdbaseUnlockSecret@application/entry.ts
+  = Readonly<{ password: string; }> | Readonly<{ recoveryKey: string; }>
 
 MdbaseVersion@semver.ts
   readonly major: number
@@ -4994,7 +5126,7 @@ PERSON_CONTRACT@people.ts
   : Readonly<{ id: 'mdbase.person'; version: '2.0.0'; }>
 
 PROBLEM_CODES@describe-error.ts
-  : readonly ['device_offline', 'desktop_update_required', 'old_connector_running', 'sync_required', 'no_device_registered', 'access_removed', 'read_only', 'capability_missing', 'collection_deleted', 'collection_unavailable', 'moved_to_next_runtime', 'device_approval_required', 'collection_migrating', 'collection_not_yet_migrated', 'account_suspended', 'update_required', 'account_collection_quota_exceeded', 'invalid_request', 'invalid_record', 'not_found', 'conflict', 'unauthenticated', 'forbidden', 'collection_invalid', 'unavailable', 'rate_limited', 'quota_exceeded', 'too_large', 'outcome_unknown', 'internal', 'refused', 'expired', 'approval_window_closed', 'account_confirmation_required', 'recovery_required', 'open_failed', 'busy', 'open_in_another_tab', 'not_authorized', 'sign_out_pending_writes', 'sign_out_failed', 'application_popup_blocked', 'sign_in_window', 'application_not_yet_available', 'application_failed', 'application_worker_unavailable', 'browser_unsupported', 'application_storage_unavailable', 'storage_may_be_evicted', 'application_registration_unsupported', 'application_registration_refused', 'application_selection_not_approved', 'application_selection_invalid', 'installation_scope_removed', 'recovery_account_mismatch', 'assets', 'setup_required', 'incompatible', 'approval_required', 'contract_mismatch', 'contract_missing', 'implementation_missing', 'catalog_invalid', 'catalog_response', 'type_invalid', 'readiness_budget', 'readiness_unsupported', 'notifications_consent_required', 'timer_channel_reapproval_required', 'notifications_unsupported', 'people_unsupported', 'people_permission_declined', 'people_access', 'configuration_conflict', 'configuration_unavailable', 'configuration_unsupported', 'configuration_busy_timeout', 'readiness_busy_timeout', 'setup_forbidden', 'setup_conflict', 'setup_unresolved', 'collection_setup_conflict', 'setup_records_forbidden', 'setup_changed', 'installed_newer', 'type_pack_conflict', 'invalid_type_pack', 'access_required', 'access_declined', 'access_undeclared', 'files_access_missing', 'files_scope_missing', 'file_read_failed', 'file_read_idle', 'collection_delete_name_mismatch', 'collection_delete_not_owner', 'collection_delete_not_found', 'collection_delete_frozen', 'collection_delete_busy', 'collection_delete_not_approved', 'collection_delete_sign_in', 'collection_delete_invalid', 'collection_delete_outcome_unknown', 'collection_delete_failed', 'wrong_secret', 'locked', 'weak_password', 'already_set_up', 'no_account_key']
+  : readonly ['device_offline', 'desktop_update_required', 'old_connector_running', 'sync_required', 'no_device_registered', 'access_removed', 'read_only', 'capability_missing', 'collection_deleted', 'collection_unavailable', 'moved_to_next_runtime', 'device_approval_required', 'collection_migrating', 'collection_not_yet_migrated', 'account_suspended', 'update_required', 'account_collection_quota_exceeded', 'invalid_request', 'invalid_record', 'not_found', 'conflict', 'unauthenticated', 'forbidden', 'collection_invalid', 'unavailable', 'rate_limited', 'quota_exceeded', 'too_large', 'outcome_unknown', 'internal', 'refused', 'expired', 'approval_window_closed', 'account_confirmation_required', 'recovery_required', 'open_failed', 'busy', 'open_in_another_tab', 'not_authorized', 'sign_out_pending_writes', 'sign_out_failed', 'application_popup_blocked', 'sign_in_window', 'application_not_yet_available', 'application_failed', 'application_worker_unavailable', 'browser_unsupported', 'application_storage_unavailable', 'storage_may_be_evicted', 'application_registration_unsupported', 'application_registration_refused', 'application_selection_not_approved', 'application_selection_invalid', 'installation_scope_removed', 'recovery_account_mismatch', 'assets', 'setup_required', 'incompatible', 'approval_required', 'contract_mismatch', 'contract_missing', 'implementation_missing', 'catalog_invalid', 'catalog_response', 'type_invalid', 'readiness_budget', 'readiness_unsupported', 'notifications_consent_required', 'timer_channel_reapproval_required', 'notifications_unsupported', 'people_unsupported', 'people_permission_declined', 'people_access', 'configuration_conflict', 'configuration_unavailable', 'configuration_unsupported', 'configuration_busy_timeout', 'readiness_busy_timeout', 'setup_forbidden', 'setup_conflict', 'setup_unresolved', 'collection_setup_conflict', 'setup_records_forbidden', 'setup_changed', 'installed_newer', 'type_pack_conflict', 'invalid_type_pack', 'access_required', 'access_declined', 'access_undeclared', 'files_access_missing', 'files_scope_missing', 'file_read_failed', 'file_read_idle', 'collection_delete_name_mismatch', 'collection_delete_not_owner', 'collection_delete_not_found', 'collection_delete_frozen', 'collection_delete_busy', 'collection_delete_not_approved', 'collection_delete_sign_in', 'collection_delete_invalid', 'collection_delete_outcome_unknown', 'collection_delete_failed', 'wrong_secret', 'locked', 'weak_password', 'already_set_up', 'no_account_key', 'invalid_recovery_key', 'unlock_strict', 'unlock_unavailable', 'unlock_failed', 'private_device_limit']
 
 PagesOptions@client.ts
   onReset?: ((reset: PagesReset) => void | Promise<void>) | undefined
@@ -5137,7 +5269,7 @@ Problem@wire.ts
   traceId?: string | undefined
 
 ProblemCode@describe-error.ts
-  = 'refused' | 'device_offline' | 'desktop_update_required' | 'old_connector_running' | 'approval_required' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'collection_migrating' | 'collection_not_yet_migrated' | 'collection_deleted' | 'unavailable' | 'read_only' | 'capability_missing' | 'collection_unavailable' | 'moved_to_next_runtime' | 'device_approval_required' | 'account_suspended' | 'update_required' | 'account_collection_quota_exceeded' | 'invalid_request' | 'invalid_record' | 'not_found' | 'conflict' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'expired' | 'approval_window_closed' | 'account_confirmation_required' | 'recovery_required' | 'open_failed' | 'busy' | 'open_in_another_tab' | 'not_authorized' | 'sign_out_pending_writes' | 'sign_out_failed' | 'application_popup_blocked' | 'sign_in_window' | 'application_not_yet_available' | 'application_failed' | 'application_worker_unavailable' | 'browser_unsupported' | 'application_storage_unavailable' | 'storage_may_be_evicted' | 'application_registration_unsupported' | 'application_registration_refused' | 'application_selection_not_approved' | 'application_selection_invalid' | 'installation_scope_removed' | 'recovery_account_mismatch' | 'assets' | 'setup_required' | 'incompatible' | 'contract_mismatch' | 'contract_missing' | 'implementation_missing' | 'catalog_invalid' | 'catalog_response' | 'type_invalid' | 'readiness_budget' | 'readiness_unsupported' | 'notifications_consent_required' | 'timer_channel_reapproval_required' | 'notifications_unsupported' | 'people_unsupported' | 'people_permission_declined' | 'people_access' | 'configuration_conflict' | 'configuration_unavailable' | 'configuration_unsupported' | 'configuration_busy_timeout' | 'readiness_busy_timeout' | 'setup_forbidden' | 'setup_conflict' | 'setup_unresolved' | 'collection_setup_conflict' | 'setup_records_forbidden' | 'setup_changed' | 'installed_newer' | 'type_pack_conflict' | 'invalid_type_pack' | 'access_required' | 'access_declined' | 'access_undeclared' | 'files_access_missing' | 'files_scope_missing' | 'file_read_failed' | 'file_read_idle' | 'collection_delete_name_mismatch' | 'collection_delete_not_owner' | 'collection_delete_not_found' | 'collection_delete_frozen' | 'collection_delete_busy' | 'collection_delete_not_approved' | 'collection_delete_sign_in' | 'collection_delete_invalid' | 'collection_delete_outcome_unknown' | 'collection_delete_failed' | 'wrong_secret' | 'locked' | 'weak_password' | 'already_set_up' | 'no_account_key'
+  = 'refused' | 'device_offline' | 'desktop_update_required' | 'old_connector_running' | 'approval_required' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'collection_migrating' | 'collection_not_yet_migrated' | 'collection_deleted' | 'unavailable' | 'read_only' | 'capability_missing' | 'collection_unavailable' | 'moved_to_next_runtime' | 'device_approval_required' | 'account_suspended' | 'update_required' | 'account_collection_quota_exceeded' | 'invalid_request' | 'invalid_record' | 'not_found' | 'conflict' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'expired' | 'approval_window_closed' | 'account_confirmation_required' | 'recovery_required' | 'open_failed' | 'busy' | 'open_in_another_tab' | 'not_authorized' | 'sign_out_pending_writes' | 'sign_out_failed' | 'application_popup_blocked' | 'sign_in_window' | 'application_not_yet_available' | 'application_failed' | 'application_worker_unavailable' | 'browser_unsupported' | 'application_storage_unavailable' | 'storage_may_be_evicted' | 'application_registration_unsupported' | 'application_registration_refused' | 'application_selection_not_approved' | 'application_selection_invalid' | 'installation_scope_removed' | 'recovery_account_mismatch' | 'assets' | 'setup_required' | 'incompatible' | 'contract_mismatch' | 'contract_missing' | 'implementation_missing' | 'catalog_invalid' | 'catalog_response' | 'type_invalid' | 'readiness_budget' | 'readiness_unsupported' | 'notifications_consent_required' | 'timer_channel_reapproval_required' | 'notifications_unsupported' | 'people_unsupported' | 'people_permission_declined' | 'people_access' | 'configuration_conflict' | 'configuration_unavailable' | 'configuration_unsupported' | 'configuration_busy_timeout' | 'readiness_busy_timeout' | 'setup_forbidden' | 'setup_conflict' | 'setup_unresolved' | 'collection_setup_conflict' | 'setup_records_forbidden' | 'setup_changed' | 'installed_newer' | 'type_pack_conflict' | 'invalid_type_pack' | 'access_required' | 'access_declined' | 'access_undeclared' | 'files_access_missing' | 'files_scope_missing' | 'file_read_failed' | 'file_read_idle' | 'collection_delete_name_mismatch' | 'collection_delete_not_owner' | 'collection_delete_not_found' | 'collection_delete_frozen' | 'collection_delete_busy' | 'collection_delete_not_approved' | 'collection_delete_sign_in' | 'collection_delete_invalid' | 'collection_delete_outcome_unknown' | 'collection_delete_failed' | 'wrong_secret' | 'locked' | 'weak_password' | 'already_set_up' | 'no_account_key' | 'invalid_recovery_key' | 'unlock_strict' | 'unlock_unavailable' | 'unlock_failed' | 'private_device_limit'
 
 Progress@wire.ts
   done: number
@@ -5478,7 +5610,7 @@ SetupResult@private-account.ts
   recoveryKey: string
 
 Snapshot@application/phase.ts
-  = Pick<MdbaseApplicationSnapshot, 'status' | 'signIn' | 'collections' | 'selectedCollectionId' | 'problem' | 'readiness' | 'selection'> & Partial<Pick<MdbaseApplicationSnapshot, 'problemDetail' | 'removedScopeIds' | 'recoveryAccountLabel' | 'openingProgress' | 'unsynced'>>
+  = Pick<MdbaseApplicationSnapshot, 'status' | 'signIn' | 'collections' | 'selectedCollectionId' | 'problem' | 'readiness' | 'selection'> & Partial<Pick<MdbaseApplicationSnapshot, 'problemDetail' | 'removedScopeIds' | 'recoveryAccountLabel' | 'openingProgress' | 'unsynced' | 'unlock'>>
 
 SqlBinding@app-host/wasm-runtime.ts
   exports: (() => AppSqlMemory) | null
@@ -5515,10 +5647,12 @@ State@app-host/installation-sign-in.ts
   nativeStarted: boolean
   origin: string
   owner?: string | undefined
+  privateDeviceCollectionIds?: string[] | undefined
   proof: Proof | null
   recoveryFor?: { accountId: string; collectionId: string; } | undefined
   renewal: { requestId: string; secret: string; } | null
   requestedCreateCollections: boolean
+  requestedPrivateDevice?: true | undefined
   requestId: string
   secret: string
   selection: Selection | null
@@ -5648,7 +5782,7 @@ TestAppCollection@testing/test-app.ts
   readonly role?: 'owner' | 'editor' | 'viewer' | undefined
 
 TestAppFault@testing/test-app.ts
-  = { readonly action: 'approve' | 'authorize'; readonly outcome: 'declined' | 'closed'; } | { readonly action: 'select'; readonly problem: ProblemCode; } | { readonly action: 'applySetup'; readonly reason: 'setup_changed' | 'outcome_unknown'; } | { readonly action: ApplicationFixtureAction; readonly error: { readonly code: ErrorCode; readonly reason: string; }; }
+  = { readonly action: 'approve' | 'authorize'; readonly outcome: 'declined' | 'closed'; } | { readonly action: 'select'; readonly problem: ProblemCode; } | { readonly action: 'unlock'; readonly problem: ProblemCode; } | { readonly action: 'applySetup'; readonly reason: 'setup_changed' | 'outcome_unknown'; } | { readonly action: ApplicationFixtureAction; readonly error: { readonly code: ErrorCode; readonly reason: string; }; }
 
 TestAppOptions@testing/test-app.ts
   readonly collections?: readonly TestAppCollection[] | undefined
@@ -5657,7 +5791,7 @@ TestAppOptions@testing/test-app.ts
   readonly phase?: TestAppPreset | undefined
 
 TestAppPreset@testing/test-app.ts
-  = 'opening' | 'ready' | 'signed_out' | 'choosing' | 'needs_setup' | 'second_tab' | { readonly problem: ProblemCode; }
+  = 'opening' | 'ready' | 'signed_out' | 'choosing' | 'needs_setup' | 'second_tab' | { readonly problem: ProblemCode; } | { readonly needsUnlock: 'password' | 'strict' | 'none'; }
 
 TestMdbase@testing/test-app.ts
   addCollection: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
@@ -5683,6 +5817,7 @@ TestMdbase@testing/test-app.ts
   signOut: (options?: MdbaseSignOutOptions) => Promise<MdbaseSnapshot>
   start: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
   subscribe: (listener: () => void) => () => void
+  unlock: (collectionId: string, secret: MdbaseUnlockSecret, options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
   readonly unsynced: { open(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>; planTransfer(options?: MdbaseTransferPlanOptions): Promise<MdbaseTransferPlan>; transfer(plan: MdbaseTransferPlan, options?: MdbaseTransferOptions): Promise<MdbaseTransferResult>; discard(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>; }
 
 TextOrBlob@wire.ts
@@ -6416,6 +6551,9 @@ problemCodeOf@describe-error.ts
 queryPages@read-helpers.ts
   : (client: Pick<MdbaseClient, 'pages'>, query: Query, include?: Include, signal?: AbortSignal, options?: PagesOptions) => AsyncGenerator<QueryResult>
 
+readAccountKeyMode@app-host/account-key-host.ts
+  : (session: AppAccountKeySession, options: AppAccountKeyHostOptions & { signal: AbortSignal; }) => Promise<AccountKeyMode>
+
 readDaemonIdentity@node.ts
   : (stateDir?: string) => Promise<DaemonIdentity>
 
@@ -6493,6 +6631,9 @@ toPlain@values.ts
 
 toValue@values.ts
   : (v: PlainValue | undefined) => CborValue
+
+unlockPrivateDevice@app-host/account-key-host.ts
+  : (session: AppAccountKeySession, native: AppAccountKeyNative, secret: AppAccountKeySecret, options: AppAccountKeyHostOptions & { signal: AbortSignal; onMode?(mode: AccountKeyMode): void; sealed?: AppAccountKeySealedBundle; }) => Promise<void>
 
 updateViewSource@view-sources.ts
   : (client: Pick<MdbaseClient, 'replaceDocument'>, seen: RecordView, document: string, options: ViewSourceWriteOptions) => Promise<Write>

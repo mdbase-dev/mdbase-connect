@@ -27,7 +27,11 @@ interface Slot {
 function nativeSnapshot(value:unknown):AppWebSignInSnapshot {
   if(!value||typeof value!=="object"||Array.isArray(value))throw new ApplicationWorkerError("application_worker_binding");
   const snapshot=value as AppWebSignInSnapshot;
-  if(!["not_started","starting","signed_out","authorizing","unselected","opening","setup_required","ready","blocked","closed"].includes(snapshot.status)||
+  const lock=snapshot.unlock;
+  // The lock display exists exactly on a needs_unlock snapshot, fully typed.
+  if((snapshot.status==="needs_unlock")!==(lock!=null)||(lock!=null&&(typeof lock!=="object"||!["password","strict","none"].includes(lock.mode)||typeof lock.unlocking!=="boolean"||
+    !(lock.problem===null||(typeof lock.problem==="string"&&/^[a-z][a-z0-9_]{0,63}$/.test(lock.problem))))))throw new ApplicationWorkerError("application_worker_binding");
+  if(!["not_started","starting","signed_out","authorizing","unselected","opening","setup_required","ready","blocked","closed","needs_unlock"].includes(snapshot.status)||
     !(snapshot.openingProgress==null||typeof snapshot.openingProgress==="string")||
     !Array.isArray(snapshot.collections)||snapshot.collections.length>1024||!(snapshot.selectedCollectionId===null||typeof snapshot.selectedCollectionId==="string")||
     !(snapshot.problem===null||(typeof snapshot.problem==="string"&&/^[a-z0-9_-]{1,128}$/.test(snapshot.problem)))||
@@ -44,6 +48,9 @@ export class ApplicationWorkerClient {
   private fault:ApplicationWorkerError|null=null;private stopping:Promise<void>|null=null;
   private stopReply:{id:number;resolve():void;reject(error:unknown):void}|null=null;
   private watch:ReturnType<typeof setInterval>|null=null;
+  /** The request id of a held approval window the person closed before any
+   * Native call, released here at that report. Never a window the SDK closed. */
+  private closedPortal:number|null=null;
   private abandoned=false;
   constructor(port:MessagePort,binding:string,owner:ApplicationWorkerClientOwner){
     if(!applicationWorkerBinding(binding))throw new ApplicationWorkerError("application_worker_binding");
@@ -91,7 +98,7 @@ export class ApplicationWorkerClient {
       let closed=false;try{closed=held.value.closed===true;}catch{/* unknown is not closed */}
       if(!closed)return;
       clearInterval(this.watch!);this.watch=null;
-      if(held.lastRpc===0)this.portal=null;
+      if(held.lastRpc===0){this.portal=null;this.closedPortal=held.id;}
       try{this.send(0,"approvalClosed",true);}catch{/* send quarantined the client */}
     },500);
   }
@@ -117,6 +124,15 @@ export class ApplicationWorkerClient {
       if(kind==="fatal"){if(id!==0)throw new ApplicationWorkerError("application_worker_binding");this.quarantine("application_worker_stop_failed");return;}
       if(kind==="nativeAuthorization"){
         const call=nativeAuthorizationCall(value),held=this.portal;
+        if(!held&&id===this.closedPortal){
+          // The person closed this window and this page released it at that
+          // report. A call the Worker makes for it (posted before the report
+          // arrived, or on the final read after it) is refused and never run:
+          // preparation is optional and the receipt decides. Not a protocol
+          // fault, so the client is not quarantined.
+          if(call.action!=="cancel")this.port.postMessage([APPLICATION_WORKER_PROTOCOL,this.binding,"nativeAuthorizationReply",id,{rpc:call.rpc,ok:false}]);
+          return;
+        }
         if(!held||held.id!==id||this.stopping||held.caller.aborted||call.rpc<=held.lastRpc)throw new ApplicationWorkerError("application_worker_fenced");
         held.lastRpc=call.rpc;
         if(call.action==="cancel")held.life.abort();

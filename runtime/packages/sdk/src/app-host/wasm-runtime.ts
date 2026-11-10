@@ -103,6 +103,13 @@ export interface AppAccountKeyPin extends AppDeviceIdentityPin {readonly collect
 export type AppAccountKeyRefusal="not_private"|"not_ready"|"not_enrolled"|"not_authorized"|"device_missing"|"enrolment_mismatch"|"not_keyed"|"no_wrap"|"inconsistent"|"failed"|"outcome_unknown";
 export type AppAccountKeyState={readonly state:"pending"|"keyed"}|{readonly state:"refused";readonly reason:AppAccountKeyRefusal};
 export type AppAccountKeyDeviceSetupState={readonly state:"recovery_pending"|"recovery_keyed"}|{readonly state:"refused";readonly reason:AppAccountKeyRefusal};
+/** This runtime artifact predates the account-key fetch proof signer
+ * (`rt_app_account_key_fetch_sign`). Typed, so a host shows "update the app"
+ * instead of signing with anything else. */
+export class AppAccountKeyProofUnavailableError extends Error {
+  readonly reason = "account_key_proof_unavailable";
+  constructor() { super("this app runtime cannot prove an account-key request"); this.name = "AppAccountKeyProofUnavailableError"; }
+}
 export class AppStrictDeviceApprovalError extends Error {
   readonly reason = "strict_device_approval";
   constructor() { super("this account uses strict device approval; add this device from your desktop"); this.name = "AppStrictDeviceApprovalError"; }
@@ -163,6 +170,10 @@ interface AppExports extends Exports {
   rt_app_account_key_unlock(p:number,n:number):bigint;
   rt_app_account_key_status():bigint;
   rt_app_account_key_device_setup(p:number,n:number):bigint;
+  /** Optional and feature-detected: the fixed `mdbase/v1/account-key-fetch`
+   * device proof. Input cbor {0: challenge32, 1: account16}; output the 64-byte
+   * signature, or empty when refused. Connector and device are the native pins. */
+  rt_app_account_key_fetch_sign?(p:number,n:number):bigint;
   rt_app_shutdown(): number;
 }
 const bad = () => mdbaseError("unavailable", "app runtime unavailable; reopen and reconcile");
@@ -687,6 +698,25 @@ export class AppWasmRuntime extends WasmRuntime implements AppLogRuntime {
    * recovery_keyed != this app keyed/Saved. Ordinary native KEY_GRANT only. */
   setupAccountKeyDeviceConsuming(pin:AppAccountKeyPin,secret:Uint8Array):AppAccountKeyDeviceSetupState {
     try{if(pin.approvalMode==="strict")throw new AppStrictDeviceApprovalError();if(!this.accountKeyCurrent(pin))throw bad();b32(secret);const state=this.guard(()=>this.accountKeyState(this.takeOut(this.app.rt_app_account_key_device_setup(...this.put(secret)))));if(!this.accountKeyCurrent(pin))throw bad();return state.state==="refused"?state:Object.freeze({state:state.state==="keyed"?"recovery_keyed":"recovery_pending"});}catch(error){this.retireLog();if(error instanceof AppStrictDeviceApprovalError)throw error;throw bad();}finally{if(secret instanceof Uint8Array)secret.fill(0);}
+  }
+  /** Whether this runtime can sign the account-key fetch proof at all. */
+  get supportsAccountKeyFetchProof(): boolean { return typeof this.app.rt_app_account_key_fetch_sign === "function"; }
+  /** Dedicated `GET /v1/next/account-key` proof for this adopted Private device.
+   * Fixed domain, native connector/device; the caller supplies only the server
+   * challenge and its authenticated account. No route, digest or key input.
+   * A runtime without the export refuses with a typed error and stays open. */
+  signAccountKeyFetch(pin:AppAccountKeyPin,accountId:string,challenge:Uint8Array):Uint8Array {
+    const native=this.app.rt_app_account_key_fetch_sign;
+    if(typeof native!=="function")throw new AppAccountKeyProofUnavailableError();
+    let encoded:Uint8Array|null=null,account:Uint8Array|null=null;
+    try{
+      if(pin.approvalMode==="strict")throw new AppStrictDeviceApprovalError();if(!this.accountKeyCurrent(pin))throw bad();
+      account=uuidToBytes(accountId);if(account.every(v=>v===0))throw bad();
+      encoded=encodeSecret(new Map<number,CborValue>([[0,new Uint8Array(b32(challenge))],[1,account]]));
+      const signature=this.guard(()=>this.takeOut(native(...this.put(encoded!))));
+      if(signature.length!==64||!this.accountKeyCurrent(pin)){signature.fill(0);throw bad();}
+      return signature;
+    }catch(error){this.retireLog();if(error instanceof AppStrictDeviceApprovalError)throw error;throw bad();}finally{encoded?.fill(0);account?.fill(0);}
   }
   /** Actual native applied-policy/trust status; not zero-pending/readback/Saved. */
   accountKeyStatus(pin:AppAccountKeyPin):AppAccountKeyState {

@@ -14,10 +14,24 @@ import { acquireAppInstallationLease, acquireAppReplicaLease, type AppInstallati
 import { eraseAppInstallationData, eraseAppCollectionAccess } from "./sign-out-erase.js";
 import type { AppLogHealth } from "./log-pump.js";
 import { mdbaseError } from "../errors.js";
+import type { AppAccountKeySecret } from "./account-key-host.js";
 
+/** A Private collection this device is enrolled in but holds no key for.
+ * Display only: `mode` is the account-key mode from the status route (only
+ * `password` can be unlocked here), `problem` the stable code of the last
+ * failed unlock. Never a key, a secret or evidence of either. */
+export type AppWebCollectionLock = Readonly<{mode: "password" | "strict" | "none"; unlocking: boolean; problem: string | null}>;
 export interface AppWebCollectionConnection<Connection> {
-  /** Actual native/current setup assessment, not discovery or enrollment. */
-  readonly state: "ready" | "setup_required";
+  /** Actual native/current setup assessment, not discovery or enrollment.
+   * `needs_unlock`: a Private collection without its key on this device; no
+   * data connection exists and `connection` must not be used. */
+  readonly state: "ready" | "setup_required" | "needs_unlock";
+  /** Present (non-null) exactly while `state` is `needs_unlock`. */
+  readonly locked?: AppWebCollectionLock | null;
+  /** Unlock with the account key. Resolves when the attempt settled: still
+   * `needs_unlock` with `locked.problem` set, or opened (`ready` or
+   * `setup_required`). A rejection means this adapter closed itself. */
+  unlock?(secret: AppAccountKeySecret): Promise<void>;
   readonly connection: Connection;
   /** The live collection's latest specific server refusal (migrating, moved,
    * suspended), or null. The connection stays usable for local work. */
@@ -105,7 +119,11 @@ export interface AppWebSignOutResult {
 export interface AppWebSignInSnapshot {
   /** Content-free display only; never a readiness or retry certificate. */
   readonly openingProgress?: import("./opening-progress.js").AppOpeningProgress | null;
-  readonly status: "not_started" | "starting" | "signed_out" | "authorizing" | "unselected" | "opening" | "setup_required" | "ready" | "blocked" | "closed";
+  readonly status: "not_started" | "starting" | "signed_out" | "authorizing" | "unselected" | "opening" | "setup_required" | "ready" | "blocked" | "closed"
+    /** The selected Private collection is enrolled here but has no key yet. */
+    | "needs_unlock";
+  /** Present exactly while `status` is `needs_unlock`. */
+  readonly unlock?: AppWebCollectionLock | null;
   readonly signIn: AppInstallationSignInView | null;
   readonly collections: readonly AppInstallationCollection[];
   readonly selectedCollectionId: string | null;
@@ -148,7 +166,9 @@ export interface AppWebSignInSnapshot {
  * showing that collection shows while the sign-in itself is settled. */
 export interface AppWebCollectionView {
   readonly openingProgress?: import("./opening-progress.js").AppOpeningProgress | null;
-  readonly status: "unselected" | "opening" | "setup_required" | "ready" | "blocked";
+  readonly status: "unselected" | "opening" | "setup_required" | "ready" | "blocked" | "needs_unlock";
+  /** Present exactly while `status` is `needs_unlock`. */
+  readonly unlock?: AppWebCollectionLock | null;
   readonly problem: string | null;
   readonly problemDetail?: AppWebSignInProblemDetail;
   readonly transport: AppLogHealth | null;
@@ -300,10 +320,13 @@ export class AppWebSignInSession<Connection> {
       timing = Object.freeze({firstScreenMs: timing?.firstScreenMs ?? elapsed, readyMs: update.status === "ready" ? timing?.readyMs ?? elapsed : timing?.readyMs ?? null});
     }
     this.setBase({timing});
-    const {problemDetail: previousDetail, ...previous} = slot.view;
+    const {problemDetail: previousDetail, unlock: previousLock, ...previous} = slot.view;
+    const {unlock: nextLock, ...rest} = update;
     const detail = update.problem === null ? undefined : update.problemDetail ?? previousDetail;
     const openingProgress = (update.status ?? previous.status) === "opening" ? ("openingProgress" in update ? update.openingProgress ?? null : previous.openingProgress ?? null) : null;
-    slot.view = Object.freeze({...previous, ...update, openingProgress, ...(detail ? {problemDetail: detail} : {})});
+    // The lock display lives only on a needs_unlock view.
+    const lock = (update.status ?? previous.status) === "needs_unlock" ? nextLock ?? previousLock ?? null : null;
+    slot.view = Object.freeze({...previous, ...rest, openingProgress, ...(lock ? {unlock: lock} : {}), ...(detail ? {problemDetail: detail} : {})});
     this.changed();
   }
   private changed(): void {
@@ -410,7 +433,7 @@ export class AppWebSignInSession<Connection> {
         if (view.state === "paired") {
           if(this.flow!.pendingNativeSelection?.() && !view.nativeSelection)throw failure("recovery_required");
           await this.openDevice(); this.check();
-          const consent = await this.flow!.startCollectionConsent(this.installation!, this.options.requestedCreateCollections ?? this.options.freshRequestedCreateCollections ?? false, hint); this.check();
+          const consent = await this.flow!.startCollectionConsent(this.installation!, this.options.requestedCreateCollections ?? this.options.freshRequestedCreateCollections ?? false, hint, this.options.freshRequestedPrivateDevice === true); this.check();
           this.consentPending = true; portal.navigate(consent.verificationUri);
         } else {
           const started = await this.flow!.start(hint).catch(error => this.renewFromGesture(error)); this.check(); portal.navigate(started.verificationUri);
@@ -535,7 +558,7 @@ export class AppWebSignInSession<Connection> {
         if (consent.accountSelectionConfirmed !== true) throw failure("account_confirmation_required");
         const native=this.flow!.pendingNativeSelection?.();
         if(native?.requestId===consent.requestId)await this.finishNativeChoice(native);
-        else if (this.flow!.view().collectionSelection?.requestId !== consent.requestId) throw failure("response");
+        else if (this.flow!.view().collectionSelection?.requestId !== consent.requestId && !this.deviceAccessWithoutPick(consent.requestedPrivateDevice === true ? consent.addedCollectionIds : [])) throw failure("response");
         this.consentPending = false; this.freshApproval = true; this.closeApprovalWindow();
         await this.refreshCollections();
       } else { await this.prepareNativeChoice(); this.publish({status: "authorizing", problem: null}); }
@@ -556,10 +579,21 @@ export class AppWebSignInSession<Connection> {
     if (view.state === "paired") {
       const native=this.flow!.pendingNativeSelection?.();
       if(native?.requestId===view.requestId)await this.finishNativeChoice(native);
-      else if (view.collectionSelection?.requestId !== view.requestId) throw failure("response");
+      else if (view.collectionSelection?.requestId !== view.requestId && !this.deviceAccessWithoutPick(view.privateDeviceCollectionIds ?? [])) throw failure("response");
       this.freshApproval = true; this.closeApprovalWindow();
       await this.openDevice(); this.check(); await this.refreshCollections();
     } else this.publish({status: "authorizing", problem: null});
+  }
+  /** A receipt with no collection pick is complete only for device access:
+   * Connect never names a Private device collection as the selection, so an
+   * approval of Private collections alone carries none. `granted` is what this
+   * receipt approved; it must name a Private device scope the flow holds (the
+   * flow admits those only for a request that asked). Every other receipt
+   * without this request's pick stays a response failure. The app then lands
+   * in the chooser; a sole approved collection opens as it always has. */
+  private deviceAccessWithoutPick(granted: readonly string[]): boolean {
+    const view = this.flow!.view(), scopes = view.privateDeviceCollectionIds ?? [];
+    return (view.collectionSelection ?? null) === null && granted.some(id => scopes.includes(id));
   }
   /** Preparation is optional and never blocks a genuine Hosted approval. Only
    * the original lifecycle turn attaches after observing its matching context. */
@@ -643,8 +677,8 @@ export class AppWebSignInSession<Connection> {
         continue;
       }
       const open = slot.usable && slot.selected !== null && visible.some(c => c.collectionId === slot.id);
-      const {problemDetail: _stale, ...view} = slot.view;
-      slot.view = Object.freeze({...view, status: open ? slot.selected!.state : "unselected", problem: null});
+      const {problemDetail: _stale, unlock: _lock, ...view} = slot.view;
+      slot.view = Object.freeze({...view, ...(open ? this.assessed(slot.selected!) : {status: "unselected" as const}), problem: null});
     }
     this.publish({status: "unselected", collections: visible, problem: null});
     const picked = this.flow!.view().collectionSelection?.selectedCollectionId;
@@ -753,7 +787,7 @@ export class AppWebSignInSession<Connection> {
     if (existing && existing.usable && existing.selected && !existing.lifetime?.signal.aborted && this.sameScope(existing.scope, existing.leaseScope) && existing.scope?.collection === collectionId) {
       for (const other of others) { other.usable = false; other.lifetime?.abort(); }
       this.focus = collectionId; this.settleBase();
-      this.publishSlot(existing, {status: existing.selected.state, problem: null});
+      this.publishSlot(existing, {...this.assessed(existing.selected), problem: null});
       for (const other of others) { await this.closeSlot(other); this.check(); this.deleteSlot(other); this.changed(); }
       return;
     }
@@ -782,16 +816,57 @@ export class AppWebSignInSession<Connection> {
         if (slot.view.openingProgress !== progress) this.publishSlot(slot, {openingProgress: progress});
       }});
     slot.selected = selected; slot.scope = scope; this.check();
-    if (selected.state !== "ready" && selected.state !== "setup_required") throw failure("response");
+    const first = this.assessed(selected);
     slot.usable = true; if (this.openingSlot === slot) this.openingSlot = null;
     slot.stopAssessment = selected.subscribe?.(() => {
       if (this.closing || this.slots.get(slot.id) !== slot || !slot.usable || slot.selected !== selected || slot.lifetime?.signal.aborted ||
         !this.sameScope(slot.scope, slot.leaseScope) || slot.scope?.collection !== slot.id) return;
       let ended: "forbidden" | "revoked" | "gone" | null = null; try { ended = selected.ended ?? null; } catch { ended = null; }
       if (ended) { this.accessEnded(slot, selected, ended); return; }
-      if (selected.state === "ready" || selected.state === "setup_required") this.publishSlot(slot, {status: selected.state, ...this.liveProblem(slot, selected)});
+      let next: Pick<AppWebCollectionView, "status" | "unlock">; try { next = this.assessed(selected); } catch { return; }
+      // A locked collection has no log drive: no transport or live state to show.
+      this.publishSlot(slot, next.status === "needs_unlock" ? {...next, problem: null, transport: null, live: null} : {...next, ...this.liveProblem(slot, selected)});
     }) ?? null;
-    this.publishSlot(slot, {status: selected.state, transport: null, live: null, openingProgress: null});
+    this.publishSlot(slot, {...first, transport: null, live: null, openingProgress: null});
+  }
+  /** The adapter's own state, validated: `needs_unlock` only with its lock
+   * display and an unlock action. Anything else is a malformed adapter. */
+  private assessed(selected: AppWebCollectionConnection<Connection>): Pick<AppWebCollectionView, "status" | "unlock"> {
+    const state = selected.state;
+    if (state === "ready" || state === "setup_required") return {status: state};
+    if (state !== "needs_unlock" || typeof selected.unlock !== "function") throw failure("response");
+    const lock = selected.locked;
+    if (!lock || typeof lock !== "object" || !["password", "strict", "none"].includes(lock.mode) || typeof lock.unlocking !== "boolean" ||
+      (lock.problem !== null && (typeof lock.problem !== "string" || !/^[a-z][a-z0-9_]{0,63}$/.test(lock.problem)))) throw failure("response");
+    return {status: state, unlock: Object.freeze({mode: lock.mode, unlocking: lock.unlocking, problem: lock.problem})};
+  }
+  /** Unlock a held Private collection that reads `needs_unlock` with the
+   * account key (encryption password or recovery key). Resolves with its view:
+   * still `needs_unlock` with `unlock.problem` set (wrong secret, strict
+   * account, service unreachable), or opened. The secret is passed to the
+   * adapter only; it is never stored, published or logged here. A rejection
+   * other than `busy` or `refused` blocks that collection like a failed open. */
+  unlockCollection(collectionId: string, secret: AppAccountKeySecret): Promise<AppWebSignInSnapshot> {
+    const locked = (): CollectionSlot<Connection> | null => {
+      const slot = this.slots.get(collectionId);
+      return slot && slot.usable && slot.selected && typeof slot.selected.unlock === "function" && slot.view.status === "needs_unlock" && !slot.lifetime?.signal.aborted &&
+        this.base.status === "unselected" && this.installation?.isCurrent() === true && this.sameScope(slot.scope, slot.leaseScope) && slot.scope?.collection === collectionId ? slot : null;
+    };
+    // Refused before the operation: a misuse must not block the collection.
+    if (!this.closing && !this.options.signal.aborted && !this.pending && !locked()) return Promise.reject(failure("refused"));
+    return this.operation(async () => {
+      const slot = locked();
+      if (!slot) throw failure("refused");
+      const selected = slot.selected!;
+      this.openingSlot = slot;
+      try { await selected.unlock!(secret); this.check(); }
+      catch (error) { slot.usable = false; slot.lifetime?.abort(); throw error; }
+      if (this.slots.get(slot.id) !== slot || slot.selected !== selected || !slot.usable) throw failure("fenced");
+      if (this.openingSlot === slot) this.openingSlot = null;
+      const next = this.assessed(selected);
+      this.publishSlot(slot, next.status === "needs_unlock" ? {...next, problem: null} : {...next, ...this.liveProblem(slot, selected)});
+      return this.viewFor(collectionId);
+    });
   }
   /** Opening a collection settles a blocked sign-in view; it never ends an
    * approval in progress (a page adding a collection keeps waiting for it). */

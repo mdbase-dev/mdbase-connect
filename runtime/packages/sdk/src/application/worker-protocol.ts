@@ -9,10 +9,15 @@ import type {AppWebCollectionHandoff} from "../app-host/web-collection.js";
 
 export const APPLICATION_WORKER_PROTOCOL="mdbn-application-worker/1";
 export const APPLICATION_WORKER_MAX_ID=0xffffffff;
-export type ApplicationWorkerAction="start"|"authorize"|"renewExpiredPairing"|"select"|"clearSelection"|"forget"|"refreshCollections"|"signOut"|"deleteCollection"|"requestFileAccess"|"pollFileAccess"|"openUnsynced"|"attachUnsynced"|"detachUnsynced"|"retireUnsynced"|"discardUnsynced"|"foreground"|"approvalClosed"|"close";
+export type ApplicationWorkerAction="start"|"authorize"|"renewExpiredPairing"|"select"|"clearSelection"|"forget"|"refreshCollections"|"signOut"|"deleteCollection"|"requestFileAccess"|"pollFileAccess"|"openUnsynced"|"attachUnsynced"|"detachUnsynced"|"retireUnsynced"|"discardUnsynced"|"foreground"|"approvalClosed"|"close"|"unlock";
+/** UTF-8 bound of a typed account-key secret on the Worker port. */
+export const APPLICATION_WORKER_MAX_SECRET_BYTES=4096;
+/** `unlock` payload: [collection UUID, secret kind, the secret's UTF-8 bytes].
+ * The bytes are structured-cloned to the Worker; each side wipes its copy. */
+export type ApplicationWorkerUnlockPayload=readonly[string,"password"|"recoveryKey",Uint8Array];
 /** `deleteCollection` payload: [collection UUID, typed confirmation name].
  * `requestFileAccess` payload: [collection UUID, file actions, reason]. */
-export type ApplicationWorkerPayload=string|boolean|null|readonly[string,string]|readonly[string,readonly string[],string];
+export type ApplicationWorkerPayload=string|boolean|null|readonly[string,string]|readonly[string,readonly string[],string]|ApplicationWorkerUnlockPayload;
 export type ApplicationWorkerBootstrap=readonly[typeof APPLICATION_WORKER_PROTOCOL,string,Readonly<ApplicationDeclarationSnapshot>];
 /** ID zero is a bounded one-way UI signal (visibility, or `approvalClosed`:
  * the person closed the held approval window), not an operation/RPC.
@@ -39,12 +44,18 @@ export function applicationWorkerRequest(value:unknown,binding:string):Applicati
   if(!Array.isArray(value)||value.length!==5||value[0]!==APPLICATION_WORKER_PROTOCOL||value[1]!==binding||
     !Number.isInteger(value[2])||value[2]<0||value[2]>APPLICATION_WORKER_MAX_ID||(value[2]===0&&value[3]!=="foreground"&&value[3]!=="approvalClosed")||(value[2]!==0&&value[3]==="approvalClosed"))return fail();
   const action=value[3],payload=value[4];
-  if(!["start","authorize","renewExpiredPairing","select","clearSelection","forget","refreshCollections","signOut","deleteCollection","requestFileAccess","pollFileAccess","openUnsynced","attachUnsynced","detachUnsynced","retireUnsynced","discardUnsynced","foreground","approvalClosed","close"].includes(action))fail();
+  if(!["start","authorize","renewExpiredPairing","select","clearSelection","forget","refreshCollections","signOut","deleteCollection","requestFileAccess","pollFileAccess","openUnsynced","attachUnsynced","detachUnsynced","retireUnsynced","discardUnsynced","foreground","approvalClosed","close","unlock"].includes(action))fail();
   const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
   if(action==="requestFileAccess"){
     if(!Array.isArray(payload)||payload.length!==3||typeof payload[0]!=="string"||!uuid.test(payload[0])||!Array.isArray(payload[1])||!payload[1].length||payload[1].length>6||
       payload[1].some((a:unknown)=>typeof a!=="string"||!["list","read","add","replace","move","delete"].includes(a))||typeof payload[2]!=="string"||!payload[2]||payload[2].length>140)fail();
     return Object.freeze([value[0],value[1],value[2],action,Object.freeze([payload[0],Object.freeze([...payload[1]]),payload[2]])]) as ApplicationWorkerRequest;
+  }
+  if(action==="unlock"){
+    if(!Array.isArray(payload)||payload.length!==3||typeof payload[0]!=="string"||!uuid.test(payload[0])||payload[0]==="00000000-0000-0000-0000-000000000000"||
+      (payload[1]!=="password"&&payload[1]!=="recoveryKey")||!(payload[2] instanceof Uint8Array)||!payload[2].length||payload[2].length>APPLICATION_WORKER_MAX_SECRET_BYTES)fail();
+    // The SAME byte array is kept so its holder can wipe it.
+    return Object.freeze([value[0],value[1],value[2],action,Object.freeze([payload[0],payload[1],payload[2]])]) as ApplicationWorkerRequest;
   }
   if(action==="pollFileAccess"){if(typeof payload!=="string"||!uuid.test(payload))fail();}
   else if(action==="select"||action==="forget"){

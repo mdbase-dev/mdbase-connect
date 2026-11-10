@@ -57,6 +57,25 @@ describe("SDK collection selection: requested URL collection vs usable collectio
     await selection.select(B);expect(session.opened).toEqual([B]);selection.close();
   });
 
+  it("a locked Private collection is held, not usable and not reopened; leaving it clears it and unlocking makes it usable",async()=>{
+    const session=signInSession({collections:[A,B]}),lock={mode:"password" as const,unlocking:false,problem:null};
+    const {selection}=setup(`${origin}/?collection=${A}`,session);await settle();expect(session.opened).toEqual([A]);
+    // The session reports the opened Private collection as locked.
+    session.publish({status:"needs_unlock",selectedCollectionId:A,unlock:lock});await settle();
+    expect(selection.getSnapshot()).toMatchObject({state:"opening",usable:null,problem:null,requested:{collectionId:A,approved:true}});
+    // Selecting it again, or any later snapshot, never reopens it (a reopen would re-run the enrolment).
+    await selection.select(A);session.publish({unlock:{...lock,problem:"wrong_secret"}});await settle();
+    expect(session.opened).toEqual([A]);expect(selection.getSnapshot().usable).toBeNull();
+    // Unlocked: the same held collection becomes usable.
+    session.publish({status:"ready",unlock:null});await settle();
+    expect(selection.getSnapshot()).toMatchObject({state:"usable",usable:{collectionId:A}});expect(session.opened).toEqual([A]);
+    // Locked again on another collection: choosing a different one leaves it.
+    session.publish({status:"needs_unlock",selectedCollectionId:A,unlock:lock});await settle();
+    await selection.select(B);expect(session.opened).toEqual([A,B]);
+    session.publish({status:"needs_unlock",selectedCollectionId:B,unlock:lock});await settle();
+    await selection.select(null);expect(session.opened).toEqual([A,B,null]);expect(selection.getSnapshot()).toMatchObject({state:"none",usable:null});
+    selection.close();
+  });
   it("fresh device with a shared link: sign-in approves A and A opens, not another approved collection",async()=>{
     const session=signInSession("signed_out"),{web,selection}=setup(`${origin}/tasks?collection=${A}`,session);await settle();
     expect(selection.getSnapshot()).toMatchObject({state:"pending",requested:{collectionId:A,source:"url",approved:false},usable:null});

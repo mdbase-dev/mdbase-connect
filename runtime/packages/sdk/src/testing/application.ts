@@ -5,7 +5,7 @@
 import {applicationDeclaration, type MdbaseApplicationDeclaration} from "../application/declaration.js";
 import type {
   MdbaseApplication, MdbaseApplicationConnection, MdbaseApplicationEntry,
-  MdbaseApplicationRequestOptions, MdbaseApplicationSnapshot, MdbaseCollectionDeleteOptions, MdbaseSignOutOptions,
+  MdbaseApplicationRequestOptions, MdbaseApplicationSnapshot, MdbaseCollectionDeleteOptions, MdbaseSignOutOptions, MdbaseUnlockSecret,
   MdbaseTransferOptions, MdbaseTransferPlanOptions,
 } from "../application/entry.js";
 import {planUnsyncedTransfer, runUnsyncedTransfer, unsyncedTransferComplete, type MdbaseTransferLedger, type MdbaseTransferPlan} from "../application/unsynced-transfer.js";
@@ -15,7 +15,7 @@ import type {FileAction} from "../files.js";
 import {applicationPhase} from "../application/phase.js";
 import {summarizeStatus} from "../status.js";
 
-export type ApplicationFixtureAction = "start" | "authorize" | "approve" | "reauthorize" | "refreshCollectionList" | "select" | "clearSelection" | "chooseAnother" | "forget" | "deleteCollection" | "requestAccess" | "assess" | "configure" | "planSetup" | "applySetup" | "signOut" | "openUnsynced" | "planUnsyncedTransfer" | "transferUnsynced" | "discardUnsynced" | "close";
+export type ApplicationFixtureAction = "start" | "authorize" | "approve" | "reauthorize" | "refreshCollectionList" | "select" | "clearSelection" | "chooseAnother" | "forget" | "deleteCollection" | "requestAccess" | "assess" | "configure" | "planSetup" | "applySetup" | "signOut" | "openUnsynced" | "planUnsyncedTransfer" | "transferUnsynced" | "discardUnsynced" | "unlock" | "close";
 export interface ApplicationFixtureCall {
   readonly action: ApplicationFixtureAction | "setForeground";
   readonly collectionId?: string;
@@ -26,6 +26,8 @@ export interface ApplicationFixtureCall {
   readonly reason?: string;
   /** `signOut`: the caller asked to discard unconfirmed writes. */
   readonly discard?: boolean;
+  /** `unlock`: which secret was given. The secret itself is never recorded. */
+  readonly secret?: "password" | "recoveryKey";
   /** Original caller signal, never a fixture-created replacement. */
   readonly signal?: AbortSignal;
   readonly active?: boolean;
@@ -136,7 +138,7 @@ export function createApplicationFixture(options: ApplicationFixtureOptions): Ap
     listeners.clear();
     handlers.clear();
   }
-  async function run(action: ApplicationFixtureAction, request: MdbaseApplicationRequestOptions = {}, collectionId?: string, confirmName?: string, discard?: boolean): Promise<MdbaseApplicationSnapshot> {
+  async function run(action: ApplicationFixtureAction, request: MdbaseApplicationRequestOptions = {}, collectionId?: string, confirmName?: string, discard?: boolean, secret?: "password" | "recoveryKey"): Promise<MdbaseApplicationSnapshot> {
     request.signal?.throwIfAborted();
     if (closed || closeJob) throw new Error("Application fixture is closed or closing");
     const generation = ++actionGeneration;
@@ -144,6 +146,7 @@ export function createApplicationFixture(options: ApplicationFixtureOptions): Ap
       ...(collectionId !== undefined ? {collectionId} : {}),
       ...(confirmName !== undefined ? {confirmName} : {}),
       ...(discard !== undefined ? {discard} : {}),
+      ...(secret !== undefined ? {secret} : {}),
       ...(request.signal ? {signal: request.signal} : {})});
     calls.push(call);
     const outcome = await handlers.get(action)?.(call);
@@ -155,6 +158,10 @@ export function createApplicationFixture(options: ApplicationFixtureOptions): Ap
     else if (action === "select") publish({...snapshot, selectedCollectionId: collectionId ?? null});
     else if (action === "clearSelection" || action === "chooseAnother") publish({...snapshot, selectedCollectionId: null});
     else if (action === "signOut") publish(signedOut(snapshot));
+    // Default: the unlock succeeds and the collection opens.
+    else if (action === "unlock" && snapshot.status === "needs_unlock" && snapshot.selectedCollectionId === collectionId) {
+      const {unlock: _lock, ...rest} = snapshot; publish({...rest, status: "ready", problem: null});
+    }
     else if (action === "openUnsynced" && unsynced) publish({...snapshot, status: "ready", problem: null, selectedCollectionId: unsynced.id,
       unsynced: {collectionId: unsynced.id, sessionStatus: snapshot.unsynced?.sessionStatus ?? snapshot.status}});
     else if (action === "forget" || action === "deleteCollection") publish({...snapshot,
@@ -209,6 +216,7 @@ export function createApplicationFixture(options: ApplicationFixtureOptions): Ap
       apply: (_plan: MdbaseSetupPlan, request?: MdbaseApplicationRequestOptions) => run("applySetup", request),
     }),
     signOut: ({discard, ...request}: MdbaseSignOutOptions = {}) => run("signOut", request, undefined, undefined, discard),
+    unlock: (id: string, secret: MdbaseUnlockSecret, request?: MdbaseApplicationRequestOptions) => run("unlock", request, id, undefined, undefined, "recoveryKey" in secret ? "recoveryKey" : "password"),
     openUnsynced: (request?: MdbaseApplicationRequestOptions) => run("openUnsynced", request),
     async planUnsyncedTransfer({map, addTypes, ...request}: MdbaseTransferPlanOptions = {}) {
       await run("planUnsyncedTransfer", request);

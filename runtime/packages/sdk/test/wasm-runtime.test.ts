@@ -21,6 +21,11 @@ if (!WebAssembly.Module.exports(mod).some(e => e.name === "rt_info") ||
 }
 
 describe("runtime.wasm", () => {
+  it("carries no account-key or log proof signer: those exist only in the app runtime", () => {
+    const names = WebAssembly.Module.exports(mod).map(e => e.name);
+    expect(names.filter(n => n.startsWith("rt_app_"))).toEqual([]);
+    expect(names).not.toContain("rt_app_account_key_fetch_sign");
+  });
   it("creates and moves path-stored values through the real SDK and WASM planner", async () => {
     const rt = await WasmRuntime.instantiate(readFileSync(path));
     rt.open({collection: uuidv7(), replicaId: uuidv7(), deviceId: uuidv7(), mode: "local_only", signSecretKey: crypto.getRandomValues(new Uint8Array(32)), kemSecretKey: crypto.getRandomValues(new Uint8Array(32))});

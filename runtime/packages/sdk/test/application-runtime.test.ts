@@ -121,6 +121,43 @@ describe("SDK singleton original lifecycle",()=>{
  it("reserves popup synchronously and blocked popup performs no Worker authorization IO",async()=>{
   const f=fixture(),open=vi.fn(()=>null);vi.stubGlobal("window",{open});const pending=f.app.authorize();expect(open).toHaveBeenCalledOnce();expect(f.requests).toHaveLength(0);await expect(pending).rejects.toMatchObject({reason:"application_popup_blocked"});expect(f.app.getSnapshot().status).toBe("not_started");
  });
+ it("unlock is refused in this tab, with no Worker request, unless this tab shows a locked collection and the secret is well formed",async()=>{
+  const f=fixture(),id="33333333-3333-4333-8333-333333333333",encode=vi.spyOn(TextEncoder.prototype,"encode");
+  await expect(f.app.unlock(id,{password:"correct horse battery staple"})).rejects.toMatchObject({code:"invalid_request",reason:"unlock_not_locked"});
+  // The bytes made for the refused call are wiped too.
+  expect(encode.mock.results.at(-1)!.value.every((value:number)=>value===0)).toBe(true);
+  const app=f.app as unknown as {raw:unknown;publish():void};
+  app.raw={...snapshot,status:"needs_unlock",selectedCollectionId:id,unlock:{mode:"password",unlocking:false,problem:null}};app.publish();
+  expect(f.app.getSnapshot()).toMatchObject({status:"needs_unlock",selectedCollectionId:id,unlock:{mode:"password",unlocking:false,problem:null}});
+  // Another collection than the locked one this tab shows.
+  await expect(f.app.unlock("44444444-4444-4444-8444-444444444444",{password:"correct horse battery staple"})).rejects.toMatchObject({code:"invalid_request",reason:"unlock_not_locked"});
+  for(const secret of [null,"correct horse battery staple",{},{password:""},{password:7},{recoveryKey:null},{password:"a",recoveryKey:"b"},{password:"x".repeat(4097)},{recoveryKey:"é".repeat(2049)}])
+   await expect(f.app.unlock(id,secret as never)).rejects.toMatchObject({code:"invalid_request",reason:"unlock_secret_invalid"});
+  await expect(f.app.unlock(7 as never,{password:"correct horse battery staple"})).rejects.toMatchObject({code:"invalid_request",reason:"unlock_secret_invalid"});
+  expect(f.requests).toHaveLength(0);
+ });
+ it("unlock sends the secret once as bytes, wipes this tab's copy at once, and a wrong secret resolves still locked with its problem",async()=>{
+  const f=fixture(),id="33333333-3333-4333-8333-333333333333",app=f.app as unknown as {raw:unknown;publish():void};
+  const locked={...snapshot,status:"needs_unlock",selectedCollectionId:id,unlock:{mode:"password",unlocking:false,problem:null}};
+  app.raw=locked;app.publish();
+  const encode=vi.spyOn(TextEncoder.prototype,"encode"),pending=f.app.unlock(id,{password:"correct horse battery staple"});
+  await f.entered.promise;
+  expect(f.requests).toHaveLength(1);
+  const [,,requestId,action,payload]=f.requests[0] as [string,string,number,string,[string,string,Uint8Array]];
+  expect(action).toBe("unlock");expect(payload[0]).toBe(id);expect(payload[1]).toBe("password");
+  expect(new TextDecoder().decode(payload[2])).toBe("correct horse battery staple");
+  // The tab's own copy is already zero while the Worker still runs.
+  const mine=encode.mock.results.at(-1)!.value as Uint8Array;expect(mine).toHaveLength(28);expect(mine.every(value=>value===0)).toBe(true);
+  f.send("reply",requestId,{ok:true,snapshot:{...locked,unlock:{mode:"password",unlocking:false,problem:"wrong_secret"}}});
+  const view=await pending;
+  expect(view).toMatchObject({status:"needs_unlock",selectedCollectionId:id,unlock:{mode:"password",unlocking:false,problem:"wrong_secret"}});
+  expect(JSON.stringify(view)).not.toContain("correct horse");expect(f.app.connection(id)).toBeNull();
+  // A recovery key travels the same way.
+  const again=f.app.unlock(id,{recoveryKey:"AAAA-BBBB-CCCC"});await vi.waitFor(()=>expect(f.requests).toHaveLength(2));
+  const second=f.requests[1] as [string,string,number,string,[string,string,Uint8Array]];expect(second[4][1]).toBe("recoveryKey");expect(new TextDecoder().decode(second[4][2])).toBe("AAAA-BBBB-CCCC");
+  f.send("reply",second[2],{ok:false,problem:{code:"refused"}});await expect(again).rejects.toMatchObject({code:"refused"});
+  expect((encode.mock.results.at(-1)!.value as Uint8Array).every(value=>value===0)).toBe(true);
+ });
  it("preserves genuine string problem codes such as enrollment outcome_unknown",async()=>{
   const f=fixture(),pending=f.app.start();await f.entered.promise;f.send("reply",1,{ok:true,snapshot:{...snapshot,status:"authorizing",problem:"outcome_unknown"}});await expect(pending).resolves.toMatchObject({status:"authorizing",problem:"outcome_unknown"});expect(f.release).not.toHaveBeenCalled();
  });
