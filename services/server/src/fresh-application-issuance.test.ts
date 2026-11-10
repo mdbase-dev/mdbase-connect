@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
 import { testApplicationAuthorization } from "./application-authorization.test-helper.js";
-import { assertFreshApplicationAuthorization } from "./application-requirements.js";
+import { assertFreshApplicationAuthorization } from "./features/applications/application-requirements.js";
 import { pkceChallenge } from "./security.js";
 
 const resources: Array<() => Promise<void>> = [];

@@ -4,7 +4,7 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { APPLICATION_CAPABILITY_DEFINITIONS, type FileCapability } from "@mdbase-dev/connect-protocol";
 import { createDatabase, type DatabasePool, type DatabaseQueryable } from "../../db.js";
-import type { ApplicationRequirements } from "../../application-requirements.js";
+import type { ApplicationRequirements } from "../applications/application-requirements.js";
 import { tokenHash } from "../../security.js";
 import { registerAuthorizationRoutes } from "../authorizations/routes.js";
 import type { AuthorizationRouteOptions } from "../authorizations/route-options.js";

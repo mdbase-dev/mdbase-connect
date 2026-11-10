@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { DatabasePool } from "../../db.js";
 import { registerApplicationManifest } from "../../manifest.js";
-import { ensureApplicationReconciliation } from "../../application-reconciliation.js";
+import { ensureApplicationReconciliation } from "./application-reconciliation.js";
 import { upsertApplication } from "./store.js";
 
 interface ApplicationRouteOptions {

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { assertFreshApplicationAuthorization, type ApplicationRequirements } from "../../application-requirements.js";
+import { assertFreshApplicationAuthorization, type ApplicationRequirements } from "../applications/application-requirements.js";
 import {
   type ApplicationNotifications,
   type ApplicationAuthorizationProof,

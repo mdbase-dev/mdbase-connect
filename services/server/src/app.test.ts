@@ -19,7 +19,7 @@ import {
   HOSTED_PROVIDER_REQUIRED_CAPABILITIES,
   operationsForApplicationCapabilities
 } from "@mdbase-dev/connect-protocol";
-import type { ApplicationRequirements } from "./application-requirements.js";
+import type { ApplicationRequirements } from "./features/applications/application-requirements.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";

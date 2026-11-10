@@ -1,5 +1,5 @@
 import { APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY } from "@mdbase-dev/connect-protocol";
-import type { ApplicationRequirements } from "./application-requirements.js";
+import type { ApplicationRequirements } from "./features/applications/application-requirements.js";
 import type {
   ApplicationAuthorizationProof,
   ApplicationProvisions,

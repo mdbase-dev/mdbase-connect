@@ -6,7 +6,7 @@ import {
   type CollectionAccessContext
 } from "./collection-access.js";
 import { fileCapabilityPermittedByRequirements, planCollectionGrant, previewCollectionGrant } from "./grant-planner.js";
-import { signedFileRequestForRequirements } from "./application-requirements.js";
+import { signedFileRequestForRequirements } from "./features/applications/application-requirements.js";
 
 const owner = ownerAccess({
   collectionId: "collection",

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { claimApplicationReconciliationJob } from "./application-reconciliation-claim.js";
-import { createDatabase, type DatabaseConnection, type DatabasePool } from "./db.js";
+import { createDatabase, type DatabaseConnection, type DatabasePool } from "../../db.js";
 
 const TEST_URL_ENV = "MDBASE_CONNECT_TEST_DATABASE_URL";
 const APPROVAL_ENV = "MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL";

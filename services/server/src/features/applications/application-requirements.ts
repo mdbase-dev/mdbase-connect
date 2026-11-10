@@ -2,7 +2,7 @@ import { applicationFileRequest, capabilityOperationsForContractVersion, permits
 import type { ApplicationRequirements as V2ApplicationRequirements, ApplicationFileRequest } from "@mdbase-dev/connect-protocol";
 import type { LegacyApplicationRequirements } from "@mdbase-dev/connect-protocol/manifest";
 
-import { RequestValidationError } from "./platform/http-errors.js";
+import { RequestValidationError } from "../../platform/http-errors.js";
 
 /** Server-only declaration union. Never translate predecessor intent into groups. */
 export type ApplicationRequirements = LegacyApplicationRequirements | V2ApplicationRequirements;

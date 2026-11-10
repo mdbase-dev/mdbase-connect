@@ -11,7 +11,7 @@ import type {
   GrantEncryption,
   GrantScope
 } from "@mdbase-dev/connect-protocol";
-import { assertFreshApplicationAuthorization, requirementContractVersion, signedFileRequestForRequirements, type ApplicationRequirements } from "../../application-requirements.js";
+import { assertFreshApplicationAuthorization, requirementContractVersion, signedFileRequestForRequirements, type ApplicationRequirements } from "../applications/application-requirements.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { parseApplicationAuthorization, verifyApplicationAuthorization } from "../../application-authorization.js";

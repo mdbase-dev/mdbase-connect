@@ -13,7 +13,7 @@ import { capabilityOperationsForContractVersion, MDBASE_TIMER_FIRED_CONTRACT } f
 import { createTestApplicationIdentity, testApplicationAuthorization } from "../../application-authorization.test-helper.js";
 import { clientNoiseKeyMessage, storeRequestClientNoiseKey, verifiedClientNoiseKey } from "../next/client-key.js";
 import { approveNativeAuthorization } from "../authorizations/native-approval-service.js";
-import { fileRequestForRequirements } from "../../application-requirements.js";
+import { fileRequestForRequirements } from "../applications/application-requirements.js";
 import { acceptCohortArchive, addToCohort, cohortArchiveBinding, createCohort, flipAccountBackend, flipEvidenceDigest, releaseCohort, setCohortFrozen, setPaused, startAccountMigration } from "../next/migration-rollout.js";
 import { ZERO_HOSTED_ARCHIVE_SCHEMA } from "../next/migration-archive-profile.js";
 import { randomToken, tokenHash } from "../../security.js";

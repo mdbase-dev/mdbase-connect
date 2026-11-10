@@ -17,7 +17,7 @@ import {
 import type { CollectionAccessContext } from "./collection-access.js";
 import { requiresWriteReplica } from "./collection-operation-policy.js";
 
-import { fileRequestForRequirements, legacyOperationSelectionAllowed, requirementContractVersion, type ApplicationRequirements } from "./application-requirements.js";
+import { fileRequestForRequirements, legacyOperationSelectionAllowed, requirementContractVersion, type ApplicationRequirements } from "./features/applications/application-requirements.js";
 
 const WRITE_FILE_ACTIONS = new Set(["add", "replace", "move", "delete"]);
 

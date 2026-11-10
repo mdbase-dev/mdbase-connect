@@ -1,5 +1,5 @@
 import { exactNextPermissionCapabilities, projectNextAuthorizationGroups } from "@mdbase-dev/connect-protocol/next-authorization";
-import type { ApplicationRequirements } from "../../application-requirements.js";
+import type { ApplicationRequirements } from "../applications/application-requirements.js";
 import type { DatabaseQueryable } from "../../database-types.js";
 import { planCollectionGrant, type GrantPlan } from "../../grant-planner.js";
 import { RequestValidationError } from "../../platform/http-errors.js";

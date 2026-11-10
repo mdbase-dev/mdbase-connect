@@ -7,7 +7,7 @@ import { ownerAccess } from "./collection-access.js";
 import { planCollectionGrant } from "./grant-planner.js";
 import { registerApplicationManifest } from "./manifest.js";
 import { assertOperationsAllowedByApplication, operationsAllowedByRequirements } from "./features/grants/policy.js";
-import type { ApplicationRequirements } from "./application-requirements.js";
+import type { ApplicationRequirements } from "./features/applications/application-requirements.js";
 
 const owner = ownerAccess({ collectionId: "collection", authorityKind: "hosted", authorityRowId: "collection", ownerUserId: "owner", authorityEpoch: 1, authorityState: "active", displayName: "Fixture" }, "owner");
 const declaration = (requirements: ApplicationRequirements) => ({

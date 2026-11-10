@@ -18,7 +18,7 @@ import type {
   GrantScope,
   TypePackProvision
 } from "@mdbase-dev/connect-protocol";
-import { legacyOperationSelectionAllowed, requirementContractVersion, type ApplicationRequirements } from "../../application-requirements.js";
+import { legacyOperationSelectionAllowed, requirementContractVersion, type ApplicationRequirements } from "../applications/application-requirements.js";
 import { collectionGrantScope } from "../../application-grant-scope.js";
 import type { DatabaseQueryable } from "../../database-types.js";
 import { RequestValidationError } from "../../platform/http-errors.js";

@@ -7,7 +7,7 @@
 import { randomUUID } from "node:crypto";
 import type { ApplicationAuthorizationProof, ApplicationNotifications, ApplicationProvisions, CollectionOperation, FileAction } from "@mdbase-dev/connect-protocol";
 import { isSupportedOperationTransport } from "@mdbase-dev/connect-protocol";
-import { assertFreshApplicationAuthorization, type ApplicationRequirements } from "../../application-requirements.js";
+import { assertFreshApplicationAuthorization, type ApplicationRequirements } from "../applications/application-requirements.js";
 import { memberAccess, ownerAccess, requireCollectionAction, type CollectionAccessContext } from "../../collection-access.js";
 import type { CollectionLocator } from "../../collection-catalog.js";
 import { resolveActiveMembershipPolicy } from "../../collection-policy.js";

@@ -1,4 +1,4 @@
-import type { ApplicationRequirements } from "../../application-requirements.js";
+import type { ApplicationRequirements } from "../applications/application-requirements.js";
 import type {
   ApplicationNotifications,
   ApplicationProvisions,

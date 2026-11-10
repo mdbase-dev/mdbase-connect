@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { DatabaseQueryable } from "./database-types.js";
+import type { DatabaseQueryable } from "../../database-types.js";
 
 export interface ApplicationReconciliationClaim {
   applicationId: string;

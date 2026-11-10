@@ -10,7 +10,7 @@ import websocket from "@fastify/websocket";
 import rawBody from "fastify-raw-body";
 import Fastify, { LogController } from "fastify";
 import { AuthenticationPolicyStore } from "./features/auth/authentication-policy.js";
-import { ApplicationReconciliationWorker } from "./application-reconciliation.js";
+import { ApplicationReconciliationWorker } from "./features/applications/application-reconciliation.js";
 import type { DatabasePool } from "./db.js";
 import type { EmailTransport } from "./features/email/email.js";
 import { registerResendWebhookRoute } from "./features/email/email-provider-webhooks.js";

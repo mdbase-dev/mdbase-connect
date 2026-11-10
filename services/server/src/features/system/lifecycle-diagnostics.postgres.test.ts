@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import { ApplicationReconciliationWorker } from "../../application-reconciliation.js";
+import { ApplicationReconciliationWorker } from "../applications/application-reconciliation.js";
 import { RelayHub } from "../../relay.js";
 import { readConnectLifecycleWork } from "./lifecycle-diagnostics.js";
 

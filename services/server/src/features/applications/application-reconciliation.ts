@@ -1,14 +1,14 @@
 import type { ApplicationNotifications } from "@mdbase-dev/connect-protocol";
 import type { ApplicationRequirements } from "./application-requirements.js";
-import type { DatabasePool } from "./db.js";
+import type { DatabasePool } from "../../db.js";
 import {
   ApplicationAuthorizationError,
   MalformedPersistedApplicationAuthorizationError
-} from "./application-authorization.js";
-import { HostedProviderResponseError, HostedProviderUnavailableError, type HostedProviderClient } from "./hosted-provider.js";
-import { RelayUnavailableError } from "./relay-errors.js";
-import type { RelayHub } from "./relay.js";
-import { reconcileApplicationGrants } from "./features/grants/service.js";
+} from "../../application-authorization.js";
+import { HostedProviderResponseError, HostedProviderUnavailableError, type HostedProviderClient } from "../../hosted-provider.js";
+import { RelayUnavailableError } from "../../relay-errors.js";
+import type { RelayHub } from "../../relay.js";
+import { reconcileApplicationGrants } from "../grants/service.js";
 import { claimApplicationReconciliationJob } from "./application-reconciliation-claim.js";
 
 export const RECONCILIATION_TIMING = {

@@ -34,7 +34,7 @@ const { buildApp } = await import("../services/server/dist/app.js");
 const { createDatabase, openDatabase } = await import("../services/server/dist/db.js");
 const { createRelayBroker } = await import("../services/server/dist/relay-broker.js");
 const { ensureApplicationReconciliation } = await import(
-  "../services/server/dist/application-reconciliation.js"
+  "../services/server/dist/features/applications/application-reconciliation.js"
 );
 const { tokenHash } = await import("../services/server/dist/security.js");
 

@@ -3,10 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ApplicationAuthorizationError,
   MalformedPersistedApplicationAuthorizationError
-} from "./application-authorization.js";
-import { createDatabase, type DatabasePool } from "./db.js";
-import { HostedProviderUnavailableError } from "./hosted-provider.js";
-import type { RelayHub } from "./relay.js";
+} from "../../application-authorization.js";
+import { createDatabase, type DatabasePool } from "../../db.js";
+import { HostedProviderUnavailableError } from "../../hosted-provider.js";
+import type { RelayHub } from "../../relay.js";
 import {
   ApplicationReconciliationWorker,
   PERMANENT_QUARANTINE_ATTEMPTS,

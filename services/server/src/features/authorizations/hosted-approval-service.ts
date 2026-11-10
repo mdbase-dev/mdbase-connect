@@ -1,7 +1,7 @@
 // Approval of an application's access to a hosted collection: the hosted-provider
 // half of consent, split from approval-service.ts (local collections).
 import { randomUUID } from "node:crypto";
-import { assertFreshApplicationAuthorization, type ApplicationRequirements } from "../../application-requirements.js";
+import { assertFreshApplicationAuthorization, type ApplicationRequirements } from "../applications/application-requirements.js";
 import { type ApplicationNotifications, type ApplicationAuthorizationProof, type ApplicationProvisions, type CollectionOperation, type ContractSetupChoice, type FileAction, isSupportedOperationTransport } from "@mdbase-dev/connect-protocol";
 import { isCanonicalCollectionGrantScope } from "../../application-grant-scope.js";
 import { copyClientNoiseKeyToGrant } from "../next/client-key.js";
