@@ -1828,6 +1828,11 @@ msgstr "Если этот адрес можно использовать, мы �
 msgid "If verification fails or this request expires, hosted writes resume."
 msgstr "Если проверка не пройдёт или срок запроса истечёт, запись в хранилище возобновится."
 
+#. placeholder {0}: literal(pairing.connector_name)
+#: src/authority-workflows.tsx
+msgid "If you unlocked this collection in {0}, it has had your account's encryption key, and revoking access doesn't take that key back. If you no longer trust it with your encryption password, change your encryption password."
+msgstr "Если вы разблокировали эту коллекцию в {0}, у {0} был ключ шифрования вашей учётной записи, и отзыв доступа не забирает этот ключ обратно. Если вы больше не доверяете {0} свой пароль шифрования, смените пароль шифрования."
+
 #: src/authority-workflows.tsx
 msgid "In {collection}. Allow only if you just asked for this in {app}."
 msgstr "В коллекции {collection}. Разрешайте, только если вы только что запросили это в {app}."
@@ -1914,6 +1919,10 @@ msgstr "Оставить в хранилище mdbase"
 #: src/authorization-review.tsx
 msgid "Keep your current records and explain which fields mean the same thing."
 msgstr "Сохраните текущие записи и укажите, какие поля означают одно и то же."
+
+#: src/ApplicationAccess.tsx
+msgid "Keeps this Private collection on its device. If you unlocked it in this app, the app has had your account's encryption key, which opens every Private collection on your account."
+msgstr "Хранит эту закрытую коллекцию на своём устройстве. Если вы разблокировали её в этом приложении, у приложения был ключ шифрования вашей учётной записи, который открывает все закрытые коллекции вашей учётной записи."
 
 #: src/portal-commands.ts
 msgid "Keyboard shortcuts"
@@ -2186,12 +2195,24 @@ msgid "New access and collection creation will stop across all installations. Co
 msgstr "Новый доступ и создание коллекций прекратятся во всех установках. Уже скачанные копии нельзя удалить удалённо."
 
 #: src/ApplicationAccess.tsx
+msgid "New access and collection creation will stop across all installations. Copies already downloaded cannot be removed remotely. If you unlocked a Private collection in this app, it has had your account's encryption key, and revoking access doesn't take that key back. If you no longer trust this app with your encryption password, change your encryption password."
+msgstr "Новый доступ и создание коллекций прекратятся во всех установках. Уже скачанные копии нельзя удалить удалённо. Если вы разблокировали закрытую коллекцию в этом приложении, у него был ключ шифрования вашей учётной записи, и отзыв доступа не забирает этот ключ обратно. Если вы больше не доверяете этому приложению свой пароль шифрования, смените пароль шифрования."
+
+#: src/ApplicationAccess.tsx
 msgid "New access will stop across all installations. Copies already downloaded cannot be removed remotely."
 msgstr "Новый доступ прекратится во всех установках. Уже скачанные копии нельзя удалить удалённо."
 
 #: src/ApplicationAccess.tsx
+msgid "New access will stop across all installations. Copies already downloaded cannot be removed remotely. If you unlocked a Private collection in this app, it has had your account's encryption key, and revoking access doesn't take that key back. If you no longer trust this app with your encryption password, change your encryption password."
+msgstr "Новый доступ прекратится во всех установках. Уже скачанные копии нельзя удалить удалённо. Если вы разблокировали закрытую коллекцию в этом приложении, у него был ключ шифрования вашей учётной записи, и отзыв доступа не забирает этот ключ обратно. Если вы больше не доверяете этому приложению свой пароль шифрования, смените пароль шифрования."
+
+#: src/ApplicationAccess.tsx
 msgid "New access will stop. Copies already downloaded by the app cannot be removed remotely."
 msgstr "Новый доступ прекратится. Уже скачанные приложением копии нельзя удалить удалённо."
+
+#: src/ApplicationAccess.tsx
+msgid "New access will stop. Copies already downloaded by the app cannot be removed remotely. If you unlocked a Private collection in this app, it has had your account's encryption key, and revoking access doesn't take that key back. If you no longer trust this app with your encryption password, change your encryption password."
+msgstr "Новый доступ прекратится. Уже скачанные приложением копии нельзя удалить удалённо. Если вы разблокировали закрытую коллекцию в этом приложении, у него был ключ шифрования вашей учётной записи, и отзыв доступа не забирает этот ключ обратно. Если вы больше не доверяете этому приложению свой пароль шифрования, смените пароль шифрования."
 
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx

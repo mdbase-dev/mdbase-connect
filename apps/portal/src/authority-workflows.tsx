@@ -433,6 +433,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     </div>}
                     {removingId && <div role="group" aria-label={t(i18n)({ message: "Confirm revocation", context: "Collection connection" })}>
                       <p><Trans>{literal(pairing.connector_name)} will lose access to {literal(pairing.collections?.find(collection=>collection.collection_id===removingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" }))} on all its devices. Previously downloaded data cannot be erased.</Trans></p>
+                      {pairing.retained_private_device_collection_ids?.includes(removingId) && <p><Trans>If you unlocked this collection in {literal(pairing.connector_name)}, it has had your account's encryption key, and revoking access doesn't take that key back. If you no longer trust it with your encryption password, change your encryption password.</Trans></p>}
                       <button className="mdbase-button installation-account-action" disabled={busy} onClick={()=>setRemovingId("")}><Trans>Keep access</Trans></button>
                       <button className="mdbase-button is-primary installation-account-action" disabled={busy} onClick={()=>void act("remove-access")}><Trans>Revoke access</Trans></button>
                     </div>}

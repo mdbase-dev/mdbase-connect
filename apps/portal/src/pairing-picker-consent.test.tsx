@@ -287,4 +287,12 @@ describe("device access to a Private collection", () => {
     expect(receipt().queryByText(keyCopy)).not.toBeInTheDocument();
     expect(await approve(f)).toEqual({ fingerprint: "1234-5678", collection_ids: ["notes"], create_collections: false, selected_collection_id: "notes" });
   });
+
+  it("says before revoking device access that the app may have had the account's encryption key and how to answer that", async () => {
+    await fixture({ ...asked, scope_only: true, retained_collection_ids: [], retained_private_device_collection_ids: ["vault"] });
+    fireEvent.click(screen.getByRole("option", { name: "Notes" }));
+    fireEvent.click(screen.getByText("Allow offline access to additional collections"));
+    fireEvent.click(within(screen.getByRole("checkbox", { name: /Vault.*already allowed/ }).closest<HTMLElement>(".installation-additional-collection")!).getByRole("button", { name: "Revoke access" }));
+    expect(within(screen.getByRole("group", { name: "Confirm revocation" })).getByText(/it has had your account's encryption key, and revoking access doesn't take that key back\. If you no longer trust it with your encryption password, change your encryption password\./)).toBeInTheDocument();
+  });
 });
