@@ -56,7 +56,6 @@ async function createHttpSystem({ collectionId: _collectionId }) {
       devAuth: true,
       hostedCollections: true,
       hostedReferenceAuthority: true,
-      allowInsecureManifests: true,
       publicUrl: serverUrl
     });
     app = built.app;

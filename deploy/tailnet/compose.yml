@@ -39,7 +39,6 @@ services:
       DATABASE_URL: postgres://mdbase:${POSTGRES_PASSWORD}@127.0.0.1:5432/mdbase_connect
       MDBASE_CONNECT_DEV_AUTH: "0"
       MDBASE_CONNECT_TAILSCALE_AUTH: "1"
-      MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS: "1"
       # This deployment runs only the legacy backend; the server's default is next.
       MDBASE_NEW_ACCOUNT_BACKEND: legacy
     network_mode: host

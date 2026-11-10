@@ -33,8 +33,7 @@ describe("live connector-mediated authorization", () => {
     const { app, relay } = await buildApp({
       db,
       devAuth: true,
-      publicUrl: "http://connect.test",
-      allowInsecureManifests: true
+      publicUrl: "http://connect.test"
     });
     resources.push(() => app.close());
 

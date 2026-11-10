@@ -63,10 +63,10 @@ onmessage=async ({data:m})=>{
   let value;
   if(m.op==='open') {
    const start=performance.now();
-   sqlite ??= await packagedApplicationAssets('lab',location.origin,m.platform).initializeSqlite({
+   sqlite ??= await packagedApplicationAssets('lab',location.origin).initializeSqlite({
     wasmBinary:new Uint8Array(await (await fetch('/native/sqlite3.wasm')).arrayBuffer()),print:()=>{},printErr:()=>{}
    });
-   state=await openAppSahpoolIndex(sqlite,{...scope,collection:m.platform==='native'?'00000000-0000-4000-8000-000000000004':scope.collection});
+   state=await openAppSahpoolIndex(sqlite,scope);
    host=new AppBinaryIndexHost(state.index);
    value={opened:state.index.info.opened,durability:state.index.info.durability,openMs:performance.now()-start,synchronous:Number(query('PRAGMA synchronous')),journal:query('PRAGMA journal_mode'),locking:query('PRAGMA locking_mode')};
   } else if(m.op==='fill') {
@@ -111,7 +111,6 @@ try {
     if (!crossOriginIsolated) throw new Error("SQLite smoke requires cross-origin isolation");
     let worker, id = 0;
     const startWorker = () => { worker = new Worker("/worker.js", { type: "module" }); };
-    let platform;
     const call = (op, count) => new Promise((resolve, reject) => {
       const requestId = ++id;
       const timer = setTimeout(() => { worker.terminate(); reject(new Error("SQLite smoke timed out")); }, 15000);
@@ -121,11 +120,11 @@ try {
         data.error ? reject(Object.assign(new Error("SQLite smoke operation failed"), { kind: data.kind })) : resolve(data.value);
       };
       worker.onerror = () => { clearTimeout(timer); reject(new Error("SQLite smoke Worker failed")); };
-      worker.postMessage({ id: requestId, op, count, platform });
+      worker.postMessage({ id: requestId, op, count });
     });
     const results = [];
     try {
-      for (platform of [undefined, 'native']) for (const size of [1000, 5000, 20000]) {
+      for (const size of [1000, 5000, 20000]) {
         startWorker();
         const open = await call("open");
         let secondOpener = null;
@@ -147,7 +146,7 @@ try {
         const clean = await call("open");
         if (clean.opened !== "Existing") throw new Error("clean reopen mismatch");
         await call("close"); worker.terminate();
-        results.push({ platform:platform ?? 'web', size, open, secondOpener, fill, recovered, readback, clean });
+        results.push({ size, open, secondOpener, fill, recovered, readback, clean });
       }
       return results;
     } finally { worker?.terminate(); }

@@ -141,7 +141,6 @@ interface BuildOptions {
   /** Validated by runtime configuration; loopback tests default to publicUrl. */
   identityIssuer?: string;
   portalDist?: string;
-  allowInsecureManifests?: boolean;
   trustProxy?: boolean;
   relayBroker?: RelayBroker;
   /** mdbase-next control plane; absent unless MDBASE_NEXT_CONTROL_PLANE=1. */
@@ -699,10 +698,7 @@ export async function buildApp(options: BuildOptions) {
     });
   }
   registerConnectorRelayRoute(app, { db: options.db, relay });
-  registerApplicationRoutes(app, {
-    db: options.db,
-    allowInsecureManifests: options.allowInsecureManifests
-  });
+  registerApplicationRoutes(app, { db: options.db });
   registerAccountOverviewRoute(app, {
     db: options.db,
     relay,

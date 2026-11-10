@@ -34,12 +34,11 @@ export class ApplicationManifestError extends Error {
  * The canonical validator is shared with public developer tooling so a
  * declaration cannot pass supported CI and fail a matching Connect server.
  */
-export function registerApplicationManifest(
-  value: unknown,
-  allowInsecure = false
-): RegisteredApplicationManifest {
+export function registerApplicationManifest(value: unknown): RegisteredApplicationManifest {
   try {
-    const declaration = parseVersionedAppManifest(value, { allowLocal: allowInsecure });
+    // A loopback HTTP homepage is how an application is developed. It registers
+    // as its own application, apart from the HTTPS one that is published.
+    const declaration = parseVersionedAppManifest(value, { allowLocal: true });
     const { manifest } = declaration;
     const digest = canonicalSha256(manifest).slice("sha256:".length);
     return {

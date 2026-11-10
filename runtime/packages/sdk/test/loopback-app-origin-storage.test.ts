@@ -31,7 +31,7 @@ async function browser(appOrigin=origin){
 }
 const options=(appOrigin=origin)=>({origin:appOrigin,source,mode:"fresh" as const,signal:new AbortController().signal});
 const stores=[
-  ["installation",async(p:ReturnType<typeof options>&{allowLoopbackHttp?:boolean;allowNativeLoopbackHttp?:boolean})=>(await AppInstallationStore.open({...p,appId,cpOrigin,locks},()=>Uint8Array.of(1))).store],
+  ["installation",async(p:ReturnType<typeof options>&{allowLoopbackHttp?:boolean})=>(await AppInstallationStore.open({...p,appId,cpOrigin,locks},()=>Uint8Array.of(1))).store],
   ["device KEK",AppIndexedDbDeviceKeyProvider.open.bind(AppIndexedDbDeviceKeyProvider)],
   ["device keys",AppIndexedDbDeviceKeyProtectedStore.open.bind(AppIndexedDbDeviceKeyProtectedStore)],
   ["Noise",AppIndexedDbNoiseProtectedStore.open.bind(AppIndexedDbNoiseProtectedStore)],
@@ -40,44 +40,39 @@ const stores=[
 ] as const;
 afterEach(()=>{vi.restoreAllMocks();vi.unstubAllGlobals();});
 
-it.each(stores)("%s storage admits native IPv4 without the LAB flag",async(_name,open)=>{
-  await browser();const p=options();
-  await expect(open(p)).rejects.toBeDefined();
-  const store=await open({...p,allowNativeLoopbackHttp:true});await store.close();
+it.each(stores)("%s storage admits a loopback app origin without the LAB flag",async(_name,open)=>{
+  for(const app of [origin,"http://localhost:49152","http://[::1]:49152"]){
+    await browser(app);const store=await open(options(app));await store.close();
+  }
 });
-it.each(stores)("%s storage refuses other native HTTP hosts before IDB",async(_name,open)=>{
-  for(const other of ["http://localhost:49152","http://[::1]:49152","http://127.0.0.2:49152","http://127.1:49152","http://evil.test:49152"]){
+it.each(stores)("%s storage refuses other HTTP hosts before IDB",async(_name,open)=>{
+  for(const other of ["http://127.0.0.2:49152","http://127.1:49152","http://192.168.0.1:49152","http://x.localhost:49152","http://evil.test:49152"]){
     await browser(other);const spy=vi.spyOn(indexedDB,"open");
-    await expect(open({...options(other),allowNativeLoopbackHttp:true})).rejects.toBeDefined();expect(spy).not.toHaveBeenCalled();
+    await expect(open(options(other))).rejects.toBeDefined();expect(spy).not.toHaveBeenCalled();
   }
 });
-it.each(stores)("%s storage keeps explicit LAB localhost and IPv6 support",async(_name,open)=>{
-  for(const other of ["http://localhost:49152","http://[::1]:49152"]){
-    await browser(other);const store=await open({...options(other),allowLoopbackHttp:true});await store.close();
-  }
-});
-it("native storage permission does not permit HTTP control-plane origins",async()=>{
+it("a loopback app origin does not permit an HTTP control-plane origin",async()=>{
   await browser();const spy=vi.spyOn(indexedDB,"open");
-  await expect(AppInstallationStore.open({...options(),cpOrigin:origin,appId,locks,allowNativeLoopbackHttp:true},()=>Uint8Array.of(1))).rejects.toBeDefined();
+  await expect(AppInstallationStore.open({...options(),cpOrigin:origin,appId,locks},()=>Uint8Array.of(1))).rejects.toBeDefined();
   expect(spy).not.toHaveBeenCalled();
 });
-it("native selection cannot enable the LAB flag or use a copied selection",async()=>{
+it("a loopback production selection cannot enable the LAB flag or use a copied selection",async()=>{
   await browser();const spy=vi.spyOn(indexedDB,"open");
-  const selection=selectAppEnvironment({environment:"production",appOrigin:origin,platform:"native",release});
+  const selection=selectAppEnvironment({environment:"production",appOrigin:origin,release});
   const p={origin,cpOrigin,appId,appName:"Notes",environment:"production" as const,mode:"fresh" as const,signal:new AbortController().signal,locks,
-    allowNativeLoopbackHttp:true,environmentSelection:selection};
+    environmentSelection:selection};
   await expect(AppProtectedInstallationSignIn.open({...p,allowLoopbackHttp:true})).rejects.toThrow("binding");
   await expect(AppProtectedInstallationSignIn.open({...p,environmentSelection:{...selection}})).rejects.toThrow("binding");
   expect(spy).not.toHaveBeenCalled();
 });
-it("native session opens and restores the original ledger without network or LAB trust",async()=>{
+it("a loopback production session opens and restores the original ledger without network or LAB trust",async()=>{
   await browser();const fetch=vi.fn<typeof globalThis.fetch>();
   const p={origin,cpOrigin,appId,appName:"Notes",environment:"production" as const,release,signal:new AbortController().signal,locks,
-    allowNativeLoopbackHttp:true,loadRuntime:vi.fn(),openPortal:vi.fn(),openCollection:vi.fn(),fetch};
+    loadRuntime:vi.fn(),openPortal:vi.fn(),openCollection:vi.fn(),fetch};
   const session=new AppWebSignInSession(p),first=await session.start();expect(first.status).toBe("signed_out");await session.close();
   const restored=new AppWebSignInSession(p);expect((await restored.start()).signIn).toEqual(first.signIn);await restored.close();
   expect(fetch).not.toHaveBeenCalled();expect(p.loadRuntime).not.toHaveBeenCalled();
   for(const field of ["cpOrigin","logOrigin"])
-    expect(()=>selectAppEnvironment({environment:"production",appOrigin:origin,platform:"native",release:{...release,[field]:origin}})).toThrow();
+    expect(()=>selectAppEnvironment({environment:"production",appOrigin:origin,release:{...release,[field]:origin}})).toThrow();
   expect(()=>new AppWebSignInSession({...p,environment:"test" as never,release:{...release,environment:"test"}})).toThrow();
 });

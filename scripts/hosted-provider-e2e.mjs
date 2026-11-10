@@ -1702,8 +1702,7 @@ schema:
     publicUrl: controlUrl,
     editorOrigin: localEditor.origin,
     managementOrigins: [localEditor.origin],
-    portalDist: join(repoRoot, "apps", "portal", "dist"),
-    allowInsecureManifests: true
+    portalDist: join(repoRoot, "apps", "portal", "dist")
   }));
   await controlApp.listen({ host: "127.0.0.1", port: controlPort });
   const login = await rawRequest(controlUrl, "/v1/dev/session", {
