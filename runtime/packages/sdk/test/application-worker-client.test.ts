@@ -120,6 +120,28 @@ describe("SDK original UI Worker request ownership",()=>{
       expect(nativeAuthorization).not.toHaveBeenCalled();
     }finally{vi.useRealTimers();}
   });
+  it("refuses a Native call for an approval window a later request replaced, without quarantining the client",async()=>{
+    // Found by the local Private device end-to-end run: after a declined
+    // "Request access again", the second request replaced the first window and
+    // the Worker's `cancel` for the first request quarantined the page.
+    vi.useFakeTimers();try{
+      const app="11111111-1111-4111-8111-111111111111",nativeAuthorization=vi.fn(async()=>null),prepare={action:"prepare",value:{requestId:app,accountId:app,appId:app,challenge:"ab".repeat(32)}};
+      const settle=async()=>{for(let turn=0;turn<5;turn++)await vi.advanceTimersByTimeAsync(0);};
+      const f=fixture(undefined,nativeAuthorization),first={navigate:vi.fn(),close:vi.fn()},second={navigate:vi.fn(),close:vi.fn()};
+      const one=f.client.request("authorize",null,f.caller.signal,first);await settle();f.send("reply",1,{ok:true,snapshot});await settle();await one;
+      const two=f.client.request("authorize",null,f.caller.signal,second);await settle();expect(first.close).toHaveBeenCalledOnce();
+      f.send("nativeAuthorization",1,{rpc:1,action:"cancel",value:null});f.send("nativeAuthorization",1,{rpc:2,...prepare});await settle();
+      expect(f.requests.slice(2)).toEqual([[schema,binding,"nativeAuthorizationReply",1,{rpc:2,ok:false}]]);
+      expect(nativeAuthorization).not.toHaveBeenCalled();
+      // The new window is still served, and the client is still in service.
+      f.send("portal",2,{action:"navigate",uri:"https://cp.fixture.test/pair/next"});f.send("reply",2,{ok:true,snapshot});await settle();
+      await expect(two).resolves.toMatchObject({status:"unselected"});expect(second.navigate).toHaveBeenCalledWith("https://cp.fixture.test/pair/next");
+      f.send("nativeAuthorization",2,{rpc:1,...prepare});await settle();expect(nativeAuthorization).toHaveBeenCalledOnce();
+      // Any other request's call stays a fault.
+      f.send("nativeAuthorization",7,{rpc:3,...prepare});await settle();
+      await expect(f.client.request("start",null,f.caller.signal)).rejects.toMatchObject({code:"application_worker_binding"});
+    }finally{vi.useRealTimers();}
+  });
   it("keeps original portal reservation after authorization reply for original close",async()=>{
     const f=fixture(),portal={navigate:vi.fn(),close:vi.fn()},pending=f.client.request("authorize",null,f.caller.signal,portal);await f.arrived.promise;f.send("portal",1,{action:"navigate",uri:"https://cp.fixture.test/approve"});f.send("reply",1,{ok:true,snapshot});await pending;expect(portal.navigate).toHaveBeenCalledOnce();f.send("portal",1,{action:"close"});await new Promise(r=>setTimeout(r,10));expect(portal.close).toHaveBeenCalledOnce();
   });

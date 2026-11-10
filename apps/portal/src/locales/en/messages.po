@@ -1828,6 +1828,11 @@ msgstr "If this address can be used, we’ve sent a one-time link to it."
 msgid "If verification fails or this request expires, hosted writes resume."
 msgstr "If verification fails or this request expires, hosted writes resume."
 
+#. placeholder {0}: literal(pairing.connector_name)
+#: src/authority-workflows.tsx
+msgid "If you unlocked this collection in {0}, it has had your account's encryption key, and revoking access doesn't take that key back. If you no longer trust it with your encryption password, change your encryption password."
+msgstr "If you unlocked this collection in {0}, it has had your account's encryption key, and revoking access doesn't take that key back. If you no longer trust it with your encryption password, change your encryption password."
+
 #: src/authority-workflows.tsx
 msgid "In {collection}. Allow only if you just asked for this in {app}."
 msgstr "In {collection}. Allow only if you just asked for this in {app}."
@@ -1914,6 +1919,10 @@ msgstr "Keep it hosted"
 #: src/authorization-review.tsx
 msgid "Keep your current records and explain which fields mean the same thing."
 msgstr "Keep your current records and explain which fields mean the same thing."
+
+#: src/ApplicationAccess.tsx
+msgid "Keeps this Private collection on its device. If you unlocked it in this app, the app has had your account's encryption key, which opens every Private collection on your account."
+msgstr "Keeps this Private collection on its device. If you unlocked it in this app, the app has had your account's encryption key, which opens every Private collection on your account."
 
 #: src/portal-commands.ts
 msgid "Keyboard shortcuts"
@@ -2186,12 +2195,24 @@ msgid "New access and collection creation will stop across all installations. Co
 msgstr "New access and collection creation will stop across all installations. Copies already downloaded cannot be removed remotely."
 
 #: src/ApplicationAccess.tsx
+msgid "New access and collection creation will stop across all installations. Copies already downloaded cannot be removed remotely. If you unlocked a Private collection in this app, it has had your account's encryption key, and revoking access doesn't take that key back. If you no longer trust this app with your encryption password, change your encryption password."
+msgstr "New access and collection creation will stop across all installations. Copies already downloaded cannot be removed remotely. If you unlocked a Private collection in this app, it has had your account's encryption key, and revoking access doesn't take that key back. If you no longer trust this app with your encryption password, change your encryption password."
+
+#: src/ApplicationAccess.tsx
 msgid "New access will stop across all installations. Copies already downloaded cannot be removed remotely."
 msgstr "New access will stop across all installations. Copies already downloaded cannot be removed remotely."
 
 #: src/ApplicationAccess.tsx
+msgid "New access will stop across all installations. Copies already downloaded cannot be removed remotely. If you unlocked a Private collection in this app, it has had your account's encryption key, and revoking access doesn't take that key back. If you no longer trust this app with your encryption password, change your encryption password."
+msgstr "New access will stop across all installations. Copies already downloaded cannot be removed remotely. If you unlocked a Private collection in this app, it has had your account's encryption key, and revoking access doesn't take that key back. If you no longer trust this app with your encryption password, change your encryption password."
+
+#: src/ApplicationAccess.tsx
 msgid "New access will stop. Copies already downloaded by the app cannot be removed remotely."
 msgstr "New access will stop. Copies already downloaded by the app cannot be removed remotely."
+
+#: src/ApplicationAccess.tsx
+msgid "New access will stop. Copies already downloaded by the app cannot be removed remotely. If you unlocked a Private collection in this app, it has had your account's encryption key, and revoking access doesn't take that key back. If you no longer trust this app with your encryption password, change your encryption password."
+msgstr "New access will stop. Copies already downloaded by the app cannot be removed remotely. If you unlocked a Private collection in this app, it has had your account's encryption key, and revoking access doesn't take that key back. If you no longer trust this app with your encryption password, change your encryption password."
 
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx

@@ -2,7 +2,7 @@ import { t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import React, { useEffect, useState } from "react";
-import { accountProblemText } from "./daemon-view.mjs";
+import { accountProblemText, cloudSetting, type CloudSetting } from "./daemon-view.mjs";
 import { markPairingCompleted } from "./onboarding-state.mjs";
 import { StatusDot } from "./ui-components";
 import { message } from "./view-model";
@@ -32,8 +32,9 @@ export function SignInPanel({ cloud, resumeAuthorization = false, reason, onSign
     if (!waiting) return;
     let active = true;
     const timer = window.setInterval(() => {
-      void window.mdbaseConnect.getCloudConfig().then((next) => {
+      void window.mdbaseConnect.status().then((status) => {
         if (!active) return;
+        const next = cloudSetting(status);
         setAccount(next);
         if (next.configured && !next.pairing) {
           markPairingCompleted(localStorage);

@@ -94,6 +94,23 @@ describe("explicit expired-window retry preserves original actor", () => {
     await expect(f.flow.start()).rejects.toMatchObject({reason:'refused'});
     const next=await f.flow.renewExpiredPairing();expect(next.requestId).not.toBe(original.requestId);expect(f.read().renewal).toEqual({requestId:original.requestId,secret:original.secret});
   });
+  it("a window renewed after a denial waits for the same account to be chosen again",async()=>{
+    // Found by the local Private device end-to-end run: Connect's renewal of a
+    // denied window clears the account choice, so its exchange reads pending.
+    const f=await fixture();await f.flow.start();f.setSelected();await f.flow.exchange();const held=f.read().selection;expect(held).not.toBeNull();
+    const pending=()=>new Response(JSON.stringify({status:"pending"}),{status:202});
+    // Before any renewal a pending read after a selection is still malformed.
+    vi.mocked(f.request).mockResolvedValueOnce(pending());await expect(f.flow.exchange()).rejects.toMatchObject({reason:"response"});
+    vi.mocked(f.request).mockResolvedValueOnce(new Response(JSON.stringify({error:{code:"installation_pairing_denied",message:"cancelled"}}),{status:404}));
+    await expect(f.flow.exchange()).rejects.toMatchObject({reason:"refused"});
+    await f.flow.renewExpiredPairing();
+    vi.mocked(f.request).mockResolvedValueOnce(pending());expect(await f.flow.exchange()).toMatchObject({state:"account_selected"});
+    expect(f.read().selection).toEqual(held);
+    // The account chosen again must be the original one.
+    expect(await f.flow.exchange()).toMatchObject({state:"account_selected"});
+    f.change(v=>{if(v.status==="account_selected")v.account_id="99999999-9999-4999-8999-999999999999";});
+    await expect(f.flow.exchange()).rejects.toMatchObject({reason:"binding"});
+  });
   it.each(['installation_pairing_not_found'])("does not authorize retry from arbitrary404 %s",async code=>{
     const f=await fixture(), original=f.read();vi.mocked(f.request).mockResolvedValueOnce(new Response(JSON.stringify({error:{code}}),{status:404}));
     await expect(f.flow.start()).rejects.toMatchObject({reason:'refused'});await expect(f.flow.renewExpiredPairing()).rejects.toMatchObject({reason:'recovery_required'});expect(f.read()).toEqual(original);
@@ -1023,9 +1040,49 @@ describe("Private device consent (requested_private_device)", () => {
     await restored.start(); expect(Object.keys((plain.requests.at(-1)!.body as {installation: object}).installation)).not.toContain("requested_private_device");
     await restored.close();
   });
-  it("refuses a malformed option and a scoped recovery that asks for device access", async () => {
+  it("refuses a malformed option", async () => {
     await expect(fixture(false, {freshRequestedPrivateDevice: "yes" as never})).rejects.toThrow("binding");
-    await expect(fixture(false, {owner: "owner-a", requestedCreateCollections: undefined, freshRequestedPrivateDevice: true, recoveryFor: {accountId: account, collectionId: collection}})).rejects.toThrow("binding");
+  });
+  describe("a scoped recovery that asks again for device access", () => {
+    const recoveryFor = {accountId: account, collectionId: collection};
+    async function recovering(receipt: Record<string, unknown>) {
+      const f = await fixture(false, {owner: "bundle:notes:scope:original-local-reference", freshRequestedPrivateDevice: true, recoveryFor});
+      await f.flow.start(); await confirmed(f); await f.flow.attest(f); f.setApproved();
+      f.change(v => { if (v.status === "paired") Object.assign(v, receipt); });
+      return f;
+    }
+    it("sends the ask with the recovered collection and completes only with that collection as its one Private device scope", async () => {
+      const f = await recovering({collection_ids: [], create_collections: false, private_device_collection_ids: [collection]});
+      expect(f.requests.find(r => r.path === "/v1/pairing-requests")!.body).toMatchObject({installation: {requested_private_device: true, recovery_collection_id: collection}});
+      await f.flow.exchange();
+      expect(f.flow.view()).toMatchObject({state: "paired", collectionIds: [collection], privateDeviceCollectionIds: [collection]});
+      expect(f.read()).toMatchObject({recoveryFor, privateDeviceCollectionIds: [collection]});
+      expect(f.read()).not.toHaveProperty("collectionSelection");
+      await f.flow.close();
+      const restored = await AppProtectedInstallationSignIn.open({...f.options, mode: "existing"});
+      expect(restored.view()).toMatchObject({collectionIds: [collection], privateDeviceCollectionIds: [collection]}); await restored.close();
+    });
+    it.each([
+      ["another collection's device scope", "binding", {collection_ids: [], create_collections: false, private_device_collection_ids: [other]}],
+      ["a second device scope", "binding", {collection_ids: [], create_collections: false, private_device_collection_ids: [collection, other]}],
+      ["a device scope with a cloud copy", "binding", {collection_ids: [other], create_collections: false, private_device_collection_ids: [collection]}],
+      ["a device scope with a selection", "binding", {collection_ids: [], create_collections: false, private_device_collection_ids: [collection], selected_collection_id: collection, created_collection_ids: []}],
+      ["a device scope with creation", "response", {collection_ids: [], create_collections: true, private_device_collection_ids: [collection]}],
+    ])("refuses %s before protecting the token", async (_name, reason, receipt) => {
+      const f = await recovering(receipt);
+      await expect(f.flow.exchange()).rejects.toMatchObject({reason}); expect(f.read().token).toBeNull();
+    });
+    it("reports Connect's refusal to give the key back as its own outcome, not as an update or a generic refusal", async () => {
+      const refusal = () => new Response(JSON.stringify({error: {code: "installation_private_device_not_allowed", message: "not allowed"}}), {status: 403});
+      const f = await fixture(false, {owner: "bundle:notes:scope:original-local-reference", freshRequestedPrivateDevice: true, recoveryFor});
+      vi.mocked(f.request).mockImplementationOnce(async () => refusal());
+      await expect(f.flow.start()).rejects.toMatchObject({reason: "private_device_not_allowed", server: {status: 403, code: "installation_private_device_not_allowed"}});
+      await f.flow.close();
+      // The same at exchange, when the switch went off after approval: no token is kept.
+      const g = await recovering({collection_ids: [], create_collections: false, private_device_collection_ids: [collection]});
+      vi.mocked(g.request).mockImplementationOnce(async () => refusal());
+      await expect(g.flow.exchange()).rejects.toMatchObject({reason: "private_device_not_allowed"}); expect(g.read().token).toBeNull();
+    });
   });
   it("records the approved Private device scopes from the receipt as an explicit subset of the approved collections", async () => {
     const f = await pairedDevice({collection_ids: [collection], create_collections: false, private_device_collection_ids: [other]});

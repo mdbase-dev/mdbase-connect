@@ -266,6 +266,10 @@ export interface ManagementOverview {
     role: "owner" | "editor" | "viewer" | null;
     /** SDK consent metadata, not a restriction on device collection keys. */
     approved_optional_file_actions: string[];
+    /** The installation may keep this Private collection on its own device: once
+     * unlocked there, it has had the account's encryption key. Absent on control
+     * planes predating Private device access. */
+    private_device?: boolean;
   }>;
   grants: Array<{
     id: string;

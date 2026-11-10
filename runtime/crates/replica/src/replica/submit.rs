@@ -619,11 +619,37 @@ pub(crate) fn record_view(
 ) -> RecordView {
     let doc = mdbn_core::doc::Document::parse_at(path, source);
     let types = catalog.membership(path, doc.frontmatter()).types;
+    parsed_record_view(
+        catalog,
+        id,
+        path,
+        &doc,
+        types,
+        (confirmed_seq, mtime),
+        pending,
+        include,
+    )
+}
+
+/// [`record_view`] for a caller that has already parsed the record at `path`
+/// into `doc` and computed its membership `types`: the per-record path, which
+/// needs both to evaluate the predicate.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn parsed_record_view(
+    catalog: &mdbn_core::types::Catalog,
+    id: &B16,
+    path: &str,
+    doc: &mdbn_core::doc::Document,
+    types: Vec<String>,
+    (confirmed_seq, mtime): RecordPosition,
+    pending: bool,
+    include: &Include,
+) -> RecordView {
     let values = catalog.record_values(path, &types, doc.frontmatter());
     RecordView {
         id: *id,
         path: path.to_string(),
-        revision: mdbn_wire::hash::sha256(source.as_bytes()),
+        revision: mdbn_wire::hash::sha256(doc.source().as_bytes()),
         frontmatter: convert::wmap(&values),
         effective: if include.effective == Some(true) {
             Some(convert::wmap(
@@ -638,7 +664,7 @@ pub(crate) fn record_view(
             None
         },
         document: if include.document == Some(true) {
-            Some(source.to_string())
+            Some(doc.source().to_string())
         } else {
             None
         },

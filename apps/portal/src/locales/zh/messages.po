@@ -1828,6 +1828,11 @@ msgstr "如果此地址可用，我们已向其发送一次性链接。"
 msgid "If verification fails or this request expires, hosted writes resume."
 msgstr "如果验证失败或此请求过期，托管写入将恢复。"
 
+#. placeholder {0}: literal(pairing.connector_name)
+#: src/authority-workflows.tsx
+msgid "If you unlocked this collection in {0}, it has had your account's encryption key, and revoking access doesn't take that key back. If you no longer trust it with your encryption password, change your encryption password."
+msgstr "如果你在 {0} 中解锁过此集合，{0} 就曾拥有你账户的加密密钥，撤销访问权限无法收回该密钥。如果你不再愿意把加密密码交给 {0}，请更改你的加密密码。"
+
 #: src/authority-workflows.tsx
 msgid "In {collection}. Allow only if you just asked for this in {app}."
 msgstr "位于 {collection}。只有在你刚刚通过 {app} 发起此请求时才允许。"
@@ -1914,6 +1919,10 @@ msgstr "保留托管状态"
 #: src/authorization-review.tsx
 msgid "Keep your current records and explain which fields mean the same thing."
 msgstr "保留当前记录，并说明哪些字段表达相同的含义。"
+
+#: src/ApplicationAccess.tsx
+msgid "Keeps this Private collection on its device. If you unlocked it in this app, the app has had your account's encryption key, which opens every Private collection on your account."
+msgstr "在其设备上保存此私有集合。如果你在此应用中解锁过它，应用就曾拥有你账户的加密密钥，该密钥可打开你账户中的所有私有集合。"
 
 #: src/portal-commands.ts
 msgid "Keyboard shortcuts"
@@ -2186,12 +2195,24 @@ msgid "New access and collection creation will stop across all installations. Co
 msgstr "所有安装中的新访问和集合创建将停止。已下载的副本无法远程删除。"
 
 #: src/ApplicationAccess.tsx
+msgid "New access and collection creation will stop across all installations. Copies already downloaded cannot be removed remotely. If you unlocked a Private collection in this app, it has had your account's encryption key, and revoking access doesn't take that key back. If you no longer trust this app with your encryption password, change your encryption password."
+msgstr "所有安装中的新访问和集合创建将停止。已下载的副本无法远程删除。如果你在此应用中解锁过私有集合，它就曾拥有你账户的加密密钥，撤销访问权限无法收回该密钥。如果你不再愿意把加密密码交给此应用，请更改你的加密密码。"
+
+#: src/ApplicationAccess.tsx
 msgid "New access will stop across all installations. Copies already downloaded cannot be removed remotely."
 msgstr "所有安装中的新访问将停止。已下载的副本无法远程删除。"
 
 #: src/ApplicationAccess.tsx
+msgid "New access will stop across all installations. Copies already downloaded cannot be removed remotely. If you unlocked a Private collection in this app, it has had your account's encryption key, and revoking access doesn't take that key back. If you no longer trust this app with your encryption password, change your encryption password."
+msgstr "所有安装中的新访问将停止。已下载的副本无法远程删除。如果你在此应用中解锁过私有集合，它就曾拥有你账户的加密密钥，撤销访问权限无法收回该密钥。如果你不再愿意把加密密码交给此应用，请更改你的加密密码。"
+
+#: src/ApplicationAccess.tsx
 msgid "New access will stop. Copies already downloaded by the app cannot be removed remotely."
 msgstr "新访问将停止。应用已下载的副本无法远程删除。"
+
+#: src/ApplicationAccess.tsx
+msgid "New access will stop. Copies already downloaded by the app cannot be removed remotely. If you unlocked a Private collection in this app, it has had your account's encryption key, and revoking access doesn't take that key back. If you no longer trust this app with your encryption password, change your encryption password."
+msgstr "新访问将停止。应用已下载的副本无法远程删除。如果你在此应用中解锁过私有集合，它就曾拥有你账户的加密密钥，撤销访问权限无法收回该密钥。如果你不再愿意把加密密码交给此应用，请更改你的加密密码。"
 
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx

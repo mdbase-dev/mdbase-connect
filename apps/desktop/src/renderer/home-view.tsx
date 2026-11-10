@@ -8,6 +8,7 @@ import { managedAppOrigins } from "../../../../scripts/lib/managed-app-origins.m
 import { presentCollection } from "./daemon-view.mjs";
 import { appsByCollection, homeApps, letterMark, type LaunchableApp } from "./home-model.mjs";
 import { Empty } from "./ui-components";
+import { pollWhileVisible } from "./visible-poll.mjs";
 import { message, type Route } from "./view-model";
 
 const APPS_POLL_MS = 60_000;
@@ -48,9 +49,8 @@ export function HomeView({ environment, collections, pendingApps, busy, onNaviga
       (result) => { if (current) { setApproved(result.applications); setFailure(null); } },
       (reason) => { if (current) setFailure(message(reason)); }
     );
-    void load();
-    const timer = window.setInterval(load, APPS_POLL_MS);
-    return () => { current = false; window.clearInterval(timer); };
+    const stopPolling = pollWhileVisible(() => void load(), APPS_POLL_MS);
+    return () => { current = false; stopPolling(); };
   }, []);
 
   const { yours, suggested } = useMemo(

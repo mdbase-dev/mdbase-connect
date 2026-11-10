@@ -89,18 +89,58 @@ available.
 
 ## CI regression gate
 
-`mdbn-perf gate --baseline tools/perf/baseline.json` runs the 1k scenarios (15 iterations each).
-It divides each scenario's fastest iteration by a fixed calibration workload, which roughly cancels out runner
-speed. It fails when a ratio is more than the baseline's `threshold` (2.5×) above the baseline in two consecutive runs.
-The threshold is deliberately loose. The gate catches complexity regressions, such as linear
-turning quadratic or an index silently not used, and does not catch 10% drifts. It runs in
-`.github/workflows/perf.yml` nightly, on demand, and on PRs labelled `perf`, so it does not cost
-minutes on every PR.
+`mdbn-perf gate --baseline tools/perf/baseline.json` runs the scenarios twice over:
 
-To refresh the baseline on a quiet machine:
+- **At 1k notes** (15 iterations, 3 cold opens; every area). Each scenario's fastest iteration is
+  divided by a fixed calibration workload, which roughly cancels out runner speed. A ratio fails when
+  it is more than the baseline's `threshold` (2.5×) above the baseline's `ratios` entry.
+- **At 10k notes** (5 iterations, 1 cold open; `native` and `replica`, since the Bases executor
+  refuses above ~50–75 tasks). For each scenario the gate takes the growth of its fastest iteration
+  between the sizes as a log-log slope: `ln(t10k / t1k) / ln(10)`, so 0 is flat (backlinks, a
+  commit), 1 is linear (a cold open) and 2 is quadratic. A slope fails when it is more than 0.5 above
+  the baseline's `growth` entry, or above 0.5 when that entry is negative (a sub-millisecond
+  scenario's slope is noise around flat).
+
+A check fails the gate only when it fails in two consecutive runs; the gate re-runs both sizes to
+confirm. A scenario missing from the baseline is reported and not checked; one in the baseline but
+missing from the run fails.
+
+The gate is loose by design. It catches complexity regressions, such as linear turning quadratic or
+an index silently not used, and does not catch 10% drifts. The 1k ratio alone cannot see a
+scenario that is linear in corpus size when it should be flat, because at 1k notes the extra cost is
+small; the growth check can. Growth needs no calibration (both sizes run on the same runner minutes
+apart), so its limit is tighter than the ratio's: the 0.5 margin is half a complexity class, ×3.16
+in time on top of the recorded growth. A whole class (flat to linear, linear to quadratic, a
+logarithmic index lookup turning into a scan) is ×10 and fails clearly. The margin absorbs what a
+slope legitimately varies by: a ×1.5 outlier in one size's fastest iteration moves the slope by
+0.18, n log n against n is 0.12, fixed costs amortise differently on different machines, and a
+10k corpus fits different caches on the reference machine and on a runner.
+
+The baseline records growth as the scenario behaves today. Paths that are linear but should not be
+(title search and unbounded queries scan every record, a warm open re-reads every document) are
+recorded as linear, so getting worse fails and fixing them shows up as a lower slope in the next
+baseline refresh. Until the baseline has a `growth` map, the gate prints every slope and checks none.
+
+On a GitHub runner one gate run costs, estimated from the reference machine's 1k minimums and the
+1k→10k open costs in `docs/cli-data-commands.md`, roughly a minute at 1k and one to two at 10k,
+mostly the single 10k cold open (about 11 s on the reference machine, extrapolating its 1k time linearly) and the replica setup
+(seed, replay, snapshot), which has no recorded 10k time. A confirming re-run doubles it. It runs in
+`.github/workflows/runtime-perf.yml` (repository root) nightly, on demand, and on PRs labelled
+`perf`, so it does not cost minutes on every PR.
+
+`mdbn-perf run` notes which path `replica.query_tasks_open` took (indexed or the per-record
+fallback, with the reason) from `Replica::query_stats`. The replica scenarios run on a `MemStore`,
+which keeps no query index, and the per-record path refuses a query that has to read more than
+1,000 records. The 10k corpus has about 2,800 tasks, so there the scenario reports that refusal, has
+no timings and so has no growth slope. The native scenarios
+go through the public `mdbase` library, which does not expose those counts; their growth slopes
+show the same thing.
+
+To refresh the baseline, on the reference machine (quiet, `uptime` load near zero, release build):
 
 ```sh
-mdbn-perf gate --baseline tools/perf/baseline.json --write
+rcargo --pull release/mdbn-perf build --release -p mdbn-bench --bin mdbn-perf
+./target/release/mdbn-perf gate --baseline tools/perf/baseline.json --write
 ```
 
-Say why in the PR.
+`--write` runs the gate twice and keeps the lower value of each ratio and slope. Say why in the PR.

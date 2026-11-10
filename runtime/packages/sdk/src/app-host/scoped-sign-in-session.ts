@@ -73,8 +73,12 @@ export class AppScopedSignInSession<Connection> {
   private child(id: string, reference: string, accountId: string, fresh = false): AppWebSignInSession<Connection> {
     const existing = this.scoped.get(id);
     if (existing) {if(existing.reference !== reference)throw new AppInstallationSignInError("fenced"); return existing.session;}
+    // A collection the original installation held as Private device access is
+    // asked for again as device access, never as anything wider: Connect then
+    // offers it with the same per-collection key-keeping consent as first sign-in.
+    const device = this.options.freshRequestedPrivateDevice === true && this.original.getSnapshot().signIn?.privateDeviceCollectionIds?.includes(id) === true;
     const session = new AppWebSignInSession<Connection>({...this.options, owner: `${this.options.owner ?? `app:${this.options.appId}`}:scope:${reference}`,
-      requestedCreateCollections: false, freshRequestedCreateCollections: false, freshRequestedPrivateDevice: false, recoveryFor: Object.freeze({accountId, collectionId: id}), autoSelect: "never", storeMode: fresh ? "fresh" : "existing"});
+      requestedCreateCollections: false, freshRequestedCreateCollections: false, freshRequestedPrivateDevice: device, recoveryFor: Object.freeze({accountId, collectionId: id}), autoSelect: "never", storeMode: fresh ? "fresh" : "existing"});
     const stop = session.subscribe(() => this.changed());
     this.scoped.set(id, {reference, session, stop}); session.setForeground(this.foreground);
     return session;

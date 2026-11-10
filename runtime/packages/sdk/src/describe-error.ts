@@ -105,7 +105,7 @@ export const PROBLEM_CODES = [
   // Account keys (Private collections).
   "wrong_secret", "locked", "weak_password", "already_set_up", "no_account_key",
   // Unlocking a Private collection in an app that keeps its own copy.
-  "invalid_recovery_key", "unlock_strict", "unlock_unavailable", "unlock_failed", "private_device_limit",
+  "invalid_recovery_key", "unlock_strict", "unlock_unavailable", "unlock_failed", "private_device_limit", "private_device_not_allowed",
 ] as const;
 export type ProblemCode = typeof PROBLEM_CODES[number];
 
@@ -237,6 +237,7 @@ const COPY = {
   unlock_unavailable: ["This app can't unlock yet", "This version of the app can't unlock Private collections. Update the app, then try again.", "update_app", "warning"],
   unlock_failed: ["Couldn't unlock this collection", "Your password or recovery key is right, but this collection didn't give this device its key. Try again. If it keeps happening, open the mdbase desktop app on a computer that has this collection.", "retry", "warning"],
   private_device_limit: ["One Private collection per app", "This app already keeps another Private collection on this device, and it can keep only one. Open that collection, or sign out of mdbase in this app to switch.", "choose_collection", "warning"],
+  private_device_not_allowed: ["This app can't keep this collection", "Access to this Private collection can't be restored in this app on this server. Open it in the mdbase desktop app on a computer that has it.", "none", "warning"],
 } as const satisfies Record<ProblemCode, Entry>;
 
 /** Codes that mean the same outcome as a ProblemCode (server reasons, facet
@@ -347,6 +348,7 @@ const DEVELOPER: Readonly<Record<string, string>> = Object.assign(Object.create(
   sync_required: "Collection availability sync_required: the grant no longer matches the collection's membership; run authorize() again.",
   no_device_registered: "Collection availability no_device_registered: Connect has no device that can serve this collection (none registered with sync on, or its device was revoked).",
   installation_scope_removed: "The original installation lost this collection scope. Only explicit approval of a fresh scoped installation can regain access.",
+  private_device_not_allowed: "Connect refused a recovery sign-in's Private device access (403 installation_private_device_not_allowed): MDBASE_NEXT_PRIVATE_APP_DEVICES is off, or the registered manifest does not declare offline.replica.",
   access_removed: "Collection availability access_removed: the grant's account is no longer a member of the collection.",
   collection_deleted: "Collection availability collection_deleted: the owner deleted the collection.",
   collection_unavailable: "Connect problem collection_unavailable without a known reason: the collection is not offered to this app or client.",

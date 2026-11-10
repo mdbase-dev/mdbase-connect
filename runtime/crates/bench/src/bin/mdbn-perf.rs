@@ -6,13 +6,17 @@
 //! mdbn-perf gate --baseline tools/perf/baseline.json [--work target/perf] [--write]
 //! ```
 //!
-//! `run` prints a table and writes a JSON report. `gate` runs the 1k corpus,
-//! divides each scenario's p50 by a fixed calibration workload (so a slower
-//! or faster runner cancels out) and fails when a ratio exceeds the
-//! baseline's by more than the baseline's `threshold` factor. `--write`
+//! `run` prints a table and writes a JSON report. `gate` runs the 1k and 10k
+//! corpora. At 1k it divides each scenario's fastest iteration by a fixed
+//! calibration workload (so a slower or faster runner cancels out) and fails
+//! when that ratio exceeds the baseline's by more than the baseline's
+//! `threshold` factor. Between 1k and 10k it measures each scenario's growth
+//! (the log-log slope of its fastest iteration) and fails when that exceeds
+//! the baseline's slope by more than half a complexity class. `--write`
 //! rewrites the baseline from this run instead.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types)]
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use mdbn_bench::corpus::{Attachments, Spec};
@@ -20,6 +24,7 @@ use mdbn_bench::measure::{self, Sample};
 use mdbn_bench::{bases, native, sync};
 use serde_json::json;
 
+#[derive(Clone)]
 struct Opts {
     sizes: Vec<u32>,
     iters: usize,
@@ -169,30 +174,155 @@ fn main() {
     }
 }
 
-/// Calibration-normalised minimum per scenario at 1k notes. The minimum, not
-/// the median, so a transient burst of other work on a shared machine or
-/// runner does not read as a regression.
-fn gate_ratios(o: &Opts, cal: f64) -> serde_json::Map<String, serde_json::Value> {
-    let gate_opts = Opts {
-        sizes: vec![1_000],
-        iters: 15,
-        cold: 3,
-        only: o.only.clone(),
-        work: o.work.clone(),
-        out: None,
-        baseline: None,
-        write: false,
-        attachments: o.attachments,
-    };
-    run_all(&gate_opts)
+/// The gate's corpus sizes. Ratios are checked at `SMALL`; growth compares
+/// `SMALL` with `LARGE`.
+const SMALL: u32 = 1_000;
+const LARGE: u32 = 10_000;
+
+/// A scenario fails growth when its slope exceeds the baseline's by more than
+/// this: half a complexity class, ×√10 in time between 1k and 10k notes. A
+/// whole class (flat to linear, linear to quadratic) is ×10.
+const GROWTH_MARGIN: f64 = 0.5;
+
+/// What one gate pass measures.
+struct Gate {
+    /// Fastest iteration at `SMALL` / calibration ms, per scenario.
+    ratios: BTreeMap<String, f64>,
+    /// Log-log slope of the fastest iteration from `SMALL` to `LARGE`:
+    /// 0 flat, 1 linear, 2 quadratic.
+    growth: BTreeMap<String, f64>,
+}
+
+impl Gate {
+    /// The lower value of each scenario in `self` and `other`.
+    fn lower(self, other: &Gate) -> Gate {
+        let low = |a: BTreeMap<String, f64>, b: &BTreeMap<String, f64>| {
+            a.into_iter()
+                .map(|(k, v)| {
+                    let w = b.get(&k).copied().unwrap_or(v);
+                    (k, v.min(w))
+                })
+                .collect()
+        };
+        Gate {
+            ratios: low(self.ratios, &other.ratios),
+            growth: low(self.growth, &other.growth),
+        }
+    }
+}
+
+/// The fastest iteration per scenario. The minimum, not the median, so a
+/// transient burst of other work on a shared machine or runner does not read
+/// as a regression.
+fn fastest(samples: &[Sample], min_iters: usize) -> BTreeMap<String, f64> {
+    samples
         .iter()
-        .filter(|s| s.ms.len() >= 3)
-        .map(|s| {
-            (
-                s.scenario.clone(),
-                json!((s.pct(0.0) / cal * 1e4).round() / 1e4),
-            )
-        })
+        .filter(|s| s.ms.len() >= min_iters)
+        .map(|s| (s.scenario.clone(), s.pct(0.0)))
+        .collect()
+}
+
+fn round(x: f64, places: i32) -> f64 {
+    let f = 10f64.powi(places);
+    (x * f).round() / f
+}
+
+/// One gate pass: every area at `SMALL` (15 iterations, 3 cold opens), then
+/// native and replica at `LARGE` (5 iterations, 1 cold open). Bases is not run
+/// at `LARGE`: its executor refuses above ~50-75 tasks.
+fn gate_run(o: &Opts, cal: f64) -> Gate {
+    let small = fastest(
+        &run_all(&Opts {
+            sizes: vec![SMALL],
+            iters: 15,
+            cold: 3,
+            ..o.clone()
+        }),
+        3,
+    );
+    let large = fastest(
+        &run_all(&Opts {
+            sizes: vec![LARGE],
+            iters: 5,
+            cold: 1,
+            only: o.only.iter().filter(|a| *a != "bases").cloned().collect(),
+            ..o.clone()
+        }),
+        1,
+    );
+    let steps = (f64::from(LARGE) / f64::from(SMALL)).ln();
+    Gate {
+        growth: large
+            .iter()
+            .filter_map(|(k, big)| {
+                let small = small.get(k)?;
+                Some((k.clone(), round((big / small).ln() / steps, 2)))
+            })
+            .collect(),
+        ratios: small
+            .into_iter()
+            // Six places: the fastest scenarios are a few 1e-4 of the calibration.
+            .map(|(k, ms)| (k, round(ms / cal, 6)))
+            .collect(),
+    }
+}
+
+/// The growth class nearest to `slope`, for the log.
+fn class(slope: f64) -> &'static str {
+    match slope {
+        s if s < 0.5 => "flat",
+        s if s < 1.5 => "linear",
+        _ => "superlinear",
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Kind {
+    Ratio,
+    Growth,
+}
+
+impl Kind {
+    fn label(self) -> &'static str {
+        match self {
+            Kind::Ratio => "ratio",
+            Kind::Growth => "growth",
+        }
+    }
+}
+
+/// One baseline check. `limit` is the largest passing value.
+struct Check {
+    kind: Kind,
+    name: String,
+    want: f64,
+    limit: f64,
+}
+
+impl Check {
+    fn got(&self, run: &Gate) -> Option<f64> {
+        match self.kind {
+            Kind::Ratio => run.ratios.get(&self.name),
+            Kind::Growth => run.growth.get(&self.name),
+        }
+        .copied()
+    }
+
+    fn fails(&self, run: &Gate) -> bool {
+        self.got(run).is_none_or(|got| got > self.limit)
+    }
+
+    fn label(&self) -> String {
+        format!("{} {}", self.kind.label(), self.name)
+    }
+}
+
+fn number_map(base: &serde_json::Value, key: &str) -> BTreeMap<String, f64> {
+    base[key]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .map(|(k, v)| (k.clone(), v.as_f64().expect("baseline numbers")))
         .collect()
 }
 
@@ -201,26 +331,16 @@ fn gate(o: &Opts, cal: f64, meta: serde_json::Value) {
         .baseline
         .clone()
         .unwrap_or_else(|| usage("--baseline is required"));
-    let ratios = gate_ratios(o, cal);
+    let run = gate_run(o, cal);
     if o.write {
-        // Two runs, the lower ratio of each: a baseline must not absorb noise.
-        let again = gate_ratios(o, measure::calibrate());
-        let ratios: serde_json::Map<String, serde_json::Value> = ratios
-            .into_iter()
-            .map(|(k, v)| {
-                let a = v.as_f64().unwrap_or(f64::INFINITY);
-                let b = again
-                    .get(&k)
-                    .and_then(serde_json::Value::as_f64)
-                    .unwrap_or(a);
-                (k, json!(a.min(b)))
-            })
-            .collect();
+        // Two runs, the lower value of each: a baseline must not absorb noise.
+        let run = run.lower(&gate_run(o, measure::calibrate()));
         let base = json!({
-            "about": "min iteration / calibration_ms per scenario at 1k notes (mdbn-perf gate). A scenario fails when its ratio exceeds baseline x threshold in two consecutive runs. Regenerate with `mdbn-perf gate --baseline tools/perf/baseline.json --write` on a quiet machine and say why in the PR.",
+            "about": format!("ratios: fastest iteration / calibration_ms per scenario at {SMALL} notes; a ratio fails above baseline x threshold. growth: log-log slope of the fastest iteration from {SMALL} to {LARGE} notes (0 flat, 1 linear, 2 quadratic); a slope fails above baseline + {GROWTH_MARGIN}. Either fails the gate only in two consecutive runs. Regenerate with `mdbn-perf gate --baseline tools/perf/baseline.json --write` on a quiet machine and say why in the PR."),
             "threshold": 2.5,
             "meta": meta,
-            "ratios": ratios,
+            "ratios": run.ratios,
+            "growth": run.growth,
         });
         std::fs::write(
             &path,
@@ -234,48 +354,71 @@ fn gate(o: &Opts, cal: f64, meta: serde_json::Value) {
         serde_json::from_str(&std::fs::read_to_string(&path).expect("read baseline"))
             .expect("baseline json");
     let threshold = base["threshold"].as_f64().unwrap_or(2.5);
-    let mut failed = Vec::new();
-    for (name, want) in base["ratios"].as_object().expect("ratios") {
-        let want = want.as_f64().unwrap_or(f64::INFINITY);
-        match ratios.get(name).and_then(serde_json::Value::as_f64) {
-            Some(got) => {
-                let verdict = if got > want * threshold { "FAIL" } else { "ok" };
-                eprintln!(
-                    "  {verdict:<4} {name:<32} ratio {got:>10.4} baseline {want:>10.4} (x{:.2})",
-                    got / want
-                );
-                if got > want * threshold {
-                    failed.push(name.clone());
+    // A scenario absent from the baseline is not checked; one in the baseline
+    // but missing from the run fails.
+    let ratios = number_map(&base, "ratios");
+    let growth = number_map(&base, "growth");
+    let checks: Vec<Check> = ratios
+        .iter()
+        .map(|(name, &want)| Check {
+            kind: Kind::Ratio,
+            name: name.clone(),
+            want,
+            limit: want * threshold,
+        })
+        .chain(growth.iter().map(|(name, &want)| Check {
+            kind: Kind::Growth,
+            name: name.clone(),
+            want,
+            // A recorded slope below flat is noise in a sub-millisecond
+            // scenario, not a standard to hold later runs to.
+            limit: want.max(0.0) + GROWTH_MARGIN,
+        }))
+        .collect();
+    for c in &checks {
+        let verdict = if c.fails(&run) { "FAIL" } else { "ok" };
+        match c.got(&run) {
+            Some(got) => eprintln!(
+                "  {verdict:<4} {:<6} {:<32} {got:>12.6} baseline {:>12.6} limit {:>12.6}{}",
+                c.kind.label(),
+                c.name,
+                c.want,
+                c.limit,
+                if c.kind == Kind::Growth {
+                    format!(" ({})", class(got))
+                } else {
+                    String::new()
                 }
-            }
-            None => {
-                eprintln!("  FAIL {name:<32} missing from this run");
-                failed.push(name.clone());
-            }
+            ),
+            None => eprintln!(
+                "  FAIL {:<6} {:<32} missing from this run",
+                c.kind.label(),
+                c.name
+            ),
         }
     }
+    for (name, got) in &run.growth {
+        if !growth.contains_key(name) {
+            eprintln!(
+                "  --   growth {name:<32} {got:>10.4} ({}, no baseline)",
+                class(*got)
+            );
+        }
+    }
+    let mut failed: Vec<&Check> = checks.iter().filter(|c| c.fails(&run)).collect();
     if !failed.is_empty() {
         // Confirm in a second run before failing: noise rarely repeats.
-        eprintln!(
-            "mdbn-perf gate: re-running to confirm {}",
-            failed.join(", ")
-        );
-        let again = gate_ratios(o, measure::calibrate());
-        failed.retain(|name| {
-            let want = base["ratios"][name.as_str()]
-                .as_f64()
-                .unwrap_or(f64::INFINITY);
-            again
-                .get(name)
-                .and_then(serde_json::Value::as_f64)
-                .is_none_or(|got| got > want * threshold)
-        });
+        let names: Vec<String> = failed.iter().map(|c| c.label()).collect();
+        eprintln!("mdbn-perf gate: re-running to confirm {}", names.join(", "));
+        let again = gate_run(o, measure::calibrate());
+        failed.retain(|c| c.fails(&again));
     }
     if !failed.is_empty() {
+        let names: Vec<String> = failed.iter().map(|c| c.label()).collect();
         eprintln!(
-            "mdbn-perf gate: {} scenario(s) regressed more than x{threshold}: {}",
+            "mdbn-perf gate: {} check(s) failed twice (ratio above x{threshold}, or growth above +{GROWTH_MARGIN}): {}",
             failed.len(),
-            failed.join(", ")
+            names.join(", ")
         );
         std::process::exit(1);
     }

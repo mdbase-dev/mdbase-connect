@@ -701,10 +701,6 @@ impl<S: Store> Replica<S> {
             Err(_) if saved.is_none() => return self.run_query_per_record(query, include),
             Err(_) => return Err(stale()),
         };
-        self.require(session, crate::policy::capability::READ)?;
-        if self.cursor_stamp(session)? != stamp {
-            return Err(stale());
-        }
         self.trace_query("check_after");
         if page.result.has_more == Some(true) && !page.result.records.is_empty() {
             let frontier = page

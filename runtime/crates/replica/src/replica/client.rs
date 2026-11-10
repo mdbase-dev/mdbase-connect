@@ -5,6 +5,7 @@ mod contract_query;
 mod contract_records;
 mod describe;
 pub(crate) mod pending;
+mod per_record;
 mod projected_query;
 mod resolve_links;
 mod resources;
@@ -604,96 +605,7 @@ impl<S: Store> Replica<S> {
             }
             return Ok(result);
         }
-        // Candidates: confirmed rows the layer does not override, plus layered records.
-        // A budgeted profile charges every source copy (candidate rows, then each
-        // parsed record) and pages small, so it stops near the budget with an
-        // explicit error instead of a partial answer.
-        let mut budget = self.fallback_budget();
-        let page_limit = if budget.is_some() { 32 } else { 1024 };
-        let mut ids: std::collections::BTreeSet<Uuid> = std::collections::BTreeSet::new();
-        let mut after = None;
-        loop {
-            let page = self
-                .store
-                .candidates(
-                    &plan.candidate,
-                    Page {
-                        after,
-                        limit: page_limit,
-                    },
-                )
-                .map_err(store_err)?;
-            let Some(l) = page.last() else {
-                break;
-            };
-            after = Some(l.id);
-            for r in page {
-                Self::charge_fallback(&mut budget, r.doc.len())?;
-                if !self.layer.touches(&convert::uuid(&r.id)) {
-                    ids.insert(r.id);
-                }
-            }
-        }
-        for id in self.layer.touched_ids() {
-            ids.insert(convert::wuuid(&id));
-        }
-        let mut rows = Vec::new();
-        for id in ids {
-            let Some(rec) = lv.record(&convert::uuid(&id)) else {
-                continue;
-            };
-            Self::charge_fallback(&mut budget, rec.source.len())?;
-            let doc = mdbn_core::doc::Document::parse_at(&rec.path, &*rec.source);
-            let fm = doc.frontmatter().clone();
-            let types = catalog.membership(&rec.path, &fm).types;
-            let verdict = plan.matches(
-                &QueryRecord {
-                    path: &rec.path,
-                    types: &types,
-                    frontmatter: &fm,
-                    body: Some(doc.body()),
-                },
-                &env,
-            );
-            if verdict == Verdict::Match {
-                rows.push((id, rec.path.clone(), fm, types));
-            }
-        }
-        rows.sort_by(|a, b| {
-            plan.compare_by_id(
-                (
-                    convert::uuid(&a.0),
-                    &QueryRecord {
-                        path: &a.1,
-                        types: &a.3,
-                        frontmatter: &a.2,
-                        body: None,
-                    },
-                ),
-                (
-                    convert::uuid(&b.0),
-                    &QueryRecord {
-                        path: &b.1,
-                        types: &b.3,
-                        frontmatter: &b.2,
-                        body: None,
-                    },
-                ),
-            )
-        });
-        let start = usize::try_from(plan.query.offset)
-            .unwrap_or(usize::MAX)
-            .min(rows.len());
-        let end = match plan.query.limit {
-            Some(l) => start
-                .saturating_add(usize::try_from(l).unwrap_or(usize::MAX))
-                .min(rows.len()),
-            None => rows.len(),
-        };
-        let records = rows[start..end]
-            .iter()
-            .filter_map(|r| self.view_of(&lv, &r.0, include, true))
-            .collect();
+        let (records, has_more) = self.per_record_window(&plan, &lv, &catalog, &env, include)?;
         if let Some(e) = view.error() {
             return Err(store_err(e));
         }
@@ -707,7 +619,7 @@ impl<S: Store> Replica<S> {
             diagnostics: None,
             view: None,
             groups: None,
-            has_more: Some(end < rows.len()),
+            has_more: Some(has_more),
         })
     }
 

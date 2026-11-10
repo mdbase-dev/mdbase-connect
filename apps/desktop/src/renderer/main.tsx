@@ -20,9 +20,10 @@ import { ActivityView } from "./activity-view";
 import { CollectionsView } from "./collections-view";
 import { DeviceRequests } from "./device-requests";
 import { HomeView } from "./home-view";
-import { groupAccess, presentConnection } from "./daemon-view.mjs";
+import { cloudSetting, groupAccess, presentConnection, type CloudSetting } from "./daemon-view.mjs";
 import { updateActions } from "../main/update-actions";
 import { consumePairingCompleted } from "./onboarding-state.mjs";
+import { pollWhileVisible } from "./visible-poll.mjs";
 import { SignInPanel } from "./sign-in-panel";
 import { TakeoverPanel } from "./takeover-panel";
 import {
@@ -84,15 +85,15 @@ function App() {
   const refresh = useCallback(async () => {
     const mine = ++generation.current;
     const api = window.mdbaseConnect;
-    const [nextStatus, nextCloud, nextCollections, nextAccess, nextSettings, nextStartup, nextActivity, nextDevices] = await Promise.allSettled([
-      api.status(), api.getCloudConfig(), api.listCollections(), api.listAccess(), api.getSettings(), api.getLaunchAtLogin(), api.listActivity(),
+    const [nextStatus, nextCollections, nextAccess, nextSettings, nextStartup, nextActivity, nextDevices] = await Promise.allSettled([
+      api.status(), api.listCollections(), api.listAccess(), api.getSettings(), api.getLaunchAtLogin(), api.listActivity(),
       api.listPendingDevices()
     ]);
     if (mine !== generation.current) return;
     setChecked(true);
     // A live connection indicator is never last-known; lists keep their last value.
     setStatus(nextStatus.status === "fulfilled" ? nextStatus.value : null);
-    if (nextCloud.status === "fulfilled") setCloud(nextCloud.value);
+    if (nextStatus.status === "fulfilled") setCloud(cloudSetting(nextStatus.value));
     if (nextCollections.status === "fulfilled") setCollections(nextCollections.value);
     if (nextAccess.status === "fulfilled") setAccess(nextAccess.value);
     if (nextDevices.status === "fulfilled") setDevices(nextDevices.value);
@@ -102,8 +103,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), POLL_MS);
+    const stopPolling = pollWhileVisible(() => void refresh(), POLL_MS);
     const removeNavigation = window.mdbaseConnect.onNavigate((next) => {
       const target = next.startsWith("access") ? "access" : next;
       if (["overview", "collections", "access", "activity", "settings"].includes(target)) setRoute(target as Route);
@@ -117,7 +117,7 @@ function App() {
       if (!updatePushed) setUpdateStatus(next);
     }).catch(() => undefined);
     return () => {
-      window.clearInterval(timer);
+      stopPolling();
       removeNavigation();
       removeUpdateStatus();
     };

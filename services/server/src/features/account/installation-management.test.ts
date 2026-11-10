@@ -51,18 +51,22 @@ it("lists real installation consent as app access and preserves unknown/legacy c
     const scoped = await connector(owner, "app-runtime");
     const empty = await connector(owner, "app-runtime");
     const foreign = await connector(other, "app-runtime");
+    const device = await connector(owner, "app-runtime");
     await db.query("INSERT INTO installation_collection_scopes(connector_id,collection_id,file_actions) VALUES($1,$2,'{add}')", [scoped.id, collection]);
     await db.query("INSERT INTO installation_collection_scopes(connector_id,collection_id) VALUES($1,$2),($3,$2)", [scoped.id, hidden, foreign.id]);
+    await db.query("INSERT INTO installation_collection_scopes(connector_id,collection_id,private_device) VALUES($1,$2,true)", [device.id, collection]);
     expect((await app.inject({ url: "/v1/me" })).statusCode).toBe(401);
     const response = await app.inject({ url: "/v1/me", headers: { cookie } });
     expect(response.statusCode, response.body).toBe(200);
     const overview = response.json();
     expect(nativeDevicesByCollection).toHaveBeenCalledExactlyOnceWith(db, [collection], owner);
     expect(overview.connectors.map((row: { id: string }) => row.id).sort()).toEqual([legacy.id, mobile.id, unknown.id].sort());
-    expect(overview.installation_access).toHaveLength(4);
+    expect(overview.installation_access).toHaveLength(5);
     expect(overview.installation_access).toContainEqual(expect.objectContaining({ connector_id: mobileApp.id, device_kind: "mobile", collection_id: null }));
-    expect(overview.installation_access).toContainEqual(expect.objectContaining({ connector_id: scoped.id, installation_id: scoped.installation, application_name: "Reader", collection_id: collection, collection_name: "Own collection", role: "owner", available: true, approved_optional_file_actions: ["add"] }));
-    expect(overview.installation_access).toContainEqual(expect.objectContaining({ connector_id: empty.id, create_collections: true, collection_id: null, available: false, approved_optional_file_actions: [] }));
+    expect(overview.installation_access).toContainEqual(expect.objectContaining({ connector_id: scoped.id, installation_id: scoped.installation, application_name: "Reader", collection_id: collection, collection_name: "Own collection", role: "owner", available: true, approved_optional_file_actions: ["add"], private_device: false }));
+    // Device access is reported, so the portal can say the app may have had the account's encryption key.
+    expect(overview.installation_access).toContainEqual(expect.objectContaining({ connector_id: device.id, collection_id: collection, private_device: true }));
+    expect(overview.installation_access).toContainEqual(expect.objectContaining({ connector_id: empty.id, create_collections: true, collection_id: null, available: false, approved_optional_file_actions: [], private_device: false }));
     expect(overview.installation_access).toContainEqual(expect.objectContaining({ collection_id: hidden, collection_name: "Unavailable collection", available: false, role: null }));
     expect(overview.grants).toEqual([]);
     expect(response.body).not.toContain("Hidden collection name");

@@ -136,6 +136,9 @@ export async function openMemoryDatabase(): Promise<DatabasePool> {
     // columns; shape enforcement requires real PG tests.
     const privateDeviceShape = "-- mdbase:installation-private-device-shape:v1";
     if (sql.includes(privateDeviceShape)) return memory.public.many(sql.slice(0, sql.indexOf(privateDeviceShape)));
+    // Constraints and a plpgsql trigger only (Private device recovery): nothing
+    // for memory consumers; real PG tests qualify them.
+    if (sql.trimStart().startsWith("-- mdbase:installation-private-device-recovery:v1")) return [];
     // pg-mem lacks recovery array/null-safe CHECKs and deferred triggers.
     // Schema-only prefix for existing memory consumers; recovery authority
     // and partial-commit invariants are qualified by real PostgreSQL only.

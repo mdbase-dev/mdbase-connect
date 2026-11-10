@@ -66,7 +66,7 @@ With the switch off, which is the default, every route behaves exactly as today.
 | Change | Detail |
 | --- | --- |
 | Scope | `installation_collection_scopes` gains `private_device boolean NOT NULL DEFAULT false` (new migration; never edit applied ones). A row with `private_device = true` is consent for this installation to be a keyed device of that collection while it is `sync = 'private'`. |
-| Request | The installation START object adds optional `requested_private_device: boolean` (default false). An app sends it on every sign-in without knowing what the server will grant, so START never refuses it: with the switch on, the ask is granted only to an app whose registered manifest declares `offline.replica`, for its own `app-runtime` device (and never on a recovery sign-in or file-access request), and is otherwise recorded as not requested, with sign-in going on as for any other app. The decision is made once, when the request's window is first created, and a replay or renewal keeps it whatever the switch says by then. Only a granted ask that the client itself drops is `409 installation_original_binding_changed`; a request that was not granted is accepted with either value and stays not granted. |
+| Request | The installation START object adds optional `requested_private_device: boolean` (default false). An app sends it on every sign-in without knowing what the server will grant, so START never refuses it: with the switch on, the ask is granted only to an app whose registered manifest declares `offline.replica`, for its own `app-runtime` device (never on a file-access request), and is otherwise recorded as not requested, with sign-in going on as for any other app. A recovery sign-in is the one exception: see "Request access again" below. The decision is made once, when the request's window is first created, and a replay or renewal keeps it whatever the switch says by then. Only a granted ask that the client itself drops is `409 installation_original_binding_changed`; a request that was not granted is accepted with either value and stays not granted. |
 | Consent | When requested, the portal chooser offers eligible Private collections for device access with distinct copy. Approval sends them in a new explicit list `private_device_collection_ids` (lowercase non-zero UUIDs, disjoint from `collection_ids`). The existing `selected_collection_kind: "private"` grant path is unchanged and is what apps that did not request device access still get. Additive re-consent mirrors this. |
 | Receipt | When the request was granted, the exchange receipt adds `private_device_collection_ids` (`added_private_device_collection_ids` after a re-consent). A request that was not granted gets today's receipt. If the switch was turned off between approval and exchange, the exchange still succeeds and the key is present with an empty list: no device access was granted, and cloud copies approved in the same request still work. |
 | List | `GET /v1/next/collections` returns Private rows that have a `private_device` scope and current membership, and every row carries `mode: "cloud_copy" \| "private"`. |
@@ -74,6 +74,7 @@ With the switch off, which is the default, every route behaves exactly as today.
 | Log token | `POST /v1/next/collections/:id/log-token` accepts a `private_device` scope for a `private` collection. |
 | Account key | `GET /v1/next/account-key/status` and `GET /v1/next/account-key` admit the installation bearer when it holds at least one current `private_device` scope. `PUT`, strict, strict-witness, account-key-device, create (`POST /v1/next/collections/private`), approval-request and the approval-peer routes keep refusing it. |
 | Remove access | Removing a Private device scope queues the device revoke as for cloud copies. Confirm a keyed device then rekeys the installation out. |
+| Request access again | A recovery sign-in for a collection the installation held as Private device access asks for device access again and is offered only that collection, with the same per-collection consent. See "Request access again" below. |
 
 ### Server implementation notes
 
@@ -108,13 +109,15 @@ route details are in `docs/installation-collection-scope.md` under "Private devi
 - **No selection for a Private device collection.** `selected_collection_id` stays a
   cloud copy. An approval may consist only of `private_device_collection_ids`; the app
   opens one from that list or from its own chooser.
-- **START never refuses the ask.** The SDK sends `requested_private_device: true`
-  whenever the app declares `offline.replica`. The server grants it only when the
-  switch is on, the registered manifest declares `offline.replica`, the device is `app-runtime`, and
-  the request is neither a recovery sign-in nor a file-access request. Otherwise it
-  stores false: no `private_device` choices at inspect, no receipt key, and the rest of
-  sign-in is unchanged. A value that is not a boolean is `400 invalid_request`, as for
-  every other START field.
+- **START never refuses the ask on a first sign-in.** The SDK sends
+  `requested_private_device: true` whenever the app declares `offline.replica`. The
+  server grants it only when the switch is on, the registered manifest declares
+  `offline.replica`, the device is `app-runtime`, and the request is not a file-access
+  request. Otherwise it stores false: no `private_device` choices at inspect, no
+  receipt key, and the rest of sign-in is unchanged. A value that is not a boolean is
+  `400 invalid_request`, as for every other START field. A recovery sign-in asks only
+  to get back a collection it held as device access, so there an ask the server cannot
+  grant is refused (see "Request access again").
 - **The decision is made once.** It is taken when a request's window is first created
   and stored on the pairing. A replay or a renewal of that window keeps the stored
   decision and does not consult the switch again, so an operator's change never makes
@@ -128,10 +131,12 @@ route details are in `docs/installation-collection-scope.md` under "Private devi
 - **Device access replaces the app-grant choice for a granted request.** Such a
   request is offered private collections as `kind: "private_device"` only; it cannot
   also take the `selected_collection_kind: "private"` grant path in the same approval.
-- **Refusal codes.** `403 installation_private_device_not_allowed` is returned only at
-  approval: for one that names `private_device_collection_ids` on a request that was
-  not granted, or made after the switch was turned off. Exchange
-  never returns it. If the switch was turned off between approval and exchange, the
+- **Refusal codes.** `403 installation_private_device_not_allowed` is returned at
+  approval for one that names `private_device_collection_ids` on a request that was
+  not granted, or made after the switch was turned off. On a recovery sign-in it is
+  also returned at START (an ask the server does not grant) and at exchange (the switch
+  turned off after approval); see "Request access again". Otherwise exchange never
+  returns it: if the switch was turned off between approval and exchange, the
   exchange succeeds, writes no Private device scope rows, and the receipt carries an
   empty `private_device_collection_ids` (`added_private_device_collection_ids` after a
   re-consent), so the app can see it got no device access. Use of a route without
@@ -171,6 +176,49 @@ route details are in `docs/installation-collection-scope.md` under "Private devi
   on a cloud copy. When a later approval changes a row's kind, its file actions are
   cleared and must be asked for again.
 
+### Request access again
+
+Removing an app's access to a collection in the portal
+(`POST /v1/account/applications/:id/remove-installation-access`) removes it from every
+installation of that app and permanently revokes their devices for that collection.
+The app then shows `installation_scope_removed` for the collection, with the action
+"Request access again" (`application.approve(collectionId)`). That starts a recovery
+sign-in: a fresh scoped installation and device for that one collection
+(`recovery_collection_id`), as for a cloud copy.
+
+- **The SDK asks again for what was removed.** If the original installation held the
+  collection as Private device access and the app declares `offline.replica`, the
+  recovery START carries `requested_private_device: true`. A collection that was a cloud
+  copy recovers as before, without the ask.
+- **START.** The ask is granted under the same rules as on a first sign-in (switch on,
+  `offline.replica` in the registered manifest, `app-runtime`). When it cannot be
+  granted, START is `403 installation_private_device_not_allowed` and no request is
+  created. The SDK reports it as the problem `private_device_not_allowed` ("This app
+  can't keep this collection"), not as "needs an update". A recovery without the ask,
+  from an older SDK, is unchanged.
+- **Consent.** Inspect offers only the recovered collection, as
+  `kind: "private_device"`, with the same per-collection copy as a first sign-in. The
+  only approval that completes it is `private_device_collection_ids` naming that
+  collection, with no `collection_ids`, selection, creation or Native choice. Anything
+  else is `409 installation_recovery_target_changed`, and the database constraints
+  (migration 0103) allow nothing wider. Declining in the portal leaves the collection
+  awaiting approval, marked declined (phase `needs_approval`, `declined: true`), and
+  nothing is granted. Requesting again renews that window; Connect then waits for the
+  same account to be chosen again (the exchange reads `pending`) before the person
+  can approve.
+- **Exchange.** The receipt carries `recovery_collection_id`, `collection_ids: []` and
+  `private_device_collection_ids: [collection]`, and the new installation gets that one
+  `private_device` scope row. The SDK accepts no other recovery receipt. If the switch
+  was turned off after approval, the exchange is
+  `403 installation_private_device_not_allowed` and no credential is issued, because a
+  recovery with no device access would have nothing to sync.
+- **Sync resumes with a fresh device.** The new installation's device has no key yet.
+  The app reaches `needs_unlock` and the encryption password (or the recovery key)
+  unlocks it once, as on another computer. The SDK erases the removed installation's
+  local copy of the collection before the recovery, so changes the app had not sent
+  when access was removed are not kept. Changes made elsewhere meanwhile, on the
+  desktop for example, arrive with the next sync.
+
 ## SDK contract (`runtime/packages/sdk`)
 
 - **Declaration.** An app asks for device access by listing `offline.replica` in its
@@ -191,6 +239,9 @@ route details are in `docs/installation-collection-scope.md` under "Private devi
   connector and device taken from the runtime's pinned state, never from the caller.
   Both the encryption password and the recovery key need this fetch. **This widens what
   the app runtime will sign and needs a custody review** (see trust decision 4).
+- **Recovery.** After a Private device collection's access is removed,
+  `approve(collectionId)` asks for device access again (see "Request access again"). A
+  server that cannot grant it is reported as `private_device_not_allowed`.
 - **One Private collection per installation.** The app custody holds a single enrol
   marker; a second Private collection is refused with `private_device_limit`.
 - **Opening.** Selecting a Private entry runs a private host path instead of the
@@ -226,10 +277,16 @@ route details are in `docs/installation-collection-scope.md` under "Private devi
 - Server: PostgreSQL tests for scope required, wrong device, non-member, revoked,
   strict account, the switch off (never on, and turned off after enrolment), an app
   that does not declare `offline.replica`, scope removal denying the token, and the bearer
-  still refused on every route listed as unchanged; app-runtime Private enrol.
+  still refused on every route listed as unchanged; app-runtime Private enrol; a
+  recovery sign-in restoring exactly the removed collection as device access, and
+  refused with the switch off, for an undeclared app, or for any wider approval.
 - SDK: unit tests for the host path, the phase, the action and secret wiping; a Chromium
   smoke with the real WASM runtime for enrol, unlock, and reopen after the grant.
 - Runtime: account-key unlock on the app store (rebuild-on-open) is an untested
   combination today. A test must cover unlock, apply, and reopen.
 - End to end: a local stack or LAB, with a desktop app creating the Private collection
   and setting the encryption password, and the plugin joining on another machine.
+  `runtime/packages/sdk/scripts/app-private-device-local-e2e.mjs` covers this on a
+  local stack, including step 9: access removed in the portal, an edit on the desktop
+  meanwhile, a refusal with the switch off, a decline, and then "Request access again"
+  restoring sync in the same app.
