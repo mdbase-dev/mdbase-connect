@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildApp } from "./app.js";
-import { createDatabase } from "./db.js";
+import { buildApp } from "../../app.js";
+import { createDatabase } from "../../db.js";
 import {
   HostedProviderResponseError,
   HostedProviderUnavailableError,
   type HostedProviderClient
-} from "./features/hosted/hosted-provider.js";
+} from "../hosted/hosted-provider.js";
 
 const resources: Array<() => Promise<void>> = [];
 const TASKS_CONTRACT = {
