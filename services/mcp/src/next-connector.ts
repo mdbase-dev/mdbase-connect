@@ -51,7 +51,6 @@ export function gatewayConnector(o: GatewayConnectorOptions): Connector {
 }
 
 function uuidBytes(value: string): Uint8Array {
-  const hex = value.replaceAll("-", "");
-  if (!/^[0-9a-f]{32}$/i.test(hex)) throw mdbaseError("invalid_request", "not a UUID");
-  return Uint8Array.from(hex.match(/../g)!, (byte) => Number.parseInt(byte, 16));
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) throw mdbaseError("invalid_request", "not a UUID");
+  return Uint8Array.from(value.replaceAll("-", "").match(/../g)!, (byte) => Number.parseInt(byte, 16));
 }

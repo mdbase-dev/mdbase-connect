@@ -39,6 +39,57 @@ function fakeWebSocket(onServer: (carrier: MessageCarrier) => void, sent: unknow
   };
 }
 
+/** A fake Connect relay: `pipe_auth` in the first text frame, then u32be-framed Noise messages to the daemon end. */
+function fakeRelay(onPipe: (carrier: MessageCarrier) => void, auths: unknown[], piped: Uint8Array[]): (url: string) => WebSocketLike {
+  return () => {
+    const ws: WebSocketLike = {
+      binaryType: "blob",
+      readyState: 0,
+      onopen: null,
+      onmessage: null,
+      onclose: null,
+      onerror: null,
+      send: (data) => queueMicrotask(() => fromClient(data)),
+      close: () => queueMicrotask(() => ws.onclose?.({ code: 1000 }))
+    };
+    let buffered = new Uint8Array(0);
+    const daemon: MessageCarrier = {
+      onmessage: null,
+      onclose: null,
+      send: (message) => {
+        const frame = new Uint8Array(4 + message.length);
+        new DataView(frame.buffer).setUint32(0, message.length);
+        frame.set(message, 4);
+        queueMicrotask(() => ws.onmessage?.({ data: frame.buffer }));
+      },
+      close: () => queueMicrotask(() => ws.onclose?.({ code: 1000 }))
+    };
+    const fromClient = (data: Uint8Array | string) => {
+      if (typeof data === "string") {
+        auths.push(JSON.parse(data));
+        onPipe(daemon);
+        ws.onmessage?.({ data: JSON.stringify({ type: "pipe_opened", pipe_id: randomUUID() }) });
+        return;
+      }
+      const joined = new Uint8Array(buffered.length + data.length);
+      joined.set(buffered);
+      joined.set(data, buffered.length);
+      let offset = 0;
+      while (joined.length - offset >= 4) {
+        const length = new DataView(joined.buffer, offset, 4).getUint32(0);
+        if (joined.length - offset - 4 < length) break;
+        const message = joined.slice(offset + 4, offset + 4 + length);
+        piped.push(message);
+        daemon.onmessage?.(message);
+        offset += 4 + length;
+      }
+      buffered = joined.slice(offset);
+    };
+    queueMicrotask(() => ws.onopen?.({}));
+    return ws;
+  };
+}
+
 describe("gatewayConnector", () => {
   it("sends the hosted replica the 64-byte prologue in clear before Noise message 1", async () => {
     const replica = new MemoryReplica({ confirmDelayMs: 0 });
@@ -77,25 +128,34 @@ describe("gatewayConnector", () => {
   });
 
   it("opens the relay pipe for a device target and never sends the prologue in clear", async () => {
+    const replica = new MemoryReplica({ confirmDelayMs: 0 });
     const device = randomUUID();
     const grant = randomUUID();
-    const collection = randomUUID();
     const replicaKey = generateKeyPair();
-    const prologue = clientPrologue(uuidBytes(collection), uuidBytes(grant), uuidBytes(device));
-    const sent: unknown[] = [];
-    const webSocket = fakeWebSocket((carrier) => { queueMicrotask(() => queueMicrotask(() => carrier.close())); }, sent);
+    const prologue = clientPrologue(uuidBytes(replica.collection), uuidBytes(grant), uuidBytes(device));
+    const auths: unknown[] = [];
+    const piped: Uint8Array[] = [];
+    // The daemon end of the pipe expects Noise message 1 first: a prologue sent ahead of it fails the handshake.
+    const webSocket = fakeRelay((carrier) => serveNoise(carrier, replica.connector(), { staticKey: replicaKey, prologue }), auths, piped);
     const route = routeFromControl({
-      collection,
+      collection: replica.collection,
       grant,
-      targets: [{ kind: "desktop", device, noise_pk: hex(replicaKey.publicKey), url: "wss://relay.test/v1/next/relay/client", relay_collection: collection }]
+      targets: [{ kind: "desktop", device, noise_pk: hex(replicaKey.publicKey), url: "wss://relay.test/v1/next/relay/client", relay_collection: "relay-collection" }]
     }, "token");
-    await expect(connect({
+    const client = await connect({
       app,
       reconnect: false,
-      connector: gatewayConnector({ collection, grant, staticKey: generateKeyPair(), webSocket, resolveRoute: async () => route })
-    })).rejects.toBeDefined();
-    expect(typeof sent[0]).toBe("string");
-    expect(sent.some((message) => message instanceof Uint8Array && hex(message) === hex(prologue))).toBe(false);
+      connector: gatewayConnector({ collection: replica.collection, grant, staticKey: generateKeyPair(), webSocket, resolveRoute: async () => route })
+    });
+    expect(auths).toEqual([{
+      type: "pipe_auth", access_token: "token", collection: "relay-collection", grant, device, device_noise_pk: hex(replicaKey.publicKey)
+    }]);
+    expect(piped.length).toBeGreaterThan(0);
+    expect(piped.some((message) => hex(message) === hex(prologue))).toBe(false);
+    const write = await client.create({ path: "a.md", body: "device" });
+    await write.confirmed;
+    expect((await client.get({ path: "a.md" }, { body: true })).body).toBe("device");
+    client.close();
   });
 
   it("reports no route as unavailable", async () => {
