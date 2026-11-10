@@ -182,6 +182,10 @@ msgstr "浏览和编辑记录"
 msgid "Browser, OS, viewport and recent error codes. No note contents, paths or credentials."
 msgstr "浏览器、操作系统、视口和近期错误代码。不包含笔记内容、路径或凭据。"
 
+#: src/AppSwitcher.tsx
+msgid "Build your own"
+msgstr "构建自己的应用"
+
 #: src/CommentsPanel.tsx
 msgid "by {resolver}"
 msgstr "由 {resolver}"
