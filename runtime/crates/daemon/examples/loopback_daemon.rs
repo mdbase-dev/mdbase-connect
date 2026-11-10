@@ -21,8 +21,14 @@ async fn main() {
         .with_env_filter(std::env::var("RUST_LOG").unwrap_or_else(|_| "warn".into()))
         .with_writer(std::io::stderr)
         .init();
-    let state = PathBuf::from(std::env::args().nth(1).expect("usage: loopback_daemon <state-dir>"));
+    let state = PathBuf::from(
+        std::env::args()
+            .nth(1)
+            .expect("usage: loopback_daemon <state-dir>"),
+    );
     mdbn_daemon::trust::allow_loopback_control_plane_for_tests();
     let profile = Profile::resolve(Some(&state)).expect("profile");
-    mdbn_daemon::server::run(profile, None).await.expect("daemon");
+    mdbn_daemon::server::run(profile, None)
+        .await
+        .expect("daemon");
 }
