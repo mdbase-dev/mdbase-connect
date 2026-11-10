@@ -21,6 +21,7 @@ struct Trace {
     blob_reads: Rc<Cell<usize>>,
     key_reads: Rc<Cell<usize>>,
     full_coverage_checks: Rc<Cell<usize>>,
+    orphan_scans: Rc<Cell<usize>>,
 }
 impl IndexStorage for Trace {
     fn info(&self) -> mdbn_store_file::index::IndexInfo {
@@ -42,6 +43,12 @@ impl IndexStorage for Trace {
             {
                 self.full_coverage_checks
                     .set(self.full_coverage_checks.get() + 1);
+            }
+            if s.sql.starts_with("UPDATE st_qstate SET ready=0")
+                && s.sql
+                    .contains("EXISTS(SELECT 1 FROM st_qrecord q LEFT JOIN st_rec r")
+            {
+                self.orphan_scans.set(self.orphan_scans.get() + 1);
             }
             if s.sql.contains("SELECT row FROM st_rec") {
                 self.blob_reads.set(self.blob_reads.get() + 1);
@@ -106,6 +113,7 @@ fn open(name: &str, rows: Vec<RecordRow>, names: &[&str]) -> Fixture {
         blob_reads: blobs.clone(),
         key_reads: keys.clone(),
         full_coverage_checks: Rc::new(Cell::new(0)),
+        orphan_scans: Rc::new(Cell::new(0)),
     }));
     let mut store = SqlStore::open(index.clone()).unwrap();
     let refs: Vec<_> = names.iter().map(|n| field(n)).collect();
@@ -572,6 +580,56 @@ fn deletion_keeps_null_coverage_and_nonlive_projection_cannot_keep_ready() {
             ..Tx::default()
         })
         .unwrap();
+    assert!(!store.query_index_state().unwrap().unwrap().ready);
+}
+/// The whole-index orphan scan guards index-only updates of a ready index. A
+/// rebuild's pages are unready, so per page it could change nothing and would
+/// make a backfill of N records run N/page scans over the index built so far.
+#[test]
+fn backfill_pages_skip_the_whole_index_orphan_scan() {
+    let rows: Vec<_> = (1..=6).map(|n| row(n, "priority: 1")).collect();
+    let (mut store, index, _, _, refs) =
+        open("query_index_backfill_scans", rows.clone(), &["priority"]);
+    let scans = || index.borrow().orphan_scans.get();
+    let specs = query_index_fields(&refs, 8192).unwrap();
+    let pages: Vec<_> = rows.chunks(2).collect();
+    for (at, page) in pages.iter().enumerate() {
+        let last = at + 1 == pages.len();
+        store
+            .commit(Tx {
+                query_index: Some(QueryIndexTx {
+                    generation: [8; 32],
+                    replace_specs: (at == 0).then(|| specs.clone()),
+                    rows: page
+                        .iter()
+                        .map(|r| project_record_query_index_row(&catalog(), r, &refs, 8192))
+                        .collect::<Result<_, _>>()
+                        .unwrap(),
+                    publish_at: last.then_some(Head::GENESIS),
+                    completes_backfill: last,
+                }),
+                ..Tx::default()
+            })
+            .unwrap();
+        assert_eq!(store.query_index_state().unwrap().unwrap().ready, last);
+    }
+    assert_eq!(scans(), 0, "no backfill page scans the whole index");
+    // An index-only update of the ready index is still checked, once.
+    let fake =
+        project_record_query_index_row(&catalog(), &row(99, "priority: 8"), &refs, 8192).unwrap();
+    store
+        .commit(Tx {
+            query_index: Some(QueryIndexTx {
+                generation: [8; 32],
+                replace_specs: None,
+                rows: vec![fake],
+                publish_at: None,
+                completes_backfill: false,
+            }),
+            ..Tx::default()
+        })
+        .unwrap();
+    assert_eq!(scans(), 1);
     assert!(!store.query_index_state().unwrap().unwrap().ready);
 }
 #[test]
