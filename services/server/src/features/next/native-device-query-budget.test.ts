@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { nativeDevices } from "./features/next/native-grant-target.js";
+import { nativeDevices } from "./native-grant-target.js";
 
 const account = "10000000-0000-4000-8000-000000000001";
 const collection = "20000000-0000-4000-8000-000000000001";
