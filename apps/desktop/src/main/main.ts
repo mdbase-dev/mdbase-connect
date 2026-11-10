@@ -100,12 +100,9 @@ const MIGRATION_TIMEOUT_MS = 650_000;
 
 interface AccountInfo {
   signed_in: boolean;
-  online: boolean;
   pairing?: string;
-  last_error?: string;
   server?: string;
   environment?: string;
-  computer_name?: string;
 }
 
 async function account(): Promise<AccountInfo> {
@@ -451,18 +448,6 @@ function registerIpc(): void {
     if (typeof enabled !== "boolean") throw new Error("Invalid startup setting.");
     return setLaunchAtLogin(enabled);
   });
-  ipcMain.handle("connect:cloud:get", async (event) => {
-    trustedIpc(event);
-    const current = await account();
-    return {
-      configured: current.signed_in,
-      serverUrl: current.server ?? null,
-      online: current.online,
-      pairing: current.pairing ?? null,
-      lastError: current.last_error ?? null,
-      computerName: current.computer_name ?? null
-    };
-  });
   ipcMain.handle("connect:account:open", async (event) => {
     trustedIpc(event);
     await shell.openExternal(new URL("/account", await signedInServer()).href);
@@ -677,12 +662,16 @@ async function setLaunchAtLogin(enabled: boolean): Promise<{ enabled: boolean; a
 }
 
 function createWindow(): void {
+  const startHidden = process.argv.includes("--hidden");
   mainWindow = new BrowserWindow({
     width: 1060,
     height: 720,
     minWidth: 820,
     minHeight: 580,
     show: false,
+    // Started at login: the page must see itself hidden so it does not poll until
+    // shown. Painting first would report it visible (and fire ready-to-show).
+    paintWhenInitiallyHidden: !startHidden,
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#1c1e24" : "#fcfcfd",
     title: "mdbase connect",
     webPreferences: {
@@ -702,7 +691,7 @@ function createWindow(): void {
   });
   mainWindow.loadFile(RENDERER_FILE);
   mainWindow.once("ready-to-show", () => {
-    if (!process.argv.includes("--hidden")) mainWindow?.show();
+    if (!startHidden) mainWindow?.show();
   });
   mainWindow.on("close", (event) => {
     if (!quitting) {
@@ -788,19 +777,13 @@ app.whenReady().then(async () => {
     mainWindow?.webContents.send("connect:update-status", status);
     refreshTrayMenu();
   });
-  try {
-    await initializeDaemon();
-  } catch (error) {
-    dialog.showErrorBox(
-      t(i18n)({ message: "mdbase connect could not initialize", context: "Desktop application" }),
-      error instanceof Error ? error.message : String(error)
-    );
-    app.quit();
-    return;
-  }
+  // The window opens while the daemon's CLI is still being found: its
+  // daemon-backed requests wait in the boot gate, so it shows "Checking connection".
+  const daemonInitialization = initializeDaemon();
   bootGate = new BootGate({
     initialize: async () => { await updater.initialize(); },
     start: async () => {
+      await daemonInitialization;
       // The daemon is an OS service (or an isolated development daemon); the app
       // attaches to it and never starts the old connector.
       await daemonSession().start();
@@ -811,6 +794,16 @@ app.whenReady().then(async () => {
   createWindow();
   createTray();
   handleDeepLink(process.argv.find((value) => value.startsWith("mdbase-connect://")));
+  try {
+    await daemonInitialization;
+  } catch (error) {
+    dialog.showErrorBox(
+      t(i18n)({ message: "mdbase connect could not initialize", context: "Desktop application" }),
+      error instanceof Error ? error.message : String(error)
+    );
+    app.quit();
+    return;
+  }
   try {
     await bootGate.ready();
     void requestReadyAgent("migrate.status", { refresh_rollout: true }).catch(() => {});

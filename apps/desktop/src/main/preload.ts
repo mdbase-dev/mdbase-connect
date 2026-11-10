@@ -36,7 +36,6 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
   openApp: (url: string) => ipcRenderer.invoke("connect:apps:open", url),
   getLaunchAtLogin: () => ipcRenderer.invoke("connect:startup:get"),
   setLaunchAtLogin: (enabled: boolean) => ipcRenderer.invoke("connect:startup:set", enabled),
-  getCloudConfig: () => ipcRenderer.invoke("connect:cloud:get"),
   openAccount: () => ipcRenderer.invoke("connect:account:open"),
   signIn: () => ipcRenderer.invoke("connect:account:sign-in"),
   reopenSignIn: () => ipcRenderer.invoke("connect:account:reopen-sign-in"),

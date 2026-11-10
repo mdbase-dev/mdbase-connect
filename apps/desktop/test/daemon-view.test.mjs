@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { accountProblemText, capabilityPhrase, describeActivity, groupAccess, presentCollection, presentConnection } from "../src/renderer/daemon-view.mts";
+import { accountProblemText, capabilityPhrase, cloudSetting, describeActivity, groupAccess, presentCollection, presentConnection } from "../src/renderer/daemon-view.mts";
 
 test("connection: unknown, stopped, signed out, signing in and online are distinct", () => {
   assert.equal(presentConnection(null, false).dot, "connecting");
@@ -20,6 +20,15 @@ test("connection: an account problem is explained in plain words, never as a cod
   assert.equal(presentConnection({ account: { signed_in: true, online: true } }, true).detail, undefined);
   assert.doesNotMatch(accountProblemText("some_new_reason"), /_/);
   assert.equal(accountProblemText(null), undefined);
+});
+
+test("account: sign-in and Settings read the account from the same status response", () => {
+  assert.deepEqual(cloudSetting({ account: { signed_in: true, online: true, server: "https://connect.example", computer_name: "Desk" } }), {
+    configured: true, serverUrl: "https://connect.example", online: true, pairing: null, lastError: null, computerName: "Desk"
+  });
+  assert.deepEqual(cloudSetting({ account: { signed_in: false, online: false, pairing: "https://connect.example/pair", last_error: "sign_in_expired" } }), {
+    configured: false, serverUrl: null, online: false, pairing: "https://connect.example/pair", lastError: "sign_in_expired", computerName: null
+  });
 });
 
 test("collections: sync is offered only for a ready local collection; waiting work is never shown as up to date", () => {

@@ -147,18 +147,6 @@ interface DesktopUpdateStatus {
   daemon_notice?: string;
 }
 
-interface CloudSetting {
-  /** Signed in to an mdbase account. */
-  configured: boolean;
-  serverUrl: string | null;
-  online?: boolean;
-  /** A sign-in waiting for browser approval: the page to open. */
-  pairing?: string | null;
-  lastError?: string | null;
-  /** This computer's name in the account. */
-  computerName?: string | null;
-}
-
 interface Window {
   mdbaseConnect: {
     getLocale(): Promise<string>;
@@ -189,7 +177,6 @@ interface Window {
     openApp(url: string): Promise<void>;
     getLaunchAtLogin(): Promise<StartupSetting>;
     setLaunchAtLogin(enabled: boolean): Promise<StartupSetting>;
-    getCloudConfig(): Promise<CloudSetting>;
     openAccount(): Promise<void>;
     signIn(): Promise<{ verificationUri: string; expiresIn: number | null }>;
     reopenSignIn(): Promise<void>;
