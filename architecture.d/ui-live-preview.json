@@ -1,9 +1,0 @@
-{
-  "reason": "Shared Markdown live preview for CodeMirror in @mdbase-dev/ui (`./live-preview`), so Editor, Writer and other apps render Markdown the same way instead of each keeping its own decorations. One entry module plus one module per concern: reveal tracking, inline marks and lists, list keys, blocks, and tables. Tables are three modules: the grid decorations and keys, a pure table model whose exported edit functions (insert, move, delete, align, sort, paste) are the shared interface for keys, menus and tests, and the hover controls and menu.",
-  "growth": {
-    "productionFiles": 8,
-    "relativeImports": 13,
-    "typeScriptExportDeclarations": 50,
-    "packages/app-ui": 8
-  }
-}

@@ -3,7 +3,7 @@ import type { DatabasePool } from "../../database-types.js";
 import {
   HostedProviderResponseError,
   type HostedProviderClient
-} from "../../hosted-provider.js";
+} from "../hosted/hosted-provider.js";
 import { tokenHash } from "../../security.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 import { configureTopologyTransaction, requireAccountNotMigrationFrozen } from "../next/migration-topology.js";

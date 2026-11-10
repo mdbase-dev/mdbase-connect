@@ -6,16 +6,16 @@ import {
   AccountDeletionAuthorizationError,
   ExternalIdentityConflictError,
   IdentityRemovalForbiddenError
-} from "../account-management.js";
-import { AccountUnavailableError } from "../external-auth.js";
-import { InvalidExternalSignupError, ExternalSignupEmailRequiredError } from "../external-signup.js";
-import { HostedEntitlementRequiredError } from "../entitlements.js";
-import { GitHubIdentityError } from "../github-auth.js";
-import { GoogleIdentityError } from "../google-auth.js";
+} from "../features/account/account-management.js";
+import { AccountUnavailableError } from "../features/auth/external-auth.js";
+import { InvalidExternalSignupError, ExternalSignupEmailRequiredError } from "../features/auth/external-signup.js";
+import { HostedEntitlementRequiredError } from "../features/account/entitlements.js";
+import { GitHubIdentityError } from "../features/auth/github-auth.js";
+import { GoogleIdentityError } from "../features/auth/google-auth.js";
 import {
   HostedProviderResponseError,
   HostedProviderUnavailableError
-} from "../hosted-provider.js";
+} from "../features/hosted/hosted-provider.js";
 import { ApplicationManifestError } from "../manifest.js";
 import {
   ApplicationAuthorizationError,
@@ -28,25 +28,25 @@ import {
   PasswordAuthenticationUnavailableError,
   PasswordCredentialUnavailableError,
   PasswordLoginRejectedError
-} from "../password-auth.js";
+} from "../features/auth/password-auth.js";
 import {
   InvalidPasswordResetError,
   PasswordRecoveryUnavailableError
-} from "../password-recovery.js";
-import { PasswordPolicyError } from "../password.js";
+} from "../features/auth/password-recovery.js";
+import { PasswordPolicyError } from "../features/auth/password.js";
 import {
   InvalidPublicSignupVerificationError,
   PublicSignupUnavailableError
-} from "../public-signup.js";
-import { InvalidEmailAddressError } from "../email-identity.js";
+} from "../features/auth/public-signup.js";
+import { InvalidEmailAddressError } from "../features/auth/email-identity.js";
 import {
   ConnectorOperationError,
   RelayUnavailableError
-} from "../relay.js";
-import { CollectionAccessDeniedError } from "../collection-access.js";
-import { CollectionInvitationError } from "../collection-invitations.js";
-import { CollectionMembershipPolicyError } from "../collection-policy.js";
-import { GrantPlanningError } from "../grant-planner.js";
+} from "../features/relay/relay.js";
+import { CollectionAccessDeniedError } from "../features/collections/collection-access.js";
+import { CollectionInvitationError } from "../features/collections/collection-invitations.js";
+import { CollectionMembershipPolicyError } from "../features/collections/collection-policy.js";
+import { GrantPlanningError } from "../features/grants/grant-planner.js";
 import {
   CutoverProblemError,
   cutoverProblem,

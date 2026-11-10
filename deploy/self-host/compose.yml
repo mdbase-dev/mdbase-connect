@@ -84,9 +84,11 @@ services:
       MDBASE_CONNECT_HOSTED_PROVIDER_URL: ${HOSTED_PROVIDER_PUBLIC_URL:-}
       MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN: ${HOSTED_PROVIDER_INTERNAL_TOKEN:-}
       MDBASE_CONNECT_TRUST_PROXY: "1"
-      MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS: "0"
       MDBASE_CONNECT_RELAY_NATS_URL: nats://relay-broker:4222
       MDBASE_CONNECT_RELAY_NATS_TOKEN: ${RELAY_NATS_TOKEN}
+      # Self-hosting runs only the legacy backend; the next backend's services
+      # are not self-hostable yet. The server's default is next.
+      MDBASE_NEW_ACCOUNT_BACKEND: legacy
     depends_on:
       control-migrate:
         condition: service_completed_successfully

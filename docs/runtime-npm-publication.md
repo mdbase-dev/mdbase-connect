@@ -1,11 +1,11 @@
 # Runtime npm publication
 
-The SDK follows the Connect release train; the other runtime packages retain
-their own versions:
+The SDK version is computed by its own CI publication workflow; the other runtime
+packages retain their own versions:
 
 | Package | Initial manifest version | Source |
 | --- | --- | --- |
-| `@mdbase-dev/sdk` | Connect release version (first cut `0.1.0-beta.149`) | `runtime/packages/sdk` |
+| `@mdbase-dev/sdk` | CI-computed (first cut `0.1.0-beta.149`) | `runtime/packages/sdk` |
 | `@mdbase-dev/obsidian-runtime` | `0.0.0` | `runtime/packages/obsidian-runtime` |
 | `mdbase` | `0.5.0-rc.1` | `runtime/packages/mdbase` |
 

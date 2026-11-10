@@ -14,8 +14,8 @@
 //       Rollback aid: restore plaintext targets before running a release that
 //       predates sealing.
 import { createDatabase, openDatabase } from "../../../db.js";
-import { HostedProviderClient } from "../../../hosted-provider.js";
-import { hostedProviderConfigFromEnv } from "../../../runtime-config.js";
+import { HostedProviderClient } from "../../hosted/hosted-provider.js";
+import { hostedProviderConfigFromEnv } from "../../../platform/runtime-config.js";
 import { legacyTimerGrantResolver } from "./grants.js";
 import { importHostedCollectionTimers, TimerImportRefused } from "./hosted-import.js";
 import { TimerError } from "./model.js";

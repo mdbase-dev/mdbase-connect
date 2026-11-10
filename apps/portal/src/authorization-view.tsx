@@ -1,5 +1,5 @@
 import { StatusGlyph } from "@mdbase/connect-ui/status-glyph";
-import { isNativeLoopbackOrigin } from "@mdbase-dev/connect-protocol/manifest";
+import { isLoopbackHttpOrigin } from "@mdbase-dev/connect-protocol/manifest";
 import { t, plural } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
@@ -354,22 +354,25 @@ function appOriginKind(origin: string | undefined | null): string | null {
   return null;
 }
 
-export function RequestIdentity({ request, showClientKey = true }: { request: Pick<PendingAuthorization, "application_name" | "homepage"> & Partial<Pick<PendingAuthorization, "distribution" | "platform" | "application_origin" | "icon" | "project_url" | "user_code" | "client_fingerprint" | "expires_at">>; showClientKey?: boolean }) {
+export function RequestIdentity({ request, showClientKey = true }: { request: Pick<PendingAuthorization, "application_name" | "homepage"> & Partial<Pick<PendingAuthorization, "distribution" | "application_origin" | "icon" | "project_url" | "user_code" | "client_fingerprint" | "expires_at">>; showClientKey?: boolean }) {
   useLocaleRevision();
   const [failedIcon, setFailedIcon] = useState<string | null>(null);
-  const portable = request.distribution === "portable", native = request.platform === "native" && isNativeLoopbackOrigin(request.application_origin);
+  // A loopback HTTP origin is a program on this computer (a native app, or a web
+  // app under development). Its manifest names no verified publisher, so its
+  // name and icon are never shown as branding.
+  const portable = request.distribution === "portable", local = isLoopbackHttpOrigin(request.application_origin);
   const originKind = appOriginKind(request.application_origin);
   return (
     <header className="request-identity">
-      <span className="request-identity-mark" aria-hidden="true">{!native && request.icon && request.icon !== failedIcon
+      <span className="request-identity-mark" aria-hidden="true">{!local && request.icon && request.icon !== failedIcon
         ? <img src={request.icon} alt="" referrerPolicy="no-referrer" onError={() => setFailedIcon(request.icon ?? null)} />
-        : native ? null : initials(request.application_name)}</span>
+        : local ? null : initials(request.application_name)}</span>
       <div>
-        <h1>{native ? t(i18n)`Connect an app` : request.application_name}</h1>
-        <p className="request-origin">{native ? t(i18n)`an app running on this computer` : portable
+        <h1>{local ? t(i18n)`Connect an app` : request.application_name}</h1>
+        <p className="request-origin">{local ? t(i18n)`an app running on this computer` : portable
           ? <>{t(i18n)({ message: "App using a device code" })}{request.project_url && <> · <code>{host(request.project_url)}</code></>}</>
           : request.application_origin?.trim() ? <><code>{request.application_origin}</code>{originKind && ` · ${originKind}`}</> : null}</p>
-        {native
+        {local
           ? <p className="request-guidance" role="note"><Trans>App identity unverified. This app calls itself {literal(request.application_name)}. Continue only if you started this connection intentionally.</Trans></p>
           : portable
           ? <p className="request-guidance portable-authorization-warning" role="note"><Trans><strong>App origin unverified.</strong> Continue only if you started this connection intentionally{request.user_code ? <Trans> and it shows <code>{request.user_code}</code></Trans> : null}.{request.project_url ? <Trans> {literal(host(request.project_url))} does not verify its origin.</Trans> : null}</Trans></p>

@@ -1,6 +1,7 @@
 // Role-0 log token refresh for an enrolled device of a synced collection (a daemon's
 // synced runtime renews its log credential every 15 minutes). Private and cloud-copy
-// collections alike. This is a device credential only. It is not membership,
+// collections alike; an installation credential needs its consent for that
+// collection in its current mode (docs/installation-private-device.md). This is a device credential only. It is not membership,
 // approval or admission: it never enrols, re-enrols or reactivates anything, and the
 // log service enforces the collection's current ACL on every RPC.
 //
@@ -27,9 +28,9 @@ import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
 import { CreateError } from "./bootstrap-common.js";
 import { requireCollectionNotDeleted } from "./collection-deletion.js";
-import { requireInstallationScope } from "./installation-scope.js";
+import { privateDeviceTarget, requireInstallationScope, requirePrivateDeviceScope, type PrivateDeviceGate } from "./installation-scope.js";
 import { requireInstallationDeviceConnector } from "../../platform/request-authentication.js";
-import { recordDeviceActivity } from "../../protocol-telemetry.js";
+import { recordDeviceActivity } from "../usage/protocol-telemetry.js";
 import { LOG_TOKEN_LIFETIME_MS, type LogServiceClient } from "./log-service-client.js";
 import { ed25519PublicKeyObject } from "./policy-keys.js";
 import { domainHash, encodeCbor, uuidBytes, type RegisteredDeviceKind } from "./policy-wire.js";
@@ -55,6 +56,8 @@ const isLockTimeout = (error: unknown) => ["55P03", "57014"].includes(String((er
 
 export function registerCollectionLogTokenRoute(app: FastifyInstance, options: {
   db: DatabasePool; log: Pick<LogServiceClient, "mintToken">; now?: () => number;
+  /** Which applications' installations may be devices of Private collections; absent means none. */
+  privateDevice?: PrivateDeviceGate;
 }): void {
   const uuid = { type: "string", pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" };
   app.post<{ Params: { id: string }; Body: Body }>("/v1/next/collections/:id/log-token", {
@@ -100,10 +103,14 @@ async function refresh(
   collection: string,
   deviceId: string,
   body: Body,
-  options: { log: Pick<LogServiceClient, "mintToken">; now?: () => number }
+  options: { log: Pick<LogServiceClient, "mintToken">; now?: () => number; privateDevice?: PrivateDeviceGate }
 ): Promise<{ token: string; expires_at: number }> {
   if (connector.installation_device_id && connector.installation_device_id!==deviceId) throw new Refused(403,"invalid_proof");
-  await requireInstallationScope(client,connector,collection);
+  // An installation needs the consent of the collection's current mode: its
+  // explicit Private device consent for a Private collection, its cloud-copy
+  // scope otherwise. Neither stands in for the other.
+  if (await privateDeviceTarget(client,options.privateDevice,connector,collection)) await requirePrivateDeviceScope(client,options.privateDevice,connector,collection);
+  else await requireInstallationScope(client,connector,collection);
   // Proof, then the single-use challenge.
   const device = (await client.query<Device>(
     "SELECT sign_pk, kem_pk, noise_pk, kind FROM next_devices WHERE id = $1 AND connector_id = $2 AND user_id = $3",

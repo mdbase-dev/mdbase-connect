@@ -2,12 +2,11 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { DatabasePool } from "../../db.js";
 import { registerApplicationManifest } from "../../manifest.js";
-import { ensureApplicationReconciliation } from "../../application-reconciliation.js";
+import { ensureApplicationReconciliation } from "./application-reconciliation.js";
 import { upsertApplication } from "./store.js";
 
 interface ApplicationRouteOptions {
   db: DatabasePool;
-  allowInsecureManifests?: boolean;
 }
 
 export function registerApplicationRoutes(
@@ -16,10 +15,7 @@ export function registerApplicationRoutes(
 ): void {
   app.post("/v1/apps/validate", async (request) => {
     const input = z.object({ manifest: z.unknown() }).strict().parse(request.body);
-    const validated = registerApplicationManifest(
-      input.manifest,
-      options.allowInsecureManifests
-    );
+    const validated = registerApplicationManifest(input.manifest);
     return {
       valid: true,
       declaration: {
@@ -32,10 +28,7 @@ export function registerApplicationRoutes(
 
   app.post("/v1/apps/register", async (request) => {
     const input = z.object({ manifest: z.unknown() }).strict().parse(request.body);
-    const registered = registerApplicationManifest(
-      input.manifest,
-      options.allowInsecureManifests
-    );
+    const registered = registerApplicationManifest(input.manifest);
     // Discovery and its first durable job are atomic. ON CONFLICT DO NOTHING is
     // intentional: re-registering an immutable exact application must not wake
     // a completed scan or disturb an in-flight lease/cursor.

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { CollectionAccessDeniedError } from "../../collection-access.js";
+import { CollectionAccessDeniedError } from "../collections/collection-access.js";
 import {
   acceptHostedCollectionInvitation,
   CollectionInvitationError,
@@ -9,12 +9,12 @@ import {
   listHostedCollectionInvitations,
   listHostedCollectionMembers,
   revokeHostedCollectionInvitation
-} from "../../collection-invitations.js";
+} from "../collections/collection-invitations.js";
 import {
   changeHostedCollectionMembershipRole,
   revokeHostedCollectionMembership
-} from "../../collection-membership-lifecycle.js";
-import { COLLECTION_MEMBERSHIP_ROLES } from "../../collection-policy.js";
+} from "../collections/collection-membership-lifecycle.js";
+import { COLLECTION_MEMBERSHIP_ROLES } from "../collections/collection-policy.js";
 import type { DatabasePool } from "../../db.js";
 import { requireUser } from "../../platform/request-authentication.js";
 import { apiError } from "../../platform/http-errors.js";

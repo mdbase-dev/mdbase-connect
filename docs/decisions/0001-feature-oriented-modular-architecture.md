@@ -29,9 +29,7 @@ Application use cases own transaction boundaries. Security checks remain at
 the connector or provider that can make the final authorization decision.
 Collection semantics stay in `mdbase-rs`.
 
-Production source files have a default 1,000-line ceiling. Existing exceptions
-are explicit and ratchet downward during extraction. Relative source and
-workspace-package dependency cycles are prohibited.
+Relative source and workspace-package dependency cycles are prohibited.
 
 ## Consequences
 

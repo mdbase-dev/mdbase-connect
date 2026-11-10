@@ -15,7 +15,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import {
   localCollectionUnavailableError
-} from "../../collection-access.js";
+} from "../collections/collection-access.js";
 import type { DatabasePool } from "../../database-types.js";
 import {
   apiError,
@@ -26,7 +26,7 @@ import {
   ConnectorOperationError,
   type RelayHub,
   RelayUnavailableError
-} from "../../relay.js";
+} from "../relay/relay.js";
 import { tokenHash } from "../../security.js";
 import {
   encryptedRelayRequestSchema,

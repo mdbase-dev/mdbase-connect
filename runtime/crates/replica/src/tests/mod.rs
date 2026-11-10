@@ -1,5 +1,7 @@
 //! Engine tests that use the test-only sealer.
 
+mod apply_results;
+mod apply_void_inventory;
 mod attachment_apply;
 mod attachment_ingest;
 mod attachment_upload;

@@ -15,7 +15,7 @@ use mdbn_wire::{
     unindexed_markdown::{FileKindV1, UnindexedMarkdownPayloadV1, UnindexedMarkdownToRecord},
 };
 use std::collections::{BTreeMap, BTreeSet};
-fn fixture(
+pub(super) fn fixture(
     a: &mut Node,
     doc: &str,
     source: &[u8],
@@ -85,7 +85,7 @@ fn apply(a: &mut Node, h: Head, p: &rt::EntryPayload, refs: &[Hash]) -> Outcome 
     )
     .unwrap()
 }
-fn supply(a: &mut Node, objects: &BTreeMap<Hash, Vec<u8>>, corrupt: bool) {
+pub(super) fn supply(a: &mut Node, objects: &BTreeMap<Hash, Vec<u8>>, corrupt: bool) {
     for c in a.r.take_log_calls() {
         if let LogRequest::GetObject { address, .. } = c.request {
             let mut bytes = objects[&address].clone();

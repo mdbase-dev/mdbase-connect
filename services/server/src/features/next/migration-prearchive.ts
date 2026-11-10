@@ -6,8 +6,8 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
-import type { HostedProviderClient } from "../../hosted-provider.js";
-import { legacyMigrationDrainSchema, legacyNotificationWatermarkSchema, migrationFenceSchema, migrationUuid } from "../../hosted-provider-replies.js";
+import type { HostedProviderClient } from "../hosted/hosted-provider.js";
+import { legacyMigrationDrainSchema, legacyNotificationWatermarkSchema, migrationFenceSchema, migrationUuid } from "../hosted/hosted-provider-replies.js";
 import { audit } from "../../platform/audit-events.js";
 import { apiError } from "../../platform/http-errors.js";
 import { bearerToken } from "../../platform/request-authentication.js";

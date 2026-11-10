@@ -6,34 +6,34 @@ import { z } from "zod";
 import {
   AuthRateLimiter,
   type AuthRateLimitRule
-} from "../../auth-rate-limit.js";
+} from "./auth-rate-limit.js";
 import { passwordSignupIpRule } from "./password-signup-limit.js";
-import { sessionClientName } from "../../account-sessions.js";
+import { sessionClientName } from "../account/account-sessions.js";
 import { ianaTimezoneSchema } from "../../platform/timezones.js";
-import type { AuthenticationPolicyStore } from "../../authentication-policy.js";
+import type { AuthenticationPolicyStore } from "./authentication-policy.js";
 import type { DatabasePool } from "../../database-types.js";
 import {
   EmailDeliveryError,
   type EmailTransport
-} from "../../email.js";
-import { normalizeEmailAddress } from "../../email-identity.js";
+} from "../email/email.js";
+import { normalizeEmailAddress } from "./email-identity.js";
 import {
   AuthenticationPolicyIncompleteError,
   PasswordAccountService,
   PasswordAuthenticationUnavailableError
-} from "../../password-auth.js";
+} from "./password-auth.js";
 import {
   PasswordRecoveryService,
   PasswordRecoveryUnavailableError
-} from "../../password-recovery.js";
-import { sendPasswordResetEmail } from "../../password-reset-email.js";
+} from "./password-recovery.js";
+import { sendPasswordResetEmail } from "../email/password-reset-email.js";
 import {
   PublicSignupService,
   PublicSignupUnavailableError
-} from "../../public-signup.js";
-import { sendPublicSignupVerificationEmail } from "../../public-signup-email.js";
-import { PASSWORD_MAX_UTF8_BYTES } from "../../password.js";
-import type { AuthenticationLegalDocuments } from "../../runtime-config.js";
+} from "./public-signup.js";
+import { sendPublicSignupVerificationEmail } from "../email/public-signup-email.js";
+import { PASSWORD_MAX_UTF8_BYTES } from "./password.js";
+import type { AuthenticationLegalDocuments } from "../../platform/runtime-config.js";
 import {
   apiError,
   RequestValidationError

@@ -1,5 +1,5 @@
 import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
-import { effectiveEntitlement } from "../../entitlements.js";
+import { effectiveEntitlement } from "../account/entitlements.js";
 import { LogServiceError, type LogServiceClient } from "./log-service-client.js";
 
 /** The log service's `gc` batch: a full batch means more may remain. */

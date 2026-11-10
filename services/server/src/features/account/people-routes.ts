@@ -1,8 +1,8 @@
 import type { AccountProfile, CollectionMemberProfile, CurrentAccountResponse, PeoplePermission } from "@mdbase-dev/connect-protocol";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { resolveHostedCollectionAccess, resolveLocalCollectionAccess } from "../../collection-access.js";
-import { matchesMembershipBinding, membershipBindingForAccess } from "../../collection-membership-binding.js";
+import { resolveHostedCollectionAccess, resolveLocalCollectionAccess } from "../collections/collection-access.js";
+import { matchesMembershipBinding, membershipBindingForAccess } from "../collections/collection-membership-binding.js";
 import type { DatabasePool } from "../../db.js";
 import { bearerToken, requireInstallationDeviceConnector } from "../../platform/request-authentication.js";
 import { inTransaction, refuse } from "../next/bootstrap-common.js";

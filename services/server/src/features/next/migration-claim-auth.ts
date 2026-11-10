@@ -2,7 +2,7 @@
 // Call only with authoritative current SQL facts inside the canonical collection
 // transaction. Public DTO equality never supplies this currentness by itself.
 import { randomBytes, verify as edVerify } from "node:crypto";
-import { localBuild, localDeployment } from "../../local-deployment.js";
+import { localBuild, localDeployment } from "../../platform/local-deployment.js";
 import type { DatabaseConnection } from "../../database-types.js";
 import { CreateError } from "./bootstrap-common.js";
 import { weakAgreementKey, weakSigningKey } from "./devices.js";

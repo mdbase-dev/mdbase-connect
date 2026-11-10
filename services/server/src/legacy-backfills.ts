@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   EMAIL_NORMALIZATION_VERSION,
   normalizeEmailAddress
-} from "./email-identity.js";
+} from "./features/auth/email-identity.js";
 import type { DatabaseQueryable } from "./database-types.js";
 
 export async function backfillSessionProviders(db: DatabaseQueryable): Promise<void> {

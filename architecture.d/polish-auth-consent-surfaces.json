@@ -1,7 +1,0 @@
-{
-  "reason": "Five portal-private exports share the signed-out footer, request shell, collection identity and acknowledged grant moment across sign-in, onboarding, authorization and pairing. One relative import connects the shared request identity to pairing. These replace both independent request layouts and the authorization-only radio list; the standalone picker file and duplicate installation CSS are deleted, reducing production code overall. No public API, dependency or protocol is added. One more names the session-expired sign-in URL shared by both Portal redirects.",
-  "growth": {
-    "relativeImports": 1,
-    "typeScriptExportDeclarations": 6
-  }
-}

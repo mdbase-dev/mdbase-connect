@@ -4,7 +4,7 @@ import { randomBytes } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { DatabaseConnection } from "../../database-types.js";
-import { localBuild, localDeployment } from "../../local-deployment.js";
+import { localBuild, localDeployment } from "../../platform/local-deployment.js";
 import { apiError } from "../../platform/http-errors.js";
 import { authenticate, currentIdentity, enrolOp, exactEnrolment, inTransaction, CreateError, refuse, refuseRevoked, SERVICE_ACCOUNT, type Device } from "./bootstrap-common.js";
 import { authenticateOwner, isRekeyItem, ownedMode, type Owner, type Mode } from "./collection-mode-routes.js";

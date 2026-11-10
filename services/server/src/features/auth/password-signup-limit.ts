@@ -1,4 +1,4 @@
-import type { AuthRateLimitRule } from "../../auth-rate-limit.js";
+import type { AuthRateLimitRule } from "./auth-rate-limit.js";
 
 export function passwordSignupIpRule(environment: string | undefined, maximum?: number): AuthRateLimitRule {
   if (maximum !== undefined) {

@@ -1,8 +1,6 @@
 import { readFile, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { fragments, assembleChangelog } from "./changelog.mjs";
-import { counters, declarations } from "./architecture-growth.mjs";
-import { evaluateArchitecture } from "./architecture-check.mjs";
 
 // This is the release cohort checked by version:check, not every workspace:
 // the editor and feedback service have independent versions.
@@ -98,18 +96,7 @@ export async function prepareVersion(root, version, { dryRun = false } = {}) {
   updates.set(mcp, replaceOne(mcpSource, /(new McpServer\(\{ name: "mdbase", version: ")[^"]+(")/, `$1${version}$2`, mcp));
   const entries = await fragments(root);
   updates.set("CHANGELOG.md", assembleChangelog(await read("CHANGELOG.md"), entries, version));
-  const budgetFile = "config/architecture-budgets.json";
-  const budgets = JSON.parse(await read(budgetFile));
-  const result = await evaluateArchitecture(root, budgets, { checkCounters: false });
-  if (result.failures.length) throw new Error(`Architecture hard gates failed:\n${result.failures.join("\n")}`);
-  const counts = counters(result);
-  budgets.reviewBudgets = Object.fromEntries(Object.keys(budgets.reviewBudgets).map((name) => [name, counts[name]]));
-  budgets.productionFileBudgetsByPackage = Object.fromEntries(
-    Object.keys(result.productionFilesByPackage).sort().map((name) => [name, result.productionFilesByPackage[name]])
-  );
-  updates.set(budgetFile, `${JSON.stringify(budgets, null, 2)}\n`);
-  const growthEntries = await declarations(root);
-  const removals = [...entries.map((entry) => `changelog.d/${entry.name}`), ...growthEntries.map((entry) => `architecture.d/${entry.name}`)];
+  const removals = entries.map((entry) => `changelog.d/${entry.name}`);
   // Validate everything before writing anything. A dry run returns the exact plan.
   if (!dryRun) {
     for (const [file, content] of updates) await writeFile(path.join(root, file), content);

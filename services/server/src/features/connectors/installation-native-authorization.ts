@@ -1,7 +1,7 @@
 /** Compose consent, never the two transports' credentials or content scopes. */
 import type { ApplicationAuthorizationProof } from "@mdbase-dev/connect-protocol";
 import type { DatabaseConnection, DatabaseQueryable } from "../../database-types.js";
-import { listNativeCollectionsVisibleToUser } from "../../collection-catalog.js";
+import { listNativeCollectionsVisibleToUser } from "../collections/collection-catalog.js";
 import { approveNativeAuthorizationInTransaction, resolveNativeCollectionAccess } from "../authorizations/native-approval-service.js";
 import { applicationOriginForRedirect } from "../authorizations/redirects.js";
 import { requiresHostedCollection } from "../grants/policy.js";

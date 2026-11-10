@@ -11,7 +11,7 @@ const repoRoot = resolve(import.meta.dirname, "../..");
 
 test("every system suite has an existing command and known preparation steps", async () => {
   assert.deepEqual(Object.keys(systemSuites), [
-    "local",
+    "runtime-daemon",
     "relay",
     "sync",
     "provider",
@@ -44,8 +44,11 @@ test("full Server CI covers every registered system suite exactly once", async (
     .flatMap((match) => match[1].split(","));
   const containerCommands = [...workflow.matchAll(/--suite\s+container\b/g)];
   assert.equal(containerCommands.length, 1, "container suite must have one full-CI job");
+  // Server CI's runtime-native job reuses the daemon shard's test build.
+  const native = await readFile(resolve(repoRoot, ".github/workflows/runtime-native-tests.yml"), "utf8");
+  assert.equal([...native.matchAll(/--suite\s+runtime-daemon\b/g)].length, 1, "runtime-daemon suite must have one native-CI step");
   assert.deepEqual(
-    [...matrixSuites, "container"].sort(),
+    [...matrixSuites, "container", "runtime-daemon"].sort(),
     Object.keys(systemSuites).sort()
   );
 });

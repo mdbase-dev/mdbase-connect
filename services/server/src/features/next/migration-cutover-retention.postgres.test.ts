@@ -6,7 +6,7 @@ import Fastify from "fastify";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import { HostedProviderUnavailableError } from "../../hosted-provider.js";
+import { HostedProviderUnavailableError } from "../hosted/hosted-provider.js";
 import { fakeLegacyProvider, type FakeLegacyProvider } from "./legacy-provider.test-helper.js";
 import {
   acceptCohortArchive, addToCohort, cohortArchiveBinding, createCohort, recordCollectionCutover,

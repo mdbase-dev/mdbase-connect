@@ -10,6 +10,12 @@ registered `homepage` and `redirect_uris`. Opaque redirect origins (`null`) neve
 authorize pairing. The approval screen shows the registered name and the exact
 requested origin, so the user can check where the request came from.
 
+An app under development declares a loopback HTTP origin (`localhost`,
+`127.0.0.1` or `[::1]`, any port) as its `homepage`, and pairs from exactly that
+origin as an app runtime in every environment, production included. The
+loopback declaration is its own registered application; see
+[local app development](local-app-development.md).
+
 For additional native or loopback locations, an app may include this optional
 field in its manifest (both supported contract versions):
 
@@ -23,7 +29,9 @@ field in its manifest (both supported contract versions):
 ```
 
 Additional origins use only the configured deployment environment and requested
-device kind. They must be exact canonical HTTPS origins, loopback HTTP origins,
+device kind. They must be exact canonical HTTPS origins, loopback HTTP origins
+(`lab` only; staging and production never pair a loopback origin that is merely
+listed here),
 mobile `capacitor://` origins, or app-runtime Chrome extension origins
 (`chrome-extension://` followed by the 32-letter extension ID): no wildcards,
 paths, credentials, query or fragment. Other browser extension schemes are not

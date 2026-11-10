@@ -30,4 +30,19 @@ describe("AppSwitcher", () => {
     act(() => root.unmount());
     container.remove();
   });
+
+  it("ends the menu with a link to the SDK guide that the arrow keys reach", () => {
+    const container = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(container);
+    act(() => root.render(<AppSwitcher current="writer" urls={{ editor: "https://editor.example", writer: "https://writer.example" }} />));
+    act(() => container.querySelector<HTMLElement>(".mdbase-app-switcher")!.click());
+    const items = [...container.querySelectorAll<HTMLAnchorElement>('[role="menu"] [role="menuitem"]:not([aria-disabled="true"])')];
+    const build = items.at(-1)!;
+
+    expect(items.map((item) => item.getAttribute("href"))).toEqual(["https://editor.example/", "https://mdbase.dev/sdk/"]);
+    expect(build.textContent).toContain("Build your own");
+    expect(build.target).toBe("_blank");
+    act(() => root.unmount());
+    container.remove();
+  });
 });

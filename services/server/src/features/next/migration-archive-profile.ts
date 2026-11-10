@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { DatabaseQueryable } from "../../database-types.js";
-import { localBuild } from "../../local-deployment.js";
-import { legacyNotificationWatermarkSchema, migrationUuid } from "../../hosted-provider-replies.js";
+import { localBuild } from "../../platform/local-deployment.js";
+import { legacyNotificationWatermarkSchema, migrationUuid } from "../hosted/hosted-provider-replies.js";
 
 /** Named scoped profile: two real encrypted inventory/provenance artifacts,
  * never three database dumps, hosted objects, or a local-folder backup. */

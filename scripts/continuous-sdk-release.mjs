@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { publicPackages } from "./public-packages.mjs";
-import { api, checkoutProductionCommit, contractSensitive, gh, git, nextBetaVersion, repository, requireGreenMain, requireRunning, verifyCompatibility } from "./lib/continuous-client-release.mjs";
+import { api, checkoutProductionCommit, gh, git, nextBetaVersion, repository, requireGreenMain, requireRunning, verifyCompatibility } from "./lib/continuous-client-release.mjs";
 
 const registry = "https://registry.npmjs.org";
 const readJson = file => JSON.parse(readFileSync(file, "utf8"));
@@ -81,8 +81,27 @@ async function published(item, workflow) {
   const baseline = publicationBaseline(metadata, item, workflow);
   const source = await provenSource(item.name, baseline);
   git("fetch", "--no-tags", "origin", source.commit);
-  git("merge-base", "--is-ancestor", source.commit, "HEAD");
   return { ...item, ...baseline, commit: source.commit };
+}
+
+// Status 1 is a history relationship, not a broken git invocation (128).
+export function baselineHistory(baseline, head, runGit = git) {
+  const ancestor = (from, to) => {
+    try { runGit("merge-base", "--is-ancestor", from, to); return true; }
+    catch (error) {
+      if (error.status === 1) return false;
+      throw new Error("publication-ancestry-unavailable");
+    }
+  };
+  if (ancestor(baseline, head)) return "contained";
+  if (ancestor(head, baseline)) return "ahead";
+  throw new Error("publication-baseline-diverged");
+}
+
+function summarizePackage(item, production, run, decision, env) {
+  const line = `${item.name}: selected production ${production}; run ${run}; published baseline ${item.baseline.version} at ${item.baseline.commit}; ${decision}.`;
+  console.log(line);
+  if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, `- ${line}\n`);
 }
 
 export function contentChanged(path, before, after) {
@@ -119,43 +138,69 @@ export function inputChanged(path, item, kind, from, to, runGit = git) {
   return contentChanged(path, readAt(from), readAt(to));
 }
 
-// npm refuses provenance that names any commit but this run's own. A run on a
-// newer main still publishes when nothing between the production commit and it
-// changes a published package's inputs or the server-facing contract: the
-// production commit's qualified bytes are then exactly this commit's bytes.
-// Any manifest change counts, even version-only, because packing names the
-// qualified tarballs by the checked-out manifest version. Otherwise it stands
-// down and leaves the selected source unpublished.
-export function publicationCommit(production, run, packages, kind, runGit = git) {
-  if (production === run) return run;
-  try { runGit("merge-base", "--is-ancestor", production, run); }
-  catch (error) { if (error.status === 1) return null; throw error; }
-  const paths = runGit("diff", "--no-renames", "--name-only", "-z", production, run).split("\0").filter(Boolean);
-  return paths.some(path => contractSensitive(path)
-    || packages.some(item => packageInputs(path, item, kind) && contentChanged(path))) ? null : run;
+// npm provenance names the commit its workflow run checked out. So a publisher
+// never runs on main, whose tip outruns production: the main coordinator
+// reserves an immutable annotated tag v<version> at the selected production
+// commit and dispatches this workflow on it. The tag is the run's ref and commit,
+// so standard provenance and every consumer's refs/tags/v<version> rule hold.
+const reservationSchema = "mdbase-npm-release/1";
+const releaseTag = /^v0\.1\.0-beta\.([1-9][0-9]*)$/;
+const betaNumber = version => BigInt(/^0\.1\.0-beta\.([1-9][0-9]*)$/.exec(version)?.[1] ?? 0);
+const above = (version, reference) => betaNumber(version) > betaNumber(reference);
+const publisherFile = kind => kind === "source" ? "publish-sdk-npm.yml" : "publish-npm.yml";
+
+// Null for the main coordinator; otherwise the reserved tag this publisher runs on.
+export function publicationTag(env) {
+  if (env.GITHUB_REF === "refs/heads/main") return null;
+  const tag = env.GITHUB_REF?.startsWith("refs/tags/") ? env.GITHUB_REF.slice("refs/tags/".length) : "";
+  assert(releaseTag.test(tag) && env.GITHUB_EVENT_NAME === "workflow_dispatch",
+    "Publication runs only as the main coordinator or on a dispatched release tag.");
+  return tag;
 }
 
-// Main's Server CI reuses the merge queue's artifacts, so a new main commit
-// qualifies within about a minute of landing; Runtime CI, which the source
-// build also requires, takes up to about twenty. Wait boundedly for either.
-export async function awaitMainCi(commit, { workflow = "server-ci.yml", events = ["push"], readApi = api,
-  wait = ms => new Promise(done => setTimeout(done, ms)), attempts = 30, delay = 20_000 } = {}) {
-  for (let attempt = 1; ; attempt += 1) {
-    const runs = readApi(`actions/workflows/${workflow}/runs?head_sha=${commit}&branch=main&per_page=100`).workflow_runs
-      .filter(run => run.head_sha === commit && run.head_branch === "main" && events.includes(run.event)
-        && run.path === `.github/workflows/${workflow}`);
-    if (runs.some(run => run.status === "completed" && run.conclusion === "success")) return true;
-    if (runs.length > 0 && runs.every(run => run.status === "completed")) return false;
-    if (attempt >= attempts) return false;
-    await wait(delay);
-  }
+// The remote, protected tag is authoritative: annotated, at this commit, for this line.
+export function readReservation(tag, kind, commit, readApi = api) {
+  assert.match(tag, releaseTag);
+  const reference = readApi(`git/ref/tags/${tag}`);
+  assert.equal(reference.object?.type, "tag", "Publication tags must be annotated reservations.");
+  const object = readApi(`git/tags/${reference.object.sha}`);
+  assert.equal(object.object?.type, "commit");
+  assert.equal(object.object.sha, commit, "The publication tag must identify this exact commit.");
+  const record = JSON.parse(object.message);
+  assert.equal(record.schema, reservationSchema);
+  assert.equal(record.kind, kind);
+  assert.equal(record.commit, commit);
+  return record;
 }
 
-// The qualifications the publish jobs re-check for the publishing commit.
-export async function awaitPublicationCi(commit, kind, options = {}) {
-  if (!await awaitMainCi(commit, options)) return false;
-  return kind !== "source" || awaitMainCi(commit,
-    { ...options, workflow: "runtime-ci.yml", events: ["push", "workflow_dispatch"], attempts: 75 });
+// Every release tag (Desktop's, retired server trains' and these reservations)
+// shares the v0.1.0-beta.N namespace, so allocation stays above all of them.
+export function listReservations(kind, commit, runGit = git) {
+  runGit("fetch", "--no-tags", "origin", "refs/tags/v*:refs/tags/v*");
+  const tags = runGit("for-each-ref", "--format=%(refname:short)%00%(objecttype)%00%(contents:subject)%00%(*objectname)", "refs/tags/v*")
+    .split("\n").filter(Boolean).map(line => line.split("\0")).filter(([tag]) => releaseTag.test(tag));
+  const reserved = tags.flatMap(([tag, type, subject, peeled]) => {
+    if (type !== "tag" || !subject.startsWith(`{"schema":"${reservationSchema}"`)) return [];
+    const record = JSON.parse(subject);
+    return record.kind === kind && record.commit === commit && peeled === commit ? [tag] : [];
+  });
+  return { versions: tags.map(([tag]) => tag.slice(1)),
+    reserved: reserved.sort((left, right) => above(left.slice(1), right.slice(1)) ? -1 : 1) };
+}
+
+// A tag run executes the publisher workflow committed at the tag. Transition
+// guard: until production contains tag publication, a reservation would only
+// yield a run that skips every job. Remove once production contains it.
+export function tagPublisher(kind, commit, runGit = git) {
+  return runGit("show", `${commit}:.github/workflows/${publisherFile(kind)}`)
+    .includes("github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v0.1.0-beta.')");
+}
+
+// One read: the coordinator reserves only commits whose exact Runtime CI passed.
+export function runtimeQualified(commit, readApi = api) {
+  return readApi(`actions/workflows/runtime-ci.yml/runs?head_sha=${commit}&branch=main&per_page=100`).workflow_runs
+    .some(run => run.head_sha === commit && run.head_branch === "main" && ["push", "workflow_dispatch"].includes(run.event)
+      && run.path === ".github/workflows/runtime-ci.yml" && run.status === "completed" && run.conclusion === "success");
 }
 
 export function dependentPackages(packages, changed) {
@@ -175,18 +220,23 @@ export function dependentPackages(packages, changed) {
   return packages.filter(item => selected.has(item.name));
 }
 
+// Coordinator and tag runs are separate concurrency groups, so an unfinished
+// tag run is in flight, not an unknown outcome; its tag is never redispatched.
 export function failedPublisherRuns(runs, current, acknowledged = "") {
   assert(acknowledged === "" || /^[1-9][0-9]*$/.test(acknowledged), "Invalid acknowledged publication run.");
   return runs.filter(run => run.id < Number(current) && run.id > Number(acknowledged || 0)
-    && run.head_branch === "main" && ["workflow_run", "workflow_dispatch", "schedule"].includes(run.event)
-    && !["success", "skipped"].includes(run.conclusion));
+    && (run.head_branch === "main" || releaseTag.test(run.head_branch ?? ""))
+    && ["workflow_run", "workflow_dispatch", "schedule"].includes(run.event)
+    && run.status === "completed" && !["success", "skipped"].includes(run.conclusion));
 }
 
 function checkPriorAttempts(kind, env) {
-  const workflow = kind === "source" ? "publish-sdk-npm.yml" : "publish-npm.yml";
-  const runs = JSON.parse(gh("api", "--paginate", "--slurp", `repos/${repository}/actions/workflows/${workflow}/runs?branch=main&per_page=100`))
-    .flatMap(page => page.workflow_runs);
-  for (const run of failedPublisherRuns(runs, env.GITHUB_RUN_ID, env.PUBLICATION_ACKNOWLEDGED_RUN)) {
+  const workflow = publisherFile(kind);
+  // Main runs hold the pre-tag history; every tag run is a dispatch.
+  const runs = new Map(["branch=main", "event=workflow_dispatch"].flatMap(filter =>
+    JSON.parse(gh("api", "--paginate", "--slurp", `repos/${repository}/actions/workflows/${workflow}/runs?${filter}&per_page=100`))
+      .flatMap(page => page.workflow_runs)).map(run => [run.id, run]));
+  for (const run of failedPublisherRuns([...runs.values()], env.GITHUB_RUN_ID, env.PUBLICATION_ACKNOWLEDGED_RUN)) {
     const jobs = JSON.parse(gh("api", "--paginate", "--slurp", `repos/${repository}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`))
       .flatMap(page => page.jobs);
     const name = kind === "source" ? "Publish source-built SDK" : "Publish changed SDK packages";
@@ -196,47 +246,144 @@ function checkPriorAttempts(kind, env) {
   }
 }
 
-export async function plan(kind, output, env = process.env) {
+// On main this coordinates: it selects the production commit, decides what
+// changed and, live, records the tag to reserve. On a reserved tag it plans the
+// publication of that tag's own commit at the tag's version.
+export async function plan(kind, output, env = process.env, {
+  selectProduction = checkoutProductionCommit, qualify = requireGreenMain, readPublished = published,
+  reservation = readReservation, reservations = listReservations, runtimeCi = runtimeQualified, publisherAt = tagPublisher,
+  checkAttempts = checkPriorAttempts, verify = verifyCompatibility
+} = {}) {
   assert(["source", "workspace"].includes(kind));
   assert.equal(env.GITHUB_REPOSITORY, repository);
-  assert.equal(env.GITHUB_REF, "refs/heads/main");
+  const tag = publicationTag(env);
   assert.equal(git("rev-parse", "HEAD"), env.GITHUB_SHA);
   requireRunning(env.SDK_RELEASE_STOPPED);
-  // Qualify the selection without step outputs; the publishing commit's own
-  // qualification below names the artifacts that are packed.
-  const { GITHUB_OUTPUT: _, ...quiet } = env;
-  const production = await checkoutProductionCommit(env, { qualify: commit => requireGreenMain(commit, quiet) });
-  const packages = kind === "source" ? [sdk] : await publicPackages();
-  const equivalent = publicationCommit(production, env.GITHUB_SHA, packages, kind);
-  let current = equivalent !== null;
-  if (!current) console.log(`Selected ${production} is not this run's commit and differs in published inputs; publishing nothing.`);
-  else if (equivalent !== production && !await awaitPublicationCi(equivalent, kind)) {
-    current = false;
-    console.log(`This run's ${equivalent} matches selected ${production} but its CI did not pass in time; publishing nothing.`);
+  const run = env.GITHUB_SHA;
+  const live = env.LIVE_PUBLICATION === "true";
+  let commit = run;
+  if (tag) {
+    reservation(tag, kind, commit);
+    // Exact Server CI qualification; its step output names the artifacts packed.
+    qualify(commit, env);
+  } else {
+    const { GITHUB_OUTPUT: _, ...quiet } = env;
+    commit = await selectProduction(env, { qualify: sha => qualify(sha, quiet) });
   }
-  const commit = current ? equivalent : production;
-  git("checkout", "--detach", commit);
-  if (current) requireGreenMain(commit, env);
-  if (current && commit !== production) console.log(`Selected ${production}; this run's ${commit} has the same published inputs and contract, so it publishes as ${commit}.`);
   env = { ...env, GITHUB_SHA: commit };
-  if (env.LIVE_PUBLICATION === "true") checkPriorAttempts(kind, env);
+  const packages = kind === "source" ? [sdk] : await publicPackages();
   const inventory = [];
   const changed = [];
   for (const item of packages) {
     const manifest = readJson(join(item.directory, "package.json"));
-    const baseline = await published(item, kind === "source" ? "publish-sdk-npm.yml" : "publish-npm.yml");
-    const paths = git("diff", "--no-renames", "--name-only", "-z", baseline.commit, env.GITHUB_SHA).split("\0").filter(Boolean);
-    if (current && paths.some(path => inputChanged(path, item, kind, baseline.commit, env.GITHUB_SHA))) changed.push(item.name);
-    inventory.push({ name: item.name, directory: item.directory, manifest, baseline: baseline.version,
-      version: nextBetaVersion([...baseline.versions, manifest.version]) });
+    const baseline = await readPublished(item, publisherFile(kind));
+    let history;
+    try { history = baselineHistory(baseline.commit, commit); }
+    catch (error) { history = error.message; }
+    const paths = history === "contained" ? git("diff", "--no-renames", "--name-only", "-z", baseline.commit, commit).split("\0").filter(Boolean) : [];
+    if (paths.some(path => inputChanged(path, item, kind, baseline.commit, commit))) changed.push(item.name);
+    inventory.push({ name: item.name, directory: item.directory, manifest, baseline, history });
   }
-  const selected = dependentPackages(inventory, changed).map(item => ({ name: item.name, directory: item.directory, version: item.version }));
-  const result = { schema: 1, commit: env.GITHUB_SHA, kind, packages: selected,
-    dependencies: Object.fromEntries(inventory.map(item => [item.name, selected.some(value => value.name === item.name) ? item.version : item.baseline])) };
+  const summarize = decision => { for (const item of inventory) summarizePackage(item, commit, run, decision(item), env); };
+  const invalidHistory = inventory.find(item => !["contained", "ahead"].includes(item.history));
+  if (invalidHistory) {
+    summarize(() => `blocked: ${invalidHistory.history}`);
+    throw new Error(invalidHistory.history);
+  }
+  // Never repack older source through dependency expansion while any package's
+  // verified baseline is ahead of the selected source. Reconcile the line once
+  // production catches up, retaining the existing highest-version baselines.
+  const ahead = inventory.find(item => item.history === "ahead");
+  let chosen = ahead ? [] : dependentPackages(inventory, changed);
+  const predatesTags = !tag && chosen.length > 0 && !publisherAt(kind, commit);
+  const waitingForRuntime = !tag && !predatesTags && kind === "source" && chosen.length > 0 && !runtimeCi(commit);
+  if (predatesTags || waitingForRuntime) chosen = [];
+  // One version per tag: every package a tag publishes carries the tag's version,
+  // above every version any of these packages has published.
+  const lineVersions = inventory.flatMap(item => [...item.baseline.versions, item.manifest.version]);
+  let reserving;
+  if (!tag && chosen.length) {
+    const { versions, reserved } = reservations(kind, commit);
+    const reuse = reserved.find(item => !lineVersions.some(version => above(version, item.slice(1))));
+    reserving = reuse ? { tag: reuse, existing: true } : { tag: `v${nextBetaVersion([...lineVersions, ...versions])}`, existing: false };
+  }
+  const version = (tag ?? reserving?.tag)?.slice(1);
+  const superseded = tag && chosen.find(item => item.baseline.versions.some(value => above(value, version)));
+  if (superseded) {
+    summarize(() => "blocked: publication-version-superseded");
+    throw new Error("publication-version-superseded");
+  }
+  const selected = chosen.map(item => ({ name: item.name, directory: item.directory, version }));
+  const result = { schema: 1, commit, kind, packages: selected, ...(tag ? { tag } : {}), ...(reserving ? { reservation: reserving } : {}),
+    dependencies: Object.fromEntries(inventory.map(item => [item.name, selected.some(value => value.name === item.name) ? version : item.baseline.version])) };
   writeFileSync(output, `${JSON.stringify(result, null, 2)}\n`, { flag: "wx" });
-  if (kind === "workspace") result.compatibility = await qualifyWorkspace(output, env);
-  if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `commit=${commit}\nchanged=${selected.length > 0}\nversion=${selected[0]?.version ?? ""}\n`);
+  let blocked;
+  let gate = "publication-prior-attempt-unreconciled";
+  try {
+    if (selected.length && live) checkAttempts(kind, env);
+    gate = "production-compatibility-unproven";
+    if (selected.length && kind === "workspace") result.compatibility = await qualifyWorkspace(output, env, verify);
+  } catch {
+    blocked = gate;
+  }
+  summarize(item => {
+    if (blocked || result.compatibility?.status === "blocked") return `blocked: ${blocked ?? "production-compatibility-unproven"}`;
+    if (ahead) return `nothing to publish; waiting for production to reach commit ${ahead.baseline.commit}`;
+    if (predatesTags) return `nothing to publish; waiting for production to contain tag publication (${commit} predates it)`;
+    if (waitingForRuntime) return `nothing to publish; waiting for successful Runtime CI of commit ${commit}`;
+    if (!selected.some(value => value.name === item.name)) return "nothing to publish";
+    if (tag) return `publishing ${version} from ${commit}${live ? "" : " (dry run)"}`;
+    return `${live ? (reserving.existing ? "dispatching reserved" : "reserving") : "would reserve"} ${reserving.tag} at ${commit} to publish ${version}`;
+  });
+  if (blocked) throw new Error(blocked);
+  if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `commit=${commit}\nchanged=${Boolean(tag) && selected.length > 0}\npublish=${Boolean(tag) && selected.length > 0 && live}\nreserve=${!tag && selected.length > 0 && live}\nversion=${version ?? ""}\n`);
   console.log(JSON.stringify(result));
+}
+
+// The coordinator's only mutations: create the reserved annotated tag (protected
+// against update and deletion) and dispatch this workflow on it. A reserved tag
+// whose run is in flight is left alone; one whose run ended unpublished is
+// redispatched, unless that run succeeded, which needs review.
+export function reserve(planFile, env = process.env, { readApi = api, writeApi = postApi,
+  dispatch = (workflow, tag) => gh("workflow", "run", workflow, "--repo", repository, "--ref", tag, "-f", "dry_run=false") } = {}) {
+  requireRunning(env.SDK_RELEASE_STOPPED);
+  assert.equal(env.GITHUB_REPOSITORY, repository);
+  assert.equal(env.GITHUB_REF, "refs/heads/main");
+  assert.match(env.GITHUB_RUN_ID ?? "", /^[1-9][0-9]*$/);
+  const record = readJson(planFile);
+  assert(["source", "workspace"].includes(record.kind));
+  assert.match(record.commit, /^[a-f0-9]{40}$/);
+  assert(record.packages.length > 0);
+  const { tag, existing } = record.reservation;
+  assert.match(tag, releaseTag);
+  assert(record.packages.every(item => `v${item.version}` === tag));
+  const workflow = publisherFile(record.kind);
+  assert.equal(readApi(`actions/workflows/${workflow}`).state, "active", "Client publication workflow has been stopped.");
+  if (existing) {
+    readReservation(tag, record.kind, record.commit, readApi);
+    const runs = readApi(`actions/workflows/${workflow}/runs?branch=${tag}&event=workflow_dispatch&per_page=100`).workflow_runs
+      .filter(run => run.head_branch === tag && run.path === `.github/workflows/${workflow}`);
+    if (runs.some(run => run.status !== "completed")) return reported(env, `${tag}: publication in progress; nothing dispatched.`);
+    if (runs.some(run => run.conclusion === "success")) throw new Error("publication-reservation-unconsumed");
+  } else {
+    const object = writeApi("git/tags", { tag, object: record.commit, type: "commit",
+      message: JSON.stringify({ schema: reservationSchema, kind: record.kind, commit: record.commit,
+        reserved_at: new Date().toISOString(), run_id: env.GITHUB_RUN_ID }) });
+    writeApi("git/refs", { ref: `refs/tags/${tag}`, sha: object.sha });
+  }
+  dispatch(workflow, tag);
+  return reported(env, `${tag}: ${existing ? "redispatched" : "reserved and dispatched"} ${workflow} at ${record.commit}.`);
+}
+
+function reported(env, line) {
+  console.log(line);
+  if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, `- ${line}\n`);
+  return line;
+}
+
+function postApi(path, body) {
+  return JSON.parse(execFileSync("gh", ["api", "--method", "POST", `repos/${repository}/${path}`, "--input", "-"],
+    { input: JSON.stringify(body), encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }));
 }
 
 export async function qualifyWorkspace(planFile, env = process.env, verify = verifyCompatibility) {
@@ -247,8 +394,8 @@ export async function qualifyWorkspace(planFile, env = process.env, verify = ver
   let compatibility;
   try {
     compatibility = { status: "passed", evidence: await verify(env) };
-  } catch (error) {
-    compatibility = { status: "blocked", error: error.message };
+  } catch {
+    compatibility = { status: "blocked", error: "production-compatibility-unproven" };
   }
   writeFileSync(planFile, `${JSON.stringify({ ...record, compatibility }, null, 2)}\n`);
   console.log(JSON.stringify({ compatibility }));
@@ -347,6 +494,7 @@ export async function publicationState(name, version, env = process.env, prove =
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const [command, ...args] = process.argv.slice(2);
   if (command === "plan") await plan(...args);
+  else if (command === "reserve") reserve(...args);
   else if (command === "prepare-source") prepareSource(...args);
   else if (command === "pack-workspace") packWorkspace(...args);
   else if (command === "publish-workspace") await publishWorkspace(...args);
@@ -355,5 +503,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     const state = await publicationState(...args);
     if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `state=${state}\n`);
     console.log(`${args[0]}@${args[1]}: ${state}`);
-  } else throw new Error("Expected plan, prepare-source, pack-workspace, publish-workspace, compatible or publication-state.");
+  } else throw new Error("Expected plan, reserve, prepare-source, pack-workspace, publish-workspace, compatible or publication-state.");
 }

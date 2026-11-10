@@ -15,7 +15,7 @@ describe("explicit build environment selection (context validation, not authenti
   });
   it("selects immutable explicit LAB context and no production default", () => {
     const selected = selectAppEnvironment({environment: "lab", appOrigin, release: release()});
-    expect(selected).toEqual({environment: "lab", appOrigin, cpOrigin, logOrigin: "https://log.example.test", assetSha256: "11".repeat(32), allowLoopbackHttp: true, allowNativeLoopbackHttp: false});
+    expect(selected).toEqual({environment: "lab", appOrigin, cpOrigin, logOrigin: "https://log.example.test", assetSha256: "11".repeat(32), allowLoopbackHttp: true});
     expect(Object.isFrozen(selected)).toBe(true);
     expect(() => selectAppEnvironment({environment: undefined as never, appOrigin, release: release()})).toThrow();
     expect(() => selectAppEnvironment({environment: "production", appOrigin: undefined as never, release: release("production")})).toThrow();
@@ -27,10 +27,12 @@ describe("explicit build environment selection (context validation, not authenti
     const selected = selectAppEnvironment({environment: "lab", appOrigin: "https://isolated.example.test", release: release()});
     expect(selected.allowLoopbackHttp).toBe(false);
   });
-  it("refuses LAB/production release-tag swaps and production loopback", () => {
+  it("refuses LAB/production release-tag swaps; a production loopback app origin never relaxes CP/log HTTPS", () => {
     expect(() => selectAppEnvironment({environment: "production", appOrigin: "https://next.example.test", release: release()})).toThrow();
     expect(() => selectAppEnvironment({environment: "lab", appOrigin, release: release("production")})).toThrow();
-    expect(() => selectAppEnvironment({environment: "production", appOrigin, release: release("production")})).toThrow();
+    expect(selectAppEnvironment({environment: "production", appOrigin, release: release("production")})).toMatchObject({appOrigin, allowLoopbackHttp: false});
+    for (const field of ["cpOrigin", "logOrigin"])
+      expect(() => selectAppEnvironment({environment: "production", appOrigin, release: {...release("production"), [field]: appOrigin}})).toThrow();
     expect(selectAppEnvironment({environment: "production", appOrigin: "https://notes.example.test", release: release("production")}).allowLoopbackHttp).toBe(false);
   });
   it.each(["lab", "staging"] as const)("production declarations refuse the %s package's fixed trust", environment => {
@@ -48,7 +50,7 @@ describe("explicit build environment selection (context validation, not authenti
   it.each([["staging", "production"], ["production", "staging"]] as const)("refuses %s selection with a %s release", (environment, released) => {
     expect(() => selectAppEnvironment({environment, appOrigin: "https://notes.example.test", release: release(released)})).toThrow();
   });
-  it("selects distinct staging trust and rejects environment swaps and loopback before side effects", () => {
+  it("selects distinct staging trust, rejects environment swaps and admits only loopback HTTP app origins", () => {
     const bundled = {...release("staging"), cpOrigin: "https://connect-staging.mdbase.dev"};
     const selected = selectAppEnvironment({environment: "staging", appOrigin: "https://notes-staging.example.test", release: bundled});
     expect(selected).toMatchObject({environment: "staging", cpOrigin: bundled.cpOrigin, allowLoopbackHttp: false});
@@ -57,6 +59,8 @@ describe("explicit build environment selection (context validation, not authenti
     for (const environment of ["lab", "production", "local"])
       expect(() => selectAppEnvironment({environment: "staging", appOrigin: "https://notes-staging.example.test", release: release(environment)})).toThrow();
     for (const origin of ["http://127.0.0.1:48218", "http://localhost:48218", "http://[::1]:48218"])
+      expect(selectAppEnvironment({environment: "staging", appOrigin: origin, release: bundled})).toMatchObject({appOrigin: origin, cpOrigin: bundled.cpOrigin, allowLoopbackHttp: false});
+    for (const origin of ["http://notes-staging.example.test", "http://192.168.0.1:48218", "http://127.0.0.2:48218"])
       expect(() => selectAppEnvironment({environment: "staging", appOrigin: origin, release: bundled})).toThrow();
   });
   it.each(["cpOrigin"] as const)("keeps %s HTTPS/canonical-origin requirements", field => {

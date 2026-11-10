@@ -1,35 +1,35 @@
 import { randomUUID } from "node:crypto";
-import { usage } from "./auth-admin-usage.js";
+import { usage } from "./features/instance-admin/auth-admin-usage.js";
 import { migrationExecutableSha256, repairAuthorityImportSources } from "./migrations.js";
 import type { DatabasePool } from "./db.js";
-import { compatibilityReport } from "./auth-admin-compatibility.js";
-import { usageReport } from "./usage-report.js";
-import { drainArchiveErasures } from "./archive-erasure-admin.js";
+import { compatibilityReport } from "./features/instance-admin/auth-admin-compatibility.js";
+import { usageReport } from "./features/usage/usage-report.js";
+import { drainArchiveErasures } from "./features/instance-admin/archive-erasure-admin.js";
 import {
   backfillFreeEntitlement,
   inspectAccountEntitlements,
   reconcileActiveHostedEntitlements
-} from "./auth-admin-entitlements.js";
+} from "./features/instance-admin/auth-admin-entitlements.js";
 import {
   AuthenticationPolicyStore,
   type AuthenticationSettings
-} from "./authentication-policy.js";
-import { PasswordAccountService } from "./password-auth.js";
-import { normalizeEmailAddress } from "./email-identity.js";
-import type { RegistrationMode } from "./runtime-config.js";
-import type { HostedProviderClient } from "./hosted-provider.js";
+} from "./features/auth/authentication-policy.js";
+import { PasswordAccountService } from "./features/auth/password-auth.js";
+import { normalizeEmailAddress } from "./features/auth/email-identity.js";
+import type { RegistrationMode } from "./platform/runtime-config.js";
+import type { HostedProviderClient } from "./features/hosted/hosted-provider.js";
 import {
   grantOperatorEntitlement,
   reconcileHostedAccountCollections
-} from "./entitlements.js";
+} from "./features/account/entitlements.js";
 import {
   EmailDeliveryError,
   type EmailTransport
-} from "./email.js";
+} from "./features/email/email.js";
 import {
   sendInvitationEmail,
   type InvitationEmailTemplate
-} from "./invitation-email.js";
+} from "./features/email/invitation-email.js";
 import {
   InstanceAdminService,
   type HostedReplicaRevoker,

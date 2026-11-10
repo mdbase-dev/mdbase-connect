@@ -1,9 +1,0 @@
-{
-  "reason": "Desktop Home: app-launcher.ts is the main-process boundary that turns a validated HTTPS address into an app-mode browser window (exported pure helpers are unit tested); home-model.mts is node-testable without JSX; home-view.tsx replaces the Overview rows. officialApps replaces the portal's hardcoded production Journal and TaskNotes links, and the connector route adds one listing helper.",
-  "growth": {
-    "productionFiles": 3,
-    "apps/desktop": 3,
-    "relativeImports": 6,
-    "typeScriptExportDeclarations": 14
-  }
-}

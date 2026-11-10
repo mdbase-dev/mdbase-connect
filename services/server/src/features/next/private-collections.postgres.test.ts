@@ -1,11 +1,11 @@
-import { ensureDevelopmentEntitlement } from "../../entitlements.js";
+import { ensureDevelopmentEntitlement } from "../account/entitlements.js";
 import { generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
 import { capabilityOperations } from "@mdbase-dev/connect-protocol";
 import { nativeReadApp } from "./test/native-grant.js";
 import { buildApp } from "../../app.js";
 import { provisionNewAccountBackend } from "./account-backend-flip.js";
 import { registerAuthorizationRoutes } from "../authorizations/routes.js";
-import type { RelayHub } from "../../relay.js";
+import type { RelayHub } from "../relay/relay.js";
 import cookie from "@fastify/cookie";
 import Fastify from "fastify";
 import pg from "pg";

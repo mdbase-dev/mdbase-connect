@@ -84,9 +84,14 @@ async function extractDebData(deb: string, destination: string, signal: AbortSig
       { signal }
     );
   } catch (error) {
-    tar.kill();
-    await exited.catch(() => undefined);
-    throw error;
+    // tar exits once it has read the end of the archive, which can be before
+    // its input finishes closing; its exit code below then decides.
+    const inputClosed = !signal.aborted && ["ERR_STREAM_PREMATURE_CLOSE", "EPIPE"].includes((error as NodeJS.ErrnoException).code ?? "");
+    if (!inputClosed) {
+      tar.kill();
+      await exited.catch(() => undefined);
+      throw error;
+    }
   }
   const code = await exited;
   if (code !== 0) throw new Error(`The Linux package could not be unpacked: ${stderr.trim() || `tar exited with ${code}`}.`);

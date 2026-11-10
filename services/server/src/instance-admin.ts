@@ -6,15 +6,15 @@ import type {
   DatabasePool,
   DatabaseQueryable
 } from "./db.js";
-import { normalizeEmailAddress } from "./email-identity.js";
+import { normalizeEmailAddress } from "./features/auth/email-identity.js";
 import {
   invitationStatusCondition,
   invitationSummary,
   type InvitationPageInput,
   type InvitationRow
-} from "./instance-admin-invitations.js";
+} from "./features/instance-admin/instance-admin-invitations.js";
 
-export type { InvitationPageInput } from "./instance-admin-invitations.js";
+export type { InvitationPageInput } from "./features/instance-admin/instance-admin-invitations.js";
 
 const DEFAULT_PAGE_SIZE = 25;
 const MAX_PAGE_SIZE = 100;

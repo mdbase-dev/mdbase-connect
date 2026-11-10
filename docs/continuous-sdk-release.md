@@ -1,16 +1,29 @@
 # Continuous SDK publication
 
 The existing `publish-npm.yml` and `publish-sdk-npm.yml` workflows are the only
-publishers for their packages. They now wake on green main qualification and
-every six hours (workspace packages at minute 47, source-built SDK at minute 37).
-The source-built SDK also wakes on successful main Runtime CI. After production
-servers, enabled Workers and Editor verify successfully, ops Server CD dispatches
-`publish-sdk-npm.yml` on **main** with `dry_run=false`. The existing release App
-provides Actions write; no new secret, publisher identity or policy key is needed.
-Dispatch failure is advisory, never a server-release failure or rollback.
-PRs never enter
-publishing environments. A manual run is on **main** with `dry_run: true` by
-default; no human version tag or `production_verified_commit` is accepted.
+publishers for their packages. Each runs in two roles:
+
+- On **main** it is the *coordinator*. It wakes on green main qualification,
+  every six hours (workspace packages at minute 47, source-built SDK at minute
+  37) and, for the source-built SDK, on successful main Runtime CI. After
+  production servers, enabled Workers and Editor verify, ops Server CD
+  dispatches both coordinators on main with `dry_run=false`. Dispatch failure is
+  advisory, never a server-release failure or rollback.
+- On a coordinator-reserved **`v0.1.0-beta.N` tag** it is the *publisher*. Only
+  tag runs build, pack and publish.
+
+A coordinator selects the production commit and decides what changed. When a
+live plan selects packages, its `reserve` job creates an annotated tag
+`v<version>` at that production commit and dispatches the same workflow on it,
+like the Desktop coordinator. The tag run's ref and commit are the production
+commit, so npm's standard provenance names it: workflow
+`.github/workflows/<publisher>.yml@refs/tags/v<version>`, source digest equal to
+the run's own commit. Nothing overrides `GITHUB_SHA` or checks out another
+commit. Every consumer verifier already accepts `refs/tags/v<exact version>`.
+
+PRs never enter publishing environments. A manual coordinator run is on
+**main** with `dry_run: true` by default and reserves nothing; no human version
+tag or `production_verified_commit` is accepted.
 
 ## Package selection and versions
 
@@ -19,8 +32,13 @@ Each package is compared with **its own highest published npm version**, not a
 dist-tag, server release or global release counter. The planner verifies the
 baseline npm Sigstore/SLSA provenance, publisher workflow, fixed repository,
 full source commit and SHA-512 subject against npm's SRI. Unknown/unbootstrapped
-packages, unavailable provenance, non-ancestor source and registry errors fail
-closed. It never guesses a baseline from a mutable pointer or version string.
+packages, unavailable provenance and registry errors fail closed. If the verified
+baseline is ahead of the checked-out source, the whole package line stands down
+successfully until production catches up; dependency expansion cannot republish
+older source. If neither commit contains the other, planning fails with
+`publication-baseline-diverged`. An ancestry invocation failure (rather than
+Git's status 1 for non-ancestry) fails with `publication-ancestry-unavailable`.
+It never guesses a baseline from a mutable pointer or version string.
 
 Changes to a package's shipped inputs select it. Version-only release-prep
 edits and tests do not. Shared workspace dependency/build inputs select all
@@ -29,11 +47,22 @@ runtime dependants because their shipped exact dependency will change. Unrelated
 packages do not publish. The source-built SDK similarly tracks its own package,
 shared runtime/Cargo/build inputs, committed asset/trust pins and packer.
 
-Each selected package receives an independently computed `0.1.0-beta.N`, above
-all its published versions and its source manifest version. Package versions
-need not equal the server, desktop or each other. A published stable or another
-incompatible version line stops this beta allocator for release-agent review. Versions
-are stamped only into CI outputs; no release-version commits/PRs are created.
+Every package a tag publishes carries that tag's version, so a package version
+always names the tag it was built from. The coordinator allocates
+`0.1.0-beta.N` above every published version and source manifest version of
+the line's packages and above every existing `v0.1.0-beta.*` tag; Desktop,
+retired server trains and these reservations share that namespace, and each tag
+is used once. Versions may therefore skip numbers; they never go backwards. The
+tag run refuses with `publication-version-superseded` if any selected package
+has since published a higher version. A published stable or another
+incompatible version line stops this beta allocator for release-agent review.
+Versions are stamped only into CI outputs; no release-version commits/PRs are
+created.
+
+The tag message is a one-line JSON record
+`{"schema":"mdbase-npm-release/1","kind":"workspace"|"source","commit":...,"reserved_at":...,"run_id":...}`.
+A tag run requires an annotated tag of its own line at its own commit. The
+`Protect release tags` ruleset forbids updating or deleting `v*` tags.
 
 For workspace packages, exact full Server CI qualification supplies the already
 built tarballs. The unprivileged pack job preserves their compiled files and
@@ -60,32 +89,28 @@ require a separate approved source-build/qualification contract.
 
 ## Qualification and compatibility
 
-Both planners observe live production and select the newest green first-parent
+Coordinators observe live production and select the newest green first-parent
 commit in the common ancestry of main, Connect/MCP and the provider. They check
 out that source and require its exact successful **full Server CI main-push**
-qualification artifact; the source-built SDK additionally requires exact
-successful Runtime CI. A green badge alone, PR, documentation-only successor or
-stale qualification cannot substitute. Missing/unreadable evidence fails closed.
-The selected commit is recorded in the plan and exported as a job output.
+qualification artifact; a source-SDK coordinator reserves only once the same
+commit's exact Runtime CI has passed. A green badge alone, PR,
+documentation-only successor or stale qualification cannot substitute.
+Missing/unreadable evidence fails closed. However far main has moved, the
+coordinator plans the production commit itself; it never waits for production
+to reach main's tip. A tag run executes the workflow committed at its tag, so
+until production contains tag publication the coordinator reserves nothing and
+reports `waiting for production to contain tag publication`.
 
-Build, pack and publisher checkouts use that plan commit, never a newly resolved
-main tip. Source-sensitive shell commands explicitly export it as `GITHUB_SHA`,
-including npm's provenance generation (a job-level default-variable override
-would be ignored by Actions). The workflow and OIDC publisher identity remain
-on main.
+A tag run qualifies its own commit again: the exact Server CI artifact (which
+names the workspace tarballs it packs) and, for the SDK build, exact Runtime CI.
+It recomputes the plan against npm, so a rerun after publication selects
+nothing.
 
-npm refuses provenance whose source commit differs from the commit the workflow
-ran on, so a run publishes as its own commit. When main has moved past
-production, the run still publishes if the selected production commit is an
-ancestor of the run's commit and nothing between them changes a published
-package's inputs (any manifest change counts, even version-only) or a
-server-facing contract path. The production commit's qualified bytes are then
-the run commit's bytes. The plan waits up to ten minutes for the run commit's
-own Server CI to pass and, for the source-built SDK, up to twenty-five more for
-its Runtime CI, which the build job requires. It then qualifies that commit and
-packs its artifacts with provenance naming it. Otherwise the plan reports no changed packages and the
-run ends successfully without publishing; a later run on a production-contained
-main publishes the change.
+Each package has a log line and Actions summary naming the selected production
+commit, the run commit, verified baseline version/commit and decision (the tag
+reserved or dispatched, or publishing from the tag). Fresh production
+compatibility still applies before reservation and before each publish.
+Planner diagnostics use fixed reasons rather than command stderr.
 
 Runtime CI now qualifies every main push, including documentation-only
 successors, so a newer main commit cannot strand an otherwise changed SDK
@@ -108,21 +133,26 @@ No equality between unrelated package/server
 version numbers is required. Readiness/compatibility and workflow-active state
 are rechecked immediately before every npm publication.
 
-Workspace planning runs this same `verifyCompatibility` proof before packing,
-for **every** public workspace package, including `@mdbase-dev/connect`, protocol,
+Nonempty workspace planning runs this same `verifyCompatibility` proof before
+packing, for **every** public workspace package, including `@mdbase-dev/connect`, protocol,
 devkit and webhooks. There are no server-independent
 exemptions: i18n, UI and newly added public packages are gated too. The existing
 fail-closed contract-path classification is shared unchanged with the source SDK.
 
 The workspace `npm-release-plan.json` records `compatibility.status` as `passed`
 with the exact Connect/MCP and provider commit evidence, or `blocked` with the
-verifier's error. The Actions job summary also shows the result. A manual
-`dry_run: true` reports incompatibility or unavailable proof without failing the
+fixed reason `production-compatibility-unproven`. The Actions job summary also
+shows the result. A manual `dry_run: true` reports incompatibility or unavailable proof without failing the
 plan, so operators can still inspect and pack the proposed versions. A live
 plan fails before packing if this proof is blocked. The protected publisher
 still obtains fresh production proof immediately before **each** npm publish;
 a passed plan is not reusable publication authority. Source-SDK build
 qualification and both publishers' stop switches remain unchanged.
+
+Empty plans do not run compatibility or prior-publication reconciliation: they
+cannot enter build/pack/publish jobs. Nonempty live plans still require both,
+and an unreconciled prior attempt fails with
+`publication-prior-attempt-unreconciled`.
 
 This conservatively waits for production on shared SDK/runtime or otherwise
 unclassified changes; it does not assert semantic compatibility from green CI
@@ -137,8 +167,14 @@ cancel their active runs. The publisher rechecks the relevant workflow's active
 state through the API before each external mutation. Nothing retracts versions
 already on npm or automatically rolls back consumers.
 
-An attempted publisher in a failed/cancelled/unknown prior main run latches its
-line. Existing Actions run/job history is the attempt journal; there is no new
+An attempted publisher in a failed/cancelled prior main or tag run latches its
+line; a tag run still in flight is not an outcome yet. Tag runs share one
+non-cancelling concurrency group per workflow and so publish in reservation
+order. Coordinators use a separate group and never displace a pending tag run.
+A coordinator that finds its production commit already reserved reuses that tag:
+it dispatches nothing while the tag's run is in flight, redispatches it if the
+run ended without publishing, and fails with `publication-reservation-unconsumed`
+if that run succeeded yet the change is still unpublished. Existing Actions run/job history is the attempt journal; there is no new
 release database. Authorization failures and timeouts are not absence proof. An
 exact npm-version **404** is required before publishing. Concurrency is
 non-cancelling and global per existing publishing workflow, so a run can queue
@@ -174,12 +210,17 @@ No new publication secret or long-lived npm token is required. Preserve:
 - `npm-runtime` and its existing trusted publisher are unchanged. There are no
   new staging/LAB npm publishers or secrets.
 
-**Required owner action:** allow **main** in `npm` and `npm-sdk` environment
-deployment branch policies; `npm-sdk` previously admitted only version tags.
-For unattended operation these environments must not require a human approval
-per run. These are not changes this PR makes, and no workflow is dispatched by
-its implementation. Keep npm token publication disabled. OIDC/provenance and
-GitHub environment protection remain authoritative.
+Publication uses the existing grants. npm trusted publishers bind owner,
+repository, workflow file and environment, not the ref; workspace versions
+beta.118 to beta.149 were published through OIDC from version tags under the
+same `publish-npm.yml`/`npm` publisher. The `npm`
+environment's deployment policy admits `v*` tags and `npm-sdk`'s admits
+`v0.1.0-beta.*` tags. The coordinator's `reserve` job uses the workflow token
+with `contents: write` and `actions: write`, as the Desktop coordinator does;
+it installs no dependencies. For unattended operation these environments must
+not require a human approval per run. Keep npm token publication disabled.
+OIDC/provenance and GitHub environment protection remain authoritative. The
+`main` branch policies are now used only by historical runs and may be removed.
 
 `SDK_RELEASE_STOPPED` and the two acknowledgement variables are optional; no
 acknowledgement should be set during healthy setup. To hold a first release, set

@@ -182,6 +182,10 @@ msgstr "레코드 탐색 및 편집"
 msgid "Browser, OS, viewport and recent error codes. No note contents, paths or credentials."
 msgstr "브라우저, 운영체제, 뷰포트 및 최근 오류 코드입니다. 노트 내용, 경로 또는 인증 정보는 포함되지 않습니다."
 
+#: src/AppSwitcher.tsx
+msgid "Build your own"
+msgstr "나만의 앱 만들기"
+
 #: src/CommentsPanel.tsx
 msgid "by {resolver}"
 msgstr "{resolver} 님이"

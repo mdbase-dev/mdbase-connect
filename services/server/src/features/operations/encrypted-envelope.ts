@@ -12,7 +12,7 @@ import {
   permitsOperationTransport
 } from "@mdbase-dev/connect-protocol";
 import { z } from "zod";
-import { COLLECTION_OPERATIONS } from "../../collection-access.js";
+import { COLLECTION_OPERATIONS } from "../collections/collection-access.js";
 
 export const encryptedRelayRequestSchema = z.object({
   type: z.literal("encrypted_operation_request"),

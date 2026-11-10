@@ -6,13 +6,13 @@ import type {
 import type { FastifyInstance, RouteHandlerMethod } from "fastify";
 import { z } from "zod";
 import type { DatabasePool } from "../../database-types.js";
-import type { HostedProviderClient } from "../../hosted-provider.js";
+import type { HostedProviderClient } from "../hosted/hosted-provider.js";
 import {
   activeGrantForToken,
   backgroundGrantNotificationDeclaration,
   type NotificationService,
   type NotificationTransports
-} from "../../notifications.js";
+} from "./notifications.js";
 import { tokenHash } from "../../security.js";
 import {
   currentInstallationTimerAuthority,

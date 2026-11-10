@@ -7,11 +7,11 @@
 import { randomUUID } from "node:crypto";
 import type { ApplicationAuthorizationProof, ApplicationNotifications, ApplicationProvisions, CollectionOperation, FileAction } from "@mdbase-dev/connect-protocol";
 import { isSupportedOperationTransport } from "@mdbase-dev/connect-protocol";
-import { assertFreshApplicationAuthorization, type ApplicationRequirements } from "../../application-requirements.js";
-import { memberAccess, ownerAccess, requireCollectionAction, type CollectionAccessContext } from "../../collection-access.js";
-import type { CollectionLocator } from "../../collection-catalog.js";
-import { resolveActiveMembershipPolicy } from "../../collection-policy.js";
-import { lockCollectionSharingAuthority, resolveCollectionSharingAuthority } from "../../collection-sharing-authority.js";
+import { assertFreshApplicationAuthorization, type ApplicationRequirements } from "../applications/application-requirements.js";
+import { memberAccess, ownerAccess, requireCollectionAction, type CollectionAccessContext } from "../collections/collection-access.js";
+import type { CollectionLocator } from "../collections/collection-catalog.js";
+import { resolveActiveMembershipPolicy } from "../collections/collection-policy.js";
+import { lockCollectionSharingAuthority, resolveCollectionSharingAuthority } from "../collections/collection-sharing-authority.js";
 import type { DatabaseConnection, DatabaseQueryable } from "../../database-types.js";
 import type { DatabasePool } from "../../db.js";
 import { planFreshNextGrant } from "../next/fresh-authorization.js";
@@ -22,7 +22,7 @@ import { unmigratedLocalCollection } from "../next/native-grant-target.js";
 import { CreateError, currentMember } from "../next/bootstrap-common.js";
 import { copyClientNoiseKeyToGrant } from "../next/client-key.js";
 import { queueNextGrantPolicy } from "../next/grant-policy.js";
-import { membershipBindingForAccess } from "../../collection-membership-binding.js";
+import { membershipBindingForAccess } from "../collections/collection-membership-binding.js";
 import { assertOperationsAllowedByApplication, requiresHostedCollection } from "../grants/policy.js";
 import { applicationOriginForRedirect } from "./redirects.js";
 

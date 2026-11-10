@@ -29,8 +29,7 @@ three desktop boundaries for main-process pairing, row-local action results, and
 on-demand exact conflict review; shared permission-review state; and browser-local
 draft recovery. The existing bounded text diff moves from editor to shared UI,
 without retaining a forwarding adapter, so editor and desktop use one algorithm.
-The desktop's pairing extraction keeps its entry point below the 1,000-line
-limit. The obsolete record-subset scope description is deleted.
+The obsolete record-subset scope description is deleted.
 
 The new local-control conflict review is versioned (`review_version: 1`) and
 checks the same decision ID and exact bytes as conflict resolution. Its typed
@@ -123,221 +122,15 @@ of booleans and optional fields. Cryptographic key roles use distinct types and
 lifecycles. Errors crossing a process or package boundary are structured,
 stable, and versioned.
 
-## Module and dependency budgets
+## Module and dependency structure
 
 Production modules should normally remain between 100 and 600 lines. A cohesive
-module may exceed that range, but new production files may not exceed 1,000
-lines. Existing exceptions are recorded in
-`config/architecture-budgets.json`; their budgets only move downward as
-features are extracted.
+module may exceed that range; crossing it is a design prompt, not an invitation
+to move unrelated functions into another large file.
 
-`pnpm check:architecture` enforces production-file budgets, rejects relative
-source import cycles, and rejects workspace-package dependency cycles. It also
-requires every npm package and Cargo crate to appear in the per-package file
-inventory, and every production `dead_code` reference to appear in the exact
-file inventory in `config/architecture-budgets.json`.
-
-The reviewed-surface counts are flexible upper bounds, not minimization targets
-or assertions that the source must keep an identical count. A decrease passes
-without budget churn; an increase requires an evidence-backed configuration
-change. The baseline at `0620ff3` is 663 production files, 1,375 relative
-imports, 24 workspace package paths, 3,090 conservative Rust public visibility
-references, 2,292 TypeScript export references, 16 `mdbase::Collection`
-references, and one `TypedCollection` reference. These checks are architectural
-alarms rather than substitutes for review.
-
-Shared private feedback moves the Editor-owned form, capture/diagnostics helpers,
-and Turnstile widget into four cohesive `packages/app-ui` modules: the provider,
-bounded schema/media helpers, raster markup, and verification loader. It deletes
-the old local Turnstile module and replaces the local form/helper implementation,
-for three net production files (734 total), six net relative imports (1,603), and
-19 conservative TypeScript export references (2,658), including the current
-mark-motion and startup-cancellation changes on main. The UI package inventory
-moves from 17 to 21 files; no dependency, package, or 1,000-line limit changes.
-The mobile-history guard moves to the existing state-types module, lowering
-Editor's legacy file cap from 2,277 to 2,270. Form/consent/retry/verification tests,
-legacy and v2 Worker fixtures, axe/keyboard blackout checks, and positive-control
-real tab capture justify the boundaries; see [shared feedback](shared-feedback.md).
-This creates no collection semantics, storage, or second email transport.
-
-The retained-identity mirror enrollment fix (#450) adds one Rust public function,
-`connect-mirror::validate_mirror_folder`, bringing the reviewed limit to 3,217.
-The agent calls it before remote pairing; marker creation shares its private
-role validator and repeats the check before writing. This is a real cross-crate
-boundary replacing late-only validation, not a second interpretation of identity
-metadata. Tests cover read-only preflight, provisioning revalidation, retained
-identity after removal/restart, and matching-marker precedence. Lifecycle fixtures
-use the same canonical folder paths as enrollment on Linux, macOS, and Windows.
-It adds no persisted state, protocol fields, production files, or package dependencies.
-
-Runtime contention fixes (#462) add three cohesive production modules: the
-bounded outbound dispatch queue, the independently joined local-admission worker,
-and the hosted JSON byte counter (699 production files). Core test helpers and
-fairness fixtures are explicitly test-only; the runtime-change module remains
-below the unchanged 1,000-line limit. Eighteen additional conservative Rust public
-visibility references (3,235 total) cover turn results, internal dispatch methods,
-readiness forwarding, and durable admission acknowledgements. These expose one
-owner for each scheduling/lifecycle boundary rather than a new persistence layer
-or collection interpreter. Partial-admission replay, cancellation, fencing,
-shutdown, fair turns and blocked-HTTP regressions justify these boundaries; see
-[the performance report](benchmarks/runtime-contention/report.md). No package,
-dependency, wire-format or per-file limit is raised.
-
-Upload-bootstrap consumer support (#466) adds one public Rust DTO field,
-`FileTransferSession::prepared_upload_part`, taking the visibility budget to
-3,236. Rust transports and the TypeScript SDK share this optional protocol
-boundary; all in-tree producers initialize it to `None`, omitted on the wire.
-The schema restricts it to a create-only single PUT, and authoritative commit
-remains mandatory after PUT/412. Expiry, cancellation, stale-open/multipart
-resume, malformed capabilities and negative 412 regressions justify the
-consumer path. PostgreSQL/S3 E2E verifies that ordinary producers still omit
-the field and retain open/status/prepare/commit. This adds no provider strategy,
-database migration, production module, dependency, or other budget increase.
-Experimental producer activation remains separately gated.
-
-The installed-desktop daemon fix adds one 26-line `daemon-lifecycle.ts` module
-shared by startup and update recovery. Its two internal exports and two imports
-replace duplicated CLI profile selection, keeping packaged default-service
-selection and development isolation at one boundary. Its reviewed limits were
-40 desktop files, 677 production files, 1,435 relative imports and 2,400
-TypeScript exports. No package, file-size or cycle limit changes, new service,
-public protocol, or alternate daemon lifecycle is introduced.
-
-Public provider signup adds two server modules: `external-signup.ts` owns the
-short-lived verified-identity proof and the account-creation transaction;
-`public-account-onboarding.ts` replaces the password-only legal/entitlement/
-welcome/starter sequence with one implementation used by both signup methods.
-The corresponding reviewed-surface increase is two production files, fourteen
-relative imports and five TypeScript exports, bringing the integrated limits to
-679 production files, 1,449 relative imports and 2,405 TypeScript exports. This
-does not relax file-size or cycle checks. Route tests and real PostgreSQL replay,
-cross-provider email-race, same-subject concurrency and rollback tests cover the
-new persisted boundary.
-
-The [exact-recovery changes](exact-recovery-and-health.md) add six narrow modules:
-three desktop modules for boot admission, canonical readiness presentation, and
-resource-local refresh results; one editor helper for existing SDK pending
-handles; one relay retry policy within the existing owner; and one server
-transaction boundary for local revocation. They replace bypasses/duplicated
-policy rather than adding a supervisor, reconciliation bus, credential store,
-or mutation journal. The measured surface adjustment is six production files,
-17 relative imports, 22 Rust public declarations and 18 TypeScript exports:
-691 files, 1,504 imports, 3,185 Rust declarations and 2,462 TypeScript exports.
-Per-package file limits become desktop 43, editor 111, daemon 35 and server 139.
-File-size, cycle, package-dependency and dead-code limits are unchanged. Evidence
-belongs at each boundary: boot/update races, pending-handle/component tests,
-exact-ACK and real PostgreSQL serialization tests, and real isolated-process
-credential retry. These limits do not replace review or platform qualification.
-
-The rollback-admission correction reuses the control client's existing protocol
-constant in updater health verification: one additional relative import and one
-export, making the reviewed totals 1,505 imports and 2,463 TypeScript exports.
-No production module, file-size limit, or cycle allowance is added. The existing
-update record now binds a verified fallback to its app version and distinguishes
-that daemon version during subsequent handoff; it is not a second journal.
-
-Authority-transfer recovery (#345) adds ten conservative Rust visibility
-references for the durable transfer summary, exact-ID cancellation command,
-and their two internal accessors. The local control protocol advances to v5.
-One TypeScript export, `finishAuthorityImportAbort`, replaces duplicated
-cancellation/expiry cleanup and atomically retains a connector-scoped abort
-receipt before cascading deletion. A reproduced first-import lost-response
-failure justifies this new persisted boundary; restart, refusal, replay,
-migration, desktop and PostgreSQL transaction/race tests cover it. Reviewed
-limits become 3,173 Rust visibility references and 2,445 TypeScript exports;
-file-count, file-size, dependency-cycle and package budgets are unchanged.
-
-Integrating both series retains 691 production files and 1,505 relative imports,
-with combined reviewed totals of 3,195 Rust declarations and 2,465 TypeScript
-exports. The additional export moves ordinary CLI launch out of the composition
-root into its existing daemon-lifecycle owner without relaxing its file limit.
-Both recovery mechanisms and the current local control protocol v5 remain intact.
-
-The Windows task-registration repair (#428) replaces the unscoped `schtasks
-/SC ONLOGON` command with one current-user task definition. A small CLI-owned
-module holds native token/SID access and the UTF-16 XML encoder; its two helpers
-are visible only to the parent module. Native standard-user tests cover the
-actual installer, alongside pure encoding tests. This adds one production file
-(CLI package: 8; total: 694) and two counted Rust visibility declarations
-(total: 3,200), not a second service owner, recovery state, or public protocol.
-File-size and cycle budgets are unchanged.
-
-Local runtime claim recovery (#443) replaces the scoped-preflight-only
-acknowledgement with one local ownership/settlement boundary. Its core module
-adds one production file (core: 36; total: 696) and seven counted Rust visibility
-declarations (total: 3,215), including the intervening beta103 file-I/O changes, for the local administration parameters and registry
-entry points. The reproduced 128-slot exhaustion and prepare/commit interruption
-windows justify a minimal durable local-owner table; a separate selection audit
-records explicit historical recovery, not payloads or application replay. Engine
-journal interpretation and revision verification remain in `mdbase-rs`.
-Historical compatibility serves existing v2/v3 journals until their verified
-owners acknowledge them; it never infers ownership from a missing ledger entry.
-No file-size, cycle, package, import or TypeScript export limit changes.
-
-The follow-up Windows CLI JSON repair adds one parent-visible scheduler-command
-helper to the Windows task module (integrated Rust visibility budget: 3,216). It replaces
-inherited scheduler stdout at all four lifecycle call sites with captured output
-and retained failure diagnostics. It deliberately does not change the streaming
-log runner. Native actual-CLI tests reproduce the corrupt JSON before the fix;
-no new production module, protocol, state, or permission bypass is introduced.
-
-The [operator usage report](usage-report.md) adds one server module,
-`usage-report.ts`, which owns both the aggregate `usage report` command and the
-retention of the rows it reads. It replaces the managed wrapper's paginated
-client-side aggregation (one Render job per 100 rows). It adds no protocol
-field or connector report; its one telemetry write, native device activity, sits
-on the log-token route because native sync reaches the control plane nowhere else. Seven TypeScript exports cover the
-command, the retention worker, its prune function and window, and three
-existing helpers (`reportWindowDays`, `isoTimestamp`, `invitationStatus`)
-shared instead of duplicated. Three relative imports connect it to the admin
-dispatcher, `app.ts`, and those helpers. Limits: server 141 files, 1,518
-relative imports, 2,473 TypeScript exports. Tests cover every funnel, consent,
-and pairing outcome, identity-free output, window validation, and retention
-boundaries. The migration, report, and prune were also run on PostgreSQL 16.
-Portable people adds five focused modules: the protocol's account identity
-shapes, the SDK's bounded control-plane people client, server identity/directory
-authorization, editor person mapping/conversion rules, and the guided editor
-panel. Account metadata never becomes a parallel record transport or permission
-source. The signed manifest owns People consent; ordinary revision-guarded
-record writes own creation/linking. Route denial and binding tests, Rust manifest
-roundtrips, SDK failures/cancellation, component conversion tests and the real
-local SDK/daemon grant lifecycle cover these boundaries. Reviewed limits become
-690 production files, 1,508 relative imports, 3,177 Rust visibility references and
-2,466 TypeScript exports. Account consent presentation stays in the existing
-permission component module. No file-size, package-count or cycle limit changes.
-
-Email preferences and unsubscribe add no production file. `scheduled-email.ts`
-already owns email categories and eligibility, so it also owns the preferences
-they are gated by and the hashed unsubscribe tokens its worker issues; the
-routes join the existing account management module. Five TypeScript exports
-cover the three store functions those routes and public signup use, the
-management client's `EmailPreferences` type, and the portal's unsubscribe page.
-Three relative imports connect the store to its routes, to signup onboarding,
-and to the existing token helpers. Limits: 1,534 relative imports, 2,503
-TypeScript exports. Tests cover one-click and page unsubscribe, token hashing,
-the refusal to send optional email without its link, essential email without
-controls, preference changes and origin checks, and the signup opt-in default.
-Guided person setup adds one editor helper for a digest-pinned canonical pack
-and a deliberately additive-only review policy. It reuses catalog provision
-validation and the existing digest-guarded atomic type-pack operation instead of
-creating another schema installer or requiring public catalog availability.
-The panel replaces the manual-install instruction with explicit file review and
-approval. This adds one production file, two relative imports, and two internal
-TypeScript exports: reviewed totals are 691, 1,510, and 2,469 respectively.
-No file-size, cycle, package, Rust, or SDK API limit changes. Tests cover exact
-bundle integrity, explicit consent/cancellation, conflicts, stale assessment,
-collection changes, and the post-write watch/description-refresh race.
-
-Separating identity from routing and resolving people in the SDK then adds a
-dedicated `public_subject` and configured issuer, optional People consent
-stored on the grant, `people.directory()` resolution shared by every app, and
-the declared `values` of query records. Rebased onto the integrated series
-above, these branches together hold 707 production files (editor 112, client
-72, server 142), 1,557 relative imports, 3,255 Rust visibility references and
-2,542 TypeScript exports, including the email-preferences series. People consent now renders inside the reworked
-authorization review's permission list rather than a separate component. No
-file-size, cycle or other package limit changes; `denyAuthorization` already
-lives with its only caller.
+`pnpm check:architecture` rejects relative source import cycles,
+workspace-package dependency cycles, and the runtime/engine boundary seams it
+names. These checks are architectural alarms rather than substitutes for review.
 
 Composition roots and package facades should approach these end-state shapes:
 

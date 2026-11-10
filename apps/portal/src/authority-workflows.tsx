@@ -18,6 +18,13 @@ import { watchPairingCollections, watchPairingPreparation } from "./pairing-prog
 import { Checkbox, CheckboxGroup } from "@mdbase-dev/ui/checkbox";
 import { Select } from "@mdbase-dev/ui/select";
 type PairingRequest = DevicePairing & { expires_at?: string };
+type PairingCollection = NonNullable<DevicePairing["collections"]>[number];
+/** Where a collection offered at sign-in lives, in the words shown beside its name. */
+const collectionLocation = (kind: PairingCollection["kind"]) => kind === "private" ? t(i18n)`Private collection — on your computers`
+  : kind === "private_device" ? t(i18n)`Private collection — key kept on this device`
+  : t(i18n)({ message: "Cloud copy", context: "Collection storage mode" });
+/** Scopes this installation already holds, of either kind. */
+const retainedIds = (pairing: DevicePairing) => [...(pairing.retained_collection_ids ?? []), ...(pairing.retained_private_device_collection_ids ?? [])];
 
 export function Pairing({ pairingId }: { pairingId: string }) {
   useLocaleRevision();
@@ -51,7 +58,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   function applyPairing(value: DevicePairing, current: number) {
     if (current !== generation.current) return;
     setPairing(value);
-    setCollectionIds([...new Set([...(value.retained_collection_ids ?? []), ...(value.approved_collection_ids ?? [])])]);
+    setCollectionIds([...new Set([...retainedIds(value), ...(value.approved_collection_ids ?? []), ...(value.approved_private_device_collection_ids ?? [])])]);
     setSelectedCollectionId(value.creation && !value.creation.completed ? NEW_COLLECTION
       : value.selected_collection_id || value.creation?.collection_id || "");
     setNewCollectionName(value.creation?.display_name ?? "");
@@ -186,11 +193,14 @@ export function Pairing({ pairingId }: { pairingId: string }) {
         setNewCollectionName(inspected.pairing.creation.display_name);
       }
       const privateChoice=approval.collections?.some(c=>c.collection_id===selected && c.kind==="private")===true;
-      const approvedIds = privateChoice ? [] : [...new Set([...collectionIds, selected])].filter(id=>id && !approval.retained_collection_ids?.includes(id));
+      // Device access is only ever sent for a collection shown with that label.
+      const device = (id: string) => pairing.collections?.some(c=>c.collection_id===id && c.kind==="private_device")===true;
+      const picked = privateChoice ? [] : [...new Set([...collectionIds, selected])].filter(id=>id && !retainedIds(approval).includes(id));
+      const approvedIds = picked.filter(id=>!device(id)), deviceIds = picked.filter(device);
       if (action === "approve") approvalAttempted = true;
       const result = await api<{ deep_link?: string; native_authorization_uri?:string }>(
         `/v1/pairing-requests/${pairingId}/${action}`,
-        { method: "POST", ...(action==="remove-access" ? {body:JSON.stringify({collection_id:removingId,confirm:true})} : action==="approve" && pairing.file_access ? {body:JSON.stringify({fingerprint:pairing.fingerprint,collection_ids:[],file_actions:pairing.file_access.actions})} : action==="approve" && pairing.installation_device ? {body:JSON.stringify({fingerprint:approval.fingerprint,collection_ids:approvedIds,create_collections:!privateChoice && createCollections && !approval.retained_create_collections,selected_collection_id:selected,...(privateChoice?{selected_collection_kind:"private"}:approval.timer_declaration?{timer_consent:allowReminders}:{})})} : {}) },
+        { method: "POST", ...(action==="remove-access" ? {body:JSON.stringify({collection_id:removingId,confirm:true})} : action==="approve" && pairing.file_access ? {body:JSON.stringify({fingerprint:pairing.fingerprint,collection_ids:[],file_actions:pairing.file_access.actions})} : action==="approve" && pairing.installation_device ? {body:JSON.stringify({fingerprint:approval.fingerprint,collection_ids:approvedIds,create_collections:!privateChoice && createCollections && !approval.retained_create_collections,...(device(selected)?{}:{selected_collection_id:selected}),...(privateChoice?{selected_collection_kind:"private"}:approval.timer_declaration&&!device(selected)?{timer_consent:allowReminders}:{}),...(deviceIds.length?{private_device_collection_ids:deviceIds}:{})})} : {}) },
       );
       if (current !== generation.current) return;
       if (action === "deny" && pairing.file_access) {
@@ -278,7 +288,12 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     ? installationRefusal({ code: "installation_legacy_backend", details: { upgrade: pairing.account_upgrade } }, pairing.connector_name)
     : null;
   const selectedCollection=pairing.collections?.find(collection=>collection.collection_id===selectedCollectionId);
-  const privateChoice=selectedCollection?.kind==="private";
+  const privateChoice=selectedCollection?.kind==="private", deviceChoice=selectedCollection?.kind==="private_device";
+  const retained=retainedIds(pairing);
+  // One node for both mentions, so translators get a single named placeholder.
+  const appName=literal(pairing.connector_name);
+  // Collections this approval would newly give this device the key to.
+  const deviceAccess=!privateChoice && (pairing.collections??[]).some(c=>c.kind==="private_device" && !retained.includes(c.collection_id) && (c.collection_id===selectedCollectionId || collectionIds.includes(c.collection_id)));
   const details = <details className="mdbase-disclosure installation-details">
                       <summary><Trans>Details</Trans></summary>
                       {pairing.app_origin?.trim()
@@ -367,7 +382,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
             ) : (
               <>
                 <RequestIdentity request={{ application_name: pairing.connector_name, application_origin: pairing.app_origin,
-                  platform: pairing.app_platform, homepage: pairing.app_origin ?? "", expires_at: pairing.expires_at }} showClientKey={false} />
+                  homepage: pairing.app_origin ?? "", expires_at: pairing.expires_at }} showClientKey={false} />
                 {installationAccountLabel(pairing) ? (
                   <p className="installation-account-label"><Trans>Account: {literal(installationAccountLabel(pairing))}</Trans></p>
                 ) : (
@@ -379,8 +394,8 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                 {pairing.account_selection_confirmed && !pairing.attested && <p role="status">{preparationError || t(i18n)`Preparing ${pairing.connector_name}…`}</p>}
                     <CollectionPicker
                       label={t(i18n)`Open in ${pairing.connector_name}`}
-                      collections={(pairing.collections ?? []).map(collection=>({id:collection.collection_id,name:collection.display_name,kind:collection.kind ?? "cloud_copy",
-                        location: collection.kind === "private" ? t(i18n)`Private collection — on your computers` : t(i18n)({ message: "Cloud copy", context: "Collection storage mode" }),
+                      collections={(pairing.collections ?? []).map(collection=>({id:collection.collection_id,name:collection.display_name,kind:collection.kind ? "private" as const : "cloud_copy" as const,
+                        location: collectionLocation(collection.kind),
                         hint:collection.role&&collection.role!=="owner"?t(i18n)`Shared with you`:undefined}))}
                       value={selectedCollectionId} onChoose={setSelectedCollectionId} disabled={busy}
                       onCreate={pairing.can_create_collection && !pairing.creation?.completed ? ()=>setSelectedCollectionId(NEW_COLLECTION) : undefined}
@@ -394,23 +409,23 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     </div>}
                     {privateChoice && <p className="field-note"><Trans>This collection stays on your computer. It can connect when a computer signed in to this account is available.</Trans></p>}
                     {privateChoice && !pairing.native_authorization_id && <p role="status">{preparationError || t(i18n)`Preparing ${pairing.connector_name}…`}</p>}
-                    {!privateChoice && (pairing.collections?.some(c=>c.kind!=="private") || pairing.retained_collection_ids?.length || pairing.requested_create_collections || pairing.retained_create_collections) ? <details className="mdbase-disclosure installation-advanced">
+                    {!privateChoice && (pairing.collections?.some(c=>c.kind!=="private") || retained.length || pairing.requested_create_collections || pairing.retained_create_collections) ? <details className="mdbase-disclosure installation-advanced">
                       <summary><Trans>Allow offline access to additional collections</Trans></summary>
                       <CheckboxGroup legend={t(i18n)({ message: "Additional collection access" })} disabled={busy}>
                         {(pairing.collections??[]).filter(c=>c.kind!=="private").map(collection=>(
                           <div className="collection-picker-option installation-additional-collection" key={collection.collection_id}>
-                            <Checkbox checked={collection.collection_id===selectedCollectionId || collectionIds.includes(collection.collection_id)} disabled={collection.collection_id===selectedCollectionId || pairing.retained_collection_ids?.includes(collection.collection_id)} onChange={event=>setCollectionIds(ids=>event.target.checked?[...new Set([...ids,collection.collection_id])]:ids.filter(id=>id!==collection.collection_id))}>
-                              <CollectionIdentity name={collection.display_name} location={collection.kind === "private" ? t(i18n)`Private collection — on your computers` : t(i18n)({ message: "Cloud copy", context: "Collection storage mode" })} kind={collection.kind ?? "cloud_copy"} />{pairing.retained_collection_ids?.includes(collection.collection_id) ? t(i18n)` (already allowed)` : ""}
+                            <Checkbox checked={collection.collection_id===selectedCollectionId || collectionIds.includes(collection.collection_id)} disabled={collection.collection_id===selectedCollectionId || retained.includes(collection.collection_id)} onChange={event=>setCollectionIds(ids=>event.target.checked?[...new Set([...ids,collection.collection_id])]:ids.filter(id=>id!==collection.collection_id))}>
+                              <CollectionIdentity name={collection.display_name} location={collectionLocation(collection.kind)} kind={collection.kind ? "private" : "cloud_copy"} />{retained.includes(collection.collection_id) ? t(i18n)` (already allowed)` : ""}
                             </Checkbox>
-                            {pairing.scope_only && pairing.retained_collection_ids?.includes(collection.collection_id) && <button type="button" className="mdbase-button installation-account-action" onClick={()=>setRemovingId(collection.collection_id)}><Trans>Revoke access</Trans></button>}
+                            {pairing.scope_only && retained.includes(collection.collection_id) && <button type="button" className="mdbase-button installation-account-action" onClick={()=>setRemovingId(collection.collection_id)}><Trans>Revoke access</Trans></button>}
                           </div>
                         ))}
-                        {(pairing.retained_collection_ids??[]).filter(id=>!pairing.collections?.some(collection=>collection.collection_id===id)).map(id=><div key={id}><p><Trans>Already allowed collection (currently unavailable)</Trans></p><button type="button" className="mdbase-button installation-account-action" onClick={()=>setRemovingId(id)}><Trans>Revoke access</Trans></button></div>)}
+                        {retained.filter(id=>!pairing.collections?.some(collection=>collection.collection_id===id)).map(id=><div key={id}><p><Trans>Already allowed collection (currently unavailable)</Trans></p><button type="button" className="mdbase-button installation-account-action" onClick={()=>setRemovingId(id)}><Trans>Revoke access</Trans></button></div>)}
                         {(pairing.requested_create_collections || pairing.retained_create_collections) && <Checkbox checked={createCollections} disabled={pairing.retained_create_collections} onChange={event=>setCreateCollections(event.target.checked)}>
                            <Trans>Allow {literal(pairing.connector_name)} to create new collections</Trans> </Checkbox>}
                       </CheckboxGroup>
                     </details> : null}
-                    {!privateChoice && pairing.timer_declaration && <div className="installation-choice">
+                    {!privateChoice && !deviceChoice && pairing.timer_declaration && <div className="installation-choice">
                       <Checkbox disabled={busy} checked={allowReminders} onChange={event=>setAllowReminders(event.target.checked)}>
                          <Trans>Allow {literal(pairing.connector_name)} to send you reminders</Trans> </Checkbox>
                       <p className="field-note"><Trans>Applies to the collection you chose to open and any new collections selected here. Other collections are not included.</Trans></p>
@@ -425,7 +440,8 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     {details}
                     <footer className="approval-footer">
                       <div className="approval-receipt approval-target" id={`pairing-target-${pairingId}`} ref={approvalTarget} tabIndex={-1}>
-                        {selectedName && <div className="collection-identity-copy"><strong className="collection-name">{selectedName}</strong><small>{privateChoice ? t(i18n)`Private collection — on your computers` : t(i18n)({ message: "Cloud copy", context: "Collection storage mode" })}</small></div>}
+                        {selectedName && <div className="collection-identity-copy"><strong className="collection-name">{selectedName}</strong><small>{collectionLocation(selectedCollectionId===NEW_COLLECTION ? undefined : selectedCollection?.kind)}</small></div>}
+                        {deviceAccess && <p><Trans>{appName} on this device will hold the key to the private collections you allow here and will be able to read them. It will ask for your encryption password. Only allow this if you trust {appName} with that password.</Trans></p>}
                         <p><Trans>This device can keep notes, files and account/member information offline. Downloaded copies cannot be erased.</Trans></p>
                         {createCollections && !privateChoice && <p><Trans>Allow {literal(pairing.connector_name)} to create new collections</Trans></p>}
                         {pairing.scope_only && <p><Trans>Already-allowed access stays in place. Revoke access separately if you no longer want it.</Trans></p>}

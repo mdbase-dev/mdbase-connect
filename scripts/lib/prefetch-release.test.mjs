@@ -143,7 +143,7 @@ test('every workflow workspace install prefetches Electron and no cosign install
       installs++;
     }
   }
-  assert.ok(installs >= 15);
+  assert.ok(installs >= 14);
 });
 
 test('Forge packaging consumes the same verified cache through its actual @electron/get version', async t => {

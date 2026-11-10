@@ -28,6 +28,7 @@ import { LocaleProvider } from "@mdbase-dev/i18n/react";
 import { editorLocaleRuntime } from "./i18n/runtime";
 import { EditorEntryPage } from "./ConnectionScreens";
 import { editorPortalUrl } from "./connect-endpoint";
+import { editorEnvironment as environment } from "./environment";
 import { OpeningScreen } from "./LoadingScreens";
 
 function reportLocaleLoadError(error: unknown) {
@@ -54,8 +55,6 @@ const demoDelay = demoCount > 0
   ? Number(new URL(location.href).searchParams.get("delay") ?? 0)
   : 0;
 const demoGateway = demoCount > 0 ? new DemoCollectionGateway(demoCount, demoDelay) : null;
-const environment = import.meta.env.VITE_MDBASE_ENV ?? (import.meta.env.DEV ? "lab" : "production");
-if (environment !== "lab" && environment !== "staging" && environment !== "production") throw new Error("Invalid Editor application environment");
 // The explicit demo build has no native SDK owner; preserve its loopback E2E
 // entry while applying exact target origins to every real native entry.
 const wrongOrigin = !demoGateway && ((environment === "staging" && location.origin !== "https://editor-staging.mdbase.dev")

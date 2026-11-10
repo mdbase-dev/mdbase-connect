@@ -4,7 +4,7 @@ import type { FastifyInstance } from "fastify";
 import type { WebSocket } from "ws";
 import { expect, it, vi } from "vitest";
 import type { DatabasePool } from "../../database-types.js";
-import { LocalRelayBroker } from "../../relay-broker.js";
+import { LocalRelayBroker } from "../relay/relay-broker.js";
 import { NoisePipes, registerNoisePipeClientRoute } from "./noise-pipes.js";
 
 const cases = JSON.parse(readFileSync(new URL("../../../../../runtime/conformance/relay-grant-refusals.json", import.meta.url), "utf8")) as {

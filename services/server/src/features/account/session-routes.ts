@@ -4,9 +4,9 @@ import { z } from "zod";
 import {
   AccountSessionService,
   sessionClientName
-} from "../../account-sessions.js";
+} from "./account-sessions.js";
 import type { DatabasePool } from "../../database-types.js";
-import { ensureDevelopmentEntitlement } from "../../entitlements.js";
+import { ensureDevelopmentEntitlement } from "./entitlements.js";
 import { randomToken, tokenHash } from "../../security.js";
 import { apiError } from "../../platform/http-errors.js";
 import {

@@ -108,8 +108,12 @@ test("native selection retains explicit dispatch checks and includes Rust input 
     assert.doesNotMatch(block, /always\(\)/);
     assert.match(block, /needs.select-tests.result == 'success'/);
   }
-  for (const path of ["Cargo.toml", "Cargo.lock", "crates/**", "deploy/docker/mdbase-rs-revision", "scripts/ci/desktop-test-plan.mjs"]) {
-    assert.ok(desktop.includes(`- "${path}"`));
+  for (const path of ["runtime/**", "scripts/ci/desktop-test-plan.mjs"]) {
+    assert.ok(desktop.includes(`- "${path}"`), path);
+  }
+  // The desktop bundles mdbn-daemon from runtime/; the legacy root crates are not inputs.
+  for (const path of ["Cargo.toml", "Cargo.lock", "crates/**", "rust-toolchain*", "deploy/docker/mdbase-rs-revision"]) {
+    assert.ok(!desktop.includes(`- "${path}"`), path);
   }
 });
 
@@ -144,16 +148,16 @@ test("binary transfer remains opt-in and outside the qualification gate", () => 
   const benchmark = server.split("  binary-transfer-benchmark:\n")[1].split("  hosted-provider-system:\n")[0];
   assert.match(benchmark, /needs: hosted-provider-rust/);
   assert.match(benchmark, /github.event_name == 'pull_request' && contains/);
-  assert.match(benchmark, /\.\/mdbase --help/);
+  assert.match(benchmark, /\.\/mdbase-connect-hosted-provider --help/);
   assert.doesNotMatch(server.split("  qualification:\n")[1], /binary-transfer-benchmark/);
 });
 
 test("pull requests changing native or system-suite inputs run full Server CI", () => {
   for (const path of ["crates/connect-core/src/lib.rs", "Cargo.lock", "Cargo.toml", "rust-toolchain.toml",
     "deploy/docker/mdbase-rs-revision", "deploy/docker/Cargo.lock.hosted-provider", "deploy/postgres/schema.sql",
-    "test/system/suites.mjs", "test/upgrade/lib.sh", "scripts/diagnostics/windows-428.ps1",
+    "test/system/suites.mjs", "test/upgrade/lib.sh",
     "scripts/hosted-file-adversarial-e2e.mjs", "scripts/hosted-projection-scale-e2e.mjs",
-    ".github/workflows/server-ci.yml", ".github/workflows/windows-daemon-lifecycle.yml"]) {
+    ".github/workflows/server-ci.yml"]) {
     assert.deepEqual(serverTestPlan(["docs/readme.md", path]), { native: true }, path);
   }
   for (const path of ["runtime/crates/log-conformance/src/suite.rs", "runtime/crates/log-server/src/pg.rs",
@@ -166,14 +170,14 @@ test("pull requests changing native or system-suite inputs run full Server CI", 
   for (const paths of [[], ["apps/editor/src/App.tsx"], ["docs/ci-qualification.md"], ["packages/client/src/index.ts"]]) {
     assert.deepEqual(serverTestPlan(paths), { native: false }, paths.join());
   }
-  const classify = workflow("server-ci").split("  classify:\n")[1].split("  windows-daemon-lifecycle:\n")[0];
+  const classify = workflow("server-ci").split("  classify:\n")[1].split("  node:\n")[0];
   assert.match(classify, /node scripts\/ci\/server-test-plan\.mjs "\$BASE" "\$HEAD"/);
   assert.match(classify, /if \[\[ \$NATIVE_CHANGES == true \]\] \|\|/);
 });
 
 test("protocol-only packaging selection leaves Node and full merge-queue qualification intact", () => {
   const server = workflow("server-ci");
-  const classify = server.split("  classify:\n")[1].split("  windows-daemon-lifecycle:\n")[0];
+  const classify = server.split("  classify:\n")[1].split("  node:\n")[0];
   assert.match(classify, /if \[\[ "\$GITHUB_EVENT_NAME" == merge_group \]\]; then\s+echo 'run_full=true'/);
   const node = server.split("  node:\n")[1].split("  server-container-full:\n")[0];
   assert.doesNotMatch(node, /needs.select-tests|outputs.bundle|outputs.windows|outputs.headless/);
@@ -187,7 +191,7 @@ test("Rust caches are restored by CI jobs and written only by rust-caches.yml fr
   assert.match(owner, /save-if: \$\{\{ github.ref == 'refs\/heads\/main' \}\}/);
   const warmed = new Set([...owner.matchAll(/^\s+- cache: ([a-z-]+)$/gm)].map((match) => match[1]));
   let consumers = 0;
-  for (const name of ["server-ci", "desktop-release", "windows-daemon-lifecycle"]) {
+  for (const name of ["server-ci", "desktop-release", "flake-stress"]) {
     for (const [, inputs] of workflow(name).matchAll(/uses: Swatinem\/rust-cache@[^\n]*\n((?: {8,}\S.*\n)+)/g)) {
       consumers += 1;
       assert.match(inputs, /save-if: false/, name);
@@ -195,7 +199,7 @@ test("Rust caches are restored by CI jobs and written only by rust-caches.yml fr
       assert.ok(warmed.has(key), `${name} restores ${key}, which rust-caches.yml does not write`);
     }
   }
-  assert.equal(consumers, 7);
+  assert.equal(consumers, 5);
 });
 
 test("Windows headless smoke reuses the Store package job's daemon build", () => {

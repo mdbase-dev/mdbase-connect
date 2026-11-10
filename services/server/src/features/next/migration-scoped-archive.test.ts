@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { legacyNotificationWatermarkSchema, type LegacyMigrationDrain } from "../../hosted-provider-replies.js";
+import { legacyNotificationWatermarkSchema, type LegacyMigrationDrain } from "../hosted/hosted-provider-replies.js";
 import { requireOriginalArchiveSource } from "./migration-scoped-archive.js";
 
 // The hosted provider's expired-prepared sweep (ADR 0005, 2026-11-07) changes

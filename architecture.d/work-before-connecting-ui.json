@@ -1,9 +1,0 @@
-{
-  "reason": "Work before connecting in the shared collection UI: one structural bridge to the SDK's unsynced API (so the package still builds against SDK releases without it) and one component file for the saved-only line and the bring-in banner, beside the existing gate rather than inside it.",
-  "growth": {
-    "productionFiles": 2,
-    "relativeImports": 13,
-    "typeScriptExportDeclarations": 14,
-    "packages/app-ui": 2
-  }
-}

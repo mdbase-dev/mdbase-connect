@@ -1,22 +1,22 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { accessView, requireCollectionAction, resolveHostedCollectionAccess, resolveLocalCollectionAccess } from "../../collection-access.js";
+import { accessView, requireCollectionAction, resolveHostedCollectionAccess, resolveLocalCollectionAccess } from "../collections/collection-access.js";
 import {
   listHostedCollectionsVisibleToUser,
   listLocalCollectionsVisibleToUser,
   listNativeCollectionsVisibleToUser,
   accountCollectionCreation
-} from "../../collection-catalog.js";
+} from "../collections/collection-catalog.js";
 import type { DatabasePool } from "../../db.js";
-import { effectiveEntitlement } from "../../entitlements.js";
+import { effectiveEntitlement } from "./entitlements.js";
 import {
   contractRequirements,
   effectiveHostedContractDescriptors,
   type HostedAuthorityRegistry
-} from "../../hosted.js";
-import type { HostedProviderClient } from "../../hosted-provider.js";
-import type { RelayHub } from "../../relay.js";
-import type { AuthenticationPolicyStore } from "../../authentication-policy.js";
+} from "../hosted/hosted.js";
+import type { HostedProviderClient } from "../hosted/hosted-provider.js";
+import type { RelayHub } from "../relay/relay.js";
+import type { AuthenticationPolicyStore } from "../auth/authentication-policy.js";
 import { requireUser } from "../../platform/request-authentication.js";
 import { sqlPlaceholders } from "../../platform/sql.js";
 import { liveAuthorizationCollections } from "../authorizations/local-collections.js";

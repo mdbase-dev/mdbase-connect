@@ -19,20 +19,20 @@ import {
   HOSTED_PROVIDER_REQUIRED_CAPABILITIES,
   operationsForApplicationCapabilities
 } from "@mdbase-dev/connect-protocol";
-import type { ApplicationRequirements } from "./application-requirements.js";
+import type { ApplicationRequirements } from "./features/applications/application-requirements.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
 import {
   createHostedCollectionMembership,
   membershipPolicyPreset
-} from "./collection-policy.js";
+} from "./features/collections/collection-policy.js";
 import {
   HostedProviderClient,
   HostedProviderUnavailableError,
   HostedProviderResponseError
-} from "./hosted-provider.js";
-import { authorityProofMessage } from "./authority-proof.js";
+} from "./features/hosted/hosted-provider.js";
+import { authorityProofMessage } from "./features/authority-transfer/authority-proof.js";
 import { pkceChallenge, tokenHash } from "./security.js";
 import {
   createTestApplicationIdentity,
@@ -844,8 +844,7 @@ describe("mdbase connect server", () => {
     const { app } = await buildApp({
       db,
       devAuth: true,
-      publicUrl: "http://connect.test",
-      allowInsecureManifests: true
+      publicUrl: "http://connect.test"
     });
     resources.push(() => app.close());
 
@@ -2703,8 +2702,7 @@ describe("mdbase connect server", () => {
       devAuth: true,
       hostedCollections: true,
       hostedProvider,
-      publicUrl: "http://connect.test",
-      allowInsecureManifests: true
+      publicUrl: "http://connect.test"
     });
     resources.push(() => app.close());
     // Settle the seeded installation application's startup scan before arranging
@@ -2809,8 +2807,7 @@ describe("mdbase connect server", () => {
       devAuth: true,
       hostedCollections: true,
       hostedProvider,
-      publicUrl: "http://connect.test",
-      allowInsecureManifests: true
+      publicUrl: "http://connect.test"
     });
     resources.push(() => app.close());
 
@@ -3101,8 +3098,7 @@ describe("mdbase connect server", () => {
       devAuth: true,
       hostedCollections: true,
       hostedProvider,
-      publicUrl: "http://connect.test",
-      allowInsecureManifests: true
+      publicUrl: "http://connect.test"
     });
     resources.push(() => app.close());
     const session = await app.inject({

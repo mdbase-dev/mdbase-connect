@@ -287,6 +287,10 @@ msgid "{applicationName} needs a {0} type"
 msgstr "{applicationName} needs a {0} type"
 
 #: src/authority-workflows.tsx
+msgid "{appName} on this device will hold the key to the private collections you allow here and will be able to read them. It will ask for your encryption password. Only allow this if you trust {appName} with that password."
+msgstr "{appName} on this device will hold the key to the private collections you allow here and will be able to read them. It will ask for your encryption password. Only allow this if you trust {appName} with that password."
+
+#: src/authority-workflows.tsx
 msgid "{collectionName} now lives on your computer."
 msgstr "{collectionName} now lives on your computer."
 
@@ -2574,6 +2578,10 @@ msgstr "Privacy"
 msgctxt "Connect interface"
 msgid "Private collection"
 msgstr "Private collection"
+
+#: src/authority-workflows.tsx
+msgid "Private collection — key kept on this device"
+msgstr "Private collection — key kept on this device"
 
 #: src/authority-workflows.tsx
 msgid "Private collection — on your computers"

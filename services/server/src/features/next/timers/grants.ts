@@ -10,7 +10,7 @@ import { CreateError, currentCollectionDevice, inTransaction, type Device } from
 import { requireInstallationScope } from "../installation-scope.js";
 import { readInstallationTimerDeclaration } from "./installation-declaration.js";
 import { TimerError } from "./model.js";
-import type { InstallationEnvironment } from "../../../local-deployment.js";
+import type { InstallationEnvironment } from "../../../platform/local-deployment.js";
 
 /**
  * The collection state a timer call is evaluated in (collection-states doc §2).
@@ -168,7 +168,7 @@ export function backgroundTimerGrantResolver(db: DatabasePool, environment: Inst
       const device: Device = { kind: row.device_kind, sign_pk: row.sign_pk, kem_pk: row.kem_pk, noise_pk: row.noise_pk };
       await currentCollectionDevice(client,connector,row.collection_id,row.device_id,device);
       const scoped = await client.query(
-        "SELECT 1 FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2 FOR SHARE",
+        "SELECT 1 FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2 AND NOT private_device FOR SHARE",
         [row.native_connector_id,row.collection_id]
       );
       if (!scoped.rows.length) return grant;

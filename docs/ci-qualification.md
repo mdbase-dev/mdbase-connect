@@ -24,12 +24,9 @@ trust boundary.
 - Merge-queue commits always run the complete qualification. Hosted-provider
   Rust qualification and every registered system suite run as parallel jobs
   rather than one serial critical path. `container` retains its packaged-image
-  job; `local,relay`, `sync`, `provider`, `files`, `files-adversarial`,
-  `projection-scale`, and `desktop` are explicit matrix shards. A contract
-  test prevents new suites from silently falling outside full CI. Windows
-  filesystem durability runs `mdbase-connect-core` and `mdbase-connect-daemon`
-  on separate runners because their test binaries are filesystem-throughput
-  bound and otherwise run one after another.
+  job; `relay`, `sync`, `provider`, `files`, `files-adversarial`,
+  `projection-scale`, and `linux-packages` are explicit matrix shards. A
+  contract test prevents new suites from silently falling outside full CI.
 - A push to `main` reuses a successful merge-queue qualification only when its
   head SHA is exactly the same. If GitHub has no such completed run, all full
   jobs run again.
@@ -64,8 +61,7 @@ changes (Cargo manifests and locks, the toolchain, or the pinned engine),
 weekly so unchanged entries do not expire, and on dispatch. Each matrix entry
 reproduces one consumer's toolchain, lock file and builds under a shared key:
 `hosted-provider` (Rust workspace job and every system shard),
-`runtime-testbed`, `connect-debug` (macOS/Windows filesystem durability and the
-Windows CLI lifecycle contract), and `mdbase-daemon-release` (Desktop Release
+`connect-debug` (macOS/Windows nightly flake stress), and `mdbase-daemon-release` (Desktop Release
 smoke builds of the daemon in `runtime/`, keyed on `runtime/Cargo.lock`). Every CI job restores with `save-if: false`; a contract test
 fails if a job restores a key the workflow does not write. rust-cache keeps
 dependencies only, so workspace crates always compile from source.
@@ -125,38 +121,6 @@ end-to-end artifact-fed system-suite qualification. Runtime probes do not prove
 all suite dependencies portable, and files-adversarial still compiles tests.
 The run's two upgrade jobs failed on the then-existing mutable-newest-release
 policy; that failure does not invalidate the completed transfer measurements.
-
-## Windows daemon task qualification
-
-Full Server CI calls `windows-daemon-lifecycle.yml` and requires its result in
-`Qualification`. The small native probe compiles the production CLI service
-module directly, avoiding a second copy of installer logic. It uses disposable
-Windows runner state and unpaired public release binaries, not account data.
-
-The registration case uses a newly created non-administrator account: the old
-unscoped task fails, while current-user installation, replacement, identity
-checks, and uninstall succeed. Fresh-start and beta96-to-beta99 runtime
-replacement cases use the runner's existing interactive account with the task
-configured at least privilege. They verify real daemon status across start,
-stop, replacement, cold start, and uninstall. These are separate boundaries:
-new non-interactive test accounts cannot execute `InteractiveToken` tasks, and
-successful registration alone is not counted as daemon execution. This does
-not replace packaged Electron/Squirrel or actual sign-out/logon qualification.
-
-A separate job builds the **current actual CLI**, using the pinned engine, and
-executes `--json connect daemon` commands through Node's `execFile` with the
-same whole-stdout `JSON.parse` contract as Electron. It verifies install,
-replacement, stop, start, restart, uninstall, and real daemon running state.
-Exit-code-only service tests cannot detect scheduler output corrupting CLI JSON.
-Raw stdout/stderr and the failing command are retained as a bounded artifact.
-This job uses the interactive runner account, not a standard-user desktop session.
-
-The elevated-registration fixture creates a task as the runner administrator
-for a separate standard-user principal. It proves that principal cannot replace
-the administrator-owned task, then has the fixture owner remove it and verifies
-normal standard-user registration again. This qualifies an ACL failure and
-owner-assisted repair, **not** automatic permission recovery or same-account
-UAC token transitions. No production task permissions are weakened.
 
 ## Publication
 

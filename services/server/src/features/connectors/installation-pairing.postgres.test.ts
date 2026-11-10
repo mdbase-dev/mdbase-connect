@@ -7,20 +7,20 @@ import { applicationDeclaration } from "../../../../../runtime/packages/sdk/src/
 import { resolveApplicationRegistration } from "../../../../../runtime/packages/sdk/src/application/registration.js";
 import { registerApplicationRoutes } from "../applications/routes.js";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import { deleteAccountLocally } from "../../account-management.js";
-import { createExternalSession } from "../../external-auth.js";
+import { deleteAccountLocally } from "../account/account-management.js";
+import { createExternalSession } from "../auth/external-auth.js";
 import { capabilityOperationsForContractVersion, MDBASE_TIMER_FIRED_CONTRACT } from "@mdbase-dev/connect-protocol";
 import { createTestApplicationIdentity, testApplicationAuthorization } from "../../application-authorization.test-helper.js";
 import { clientNoiseKeyMessage, storeRequestClientNoiseKey, verifiedClientNoiseKey } from "../next/client-key.js";
 import { approveNativeAuthorization } from "../authorizations/native-approval-service.js";
-import { fileRequestForRequirements } from "../../application-requirements.js";
+import { fileRequestForRequirements } from "../applications/application-requirements.js";
 import { acceptCohortArchive, addToCohort, cohortArchiveBinding, createCohort, flipAccountBackend, flipEvidenceDigest, releaseCohort, setCohortFrozen, setPaused, startAccountMigration } from "../next/migration-rollout.js";
 import { ZERO_HOSTED_ARCHIVE_SCHEMA } from "../next/migration-archive-profile.js";
 import { randomToken, tokenHash } from "../../security.js";
-import { pruneUsageHistory } from "../../usage-report.js";
+import { pruneUsageHistory } from "../usage/usage-report.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
-import { AuthenticationPolicyStore } from "../../authentication-policy.js";
-import { RelayHub } from "../../relay.js";
+import { AuthenticationPolicyStore } from "../auth/authentication-policy.js";
+import { RelayHub } from "../relay/relay.js";
 import { registerAccountOverviewRoute } from "../account/me-routes.js";
 import { connectorFromRequest, requireInstallationDeviceConnector } from "../../platform/request-authentication.js";
 import { clientFingerprint, deviceRegistrationDigest } from "../next/devices.js";
@@ -41,8 +41,8 @@ import { recordCollectionCutover } from "../next/migration-rollout.js";
 import { desiredTimer } from "../next/timers/model.js";
 import { TimerWorker, notificationsConsumer, timerEventId } from "../next/timers/worker.js";
 import { PushTargetSealer } from "../next/push-target-seal.js";
-import { buildPolicySnapshot, type LeasePolicySnapshot } from "../../relay-policy.js";
-import { NotificationService, type NotificationTransports } from "../../notifications.js";
+import { buildPolicySnapshot, type LeasePolicySnapshot } from "../relay/relay-policy.js";
+import { NotificationService, type NotificationTransports } from "../notifications/notifications.js";
 import { registerNotificationRoutes } from "../notifications/routes.js";
 
 vi.mock("../../../../../runtime/packages/sdk/src/application/packaged-trust.js", () => ({
@@ -68,6 +68,13 @@ describePg("installation device sign-in on daemon pairing", () => {
   const nativePushes: Array<{connector:string;grants:string[]}> = [];
   const policyWakes: string[] = [];
   const emitter = { publishCommitted: async (collection: string) => { policyWakes.push(collection); } };
+  /** The operator's Private device gate; empty, so every other test runs with the feature off. */
+  /** The operator's switch, on for this server; tests turn it off and on again. */
+  const privateDevice: { privateBootstrap?: true; privateAppDevices?: true } = { privateBootstrap: true, privateAppDevices: true };
+  async function switchedOff<T>(run: () => Promise<T>): Promise<T> {
+    delete privateDevice.privateAppDevices;
+    try { return await run(); } finally { privateDevice.privateAppDevices = true; }
+  }
   let acknowledgeNativePush = async () => {};
   const channelSealer = new PushTargetSealer({keyId:"synthetic",key:Buffer.alloc(32,42),previousKeys:{}});
   const transports = {webPush:{send:async()=>undefined},fcm:{send:async()=>undefined}};
@@ -81,13 +88,13 @@ describePg("installation device sign-in on daemon pairing", () => {
     db = await createDatabase(url.toString());
     await app.register(cookie);
     registerErrorHandler(app);
-    registerApplicationRoutes(app,{db,allowInsecureManifests:true});
+    registerApplicationRoutes(app,{db});
     registerAccountOverviewRoute(app,{db,relay:new RelayHub(db),publicUrl:"https://connect.test",authenticationPolicy:new AuthenticationPolicyStore(db,"open")});
     registerConnectorPairingRoutes(app, { db, publicUrl: "https://connect.test", installationDevices: true, installationEnvironment: "lab", relay:{pushPolicy:async(connector)=>{
       const snapshot=await buildPolicySnapshot(db,connector,55_000,undefined,()=>true,"lease_v1",true,true,true) as LeasePolicySnapshot;
       nativePushes.push({connector,grants:snapshot.grants.map(g=>String(g.id))});
       await acknowledgeNativePush();
-    }}, nativePolicyEmitter: emitter });
+    }}, nativePolicyEmitter: emitter, privateDevice });
     registerNextDeviceRoutes(app, { db, log: { controlItemAt: async () => null }, relay: { fenceConnector: async () => "closed" } });
     registerInstallationSignOutRoute(app, { db, emitter, relay: { fenceConnector: async (id, generation) => { fenced.push([id, generation]); return "closed"; } } });
     const resolver = backgroundTimerGrantResolver(db,"lab");
@@ -109,10 +116,11 @@ describePg("installation device sign-in on daemon pairing", () => {
     if (admin && schema) await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
     await admin?.end();
   });
-  async function registeredApp(family: string) {
+  async function registeredApp(family: string, requirements?: object) {
     const id=randomUUID(), web=`https://app-${id}.example.test`, mobile=`capacitor://app-${id}.example.test`;
     apps.set(id,{name:"Independent Notes",web,mobile});
     await db.query("INSERT INTO applications(id,canonical_identity,family_identity,name,homepage,redirect_uris,installation_origins) VALUES($1,$2,$3,$4,$5,'[]',$6)",[id,randomUUID(),family,"Independent Notes",web,JSON.stringify({lab:{"app-runtime":[web],mobile:[mobile]}})]);
+    if (requirements) await db.query("UPDATE applications SET requirements=$2::jsonb WHERE id=$1",[id,JSON.stringify(requirements)]);
     return id;
   }
   it("keeps TaskNotes0066 identity and legacy origins when re-registering its declaration", async () => {
@@ -183,7 +191,7 @@ describePg("installation device sign-in on daemon pairing", () => {
   function original(kind: "app-runtime" | "mobile" = "app-runtime") {
     return { connector_name: "Caller-supplied name is not app identity", installation: { request_id: randomUUID(), pairing_secret: randomToken("pair"), installation_id: randomUUID(), device_id: randomUUID(), kind, app_id: tasknotesId, requested_create_collections:false, reconsent:false } };
   }
-  type Input = ReturnType<typeof original> & {installation: ReturnType<typeof original>["installation"] & {renewal?: {request_id:string;pairing_secret:string}; recovery_collection_id?:string}};
+  type Input = ReturnType<typeof original> & {installation: ReturnType<typeof original>["installation"] & {renewal?: {request_id:string;pairing_secret:string}; recovery_collection_id?:string; requested_private_device?:boolean}};
   const originHeaders = (input:Input) => ({origin:input.installation.kind === "mobile" ? apps.get(input.installation.app_id)!.mobile : apps.get(input.installation.app_id)!.web});
   function channel(input: Input) {
     const base = `/v1/pairing-requests/${input.installation.request_id}`;
@@ -1111,6 +1119,307 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect(result.statusCode,result.body).toBe(201);
     return {input,flow:channel(input)};
   }
+  // ---- Private device access (docs/installation-private-device.md) ----
+  /** A registered application whose manifest declares `offline.replica`, so it may ask for device access. */
+  const offlineReplica=(how:"required"|"optional"="optional")=>({access:"full_collection",contracts:[],capabilities:{contract_version:2,
+    required:["collection.read",...(how==="required"?["offline.replica"]:[])],...(how==="optional"?{optional:["offline.replica"]}:{})}});
+  const deviceApp=(how:"required"|"optional"="optional")=>registeredApp(`bundle:test.private-device.${randomUUID()}`,offlineReplica(how));
+  function deviceRequest(appId:string):Input {
+    const input:Input=original();
+    input.installation.app_id=appId; input.installation.requested_private_device=true;
+    return input;
+  }
+  /** A device-access request up to (not including) the portal's approval. */
+  async function devicePrepared(owner?:Awaited<ReturnType<typeof account>>,appId?:string) {
+    const who=owner??await account(), input=deviceRequest(appId??await deviceApp()), flow=await start(input);
+    expect((await app.inject({method:"POST",url:`${flow.base}/select-account`,headers:who.headers})).statusCode).toBe(200);
+    const selected=(await flow.exchange()).json(), proof=await attest(input,selected);
+    expect(proof.result.statusCode).toBe(200);
+    return {owner:who,input,flow,selected,proof};
+  }
+  const deviceApprove=(p:Awaited<ReturnType<typeof devicePrepared>>,flow:ReturnType<typeof channel>,consent:Record<string,unknown>)=>
+    app.inject({method:"POST",url:`${flow.base}/approve`,headers:p.owner.headers,payload:{fingerprint:clientFingerprint(Buffer.from(p.proof.payload.sign_pk,"hex")),...consent}});
+  const scopes=async(connector:string)=>(await db.query<{collection_id:string;private_device:boolean}>("SELECT collection_id,private_device FROM installation_collection_scopes WHERE connector_id=$1 ORDER BY collection_id",[connector])).rows;
+  const startDevice=(input:Input,headers:Record<string,string>={})=>app.inject({method:"POST",url:"/v1/pairing-requests",headers:{...originHeaders(input),...headers},payload:input});
+  it("grants a Private device request only to an application that declares offline.replica, with the switch on, immutably, and never refuses sign-in for asking",async()=>{
+    const asked=async(id:string)=>(await db.query("SELECT requested_private_device FROM installation_device_pairings WHERE pairing_id=$1",[id])).rows[0].requested_private_device;
+    // An app asks on every sign-in without knowing what the server will grant. Its registered
+    // manifest does not declare offline.replica (with or without other capabilities): sign-in
+    // goes on exactly as if it had not asked.
+    const owner=await account(), cloud=await scopeCollection(owner.user), own=await scopeCollection(owner.user,owner.user,"private");
+    const undeclared=await registeredApp(`bundle:test.undeclared.${randomUUID()}`,{access:"full_collection",contracts:[],capabilities:{contract_version:2,required:["collection.read"],optional:["records.edit"]}});
+    const bare=deviceRequest(await registeredApp(`bundle:test.bare.${randomUUID()}`));
+    expect((await startDevice(bare)).statusCode).toBe(201);
+    expect(await asked(bare.installation.request_id)).toBe(false);
+    const u=await devicePrepared(owner,undeclared);
+    expect(await asked(u.input.installation.request_id)).toBe(false);
+    const seen=(await app.inject({method:"GET",url:u.flow.base,headers:owner.headers})).json().pairing;
+    for (const key of ["requested_private_device","approved_private_device_collection_ids","retained_private_device_collection_ids"]) expect(key in seen).toBe(false);
+    expect(seen.collections.some((c:{kind?:string})=>c.kind==="private_device")).toBe(false);
+    // Asking again, or no longer asking, is the same request: neither is granted here.
+    for (const again of [u.input,{...u.input,installation:{...u.input.installation,requested_private_device:false}} as Input]) expect((await startDevice(again)).statusCode).toBe(201);
+    // Only an approval that names device access the request was not granted is refused.
+    const named=await deviceApprove(u,u.flow,{collection_ids:[cloud],selected_collection_id:cloud,private_device_collection_ids:[own]});
+    expect([named.statusCode,named.json().error.code]).toEqual([403,"installation_private_device_not_allowed"]);
+    expect((await deviceApprove(u,u.flow,{collection_ids:[cloud],selected_collection_id:cloud})).statusCode).toBe(200);
+    const receipt=(await u.flow.exchange()).json();
+    expect(receipt).toMatchObject({status:"paired",collection_ids:[cloud],selected_collection_id:cloud}); expect("private_device_collection_ids" in receipt).toBe(false);
+    expect(await scopes(u.selected.connector_id)).toEqual([{collection_id:cloud,private_device:false}]);
+    // Declared as required or as optional, with the switch on: granted.
+    for (const how of ["required","optional"] as const) {
+      const declared=deviceRequest(await deviceApp(how));
+      expect((await startDevice(declared)).statusCode).toBe(201);
+      expect(await asked(declared.installation.request_id)).toBe(true);
+    }
+    // The decision is made once per window and kept. The switch is turned on while a window
+    // is open: the app's unchanged request replays and renews (same installation and device)
+    // as the same request, still not granted, whichever value it sends.
+    const lateApp=await deviceApp(), late=deviceRequest(lateApp);
+    expect((await switchedOff(()=>startDevice(late))).statusCode).toBe(201);
+    for (const again of [late,{...late,installation:{...late.installation,requested_private_device:false}} as Input]) expect((await startDevice(again)).statusCode).toBe(201);
+    await db.query("UPDATE pairing_requests SET expires_at=now()-interval '1 minute' WHERE id=$1",[late.installation.request_id]);
+    const lateNext=renewal(late), lateRenewed=await startDevice(lateNext);
+    expect(lateRenewed.statusCode,lateRenewed.body).toBe(201);
+    expect((await startDevice(lateNext)).statusCode).toBe(201);
+    expect([await asked(late.installation.request_id),await asked(lateNext.installation.request_id)]).toEqual([false,false]);
+    // Its next fresh sign-in gets the current decision.
+    const lateFresh=deviceRequest(lateApp);
+    expect((await startDevice(lateFresh)).statusCode).toBe(201);
+    expect(await asked(lateFresh.installation.request_id)).toBe(true);
+    const appId=await deviceApp();
+    // The switch on with the private bootstrap off: not granted either.
+    delete privateDevice.privateBootstrap;
+    const off=deviceRequest(appId);
+    try { expect((await startDevice(off)).statusCode).toBe(201); } finally { privateDevice.privateBootstrap=true; }
+    expect(await asked(off.installation.request_id)).toBe(false);
+    // Its own app-runtime device only.
+    const mobile=deviceRequest(appId); mobile.installation.kind="mobile";
+    expect((await startDevice(mobile)).statusCode).toBe(201);
+    expect(await asked(mobile.installation.request_id)).toBe(false);
+    // Never a recovery sign-in: it is answered exactly as the same request without the ask.
+    const recovery=deviceRequest(appId), plainRecovery=original(); plainRecovery.installation.app_id=appId;
+    recovery.installation.recovery_collection_id=(plainRecovery as Input).installation.recovery_collection_id=randomUUID();
+    const [withAsk,without]=[await startDevice(recovery),await startDevice(plainRecovery)];
+    expect([withAsk.statusCode,withAsk.json().error?.code]).toEqual([without.statusCode,without.json().error?.code]);
+    if (withAsk.statusCode===201) expect(await asked(recovery.installation.request_id)).toBe(false);
+    // A value that is not a boolean is malformed.
+    const malformed=await startDevice({...deviceRequest(appId),installation:{...deviceRequest(appId).installation,requested_private_device:"yes"}} as unknown as Input);
+    expect(malformed.statusCode).toBe(400);
+    const input=deviceRequest(appId), started=await startDevice(input);
+    expect(started.statusCode,started.body).toBe(201);
+    // The START reply keeps its exact shape for SDKs that check it.
+    const plain=original(); plain.installation.app_id=appId;
+    const ordinary=await startDevice(plain);
+    expect(Object.keys(started.json()).sort()).toEqual(Object.keys(ordinary.json()).sort());
+    expect([await asked(input.installation.request_id),await asked(plain.installation.request_id)]).toEqual([true,false]);
+    // The only changed request is the client's own: a granted ask it drops. Asking on a
+    // window that was not granted is accepted and adds nothing.
+    expect((await startDevice(input)).statusCode).toBe(201);
+    const {requested_private_device:_omitted,...withoutAsk}=input.installation;
+    for (const changed of [{...input,installation:{...input.installation,requested_private_device:false}},{...input,installation:withoutAsk}]) {
+      const replay=await startDevice(changed as Input);
+      expect([replay.statusCode,replay.json().error.code]).toEqual([409,"installation_original_binding_changed"]);
+    }
+    expect((await startDevice({...plain,installation:{...plain.installation,requested_private_device:true}} as Input)).statusCode).toBe(201);
+    expect([await asked(input.installation.request_id),await asked(plain.installation.request_id)]).toEqual([true,false]);
+    // A renewed window keeps the original ask.
+    await db.query("UPDATE pairing_requests SET expires_at=now()-interval '1 minute' WHERE id=$1",[input.installation.request_id]);
+    const next=renewal(input), dropped={...next,installation:{...next.installation,requested_private_device:false}} as Input;
+    expect((await startDevice(dropped)).json().error.code).toBe("installation_original_binding_changed");
+    expect((await startDevice(next)).statusCode).toBe(201);
+    expect(await asked(next.installation.request_id)).toBe(true);
+    // Turning the switch off does not change the open request either: it replays and renews as
+    // granted (approval and use recheck the switch). A new sign-in goes on without it.
+    await switchedOff(async()=>{
+      expect((await startDevice(next)).statusCode).toBe(201);
+      await db.query("UPDATE pairing_requests SET expires_at=now()-interval '1 minute' WHERE id=$1",[next.installation.request_id]);
+      const third=renewal(next);
+      expect((await startDevice(third)).statusCode).toBe(201);
+      expect(await asked(third.installation.request_id)).toBe(true);
+      const fresh=deviceRequest(appId);
+      expect((await startDevice(fresh)).statusCode).toBe(201);
+      expect(await asked(fresh.installation.request_id)).toBe(false);
+    });
+    // A strict account is refused at account selection, as for every installation.
+    const strictOwner=await account(), strictInput=deviceRequest(await deviceApp()), strictFlow=await start(strictInput);
+    await db.query("INSERT INTO next_account_keys(user_id,mode,version) VALUES($1,'strict',1)",[strictOwner.user]);
+    const selected=await app.inject({method:"POST",url:`${strictFlow.base}/select-account`,headers:strictOwner.headers});
+    expect([selected.statusCode,selected.json().error.code]).toEqual([403,"strict_device_approval"]);
+  });
+  it("records explicit per-collection Private device consent, apart from cloud copies and app grants",async()=>{
+    const owner=await account(), stranger=await account();
+    const cloud=await scopeCollection(owner.user), own=await scopeCollection(owner.user,owner.user,"private");
+    const shared=await scopeCollection(stranger.user,owner.user,"private"), foreign=await scopeCollection(stranger.user,stranger.user,"private");
+    const p=await devicePrepared(owner);
+    const shown=(await app.inject({method:"GET",url:p.flow.base,headers:owner.headers})).json().pairing;
+    expect(shown).toMatchObject({requested_private_device:true,approved_private_device_collection_ids:[],retained_private_device_collection_ids:[],retained_collection_ids:[]});
+    expect(shown.collections).toContainEqual({collection_id:cloud,display_name:"New collection",role:"owner"});
+    expect(shown.collections).toContainEqual({collection_id:own,display_name:"New collection",role:"owner",kind:"private_device"});
+    expect(shown.collections).toContainEqual({collection_id:shared,display_name:"New collection",role:"editor",kind:"private_device"});
+    // Device access replaces the app-grant choice for the same collections; other accounts' stay hidden.
+    expect(shown.collections.some((c:{collection_id:string;kind?:string})=>c.kind==="private"||c.collection_id===foreign)).toBe(false);
+    const refusals:[Record<string,unknown>,number,string][]=[
+      [{collection_ids:[own]},403,"installation_collection_unavailable"], // A Private collection is never a cloud-copy scope.
+      [{private_device_collection_ids:[cloud]},403,"installation_collection_unavailable"], // Nor a cloud copy a device scope.
+      [{private_device_collection_ids:[foreign]},409,"not_member"],
+      [{private_device_collection_ids:[randomUUID()]},403,"installation_collection_unavailable"],
+      [{private_device_collection_ids:[own,own]},400,"installation_invalid_scope"],
+      [{collection_ids:[cloud],selected_collection_id:cloud,private_device_collection_ids:[cloud]},400,"installation_invalid_scope"],
+      [{private_device_collection_ids:[own],selected_collection_id:own},400,"installation_invalid_scope"],
+      [{private_device_collection_ids:[own],selected_collection_id:own,selected_collection_kind:"private"},400,"installation_invalid_scope"],
+    ];
+    for (const [consent,status,code] of refusals) {
+      const refused=await deviceApprove(p,p.flow,consent);
+      expect([refused.statusCode,refused.json().error.code],JSON.stringify(consent)).toEqual([status,code]);
+    }
+    expect((await p.flow.exchange()).json().status).toBe("awaiting_approval");
+    const consent={collection_ids:[cloud],selected_collection_id:cloud,private_device_collection_ids:[shared,own]};
+    const approved=await deviceApprove(p,p.flow,consent);
+    expect(approved.statusCode,approved.body).toBe(200);
+    expect(approved.json()).toEqual({ok:true,installation_device:true});
+    // Nothing is scoped until the credential exists; the approval itself is immutable.
+    expect(await scopes(p.selected.connector_id)).toEqual([]);
+    expect((await deviceApprove(p,p.flow,consent)).statusCode).toBe(200);
+    for (const changed of [{...consent,private_device_collection_ids:[own]},{collection_ids:[cloud],selected_collection_id:cloud},{...consent,selected_collection_kind:"private"}]) {
+      const replay=await deviceApprove(p,p.flow,changed);
+      expect(replay.statusCode,JSON.stringify(changed)).toBeGreaterThanOrEqual(400);
+      expect(["installation_approved_scope_changed","installation_invalid_scope"]).toContain(replay.json().error.code);
+    }
+    const paired=(await p.flow.exchange()).json();
+    expect(paired).toMatchObject({status:"paired",collection_ids:[cloud],selected_collection_id:cloud,private_device_collection_ids:[own,shared].sort()});
+    expect(await scopes(p.selected.connector_id)).toEqual([{collection_id:cloud,private_device:false},{collection_id:own,private_device:true},{collection_id:shared,private_device:true}].sort((a,b)=>a.collection_id<b.collection_id?-1:1));
+    expect(publicOutcome((await p.flow.exchange()).json())).toEqual(publicOutcome(paired));
+    // No timer grant, selection or cloud-copy authority follows from device consent.
+    expect((await db.query("SELECT 1 FROM next_background_grants WHERE native_connector_id=$1",[p.selected.connector_id])).rows).toEqual([]);
+    // PostgreSQL holds the shape: only a request that asked, and never the same collection twice.
+    const plain=await prepared("app-runtime",false,owner);
+    await expect(db.query("UPDATE installation_device_pairings SET approved_private_device_collection_ids=$2 WHERE pairing_id=$1",[plain.input.installation.request_id,[own]])).rejects.toMatchObject({code:"23514"});
+    await expect(db.query("UPDATE installation_device_pairings SET approved_private_device_collection_ids=$2 WHERE pairing_id=$1",[p.input.installation.request_id,[cloud]])).rejects.toMatchObject({code:"23514"});
+    await expect(db.query("UPDATE installation_device_pairings SET kind='mobile' WHERE pairing_id=$1",[p.input.installation.request_id])).rejects.toMatchObject({code:"23514"});
+    // A request that did not ask keeps today's contract exactly: no device list, no new receipt key.
+    const before=(await app.inject({method:"GET",url:plain.flow.base,headers:owner.headers})).json().pairing;
+    for (const key of ["requested_private_device","approved_private_device_collection_ids","retained_private_device_collection_ids"]) expect(key in before).toBe(false);
+    expect(before.collections.some((c:{kind?:string})=>c.kind==="private_device")).toBe(false);
+    const unasked=await deviceApprove(plain as Awaited<ReturnType<typeof devicePrepared>>,plain.flow,{private_device_collection_ids:[own]});
+    expect([unasked.statusCode,unasked.json().error.code]).toEqual([403,"installation_private_device_not_allowed"]);
+    expect((await approvePicked(plain,plain.flow,[cloud],cloud)).statusCode).toBe(200);
+    const ordinary=(await plain.flow.exchange()).json();
+    expect(ordinary.status).toBe("paired"); expect("private_device_collection_ids" in ordinary).toBe(false);
+    expect(await scopes(plain.selected.connector_id)).toEqual([{collection_id:cloud,private_device:false}]);
+  });
+  it("needs this request's own portal confirmation and the switch on at approval, and grants no device access at exchange with it off",async()=>{
+    const owner=await account(), own=await scopeCollection(owner.user,owner.user,"private"), cloud=await scopeCollection(owner.user), appId=await deviceApp();
+    // A manual approval without the portal's confirmation can approve the device, never device access.
+    const manual=await devicePrepared(owner,appId);
+    await db.query("UPDATE installation_device_pairings SET portal_account_confirmed_at=NULL,portal_account_email=NULL,portal_account_session_id=NULL,portal_account_session_epoch=NULL WHERE pairing_id=$1",[manual.input.installation.request_id]);
+    const unconfirmed=await deviceApprove(manual,manual.flow,{private_device_collection_ids:[own]});
+    expect([unconfirmed.statusCode,unconfirmed.json().error.code]).toEqual([403,"installation_account_confirmation_required"]);
+    // The switch turned off after the request was granted: no device choices are offered and none can be approved.
+    let p=await devicePrepared(owner,appId);
+    await switchedOff(async()=>{
+      const hidden=(await app.inject({method:"GET",url:p.flow.base,headers:owner.headers})).json().pairing;
+      expect(hidden.collections.some((c:{kind?:string})=>c.kind==="private_device")).toBe(false);
+      const refused=await deviceApprove(p,p.flow,{private_device_collection_ids:[own]});
+      expect([refused.statusCode,refused.json().error.code]).toEqual([403,"installation_private_device_not_allowed"]);
+    });
+    expect((await deviceApprove(p,p.flow,{collection_ids:[cloud],private_device_collection_ids:[own]})).statusCode).toBe(200);
+    // Approved, then the switch is turned off before the app collects its credential: the
+    // credential and the cloud copy approved with it are not withheld; the device access is
+    // not granted, and the receipt says so with an empty list rather than an absent key.
+    const stopped=(await switchedOff(()=>p.flow.exchange())).json();
+    expect(stopped).toMatchObject({status:"paired",collection_ids:[cloud],private_device_collection_ids:[]});
+    expect((await db.query("SELECT 1 FROM installation_device_credentials WHERE connector_id=$1",[p.selected.connector_id])).rows).toHaveLength(1);
+    expect(await scopes(p.selected.connector_id)).toEqual([{collection_id:cloud,private_device:false}]);
+    // With the switch on again, the dropped consent does not return: the exchange replays the same receipt.
+    expect((await p.flow.exchange()).json()).toMatchObject({status:"paired",collection_ids:[cloud],private_device_collection_ids:[]});
+    expect(await scopes(p.selected.connector_id)).toEqual([{collection_id:cloud,private_device:false}]);
+    expect((await db.query("SELECT approved_private_device_collection_ids FROM installation_device_pairings WHERE pairing_id=$1",[p.input.installation.request_id])).rows[0].approved_private_device_collection_ids).toEqual([]);
+    // Approved as Private, a cloud copy by the time of exchange: the consent does not follow the mode.
+    p=await devicePrepared(owner,appId);
+    expect((await deviceApprove(p,p.flow,{private_device_collection_ids:[own]})).statusCode).toBe(200);
+    await db.query("UPDATE next_collections SET sync='cloud_copy' WHERE collection_id=$1",[own]);
+    const changed=await p.flow.exchange();
+    expect([changed.statusCode,changed.json().error.code]).toEqual([403,"installation_collection_unavailable"]);
+    expect((await db.query("SELECT 1 FROM installation_device_credentials WHERE connector_id=$1",[p.selected.connector_id])).rows).toEqual([]);
+    await db.query("UPDATE next_collections SET sync='private' WHERE collection_id=$1",[own]);
+    const paired=(await p.flow.exchange()).json();
+    expect(paired).toMatchObject({status:"paired",collection_ids:[],private_device_collection_ids:[own]});
+    for (const field of ["selected_collection_id","created_collection_ids","native_selection"]) expect(paired[field]).toBeUndefined();
+    expect(await scopes(p.selected.connector_id)).toEqual([{collection_id:own,private_device:true}]);
+  });
+  it("adds Private device access by re-consent and removes it explicitly",async()=>{
+    const owner=await account(), first=await scopeCollection(owner.user,owner.user,"private"), second=await scopeCollection(owner.user,owner.user,"private"), cloud=await scopeCollection(owner.user);
+    const p=await devicePrepared(owner);
+    expect((await deviceApprove(p,p.flow,{private_device_collection_ids:[first]})).statusCode).toBe(200);
+    const token=(await p.flow.exchange()).json().token as string, bearer={authorization:`Bearer ${token}`};
+    const again=(ask:boolean):Input=>({...p.input,installation:{...p.input.installation,request_id:randomUUID(),pairing_secret:randomToken("pair"),reconsent:true,requested_private_device:ask}});
+    // A re-consent that does not ask cannot add device access, and its receipt keeps its shape.
+    const plain=again(false);
+    expect((await startDevice(plain,bearer)).statusCode).toBe(201);
+    const plainFlow=channel(plain), plainShown=(await app.inject({method:"GET",url:plainFlow.base,headers:owner.headers})).json().pairing;
+    expect(plainShown.retained_collection_ids).toEqual([]); expect("retained_private_device_collection_ids" in plainShown).toBe(false);
+    const unasked=await deviceApprove(p,plainFlow,{private_device_collection_ids:[second]});
+    expect([unasked.statusCode,unasked.json().error.code]).toEqual([403,"installation_private_device_not_allowed"]);
+    // A retained Private device scope is not a retained cloud-copy scope to select.
+    const selectedPrivate=await deviceApprove(p,plainFlow,{selected_collection_id:first});
+    expect(selectedPrivate.statusCode).toBeGreaterThanOrEqual(400);
+    expect((await deviceApprove(p,plainFlow,{collection_ids:[cloud]})).statusCode).toBe(200);
+    const added=(await app.inject({method:"POST",url:`${plainFlow.base}/exchange`,headers:plainFlow.bearer})).json();
+    expect(added).toMatchObject({status:"scope_updated",added_collection_ids:[cloud]}); expect("added_private_device_collection_ids" in added).toBe(false);
+    // One that asks adds exactly the approved collections and keeps the rest.
+    const more=again(true);
+    expect((await startDevice(more,bearer)).statusCode).toBe(201);
+    const flow=channel(more), shown=(await app.inject({method:"GET",url:flow.base,headers:owner.headers})).json().pairing;
+    expect(shown).toMatchObject({scope_only:true,requested_private_device:true,retained_private_device_collection_ids:[first],retained_collection_ids:[cloud]});
+    // Copied account selection is not this request's confirmation: device access needs the person's click.
+    const early=await deviceApprove(p,flow,{private_device_collection_ids:[second]});
+    expect([early.statusCode,early.json().error.code]).toEqual([403,"installation_account_confirmation_required"]);
+    expect((await app.inject({method:"POST",url:`${flow.base}/select-account`,headers:owner.headers})).statusCode).toBe(200);
+    expect((await deviceApprove(p,flow,{private_device_collection_ids:[second]})).statusCode).toBe(200);
+    expect(await scopes(p.selected.connector_id)).toHaveLength(2);
+    const updated=(await app.inject({method:"POST",url:`${flow.base}/exchange`,headers:flow.bearer})).json();
+    expect(updated).toMatchObject({status:"scope_updated",added_collection_ids:[],added_private_device_collection_ids:[second],approved_create_collections:false});
+    const all=[{collection_id:cloud,private_device:false},{collection_id:first,private_device:true},{collection_id:second,private_device:true}].sort((a,b)=>a.collection_id<b.collection_id?-1:1);
+    expect(await scopes(p.selected.connector_id)).toEqual(all);
+    // An optional file action is asked for on a Private device scope as on a cloud copy; never together with device access.
+    await db.query("UPDATE applications SET requirements=$2::jsonb WHERE id=$1",[p.input.installation.app_id,JSON.stringify({...offlineReplica(),files:{required:["list","read"],optional:["add"],scope:{kind:"collection"}}})]);
+    const fileActions=async()=>(await db.query("SELECT file_actions,private_device FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2",[p.selected.connector_id,second])).rows;
+    const files=(ask:boolean)=>{ const input=again(ask); return {...input,installation:{...input.installation,file_access:{collection_id:second,actions:["add"],reason:"Add the image you just chose"}}} as Input; };
+    // The app's standing ask rides along on a file-access request and is not granted there.
+    const fileAccess=files(true);
+    expect((await startDevice(fileAccess,bearer)).statusCode).toBe(201);
+    expect((await db.query("SELECT requested_private_device FROM installation_device_pairings WHERE pairing_id=$1",[fileAccess.installation.request_id])).rows).toEqual([{requested_private_device:false}]);
+    const fileFlow=channel(fileAccess);
+    expect((await deviceApprove(p,fileFlow,{file_actions:["add"],private_device_collection_ids:[first]})).statusCode).toBe(400);
+    expect((await deviceApprove(p,fileFlow,{file_actions:["add"]})).statusCode).toBe(200);
+    expect((await fileFlow.exchange()).json()).toEqual({status:"file_access_updated",request_id:fileAccess.installation.request_id,collection_id:second,file_actions:["add"]});
+    expect(await fileActions()).toEqual([{file_actions:["add"],private_device:true}]);
+    // The latest explicit consent decides the kind: a collection that became a cloud copy is approved again as one,
+    // and file actions approved under the other kind are asked for again.
+    await db.query("UPDATE next_collections SET sync='cloud_copy' WHERE collection_id=$1",[second]);
+    const converted=again(false);
+    expect((await startDevice(converted,bearer)).statusCode).toBe(201);
+    const convertedFlow=channel(converted);
+    expect((await app.inject({method:"GET",url:convertedFlow.base,headers:owner.headers})).json().pairing.retained_collection_ids).toEqual([cloud]);
+    expect((await deviceApprove(p,convertedFlow,{collection_ids:[second]})).statusCode).toBe(200);
+    expect((await app.inject({method:"POST",url:`${convertedFlow.base}/exchange`,headers:convertedFlow.bearer})).json()).toMatchObject({status:"scope_updated",added_collection_ids:[second]});
+    expect(await scopes(p.selected.connector_id)).toEqual(all.map(row=>row.collection_id===second?{...row,private_device:false}:row));
+    expect(await fileActions()).toEqual([{file_actions:[],private_device:false}]);
+    // Approved with the switch on, collected after it was turned off: the update is
+    // not withheld, adds no device access and says so; what was granted before stays as it was.
+    const third=await scopeCollection(owner.user,owner.user,"private"), lapsed=again(true), lapsedFlow=channel(lapsed);
+    expect((await startDevice(lapsed,bearer)).statusCode).toBe(201);
+    expect((await app.inject({method:"POST",url:`${lapsedFlow.base}/select-account`,headers:owner.headers})).statusCode).toBe(200);
+    expect((await deviceApprove(p,lapsedFlow,{private_device_collection_ids:[third]})).statusCode).toBe(200);
+    const before=await scopes(p.selected.connector_id);
+    expect((await switchedOff(()=>app.inject({method:"POST",url:`${lapsedFlow.base}/exchange`,headers:lapsedFlow.bearer}))).json()).toMatchObject({status:"scope_updated",added_collection_ids:[],added_private_device_collection_ids:[]});
+    expect(await scopes(p.selected.connector_id)).toEqual(before);
+    // Removal is explicit, per collection, and the same route as for a cloud copy.
+    const removed=await app.inject({method:"POST",url:`${flow.base}/remove-access`,headers:owner.headers,payload:{collection_id:first,confirm:true}});
+    expect([removed.statusCode,removed.json()],removed.body).toEqual([200,{ok:true,state:"revoking",collection_id:first}]);
+    expect((await scopes(p.selected.connector_id)).map(row=>row.collection_id)).toEqual([cloud,second].sort());
+    expect(policyWakes).toContain(first);
+  });
   it("enforces complete confirmation and rejects created IDs without a final selection in PostgreSQL",async()=>{
     const p=await prepared();
     await expect(db.query("UPDATE installation_device_pairings SET portal_account_email=NULL WHERE pairing_id=$1",[p.input.installation.request_id])).rejects.toMatchObject({code:"23514"});

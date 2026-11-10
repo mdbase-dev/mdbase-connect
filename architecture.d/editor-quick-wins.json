@@ -1,7 +1,0 @@
-{
-  "reason": "Four Editor-internal exports, each used across one module boundary: useDraftRecovery and useRecentPaths move per-collection draft and recents state out of App.tsx (which stays under its line budget); noteAliases lets note search rank aliases with the same parsing as link suggestions; MISSING_REFERENCE_CLASS lets the writer mark missing links from the existing reference diagnostics. The one new relative import is note-search reading noteAliases from links.",
-  "growth": {
-    "relativeImports": 1,
-    "typeScriptExportDeclarations": 4
-  }
-}

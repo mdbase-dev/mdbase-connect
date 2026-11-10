@@ -12,7 +12,7 @@
 // rollback (local-rollback-bindings.ts), which restores them.
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 import { audit } from "../../platform/audit-events.js";
-import { lockCollectionSharingAuthority } from "../../collection-sharing-authority.js";
+import { lockCollectionSharingAuthority } from "../collections/collection-sharing-authority.js";
 import { inTransaction } from "./bootstrap-common.js";
 import { requireCollectionNotDeleted } from "./collection-deletion.js";
 import { queueNextGrantPolicy } from "./grant-policy.js";

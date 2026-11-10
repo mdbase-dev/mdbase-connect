@@ -180,13 +180,8 @@ under implementation and is not yet production-enabled.
 
 - `mdbase-rs` (deprecated legacy engine, not authoritative) owns collection loading, validation, querying, mutation,
   revisions, and normalized filesystem events.
-- `connect-agent` owns collection registration, local policy enforcement, the
-  local change journal, local runtime authority, activity, browser loopback
-  access, and outbound relay connectivity.
 - `connect-runtime` translates manifest criteria and exact grants into
   provider-neutral runtime contracts without owning collection semantics.
-- `connect-cli` and the Electron controller use the agent's versioned local
-  control socket.
 - `connect-server` owns accounts, pairing, app discovery, grants, token
   issuance, collection access policy, audit metadata, and transient request
   routing. Its schema changes use the versioned, pre-deploy process in

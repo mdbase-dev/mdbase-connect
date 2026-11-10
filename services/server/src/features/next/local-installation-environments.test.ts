@@ -5,10 +5,10 @@ import { canonicalSha256 } from "../../canonical-json.js";
 import { installationApp, startInstallationPairing } from "../connectors/installation-pairing.js";
 import { installationTimerDeclaration, readInstallationTimerDeclaration, type InstallationTimerBinding } from "./timers/installation-declaration.js";
 import { backgroundTimerGrantResolver } from "./timers/grants.js";
-import { backgroundGrantNotificationDeclaration } from "../../notifications.js";
+import { backgroundGrantNotificationDeclaration } from "../notifications/notifications.js";
 
 const build = vi.hoisted(() => ({ local: true }));
-vi.mock("../../local-build.js", () => ({ get LOCAL_REHEARSAL_BUILD() { return build.local; } }));
+vi.mock("../../platform/local-build.js", () => ({ get LOCAL_REHEARSAL_BUILD() { return build.local; } }));
 const origin = "http://127.0.0.1:8111", id = "10000000-0000-4000-8000-000000000001";
 const application = {
   id, name: "Local Notes", family_identity: "bundle:local.notes", homepage: null,
@@ -38,7 +38,7 @@ it.each(cases)("binds pairing, frozen timers and background metadata to the serv
   const input = { request_id: id, pairing_secret: "test-pairing-secret", installation_id: id, device_id: id, kind };
   const pairing = { id, installation_id: id, device_id: id, app_id: id, app_origin: entry.origin, kind,
     timer_declaration: declaration, expires_at: new Date(Date.now() + 60_000), previous_pairing_id: null,
-    scope_only: false, requested_create_collections: false, recovery_collection_id: null,
+    scope_only: false, requested_create_collections: false, requested_private_device: false, approved_private_device_collection_ids: [], recovery_collection_id: null,
     file_access_collection_id: null, file_access_reason: null, requested_file_actions: null };
   const query = vi.fn(async (sql: string) => ({ rows: sql.includes("FROM applications") ? [registered]
     : sql.includes("SELECT p.*") ? [pairing]

@@ -22,6 +22,7 @@ on:
       - "config/next-trust/**"
       - "scripts/continuous-sdk-release.mjs"
       - "scripts/lib/sdk-publication.mjs"
+      - "scripts/lib/managed-app-origins.mjs"
       - "tools/editor-native-publisher/**"
   workflow_dispatch:
     inputs:
@@ -395,7 +396,7 @@ jobs:
           node apps/editor/scripts/native/tool.mjs "$RUNNER_TEMP/editor-smoke-tool" smoke
           module=$(cat "$RUNNER_TEMP/editor-smoke-tool")
           node "$(dirname "$module")/cli.js" install --with-deps chromium
-      - name: Fresh load, source entry asset, readiness and sign-in
+      - name: Fresh load, source entry asset, readiness and first screen
         timeout-minutes: 3
         run: node apps/editor/scripts/native/smoke.mjs "$RUNNER_TEMP/editor-smoke-tool" "$RUNNER_TEMP/editor-smoke.json"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

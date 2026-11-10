@@ -40,7 +40,7 @@ The installation bearer is admitted only by:
 
 `mobile` and `app-runtime` kinds carry identical endpoint authority; kind is immutable platform/identity metadata, not a permission or security boundary.
 
-It is not a desktop/controller bearer and is not admitted by ordinary connector management, inventory, relay, grant approval, device re-registration, private bootstrap or account-key routes. CP/log requests omit cookies. Log calls receive only the log token, never the installation credential. The public registration receipt must be protected before native acknowledgement/adoption. Device approval does not establish keyed/readable/Saved state.
+It is not a desktop/controller bearer and is not admitted by ordinary connector management, inventory, relay, grant approval, device re-registration, private bootstrap or account-key routes. The one exception is opt-in per server and per collection: where the operator has set `MDBASE_NEXT_PRIVATE_APP_DEVICES=1`, an application whose registered manifest declares `offline.replica`, with the person's explicit Private device consent for a collection, may enrol its own device in that private collection and read the account-key status and sealed bundle (`docs/installation-private-device.md`). No publisher or first-party check stands behind this; the person's consent in the portal is the control. Every other private bootstrap and account-key route still refuses it, and with the switch off all of them do. CP/log requests omit cookies. Log calls receive only the log token, never the installation credential. The public registration receipt must be protected before native acknowledgement/adoption. Device approval does not establish keyed/readable/Saved state.
 
 ## Qualification
 

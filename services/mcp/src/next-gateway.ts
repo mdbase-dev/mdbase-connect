@@ -3,7 +3,7 @@
 // the hosted replica (cloud copy) or a user device through the relay (Private), and
 // runs the tool there. Collections the control plane does not route stay on the
 // legacy authority path until it is removed.
-import { connect, controlRouteResolver, isMdbaseError, relayConnector, type KeyPair, type MdbaseClient, type RecordView, type Write } from "@mdbase-dev/sdk";
+import { connect, controlRouteResolver, describeError, isMdbaseError, relayConnector, routeFromControl, type KeyPair, type MdbaseClient, type RecordView, type Write } from "@mdbase-dev/sdk";
 import type { GrantKeyStore } from "@mdbase-dev/connect/crypto";
 import { GatewayOperationError } from "./errors.js";
 import { clientKeyAttachBody, type NoiseKeyStore } from "./next-keys.js";
@@ -19,6 +19,7 @@ export interface NextConnection {
   display_name: string;
   operations: string[];
   key_handle: string | null;
+  native?: { collection: string; authorizationGrant: string };
 }
 
 interface Session {
@@ -45,7 +46,7 @@ export class NextGateway {
     version: string;
     fetch?: typeof fetch;
     now?: () => number;
-    open?: (input: { connection: NextConnection; grant: string; key: KeyPair; token: { value: string } }) => Promise<MdbaseClient>;
+    open?: (input: { connection: NextConnection; grant: string; key: KeyPair; token: { value: string }; resolveRoute?: ReturnType<typeof controlRouteResolver> }) => Promise<MdbaseClient>;
   }) {
     this.fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
   }
@@ -54,14 +55,14 @@ export class NextGateway {
 
   /** Run one tool operation on next, or return LEGACY. */
   async run(connection: NextConnection, accessToken: string, operation: string, input: Record<string, unknown>, requestId: string, signal?: AbortSignal): Promise<unknown> {
-    if ((this.legacy.get(connection.id) ?? 0) > this.now()) return LEGACY;
+    if (!connection.native && (this.legacy.get(connection.id) ?? 0) > this.now()) return LEGACY;
     const session = await this.session(connection, accessToken, signal);
     if (session === LEGACY) return LEGACY;
     try {
       return await execute(session.client, connection, operation, input, requestId, signal);
     } catch (error) {
       if (isMdbaseError(error) && (error.code === "unavailable" || error.code === "unauthenticated")) this.drop(connection.id);
-      throw gatewayError(error);
+      throw gatewayError(error, !!connection.native);
     } finally {
       this.touch(connection.id, session);
     }
@@ -86,7 +87,13 @@ export class NextGateway {
     const opening = (async () => {
       const key = await this.options.noise.get(connection.key_handle!);
       if (!key) throw GatewayOperationError.reconnectRequired(connection);
-      const client = await (this.options.open ?? openClient(this.fetch, this.options.version))({ connection, grant: route.grant, key, token });
+      const resolveRoute = connection.native ? async () => {
+        const current = await this.route(connection, token.value, false);
+        if (current === LEGACY) throw new GatewayOperationError("control_error", "Native collection routing is unavailable.");
+        if (current.grant !== route.grant) throw new GatewayOperationError("authorization_changed", "Connect returned a different routing grant.");
+        return routeFromControl({ collection: connection.collection_id, ...current }, token.value);
+      } : undefined;
+      const client = await (this.options.open ?? openClient(this.fetch, this.options.version))({ connection, grant: route.grant, key, token, ...(resolveRoute ? { resolveRoute } : {}) });
       return { client, token, idle: null, keyHandle: connection.key_handle } satisfies Session;
     })();
     this.sessions.set(connection.id, opening);
@@ -94,12 +101,12 @@ export class NextGateway {
       return await opening;
     } catch (error) {
       if (this.sessions.get(connection.id) === opening) this.sessions.delete(connection.id);
-      throw gatewayError(error);
+      throw gatewayError(error, !!connection.native);
     }
   }
 
   /** `GET /v1/next/collections/:id/route`; attaches a Noise key once if the grant has none. */
-  private async route(connection: NextConnection, accessToken: string, attach: boolean, signal?: AbortSignal): Promise<{ grant: string } | typeof LEGACY> {
+  private async route(connection: NextConnection, accessToken: string, attach: boolean, signal?: AbortSignal): Promise<{ grant: string; targets: Parameters<typeof routeFromControl>[0]["targets"] } | typeof LEGACY> {
     const url = `${new URL(connection.upstream_url).origin}/v1/next/collections/${encodeURIComponent(connection.collection_id)}/route`;
     let response: Response;
     try {
@@ -107,10 +114,10 @@ export class NextGateway {
     } catch {
       throw new GatewayOperationError("control_unreachable", "Connect could not be reached. Try again shortly.");
     }
-    const body = await response.json().catch(() => null) as { grant?: unknown; targets?: unknown[]; availability?: { state?: string; reason?: string }; error?: { code?: string; details?: Record<string, unknown> } } | null;
-    if (response.status === 404 || response.status === 405) return LEGACY; // no next control plane
+    const body = await response.json().catch(() => null) as RouteBody | null;
+    if (!connection.native && (response.status === 404 || response.status === 405)) return LEGACY;
     if (response.status === 401) throw new GatewayOperationError("authority_authentication_expired", "Connect access expired.");
-    if (response.status === 409 && body?.error?.code === "client_key_required" && attach) {
+    if (!connection.native && response.status === 409 && body?.error?.code === "client_key_required" && attach) {
       if (await this.attach(connection, accessToken, body.error.details, signal)) return this.route(connection, accessToken, false, signal);
       throw GatewayOperationError.reconnectRequired(connection);
     }
@@ -118,13 +125,14 @@ export class NextGateway {
     if (!response.ok || typeof body?.grant !== "string" || !Array.isArray(body.targets)) {
       throw new GatewayOperationError(body?.error?.code ?? "control_error", `Connect could not route ${connection.display_name}.`);
     }
+    if (connection.native) validateNativeRoute(connection, body);
     // A grant superseded by, or removed from, a next collection: the legacy path
     // would only answer that the collection moved. A new approval is the remedy.
     const reason = body.availability?.state === "unavailable" ? body.availability.reason : undefined;
     if (reason === "sync_required" || reason === "access_removed") throw GatewayOperationError.reconnectRequired(connection);
     // No target: not served by mdbase-next (yet). The legacy path answers.
     if (body.targets.length === 0) return LEGACY;
-    return { grant: body.grant };
+    return { grant: body.grant, targets: body.targets };
   }
 
   private async attach(connection: NextConnection, accessToken: string, details: Record<string, unknown> | undefined, signal?: AbortSignal): Promise<boolean> {
@@ -161,8 +169,8 @@ export class NextGateway {
 }
 
 function openClient(fetchImpl: typeof fetch, version: string) {
-  return async ({ connection, grant, key, token }: { connection: NextConnection; grant: string; key: KeyPair; token: { value: string } }) => {
-    const resolveRoute = controlRouteResolver({
+  return async ({ connection, grant, key, token, resolveRoute: nativeRoute }: { connection: NextConnection; grant: string; key: KeyPair; token: { value: string }; resolveRoute?: ReturnType<typeof controlRouteResolver> }) => {
+    const resolveRoute = nativeRoute ?? controlRouteResolver({
       server: new URL(connection.upstream_url).origin,
       collection: connection.collection_id,
       accessToken: () => token.value,
@@ -295,7 +303,30 @@ async function settle(pending: Promise<Write>, record = true): Promise<RecordVie
   return view;
 }
 
-function gatewayError(error: unknown): unknown {
+function gatewayError(error: unknown, native = false): unknown {
   if (!isMdbaseError(error)) return error;
-  return new GatewayOperationError(error.reason ?? error.code, error.message, error.retryAfterMs ? { retry_after_ms: error.retryAfterMs } : undefined);
+  const description = native ? describeError(error) : null;
+  return new GatewayOperationError(error.reason ?? error.code, description ? `${description.title}. ${description.message}` : error.message, error.retryAfterMs ? { retry_after_ms: error.retryAfterMs } : undefined);
+}
+
+interface RouteBody {
+  collection?: unknown;
+  grant?: unknown;
+  authorization_grant?: unknown;
+  targets?: Parameters<typeof routeFromControl>[0]["targets"];
+  availability?: { state?: string; reason?: string };
+  error?: { code?: string; details?: Record<string, unknown> };
+}
+
+function validateNativeRoute(connection: NextConnection, body: RouteBody): void {
+  if (body.collection !== connection.native!.collection
+    || (body.authorization_grant ?? body.grant) !== connection.native!.authorizationGrant) {
+    throw new GatewayOperationError("authorization_changed", "Connect returned a route for a different collection grant.");
+  }
+  const reason = body.availability?.state === "unavailable" ? body.availability.reason : undefined;
+  if (reason || body.targets?.length === 0) {
+    const description = describeError({ state: "unavailable", reason: reason ?? "no_device_registered" });
+    throw new GatewayOperationError(reason ?? "no_device_registered", description
+      ? `${description.title}. ${description.message}` : "This collection is unavailable. Try again shortly.");
+  }
 }

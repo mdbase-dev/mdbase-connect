@@ -37,7 +37,8 @@ applyThemePreference(loadThemePreference());
 - `apps` lists the mdbase apps and builds links that open the current
   collection in another app. Every deployment passes its own URLs to
   `withAppUrls` (or `AppSwitcher`'s `urls` prop). Apps without a configured URL
-  are omitted; shared metadata never falls back to production origins.
+  are omitted; shared metadata never falls back to production origins. The
+  switcher's menu ends with a "Build your own" link to the SDK guide.
 
 ## Icon-button tooltips
 

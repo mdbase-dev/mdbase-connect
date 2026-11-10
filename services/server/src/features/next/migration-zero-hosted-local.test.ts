@@ -10,14 +10,14 @@ const fixture = (environment: string) => ({
   archive_created_at: "2026-10-14T01:00:00.000Z", archive_completed_at: "2026-10-14T01:00:00.000Z",
   retention: { mode: "GOVERNANCE", days: 116, retain_until: "2027-02-07T01:00:00.000Z", inventory_digest: "e".repeat(64), count: "2" }
 });
-afterEach(() => { vi.doUnmock("../../local-build.js"); vi.unstubAllEnvs(); vi.resetModules(); });
+afterEach(() => { vi.doUnmock("../../platform/local-build.js"); vi.unstubAllEnvs(); vi.resetModules(); });
 it("managed archive parser rejects local metadata even when the runtime says local", async () => {
   vi.stubEnv("MDBASE_CONNECT_ENVIRONMENT", "local");
   const { parseVerifiedBatchArchive } = await import("./migration-rollout.js");
   expect(() => parseVerifiedBatchArchive(fixture("local"))).toThrow();
 });
 it("compiled local capture keeps authentication and admits only the scoped local view", async () => {
-  vi.resetModules(); vi.doMock("../../local-build.js", () => ({ LOCAL_REHEARSAL_BUILD: true }));
+  vi.resetModules(); vi.doMock("../../platform/local-build.js", () => ({ LOCAL_REHEARSAL_BUILD: true }));
   const { registerMigrationRolloutRoutes } = await import("./migration-rollout.js");
   let calls = 0;
   const db = { connect: async () => { calls++; throw Error("synthetic database boundary"); } } as unknown as DatabasePool;
@@ -37,7 +37,7 @@ it("compiled local capture keeps authentication and admits only the scoped local
   }
 });
 it("only the compiled local parser admits exact local zero-hosted metadata", async () => {
-  vi.resetModules(); vi.doMock("../../local-build.js", () => ({ LOCAL_REHEARSAL_BUILD: true }));
+  vi.resetModules(); vi.doMock("../../platform/local-build.js", () => ({ LOCAL_REHEARSAL_BUILD: true }));
   const { parseVerifiedBatchArchive, requireFreshBatchArchive } = await import("./migration-rollout.js");
   const local = fixture("local");
   expect(parseVerifiedBatchArchive(local)).toEqual(local);

@@ -1,5 +1,5 @@
 import type { DatabaseQueryable } from "../../database-types.js";
-import type { RelayHub } from "../../relay.js";
+import type { RelayHub } from "../relay/relay.js";
 import type { PolicyEmitter } from "../next/policy-outbox.js";
 import { nativeDevices, nativeGrantStanding } from "../next/native-grant-target.js";
 
