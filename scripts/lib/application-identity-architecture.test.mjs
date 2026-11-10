@@ -24,7 +24,6 @@ test("keeps the retired first-contact ceremony out of runtime source", async () 
         continue;
       }
       if (/(^|\/)tests\.rs$/u.test(relative)) continue;
-      if (relative === "crates/connect-core/src/registry/database.rs") continue;
       const source = await readFile(file, "utf8");
       for (const identifier of forbidden) {
         if (source.includes(identifier)) violations.push(`${relative}: ${identifier}`);

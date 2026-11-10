@@ -153,7 +153,7 @@ test("binary transfer remains opt-in and outside the qualification gate", () => 
 });
 
 test("pull requests changing native or system-suite inputs run full Server CI", () => {
-  for (const path of ["crates/connect-core/src/lib.rs", "Cargo.lock", "Cargo.toml", "rust-toolchain.toml",
+  for (const path of ["crates/connect-runtime/src/lib.rs", "Cargo.lock", "Cargo.toml", "rust-toolchain.toml",
     "deploy/docker/mdbase-rs-revision", "deploy/docker/Cargo.lock.hosted-provider", "deploy/postgres/schema.sql",
     "test/system/suites.mjs", "test/upgrade/lib.sh",
     "scripts/hosted-file-adversarial-e2e.mjs", "scripts/hosted-projection-scale-e2e.mjs",

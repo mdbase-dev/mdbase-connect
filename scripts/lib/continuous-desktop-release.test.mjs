@@ -119,7 +119,7 @@ test("desktop changes include bundled clients and native inputs, not unrelated s
   for (const path of ["services/server/src/main.ts", "docs/releasing.md", "apps/desktop/README.md",
     "apps/desktop/test/update-policy.test.mjs", ".github/workflows/desktop-release.yml",
     // The desktop bundles mdbn-daemon from runtime/; the legacy root crates are not inputs.
-    "Cargo.toml", "Cargo.lock", "crates/connect-cli/src/main.rs", "deploy/docker/mdbase-rs-revision"]) assert.equal(desktopChanged([path]), false, path);
+    "Cargo.toml", "Cargo.lock", "crates/connect-runtime/src/lib.rs", "deploy/docker/mdbase-rs-revision"]) assert.equal(desktopChanged([path]), false, path);
 });
 
 test("server-only version prep does not create a desktop release", () => {

@@ -5,8 +5,6 @@
 /.github/ @callumalpass
 /SECURITY.md @callumalpass
 /config/release-readiness.json @callumalpass
-/crates/connect-agent/ @callumalpass
-/crates/connect-core/ @callumalpass
 /crates/connect-protocol/ @callumalpass
 /deploy/ @callumalpass
 /docs/encryption.md @callumalpass
