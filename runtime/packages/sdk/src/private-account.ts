@@ -192,8 +192,9 @@ function strictCompletion(r: Record<string, unknown>): { complete: boolean; pend
   return { complete: r.complete, pending };
 }
 
-/** Map a port failure to a typed error; never leak a foreign error class. */
-function mapPortError(error: unknown): AccountKeyError {
+/** Map a port failure to a typed error; never leak a foreign error class.
+ * @internal Shared with the app host's own status read; not a public export. */
+export function mapPortError(error: unknown): AccountKeyError {
   if (error instanceof AccountKeyError) return error;
   const e = (error && typeof error === "object" ? error : {}) as Record<string, unknown>;
   const problem = (e.problem && typeof e.problem === "object" ? e.problem : {}) as Record<string, unknown>;
@@ -282,26 +283,19 @@ export class PrivateAccount {
   /** New device B, same account (§3.2): opens the bundle and self-grants in every private collection. */
   async unlock(secret: { password: string } | { recoveryKey: string }, signal?: AbortSignal): Promise<UnlockResult> {
     return this.serial({ signal }, async (s) => {
-      const state = await this.requirePassword(s);
-      let r: Uint8Array;
-      if ("recoveryKey" in secret) {
-        r = parseRecoveryKey(secret.recoveryKey);
-        try {
-          checkRecoveryKey(r, state.bundle!);
-        } catch (e) {
-          wipe(r);
-          throw e;
-        }
-      } else {
-        r = await openBundle(state.bundle!, secret.password, this.control.accountId, { argon2id: this.argon2id, signal: s });
-      }
+      // A recovery key is parsed first: a mistyped one is refused here, before
+      // any request, so it never spends the account's bundle fetch budget.
+      let r: Uint8Array | null = "recoveryKey" in secret ? parseRecoveryKey(secret.recoveryKey) : null;
       try {
+        const state = await this.requirePassword(s);
+        if (r) checkRecoveryKey(r, state.bundle!);
+        else r = await openBundle(state.bundle!, (secret as { password: string }).password, this.control.accountId, { argon2id: this.argon2id, signal: s });
         this.check(s);
         await this.secrets.set(r);
         const incomplete = await this.grantAll(r, s);
         return incomplete.length ? { incomplete } : {};
       } finally {
-        wipe(r);
+        if (r) wipe(r);
       }
     });
   }

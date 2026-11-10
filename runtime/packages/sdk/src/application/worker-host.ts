@@ -7,9 +7,9 @@ import type {PackagedApplicationNativeAssets} from "./native-assets.js";
 import type {AppLockPort} from "../app-host/owner.js";
 import type {AppWebCollectionHandoff} from "../app-host/web-collection.js";
 import type {AppWebSignInPortal} from "../app-host/web-sign-in-session.js";
-import type {AppFileAction} from "../app-host/installation-sign-in.js";
+import {AppInstallationSignInError,type AppFileAction} from "../app-host/installation-sign-in.js";
 import {APPLICATION_WORKER_PROTOCOL,ApplicationWorkerError,applicationWorkerBinding,applicationWorkerProblem,applicationWorkerRequest,
-  type ApplicationWorkerEvent,type ApplicationWorkerProblem,type ApplicationWorkerRequest} from "./worker-protocol.js";
+  type ApplicationWorkerEvent,type ApplicationWorkerProblem,type ApplicationWorkerRequest,type ApplicationWorkerUnlockPayload} from "./worker-protocol.js";
 import {webSignInProblem} from "../app-host/web-sign-in-problem.js";
 import {APP_UNSYNCED_RECOVERY_MS,appUnsyncedIdentity,appUnsyncedWork,discardAppUnsynced,eraseAppUnsyncedStorage,openAppUnsyncedCollection,pruneAppUnsyncedRetired,retireAppUnsynced,type AppUnsyncedConnection} from "../app-host/unsynced-collection.js";
 import type {AppWebNativeCollection} from "../app-host/web-collection.js";
@@ -24,6 +24,15 @@ export function applicationWorkerReplyProblem(error:unknown):ApplicationWorkerPr
   if(problem.code!=="application_worker_unavailable")return problem;
   const native=webSignInProblem(error).problem;
   return native==="open_failed"?problem:Object.freeze({code:native});
+}
+
+/** Wipe the Worker's copy of a typed account-key secret: after its one use, or
+ * when its request is dropped unused (busy, stopping, the tab left). */
+function wipeUnlockSecret(request:unknown):void {
+  try{
+    if(!Array.isArray(request)||request[3]!=="unlock"||!Array.isArray(request[4]))return;
+    const bytes:unknown=request[4][2];if(bytes instanceof Uint8Array)bytes.fill(0);
+  }catch{/* a hostile frame holds nothing this Worker must wipe */}
 }
 
 /** Tabs that may attach to one Worker: the leader tab plus followers. */
@@ -233,7 +242,7 @@ export class ApplicationWorkerHost {
     if(client.gone||client.primary)return;
     client.gone=true;this.clients.delete(client.binding);
     if(this.nativeWait?.client===client){const slot=this.nativeWait;this.nativeWait=null;slot.reject(new ApplicationWorkerError("application_worker_fenced"));}
-    for(let i=this.queue.length-1;i>=0;i--)if(this.queue[i]!.client===client)this.queue.splice(i,1);
+    for(let i=this.queue.length-1;i>=0;i--)if(this.queue[i]!.client===client){wipeUnlockSecret(this.queue[i]!.request);this.queue.splice(i,1);}
     this.leave(client);this.releaseSource(client);
     client.port.removeEventListener("message",client.onMessage);client.port.removeEventListener("messageerror",client.onMessageError);client.port.close();
     this.applyForeground();this.collect();
@@ -409,10 +418,10 @@ export class ApplicationWorkerHost {
       }
       if(request[2]<=client.lastId)throw new ApplicationWorkerError("application_worker_binding");
       client.lastId=request[2];
-    }catch{this.refuse(client);return;}
+    }catch{wipeUnlockSecret(event.data);this.refuse(client);return;}
     if(request[3]==="close"&&!client.primary){
       // A follower tab closing: only its ports go; the session stays for the others.
-      const closed=Object.freeze({...this.view(client),status:"closed" as const,selectedCollectionId:null});
+      const closed=Object.freeze({...this.view(client),status:"closed" as const,selectedCollectionId:null,unlock:null});
       try{this.post(client,[APPLICATION_WORKER_PROTOCOL,client.binding,"reply",request[2],{ok:true,snapshot:closed}]);}finally{this.detach(client);}
       return;
     }
@@ -425,10 +434,12 @@ export class ApplicationWorkerHost {
       return;
     }
     if(this.stopping){
+      wipeUnlockSecret(request);
       try{this.post(client,[APPLICATION_WORKER_PROTOCOL,client.binding,"reply",request[2],{ok:false,problem:{code:"application_worker_fenced"}}]);}catch{/* stop already owns cleanup */}return;
     }
     // Each tab holds one request at a time; tabs take turns, in arrival order.
     if(this.queue.some(item=>item.client===client)||this.active?.client===client){
+      wipeUnlockSecret(request);
       try{this.post(client,[APPLICATION_WORKER_PROTOCOL,client.binding,"reply",request[2],{ok:false,problem:{code:"application_worker_busy"}}]);}catch{/* stop already owns cleanup */}return;
     }
     this.queue.push({client,request});this.pump();
@@ -454,7 +465,9 @@ export class ApplicationWorkerHost {
     this.pending=pending;
   }
   private async invoke(client:HostClient,request:ApplicationWorkerRequest):Promise<void>{
-    if(this.stopping||this.lifetime.signal.aborted)throw new ApplicationWorkerError("application_worker_fenced");
+    // A request that left the queue as this lifetime ended is dropped unused:
+    // stop() wipes only what is still queued, so its secret is wiped here.
+    if(this.stopping||this.lifetime.signal.aborted){wipeUnlockSecret(request);throw new ApplicationWorkerError("application_worker_fenced");}
     const payload=request[4];
     switch(request[3]){
       case "start":await this.session.start();break;
@@ -486,6 +499,20 @@ export class ApplicationWorkerHost {
       case "requestFileAccess":{const [id,actions,reason]=payload as readonly[string,readonly AppFileAction[],string];await this.session.requestFileAccess(id,actions,reason);break;}
       case "pollFileAccess":await this.session.pollFileAccess(payload as string);break;
       case "foreground":client.foreground=payload as boolean;this.applyForeground(true,true);break;
+      case "unlock":{
+        // The bytes are wiped on every path before the unlock is awaited. The
+        // decoded string cannot be wiped; it is passed on once and never kept.
+        const [id,kind,bytes]=payload as ApplicationWorkerUnlockPayload;
+        let work:Promise<unknown>;
+        try{
+          // Only the tab showing the locked collection: its ports arrive on this request.
+          if(client.selected!==id)throw new AppInstallationSignInError("refused");
+          let text:string;
+          try{text=new TextDecoder("utf-8",{fatal:true}).decode(bytes);}catch{throw new ApplicationWorkerError("application_worker_binding");}
+          work=this.session.unlockCollection(id,kind==="password"?{password:text}:{recoveryKey:text});
+        }finally{bytes.fill(0);}
+        await work;break;
+      }
       case "approvalClosed":case "close":throw new ApplicationWorkerError("application_worker_fenced");
     }
   }
@@ -493,7 +520,7 @@ export class ApplicationWorkerHost {
    * original SDK leases; a subsequent call returns the SAME rejection. */
   stop(detach=true):Promise<void>{
     if(this.stopping)return this.stopping;
-    const pending=this.pending;this.queue.length=0;
+    const pending=this.pending;for(const item of this.queue)wipeUnlockSecret(item.request);this.queue.length=0;
     this.stopping=Promise.resolve().then(async()=>{
       const unsynced=this.unsynced;this.unsynced=null;
       await Promise.all([this.session.close(),unsynced?.close()]);await pending;

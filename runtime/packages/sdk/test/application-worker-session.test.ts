@@ -40,6 +40,20 @@ describe("SDK-private original Worker session composition",()=>{
       expect(result.session.connection()).toBeNull();expect(Object.isFrozen(result.compiled.manifest)).toBe(true);
     }finally{uuid.mockRestore();await result.session.close();}
   });
+  it("asks for Private device access exactly when the declaration lists offline.replica, required or optional",async()=>{
+    const host=()=>({signal:new AbortController().signal,locks:undefined,storageNamespace:"retained-namespace",openPortal:()=>({navigate:vi.fn(),close:vi.fn()}),handoff:vi.fn()});
+    const requiring=(required:string[],optional:string[]=[])=>{const d=declaration();return applicationDeclaration({...d,manifest:{...(d.manifest as Record<string,unknown>),requirements:{access:"full_collection",contracts:[],capabilities:{contract_version:2,required,optional}}}});};
+    const option=async(d:ReturnType<typeof declaration>)=>{const result=applicationWorkerSession(d,packaged(),host());try{return (result.session as unknown as {options:{freshRequestedPrivateDevice?:boolean}}).options.freshRequestedPrivateDevice;}finally{await result.session.close();}};
+    expect(await option(declaration())).toBe(false);
+    expect(await option(requiring(["collection.read","offline.replica"]))).toBe(true);
+    // Optional asks too, and adds no readiness requirement: the app works without it.
+    const optional=requiring(["collection.read"],["offline.replica"]);
+    expect(await option(optional)).toBe(true);
+    const compiled=applicationWorkerSession(optional,packaged(),host());
+    try{expect(compiled.compiled.nativeCapabilities).toEqual({capabilityContractVersion:2,requiredNativeCapabilities:["collection.read"]});expect(compiled.compiled.privateDeviceDeclared).toBe(true);}
+    finally{await compiled.session.close();}
+    expect(await option(requiring(["collection.read"],["records.create"]))).toBe(false);
+  });
   it("fences original caller before packaging access and after a late synchronous packaging callback",()=>{
     const p=packaged(),release=vi.spyOn(p,"release"),caller=new AbortController(),host={signal:caller.signal,locks:undefined,storageNamespace:"retained-namespace",openPortal:()=>({navigate:vi.fn(),close:vi.fn()}),handoff:vi.fn()};
     caller.abort();expect(()=>applicationWorkerSession(declaration(),p,host)).toThrow();expect(release).not.toHaveBeenCalled();

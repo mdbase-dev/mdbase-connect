@@ -35,6 +35,9 @@ import { AppProtectedInstallationSignIn as ProtectedSignIn } from "../src/app-ho
 import * as ownership from "../src/app-host/owner.js";
 import { AppCpLogAuthority } from "../src/app-host/cp-authority.js";
 import * as localFacade from "../src/app-host/local-facade.js";
+import { AppCpPrivateBootstrap, AppPrivateBootstrapError } from "../src/app-host/private-bootstrap.js";
+import { AppIndexedDbPrivateBootstrapStore } from "../src/app-host/private-persistence-idb.js";
+import type { AppAccountKeyState } from "../src/app-host/wasm-runtime.js";
 afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -1588,5 +1591,163 @@ describe("SAME installation-device host composition (platform/native/flow stand-
         await host.attestInstallation(); f.paired(); await host.completeInstallationSignIn();
         expect(f.openNative).toHaveBeenCalledTimes(1); expect(f.register).not.toHaveBeenCalled();
         await host.close(); await expect(host.attestInstallation()).rejects.toThrow("fenced");
+    });
+});
+describe("Private (e2e) device open path on the owned host (IDB/native/CP stand-ins)", () => {
+    const collection = "22222222-2222-2222-2222-222222222222", elsewhere = "99999999-9999-4999-8999-999999999999";
+    async function privateFixture(marker: "none" | "same" | "other" = "none") {
+        const f = await fixture(marker === "none" ? "fresh" : "existing");
+        const enrolMarker = marker === "none" ? null : {...structuredClone(f.receipt), collection: marker === "same" ? collection : elsewhere, sasCommitment: new Uint8Array(32).fill(11), acknowledged: true};
+        if (enrolMarker) f.restore.mockImplementation(async () => ({envelope: new Uint8Array(f.custody.envelope), receipt: structuredClone(f.receipt), privateEnrolMarker: enrolMarker}));
+        let key: AppAccountKeyState = {state: "pending"};
+        let status: SyncStatus = {mode: "synced", connection: "online", incidents: [], pending: 0, confirmedThrough: 99, headKnown: 99, holds: 0, unresolved: 0} as SyncStatus;
+        const native = Object.assign(f.runtime, {
+            preparePrivateCollection: vi.fn((_source: unknown, _opened: unknown) => {f.calls.push("private-pin");}),
+            adoptDevice: vi.fn((_config: unknown, _sql: unknown) => {f.calls.push("adopt-e2e");}),
+            accountKeyStatus: vi.fn((_pin: unknown) => key),
+            unlockAccountKeyConsuming: vi.fn((_pin: unknown, secret: Uint8Array) => {secret.fill(0); return key;}),
+            supportsAccountKeyFetchProof: false,
+            signAccountKeyFetch: vi.fn(),
+            requestLogHead: vi.fn(() => true),
+            privateCollectionCurrent: vi.fn((_source?: unknown) => true),
+            privateEnrolMarker: vi.fn(() => enrolMarker ?? {...structuredClone(f.receipt), collection, sasCommitment: new Uint8Array(32).fill(11), acknowledged: false}),
+        });
+        f.runtime.observations.mockImplementation(() => ({requiresReopen: false, keyringRebuildFailed: false, keyringRebuilding: false, status}));
+        const store = {close: vi.fn(() => {f.calls.push("private-store-close");})};
+        const open = vi.spyOn(AppIndexedDbPrivateBootstrapStore, "open").mockImplementation(async () => {f.calls.push("private-store-open"); return store as unknown as AppIndexedDbPrivateBootstrapStore;});
+        const metadata = {collection: marker === "other" ? elsewhere : collection, deviceId: f.session.deviceId, logOrigin: f.release.logOrigin, rootPublicKey: new Uint8Array(32).fill(9), genesisItem: Uint8Array.of(1, 2, 3), expectedGenesis: `sha256:${"ab".repeat(32)}`, approval: "pending" as const};
+        const bootstrap = vi.spyOn(AppCpPrivateBootstrap.prototype, "bootstrap").mockImplementation(async () => {f.calls.push("private-bootstrap"); return metadata;});
+        const cloud = vi.spyOn(AppCpCloudCopyBootstrap.prototype, "bootstrap");
+        const host = await AppWebCloudCopyHost.openOriginalDevice(f.options);
+        const scope = {account: f.session.accountId, installation: f.session.installationId, collection};
+        const options = {scope, collectionCurrent: () => true, signal: f.options.signal, allowLoopbackHttp: true};
+        return {f, host, native, store, open, metadata, bootstrap, cloud, scope, options, enrolMarker, setKey: (next: AppAccountKeyState) => {key = next;}, setStatus: (next: Partial<SyncStatus>) => {status = {...status, ...next} as SyncStatus;}};
+    }
+    async function opened(marker: "none" | "same" = "none") {
+        const p = await privateFixture(marker);
+        await p.host.bootstrapPrivateDevice(p.options);
+        const sql = {import: vi.fn(), fence: vi.fn(), needsRecovery: false};
+        const openSql = vi.fn(async () => ({sql, opened: "fresh" as const, sqliteVersion: 3053004, close: async () => {}}));
+        await p.host.openCollectionSql({signal: p.options.signal, replicaId: p.f.receipt.deviceId, endpoint: 37, openSql});
+        const pump = {readProgress: 0, callsSent: 0, terminalProblem: null as unknown, transportHealth: null as unknown, responseProgress: vi.fn(() => [] as {id: number; bytes: number}[]), pump: vi.fn(async () => ({quiet: true})), close: vi.fn(async () => {})};
+        p.f.runtime.bindLogTransport.mockReturnValue(pump);
+        vi.spyOn(AppCpLogAuthority.prototype, "accessToken").mockResolvedValue("fixture-token");
+        vi.spyOn(AppCpLogAuthority.prototype, "logTransport").mockReturnValue({endpoint: 37, collection, isCurrent: () => true, send: async () => new Uint8Array()} as unknown as ReturnType<AppCpLogAuthority["logTransport"]>);
+        const requests: {url: string; method: string; headers: Record<string, string>}[] = [];
+        const request = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+            requests.push({url: String(input), method: init?.method ?? "GET", headers: {...(init?.headers as Record<string, string>)}});
+            return Response.json(String(input).endsWith("/v1/next/account-key/status") ? {mode: "password", version: 1, key_id: "ab".repeat(32)} : {error: {code: "not_found"}}, {status: String(input).endsWith("/status") ? 200 : 404});
+        });
+        await p.host.startCollectionLog({signal: p.options.signal, fetch: request as unknown as typeof fetch});
+        return {...p, pump, request, requests, sql, openSql};
+    }
+    it("a fresh enrolment composes pin, protected store, enrol and e2e adoption on the SAME native device, with no cloud-copy step", async () => {
+        const p = await privateFixture();
+        await p.host.bootstrapPrivateDevice(p.options);
+        expect(p.f.calls.slice(-3)).toEqual(["private-store-open", "private-pin", "private-bootstrap"]);
+        const source = p.native.preparePrivateCollection.mock.calls[0]![0] as Record<string, unknown>;
+        expect(source).toMatchObject({accountId: p.f.session.accountId, connectorId: p.f.session.connectorId, deviceId: p.f.session.deviceId, installationId: p.f.session.installationId, collection, purpose: "enrol", approvalMode: "password-ak1"});
+        expect(source.rootPublicKey).toEqual(new Uint8Array(32).fill(9));
+        expect(p.native.preparePrivateCollection.mock.calls[0]![1]).toEqual({mode: "fresh"});
+        expect((p.open.mock.calls[0]![0] as {mode: string}).mode).toBe("fresh");
+        expect(p.cloud).not.toHaveBeenCalled(); expect(p.f.runtime.prepareCloudCopyCollection).not.toHaveBeenCalled();
+        // Enrolled is not adopted, keyed or readable.
+        expect(p.host.privateDevice).toBe(false); expect(p.native.adoptDevice).not.toHaveBeenCalled();
+        const sql = {import: vi.fn(), fence: vi.fn(), needsRecovery: false};
+        await p.host.openCollectionSql({signal: p.options.signal, replicaId: p.f.receipt.deviceId, endpoint: 37, openSql: async () => ({sql, opened: "fresh" as const, sqliteVersion: 3053004, close: async () => {}})});
+        expect(p.native.adoptDevice).toHaveBeenCalledOnce();
+        const [config, lifetime] = p.native.adoptDevice.mock.calls[0]!;
+        expect(config).toMatchObject({collection, deviceId: p.f.session.deviceId, state: "e2e", cloudCopyOptIn: false, trustedSigners: [], expectedGenesis: p.metadata.expectedGenesis, endpoint: 37});
+        expect((config as {trustedRoots: Uint8Array[]}).trustedRoots).toEqual([new Uint8Array(32).fill(9)]);
+        expect((config as {policyPins: Uint8Array}).policyPins).toEqual(Uint8Array.of(0x82));
+        expect(lifetime).toBe(sql); expect(p.host.privateDevice).toBe(true);
+        // People is not admitted for a Private device scope.
+        expect(() => p.host.peopleAuthority()).toThrow("binding");
+        await p.host.close(); expect(p.store.close).toHaveBeenCalled();
+    });
+    it("an enrolled device reopens from its protected marker: existing store, existing native restore, never a fresh enrolment", async () => {
+        const p = await privateFixture("same");
+        await p.host.bootstrapPrivateDevice(p.options);
+        expect((p.open.mock.calls[0]![0] as {mode: string}).mode).toBe("existing");
+        expect(p.native.preparePrivateCollection.mock.calls[0]![1]).toEqual({mode: "existing", marker: p.enrolMarker});
+        expect(p.bootstrap).toHaveBeenCalledOnce();
+        await p.host.close();
+    });
+    it("a device already enrolled in another Private collection refuses a second one before any store, native or CP work", async () => {
+        const p = await privateFixture("other");
+        await expect(p.host.bootstrapPrivateDevice(p.options)).rejects.toMatchObject({reason: "private_device_limit"});
+        expect(p.open).not.toHaveBeenCalled(); expect(p.native.preparePrivateCollection).not.toHaveBeenCalled(); expect(p.bootstrap).not.toHaveBeenCalled();
+        expect(p.f.runtime.close).not.toHaveBeenCalled();
+        // The refusal spent nothing: the enrolled collection still opens on this host.
+        await p.host.bootstrapPrivateDevice({...p.options, scope: {...p.scope, collection: elsewhere}});
+        expect(p.native.preparePrivateCollection.mock.calls[0]![1]).toEqual({mode: "existing", marker: p.enrolMarker});
+        await p.host.close();
+    });
+    it.each(["scope", "ownership", "second"] as const)("refuses a foreign or repeated private bootstrap (%s) without enrolment", async which => {
+        const p = await privateFixture();
+        if (which === "scope") await expect(p.host.bootstrapPrivateDevice({...p.options, scope: {...p.scope, account: elsewhere}})).rejects.toMatchObject({reason: "binding"});
+        else if (which === "ownership") await expect(p.host.bootstrapPrivateDevice({...p.options, collectionCurrent: () => false})).rejects.toMatchObject({reason: "fenced"});
+        else { await p.host.bootstrapPrivateDevice(p.options); p.bootstrap.mockClear(); await expect(p.host.bootstrapPrivateDevice(p.options)).rejects.toMatchObject({reason: "binding"}); }
+        expect(p.bootstrap).not.toHaveBeenCalled(); await p.host.close();
+    });
+    it("a failed enrolment closes the whole owner: no adoption, no fallback to a cloud copy", async () => {
+        const p = await privateFixture(), error = new AppPrivateBootstrapError("unavailable");
+        p.bootstrap.mockRejectedValueOnce(error);
+        await expect(p.host.bootstrapPrivateDevice(p.options)).rejects.toBe(error);
+        expect(p.f.runtime.close).toHaveBeenCalledOnce(); expect(p.store.close).toHaveBeenCalled();
+        expect(p.cloud).not.toHaveBeenCalled(); expect(p.native.adoptDevice).not.toHaveBeenCalled();
+    });
+    it("an already keyed device settles keyed from the native applied policy alone: no secret, no account-key request", async () => {
+        const o = await opened("same"); o.setKey({state: "keyed"});
+        o.pump.pump.mockClear();
+        await expect(o.host.settlePrivateKey({signal: o.options.signal})).resolves.toBe("keyed");
+        expect(o.pump.pump).not.toHaveBeenCalled(); expect(o.request).not.toHaveBeenCalled();
+        expect(o.native.unlockAccountKeyConsuming).not.toHaveBeenCalled();
+        await o.host.close();
+    });
+    it("a device that catches up without a key is locked, after exactly one head wake; a key that applies on the way is keyed", async () => {
+        const o = await opened();
+        await expect(o.host.settlePrivateKey({signal: o.options.signal})).resolves.toBe("locked");
+        expect(o.native.requestLogHead).toHaveBeenCalledOnce();
+        // A sealed item with no usable grant ahead is locked too.
+        o.setStatus({incidents: [{kind: "waiting_for_key", details: {reason: "no_grant"}}] as never});
+        await expect(o.host.settlePrivateKey({signal: o.options.signal})).resolves.toBe("locked");
+        let turns = 0; o.pump.pump.mockImplementation(async () => { if (++turns === 1) o.setKey({state: "keyed"}); return {quiet: true}; });
+        await expect(o.host.settlePrivateKey({signal: o.options.signal})).resolves.toBe("keyed");
+        await o.host.close();
+    });
+    it("never reports locked when it cannot tell: offline is unavailable, a faulted apply is recovery_required, a stalled read is sync_stalled", async () => {
+        const offline = await opened(); offline.setStatus({connection: "offline"});
+        await expect(offline.host.settlePrivateKey({signal: offline.options.signal})).rejects.toMatchObject({reason: "unavailable"});
+        await offline.host.close();
+        const faulted = await opened(); faulted.setKey({state: "refused", reason: "outcome_unknown"} as AppAccountKeyState);
+        await expect(faulted.host.settlePrivateKey({signal: faulted.options.signal})).rejects.toMatchObject({reason: "recovery_required"});
+        await faulted.host.close();
+        const stalled = await opened(); stalled.setStatus({confirmedThrough: 10, headKnown: 99});
+        await expect(stalled.host.settlePrivateKey({signal: stalled.options.signal, timeoutMs: 1})).rejects.toMatchObject({reason: "sync_stalled"});
+        await expect(stalled.host.settlePrivateKey({signal: stalled.options.signal, timeoutMs: 15001})).rejects.toMatchObject({reason: "binding"});
+        await stalled.host.close();
+    });
+    it("reads the account-key mode over the installation bearer and refuses an unlock this runtime cannot prove, staying open", async () => {
+        const o = await opened();
+        await expect(o.host.accountKeyMode({signal: o.options.signal})).resolves.toBe("password");
+        expect(o.requests).toEqual([{url: "https://cp.example.test/v1/next/account-key/status", method: "GET", headers: {authorization: "Bearer ct_fixture-bearer"}}]);
+        const modes: string[] = [];
+        await expect(o.host.unlockAccountKey({password: "correct horse battery staple"}, {signal: o.options.signal, onMode: mode => {modes.push(mode);}})).rejects.toMatchObject({name: "AppAccountKeyUnlockError", reason: "unlock_unavailable"});
+        expect(modes).toEqual(["password"]);
+        // The pinned runtime has no fetch signer: no challenge, no bundle fetch, no secret handed to the native device.
+        expect(o.requests.map(r => new URL(r.url).pathname)).toEqual(["/v1/next/account-key/status", "/v1/next/account-key/status"]);
+        expect(o.native.signAccountKeyFetch).not.toHaveBeenCalled(); expect(o.native.unlockAccountKeyConsuming).not.toHaveBeenCalled();
+        expect(o.f.runtime.close).not.toHaveBeenCalled();
+        await expect(o.host.settlePrivateKey({signal: o.options.signal})).resolves.toBe("locked");
+        await o.host.close();
+    });
+    it("account-key calls exist only for an adopted Private collection", async () => {
+        const p = await privateFixture();
+        await expect(p.host.settlePrivateKey({signal: p.options.signal})).rejects.toMatchObject({name: "AppCloudCopyHostError"});
+        await expect(p.host.accountKeyMode({signal: p.options.signal})).rejects.toMatchObject({name: "AppCloudCopyHostError"});
+        await expect(p.host.unlockAccountKey({password: "correct horse battery staple"}, {signal: p.options.signal})).rejects.toMatchObject({name: "AppCloudCopyHostError"});
+        expect(p.native.accountKeyStatus).not.toHaveBeenCalled(); expect(p.native.unlockAccountKeyConsuming).not.toHaveBeenCalled();
+        await p.host.close();
     });
 });

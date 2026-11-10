@@ -37,6 +37,22 @@ describe("SDK original UI Worker request ownership",()=>{
       f.send("reply",1,{ok:true,snapshot:{...snapshot,...extra}});await rejected;
     }
   });
+  it("accepts a locked Private collection only with its fully typed lock display, and the lock on no other status",async()=>{
+    const id="11111111-1111-4111-8111-111111111111",locked={...snapshot,status:"needs_unlock" as const,selectedCollectionId:id};
+    for(const unlock of [{mode:"password",unlocking:false,problem:null},{mode:"strict",unlocking:false,problem:"unlock_strict"},{mode:"none",unlocking:true,problem:null}]){
+      const f=fixture(),pending=f.client.request("start",null,f.caller.signal);await f.arrived.promise;
+      f.send("reply",1,{ok:true,snapshot:{...locked,unlock}});await expect(pending).resolves.toMatchObject({status:"needs_unlock",unlock});
+    }
+    for(const view of [locked,{...locked,unlock:null},{...locked,unlock:{mode:"pin",unlocking:false,problem:null}},{...locked,unlock:{mode:"password",unlocking:"no",problem:null}},
+      {...locked,unlock:{mode:"password",unlocking:false,problem:7}},{...locked,unlock:{mode:"password",unlocking:false}},{...locked,unlock:"password"},
+      {...snapshot,unlock:{mode:"password",unlocking:false,problem:null}},{...snapshot,status:"ready",selectedCollectionId:id,unlock:{mode:"password",unlocking:false,problem:null}}]){
+      const f=fixture(),pending=f.client.request("start",null,f.caller.signal),rejected=expect(pending).rejects.toMatchObject({code:"application_worker_binding"});await f.arrived.promise;
+      f.send("reply",1,{ok:true,snapshot:view});await rejected;
+    }
+    // An absent or null lock on any other status is today's snapshot.
+    const f=fixture(),pending=f.client.request("start",null,f.caller.signal);await f.arrived.promise;
+    f.send("reply",1,{ok:true,snapshot:{...snapshot,unlock:null}});await expect(pending).resolves.toMatchObject({status:"unselected"});
+  });
   it("routes Native preparation on the original portal after its authorize reply, with no second operation slot",async()=>{
     const app="11111111-1111-4111-8111-111111111111",nativeAuthorization=vi.fn(async()=>({applicationId:app,authorizationId:app,manifestDigest:"cc".repeat(32)}));
     const f=fixture(undefined,nativeAuthorization),portal={navigate:vi.fn(),close:vi.fn()},pending=f.client.request("authorize",null,f.caller.signal,portal);
@@ -78,6 +94,30 @@ describe("SDK original UI Worker request ownership",()=>{
       gone=true;await vi.advanceTimersByTimeAsync(1500);expect(f.requests.slice(1)).toEqual([[schema,binding,0,"approvalClosed",true]]);
       const g=fixture();gone=false;const next=g.client.request("authorize",null,g.caller.signal,portal);await vi.advanceTimersByTimeAsync(0);g.send("reply",1,{ok:true,snapshot});await vi.advanceTimersByTimeAsync(0);await next;
       g.send("portal",1,{action:"close"});await vi.advanceTimersByTimeAsync(1500);expect(portal.close).toHaveBeenCalledOnce();expect(g.requests).toHaveLength(1);
+    }finally{vi.useRealTimers();}
+  });
+  it("refuses a Native call for an approval window the person already closed, without quarantining the client",async()=>{
+    // Found by the local Private device end-to-end run: the window was seen closed
+    // (opener severed) before the account was chosen, the page released it and
+    // reported `approvalClosed`, and the Worker's later `prepare` for that same
+    // request quarantined the page with application_worker_binding until reload.
+    vi.useFakeTimers();try{
+      const app="11111111-1111-4111-8111-111111111111",nativeAuthorization=vi.fn(),prepare={action:"prepare",value:{requestId:app,accountId:app,appId:app,challenge:"ab".repeat(32)}};
+      const settle=async()=>{for(let turn=0;turn<5;turn++)await vi.advanceTimersByTimeAsync(0);};
+      const f=fixture(undefined,nativeAuthorization);let gone=false;const portal={navigate:vi.fn(),close:vi.fn(),get closed(){return gone;}};
+      const pending=f.client.request("authorize",null,f.caller.signal,portal);await settle();f.send("reply",1,{ok:true,snapshot});await settle();await pending;
+      gone=true;await vi.advanceTimersByTimeAsync(600);expect(f.requests.slice(1)).toEqual([[schema,binding,0,"approvalClosed",true]]);
+      f.send("nativeAuthorization",1,{rpc:1,...prepare});await settle();
+      expect(f.requests.slice(2)).toEqual([[schema,binding,"nativeAuthorizationReply",1,{rpc:1,ok:false}]]);
+      f.send("nativeAuthorization",1,{rpc:2,action:"cancel",value:null});await settle();
+      expect(f.requests).toHaveLength(3);expect(nativeAuthorization).not.toHaveBeenCalled();expect(portal.close).not.toHaveBeenCalled();
+      // The client is still in service: the next operation is delivered and answered.
+      const next=f.client.request("start",null,f.caller.signal);await settle();expect(f.requests[3]).toEqual([schema,binding,2,"start",null]);
+      f.send("reply",2,{ok:true,snapshot});await settle();await expect(next).resolves.toMatchObject({status:"unselected"});
+      // Only that released window is excused: a call for any other request stays a fault.
+      f.send("nativeAuthorization",7,{rpc:3,...prepare});await settle();
+      await expect(f.client.request("start",null,f.caller.signal)).rejects.toMatchObject({code:"application_worker_binding"});
+      expect(nativeAuthorization).not.toHaveBeenCalled();
     }finally{vi.useRealTimers();}
   });
   it("keeps original portal reservation after authorization reply for original close",async()=>{

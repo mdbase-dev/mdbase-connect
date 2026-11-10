@@ -26,6 +26,22 @@ describe("SDK UI original borrowed connection ownership",()=>{
     const result=f.owner.adopt(f.value,f.options);await entered.promise;Reflect.set(f.value,"people",false);Reflect.set(f.value,"displayName","Replacement");Reflect.set(f.value.scope,"collection",other);gate.resolve(f.client);
     const c=await result;expect(c.records).toBe(f.client);expect(c.files).toBe(f.client.files);expect(c.people).toBeInstanceOf(MdbasePeopleClient);expect(c.people).toBe(f.owner.owned()!.people);expect(c.id).toBe(collection);expect(c.displayName).toBe("Original collection");expect(c.scope.collection).toBe(collection);expect(c.isCurrent()).toBe(true);expect(f.owner.connection(collection)).toBe(c);expect(f.owner.connection(other)).toBeNull();expect("journal"in c).toBe(false);expect("host"in c).toBe(false);expect(f.connect).toHaveBeenCalledTimes(1);
   });
+  it("adopts a Private device handoff, which has no People authority: records and files are the client's, People reads are refused typed",async()=>{
+    // Found by the local Private device end-to-end run: the adapter omits People
+    // for a Private device scope, and this owner refused every such handoff with
+    // application_connection_people_unavailable, so an unlocked collection never opened.
+    const f=await fixture(),{people:_people,...rest}=f.value,value={...rest,privateDevice:true as const};
+    const c=await f.owner.adopt(value,f.options);
+    expect(c.records).toBe(f.client);expect(c.files).toBe(f.client.files);expect(c.id).toBe(collection);expect(c.isCurrent()).toBe(true);expect(f.owner.connection(collection)).toBe(c);
+    expect(c.people).toBeInstanceOf(MdbasePeopleClient);expect(f.owner.owned()!.people).toBeUndefined();
+    for(const read of [()=>c.people.current(),()=>c.people.members(),()=>c.people.directory()])await expect(read()).rejects.toMatchObject({code:"upgrade_required",reason:"people_unsupported"});
+    await f.owner.retire();await expect(c.people.current()).rejects.toMatchObject({code:"unauthenticated",reason:"people_fenced"});
+  });
+  it.each([[{people:true,privateDevice:true},"application_connection_binding"],[{privateDevice:false},"application_connection_binding"],[{privateDevice:"true"},"application_connection_binding"],[{},"application_connection_people_unavailable"]])("refuses a handoff marked %j",async(marks,code)=>{
+    const f=await fixture(),{people:_people,...rest}=f.value,close=vi.spyOn(rest.dataPort,"close");
+    await expect(f.owner.adopt({...rest,...marks} as WebCollection.AppWebCollectionHandoff,f.options)).rejects.toMatchObject({code});
+    expect(close).toHaveBeenCalled();expect(f.owner.connection(collection)).toBeNull();expect(f.connect).not.toHaveBeenCalled(); // refused before any client is opened
+  });
   it("retires immediately and stops original borrowed reads; close is not a native drain certificate",async()=>{
     const f=await fixture(),c=await f.owner.adopt(f.value,f.options),retired=f.owner.retire();expect(c.isCurrent()).toBe(false);expect(f.owner.connection(collection)).toBeNull();expect(c.records.link).toBe("closed");await retired;
     await expect(c.records.query({})).rejects.toMatchObject({code:"unavailable"});const first=f.owner.close();expect(f.owner.close()).toBe(first);await first;

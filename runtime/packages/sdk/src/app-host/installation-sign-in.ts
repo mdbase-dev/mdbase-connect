@@ -23,6 +23,18 @@ export class AppInstallationSignInError extends Error {
 const fail = (reason: AppInstallationSignInError["reason"]) => new AppInstallationSignInError(reason);
 // Preserve definite HTTP status provenance even when its body cannot be parsed.
 const nonOkResponses = new WeakSet<AppInstallationSignInError>();
+// A Connect server from before Private device access parses START strictly and
+// answers the one optional field it does not know with exactly this refusal
+// (400 invalid_request naming the key). Nothing was stored for that request, so
+// START may be repeated ONCE without the field: the app then asks only for cloud
+// copies, as an older SDK would. Any other refusal stays a refusal.
+const privateDeviceFieldRefused = new WeakSet<AppInstallationSignInError>();
+function unknownPrivateDeviceField(status: number, error: unknown): boolean {
+  if (status !== 400 || !error || typeof error !== "object" || Array.isArray(error)) return false;
+  const {code, message} = error as Record<string, unknown>;
+  return code === "invalid_request" && typeof message === "string" && message.length <= 512 &&
+    /unrecognized key/i.test(message) && message.includes("requested_private_device");
+}
 const hex = (b: Uint8Array) => Array.from(b, v => v.toString(16).padStart(2, "0")).join("");
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 function id(v: unknown): string { if (typeof v !== "string" || !UUID.test(v) || uuidToBytes(v).every(b => b === 0)) throw fail("response"); return v; }
@@ -114,6 +126,13 @@ interface ConsentRequest extends PortalMetadata {
   requestId: string; secret: string; requestedCreateCollections: boolean;
   challenge: string | null; completed: boolean;
   addedCollectionIds: string[]; approvedCreateCollections: boolean;
+  /** Present (true) only when this window asked for Private device access. */
+  requestedPrivateDevice?: true;
+}
+/** True for a non-empty listing in which no row carries `mode`, although it was asked for. */
+function modeUnanswered(value: unknown): boolean {
+  const rows = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>).collections : undefined;
+  return Array.isArray(rows) && rows.length > 0 && rows.every(row => !row || typeof row !== "object" || !("mode" in row));
 }
 /** Strictly parsed CP display/scope metadata, never native readiness. */
 function collectionListing(value: unknown): readonly AppInstallationCollection[] {
@@ -121,11 +140,12 @@ function collectionListing(value: unknown): readonly AppInstallationCollection[]
   const seen = new Set<string>();
   return Object.freeze(value.map(value => {
     const has = (key: string) => value && typeof value === "object" && key in value ? `,${key}` : "";
-    const r = object(value, `collection_id,display_name,role${has("availability")}${has("file_actions")}`), collectionId = id(r.collection_id);
+    const r = object(value, `collection_id,display_name,role${has("availability")}${has("file_actions")}${has("mode")}`), collectionId = id(r.collection_id);
+    if ("mode" in r && r.mode !== "cloud_copy" && r.mode !== "private") throw fail("response");
     if (seen.has(collectionId) || typeof r.display_name !== "string" || !r.display_name.length || r.display_name.length > 1024 || (r.role !== "owner" && r.role !== "editor" && r.role !== "viewer")) throw fail("response");
     const availability = parseCollectionAvailability(r.availability);
     const allowed = "file_actions" in r ? fileActions(r.file_actions) : null;
-    seen.add(collectionId); return Object.freeze({collectionId, displayName: r.display_name, role: r.role, ...(availability ? {availability} : {}), ...(allowed ? {fileActions: allowed} : {})});
+    seen.add(collectionId); return Object.freeze({collectionId, displayName: r.display_name, role: r.role, ...(availability ? {availability} : {}), ...(allowed ? {fileActions: allowed} : {}), ...(r.mode === "private" ? {mode: "private" as const} : {})});
   }));
 }
 
@@ -134,6 +154,11 @@ interface State {
   renewal: {requestId: string; secret: string} | null;
   requestedCreateCollections: boolean; collectionIds: string[]; createCollections: boolean;
   consentRequest: ConsentRequest | null;
+  /** Present (true) only when the ORIGINAL request asked for Private device access. */
+  requestedPrivateDevice?: true;
+  /** The subset of collectionIds approved as Private (e2e) device scopes.
+   * Present only when non-empty; absent means every scope is a cloud copy. */
+  privateDeviceCollectionIds?: string[];
   collectionSelection?: AppInstallationCollectionSelection;
   nativeAuthorization?: AppNativePreparation & {requestId: string};
   nativeSelection?: AppNativeSelection;
@@ -166,6 +191,10 @@ export interface AppInstallationSignInOptions extends AppInstallationStoreOption
    * consent requests) when requestedCreateCollections is omitted. A restored
    * ledger keeps its stored request; this never rewrites original terms. */
   readonly freshRequestedCreateCollections?: boolean;
+  /** Ask to join existing Private (e2e) collections as a keyed device, for a
+   * FRESH installation and its later collection consent requests. A restored
+   * ledger keeps its stored request; this never rewrites original terms. */
+  readonly freshRequestedPrivateDevice?: boolean;
   /** Explicit next-app build selection; absent retains the frozen original
    * environment/origin policy, never selects a new origin implicitly. */
   readonly environmentSelection?: AppEnvironmentSelection;
@@ -182,6 +211,8 @@ export interface AppInstallationCollectionConsentView {
   readonly requestedCreateCollections: boolean;
   readonly addedCollectionIds: readonly string[];
   readonly approvedCreateCollections: boolean;
+  /** Present (true) only when this window asked for Private device access. */
+  readonly requestedPrivateDevice?: true;
   readonly accountEmail?: string | null;
   readonly accountProvider?: "github";
   readonly accountLogin?: string;
@@ -200,6 +231,10 @@ export interface AppInstallationCollection {
   /** SDK-10: `private` for a collection kept on the person's computers and
    * reached through the relay; absent or `cloud_copy` for a hosted one. */
   readonly kind?: "cloud_copy" | "private";
+  /** `private` for an end-to-end encrypted collection this installation joins
+   * as its own keyed device (it needs the encryption password once). Absent
+   * means a cloud copy. Distinct from `kind`, which marks a relay entry. */
+  readonly mode?: "private";
 }
 export type AppFileAction = "list" | "read" | "add" | "replace" | "move" | "delete";
 const FILE_ACTIONS: readonly AppFileAction[] = ["list", "read", "add", "replace", "move", "delete"];
@@ -237,6 +272,9 @@ export interface AppInstallationSignInView {
   readonly collectionIds: readonly string[];
   readonly createCollections: boolean;
   readonly requestedCreateCollections: boolean;
+  /** The approved Private device scopes, a subset of collectionIds. Present
+   * only when the installation holds at least one. */
+  readonly privateDeviceCollectionIds?: readonly string[];
 }
 /** Owns pre-account origin slot and original secret capability, not the account
  * installation/native lease. User account confirmation + actual installation
@@ -280,9 +318,10 @@ export class AppProtectedInstallationSignIn {
       const selection = p.environmentSelection;
       if (p.requestedCreateCollections !== undefined && typeof p.requestedCreateCollections !== "boolean") throw fail("binding");
       if (p.freshRequestedCreateCollections !== undefined && typeof p.freshRequestedCreateCollections !== "boolean") throw fail("binding");
+      if (p.freshRequestedPrivateDevice !== undefined && typeof p.freshRequestedPrivateDevice !== "boolean") throw fail("binding");
       if (p.recoveryFor !== undefined) {
         const binding = object(p.recoveryFor, "accountId,collectionId"); id(binding.accountId); id(binding.collectionId);
-        if (!p.owner || p.requestedCreateCollections === true || p.freshRequestedCreateCollections === true) throw fail("binding");
+        if (!p.owner || p.requestedCreateCollections === true || p.freshRequestedCreateCollections === true || p.freshRequestedPrivateDevice === true) throw fail("binding");
       }
       if (selection !== undefined) {
         if (!isAppEnvironmentSelection(selection) || selection.environment !== p.environment ||
@@ -295,7 +334,7 @@ export class AppProtectedInstallationSignIn {
         const bytes = crypto.getRandomValues(new Uint8Array(32));
         try {
           const secret = `pair_${btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
-          return new TextEncoder().encode(JSON.stringify({version: 3, renewal: null, requestedCreateCollections: p.requestedCreateCollections ?? p.freshRequestedCreateCollections ?? false, collectionIds: [], createCollections: false, consentRequest: null, requestId: crypto.randomUUID(), installationId: crypto.randomUUID(), deviceId: crypto.randomUUID(), secret, appId: p.appId, ...(p.owner === undefined ? {} : {owner: p.owner}), kind: p.installationKind ?? "app-runtime", origin: p.origin, cpOrigin: p.cpOrigin, environment: p.environment, selection: null, confirmed: false, nativeStarted: false, proof: null, token: null, ...(p.recoveryFor ? {recoveryFor: p.recoveryFor} : {})} satisfies State));
+          return new TextEncoder().encode(JSON.stringify({version: 3, renewal: null, requestedCreateCollections: p.requestedCreateCollections ?? p.freshRequestedCreateCollections ?? false, collectionIds: [], createCollections: false, consentRequest: null, ...(p.freshRequestedPrivateDevice === true ? {requestedPrivateDevice: true as const} : {}), requestId: crypto.randomUUID(), installationId: crypto.randomUUID(), deviceId: crypto.randomUUID(), secret, appId: p.appId, ...(p.owner === undefined ? {} : {owner: p.owner}), kind: p.installationKind ?? "app-runtime", origin: p.origin, cpOrigin: p.cpOrigin, environment: p.environment, selection: null, confirmed: false, nativeStarted: false, proof: null, token: null, ...(p.recoveryFor ? {recoveryFor: p.recoveryFor} : {})} satisfies State));
         } finally { bytes.fill(0); }
       });
       const state = this.decode(opened.plaintext, p);
@@ -310,19 +349,27 @@ export class AppProtectedInstallationSignIn {
     const fields = `${base},requestedCreateCollections,collectionIds,createCollections,consentRequest`;
     const r = legacy ? {...object(parsed, base), version: 3, renewal: null, requestedCreateCollections: false, collectionIds: [], createCollections: false, consentRequest: null}
       : parsed?.version === 2 ? {...object(parsed, fields), version: 3, renewal: null}
-      : object(parsed, `${fields},renewal${Object.hasOwn(parsed, "collectionSelection") ? ",collectionSelection" : ""}${Object.hasOwn(parsed,"timerConsent") ? ",timerConsent" : ""}${Object.hasOwn(parsed,"timerChannel") ? ",timerChannel" : ""}${Object.hasOwn(parsed,"owner") ? ",owner" : ""}${Object.hasOwn(parsed,"collectionListing") ? ",collectionListing" : ""}${Object.hasOwn(parsed,"collectionRecoveries") ? ",collectionRecoveries" : ""}${Object.hasOwn(parsed,"recoveryFor") ? ",recoveryFor" : ""}${Object.hasOwn(parsed,"nativeAuthorization") ? ",nativeAuthorization" : ""}${Object.hasOwn(parsed,"nativeSelection") ? ",nativeSelection" : ""}${Object.hasOwn(parsed,"nativeGrants") ? ",nativeGrants" : ""}`);
+      : object(parsed, `${fields},renewal${Object.hasOwn(parsed, "collectionSelection") ? ",collectionSelection" : ""}${Object.hasOwn(parsed,"timerConsent") ? ",timerConsent" : ""}${Object.hasOwn(parsed,"timerChannel") ? ",timerChannel" : ""}${Object.hasOwn(parsed,"owner") ? ",owner" : ""}${Object.hasOwn(parsed,"collectionListing") ? ",collectionListing" : ""}${Object.hasOwn(parsed,"collectionRecoveries") ? ",collectionRecoveries" : ""}${Object.hasOwn(parsed,"recoveryFor") ? ",recoveryFor" : ""}${Object.hasOwn(parsed,"nativeAuthorization") ? ",nativeAuthorization" : ""}${Object.hasOwn(parsed,"nativeSelection") ? ",nativeSelection" : ""}${Object.hasOwn(parsed,"nativeGrants") ? ",nativeGrants" : ""}${Object.hasOwn(parsed,"requestedPrivateDevice") ? ",requestedPrivateDevice" : ""}${Object.hasOwn(parsed,"privateDeviceCollectionIds") ? ",privateDeviceCollectionIds" : ""}`);
     if (r.version !== 3 || r.appId !== p.appId || (r as {owner?: unknown}).owner !== p.owner || r.kind !== (p.installationKind ?? "app-runtime") || r.origin !== p.origin || r.cpOrigin !== p.cpOrigin || r.environment !== p.environment || typeof r.confirmed !== "boolean" || typeof r.nativeStarted !== "boolean") throw fail("recovery_required");
     const s = r as unknown as State;
     if (typeof s.requestedCreateCollections !== "boolean" || typeof s.createCollections !== "boolean" ||
         (p.requestedCreateCollections !== undefined && p.requestedCreateCollections !== s.requestedCreateCollections)) throw fail("binding");
     s.collectionIds = this.collectionIds(s.collectionIds);
+    // Private device consent: stored only as an explicit true / non-empty subset.
+    if (s.requestedPrivateDevice !== undefined && s.requestedPrivateDevice !== true) throw fail("recovery_required");
+    if (s.privateDeviceCollectionIds !== undefined) {
+      const scopes = this.collectionIds(s.privateDeviceCollectionIds);
+      if (!scopes.length || !s.token || s.recoveryFor !== undefined || scopes.some(c => !s.collectionIds.includes(c))) throw fail("recovery_required");
+      s.privateDeviceCollectionIds = scopes;
+    }
     if (s.recoveryFor !== undefined) {
       const binding = object(s.recoveryFor, "accountId,collectionId"); id(binding.accountId); id(binding.collectionId);
     }
     if ((s.recoveryFor === undefined) !== (p.recoveryFor === undefined) || s.recoveryFor?.accountId !== p.recoveryFor?.accountId || s.recoveryFor?.collectionId !== p.recoveryFor?.collectionId || (s.recoveryFor && (s.requestedCreateCollections || s.createCollections ||
       (s.selection && s.selection.accountId !== s.recoveryFor.accountId) || (s.token && (s.nativeSelection ? s.collectionIds.length !== 0 || s.nativeSelection.collectionId !== s.recoveryFor.collectionId : s.collectionIds.length !== 1 || s.collectionIds[0] !== s.recoveryFor.collectionId || s.collectionSelection?.selectedCollectionId !== s.recoveryFor.collectionId))))) throw fail("recovery_required");
     if (s.consentRequest !== null) {
-      const c = object(s.consentRequest, `requestId,secret,requestedCreateCollections,challenge,completed,addedCollectionIds,approvedCreateCollections${portalKeys(s.consentRequest, true)}`);
+      const c = object(s.consentRequest, `requestId,secret,requestedCreateCollections,challenge,completed,addedCollectionIds,approvedCreateCollections${Object.hasOwn(s.consentRequest, "requestedPrivateDevice") ? ",requestedPrivateDevice" : ""}${portalKeys(s.consentRequest, true)}`);
+      if (c.requestedPrivateDevice !== undefined && c.requestedPrivateDevice !== true) throw fail("recovery_required");
       portalMetadata(c, true);
       id(c.requestId); text(c.secret, /^pair_[A-Za-z0-9_-]{43}$/);
       if (c.requestId === s.requestId || c.secret === s.secret || typeof c.requestedCreateCollections !== "boolean" || typeof c.completed !== "boolean" || typeof c.approvedCreateCollections !== "boolean" || (c.approvedCreateCollections && !c.requestedCreateCollections)) throw fail("recovery_required");
@@ -386,6 +433,10 @@ export class AppProtectedInstallationSignIn {
     }
     return s;
   }
+  /** The row's mode agrees with the consent recorded for that collection. */
+  private modeConsented(c: AppInstallationCollection): boolean {
+    return (c.mode === "private") === (this.state.privateDeviceCollectionIds?.includes(c.collectionId) === true);
+  }
   private static collectionIds(value: unknown): string[] {
     if (!Array.isArray(value) || value.length > 1000) throw fail("response");
     const ids = value.map(id);
@@ -400,7 +451,7 @@ export class AppProtectedInstallationSignIn {
   private check(): void { if (!this.isCurrent()) throw fail("fenced"); }
   view(): AppInstallationSignInView {
     this.check(); const s = this.state, identity = s.consentRequest?.portalConfirmed ? s.consentRequest : s.selection;
-    return Object.freeze({requestId: s.requestId, installationId: s.installationId, deviceId: s.deviceId, appId: s.appId, kind: s.kind, verificationUri: `${s.cpOrigin}/pair/${s.requestId}`, state: s.token ? "paired" : s.proof ? "awaiting_approval" : s.confirmed ? "account_confirmed" : s.selection ? "account_selected" : "pending", accountId: s.selection?.accountId ?? null, accountEmail: identity?.accountEmail ?? null, ...(identity?.accountProvider ? {accountProvider: identity.accountProvider, accountLogin: identity.accountLogin!} : {}), collectionSelection: s.collectionSelection ? Object.freeze({...s.collectionSelection, createdCollectionIds: Object.freeze([...s.collectionSelection.createdCollectionIds])}) : null, nativeSelection: s.nativeSelection && s.nativeGrants?.some(c => c.authorization_request_id === s.nativeSelection!.authorizationRequestId && c.collection_id === s.nativeSelection!.collectionId) ? Object.freeze({...s.nativeSelection}) : null, nativeGrants: Object.freeze([...(s.nativeGrants ?? [])]), ...(s.timerConsent ? {timerConsent:s.timerConsent} : {}), collectionIds: Object.freeze([...s.collectionIds]), createCollections: s.createCollections, requestedCreateCollections: s.requestedCreateCollections});
+    return Object.freeze({requestId: s.requestId, installationId: s.installationId, deviceId: s.deviceId, appId: s.appId, kind: s.kind, verificationUri: `${s.cpOrigin}/pair/${s.requestId}`, state: s.token ? "paired" : s.proof ? "awaiting_approval" : s.confirmed ? "account_confirmed" : s.selection ? "account_selected" : "pending", accountId: s.selection?.accountId ?? null, accountEmail: identity?.accountEmail ?? null, ...(identity?.accountProvider ? {accountProvider: identity.accountProvider, accountLogin: identity.accountLogin!} : {}), collectionSelection: s.collectionSelection ? Object.freeze({...s.collectionSelection, createdCollectionIds: Object.freeze([...s.collectionSelection.createdCollectionIds])}) : null, nativeSelection: s.nativeSelection && s.nativeGrants?.some(c => c.authorization_request_id === s.nativeSelection!.authorizationRequestId && c.collection_id === s.nativeSelection!.collectionId) ? Object.freeze({...s.nativeSelection}) : null, nativeGrants: Object.freeze([...(s.nativeGrants ?? [])]), ...(s.timerConsent ? {timerConsent:s.timerConsent} : {}), collectionIds: Object.freeze([...s.collectionIds]), createCollections: s.createCollections, requestedCreateCollections: s.requestedCreateCollections, ...(s.privateDeviceCollectionIds?.length ? {privateDeviceCollectionIds: Object.freeze([...s.privateDeviceCollectionIds])} : {})});
   }
   /** Persist before exposing changed selection/proof/credential or native ACK. */
   private async save(next: State): Promise<void> {
@@ -452,7 +503,9 @@ export class AppProtectedInstallationSignIn {
           throw fail((error as Record<string,unknown>).code === "installation_pairing_expired" ? "expired" : "refused");
         }
         const server = appServerProblem(response.status, value, response.headers);
-        throw new AppInstallationSignInError(appServerOutcome(server) ?? "refused", server);
+        const refusal = new AppInstallationSignInError(appServerOutcome(server) ?? "refused", server);
+        if (path === "/v1/pairing-requests" && unknownPrivateDeviceField(response.status, error)) privateDeviceFieldRefused.add(refusal);
+        throw refusal;
       }
       return {status: response.status, value: value as Record<string, unknown>};
     } catch (e) {
@@ -492,7 +545,18 @@ export class AppProtectedInstallationSignIn {
   private async startRequest(hint: string | null = null): Promise<AppInstallationSignInView> {
       if (this.state.token) return this.view(); const s = this.state;
       if (s.recoveryFor && hint !== null && hint !== s.recoveryFor.collectionId) throw fail("binding");
-      const {status, value: v} = await this.json("/v1/pairing-requests", false, {installation: {app_id: s.appId, request_id: s.requestId, pairing_secret: s.secret, installation_id: s.installationId, device_id: s.deviceId, kind: s.kind, requested_create_collections: s.requestedCreateCollections, ...(s.recoveryFor ? {recovery_collection_id: s.recoveryFor.collectionId} : {}), ...(s.renewal ? {renewal:{request_id:s.renewal.requestId, pairing_secret:s.renewal.secret}} : {})}, ...(hint ? {collection_hint: hint} : {})});
+      let reply: {status: number; value: Record<string, unknown>};
+      try {
+        reply = await this.json("/v1/pairing-requests", false, {installation: {app_id: s.appId, request_id: s.requestId, pairing_secret: s.secret, installation_id: s.installationId, device_id: s.deviceId, kind: s.kind, requested_create_collections: s.requestedCreateCollections, ...(s.requestedPrivateDevice === true ? {requested_private_device: true} : {}), ...(s.recoveryFor ? {recovery_collection_id: s.recoveryFor.collectionId} : {}), ...(s.renewal ? {renewal:{request_id:s.renewal.requestId, pairing_secret:s.renewal.secret}} : {})}, ...(hint ? {collection_hint: hint} : {})});
+      } catch (error) {
+        if (s.requestedPrivateDevice !== true || !(error instanceof AppInstallationSignInError) || !privateDeviceFieldRefused.has(error)) throw error;
+        // The stored terms change BEFORE the repeat, so a receipt that later
+        // names a Private device scope is refused: this request never asked.
+        const {requestedPrivateDevice: _dropped, ...withoutPrivateDevice} = s;
+        await this.save(withoutPrivateDevice);
+        return await this.startRequest(hint);
+      }
+      const {status, value: v} = reply;
       if (status !== 200 && status !== 201) throw fail("response");
       object(v, `pairing_id,pairing_secret,verification_uri,expires_in,installation_device,app_id,app_origin,app_name${this.recoveryTargetKeys()}`);
       this.assertRecoveryTarget(v);
@@ -551,10 +615,16 @@ export class AppProtectedInstallationSignIn {
       const scoped = Object.hasOwn(v, "collection_ids") || Object.hasOwn(v, "create_collections");
       const picked = Object.hasOwn(v, "selected_collection_id") || Object.hasOwn(v, "created_collection_ids");
       const native = Object.hasOwn(v, "native_selection");
-      object(v, `${keys},connector,token,registration${scoped ? ",collection_ids,create_collections" : ""}${picked ? ",selected_collection_id,created_collection_ids" : ""}${native ? ",native_selection" : ""}${timerKeys(v)}`); if (status !== 200 || v.status !== "paired" || !this.state.confirmed || !this.state.proof) throw fail("response");
+      const device = Object.hasOwn(v, "private_device_collection_ids");
+      object(v, `${keys},connector,token,registration${scoped ? ",collection_ids,create_collections" : ""}${device ? ",private_device_collection_ids" : ""}${picked ? ",selected_collection_id,created_collection_ids" : ""}${native ? ",native_selection" : ""}${timerKeys(v)}`); if (status !== 200 || v.status !== "paired" || !this.state.confirmed || !this.state.proof) throw fail("response");
       const selection = this.selected(v), connector = object(v.connector, "id,name"), r = object(v.registration, "device_id,sign_pk,kem_pk,noise_pk");
       if (connector.id !== selection.connectorId || connector.name !== this.options.appName || r.device_id !== this.state.deviceId || r.sign_pk !== this.state.proof.sign_pk || r.kem_pk !== this.state.proof.kem_pk || r.noise_pk !== this.state.proof.noise_pk) throw fail("binding");
-      const collectionIds = scoped ? AppProtectedInstallationSignIn.collectionIds(v.collection_ids) : [];
+      const cloudIds = scoped ? AppProtectedInstallationSignIn.collectionIds(v.collection_ids) : [];
+      // Private device scopes: an explicit list, disjoint from the cloud-copy
+      // one, and only for a request that asked. Absent means none.
+      const privateDeviceCollectionIds = device ? AppProtectedInstallationSignIn.collectionIds(v.private_device_collection_ids) : [];
+      if (privateDeviceCollectionIds.length && (!scoped || this.state.requestedPrivateDevice !== true || privateDeviceCollectionIds.some(c => cloudIds.includes(c)))) throw fail("response");
+      const collectionIds = AppProtectedInstallationSignIn.collectionIds([...cloudIds, ...privateDeviceCollectionIds]);
       const createCollections = scoped ? v.create_collections : false;
       if (typeof createCollections !== "boolean" || (createCollections && !this.state.requestedCreateCollections)) throw fail("response");
       const collectionSelection = picked ? this.collectionSelection(v, collectionIds, this.state.requestId) : undefined;
@@ -564,8 +634,11 @@ export class AppProtectedInstallationSignIn {
       if (this.state.recoveryFor && !nativeSelection && (createCollections || collectionIds.length !== 1 || collectionIds[0] !== this.state.recoveryFor.collectionId ||
         collectionSelection?.selectedCollectionId !== this.state.recoveryFor.collectionId || collectionSelection.createdCollectionIds.length !== 0)) throw fail("binding");
       if (v.timer_consent===true && !collectionSelection) throw fail("response");
+      // Device access approved without a pick: Connect never names a Private
+      // device collection as the selection, so this receipt carries none.
+      const deviceOnly = !collectionSelection && privateDeviceCollectionIds.length > 0;
       const reminder=timerConsent(v,this.state.requestId,collectionIds,selection.portalConfirmed===true,collectionSelection?.selectedCollectionId);
-      const token = text(v.token, /^idev_[A-Za-z0-9_-]{43}$/); await this.save({...this.state, selection, token, collectionIds, createCollections, nativeSelection, ...(nativeSelection ? {collectionSelection:undefined} : collectionSelection ? {collectionSelection} : {}), ...(reminder ? {timerConsent:reminder} : {})}); return this.view();
+      const token = text(v.token, /^idev_[A-Za-z0-9_-]{43}$/); await this.save({...this.state, selection, token, collectionIds, createCollections, privateDeviceCollectionIds: privateDeviceCollectionIds.length ? privateDeviceCollectionIds : undefined, nativeSelection, ...(nativeSelection || deviceOnly ? {collectionSelection:undefined} : collectionSelection ? {collectionSelection} : {}), ...(reminder ? {timerConsent:reminder} : {})}); return this.view();
     });
   }
   private parseNativeSelection(value: unknown, requestId: string): AppNativeSelection {
@@ -611,7 +684,7 @@ export class AppProtectedInstallationSignIn {
   }
   collectionConsentView(): AppInstallationCollectionConsentView | null {
     this.check(); const r = this.state.consentRequest;
-    return r ? Object.freeze({requestId: r.requestId, verificationUri: `${this.state.cpOrigin}/pair/${r.requestId}`, state: r.completed ? "scope_updated" : "pending", requestedCreateCollections: r.requestedCreateCollections, addedCollectionIds: Object.freeze([...r.addedCollectionIds]), approvedCreateCollections: r.approvedCreateCollections, accountEmail: r.accountEmail ?? null, ...(r.accountProvider ? {accountProvider: r.accountProvider, accountLogin: r.accountLogin!} : {}), accountSelectionConfirmed: r.portalConfirmed === true}) : null;
+    return r ? Object.freeze({requestId: r.requestId, verificationUri: `${this.state.cpOrigin}/pair/${r.requestId}`, state: r.completed ? "scope_updated" : "pending", requestedCreateCollections: r.requestedCreateCollections, addedCollectionIds: Object.freeze([...r.addedCollectionIds]), approvedCreateCollections: r.approvedCreateCollections, ...(r.requestedPrivateDevice === true ? {requestedPrivateDevice: true as const} : {}), accountEmail: r.accountEmail ?? null, ...(r.accountProvider ? {accountProvider: r.accountProvider, accountLogin: r.accountLogin!} : {}), accountSelectionConfirmed: r.portalConfirmed === true}) : null;
   }
   private consentGuard(installation: AppInstallationCustodyAuthority): () => void {
     const callback = installation.isCurrent;
@@ -634,22 +707,36 @@ export class AppProtectedInstallationSignIn {
   /** Explicit additive consent, not renewal/registration/account selection.
    * A new secret/request is protected BEFORE HTTP; unknown outcomes only permit
    * an explicit repeat of that exact request, never new keys or a new actor. */
-  startCollectionConsent(installation: AppInstallationCustodyAuthority, requestedCreateCollections = false, options: AppInstallationStartOptions = {}): Promise<AppInstallationCollectionConsentView> {
+  startCollectionConsent(installation: AppInstallationCustodyAuthority, requestedCreateCollections = false, options: AppInstallationStartOptions = {}, requestedPrivateDevice = false): Promise<AppInstallationCollectionConsentView> {
     const check = this.consentGuard(installation);
     let hint: string | null; try { hint = collectionHint(options); } catch (error) { return Promise.reject(error); }
     const attempt = async (): Promise<AppInstallationCollectionConsentView> => {
-      check(); if (this.state.recoveryFor || typeof requestedCreateCollections !== "boolean") throw fail("binding");
+      check(); if (this.state.recoveryFor || typeof requestedCreateCollections !== "boolean" || typeof requestedPrivateDevice !== "boolean") throw fail("binding");
       let r = this.state.consentRequest;
       if (!r || r.completed) {
         const bytes = crypto.getRandomValues(new Uint8Array(32));
         try {
           const secret = `pair_${btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
-          r = {requestId: crypto.randomUUID(), secret, requestedCreateCollections, challenge: null, completed: false, addedCollectionIds: [], approvedCreateCollections: false};
+          // A window still open keeps the terms it was stored with (below); only a new one asks for device access.
+          r = {requestId: crypto.randomUUID(), secret, requestedCreateCollections, challenge: null, completed: false, addedCollectionIds: [], approvedCreateCollections: false, ...(requestedPrivateDevice ? {requestedPrivateDevice: true as const} : {})};
           await this.save({...this.state, consentRequest: r}); check();
         } finally { bytes.fill(0); }
       } else if (r.requestedCreateCollections !== requestedCreateCollections) throw fail("binding");
       const s = this.state, token = s.token!, req = r;
-      const {status, value: v} = await this.consentWindow(req.requestId, () => this.json("/v1/pairing-requests", false, {installation: {app_id: s.appId, request_id: req.requestId, pairing_secret: req.secret, installation_id: s.installationId, device_id: s.deviceId, kind: s.kind, requested_create_collections: req.requestedCreateCollections, reconsent: true}, ...(hint ? {collection_hint: hint} : {})}, {bearer: token})); check();
+      let reply: {status: number; value: Record<string, unknown>};
+      try {
+        reply = await this.consentWindow(req.requestId, () => this.json("/v1/pairing-requests", false, {installation: {app_id: s.appId, request_id: req.requestId, pairing_secret: req.secret, installation_id: s.installationId, device_id: s.deviceId, kind: s.kind, requested_create_collections: req.requestedCreateCollections, ...(req.requestedPrivateDevice === true ? {requested_private_device: true} : {}), reconsent: true}, ...(hint ? {collection_hint: hint} : {})}, {bearer: token}));
+      } catch (error) {
+        if (req.requestedPrivateDevice !== true || !(error instanceof AppInstallationSignInError) || !privateDeviceFieldRefused.has(error)) throw error;
+        // Same single repeat as START: this window is re-stored as one that
+        // never asked for Private device access before it is sent again.
+        check();
+        const {requestedPrivateDevice: _dropped, ...withoutPrivateDevice} = req;
+        await this.save({...this.state, consentRequest: withoutPrivateDevice}); check();
+        return await attempt();
+      }
+      check();
+      const {status, value: v} = reply;
       object(v, "pairing_id,pairing_secret,verification_uri,expires_in,installation_device,app_id,app_origin,app_name");
       let uri: string | null = null;
       if ((status !== 200 && status !== 201) || v.pairing_id !== r.requestId || v.pairing_secret !== r.secret || (uri = verificationUri(v.verification_uri, `${s.cpOrigin}/pair/${r.requestId}`, hint)) === null || v.installation_device !== true || v.app_id !== s.appId || v.app_origin !== s.origin || v.app_name !== this.options.appName || !Number.isSafeInteger(v.expires_in) || (v.expires_in as number) < 0 || (v.expires_in as number) > 600 || token !== this.state.token) throw fail("response");
@@ -678,7 +765,10 @@ export class AppProtectedInstallationSignIn {
       const done = v.status === "scope_updated";
       const picked = done && (Object.hasOwn(v, "selected_collection_id") || Object.hasOwn(v, "created_collection_ids"));
       const native = done && Object.hasOwn(v,"native_selection");
-      object(v, `${keys}${done ? ",added_collection_ids,approved_create_collections" : ""}${picked ? ",selected_collection_id,created_collection_ids" : ""}${native ? ",native_selection" : ""}${done ? timerKeys(v) : ""}`);
+      // The contract names the receipt list `private_device_collection_ids`; an
+      // additive receipt may mirror `added_collection_ids`. Exactly one is read.
+      const deviceKey = !done ? null : Object.hasOwn(v, "added_private_device_collection_ids") ? "added_private_device_collection_ids" : Object.hasOwn(v, "private_device_collection_ids") ? "private_device_collection_ids" : null;
+      object(v, `${keys}${done ? ",added_collection_ids,approved_create_collections" : ""}${deviceKey ? `,${deviceKey}` : ""}${picked ? ",selected_collection_id,created_collection_ids" : ""}${native ? ",native_selection" : ""}${done ? timerKeys(v) : ""}`);
       if ((!done && (status !== 202 || v.status !== "awaiting_approval")) || (done && status !== 200) || v.request_id !== r.requestId || v.account_id !== s.selection!.accountId || v.connector_id !== s.selection!.connectorId || v.device_id !== s.deviceId || v.installation_id !== s.installationId || v.kind !== s.kind || v.app_id !== s.appId || v.app_origin !== s.origin || v.approval_mode !== s.selection!.approvalMode || !Number.isSafeInteger(v.expires_at) || (v.expires_at as number) < 0) throw fail("binding");
       const confirmation = portalMetadata(v);
       if (r.portalConfirmed && !portal) throw fail("response");
@@ -686,7 +776,13 @@ export class AppProtectedInstallationSignIn {
       const challenge = text(v.challenge, /^[0-9a-f]{64}$/);
       if (r.challenge !== null && r.challenge !== challenge) throw fail("binding");
       if (!done) { if (r.challenge === null || (portal && !r.portalConfirmed)) await this.save({...s, consentRequest: {...r, ...confirmation, challenge}}); check(); return this.collectionConsentView()!; }
-      const addedCollectionIds = AppProtectedInstallationSignIn.collectionIds(v.added_collection_ids);
+      const addedCloudIds = AppProtectedInstallationSignIn.collectionIds(v.added_collection_ids);
+      const addedPrivateIds = deviceKey ? AppProtectedInstallationSignIn.collectionIds(v[deviceKey]) : [];
+      // Disjoint lists; only a window that asked; a scope keeps the mode it was approved with.
+      if (addedPrivateIds.length && (r.requestedPrivateDevice !== true || addedPrivateIds.some(c => addedCloudIds.includes(c) || (s.collectionIds.includes(c) && !s.privateDeviceCollectionIds?.includes(c))))) throw fail("response");
+      if (addedCloudIds.some(c => s.privateDeviceCollectionIds?.includes(c))) throw fail("response");
+      const addedCollectionIds = AppProtectedInstallationSignIn.collectionIds([...addedCloudIds, ...addedPrivateIds]);
+      const privateDeviceCollectionIds = [...new Set([...(s.privateDeviceCollectionIds ?? []), ...addedPrivateIds])];
       if (typeof v.approved_create_collections !== "boolean" || (v.approved_create_collections && !r.requestedCreateCollections)) throw fail("response");
       const collectionIds = AppProtectedInstallationSignIn.collectionIds([...new Set([...s.collectionIds, ...addedCollectionIds])]);
       const collectionSelection = picked ? this.collectionSelection(v, collectionIds, r.requestId) : undefined;
@@ -694,7 +790,8 @@ export class AppProtectedInstallationSignIn {
       if (native && (picked || addedCollectionIds.length !== 0 || v.approved_create_collections !== false || v.timer_consent === true)) throw fail("response");
       if (v.timer_consent===true && !collectionSelection) throw fail("response");
       const reminder=timerConsent(v,r.requestId,addedCollectionIds,confirmation.portalConfirmed===true,collectionSelection?.selectedCollectionId);
-      await this.save({...s, collectionIds, nativeSelection, ...(nativeSelection ? {collectionSelection:undefined} : collectionSelection ? {collectionSelection} : {}), ...(reminder ? {timerConsent:reminder} : {}), createCollections: s.createCollections || v.approved_create_collections, consentRequest: {...r, ...confirmation, challenge, completed: true, addedCollectionIds, approvedCreateCollections: v.approved_create_collections}}); check();
+      // A device-only receipt has no pick: an earlier request's pick is not this one's.
+      await this.save({...s, collectionIds, privateDeviceCollectionIds: privateDeviceCollectionIds.length ? privateDeviceCollectionIds : undefined, nativeSelection, ...(nativeSelection || (!collectionSelection && addedPrivateIds.length > 0) ? {collectionSelection:undefined} : collectionSelection ? {collectionSelection} : {}), ...(reminder ? {timerConsent:reminder} : {}), createCollections: s.createCollections || v.approved_create_collections, consentRequest: {...r, ...confirmation, challenge, completed: true, addedCollectionIds, approvedCreateCollections: v.approved_create_collections}}); check();
       return this.collectionConsentView()!;
     });
   }
@@ -705,11 +802,25 @@ export class AppProtectedInstallationSignIn {
     return this.exclusive(async () => {
       check();
       let reply: Awaited<ReturnType<AppProtectedInstallationSignIn["json"]>>;
-      try { reply = await this.json("/v1/next/collections?include=file_actions", false, undefined, {bearer: this.state.token!, get: true}); }
-      catch (error) {
+      // `mode` is asked for only by an app that declares Private device access
+      // AND holds such a scope: only then can a Private row be offered at all
+      // (modeConsented). Every other installation sends today's exact request;
+      // a server from before this feature matches `include=file_actions` exactly
+      // and would silently drop the file actions from any other spelling.
+      const mode = this.options.freshRequestedPrivateDevice === true && (this.state.privateDeviceCollectionIds?.length ?? 0) > 0;
+      const today = "/v1/next/collections?include=file_actions", ask = (path: string) => this.json(path, false, undefined, {bearer: this.state.token!, get: true});
+      try {
+        reply = await ask(mode ? `${today},mode` : today);
+        // A server from before this feature (one rolled back under an SDK that
+        // holds Private scopes) answers the spelling it does not know with bare
+        // rows: no `mode` and no file actions. A server that knows `mode` puts
+        // it on every row. So rows that all lack it are asked for once more,
+        // with today's exact request, and the file actions survive the rollback.
+        if (mode && reply.status === 200 && modeUnanswered(reply.value)) { check(); reply = await ask(today); }
+      } catch (error) {
         check();
         if (error instanceof AppInstallationSignInError && error.reason === "unavailable" && !error.server && !nonOkResponses.has(error) && this.state.collectionListing !== undefined)
-          return Object.freeze(collectionListing(this.state.collectionListing).filter(c => this.state.collectionIds.includes(c.collectionId)).map(c => Object.freeze({...c, fileActions: Object.freeze([])})));
+          return Object.freeze(collectionListing(this.state.collectionListing).filter(c => this.state.collectionIds.includes(c.collectionId) && this.modeConsented(c)).map(c => Object.freeze({...c, fileActions: Object.freeze([])})));
         if (error instanceof AppInstallationSignInError && (error.server || nonOkResponses.has(error)) && this.state.collectionListing !== undefined) {
           const state = {...this.state}; delete state.collectionListing;
           await this.save(state); check();
@@ -718,7 +829,9 @@ export class AppProtectedInstallationSignIn {
       }
       check(); const {status, value: v} = reply; object(v, "collections");
       if (status !== 200) throw fail("response");
-      const collections = collectionListing(v.collections);
+      // A listed mode never adds consent: a Private row is offered only with
+      // this installation's Private device scope, a cloud-copy row never with one.
+      const collections = Object.freeze(collectionListing(v.collections).filter(c => this.modeConsented(c)));
       // Receipt references narrow replay; metadata cannot add consent or infer a role.
       const approved = (v.collections as Record<string, unknown>[]).filter(c => this.state.collectionIds.includes(c.collection_id as string)).map(c => { const metadata = {...c}; delete metadata.file_actions; return metadata; });
       const state = {...this.state}; delete state.collectionListing;

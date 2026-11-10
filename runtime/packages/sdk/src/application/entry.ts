@@ -118,6 +118,10 @@ export interface MdbaseTransferOptions extends MdbaseApplicationRequestOptions {
   readonly onProgress?:(progress:MdbaseTransferProgress)=>void;
 }
 export interface MdbaseCollectionDeleteOptions extends MdbaseApplicationRequestOptions {readonly confirmName:string}
+/** What the person typed to unlock a Private collection: the account's
+ * encryption password, or its recovery key. Pass it straight from the input
+ * and keep no copy: the SDK never stores, logs or publishes it. */
+export type MdbaseUnlockSecret=Readonly<{password:string}>|Readonly<{recoveryKey:string}>;
 export interface MdbaseSignOutOptions extends MdbaseApplicationRequestOptions {
   /** Sign out even though changes on this device have not reached mdbase yet;
    * they are lost. Without it, signOut rejects with `sign_out_pending_writes`. */
@@ -213,6 +217,14 @@ export interface MdbaseApplication {
    * with a `collection_delete_*` code for `describeError` and changes nothing
    * locally. On success the collection leaves `collections`. */
   deleteCollection(collectionId:string,options:MdbaseCollectionDeleteOptions):Promise<MdbaseApplicationSnapshot>;
+  /** Unlock the open Private collection (`phase.kind === "needs_unlock"`,
+   * `mode: "password"`) with the account's encryption password or recovery
+   * key. Resolves when the attempt settled: opened (`ready` or `needs_setup`),
+   * or still `needs_unlock` with `phase.problem` set (wrong password, service
+   * unreachable). Rejects with `invalid_request` when that collection is not
+   * waiting to be unlocked in this tab. No reload is needed either way.
+   * Optional for other implementations of this interface. */
+  unlock?(collectionId:string,secret:MdbaseUnlockSecret,options?:MdbaseApplicationRequestOptions):Promise<MdbaseApplicationSnapshot>;
   setForeground(active:boolean):void;
   close():Promise<void>;
   /** Sign out of mdbase on this device: ends the server session and removes
@@ -279,7 +291,7 @@ function unavailableApplication():MdbaseApplication{
   const snapshot:MdbaseApplicationSnapshot=Object.freeze({...base,phase:applicationPhase(base),sync:null,writes:null,links:null});
   const refuse=()=>Promise.reject(unavailable());
   return Object.freeze({getSnapshot:()=>snapshot,subscribe:()=>()=>{},start:refuse,authorize:refuse,select:refuse,approve:refuse,reauthorize:refuse,refreshCollectionList:refuse,requestAccess:refuse,chooseAnother:refuse,
-    assess:refuse,configure:refuse,setup:Object.freeze({plan:refuse,apply:refuse}),clearSelection:refuse,forget:refuse,deleteCollection:refuse,setForeground(){throw unavailable();},close:refuse,signOut:refuse});
+    assess:refuse,configure:refuse,setup:Object.freeze({plan:refuse,apply:refuse}),clearSelection:refuse,forget:refuse,deleteCollection:refuse,unlock:refuse,setForeground(){throw unavailable();},close:refuse,signOut:refuse});
 }
 const browserHost=(origin:string)=>typeof Worker==="function"&&typeof MessageChannel==="function"&&currentAppOrigin()!==null&&isAppOrigin(origin);
 function signInOpener(value:MdbaseSignInOpener|undefined,declaration:ApplicationDeclarationSnapshot):MdbaseSignInOpener|null{
@@ -430,6 +442,9 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
         await this.call(runtime=>runtime.queue(()=>runtime.deleteCollection(id,confirmName,request)));
         if(selection.getSnapshot().requested.collectionId===id)await selection.select(null,request);
       }),
+      // A Private collection listed by the session (this device's own copy).
+      // One served by another computer is never locked here and is refused.
+      unlock:(id:string,secret:MdbaseUnlockSecret,options?:MdbaseApplicationRequestOptions)=>this.track(()=>this.call(runtime=>runtime.queue(()=>runtime.unlock(id,secret,options)))),
       assess:(options?:MdbaseApplicationRequestOptions)=>this.privates?.isOpen()?this.privates.assess():this.call(runtime=>runtime.queue(()=>runtime.assess(options))),
       configure:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>this.privates?.isOpen()?this.privates.configure(options):this.call(runtime=>runtime.queue(()=>runtime.configure(options)))),
       setup:Object.freeze({

@@ -104,6 +104,8 @@ export const PROBLEM_CODES = [
   "collection_delete_outcome_unknown", "collection_delete_failed",
   // Account keys (Private collections).
   "wrong_secret", "locked", "weak_password", "already_set_up", "no_account_key",
+  // Unlocking a Private collection in an app that keeps its own copy.
+  "invalid_recovery_key", "unlock_strict", "unlock_unavailable", "unlock_failed", "private_device_limit",
 ] as const;
 export type ProblemCode = typeof PROBLEM_CODES[number];
 
@@ -230,6 +232,11 @@ const COPY = {
   weak_password: ["Choose a stronger password", "That password is too easy to guess. Use a longer one, or a few unrelated words.", "none", "warning"],
   already_set_up: ["Already set up", "Your account key is already set up on this account.", "none", "info"],
   no_account_key: ["Set up your account key", "This account doesn't have an account key yet. Set one up to use Private collections.", "none", "info"],
+  invalid_recovery_key: ["Check the recovery key", "That doesn't look like a recovery key. Check for missing or mistyped characters and try again.", "none", "warning"],
+  unlock_strict: ["Can't be unlocked here", "This account approves each device from another device instead of using an encryption password, and this app can't do that yet. Use the mdbase desktop app on a computer that has this collection.", "none", "info"],
+  unlock_unavailable: ["This app can't unlock yet", "This version of the app can't unlock Private collections. Update the app, then try again.", "update_app", "warning"],
+  unlock_failed: ["Couldn't unlock this collection", "Your password or recovery key is right, but this collection didn't give this device its key. Try again. If it keeps happening, open the mdbase desktop app on a computer that has this collection.", "retry", "warning"],
+  private_device_limit: ["One Private collection per app", "This app already keeps another Private collection on this device, and it can keep only one. Open that collection, or sign out of mdbase in this app to switch.", "choose_collection", "warning"],
 } as const satisfies Record<ProblemCode, Entry>;
 
 /** Codes that mean the same outcome as a ProblemCode (server reasons, facet
@@ -312,7 +319,7 @@ export const INTERNAL_PROBLEM_CODES = [
   "record_lease_policy", "record_links_bounds", "record_links_missing", "record_links_response", "record_links_unsupported",
   "record_recovery_mismatch", "record_session_budget", "record_validation_stale", "record_witness_required", "strength",
   "strict_mode", "typing_bounds", "unsupported_push_version", "validation_bounds", "validation_selection",
-  "unsynced_transfer_needs_collection", "unsynced_transfer_plan_stale",
+  "unsynced_transfer_needs_collection", "unsynced_transfer_plan_stale", "unlock_not_locked", "unlock_secret_invalid",
   // The build does not match the app's registration: apps describe this in
   // their own words (describeError gives the "unknown" key so their copy wins).
   "application_registration_binding",
@@ -323,7 +330,7 @@ export const INTERNAL_PROBLEM_CODES = [
   // Storage probe (describes as `unavailable`).
   "cleanup_failed", "opfs_unavailable", "probe_failed", "sync_handle_unavailable", "worker_required",
   // Owner lifecycle (wrapped as open_failed / recovery_required by the session).
-  "shutdown_failed",
+  "shutdown_failed", "sync_stalled",
   // Thin-client, relay and app-grant transport (legacy Private path; wrapped as the 15).
   "authorization_binding", "authorization_callback", "authorization_cancelled", "authorization_denied", "authorization_signature", "authorization_start",
   "authorization_timed_out", "client_key_required", "collection_mismatch", "control_error",

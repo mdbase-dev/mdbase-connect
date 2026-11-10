@@ -63,6 +63,7 @@ export const defaultCollectionCopy = {
   get tryAgain() { return i18n._(msg({ message: "Try again", context: "Collection access interface" })); },
   get problemHeading() { return i18n._({ ...msg({ message: "Can't open {collection}", context: "Collection access interface" }), values: { collection: "{collection}" } }); },
   get problemHeadingUnnamed() { return i18n._(msg({ message: "Can't continue", context: "Collection access interface" })); },
+  get lockedNotice() { return i18n._(msg({ message: "This is a Private collection, and this device doesn't have its key yet.", context: "Collection access interface" })); },
   get unavailableHeading() { return i18n._({ ...msg({ message: "{app} can't open collections here", context: "Collection access interface" }), values: { app: "{app}" } }); },
   get closedHeading() { return i18n._({ ...msg({ message: "{app} has stopped", context: "Collection access interface" }), values: { app: "{app}" } }); },
   get closedLead() { return i18n._(msg({ message: "Reload to continue.", context: "Collection access interface" })); },

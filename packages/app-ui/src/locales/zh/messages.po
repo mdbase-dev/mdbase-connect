@@ -1296,6 +1296,11 @@ msgstr "在账户中移除此设备之前，它仍会显示在设备列表中。
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "This is a Private collection, and this device doesn't have its key yet."
+msgstr "这是私有集合，此设备尚未获得其密钥。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "This is taking longer than usual."
 msgstr "这比平时花费的时间更长。"
 

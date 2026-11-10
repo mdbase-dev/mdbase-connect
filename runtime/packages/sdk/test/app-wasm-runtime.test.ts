@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
-import { AppWasmRuntime, type AppBootstrap, type AppSqlLifetime } from "../src/app-host/wasm-runtime.js";
+import { AppAccountKeyProofUnavailableError, AppStrictDeviceApprovalError, AppWasmRuntime, type AppBootstrap, type AppSqlLifetime } from "../src/app-host/wasm-runtime.js";
 import * as cbor from "../src/cbor.js";
 import { syncStatus } from "../src/wire.js";
 
@@ -216,6 +216,41 @@ describe("optional app artifact host", () => {
     const source={...pin,collection:mode==="foreign"?"99999999-9999-9999-9999-999999999999":c.collection,approvalMode:mode==="strict"?"strict" as const:"password-ak1" as const},secret=Buffer.alloc(32,3);
     if(mode==="pending"){expect(rt.unlockAccountKeyConsuming(source,secret)).toEqual({state:"pending"});expect(rt.accountKeyStatus(source)).toEqual({state:"pending"});const setupLoan=Buffer.alloc(32,3);expect(rt.setupAccountKeyDeviceConsuming(source,setupLoan)).toEqual({state:"recovery_pending"});expect(setupLoan.every(v=>v===0)).toBe(true);expect(f.x.rt_app_account_key_unlock).toHaveBeenCalledTimes(1);}else{expect(()=>rt.unlockAccountKeyConsuming(source,secret)).toThrow();expect(f.x.rt_app_account_key_unlock).not.toHaveBeenCalled();}
     expect(secret.every(v=>v===0)).toBe(true);await rt.close();
+  });
+  it("account-key fetch proof: a runtime without the signer refuses with a typed error and stays open", async()=>{
+    const f=await fixture(),rt=await f.createDevice(),c=config(),pin={connectorId:"66666666-6666-6666-6666-666666666666",installationId:"88888888-8888-8888-8888-888888888888",deviceId:c.deviceId,isCurrent:()=>true};const custody=rt.openDeviceConsuming({pin,signSecretKey:c.signSecretKey,kemSecretKey:c.kemSecretKey,opened:{mode:"fresh"}});rt.acknowledgeDeviceRegistration({...pin,...custody});rt.adoptDevice(c,f.sql);
+    const source={...pin,collection:c.collection,approvalMode:"password-ak1" as const},account="77777777-7777-4777-8777-777777777777";
+    expect(rt.supportsAccountKeyFetchProof).toBe(false);
+    expect(()=>rt.signAccountKeyFetch(source,account,new Uint8Array(32).fill(9))).toThrow(AppAccountKeyProofUnavailableError);
+    // Not a fault: the log owner is not retired and the key status still reads.
+    expect(f.retire).not.toHaveBeenCalled();expect(rt.accountKeyStatus(source)).toEqual({state:"pending"});
+    await rt.close();
+  });
+  it("account-key fetch proof: signs only the server challenge and the account for this adopted collection, and wipes its input", async()=>{
+    const f=await fixture(),seen:Map<cbor.CborValue,cbor.CborValue>[]=[];let wiped=true,length=64;
+    const sign=vi.fn((p:number,n:number)=>{const input=new Uint8Array(f.x.memory.buffer,p,n);seen.push(cbor.decode(input.slice()) as Map<cbor.CborValue,cbor.CborValue>);input.fill(0);return f.pack(new Uint8Array(length).fill(21));});
+    (f.x as unknown as {rt_app_account_key_fetch_sign:typeof sign}).rt_app_account_key_fetch_sign=sign;
+    const rt=await f.createDevice(),c=config(),pin={connectorId:"66666666-6666-6666-6666-666666666666",installationId:"88888888-8888-8888-8888-888888888888",deviceId:c.deviceId,isCurrent:()=>true};const custody=rt.openDeviceConsuming({pin,signSecretKey:c.signSecretKey,kemSecretKey:c.kemSecretKey,opened:{mode:"fresh"}});rt.acknowledgeDeviceRegistration({...pin,...custody});rt.adoptDevice(c,f.sql);
+    const source={...pin,collection:c.collection,approvalMode:"password-ak1" as const},account="77777777-7777-4777-8777-777777777777",challenge=new Uint8Array(32).fill(9);
+    expect(rt.supportsAccountKeyFetchProof).toBe(true);
+    const signature=rt.signAccountKeyFetch(source,account,challenge);
+    expect(signature).toEqual(new Uint8Array(64).fill(21));expect(challenge.every(v=>v===9)).toBe(true);
+    // Exactly {0: challenge, 1: account}: no route, digest, connector or device input.
+    expect([...seen[0]!.keys()]).toEqual([0,1]);expect(seen[0]!.get(0)).toEqual(new Uint8Array(32).fill(9));expect(seen[0]!.get(1)).toEqual(Uint8Array.from("77777777777747778777777777777777".match(/../g)!.map(v=>parseInt(v,16))));
+    wiped=f.encoded().every(v=>v===0);expect(wiped).toBe(true);
+    // Fences before the native call: a strict account, another collection, a nil account, a short challenge.
+    expect(()=>rt.signAccountKeyFetch({...source,approvalMode:"strict"},account,challenge)).toThrow(AppStrictDeviceApprovalError);
+    expect(sign).toHaveBeenCalledTimes(1);
+    await rt.close();
+    for(const bad of ["collection","account","challenge","signature"] as const){
+      const g=await fixture();length=bad==="signature"?63:64;const again=vi.fn((p:number,n:number)=>{new Uint8Array(g.x.memory.buffer,p,n).fill(0);return g.pack(new Uint8Array(length).fill(21));});
+      (g.x as unknown as {rt_app_account_key_fetch_sign:typeof again}).rt_app_account_key_fetch_sign=again;
+      const other=await g.createDevice(),d=config(),own={...pin,deviceId:d.deviceId};const held=other.openDeviceConsuming({pin:own,signSecretKey:d.signSecretKey,kemSecretKey:d.kemSecretKey,opened:{mode:"fresh"}});other.acknowledgeDeviceRegistration({...own,...held});other.adoptDevice(d,g.sql);
+      const target={...own,collection:bad==="collection"?"99999999-9999-9999-9999-999999999999":d.collection,approvalMode:"password-ak1" as const};
+      expect(()=>other.signAccountKeyFetch(target,bad==="account"?"00000000-0000-0000-0000-000000000000":account,bad==="challenge"?new Uint8Array(31):challenge)).toThrow();
+      expect(again).toHaveBeenCalledTimes(bad==="signature"?1:0);
+      await other.close();
+    }
   });
   it("device phase has no Core/LS/SQL authority and adopts SAME owners with metadata-only v4", async () => {
     const f=await fixture(),rt=await f.createDevice(),c=config();expect(f.sql.import).not.toHaveBeenCalled();expect((f.imports().env!.host_app_sql as (p:number,n:number)=>bigint)(0,0)).toBe(0n);const pin={connectorId:"66666666-6666-6666-6666-666666666666",installationId:"88888888-8888-8888-8888-888888888888",deviceId:c.deviceId,isCurrent:()=>true};const borrowed=Buffer.from([4,5,6]);

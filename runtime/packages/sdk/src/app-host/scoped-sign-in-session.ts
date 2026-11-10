@@ -1,5 +1,6 @@
 import {AppWebSignInSession, type AppWebSignInSessionOptions, type AppWebSignInSnapshot} from "./web-sign-in-session.js";
 import {AppInstallationSignInError, type AppFileAction} from "./installation-sign-in.js";
+import type {AppAccountKeySecret} from "./account-key-host.js";
 import {createAppSignInRootGuard} from "./owner.js";
 
 /** Worker-owned collection actor routing. A replacement uses the SAME protected
@@ -73,7 +74,7 @@ export class AppScopedSignInSession<Connection> {
     const existing = this.scoped.get(id);
     if (existing) {if(existing.reference !== reference)throw new AppInstallationSignInError("fenced"); return existing.session;}
     const session = new AppWebSignInSession<Connection>({...this.options, owner: `${this.options.owner ?? `app:${this.options.appId}`}:scope:${reference}`,
-      requestedCreateCollections: false, freshRequestedCreateCollections: false, recoveryFor: Object.freeze({accountId, collectionId: id}), autoSelect: "never", storeMode: fresh ? "fresh" : "existing"});
+      requestedCreateCollections: false, freshRequestedCreateCollections: false, freshRequestedPrivateDevice: false, recoveryFor: Object.freeze({accountId, collectionId: id}), autoSelect: "never", storeMode: fresh ? "fresh" : "existing"});
     const stop = session.subscribe(() => this.changed());
     this.scoped.set(id, {reference, session, stop}); session.setForeground(this.foreground);
     return session;
@@ -123,6 +124,11 @@ export class AppScopedSignInSession<Connection> {
     const actor = this.scoped.get(id);
     if (!actor && Object.hasOwn(this.original.scopeRecoveryContext()?.references ?? {}, id)) throw new AppInstallationSignInError("refused");
     await (actor?.session ?? this.original).openCollection(id); this.check(); return this.getSnapshot();
+  }
+  /** Account-key unlock of a held Private collection that reads `needs_unlock`.
+   * The secret goes to that collection's own session only. */
+  async unlockCollection(id: string, secret: AppAccountKeySecret): Promise<AppWebSignInSnapshot> {
+    this.check(); await (this.scoped.get(id)?.session ?? this.original).unlockCollection(id, secret); this.check(); return this.viewFor(id);
   }
   async releaseCollection(id: string): Promise<AppWebSignInSnapshot> {await (this.scoped.get(id)?.session ?? this.original).releaseCollection(id); return this.getSnapshot();}
   async forget(id: string): Promise<AppWebSignInSnapshot> {await (this.scoped.get(id)?.session ?? this.original).forget(id); return this.getSnapshot();}
