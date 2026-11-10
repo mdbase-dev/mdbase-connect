@@ -96,6 +96,15 @@ impl<S: Store> Replica<S> {
         self.device_keys.is_some()
     }
 
+    /// The mandatory rebuild after reopening a store that never holds the
+    /// keyring is still running. An optional history repair (which keeps the
+    /// keyring it already has) is not this.
+    pub(crate) fn keyring_reopen_pending(&self) -> bool {
+        self.device_keys
+            .as_ref()
+            .is_some_and(|k| k.rollback.is_none())
+    }
+
     /// Queue the next control read of the rebuild, if one is due.
     pub(crate) fn device_key_rebuild_step(&mut self) {
         let Some(k) = self.device_keys.as_mut() else {
