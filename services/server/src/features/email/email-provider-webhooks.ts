@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { Webhook, WebhookVerificationError } from "svix";
-import type { DatabasePool, DatabaseQueryable } from "./database-types.js";
-import { apiError } from "./platform/http-errors.js";
+import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
+import { apiError } from "../../platform/http-errors.js";
 
 interface ResendWebhookOptions {
   db: DatabasePool;

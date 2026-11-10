@@ -4,7 +4,7 @@ import {
 } from "./auth-admin.js";
 import { openDatabase } from "./db.js";
 import { assertControlPlaneMigrationsCurrent } from "./migrations.js";
-import { ResendEmailTransport } from "./email.js";
+import { ResendEmailTransport } from "./features/email/email.js";
 import { NatsRelayBroker, type RelayBroker } from "./relay-broker.js";
 import {
   HostedProviderClient,

@@ -8,7 +8,7 @@ import { createDatabase } from "./db.js";
 import {
   EmailDeliveryError,
   type EmailTransport
-} from "./email.js";
+} from "./features/email/email.js";
 import {
   HostedProviderResponseError,
   type HostedAccountLimits,

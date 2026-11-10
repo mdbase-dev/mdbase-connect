@@ -11,7 +11,7 @@ import {
   readEmailPreferences,
   redeemUnsubscribeToken,
   updateEmailPreferences
-} from "../../scheduled-email.js";
+} from "../email/scheduled-email.js";
 import type {
   HostedCollectionUsage,
   HostedProviderClient

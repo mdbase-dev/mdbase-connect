@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
-import type { DatabasePool, DatabaseQueryable } from "./database-types.js";
+import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import {
   EmailDeliveryError,
   type EmailTransport,
   type TransactionalEmail
 } from "./email.js";
-import { randomToken, tokenHash } from "./security.js";
+import { randomToken, tokenHash } from "../../security.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 60_000;
 const MAX_ATTEMPTS = 8;

@@ -15,7 +15,7 @@ import type { DatabasePool } from "../../database-types.js";
 import {
   EmailDeliveryError,
   type EmailTransport
-} from "../../email.js";
+} from "../email/email.js";
 import { normalizeEmailAddress } from "./email-identity.js";
 import {
   AuthenticationPolicyIncompleteError,
@@ -26,12 +26,12 @@ import {
   PasswordRecoveryService,
   PasswordRecoveryUnavailableError
 } from "./password-recovery.js";
-import { sendPasswordResetEmail } from "../../password-reset-email.js";
+import { sendPasswordResetEmail } from "../email/password-reset-email.js";
 import {
   PublicSignupService,
   PublicSignupUnavailableError
 } from "./public-signup.js";
-import { sendPublicSignupVerificationEmail } from "../../public-signup-email.js";
+import { sendPublicSignupVerificationEmail } from "../email/public-signup-email.js";
 import { PASSWORD_MAX_UTF8_BYTES } from "./password.js";
 import type { AuthenticationLegalDocuments } from "../../platform/runtime-config.js";
 import {

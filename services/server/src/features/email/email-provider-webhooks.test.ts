@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { Webhook } from "svix";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildApp } from "./app.js";
-import { createDatabase } from "./db.js";
-import type { DatabasePool } from "./database-types.js";
+import { buildApp } from "../../app.js";
+import { createDatabase } from "../../db.js";
+import type { DatabasePool } from "../../database-types.js";
 import { scheduleEmail } from "./scheduled-email.js";
 
 const resources: Array<() => Promise<void>> = [];

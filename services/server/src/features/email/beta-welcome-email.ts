@@ -1,4 +1,4 @@
-import type { DatabaseQueryable } from "./database-types.js";
+import type { DatabaseQueryable } from "../../database-types.js";
 import type { TransactionalEmail } from "./email.js";
 import {
   scheduleEmail,

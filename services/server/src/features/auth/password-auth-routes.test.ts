@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../../app.js";
 import { AuthenticationPolicyStore } from "./authentication-policy.js";
 import { createDatabase } from "../../db.js";
-import type { TransactionalEmail } from "../../email.js";
+import type { TransactionalEmail } from "../email/email.js";
 import { PasswordAccountService } from "./password-auth.js";
 
 const resources: Array<() => Promise<void>> = [];

@@ -26,7 +26,7 @@ import {
   attachInvitationEntitlement,
   materializeInvitationEntitlement
 } from "../account/entitlements.js";
-import { scheduleBetaWelcomeEmail } from "../../beta-welcome-email.js";
+import { scheduleBetaWelcomeEmail } from "../email/beta-welcome-email.js";
 import { scheduleStarterCollection } from "../onboarding/account-onboarding.js";
 import { provisionNewAccountBackend, type AccountBackend } from "../next/account-backend-flip.js";
 

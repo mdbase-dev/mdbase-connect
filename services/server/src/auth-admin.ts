@@ -25,11 +25,11 @@ import {
 import {
   EmailDeliveryError,
   type EmailTransport
-} from "./email.js";
+} from "./features/email/email.js";
 import {
   sendInvitationEmail,
   type InvitationEmailTemplate
-} from "./invitation-email.js";
+} from "./features/email/invitation-email.js";
 import {
   InstanceAdminService,
   type HostedReplicaRevoker,

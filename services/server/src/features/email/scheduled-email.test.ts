@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { DatabasePool } from "./database-types.js";
-import { createDatabase } from "./db.js";
+import type { DatabasePool } from "../../database-types.js";
+import { createDatabase } from "../../db.js";
 import { EmailDeliveryError, type EmailTransport } from "./email.js";
 import {
   readEmailPreferences,

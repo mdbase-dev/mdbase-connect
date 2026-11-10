@@ -10,7 +10,7 @@ import { WebPushTransport } from "./web-push.js";
 import { FcmTransport } from "./fcm.js";
 import { retireLegacyContractScopedGrants } from "./legacy-backfills.js";
 import { SignedWebhookTransport } from "./webhook.js";
-import { ResendEmailTransport } from "./email.js";
+import { ResendEmailTransport } from "./features/email/email.js";
 
 const port = Number(process.env.PORT ?? 8787);
 const runtime = runtimeConfigFromEnv(process.env);

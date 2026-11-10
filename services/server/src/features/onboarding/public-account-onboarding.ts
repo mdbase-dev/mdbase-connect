@@ -1,8 +1,8 @@
 import type { DatabaseQueryable } from "../../database-types.js";
 import { scheduleStarterCollection } from "./account-onboarding.js";
-import { scheduleOpenBetaWelcomeEmail } from "../../beta-welcome-email.js";
+import { scheduleOpenBetaWelcomeEmail } from "../email/beta-welcome-email.js";
 import { materializePublicSignupEntitlement } from "../account/entitlements.js";
-import { updateEmailPreferences } from "../../scheduled-email.js";
+import { updateEmailPreferences } from "../email/scheduled-email.js";
 
 /** Runs inside the account-creation transaction for every public signup method. */
 export async function completePublicAccountOnboarding(

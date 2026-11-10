@@ -6,7 +6,7 @@ import {
   EmailDeliveryError,
   type EmailTransport,
   type TransactionalEmail
-} from "../../email.js";
+} from "../email/email.js";
 import { PasswordAccountService } from "./password-auth.js";
 
 const resources: Array<() => Promise<void>> = [];
