@@ -238,7 +238,8 @@ export function registerAccountOverviewRoute(
               a.name AS application_name, a.icon, k.app_origin AS application_origin,
               k.connector_id, k.installation_id, k.kind AS device_kind, k.created_at, k.create_collections, scope.collection_id,
               native.display_name AS collection_name, native.sync,
-              scope.file_actions AS approved_optional_file_actions
+              scope.file_actions AS approved_optional_file_actions,
+              COALESCE(scope.private_device, false) AS private_device
        FROM installation_device_credentials k
        JOIN connectors c ON c.id = k.connector_id
        JOIN applications a ON a.id::text = k.app_id

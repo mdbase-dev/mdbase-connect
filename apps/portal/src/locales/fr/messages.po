@@ -1828,6 +1828,11 @@ msgstr "Si cette adresse peut être utilisée, nous y avons envoyé un lien à u
 msgid "If verification fails or this request expires, hosted writes resume."
 msgstr "Si la vérification échoue ou que la demande expire, les écritures sur la collection hébergée reprennent."
 
+#. placeholder {0}: literal(pairing.connector_name)
+#: src/authority-workflows.tsx
+msgid "If you unlocked this collection in {0}, it has had your account's encryption key, and revoking access doesn't take that key back. If you no longer trust it with your encryption password, change your encryption password."
+msgstr "Si vous avez déverrouillé cette collection dans {0}, l'application a eu la clé de chiffrement de votre compte, et révoquer l'accès ne lui retire pas cette clé. Si vous ne faites plus confiance à {0} pour votre mot de passe de chiffrement, changez votre mot de passe de chiffrement."
+
 #: src/authority-workflows.tsx
 msgid "In {collection}. Allow only if you just asked for this in {app}."
 msgstr "Dans {collection}. N’autorisez que si vous venez de faire cette demande dans {app}."
@@ -1914,6 +1919,10 @@ msgstr "Conserver la collection hébergée"
 #: src/authorization-review.tsx
 msgid "Keep your current records and explain which fields mean the same thing."
 msgstr "Conservez vos documents actuels et indiquez quels champs ont le même sens."
+
+#: src/ApplicationAccess.tsx
+msgid "Keeps this Private collection on its device. If you unlocked it in this app, the app has had your account's encryption key, which opens every Private collection on your account."
+msgstr "Conserve cette collection privée sur son appareil. Si vous l'avez déverrouillée dans cette application, l'application a eu la clé de chiffrement de votre compte, qui ouvre toutes les collections privées de votre compte."
 
 #: src/portal-commands.ts
 msgid "Keyboard shortcuts"
@@ -2186,12 +2195,24 @@ msgid "New access and collection creation will stop across all installations. Co
 msgstr "Les nouveaux accès et la création de collections cesseront sur toutes les installations. Les copies déjà téléchargées ne peuvent pas être supprimées à distance."
 
 #: src/ApplicationAccess.tsx
+msgid "New access and collection creation will stop across all installations. Copies already downloaded cannot be removed remotely. If you unlocked a Private collection in this app, it has had your account's encryption key, and revoking access doesn't take that key back. If you no longer trust this app with your encryption password, change your encryption password."
+msgstr "Les nouveaux accès et la création de collections cesseront sur toutes les installations. Les copies déjà téléchargées ne peuvent pas être supprimées à distance. Si vous avez déverrouillé une collection privée dans cette application, elle a eu la clé de chiffrement de votre compte, et révoquer l'accès ne lui retire pas cette clé. Si vous ne faites plus confiance à cette application pour votre mot de passe de chiffrement, changez votre mot de passe de chiffrement."
+
+#: src/ApplicationAccess.tsx
 msgid "New access will stop across all installations. Copies already downloaded cannot be removed remotely."
 msgstr "Les nouveaux accès cesseront sur toutes les installations. Les copies déjà téléchargées ne peuvent pas être supprimées à distance."
 
 #: src/ApplicationAccess.tsx
+msgid "New access will stop across all installations. Copies already downloaded cannot be removed remotely. If you unlocked a Private collection in this app, it has had your account's encryption key, and revoking access doesn't take that key back. If you no longer trust this app with your encryption password, change your encryption password."
+msgstr "Les nouveaux accès cesseront sur toutes les installations. Les copies déjà téléchargées ne peuvent pas être supprimées à distance. Si vous avez déverrouillé une collection privée dans cette application, elle a eu la clé de chiffrement de votre compte, et révoquer l'accès ne lui retire pas cette clé. Si vous ne faites plus confiance à cette application pour votre mot de passe de chiffrement, changez votre mot de passe de chiffrement."
+
+#: src/ApplicationAccess.tsx
 msgid "New access will stop. Copies already downloaded by the app cannot be removed remotely."
 msgstr "Les nouveaux accès cesseront. Les copies déjà téléchargées par l'application ne peuvent pas être supprimées à distance."
+
+#: src/ApplicationAccess.tsx
+msgid "New access will stop. Copies already downloaded by the app cannot be removed remotely. If you unlocked a Private collection in this app, it has had your account's encryption key, and revoking access doesn't take that key back. If you no longer trust this app with your encryption password, change your encryption password."
+msgstr "Les nouveaux accès cesseront. Les copies déjà téléchargées par l'application ne peuvent pas être supprimées à distance. Si vous avez déverrouillé une collection privée dans cette application, elle a eu la clé de chiffrement de votre compte, et révoquer l'accès ne lui retire pas cette clé. Si vous ne faites plus confiance à cette application pour votre mot de passe de chiffrement, changez votre mot de passe de chiffrement."
 
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx

@@ -1828,6 +1828,11 @@ msgstr "このアドレスが使用できる場合、1回限りのリンクを�
 msgid "If verification fails or this request expires, hosted writes resume."
 msgstr "検証に失敗した場合や要求が期限切れになった場合は、ホスト型への書き込みを再開します。"
 
+#. placeholder {0}: literal(pairing.connector_name)
+#: src/authority-workflows.tsx
+msgid "If you unlocked this collection in {0}, it has had your account's encryption key, and revoking access doesn't take that key back. If you no longer trust it with your encryption password, change your encryption password."
+msgstr "{0} でこのコレクションのロックを解除した場合、{0} はアカウントの暗号鍵を保持したことがあり、アクセスを取り消してもその鍵は取り戻せません。{0} に暗号化パスワードを預けたくなくなった場合は、暗号化パスワードを変更してください。"
+
 #: src/authority-workflows.tsx
 msgid "In {collection}. Allow only if you just asked for this in {app}."
 msgstr "{collection} 内。この操作を {app} で直前に要求した場合のみ許可してください。"
@@ -1914,6 +1919,10 @@ msgstr "ホスト型のままにする"
 #: src/authorization-review.tsx
 msgid "Keep your current records and explain which fields mean the same thing."
 msgstr "現在のレコードを残し、同じ意味を持つフィールドを指定してください。"
+
+#: src/ApplicationAccess.tsx
+msgid "Keeps this Private collection on its device. If you unlocked it in this app, the app has had your account's encryption key, which opens every Private collection on your account."
+msgstr "このプライベートコレクションをデバイスに保存します。このアプリでロックを解除した場合、アプリはアカウントの暗号鍵を保持したことがあります。この鍵でアカウントのすべてのプライベートコレクションを開けます。"
 
 #: src/portal-commands.ts
 msgid "Keyboard shortcuts"
@@ -2186,12 +2195,24 @@ msgid "New access and collection creation will stop across all installations. Co
 msgstr "すべてのインストールで新たなアクセスとコレクションの作成が停止します。ダウンロード済みのコピーはリモートで削除できません。"
 
 #: src/ApplicationAccess.tsx
+msgid "New access and collection creation will stop across all installations. Copies already downloaded cannot be removed remotely. If you unlocked a Private collection in this app, it has had your account's encryption key, and revoking access doesn't take that key back. If you no longer trust this app with your encryption password, change your encryption password."
+msgstr "すべてのインストールで新たなアクセスとコレクションの作成が停止します。ダウンロード済みのコピーはリモートで削除できません。このアプリでプライベートコレクションのロックを解除した場合、アプリはアカウントの暗号鍵を保持したことがあり、アクセスを取り消してもその鍵は取り戻せません。このアプリに暗号化パスワードを預けたくなくなった場合は、暗号化パスワードを変更してください。"
+
+#: src/ApplicationAccess.tsx
 msgid "New access will stop across all installations. Copies already downloaded cannot be removed remotely."
 msgstr "すべてのインストールで新たなアクセスが停止します。ダウンロード済みのコピーはリモートで削除できません。"
 
 #: src/ApplicationAccess.tsx
+msgid "New access will stop across all installations. Copies already downloaded cannot be removed remotely. If you unlocked a Private collection in this app, it has had your account's encryption key, and revoking access doesn't take that key back. If you no longer trust this app with your encryption password, change your encryption password."
+msgstr "すべてのインストールで新たなアクセスが停止します。ダウンロード済みのコピーはリモートで削除できません。このアプリでプライベートコレクションのロックを解除した場合、アプリはアカウントの暗号鍵を保持したことがあり、アクセスを取り消してもその鍵は取り戻せません。このアプリに暗号化パスワードを預けたくなくなった場合は、暗号化パスワードを変更してください。"
+
+#: src/ApplicationAccess.tsx
 msgid "New access will stop. Copies already downloaded by the app cannot be removed remotely."
 msgstr "新たなアクセスが停止します。アプリがダウンロード済みのコピーはリモートで削除できません。"
+
+#: src/ApplicationAccess.tsx
+msgid "New access will stop. Copies already downloaded by the app cannot be removed remotely. If you unlocked a Private collection in this app, it has had your account's encryption key, and revoking access doesn't take that key back. If you no longer trust this app with your encryption password, change your encryption password."
+msgstr "新たなアクセスが停止します。アプリがダウンロード済みのコピーはリモートで削除できません。このアプリでプライベートコレクションのロックを解除した場合、アプリはアカウントの暗号鍵を保持したことがあり、アクセスを取り消してもその鍵は取り戻せません。このアプリに暗号化パスワードを預けたくなくなった場合は、暗号化パスワードを変更してください。"
 
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx

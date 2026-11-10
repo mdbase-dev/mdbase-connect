@@ -57,6 +57,22 @@ describe("native installation display scopes", () => {
     expect(remove).toHaveBeenCalledWith("app-a","collection-a",{});expect(remove).toHaveBeenCalledWith("app-b","collection-a",{});
     expect(revoke).not.toHaveBeenCalled();
   });
+  it("says an installation with Private device access may have had the account's encryption key, and what revoking cannot undo", () => {
+    const key = /it has had your account's encryption key, and revoking access doesn't take that key back\. If you no longer trust this app with your encryption password, change your encryption password\./;
+    show([installation({sync:"private",private_device:true}),installation({connector_id:"connector-b",installation_id:"installation-22222222",private_device:false})]);
+    expect(screen.getAllByText(/Keeps this Private collection on its device\. If you unlocked it in this app, the app has had your account's encryption key/)).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", {name:"Revoke collection access"}));
+    expect(within(screen.getByRole("dialog")).getByText(key)).toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", {name:"Cancel"}));
+    fireEvent.click(screen.getByRole("button", {name:"Revoke app"}));
+    expect(within(screen.getByRole("dialog")).getByText(key)).toBeInTheDocument();
+  });
+  it("adds nothing about the key for cloud copies, or from a server that does not report device access", () => {
+    show([installation(),installation({connector_id:"connector-b",installation_id:"installation-22222222",private_device:false})], "Garden notes");
+    expect(screen.queryByText(/encryption key/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", {name:"Revoke access"}));
+    expect(within(screen.getByRole("dialog")).queryByText(/encryption key/)).not.toBeInTheDocument();
+  });
   it("keeps creation-only and mobile registration details without inventing collection scopes", async () => {
     const { revoke } = show([installation({collection_id:null,collection_name:null,role:null,sync:null,create_collections:true}),installation({collection_id:null,collection_name:null,role:null,sync:null,create_collections:false,device_kind:"mobile",connector_id:"connector-b",installation_id:"installation-22222222"})]);
     expect(screen.getAllByText("No collection access")).toHaveLength(1);
