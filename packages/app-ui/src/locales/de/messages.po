@@ -508,6 +508,10 @@ msgstr "Zeichnen"
 msgid "Esc"
 msgstr "Esc"
 
+#: src/CommentsPanel.tsx
+msgid "Everyone"
+msgstr "Alle"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Everyone, including you, loses access to it on every device and app right away. This can't be undone."
@@ -597,6 +601,10 @@ msgstr "Information"
 #: src/CommentsPanel.tsx
 msgid "Insert “{replacement}”"
 msgstr "„{replacement}“ einfügen"
+
+#: src/CommentsPanel.tsx
+msgid "Insert at the cursor"
+msgstr "An der Cursorposition einfügen"
 
 #: src/live-preview/table-controls.ts
 msgctxt "table"
@@ -690,6 +698,10 @@ msgstr "mdbase kann die Sammlung einschließlich ihres bisherigen Verlaufs lesen
 msgid "Menu"
 msgstr "Menü"
 
+#: src/CommentsPanel.tsx
+msgid "Mine"
+msgstr "Meine"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "More for {collection}"
@@ -727,6 +739,14 @@ msgstr "Aufmerksamkeit erforderlich"
 #: src/CommentsPanel.tsx
 msgid "New comment"
 msgstr "Neuer Kommentar"
+
+#: src/CommentsPanel.tsx
+msgid "New since last visit ({newCount})"
+msgstr "Neu seit dem letzten Besuch ({newCount})"
+
+#: src/CommentsPanel.tsx
+msgid "New since your last visit"
+msgstr "Neu seit Ihrem letzten Besuch"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -767,10 +787,6 @@ msgstr "Keine Treffer"
 #: src/CommentsPanel.tsx
 msgid "Nothing resolved yet."
 msgstr "Noch nichts erledigt."
-
-#: src/CommentsPanel.tsx
-msgid "On the whole note"
-msgstr "Zur gesamten Notiz"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
@@ -889,6 +905,10 @@ msgstr "Zitat"
 msgid "Read and annotate sources"
 msgstr "Quellen lesen und annotieren"
 
+#: src/CommentsPanel.tsx
+msgid "Reason for the suggestion"
+msgstr "Grund für den Vorschlag"
+
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "Refresh status"
@@ -938,6 +958,10 @@ msgstr "Wieder öffnen"
 #: src/CommentsPanel.tsx
 msgid "Replace “{exact}” with “{replacement}”"
 msgstr "„{exact}“ durch „{replacement}“ ersetzen"
+
+#: src/CommentsPanel.tsx
+msgid "Replace with"
+msgstr "Ersetzen durch"
 
 #: src/Feedback.tsx
 msgid "Replies aren’t guaranteed. Not for security reports or urgent support."
@@ -1094,9 +1118,23 @@ msgstr "Teilen, was Ihnen gefällt"
 msgid "Show"
 msgstr "Anzeigen"
 
+#. placeholder {0}: logical.length
 #: src/CommentsPanel.tsx
-msgid "Show in the note"
-msgstr "In der Notiz anzeigen"
+msgid "Show 50 more comments · {0}"
+msgstr "50 weitere Kommentare anzeigen · {0}"
+
+#. placeholder {0}: thread.replies.length
+#: src/CommentsPanel.tsx
+msgid "Show 50 more replies · {0}"
+msgstr "50 weitere Antworten anzeigen · {0}"
+
+#: src/CommentsPanel.tsx
+msgid "Show in the editor"
+msgstr "Im Editor anzeigen"
+
+#: src/CommentsPanel.tsx
+msgid "Show previous 50 comments"
+msgstr "Vorherige 50 Kommentare anzeigen"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -1178,6 +1216,14 @@ msgctxt "callout type"
 msgid "Success"
 msgstr "Erfolg"
 
+#: src/CommentsPanel.tsx
+msgid "Suggest"
+msgstr "Vorschlagen"
+
+#: src/CommentsPanel.tsx
+msgid "Suggest an edit"
+msgstr "Änderung vorschlagen"
+
 #: src/feedback-data.ts
 msgid "Suggest an improvement"
 msgstr "Verbesserung vorschlagen"
@@ -1189,6 +1235,10 @@ msgstr "Änderungsvorschlag"
 #: src/comment-anchors.ts
 msgid "Suggested insertion"
 msgstr "Vorgeschlagene Einfügung"
+
+#: src/CommentsPanel.tsx
+msgid "Suggested text"
+msgstr "Vorgeschlagener Text"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -1437,6 +1487,18 @@ msgstr "Was sollte verbessert werden?"
 #: src/feedback-data.ts
 msgid "What’s working well for you?"
 msgstr "Was funktioniert für Sie gut?"
+
+#: src/CommentsPanel.tsx
+msgid "Whole text"
+msgstr "Gesamter Text"
+
+#: src/CommentsPanel.tsx
+msgid "Whose comments"
+msgstr "Kommentare von"
+
+#: src/CommentsPanel.tsx
+msgid "Why (optional)"
+msgstr "Warum (optional)"
 
 #: src/CommentsPanel.tsx
 msgid "Withdraw"

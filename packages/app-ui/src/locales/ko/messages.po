@@ -508,6 +508,10 @@ msgstr "그리기"
 msgid "Esc"
 msgstr "Esc"
 
+#: src/CommentsPanel.tsx
+msgid "Everyone"
+msgstr "모든 사용자"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Everyone, including you, loses access to it on every device and app right away. This can't be undone."
@@ -597,6 +601,10 @@ msgstr "정보"
 #: src/CommentsPanel.tsx
 msgid "Insert “{replacement}”"
 msgstr "“{replacement}” 삽입"
+
+#: src/CommentsPanel.tsx
+msgid "Insert at the cursor"
+msgstr "커서 위치에 삽입"
 
 #: src/live-preview/table-controls.ts
 msgctxt "table"
@@ -690,6 +698,10 @@ msgstr "mdbase가 기존 기록을 포함한 컬렉션을 읽고, 기기가 꺼�
 msgid "Menu"
 msgstr "메뉴"
 
+#: src/CommentsPanel.tsx
+msgid "Mine"
+msgstr "내 버전"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "More for {collection}"
@@ -727,6 +739,14 @@ msgstr "확인 필요"
 #: src/CommentsPanel.tsx
 msgid "New comment"
 msgstr "새 댓글"
+
+#: src/CommentsPanel.tsx
+msgid "New since last visit ({newCount})"
+msgstr "지난 방문 이후 새 항목({newCount})"
+
+#: src/CommentsPanel.tsx
+msgid "New since your last visit"
+msgstr "마지막 방문 이후 새 항목"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -767,10 +787,6 @@ msgstr "일치하는 항목 없음"
 #: src/CommentsPanel.tsx
 msgid "Nothing resolved yet."
 msgstr "아직 해결된 항목이 없습니다."
-
-#: src/CommentsPanel.tsx
-msgid "On the whole note"
-msgstr "노트 전체에 대해"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
@@ -889,6 +905,10 @@ msgstr "인용"
 msgid "Read and annotate sources"
 msgstr "자료를 읽고 주석 달기"
 
+#: src/CommentsPanel.tsx
+msgid "Reason for the suggestion"
+msgstr "수정 제안 사유"
+
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "Refresh status"
@@ -938,6 +958,10 @@ msgstr "다시 열기"
 #: src/CommentsPanel.tsx
 msgid "Replace “{exact}” with “{replacement}”"
 msgstr "“{exact}”을(를) “{replacement}”(으)로 바꾸기"
+
+#: src/CommentsPanel.tsx
+msgid "Replace with"
+msgstr "바꿀 내용"
 
 #: src/Feedback.tsx
 msgid "Replies aren’t guaranteed. Not for security reports or urgent support."
@@ -1094,9 +1118,23 @@ msgstr "마음에 드는 점 공유하기"
 msgid "Show"
 msgstr "표시"
 
+#. placeholder {0}: logical.length
 #: src/CommentsPanel.tsx
-msgid "Show in the note"
-msgstr "노트에서 보기"
+msgid "Show 50 more comments · {0}"
+msgstr "댓글 50개 더 표시 · {0}"
+
+#. placeholder {0}: thread.replies.length
+#: src/CommentsPanel.tsx
+msgid "Show 50 more replies · {0}"
+msgstr "답글 50개 더 표시 · {0}"
+
+#: src/CommentsPanel.tsx
+msgid "Show in the editor"
+msgstr "편집기에서 표시"
+
+#: src/CommentsPanel.tsx
+msgid "Show previous 50 comments"
+msgstr "이전 댓글 50개 표시"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -1178,6 +1216,14 @@ msgctxt "callout type"
 msgid "Success"
 msgstr "성공"
 
+#: src/CommentsPanel.tsx
+msgid "Suggest"
+msgstr "제안"
+
+#: src/CommentsPanel.tsx
+msgid "Suggest an edit"
+msgstr "수정 제안"
+
 #: src/feedback-data.ts
 msgid "Suggest an improvement"
 msgstr "개선 사항 제안"
@@ -1189,6 +1235,10 @@ msgstr "편집 제안"
 #: src/comment-anchors.ts
 msgid "Suggested insertion"
 msgstr "삽입 제안"
+
+#: src/CommentsPanel.tsx
+msgid "Suggested text"
+msgstr "제안된 텍스트"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -1437,6 +1487,18 @@ msgstr "어떤 점을 개선하면 좋을까요?"
 #: src/feedback-data.ts
 msgid "What’s working well for you?"
 msgstr "어떤 점이 잘 작동하나요?"
+
+#: src/CommentsPanel.tsx
+msgid "Whole text"
+msgstr "전체 텍스트"
+
+#: src/CommentsPanel.tsx
+msgid "Whose comments"
+msgstr "댓글 작성자"
+
+#: src/CommentsPanel.tsx
+msgid "Why (optional)"
+msgstr "이유(선택 사항)"
 
 #: src/CommentsPanel.tsx
 msgid "Withdraw"

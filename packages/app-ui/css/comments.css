@@ -41,6 +41,23 @@
 .mdbase-thread-action:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 .mdbase-comments-count { color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
 
+.mdbase-comments-who .mdbase-select { width: 100%; }
+
+/* More rows than a page holds: a quiet button fetches the next page. */
+.mdbase-comments-more {
+  justify-self: start;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+.mdbase-comments-more:hover { color: var(--color-text); background: var(--color-surface-subtle); }
+.mdbase-comments-more:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+
 .mdbase-comments-note,
 .mdbase-comments-empty p,
 .mdbase-comments-error { margin: 0; }
@@ -88,6 +105,20 @@
 .mdbase-threads > .mdbase-thread.is-active + .mdbase-thread { border-top-color: transparent; }
 .mdbase-thread.mdbase-comment-composer { margin: 0; padding: 12px; border: 1px solid var(--color-border-strong); }
 
+/* The record a run of threads is on, when the panel covers several. */
+.mdbase-threads-record h3 {
+  margin: 0;
+  padding: 12px 8px 4px;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mdbase-threads-record:first-child h3 { padding-top: 0; }
+.mdbase-thread-new { color: var(--color-accent); font-size: var(--font-size-caption); font-weight: 600; }
+
 .mdbase-thread-anchor {
   display: grid;
   gap: 4px;
@@ -127,7 +158,8 @@ blockquote.mdbase-thread-quote::after { content: "”"; }
 .mdbase-thread-suggestion ins { background: color-mix(in oklch, var(--color-success) 12%, transparent); }
 
 .mdbase-thread-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
-.mdbase-thread-reply { display: grid; gap: 6px; }
+.mdbase-thread-reply,
+.mdbase-comment-composer-field { display: grid; gap: 6px; }
 .mdbase-thread textarea.mdbase-field { width: 100%; resize: vertical; }
 
 /* A quiet text action: reply, resolve, withdraw. */
