@@ -9,7 +9,7 @@ import { registerAuthorizationRoutes } from "./routes.js";
 import { registerApplicationManifest } from "../../manifest.js";
 import { canonicalSha256 } from "../../canonical-json.js";
 import { verifyApplicationAuthorization } from "../../application-authorization.js";
-import type { RelayHub } from "../../relay.js";
+import type { RelayHub } from "../relay/relay.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
 
 const cleanups: Array<() => Promise<unknown>> = [];

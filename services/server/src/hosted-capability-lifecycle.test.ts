@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDatabase, type DatabasePool } from "./db.js";
 import { HostedProviderResponseError } from "./hosted-provider.js";
 import { retireLegacyContractScopedGrants } from "./legacy-backfills.js";
-import { RelayHub } from "./relay.js";
+import { RelayHub } from "./features/relay/relay.js";
 import { registerGrantRevocationRoute } from "./features/authorizations/grant-revocation-route.js";
 import {
   hostedGrantRevocationStatus,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { NEXT_ACCOUNT_CAPABILITY, POLICY_FRESHNESS_LEASE_CAPABILITY, RELAY_REQUIRED_CAPABILITIES } from "@mdbase-dev/connect-protocol";
-import { nextAccountNegotiated, relayCapabilityMismatch } from "../../relay-compatibility.js";
+import { nextAccountNegotiated, relayCapabilityMismatch } from "../relay/relay-compatibility.js";
 import { withAccountId } from "./devices.js";
 
 const newMode = [...RELAY_REQUIRED_CAPABILITIES, "next_device_v1", NEXT_ACCOUNT_CAPABILITY, POLICY_FRESHNESS_LEASE_CAPABILITY];

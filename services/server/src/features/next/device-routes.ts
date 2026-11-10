@@ -10,7 +10,7 @@ import { isLockTimeout } from "./bootstrap-common.js";
 import { DeviceRegistrationError, issueDeviceChallenge, registerDevice } from "./devices.js";
 import { GrantApprovalReportError, grantApprovalTerms, reportGrantApproval } from "./grant-approval.js";
 import type { LogServiceClient } from "./log-service-client.js";
-import type { RelayHub } from "../../relay.js";
+import type { RelayHub } from "../relay/relay.js";
 import { registerApprovalPeerRoutes } from "./approval-peer-routes.js";
 
 export function registerNextDeviceRoutes(app: FastifyInstance, options: { db: DatabasePool; log: Pick<LogServiceClient, "controlItemAt">; relay: Pick<RelayHub, "fenceConnector"> }): void {

@@ -24,7 +24,7 @@ import {
   HostedProviderResponseError
 } from "../../hosted-provider.js";
 import { fileCapabilityPermittedByRequirements } from "./grant-planner.js";
-import { RelayHub } from "../../relay.js";
+import { RelayHub } from "../relay/relay.js";
 import { audit } from "../../platform/audit-events.js";
 import {
   collectionSupportsOperations,

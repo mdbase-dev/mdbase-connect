@@ -1,8 +1,8 @@
 import { generateKeyPairSync, randomUUID, sign, verify } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createDatabase } from "./db.js";
-import { canonicalJson, canonicalSha256 } from "./canonical-json.js";
+import { createDatabase } from "../../db.js";
+import { canonicalJson, canonicalSha256 } from "../../canonical-json.js";
 import {
   buildPolicySnapshot,
   normalizePolicyGrant,
@@ -12,9 +12,9 @@ import {
   reportConnectorRelayClose,
   resolvePolicyAppliedAck
 } from "./relay-policy.js";
-import type { DatabasePool } from "./database-types.js";
-import { testApplicationAuthorization } from "./application-authorization.test-helper.js";
-import { clientNoiseKeyMessage, verifiedClientNoiseKey } from "./features/next/client-key.js";
+import type { DatabasePool } from "../../database-types.js";
+import { testApplicationAuthorization } from "../../application-authorization.test-helper.js";
+import { clientNoiseKeyMessage, verifiedClientNoiseKey } from "../next/client-key.js";
 
 const databases: DatabasePool[] = [];
 afterEach(async () => {
@@ -85,7 +85,7 @@ describe("connector policy stage diagnostics", () => {
 describe("connector policy sequence", () => {
   it.each([false, true])("delivers canonical client-key attestations without changing stored grants (native=%s)", async native => {
     const fixture = JSON.parse(readFileSync(new URL(
-      "../../../test-fixtures/protocol-v1-policy-canonical.json", import.meta.url
+      "../../../../../test-fixtures/protocol-v1-policy-canonical.json", import.meta.url
     ), "utf8"));
     const source = fixture.db_like_grants[0];
     const signing = generateKeyPairSync("ec", { namedCurve: "P-256" });
@@ -146,7 +146,7 @@ describe("connector policy sequence", () => {
 
   it("matches the shared Rust protocol-v1 canonical fixture", () => {
     const fixture = JSON.parse(readFileSync(new URL(
-      "../../../test-fixtures/protocol-v1-policy-canonical.json",
+      "../../../../../test-fixtures/protocol-v1-policy-canonical.json",
       import.meta.url
     ), "utf8")) as Record<string, any>;
     const grants = fixture.db_like_grants
@@ -179,7 +179,7 @@ describe("connector policy sequence", () => {
     "null"
   ])("preserves portable origin %s in delivered policy", (origin) => {
     const fixture = JSON.parse(readFileSync(new URL(
-      "../../../test-fixtures/protocol-v1-policy-canonical.json", import.meta.url
+      "../../../../../test-fixtures/protocol-v1-policy-canonical.json", import.meta.url
     ), "utf8"));
     const source = { ...fixture.db_like_grants[0],
       application_distribution: "portable" as const, application_origin: origin };
@@ -195,7 +195,7 @@ describe("connector policy sequence", () => {
 
   it("retains complete declaration evidence and omits absent evidence without changing proofs", () => {
     const fixture = JSON.parse(readFileSync(new URL(
-      "../../../test-fixtures/protocol-v1-policy-canonical.json", import.meta.url
+      "../../../../../test-fixtures/protocol-v1-policy-canonical.json", import.meta.url
     ), "utf8"));
     const source = fixture.db_like_grants[0];
     const legacy = normalizePolicyGrant(source);

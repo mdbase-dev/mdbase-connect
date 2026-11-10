@@ -26,7 +26,7 @@ import {
   ConnectorOperationError,
   type RelayHub,
   RelayUnavailableError
-} from "../../relay.js";
+} from "../relay/relay.js";
 import { tokenHash } from "../../security.js";
 import {
   encryptedRelayRequestSchema,

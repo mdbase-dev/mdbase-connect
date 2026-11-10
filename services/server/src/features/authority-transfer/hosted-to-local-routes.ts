@@ -6,7 +6,7 @@ import { resolveHostedCollectionAccess } from "../collections/collection-access.
 import type { DatabasePool } from "../../database-types.js";
 import type { HostedAuthorityRegistry } from "../../hosted.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";
-import type { RelayHub } from "../../relay.js";
+import type { RelayHub } from "../relay/relay.js";
 import { audit } from "../../platform/audit-events.js";
 import { apiError, RequestValidationError } from "../../platform/http-errors.js";
 import {

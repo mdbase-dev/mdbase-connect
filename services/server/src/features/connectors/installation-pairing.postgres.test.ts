@@ -20,7 +20,7 @@ import { randomToken, tokenHash } from "../../security.js";
 import { pruneUsageHistory } from "../usage/usage-report.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
 import { AuthenticationPolicyStore } from "../auth/authentication-policy.js";
-import { RelayHub } from "../../relay.js";
+import { RelayHub } from "../relay/relay.js";
 import { registerAccountOverviewRoute } from "../account/me-routes.js";
 import { connectorFromRequest, requireInstallationDeviceConnector } from "../../platform/request-authentication.js";
 import { clientFingerprint, deviceRegistrationDigest } from "../next/devices.js";
@@ -41,7 +41,7 @@ import { recordCollectionCutover } from "../next/migration-rollout.js";
 import { desiredTimer } from "../next/timers/model.js";
 import { TimerWorker, notificationsConsumer, timerEventId } from "../next/timers/worker.js";
 import { PushTargetSealer } from "../next/push-target-seal.js";
-import { buildPolicySnapshot, type LeasePolicySnapshot } from "../../relay-policy.js";
+import { buildPolicySnapshot, type LeasePolicySnapshot } from "../relay/relay-policy.js";
 import { NotificationService, type NotificationTransports } from "../../notifications.js";
 import { registerNotificationRoutes } from "../notifications/routes.js";
 

@@ -7,9 +7,9 @@ import {
   RECORD_EXTENSIONS_CONFIGURATION_PATH, YAML_DOCUMENT_RECORDS_CAPABILITY
 } from "@mdbase-dev/connect-protocol";
 import type { RelayBrokerReply, RelayBrokerCommand } from "./relay-broker.js";
-import type { DatabaseQueryable } from "./database-types.js";
+import type { DatabaseQueryable } from "../../database-types.js";
 import { nextAccountNegotiated, relaySupportsContracts } from "./relay-compatibility.js";
-import { withAccountId } from "./features/next/devices.js";
+import { withAccountId } from "../next/devices.js";
 import { ConnectorOperationError } from "./relay-errors.js";
 
 /** Exact projection at the serving owner, including cross-instance activation. */

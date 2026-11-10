@@ -12,7 +12,7 @@ import {
   HostedProviderResponseError,
   type HostedProviderClient
 } from "../../hosted-provider.js";
-import type { RelayHub } from "../../relay.js";
+import type { RelayHub } from "../relay/relay.js";
 import { randomToken } from "../../security.js";
 import { audit } from "../../platform/audit-events.js";
 import { authorityImportCapability } from "../../platform/authority-url.js";

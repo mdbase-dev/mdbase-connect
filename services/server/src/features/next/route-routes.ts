@@ -15,7 +15,7 @@ import type { DatabaseQueryable } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
 import { bearerToken } from "../../platform/request-authentication.js";
 import { tokenHash } from "../../security.js";
-import { RelayBrokerUnavailableError, type RelayBroker } from "../../relay-broker.js";
+import { RelayBrokerUnavailableError, type RelayBroker } from "../relay/relay-broker.js";
 import { hostedClientOrigin, hostedRouteTarget, type RouteTarget } from "./hosted-route-target.js";
 export type { RouteTarget } from "./hosted-route-target.js";
 import { pitrCollection, type LabPitrConfig } from "./lab-pitr-config.js";

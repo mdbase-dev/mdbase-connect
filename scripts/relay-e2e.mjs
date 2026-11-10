@@ -32,7 +32,7 @@ const requireFromServer = createRequire(new URL("../services/server/package.json
 const { WebSocket } = requireFromServer("ws");
 const { buildApp } = await import("../services/server/dist/app.js");
 const { createDatabase, openDatabase } = await import("../services/server/dist/db.js");
-const { createRelayBroker } = await import("../services/server/dist/relay-broker.js");
+const { createRelayBroker } = await import("../services/server/dist/features/relay/relay-broker.js");
 const { ensureApplicationReconciliation } = await import(
   "../services/server/dist/features/applications/application-reconciliation.js"
 );

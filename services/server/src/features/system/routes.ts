@@ -2,7 +2,7 @@ import { FRESH_APPLICATION_AUTHORIZATION_CAPABILITIES } from "@mdbase-dev/connec
 import type { FastifyInstance } from "fastify";
 import type { DatabasePool } from "../../database-types.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";
-import type { RelayHub } from "../../relay.js";
+import type { RelayHub } from "../relay/relay.js";
 
 export interface SystemRoutesOptions {
   db: DatabasePool;

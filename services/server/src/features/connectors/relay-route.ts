@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { DatabasePool } from "../../database-types.js";
-import type { RelayHub } from "../../relay.js";
+import type { RelayHub } from "../relay/relay.js";
 import { connectorFromRequest } from "../../platform/request-authentication.js";
 
 interface ConnectorRelayRouteOptions {

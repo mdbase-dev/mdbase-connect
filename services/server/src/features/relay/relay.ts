@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { ApplicationRequirements } from "./features/applications/application-requirements.js";
+import type { ApplicationRequirements } from "../applications/application-requirements.js";
 import type {
   ApplicationProvisions, AuthorizationActivationResponse,
   AuthorizationOfferResponse, ConnectContractRequirements, ContractSetupChoice,
@@ -13,9 +13,9 @@ import {
   POLICY_FRESHNESS_LEASE_MINIMUM_CONNECTOR_VERSION, PROTOCOL_USAGE_REPORT_CAPABILITY,
   RELAY_CAPABILITIES, APPLICATION_DECLARATION_EVIDENCE_CAPABILITY
 } from "@mdbase-dev/connect-protocol";
-import type { NextRelayDevices } from "./features/next/devices.js";
-import type { DatabasePool } from "./db.js";
-import type { DatabaseQueryable } from "./database-types.js";
+import type { NextRelayDevices } from "../next/devices.js";
+import type { DatabasePool } from "../../db.js";
+import type { DatabaseQueryable } from "../../database-types.js";
 import {
   LocalRelayBroker, RelayBrokerUnavailableError, type RelayBroker,
   type RelayBrokerCommand, type RelayBrokerReply
@@ -28,7 +28,7 @@ import {
   requestPolicyPush, type ExactPolicyAcknowledgement
 } from "./relay-policy-session.js";
 import type { WebSocket } from "ws";
-import { recordConnectorProtocolUsage } from "./features/usage/protocol-telemetry.js";
+import { recordConnectorProtocolUsage } from "../usage/protocol-telemetry.js";
 import {
   CONNECTOR_UPDATE_URL, currentRelayGeneration, lockAuthorizationGeneration,
   receiveRelayHello, recordIncompatibleRelay, rejectIncompatibleRelay, rejectUnavailableRelay,

@@ -8,7 +8,7 @@ import { buildApp } from "../../app.js";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import Fastify from "fastify";
 import websocket from "@fastify/websocket";
-import { LocalRelayBroker, pipeSubject } from "../../relay-broker.js";
+import { LocalRelayBroker, pipeSubject } from "../relay/relay-broker.js";
 import { DEFAULT_NOISE_PIPE_LIMITS, registerNoisePipeClientRoute } from "./noise-pipes.js";
 import { localGrantFixture } from "./next-fixtures.test-helper.js";
 import { tokenHash } from "../../security.js";

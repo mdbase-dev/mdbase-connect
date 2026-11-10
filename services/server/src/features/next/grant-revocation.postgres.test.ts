@@ -7,7 +7,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { ensureDevelopmentEntitlement } from "../account/entitlements.js";
 import { AuthenticationPolicyStore } from "../auth/authentication-policy.js";
-import { RelayHub } from "../../relay.js";
+import { RelayHub } from "../relay/relay.js";
 import { tokenHash } from "../../security.js";
 import { registerAccountOverviewRoute } from "../account/me-routes.js";
 import { confirmLocalGrantRevocations, localGrantRevocationStatus, queueLocalGrantRevocations } from "../grants/local-grant-revocation.js";

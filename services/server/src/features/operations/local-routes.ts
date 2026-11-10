@@ -20,7 +20,7 @@ import {
   ConnectorOperationError,
   type RelayHub,
   RelayUnavailableError
-} from "../../relay.js";
+} from "../relay/relay.js";
 import { tokenHash } from "../../security.js";
 import { recordProtocolUsage } from "../usage/protocol-telemetry.js";
 import {

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { normalizeConnectProblem } from "@mdbase-dev/connect-protocol";
 import type { DatabasePool } from "../../database-types.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
-import { ConnectorOperationError, type RelayHub } from "../../relay.js";
+import { ConnectorOperationError, type RelayHub } from "../relay/relay.js";
 import { registerLocalOperationRoutes } from "./local-routes.js";
 
 const collectionId = "11111111-1111-4111-8111-111111111111";

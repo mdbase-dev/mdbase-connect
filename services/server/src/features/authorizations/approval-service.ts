@@ -20,7 +20,7 @@ import { planFreshNextGrant } from "../next/fresh-authorization.js";
 import { requireCollectionAction, resolveLocalCollectionAccess, type CollectionAccessContext } from "../collections/collection-access.js";
 import type { DatabasePool } from "../../db.js";
 import { planCollectionGrant } from "../grants/grant-planner.js";
-import { RelayUnavailableError, type RelayHub } from "../../relay.js";
+import { RelayUnavailableError, type RelayHub } from "../relay/relay.js";
 import { audit } from "../../platform/audit-events.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 import { assertOperationsAllowedByApplication, assertCollectionSupportsOperations, requiredContractsForRequirements, requiresHostedCollection, validateContractSetupChoices, verifyContractSetupAcknowledgement } from "../grants/policy.js";

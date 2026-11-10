@@ -6,7 +6,7 @@ import { operationsForApplicationCapabilities } from "@mdbase-dev/connect-protoc
 import { registerAuthorizationRoutes } from "./routes.js";
 import type { AuthorizationRouteOptions } from "./route-options.js";
 import type { DatabasePool } from "../../database-types.js";
-import { buildPolicySnapshot } from "../../relay-policy.js";
+import { buildPolicySnapshot } from "../relay/relay-policy.js";
 
 const url = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const suite = url && process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL

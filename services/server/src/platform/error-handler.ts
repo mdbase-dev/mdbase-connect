@@ -42,7 +42,7 @@ import { InvalidEmailAddressError } from "../features/auth/email-identity.js";
 import {
   ConnectorOperationError,
   RelayUnavailableError
-} from "../relay.js";
+} from "../features/relay/relay.js";
 import { CollectionAccessDeniedError } from "../features/collections/collection-access.js";
 import { CollectionInvitationError } from "../features/collections/collection-invitations.js";
 import { CollectionMembershipPolicyError } from "../features/collections/collection-policy.js";

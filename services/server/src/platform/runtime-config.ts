@@ -1,7 +1,7 @@
 import type { GitHubAuthConfig } from "../features/auth/github-auth.js";
 import type { GoogleAuthConfig } from "../features/auth/google-auth.js";
 import type { HostedProviderConfig } from "../hosted-provider.js";
-import type { RelayBrokerConfig } from "../relay-broker.js";
+import type { RelayBrokerConfig } from "../features/relay/relay-broker.js";
 import type { VapidConfig } from "../web-push.js";
 import type { WebhookSigningConfig } from "../webhook.js";
 import { parsePushTargetSealerEnv, type PushTargetSealerConfig } from "../features/next/push-target-seal.js";

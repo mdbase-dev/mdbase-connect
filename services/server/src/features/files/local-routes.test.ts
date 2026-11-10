@@ -13,7 +13,7 @@ import {
 import Fastify from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DatabasePool } from "../../database-types.js";
-import { ConnectorOperationError, type RelayHub } from "../../relay.js";
+import { ConnectorOperationError, type RelayHub } from "../relay/relay.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
 import { registerLocalFileRoutes } from "./local-routes.js";
 

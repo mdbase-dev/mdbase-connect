@@ -4,11 +4,11 @@ import type {
   GrantScope
 } from "@mdbase-dev/connect-protocol";
 import { CONTROL_PROTOCOL_VERSION } from "@mdbase-dev/connect-protocol";
-import { canonicalSha256 } from "./canonical-json.js";
-import type { DatabasePool } from "./db.js";
+import { canonicalSha256 } from "../../canonical-json.js";
+import type { DatabasePool } from "../../db.js";
 import { ConnectorOperationError } from "./relay-errors.js";
-import { normalizedApplicationOrigin } from "./features/authorizations/redirects.js";
-import { clientFingerprint, grantCapabilityGroups, withAccountId } from "./features/next/devices.js";
+import { normalizedApplicationOrigin } from "../authorizations/redirects.js";
+import { clientFingerprint, grantCapabilityGroups, withAccountId } from "../next/devices.js";
 
 const MAX_POLICY_SEQUENCE = BigInt(Number.MAX_SAFE_INTEGER);
 const POLICY_STAGE_DELAY_MS = 2_000;

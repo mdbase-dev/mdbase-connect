@@ -66,7 +66,7 @@
       "sources": [
         "crates/connect-protocol/src/crypto.rs",
         "packages/client/src/crypto.ts",
-        "services/server/src/relay.ts",
+        "services/server/src/features/relay/relay.ts",
         "crates/connect-agent/src/server/operations.rs"
       ],
       "tests": [
@@ -103,11 +103,11 @@
         "services/server/src/features/authorizations/routes.ts",
         "services/server/src/features/authorizations/approval-service.ts",
         "services/server/src/features/connectors/relay-route.ts",
-        "services/server/src/relay.ts"
+        "services/server/src/features/relay/relay.ts"
       ],
       "tests": [
         "services/server/src/features/authorizations/live-authorization.test.ts",
-        "services/server/src/relay-broker.test.ts",
+        "services/server/src/features/relay/relay-broker.test.ts",
         "scripts/relay-e2e.mjs"
       ],
       "fixtures": []

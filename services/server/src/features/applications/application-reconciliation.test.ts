@@ -6,7 +6,7 @@ import {
 } from "../../application-authorization.js";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { HostedProviderUnavailableError } from "../../hosted-provider.js";
-import type { RelayHub } from "../../relay.js";
+import type { RelayHub } from "../relay/relay.js";
 import {
   ApplicationReconciliationWorker,
   PERMANENT_QUARANTINE_ATTEMPTS,

@@ -1,6 +1,6 @@
 import type { WebSocket } from "ws";
-import type { DatabasePool } from "./db.js";
-import { confirmLocalGrantRevocations } from "./features/grants/local-grant-revocation.js";
+import type { DatabasePool } from "../../db.js";
+import { confirmLocalGrantRevocations } from "../grants/local-grant-revocation.js";
 import {
   RelayBrokerUnavailableError,
   type RelayBroker,

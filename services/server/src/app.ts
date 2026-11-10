@@ -58,8 +58,8 @@ import { registerNextRouteRoutes } from "./features/next/route-routes.js";
 import { registerClientKeyAttachRoute } from "./features/next/client-key-attach.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
 import { NotificationService, type NotificationTransports } from "./notifications.js";
-import { RelayHub } from "./relay.js";
-import { LocalRelayBroker, type RelayBroker } from "./relay-broker.js";
+import { RelayHub } from "./features/relay/relay.js";
+import { LocalRelayBroker, type RelayBroker } from "./features/relay/relay-broker.js";
 import type {
   AuthenticationLegalDocuments,
   RegistrationMode

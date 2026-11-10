@@ -7,7 +7,7 @@ import { APPLICATION_CAPABILITY_DEFINITIONS } from "@mdbase-dev/connect-protocol
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { tokenHash } from "../../security.js";
 import { createHostedCollectionMembership } from "../collections/collection-policy.js";
-import { LocalRelayBroker } from "../../relay-broker.js";
+import { LocalRelayBroker } from "../relay/relay-broker.js";
 import { localGrantFixture } from "./next-fixtures.test-helper.js";
 import { registerNextRouteRoutes } from "./route-routes.js";
 import { queueNextGrantPolicy } from "./grant-policy.js";

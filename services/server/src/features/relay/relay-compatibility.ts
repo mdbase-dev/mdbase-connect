@@ -1,5 +1,5 @@
 import type { ConnectContractRequirements, ConnectContractSupport } from "@mdbase-dev/connect-protocol";
-import type { DatabaseQueryable } from "./database-types.js";
+import type { DatabaseQueryable } from "../../database-types.js";
 import { ConnectorOperationError, RelayUnavailableError } from "./relay-errors.js";
 import {
   APPLICATION_DECLARATION_EVIDENCE_CAPABILITY,

@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { WebSocket } from "ws";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { localGrantFixture } from "./next-fixtures.test-helper.js";
-import { buildPolicySnapshot, type LeasePolicySnapshot } from "../../relay-policy.js";
+import { buildPolicySnapshot, type LeasePolicySnapshot } from "../relay/relay-policy.js";
 import {
   clientFingerprint,
   deviceBindDigest,

@@ -3,14 +3,14 @@ import Fastify from "fastify";
 import pg from "pg";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import { buildPolicySnapshot } from "../../relay-policy.js";
-import { ExactPolicyPublisher } from "../../relay-policy-session.js";
-import { RelayHub } from "../../relay.js";
+import { buildPolicySnapshot } from "../relay/relay-policy.js";
+import { ExactPolicyPublisher } from "../relay/relay-policy-session.js";
+import { RelayHub } from "../relay/relay.js";
 import { registerGrantRevocationRoute } from "../authorizations/grant-revocation-route.js";
 import { registerConnectorGrantRoutes } from "./connector-routes.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
 import { tokenHash } from "../../security.js";
-import { ConnectorOperationError, RelayUnavailableError } from "../../relay-errors.js";
+import { ConnectorOperationError, RelayUnavailableError } from "../relay/relay-errors.js";
 import { confirmLocalGrantRevocations, localGrantRevocationStatus, queueLocalGrantRevocations } from "./local-grant-revocation.js";
 
 const databases: DatabasePool[] = [];

@@ -9,7 +9,7 @@ import { capabilityOperations } from "@mdbase-dev/connect-protocol";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import { LocalRelayBroker, type RelayBrokerReply } from "../../relay-broker.js";
+import { LocalRelayBroker, type RelayBrokerReply } from "../relay/relay-broker.js";
 import { tokenHash } from "../../security.js";
 import { grantApprovalTerms, grantDeviceApproval } from "./grant-approval.js";
 import { nativeAdmission } from "./native-grant-target.js";
@@ -18,7 +18,7 @@ import { registerNextRouteRoutes } from "./route-routes.js";
 import { hostedRouteTarget } from "./hosted-route-target.js";
 import { parseServiceDevice, storeServiceDevice } from "./service-devices.js";
 import { SERVICE_ACCOUNT } from "./bootstrap-common.js";
-import { buildPolicySnapshot, type LeasePolicySnapshot } from "../../relay-policy.js";
+import { buildPolicySnapshot, type LeasePolicySnapshot } from "../relay/relay-policy.js";
 import { registerConnectorGrantRoutes } from "../grants/connector-routes.js";
 import { registerPeopleRoutes } from "../account/people-routes.js";
 import { legacyTimerGrantResolver } from "./timers/grants.js";
@@ -26,7 +26,7 @@ import { createHostedCollectionMembership } from "../collections/collection-poli
 import { revokeHostedCollectionMembership } from "../collections/collection-membership-lifecycle.js";
 import { registerAuthorizationRoutes } from "../authorizations/routes.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
-import type { RelayHub } from "../../relay.js";
+import type { RelayHub } from "../relay/relay.js";
 import { provisionNewAccountBackend } from "./account-backend-flip.js";
 import { approveNativeAuthorization } from "../authorizations/native-approval-service.js";
 
