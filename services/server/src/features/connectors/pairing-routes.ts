@@ -32,6 +32,7 @@ import { createInstallationPairingCollection } from "./installation-pairing-coll
 import type { CloudCopyBootstrapOptions } from "../next/service-cloud-copy.js";
 import type { RelayHub } from "../relay/relay.js";
 import type { PolicyEmitter } from "../next/policy-outbox.js";
+import type { PrivateDeviceGate } from "../next/installation-scope.js";
 import { createNativeApprovalDelivery } from "../authorizations/native-approval-delivery.js";
 import { ServiceDeviceError } from "../next/service-devices.js";
 async function installationResult(
@@ -79,6 +80,8 @@ interface ConnectorPairingRoutesOptions {
   installationDevices?: boolean;
   installationEnvironment?: string;
   cloudCopy?: CloudCopyBootstrapOptions;
+  /** Which applications' installations may be devices of Private collections; absent means none. */
+  privateDevice?: PrivateDeviceGate;
 }
 
 export function registerConnectorPairingRoutes(
@@ -110,6 +113,7 @@ export function registerConnectorPairingRoutes(
               request_id: originalUuid,
               app_id: z.string().min(1).max(64),
               requested_create_collections: z.boolean().optional(),
+              requested_private_device: z.boolean().optional(),
               recovery_collection_id: originalUuid.optional(),
               reconsent: z.boolean().optional(),
               renewal: z.object({request_id:originalUuid,pairing_secret:z.string().regex(/^pair_[A-Za-z0-9_-]{43}$/)}).strict().optional(),
@@ -137,6 +141,7 @@ export function registerConnectorPairingRoutes(
           options.publicUrl,
           existingConnector??undefined,
           options.installationEnvironment,
+          options.privateDevice,
         );
         return reply.code(201).send(result);
       });
@@ -186,7 +191,7 @@ export function registerConnectorPairingRoutes(
           );
       const { collection_hint, return_url } = z.object({ collection_hint: originalUuid.optional(), return_url: z.string().max(2048).optional() }).parse(request.query);
       return installationResult(reply, () =>
-        inspectInstallationPairing(options.db, pairingId, user.id, !!options.cloudCopy, user, collection_hint, return_url, options.installationEnvironment),
+        inspectInstallationPairing(options.db, pairingId, user.id, !!options.cloudCopy, user, collection_hint, return_url, options.installationEnvironment, options.privateDevice),
       );
     }
     const pairing = await options.db.query<{
@@ -241,7 +246,7 @@ export function registerConnectorPairingRoutes(
             );
         const session = await requireSessionContext(request, reply, options.db);
         if (!session) return;
-        const {fingerprint,collection_ids,create_collections,selected_collection_id,selected_collection_kind,timer_consent,file_actions}=z.object({
+        const {fingerprint,collection_ids,create_collections,selected_collection_id,selected_collection_kind,timer_consent,file_actions,private_device_collection_ids}=z.object({
           fingerprint:z.string().regex(/^[0-9a-f]{4}(?:-[0-9a-f]{4}){3}$/),
           collection_ids:z.array(originalUuid).max(1000).default([]),
           create_collections:z.boolean().default(false),
@@ -249,6 +254,7 @@ export function registerConnectorPairingRoutes(
           selected_collection_kind:z.enum(["cloud_copy","private"]).optional(),
           timer_consent:z.boolean().optional(),
           file_actions:z.array(z.enum(FILE_ACTIONS)).min(1).max(6).optional(),
+          private_device_collection_ids:z.array(originalUuid).max(1000).optional(),
         }).strict().parse(request.body);
         return installationResult(reply, async () => {
           const result = await approveInstallationPairing(
@@ -257,8 +263,9 @@ export function registerConnectorPairingRoutes(
             session.user.id,
             session.sessionId,
             fingerprint,
-            {collection_ids,create_collections,selected_collection_id,selected_collection_kind,timer_consent,file_actions},
+            {collection_ids,create_collections,selected_collection_id,selected_collection_kind,timer_consent,file_actions,private_device_collection_ids},
             options.installationEnvironment,
+            options.privateDevice,
           );
           // Both authorities have committed; never push an uncommitted grant.
           if ("native_authorization_uri" in result) await nativeDelivery.installation(pairingId);
@@ -438,6 +445,7 @@ export function registerConnectorPairingRoutes(
             pairingId,
             secret,
             options.installationEnvironment,
+            options.privateDevice,
           );
           return reply
             .code(["paired","scope_updated","file_access_updated","declined"].includes(result.status) ? 200 : 202)

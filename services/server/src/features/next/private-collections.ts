@@ -14,13 +14,18 @@
 //   commitment only, no enrolment or keys). The replica applies it only for an
 //   active, unkeyed user device.
 //
+// An installation credential reaches the device-enrol route only, with explicit
+// Private device consent for that collection (docs/installation-private-device.md).
+// Create and approval-request keep refusing it.
+//
 // The control plane never approves, never grants and never holds a collection key. It
 // enrols with its policy key and mints log credentials, nothing more.
 import { advertiseModeCapability, modeCapabilitySchema, requireModeMintCapability } from "./collection-mode-capability.js";
 import type { FastifyInstance } from "fastify";
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
-import { requireConnector } from "../../platform/request-authentication.js";
+import { requireConnector, requireInstallationDeviceConnector } from "../../platform/request-authentication.js";
+import { privateDevicesEnabled, requirePrivateDeviceScope } from "./installation-scope.js";
 import {
   authenticate, CreateError, currentIdentity, currentMember, ENROLMENT, enrolmentKey, enrolOp, exactEnrolment, inTransaction, joinedDisplayName, lock, NIL,
   refuse, refuseRevoked, type Device, type Proof
@@ -231,7 +236,9 @@ export function registerPrivateCollectionRoutes(app: FastifyInstance, options: {
     }
   }, async (request, reply) => {
     reply.header("cache-control", "no-store");
-    const connector = await requireConnector(request, reply, options.db);
+    // An installation credential is admitted on this one route, and only while the
+    // operator's switch is on; otherwise it answers as it always has.
+    const connector = await (privateDevicesEnabled(options.next) ? requireInstallationDeviceConnector : requireConnector)(request, reply, options.db);
     if (!connector) return reply;
     const collection = request.params.id.toLowerCase();
     const body = { ...request.body, device_id: request.body.device_id.toLowerCase() };
@@ -243,6 +250,9 @@ export function registerPrivateCollectionRoutes(app: FastifyInstance, options: {
       // is a current private one and the account a current member. A cloud copy, or a
       // collection that has left sync, refuses before any policy op exists.
       await currentIdentity(client, connector, body.device_id, d);
+      // An installation enrols only its own approved device, with the person's
+      // explicit Private device consent for this collection, never by membership.
+      await requirePrivateDeviceScope(client, options.next, connector, collection);
       try {
         await currentMember(client, collection, connector.user_id);
       } catch (error) {
