@@ -3326,6 +3326,7 @@ ApplicationJson@application/declaration.ts
 ApplicationPhaseOptions@application/phase.ts
   readonly connection?: MdbaseApplicationConnection | null | undefined
   readonly cpOrigin?: string | undefined
+  readonly openingUnsynced?: boolean | undefined
   readonly previous?: MdbasePhase | null | undefined
   readonly slow?: boolean | undefined
 

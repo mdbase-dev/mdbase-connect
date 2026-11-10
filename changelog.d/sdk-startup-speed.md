@@ -1,0 +1,4 @@
+## Changed
+
+- Applications start sooner. The collection setup check no longer recompiles the collection's definitions after every resource it reads, which cut the check for a TaskNotes-sized application from about 0.7 seconds to under 0.1 on a desktop. An application that opens work before connecting stays on its starting screen until that collection opens instead of showing the sign-in screen for a moment first; on a first visit it fetches the runtime while it registers, and the Worker loads the runtime while it opens its database.
+- The SDK records its startup stages as User Timing measures named `mdbase:startup:<stage>` (capabilities, registration, election, session, each phase and opening step, and a total), so they can be read in browser performance tools or with a `PerformanceObserver`.
