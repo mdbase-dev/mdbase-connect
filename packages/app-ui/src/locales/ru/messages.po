@@ -15,6 +15,11 @@ msgstr "(место в тексте)"
 msgid "(opens in a new tab)"
 msgstr "(открывается в новой вкладке)"
 
+#. placeholder {0}: this.ids.length
+#: src/comment-anchors.ts
+msgid "{0, plural, one {# comment on this line} other {# comments on this line}}"
+msgstr "{0, plural, one {# комментарий к этой строке} few {# комментария к этой строке} many {# комментариев к этой строке} other {# комментария к этой строке}}"
+
 #. placeholder {0}: changes - shownChanges
 #: src/text-diff.ts
 msgid "{0, plural, one {# more changed line} other {# more changed lines}}"
@@ -1135,6 +1140,10 @@ msgstr "Показать в редакторе"
 #: src/CommentsPanel.tsx
 msgid "Show previous 50 comments"
 msgstr "Показать предыдущие 50 комментариев"
+
+#: src/comment-anchors.ts
+msgid "Show this comment"
+msgstr "Показать этот комментарий"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"

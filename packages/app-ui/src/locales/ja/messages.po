@@ -15,6 +15,11 @@ msgstr "(本文中の位置)"
 msgid "(opens in a new tab)"
 msgstr "（新しいタブで開きます）"
 
+#. placeholder {0}: this.ids.length
+#: src/comment-anchors.ts
+msgid "{0, plural, one {# comment on this line} other {# comments on this line}}"
+msgstr "{0, plural, other {この行にコメントが#件あります}}"
+
 #. placeholder {0}: changes - shownChanges
 #: src/text-diff.ts
 msgid "{0, plural, one {# more changed line} other {# more changed lines}}"
@@ -1135,6 +1140,10 @@ msgstr "エディターで表示"
 #: src/CommentsPanel.tsx
 msgid "Show previous 50 comments"
 msgstr "前の50件のコメントを表示"
+
+#: src/comment-anchors.ts
+msgid "Show this comment"
+msgstr "このコメントを表示"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
