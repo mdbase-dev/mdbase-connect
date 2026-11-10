@@ -433,7 +433,7 @@ pub(super) fn payload(c: FileContent) -> rt::EntryPayload {
         resurrect: None,
     }
 }
-fn step(a: &mut Node, objects: &Objects, head: Head, corrupt: bool) -> usize {
+pub(super) fn step(a: &mut Node, objects: &Objects, head: Head, corrupt: bool) -> usize {
     let calls = a.r.take_log_calls();
     let mut reads = 0;
     for c in calls {
@@ -520,7 +520,7 @@ fn apply_body(
     let refs = objects.keys().copied().collect::<Vec<_>>();
     apply_body_with_refs(a, head, p, objects, writer, &refs)
 }
-fn apply_body_with_refs(
+pub(super) fn apply_body_with_refs(
     a: &mut Node,
     head: Head,
     p: &rt::EntryPayload,
