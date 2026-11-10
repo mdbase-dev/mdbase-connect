@@ -277,7 +277,11 @@ jobs:
         with:
           token: ${{ github.token }}
           root: mdbase-connect
-      - run: pnpm install --frozen-lockfile
+      - name: Install dependencies
+        shell: bash
+        # pnpm's temp-directory rename can race on macOS runners (ERR_PNPM_ENOENT on
+        # esbuild). Installing writes nothing outside the runner, so one retry is safe.
+        run: pnpm install --frozen-lockfile || { echo '::warning::pnpm install failed; retrying once'; pnpm install --frozen-lockfile; }
       - name: Enforce release-readiness gates
         shell: bash
         run: |
@@ -808,7 +812,11 @@ jobs:
         uses: ./.github/actions/prefetch-electron
         with:
           token: ${{ github.token }}
-      - run: pnpm install --frozen-lockfile
+      - name: Install dependencies
+        shell: bash
+        # pnpm's temp-directory rename can race on macOS runners (ERR_PNPM_ENOENT on
+        # esbuild). Installing writes nothing outside the runner, so one retry is safe.
+        run: pnpm install --frozen-lockfile || { echo '::warning::pnpm install failed; retrying once'; pnpm install --frozen-lockfile; }
       - run: pnpm build:packages
       - name: Build the shipped desktop JS bundles without native packaging
         run: pnpm --filter @mdbase/connect-desktop build:standalone
@@ -856,7 +864,11 @@ jobs:
         with:
           token: ${{ github.token }}
           root: mdbase-connect
-      - run: pnpm install --frozen-lockfile
+      - name: Install dependencies
+        shell: bash
+        # pnpm's temp-directory rename can race on macOS runners (ERR_PNPM_ENOENT on
+        # esbuild). Installing writes nothing outside the runner, so one retry is safe.
+        run: pnpm install --frozen-lockfile || { echo '::warning::pnpm install failed; retrying once'; pnpm install --frozen-lockfile; }
       - run: pnpm build:packages
       - name: Exercise the complete editor release build
         run: pnpm --filter mdbase-editor build
@@ -913,7 +925,11 @@ jobs:
         with:
           token: ${{ github.token }}
           root: mdbase-connect
-      - run: pnpm install --frozen-lockfile
+      - name: Install dependencies
+        shell: bash
+        # pnpm's temp-directory rename can race on macOS runners (ERR_PNPM_ENOENT on
+        # esbuild). Installing writes nothing outside the runner, so one retry is safe.
+        run: pnpm install --frozen-lockfile || { echo '::warning::pnpm install failed; retrying once'; pnpm install --frozen-lockfile; }
       - id: version
         shell: bash
         run: echo "value=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
