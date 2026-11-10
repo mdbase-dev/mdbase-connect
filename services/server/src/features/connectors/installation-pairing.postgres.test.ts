@@ -7,20 +7,20 @@ import { applicationDeclaration } from "../../../../../runtime/packages/sdk/src/
 import { resolveApplicationRegistration } from "../../../../../runtime/packages/sdk/src/application/registration.js";
 import { registerApplicationRoutes } from "../applications/routes.js";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import { deleteAccountLocally } from "../../account-management.js";
-import { createExternalSession } from "../../external-auth.js";
+import { deleteAccountLocally } from "../account/account-management.js";
+import { createExternalSession } from "../auth/external-auth.js";
 import { capabilityOperationsForContractVersion, MDBASE_TIMER_FIRED_CONTRACT } from "@mdbase-dev/connect-protocol";
 import { createTestApplicationIdentity, testApplicationAuthorization } from "../../application-authorization.test-helper.js";
 import { clientNoiseKeyMessage, storeRequestClientNoiseKey, verifiedClientNoiseKey } from "../next/client-key.js";
 import { approveNativeAuthorization } from "../authorizations/native-approval-service.js";
-import { fileRequestForRequirements } from "../../application-requirements.js";
+import { fileRequestForRequirements } from "../applications/application-requirements.js";
 import { acceptCohortArchive, addToCohort, cohortArchiveBinding, createCohort, flipAccountBackend, flipEvidenceDigest, releaseCohort, setCohortFrozen, setPaused, startAccountMigration } from "../next/migration-rollout.js";
 import { ZERO_HOSTED_ARCHIVE_SCHEMA } from "../next/migration-archive-profile.js";
 import { randomToken, tokenHash } from "../../security.js";
-import { pruneUsageHistory } from "../../usage-report.js";
+import { pruneUsageHistory } from "../usage/usage-report.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
-import { AuthenticationPolicyStore } from "../../authentication-policy.js";
-import { RelayHub } from "../../relay.js";
+import { AuthenticationPolicyStore } from "../auth/authentication-policy.js";
+import { RelayHub } from "../relay/relay.js";
 import { registerAccountOverviewRoute } from "../account/me-routes.js";
 import { connectorFromRequest, requireInstallationDeviceConnector } from "../../platform/request-authentication.js";
 import { clientFingerprint, deviceRegistrationDigest } from "../next/devices.js";
@@ -41,8 +41,8 @@ import { recordCollectionCutover } from "../next/migration-rollout.js";
 import { desiredTimer } from "../next/timers/model.js";
 import { TimerWorker, notificationsConsumer, timerEventId } from "../next/timers/worker.js";
 import { PushTargetSealer } from "../next/push-target-seal.js";
-import { buildPolicySnapshot, type LeasePolicySnapshot } from "../../relay-policy.js";
-import { NotificationService, type NotificationTransports } from "../../notifications.js";
+import { buildPolicySnapshot, type LeasePolicySnapshot } from "../relay/relay-policy.js";
+import { NotificationService, type NotificationTransports } from "../notifications/notifications.js";
 import { registerNotificationRoutes } from "../notifications/routes.js";
 
 vi.mock("../../../../../runtime/packages/sdk/src/application/packaged-trust.js", () => ({

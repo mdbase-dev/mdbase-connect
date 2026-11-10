@@ -1,7 +1,7 @@
 // The ONE verifier's accepted original H6 lineage, never a caller pre-fenced
 // flag or an observed/latest run. No network effects or native readiness here.
 import { createHash } from "node:crypto";
-import type { LegacyMigrationDrain, LegacyNotificationWatermark } from "../../hosted-provider-replies.js";
+import type { LegacyMigrationDrain, LegacyNotificationWatermark } from "../hosted/hosted-provider-replies.js";
 import { RolloutRefused, SCOPED_HOSTED_ARCHIVE_SCHEMA, type VerifiedBatchArchive } from "./migration-archive-profile.js";
 import { prearchiveInventory, type PrearchiveCapture } from "./migration-prearchive-inventory.js";
 

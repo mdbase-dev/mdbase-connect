@@ -6,7 +6,7 @@ import { createHmac, randomBytes, randomUUID, verify } from "node:crypto";
 import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import { tokenHash, randomToken } from "../../security.js";
 import { audit } from "../../platform/audit-events.js";
-import { installationEnvironment } from "../../local-deployment.js";
+import { installationEnvironment } from "../../platform/local-deployment.js";
 import {
   clientFingerprint,
   deviceRegistrationDigest,

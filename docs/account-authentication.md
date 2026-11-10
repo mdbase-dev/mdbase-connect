@@ -100,7 +100,7 @@ and an encoded PHC string. The current minimum work factors are:
 - one lane;
 - a 32-byte output.
 
-The hashing API is isolated in `services/server/src/password.ts`. Route code
+The hashing API is isolated in `services/server/src/features/auth/password.ts`. Route code
 must not call the Argon2 package directly. The encoded hash records its
 algorithm and parameters, and `passwordHashNeedsUpgrade` identifies a
 credential that should be rehashed after a successful login.

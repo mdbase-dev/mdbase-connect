@@ -5,7 +5,7 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { tokenHash } from "../../security.js";
-import { ensureDevelopmentEntitlement } from "../../entitlements.js";
+import { ensureDevelopmentEntitlement } from "../account/entitlements.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
 import { deviceRegistrationDigest, issueDeviceChallenge, registerDevice } from "./devices.js";
 import { MODE_SWITCH_CAPABILITY, advertiseModeCapability, armModeFloor } from "./collection-mode-capability.js";

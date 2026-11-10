@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 // Tests the actual helpers/creator client with only the compiled build literal substituted.
-vi.mock("../../local-build.js", () => ({ LOCAL_REHEARSAL_BUILD: true }));
-import { localDeployment } from "../../local-deployment.js";
+vi.mock("../../platform/local-build.js", () => ({ LOCAL_REHEARSAL_BUILD: true }));
+import { localDeployment } from "../../platform/local-deployment.js";
 import { labTargetBootstrap, migrationJobEnvironment } from "./migration-lab-target.js";
 import { labWorkerClient, postgresLabConnect } from "./migration-lab.js";
 import { parseNextControlPlaneEnv } from "./policy-keys.js";

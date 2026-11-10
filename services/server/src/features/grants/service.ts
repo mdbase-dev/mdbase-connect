@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
-import type { ApplicationRequirements } from "../../application-requirements.js";
+import type { ApplicationRequirements } from "../applications/application-requirements.js";
 import type {
   ApplicationNotifications,
   CollectionContractDescriptor,
@@ -11,20 +11,20 @@ import type {
 import {
   collectionGrantScope,
   isCanonicalCollectionGrantScope
-} from "../../application-grant-scope.js";
+} from "./application-grant-scope.js";
 import type { DatabasePool, DatabaseQueryable } from "../../db.js";
 import { parsePersistedApplicationAuthorization } from "../../application-authorization.js";
 import {
   quarantineMissingHostedCollection,
   queueHostedGrantRevocation
-} from "../../hosted-capability-lifecycle.js";
-import { contractRequirements, effectiveHostedContractDescriptors } from "../../hosted.js";
+} from "../hosted/hosted-capability-lifecycle.js";
+import { contractRequirements, effectiveHostedContractDescriptors } from "../hosted/hosted.js";
 import {
   HostedProviderClient,
   HostedProviderResponseError
-} from "../../hosted-provider.js";
-import { fileCapabilityPermittedByRequirements } from "../../grant-planner.js";
-import { RelayHub } from "../../relay.js";
+} from "../hosted/hosted-provider.js";
+import { fileCapabilityPermittedByRequirements } from "./grant-planner.js";
+import { RelayHub } from "../relay/relay.js";
 import { audit } from "../../platform/audit-events.js";
 import {
   collectionSupportsOperations,

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { assertFreshApplicationAuthorization, type ApplicationRequirements } from "../../application-requirements.js";
+import { assertFreshApplicationAuthorization, type ApplicationRequirements } from "../applications/application-requirements.js";
 import {
   type ApplicationNotifications,
   type ApplicationAuthorizationProof,
@@ -17,10 +17,10 @@ import {
 import { copyClientNoiseKeyToGrant } from "../next/client-key.js";
 import { queueNextGrantPolicy } from "../next/grant-policy.js";
 import { planFreshNextGrant } from "../next/fresh-authorization.js";
-import { requireCollectionAction, resolveLocalCollectionAccess, type CollectionAccessContext } from "../../collection-access.js";
+import { requireCollectionAction, resolveLocalCollectionAccess, type CollectionAccessContext } from "../collections/collection-access.js";
 import type { DatabasePool } from "../../db.js";
-import { planCollectionGrant } from "../../grant-planner.js";
-import { RelayUnavailableError, type RelayHub } from "../../relay.js";
+import { planCollectionGrant } from "../grants/grant-planner.js";
+import { RelayUnavailableError, type RelayHub } from "../relay/relay.js";
 import { audit } from "../../platform/audit-events.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 import { assertOperationsAllowedByApplication, assertCollectionSupportsOperations, requiredContractsForRequirements, requiresHostedCollection, validateContractSetupChoices, verifyContractSetupAcknowledgement } from "../grants/policy.js";

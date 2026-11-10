@@ -10,7 +10,7 @@
 //   looks at it. Nothing is dropped silently.
 import { CreateError } from "./bootstrap-common.js";
 import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
-import { effectiveEntitlement, HostedEntitlementRequiredError } from "../../entitlements.js";
+import { effectiveEntitlement, HostedEntitlementRequiredError } from "../account/entitlements.js";
 import { isLogRegion, LogServiceError, type LogPlacement, type LogRegion, LogServiceClient } from "./log-service-client.js";
 import { signPolicyItem, type PolicyOp, type PolicySigner } from "./policy-wire.js";
 import { policyTipIntact, recoverLostPolicy, verifyPolicyTip, withPolicyLock, type PolicyLock } from "./policy-recovery.js";

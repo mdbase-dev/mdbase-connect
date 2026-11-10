@@ -2,7 +2,7 @@ import { createHash, generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import Fastify from "fastify";
 import rawBody from "fastify-raw-body";
 import { AUTHORITY_PROOF_HEADERS, AUTHORITY_PROOF_VERSION, MDBASE_TIMER_FIRED_CONTRACT } from "@mdbase-dev/connect-protocol";
-import { authorityProofMessage } from "../../../authority-proof.js";
+import { authorityProofMessage } from "../../authority-transfer/authority-proof.js";
 import { tokenHash } from "../../../security.js";
 import { registerTimerRoutes } from "./routes.js";
 import pg from "pg";

@@ -8,13 +8,13 @@ import { createDatabase } from "./db.js";
 import {
   EmailDeliveryError,
   type EmailTransport
-} from "./email.js";
+} from "./features/email/email.js";
 import {
   HostedProviderResponseError,
   type HostedAccountLimits,
   type HostedAccountUsage,
   type HostedProviderClient
-} from "./hosted-provider.js";
+} from "./features/hosted/hosted-provider.js";
 import { tokenHash } from "./security.js";
 
 const resources: Array<() => Promise<void>> = [];

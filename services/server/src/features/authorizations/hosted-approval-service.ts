@@ -1,23 +1,23 @@
 // Approval of an application's access to a hosted collection: the hosted-provider
 // half of consent, split from approval-service.ts (local collections).
 import { randomUUID } from "node:crypto";
-import { assertFreshApplicationAuthorization, type ApplicationRequirements } from "../../application-requirements.js";
+import { assertFreshApplicationAuthorization, type ApplicationRequirements } from "../applications/application-requirements.js";
 import { type ApplicationNotifications, type ApplicationAuthorizationProof, type ApplicationProvisions, type CollectionOperation, type ContractSetupChoice, type FileAction, isSupportedOperationTransport } from "@mdbase-dev/connect-protocol";
-import { isCanonicalCollectionGrantScope } from "../../application-grant-scope.js";
+import { isCanonicalCollectionGrantScope } from "../grants/application-grant-scope.js";
 import { copyClientNoiseKeyToGrant } from "../next/client-key.js";
 import { queueNextGrantPolicy } from "../next/grant-policy.js";
-import { requireCollectionAction, resolveHostedCollectionAccess, type CollectionAccessContext } from "../../collection-access.js";
+import { requireCollectionAction, resolveHostedCollectionAccess, type CollectionAccessContext } from "../collections/collection-access.js";
 import type { DatabasePool } from "../../db.js";
 import {
   matchesMembershipBinding,
   membershipBindingForAccess
-} from "../../collection-membership-binding.js";
-import { contractRequirements } from "../../hosted.js";
-import { HostedProviderClient } from "../../hosted-provider.js";
+} from "../collections/collection-membership-binding.js";
+import { contractRequirements } from "../hosted/hosted.js";
+import { HostedProviderClient } from "../hosted/hosted-provider.js";
 import {
   hostedReplicaCollectionOperations,
   retainedReplicaPolicy
-} from "../../hosted-replica-policy.js";
+} from "../hosted/hosted-replica-policy.js";
 import { planFreshNextGrant } from "../next/fresh-authorization.js";
 import { randomToken } from "../../security.js";
 import { audit } from "../../platform/audit-events.js";

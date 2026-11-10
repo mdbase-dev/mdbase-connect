@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { ApplicationRequirements } from "../../application-requirements.js";
+import type { ApplicationRequirements } from "../applications/application-requirements.js";
 import type {
   ApplicationNotifications,
   ApplicationProvisions,
@@ -9,17 +9,17 @@ import type {
   GrantScope
 } from "@mdbase-dev/connect-protocol";
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { isCanonicalCollectionGrantScope } from "../../application-grant-scope.js";
+import { isCanonicalCollectionGrantScope } from "../grants/application-grant-scope.js";
 import {
   accessView,
   requireCollectionAction,
   resolveHostedCollectionAccess,
   type CollectionAction,
   type CollectionAccessContext
-} from "../../collection-access.js";
+} from "../collections/collection-access.js";
 import {
   listHostedCollectionsVisibleToUser
-} from "../../collection-catalog.js";
+} from "../collections/collection-catalog.js";
 import type {
   DatabaseConnection,
   DatabasePool,
@@ -31,9 +31,9 @@ import {
   hostedContractDescriptors,
   type HostedAuthorityRegistry,
   type HostedTemplate
-} from "../../hosted.js";
-import type { HostedProviderClient } from "../../hosted-provider.js";
-import { reconcileHostedAccount } from "../../entitlements.js";
+} from "./hosted.js";
+import type { HostedProviderClient } from "./hosted-provider.js";
+import { reconcileHostedAccount } from "../account/entitlements.js";
 import {
   hostedGrantRevocationStatus,
   hostedReplicaRevocationStatus,
@@ -41,10 +41,10 @@ import {
   queueHostedGrantRevocation,
   queueHostedReplicaRevocation,
   type HostedRevocationStatus
-} from "../../hosted-capability-lifecycle.js";
+} from "./hosted-capability-lifecycle.js";
 import {
   hostedReplicaCollectionOperations
-} from "../../hosted-replica-policy.js";
+} from "./hosted-replica-policy.js";
 import { tokenHash } from "../../security.js";
 import { audit } from "../../platform/audit-events.js";
 import { RequestValidationError, apiError } from "../../platform/http-errors.js";

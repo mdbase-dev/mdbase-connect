@@ -4,23 +4,23 @@ import {
   accountSignInMethodCounts,
   deleteAccountLocally,
   removeExternalIdentity
-} from "../../account-management.js";
-import type { AuthenticationPolicyStore } from "../../authentication-policy.js";
+} from "./account-management.js";
+import type { AuthenticationPolicyStore } from "../auth/authentication-policy.js";
 import type { DatabasePool } from "../../database-types.js";
 import {
   readEmailPreferences,
   redeemUnsubscribeToken,
   updateEmailPreferences
-} from "../../scheduled-email.js";
+} from "../email/scheduled-email.js";
 import type {
   HostedCollectionUsage,
   HostedProviderClient
-} from "../../hosted-provider.js";
+} from "../hosted/hosted-provider.js";
 import {
   PasswordAccountService,
   PasswordAuthenticationUnavailableError
-} from "../../password-auth.js";
-import { PASSWORD_MAX_UTF8_BYTES } from "../../password.js";
+} from "../auth/password-auth.js";
+import { PASSWORD_MAX_UTF8_BYTES } from "../auth/password.js";
 import { audit } from "../../platform/audit-events.js";
 import { apiError } from "../../platform/http-errors.js";
 import {

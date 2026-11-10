@@ -4,7 +4,7 @@
 // the control plane stores the record, enrols the public keys, and hands the record
 // and role-0 log tokens back to the deployment of the same kind. It never unwraps.
 import { z } from "zod";
-import { localBuild, localDeployment } from "../../local-deployment.js";
+import { localBuild, localDeployment } from "../../platform/local-deployment.js";
 import type { DatabaseQueryable } from "../../database-types.js";
 import { weakAgreementKey, weakSigningKey } from "./devices.js";
 

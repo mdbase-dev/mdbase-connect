@@ -30,7 +30,7 @@ import {
 import { CreateError, isLockTimeout, refuse } from "../next/bootstrap-common.js";
 import { createInstallationPairingCollection } from "./installation-pairing-collection.js";
 import type { CloudCopyBootstrapOptions } from "../next/service-cloud-copy.js";
-import type { RelayHub } from "../../relay.js";
+import type { RelayHub } from "../relay/relay.js";
 import type { PolicyEmitter } from "../next/policy-outbox.js";
 import { createNativeApprovalDelivery } from "../authorizations/native-approval-delivery.js";
 import { ServiceDeviceError } from "../next/service-devices.js";

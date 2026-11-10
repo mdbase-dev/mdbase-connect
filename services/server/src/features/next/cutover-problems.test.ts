@@ -3,7 +3,7 @@ import Fastify from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../../app.js";
 import { createDatabase } from "../../db.js";
-import { HostedProviderResponseError, type HostedProviderClient } from "../../hosted-provider.js";
+import { HostedProviderResponseError, type HostedProviderClient } from "../hosted/hosted-provider.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 import { tokenHash } from "../../security.js";

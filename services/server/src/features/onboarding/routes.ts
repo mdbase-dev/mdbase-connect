@@ -3,7 +3,7 @@ import {
   provisionStarterCollection,
   starterEditorUrl,
   type StarterCollectionRouteOptions
-} from "../../account-onboarding.js";
+} from "./account-onboarding.js";
 import { apiError } from "../../platform/http-errors.js";
 import { requireUser } from "../../platform/request-authentication.js";
 import { CutoverProblemError } from "../next/cutover-problems.js";

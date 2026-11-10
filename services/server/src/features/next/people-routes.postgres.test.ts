@@ -3,7 +3,7 @@ import Fastify from "fastify";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import { createHostedCollectionMembership } from "../../collection-policy.js";
+import { createHostedCollectionMembership } from "../collections/collection-policy.js";
 import { tokenHash } from "../../security.js";
 import { registerPeopleRoutes } from "../account/people-routes.js";
 

@@ -337,7 +337,7 @@ docker run --rm --interactive --network host \
   node --input-type=module <<'NODE'
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { deleteAccountLocally } from "/app/services/server/dist/account-management.js";
+import { deleteAccountLocally } from "/app/services/server/dist/features/account/account-management.js";
 import { createDatabase } from "/app/services/server/dist/db.js";
 
 const db = await createDatabase(process.env.DATABASE_URL);

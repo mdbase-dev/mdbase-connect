@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { AuthorityProofError, verifyAuthorityRequestProof } from "../../../authority-proof.js";
+import { AuthorityProofError, verifyAuthorityRequestProof } from "../../authority-transfer/authority-proof.js";
 import { canonicalJson } from "../../../canonical-json.js";
 import { lookupTimerReceipt, recordTimerReconcile } from "./receipts.js";
 import { z } from "zod";
 import type { DatabasePool, DatabaseQueryable } from "../../../database-types.js";
-import type { HostedProviderClient } from "../../../hosted-provider.js";
-import { activeGrantForToken } from "../../../notifications.js";
+import type { HostedProviderClient } from "../../hosted/hosted-provider.js";
+import { activeGrantForToken } from "../../notifications/notifications.js";
 import { apiError } from "../../../platform/http-errors.js";
 import { bearerToken } from "../../../platform/request-authentication.js";
 import { tokenHash } from "../../../security.js";

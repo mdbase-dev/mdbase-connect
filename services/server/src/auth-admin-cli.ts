@@ -4,16 +4,16 @@ import {
 } from "./auth-admin.js";
 import { openDatabase } from "./db.js";
 import { assertControlPlaneMigrationsCurrent } from "./migrations.js";
-import { ResendEmailTransport } from "./email.js";
-import { NatsRelayBroker, type RelayBroker } from "./relay-broker.js";
+import { ResendEmailTransport } from "./features/email/email.js";
+import { NatsRelayBroker, type RelayBroker } from "./features/relay/relay-broker.js";
 import {
   HostedProviderClient,
   HostedProviderResponseError
-} from "./hosted-provider.js";
+} from "./features/hosted/hosted-provider.js";
 import {
   hostedProviderConfigFromEnv,
   type RegistrationMode
-} from "./runtime-config.js";
+} from "./platform/runtime-config.js";
 
 const db = await openDatabase();
 const requestEnvelope = process.argv[2] === "request";

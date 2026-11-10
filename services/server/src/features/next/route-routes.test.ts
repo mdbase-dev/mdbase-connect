@@ -1,7 +1,7 @@
 import Fastify from "fastify";
 import { randomBytes, randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
-import { RelayBrokerUnavailableError } from "../../relay-broker.js";
+import { RelayBrokerUnavailableError } from "../relay/relay-broker.js";
 import { registerNextRouteRoutes } from "./route-routes.js";
 
 // Synthetic rowsets exercise ordering only. PostgreSQL currently permits just one

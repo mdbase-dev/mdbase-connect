@@ -4,7 +4,7 @@ import type { DatabasePool } from "../../database-types.js";
 import {
   asSyncMutation,
   type HostedAuthorityRegistry
-} from "../../hosted.js";
+} from "./hosted.js";
 import { apiError } from "../../platform/http-errors.js";
 import { requireHostedReplica } from "./service.js";
 

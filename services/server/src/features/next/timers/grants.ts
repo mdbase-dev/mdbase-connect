@@ -10,7 +10,7 @@ import { CreateError, currentCollectionDevice, inTransaction, type Device } from
 import { requireInstallationScope } from "../installation-scope.js";
 import { readInstallationTimerDeclaration } from "./installation-declaration.js";
 import { TimerError } from "./model.js";
-import type { InstallationEnvironment } from "../../../local-deployment.js";
+import type { InstallationEnvironment } from "../../../platform/local-deployment.js";
 
 /**
  * The collection state a timer call is evaluated in (collection-states doc §2).

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import { afterEach, expect, it } from "vitest";
 import { createDatabase } from "../../db.js";
-import { createHostedCollectionMembership } from "../../collection-policy.js";
+import { createHostedCollectionMembership } from "../collections/collection-policy.js";
 import { tokenHash } from "../../security.js";
 import { registerPeopleRoutes } from "./people-routes.js";
 

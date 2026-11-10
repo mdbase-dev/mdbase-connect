@@ -9,7 +9,7 @@ import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 import { bearerToken, requireConnector } from "../../platform/request-authentication.js";
 import { apiError } from "../../platform/http-errors.js";
 import { tokenHash } from "../../security.js";
-import type { RelayHub } from "../../relay.js";
+import type { RelayHub } from "../relay/relay.js";
 import { CreateError, inTransaction, refuse } from "./bootstrap-common.js";
 import { carryOverLegacyGrants } from "./legacy-grant-carry-over.js";
 import type { PolicyEmitter } from "./policy-outbox.js";

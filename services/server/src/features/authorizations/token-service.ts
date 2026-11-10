@@ -4,19 +4,19 @@ import type {
   GrantEncryption,
   GrantScope
 } from "@mdbase-dev/connect-protocol";
-import { isCanonicalCollectionGrantScope } from "../../application-grant-scope.js";
+import { isCanonicalCollectionGrantScope } from "../grants/application-grant-scope.js";
 import {
   requireCollectionAction,
   resolveHostedCollectionAccess,
   resolveLocalCollectionAccess,
   type CollectionAccessContext
-} from "../../collection-access.js";
+} from "../collections/collection-access.js";
 import type { DatabaseQueryable } from "../../db.js";
 import {
   matchesMembershipBinding,
   membershipBindingForAccess
-} from "../../collection-membership-binding.js";
-import type { HostedProviderClient } from "../../hosted-provider.js";
+} from "../collections/collection-membership-binding.js";
+import type { HostedProviderClient } from "../hosted/hosted-provider.js";
 import { randomToken, tokenHash } from "../../security.js";
 import { authorityUrl } from "../../platform/authority-url.js";
 import { RequestValidationError } from "../../platform/http-errors.js";

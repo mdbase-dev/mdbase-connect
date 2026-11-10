@@ -1,14 +1,14 @@
 import { SyncError } from "@mdbase-dev/connect-sync";
-import { resolveHostedCollectionAccess } from "../../collection-access.js";
+import { resolveHostedCollectionAccess } from "../collections/collection-access.js";
 import type {
   DatabasePool,
   DatabaseQueryable
 } from "../../database-types.js";
-import type { HostedAuthorityRegistry } from "../../hosted.js";
+import type { HostedAuthorityRegistry } from "../hosted/hosted.js";
 import {
   HostedProviderResponseError,
   type HostedProviderClient
-} from "../../hosted-provider.js";
+} from "../hosted/hosted-provider.js";
 import { tokenHash } from "../../security.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 import { requireAccountNotMigrationFrozen } from "../next/migration-topology.js";

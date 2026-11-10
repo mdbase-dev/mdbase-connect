@@ -6,13 +6,13 @@ import type { FastifyInstance } from "fastify";
 import type { CollectionContractDescriptor } from "@mdbase-dev/connect-protocol";
 import { z } from "zod";
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
-import { reconcileHostedAccount } from "../../entitlements.js";
-import type { HostedAuthorityRegistry } from "../../hosted.js";
+import { reconcileHostedAccount } from "../account/entitlements.js";
+import type { HostedAuthorityRegistry } from "../hosted/hosted.js";
 import {
   HostedProviderResponseError,
   type HostedProviderClient
-} from "../../hosted-provider.js";
-import type { RelayHub } from "../../relay.js";
+} from "../hosted/hosted-provider.js";
+import type { RelayHub } from "../relay/relay.js";
 import { randomToken } from "../../security.js";
 import { audit } from "../../platform/audit-events.js";
 import { authorityImportCapability } from "../../platform/authority-url.js";

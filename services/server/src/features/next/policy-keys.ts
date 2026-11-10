@@ -5,7 +5,7 @@
 // configured on a server. Rotation: certify a new key offline (`next-cp-cert`), deploy
 // it, and items signed by the old key stay valid because each embeds its certificate.
 import { createPrivateKey, createPublicKey, verify as edVerify, type KeyObject } from "node:crypto";
-import { localBuild, localDeployment } from "../../local-deployment.js";
+import { localBuild, localDeployment } from "../../platform/local-deployment.js";
 import { certDigest, keyId, type CpCert, type PolicySigner } from "./policy-wire.js";
 import { parseLabFixtureConfig, type LabFixtureConfig } from "./lab-fixture-config.js";
 import { hostedClientOrigin } from "./hosted-route-target.js";

@@ -1,6 +1,6 @@
 import {randomUUID} from "node:crypto";
 import type {DatabaseConnection} from "../../database-types.js";
-import type {HostedAuthorityRegistry} from "../../hosted.js";
+import type {HostedAuthorityRegistry} from "../hosted/hosted.js";
 import {CreateError, inTransaction} from "../next/bootstrap-common.js";
 import {requireNextAccountNotMigrationFrozen} from "../next/migration-topology.js";
 import {createServiceCloudCopy, currentCloudCopy, type CloudCopyBootstrapOptions} from "../next/service-cloud-copy.js";

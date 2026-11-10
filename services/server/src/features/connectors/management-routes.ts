@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { DatabasePool } from "../../database-types.js";
-import type { RelayHub } from "../../relay.js";
+import type { RelayHub } from "../relay/relay.js";
 import { randomToken, tokenHash } from "../../security.js";
 import { audit } from "../../platform/audit-events.js";
 import { apiError } from "../../platform/http-errors.js";

@@ -15,11 +15,11 @@
 // creates nothing, so no empty starter is ever made.
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { DatabaseConnection } from "../../database-types.js";
-import { isIanaTimezone } from "../../hosted.js";
+import { isIanaTimezone } from "../hosted/hosted.js";
 import { apiError } from "../../platform/http-errors.js";
 import { ACCOUNT_COLLECTION_QUOTA_MESSAGE } from "../../platform/collection-quota-copy.generated.js";
 import { requireSessionContext, requireUser } from "../../platform/request-authentication.js";
-import { STARTER_COLLECTION_NAME, STARTER_TEMPLATE_VERSION } from "../../starter-collection.js";
+import { STARTER_COLLECTION_NAME, STARTER_TEMPLATE_VERSION } from "../onboarding/starter-collection.js";
 import { CreateError, currentAccount, currentSession, inTransaction, isLockTimeout } from "./bootstrap-common.js";
 import { createServiceCloudCopy, type CloudCopyBootstrapOptions } from "./service-cloud-copy.js";
 import { ServiceDeviceError } from "./service-devices.js";

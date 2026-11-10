@@ -1,4 +1,4 @@
-import { approveMirrorPairing } from "../../hosted-mirror-policy.js";
+import { approveMirrorPairing } from "./hosted-mirror-policy.js";
 import type {
   CollectionOperation,
   ContractSetupChoice
@@ -10,13 +10,13 @@ import {
   requireCollectionAction,
   resolveHostedCollectionAccess,
   type CollectionAccessContext
-} from "../../collection-access.js";
-import { resolveHostedCollection } from "../../collection-catalog.js";
-import type { HostedAuthorityRegistry } from "../../hosted.js";
+} from "../collections/collection-access.js";
+import { resolveHostedCollection } from "../collections/collection-catalog.js";
+import type { HostedAuthorityRegistry } from "./hosted.js";
 import { audit } from "../../platform/audit-events.js";
 import { apiError } from "../../platform/http-errors.js";
 import { requireConnector } from "../../platform/request-authentication.js";
-import { contractSetupChoiceSchema } from "../../protocol-schemas.js";
+import { contractSetupChoiceSchema } from "../../platform/protocol-schemas.js";
 import {
   createHostedCollectionForUser,
   deleteHostedCollectionForUser,

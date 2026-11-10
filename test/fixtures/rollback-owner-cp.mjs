@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { createDatabase } from "../../services/server/dist/db.js";
-import { HostedProviderClient } from "../../services/server/dist/hosted-provider.js";
+import { HostedProviderClient } from "../../services/server/dist/features/hosted/hosted-provider.js";
 import { registerMigrationReplicaRoutes } from "../../services/server/dist/features/next/migration-replicas.js";
 
 assert.equal(Number(process.versions.node.split(".")[0]), 24, "Node24 fixture runtime required");

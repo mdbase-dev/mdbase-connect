@@ -3,7 +3,7 @@ import Fastify from "fastify";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../../app.js";
-import { deleteAccountLocally } from "../../account-management.js";
+import { deleteAccountLocally } from "../account/account-management.js";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { tokenHash } from "../../security.js";
 import { deviceRegistrationDigest, issueDeviceChallenge, registerDevice } from "./devices.js";

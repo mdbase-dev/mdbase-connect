@@ -3,7 +3,7 @@ import Fastify from "fastify";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import { legacyNotificationWatermarkSchema, type LegacyMigrationDrain } from "../../hosted-provider-replies.js";
+import { legacyNotificationWatermarkSchema, type LegacyMigrationDrain } from "../hosted/hosted-provider-replies.js";
 import { inTransaction } from "./bootstrap-common.js";
 import { SCOPED_HOSTED_ARCHIVE_SCHEMA } from "./migration-archive-profile.js";
 import { prearchiveInventory } from "./migration-prearchive-inventory.js";

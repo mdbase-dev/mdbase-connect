@@ -3,7 +3,7 @@ import type {
   ApplicationNotifications,
   ApplicationProvisions
 } from "@mdbase-dev/connect-protocol";
-import type { ApplicationRequirements } from "../../application-requirements.js";
+import type { ApplicationRequirements } from "./application-requirements.js";
 import type { DatabaseQueryable } from "../../db.js";
 import type { AppManifest, RegisteredApplicationManifest } from "../../manifest.js";
 

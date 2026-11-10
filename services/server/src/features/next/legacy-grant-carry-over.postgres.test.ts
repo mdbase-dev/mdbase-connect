@@ -1,12 +1,12 @@
-import { ensureDevelopmentEntitlement } from "../../entitlements.js";
+import { ensureDevelopmentEntitlement } from "../account/entitlements.js";
 import { randomBytes, randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { capabilityOperations } from "@mdbase-dev/connect-protocol";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import { LocalRelayBroker } from "../../relay-broker.js";
-import { buildPolicySnapshot, type LeasePolicySnapshot } from "../../relay-policy.js";
+import { LocalRelayBroker } from "../relay/relay-broker.js";
+import { buildPolicySnapshot, type LeasePolicySnapshot } from "../relay/relay-policy.js";
 import { tokenHash } from "../../security.js";
 import { carryOverLegacyGrants, carryOverLegacyLocalGrants } from "./legacy-grant-carry-over.js";
 import { registerNextCollection } from "./policy-outbox.js";

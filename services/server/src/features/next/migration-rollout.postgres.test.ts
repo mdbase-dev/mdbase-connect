@@ -4,7 +4,7 @@ import Fastify from "fastify";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import { quarantineMissingHostedCollection } from "../../hosted-capability-lifecycle.js";
+import { quarantineMissingHostedCollection } from "../hosted/hosted-capability-lifecycle.js";
 import { insertLegacyHostedCollection as insertOnClient } from "../hosted/service.js";
 import {
   acceptCohortArchive, cohortArchiveBinding, accountMigrationView, addToCohort, collectionMigrationRecord, localTakeoverAllowed, createCohort, flipAccountBackend, flipEvidenceDigest, migrationCandidates,

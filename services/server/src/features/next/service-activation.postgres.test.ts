@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { deleteAccountLocally } from "../../account-management.js";
+import { deleteAccountLocally } from "../account/account-management.js";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { inTransaction } from "./bootstrap-common.js";
 import { recordCollectionDeletionIntent } from "./collection-deletion.js";

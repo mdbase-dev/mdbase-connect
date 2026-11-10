@@ -1,21 +1,21 @@
-import { ensureDevelopmentEntitlement } from "../../entitlements.js";
+import { ensureDevelopmentEntitlement } from "../account/entitlements.js";
 // Atomic immutable token metadata only: no reconciliation endpoint or race claim.
 import { randomBytes, randomUUID, sign } from "node:crypto";
 import pg from "pg";
 import Fastify from "fastify";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import type { HostedProviderClient } from "../../hosted-provider.js";
+import type { HostedProviderClient } from "../hosted/hosted-provider.js";
 import { capabilityOperations } from "@mdbase-dev/connect-protocol";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { createTestApplicationIdentity, testApplicationAuthorization } from "../../application-authorization.test-helper.js";
 import { registerApplicationManifest } from "../../manifest.js";
 import { pkceChallenge, tokenHash } from "../../security.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
-import type { RelayHub } from "../../relay.js";
-import { createHostedCollectionMembership } from "../../collection-policy.js";
+import type { RelayHub } from "../relay/relay.js";
+import { createHostedCollectionMembership } from "../collections/collection-policy.js";
 import { registerAuthorizationPollingRoutes } from "./polling-routes.js";
 import { AUTHORITY_PROOF_HEADERS, AUTHORITY_PROOF_VERSION } from "@mdbase-dev/connect-protocol";
-import { authorityProofMessage } from "../../authority-proof.js";
+import { authorityProofMessage } from "../authority-transfer/authority-proof.js";
 import { clientNoiseKeyMessage, copyClientNoiseKeyToGrant, storeRequestClientNoiseKey, verifiedClientNoiseKey } from "../next/client-key.js";
 import { registerNextCollection } from "../next/policy-outbox.js";
 import { localGrantFixture } from "../next/next-fixtures.test-helper.js";

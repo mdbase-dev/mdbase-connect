@@ -5,10 +5,10 @@ import { canonicalSha256 } from "../../canonical-json.js";
 import { installationApp, startInstallationPairing } from "../connectors/installation-pairing.js";
 import { installationTimerDeclaration, readInstallationTimerDeclaration, type InstallationTimerBinding } from "./timers/installation-declaration.js";
 import { backgroundTimerGrantResolver } from "./timers/grants.js";
-import { backgroundGrantNotificationDeclaration } from "../../notifications.js";
+import { backgroundGrantNotificationDeclaration } from "../notifications/notifications.js";
 
 const build = vi.hoisted(() => ({ local: true }));
-vi.mock("../../local-build.js", () => ({ get LOCAL_REHEARSAL_BUILD() { return build.local; } }));
+vi.mock("../../platform/local-build.js", () => ({ get LOCAL_REHEARSAL_BUILD() { return build.local; } }));
 const origin = "http://127.0.0.1:8111", id = "10000000-0000-4000-8000-000000000001";
 const application = {
   id, name: "Local Notes", family_identity: "bundle:local.notes", homepage: null,
