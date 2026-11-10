@@ -179,8 +179,11 @@ attached attestation against the reviewed producer SHA.
 
 Manual dispatch defaults to `dry_run: true`. PRs and changed-package dry runs
 build and verify all three packages without npm credentials, attestations or
-publication. Healthy main changes publish automatically. A live dispatch is on
-main, for example:
+publication. Healthy main changes publish automatically once production
+contains them: the main coordinator reserves a `v<version>` tag at the
+production commit and publishes from a run on that tag (see
+[continuous SDK publication](continuous-sdk-release.md)). A live coordinator
+dispatch is on main, for example:
 
 ```sh
 gh workflow run publish-sdk-npm.yml --repo mdbase-dev/mdbase-connect \
@@ -199,8 +202,8 @@ workspace, after frozen installs; no version PR, hand-created tag or human
 version input is needed. Server release-preparation versions are no longer SDK
 publication authority. The three environment packages share the computed
 version; their package names distinguish trust. The internal `sdk-v<version>`
-tag records the original main producer SHA after npm publication; it is not a
-source-version commit. The Obsidian runtime's own version remains independent.
+tag records the producer SHA after npm publication; it is not a source-version
+commit. The publishing ref is the reserved `v<version>` tag at that SHA. The Obsidian runtime's own version remains independent.
 Continuous delivery moves `latest` on every publish. A package only moves when
 it has a qualified change, so an unchanged package keeps its older `latest`. The
 `next` tag is retired: nothing reads it, and it stays frozen on npm because
@@ -228,8 +231,9 @@ also checks the matching attached Sigstore bundle against the expected repo,
 downloaded tarball/bundle can be checked with `gh attestation verify <tarball>
 --bundle <bundle> --repo mdbase-dev/mdbase-connect --signer-workflow
 mdbase-dev/mdbase-connect/.github/workflows/publish-sdk-npm.yml --source-ref
-refs/heads/main --source-digest <producer-SHA>`. Use the exact producer workflow
-ref recorded for that version (a protected version tag for tag-built versions).
+refs/tags/v<version> --source-digest <producer-SHA>`. Use the exact producer workflow
+ref recorded for that version: `refs/heads/main` for beta.153 to beta.168, the
+protected version tag otherwise.
 
 Production publishers must reject staging/LAB URLs and all unverified aliases,
 including a URL claiming to contain the production package. Retain their
