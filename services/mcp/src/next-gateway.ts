@@ -3,7 +3,7 @@
 // the hosted replica (cloud copy) or a user device through the relay (Private), and
 // runs the tool there. Collections the control plane does not route stay on the
 // legacy authority path until it is removed.
-import { connect, controlRouteResolver, describeError, isMdbaseError, routeFromControl, type KeyPair, type MdbaseClient, type RecordView, type Write } from "@mdbase-dev/sdk";
+import { connect, controlRouteResolver, describeError, isMdbaseError, routeFromControl, uuidv7, type KeyPair, type MdbaseClient, type RecordView, type Write } from "@mdbase-dev/sdk";
 import type { GrantKeyStore } from "@mdbase-dev/connect/crypto";
 import { GatewayOperationError } from "./errors.js";
 import { gatewayConnector } from "./next-connector.js";
@@ -28,6 +28,10 @@ interface Session {
   token: { value: string };
   idle: ReturnType<typeof setTimeout> | null;
   keyHandle: string | null;
+  /** The routing grant the session was opened under. */
+  grant: string;
+  /** Served by the hosted replica (cloud copy), not a user device. */
+  hosted: boolean;
 }
 
 /** The legacy authority path should serve this call. */
@@ -35,10 +39,21 @@ export const LEGACY = Symbol("legacy");
 const LEGACY_TTL_MS = 60_000;
 const IDLE_MS = 5 * 60_000;
 const WRITE_TIMEOUT_MS = 30_000;
+// A hosted replica serves a session only while it can prove it is current. Until it
+// has applied a new grant's policy item (a few seconds after Connect lists it), and
+// whenever it is catching up with the log, it closes sessions without a reason:
+// during the handshake, or under a running call. Clients are expected to come back.
+// An open waits that out for about 20 s in all; a connection whose wait ran out does
+// not wait again until it has opened.
+const HOSTED_GRACE_DELAYS_MS = [1_000, 2_000, 3_000, 4_000, 5_000, 5_000];
+// How often one tool call is run again after the hosted replica closed its session.
+const HOSTED_RETRIES = 2;
 
 export class NextGateway {
   private readonly sessions = new Map<string, Promise<Session>>();
   private readonly legacy = new Map<string, number>();
+  /** Connections whose last hosted open used up its grace without opening. */
+  private readonly hostedSpent = new Set<string>();
   private readonly fetch: typeof fetch;
 
   constructor(private readonly options: {
@@ -47,6 +62,7 @@ export class NextGateway {
     version: string;
     fetch?: typeof fetch;
     now?: () => number;
+    sleep?: (ms: number) => Promise<void>;
     open?: (input: { connection: NextConnection; grant: string; key: KeyPair; token: { value: string }; resolveRoute?: ReturnType<typeof controlRouteResolver> }) => Promise<MdbaseClient>;
   }) {
     this.fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
@@ -57,32 +73,54 @@ export class NextGateway {
   /** Run one tool operation on next, or return LEGACY. */
   async run(connection: NextConnection, accessToken: string, operation: string, input: Record<string, unknown>, requestId: string, signal?: AbortSignal): Promise<unknown> {
     if (!connection.native && (this.legacy.get(connection.id) ?? 0) > this.now()) return LEGACY;
-    const session = await this.session(connection, accessToken, signal);
-    if (session === LEGACY) return LEGACY;
-    try {
-      return await execute(session.client, connection, operation, input, requestId, signal);
-    } catch (error) {
-      if (isMdbaseError(error) && (error.code === "unavailable" || error.code === "unauthenticated")) this.drop(connection.id);
-      throw gatewayError(error, !!connection.native);
-    } finally {
-      this.touch(connection.id, session);
+    // One record ID for every attempt: a create that is run again is the same create.
+    const createId = uuidv7();
+    for (let retry = 0; ; retry++) {
+      const session = await this.session(connection, accessToken, signal);
+      if (session === LEGACY) return LEGACY;
+      let dropped = false;
+      try {
+        return await execute(session.client, connection, operation, input, requestId, createId, signal);
+      } catch (error) {
+        if (isMdbaseError(error) && (error.code === "unavailable" || error.code === "unauthenticated")) {
+          this.drop(connection.id);
+          dropped = true;
+        }
+        // The hosted replica closed the session under the call. Reopen and run it
+        // again: a write keeps its mutation ID, so it is not applied twice.
+        const closed = session.hosted && isMdbaseError(error, "unavailable") && !error.reason;
+        if (!closed || retry >= HOSTED_RETRIES || signal?.aborted) throw gatewayError(error, !!connection.native);
+      } finally {
+        if (!dropped) this.touch(connection.id, session);
+      }
     }
   }
 
   private async session(connection: NextConnection, accessToken: string, signal?: AbortSignal): Promise<Session | typeof LEGACY> {
+    // Connect authorizes every call, as it does on the legacy path. A replica learns of
+    // a revoked grant from the log, seconds later; an open session must not outlive
+    // the grant for that long.
+    let route: Awaited<ReturnType<NextGateway["route"]>>;
+    try {
+      route = await this.route(connection, accessToken, true, signal);
+    } catch (error) {
+      // Connect being out of reach says nothing about the grant; anything else ends the session.
+      if (!(error instanceof GatewayOperationError && error.code === "control_unreachable")) this.drop(connection.id);
+      throw error;
+    }
+    if (route === LEGACY) {
+      this.drop(connection.id);
+      this.legacy.set(connection.id, this.now() + LEGACY_TTL_MS);
+      return LEGACY;
+    }
     const existing = this.sessions.get(connection.id);
     if (existing) {
       const session = await existing.catch(() => null);
-      if (session && session.keyHandle === connection.key_handle) {
+      if (session && session.keyHandle === connection.key_handle && session.grant === route.grant) {
         session.token.value = accessToken;
         return session;
       }
       this.drop(connection.id);
-    }
-    const route = await this.route(connection, accessToken, true, signal);
-    if (route === LEGACY) {
-      this.legacy.set(connection.id, this.now() + LEGACY_TTL_MS);
-      return LEGACY;
     }
     const token = { value: accessToken };
     const opening = (async () => {
@@ -94,8 +132,11 @@ export class NextGateway {
         if (current.grant !== route.grant) throw new GatewayOperationError("authorization_changed", "Connect returned a different routing grant.");
         return routeFromControl({ collection: connection.collection_id, ...current }, token.value);
       } : undefined;
-      const client = await (this.options.open ?? openClient(this.fetch, this.options.version))({ connection, grant: route.grant, key, token, ...(resolveRoute ? { resolveRoute } : {}) });
-      return { client, token, idle: null, keyHandle: connection.key_handle } satisfies Session;
+      const open = this.options.open ?? openClient(this.fetch, this.options.version);
+      const hosted = route.targets[0]?.kind === "hosted";
+      const client = await this.openWithGrace(connection, hosted,
+        () => open({ connection, grant: route.grant, key, token, ...(resolveRoute ? { resolveRoute } : {}) }));
+      return { client, token, idle: null, keyHandle: connection.key_handle, grant: route.grant, hosted } satisfies Session;
     })();
     this.sessions.set(connection.id, opening);
     try {
@@ -104,6 +145,31 @@ export class NextGateway {
       if (this.sessions.get(connection.id) === opening) this.sessions.delete(connection.id);
       throw gatewayError(error, !!connection.native);
     }
+  }
+
+  /**
+   * Open a session; on a hosted route, retry a session the replica closed during the
+   * handshake while it cannot serve this grant yet. Each attempt resolves the route
+   * again, so a revoked or changed grant ends the wait at once.
+   */
+  private async openWithGrace(connection: NextConnection, hosted: boolean, open: () => Promise<MdbaseClient>): Promise<MdbaseClient> {
+    if (!hosted) return open();
+    const delays = this.hostedSpent.has(connection.id) ? [] : HOSTED_GRACE_DELAYS_MS;
+    for (const delay of delays) {
+      try {
+        const client = await open();
+        this.hostedSpent.delete(connection.id);
+        return client;
+      } catch (error) {
+        // A close during the handshake carries no reason; route and relay refusals do.
+        if (!isMdbaseError(error, "unavailable") || error.reason) throw error;
+        await (this.options.sleep ?? sleep)(delay);
+      }
+    }
+    this.hostedSpent.add(connection.id);
+    const client = await open();
+    this.hostedSpent.delete(connection.id);
+    return client;
   }
 
   /** `GET /v1/next/collections/:id/route`; attaches a Noise key once if the grant has none. */
@@ -169,6 +235,10 @@ export class NextGateway {
   }
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => { setTimeout(resolve, ms).unref(); });
+}
+
 function openClient(fetchImpl: typeof fetch, version: string) {
   return async ({ connection, grant, key, token, resolveRoute: nativeRoute }: { connection: NextConnection; grant: string; key: KeyPair; token: { value: string }; resolveRoute?: ReturnType<typeof controlRouteResolver> }) => {
     const resolveRoute = nativeRoute ?? controlRouteResolver({
@@ -185,7 +255,7 @@ function openClient(fetchImpl: typeof fetch, version: string) {
   };
 }
 
-async function execute(client: MdbaseClient, connection: NextConnection, operation: string, input: Record<string, unknown>, requestId: string, signal?: AbortSignal): Promise<unknown> {
+async function execute(client: MdbaseClient, connection: NextConnection, operation: string, input: Record<string, unknown>, requestId: string, createId: string, signal?: AbortSignal): Promise<unknown> {
   const write = { mutationId: requestId, wait: "confirmed" as const, include: { effective: true, body: true }, ...(signal ? { signal } : {}) };
   switch (operation) {
     case "describe": {
@@ -220,53 +290,66 @@ async function execute(client: MdbaseClient, connection: NextConnection, operati
       return typeDocument(type.name, await client.resources.get(type.path, signal));
     }
     case "create": {
+      const id = createId;
       const created = await settle(client.create({
+        id,
         ...(typeof input.path === "string" ? { path: input.path } : {}),
         ...(typeof input.type === "string" ? { type: input.type } : {}),
         ...(input.frontmatter ? { frontmatter: input.frontmatter as Record<string, never> } : {}),
         ...(typeof input.body === "string" ? { body: input.body } : {})
-      }, write));
+      }, write), () => client.find(id, RECORD_VIEW, signal));
       return recordDocument(created);
     }
     case "update": {
       const current = await read(client, String(input.path), signal, true);
       if (typeof input.document === "string") {
         if (input.patch !== undefined || input.body !== undefined) throw new GatewayOperationError("invalid_request", "document cannot be combined with patch or body.");
-        return { ...recordDocument(await settle(client.replaceDocument(current, input.document, { ...write, ...(typeof input.if_revision === "string" ? { ifRevision: input.if_revision } : {}) }))) };
+        return { ...recordDocument(await settle(client.replaceDocument(current, input.document, { ...write, ...(typeof input.if_revision === "string" ? { ifRevision: input.if_revision } : {}) }), () => client.find(current.id, RECORD_VIEW, signal))) };
       }
       return recordDocument(await settle(client.update(current, {
         ...(input.patch ? { patch: input.patch as Record<string, never> } : {}),
         ...(typeof input.body === "string" ? { body: input.body } : {}),
         ...(typeof input.if_revision === "string" ? { ifRevision: input.if_revision } : {})
-      }, write)));
+      }, write), () => client.find(current.id, RECORD_VIEW, signal)));
     }
     case "delete": {
-      const current = await read(client, String(input.path), signal);
+      const current = await find(client, String(input.path), signal);
+      if (!current) {
+        // Run again after its answer was lost: the record is already gone.
+        if (await confirmedBefore(client, requestId, signal)) return { path: String(input.path), deleted: true };
+        throw notFound(String(input.path));
+      }
       const broken = input.check_backlinks === true ? (await client.preflightDelete(current)).broken : [];
-      await settle(client.delete(current, { ...write, ...(typeof input.if_revision === "string" ? { ifRevision: input.if_revision } : {}) }), false);
+      await settle(client.delete(current, { ...write, ...(typeof input.if_revision === "string" ? { ifRevision: input.if_revision } : {}) }), null);
       return { path: current.path, deleted: true, ...(broken.length ? { brokenLinks: broken.map((link) => ({ path: link.path })) } : {}) };
     }
     case "rename": {
-      const current = await read(client, String(input.from), signal);
+      const current = await find(client, String(input.from), signal);
+      if (!current) {
+        // Run again after its answer was lost: the record is already at its new path.
+        const moved = await confirmedBefore(client, requestId, signal) ? await find(client, String(input.to), signal) : null;
+        if (!moved) throw notFound(String(input.from));
+        return { ...recordDocument(moved), from: String(input.from), to: moved.path };
+      }
       const renamed = await settle(client.rename(current, String(input.to), {
         ...write, updateRefs: input.update_refs !== false, ...(typeof input.if_revision === "string" ? { ifRevision: input.if_revision } : {})
-      }));
+      }), () => client.find(current.id, RECORD_VIEW, signal));
       return { ...recordDocument(renamed), from: current.path, to: renamed.path };
     }
     case "create_type": {
       const document = String(input.document);
       if (typeof input.path === "string") {
-        await settle(client.resources.put(input.path, document, { ...write, mustNotExist: true }), false);
+        await settle(client.resources.put(input.path, document, { ...write, mustNotExist: true }), null);
         const resource = await client.resources.get(input.path, signal);
         return typeDocument(input.path.replace(/^.*\//u, "").replace(/\.md$/u, ""), resource);
       }
       const created = await client.createType(document, write);
-      await settle(Promise.resolve(created.write), false);
+      await settle(Promise.resolve(created.write), null);
       return typeDocument(created.name, await client.resources.get(created.path, signal));
     }
     case "update_type": {
       const type = await findType(client, input, signal);
-      await settle(client.resources.put(type.path, String(input.document), { ...write, baseRevision: String(input.if_revision) }), false);
+      await settle(client.resources.put(type.path, String(input.document), { ...write, baseRevision: String(input.if_revision) }), null);
       return typeDocument(type.name, await client.resources.get(type.path, signal));
     }
     default:
@@ -275,9 +358,36 @@ async function execute(client: MdbaseClient, connection: NextConnection, operati
 }
 
 async function read(client: MdbaseClient, path: string, signal?: AbortSignal, document = false): Promise<RecordView> {
-  const view = await client.find({ path }, { effective: true, body: true, ...(document ? { document: true } : {}) }, signal);
-  if (!view) throw new GatewayOperationError("record_not_found", `No record at ${path}.`);
+  const view = await find(client, path, signal, document);
+  if (!view) throw notFound(path);
   return view;
+}
+
+function find(client: MdbaseClient, path: string, signal?: AbortSignal, document = false): Promise<RecordView | null> {
+  return client.find({ path }, { effective: true, body: true, ...(document ? { document: true } : {}) }, signal);
+}
+
+function notFound(path: string): GatewayOperationError {
+  return new GatewayOperationError("record_not_found", `No record at ${path}.`);
+}
+
+/**
+ * Whether the replica already confirmed this mutation: the call is being run again
+ * after the session closed under it, or the client retried with the same mutation_id.
+ * A mutation still pending is waited for, as its first submission would have been.
+ */
+async function confirmedBefore(client: MdbaseClient, mutationId: string, signal?: AbortSignal): Promise<boolean> {
+  try {
+    let receipt = await client.receipt(mutationId, signal);
+    if (receipt.state === "pending") receipt = await client.awaitReceipt(mutationId, WRITE_TIMEOUT_MS, signal);
+    if (receipt.state === "pending") {
+      throw new GatewayOperationError("outcome_unknown", "The write was accepted but not yet confirmed. Retry with the same mutation_id to check.");
+    }
+    return receipt.state === "confirmed";
+  } catch (error) {
+    if (isMdbaseError(error, "not_found")) return false;
+    throw error;
+  }
 }
 
 async function findType(client: MdbaseClient, input: Record<string, unknown>, signal?: AbortSignal) {
@@ -287,10 +397,17 @@ async function findType(client: MdbaseClient, input: Record<string, unknown>, si
   return type;
 }
 
-/** Hold the write until the log confirms it, then return the resulting record. */
-async function settle(pending: Promise<Write>, record?: true): Promise<RecordView>;
-async function settle(pending: Promise<Write>, record: false): Promise<null>;
-async function settle(pending: Promise<Write>, record = true): Promise<RecordView | null> {
+const RECORD_VIEW = { effective: true, body: true } as const;
+
+/**
+ * Hold the write until the log confirms it, then return the resulting record.
+ * A replica answers `wait: confirmed` with the settled receipt, which carries no record
+ * views (only an immediate pending receipt has them), so the confirmed record is read
+ * back from the same replica.
+ */
+async function settle(pending: Promise<Write>, readBack: () => Promise<RecordView | null>): Promise<RecordView>;
+async function settle(pending: Promise<Write>, readBack: null): Promise<null>;
+async function settle(pending: Promise<Write>, readBack: (() => Promise<RecordView | null>) | null): Promise<RecordView | null> {
   const write = await pending;
   const receipt = await Promise.race([
     write.confirmed,
@@ -298,8 +415,8 @@ async function settle(pending: Promise<Write>, record = true): Promise<RecordVie
       "outcome_unknown", "The write was accepted but not yet confirmed. Retry with the same mutation_id to check."
     )), WRITE_TIMEOUT_MS).unref?.())
   ]);
-  if (!record) return null;
-  const view = receipt.records?.[0] ?? write.records[0];
+  if (!readBack) return null;
+  const view = receipt.records?.[0] ?? write.records[0] ?? await readBack();
   if (!view) throw new GatewayOperationError("invalid_operation_response", "The replica confirmed the write without the resulting record.");
   return view;
 }
