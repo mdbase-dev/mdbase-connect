@@ -205,11 +205,11 @@ importers:
         specifier: workspace:*
         version: link:../../packages/i18n
       '@mdbase-dev/sdk':
-        specifier: file:vendor/sdk-441bd009-production-beta169.tgz
-        version: file:apps/editor/vendor/sdk-441bd009-production-beta169.tgz
+        specifier: file:vendor/sdk-19197d2c-production-beta173.tgz
+        version: file:apps/editor/vendor/sdk-19197d2c-production-beta173.tgz
       '@mdbase-dev/ui':
         specifier: 0.1.0-beta.167
-        version: 0.1.0-beta.167(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-441bd009-production-beta169.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        version: 0.1.0-beta.167(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-19197d2c-production-beta173.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@mdbase/connect-ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -2308,9 +2308,9 @@ packages:
     bundledDependencies:
       - '@mdbase-dev/connect-protocol'
 
-  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-441bd009-production-beta169.tgz':
-    resolution: {integrity: sha512-I0F40wDR0ILOfwDQ6VUAtbkWVJUNIF/dzEE/qIF2BY3rtf4USt/hazr5+cWd0yzieWJufDmfW8lDcIPn1S/oYA==, tarball: file:apps/editor/vendor/sdk-441bd009-production-beta169.tgz}
-    version: 0.1.0-beta.169
+  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-19197d2c-production-beta173.tgz':
+    resolution: {integrity: sha512-fP2/jO21hgly84qeXYfFUrIu+PRKi8tsJ80ezAjnhWbQSsXQWuTsT5myfiNiSDAp0ohJLbT3O7t1R+HenkPPLw==, tarball: file:apps/editor/vendor/sdk-19197d2c-production-beta173.tgz}
+    version: 0.1.0-beta.173
     engines: {node: '>=20'}
     bundledDependencies:
       - '@mdbase-dev/connect-protocol'
@@ -8161,7 +8161,7 @@ snapshots:
       '@noble/curves': 2.4.0
       '@noble/hashes': 2.4.0
 
-  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-441bd009-production-beta169.tgz':
+  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-19197d2c-production-beta173.tgz':
     dependencies:
       '@noble/ciphers': 2.4.0
       '@noble/curves': 2.4.0
@@ -8173,7 +8173,7 @@ snapshots:
       '@noble/curves': 2.4.0
       '@noble/hashes': 2.4.0
 
-  '@mdbase-dev/ui@0.1.0-beta.167(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-441bd009-production-beta169.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@mdbase-dev/ui@0.1.0-beta.167(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-19197d2c-production-beta173.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@fontsource/azeret-mono': 5.3.0
       '@fontsource/ibm-plex-sans': 5.3.0
@@ -8187,7 +8187,7 @@ snapshots:
       '@codemirror/state': 6.7.5
       '@codemirror/view': 6.43.12
       '@lezer/common': 1.5.2
-      '@mdbase-dev/sdk': file:apps/editor/vendor/sdk-441bd009-production-beta169.tgz
+      '@mdbase-dev/sdk': file:apps/editor/vendor/sdk-19197d2c-production-beta173.tgz
       react-dom: 19.3.0(react@19.3.0)
 
   '@messageformat/date-skeleton@1.1.0': {}
