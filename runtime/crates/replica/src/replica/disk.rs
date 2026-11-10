@@ -35,8 +35,8 @@ use crate::convert;
 use crate::layer::LayerView;
 use crate::plan::{StoreView, effect_keys, mutation_keys};
 use crate::store::{
-    Content, Drift, Expect, Observation, ObservationId, Observed, PendingRow, Provenance, Publish,
-    Store, StoreError, Tx, meta_keys,
+    Content, Drift, Expect, Observation, ObservationId, Observed, Page, PendingRow, Provenance,
+    Publish, Store, StoreError, Tx, meta_keys,
 };
 
 /// Native disk convenience only. Async hosts retain/poll the original future.
@@ -410,20 +410,40 @@ impl<S: Store> Replica<S> {
         if !self.store.has_files() {
             return Ok(());
         }
-        let mut wanted: BTreeMap<String, DiskKey> = BTreeMap::new();
+        // Path -> the key the local view has there and, for a record, the
+        // revision of the document it shows.
+        let mut wanted: BTreeMap<String, (DiskKey, Option<Hash>)> = BTreeMap::new();
         {
+            // The local view's records by ID, each read once: the confirmed
+            // rows the layer leaves alone, then the layer's own.
+            let mut records = BTreeMap::new();
+            let mut after = None;
+            loop {
+                let page = self.store.records(Page { after, limit: 1024 })?;
+                let Some(last) = page.last() else {
+                    break;
+                };
+                after = Some(last.id);
+                for row in page {
+                    let id = convert::uuid(&row.id);
+                    if self.layer.record_change(&id).is_none() {
+                        records.insert(id, (row.path, rev(&row.doc)));
+                    }
+                }
+            }
+            for r in self.layer.record_changes().filter_map(|(_, r)| r.as_ref()) {
+                records.insert(r.id, (r.path.clone(), rev(&r.source)));
+            }
+            for (id, (path, shows)) in records {
+                wanted.insert(path, (DiskKey::Record(convert::wuuid(&id)), Some(shows)));
+            }
             let view = StoreView::new(&self.store, self.catalog.clone());
             let lv = LayerView {
                 base: &view,
                 layer: &self.layer,
             };
-            for id in lv.record_ids() {
-                if let Some(r) = lv.record(&id) {
-                    wanted.insert(r.path, DiskKey::Record(convert::wuuid(&id)));
-                }
-            }
             for p in lv.resource_paths() {
-                wanted.insert(p.clone(), DiskKey::Resource(p));
+                wanted.insert(p.clone(), (DiskKey::Resource(p), None));
             }
             if let Some(e) = view.error() {
                 return Err(e);
@@ -432,8 +452,14 @@ impl<S: Store> Replica<S> {
         let known: BTreeMap<String, Hash> = self.store.disk_paths()?.into_iter().collect();
         let held: std::collections::BTreeSet<String> =
             self.store.holds()?.into_iter().map(|h| h.path).collect();
-        for (path, key) in &wanted {
-            let shown = known.get(path).map(|r| Shown {
+        for (path, (key, shows)) in &wanted {
+            let on_disk = known.get(path);
+            // A record whose file already holds what the view shows needs no
+            // publish, unless something was captured for it before this call.
+            if shows.is_some() && on_disk == shows.as_ref() && !self.before.contains_key(key) {
+                continue;
+            }
+            let shown = on_disk.map(|r| Shown {
                 path: path.clone(),
                 rev: *r,
             });
