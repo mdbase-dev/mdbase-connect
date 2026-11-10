@@ -63,11 +63,13 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
         })
     }
 
+    /// Every included regular file under `dir`, with the metadata its listing
+    /// carried ([`crate::platform::DirEntry::meta`]).
     pub(super) async fn walk(
         &self,
         dir: &RelPath,
         settings: &Option<FileInclusion>,
-        out: &mut BTreeSet<String>,
+        out: &mut BTreeMap<String, Option<FileMeta>>,
         unsupported: &mut BTreeMap<String, String>,
     ) -> StoreResult<()> {
         let mut dirs = vec![dir.clone()];
@@ -112,7 +114,7 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
                 } else if e.kind == FileKind::Dir {
                     dirs.push(p);
                 } else {
-                    out.insert(p.as_str().to_string());
+                    out.insert(p.as_str().to_string(), e.meta);
                 }
             }
         }

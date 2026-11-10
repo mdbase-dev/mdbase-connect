@@ -15,6 +15,8 @@ mod native_snapshot;
 mod query_differential;
 #[path = "native/record_pages.rs"]
 mod record_pages;
+#[path = "native/rescan_cost.rs"]
+mod rescan_cost;
 #[path = "native/resource_list.rs"]
 mod resource_list;
 #[path = "native/sql_content.rs"]
@@ -1697,6 +1699,38 @@ fn platform_never_follows_a_symlink_in_any_component() {
         b"inside"
     );
     assert_eq!(fs::read(root.join("inside/real.md")).unwrap(), b"inside");
+}
+
+/// A listing carries what `stat` reports for each regular file and nothing for
+/// any other entry: a link is named, never looked through.
+#[cfg(unix)]
+#[test]
+fn a_listing_carries_the_stat_of_each_regular_file_and_of_nothing_else() {
+    use mdbn_store_file::platform::FileKind;
+    let (root, _outside) = linked_fixture("links-listing-meta");
+    fs::write(root.join("top.md"), b"top").unwrap();
+    let p = platform(&root);
+    let t = Timers::default();
+    let mut files = Vec::new();
+    for dir in ["", "inside"] {
+        let dir = if dir.is_empty() {
+            RelPath::ROOT
+        } else {
+            rp(dir)
+        };
+        for e in run_ready(&t, p.list(&dir)).unwrap().unwrap() {
+            let path = dir.join(&e.name).unwrap();
+            if e.kind == FileKind::File {
+                let stat = run_ready(&t, p.stat(&path)).unwrap().unwrap();
+                assert_eq!(stat.kind, FileKind::File, "{path:?}");
+                assert_eq!(e.meta, Some(stat), "{path:?}");
+                files.push(path.as_str().to_string());
+            } else {
+                assert_eq!(e.meta, None, "{path:?}");
+            }
+        }
+    }
+    assert_eq!(files, ["top.md", "inside/real.md"]);
 }
 
 /// Symlink confinement through the file store: a full scan and explicit events never ingest

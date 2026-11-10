@@ -124,6 +124,7 @@ pub(super) fn completion(done: &Value) -> FileOpResult {
                 .map(|v| DirEntry {
                     name: v["name"].as_str().unwrap().into(),
                     kind: kind(&v["kind"]),
+                    meta: None,
                 })
                 .collect(),
         ),

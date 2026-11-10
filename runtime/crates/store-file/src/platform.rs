@@ -188,6 +188,13 @@ pub struct DirEntry {
     pub name: String,
     /// What it is. Symlinks are [`FileKind::Symlink`] and are not followed.
     pub kind: FileKind,
+    /// What [`FilePlatform::stat`] would report for a regular file, where the
+    /// platform can take it through the handle it lists the directory with
+    /// (Linux, macOS). A full scan then needs no second path resolution per
+    /// file. `None`: the store asks with `stat`, as for every entry of a
+    /// platform that cannot (Windows needs a handle per file for the file ID;
+    /// a queued host lists names only).
+    pub meta: Option<FileMeta>,
 }
 
 /// Bytes plus the metadata of the file they were read from.
@@ -573,7 +580,7 @@ pub trait FilePlatform {
     }
 
     /// Entries of a directory, in any order (the store sorts). Symlinks are
-    /// listed as [`FileKind::Symlink`].
+    /// listed as [`FileKind::Symlink`]. See [`DirEntry::meta`].
     fn list(&self, dir: &RelPath) -> impl Future<Output = FsResult<Vec<DirEntry>>>;
 
     // ---- writing (all strategies) ---------------------------------------

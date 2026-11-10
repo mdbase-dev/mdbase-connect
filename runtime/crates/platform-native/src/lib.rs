@@ -53,3 +53,5 @@ mod windows;
 pub use native::{NativePlatform, OpenOptions, PlatformDiagnostics};
 #[cfg(feature = "sqlite")]
 pub use sqlite::{SqliteIndex, SqliteJournal};
+#[cfg(unix)]
+pub use unix::Syscalls;

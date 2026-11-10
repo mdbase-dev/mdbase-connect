@@ -2,6 +2,15 @@
 
 use super::*;
 
+/// How a path came to be checked in one pass.
+enum Source {
+    /// The store's own state or the watcher named it: inclusion is tested first.
+    Known,
+    /// This pass's walk listed it, having tested inclusion and the name, with
+    /// the metadata the listing carried.
+    Walked(Option<FileMeta>),
+}
+
 impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
     /// Start a retained observation scan with captured paths. Pending exclusively
     /// borrows this store; poll the same owner after original host IO completes.
@@ -53,13 +62,12 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
         self.settle_retained(changes).await?;
         self.deliver_evidence(out).await?;
         let settings = self.inner.settings()?;
-        // Path -> whether the walk already checked inclusion.
-        let mut todo: BTreeMap<String, bool> = BTreeMap::new();
+        let mut todo: BTreeMap<String, Source> = BTreeMap::new();
         match paths {
-            Some(ps) => todo.extend(ps.iter().map(|p| (p.clone(), false))),
+            Some(ps) => todo.extend(ps.iter().map(|p| (p.clone(), Source::Known))),
             None => {
                 if self.rescan {
-                    let mut found = BTreeSet::new();
+                    let mut found = BTreeMap::new();
                     let mut unsupported = BTreeMap::new();
                     self.walk(&RelPath::ROOT, &settings, &mut found, &mut unsupported)
                         .await?;
@@ -69,16 +77,16 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
                         self.stats
                             .unsupported_paths
                             .iter()
-                            .filter(|(path, _)| found.contains(*path))
+                            .filter(|(path, _)| found.contains_key(*path))
                             .map(|(path, reason)| (path.clone(), reason.clone())),
                     );
                     self.stats.unsupported_paths = unsupported;
                     for p in self.disk.keys().chain(self.seen.keys()) {
-                        if !found.contains(p) {
-                            todo.insert(p.clone(), false);
+                        if !found.contains_key(p) {
+                            todo.insert(p.clone(), Source::Known);
                         }
                     }
-                    todo.extend(found.into_iter().map(|p| (p, true)));
+                    todo.extend(found.into_iter().map(|(p, meta)| (p, Source::Walked(meta))));
                 }
                 let due: Vec<String> = self
                     .dirty
@@ -87,25 +95,29 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
                     .map(|(p, _)| p.clone())
                     .collect();
                 for p in due {
-                    todo.entry(p).or_insert(false);
+                    todo.entry(p).or_insert(Source::Known);
                 }
             }
         }
-        for (p, walked) in todo {
+        for (p, source) in todo {
             // Preserve the completed quiet window before retiring its marker.
             let quiet_recheck = self.dirty.get(&p).is_some_and(|due| *due <= now_ms);
             if quiet_recheck {
                 self.dirty.remove(&p);
             }
-            if !walked {
-                let Ok(rp) = RelPath::new(p.clone()) else {
-                    continue;
-                };
-                if self.excluded(&rp, &settings) {
-                    continue;
+            let listed = match source {
+                Source::Walked(meta) => meta,
+                Source::Known => {
+                    let Ok(rp) = RelPath::new(p.clone()) else {
+                        continue;
+                    };
+                    if self.excluded(&rp, &settings) {
+                        continue;
+                    }
+                    None
                 }
-            }
-            self.check_path(&p, &settings, changes, out, quiet_recheck)
+            };
+            self.check_path(&p, &settings, changes, out, quiet_recheck, listed)
                 .await?;
         }
         self.settle_moves(changes, out).await?;

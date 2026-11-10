@@ -1338,6 +1338,96 @@ fn publish_then_external_edit_round_trip() {
     }
 }
 
+/// What one store reports for a new file, an edit of it and a rescan with
+/// nothing changed, with the per-file `stat`s it issued for that last rescan.
+fn ingest_edit_rescan(listed_meta: bool) -> (Vec<(String, Option<String>)>, usize) {
+    let w = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);
+    w.p.listed_meta.set(listed_meta);
+    let mut s = w.open();
+    let mut reported = Vec::new();
+    let mut pass = |s: &mut Fs| {
+        s.request_rescan();
+        let obs = settle_obs(&w, s);
+        reported.extend(
+            obs.iter()
+                .map(|o| (o.path.clone(), text(o).map(String::from))),
+        );
+        ack(s, &obs);
+    };
+    w.p.fs.write_replace("notes/a.md", b"one\n").unwrap();
+    w.p.fs.write_replace("notes/b.md", b"b\n").unwrap();
+    pass(&mut s);
+    w.p.fs.write_in_place("notes/a.md", b"two\n").unwrap();
+    pass(&mut s);
+    w.p.fs.unlink("notes/b.md");
+    pass(&mut s);
+    let from = w.p.fs.log().len();
+    pass(&mut s);
+    let stats = w.p.fs.log()[from..]
+        .iter()
+        .filter(|op| op.contains(" stat notes/"))
+        .count();
+    (reported, stats)
+}
+
+/// A listing that carries metadata ([`crate::platform::DirEntry::meta`])
+/// replaces the `stat` of each listed file and changes nothing reported.
+#[test]
+fn listed_metadata_replaces_the_stat_of_each_file_and_reports_the_same() {
+    let (by_stat, stats) = ingest_edit_rescan(false);
+    let (by_listing, listed_stats) = ingest_edit_rescan(true);
+    assert_eq!(
+        by_stat,
+        [
+            ("notes/a.md".to_string(), Some("one\n".to_string())),
+            ("notes/b.md".to_string(), Some("b\n".to_string())),
+            ("notes/a.md".to_string(), Some("two\n".to_string())),
+            ("notes/b.md".to_string(), None),
+        ]
+    );
+    assert_eq!(by_listing, by_stat);
+    // One scan of the one file left.
+    assert_eq!((stats, listed_stats), (1, 0));
+}
+
+/// The metadata of a listing is older than a `stat` at the file would be. A
+/// file that changes between its listing and its read is not reported from
+/// that read: it waits for quiet and is read again, as when it changes
+/// between a `stat` and the read.
+#[test]
+fn a_file_changed_between_its_listing_and_its_read_is_read_again() {
+    let w = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);
+    w.p.listed_meta.set(true);
+    let mut s = w.open();
+    w.p.fs.write_replace("notes/a.md", b"one\n").unwrap();
+    let changed = Rc::new(Cell::new(false));
+    for n in w.p.fs.ops()..w.p.fs.ops() + 64 {
+        let changed = changed.clone();
+        w.p.fs.before_op(n, move |fs| {
+            let reading = fs
+                .log()
+                .last()
+                .is_some_and(|op| op.ends_with(" read notes/a.md"));
+            if reading && !changed.replace(true) {
+                fs.write_in_place("notes/a.md", b"two\n").unwrap();
+            }
+        });
+    }
+    s.request_rescan();
+    let from = w.p.fs.log().len();
+    assert!(s.observe(None).unwrap().is_empty());
+    assert!(changed.get());
+    assert!(
+        !w.p.fs.log()[from..]
+            .iter()
+            .any(|op| op.contains(" stat notes/a.md")),
+        "the listing's metadata was used"
+    );
+    let obs = settle_obs(&w, &mut s);
+    assert_eq!(obs.len(), 1, "{obs:?}");
+    assert_eq!(text(&obs[0]), Some("two\n"));
+}
+
 #[test]
 fn drift_reports_and_keeps_user_bytes() {
     for strategy in ALL {
