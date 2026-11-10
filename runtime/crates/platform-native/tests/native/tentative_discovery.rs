@@ -420,7 +420,9 @@ fn tentative_discovery_sync_and_reopen_backfill_preserve_original_sources() {
     drop(index);
     let (mut app, session, _) = open(&path, probe);
     assert!(app.keyring_rebuilding());
-    refused(&mut app, session);
+    // The stored policy records this device as keyed, so a reopened store
+    // serves the views it already holds while the keyring rebuilds.
+    assert_eq!(views(&mut app, session), identities);
     settle(&mut app, &service);
     assert_eq!(app.store().head().unwrap(), head, "backfill is index-only");
     check(&mut app, session);
