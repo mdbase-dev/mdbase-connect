@@ -75,6 +75,19 @@ pipeline change can be reverted on its own:
 The relay keeps accepting old connectors (Keep). Query Q4 below still shows
 whether any are left.
 
+Two pieces of coverage for code that is still deployed went with the consumers:
+
+- **Hosted-to-local authority promotion, end to end.** The provider suite's
+  promotion scenario drove the legacy CLI's `mirror promote` and the portal's
+  "Move main copy" page in a browser. The provider's fence, prove, complete and
+  cancel steps are still tested at the API level, and the server keeps its unit
+  and Postgres tests, but nothing opens the confirmation page any more. Only a
+  legacy account can reach that flow; it goes in 2a.
+- **Durable history for the provider performance observation.** The monthly
+  observation still runs and uploads its raw result as a workflow artifact, but
+  the normalising and `performance-history` publishing steps went with
+  `scripts/performance-results.mjs`.
+
 ## Tier 2: blocked on a production condition
 
 Three conditions apply, and each releases its own set of units. 2a and 2b are

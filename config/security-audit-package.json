@@ -67,7 +67,9 @@
         "packages/client/src/crypto.ts",
         "services/server/src/features/relay/relay.ts",
         "runtime/crates/daemon/src/relay.rs",
-        "runtime/crates/daemon/src/pipes.rs"
+        "runtime/crates/daemon/src/pipes.rs",
+        "runtime/crates/daemon/src/server/relay_host.rs",
+        "runtime/crates/daemon/src/authority.rs"
       ],
       "tests": [
         "packages/client/src/crypto.test.ts",
@@ -84,10 +86,13 @@
       "authority": "The user-owned connector is the final authorization and filesystem boundary for computer-owned collections.",
       "sources": [
         "runtime/crates/daemon/src/access.rs",
-        "runtime/crates/daemon/src/server/grants.rs"
+        "runtime/crates/daemon/src/authority.rs",
+        "runtime/crates/replica/src/replica/local.rs",
+        "runtime/crates/replica/src/policy/op_capability.rs"
       ],
       "tests": [
         "runtime/crates/daemon/src/server_grant_session_tests.rs",
+        "runtime/crates/replica/src/policy/tests.rs",
         "scripts/next-e2e.mjs"
       ],
       "fixtures": [
