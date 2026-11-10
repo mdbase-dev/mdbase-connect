@@ -265,7 +265,7 @@ account. It is **keyed** once it receives a key (`sealed-envelope.md` §5.3).
 |---|---|---|---|---|
 | `desktop` | the desktop daemon | a member | if role ≥ editor | |
 | `mobile` | the Obsidian runtime on mobile | a member | if role ≥ editor | |
-| `app-runtime` | a first-party app hosting a replica (shared runtime, web app with offline replica) | a member | if role ≥ editor | requires the app to hold `offline.replica` (§5) |
+| `app-runtime` | an app hosting a replica (shared runtime, web app with offline replica) | a member | if role ≥ editor | requires the app to hold `offline.replica` (§5) |
 | `cli` | a headless replica | a member | if role ≥ editor | |
 | `hosted` | the hosted replica | service (all-zero) | yes, in cloud-copy state; for itself and for grants | only while the state is `cloud-copy` |
 | `escrow` | the escrow service | service (all-zero) | **no** | cloud-copy only; may append `rekey` and `key_grant` only; approved-account device delivery when hosted is unavailable |
@@ -346,7 +346,7 @@ these contracts:
 | `views.manage` | `submit` | operations on saved-view sources: records of a view type, or files in a view source format (spec 12 saved views) |
 | `definitions.manage` | `submit` | `resource_put`, `resource_delete`, `sync_settings` |
 | `background.schedule` | none on a replica: the control plane's timer service (`timer-service-api.md`) and push channel registration check it | — |
-| `offline.replica` | — | permits enrolling an `app-runtime` device for the app; **first-party apps only** |
+| `offline.replica` | — | permits enrolling an `app-runtime` device for the app; any app may declare it, and the member's consent decides (below) |
 
 - **Private app grants use account consent alone** (§5.1). The control plane
   authors the `grant` op. A signed-in serving device automatically materializes
@@ -362,15 +362,24 @@ these contracts:
   - replicas apply the same check at replay (§6.2, V6).
 - **A grant never carries a key** (non-negotiable 5). The app reaches a replica over
   the client API, and the replica enforces the grant.
-- **`offline.replica` is the one exception that turns an app into a device**, and only
-  first-party runtimes may hold it. A third-party app that wants offline work talks to
-  the local daemon.
+- **`offline.replica` is the one exception that turns an app into a device.** Any app
+  may declare it:
+  - the control plane cannot verify who published an app, so there is no first-party
+    check. The member's explicit consent, per collection, is the control;
+  - in an `e2e` collection the app's device holds the collection key. A member who
+    unlocks it there with their encryption password or recovery key also shows the app
+    their account key (§4.2, `recovery`), which is account-wide;
+  - removing the app stops its device (`device-revoke`) but takes back neither key.
+    The consent screen must say that the app will ask for the encryption password and
+    should be allowed only if the member trusts it with that password;
+  - an app that does not need to work without the daemon talks to the local daemon
+    instead and holds no key.
 - **A grant is bounded by its granting member's role.** If the member is removed or
   becomes a viewer, write capabilities stop at that position.
 - **No time expiry in the log.** Expiry would need a clock at replay. The control plane
   appends `grant-revoke` when a grant expires or the user revokes it. Session lifetimes
   are bounded separately, in the client API.
-- **Who needs a grant.** First-party apps that *host* the runtime (TaskNotes and
+- **Who needs a grant.** Apps that *host* the runtime (TaskNotes and
   mdbase-obsidian sharing a runtime, the desktop app over its own daemon) act as the
   device and need none. Every other client of a replica (local IPC apps, plugins
   attached as clients, remote thin clients, MCP) needs one.

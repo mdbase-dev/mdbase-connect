@@ -160,6 +160,11 @@ interface BuildOptions {
 }
 
 export async function buildApp(options: BuildOptions) {
+  // An installation opens a Private collection with the account key. The account-key
+  // routes mount only with the rate-limit secret (below); without them consent and
+  // enrol would succeed and the collection could never open.
+  if (options.nextControlPlane?.privateAppDevices && !options.authRateLimitSecret)
+    throw new Error("MDBASE_NEXT_PRIVATE_APP_DEVICES=1 requires MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET: the account-key routes are not mounted without it.");
   if (options.nextControlPlane?.labFixtures) validateLabFixtureConfig(
     options.nextControlPlane.labFixtures, options.environment, options.publicUrl ?? ""
   );
@@ -505,6 +510,7 @@ export async function buildApp(options: BuildOptions) {
     installationDevices: !!options.nextControlPlane,
     nativePolicyEmitter: nextPolicyEmitter,
     installationEnvironment: options.environment,
+    privateDevice: options.nextControlPlane,
     cloudCopy: options.nextControlPlane?.cloudCopyBootstrap ? {
       db:options.db,next:options.nextControlPlane,emitter:nextPolicyEmitter!,
       log:new LogServiceClient(options.nextControlPlane.logService),
@@ -654,7 +660,7 @@ export async function buildApp(options: BuildOptions) {
     registerLocalRollbackBindingRoutes(app, options.db);
     registerLocalTakeoverRoutes(app, { db: options.db, relay, ...(nextPolicyEmitter ? { emitter: nextPolicyEmitter } : {}) });
     registerNextRolloutRoutes(app, options.db);
-    registerCollectionLogTokenRoute(app, { db: options.db, log: nextLog });
+    registerCollectionLogTokenRoute(app, { db: options.db, log: nextLog, privateDevice: options.nextControlPlane });
     registerNoisePipeClientRoute(app, { db: options.db, broker: relayBroker });
     registerNextHostedRoutes(app, { db: options.db, tokens: options.nextControlPlane.serviceTokens, log: nextLog, migrationRouting: options.nextControlPlane.migrationRouting });
     registerLabPitrRoutes(app, { db: options.db, next: options.nextControlPlane, log: nextLog,

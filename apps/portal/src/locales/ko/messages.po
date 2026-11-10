@@ -287,6 +287,10 @@ msgid "{applicationName} needs a {0} type"
 msgstr "{applicationName}에는 {0} 유형이 필요합니다."
 
 #: src/authority-workflows.tsx
+msgid "{appName} on this device will hold the key to the private collections you allow here and will be able to read them. It will ask for your encryption password. Only allow this if you trust {appName} with that password."
+msgstr "이 기기의 {appName}이(가) 여기에서 허용한 비공개 컬렉션의 키를 보관하며 그 내용을 읽을 수 있게 됩니다. 암호화 비밀번호를 입력하라는 요청을 받게 됩니다. {appName}에 그 비밀번호를 맡겨도 된다고 믿는 경우에만 허용하세요."
+
+#: src/authority-workflows.tsx
 msgid "{collectionName} now lives on your computer."
 msgstr "{collectionName}이(가) 이제 내 컴퓨터에 있습니다."
 
@@ -2574,6 +2578,10 @@ msgstr "개인정보 보호"
 msgctxt "Connect interface"
 msgid "Private collection"
 msgstr "비공개 컬렉션"
+
+#: src/authority-workflows.tsx
+msgid "Private collection — key kept on this device"
+msgstr "비공개 컬렉션 — 키를 이 기기에 보관"
 
 #: src/authority-workflows.tsx
 msgid "Private collection — on your computers"
