@@ -16,7 +16,9 @@
 //! - `replica.edit_visible`: update on A, append, B receives + applies, B's
 //!   store shows the new revision (device-to-device, CPU only);
 //! - `replica.catchup_1k`: B offline while A makes 1,000 edits; B catches up;
-//! - `replica.query_tasks_open`: the open-tasks query through `ClientApi`.
+//! - `replica.query_tasks_open`: the open-tasks query through `ClientApi`; the
+//!   note says how many iterations the index answered and how many fell back
+//!   to the per-record path (`Replica::query_stats`).
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -489,9 +491,22 @@ pub fn run(spec: &Spec, iters: usize, out: &mut Vec<Sample>) {
         size,
         "ClientApi::query: type task, status != done, order by due, limit 100 (MemStore)",
     );
+    let before = a.r.query_stats();
     for _ in 0..iters {
         s.time(|| a.query(&open_tasks_query()));
     }
+    let after = a.r.query_stats();
+    s.note.push_str(&format!(
+        "; path: {} indexed, {} per-record fallback{}, {} failed",
+        after.indexed - before.indexed,
+        after.declined - before.declined,
+        after
+            .last_decline
+            .filter(|_| after.declined > before.declined)
+            .map(|why| format!(" ({why})"))
+            .unwrap_or_default(),
+        after.failed - before.failed,
+    ));
     out.push(s);
 
     let mut s = Sample::new(
