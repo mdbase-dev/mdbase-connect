@@ -272,10 +272,16 @@ pub(crate) fn maintenance<I: IndexStorage>(
     // Even an index-only incremental update must preserve backend-verified
     // live/field coverage. In particular, inserting a nonexistent ID cannot
     // retain readiness merely because the caller omitted publication. The scan
-    // runs only while ready: it can only clear readiness, and every page of a
-    // rebuild is already unready, so it would make a backfill quadratic.
-    if update.publish_at.is_none() {
-        out.push(Stmt::new("UPDATE st_qstate SET ready=0 WHERE slot=0 AND ready=1 AND (EXISTS(SELECT 1 FROM st_qrecord q LEFT JOIN st_rec r ON r.id=q.id WHERE r.id IS NULL) OR EXISTS(SELECT 1 FROM st_field f LEFT JOIN st_qspec s ON s.source=f.source AND s.field=f.field LEFT JOIN st_rec r ON r.id=f.id WHERE s.field IS NULL OR r.id IS NULL))", vec![]));
+    // can only clear readiness, so it runs only when this transaction found
+    // the index ready and does not reset it. Every page of a rebuild is
+    // unready, and a whole-index scan per page would make a backfill
+    // quadratic. Decided here, not by a `ready=1` term in the SQL, so it does
+    // not depend on each SQLite engine skipping an uncorrelated subquery.
+    if update.publish_at.is_none()
+        && update.replace_specs.is_none()
+        && existing.as_ref().is_some_and(|s| s.ready)
+    {
+        out.push(Stmt::new("UPDATE st_qstate SET ready=0 WHERE slot=0 AND (EXISTS(SELECT 1 FROM st_qrecord q LEFT JOIN st_rec r ON r.id=q.id WHERE r.id IS NULL) OR EXISTS(SELECT 1 FROM st_field f LEFT JOIN st_qspec s ON s.source=f.source AND s.field=f.field LEFT JOIN st_rec r ON r.id=f.id WHERE s.field IS NULL OR r.id IS NULL))", vec![]));
     }
     if let Some(head) = update.publish_at {
         let expected = if let Some(h) = tx.head {

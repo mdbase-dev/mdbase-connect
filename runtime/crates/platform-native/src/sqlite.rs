@@ -221,6 +221,10 @@ const INDEX_WAL_LIMIT_BYTES: u64 = 4 * 1024 * 1024;
 // page reaches the WAL once per window instead of once per spill, and keeps
 // savepoint (statement) journals in memory; both revert when it closes.
 const WINDOW_OPEN: &str = "PRAGMA cache_size=-65536; PRAGMA temp_store=MEMORY; BEGIN IMMEDIATE;";
+// Prepared statements kept per index connection. One edit and an indexed query
+// use about 54 distinct statements; under rusqlite's default 16 the LRU cycles
+// and every one is prepared again on each edit.
+const STATEMENT_CACHE: usize = 128;
 const CLEAN_TABLE: &str =
     "CREATE TABLE IF NOT EXISTS mdbn_open(k INTEGER PRIMARY KEY, clean INTEGER NOT NULL)";
 impl SqliteIndex {
@@ -229,6 +233,7 @@ impl SqliteIndex {
         let path = path.into();
         let existed = path.exists();
         let (conn, barrier, checkpoints) = open_conn(&path, durability)?;
+        conn.set_prepared_statement_cache_capacity(STATEMENT_CACHE);
         let cache_size: i64 = conn
             .pragma_query_value(None, "cache_size", |r| r.get(0))
             .map_err(index_err)?;
