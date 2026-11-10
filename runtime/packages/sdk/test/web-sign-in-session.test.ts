@@ -492,6 +492,29 @@ describe("shared first-party web sign-in", () => {
     await f.session.openCollection(collectionId); expect(f.session.snapshot().status).toBe("ready");
     await f.session.close();
   });
+  it("a log refused before the open returned is read once: the collection never shows ready", async () => {
+    const f = fixture("paired"), error = new AppCpAuthorityError("unavailable", appServerProblem(403, {error: {code: "invalid_proof"}}));
+    // Refused while the adapter read its setup: no change is sent again for it.
+    f.openCollection.mockImplementationOnce(async () => ({state: "ready", failure: error, connection: f.connection, close: f.closeConnection, subscribe: () => () => {}}));
+    const seen: string[] = []; f.session.subscribe(() => seen.push(f.session.snapshot().status));
+    await f.session.start();
+    const expected = webSignInProblem(error);
+    expect(f.session.snapshot()).toMatchObject({status: "blocked", problem: expected.problem, problemDetail: expected.detail});
+    expect(seen).not.toContain("ready"); expect(f.session.connection()).toBeNull();
+    await vi.waitFor(() => expect(f.closeConnection).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(f.collectionRelease).toHaveBeenCalledOnce());
+    await f.session.close();
+  });
+  it("access that ended before the open returned is read once as well", async () => {
+    const f = fixture("paired");
+    f.openCollection.mockImplementationOnce(async () => ({state: "ready", ended: "forbidden", connection: f.connection, close: f.closeConnection, subscribe: () => () => {}}));
+    const seen: string[] = []; f.session.subscribe(() => seen.push(f.session.snapshot().status));
+    await f.session.start();
+    expect(f.session.snapshot()).toMatchObject({status: "blocked", problem: "access_removed"});
+    expect(seen).not.toContain("ready"); expect(f.session.connection()).toBeNull();
+    await vi.waitFor(() => expect(f.closeConnection).toHaveBeenCalledOnce());
+    await f.session.close();
+  });
   it("after a start from the kept list, the Worker host reads Connect's once the page's next request has run", async () => {
     const f = fixture("paired", "never");
     Object.assign(f.flow, {cachedApprovedCollections: vi.fn(() => [{collectionId, displayName: "My notes", role: "owner" as const, fileActions: []}])});
@@ -530,6 +553,43 @@ describe("shared first-party web sign-in", () => {
       await vi.waitFor(() => expect(f.flow.listApprovedCollections).toHaveBeenCalledOnce());
     } finally {vi.useRealTimers(); await w.close();}
   });
+  it("a list read that did not happen is tried again shortly, three times in all", async () => {
+    vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true});
+    const f = fixture("paired", "never");
+    Object.assign(f.flow, {cachedApprovedCollections: vi.fn(() => [{collectionId, displayName: "My notes", role: "owner" as const, fileActions: []}])});
+    f.flow.listApprovedCollections.mockRejectedValue(new AppInstallationSignInError("unavailable"));
+    const w = workerFixture(f);
+    try {
+      w.send(1, "start");
+      await vi.waitFor(() => expect(w.frames.find(frame => frame[2] === "reply" && frame[3] === 1)?.[4]).toMatchObject({ok: true}));
+      await vi.advanceTimersByTimeAsync(2_100);
+      await vi.waitFor(() => expect(f.flow.listApprovedCollections).toHaveBeenCalledOnce());
+      expect(f.session.collectionListCached()).toBe(true); // the failed read changed nothing
+      await vi.advanceTimersByTimeAsync(2_100);
+      await vi.waitFor(() => expect(f.flow.listApprovedCollections).toHaveBeenCalledTimes(2));
+      await vi.advanceTimersByTimeAsync(2_100);
+      await vi.waitFor(() => expect(f.flow.listApprovedCollections).toHaveBeenCalledTimes(3));
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(f.flow.listApprovedCollections).toHaveBeenCalledTimes(3); // then left to the next show or reconnect
+      expect(f.session.snapshot()).toMatchObject({status: "unselected", problem: null});
+    } finally {vi.useRealTimers(); await w.close();}
+  });
+  it("a list read that succeeds on the second try is not asked for again", async () => {
+    vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true});
+    const f = fixture("paired", "never");
+    Object.assign(f.flow, {cachedApprovedCollections: vi.fn(() => [{collectionId, displayName: "My notes", role: "owner" as const, fileActions: []}])});
+    f.flow.listApprovedCollections.mockRejectedValueOnce(new AppInstallationSignInError("unavailable"));
+    const w = workerFixture(f);
+    try {
+      w.send(1, "start");
+      await vi.waitFor(() => expect(w.frames.find(frame => frame[2] === "reply" && frame[3] === 1)?.[4]).toMatchObject({ok: true}));
+      await vi.advanceTimersByTimeAsync(4_300);
+      await vi.waitFor(() => expect(f.flow.listApprovedCollections).toHaveBeenCalledTimes(2));
+      await vi.waitFor(() => expect(f.session.collectionListCached()).toBe(false));
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(f.flow.listApprovedCollections).toHaveBeenCalledTimes(2);
+    } finally {vi.useRealTimers(); await w.close();}
+  });
   it("a start that already opened the only collection reads Connect's list straight after", async () => {
     const f = fixture("paired");
     Object.assign(f.flow, {cachedApprovedCollections: vi.fn(() => [{collectionId, displayName: "My notes", role: "owner" as const, fileActions: []}])});
@@ -539,6 +599,8 @@ describe("shared first-party web sign-in", () => {
       await vi.waitFor(() => expect(w.frames.find(frame => frame[2] === "reply" && frame[3] === 1)?.[4]).toMatchObject({ok: true}));
       expect(f.session.connection()).toBe(f.connection);
       await vi.waitFor(() => expect(f.flow.listApprovedCollections).toHaveBeenCalledOnce());
+      // After the open, not before it: the list no longer stands in the way.
+      expect(f.openCollection.mock.invocationCallOrder[0]!).toBeLessThan(f.flow.listApprovedCollections.mock.invocationCallOrder[0]!);
       expect(f.session.connection()).toBe(f.connection);
     } finally {await w.close();}
   });

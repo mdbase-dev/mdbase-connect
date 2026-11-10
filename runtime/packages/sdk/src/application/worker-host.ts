@@ -39,7 +39,7 @@ function wipeUnlockSecret(request:unknown):void {
 export const APPLICATION_WORKER_MAX_CLIENTS=32;
 /** After a start that showed the kept collection list with nothing open and no
  * request following: how long before Connect's list is read anyway. */
-const LIST_CONFIRM_MS=2_000;
+const LIST_CONFIRM_MS=2_000,LIST_CONFIRM_TRIES=3;
 interface HostClient {
   readonly port:MessagePort;readonly binding:string;readonly primary:boolean;
   lastId:number;foreground:boolean;gone:boolean;
@@ -81,7 +81,7 @@ export class ApplicationWorkerHost {
   private readonly appliedForeground=new Map<string,string>();private sessionForeground:boolean|null=null;
   private collecting=false;private revalidationQueued=false;
   /** A signed-in start showed the kept collection list; Connect's is read once. */
-  private listConfirm:"idle"|"armed"|"done"="idle";private listTimer:ReturnType<typeof setTimeout>|null=null;
+  private listConfirm:"idle"|"armed"|"done"="idle";private listTimer:ReturnType<typeof setTimeout>|null=null;private listAttempts=0;
   private nativeRpc=0;
   private nativeWait:{rpc:number;id:number;client:HostClient;resolve(value:NativeAuthorizationResult):void;reject(error:unknown):void}|null=null;
   /** The latest proxy portal's person-closed report (page `approvalClosed`). */
@@ -378,7 +378,18 @@ export class ApplicationWorkerHost {
     }else if(this.listConfirm!=="armed")return;
     if(this.listTimer!==null)clearTimeout(this.listTimer);this.listTimer=null;
     this.listConfirm="done";
-    if(this.session.collectionListCached())this.revalidateForeground(false);
+    if(!this.session.collectionListCached())return;
+    const attempt=++this.listAttempts;
+    this.queue.push({client:null,request:null,job:async()=>{
+      try{if(this.session.getSnapshot().signIn?.state==="paired")await this.session.refreshCollectionList();}catch{/* a failed read changes nothing */}
+      // Not read after all (the session was busy, or the read failed): look
+      // again shortly, a few times. Showing the app again or coming back
+      // online reads the list as well.
+      if(this.stopping||!this.session.collectionListCached()||attempt>=LIST_CONFIRM_TRIES)return;
+      this.listConfirm="armed";
+      this.listTimer=setTimeout(()=>{this.listTimer=null;this.confirmListing("timer");},LIST_CONFIRM_MS);
+    }});
+    this.pump();
   }
   /** `wake`: a page reported visible/focus/online, so a visible connection
    * syncs now even if it was already in the foreground. `report`: a tab told

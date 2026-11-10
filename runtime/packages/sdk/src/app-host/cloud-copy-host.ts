@@ -938,6 +938,15 @@ export class AppWebCloudCopyHost {
             return null;
         }
     }
+    /** For a collection opened before its log: has the reopened replica its
+     * keys back from the log's control prefix? `failed` is what a waited open
+     * refuses as `recovery_required`. */
+    keyringSettled(): "pending" | "failed" | "settled" {
+        if (!this.native) throw fail("binding");
+        const observation = this.native.observations();
+        if (observation.requiresReopen || observation.keyringRebuildFailed) return "failed";
+        return observation.keyringRebuilding ? "pending" : "settled";
+    }
     /** Local writes not yet confirmed by the log (native sync status). */
     pendingWrites(): number {
         try {

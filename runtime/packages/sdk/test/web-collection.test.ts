@@ -61,7 +61,8 @@ describe("a replica that synced before opens from this device", () => {
     expect(f.trace).toEqual(["join", "sql", "read", "facade", "handoff"]);
     expect(stages).toEqual(["joining", "opening_store", "checking_setup"]);
     expect(f.host.waitForVerifiedRead).toHaveBeenCalledOnce();
-    expect(f.host.waitForVerifiedRead).toHaveBeenCalledWith({signal: expect.any(AbortSignal), local: true, onProgress: expect.any(Function)});
+    // A shorter budget than a waited read: a replica that does not answer falls back sooner.
+    expect(f.host.waitForVerifiedRead).toHaveBeenCalledWith({signal: expect.any(AbortSignal), local: true, timeoutMs: 5_000, onProgress: expect.any(Function)});
     expect(f.host.startCollectionLog).toHaveBeenCalledOnce(); // started alongside, not awaited
     expect(result.state).toBe("setup_required"); expect(result.failure).toBeNull(); expect(result.health).toBeNull(); expect(result.live).toBe(true);
     await new Promise(resolve => setTimeout(resolve, 20));
@@ -75,9 +76,11 @@ describe("a replica that synced before opens from this device", () => {
     await syncedBefore();
     vi.stubGlobal("navigator", {onLine: false});
     const f = fixture();
-    f.host.startCollectionLog.mockRejectedValueOnce(new AppCpAuthorityError("unavailable"));
+    let fail!: (error: unknown) => void;
+    f.host.startCollectionLog.mockImplementationOnce(() => new Promise<void>((_resolve, reject) => {fail = reject;}));
     const result = await f.open(), seen = vi.fn(); result.subscribe!(seen);
     expect(f.trace.at(-1)).toBe("handoff");
+    fail(new AppCpAuthorityError("unavailable")); // answered once someone is listening
     await vi.waitFor(() => expect(result.health).toEqual({kind: "offline"}));
     expect(seen).toHaveBeenCalled(); expect(result.failure).toBeNull(); expect(result.connection.isCurrent()).toBe(true);
     await new Promise(resolve => setTimeout(resolve, 20));
@@ -109,8 +112,10 @@ describe("a replica that synced before opens from this device", () => {
     try {
       await syncedBefore();
       const f = fixture(), error = new AppCpAuthorityError("unavailable", appServerProblem(status, {error: {code: status === 409 ? "not_enrolled" : "invalid_proof"}}));
-      f.host.startCollectionLog.mockRejectedValueOnce(error);
+      let fail!: (error: unknown) => void;
+      f.host.startCollectionLog.mockImplementationOnce(() => new Promise<void>((_resolve, reject) => {fail = reject;}));
       const result = await f.open(), seen = vi.fn(); result.subscribe!(seen);
+      fail(error); // answered once someone is listening
       await vi.waitFor(() => expect(result.failure).toBe(error));
       expect(seen).toHaveBeenCalled(); expect(result.health).toBeNull(); expect(result.problem).toBeNull();
       result.connection.setForeground(true);
@@ -118,6 +123,77 @@ describe("a replica that synced before opens from this device", () => {
       expect(f.host.startCollectionLog).toHaveBeenCalledOnce();
       expect(f.host.driveCollection).not.toHaveBeenCalled();
     } finally { vi.useRealTimers(); }
+  });
+  it("a reply that is not Connect's (a network sign-in page) is unreachable, not a refusal", async () => {
+    vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"], shouldAdvanceTime: true});
+    try {
+      await syncedBefore();
+      const f = fixture();
+      f.host.startCollectionLog.mockRejectedValueOnce(new AppCpAuthorityError("response"));
+      const result = await f.open();
+      await vi.waitFor(() => expect(result.health).toEqual({kind: "unreachable"}));
+      expect(result.failure).toBeNull(); expect(result.connection.isCurrent()).toBe(true);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(f.host.startCollectionLog).toHaveBeenCalledTimes(2);
+      await vi.waitFor(() => expect(f.host.driveCollection).toHaveBeenCalled());
+      expect(result.health).toBeNull(); expect(result.failure).toBeNull();
+    } finally { vi.useRealTimers(); }
+  });
+  it("a replica whose keys do not come back from the log is refused as a waited open refuses it", async () => {
+    await syncedBefore();
+    const f = fixture(), keyringSettled = vi.fn<() => "pending" | "failed" | "settled">(() => "pending");
+    Object.assign(f.host, {keyringSettled});
+    const result = await f.open();
+    await vi.waitFor(() => expect(keyringSettled).toHaveBeenCalled());
+    expect(result.failure).toBeNull();
+    keyringSettled.mockReturnValue("failed");
+    result.connection.setForeground(true);
+    await vi.waitFor(() => expect(result.failure).toMatchObject({name: "AppCloudCopyHostError", reason: "recovery_required"}));
+  });
+  it("stops asking about the keys once they are back", async () => {
+    await syncedBefore();
+    const f = fixture(), keyringSettled = vi.fn<() => "pending" | "failed" | "settled">(() => "settled");
+    Object.assign(f.host, {keyringSettled});
+    const result = await f.open();
+    await vi.waitFor(() => expect(keyringSettled).toHaveBeenCalledOnce());
+    const turns = f.host.driveCollection.mock.calls.length + f.host.wakeCollectionLog.mock.calls.length;
+    result.connection.setForeground(true);
+    await vi.waitFor(() => expect(f.host.driveCollection.mock.calls.length + f.host.wakeCollectionLog.mock.calls.length).toBeGreaterThan(turns));
+    expect(keyringSettled).toHaveBeenCalledOnce(); expect(result.failure).toBeNull();
+  });
+  it("a waited open never asks: its read gate already settled the keys", async () => {
+    const f = fixture(), keyringSettled = vi.fn(() => "failed" as const);
+    Object.assign(f.host, {keyringSettled});
+    const result = await f.open();
+    await vi.waitFor(() => expect(f.host.driveCollection).toHaveBeenCalled());
+    expect(keyringSettled).not.toHaveBeenCalled(); expect(result.failure).toBeNull();
+  });
+  it("work queued before the log is bound binds it at once, in a hidden tab too", async () => {
+    await syncedBefore();
+    const f = fixture(); let work: (() => void) | null = null;
+    Object.assign(f.host, {onLogWork: vi.fn((kick: (() => void) | null) => {work = kick;})});
+    f.host.startCollectionLog.mockRejectedValueOnce(new AppCpAuthorityError("unavailable"));
+    vi.stubGlobal("navigator", {onLine: false});
+    const result = await f.open();
+    await vi.waitFor(() => expect(result.health).toEqual({kind: "offline"}));
+    result.connection.setForeground(false);
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(f.host.startCollectionLog).toHaveBeenCalledOnce(); // hidden and offline: nothing asks again
+    vi.stubGlobal("navigator", {onLine: true});
+    work!(); // a write: the host has log work
+    await vi.waitFor(() => expect(f.host.driveCollection).toHaveBeenCalled());
+    expect(f.host.startCollectionLog).toHaveBeenCalledTimes(2);
+  });
+  it("closing while the token request is still out neither binds nor reports a failure", async () => {
+    await syncedBefore();
+    const f = fixture(); let refuse!: (error: unknown) => void;
+    f.host.startCollectionLog.mockImplementationOnce(() => new Promise<void>((_resolve, reject) => {refuse = reject;}));
+    const result = await f.open(), seen = vi.fn(); result.subscribe!(seen);
+    await result.close(); seen.mockClear();
+    refuse(new AppCpAuthorityError("unavailable", appServerProblem(403, {error: {code: "invalid_proof"}})));
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(seen).not.toHaveBeenCalled(); expect(result.failure).toBeNull();
+    expect(f.host.driveCollection).not.toHaveBeenCalled(); expect(f.host.startCollectionLog).toHaveBeenCalledOnce();
   });
   it("a collection being upgraded stays open with that live problem and is asked again later", async () => {
     vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"], shouldAdvanceTime: true});
@@ -438,7 +514,7 @@ describe("real protected native collection composition", () => {
         .syncedBefore({signal: new AbortController().signal})).toBe(true));
       const g = fixture(); g.host.initialSync.mockReturnValue("offline");
       await g.open(); expect(g.trace.at(-1)).toBe("handoff");
-      expect(g.host.waitForVerifiedRead).toHaveBeenCalledWith({signal: expect.any(AbortSignal), local: true, onProgress: expect.any(Function)});
+      expect(g.host.waitForVerifiedRead).toHaveBeenCalledWith({signal: expect.any(AbortSignal), local: true, timeoutMs: 5_000, onProgress: expect.any(Function)});
     } finally { vi.useRealTimers(); }
   });
   it("never polls the log head on a timer; a foreground event wakes it once; a failed turn does not stop the loop", async () => {

@@ -290,25 +290,39 @@ the replica serves them while it re-derives its keys from the log.
 A bind that fails is sorted once:
 
 - offline, unreachable, 5xx and 429 leave the collection open with `health`
-  set, and the drive loop retries with its usual backoff and on foreground;
+  set, and the drive loop retries with its usual backoff and on foreground. A
+  reply that is not Connect's, such as the sign-in page of a network the device
+  has just joined, counts as unreachable;
 - a server outcome with its own copy (migrating, suspended, update required,
   not yet migrated) shows as the connection's `problem` and is retried slowly;
-- anything else (401/403, other 4xx, a malformed reply) sets the connection's
+- any other answer from Connect (401/403, other 4xx) sets the connection's
   `failure`. The sign-in session then blocks the collection with the same
-  problem a failed open reports and closes it.
+  problem a failed open reports and closes it. It reads `failure` when the open
+  returns as well as on later changes, so a refusal that arrived before the
+  handoff never shows as ready.
 
-An edit made before the bind is an offline edit: it is kept pending and sent
-once the log is bound. If access was removed meanwhile it is never sent.
+Once bound, the replica checks its stored policy against the log while it
+re-derives its keys. A replica that fails that check sets `failure` with
+`recovery_required`, which is what a waited open refuses it with.
 
-If the replica cannot answer the local read, the open takes the ordinary path
-above. Private collections and cold replicas always take it.
+An edit made before the bind is an offline edit and is treated as one: kept
+pending and sent once the log is bound. Nothing here changes what the log does
+with an edit from a device whose access was removed while the app was closed.
+A log token is valid for up to 16 minutes, so such a device can still bind
+with a token it kept; refusing its entries is the log's job, as it was before.
+
+The local read has five seconds. If the replica cannot answer it, the open
+takes the ordinary path above. Private collections and cold replicas always
+take that path.
 
 A signed-in start likewise publishes the collection list this installation kept
 from its last listing, with no request. That list carries no file actions and a
-collection missing from it is not treated as removed. The Worker host reads
-Connect's list once afterwards: straight after a start that already holds a
-collection, otherwise after the page's next request, or after two seconds.
-`collectionListCached()` on the session says which list is showing.
+collection missing from it is not treated as removed. The Worker host then reads
+Connect's list: straight after a start that already holds a collection,
+otherwise after the page's next request, or after two seconds. A read that did
+not happen (the session was busy, or the request failed) is tried again two
+seconds later, three times in all; after that the next show or reconnect reads
+it. `collectionListCached()` on the session says which list is showing.
 
 ## Private collections from web apps
 

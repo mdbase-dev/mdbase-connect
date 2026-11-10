@@ -3178,6 +3178,7 @@ AppWebCloudCopyHost@app-host/cloud-copy-host.ts
   detachDataFacade: (channel: MessagePort) => void
   driveCollection: (options: { signal: AbortSignal; }) => Promise<void>
   initialSync: () => AppInitialSyncWait | null
+  keyringSettled: () => 'pending' | 'failed' | 'settled'
   keyWaitDetail: () => Record<string, string | number> | null
   onLogWork: (listener: (() => void) | null) => void
   openCollectionSql: (options: { signal: AbortSignal; replicaId: string; endpoint: number | bigint; openSql(input: { scope: Readonly<AppReplicaScope>; signal: AbortSignal; }): Promise<{ sql: AppSqlLifetime; opened: AppCloudCopyAdoptionOptions['opened']; sqliteVersion: number; close(): Promise<void>; }>; }) => Promise<void>

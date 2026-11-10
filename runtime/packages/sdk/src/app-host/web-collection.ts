@@ -3,6 +3,7 @@
  * app-private installation controller. Native host retains SQL close LAST. */
 import { appServerOutcome, isAppServerProblem, type AppServerProblem } from "./cp-problem.js";
 import { AppCpAuthorityError } from "./cp-authority.js";
+import { AppCloudCopyHostError } from "./cloud-copy-host.js";
 import { waitForOpenRetry } from "./open-wait.js";
 import { appLogHealth, type AppLogHealth } from "./log-pump.js";
 import type { AppLogPushChannel, AppLogPushEnd } from "./log-push.js";
@@ -28,6 +29,9 @@ const PAUSED_AFTER_MS = 10_000;
 const BACKGROUND_FLUSH_MS = 120_000;
 /** A replica that caught up before waits at most this long for a fresh catch-up. */
 const WARM_SYNC_MS = 2_000;
+/** A read the replica answers by itself takes milliseconds. One that has not
+ * answered by now is abandoned for the ordinary open, which waits for the log. */
+const LOCAL_READ_MS = 5_000;
 /** Only initial log-token busy refusals may schedule these SAME-host retries.
  * Individual challenge/mint calls retain their existing 15 s HTTP deadlines. */
 const INITIAL_LOG_RETRY_MS = 15_000;
@@ -124,6 +128,8 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
     /** That later bind was refused for good (not a network or busy failure).
      * The session blocks the collection as it does for a failed open. */
     let failure: unknown = null;
+    /** Whether a replica opened before its log has its keys back from it. */
+    let keys: "settled" | "pending" | "failed" = "settled";
     let push: AppLogPushChannel | null = null, paused = false, pausing: ReturnType<typeof setTimeout> | null = null, kicked = false;
     /** Access ended on the log (removed, device revoked, collection gone). Terminal. */
     let ended: AppLogPushEnd | null = null;
@@ -240,19 +246,31 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
       await (first ?? startLog()); check();
       logBound = true; openPush();
     };
+    /** A replica opened before its log re-derives its keys in the first turns
+     * and checks its stored policy against the log's. A waited open refuses a
+     * replica that fails that (`recovery_required`); so does this one, late. */
+    const settleKeys = () => {
+      if (keys !== "pending" || !logBound) return;
+      try { keys = host.keyringSettled?.() ?? "settled"; } catch { return; }
+      if (keys === "failed") refuse(new AppCloudCopyHostError("recovery_required"));
+    };
     /** Offline, unreachable or busy: the collection stays open on its local
      * replica and the drive loop tries again, as it does for a failed turn. A
      * server outcome with its own copy (being upgraded, suspended, update
      * required) shows as the live problem. Anything else is a refusal. */
+    const refuse = (error: unknown) => {
+      failure = error; started = false;
+      if (timer !== null) clearTimeout(timer); timer = null;
+      changed();
+    };
     const bindFailed = (error: unknown) => {
       let server: unknown = null; try { server = (error as {server?: unknown}).server; } catch { server = null; }
       const outcome = isAppServerProblem(server) && appServerOutcome(server) !== null ? server : null;
-      const next = outcome ? null : appLogHealth(error);
-      if (!outcome && (next === null || next.kind === "auth")) {
-        failure = error; started = false;
-        if (timer !== null) clearTimeout(timer); timer = null;
-        changed(); return;
-      }
+      // A reply that is not Connect's (a sign-in page from the network the
+      // device has just joined) says nothing about access: unreachable.
+      const foreign = !isAppServerProblem(server) && error instanceof AppCpAuthorityError && error.reason === "response";
+      const next = outcome ? null : foreign ? {kind: "unreachable" as const} : appLogHealth(error);
+      if (!outcome && (next === null || next.kind === "auth")) { refuse(error); return; }
       unhealthy = next ? unhealthy + 1 : 0;
       if (outcome !== problem || JSON.stringify(next) !== JSON.stringify(health)) { problem = outcome; health = next; changed(); }
     };
@@ -270,10 +288,10 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
         if (wake) wakeAt = Number.POSITIVE_INFINITY;
         const work = driving = !logBound ? bindLog().then(() => host.driveCollection({signal: life.signal})) :
           wake ? host.wakeCollectionLog({signal: life.signal}) : host.driveCollection({signal: life.signal});
-        void work.then(() => {if (driving === work) driving = null; failures = 0; turned = true; if (current()) observe(); settleInitial?.(); schedule();},
+        void work.then(() => {if (driving === work) driving = null; failures = 0; turned = true; if (current()) { observe(); settleKeys(); } settleInitial?.(); schedule();},
           // A failed turn (offline token mint, transient fence) backs off and
           // retries; it never silently ends remote-change delivery for the session.
-          error => {if (driving === work) driving = null; failures++; if (current()) { if (logBound) observe(); else bindFailed(error); } turnFailed(error); settleInitial?.(); schedule();});
+          error => {if (driving === work) driving = null; failures++; if (current()) { if (logBound) { observe(); settleKeys(); } else bindFailed(error); } turnFailed(error); settleInitial?.(); schedule();});
       }, wait);
     };
     // Visible (or an online/focus event while visible): wake at once and forget
@@ -412,7 +430,7 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
       // Shown from the replica on this device; the log follows in the drive loop.
       let local = false;
       if (localFirst && !logBound) {
-        try { await host.waitForVerifiedRead({signal: life.signal, local: true, onProgress: report}); check(); local = true; }
+        try { await host.waitForVerifiedRead({signal: life.signal, local: true, timeoutMs: LOCAL_READ_MS, onProgress: report}); check(); local = true; }
         catch {
           // The replica cannot answer by itself: take the ordinary path.
           check();
@@ -428,7 +446,7 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
       host.onLogWork?.(kick);
       if (local) {
         // The first turn binds the log; no socket is live until then.
-        kicked = true; schedule();
+        keys = "pending"; kicked = true; schedule();
         pausing = setTimeout(() => { pausing = null; if (current() && !push?.live) setPaused(true); }, PAUSED_AFTER_MS);
       } else {
         schedule(); openPush();

@@ -543,6 +543,17 @@ describe("owned cloud-copy outcome composition (IDB/native/CP stand-ins, actual 
         expect(c.pump.pump).not.toHaveBeenCalled();
         await c.host.close();
     });
+    it("says whether a replica opened before its log has its keys back", async () => {
+        const c = await readableFixture(), status = c.f.runtime.observations().status;
+        const observed = (o: {requiresReopen?: boolean; keyringRebuildFailed?: boolean; keyringRebuilding?: boolean}) =>
+            c.f.runtime.observations.mockReturnValueOnce({requiresReopen: false, keyringRebuildFailed: false, keyringRebuilding: false, status, ...o});
+        observed({keyringRebuilding: true}); expect(c.host.keyringSettled()).toBe("pending");
+        observed({}); expect(c.host.keyringSettled()).toBe("settled");
+        // What a waited open refuses as recovery_required.
+        observed({keyringRebuildFailed: true}); expect(c.host.keyringSettled()).toBe("failed");
+        observed({requiresReopen: true, keyringRebuilding: true}); expect(c.host.keyringSettled()).toBe("failed");
+        await c.host.close();
+    });
     it("a drive keeps turning while ticks queue log calls, then stops; app writes ask for a drive", async () => {
         const c = await readableFixture();
         await c.host.startCollectionLog({signal: c.options.signal, fetch: vi.fn(async () => Response.json({}))}); await c.host.waitForVerifiedRead({signal: c.options.signal});

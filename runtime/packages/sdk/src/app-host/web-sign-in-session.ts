@@ -844,6 +844,14 @@ export class AppWebSignInSession<Connection> {
       // A locked collection has no log drive: no transport or live state to show.
       this.publishSlot(slot, next.status === "needs_unlock" ? {...next, problem: null, transport: null, live: null} : {...next, ...this.liveProblem(slot, selected)});
     }) ?? null;
+    // The adapter may have ended or been refused before anyone listened (a
+    // replica opened ahead of its log, refused while its setup was read).
+    // That change is not sent again, so look once; such a collection never
+    // reads ready.
+    let ended: "forbidden" | "revoked" | "gone" | null = null; try { ended = selected.ended ?? null; } catch { ended = null; }
+    let failed: unknown = null; try { failed = selected.failure ?? null; } catch { failed = null; }
+    if (ended) { this.accessEnded(slot, selected, ended); return; }
+    if (failed !== null) { this.openFailedLate(slot, selected, failed); return; }
     this.publishSlot(slot, {...first, transport: null, live: null, openingProgress: null});
   }
   /** The adapter's own state, validated: `needs_unlock` only with its lock
