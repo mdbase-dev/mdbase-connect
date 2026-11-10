@@ -22,7 +22,7 @@ use mdbn_store_file::index::{
     SqlValue, Stmt, StmtResult,
 };
 use mdbn_store_file::index_codec::{CodecLimits, IndexRequest, encode_request};
-use mdbn_wire::client::{HelloParams, IncidentKind, Include, SubmitParams};
+use mdbn_wire::client::{HelloParams, IncidentKind, Include, QueryResult, SubmitParams};
 use mdbn_wire::common::{B16, Text, Value, Version};
 use mdbn_wire::intent::{Create, Op, ResourcePut};
 
@@ -37,6 +37,8 @@ struct ProfiledIndex {
     backfill_pages_left: Option<usize>,
     /// Refuse what the Durable Object transport refuses, before any SQL runs.
     hosted_transport: bool,
+    /// While set: every statement run, with the rows it returned.
+    statements: Option<Vec<(String, u64)>>,
 }
 impl IndexStorage for ProfiledIndex {
     fn info(&self) -> IndexInfo {
@@ -84,7 +86,13 @@ impl IndexStorage for ProfiledIndex {
             }
             *left -= 1;
         }
-        self.inner.run(batch)
+        let results = self.inner.run(batch)?;
+        if let Some(log) = &mut self.statements {
+            for (statement, result) in batch.stmts.iter().zip(&results) {
+                log.push((statement.sql.clone(), result.row_count()));
+            }
+        }
+        Ok(results)
     }
 }
 type Store = SqlStore<ProfiledIndex>;
@@ -117,6 +125,7 @@ fn store_and_index(name: &str) -> (Store, Rc<RefCell<ProfiledIndex>>) {
         explain: false,
         backfill_pages_left: None,
         hosted_transport: false,
+        statements: None,
     }));
     (SqlStore::open(index.clone()).unwrap(), index)
 }
@@ -664,6 +673,248 @@ fn budgeted_fallback_refuses_explicitly_and_unbudgeted_answers() {
     };
     assert_eq!(a, 50);
     assert!(b >= 1);
+}
+
+/// The statements one query ran against the index, with the rows each returned.
+fn counted(node: &mut Node, query: Value) -> (QueryResult, Vec<(String, u64)>) {
+    let index = node.r.store().index();
+    index.borrow_mut().statements = Some(Vec::new());
+    let result = node.r.query(node.s, query, none());
+    let log = index.borrow_mut().statements.take().unwrap();
+    (result.expect("query"), log)
+}
+
+/// Statements starting with `sql`, and the rows they returned in total.
+fn ran(log: &[(String, u64)], sql: &str) -> (usize, u64) {
+    let hits = log.iter().filter(|(s, _)| s.starts_with(sql));
+    (hits.clone().count(), hits.map(|(_, rows)| rows).sum())
+}
+
+const SCAN: &str = "SELECT id, row FROM st_rec WHERE id >=";
+const BY_ID: &str = "SELECT row FROM st_rec WHERE id = ?";
+const INDEX_STATE: &str = "SELECT CASE WHEN length(generation)=32";
+const HEAD: &str = "SELECT v FROM st_kv WHERE k = 'head'";
+const SEEK: &str = "SELECT q.id,length(r.row),f0.kind,";
+
+/// The per-record path decodes each row once, in the scan, and never reads a
+/// record again by id: not to evaluate it, and not to build the view of a match.
+#[test]
+fn per_record_queries_read_each_row_once_and_none_by_id() {
+    let svc = FakeLogService::new();
+    let mut node = open(&svc, store("per_record_counts"));
+    seed(&mut node, 300);
+    let types = ("types", Value::List(vec![Value::Text("task".into())]));
+    let cases = [
+        // No limit declines the index; every task matches.
+        (
+            q(&[types.clone(), ("order_by", order("priority", "asc"))]),
+            300,
+        ),
+        // A name search has no index: every record is evaluated, ten match.
+        (
+            q(&[("where", Value::Text("file.name.contains(\"t0001\")".into()))]),
+            10,
+        ),
+        // The same with a window: still one scan, and only the window is returned.
+        (
+            q(&[
+                ("where", Value::Text("file.name.contains(\"t00\")".into())),
+                ("order_by", order("priority", "desc")),
+                ("limit", Value::Int(20)),
+                ("offset", Value::Int(5)),
+            ]),
+            20,
+        ),
+    ];
+    for (query, matches) in cases {
+        let before = node.r.query_stats();
+        let (page, log) = counted(&mut node, query.clone());
+        assert_eq!(node.r.query_stats().declined, before.declined + 1);
+        assert_eq!(page.records.len(), matches, "{query:?}");
+        assert_eq!(ran(&log, SCAN).1, 300, "one decode per row: {query:?}");
+        assert_eq!(ran(&log, BY_ID).0, 0, "no read by id: {query:?}");
+    }
+
+    // A pending edit is read from the layer; only a pending match costs a read
+    // by id, for the position of the confirmed row it overrides.
+    submit(
+        &mut node,
+        vec![create(9001, "tasks/pending.md", task(9001))],
+    );
+    let (page, log) = counted(
+        &mut node,
+        q(&[types, ("order_by", order("priority", "asc"))]),
+    );
+    assert_eq!(page.records.len(), 301);
+    assert_eq!(ran(&log, SCAN).1, 300);
+    assert_eq!(ran(&log, BY_ID), (1, 0));
+}
+
+/// A budgeted host is charged two source copies for each record the per-record
+/// path evaluates, the candidate row and the record parsed from it: its 1,000
+/// copies answer 500 records and refuse 501.
+#[test]
+fn budgeted_per_record_scan_is_charged_two_copies_a_record() {
+    for (count, fits) in [(500, true), (501, false)] {
+        let svc = FakeLogService::new();
+        let mut node = open(&svc, store(&format!("per_record_budget_{count}")));
+        seed(&mut node, count);
+        node.r
+            .set_query_execution_profile(mdbn_replica::QueryExecutionProfile::MemoryConstrained);
+        let before = node.r.query_stats();
+        let all = q(&[("types", Value::List(vec![Value::Text("task".into())]))]);
+        let answer = node.r.query(node.s, all, none());
+        assert_eq!(node.r.query_stats().declined, before.declined + 1);
+        match answer {
+            Ok(page) => assert!(fits && page.records.len() == 500, "{count}"),
+            Err(e) => {
+                assert!(!fits, "{count}: {e:?}");
+                assert_eq!(e.problem().reason.as_deref(), Some("query_budget_exceeded"));
+            }
+        }
+    }
+}
+
+/// A window of the per-record answer is that slice of the whole answer, record
+/// for record, whichever rows the scan had to keep to find it.
+#[test]
+fn per_record_windows_are_slices_of_the_whole_answer() {
+    let svc = FakeLogService::new();
+    let mut node = open(&svc, store("per_record_windows"));
+    seed(&mut node, 300);
+    // Pending edits: a new task, and a confirmed one moved to the other end.
+    submit(
+        &mut node,
+        vec![
+            create(9001, "tasks/t09001.md", task(9001)),
+            Op::Update(mdbn_wire::intent::Update {
+                id: id(150),
+                patch: Some(mdbn_wire::common::DataMap(vec![(
+                    "priority".into(),
+                    Value::Int(-1),
+                )])),
+                unset: None,
+                add: None,
+                remove: None,
+                body: None,
+                body_edits: None,
+                body_base: None,
+                body_base_text: None,
+                base: None,
+                if_revision: None,
+                update_refs: None,
+            }),
+        ],
+    );
+    // `contains` has no index, so these stay on the per-record path with a limit.
+    let name = ("where", Value::Text("file.name.contains(\"t0\")".into()));
+    for sort in [
+        vec![],
+        vec![("order_by", order("priority", "asc"))],
+        vec![("order_by", order("priority", "desc"))],
+        vec![("order_by", order("file.path", "desc"))],
+    ] {
+        let mut query = vec![name.clone()];
+        query.extend(sort);
+        let whole = node.r.query(node.s, q(&query), none()).unwrap();
+        assert_eq!(whole.records.len(), 301);
+        assert_eq!(whole.has_more, Some(false));
+        for (offset, limit) in [
+            (0, 0),
+            (0, 1),
+            (0, 7),
+            (3, 7),
+            (120, 40),
+            (296, 5),
+            (296, 6),
+            (301, 5),
+            (900, 5),
+        ] {
+            let mut windowed = query.clone();
+            windowed.push(("limit", Value::Int(limit as i64)));
+            windowed.push(("offset", Value::Int(offset as i64)));
+            let before = node.r.query_stats();
+            let page = node.r.query(node.s, q(&windowed), none()).unwrap();
+            assert_eq!(node.r.query_stats().declined, before.declined + 1);
+            let start = offset.min(301);
+            let end = (start + limit).min(301);
+            assert_eq!(
+                page.records,
+                whole.records[start..end],
+                "{query:?} offset {offset} limit {limit}"
+            );
+            assert_eq!(page.has_more, Some(end < 301));
+            assert!(page.cursor.is_none());
+        }
+    }
+}
+
+/// The indexed and per-record paths report the same view of each record, not
+/// only the same ids: position, revision and state included, pending or not.
+#[test]
+fn indexed_and_per_record_views_are_equal() {
+    let svc = FakeLogService::new();
+    let mut node = open(&svc, store("indexed_query_views"));
+    seed(&mut node, 120);
+    let query = [
+        ("types", Value::List(vec![Value::Text("task".into())])),
+        ("order_by", order("priority", "desc")),
+    ];
+    let mut windowed = query.to_vec();
+    windowed.push(("limit", Value::Int(50)));
+    let compare = |node: &mut Node| {
+        let before = node.r.query_stats();
+        let indexed = node.r.query(node.s, q(&windowed), none()).unwrap();
+        let whole = node.r.query(node.s, q(&query), none()).unwrap();
+        let after = node.r.query_stats();
+        assert_eq!(
+            (after.indexed, after.declined),
+            (before.indexed + 1, before.declined + 1)
+        );
+        assert_eq!(indexed.records, whole.records[..50]);
+    };
+    compare(&mut node);
+    submit(
+        &mut node,
+        vec![create(
+            9001,
+            "tasks/pending.md",
+            "---\npriority: 6\nstatus: open\n---\nPending\n".into(),
+        )],
+    );
+    compare(&mut node);
+}
+
+/// One indexed page reads the index state and head a fixed number of times and
+/// each returned row once: nothing is checked twice in a row or fetched twice.
+#[test]
+fn an_indexed_page_reads_each_row_and_fence_once() {
+    let svc = FakeLogService::new();
+    let mut node = open(&svc, store("indexed_query_counts"));
+    seed(&mut node, 300);
+    let before = node.r.query_stats();
+    let (page, log) = counted(
+        &mut node,
+        q(&[
+            ("types", Value::List(vec![Value::Text("task".into())])),
+            ("where", Value::Text("status != \"done\"".into())),
+            ("order_by", order("priority", "asc")),
+            ("limit", Value::Int(100)),
+        ]),
+    );
+    assert_eq!(node.r.query_stats().indexed, before.indexed + 1);
+    assert_eq!(page.records.len(), 100);
+    assert!(page.cursor.is_some());
+    // Readiness (three statements each): the request's stamp, the driver, the
+    // selector before and after its seek, and the request's check after the page.
+    assert_eq!(ran(&log, INDEX_STATE).0, 5);
+    // Head: with the request's stamp before and after, and around hydration.
+    assert_eq!(ran(&log, HEAD).0, 4);
+    // The seek admits the page by key size, then reads its keys.
+    assert_eq!(ran(&log, SEEK), (2, 201));
+    assert_eq!(ran(&log, "SELECT id, length(row) FROM st_rec"), (1, 100));
+    assert_eq!(ran(&log, BY_ID), (100, 100));
+    assert_eq!(log.len(), 5 * 3 + 4 + 2 + 1 + 100);
 }
 
 /// Release-only timing: `rcargo test --release -p mdbn-bench --test indexed_query -- --ignored --nocapture`.
