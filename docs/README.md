@@ -83,6 +83,7 @@ Git history is the archive for finished phases, campaigns and superseded designs
 
 ## Desktop, CLI and self-hosting
 
+- [cli-daemon.md](cli-daemon.md) — the `mdbase` CLI and daemon: collection deletion and the desktop boundary.
 - [headless.md](headless.md) — headless installation.
 - [desktop-updates.md](desktop-updates.md) — desktop update architecture.
 - [windows-store.md](windows-store.md) — Microsoft Store distribution.
@@ -144,7 +145,6 @@ provider, mirrors) and the migration of its accounts to the runtime. They go
 with that code.
 
 - [legacy-retirement.md](legacy-retirement.md) — what can be deleted, in what order, and what each step waits on.
-- [cli-daemon.md](cli-daemon.md) — legacy connector CLI and daemon.
 - [sync.md](sync.md) — legacy hosted collections and sync.
 - [hosted-provider.md](hosted-provider.md) — legacy hosted provider.
 - [architecture/hosted-queryable-execution.md](architecture/hosted-queryable-execution.md) — hosted query execution.

@@ -120,7 +120,6 @@ jobs:
             crates \
             deploy/docker/Cargo.lock.hosted-provider \
             deploy/docker/Dockerfile.hosted-provider \
-            deploy/docker/Dockerfile.client \
             deploy/docker/Dockerfile.mcp \
             deploy/docker/Dockerfile.server \
             deploy/docker/mdbase-rs-revision \
@@ -198,25 +197,6 @@ jobs:
           dockerfile: deploy/docker/Dockerfile.hosted-provider
           skip-extraction: ${{ steps.hosted-provider-cache.outputs.cache-hit }}
 
-      - name: Restore client Cargo cache mounts
-        if: matrix.component == 'client'
-        id: client-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: client-cache-mounts
-          key: client-cargo-${{ hashFiles('deploy/docker/Cargo.lock.hosted-provider', 'deploy/docker/mdbase-rs-revision') }}-${{ env.SOURCE_COMMIT }}
-          restore-keys: |
-            client-cargo-${{ hashFiles('deploy/docker/Cargo.lock.hosted-provider', 'deploy/docker/mdbase-rs-revision') }}-
-
-      - name: Inject client Cargo cache mounts
-        if: matrix.component == 'client'
-        uses: reproducible-containers/buildkit-cache-dance@5422eac04292c961a382e0f584ea0f03ad9da723 # v3.4.0
-        with:
-          builder: ${{ steps.buildx.outputs.name }}
-          cache-dir: client-cache-mounts
-          dockerfile: deploy/docker/Dockerfile.client
-          skip-extraction: ${{ steps.client-cache.outputs.cache-hit }}
-
       - id: build
         name: Build and push immutable image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -234,15 +214,6 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.package }}
           provenance: mode=max
           sbom: true
-
-      - name: Smoke-test the published client image
-        if: matrix.component == 'client'
-        env:
-          DIGEST: ${{ steps.build.outputs.digest }}
-        run: |
-          expected=$(jq -r .version package.json)
-          actual=$(docker run --rm "$IMAGE@$DIGEST" --version)
-          grep -F -- "$expected" <<<"$actual"
 
       - name: Install cosign
         uses: ./.github/actions/install-cosign

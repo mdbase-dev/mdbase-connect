@@ -167,7 +167,7 @@ settled there before any group API is added here.
 | `packages/client/src/records.ts` (`connection.records`) | 181 |
 | SDK tests: `record-session.test.ts` (43), `records.test.ts` (14) | 856 |
 | Compile-only consumer spike `test/consumer-spikes/records.ts`, export placement check | 49 |
-| Real-stack scenario in `scripts/e2e.mjs` (browser SDK + local connector + watch) | 70 |
+| Real-stack scenario in `scripts/e2e.mjs` (browser SDK + local connector + watch; removed with the legacy connector) | 70 |
 | Reader: `BodyUpdateRecovery` port, `ConnectBodyUpdateRecovery`, outcome helpers | see below |
 
 ### Deleted or replaced
