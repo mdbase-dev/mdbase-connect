@@ -1,9 +1,0 @@
-{
-  "reason": "One shared Tooltip replaces native icon-button hints and owns native-popover positioning, timing and dismissal without a provider, portal library or dependency. Extracting the existing shortcut formatter into one shared module removes the Dialog/Tooltip/CommandPalette import cycle instead of duplicating formatting. Existing command-palette exports remain compatible.",
-  "growth": {
-    "productionFiles": 2,
-    "relativeImports": 4,
-    "typeScriptExportDeclarations": 2,
-    "packages/app-ui": 2
-  }
-}

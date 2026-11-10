@@ -77,12 +77,11 @@ not authorization evidence; the authority still checks every filesystem request.
 
 ## Architecture review
 
-The reviewed architecture counts account for five source modules: generated Rust
+The change adds five source modules: generated Rust
 and TS wire metadata, the client change-normalization boundary, the description
 cache lifecycle, and a canonical file descriptor/type mapper. The latter two move
 existing normalization out of the operation/file facades rather than duplicate
-it. These boundaries keep operation files below the unchanged 1,000-line ceiling
-and avoid type-barrel/import cycles. Rust public declarations increase by 25 for
+it. These boundaries avoid type-barrel/import cycles. Rust public declarations increase by 25 for
 the generated structs, fields and classifier; no authority code calls a new
 mutation or emits a new event. There are no new workspace packages, capabilities,
 configured settings or persisted state. The editor's raw-ID filter and descriptor

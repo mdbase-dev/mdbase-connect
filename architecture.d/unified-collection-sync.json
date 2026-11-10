@@ -1,7 +1,0 @@
-{
-  "reason": "App-approval collection creation reuses the portal's retry-safe creation intent instead of the legacy hosted endpoint, and the approval request shares the account overview's creation-availability rule instead of the legacy hosted flag.",
-  "growth": {
-    "relativeImports": 1,
-    "typeScriptExportDeclarations": 1
-  }
-}

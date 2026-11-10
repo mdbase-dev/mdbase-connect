@@ -1,8 +1,0 @@
-{
-  "reason": "The status glyph, inline confirmation, nav pill and state transition are shared by the portal and desktop, so they live in the private Connect UI package instead of being implemented twice; confirmation replaces the portal's private copy and desktop's native dialogs.",
-  "growth": {
-    "productionFiles": 4,
-    "typeScriptExportDeclarations": 5,
-    "packages/ui": 4
-  }
-}

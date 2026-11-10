@@ -1,9 +1,0 @@
-{
-  "reason": "ConnectApp.tsx is at the 1,000-line cap; the overview refresh triggers and native storage read rationing move into their own portal module instead of being packed into one-line statements.",
-  "growth": {
-    "productionFiles": 1,
-    "relativeImports": 1,
-    "typeScriptExportDeclarations": 2,
-    "apps/portal": 1
-  }
-}

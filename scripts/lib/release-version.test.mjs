@@ -26,12 +26,6 @@ async function fixture(t) {
   files["services/mcp/src/mcp.ts"] = `const server = new McpServer({ name: "mdbase", version: "${oldVersion}" });\n`;
   files["CHANGELOG.md"] = "# Changelog\n\n## Unreleased\n\n<!-- Add release notes in changelog.d; assembled by pnpm version:set. -->\n\n## 0.1.0-beta.1\n\n- Historical note.\n";
   files["changelog.d/123.md"] = "## Fixed\n\n- A release note.\n";
-  files["architecture.d/123.json"] = JSON.stringify({ reason: "One MCP composition module is necessary.", growth: { productionFiles: 1 } });
-  files["config/architecture-budgets.json"] = JSON.stringify({
-    productionFileMaxLines: 1000,
-    productionFileBudgetsByPackage: {},
-    reviewBudgets: { productionFiles: 0, relativeImports: 0, workspacePackages: 0, rustPublicDeclarations: 0, typeScriptExportDeclarations: 0, mdbaseCollectionReferences: 0, typedCollectionReferences: 0 }
-  });
   for (const [file, content] of Object.entries(files)) {
     await mkdir(path.dirname(path.join(root, file)), { recursive: true });
     await writeFile(path.join(root, file), content);
@@ -42,10 +36,10 @@ async function fixture(t) {
 test("dry run plans the release cohort and SDK locks, without writes", async (t) => {
   const { root, files } = await fixture(t);
   const plan = await prepareVersion(root, newVersion, { dryRun: true });
-  assert.equal(plan.updates.size, 25);
+  assert.equal(plan.updates.size, 24);
   // Release cohort including the shared i18n kit: do not accidentally bump
   // independently versioned products or omit a release input.
-  assert.deepEqual([...plan.updates.keys()].filter((file) => !["CHANGELOG.md", "config/architecture-budgets.json"].includes(file)).sort(), [
+  assert.deepEqual([...plan.updates.keys()].filter((file) => file !== "CHANGELOG.md").sort(), [
     "Cargo.lock", "Cargo.toml", "apps/desktop/package.json", "apps/portal/package.json",
     "deploy/docker/Cargo.lock.hosted-provider", "package.json", "packages/app-ui/package.json",
     "packages/client/package.json", "packages/devkit/package.json", "packages/i18n/package.json", "packages/management/package.json",
@@ -56,15 +50,11 @@ test("dry run plans the release cohort and SDK locks, without writes", async (t)
     "services/mcp/package.json", "services/mcp/src/mcp.ts", "services/server/package.json"
   ].sort());
   for (const [file, content] of Object.entries(files)) assert.equal(await readFile(path.join(root, file), "utf8"), content);
-  assert.deepEqual(plan.removals, ["changelog.d/123.md", "architecture.d/123.json"]);
+  assert.deepEqual(plan.removals, ["changelog.d/123.md"]);
 });
 
-test("updates only cohort versions, preserves lock dependencies, consumes notes and ratchets counters", async (t) => {
+test("updates only cohort versions, preserves lock dependencies and consumes notes", async (t) => {
   const { root, files } = await fixture(t);
-  const previousBudgets = JSON.parse(files["config/architecture-budgets.json"]);
-  previousBudgets.reviewBudgets.productionFiles = 999;
-  previousBudgets.productionFileBudgetsByPackage = { "services/mcp": 999 };
-  await writeFile(path.join(root, "config/architecture-budgets.json"), JSON.stringify(previousBudgets));
   await prepareVersion(root, newVersion);
   for (const file of packagePaths) assert.equal(JSON.parse(await readFile(path.join(root, file), "utf8")).version, newVersion);
   for (const [file, keys] of sdkVersionFields) {
@@ -81,10 +71,7 @@ test("updates only cohort versions, preserves lock dependencies, consumes notes 
   const changelog = await readFile(path.join(root, "CHANGELOG.md"), "utf8");
   assert.match(changelog, /## 0.1.0-beta.125\n\n### Fixed\n\n- A release note./);
   assert.ok(changelog.endsWith("## 0.1.0-beta.1\n\n- Historical note.\n"));
-  for (const file of ["changelog.d/123.md", "architecture.d/123.json"]) await assert.rejects(readFile(path.join(root, file)), { code: "ENOENT" });
-  const budgets = JSON.parse(await readFile(path.join(root, "config/architecture-budgets.json"), "utf8"));
-  assert.equal(budgets.reviewBudgets.productionFiles, 1);
-  assert.equal(budgets.productionFileBudgetsByPackage["services/mcp"], 1);
+  await assert.rejects(readFile(path.join(root, "changelog.d/123.md")), { code: "ENOENT" });
   await assert.rejects(prepareVersion(root, newVersion), /advance/);
 });
 
@@ -108,13 +95,10 @@ test("invalid versions and inconsistent inputs fail before any writes", async (t
   assert.equal(await readFile(path.join(root, "Cargo.lock"), "utf8"), files["Cargo.lock"]);
 });
 
-test("late fragment and hard-gate failures leave prepared versions untouched", async (t) => {
+test("late fragment failures leave prepared versions untouched", async (t) => {
   const { root, files } = await fixture(t);
   await writeFile(path.join(root, "changelog.d/123.md"), "## Invalid\n\n- Invalid note.\n");
   await assert.rejects(prepareVersion(root, newVersion), /supported section/);
-  await writeFile(path.join(root, "changelog.d/123.md"), files["changelog.d/123.md"]);
-  await writeFile(path.join(root, "services/mcp/src/mcp.ts"), files["services/mcp/src/mcp.ts"] + "// oversized\n".repeat(1000));
-  await assert.rejects(prepareVersion(root, newVersion), /Architecture hard gates failed/);
   assert.equal(await readFile(path.join(root, "package.json"), "utf8"), files["package.json"]);
   assert.equal(await readFile(path.join(root, "Cargo.toml"), "utf8"), files["Cargo.toml"]);
   assert.equal(await readFile(path.join(root, "CHANGELOG.md"), "utf8"), files["CHANGELOG.md"]);

@@ -29,7 +29,7 @@ export function requireRunning(value) {
 
 export function contractSensitive(path) {
   if (/(?:^|\/)(?:test|tests|__tests__|examples)\//.test(path) || /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path)) return false;
-  if (/^(?:docs|changelog\.d|architecture\.d)\//.test(path) || /(?:^|\/)(?:README|CHANGELOG|DESIGN)\.md$/.test(path)) return false;
+  if (/^(?:docs|changelog\.d)\//.test(path) || /(?:^|\/)(?:README|CHANGELOG|DESIGN)\.md$/.test(path)) return false;
   if (/^(?:apps\/(?:desktop|editor|portal)|packages\/(?:app-ui|connect-ui|ui))\//.test(path)
       && /\.(?:css|scss|png|jpe?g|webp|gif|ico|icns|svg|woff2?|ttf)$/.test(path)) return false;
   if (/^(?:apps\/(?:desktop|editor|portal)\/src\/i18n|packages\/i18n\/src\/locales)\//.test(path)

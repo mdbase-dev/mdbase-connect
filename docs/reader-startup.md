@@ -16,8 +16,7 @@ Payload-free browser-local User Timing measures use fixed names:
 is retained. No identifiers or response data are emitted or uploaded.
 
 The dedicated timing helper adds one internal module. Existing pure readiness helpers move
-out of the session owner to keep its 1,000-line budget; the architecture budget adjustment
-accounts for that module, three internal exports and two imports, not new public SDK exports.
+out of the session owner; no public SDK exports are added.
 
 ## Cursor pages
 
