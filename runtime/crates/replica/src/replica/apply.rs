@@ -95,6 +95,28 @@ struct EffectStage {
     catalog_changed: bool,
 }
 
+/// What staging the entry's metadata and receipt rows decides for the commit.
+struct MetaStage {
+    catalog: std::sync::Arc<mdbn_core::types::Catalog>,
+    receipt_conflicts: Vec<mdbn_wire::entry::Conflict>,
+    log_time: i64,
+    ratchet: u64,
+}
+
+/// Whether the entry is this replica's own pending mutation, and how it resolves.
+struct OwnResolution {
+    own: bool,
+    own_match: bool,
+    relocated_from: Option<u64>,
+}
+
+/// What the entry changes, for the caller's rebase keys and the after-commit work.
+struct ChangeStage {
+    legacy_effects: Vec<Effect>,
+    attachment_files: Vec<Uuid>,
+    holds_changed: bool,
+}
+
 impl<S: Store> Replica<S> {
     /// Apply items in log order, starting at the first one after the head.
     pub(crate) fn apply_items(&mut self, items: Vec<SeqItem>) {
@@ -1147,340 +1169,46 @@ impl<S: Store> Replica<S> {
             ControlFlow::Continue(stage) => stage,
             ControlFlow::Break(outcome) => return Ok(outcome),
         };
-        // Verification (log-entry.md §5) against the state at p − 1. Only this
-        // build's own `sem` is re-planned; native results of any other `sem` rest
-        // on the structural checks above, as legacy results do.
-        let same_sem = payload.sem.major == mdbn_core::semantics::SEM.major
-            && payload.sem.minor == mdbn_core::semantics::SEM.minor;
-        let mut native_mismatch = false;
-        if same_sem
-            && (native || (self.cfg.verify && payload.mutation.origin != self.cfg.replica_id))
-        {
-            let view = StoreView::new(&self.store, self.catalog.clone());
-            // The marker selects resurrection semantics only; it never widens
-            // what verification accepts.
-            let stage = if payload.resurrect.is_some() {
-                Stage::Resurrect
-            } else {
-                Stage::Head
-            };
-            let r = self.planner.plan(&mutation, &view, &PlanOptions { stage });
-            if native && let Some(e) = view.error() {
-                return Err(e);
-            }
-            let ok = match r {
-                Ok(pl) => {
-                    convert::wstatus(pl.status) == payload.status
-                        && pl
-                            .effects
-                            .iter()
-                            .map(convert::wruntime_effect)
-                            .collect::<CResult<Vec<_>>>()
-                            .as_ref()
-                            == Ok(&effects)
-                        && pl
-                            .conflicts
-                            .iter()
-                            .map(convert::wruntime_conflict)
-                            .collect::<CResult<Vec<_>>>()
-                            .as_ref()
-                            == Ok(&conflicts)
-                        && pl.aliases.iter().map(convert::walias).collect::<Vec<_>>()
-                            == payload.aliases.clone().unwrap_or_default()
-                }
-                Err(_) => false,
-            };
-            if native {
-                // Counted once the source check below lets this entry through.
-                native_mismatch = !ok;
-            } else if ok {
-                self.stats.verified += 1;
-            } else {
-                self.verify_mismatch(p);
-            }
-        } else if !native && self.cfg.verify && payload.mutation.origin != self.cfg.replica_id {
-            self.stats.unverified += 1;
-        }
-        let source_meta = if native {
-            match self.unindexed_source_check(head, &payload, refs) {
-                super::unindexed_apply::Check::StoreFailed(e) => return Err(e),
-                super::unindexed_apply::Check::Pending => return Ok(Outcome::SourcePending),
-                super::unindexed_apply::Check::Ready(meta) => meta,
-                super::unindexed_apply::Check::InvalidUtf8 => {
-                    return self.commit_unindexed_invalid_utf8(head, &payload, writer, changed);
-                }
-                super::unindexed_apply::Check::InvalidRefs => {
-                    return self.commit_payload_void(head, &payload, "V7: native source refs");
-                }
-                super::unindexed_apply::Check::Failed(crate::attachments::StreamError::NoKey) => {
-                    return Ok(Outcome::Stall(
-                        IncidentKind::WaitingForKey,
-                        "T6b source key unavailable".into(),
-                    ));
-                }
-                super::unindexed_apply::Check::Failed(e) => {
-                    self.incident(
-                        IncidentKind::Integrity,
-                        Some(Value::Text(format!("T6b source: {e:?}"))),
-                    );
-                    self.unindexed_source_retry(head, &payload);
-                    return Ok(Outcome::SourcePending);
-                }
-            }
-        } else {
-            Vec::new()
+        let source_meta = match self.verify_against_planner(
+            p, head, &payload, &mutation, &effects, &conflicts, native, changed, writer, refs,
+        )? {
+            ControlFlow::Continue(meta) => meta,
+            ControlFlow::Break(outcome) => return Ok(outcome),
         };
-        if native_mismatch {
-            // This build's planner disagrees with the writer's under the same
-            // `sem`: a determinism bug on one side (the writer picks `sem`, so this
-            // is detection, not a security gate). Voiding would persist a
-            // build-dependent verdict, so stop here, report the mismatch once per
-            // stall (reads retry the stalled entry) and retry the same bytes
-            // after an upgrade.
-            if self.stalled != Some((IncidentKind::UpgradeRequired, p)) {
-                self.verify_mismatch(p);
-            }
-            return Ok(Outcome::Stall(
-                IncidentKind::UpgradeRequired,
-                "native results cannot be verified by this build's planner".into(),
-            ));
-        }
-        if native {
-            if same_sem {
-                self.stats.verified += 1;
-            } else {
-                self.stats.unverified += 1;
-            }
-        }
 
         tx.meta.extend(source_meta);
-        // Record metadata under the catalog after this entry's resource effects.
-        let catalog = if catalog_changed {
-            let mut rs: std::collections::BTreeMap<String, String> =
-                self.store.resources()?.into_iter().collect();
-            for p in &tx.resources_del {
-                rs.remove(p);
-            }
-            for (p, d) in &tx.resources_put {
-                rs.insert(p.clone(), d.clone());
-            }
-            std::sync::Arc::new(mdbn_core::types::Catalog::load(
-                rs.iter().map(|(a, b)| (a.as_str(), b.as_str())),
-            ))
-        } else {
-            self.catalog.clone()
-        };
-        for r in &mut tx.records_put {
-            r.meta = record_meta(&catalog, &r.path, &r.doc);
-        }
-        for a in payload.aliases.iter().flatten() {
-            tx.aliases_put.push(AliasRow {
-                path: a.path.clone(),
-                path_key: mdbn_core::paths::path_key(&a.path),
-                record: a.record,
-            });
-        }
-        for c in &conflicts {
-            tx.conflicts_put.push(ConflictRow {
-                mutation: payload.mutation.id,
-                seq: p,
-                conflict: c.clone(),
-            });
-        }
-        // Receipts carry the legacy wire form: a conflict with an attachment side
-        // is reported by status and `list_conflicts` (ConflictValue5) only.
-        let receipt_conflicts: Vec<mdbn_wire::entry::Conflict> = conflicts
-            .iter()
-            .filter_map(|c| super::attachment_runtime::legacy_conflict(c.clone()).ok())
-            .collect();
-        for o in &payload.mutation.ops {
-            if let rt::Op::Legacy(Op::ConflictDismiss(d)) = o {
-                tx.conflicts_del.push((d.mutation, d.record));
-            }
-        }
-        tx.receipts_put.push(ReceiptRow {
-            mutation: payload.mutation.id,
-            seq: p,
-            time: instant,
-        });
-        // The deterministic horizon (snapshot.md §6).
-        let log_time = self.log_time.max(instant);
-        if p > HORIZON_ENTRIES {
-            tx.prune = Some(Prune {
-                seq_floor: p - HORIZON_ENTRIES,
-                time_floor: log_time.saturating_sub(HORIZON_MS),
-            });
-        }
-        let ratchet = self.sem_ratchet().max(payload.sem.major);
-        tx.meta
-            .push((meta_keys::LOG_STATE.into(), log_state(log_time, ratchet)));
-        // Our own mutation: confirmed.
-        let pending = self.store.pending_get(&payload.mutation.id)?;
-        let own = pending.is_some();
-        let mediated_grant =
-            self.declared_setup_receipt_grant(pending.as_ref(), &payload.mutation, writer);
-        // Hosted mode: the log names the owner. A pending row of another grant with
-        // this mutation ID can never land (the log's token is taken): it is refused,
-        // never confirmed with someone else's result. Every applied entry records
-        // its log-derived receipt so a cold rebuild restores grant-scoped receipts.
-        let hosted = self.is_hosted();
-        let own_match = own
-            && (!hosted || pending.as_ref().map(|r| r.grant) == Some(payload.mutation.on_behalf));
-        let relocated_from = if own_match {
-            self.resurrected_resolution(&payload.mutation.id)
-                .map(|(old, meta)| {
-                    tx.meta.push(meta);
-                    old
-                })
-        } else {
-            None
-        };
-        if own {
-            // Only an acknowledged matched result hands over this replica's
-            // original pending row; a hosted rival is never resurrection input.
-            if own_match
-                && !self.local_only()
-                && let Some(row) = pending
-            {
-                tx.own_retained_put.push((p, row));
-            }
-            tx.pending_del.push(payload.mutation.id);
-        }
-        if own || hosted {
-            tx.local_receipts_put.push(LocalReceipt {
-                mutation: payload.mutation.id,
-                state: ReceiptState::Confirmed,
-                seq: (!self.local_only()).then_some(p),
-                status: Some(payload.status),
-                conflicts: receipt_conflicts.clone(),
-                problem: None,
-                resolved_at: self.now(),
-                grant: mediated_grant.or(payload.mutation.on_behalf),
-            });
-        }
-        // Rebase keys.
-        let legacy_effects: Vec<Effect> = effects
-            .iter()
-            .filter_map(|e| match e {
-                rt::Effect::Legacy(e) => Some(e.clone()),
-                rt::Effect::PutAttachmentFile(_)
-                | rt::Effect::PutUnindexedMarkdown(_)
-                | rt::Effect::ReindexUnindexedMarkdown(_)
-                | rt::Effect::ReindexOrdinaryFile(_) => None,
-            })
-            .collect();
-        changed.extend(effect_keys(&legacy_effects));
-        changed.extend(super::path_keys(&legacy_effects));
-        for e in &effects {
-            let identity = match e {
-                rt::Effect::PutAttachmentFile(f) => Some((f.id, &f.path)),
-                rt::Effect::PutUnindexedMarkdown(f) => Some((f.id, &f.path)),
-                rt::Effect::ReindexUnindexedMarkdown(r) => Some((r.id, &r.path)),
-                rt::Effect::ReindexOrdinaryFile(r) => Some((r.id, &r.path)),
-                _ => None,
-            };
-            if let Some((id, path)) = identity {
-                changed.insert(crate::plan::id_key(&id));
-                changed.insert(format!("p:{}", mdbn_core::paths::path_key(path)));
-            }
-        }
-        let mut attachment_files = super::attachment_fetch::touched_files(&effects);
-        if catalog_changed {
-            for (p, _) in &tx.resources_put {
-                changed.insert(resource_key(p));
-            }
-            for p in &tx.resources_del {
-                changed.insert(resource_key(p));
-            }
-        }
-        if own_match && payload.mutation.origin == self.cfg.replica_id {
-            self.prepare_conflict_holds(&payload.mutation, &conflicts, &mut tx, &t)?;
-        }
-        let holds_changed = !tx.holds_put.is_empty()
-            || self.store.holds()?.iter().any(|hold| {
-                hold.reason == mdbn_wire::client::HoldReason::ReadOnly
-                    && (changed.contains(&crate::plan::id_key(&hold.id))
-                        || changed.contains(&resource_key(&hold.path)))
-            });
-        attachment_files.extend(tx.holds_put.iter().map(|h| h.id));
-        for (key, shown) in before {
-            self.before.entry(key).or_insert(shown);
-        }
-        self.capture_effects(&legacy_effects);
-        self.policy.note_entry(p, payload.sem.major, instant);
-        tx.meta.push(self.policy_meta());
-        // Pure trusted projection observes EXACT post-resource effects and is
-        // committed atomically with records/head/receipts. Optional failure
-        // invalidates derived readiness; a genuine store error still fails apply.
-        // Preparation only reads storage and fills this in-memory Tx. A read
-        // result cannot certify the no-effects/durable-prior-state guarantee
-        // reserved for an authoritative commit result.
-        let query_context = self
-            .prepare_query_index(&mut tx)
-            .map_err(|error| match error {
-                StoreError::CommitAborted(reason) => StoreError::Io(reason),
-                other => other,
-            })?;
-        if self.local_only() {
-            // Local confirmation has no synced log bytes or retention material.
-            self.store.commit(tx)?;
-            self.head = head;
-        } else {
-            self.commit_retained(head, tx)?;
-        }
-        if self.apply_fault {
-            // The head/receipt/own handover committed, but a defensive read
-            // failed. No follow-up indexing/hold writes or queued output now.
-            return Ok(Outcome::Applied);
-        }
-        self.query_context = query_context;
-        self.log_time = log_time;
-        self.sem_ratchet_set(ratchet);
-        if catalog_changed {
-            self.catalog = catalog;
-            self.reindex()?;
-            // Every pending row plans under the new catalog.
-            changed.extend(self.pending_keys.values().flatten().cloned());
-        }
-        if relocated_from.is_some() {
-            self.resurrected.remove(&payload.mutation.id);
-        }
-        if holds_changed {
-            self.status_dirty = true;
-            self.push_holds();
-        }
-        self.attachment_files_changed(attachment_files);
-        if own {
-            let receipt = if own_match {
-                mdbn_wire::client::Receipt {
-                    relocated_from,
-                    mutation: payload.mutation.id,
-                    state: ReceiptState::Confirmed,
-                    seq: (!self.local_only()).then_some(p),
-                    status: Some(payload.status),
-                    conflicts: if receipt_conflicts.is_empty() {
-                        None
-                    } else {
-                        Some(receipt_conflicts)
-                    },
-                    records: None,
-                    problem: None,
-                    published: None,
-                }
-            } else {
-                super::hosted::in_use_receipt(payload.mutation.id)
-            };
-            if own_match {
-                self.push_durable_receipt(receipt.clone());
-            } else if let Some(session) = self.submitted_by.remove(&receipt.mutation) {
-                // The stored receipt belongs to the rival grant and is Confirmed.
-                // This original submitter's InUse rejection is NOT persisted:
-                // preserve its single-session/ticket route, never durable fanout.
-                self.pushes.push((session, Push::Receipt(receipt.clone())));
-            }
-            self.hosted_resolve(&receipt);
-        }
-        Ok(Outcome::Applied)
+        let meta = self.stage_receipts_and_meta(
+            p,
+            &payload,
+            &conflicts,
+            instant,
+            catalog_changed,
+            &mut tx,
+        )?;
+        let own = self.resolve_own(p, &payload, writer, &meta.receipt_conflicts, &mut tx)?;
+        let changes = self.stage_change_keys_and_holds(
+            &payload,
+            &effects,
+            &conflicts,
+            &t,
+            catalog_changed,
+            own.own_match,
+            changed,
+            &mut tx,
+        )?;
+        self.finish_apply(
+            p,
+            head,
+            &payload,
+            instant,
+            tx,
+            before,
+            catalog_changed,
+            changed,
+            meta,
+            own,
+            changes,
+        )
     }
 
     /// A delegated file operation on a native unindexed file is not mediated by
@@ -1715,6 +1443,456 @@ impl<S: Store> Replica<S> {
                 .map(ControlFlow::Break);
         }
         Ok(ControlFlow::Continue((mutation, native)))
+    }
+
+    /// Verification against the state at p − 1: re-plan what this build can,
+    /// check a native entry's source, and count the result. Yields the source
+    /// metadata a native entry stores.
+    #[allow(clippy::too_many_arguments)]
+    fn verify_against_planner(
+        &mut self,
+        p: u64,
+        head: Head,
+        payload: &rt::EntryPayload,
+        mutation: &mdbn_core::intent::Mutation,
+        effects: &Vec<rt::Effect>,
+        conflicts: &Vec<rt::Conflict>,
+        native: bool,
+        changed: &mut BTreeSet<String>,
+        writer: Option<Uuid>,
+        refs: Option<&[mdbn_wire::common::Hash]>,
+    ) -> Phase<Vec<crate::store::MetaPut>> {
+        // Verification (log-entry.md §5) against the state at p − 1. Only this
+        // build's own `sem` is re-planned; native results of any other `sem` rest
+        // on the structural checks above, as legacy results do.
+        let same_sem = payload.sem.major == mdbn_core::semantics::SEM.major
+            && payload.sem.minor == mdbn_core::semantics::SEM.minor;
+        let mut native_mismatch = false;
+        if same_sem
+            && (native || (self.cfg.verify && payload.mutation.origin != self.cfg.replica_id))
+        {
+            let view = StoreView::new(&self.store, self.catalog.clone());
+            // The marker selects resurrection semantics only; it never widens
+            // what verification accepts.
+            let stage = if payload.resurrect.is_some() {
+                Stage::Resurrect
+            } else {
+                Stage::Head
+            };
+            let r = self.planner.plan(mutation, &view, &PlanOptions { stage });
+            if native && let Some(e) = view.error() {
+                return Err(e);
+            }
+            let ok = match r {
+                Ok(pl) => {
+                    convert::wstatus(pl.status) == payload.status
+                        && pl
+                            .effects
+                            .iter()
+                            .map(convert::wruntime_effect)
+                            .collect::<CResult<Vec<_>>>()
+                            .as_ref()
+                            == Ok(effects)
+                        && pl
+                            .conflicts
+                            .iter()
+                            .map(convert::wruntime_conflict)
+                            .collect::<CResult<Vec<_>>>()
+                            .as_ref()
+                            == Ok(conflicts)
+                        && pl.aliases.iter().map(convert::walias).collect::<Vec<_>>()
+                            == payload.aliases.clone().unwrap_or_default()
+                }
+                Err(_) => false,
+            };
+            if native {
+                // Counted once the source check below lets this entry through.
+                native_mismatch = !ok;
+            } else if ok {
+                self.stats.verified += 1;
+            } else {
+                self.verify_mismatch(p);
+            }
+        } else if !native && self.cfg.verify && payload.mutation.origin != self.cfg.replica_id {
+            self.stats.unverified += 1;
+        }
+        let source_meta = if native {
+            match self.unindexed_source_check(head, payload, refs) {
+                super::unindexed_apply::Check::StoreFailed(e) => return Err(e),
+                super::unindexed_apply::Check::Pending => {
+                    return Ok(ControlFlow::Break(Outcome::SourcePending));
+                }
+                super::unindexed_apply::Check::Ready(meta) => meta,
+                super::unindexed_apply::Check::InvalidUtf8 => {
+                    return self
+                        .commit_unindexed_invalid_utf8(head, payload, writer, changed)
+                        .map(ControlFlow::Break);
+                }
+                super::unindexed_apply::Check::InvalidRefs => {
+                    return self
+                        .commit_payload_void(head, payload, "V7: native source refs")
+                        .map(ControlFlow::Break);
+                }
+                super::unindexed_apply::Check::Failed(crate::attachments::StreamError::NoKey) => {
+                    return Ok(ControlFlow::Break(Outcome::Stall(
+                        IncidentKind::WaitingForKey,
+                        "T6b source key unavailable".into(),
+                    )));
+                }
+                super::unindexed_apply::Check::Failed(e) => {
+                    self.incident(
+                        IncidentKind::Integrity,
+                        Some(Value::Text(format!("T6b source: {e:?}"))),
+                    );
+                    self.unindexed_source_retry(head, payload);
+                    return Ok(ControlFlow::Break(Outcome::SourcePending));
+                }
+            }
+        } else {
+            Vec::new()
+        };
+        if native_mismatch {
+            // This build's planner disagrees with the writer's under the same
+            // `sem`: a determinism bug on one side (the writer picks `sem`, so this
+            // is detection, not a security gate). Voiding would persist a
+            // build-dependent verdict, so stop here, report the mismatch once per
+            // stall (reads retry the stalled entry) and retry the same bytes
+            // after an upgrade.
+            if self.stalled != Some((IncidentKind::UpgradeRequired, p)) {
+                self.verify_mismatch(p);
+            }
+            return Ok(ControlFlow::Break(Outcome::Stall(
+                IncidentKind::UpgradeRequired,
+                "native results cannot be verified by this build's planner".into(),
+            )));
+        }
+        if native {
+            if same_sem {
+                self.stats.verified += 1;
+            } else {
+                self.stats.unverified += 1;
+            }
+        }
+        Ok(ControlFlow::Continue(source_meta))
+    }
+
+    /// Stage what the entry stores besides its effects: record metadata under
+    /// the catalog it leaves, aliases, conflicts, its receipt, the horizon and
+    /// the log state.
+    fn stage_receipts_and_meta(
+        &self,
+        p: u64,
+        payload: &rt::EntryPayload,
+        conflicts: &[rt::Conflict],
+        instant: i64,
+        catalog_changed: bool,
+        tx: &mut Tx,
+    ) -> Result<MetaStage, StoreError> {
+        // Record metadata under the catalog after this entry's resource effects.
+        let catalog = if catalog_changed {
+            let mut rs: std::collections::BTreeMap<String, String> =
+                self.store.resources()?.into_iter().collect();
+            for p in &tx.resources_del {
+                rs.remove(p);
+            }
+            for (p, d) in &tx.resources_put {
+                rs.insert(p.clone(), d.clone());
+            }
+            std::sync::Arc::new(mdbn_core::types::Catalog::load(
+                rs.iter().map(|(a, b)| (a.as_str(), b.as_str())),
+            ))
+        } else {
+            self.catalog.clone()
+        };
+        for r in &mut tx.records_put {
+            r.meta = record_meta(&catalog, &r.path, &r.doc);
+        }
+        for a in payload.aliases.iter().flatten() {
+            tx.aliases_put.push(AliasRow {
+                path: a.path.clone(),
+                path_key: mdbn_core::paths::path_key(&a.path),
+                record: a.record,
+            });
+        }
+        for c in conflicts {
+            tx.conflicts_put.push(ConflictRow {
+                mutation: payload.mutation.id,
+                seq: p,
+                conflict: c.clone(),
+            });
+        }
+        // Receipts carry the legacy wire form: a conflict with an attachment side
+        // is reported by status and `list_conflicts` (ConflictValue5) only.
+        let receipt_conflicts: Vec<mdbn_wire::entry::Conflict> = conflicts
+            .iter()
+            .filter_map(|c| super::attachment_runtime::legacy_conflict(c.clone()).ok())
+            .collect();
+        for o in &payload.mutation.ops {
+            if let rt::Op::Legacy(Op::ConflictDismiss(d)) = o {
+                tx.conflicts_del.push((d.mutation, d.record));
+            }
+        }
+        tx.receipts_put.push(ReceiptRow {
+            mutation: payload.mutation.id,
+            seq: p,
+            time: instant,
+        });
+        // The deterministic horizon (snapshot.md §6).
+        let log_time = self.log_time.max(instant);
+        if p > HORIZON_ENTRIES {
+            tx.prune = Some(Prune {
+                seq_floor: p - HORIZON_ENTRIES,
+                time_floor: log_time.saturating_sub(HORIZON_MS),
+            });
+        }
+        let ratchet = self.sem_ratchet().max(payload.sem.major);
+        tx.meta
+            .push((meta_keys::LOG_STATE.into(), log_state(log_time, ratchet)));
+        Ok(MetaStage {
+            catalog,
+            receipt_conflicts,
+            log_time,
+            ratchet,
+        })
+    }
+
+    /// Resolve this replica's own pending mutation against the entry: hand over
+    /// the pending row and stage the local receipt.
+    fn resolve_own(
+        &self,
+        p: u64,
+        payload: &rt::EntryPayload,
+        writer: Option<Uuid>,
+        receipt_conflicts: &[mdbn_wire::entry::Conflict],
+        tx: &mut Tx,
+    ) -> Result<OwnResolution, StoreError> {
+        // Our own mutation: confirmed.
+        let pending = self.store.pending_get(&payload.mutation.id)?;
+        let own = pending.is_some();
+        let mediated_grant =
+            self.declared_setup_receipt_grant(pending.as_ref(), &payload.mutation, writer);
+        // Hosted mode: the log names the owner. A pending row of another grant with
+        // this mutation ID can never land (the log's token is taken): it is refused,
+        // never confirmed with someone else's result. Every applied entry records
+        // its log-derived receipt so a cold rebuild restores grant-scoped receipts.
+        let hosted = self.is_hosted();
+        let own_match = own
+            && (!hosted || pending.as_ref().map(|r| r.grant) == Some(payload.mutation.on_behalf));
+        let relocated_from = if own_match {
+            self.resurrected_resolution(&payload.mutation.id)
+                .map(|(old, meta)| {
+                    tx.meta.push(meta);
+                    old
+                })
+        } else {
+            None
+        };
+        if own {
+            // Only an acknowledged matched result hands over this replica's
+            // original pending row; a hosted rival is never resurrection input.
+            if own_match
+                && !self.local_only()
+                && let Some(row) = pending
+            {
+                tx.own_retained_put.push((p, row));
+            }
+            tx.pending_del.push(payload.mutation.id);
+        }
+        if own || hosted {
+            tx.local_receipts_put.push(LocalReceipt {
+                mutation: payload.mutation.id,
+                state: ReceiptState::Confirmed,
+                seq: (!self.local_only()).then_some(p),
+                status: Some(payload.status),
+                conflicts: receipt_conflicts.to_vec(),
+                problem: None,
+                resolved_at: self.now(),
+                grant: mediated_grant.or(payload.mutation.on_behalf),
+            });
+        }
+        Ok(OwnResolution {
+            own,
+            own_match,
+            relocated_from,
+        })
+    }
+
+    /// Hand the caller the keys this entry changes and stage the holds of its
+    /// conflicts.
+    #[allow(clippy::too_many_arguments)]
+    fn stage_change_keys_and_holds(
+        &self,
+        payload: &rt::EntryPayload,
+        effects: &[rt::Effect],
+        conflicts: &[rt::Conflict],
+        t: &impl Fn(&Text) -> CResult<String>,
+        catalog_changed: bool,
+        own_match: bool,
+        changed: &mut BTreeSet<String>,
+        tx: &mut Tx,
+    ) -> Result<ChangeStage, StoreError> {
+        // Rebase keys.
+        let legacy_effects: Vec<Effect> = effects
+            .iter()
+            .filter_map(|e| match e {
+                rt::Effect::Legacy(e) => Some(e.clone()),
+                rt::Effect::PutAttachmentFile(_)
+                | rt::Effect::PutUnindexedMarkdown(_)
+                | rt::Effect::ReindexUnindexedMarkdown(_)
+                | rt::Effect::ReindexOrdinaryFile(_) => None,
+            })
+            .collect();
+        changed.extend(effect_keys(&legacy_effects));
+        changed.extend(super::path_keys(&legacy_effects));
+        for e in effects {
+            let identity = match e {
+                rt::Effect::PutAttachmentFile(f) => Some((f.id, &f.path)),
+                rt::Effect::PutUnindexedMarkdown(f) => Some((f.id, &f.path)),
+                rt::Effect::ReindexUnindexedMarkdown(r) => Some((r.id, &r.path)),
+                rt::Effect::ReindexOrdinaryFile(r) => Some((r.id, &r.path)),
+                _ => None,
+            };
+            if let Some((id, path)) = identity {
+                changed.insert(crate::plan::id_key(&id));
+                changed.insert(format!("p:{}", mdbn_core::paths::path_key(path)));
+            }
+        }
+        let mut attachment_files = super::attachment_fetch::touched_files(effects);
+        if catalog_changed {
+            for (p, _) in &tx.resources_put {
+                changed.insert(resource_key(p));
+            }
+            for p in &tx.resources_del {
+                changed.insert(resource_key(p));
+            }
+        }
+        if own_match && payload.mutation.origin == self.cfg.replica_id {
+            self.prepare_conflict_holds(&payload.mutation, conflicts, tx, &t)?;
+        }
+        let holds_changed = !tx.holds_put.is_empty()
+            || self.store.holds()?.iter().any(|hold| {
+                hold.reason == mdbn_wire::client::HoldReason::ReadOnly
+                    && (changed.contains(&crate::plan::id_key(&hold.id))
+                        || changed.contains(&resource_key(&hold.path)))
+            });
+        attachment_files.extend(tx.holds_put.iter().map(|h| h.id));
+        Ok(ChangeStage {
+            legacy_effects,
+            attachment_files,
+            holds_changed,
+        })
+    }
+
+    /// Commit the entry, then move the replica's in-memory state to it.
+    #[allow(clippy::too_many_arguments)]
+    fn finish_apply(
+        &mut self,
+        p: u64,
+        head: Head,
+        payload: &rt::EntryPayload,
+        instant: i64,
+        mut tx: Tx,
+        before: super::disk::Before,
+        catalog_changed: bool,
+        changed: &mut BTreeSet<String>,
+        meta: MetaStage,
+        resolution: OwnResolution,
+        changes: ChangeStage,
+    ) -> Result<Outcome, StoreError> {
+        let MetaStage {
+            catalog,
+            receipt_conflicts,
+            log_time,
+            ratchet,
+        } = meta;
+        let OwnResolution {
+            own,
+            own_match,
+            relocated_from,
+        } = resolution;
+        let ChangeStage {
+            legacy_effects,
+            attachment_files,
+            holds_changed,
+        } = changes;
+        for (key, shown) in before {
+            self.before.entry(key).or_insert(shown);
+        }
+        self.capture_effects(&legacy_effects);
+        self.policy.note_entry(p, payload.sem.major, instant);
+        tx.meta.push(self.policy_meta());
+        // Pure trusted projection observes EXACT post-resource effects and is
+        // committed atomically with records/head/receipts. Optional failure
+        // invalidates derived readiness; a genuine store error still fails apply.
+        // Preparation only reads storage and fills this in-memory Tx. A read
+        // result cannot certify the no-effects/durable-prior-state guarantee
+        // reserved for an authoritative commit result.
+        let query_context = self
+            .prepare_query_index(&mut tx)
+            .map_err(|error| match error {
+                StoreError::CommitAborted(reason) => StoreError::Io(reason),
+                other => other,
+            })?;
+        if self.local_only() {
+            // Local confirmation has no synced log bytes or retention material.
+            self.store.commit(tx)?;
+            self.head = head;
+        } else {
+            self.commit_retained(head, tx)?;
+        }
+        if self.apply_fault {
+            // The head/receipt/own handover committed, but a defensive read
+            // failed. No follow-up indexing/hold writes or queued output now.
+            return Ok(Outcome::Applied);
+        }
+        self.query_context = query_context;
+        self.log_time = log_time;
+        self.sem_ratchet_set(ratchet);
+        if catalog_changed {
+            self.catalog = catalog;
+            self.reindex()?;
+            // Every pending row plans under the new catalog.
+            changed.extend(self.pending_keys.values().flatten().cloned());
+        }
+        if relocated_from.is_some() {
+            self.resurrected.remove(&payload.mutation.id);
+        }
+        if holds_changed {
+            self.status_dirty = true;
+            self.push_holds();
+        }
+        self.attachment_files_changed(attachment_files);
+        if own {
+            let receipt = if own_match {
+                mdbn_wire::client::Receipt {
+                    relocated_from,
+                    mutation: payload.mutation.id,
+                    state: ReceiptState::Confirmed,
+                    seq: (!self.local_only()).then_some(p),
+                    status: Some(payload.status),
+                    conflicts: if receipt_conflicts.is_empty() {
+                        None
+                    } else {
+                        Some(receipt_conflicts)
+                    },
+                    records: None,
+                    problem: None,
+                    published: None,
+                }
+            } else {
+                super::hosted::in_use_receipt(payload.mutation.id)
+            };
+            if own_match {
+                self.push_durable_receipt(receipt.clone());
+            } else if let Some(session) = self.submitted_by.remove(&receipt.mutation) {
+                // The stored receipt belongs to the rival grant and is Confirmed.
+                // This original submitter's InUse rejection is NOT persisted:
+                // preserve its single-session/ticket route, never durable fanout.
+                self.pushes.push((session, Push::Receipt(receipt.clone())));
+            }
+            self.hosted_resolve(&receipt);
+        }
+        Ok(Outcome::Applied)
     }
 
     /// Build the transaction from the effects, checking V7 against current state
