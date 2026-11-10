@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { DatabasePool } from "./database-types.js";
+import type { DatabasePool } from "../../database-types.js";
 import {
   EMAIL_NORMALIZATION_VERSION,
   normalizeEmailAddress
-} from "./features/auth/email-identity.js";
+} from "../auth/email-identity.js";
 
 export class BetaAccessRequestService {
   constructor(private readonly db: DatabasePool) {}
