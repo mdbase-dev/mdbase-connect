@@ -14,8 +14,8 @@
 //! out, so a write the entry should not have made fails the comparison too.
 use super::{
     apply_void_inventory::{
-        Case, HOLDER, NATIVE, RECORD, blob_ref, file_row, legacy_setup, native_setup,
-        promotion_setup, record_row, reindex_setup,
+        Case, HOLDER, NATIVE, RECORD, UNINDEXED, attachment_setup, blob_ref, file_row,
+        legacy_setup, native_setup, promotion_setup, record_row, reindex_setup,
     },
     disk::{Disk, DiskStore, TestClock},
     engine::Node,
@@ -34,15 +34,16 @@ use crate::{
     },
 };
 use mdbn_wire::{
-    attachment::{FileContent, PutAttachmentFile},
+    attachment::{FileAttach, FileContent, PutAttachmentFile},
     attachment_runtime_v1 as rt,
     client::{Hold, IncidentKind, Receipt, ReceiptState},
     common::{B16, Text, Version},
     entry::{
-        Alias, ConflictKind, ConflictValue, Effect, PutFile, PutRecord, PutResource, PutSettings,
-        RemoveFile, RemoveRecord, RemoveResource, Status,
+        Alias, Conflict, ConflictKind, ConflictValue, DeltaOp, Effect, PutFile, PutRecord,
+        PutResource, PutSettings, RemoveFile, RemoveRecord, RemoveResource, Status, TextDef,
+        TextDefForm, TextDelta, TextSource,
     },
-    intent::{ConflictDismiss, FileInclusion, MediaClass, Op},
+    intent::{ConflictDismiss, FileDelete, FileInclusion, MediaClass, Op, Source},
     snapshot::EntityKind,
     unindexed_markdown::{FileKindV1, RecordToUnindexedMarkdown, UnindexedMarkdownPayloadV1},
 };
@@ -635,6 +636,9 @@ fn resource_effects_replace_the_catalog_and_retype_every_record() {
         })),
         record(B, "tasks/new.md", typed),
     ];
+    // Every pending row plans again under the new catalog.
+    n.r.pending_keys
+        .insert(1, vec!["i:pending".into(), "p:pending.md".into()]);
     let catalog = Arc::as_ptr(&n.r.catalog);
     let reindexed = n.r.stats.reindexed;
     let a = apply(&mut n.r, &c);
@@ -672,6 +676,8 @@ fn resource_effects_replace_the_catalog_and_retype_every_record() {
         a.changed,
         keys(&[
             &id_key(&B),
+            "i:pending",
+            "p:pending.md",
             "p:tasks/new.md",
             "r:_types/gone.md",
             "r:_types/task.md",
@@ -682,11 +688,13 @@ fn resource_effects_replace_the_catalog_and_retype_every_record() {
 
 // ------------------------------------------------------------------ metadata and receipts
 
-/// Conflicts, aliases and dismissals are stored with the entry.
+/// Conflicts, aliases and dismissals are stored with the entry. The entry is
+/// this replica's own, so its receipt carries the conflicts, stored and pushed.
 #[test]
 fn conflicts_aliases_and_dismissals_are_stored_with_the_entry() {
     let mut n = node();
     let mut c = legacy_setup(&mut n);
+    let id = c.payload.mutation.id;
     let dismissed = rt::Conflict {
         kind: ConflictKind::Body,
         id: HOLDER,
@@ -728,8 +736,26 @@ fn conflicts_aliases_and_dismissals_are_stored_with_the_entry() {
             mutation: B16([0x70; 16]),
             record: HOLDER,
         })));
+    seed(
+        &mut n.r,
+        Tx {
+            pending_put: vec![PendingRow {
+                order: 1,
+                mutation: c.payload.mutation.clone(),
+                effects: Vec::new(),
+                touches: Vec::new(),
+                grant: None,
+                uploads: Vec::new(),
+                refs: Vec::new(),
+            }],
+            ..Tx::default()
+        },
+    );
+    n.r.submitted_by.insert(id, n.s);
+    n.r.pushes.clear();
     let a = apply(&mut n.r, &c);
     let mut want = entry(&a, &c.payload);
+    want.pending.clear();
     want.records.push(stored(
         &n.r,
         RECORD,
@@ -753,6 +779,88 @@ fn conflicts_aliases_and_dismissals_are_stored_with_the_entry() {
         },
     }];
     assert_eq!(a.after, want);
+    let receipt_conflicts = vec![Conflict {
+        kind: ConflictKind::Body,
+        id: RECORD,
+        field: None,
+        base: None,
+        kept: ConflictValue::Text(Text::Inline("kept\n".into())),
+        lost: ConflictValue::Text(Text::Inline("lost\n".into())),
+    }];
+    assert_eq!(
+        n.r.store.local_receipt(&id).unwrap().map(|r| r.conflicts),
+        Some(receipt_conflicts.clone())
+    );
+    let pushed: Vec<_> =
+        n.r.pushes
+            .iter()
+            .filter_map(|(_, p)| match p {
+                Push::Receipt(r) => Some(r.conflicts.clone()),
+                _ => None,
+            })
+            .collect();
+    assert_eq!(pushed, [Some(receipt_conflicts)]);
+}
+
+/// This replica's own conflicted attachment: the file is held in the same
+/// commit, and the held file's disk state is brought in line with the hold, so
+/// its pending fetch stops.
+#[test]
+fn own_conflicted_attachment_is_held_and_stops_its_fetch() {
+    let mut n = node();
+    n.r.store.data().borrow_mut().att_disk = Some(Default::default());
+    let put = attachment_setup(&mut n);
+    let file = B16([71; 16]);
+    apply(&mut n.r, &put);
+    assert!(
+        n.r.attachment_fetch_status(&file).is_some(),
+        "the attached file is being fetched"
+    );
+    let rt::Op::FileAttach(attach) = &put.payload.mutation.ops[0] else {
+        unreachable!()
+    };
+    let kept = attach.content.clone();
+    let (FileContent::AttachmentV1(lost), _) = contents(&mut n, b"other picture", true) else {
+        unreachable!()
+    };
+    let mut c = legacy_setup(&mut n);
+    c.payload.mutation.id = B16([0x74; 16]);
+    c.payload.mutation.source = Source::External;
+    c.payload.mutation.ops = vec![rt::Op::FileAttach(FileAttach {
+        content: lost.clone(),
+        ..attach.clone()
+    })];
+    c.payload.effects = Vec::new();
+    c.payload.status = Status::Conflicted;
+    c.payload.conflicts = Some(vec![rt::Conflict {
+        kind: ConflictKind::File,
+        id: file,
+        field: None,
+        base: None,
+        kept: rt::ConflictValue::Attachment(kept),
+        lost: rt::ConflictValue::Attachment(lost),
+    }]);
+    seed(
+        &mut n.r,
+        Tx {
+            pending_put: vec![PendingRow {
+                order: 1,
+                mutation: c.payload.mutation.clone(),
+                effects: Vec::new(),
+                touches: Vec::new(),
+                grant: None,
+                uploads: Vec::new(),
+                refs: Vec::new(),
+            }],
+            ..Tx::default()
+        },
+    );
+    let a = apply(&mut n.r, &c);
+    assert_eq!(
+        a.after.holds.iter().map(|h| h.id).collect::<Vec<_>>(),
+        [file]
+    );
+    assert_eq!(n.r.attachment_fetch_status(&file), None);
 }
 
 /// This replica's own pending mutation is confirmed by its entry: the pending
@@ -968,6 +1076,33 @@ fn verification_counts_each_entry_once() {
     }
 }
 
+/// A native entry this build's planner disagrees with stalls. The caller
+/// retries a stalled entry on every read; the mismatch is reported once per
+/// stall, not on every retry.
+#[test]
+fn native_mismatch_is_reported_once_per_stall() {
+    let mut n = node();
+    let mut c = native_setup(&mut n);
+    c.payload.status = Status::Merged;
+    let head = retain(&mut n.r);
+    let attempt = |n: &mut Node| {
+        let outcome = drive(&mut n.r, head, &c, &mut BTreeSet::new()).unwrap();
+        assert!(
+            matches!(outcome, Outcome::Stall(IncidentKind::UpgradeRequired, _)),
+            "{outcome:?}"
+        );
+        counters(&n.r)
+    };
+    assert_eq!(attempt(&mut n), (0, 1, 0));
+    // As the caller records the stall.
+    n.r.stalled = Some((IncidentKind::UpgradeRequired, head.seq));
+    assert_eq!(attempt(&mut n), (0, 1, 0));
+    assert_eq!(attempt(&mut n), (0, 1, 0));
+    // A stall of another kind at the same position is not this one.
+    n.r.stalled = Some((IncidentKind::WaitingForKey, head.seq));
+    assert_eq!(attempt(&mut n), (0, 2, 0));
+}
+
 // ------------------------------------------------------------------ the commit
 
 /// An entry with a resource, a record and this replica's pending row: it writes
@@ -1041,58 +1176,90 @@ fn applied_entry_moves_memory_after_the_commit() {
 /// leaves what a first-time apply leaves, with the entry counted twice.
 #[test]
 fn failed_commit_stores_nothing_and_moves_no_committed_memory() {
-    for unknown in [false, true] {
-        let mut n = node();
-        let c = busy_setup(&mut n);
-        let rows_before = rows(&n.r);
-        let before = memory(&n.r);
-        let head = retain(&mut n.r);
-        if unknown {
-            n.r.store.fail_unknown_commits(1);
-        } else {
-            n.r.store.fail_commits(1);
-        }
-        let mut changed = BTreeSet::new();
-        let error = drive(&mut n.r, head, &c, &mut changed).unwrap_err();
-        assert_eq!(
-            matches!(error, StoreError::CommitAborted(_)),
-            !unknown,
-            "{error:?}"
-        );
-        assert_eq!(rows(&n.r), rows_before);
-        let failed = memory(&n.r);
-        assert_eq!(moved(&before, &failed), ["policy", "stats"]);
-        // The change keys were already handed back.
-        assert_eq!(
-            changed,
-            keys(&[&id_key(&RECORD), "p:a.md", "r:_types/task.md"])
-        );
+    // `(setup, the change keys, the counters the attempt moves)`.
+    type Counted = (u64, u64, u64);
+    let busy_keys = || keys(&[&id_key(&RECORD), "p:a.md", "r:_types/task.md"]);
+    let create_keys = || keys(&[&id_key(&RECORD), "p:a.md"]);
+    let cases: [(&str, Setup, BTreeSet<String>, Counted); 2] = [
+        ("unverified", busy_setup, busy_keys(), (0, 0, 1)),
+        ("verified", foreign_create, create_keys(), (1, 0, 0)),
+    ];
+    for (name, setup, want_changed, counted) in cases {
+        for unknown in [false, true] {
+            let mut n = node();
+            let c = setup(&mut n);
+            let rows_before = rows(&n.r);
+            let before = memory(&n.r);
+            let counted_before = counters(&n.r);
+            let head = retain(&mut n.r);
+            if unknown {
+                n.r.store.fail_unknown_commits(1);
+            } else {
+                n.r.store.fail_commits(1);
+            }
+            let mut changed = BTreeSet::new();
+            let error = drive(&mut n.r, head, &c, &mut changed).unwrap_err();
+            assert_eq!(
+                matches!(error, StoreError::CommitAborted(_)),
+                !unknown,
+                "{name}: {error:?}"
+            );
+            assert_eq!(rows(&n.r), rows_before, "{name}");
+            let failed = memory(&n.r);
+            assert_eq!(moved(&before, &failed), ["policy", "stats"], "{name}");
+            let after = counters(&n.r);
+            assert_eq!(
+                (
+                    after.0 - counted_before.0,
+                    after.1 - counted_before.1,
+                    after.2 - counted_before.2
+                ),
+                counted,
+                "{name}: the attempt is counted before the commit"
+            );
+            // The change keys were already handed back.
+            assert_eq!(changed, want_changed, "{name}");
 
-        // The same entry again, against a clean first-time apply.
-        let mut clean = node();
-        let clean_case = busy_setup(&mut clean);
-        let want = apply(&mut clean.r, &clean_case);
-        let again = apply(&mut n.r, &c);
-        assert_eq!(again.after, want.after);
-        assert_eq!(again.changed, want.changed);
-        let (mut retried, mut first) = (memory(&n.r), memory(&clean.r));
-        // Each node has its own catalog and query index allocations, and the
-        // failed attempt already counted the entry.
-        for field in ["catalog", "query_context", "stats"] {
-            retried.remove(field);
-            first.remove(field);
+            // The same entry again, against a clean first-time apply.
+            let mut clean = node();
+            let clean_case = setup(&mut clean);
+            let want = apply(&mut clean.r, &clean_case);
+            let again = apply(&mut n.r, &c);
+            assert_eq!(again.after, want.after, "{name}");
+            assert_eq!(again.changed, want.changed, "{name}");
+            let (mut retried, mut first) = (memory(&n.r), memory(&clean.r));
+            // Each node has its own catalog and query index allocations, and the
+            // failed attempt already counted the entry.
+            for field in ["catalog", "query_context", "stats"] {
+                retried.remove(field);
+                first.remove(field);
+            }
+            let (twice, once) = (counters(&n.r), counters(&clean.r));
+            assert_eq!(
+                (twice.0 - once.0, twice.1 - once.1, twice.2 - once.2),
+                counted,
+                "{name}"
+            );
+            assert_eq!(retried, first, "{name}");
         }
-        assert_eq!(n.r.stats.unverified, clean.r.stats.unverified + 1);
-        assert_eq!(retried, first);
     }
 }
 
 /// A read that fails after the commit does not undo it: the entry is applied,
 /// and the replica fences itself instead of writing its follow-up state.
+///
+/// What it stored is what it staged, with no reindex after it: the entry's
+/// records carry their index entries under the catalog the entry leaves.
 #[test]
 fn read_fault_after_the_commit_is_applied_and_fenced() {
     let mut n = node();
-    let c = busy_setup(&mut n);
+    let mut c = busy_setup(&mut n);
+    // A type the entry's record matches, so the two catalogs index it apart.
+    let Some(rt::Effect::Legacy(Effect::PutResource(resource))) = c.payload.effects.last_mut()
+    else {
+        panic!("expected the resource effect")
+    };
+    resource.doc = Text::Inline(TYPE.replace("tasks/*.md", "*.md"));
     let before = memory(&n.r);
     let head = retain(&mut n.r);
     n.r.store.fail_tail_stats(1, false);
@@ -1119,6 +1286,16 @@ fn read_fault_after_the_commit_is_applied_and_fenced() {
             .any(|(_, p)| matches!(p, Push::Receipt(_))),
         "no receipt is pushed"
     );
+    let resources = n.r.store.resources().unwrap();
+    let left =
+        mdbn_core::types::Catalog::load(resources.iter().map(|(a, b)| (a.as_str(), b.as_str())));
+    let stored = n.r.store.record(&RECORD).unwrap().unwrap();
+    assert_ne!(
+        record_meta(&left, &stored.path, &stored.doc),
+        record_meta(&n.r.catalog, &stored.path, &stored.doc),
+        "the fixture is indexed apart by the two catalogs"
+    );
+    assert_eq!(stored.meta, record_meta(&left, &stored.path, &stored.doc));
 }
 
 // ------------------------------------------------------------------ a disk-backed store
@@ -1272,6 +1449,112 @@ fn file_removed_then_attached_in_one_entry_is_put_not_deleted() {
     assert_eq!(a.after, want);
 }
 
+/// On a store that shows files, an apply that fails part-way leaves memory as
+/// far as the path got: before its last reads, nothing; after them, what the
+/// disk showed is merged into the before map (an earlier capture of the same
+/// key wins), the policy has noted the entry and the change keys are handed
+/// back. A failed commit leaves the same as a failure just before it.
+#[test]
+fn failed_apply_on_disk_moves_memory_as_far_as_it_got() {
+    // A clean apply: what it leaves in the before map and the policy.
+    let (shown, noted) = {
+        let mut n = node();
+        let c = promotion_setup(&mut n);
+        let mut d = on_disk(n);
+        apply(&mut d.r, &c);
+        (d.r.before.clone(), memory(&d.r)["policy"].clone())
+    };
+    assert_eq!(shown.keys().collect::<Vec<_>>(), [&DiskKey::Record(NATIVE)]);
+    #[derive(Clone, Copy)]
+    enum Fault {
+        Read(&'static str),
+        Commit,
+    }
+    // `(fault, whether NATIVE was captured before, reached the merge)`.
+    let cases = [
+        (Fault::Read("pending_get"), false, false),
+        (Fault::Read("resources"), false, true),
+        (Fault::Commit, false, true),
+        (Fault::Commit, true, true),
+    ];
+    for (fault, captured, merged) in cases {
+        let mut n = node();
+        let c = promotion_setup(&mut n);
+        let mut d = on_disk(n);
+        seen_before(&mut d.r);
+        if captured {
+            // NATIVE is a file, not a record: the view shows nothing for it.
+            d.r.capture_before(DiskKey::Record(NATIVE));
+        }
+        let seen = d.r.before.clone();
+        let head = retain(&mut d.r);
+        let before = memory(&d.r);
+        let name = match fault {
+            Fault::Read(read) => {
+                // The last read of that method on the path.
+                let reads = {
+                    let mut n = node();
+                    let c = promotion_setup(&mut n);
+                    let mut r = on_disk(n);
+                    seen_before(&mut r.r);
+                    let start = r.disk.borrow().row_reads.len();
+                    let head = retain(&mut r.r);
+                    drive(&mut r.r, head, &c, &mut BTreeSet::new()).unwrap();
+                    r.disk.borrow().row_reads[start..].to_vec()
+                };
+                let k = reads.iter().rposition(|r| *r == read).unwrap();
+                d.disk.borrow_mut().fail_row_read = Some(k as u64);
+                format!("read {read}")
+            }
+            Fault::Commit => {
+                d.r.store.inner.fail_commits(1);
+                "commit".to_string()
+            }
+        };
+        let name = format!("{name}, captured {captured}");
+        let mut changed = BTreeSet::new();
+        drive(&mut d.r, head, &c, &mut changed).unwrap_err();
+        let mut want_before = seen.clone();
+        let mut want_moved = vec!["stats"];
+        if merged {
+            for (key, value) in &shown {
+                want_before.entry(key.clone()).or_insert(value.clone());
+            }
+            want_moved = vec!["before", "policy", "stats"];
+        }
+        if matches!(fault, Fault::Commit) {
+            // The commit took the retained bytes with it.
+            want_moved.insert(2, "retaining");
+        }
+        if captured {
+            // The earlier capture is kept, so the before map does not move.
+            want_moved.retain(|f| *f != "before");
+            assert!(matches!(
+                d.r.before.get(&DiskKey::Record(NATIVE)),
+                Some(None)
+            ));
+        }
+        assert_eq!(
+            format!("{:?}", d.r.before),
+            format!("{want_before:?}"),
+            "{name}"
+        );
+        assert_eq!(moved(&before, &memory(&d.r)), want_moved, "{name}");
+        if merged {
+            assert_eq!(memory(&d.r)["policy"], noted, "{name}");
+        }
+        assert_eq!(
+            changed,
+            if merged {
+                keys(&[&id_key(&NATIVE), "p:note.md"])
+            } else {
+                BTreeSet::new()
+            },
+            "{name}"
+        );
+    }
+}
+
 /// How one apply attempt ended, for the read-fault sweep.
 fn exit<S: Store>(
     r: &Replica<S>,
@@ -1287,40 +1570,165 @@ fn exit<S: Store>(
             assert_eq!(at, head);
             "applied"
         }
+        Ok(Outcome::Void(reason)) => {
+            assert_eq!(at, head);
+            reason
+        }
         Ok(other) => panic!("{other:?}"),
     }
 }
 
+/// A record no fixture entry touches.
+const SEEN: B16 = B16([0x55; 16]);
+
+/// Store a record the entry does not touch and capture what the disk shows
+/// for it, so the before map the entry merges into is not empty.
+fn seen_before<S: Store>(r: &mut Replica<S>) {
+    seed(
+        r,
+        Tx {
+            records_put: vec![record_row(SEEN, "seen.md", "seen\n")],
+            ..Tx::default()
+        },
+    );
+    r.capture_before(DiskKey::Record(SEEN));
+    assert!(matches!(
+        r.before.get(&DiskKey::Record(SEEN)),
+        Some(Some(_))
+    ));
+}
+
+/// What one read-fault run moved in memory: the fields of [`memory`], and
+/// `changed` when change keys were handed back.
+fn moved_by_fault(
+    before: &BTreeMap<&'static str, String>,
+    r: &Replica<DiskStore>,
+    changed: &BTreeSet<String>,
+) -> Vec<&'static str> {
+    let mut fields = moved(before, &memory(r));
+    if !changed.is_empty() {
+        fields.push("changed");
+    }
+    fields
+}
+
+/// What [`read_fault_sweep`] finds: the reads, the exceptions, and from which
+/// read on each set of moved memory holds.
+type Sweep = (
+    String,
+    Vec<(usize, &'static str)>,
+    Vec<(usize, Vec<&'static str>)>,
+);
+
 /// Fail each row read of an apply in turn. Gives the reads the path makes, in
-/// order and by store method, and every read whose failure is not an internal
-/// error that stores nothing: `(read, how the apply ended)`.
-fn read_fault_sweep(setup: Setup) -> (String, Vec<(usize, &'static str)>) {
+/// order and by store method, every read whose failure is not an internal
+/// error that stores nothing, `(read, how the apply ended)`, and the memory a
+/// failure at each read leaves moved, as `(first read, moved)` wherever it
+/// changes from the read before.
+fn read_fault_sweep(setup: Setup) -> Sweep {
     let reads = {
         let mut n = node();
         let c = setup(&mut n);
         let mut d = on_disk(n);
+        seen_before(&mut d.r);
         let start = d.disk.borrow().row_reads.len();
         let head = retain(&mut d.r);
         drive(&mut d.r, head, &c, &mut BTreeSet::new()).unwrap();
         d.disk.borrow().row_reads[start..].to_vec()
     };
     let mut exceptions = Vec::new();
+    let mut memory_moved: Vec<(usize, Vec<&'static str>)> = Vec::new();
     for k in 0..reads.len() {
         let mut n = node();
         let c = setup(&mut n);
         let mut d = on_disk(n);
+        seen_before(&mut d.r);
+        let seen = d.r.before.clone();
         let before = d.r.store.head().unwrap();
         let rows_before = rows(&d.r);
         let head = retain(&mut d.r);
+        let memory_before = memory(&d.r);
         d.disk.borrow_mut().fail_row_read = Some(k as u64);
-        let result = drive(&mut d.r, head, &c, &mut BTreeSet::new());
+        let mut changed = BTreeSet::new();
+        let result = drive(&mut d.r, head, &c, &mut changed);
         assert_eq!(d.disk.borrow().fail_row_read, None, "read {k} was made");
         match exit(&d.r, &result, before, head) {
             "error" => assert_eq!(rows(&d.r), rows_before, "read {k}: nothing is stored"),
             other => exceptions.push((k, other)),
         }
+        for (key, shown) in &seen {
+            assert_eq!(
+                format!("{:?}", d.r.before.get(key)),
+                format!("{:?}", Some(shown)),
+                "read {k}: what was captured before the entry is kept"
+            );
+        }
+        let fields = moved_by_fault(&memory_before, &d.r, &changed);
+        if memory_moved.last().map(|(_, m)| m) != Some(&fields) {
+            memory_moved.push((k, fields));
+        }
     }
-    (reads.join(" "), exceptions)
+    (reads.join(" "), exceptions, memory_moved)
+}
+
+/// A delegated entry with two file operations, one an attachment, and a text
+/// read from a record: the delegation guard reads each operation's file, in
+/// operation order, before the text table is resolved.
+fn delegated_file_ops(n: &mut Node) -> Case {
+    let mut c = legacy_setup(n);
+    let (FileContent::AttachmentV1(content), _) = contents(n, b"picture", true) else {
+        unreachable!()
+    };
+    c.payload.mutation.on_behalf = Some(B16([0x73; 16]));
+    c.payload.mutation.ops.extend([
+        rt::Op::Legacy(Op::FileDelete(FileDelete {
+            id: FILE,
+            if_revision: None,
+            base: None,
+        })),
+        rt::Op::FileAttach(FileAttach {
+            id: OTHER_FILE,
+            path: "pic.png".into(),
+            content,
+            if_revision: None,
+            base: None,
+            mtime: None,
+        }),
+    ]);
+    c.payload.texts = Some(vec![TextDef::Form(TextDefForm::Delta(TextDelta {
+        source: TextSource::PrevRecord(HOLDER),
+        ops: vec![DeltaOp::Copy { offset: 0, len: 4 }],
+    }))]);
+    c
+}
+
+/// The delegation guard reads the files of the operations in order and stalls
+/// at the first native one, before anything else is read: an attachment is
+/// guarded like the legacy file operations.
+#[test]
+fn delegation_guard_stops_at_the_first_native_file() {
+    let mut n = node();
+    let mut c = delegated_file_ops(&mut n);
+    let Some(rt::Op::FileAttach(attach)) = c.payload.mutation.ops.last_mut() else {
+        panic!("expected the attachment")
+    };
+    attach.id = UNINDEXED;
+    // The attachment, then a file operation after it.
+    let attach = c.payload.mutation.ops.pop().unwrap();
+    c.payload.mutation.ops.insert(1, attach);
+    let mut d = on_disk(n);
+    let start = d.disk.borrow().row_reads.len();
+    let head = retain(&mut d.r);
+    let outcome = drive(&mut d.r, head, &c, &mut BTreeSet::new()).unwrap();
+    assert!(
+        matches!(
+            &outcome,
+            Outcome::Stall(IncidentKind::UpgradeRequired, why)
+                if why == "delegated native file mediation is not supported"
+        ),
+        "{outcome:?}"
+    );
+    assert_eq!(d.disk.borrow().row_reads[start..], ["file"]);
 }
 
 /// Every legacy effect arm, in this replica's own entry (so nothing is
@@ -1363,11 +1771,70 @@ fn every_legacy_arm(n: &mut Node) -> Case {
 /// nothing, with the exceptions listed: a legacy entry is re-planned, and what
 /// the disk shows is captured, through views that read a failed row as a
 /// missing one, so the apply goes on; and a read that fails after the commit
-/// is an error with the entry already stored.
+/// is an error with the entry already stored. (A delta text's source record is
+/// read the same way, so a failed read there persists a void.) Each failure
+/// leaves memory moved as listed, and keeps what was captured before the entry.
 #[test]
 fn read_faults_by_read() {
     type Exceptions = &'static [(usize, &'static str)];
-    let cases: [(&str, Setup, &str, Exceptions); 5] = [
+    type Memory = &'static [(usize, &'static [&'static str])];
+    // Everything an applied entry moves, with the change keys.
+    const ALL: &[&str] = &[
+        "before",
+        "head",
+        "log_time",
+        "policy",
+        "query_context",
+        "retaining",
+        "sem_ratchet",
+        "stats",
+        "changed",
+    ];
+    // An applied entry that changes the catalog.
+    const ALL_CATALOG: &[&str] = &[
+        "before",
+        "catalog",
+        "head",
+        "log_time",
+        "policy",
+        "query_context",
+        "retaining",
+        "sem_ratchet",
+        "stats",
+        "changed",
+    ];
+    let cases: [(&str, Setup, &str, Exceptions, Memory); 6] = [
+        (
+            "delegated file ops",
+            delegated_file_ops,
+            "file file record file record tombstone record_at file_at pending_get holds record \
+             resources",
+            // The text table reads a failed source record as a missing one and
+            // voids; then the capture of what the disk shows.
+            &[(2, "V7: text table"), (10, "applied")],
+            &[
+                (0, &[]),
+                // The void.
+                (2, &["head", "policy", "retaining"]),
+                (3, &[]),
+                (9, &["changed"]),
+                // Applied, and this replica's own entry is not counted.
+                (
+                    10,
+                    &[
+                        "before",
+                        "head",
+                        "log_time",
+                        "policy",
+                        "query_context",
+                        "retaining",
+                        "sem_ratchet",
+                        "changed",
+                    ],
+                ),
+                (11, &["before", "policy", "changed"]),
+            ],
+        ),
         (
             "legacy effects",
             every_legacy_arm,
@@ -1378,6 +1845,13 @@ fn read_faults_by_read() {
                 (14, "applied"),
                 (15, "applied"),
                 (17, "error after the commit"),
+            ],
+            &[
+                (0, &[]),
+                (13, &["changed"]),
+                (14, ALL_CATALOG),
+                (16, &["before", "policy", "changed"]),
+                (17, ALL_CATALOG),
             ],
         ),
         (
@@ -1395,6 +1869,14 @@ fn read_faults_by_read() {
                 (10, "applied"),
                 (13, "applied"),
             ],
+            &[
+                (0, &[]),
+                (5, ALL),
+                (11, &["stats"]),
+                (12, &["stats", "changed"]),
+                (13, ALL),
+                (14, &["before", "policy", "stats", "changed"]),
+            ],
         ),
         (
             "native put",
@@ -1404,6 +1886,12 @@ fn read_faults_by_read() {
              tombstone record file file record tombstone record_at file_at record file \
              record_at file_at tombstone record file pending_get holds resources",
             &[],
+            &[
+                (0, &[]),
+                (36, &["stats"]),
+                (37, &["stats", "changed"]),
+                (38, &["policy", "stats", "changed"]),
+            ],
         ),
         (
             "native reindex",
@@ -1411,6 +1899,12 @@ fn read_faults_by_read() {
             "file record_at file_at file file record_at file_at record pending_get holds \
              resources",
             &[],
+            &[
+                (0, &[]),
+                (8, &["stats"]),
+                (9, &["stats", "changed"]),
+                (10, &["before", "policy", "stats", "changed"]),
+            ],
         ),
         (
             "native promotion",
@@ -1419,13 +1913,21 @@ fn read_faults_by_read() {
              file_at record file record_at file_at file record tombstone record_at file_at \
              file record_at file_at record pending_get holds resources",
             &[],
+            &[
+                (0, &[]),
+                (24, &["stats"]),
+                (25, &["stats", "changed"]),
+                (26, &["before", "policy", "stats", "changed"]),
+            ],
         ),
     ];
-    for (name, setup, reads, exceptions) in cases {
+    for (name, setup, reads, exceptions, memory) in cases {
         let got = read_fault_sweep(setup);
+        let memory: Vec<(usize, Vec<&str>)> =
+            memory.iter().map(|(k, m)| (*k, m.to_vec())).collect();
         assert_eq!(
-            (got.0.as_str(), got.1.as_slice()),
-            (reads, exceptions),
+            (got.0.as_str(), got.1.as_slice(), &got.2),
+            (reads, exceptions, &memory),
             "{name}"
         );
     }

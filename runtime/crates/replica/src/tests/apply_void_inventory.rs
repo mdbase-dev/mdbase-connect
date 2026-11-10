@@ -32,7 +32,7 @@ use crate::{
 use mdbn_wire::{
     attachment::{FileAttach, FileContent, PutAttachmentFile},
     attachment_runtime_v1 as rt,
-    common::{B16, B32, Hash, Text},
+    common::{B16, B32, Hash, Text, Value},
     entry::{
         ConflictKind, ConflictValue, DeltaOp, Effect, PutFile, PutRecord, PutResource, RemoveFile,
         RemoveRecord, Status, TextBlob, TextDef, TextDefForm, TextDelta, TextSource,
@@ -359,6 +359,30 @@ const STRUCTURAL: Ladder = Ladder {
         }),
         ("V7: path already taken", |_, c| {
             c.payload.effects.push(put_record(64, "taken.md"));
+        }),
+        // Not a void: only a native entry's request is checked.
+        (APPLIED, |_, c| {
+            let rt::Op::Legacy(Op::Create(create)) = &mut c.payload.mutation.ops[0] else {
+                panic!("expected the create")
+            };
+            // `document` with `body`: an invalid request.
+            create.body = Some(Text::Inline("and a body\n".into()));
+        }),
+        // Not a void: with the create, exactly 1000 operations (when no step
+        // above adds more).
+        (APPLIED, |_, c| {
+            for i in 0..999u16 {
+                let mut id = [0xee; 16];
+                id[..2].copy_from_slice(&i.to_be_bytes());
+                c.payload
+                    .mutation
+                    .ops
+                    .push(rt::Op::Legacy(Op::Delete(Delete {
+                        id: B16(id),
+                        base_revision: None,
+                        if_revision: None,
+                    })));
+            }
         }),
     ],
     last: APPLIED,
@@ -949,6 +973,79 @@ fn native_prior_check_conditions() {
     }
 }
 
+/// The conflict bounds check reads every side of every conflict: the kept and
+/// lost sides and the optional base, legacy blobs and unindexed descriptors
+/// alike. Each case has one value out of range; the control has none.
+#[test]
+fn conflict_bounds_cover_every_side() {
+    fn legacy(v: ConflictValue) -> rt::ConflictValue {
+        rt::ConflictValue::Legacy(v)
+    }
+    let small = || {
+        legacy(ConflictValue::Blob(blob_ref(
+            crate::replica::apply::MIN_PART,
+        )))
+    };
+    let large = || legacy(ConflictValue::Blob(blob_ref(1)));
+    let text = || legacy(ConflictValue::Text(Text::Inline("t\n".into())));
+    // Under the record cap, so out of range for an unindexed file.
+    let unindexed = || {
+        rt::ConflictValue::UnindexedMarkdown(UnindexedMarkdownPayloadV1 {
+            content: FileContent::Blob(blob_ref(crate::replica::apply::MIN_PART)),
+        })
+    };
+    type Sides = (
+        Option<rt::ConflictValue>,
+        rt::ConflictValue,
+        rt::ConflictValue,
+    );
+    let out = "V7: blob part size or count out of range";
+    let cases: [(&str, Sides, &str); 5] = [
+        ("in range", (Some(small()), small(), text()), APPLIED),
+        ("kept", (None, large(), text()), out),
+        ("lost", (None, text(), large()), out),
+        ("base", (Some(large()), small(), text()), out),
+        ("unindexed kept", (None, unindexed(), text()), out),
+    ];
+    for (name, (base, kept, lost), want) in cases {
+        let mut n = node();
+        let mut c = legacy_setup(&mut n);
+        c.payload.status = Status::Conflicted;
+        c.payload.conflicts = Some(vec![rt::Conflict {
+            kind: ConflictKind::Body,
+            id: RECORD,
+            field: None,
+            base,
+            kept,
+            lost,
+        }]);
+        assert_eq!(outcome(&mut n, &c), want, "{name}");
+    }
+}
+
+/// A promotion whose source is an index into the text table resolves before
+/// the effects loop, like every other effect's text.
+#[test]
+fn promotion_source_resolves_through_the_text_table() {
+    let mut n = node();
+    let mut c = promotion_setup(&mut n);
+    let doc = promotion_effect(&mut c).doc.clone();
+    let Text::Inline(doc) = doc else {
+        panic!("the fixture is inline")
+    };
+    c.payload.texts = Some(vec![TextDef::Literal(doc)]);
+    promotion_effect(&mut c).doc = Text::Index(0);
+    let rt::Op::OrdinaryFileToRecord(op) = &mut c.payload.mutation.ops[0] else {
+        panic!("expected the promotion op")
+    };
+    op.doc = Text::Index(0);
+    assert_eq!(outcome(&mut n, &c), APPLIED);
+    assert_eq!(
+        n.r.store.record(&NATIVE).unwrap().map(|r| r.doc),
+        Some("promoted\n".into())
+    );
+}
+
 /// Source-read outcomes: the reverse-text hydration and the native source
 /// check, each with an unavailable key, a corrupt object and invalid UTF-8.
 #[test]
@@ -975,9 +1072,26 @@ fn source_read_outcomes() {
         };
         let first = apply(&mut a);
         got.push(describe(&a, first, before, h, voids));
+        assert_eq!(integrity(&a), None);
+        assert_eq!(a.r.reverse_text_sources.next_wakeup(), None);
         supply(&mut a, &objects, corrupt);
         let second = apply(&mut a);
         got.push(describe(&a, second, before, h, voids));
+        if corrupt {
+            // The corruption is reported, and the read is retried later.
+            assert_eq!(
+                integrity(&a),
+                Some(Value::Text(
+                    "reverse text source: Corrupt(\"blob authentication\")".into()
+                ))
+            );
+            assert!(
+                a.r.reverse_text_sources
+                    .next_wakeup()
+                    .is_some_and(|t| t > a.r.now()),
+                "a retry is scheduled"
+            );
+        }
     }
     {
         let mut a = node();
@@ -1023,8 +1137,21 @@ fn source_read_outcomes() {
         let first = apply(&mut a);
         got.push(describe(&a, first, before, h, voids));
         step(&mut a, &c.objects, h, true);
+        assert_eq!(integrity(&a), None);
+        assert_eq!(a.r.unindexed_sources.next_wakeup(), None);
         let second = apply(&mut a);
         got.push(describe(&a, second, before, h, voids));
+        // The corruption is reported, and the read is retried later.
+        assert_eq!(
+            integrity(&a),
+            Some(Value::Text("T6b source: Corrupt(\"manifest\")".into()))
+        );
+        assert!(
+            a.r.unindexed_sources
+                .next_wakeup()
+                .is_some_and(|t| t > a.r.now()),
+            "a retry is scheduled"
+        );
     }
     {
         let mut a = node();
@@ -1046,6 +1173,13 @@ fn source_read_outcomes() {
             "stall WaitingForKey: T6b source key unavailable",
         ]
     );
+}
+
+/// The details of the replica's integrity incident, if it has one.
+fn integrity(a: &Node) -> Option<Value> {
+    a.r.incidents
+        .get(&mdbn_wire::client::IncidentKind::Integrity.value())
+        .and_then(|i| i.details.clone())
 }
 
 /// Replace the sealer with one that holds only epoch 2's key.
