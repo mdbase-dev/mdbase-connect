@@ -43,13 +43,15 @@ export interface ControlRouteResponse {
  * The first usable target, or `null` when there is none (the SDK then reports
  * `unavailable` / `no_device_online`; `no_device_registered` is kept as the reason).
  * Relay targets (with `relay_collection`) use the relay Noise pipe and need the
- * access token; others are direct WebSockets (the hosted replica).
+ * access token; others are direct WebSockets (the hosted replica, which is sent the
+ * prologue in clear first).
  */
 export function routeFromControl(res: ControlRouteResponse, accessToken: string): RelayRoute | null {
   for (const t of res.targets ?? []) {
     if (!/^[0-9a-f]{64}$/i.test(t.noise_pk) || !t.url || !t.device) continue;
     const route: RelayRoute = { url: t.url, targetDevice: t.device, noisePublicKey: fromHex(t.noise_pk) };
     if (t.relay_collection) route.pipe = { collection: t.relay_collection, accessToken };
+    else if (t.kind === "hosted") route.prologueFirst = true;
     return route;
   }
   return null;

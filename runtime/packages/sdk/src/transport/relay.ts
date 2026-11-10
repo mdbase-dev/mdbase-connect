@@ -29,6 +29,13 @@ export interface RelayRoute {
    * a direct WebSocket to the hosted replica (one Noise message per WS message).
    */
   pipe?: { collection: string; accessToken: string };
+  /**
+   * The hosted replica's app socket: the 64-byte prologue goes first, in clear, as its
+   * own WebSocket message before Noise message 1. The hosted Worker reads the grant
+   * from it to start the handshake and closes the socket (1008) without it. Relay
+   * pipes never send it: the relay gives the daemon the same values in `pipe_open`.
+   */
+  prologueFirst?: boolean;
 }
 
 export interface RelayConnectorOptions {
@@ -57,8 +64,10 @@ export function relayConnector(o: RelayConnectorOptions): Connector {
       if (!route) {
         throw mdbaseError("unavailable", "no device of this collection is online", "no_device_online");
       }
+      const prologue = clientPrologue(collection, grant, uuidToBytes(route.targetDevice));
       return {
-        prologue: clientPrologue(collection, grant, uuidToBytes(route.targetDevice)),
+        prologue,
+        ...(route.prologueFirst && !route.pipe ? { preamble: prologue } : {}),
         remoteStatic: route.noisePublicKey,
         device: route.targetDevice,
         openCarrier: (signal) =>
