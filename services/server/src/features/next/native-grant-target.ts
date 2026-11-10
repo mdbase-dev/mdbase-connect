@@ -7,8 +7,7 @@
 // serving device materializes the exact signed grant and sealed Private folder
 // scope automatically; these checks locate that account's device.
 import type { DatabaseQueryable } from "../../database-types.js";
-import { CreateError, DEVICE_REVOCATIONS, currentMember } from "./bootstrap-common.js";
-import { requireCollectionNotDeleted } from "./collection-deletion.js";
+import { DEVICE_REVOCATIONS, latestMembership, membershipFilters } from "./bootstrap-common.js";
 import type { RegisteredDeviceKind } from "./policy-wire.js";
 
 export interface NativeGrant {
@@ -58,26 +57,37 @@ export async function nativeGrant(db: DatabaseQueryable, tokenHash: string, coll
  * longer a member; otherwise `sync_required` (the collection changed mode, left
  * sync or was deleted).
  */
-export async function nativeGrantStanding(db: DatabaseQueryable, collection: string, account: string, sync: "private" | "cloud_copy"): Promise<"current" | "access_removed" | "sync_required"> {
-  const current = await db.query(
-    `SELECT 1 FROM next_collections WHERE collection_id = $1
-     AND runtime = 'next' AND sync = $2 AND left_sync_at IS NULL`,
-    [collection, sync]
+export async function nativeGrantStanding(db: DatabaseQueryable, collection: string, account: string, sync: "private" | "cloud_copy"): Promise<NativeGrantStanding> {
+  return (await nativeGrantStandings(db, account, [{ collection, sync }])).get(collection.toLowerCase())!.standing;
+}
+
+export type NativeGrantStanding = "current" | "access_removed" | "sync_required";
+
+/** `nativeGrantStanding` for several of one account's grants in one read, with
+ * the account's current role where the standing is current. A collection is
+ * listed once: an account holds native grants on it for one mode at a time.
+ * Returned map keys are canonical PostgreSQL UUIDs. */
+export async function nativeGrantStandings(
+  db: DatabaseQueryable, account: string, grants: ReadonlyArray<{ collection: string; sync: "private" | "cloud_copy" }>
+): Promise<ReadonlyMap<string, { standing: NativeGrantStanding; role: string | null }>> {
+  const wanted = new Map(grants.map(({ collection, sync }) => [collection.toLowerCase(), sync]));
+  const standings = new Map([...wanted.keys()].map(id => [id, { standing: "sync_required" as NativeGrantStanding, role: null as string | null }]));
+  if (wanted.size === 0) return standings;
+  const rows = await db.query<{ collection_id: string; sync: string; deleted: boolean; op: string | null; role: string | null }>(
+    `SELECT n.collection_id::text AS collection_id, n.sync,
+       EXISTS (SELECT 1 FROM next_collection_deletion_facts f WHERE f.collection_id = n.collection_id) AS deleted,
+       member.op, member.role
+     FROM next_collections n
+     LEFT JOIN LATERAL (${latestMembership("n.collection_id", "$2", "$3", "$4")}) member ON true
+     WHERE n.collection_id = ANY($1::uuid[]) AND n.runtime = 'next' AND n.left_sync_at IS NULL`,
+    [[...wanted.keys()], ...membershipFilters(account), account]
   );
-  if (!current.rows.length) return "sync_required";
-  try {
-    await requireCollectionNotDeleted(db, collection);
-  } catch (error) {
-    if (error instanceof Error && error.message === "collection_deleted") return "sync_required";
-    throw error;
+  for (const row of rows.rows) {
+    if (row.sync !== wanted.get(row.collection_id) || row.deleted) continue;
+    standings.set(row.collection_id, row.op === "member-set"
+      ? { standing: "current", role: row.role } : { standing: "access_removed", role: null });
   }
-  try {
-    await currentMember(db, collection, account);
-  } catch (error) {
-    if (error instanceof CreateError) return "access_removed";
-    throw error;
-  }
-  return "current";
+  return standings;
 }
 
 /**
@@ -153,19 +163,26 @@ export async function nativeAdmission(db: DatabaseQueryable, tokenHash: string, 
  * have their own outcomes). Callers still own request/grant authorization.
  */
 export async function unmigratedLocalCollection(db: DatabaseQueryable, collection: string, account: string): Promise<boolean> {
-  const result = await db.query<{ unmigrated: boolean }>(
-    `SELECT true AS unmigrated FROM collections col
+  return (await unmigratedLocalCollections(db, [collection], account)).has(collection.toLowerCase());
+}
+
+/** `unmigratedLocalCollection` for several collections in one read: the
+ * canonical PostgreSQL UUIDs of those that are unmigrated. */
+export async function unmigratedLocalCollections(db: DatabaseQueryable, collections: readonly string[], account: string): Promise<ReadonlySet<string>> {
+  if (collections.length === 0) return new Set();
+  const result = await db.query<{ collection: string }>(
+    `SELECT DISTINCT col.local_id::text AS collection FROM collections col
      JOIN connectors c ON c.id = col.connector_id AND c.user_id = col.user_id
      JOIN users u ON u.id = col.user_id
      LEFT JOIN next_devices d ON d.connector_id = c.id
      LEFT JOIN next_collections n ON n.collection_id = col.local_id
-     WHERE col.local_id = $1 AND col.user_id = $2
+     WHERE col.local_id = ANY($1::uuid[]) AND col.user_id = $2
        AND col.present = true AND col.enabled = true AND col.removed_at IS NULL
        AND col.authority_state = 'active' AND c.revoked_at IS NULL AND u.suspended_at IS NULL
-       AND d.id IS NULL AND n.collection_id IS NULL LIMIT 1`,
-    [collection, account]
+       AND d.id IS NULL AND n.collection_id IS NULL`,
+    [[...collections], account]
   );
-  return result.rows[0]?.unmigrated === true;
+  return new Set(result.rows.map(row => row.collection));
 }
 
 /**

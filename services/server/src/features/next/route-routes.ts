@@ -19,10 +19,12 @@ import { RelayBrokerUnavailableError, type RelayBroker } from "../relay/relay-br
 import { hostedClientOrigin, hostedRouteTarget, type RouteTarget } from "./hosted-route-target.js";
 export type { RouteTarget } from "./hosted-route-target.js";
 import { pitrCollection, type LabPitrConfig } from "./lab-pitr-config.js";
-import { nativeDevices, nativeGrant, nativeGrantStanding, supersededLegacyGrant, unmigratedLocalCollection } from "./native-grant-target.js";
+import {
+  nativeDevices, nativeDevicesByCollection, nativeGrant, nativeGrantStanding, nativeGrantStandings,
+  supersededLegacyGrant, unmigratedLocalCollection, unmigratedLocalCollections
+} from "./native-grant-target.js";
 import { CutoverProblemError } from "./cutover-problems.js";
 import type { MigrationRouting } from "./migration-routing.js";
-import { CreateError, currentMember } from "./bootstrap-common.js";
 
 /** Whether the app can open the collection now and, if not, why (SDK describeError reasons). */
 export type RouteAvailability =
@@ -267,27 +269,31 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
     // A collection set up again natively is listed once, by its native grant.
     const nativeCollections = new Set(grants.rows.filter((row) => row.native).map((row) => row.collection));
     const rows = grants.rows.filter((row) => !row.superseded || !nativeCollections.has(row.collection));
+    // A fixed number of set-based reads, however many grants are listed.
+    const unmigratedCollections = await unmigratedLocalCollections(options.db,
+      rows.filter((row) => row.local && !row.superseded).map((row) => row.collection), self.user_id);
+    const nativeRows = rows.filter((row) => row.native && row.routable);
+    const standings = await nativeGrantStandings(options.db, self.user_id,
+      nativeRows.map((row) => ({ collection: row.collection, sync: row.native_sync! })));
+    // A current cloud-copy grant is served by the hosted replica, like a hosted
+    // grant: only a Private grant depends on the account's computers.
+    const devices = await nativeDevicesByCollection(options.db, nativeRows
+      .filter((row) => row.native_sync === "private" && standings.get(row.collection)!.standing === "current")
+      .map((row) => row.collection), self.user_id);
     const collections = await Promise.all(rows.map(async (row) => {
       let availability: RouteAvailability | undefined;
       let role: string | null = null;
-      const unmigrated = row.local && !row.superseded && await unmigratedLocalCollection(options.db, row.collection, self.user_id);
+      const unmigrated = row.local && !row.superseded && unmigratedCollections.has(row.collection);
       if (unmigrated) availability = { state: "unavailable", reason: "collection_not_yet_migrated" };
       else if (row.superseded) availability = { state: "unavailable", reason: "sync_required" };
       else if (row.native && row.routable) {
-        const standing = await nativeGrantStanding(options.db, row.collection, self.user_id, row.native_sync!);
+        const { standing, role: currentRole } = standings.get(row.collection)!;
         // Display and UI gating only; every action is still checked where it lands.
-        if (standing === "current") {
-          role = await currentMember(options.db, row.collection, self.user_id).catch((error: unknown) => {
-            if (error instanceof CreateError) return null; // left between the two reads: omit
-            throw error;
-          });
-        }
-        // A current cloud-copy grant is served by the hosted replica, like a
-        // hosted grant: only a Private grant depends on the account's computers.
+        role = currentRole;
         availability = standing !== "current" ? { state: "unavailable", reason: standing }
           : row.native_sync === "cloud_copy" ? undefined
           : deviceAvailability(await deviceCandidates(options.broker,
-            (await nativeDevices(options.db, row.collection, self.user_id)).map((device) => ({ ...device, local_id: row.collection })),
+            devices.get(row.collection)!.map((device) => ({ ...device, local_id: row.collection })),
             relayUrl.toString()));
       }
       return {

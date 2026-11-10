@@ -96,7 +96,8 @@ describePostgres("grant revocation append confirmation (real Postgres)", () => {
     try {
       const response = await app.inject({ method: "GET", url: "/v1/me", headers: { cookie: `mdbase_session=${token}` } });
       expect(response.statusCode, response.body).toBe(200);
-      return response.json().grants.find((grant: { id: string }) => grant.id === id).revocation_status;
+      // A completed revocation that asks for nothing more leaves the overview.
+      return response.json().grants.find((grant: { id: string }) => grant.id === id)?.revocation_status ?? "omitted";
     } finally { await app.close(); }
   }
 
@@ -109,7 +110,7 @@ describePostgres("grant revocation append confirmation (real Postgres)", () => {
     expect(await status(id)).toBe("revoking");
     await emitter.drainCollection(id);
     expect(await status(id)).toBe("revoked");
-    expect(await accountStatus(id)).toBe("revoked");
+    expect(await accountStatus(id)).toBe("omitted");
     const batch = (await db.query("SELECT appended_at FROM next_policy_batches WHERE collection_id=$1 ORDER BY id DESC LIMIT 1", [id])).rows[0]!;
     expect(await confirmation(id)).toEqual(batch.appended_at);
     await revoke(id);

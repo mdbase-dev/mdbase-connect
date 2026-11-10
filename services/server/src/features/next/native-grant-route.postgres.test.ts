@@ -7,7 +7,7 @@ import cookie from "@fastify/cookie";
 import Fastify from "fastify";
 import { capabilityOperations } from "@mdbase-dev/connect-protocol";
 import pg from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { LocalRelayBroker, type RelayBrokerReply } from "../relay/relay-broker.js";
 import { tokenHash } from "../../security.js";
@@ -213,6 +213,40 @@ describePostgres("Private native collection grants", () => {
     } finally {
       await binding.close();
     }
+  });
+
+  it("lists an installation's collections with a fixed number of reads, however many it holds", async () => {
+    const counts: number[] = [];
+    for (const size of [1, 3]) {
+      const owner = await user(), desktop = await device(owner), application = randomUUID();
+      await db.query("INSERT INTO applications(id,canonical_identity,name,homepage,redirect_uris) VALUES($1::uuid,$1::text,'Journal','https://journal.example','[]')", [application]);
+      const token = `at_${randomUUID()}`;
+      for (let index = 0; index < size; index++) {
+        const collection = await privateCollection(owner, [desktop]), grant = randomUUID();
+        await db.query(`INSERT INTO grants(id,user_id,application_id,next_collection_id,next_collection_sync,operations,scope,application_installation_id,application_authorization,activated_at)
+          VALUES($1,$2,$3,$4,'private',$5::jsonb,'{"access":"full_collection","contracts":[]}','installation-1',
+          '{"binding":{"protocol_version":4,"application_declaration_id":"dev.mdbase.journal","contracts":{"semantic_capabilities":2}}}',now())`,
+        [grant, owner, application, collection, JSON.stringify(OPERATIONS)]);
+        await db.query("INSERT INTO next_grant_client_keys(grant_id, client_pk) VALUES($1,$2)", [grant, randomBytes(32)]);
+        await db.query("INSERT INTO next_grant_bindings(grant_id,collection_id,log_grant_id,terms_digest) VALUES($1,$2,$3,$4)", [grant, collection, randomUUID(), Buffer.alloc(32)]);
+        if (index === 0) await db.query("INSERT INTO access_tokens(id,token_hash,grant_id,expires_at) VALUES($1,$2,$3,now() + interval '1 hour')", [randomUUID(), tokenHash(token), grant]);
+      }
+      const binding = await online(desktop);
+      const reads = vi.spyOn(db, "query");
+      try {
+        const response = await app.inject({ method: "GET", url: "/v1/next/apps/collections", headers: { authorization: `Bearer ${token}` } });
+        expect(response.statusCode, response.body).toBe(200);
+        counts.push(reads.mock.calls.length);
+        expect(response.json().collections).toEqual(Array.from({ length: size }, () => expect.objectContaining({
+          state: "synced_e2e", routable: true, role: "owner", availability: { state: "available" }
+        })));
+      } finally {
+        reads.mockRestore();
+        await binding.close();
+      }
+    }
+    // The caller, its grants, their native standings and the serving devices.
+    expect(counts).toEqual([4, 4]);
   });
 
   it("feeds the native grant to next-device daemons of the account only, and revokes it by log id", async () => {

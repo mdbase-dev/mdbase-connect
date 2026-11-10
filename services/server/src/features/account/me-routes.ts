@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { accessView, requireCollectionAction, resolveHostedCollectionAccess, resolveLocalCollectionAccess } from "../collections/collection-access.js";
+import { accessView, memberAccess, ownerAccess, requireCollectionAction } from "../collections/collection-access.js";
 import {
   listHostedCollectionsVisibleToUser,
   listLocalCollectionsVisibleToUser,
@@ -102,9 +102,12 @@ export function registerAccountOverviewRoute(
       options.db,
       user.id
     );
-    const localAuthorityIds = localCatalog.map(
-      (collection) => collection.authorityRowId
-    );
+    // The catalog lists only the account's own collections: owner access.
+    const localAuthorities = new Map(localCatalog.map((collection) => [
+      collection.authorityRowId,
+      ownerAccess(collection, user.id)
+    ]));
+    const localAuthorityIds = [...localAuthorities.keys()];
     const collections = localAuthorityIds.length
       ? await options.db.query(
           `SELECT col.id, col.connector_id, col.local_id, col.display_name,
@@ -129,7 +132,7 @@ export function registerAccountOverviewRoute(
           )
       : [];
     const hostedCollections = {
-      rows: await Promise.all(hostedCatalog.map(async (collection) => ({
+      rows: hostedCatalog.map((collection) => ({
         id: collection.locator.collectionId,
         display_name: collection.locator.displayName,
         template: collection.template,
@@ -141,14 +144,12 @@ export function registerAccountOverviewRoute(
         transferred_collection_id: collection.transferredCollectionId,
         created_at: collection.createdAt,
         access: accessView(requireCollectionAction(
-          await resolveHostedCollectionAccess(
-            options.db,
-            user.id,
-            collection.locator.collectionId
-          ),
+          collection.membershipPolicy
+            ? memberAccess(collection.locator, collection.membershipPolicy)
+            : ownerAccess(collection.locator, user.id),
           "collection.discover"
         ))
-      })))
+      }))
     };
     if (!options.hostedSharing) {
       const history = await options.db.query<{ collection_id: string }>(
@@ -193,8 +194,11 @@ export function registerAccountOverviewRoute(
         hostedReplicaStatuses.set(status.id, status);
       }
     }
+    // A revoked grant is returned only while the portal still shows it: until
+    // its revocation completes, or while it asks for reauthorization.
     const grants = await options.db.query(
-      `SELECT g.id, g.operations, g.scope, g.file_capability, g.created_at, g.revoked_at,
+      `SELECT * FROM (
+       SELECT g.id, g.operations, g.scope, g.file_capability, g.created_at, g.revoked_at,
               g.reauthorization_required_at, g.reauthorization_reason,
               CASE
                 WHEN g.revoked_at IS NULL THEN 'active'
@@ -222,7 +226,9 @@ export function registerAccountOverviewRoute(
        LEFT JOIN next_collections native ON native.collection_id = g.next_collection_id
        WHERE g.user_id = $1
          AND (g.activated_at IS NOT NULL OR g.revoked_at IS NOT NULL)
-       ORDER BY g.created_at DESC`,
+       ) listed
+       WHERE listed.revocation_status <> 'revoked' OR listed.reauthorization_required_at IS NOT NULL
+       ORDER BY listed.created_at DESC`,
       [user.id]
     );
     // Installation devices are app authority, not synthetic OAuth grants or
@@ -348,26 +354,20 @@ export function registerAccountOverviewRoute(
         update_url: connector.connector_update_url,
         update_recommended: connector.latest_policy_ack_mode === "legacy_ack_v0"
       })),
-      collections: await Promise.all(collections.rows.map(async (collection) => {
-        const access = await resolveLocalCollectionAccess(
-          options.db,
-          user.id,
-          collection.id
-        );
+      collections: collections.rows.map((collection) => {
+        const access = localAuthorities.get(collection.id)!;
         return {
           ...collection,
           id: collection.local_id,
-          ...(access ? {
-            access: accessView(access),
-            authority: {
-              kind: "local",
-              collection_id: access.collection.collectionId,
-              epoch: access.collection.authorityEpoch,
-              state: access.collection.authorityState
-            }
-          } : {})
+          access: accessView(access),
+          authority: {
+            kind: "local",
+            collection_id: access.collection.collectionId,
+            epoch: access.collection.authorityEpoch,
+            state: access.collection.authorityState
+          }
         };
-      })),
+      }),
       hosted_collections: hostedCollections.rows.map((collection) => ({
         ...collection,
         provider_url: collection.provider_url ?? options.publicUrl,

@@ -165,25 +165,36 @@ export function refuse(reply: FastifyReply, error: unknown, message: string) {
 }
 
 /**
- * The account is a current member of the collection: its latest effective membership
- * op (native batch position, then row/op order) is a member-set acknowledged by
- * the log. Queued/lost removals deny immediately; a pending member-set is
- * not. One row at most, projected in SQL. Returns the current role.
+ * The latest effective membership op (`op`, `role`) of one account in one
+ * collection: native batch position, then row/op order. Queued/lost removals
+ * count immediately; a pending member-set does not. One row at most. The
+ * arguments are SQL expressions: the collection, the two `membershipFilters`
+ * parameters and the account.
  */
-export async function currentMember(client: DatabaseQueryable, collection: string, account: string, requiredRole?: "owner"): Promise<string> {
-  const latest = await client.query<{ op: string; role: string }>(
-    `SELECT e.value->>'op' AS op, e.value->>'role' AS role
+export const latestMembership = (collection: string, memberSet: string, memberRemove: string, account: string) =>
+  `SELECT e.value->>'op' AS op, e.value->>'role' AS role
        FROM next_policy_outbox o
        LEFT JOIN next_policy_batches b ON b.id = o.batch_id
        CROSS JOIN LATERAL jsonb_array_elements(o.ops->'ops') WITH ORDINALITY AS e(value, ord)
-      WHERE o.collection_id = $1
-        AND (o.ops->'ops' @> $2::jsonb OR o.ops->'ops' @> $3::jsonb)
-        AND e.value->>'account' = $4
+      WHERE o.collection_id = ${collection}
+        AND (o.ops->'ops' @> ${memberSet}::jsonb OR o.ops->'ops' @> ${memberRemove}::jsonb)
+        AND e.value->>'account' = ${account}
         AND (e.value->>'op' = 'member-remove' OR (e.value->>'op' = 'member-set' AND b.state = 'appended' AND b.lost_at IS NULL))
       ORDER BY CASE WHEN b.state = 'appended' AND b.lost_at IS NULL THEN 0 ELSE 1 END DESC,
         b.seq DESC NULLS LAST, o.id DESC, e.ord DESC
-      LIMIT 1`,
-    [collection, JSON.stringify([{ op: "member-set", account }]), JSON.stringify([{ op: "member-remove", account }]), account]
+      LIMIT 1`;
+/** Containment prefilters for `latestMembership`: member-set, then member-remove. */
+export const membershipFilters = (account: string): [string, string] =>
+  [JSON.stringify([{ op: "member-set", account }]), JSON.stringify([{ op: "member-remove", account }])];
+
+/**
+ * The account is a current member of the collection: its latest effective
+ * membership op is a member-set acknowledged by the log. Returns the current role.
+ */
+export async function currentMember(client: DatabaseQueryable, collection: string, account: string, requiredRole?: "owner"): Promise<string> {
+  const latest = await client.query<{ op: string; role: string }>(
+    latestMembership("$1", "$2", "$3", "$4"),
+    [collection, ...membershipFilters(account), account]
   );
   if (latest.rows[0]?.op !== "member-set") throw new CreateError(409, "not_member");
   if (requiredRole !== undefined && latest.rows[0].role !== requiredRole) throw new CreateError(403, "not_owner");
