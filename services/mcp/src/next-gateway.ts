@@ -66,6 +66,8 @@ const NO_MEMO: WriteMemo = { createId: "", expires: 0 };
 
 export class NextGateway {
   private readonly sessions = new Map<string, Promise<Session>>();
+  /** Opens that were dropped before they finished: their sessions are not handed out. */
+  private readonly dropped = new WeakSet<Promise<Session>>();
   private readonly legacy = new Map<string, number>();
   /** Connections whose last hosted open used up its grace without opening. */
   private readonly hostedSpent = new Set<string>();
@@ -102,7 +104,7 @@ export class NextGateway {
         // The hosted replica closed the session under the call. Reopen and run it
         // again: a write keeps its mutation ID, so it is not applied twice.
         const closed = session.hosted && isMdbaseError(error, "unavailable") && !error.reason;
-        const again = closed && retry < HOSTED_RETRIES && !signal?.aborted && this.now() - started < HOSTED_RERUN_WITHIN_MS;
+        const again = closed && rerunnable(operation, input) && retry < HOSTED_RETRIES && !signal?.aborted && this.now() - started < HOSTED_RERUN_WITHIN_MS;
         if (!again) throw gatewayError(error, !!connection.native);
       } finally {
         this.touch(connection.id, session);
@@ -176,13 +178,20 @@ export class NextGateway {
       return { client, token, idle: null, keyHandle: connection.key_handle, hosted, ended: false } satisfies Session;
     })();
     this.sessions.set(connection.id, opening);
-    // Callers share the open; one that gives up leaves it running for the others.
-    opening.catch(() => { if (this.sessions.get(connection.id) === opening) this.sessions.delete(connection.id); });
+    // Callers share the open; one that gives up leaves it running for the others, so
+    // the session's idle timer starts here and not with the first call that uses it.
+    opening.then(
+      (session) => this.touch(connection.id, session),
+      () => { if (this.sessions.get(connection.id) === opening) this.sessions.delete(connection.id); }
+    );
+    let session: Session;
     try {
-      return await abortable(opening, signal);
+      session = await abortable(opening, signal);
     } catch (error) {
       throw gatewayError(error, !!connection.native);
     }
+    // Dropped while it opened: open another.
+    return session.ended || this.dropped.has(opening) ? this.session(connection, accessToken, signal) : session;
   }
 
   /**
@@ -277,8 +286,10 @@ export class NextGateway {
   /** Close whatever session the connection has. */
   drop(id: string): void {
     const session = this.sessions.get(id);
+    if (!session) return;
     this.sessions.delete(id);
-    void session?.then((value) => this.end(id, value), () => undefined);
+    this.dropped.add(session);
+    void session.then((value) => this.end(id, value), () => undefined);
   }
 
   close(): void {
@@ -288,6 +299,15 @@ export class NextGateway {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => { setTimeout(resolve, ms).unref(); });
+}
+
+/**
+ * Whether running the call again is the same call. A type created without a path asks
+ * the replica for a free path first, which the type itself then occupies: a second run
+ * would be refused although the first one created it.
+ */
+function rerunnable(operation: string, input: Record<string, unknown>): boolean {
+  return operation !== "create_type" || typeof input.path === "string";
 }
 
 /** `promise`, unless the caller gives up first. The work behind it carries on. */

@@ -246,6 +246,43 @@ describe("NextGateway", () => {
       setup.gateway.close();
     });
 
+    it("goes idle even when the caller that opened it gave up first", async () => {
+      vi.useFakeTimers();
+      try {
+        const setup = await fixture([routed], 200, true);
+        const abort = new AbortController();
+        const close = vi.fn();
+        let opened!: (client: MdbaseClient) => void;
+        setup.open.mockImplementationOnce(() => new Promise((resolve) => { opened = resolve; }));
+        const call = setup.gateway.run(connection, "access", "query", {}, "req-1", abort.signal);
+        await vi.waitFor(() => expect(opened).toBeDefined());
+        abort.abort();
+        await expect(call).rejects.toMatchObject({ code: "cancelled" });
+        opened({ close } as unknown as MdbaseClient);
+        await vi.advanceTimersByTimeAsync(5 * 60_000 + 1);
+        expect(close).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("is opened again for a caller whose open was dropped under it", async () => {
+      // A device target: nothing but the reopen can save the call.
+      const device = { status: 200, body: { ...routed.body, targets: [{ kind: "desktop" }] } };
+      const setup = await fixture([device, device], 200, true);
+      const firstClose = vi.fn();
+      let opened!: (client: MdbaseClient) => void;
+      setup.open.mockImplementationOnce(() => new Promise((resolve) => { opened = resolve; }));
+      const call = setup.gateway.run(connection, "access", "query", {}, "req-1");
+      await vi.waitFor(() => expect(opened).toBeDefined());
+      setup.gateway.drop(connection.id);
+      opened({ query: vi.fn(async () => { throw mdbaseError("unavailable", "client closed"); }), close: firstClose } as unknown as MdbaseClient);
+      await expect(call).resolves.toEqual(emptyPage);
+      expect(firstClose).toHaveBeenCalledTimes(1);
+      expect(setup.open).toHaveBeenCalledTimes(2);
+      setup.gateway.close();
+    });
+
     it("is not closed by a call that failed on the session before it", async () => {
       const device = { status: 200, body: { ...routed.body, targets: [{ kind: "desktop" }] } };
       const setup = await fixture([device, device, device], 200, true);
@@ -389,6 +426,21 @@ describe("NextGateway", () => {
       expect(ids[1]).toBe(ids[0]);
       expect(ids[2]).not.toBe(ids[0]);
       setup.gateway.close();
+    });
+
+    it("runs a type creation again only when the caller named its path", async () => {
+      const resource = { path: "_types/task.md", revision: "rev1", document: "---\nname: task\n---\n" };
+      const put = vi.fn().mockRejectedValueOnce(sessionClosed()).mockResolvedValue(confirmed());
+      const named = await sessions([{ resources: { put } }, { resources: { put, get: vi.fn(async () => resource) } }]);
+      await expect(named.gateway.run(native, "access", "create_type", { path: "_types/task.md", document: resource.document }, "req-1")).resolves.toBeDefined();
+      expect(put).toHaveBeenCalledTimes(2);
+      named.gateway.close();
+
+      const createType = vi.fn(async () => { throw sessionClosed(); });
+      const unnamed = await sessions([{ createType }, { createType }]);
+      await expect(unnamed.gateway.run(native, "access", "create_type", { document: resource.document }, "req-2")).rejects.toMatchObject({ code: "unavailable" });
+      expect(createType).toHaveBeenCalledTimes(1);
+      expect(unnamed.open).toHaveBeenCalledTimes(1);
     });
 
     it("runs a create again as the same create", async () => {
