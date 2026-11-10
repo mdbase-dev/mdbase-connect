@@ -626,11 +626,30 @@ impl AppRuntime {
             && self.http.bind_connector(connector)
     }
     /// Fixed CP log-token proof purpose only; challenge consumed/wiped. Not an
-    /// enrolment, AK1, arbitrary route, generic digest or device signing API.
+    /// enrolment, arbitrary route, generic digest or device signing API. The
+    /// only other CP proof is [`AppRuntime::sign_account_key_fetch_consuming`].
     pub fn sign_cp_log_token_consuming(&self, bytes: &mut [u8]) -> Vec<u8> {
         let signature = if self.runtime.is_some() && self.healthy() {
             self.http
                 .sign_cp_log_token(bytes)
+                .map(|s| s.to_vec())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        wipe(bytes);
+        signature
+    }
+    /// Fixed AK1 bundle-fetch proof purpose only (`GET /v1/next/account-key`,
+    /// `mdbase/v1/account-key-fetch`): canonical `{0: challenge32, 1: account16}`
+    /// consumed/wiped; connector and device are the native pins. Same gates as
+    /// the log-token proof. Not account-key Put/Strict/StrictReport, an
+    /// enrolment, arbitrary route, generic digest or device signing API, and
+    /// not an unlock: the sealed bundle still needs the person's secret.
+    pub fn sign_account_key_fetch_consuming(&self, bytes: &mut [u8]) -> Vec<u8> {
+        let signature = if self.runtime.is_some() && self.healthy() {
+            self.http
+                .sign_account_key_fetch(bytes)
                 .map(|s| s.to_vec())
                 .unwrap_or_default()
         } else {

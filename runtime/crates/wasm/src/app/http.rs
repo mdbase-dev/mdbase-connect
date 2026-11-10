@@ -1,5 +1,6 @@
-//! Fixed ls-http and CP log-token proof purposes; no generic signer/key API.
-//! HTTP signs captured originals/same-address commits; CP signs pinned identity.
+//! Fixed ls-http, CP log-token and CP account-key-fetch proof purposes; no
+//! generic signer/key API. HTTP signs captured originals/same-address commits;
+//! the two CP proofs sign the pinned identity under their own domains.
 use super::{MAX_CALLS, Reader};
 use mdbn_replica::{
     crypto::sign::DeviceSigner,
@@ -107,6 +108,37 @@ impl HttpSigner {
             &connector,
             &self.device,
             &self.collection,
+        );
+        Some(self.key.as_ref()?.sign_digest(&digest.0))
+    }
+    /// Fixed `mdbase/v1/account-key-fetch` purpose (`GET /v1/next/account-key`):
+    /// the pinned connector and device ask for the sealed bundle of `account`.
+    /// Input is exactly canonical `{0: challenge32, 1: account16}`; connector
+    /// and device never come from the caller. Same lifetime as the log-token
+    /// proof. Not Put/Strict/StrictReport, an enrolment or a digest signer.
+    pub(super) fn sign_account_key_fetch(&self, input: &[u8]) -> Option<[u8; 64]> {
+        // a2 | 00 | 58 20 challenge32 | 01 | 50 account16
+        const LEN: usize = 4 + 32 + 2 + 16;
+        if self.retired
+            || input.len() != LEN
+            || input[..4] != [0xa2, 0x00, 0x58, 0x20]
+            || input[36..38] != [0x01, 0x50]
+        {
+            return None;
+        }
+        let challenge: &[u8; 32] = input[4..36].try_into().ok()?;
+        let account = mdbn_wire::common::B16(input[38..].try_into().ok()?);
+        if account.0 == [0; 16] {
+            return None;
+        }
+        let connector = self.connector?;
+        let digest = mdbn_replica::crypto::proof::account_proof_digest(
+            mdbn_replica::crypto::proof::AccountProof::Fetch,
+            challenge,
+            &connector,
+            &self.device,
+            &account,
+            Vec::new(),
         );
         Some(self.key.as_ref()?.sign_digest(&digest.0))
     }
