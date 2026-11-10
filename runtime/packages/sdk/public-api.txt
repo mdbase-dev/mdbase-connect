@@ -2939,6 +2939,7 @@ AppProtectedInstallationSignIn@app-host/installation-sign-in.ts
   acknowledge: (options: { runtime: AppWasmRuntime; custody: AppNoiseCustodyResult; persistence: AppDeviceCustodyPersistence; installation: AppInstallationCustodyAuthority; }) => Promise<AppDeviceRegistrationReceipt>
   attachNativeAuthorization: (installation: AppInstallationCustodyAuthority, context: AppNativeAuthorizationContext, prepared: AppNativePreparation) => Promise<void>
   attest: (options: { runtime: AppWasmRuntime; custody: AppNoiseCustodyResult; persistence: AppDeviceCustodyPersistence; installation: AppInstallationCustodyAuthority; }) => Promise<AppInstallationSignInView>
+  cachedApprovedCollections: (installation: AppInstallationCustodyAuthority) => readonly AppInstallationCollection[] | null
   canAbandonWrongAccount: () => boolean
   close: () => Promise<void>
   collectionConsentView: () => AppInstallationCollectionConsentView | null
@@ -3192,7 +3193,7 @@ AppWebCloudCopyHost@app-host/cloud-copy-host.ts
   startCollectionLog: (options: { signal: AbortSignal; fetch?: typeof fetch; allowLoopbackHttp?: boolean; }) => Promise<void>
   transportHealth: () => AppLogHealth | null
   unlockAccountKey: (secret: AppAccountKeySecret, options: { signal: AbortSignal; onMode?(mode: AccountKeyMode): void; }) => Promise<void>
-  waitForVerifiedRead: (options: { signal: AbortSignal; timeoutMs?: number; onProgress?: (progress: import("./opening-progress.js").AppOpeningProgress) => void; cold?: boolean; }) => Promise<void>
+  waitForVerifiedRead: (options: { signal: AbortSignal; timeoutMs?: number; onProgress?: (progress: import("./opening-progress.js").AppOpeningProgress) => void; cold?: boolean; local?: boolean; }) => Promise<void>
   wakeCollectionLog: (options: { signal: AbortSignal; }) => Promise<void>
   static new (source: AppCloudCopyHostSession, installation: AppInstallationCustodyAuthority, originalRelease: AppCloudCopyHostRelease, origin: string, lifetime: AbortSignal): AppWebCloudCopyHost
   static openInstallationDevice: (options: { signIn: AppProtectedInstallationSignIn; installation: AppInstallationCustodyAuthority; release: AppCloudCopyHostRelease; origin: string; signal: AbortSignal; loadRuntime(options: { signal: AbortSignal; }): Promise<Uint8Array>; allowLoopbackHttp?: boolean; }) => Promise<AppWebCloudCopyHost>
@@ -3224,6 +3225,7 @@ AppWebCollectionConnection@app-host/web-sign-in-session.ts
   close: () => Promise<void>
   readonly connection: Connection
   readonly ended?: 'forbidden' | 'gone' | 'revoked' | null | undefined
+  readonly failure?: unknown
   readonly health?: AppLogHealth | null | undefined
   readonly live?: boolean | null | undefined
   readonly locked?: Readonly<{ mode: 'password' | 'strict' | 'none'; unlocking: boolean; problem: string | null; }> | null | undefined
@@ -3308,6 +3310,7 @@ AppWebSignInSession@app-host/web-sign-in-session.ts
   checkDirectAccess: (options?: AppBrowserDirectAccessOptions) => Promise<AppBrowserDirectAccessSnapshot>
   clearSelection: () => Promise<AppWebSignInSnapshot>
   close: () => Promise<void>
+  collectionListCached: () => boolean
   collectionView: (collectionId: string) => AppWebCollectionView | null
   connection: (collectionId?: string | null) => Connection | null
   deleteCollection: (collectionId: string, confirmName: string) => Promise<AppWebSignInSnapshot>

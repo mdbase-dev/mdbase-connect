@@ -46,6 +46,10 @@ export interface AppWebCollectionConnection<Connection> {
    * device removed by policy), `revoked` (this device's sign-in revoked) or
    * `gone` (collection deleted). Terminal for this collection. */
   readonly ended?: "forbidden" | "revoked" | "gone" | null;
+  /** A replica that synced before opens without waiting for its log. The
+   * error that later refused the log for good, or null: the collection is
+   * then blocked exactly as if its open had failed with it. */
+  readonly failure?: unknown;
   /** Close adapter resources. The session retains the collection lease until
    * both this adapter and the original native host have stopped. */
   close(): Promise<void>;
@@ -240,6 +244,7 @@ export class AppWebSignInSession<Connection> {
   private attested = false;
   private acknowledged = false;
   private consentPending = false;
+  private listCached = false;
   private fileAccess: AppInstallationFileAccessRequest | null = null;
   private freshApproval = false;
   /** The window this session's approval (or file access request) is shown in. */
@@ -399,7 +404,14 @@ export class AppWebSignInSession<Connection> {
         await this.openDevice(false, this.options.recoveryFor !== undefined);
         if (this.flow.collectionConsentView()?.state === "pending") {
           this.consentPending = true; this.publish({status: "authorizing"});
-        } else await this.refreshCollections();
+        } else {
+          // A signed-in start shows the list this installation last read and
+          // does not wait for Connect; the owner reads the list once the page
+          // has what it asked for (`collectionListCached`).
+          let kept: readonly AppInstallationCollection[] | null = null;
+          try { kept = this.flow.cachedApprovedCollections(this.installation!); } catch { kept = null; }
+          await this.refreshCollections(kept);
+        }
       } else this.publish({status: view.state === "pending" ? "signed_out" : "authorizing"});
       return this.getSnapshot();
     });
@@ -663,9 +675,12 @@ export class AppWebSignInSession<Connection> {
       await this.host.completeInstallationSignIn(); this.check(); this.acknowledged = true;
     }
   }
-  private async refreshCollections(): Promise<void> {
-    const collections = await this.flow!.listApprovedCollections(this.installation!); this.check();
-    for (const id of this.flow!.view().collectionIds) if (!collections.some(c => c.collectionId === id)) this.removedScopes.add(id);
+  /** `kept`: this installation's last listing instead of a read. It is not an
+   * accepted inventory, so an approval missing from it is not a removal. */
+  private async refreshCollections(kept: readonly AppInstallationCollection[] | null = null): Promise<void> {
+    const collections = kept ?? await this.flow!.listApprovedCollections(this.installation!); this.check();
+    this.listCached = kept !== null;
+    if (!kept) for (const id of this.flow!.view().collectionIds) if (!collections.some(c => c.collectionId === id)) this.removedScopes.add(id);
     const visible = Object.freeze(collections.filter(c => !this.forgotten.has(c.collectionId)));
     // Re-approval of a still-approved open collection keeps it open; the
     // same-scope adapter/lease and connection stay current.
@@ -823,6 +838,8 @@ export class AppWebSignInSession<Connection> {
         !this.sameScope(slot.scope, slot.leaseScope) || slot.scope?.collection !== slot.id) return;
       let ended: "forbidden" | "revoked" | "gone" | null = null; try { ended = selected.ended ?? null; } catch { ended = null; }
       if (ended) { this.accessEnded(slot, selected, ended); return; }
+      let failed: unknown = null; try { failed = selected.failure ?? null; } catch { failed = null; }
+      if (failed !== null) { this.openFailedLate(slot, selected, failed); return; }
       let next: Pick<AppWebCollectionView, "status" | "unlock">; try { next = this.assessed(selected); } catch { return; }
       // A locked collection has no log drive: no transport or live state to show.
       this.publishSlot(slot, next.status === "needs_unlock" ? {...next, problem: null, transport: null, live: null} : {...next, ...this.liveProblem(slot, selected)});
@@ -905,6 +922,25 @@ export class AppWebSignInSession<Connection> {
     };
     stop();
   }
+  /** A collection opened from its replica, whose log was then refused. The
+   * same block and detail as a failed open; stopping it fences every page's
+   * data ports. Local data, unsent edits included, stays on this device. */
+  private openFailedLate(slot: CollectionSlot<Connection>, selected: AppWebCollectionConnection<Connection>, error: unknown): void {
+    if (slot.selected !== selected || !slot.usable) return;
+    const {problem, detail} = webSignInProblem(error);
+    if (problem === "open_failed") {
+      try { console.error("mdbase web sign-in open failed", detail.name, detail.code); }
+      catch { /* Diagnostics must never replace the original failure. */ }
+    }
+    slot.usable = false;
+    this.publishSlot(slot, {status: "blocked", problem, problemDetail: detail, transport: null, live: null});
+    const stop = (): void => {
+      if (this.closing || this.options.signal.aborted || slot.selected !== selected || this.slots.get(slot.id) !== slot) return;
+      if (this.pending) { void this.pending.catch(() => {}).then(stop); return; }
+      void this.operation(async () => { await this.closeSlot(slot); this.publishSlot(slot, {status: "blocked", problem, problemDetail: detail}); }, true).catch(() => {});
+    };
+    stop();
+  }
   /** Live problem of an open collection: shown while it lasts, cleared after. */
   private liveProblem(slot: CollectionSlot<Connection>, selected: AppWebCollectionConnection<Connection>): Partial<AppWebCollectionView> {
     let server: AppServerProblem | null = null; try { server = selected.problem ?? null; } catch { server = null; }
@@ -943,6 +979,10 @@ export class AppWebSignInSession<Connection> {
       || this.base.status !== "unselected") return Promise.resolve(this.getSnapshot());
     return this.operation(async () => { await this.refreshCollections(); return this.getSnapshot(); }, true);
   }
+  /** The published list is the one this installation kept, shown by a
+   * signed-in start; Connect's has not been read since. The owner calls
+   * `refreshCollectionList` once, when that read can no longer delay a page. */
+  collectionListCached(): boolean { return this.listCached; }
   /** Accepted COMPLETE inventory omission or terminal native/log refusal only.
    * Local Forget, failed GETs and transient transport failures do not qualify. */
   scopeWasRemoved(collectionId: string): boolean {return this.removedScopes.has(collectionId);}

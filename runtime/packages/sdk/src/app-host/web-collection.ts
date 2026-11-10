@@ -4,7 +4,7 @@
 import { appServerOutcome, isAppServerProblem, type AppServerProblem } from "./cp-problem.js";
 import { AppCpAuthorityError } from "./cp-authority.js";
 import { waitForOpenRetry } from "./open-wait.js";
-import type { AppLogHealth } from "./log-pump.js";
+import { appLogHealth, type AppLogHealth } from "./log-pump.js";
 import type { AppLogPushChannel, AppLogPushEnd } from "./log-push.js";
 import type { AppInitialSyncWait } from "./initial-sync.js";
 import { MdbaseClient, type ClientOptions } from "../client.js";
@@ -116,6 +116,14 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
     let locked: AppWebCollectionLock | null = null;
     /** The log drive loop runs only once the open has a verified read. */
     let started = false;
+    /** The log token is held and the transport bound. A replica that synced
+     * before opens without waiting for it; the drive loop then binds it. */
+    let logBound = false;
+    /** The token request started alongside such an open, for the first turn. */
+    let early: Promise<void> | null = null;
+    /** That later bind was refused for good (not a network or busy failure).
+     * The session blocks the collection as it does for a failed open. */
+    let failure: unknown = null;
     let push: AppLogPushChannel | null = null, paused = false, pausing: ReturnType<typeof setTimeout> | null = null, kicked = false;
     /** Access ended on the log (removed, device revoked, collection gone). Terminal. */
     let ended: AppLogPushEnd | null = null;
@@ -210,6 +218,44 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
       if (Date.now() - hiddenAt >= BACKGROUND_FLUSH_MS) return false;
       try { return host.pendingWrites() > 0; } catch { return false; }
     };
+    const startLog = () => host.startCollectionLog({signal: life.signal, fetch: options.fetch, allowLoopbackHttp: options.allowLoopbackHttp});
+    const openPush = () => {
+      try {
+        push = typeof host.openLogPush === "function" ? host.openLogPush({
+          push: frame => { if (!current()) return; host.pushLog(frame); kick(); },
+          live: onLive,
+          // Access ended: the replica has the `closed` push; drive so it
+          // settles, then the session stops this collection in every tab.
+          ended: reason => { ended = reason; kick(); onLive(false); settleInitial?.(); changed(); },
+        }) : null;
+      } catch { push = null; }
+      // Not live within PAUSED_AFTER_MS of starting (a blocked or hung socket)
+      // reads as paused, as a lost one does.
+      if (push) {push.start(); onLive(false);} else setPaused(true);
+    };
+    /** First drive turn of a replica opened before its log: obtain the token
+     * (or take the request already under way) and bind the transport. */
+    const bindLog = async () => {
+      const first = early; early = null;
+      await (first ?? startLog()); check();
+      logBound = true; openPush();
+    };
+    /** Offline, unreachable or busy: the collection stays open on its local
+     * replica and the drive loop tries again, as it does for a failed turn. A
+     * server outcome with its own copy (being upgraded, suspended, update
+     * required) shows as the live problem. Anything else is a refusal. */
+    const bindFailed = (error: unknown) => {
+      let server: unknown = null; try { server = (error as {server?: unknown}).server; } catch { server = null; }
+      const outcome = isAppServerProblem(server) && appServerOutcome(server) !== null ? server : null;
+      const next = outcome ? null : appLogHealth(error);
+      if (!outcome && (next === null || next.kind === "auth")) {
+        failure = error; started = false;
+        if (timer !== null) clearTimeout(timer); timer = null;
+        changed(); return;
+      }
+      unhealthy = next ? unhealthy + 1 : 0;
+      if (outcome !== problem || JSON.stringify(next) !== JSON.stringify(health)) { problem = outcome; health = next; changed(); }
+    };
     const schedule = () => {
       if (!started || !current()) return;
       // Hidden with nothing left to send: close the socket; showing reconnects.
@@ -222,11 +268,12 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
         timer = null; if (!current()) return;
         const wake = foreground && Date.now() >= wakeAt;
         if (wake) wakeAt = Number.POSITIVE_INFINITY;
-        const work = driving = wake ? host.wakeCollectionLog({signal: life.signal}) : host.driveCollection({signal: life.signal});
+        const work = driving = !logBound ? bindLog().then(() => host.driveCollection({signal: life.signal})) :
+          wake ? host.wakeCollectionLog({signal: life.signal}) : host.driveCollection({signal: life.signal});
         void work.then(() => {if (driving === work) driving = null; failures = 0; turned = true; if (current()) observe(); settleInitial?.(); schedule();},
           // A failed turn (offline token mint, transient fence) backs off and
           // retries; it never silently ends remote-change delivery for the session.
-          error => {if (driving === work) driving = null; failures++; if (current()) observe(); turnFailed(error); settleInitial?.(); schedule();});
+          error => {if (driving === work) driving = null; failures++; if (current()) { if (logBound) observe(); else bindFailed(error); } turnFailed(error); settleInitial?.(); schedule();});
       }, wait);
     };
     // Visible (or an online/focus event while visible): wake at once and forget
@@ -312,11 +359,16 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
       const openLedgerSql: typeof openSql = async input => { const opened = await openSql(input); ledgerRows = opened.ledger ?? null; return opened; };
       report("opening_store");
       await host.openCollectionSql({signal: life.signal, replicaId: receipt.deviceId, endpoint: 0, openSql: openLedgerSql}); check();
+      // A replica that completed a sync before answers from this device: its
+      // token request starts now and the open does not wait for it. A Private
+      // device settles its key over the log first, so it keeps the wait.
+      const localFirst = !isPrivate && await ledger.syncedBefore({signal: life.signal}); check();
+      const connectLog = async () => {
       report("connecting_log");
       const retryUntil = Date.now() + INITIAL_LOG_RETRY_MS;
       for (let attempt = 0; ; attempt++) {
         try {
-          await host.startCollectionLog({signal: life.signal, fetch: options.fetch, allowLoopbackHttp: options.allowLoopbackHttp});
+          await startLog();
           check(); break;
         } catch (error) {
           check();
@@ -333,6 +385,10 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
           // kept no token; accessToken obtains a NEW challenge and proof.
         }
       }
+      logBound = true;
+      };
+      if (localFirst) { early = startLog(); void early.catch(() => {}); }
+      else await connectLog();
       const generation = crypto.randomUUID();
       // Set by the shared tail below; a locked collection has neither.
       let attachOpened: (() => AppWebCollectionHandoff | null) | null = null;
@@ -352,27 +408,32 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
       /** Verified read, log drive, setup and the one handoff: the same tail for
        * a cloud copy, a keyed Private device and one just unlocked. */
       const finishOpen = async () => {
-      const warm = await ledger.syncedBefore({signal: life.signal}); check();
-      report("syncing");
-      await host.waitForVerifiedRead({signal: life.signal, cold: !warm, onProgress: report}); check();
+      const warm = isPrivate ? await ledger.syncedBefore({signal: life.signal}) : localFirst; check();
+      // Shown from the replica on this device; the log follows in the drive loop.
+      let local = false;
+      if (localFirst && !logBound) {
+        try { await host.waitForVerifiedRead({signal: life.signal, local: true, onProgress: report}); check(); local = true; }
+        catch {
+          // The replica cannot answer by itself: take the ordinary path.
+          check();
+          const first = early; early = null;
+          const bound = first ? await first.then(() => true, () => false) : false; check();
+          if (bound) logBound = true; else await connectLog();
+        }
+      }
+      if (!local) { report("syncing"); await host.waitForVerifiedRead({signal: life.signal, cold: !warm, onProgress: report}); check(); }
       // Drive the log now: the first catch-up below needs it, and a write or
       // file transfer drives the log at once rather than on the next turn.
       started = true;
       host.onLogWork?.(kick);
-      schedule();
-      try {
-        push = typeof host.openLogPush === "function" ? host.openLogPush({
-          push: frame => { if (!current()) return; host.pushLog(frame); kick(); },
-          live: onLive,
-          // Access ended: the replica has the `closed` push; drive so it
-          // settles, then the session stops this collection in every tab.
-          ended: reason => { ended = reason; kick(); onLive(false); settleInitial?.(); changed(); },
-        }) : null;
-      } catch { push = null; }
-      // Not live within PAUSED_AFTER_MS of starting (a blocked or hung socket)
-      // reads as paused, as a lost one does.
-      if (push) {push.start(); onLive(false);} else paused = true;
-      if (warm) { report("syncing"); await waitForWarmSync(); } check();
+      if (local) {
+        // The first turn binds the log; no socket is live until then.
+        kicked = true; schedule();
+        pausing = setTimeout(() => { pausing = null; if (current() && !push?.live) setPaused(true); }, PAUSED_AFTER_MS);
+      } else {
+        schedule(); openPush();
+        if (warm) { report("syncing"); await waitForWarmSync(); } check();
+      }
       report("checking_setup");
       void ledger.markSynced({signal: life.signal}).catch(() => {});
       const intent = await journal!.load(life.signal); check();
@@ -472,7 +533,8 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
         get problem() {return current() ? problem : null;},
         get health() {return current() ? health : null;},
         get live() {return current() ? !paused : null;},
-        get ended() {return current() ? ended : null;}, connection, close,
+        get ended() {return current() ? ended : null;},
+        get failure() {return current() ? failure : null;}, connection, close,
         subscribe(listener) {check(); listeners.add(listener); return () => {listeners.delete(listener);};},
         ...(isPrivate ? {unlock} : {}),
       };

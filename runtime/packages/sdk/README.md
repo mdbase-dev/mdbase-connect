@@ -276,6 +276,40 @@ failed keyring recovery and non-retryable native errors still refuse. This remai
 state, with explicit retry after a terminal failure: no new migration state,
 write/setup replay, legacy fallback or application retry loop is needed.
 
+## Reopening a cloud copy from this device
+
+A cloud copy whose join ledger records a completed first sync opens from the
+replica on this device before the log is reached. The log-token request starts
+in the background, a verified read is answered by the replica as it stands, and
+the collection is handed to the app. The first drive turn then binds the log,
+sends edits captured meanwhile and brings in what changed elsewhere. What the
+app shows first is therefore the collection as of this device's last sync, and
+it updates when the first turn lands. Saved views read in that window as well:
+the replica serves them while it re-derives its keys from the log.
+
+A bind that fails is sorted once:
+
+- offline, unreachable, 5xx and 429 leave the collection open with `health`
+  set, and the drive loop retries with its usual backoff and on foreground;
+- a server outcome with its own copy (migrating, suspended, update required,
+  not yet migrated) shows as the connection's `problem` and is retried slowly;
+- anything else (401/403, other 4xx, a malformed reply) sets the connection's
+  `failure`. The sign-in session then blocks the collection with the same
+  problem a failed open reports and closes it.
+
+An edit made before the bind is an offline edit: it is kept pending and sent
+once the log is bound. If access was removed meanwhile it is never sent.
+
+If the replica cannot answer the local read, the open takes the ordinary path
+above. Private collections and cold replicas always take it.
+
+A signed-in start likewise publishes the collection list this installation kept
+from its last listing, with no request. That list carries no file actions and a
+collection missing from it is not treated as removed. The Worker host reads
+Connect's list once afterwards: straight after a start that already holds a
+collection, otherwise after the page's next request, or after two seconds.
+`collectionListCached()` on the session says which list is showing.
+
 ## Private collections from web apps
 
 `@mdbase-dev/sdk/app-grant` lets a signed-in web app open a Private collection

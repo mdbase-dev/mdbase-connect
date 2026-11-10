@@ -138,6 +138,10 @@ export class AppScopedSignInSession<Connection> {
     const session = [...this.scoped.values()].find(actor => actor.session.getSnapshot().fileAccess?.requestId === requestId)?.session ?? this.original;
     await session.pollFileAccess(requestId); return this.getSnapshot();
   }
+  /** Any of the sessions still shows the list it kept (a signed-in start). */
+  collectionListCached(): boolean {
+    return this.original.collectionListCached() || [...this.scoped.values()].some(actor => actor.session.collectionListCached());
+  }
   async refreshCollectionList(): Promise<AppWebSignInSnapshot> {
     await this.original.refreshCollectionList();
     for(const actor of this.scoped.values()) {this.check(); await actor.session.refreshCollectionList();}
