@@ -1,10 +1,10 @@
 //! The LAB rehearsal harness (migration rehearsal, release gate 2).
 //!
 //! - [`shape`]: deterministic **synthetic, real-shaped** collections. The record mix,
-//!   document sizes and task properties follow Connect's hosted-storage benchmark
-//!   fixtures (`docs/benchmarks/hosted-storage-model/fixtures/*/fixture-manifest.json`,
-//!   which are themselves "deterministic synthetic content only; never derived from
-//!   production data"). Attachments include multi-part (> 8 MiB) files. **No production
+//!   document sizes and task properties follow the fixtures of Connect's retired
+//!   hosted-storage benchmark (in git history at commit `0c23f1a2d`), which were
+//!   themselves deterministic synthetic content, never derived from production
+//!   data. Attachments include multi-part (> 8 MiB) files. **No production
 //!   data, and nothing from a developer's own vaults.**
 //! - [`ledger`]: the write ledger. Every scenario driver appends one row per write it
 //!   was told succeeded (acknowledged), and one per local edit that must survive
