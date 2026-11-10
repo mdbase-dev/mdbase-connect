@@ -353,6 +353,84 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     observation.close();
   });
 
+  it("an upserted note is published once, not again when it commits", async () => {
+    const f = await fixture({}, seedNotes);
+    const index = new CollectionIndexController(f.gateway);
+    try {
+      await index.reload();
+      const plan = index.getSnapshot().notes.find((note) => note.path === "notes/plan.md")!;
+      const published: unknown[] = [];
+      index.subscribe(() => published.push(index.getSnapshot().notes));
+      index.upsert({ ...plan, frontmatter: { title: "Renamed plan" } });
+      expect(published).toHaveLength(1);
+      expect(index.getSnapshot().notes.find((note) => note.path === "notes/plan.md")?.frontmatter).toEqual({ title: "Renamed plan" });
+    } finally { index.reset(); }
+  });
+
+  it("rereads one batch of watched changes, publishes it once and then reports each change in order", async () => {
+    let plan = "", ideas = "";
+    const f = await fixture({}, replica => {
+      plan = replica.seed({ path: "notes/plan.md", types: ["note"], frontmatter: { title: "Plan" }, body: "# Plan\n" }).id;
+      ideas = replica.seed({ path: "notes/ideas.md", types: ["note"], frontmatter: { title: "Ideas" }, body: "# Ideas\n" }).id;
+    });
+    // The SDK decides how it batches changes; deliver one batch by hand.
+    let deliver!: (batch: Parameters<Parameters<typeof f.client.watchChanges>[1]>[0]) => void;
+    const watchChanges = f.client.watchChanges.bind(f.client);
+    vi.spyOn(f.client, "watchChanges").mockImplementation((cursor, onChanges) => {
+      deliver = onChanges;
+      return watchChanges(cursor, () => {});
+    });
+    const observation = f.gateway.observe();
+    await observation.ready;
+    const reasons: string[] = [];
+    observation.subscribe((_snapshot, delta) => reasons.push(delta.reason));
+    const reported: Array<{ change: EditorCollectionChange; paths: string[] }> = [];
+    observation.subscribeChanges((change) => reported.push({ change, paths: observation.getSnapshot().records.map((record) => record.path).sort() }));
+
+    f.replica.editElsewhere(plan, { body: "# Plan, revised\n" });
+    await f.gateway.create({ title: "Draft", body: "Draft body", path: "notes/draft.md", properties: {} });
+    await f.gateway.delete("notes/ideas.md", (await f.gateway.read("notes/ideas.md")).revision);
+    const draft = (await f.client.find({ path: "notes/draft.md" }))!;
+    const revisedPlan = (await f.client.find(plan))!;
+    deliver({ cursor: "fixture", reset: false, changes: [plan, draft.id, ideas].map((id, version) => ({ id, path: "", kind: "put" as const, version })) });
+
+    await vi.waitFor(() => expect(reported).toHaveLength(3));
+    // Watch status is not part of the batch.
+    expect(reasons.filter((reason) => reason !== "status")).toEqual(["changes"]);
+    expect(reported.map(({ change }) => change)).toEqual([
+      { source: "native", kind: "record.updated", path: "notes/plan.md", revision: revisedPlan.revision },
+      { source: "native", kind: "record.created", path: "notes/draft.md", revision: draft.revision },
+      { source: "native", kind: "record.deleted", path: "notes/ideas.md" }
+    ]);
+    // Every change is reported against the whole batch's snapshot.
+    expect(reported.every(({ paths }) => paths.join() === "notes/draft.md,notes/plan.md")).toBe(true);
+    observation.close();
+  });
+
+  it("shows each complete page of the first load and refuses a page that repeats a note without showing any of it", async () => {
+    const f = await fixture({}, replica => {
+      for (let index = 0; index < 1100; index += 1) replica.seed({ path: `notes/${String(index).padStart(4, "0")}.md`, types: ["note"], frontmatter: {}, body: "" });
+    });
+    const shown: Array<{ state: string; count: number }> = [];
+    const observation = f.gateway.observe();
+    observation.subscribe((snapshot, delta) => { if (delta.reason !== "status") shown.push({ state: snapshot.state, count: snapshot.records.length }); });
+    expect(await observation.ready).toEqual({ ok: true });
+    expect(shown).toEqual([{ state: "loading", count: 500 }, { state: "loading", count: 1000 }, { state: "ready", count: 1100 }]);
+    observation.close();
+
+    const [first, second, third] = await Promise.all(["notes/0000.md", "notes/0001.md", "notes/0002.md"].map(async (path) => (await f.client.find({ path }, { effective: true }))!));
+    vi.spyOn(f.client, "pages").mockImplementation(async function* () {
+      yield { records: [first], cursor: "next", complete: false, asOf: 1, totalCount: 3 };
+      yield { records: [second, first, third], complete: true, asOf: 1, totalCount: 3 };
+    });
+    const refused = f.gateway.observe();
+    const outcome = await refused.ready;
+    expect(outcome.ok).toBe(false);
+    expect(refused.getSnapshot()).toMatchObject({ state: "error", records: [expect.objectContaining({ path: "notes/0000.md" })] });
+    expect(refused.getSnapshot().records).toHaveLength(1);
+    refused.close();
+  });
+
   it("a retired connection stops reads, observation and recovery at the next await", async () => {
     const f = await fixture({}, seedNotes);
     f.current.mockReturnValue(false);

@@ -73,7 +73,8 @@ export class NativeNoteObservation implements NoteObservation {
     this.overlays.push(overlay);
     this.publish({}, "local");
     return {
-      commit: () => { if (settled) return; settled = true; overlay.committed = true; this.publish({}, "local"); },
+      // Committing changes no shown record, only when a reread may retire it.
+      commit: () => { if (settled) return; settled = true; overlay.committed = true; },
       rollback: () => {
         if (settled) return;
         settled = true;
@@ -128,14 +129,20 @@ export class NativeNoteObservation implements NoteObservation {
         if (asOf !== undefined && asOf !== page.asOf) throw nativeFailure(t`The collection changed while its notes were loading. Reload to try again.`);
         asOf = page.asOf;
         total ??= page.totalCount;
+        // The whole page is checked before any of it is kept: a first load shows
+        // `next` itself, so a refused page must leave it as the last one left it.
+        const ids = new Set<string>();
         for (const record of page.records) {
-          if (next.has(record.id) || paths.has(record.path)) throw nativeFailure(t`The collection returned a note twice. Reload to try again.`);
-          next.set(record.id, noteRecord(record));
+          if (next.has(record.id) || ids.has(record.id) || paths.has(record.path)) throw nativeFailure(t`The collection returned a note twice. Reload to try again.`);
+          ids.add(record.id);
           paths.add(record.path);
         }
+        for (const record of page.records) next.set(record.id, noteRecord(record));
         complete = page.complete && !page.cursor;
         if (first && !complete) {
-          this.confirmed = new Map(next);
+          // Nothing else writes the confirmed index while a load runs, so the
+          // first load grows it in place instead of copying it per page.
+          this.confirmed = next;
           this.publish({ total }, "page");
         }
       }
@@ -168,36 +175,49 @@ export class NativeNoteObservation implements NoteObservation {
     void this.drain();
   }
 
-  /** Exact rereads by original record ID, serialized after any complete snapshot. */
+  /** Exact rereads by original record ID, serialized after any complete snapshot.
+   * The IDs queued when a batch starts are reread in order and published once,
+   * then their changes are reported in the same order; later IDs form the next batch. */
   private async drain(): Promise<void> {
     if (this.draining || this.loading || this.closed) return;
     this.draining = true;
     const signal = this.lifetime.signal;
     try {
       while (this.queued.size && !this.loading) {
-        const id = this.queued.values().next().value!;
-        this.queued.delete(id);
-        const previous = this.confirmed.get(id);
-        const record = await this.client.find(id, { effective: true, ...(this.includeBody ? { body: true } : {}) }, signal);
-        this.check(signal);
-        if (this.loading) { this.queued.add(id); break; }
-        let change: NativeCollectionChange | undefined;
-        if (!record) {
-          if (previous) {
-            this.confirmed.delete(id);
-            change = { source: "native", kind: "record.deleted", path: previous.path };
+        const changes: NativeCollectionChange[] = [];
+        try {
+          for (const id of [...this.queued]) {
+            if (this.loading) break;
+            // A reset clears the queue while a reread is awaited.
+            if (!this.queued.delete(id)) continue;
+            const previous = this.confirmed.get(id);
+            const record = await this.client.find(id, { effective: true, ...(this.includeBody ? { body: true } : {}) }, signal);
+            this.check(signal);
+            if (this.loading) { this.queued.add(id); break; }
+            let change: NativeCollectionChange | undefined;
+            if (!record) {
+              if (previous) {
+                this.confirmed.delete(id);
+                change = { source: "native", kind: "record.deleted", path: previous.path };
+              }
+            } else {
+              const note = noteRecord(record);
+              this.confirmed.set(id, note);
+              change = !previous ? { source: "native", kind: "record.created", path: note.path, revision: record.revision }
+                : previous.path !== note.path ? { source: "native", kind: "record.renamed", from: previous.path, to: note.path, revision: record.revision }
+                : { source: "native", kind: "record.updated", path: note.path, revision: record.revision };
+            }
+            if (!change) continue;
+            this.retire(change.kind === "record.renamed" ? [change.from, change.to] : change.kind === "reset" ? [] : [change.path]);
+            changes.push(change);
           }
-        } else {
-          const note = noteRecord(record);
-          this.confirmed.set(id, note);
-          change = !previous ? { source: "native", kind: "record.created", path: note.path, revision: record.revision }
-            : previous.path !== note.path ? { source: "native", kind: "record.renamed", from: previous.path, to: note.path, revision: record.revision }
-            : { source: "native", kind: "record.updated", path: note.path, revision: record.revision };
+        } finally {
+          // What was reread is shown even when a later reread in the batch fails.
+          if (changes.length) {
+            this.publish({}, "changes");
+            for (const change of changes) this.emit(change);
+          }
         }
-        if (!change) continue;
-        this.retire(change.kind === "record.renamed" ? [change.from, change.to] : change.kind === "reset" ? [] : [change.path]);
-        this.publish({}, "changes");
-        this.emit(change);
       }
     } catch (error) {
       if (!this.closed && !signal.aborted && !isMdbaseError(error, "cancelled")) this.publish({ problem: nativeProblem(error) }, "changes");
