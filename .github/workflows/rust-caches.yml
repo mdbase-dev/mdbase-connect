@@ -3,8 +3,8 @@ name: Rust caches
 # Caches saved on a merge-queue or pull-request ref are invisible to every
 # other ref, and a push to main reuses the merge-queue qualification without
 # building. This workflow is therefore the only writer of the Rust dependency
-# caches that Server CI, Desktop Release and the Windows daemon lifecycle
-# restore; those jobs never save.
+# caches that Server CI, Desktop Release and Flake stress restore; those jobs
+# never save.
 #
 # rust-cache keeps dependencies only, so a cache changes when its key inputs
 # change: the lock files, crate manifests, toolchain or pinned engine. The
@@ -49,10 +49,7 @@ jobs:
           # server-ci.yml: hosted-provider-rust and hosted-provider-system.
           - cache: hosted-provider
             os: ubuntu-latest
-          # server-ci.yml: runtime-testbed.
-          - cache: runtime-testbed
-            os: ubuntu-latest
-          # server-ci.yml: windows-filesystem; windows-daemon-lifecycle.yml.
+          # flake-stress.yml.
           - cache: connect-debug
             os: macos-15
           - cache: connect-debug
@@ -120,12 +117,8 @@ jobs:
               cargo test --locked --workspace --no-run
               cargo build --locked --workspace
               ;;
-            runtime-testbed)
-              cargo build --locked -p mdbase-connect-testbed-adapter
-              ;;
             connect-debug)
-              cargo test --locked --no-run -p mdbase-connect-core -p mdbase-connect-daemon
-              cargo build --locked -p mdbase-cli
+              cargo test --locked --no-run -p mdbase-connect-hosted-provider
               ;;
             mdbase-daemon-release)
               cd runtime

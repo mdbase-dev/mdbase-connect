@@ -133,7 +133,7 @@ export async function validateReleaseComponents(contract, { root = process.cwd()
     }
   }
 
-  for (const id of ["connect", "hosted-provider", "mcp", "client"]) {
+  for (const id of ["connect", "hosted-provider", "mcp"]) {
     if (!componentIds.has(id)) failures.push(`required component ${id} is missing`);
   }
   return failures;

@@ -9,7 +9,7 @@ them. Traced read-only on 2026-11-10 from `origin/main` fb59ee214, mdbase-cloud-
 Tiers:
 
 - **0**: deleted in #1360 (the Candidate B storage benchmark and staging leftovers).
-- **1**: delete after a code-only change, here or in mdbase-cloud-ops.
+- **1**: the legacy connector; removed in two pull requests (below).
 - **2**: blocked on a production condition; the "Check" column says how to check it.
 - **Keep**: looks legacy but is current.
 
@@ -34,25 +34,40 @@ state and locks, public endpoints):
   the first build that bundles `mdbn-daemon`. `packages/protocol` still accepts
   connectors from `0.1.0-beta.33`.
 
-## Tier 1: delete after a code-only change
+## Tier 1: legacy connector (removed)
 
-These do not serve production traffic. They are still wired into CI, the release
-gate or local test commands. "Change first" lists what must land before the source
-can be deleted.
+Nothing a user installs came from these units: the shipped `mdbase` CLI and
+daemon are built from `runtime/`. The owner dropped the old-connector
+qualification on 2026-11-10, and mdbase-cloud-ops stopped using the client image
+(mdbase-cloud-ops #1715, #1727 and #1732; ops lists `client` under
+`retiredComponents`). Removal is split in two pull requests so that the release
+pipeline change can be reverted on its own:
 
-| Unit | Lines | Consumers | Change first |
-| --- | --- | --- | --- |
-| Legacy CLI and daemon: `crates/connect-cli` (`mdbase-cli`, bin `mdbase`), `connect-agent` (`mdbase-connect-daemon`), `connect-core`, `connect-mirror` | 69,821 | <ul><li>`deploy/docker/Dockerfile.client`, which builds image `ghcr.io/mdbase-dev/mdbase-connect-client`.</li><li>The client matrix in `publish-images.yml` and `publish-staging-images.yml`.</li><li>In `server-ci.yml`, the `windows-filesystem` job (`-p mdbase-connect-core -p mdbase-connect-daemon`) and the root-workspace fmt and clippy runs.</li><li>`windows-daemon-lifecycle.yml`, `performance-observations.yml` (mirror profile), `flake-stress.yml` via `scripts/ci/stress.mjs`, and `rust-caches.yml` (connect-debug).</li><li>The `legacy-local` system suite, `pnpm e2e:legacy` (`scripts/e2e.mjs` runs `target/debug/mdbase connect daemon run`), and the `provider` suite.</li><li>**cloud-ops:** `MDBASE_CONNECT_CLIENT_IMAGE` in `render/{release,staging-release,lab-release}.env` and `.lock.json`. On every server CD, `bin/prepare-release-client`, `bin/qualify-staging-clients` and `bin/deploy-staging-release` (phase `signed-client-relay-qualification`) run the candidate and N-1 client images.</li></ul> | <ol><li>In cloud-ops, remove or replace the `signed-client-relay-qualification` phase and the client-image lock fields. The agents-notes task `tasks/2026-11-08-retire-legacy-root-daemon-cli.md` already notes that this phase qualifies the wrong binary.</li><li>Done: `pnpm e2e` runs the runtime daemon (`runtime-daemon` suite), and `AGENTS.md` says so. Delete the `legacy-local` suite and `e2e:legacy` with these crates.</li><li>Drop the client image from both publish workflows, then delete `Dockerfile.client`.</li><li>Remove these crates from `windows-filesystem`, `windows-daemon-lifecycle`, `performance-observations`, `flake-stress` (keep its provider, packages and server parts until Tier 2) and `rust-caches`.</li><li>Move the provider suite's mirror CLI to `packages/sync`, or drop that step.</li></ol> |
-| `crates/connect-testbed-adapter` | 367 | The `server-ci` `runtime-testbed` job runs it against the mdbase-spec testbed. | Point that job at the runtime adapter, or drop it. The runtime has its own conformance. |
-| Scripts used only by the CLI group: `scripts/e2e.mjs`, `mirror-live-vault.mjs`, `mirror-writable-live-vault.mjs`, `mirror-profile.mjs`, `mirror-profile-baseline.json`, `profile-file-mirror.mjs`, `assert-mirror-performance.mjs` | about 4.5k with `relay-e2e.mjs`, which stays | `legacy-local` suite, `performance-observations.yml`, root `profile:mirror*` and `check:mirror:mobile` scripts | Same changes as the CLI row. |
-| CLI and daemon docs: `docs/unified-cli.md` (already marked superseded), the legacy sections of `docs/cli-daemon.md`, `docs/windows-core-flakes.md`, `docs/file-io-campaign.md` | 717 | Links only | Delete together with the CLI crates. |
+1. **Consumers.** Stopped building, publishing, testing and documenting the
+   legacy connector:
+   - the `client` release component, `deploy/docker/Dockerfile.client` and its
+     publish steps in `publish-images.yml` (`publish-staging-images.yml` was
+     already gone);
+   - the Server CI `windows-filesystem` and `runtime-testbed` jobs,
+     `windows-daemon-lifecycle.yml` with `scripts/diagnostics/` (its service
+     probe compiled `connect-cli`'s service module), the connector parts of
+     `flake-stress` and `rust-caches`, and the engine, Connect and mirror
+     profiles of `performance-observations.yml` together with
+     `scripts/performance-results.mjs` (the provider observation stays);
+   - the `legacy-local` system suite and `pnpm e2e:legacy`, the provider suite's
+     legacy-daemon mirror and authority-promotion scenarios, `scripts/e2e.mjs`,
+     the mirror profiling scripts, `scripts/stress/connector-lifecycle.mjs`, and
+     the root `profile:*` and `check:mirror:mobile` scripts that ran them;
+   - the legacy sections of `docs/cli-daemon.md`, `performance.md`,
+     `testing-environment.md` and `ci-qualification.md`. The security audit
+     package now names `runtime/crates/daemon` for the connector boundaries.
+     `docs/unified-cli.md`, `windows-core-flakes.md` and `file-io-campaign.md`
+     were already removed in #1356.
+2. **Deletion.** Removes `crates/connect-cli`, `connect-agent`, `connect-core`,
+   `connect-mirror` and `connect-testbed-adapter` and what only they needed.
 
-Deleting the CLI drops the N-1 old-connector qualification, but it does not change
-what production serves: the relay keeps accepting old connectors (Keep). If you
-want evidence first that no old connectors are left, run query Q4 below. That is a
-judgement call, not a hard block.
-
-Tier 1 removes about 75k lines, plus about 650 lines of workflow and Dockerfile.
+The relay keeps accepting old connectors (Keep). Query Q4 below still shows
+whether any are left.
 
 ## Tier 2: blocked on a production condition
 
@@ -71,7 +86,7 @@ independent of each other. 2c is last.
 | Unit | Lines | Consumers to remove first |
 | --- | --- | --- |
 | `crates/connect-hosted-provider` (also `mdbase-hosted-backup-admin`, `-key-admin` and `-projection-indexer`), `connect-runtime`, `connect-protocol` (generated Rust) | 86,922 | <ul><li>Render service `mdbase-connect-hosted-provider` and DB `mdbase-connect-hosted-db`, plus the staging and LAB services.</li><li>Connect env `MDBASE_CONNECT_HOSTED_PROVIDER_URL` and `MDBASE_CONNECT_HOSTED_COLLECTIONS`.</li><li>**cloud-ops:** `monitor-production.yml` probe; `validate_desired_state.rb`; the backup and recovery-drill profile `hosted-provider`; `bin/hosted-*` admin tools; `bin/lib/rollback_compat.py`; the provider digests in `ci.yml`.</li><li>Here: `Dockerfile.hosted-provider`, `Cargo.lock.hosted-provider` (also listed in `scripts/lib/release-version.mjs`), `config/release-components.json`, and the Rust outputs of `scripts/generate-{change-events,connect-problems,operation-catalog,application-capabilities}.mjs`, which must stop emitting Rust; also `CODEOWNERS`.</li></ul> |
-| `../mdbase-rs` path dependency | n/a | <ul><li>Root `Cargo.toml`.</li><li>`deploy/docker/mdbase-rs-revision`.</li><li>`pnpm check:mdbase-rs-pin` (`scripts/mdbase-rs-pin.mjs`).</li><li>Every `callumalpass/mdbase-rs` checkout in `server-ci` (four jobs), `flake-stress`, `performance-observations`, `rust-caches`, `windows-daemon-lifecycle` and `publish-*images`.</li><li>cloud-ops `check-release-locks`, `verify-release-bundle` and the `RUNTIME_PATHS` in `continuous_deployment.py`.</li></ul>It goes when the last root crate goes, which ends the root Cargo workspace. Outside this repo, mdbase.dev `site-sources.json` still lists mdbase-rs as the "rust" implementation; that is a separate decision. |
+| `../mdbase-rs` path dependency | n/a | <ul><li>Root `Cargo.toml`.</li><li>`deploy/docker/mdbase-rs-revision`.</li><li>`pnpm check:mdbase-rs-pin` (`scripts/mdbase-rs-pin.mjs`).</li><li>Every `callumalpass/mdbase-rs` checkout in `server-ci` (two jobs), `flake-stress`, `performance-observations` and `rust-caches`, and the `Cargo.lock.hosted-provider` and `mdbase-rs-revision` inputs of `publish-images`.</li><li>cloud-ops `check-release-locks`, `verify-release-bundle` and the `RUNTIME_PATHS` in `continuous_deployment.py`.</li></ul>It goes when the last root crate goes, which ends the root Cargo workspace. Outside this repo, mdbase.dev `site-sources.json` still lists mdbase-rs as the "rust" implementation; that is a separate decision. |
 | `packages/sync` (`@mdbase-dev/connect-sync`, private; npm publishing stopped in #1290) | 23,950 | Server imports in `features/hosted/hosted.ts`, `features/hosted/hosted-mirror-policy.ts`, `features/hosted/account-routes.ts`, `features/mirrors/pairing-routes.ts`, `features/authority-transfer/lifecycle.ts` and `platform/error-handler.ts` (`SyncError`). Also `Dockerfile.server:44`, `scripts/sync-e2e.mjs` and `flake-stress`. |
 | Legacy hosted, mirror and authority server cluster: `features/hosted/hosted-provider*.ts`, `features/hosted/hosted.ts`, `features/hosted/hosted-mirror-policy.ts`, `features/hosted/hosted-replica-policy.ts`, `features/hosted/hosted-capability-lifecycle.ts`, `features/authority-transfer/authority-proof.ts`, `features/hosted/*` except `sharing-routes.ts`, `features/mirrors/*`, `features/authority-transfer/*`, `features/authority-adoption/*`, `features/authorizations/hosted-approval-service.ts` | 8,728 prod and about 5.3k tests | `HostedProviderClient` is also used by `features/usage/usage-report.ts` (provider `protocolUsage`), account management and deletion, `auth-admin-entitlements`, notifications, `timers/hosted-import` and the migration provider. Each of these needs its provider branch removed. |
 | Legacy tables: `hosted_replicas`, `mirror_pairing_requests`, `authority_transfers`, `authority_adoption_requests`, `authority_import_abort_receipts`, `provider_collection_deletion_jobs`, `provider_revocation_jobs` | n/a | Drop them in a forward migration after the code above is gone. Keep the frozen bootstrap (see Keep). |
@@ -146,6 +161,6 @@ from an agent session.
   local compose stacks, the tailnet stack and the server upgrade tests set `legacy`
   explicitly. Retiring the legacy stack must also remove those settings.
 - Every server CD rebuilds the provider. `continuous_deployment.py` treats changes
-  under `crates/**`, `Cargo.toml`, `Dockerfile.client`, `mdbase-rs-revision` and
-  `packages/sync` as runtime changes, so Tier 1 deletions will trigger
+  under `crates/**`, `Cargo.toml`, `config`, `mdbase-rs-revision` and
+  `packages/sync` as runtime changes, so the Tier 1 removal triggers
   a provider rebuild.

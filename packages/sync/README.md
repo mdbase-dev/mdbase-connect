@@ -204,32 +204,11 @@ an older engine fails with `mirror_state_upgrade_required`; rebuild the mirror
 to create the plan-only state machine rather than retaining a second legacy
 execution path.
 
-### Performance and adversarial profiling
+### Mobile bundle check
 
-The repository keeps a source-commit- and runtime-identified
-pre-quality-transformation 10,000-record baseline and checks both the Node and
-portable adapters against it:
-
-```bash
-pnpm profile:mirror:check
-pnpm check:mirror:mobile
-pnpm profile:mirror:vault -- --source /path/to/large/vault
-pnpm profile:mirror:writable-vault -- --source /path/to/large/vault
-```
-
-The regression check measures initial materialization, steady no-op sync,
-100-record incremental receive, writable initialization, and writable no-op
-sync across three rounds. It records wall time, peak/retained heap, filesystem
-operations, state checkpoints, and transport calls. Stable operation counts
-and bundle-size budgets are enforced in addition to timing/heap ceilings. The
-receive-only heap gate includes a fixed, separately reported allowance for
-snapshot-wide path, identity, revision, and document preflight; wall-time,
-writable-mirror, I/O, and checkpoint limits remain tied directly to the
-historical baseline. The
-live-vault harness uses a disposable target, injects divergence, update,
-rename, delete, create, and a collision on the final snapshot path, then
-verifies no partial initialization state was committed. Unit coverage injects
-adapter failure and snapshot-boundary corruption before durable state advances.
+`pnpm --filter @mdbase-dev/connect-sync check:mobile` enforces the portable
+adapter's bundle-size budget. Unit coverage injects adapter failure and
+snapshot-boundary corruption before durable state advances.
 
 If a request fails transiently while approval is pending, the client retries
 until the server-provided deadline. Cancellation, expiry, malformed responses,

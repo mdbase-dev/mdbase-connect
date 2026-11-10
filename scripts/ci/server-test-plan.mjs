@@ -20,8 +20,7 @@ const nativePrefixes = [
   "deploy/docker/",
   "deploy/postgres/",
   "test/system/",
-  "test/upgrade/",
-  "scripts/diagnostics/"
+  "test/upgrade/"
 ];
 const nativeFiles = new Set([
   "Cargo.toml",
@@ -33,7 +32,6 @@ const nativeFiles = new Set([
   ".github/previous-release.env",
   ".github/retained-v2-predecessor.env",
   ".github/workflows/server-ci.yml",
-  ".github/workflows/windows-daemon-lifecycle.yml",
   ...Object.values(systemSuites).map((suite) => suite.command.at(-1))
 ]);
 

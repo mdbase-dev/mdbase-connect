@@ -41,8 +41,8 @@ authentication of a connector on first use.
 | --- | --- | --- |
 | Application authorization | Installation signature fixes the requested ceiling | `crates/connect-protocol/src/application_authorization.rs` |
 | Identity continuity | Stable installation key signs fresh grants; SDK rejects a changed connector key | `packages/client/src/application-identity.ts` |
-| Encrypted relay | Connector decrypts and rechecks its locally cached exact grant | `crates/connect-agent/src/server/operations.rs` |
-| Local filesystem | Connector applies canonical path, resource, file, scope, and grant policy | `crates/connect-core/src/registry/grants.rs` |
+| Encrypted relay | Connector decrypts and rechecks its locally cached exact grant | `runtime/crates/daemon/src/relay.rs` |
+| Local filesystem | Connector serves a session only under an exact, live cached grant | `runtime/crates/daemon/src/access.rs` |
 | Control plane | Portal consent narrows authority; routing checks fail closed | `services/server/src/features/authorizations/approval-service.ts` |
 | Hosted provider | Provider validates exact capability and proof before execution | `crates/connect-hosted-provider/src/provider/capabilities.rs` |
 | Managed wrapping | Exact KMS context and envelope-selected immutable key ARN unwrap a DEK | `crates/connect-hosted-provider/src/key_wrapping/aws.rs` |

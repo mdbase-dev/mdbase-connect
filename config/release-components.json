@@ -85,16 +85,6 @@
       "context": ".",
       "platform": "linux/amd64",
       "attestationType": "https://mdbase.dev/attestations/release-image/v1"
-    },
-    {
-      "id": "client",
-      "required": true,
-      "kind": "oci-image",
-      "image": "ghcr.io/mdbase-dev/mdbase-connect-client",
-      "dockerfile": "deploy/docker/Dockerfile.client",
-      "context": ".",
-      "platform": "linux/amd64",
-      "attestationType": "https://mdbase.dev/attestations/release-image/v1"
     }
   ]
 }

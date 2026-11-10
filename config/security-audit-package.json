@@ -46,14 +46,13 @@
       "sources": [
         "packages/client/src/application-identity.ts",
         "packages/client/src/connect.ts",
-        "crates/connect-agent/src/server/authorization.rs",
-        "crates/connect-core/src/registry/grants.rs"
+        "runtime/crates/daemon/src/attest.rs",
+        "runtime/crates/daemon/src/access.rs"
       ],
       "tests": [
         "packages/client/src/application-identity.test.ts",
         "packages/client/src/connector-identity-continuity.test.ts",
-        "crates/connect-core/src/registry/tests/security_state.rs",
-        "crates/connect-agent/src/server/tests.rs"
+        "runtime/crates/daemon/tests/relay.rs"
       ],
       "fixtures": [
         "packages/protocol/test/fixtures/application-authorization-v4.json"
@@ -67,11 +66,14 @@
         "crates/connect-protocol/src/crypto.rs",
         "packages/client/src/crypto.ts",
         "services/server/src/features/relay/relay.ts",
-        "crates/connect-agent/src/server/operations.rs"
+        "runtime/crates/daemon/src/relay.rs",
+        "runtime/crates/daemon/src/pipes.rs"
       ],
       "tests": [
         "packages/client/src/crypto.test.ts",
         "crates/connect-protocol/src/tests.rs",
+        "runtime/crates/daemon/tests/relay.rs",
+        "runtime/crates/daemon/tests/relay_first_open.rs",
         "scripts/relay-e2e.mjs"
       ],
       "fixtures": []
@@ -81,14 +83,12 @@
       "title": "Local connector policy enforcement",
       "authority": "The user-owned connector is the final authorization and filesystem boundary for computer-owned collections.",
       "sources": [
-        "crates/connect-core/src/registry/grants.rs",
-        "crates/connect-agent/src/server/operations.rs",
-        "crates/connect-agent/src/server/files.rs"
+        "runtime/crates/daemon/src/access.rs",
+        "runtime/crates/daemon/src/server/grants.rs"
       ],
       "tests": [
-        "crates/connect-core/src/registry/tests/security_state.rs",
-        "crates/connect-agent/src/server/tests.rs",
-        "scripts/e2e.mjs"
+        "runtime/crates/daemon/src/server_grant_session_tests.rs",
+        "scripts/next-e2e.mjs"
       ],
       "fixtures": [
         "packages/protocol/test/fixtures/file-frame-v1.json",
