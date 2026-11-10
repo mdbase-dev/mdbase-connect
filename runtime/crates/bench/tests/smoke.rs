@@ -30,4 +30,9 @@ fn all_scenarios_run_on_a_tiny_corpus() {
         let s = out.iter().find(|s| s.scenario == name).unwrap();
         assert!(!s.ms.is_empty(), "{name}: {}", s.note);
     }
+    let query = out
+        .iter()
+        .find(|s| s.scenario == "replica.query_tasks_open")
+        .unwrap();
+    assert!(query.note.contains("; path: "), "{}", query.note);
 }

@@ -16,7 +16,11 @@
 //! - `replica.edit_visible`: update on A, append, B receives + applies, B's
 //!   store shows the new revision (device-to-device, CPU only);
 //! - `replica.catchup_1k`: B offline while A makes 1,000 edits; B catches up;
-//! - `replica.query_tasks_open`: the open-tasks query through `ClientApi`.
+//! - `replica.query_tasks_open`: the open-tasks query through `ClientApi`; the
+//!   note says how many iterations the index answered and how many fell back
+//!   to the per-record path (`Replica::query_stats`), or that the query was
+//!   refused (the per-record path reads at most 1,000 records, and this query
+//!   reads every task), which is not timed.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -242,8 +246,9 @@ impl Node {
             .map(|r| r.doc)
     }
 
-    /// Run a query (JSON spec 11 object) and return the row count.
-    pub fn query(&mut self, q: &serde_json::Value) -> usize {
+    /// Run a query (JSON spec 11 object) and return the row count, or the
+    /// refusal.
+    pub fn query(&mut self, q: &serde_json::Value) -> Result<usize, String> {
         self.r
             .query(
                 self.s,
@@ -255,9 +260,8 @@ impl Node {
                     diagnostics: Some(false),
                 },
             )
-            .expect("query")
-            .records
-            .len()
+            .map(|page| page.records.len())
+            .map_err(|refusal| refusal.to_string())
     }
 }
 
@@ -489,9 +493,33 @@ pub fn run(spec: &Spec, iters: usize, out: &mut Vec<Sample>) {
         size,
         "ClientApi::query: type task, status != done, order by due, limit 100 (MemStore)",
     );
+    // The MemStore keeps no query index, so the per-record path answers, and
+    // that path refuses a query that has to read more than its record budget
+    // (every task, here). A refusal is reported in the note and not timed.
+    let before = a.r.query_stats();
+    let mut refused = None;
     for _ in 0..iters {
-        s.time(|| a.query(&open_tasks_query()));
+        if let Err(refusal) = s.time(|| a.query(&open_tasks_query())) {
+            refused = Some(refusal);
+            break;
+        }
     }
+    if let Some(refusal) = refused {
+        s.ms.clear();
+        s.note.push_str(&format!("; refused: {refusal}"));
+    }
+    let after = a.r.query_stats();
+    s.note.push_str(&format!(
+        "; path: {} indexed, {} per-record fallback{}, {} failed",
+        after.indexed - before.indexed,
+        after.declined - before.declined,
+        after
+            .last_decline
+            .filter(|_| after.declined > before.declined)
+            .map(|why| format!(" ({why})"))
+            .unwrap_or_default(),
+        after.failed - before.failed,
+    ));
     out.push(s);
 
     let mut s = Sample::new(

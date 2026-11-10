@@ -1,22 +1,28 @@
-# Performance regression gate (crates/bench, tools/perf/README.md).
-# Not on every PR: Linux minutes are limited. Runs nightly, on demand, and on PRs
-# labelled `perf`. The gate compares calibration-normalised p50s at 1k notes against
-# tools/perf/baseline.json with a loose threshold (complexity regressions, not drift).
-name: Perf
+# Runtime performance regression gate (runtime/crates/bench,
+# runtime/tools/perf/README.md). Not on every PR: Linux minutes are limited.
+# Runs nightly, on demand, and on PRs labelled `perf`. The gate compares
+# calibration-normalised minimums at 1k notes, and each scenario's growth from
+# 1k to 10k notes, against runtime/tools/perf/baseline.json with loose limits
+# (complexity regressions, not drift).
+name: Runtime perf
 
 on:
   schedule:
-    - cron: "30 15 * * *" # after the nightly CI sweep
+    - cron: "30 15 * * *"
   workflow_dispatch:
   pull_request:
     types: [labeled, synchronize]
 
 concurrency:
-  group: perf-${{ github.ref }}
+  group: runtime-perf-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
+
+defaults:
+  run:
+    working-directory: runtime
 
 env:
   CARGO_TERM_COLOR: always
@@ -24,16 +30,20 @@ env:
 
 jobs:
   gate:
-    name: perf gate (1k corpus)
+    name: perf gate (1k and 10k corpora)
     if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'perf')
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Install pinned toolchain (rust-toolchain.toml)
         run: rustup toolchain install && rustup show active-toolchain
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
+          workspaces: runtime -> target
+          shared-key: perf
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: build mdbn-perf (release)
         run: cargo build --locked --release -p mdbn-bench --bin mdbn-perf
@@ -42,9 +52,9 @@ jobs:
       - name: full 1k report
         if: always()
         run: ./target/release/mdbn-perf run --sizes 1000 --iters 15 --out perf-report.json
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: perf-report
-          path: perf-report.json
+          path: runtime/perf-report.json
           if-no-files-found: ignore
