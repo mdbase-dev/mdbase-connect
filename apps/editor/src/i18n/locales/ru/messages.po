@@ -236,6 +236,11 @@ msgstr "Пока найдено: {0} · просмотрено {1} из {2}"
 msgid "{0} implements Person through multiple types. Resolve its mappings in Types before linking."
 msgstr "{0} реализует Person через несколько типов. Прежде чем создавать связь, проверьте сопоставления в разделе «Типы»."
 
+#. placeholder {0}: comment.path
+#: src/use-note-comments.ts
+msgid "{0} is no longer a comment."
+msgstr "{0} больше не является комментарием."
+
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
 msgid "{0} link format"
@@ -1286,6 +1291,7 @@ msgstr "Изменяйте текст заметки, не меняя остал
 msgid "Changed elsewhere"
 msgstr "Изменено в другом месте"
 
+#: src/NoteCommentsPanel.tsx
 #: src/pending-note-mutation.ts
 msgid "Check again"
 msgstr "Проверить ещё раз"
@@ -1450,6 +1456,10 @@ msgstr "Снять выделение"
 msgid "Clear type search"
 msgstr "Очистить поиск типов"
 
+#: src/NoteCommentsPanel.tsx
+msgid "Close comments"
+msgstr "Закрыть комментарии"
+
 #: src/FileViewer.tsx
 msgid "Close file preview"
 msgstr "Закрыть предпросмотр файла"
@@ -1589,6 +1599,20 @@ msgstr "Команды · {0}"
 #: src/NoteSearchField.tsx
 msgid "Commands · {0} outside text"
 msgstr "Команды · {0} вне текста"
+
+#: src/editor-commands.ts
+msgid "Comment on the selection"
+msgstr "Прокомментировать выделенное"
+
+#: src/App.tsx
+#: src/editor-commands.ts
+#: src/NoteCommentsPanel.tsx
+msgid "Comments"
+msgstr "Комментарии"
+
+#: src/use-note-comments.ts
+msgid "Comments are not set up in this collection."
+msgstr "Комментарии не настроены в этой коллекции."
 
 #: src/TypeBrowser.tsx
 msgid "Common icons"
@@ -3180,6 +3204,10 @@ msgstr "Другие действия с заметкой"
 msgid "More than one note matches this transclusion."
 msgstr "Этому встраиванию соответствует несколько заметок."
 
+#: src/NoteCommentsPanel.tsx
+msgid "More than one person record claims your account, so the editor will not guess which is you."
+msgstr "На вашу учётную запись претендует более одной записи о человеке, поэтому редактор не будет угадывать, какая из них ваша."
+
 #: src/MoveNoteDialog.tsx
 msgid "Move"
 msgstr "Переместить"
@@ -3674,6 +3702,10 @@ msgstr "Открыть {name}"
 msgid "Open {primaryTypeLabel}"
 msgstr "Открыть {primaryTypeLabel}"
 
+#: src/use-note-comments.ts
+msgid "Open a note to comment on it."
+msgstr "Откройте заметку, чтобы прокомментировать её."
+
 #: src/ConnectionScreens.tsx
 msgid "open and search notes"
 msgstr "открывать и искать заметки"
@@ -3703,6 +3735,7 @@ msgid "Open original"
 msgstr "Открыть оригинал"
 
 #: src/editor-commands.ts
+#: src/NoteCommentsPanel.tsx
 msgid "Open Settings"
 msgstr "Открыть настройки"
 
@@ -4605,6 +4638,10 @@ msgstr "Раздел в заметке"
 msgid "Select a note, or start a new one."
 msgstr "Выберите заметку или создайте новую."
 
+#: src/NoteCommentsPanel.tsx
+msgid "Select a passage and press <0>{mod}</0> to comment on it."
+msgstr "Выделите фрагмент и нажмите <0>{mod}</0>, чтобы прокомментировать его."
+
 #: src/YourPersonPanel.tsx
 msgid "Select a person record."
 msgstr "Выберите запись о пользователе."
@@ -4924,6 +4961,10 @@ msgstr "Заметка изменилась после создания связ
 msgid "That note changed. Find its mentions again before linking."
 msgstr "Заметка изменилась. Найдите её упоминания заново, прежде чем связывать."
 
+#: src/use-note-comments.ts
+msgid "That passage is no longer in the note. Select it again to comment on it."
+msgstr "Этого фрагмента больше нет в заметке. Выделите его снова, чтобы прокомментировать."
+
 #. placeholder {0}: implementation.typeName
 #: src/person-records.ts
 msgid "The {0} type needs a writable {field} mapping for mdbase.person."
@@ -5054,6 +5095,10 @@ msgstr "Открылась не та коллекция, которую вы в�
 msgid "The collection watch stopped."
 msgstr "Отслеживание изменений коллекции остановлено."
 
+#: src/use-note-comments.ts
+msgid "The comment could not be saved."
+msgstr "Не удалось сохранить комментарий."
+
 #: src/next-editor-records.ts
 msgid "The complete note source does not match its native revision. No source was reconstructed or submitted."
 msgstr "Полный исходный текст заметки не соответствует её исходной версии. Исходный текст не восстанавливался по частям и не отправлялся."
@@ -5126,6 +5171,10 @@ msgstr "Редактор открывает коллекции mdbase 0.3. Дл�
 #: src/native-gateway.ts
 msgid "The editor requires its original SDK collection client."
 msgstr "Редактору необходим исходный клиент коллекции SDK."
+
+#: src/NoteCommentsPanel.tsx
+msgid "The editor was not allowed to see your account for this collection."
+msgstr "Редактору не разрешили видеть вашу учётную запись для этой коллекции."
 
 #: src/YourPersonPanel.tsx
 msgid "The Editor was not approved."
@@ -5233,6 +5282,10 @@ msgstr "Поле идентификатора пользователя долж�
 #: src/person-records.ts
 msgid "The Person mappings conflict with existing Contact fields. Configure non-overlapping mappings first."
 msgstr "Сопоставления Person конфликтуют с существующими полями Contact. Сначала настройте сопоставления без пересечений."
+
+#: src/NoteCommentsPanel.tsx
+msgid "The person record that claims your account is not valid."
+msgstr "Запись о человеке, претендующая на вашу учётную запись, недействительна."
 
 #: src/YourPersonPanel.tsx
 msgid "The record's display name belongs to this collection and is not synchronised with your account."
@@ -5484,6 +5537,10 @@ msgstr "У этого контакта явно указан другой тип
 #: src/TypeBrowser.tsx
 msgid "This contract does not expose simple top-level properties. Configure its field references in YAML."
 msgstr "Этот контракт не предоставляет простые свойства верхнего уровня. Настройте ссылки на его поля в YAML."
+
+#: src/use-note-comments.ts
+msgid "This edit cannot be made here: its passage is no longer in the note’s text."
+msgstr "Эту правку нельзя внести здесь: её фрагмента больше нет в тексте заметки."
 
 #: src/main.tsx
 #: src/SdkEditorRoot.tsx
@@ -5840,6 +5897,10 @@ msgstr "Несохранённые изменения типа или созда
 msgid "Unsaved type or creation changes will be discarded."
 msgstr "Несохранённые изменения типа или создаваемых объектов будут удалены."
 
+#: src/use-note-comments.ts
+msgid "Unsigned"
+msgstr "Без подписи"
+
 #: src/App.tsx
 #: src/ConflictResolver.tsx
 #: src/MarkdownNoteEditor.tsx
@@ -6061,6 +6122,15 @@ msgstr "Вы перейдёте в mdbase. При необходимости в�
 msgid "Your account"
 msgstr "Ваша учётная запись"
 
+#. placeholder {0}: signing.reason
+#: src/NoteCommentsPanel.tsx
+msgid "Your account could not be checked ({0})."
+msgstr "Не удалось проверить вашу учётную запись ({0})."
+
+#: src/NoteCommentsPanel.tsx
+msgid "Your account is not linked to a person in this collection."
+msgstr "Ваша учётная запись не связана с человеком в этой коллекции."
+
 #: src/pending-note-mutation.ts
 msgid "Your change from {date} isn’t confirmed yet. Check again to finish saving it."
 msgstr "Ваше изменение от {date} пока не подтверждено. Проверьте ещё раз, чтобы завершить сохранение."
@@ -6068,6 +6138,10 @@ msgstr "Ваше изменение от {date} пока не подтвержд
 #: src/AppErrorBoundary.tsx
 msgid "Your collection was not deleted. Changes that had already finished saving are safe."
 msgstr "Ваша коллекция не удалена. Уже сохранённые изменения не потеряны."
+
+#: src/NoteCommentsPanel.tsx
+msgid "Your comments will not be signed."
+msgstr "Ваши комментарии не будут подписаны."
 
 #: src/pending-note-mutation.ts
 msgid "Your deletion from {date} isn’t confirmed yet. Check again to finish saving it."

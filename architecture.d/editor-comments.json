@@ -1,0 +1,9 @@
+{
+  "reason": "The Editor takes on comments (the mdbase.comment contract) through the shared @mdbase-dev/ui comment modules. apps/editor gains three modules: note-comments.ts maps the contract onto a collection's own field names and the index (7 exports), use-note-comments.ts is the open note's comment state and writes (3 exports), and NoteCommentsPanel.tsx is the lazily loaded inspector (1 export). Two more exports are the ChatText icon and the editor selection reader. The eleven relative imports are those modules' own. App.tsx stays within its budget: the wiring replaced the properties-only inspector flag and consolidated repeated resets.",
+  "growth": {
+    "productionFiles": 3,
+    "apps/editor": 3,
+    "relativeImports": 11,
+    "typeScriptExportDeclarations": 13
+  }
+}

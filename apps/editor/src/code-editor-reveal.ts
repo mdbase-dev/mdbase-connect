@@ -24,3 +24,9 @@ export function revealMarkdownLine(documentId: string | undefined, line: number)
   view.dispatch({ selection: { anchor: target.from }, scrollIntoView: true });
   view.focus();
 }
+
+/** The selection in the live writer view for `documentId`, as offsets in its text. */
+export function activeEditorSelection(documentId: string | undefined): { from: number; to: number } | undefined {
+  const selection = documentId ? activeViews.get(documentId)?.state.selection.main : undefined;
+  return selection && { from: selection.from, to: selection.to };
+}

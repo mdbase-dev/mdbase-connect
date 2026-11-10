@@ -52,6 +52,7 @@ import type { ResolvedNoteEmbed } from "./note-embeds";
 import type { NotePreviewAnchor, NotePreviewSource } from "./NotePreview";
 import type { CollectionFile, NoteSummary } from "./model";
 import { typewriterScrolling } from "./code-editor-typewriter";
+import { commentAnchorRange, commentAnchors, showCommentAnchors, type CommentAnchor, type CommentAnchorCard } from "@mdbase-dev/ui/comment-anchors";
 import { mdbasePopupTheme } from "@mdbase-dev/ui/codemirror";
 
 type EditorLanguage = "markdown" | "json" | "yaml" | "yaml-frontmatter" | "plain";
@@ -97,6 +98,13 @@ interface CodeEditorProps {
   remoteApplyToken?: number;
   header?: ReactNode;
   footer?: ReactNode;
+  /** The passages of the note's open comment threads. */
+  commentAnchors?: readonly CommentAnchor[];
+  activeComment?: string | null;
+  /** Bring this thread's passage into view; a new token asks again. */
+  commentReveal?: { id: string; token: number };
+  onCommentAnchor?: (id: string) => void;
+  commentCard?: (id: string) => CommentAnchorCard | null;
 }
 
 interface RememberedEditor {
@@ -119,6 +127,7 @@ const EMPTY_FILE_EMBEDS: ResolvedFileReference[] = [];
 const EMPTY_NOTE_EMBEDS: ResolvedNoteEmbed[] = [];
 const EMPTY_FILES: CollectionFile[] = [];
 const EMPTY_NOTES: NoteSummary[] = [];
+const EMPTY_ANCHORS: readonly CommentAnchor[] = [];
 
 const rememberedEditors = new Map<string, RememberedEditor>();
 const rememberedEditorLimit = 40;
@@ -171,7 +180,12 @@ export function CodeEditor({
   onBlur,
   remoteApplyToken,
   header,
-  footer
+  footer,
+  commentAnchors: anchors = EMPTY_ANCHORS,
+  activeComment = null,
+  commentReveal,
+  onCommentAnchor,
+  commentCard
 }: CodeEditorProps) {
   const { i18n } = useLingui();
   const parentRef = useRef<HTMLDivElement>(null);
@@ -225,6 +239,12 @@ export function CodeEditor({
   const onVisibleFileEmbedsRef = useRef(onVisibleFileEmbeds);
   const onVisibleNoteEmbedsRef = useRef(onVisibleNoteEmbeds);
   const appliedInsertion = useRef<number | undefined>(undefined);
+  const onCommentAnchorRef = useRef(onCommentAnchor);
+  const commentCardRef = useRef(commentCard);
+  const shownComments = useRef({ anchors, active: activeComment });
+  const revealedComment = useRef(commentReveal?.token);
+  onCommentAnchorRef.current = onCommentAnchor;
+  commentCardRef.current = commentCard;
   const onUploadAttachmentRef = useRef(onUploadAttachment);
   onUploadAttachmentRef.current = variant === "writer" && language === "markdown" ? onUploadAttachment : undefined;
   const lineSeparator = useRef(lineSeparatorFor(value));
@@ -305,6 +325,10 @@ export function CodeEditor({
         () => onPreviewLinkRef.current,
         () => onDismissLinkPreviewRef.current
       ) : [],
+      variant === "writer" && language === "markdown" ? commentAnchors(
+        (id) => onCommentAnchorRef.current?.(id),
+        (id) => commentCardRef.current?.(id) ?? null
+      ) : [],
       interactionMode.current.of([EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)]),
       editorAttributes.current.of(EditorView.contentAttributes.of(contentAttributes(label, variant, language))),
       placeholderMode.current.of(placeholder ? editorPlaceholder(placeholder) : []),
@@ -331,6 +355,7 @@ export function CodeEditor({
       setFooterHost(host);
     }
     if (documentId) registerActiveEditor(documentId, view);
+    if (anchors.length) showCommentAnchors(view, anchors, activeComment);
     requestAnimationFrame(() => {
       if (viewRef.current !== view) return;
       if (remembered) view.scrollDOM.scrollTop = remembered.scrollTop;
@@ -546,6 +571,8 @@ export function CodeEditor({
       annotations: externalReset ? Transaction.addToHistory.of(false) : undefined
     });
     syncing.current = false;
+    // Replacing the text collapses every anchor; place them in the new text.
+    if (shownComments.current.anchors.length) showCommentAnchors(view, shownComments.current.anchors, shownComments.current.active);
     if (externalReset && !view.hasFocus && first < last) {
       const lines = after.slice(first, last).map((_, index) => Decoration.line({ class: "cm-remote-change" }).range(view.state.doc.line(first + index + 1).from));
       view.dispatch({ effects: remoteChange.of(Decoration.set(lines)) });
@@ -553,6 +580,22 @@ export function CodeEditor({
       return () => clearTimeout(timeout);
     }
   }, [value, remoteApplyToken]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    const shown = shownComments.current;
+    if (!view || (shown.anchors === anchors && shown.active === activeComment)) return;
+    shownComments.current = { anchors, active: activeComment };
+    showCommentAnchors(view, anchors, activeComment);
+  }, [anchors, activeComment]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || !commentReveal || revealedComment.current === commentReveal.token) return;
+    revealedComment.current = commentReveal.token;
+    const range = commentAnchorRange(view, commentReveal.id);
+    if (range) view.dispatch({ selection: EditorSelection.cursor(range.from), effects: EditorView.scrollIntoView(range.from, { y: "center" }) });
+  }, [commentReveal]);
 
   useEffect(() => {
     const view = viewRef.current;

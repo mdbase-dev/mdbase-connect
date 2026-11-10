@@ -18,6 +18,7 @@ export { FolderPlusIcon } from "@phosphor-icons/react/FolderPlus";
 export { GearSixIcon } from "@phosphor-icons/react/GearSix";
 export { HardDrivesIcon } from "@phosphor-icons/react/HardDrives";
 export { InfoIcon } from "@phosphor-icons/react/Info";
+export { ChatTextIcon } from "@phosphor-icons/react/ChatText";
 export { KeyIcon } from "@phosphor-icons/react/Key";
 export { KeyboardIcon } from "@phosphor-icons/react/Keyboard";
 export { LinkIcon } from "@phosphor-icons/react/Link";

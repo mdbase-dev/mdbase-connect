@@ -47,14 +47,6 @@ async function cssFiles(directory) {
   return nested.flat();
 }
 
-// Declarations in the pinned shared UI that are not yet on its tokens, by file
-// (relative to the UI's CSS directory) and exact value. While its file ships,
-// each must still occur: remove an entry once a repin no longer needs it.
-const SHARED_UI_EXCEPTIONS = [
-  // The command palette's selected-row ring (UI beta.163); fix upstream with a ring token.
-  { file: "palette.css", property: "box-shadow", value: "inset 0 0 0 1px light-dark(oklch(60% 0.004 286), oklch(63% 0.004 286))" }
-];
-
 async function main() {
   const tokenFile = canonicalPath(fileURLToPath(import.meta.resolve("@mdbase-dev/ui/tokens.css")));
   const sharedRoot = dirname(tokenFile);
@@ -62,19 +54,8 @@ async function main() {
     cssFiles(resolve(editorRoot, "src")),
     cssFiles(sharedRoot)
   ])).flat().filter((file) => file !== tokenFile).sort();
-  const unused = new Set(SHARED_UI_EXCEPTIONS);
-  const errors = (await Promise.all(files.map(async (file) => {
-    const found = checkStyleTokens(await readFile(file, "utf8"), relative(workspaceRoot, file));
-    const shared = relative(sharedRoot, file);
-    return found.filter((error) => {
-      const exception = SHARED_UI_EXCEPTIONS.find((entry) => entry.file === shared
-        && error.endsWith(`: ${entry.property} must use shared tokens (${entry.value}).`));
-      if (exception) unused.delete(exception);
-      return !exception;
-    });
-  }))).flat();
-  const shipped = new Set(files.map((file) => relative(sharedRoot, file)));
-  for (const entry of unused) if (shipped.has(entry.file)) errors.push(`Shared UI exception no longer applies; remove it: ${entry.file} ${entry.property} (${entry.value}).`);
+  const errors = (await Promise.all(files.map(async (file) =>
+    checkStyleTokens(await readFile(file, "utf8"), relative(workspaceRoot, file))))).flat();
   if (errors.length) {
     console.error(errors.join("\n"));
     process.exitCode = 1;

@@ -1,3 +1,4 @@
+import type { CommentAnchor, CommentAnchorCard } from "@mdbase-dev/ui/comment-anchors";
 import { Trans } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
@@ -47,6 +48,12 @@ interface MarkdownNoteEditorProps {
   autoFocus?: boolean;
   readOnly?: boolean;
   provenance?: ReactNode;
+  /** The note's open comment threads, shown on the passages they are about. */
+  commentAnchors?: readonly CommentAnchor[];
+  activeComment?: string | null;
+  commentReveal?: { id: string; token: number };
+  onCommentAnchor?: (id: string) => void;
+  commentCard?: (id: string) => CommentAnchorCard | null;
 }
 
 interface NoteHeaderProps {
@@ -84,7 +91,8 @@ function NoteHeader({ title, readOnly, provenance, onTitleChange, onTitleVisibil
 export function MarkdownNoteEditor({ editorKey, draft, preferences, documentId, currentPath, linkTargets, recentPaths,
   linkSuggestions, linkTypes, embeddedFiles, embeddedNotes, files, notes, insertion, onUploadAttachment, remoteApplyToken, onTitleChange, onTitleVisibilityChange, onBodyChange,
   onOpenLink, onCreateLink, onPreviewLink, onDismissLinkPreview, onOpenFile, onOpenFileLink,
-  onVisibleFileEmbeds, onVisibleNoteEmbeds, footer, autoFocus = true, readOnly = false, provenance }: MarkdownNoteEditorProps) {
+  onVisibleFileEmbeds, onVisibleNoteEmbeds, footer, autoFocus = true, readOnly = false, provenance,
+  commentAnchors, activeComment, commentReveal, onCommentAnchor, commentCard }: MarkdownNoteEditorProps) {
   useLingui();
   const header = <NoteHeader title={draft.title} readOnly={readOnly} provenance={provenance} onTitleChange={onTitleChange} onTitleVisibilityChange={onTitleVisibilityChange} />;
   return <article className="writing-surface" style={{ "--editor-font-size": `${preferences.fontSize}px` } as CSSProperties}>
@@ -97,7 +105,9 @@ export function MarkdownNoteEditor({ editorKey, draft, preferences, documentId, 
         onDismissLinkPreview={onDismissLinkPreview} embeddedFiles={embeddedFiles} embeddedNotes={embeddedNotes}
         onOpenFile={onOpenFile} files={files} notes={notes} onOpenFileLink={onOpenFileLink}
         onVisibleFileEmbeds={onVisibleFileEmbeds} onVisibleNoteEmbeds={onVisibleNoteEmbeds} insertion={insertion}
-        remoteApplyToken={remoteApplyToken} header={header} footer={footer} onUploadAttachment={onUploadAttachment} />
+        remoteApplyToken={remoteApplyToken} header={header} footer={footer} onUploadAttachment={onUploadAttachment}
+        commentAnchors={commentAnchors} activeComment={activeComment} commentReveal={commentReveal}
+        onCommentAnchor={onCommentAnchor} commentCard={commentCard} />
     </Suspense>
   </article>;
 }
