@@ -172,7 +172,7 @@ test("workflow builds all variants once, isolates both publisher credentials and
   assert.match(workflow, /cargo build --locked --release -p mdbn-trust/);
   assert.match(workflow, /cargo xtask wasm-app/);
   assert.match(workflow, /verify-qualified-commit/);
-  assert.match(workflow, /--workflow runtime-ci.yml/);
+  assert.match(workflow, /continuous-sdk-release\.mjs" runtime-ci/);
   const [build, publishers] = workflow.split("\n  publish:\n");
   const [publish, internal] = publishers.split("\n  attest-internal:\n");
   const [attest, release] = internal.split("\n  publish-internal:\n");
@@ -186,15 +186,19 @@ test("workflow builds all variants once, isolates both publisher credentials and
   assert.match(publish, /environment: npm-sdk/);
   assert.match(publish, /sdk-publication.mjs ready/);
   assert.match(publish, /sdk-publication.mjs verify-npm/);
-  assert.match(publish, /continuous-sdk-release.mjs compatible/);
-  assert.match(publish, /continuous-sdk-release.mjs publication-state/);
-  assert.match(publish, /if: steps\.publication\.outputs\.state == 'absent'\n\s+run: \|\n\s+export GITHUB_SHA="\$CLIENT_RELEASE_COMMIT"\n\s+npm publish/);
+  assert.match(publish, /continuous-sdk-release.mjs" compatible/);
+  assert.match(publish, /continuous-sdk-release.mjs" publication-state/);
+  assert.match(publish, /if: steps\.publication\.outputs\.state == 'absent'\n\s+run: \|\n\s+export GITHUB_SHA="\$CLIENT_RELEASE_COMMIT"\n\s+node .*continuous-sdk-release\.mjs" publish-archive/);
   assert.match(release, /needs\.publish\.outputs\.state == 'absent'/);
   assert.match(publish, /id-token: write/);
   assert(!workflow.includes("NODE_AUTH_TOKEN"));
   assert(!workflow.includes("NPM_SDK_BOOTSTRAP_TOKEN"));
-  assert.match(publish, /npm publish "\$RUNNER_TEMP\/sdk-packages\/sdk-production.tgz"/);
-  assert.match(publish, /--registry https:\/\/registry.npmjs.org\/ --tag latest --provenance/);
+  assert.match(publish, /@mdbase-dev\/sdk .*"\$RUNNER_TEMP\/sdk-packages\/sdk-production.tgz"/);
+  const publisher = readFileSync(new URL("./npm-build-provenance.mjs", import.meta.url), "utf8");
+  assert.match(publisher, /"--registry", "https:\/\/registry.npmjs.org\/"/);
+  assert.match(publisher, /"--tag", "latest", "--provenance-file"/);
+  assert.match(publish, /predicate-type: https:\/\/slsa.dev\/provenance\/v1/);
+  assert.match(publish, /predicate-path: .*sdk-predicate.json/);
   assert(!publish.includes("contents: write"));
   assert(!publish.includes("*.tgz"));
   assert.match(attest, /id-token: write/);
@@ -203,6 +207,7 @@ test("workflow builds all variants once, isolates both publisher credentials and
   for (const environment of ["staging", "lab"]) {
     assert.match(attest, new RegExp(`subject-path: .*sdk-${environment}\\.tgz`));
     assert(attest.includes(`sdk-${environment}.tgz.sigstore.json`));
+    assert.match(attest, /predicate-path: .*sdk-predicate.json/);
   }
   assert.match(release, /needs: \[attest-internal, publish, plan\]/);
   assert.match(release, /contents: write/);

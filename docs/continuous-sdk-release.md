@@ -14,7 +14,7 @@ default; no human version tag or `production_verified_commit` is accepted.
 
 ## Package selection and versions
 
-Workspace publication covers the nine packages in `scripts/public-packages.mjs`.
+Workspace publication covers the five packages in `scripts/public-packages.mjs`.
 Each package is compared with **its own highest published npm version**, not a
 dist-tag, server release or global release counter. The planner verifies the
 baseline npm Sigstore/SLSA provenance, publisher workflow, fixed repository,
@@ -45,7 +45,8 @@ built tarballs. The unprivileged pack job preserves their compiled files and
 rewrites only package metadata: the computed version, exact selected/published
 workspace dependencies, and source commit. It does not rebuild qualified code.
 The protected publisher rechecks each archive's identity/source before OIDC
-publication with `--ignore-scripts --tag latest --provenance`. Prerelease
+publication with `--ignore-scripts --tag latest --provenance-file` and the signed
+production-source statement described below. Prerelease
 versions need the tag stated, so `latest` stays explicit.
 
 For `@mdbase-dev/sdk`, the existing locked verifier/WASM build, committed
@@ -65,48 +66,71 @@ require a separate approved source-build/qualification contract.
 
 ## Qualification and compatibility
 
-Both planners observe live production and select the newest green first-parent
-commit in the common ancestry of main, Connect/MCP and the provider. They check
-out that source and require its exact successful **full Server CI main-push**
-qualification artifact; the source-built SDK additionally requires exact
-successful Runtime CI. A green badge alone, PR, documentation-only successor or
-stale qualification cannot substitute. Missing/unreadable evidence fails closed.
+Both planners observe live production and check out its exact Connect/MCP
+commit, requiring it to be contained by main. They never substitute a newer
+workflow commit or silently fall back to an older green ancestor. The selected
+source requires its own successful **full Server CI main-push** qualification
+artifact and successful **Runtime CI main push**. A green badge alone, PR,
+documentation-only successor, manual Runtime CI or stale qualification cannot
+substitute. Missing/unreadable evidence fails closed. The full Server CI
+qualification exports the exact artifact-producing run used for workspace packs.
 The selected commit is recorded in the plan and exported as a job output.
 
 Build, pack and publisher checkouts use that plan commit, never a newly resolved
-main tip. Source-sensitive shell commands explicitly export it as `GITHUB_SHA`,
-including npm's provenance generation (a job-level default-variable override
-would be ignored by Actions). The workflow and OIDC publisher identity remain
-on main.
+main tip. Release tooling is checked out separately at the workflow run's SHA
+under `.release-tools`; its planner/publisher commands run against production's
+working directory. This lets a tooling fix publish an already-deployed source
+without waiting for a server train to deploy the fix itself. Source-sensitive
+commands export the selected commit as `GITHUB_SHA`. The workflow, OIDC identity
+and `PUBLICATION_RUN_COMMIT` remain bound to the original main run.
 
-npm refuses provenance whose source commit differs from the commit the workflow
-ran on, so a run publishes as its own commit. When main has moved past
-production, the run still publishes if the selected production commit is an
-ancestor of the run's commit and nothing between them changes a published
-package's inputs (any manifest change counts, even version-only) or a
-server-facing contract path. The production commit's qualified bytes are then
-the run commit's bytes. The plan waits up to ten minutes for the run commit's
-own Server CI to pass and, for the source-built SDK, up to twenty-five more for
-its Runtime CI, which the build job requires. It then qualifies that commit and
-packs its artifacts with provenance naming it. Otherwise the plan reports no changed packages and the
-run ends successfully without publishing; a later run on a production-contained
-main publishes the change.
+### Provenance identity and build source
 
-Each package has a log line and Actions summary naming the selected production
-commit, original run commit, verified baseline version/commit and decision.
-Pending changes name the commit production must contain and the next eligible
-run after Server CD promotion as the release trigger. Exact run qualification
-and fresh production compatibility still apply; promotion alone does not bypass
-either gate. Planner diagnostics use fixed reasons rather than command stderr.
+npm validates certificate-bound provenance fields against the GitHub OIDC
+identity. Merely checking out production and overriding `GITHUB_SHA` cannot change
+the token's source revision, and would make npm reject the statement. See npm's
+[server-side verification contract](https://github.com/npm/provenance#server-side-provenance-verification-and-proof)
+and [npm 11's provenance generator](https://github.com/npm/cli/blob/v11.15.0/workspaces/libnpmpublish/lib/provenance.js).
 
-Runtime CI now qualifies every main push, including documentation-only
-successors, so a newer main commit cannot strand an otherwise changed SDK
-waiting for a qualification that will never be scheduled. Its PR path filter
-is unchanged. This expands main CI coverage; it does not reuse an older SHA.
-Workflow-run
-events are restricted to successful main pushes from this repository, and
-publishers never consume artifacts from the triggering run as arbitrary input.
-All plan/build transfers belong to this run and identify its selected source SHA.
+The publisher supplies a signed SLSA v1 statement through npm's supported
+[`--provenance-file`](https://docs.npmjs.com/cli/v11/commands/npm-publish#provenance-file)
+option. It preserves npm's standard workflow, resolved workflow dependency,
+runner, invocation and repository fields, including the original run SHA.
+`buildDefinition.externalParameters.source` explicitly names this repository and
+the exact **production build commit**. The subject binds the package name,
+version and SHA-512 of the archive actually published. npm's own bundled Sigstore
+implementation signs it through the existing OIDC identity; no token, key or
+publisher registration is added. The production, staging and LAB SDK archives
+use the same predicate for their GitHub attestations, with their existing archive
+subjects and isolated permissions.
+
+Baseline verification still requires the npm SRI, subject, fixed repository,
+workflow/ref, Sigstore signature and transparency proofs. It then uses the signed
+`externalParameters.source.commit` for ancestry and duplicate-publication checks.
+Existing baseline versions produced before this change lack that parameter and
+use their original signed workflow dependency commit, as before. This legacy
+read is needed until each package has its first publication with an explicit
+build source. A present but malformed or wrong-repository source always refuses.
+
+Trade-off: npm's standard source link continues to identify the authenticated
+workflow commit; the signed source parameter and the archives' existing source
+metadata identify production's tree. Consumers that previously treated the
+workflow revision as the build revision must read and verify that signed source
+parameter before adopting these publications. We do not falsify the certificate
+identity or drop provenance to make a different checkout publishable.
+
+Each package has a bounded log line and Actions summary naming selected
+production, original run, verified baseline version/commit and decision:
+`publishing production <sha> as <version>`. A run ahead of production publishes
+production's changed packages immediately after exact qualification. A baseline
+already ahead of production stands down; a baseline equal to production has
+nothing to publish. No branch waits for production to reach the newer run's
+commit. Version-only changes and test-only changes retain their existing input
+semantics.
+
+Workflow-run events remain restricted to successful main pushes from this
+repository. Publishers never consume artifacts from the triggering run as
+arbitrary input. All plan/build transfers identify the selected source SHA.
 
 `continuous-client-release.mjs` retains the fixed production Connect/MCP and
 provider readiness observations. It proves compatibility independently against
@@ -225,4 +249,4 @@ exact workflow, producer-SHA, registry, SRI and environment checks. This PR does
 not weaken those consumers or claim automatic admission. Desktop/website
 consumers must not infer an SDK version from the independently versioned desktop.
 
-Tests: `node --test scripts/lib/continuous-client-release.test.mjs scripts/lib/continuous-sdk-release.test.mjs scripts/lib/sdk-publication.test.mjs scripts/lib/sdk-prerelease.test.mjs`.
+Tests: `node --test scripts/lib/continuous-client-release.test.mjs scripts/lib/continuous-sdk-release.test.mjs scripts/lib/npm-build-provenance.test.mjs scripts/lib/sdk-publication.test.mjs scripts/lib/sdk-prerelease.test.mjs`.

@@ -11,6 +11,8 @@ on:
     paths:
       - .github/workflows/publish-npm.yml
       - scripts/continuous-sdk-release.mjs
+      - scripts/public-packages.mjs
+      - scripts/lib/npm-build-provenance*
       - scripts/lib/continuous-*-release*
       - scripts/lib/client-publication.test.mjs
   workflow_dispatch:
@@ -29,6 +31,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
+  PUBLICATION_RUN_COMMIT: ${{ github.sha }}
   SDK_RELEASE_STOPPED: ${{ vars.SDK_RELEASE_STOPPED }}
 
 jobs:
@@ -39,7 +42,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24
-      - run: node --test scripts/lib/continuous-client-release.test.mjs scripts/lib/continuous-sdk-release.test.mjs
+      - run: node --test scripts/lib/continuous-client-release.test.mjs scripts/lib/continuous-sdk-release.test.mjs scripts/lib/npm-build-provenance.test.mjs
 
   plan:
     needs: validate
@@ -91,6 +94,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ needs.plan.outputs.commit }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: .release-tools
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24
@@ -107,7 +115,7 @@ jobs:
           github-token: ${{ github.token }}
       - run: |
           export GITHUB_SHA="$CLIENT_RELEASE_COMMIT"
-          node scripts/continuous-sdk-release.mjs pack-workspace "$RUNNER_TEMP/npm-plan/npm-release-plan.json" "$RUNNER_TEMP/qualified-packages" "$RUNNER_TEMP/npm-packages"
+          node "$GITHUB_WORKSPACE/.release-tools/scripts/continuous-sdk-release.mjs" pack-workspace "$RUNNER_TEMP/npm-plan/npm-release-plan.json" "$RUNNER_TEMP/qualified-packages" "$RUNNER_TEMP/npm-packages"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: versioned-npm-packages
@@ -131,6 +139,11 @@ jobs:
         with:
           ref: ${{ needs.plan.outputs.commit }}
           fetch-depth: 0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: .release-tools
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24
@@ -156,5 +169,6 @@ jobs:
         run: |
           export GITHUB_SHA="$CLIENT_RELEASE_COMMIT"
           scripts/ci/verify-qualified-commit "$GITHUB_SHA"
-          node scripts/continuous-sdk-release.mjs compatible
-          node scripts/continuous-sdk-release.mjs publish-workspace "$RUNNER_TEMP/npm-plan/npm-release-plan.json" "$RUNNER_TEMP/npm-packages"
+          node "$GITHUB_WORKSPACE/.release-tools/scripts/continuous-sdk-release.mjs" runtime-ci
+          node "$GITHUB_WORKSPACE/.release-tools/scripts/continuous-sdk-release.mjs" compatible
+          node "$GITHUB_WORKSPACE/.release-tools/scripts/continuous-sdk-release.mjs" publish-workspace "$RUNNER_TEMP/npm-plan/npm-release-plan.json" "$RUNNER_TEMP/npm-packages"

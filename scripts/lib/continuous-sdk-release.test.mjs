@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, wr
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { awaitMainCi, awaitPublicationCi, baselineHistory, contentChanged, dependentPackages, failedPublisherRuns, inputChanged, packageInputs, publicationBaseline, publicationCommit, publicationState, provenanceSource, qualifyWorkspace } from "../continuous-sdk-release.mjs";
+import { checkoutPublicationSource, requireRuntimeCi, baselineHistory, contentChanged, dependentPackages, failedPublisherRuns, inputChanged, packageInputs, publicationBaseline, publicationState, provenanceSource, qualifyWorkspace } from "../continuous-sdk-release.mjs";
 import { publicPackages } from "../public-packages.mjs";
 
 const name = "@mdbase-dev/sdk";
@@ -233,8 +233,9 @@ test("workspace packing preserves qualified files, changes only metadata, and pi
 
 test("all SDK consumers pin the selected source", () => {
   const source = readFileSync(new URL("../continuous-sdk-release.mjs", import.meta.url), "utf8");
-  assert.match(source, /const production = await selectProduction\(env, \{ qualify: commit => qualify\(commit, quiet\) \}\)/);
-  assert.match(source, /git\("checkout", "--detach", commit\);\n  if \(current\) qualify\(commit, env\);/);
+  assert.match(source, /const production = await selectProduction\(env\)/);
+  assert.match(source, /qualify\(commit, env\)/);
+  assert.match(source, /qualifyRuntime\(commit\)/);
   assert.match(source, /env = \{ \.\.\.env, GITHUB_SHA: commit \}/);
   assert.match(source, /commit=\$\{commit\}/);
   for (const [name, jobs] of [["publish-npm", ["pack", "publish"]], ["publish-sdk-npm", ["build", "publish", "publish-internal"]]]) {
@@ -268,56 +269,37 @@ function fakeGit({ ancestor = true, paths = [], files = {} } = {}) {
   };
 }
 
-test("a run on a newer main publishes as its own commit only when nothing published or server-facing changed", () => {
+test("publication selects the exact production tree without falling back to another green commit", async () => {
   const production = "a".repeat(40);
-  const run = "b".repeat(40);
-  const sdkItem = { name, directory: "packages/sdk" };
-  const others = [sdkItem, { name: "@mdbase-dev/ui", directory: "packages/ui" }];
-  const publish = (git, packages = others) => publicationCommit(production, run, packages, "workspace", git);
-  assert.equal(publicationCommit(production, production, others, "workspace", () => { throw new Error("no git"); }), production);
-  assert.equal(publish(fakeGit({ ancestor: false })), null);
-  assert.equal(publish(fakeGit({ paths: [] })), run);
-  // Tests, docs and unpublished apps' styles leave the published bytes and contract alone.
-  assert.equal(publish(fakeGit({ paths: ["packages/sdk/test/a.test.mjs", "docs/x.md", "apps/editor/src/a.css"] })), run);
-  assert.equal(publish(fakeGit({ paths: ["packages/ui/src/index.ts"] })), null);
-  assert.equal(publish(fakeGit({ paths: ["packages/ui/src/index.ts"] }), [sdkItem]), null, "a server-facing source path still stops it");
-  assert.equal(publish(fakeGit({ paths: ["runtime/crates/server/src/lib.rs"] })), null);
-  // Packing names the qualified tarballs by the checked-out manifest version.
-  assert.equal(publish(fakeGit({ paths: ["packages/sdk/package.json"] })), null);
-  assert.throws(() => publish(() => { throw Object.assign(new Error("broken"), { status: 128 }); }), /broken/);
+  const env = { GITHUB_REPOSITORY: "mdbase-dev/mdbase-connect", GITHUB_REF: "refs/heads/main" };
+  const calls = [];
+  const options = { readProduction: async () => ({ sha: production }), runGit: (...args) => { calls.push(args); return ""; } };
+  assert.equal(await checkoutPublicationSource(env, options), production);
+  assert.deepEqual(calls.at(-1), ["checkout", "--detach", production]);
+  assert(calls.some(args => JSON.stringify(args) === JSON.stringify(["merge-base", "--is-ancestor", production, "origin/main"])));
+  await assert.rejects(checkoutPublicationSource(env, { ...options, readProduction: async () => ({ sha: "main" }) }));
+  for (const status of [1, 128]) {
+    await assert.rejects(checkoutPublicationSource(env, { ...options, runGit: (...args) => {
+      if (args[0] === "merge-base") throw Object.assign(new Error("unavailable"), { status });
+    } }));
+  }
 });
 
-test("an equivalent newer commit publishes only once its own Server CI passes", async () => {
+test("production requires its own successful main-push Runtime CI without waiting for the newer run", () => {
   const sha = "c".repeat(40);
-  const run = (status, conclusion) => ({ head_sha: sha, head_branch: "main", event: "push", path: ".github/workflows/server-ci.yml", status, conclusion });
-  const sequence = responses => { let index = 0; return () => ({ workflow_runs: responses[Math.min(index++, responses.length - 1)] }); };
-  const options = { wait: async () => {}, attempts: 3 };
-  assert.equal(await awaitMainCi(sha, { ...options, readApi: sequence([[], [run("in_progress", null)], [run("completed", "success")]]) }), true);
-  assert.equal(await awaitMainCi(sha, { ...options, readApi: sequence([[run("completed", "cancelled")]]) }), false);
-  assert.equal(await awaitMainCi(sha, { ...options, readApi: sequence([[run("queued", null)]]) }), false);
-  assert.equal(await awaitMainCi(sha, { ...options, readApi: sequence([[{ ...run("completed", "success"), event: "pull_request" }]]) }), false);
-});
-
-test("the source SDK also waits for the publishing commit's own Runtime CI", async () => {
-  const sha = "c".repeat(40);
-  const read = (workflow, statuses) => {
-    let index = 0;
-    return path => {
-      const name = path.split("/")[2];
-      if (name !== workflow) return { workflow_runs: [{ head_sha: sha, head_branch: "main", event: "push",
-        path: `.github/workflows/${name}`, status: "completed", conclusion: "success" }] };
-      const [status, conclusion] = statuses[Math.min(index++, statuses.length - 1)];
-      return { workflow_runs: [{ head_sha: sha, head_branch: "main", event: "workflow_dispatch",
-        path: `.github/workflows/${name}`, status, conclusion }] };
-    };
+  const success = { head_sha: sha, head_branch: "main", event: "push", path: ".github/workflows/runtime-ci.yml",
+    status: "completed", conclusion: "success" };
+  const read = runs => path => {
+    assert(path.includes(`head_sha=${sha}&event=push&branch=main`));
+    return { workflow_runs: runs };
   };
-  const options = { wait: async () => {} };
-  assert.equal(await awaitPublicationCi(sha, "source", { ...options, readApi: read("runtime-ci.yml", [["in_progress", null], ["completed", "success"]]) }), true);
-  assert.equal(await awaitPublicationCi(sha, "source", { ...options, readApi: read("runtime-ci.yml", [["completed", "failure"]]) }), false);
-  assert.equal(await awaitPublicationCi(sha, "source", { ...options, readApi: read("runtime-ci.yml", [["in_progress", null]]) }), false);
-  let reads = 0;
-  assert.equal(await awaitPublicationCi(sha, "workspace", { ...options, readApi: path => { reads += 1; return read("runtime-ci.yml", [["in_progress", null]])(path); } }), true);
-  assert.equal(reads, 1, "workspace packages do not wait for Runtime CI");
+  requireRuntimeCi(sha, read([success]));
+  for (const change of [{ head_sha: "b".repeat(40) }, { head_branch: "feature" }, { event: "pull_request" },
+    { event: "workflow_dispatch" }, { path: ".github/workflows/server-ci.yml" },
+    { status: "in_progress", conclusion: null }, { conclusion: "failure" }]) {
+    assert.throws(() => requireRuntimeCi(sha, read([{ ...success, ...change }])), /publication-runtime-ci-unqualified/);
+  }
+  assert.throws(() => requireRuntimeCi(sha, read([])), /publication-runtime-ci-unqualified/);
 });
 
 test("version-only manifest edits are not input changes when deciding what to publish", () => {
@@ -331,18 +313,6 @@ test("version-only manifest edits are not input changes when deciding what to pu
   assert.equal(inputChanged("apps/editor/src/a.ts", item, "workspace", "a", "b", fakeGit()), false);
 });
 
-test("npm provenance gets the selected source SHA, not Actions' newer workflow SHA", () => {
-  const workflow = readFileSync(new URL("../../.github/workflows/publish-sdk-npm.yml", import.meta.url), "utf8");
-  const step = workflow.split("      - name: Publish the verified production archive with provenance\n")[1].split(/\n  [a-z][a-z-]*:\n/)[0];
-  const command = step.split("        run: |\n")[1].replace(/^          /gm, "");
-  const selected = "b".repeat(40);
-  const result = spawnSync("bash", ["-e", "-c", `npm() { printf '%s\\n' "$GITHUB_SHA"; };\n${command}`], {
-    encoding: "utf8", env: { ...process.env, GITHUB_SHA: "f".repeat(40), CLIENT_RELEASE_COMMIT: selected, RUNNER_TEMP: "/unused" }
-  });
-  assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stdout.trim(), selected);
-});
-
 test("automatic publishers keep isolated OIDC, source qualification and explicit dry-run dispatches", () => {
   const publisher = readFileSync(new URL("../continuous-sdk-release.mjs", import.meta.url), "utf8");
   assert.match(publisher, /if \(selected.length && kind === "workspace"\) result.compatibility = await qualifyWorkspace\(output, env, verify\)/);
@@ -353,7 +323,7 @@ test("automatic publishers keep isolated OIDC, source qualification and explicit
     assert.match(workflow, /workflow_run:/);
     assert.match(workflow, /dry_run:[\s\S]*default: true/);
     assert.match(workflow, /verify-qualified-commit/);
-    assert.match(workflow, /continuous-sdk-release\.mjs compatible/);
+    assert.match(workflow, /continuous-sdk-release\.mjs"? compatible/);
     assert.match(workflow, /id-token: write/);
     assert.match(workflow, /SDK_RELEASE_STOPPED/);
     assert.doesNotMatch(workflow, /production_verified_commit|PRODUCTION_VERIFIED_COMMIT|NODE_AUTH_TOKEN/);
@@ -413,6 +383,10 @@ function plannerFixture(context) {
   writeFileSync(join(directory, "pnpm-lock.yaml"), "production\n");
   const production = save();
   writeFileSync(join(directory, "pnpm-lock.yaml"), "future\n");
+  for (const path of ["packages/app-ui/package.json", "runtime/packages/sdk/package.json"]) {
+    const manifest = JSON.parse(readFileSync(join(directory, path), "utf8"));
+    writeFileSync(join(directory, path), JSON.stringify({ ...manifest, version: "0.1.0-beta.999" }));
+  }
   const future = save();
   writeFileSync(join(directory, "README.md"), "off-axis successor\n");
   const successor = save();
@@ -434,10 +408,10 @@ await plan(${JSON.stringify(kind)}, ${JSON.stringify(planFile)}, process.env, {
     execFileSync('git', ['checkout', '--detach', selected], { stdio: 'pipe' });
     return selected;
   },
-  qualify: sha => { if (sha !== process.env.GITHUB_SHA && sha !== selected) throw new Error('wrong qualification'); },
+  qualify: (sha, env) => { if (sha !== selected || env.GITHUB_SHA !== selected) throw new Error('wrong qualification'); },
+  qualifyRuntime: sha => { if (sha !== selected || !${JSON.stringify(ci)}) throw new Error('publication-runtime-ci-unqualified'); },
   readPublished: async item => ({ version: ${JSON.stringify(version)}, versions: [${JSON.stringify(version)}],
     commit: ${JSON.stringify(aheadUi)} && item.name === '@mdbase-dev/ui' ? ${JSON.stringify(future)} : ${JSON.stringify(baselineCommit)} }),
-  waitForCi: async () => ${JSON.stringify(ci)},
   checkAttempts: () => { if (${JSON.stringify(priorFailure)}) throw new Error('RAW-PRIOR-ATTEMPT-STDERR'); },
   verify: async () => {
     if (!${JSON.stringify(compatibility)}) throw new Error('RAW-COMPATIBILITY-STDERR');
@@ -472,8 +446,7 @@ for (const kind of ["source", "workspace"]) {
       assert.deepEqual(ahead.plan.packages, []);
       assert.equal(ahead.plan.compatibility, undefined);
       assert.match(ahead.output, /changed=false\npublish=false/);
-      check(ahead, new RegExp(`waiting for production to reach commit ${future}`), run);
-      if (run === future) assert(ahead.summary.includes(`Server CD promotes a commit containing ${future}`));
+      check(ahead, new RegExp(`published baseline is ahead of production ${production}`), run);
     }
     const divergence = execute({ kind, baselineCommit: diverged });
     assert.equal(divergence.status, 1);
@@ -486,10 +459,25 @@ for (const kind of ["source", "workspace"]) {
     check(invalid, /blocked: publication-ancestry-unavailable/);
     assert.doesNotMatch(invalid.stdout + invalid.stderr, /fatal:/, "real Git stderr must stay captured");
 
-    const pending = execute({ kind, baselineCommit: base, run: future, compatibility: false, priorFailure: true });
+    // Main can keep changing published inputs while the production train runs.
+    const pending = execute({ kind, baselineCommit: base, run: future });
     assert.equal(pending.status, 0, pending.stderr);
-    assert.deepEqual(pending.plan.packages, []);
-    check(pending, new RegExp(`Server CD promotes a commit containing ${future}`), future);
+    assert.equal(pending.plan.commit, production);
+    assert.deepEqual(pending.plan.packages.map(item => item.name), names);
+    assert(pending.plan.packages.every(item => item.version !== "0.1.0-beta.1000"), "version allocation must use production's manifests");
+    check(pending, new RegExp(`publishing production ${production} as 0\\.1\\.0-beta\\.`), future);
+    assert.match(pending.output, new RegExp(`commit=${production}\\nchanged=true\\npublish=true`));
+    assert.doesNotMatch(pending.summary, /waiting for production to reach|waiting for successful qualification/);
+
+    const currentBaseline = execute({ kind, run: future, compatibility: false, priorFailure: true });
+    assert.equal(currentBaseline.status, 0, currentBaseline.stderr);
+    assert.deepEqual(currentBaseline.plan.packages, []);
+    check(currentBaseline, /nothing to publish/, future);
+
+    const containedRun = execute({ kind, run: base, baselineCommit: base });
+    assert.equal(containedRun.status, 0, containedRun.stderr);
+    assert.equal(containedRun.plan.commit, production);
+    assert.deepEqual(containedRun.plan.packages.map(item => item.name), names);
 
     const empty = execute({ kind, compatibility: false, priorFailure: true });
     assert.equal(empty.status, 0, empty.stderr);
@@ -499,7 +487,7 @@ for (const kind of ["source", "workspace"]) {
     const publishing = execute({ kind, baselineCommit: base });
     assert.equal(publishing.status, 0, publishing.stderr);
     assert.deepEqual(publishing.plan.packages.map(item => item.name), names);
-    check(publishing, /publishing 0\.1\.0-beta\./);
+    check(publishing, /publishing production .* as 0\.1\.0-beta\./);
     assert.match(publishing.output, /changed=true\npublish=true/);
 
     const caughtUp = execute({ kind, baselineCommit: production, selected: future, run: future });
@@ -510,14 +498,15 @@ for (const kind of ["source", "workspace"]) {
 
     const equivalent = execute({ kind, baselineCommit: production, selected: future, run: successor });
     assert.equal(equivalent.status, 0, equivalent.stderr);
-    assert.equal(equivalent.plan.commit, successor, "equivalent inputs still publish only with this run's provenance SHA");
+    assert.equal(equivalent.plan.commit, future, "even equivalent newer runs publish exactly production");
     assert.deepEqual(equivalent.plan.packages.map(item => item.name), names);
     assert.match(equivalent.output, /changed=true\npublish=true/);
 
-    const ci = execute({ kind, baselineCommit: base, selected: future, run: successor, ci: false, compatibility: false });
-    assert.equal(ci.status, 0, ci.stderr);
-    assert(ci.summary.includes(`waiting for successful qualification of commit ${successor}`));
-    assert.match(ci.output, /changed=false\npublish=false/);
+    const ci = execute({ kind, baselineCommit: base, run: future, ci: false });
+    assert.equal(ci.status, 1);
+    assert.equal(ci.plan, undefined);
+    assert.equal(ci.output, "");
+    assert.match(ci.stderr, /publication-runtime-ci-unqualified/);
 
     const prior = execute({ kind, baselineCommit: base, priorFailure: true });
     assert.equal(prior.status, 1);
@@ -527,7 +516,7 @@ for (const kind of ["source", "workspace"]) {
       const mixed = execute({ kind, baselineCommit: base, aheadUi: true, compatibility: false, priorFailure: true });
       assert.equal(mixed.status, 0, mixed.stderr);
       assert.deepEqual(mixed.plan.packages, [], "dependency expansion must never repack source behind a baseline");
-      check(mixed, new RegExp(`waiting for production to reach commit ${future}`));
+      check(mixed, new RegExp(`published baseline is ahead of production ${production}`));
       for (const live of ["true", "false"]) {
         const blocked = execute({ kind, baselineCommit: base, compatibility: false, live });
         assert.equal(blocked.status, live === "true" ? 1 : 0, blocked.stderr);

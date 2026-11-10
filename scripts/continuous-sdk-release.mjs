@@ -5,7 +5,9 @@ import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { publicPackages } from "./public-packages.mjs";
-import { api, checkoutProductionCommit, contractSensitive, gh, git, nextBetaVersion, repository, requireGreenMain, requireRunning, verifyCompatibility } from "./lib/continuous-client-release.mjs";
+import { api, gh, git, nextBetaVersion, repository, requireGreenMain, requireRunning, verifyCompatibility } from "./lib/continuous-client-release.mjs";
+import { readProductionRelease } from "./verify-client-publication.mjs";
+import { buildPredicate, publishArchive } from "./lib/npm-build-provenance.mjs";
 
 const registry = "https://registry.npmjs.org";
 const readJson = file => JSON.parse(readFileSync(file, "utf8"));
@@ -52,7 +54,14 @@ export function provenanceSource(bundle, baseline, name) {
   const source = definition.resolvedDependencies[0];
   assert.equal(source.uri, `git+https://github.com/${repository}@${workflow.ref}`);
   assert.match(source.digest.gitCommit, /^[a-f0-9]{40}$/);
-  return { commit: source.digest.gitCommit,
+  // Legacy publications built the workflow commit. New publications explicitly
+  // name the separately checked-out build source in this signed statement.
+  const buildSource = definition.externalParameters.source;
+  if (buildSource !== undefined) {
+    assert.equal(buildSource.repository, workflow.repository);
+    assert.match(buildSource.commit, /^[a-f0-9]{40}$/);
+  }
+  return { commit: buildSource?.commit ?? source.digest.gitCommit,
     identity: `https://github.com/${repository}/.github/workflows/${baseline.workflow}@${workflow.ref}` };
 }
 
@@ -138,43 +147,26 @@ export function inputChanged(path, item, kind, from, to, runGit = git) {
   return contentChanged(path, readAt(from), readAt(to));
 }
 
-// npm refuses provenance that names any commit but this run's own. A run on a
-// newer main still publishes when nothing between the production commit and it
-// changes a published package's inputs or the server-facing contract: the
-// production commit's qualified bytes are then exactly this commit's bytes.
-// Any manifest change counts, even version-only, because packing names the
-// qualified tarballs by the checked-out manifest version. Otherwise it stands
-// down and leaves the selected source unpublished.
-export function publicationCommit(production, run, packages, kind, runGit = git) {
-  if (production === run) return run;
-  try { runGit("merge-base", "--is-ancestor", production, run); }
-  catch (error) { if (error.status === 1) return null; throw error; }
-  const paths = runGit("diff", "--no-renames", "--name-only", "-z", production, run).split("\0").filter(Boolean);
-  return paths.some(path => contractSensitive(path)
-    || packages.some(item => packageInputs(path, item, kind) && contentChanged(path))) ? null : run;
+export async function checkoutPublicationSource(env = process.env, {
+  readProduction = readProductionRelease, runGit = git
+} = {}) {
+  assert.equal(env.GITHUB_REPOSITORY, repository);
+  assert.equal(env.GITHUB_REF, "refs/heads/main");
+  const production = await readProduction();
+  assert.match(production.sha, /^[a-f0-9]{40}$/);
+  runGit("fetch", "--no-tags", "origin", "main:refs/remotes/origin/main");
+  runGit("fetch", "--no-tags", "origin", production.sha);
+  runGit("merge-base", "--is-ancestor", production.sha, "origin/main");
+  runGit("checkout", "--detach", production.sha);
+  return production.sha;
 }
 
-// Main's Server CI reuses the merge queue's artifacts, so a new main commit
-// qualifies within about a minute of landing; Runtime CI, which the source
-// build also requires, takes up to about twenty. Wait boundedly for either.
-export async function awaitMainCi(commit, { workflow = "server-ci.yml", events = ["push"], readApi = api,
-  wait = ms => new Promise(done => setTimeout(done, ms)), attempts = 30, delay = 20_000 } = {}) {
-  for (let attempt = 1; ; attempt += 1) {
-    const runs = readApi(`actions/workflows/${workflow}/runs?head_sha=${commit}&branch=main&per_page=100`).workflow_runs
-      .filter(run => run.head_sha === commit && run.head_branch === "main" && events.includes(run.event)
-        && run.path === `.github/workflows/${workflow}`);
-    if (runs.some(run => run.status === "completed" && run.conclusion === "success")) return true;
-    if (runs.length > 0 && runs.every(run => run.status === "completed")) return false;
-    if (attempt >= attempts) return false;
-    await wait(delay);
-  }
-}
-
-// The qualifications the publish jobs re-check for the publishing commit.
-export async function awaitPublicationCi(commit, kind, options = {}) {
-  if (!await awaitMainCi(commit, options)) return false;
-  return kind !== "source" || awaitMainCi(commit,
-    { ...options, workflow: "runtime-ci.yml", events: ["push", "workflow_dispatch"], attempts: 75 });
+export function requireRuntimeCi(commit, readApi = api) {
+  assert.match(commit ?? "", /^[a-f0-9]{40}$/);
+  const runs = readApi(`actions/workflows/runtime-ci.yml/runs?head_sha=${commit}&event=push&branch=main&per_page=100`).workflow_runs;
+  assert(runs.some(run => run.head_sha === commit && run.head_branch === "main" && run.event === "push"
+    && run.path === ".github/workflows/runtime-ci.yml" && run.status === "completed" && run.conclusion === "success"),
+  "publication-runtime-ci-unqualified");
 }
 
 export function dependentPackages(packages, changed) {
@@ -216,31 +208,22 @@ function checkPriorAttempts(kind, env) {
 }
 
 export async function plan(kind, output, env = process.env, {
-  selectProduction = checkoutProductionCommit, qualify = requireGreenMain, readPublished = published,
-  waitForCi = awaitPublicationCi, checkAttempts = checkPriorAttempts, verify = verifyCompatibility
+  selectProduction = checkoutPublicationSource, qualify = requireGreenMain, qualifyRuntime = requireRuntimeCi,
+  readPublished = published, checkAttempts = checkPriorAttempts, verify = verifyCompatibility
 } = {}) {
   assert(["source", "workspace"].includes(kind));
   assert.equal(env.GITHUB_REPOSITORY, repository);
   assert.equal(env.GITHUB_REF, "refs/heads/main");
   assert.equal(git("rev-parse", "HEAD"), env.GITHUB_SHA);
   requireRunning(env.SDK_RELEASE_STOPPED);
-  // Qualify the selection without step outputs; the publishing commit's own
-  // qualification below names the artifacts that are packed.
-  const { GITHUB_OUTPUT: _, ...quiet } = env;
   const run = env.GITHUB_SHA;
-  const production = await selectProduction(env, { qualify: commit => qualify(commit, quiet) });
-  const packages = kind === "source" ? [sdk] : await publicPackages();
-  const equivalent = publicationCommit(production, env.GITHUB_SHA, packages, kind);
-  let current = equivalent !== null;
-  let waitingForCi = false;
-  if (current && equivalent !== production && !await waitForCi(equivalent, kind)) {
-    current = false;
-    waitingForCi = true;
-  }
-  const commit = current ? equivalent : production;
-  git("checkout", "--detach", commit);
-  if (current) qualify(commit, env);
+  const production = await selectProduction(env);
+  const commit = production;
+  assert.equal(git("rev-parse", "HEAD"), commit);
   env = { ...env, GITHUB_SHA: commit };
+  qualify(commit, env);
+  qualifyRuntime(commit);
+  const packages = kind === "source" ? [sdk] : await publicPackages(process.cwd());
   const inventory = [];
   const changed = [];
   for (const item of packages) {
@@ -250,7 +233,7 @@ export async function plan(kind, output, env = process.env, {
     try { history = baselineHistory(baseline.commit, commit); }
     catch (error) { history = error.message; }
     const paths = history === "contained" ? git("diff", "--no-renames", "--name-only", "-z", baseline.commit, commit).split("\0").filter(Boolean) : [];
-    if (current && paths.some(path => inputChanged(path, item, kind, baseline.commit, commit))) changed.push(item.name);
+    if (paths.some(path => inputChanged(path, item, kind, baseline.commit, commit))) changed.push(item.name);
     inventory.push({ name: item.name, directory: item.directory, manifest, baseline, history,
       version: nextBetaVersion([...baseline.versions, manifest.version]) });
   }
@@ -280,10 +263,8 @@ export async function plan(kind, output, env = process.env, {
     const publishing = selected.some(value => value.name === item.name);
     let decision = "nothing to publish";
     if (blocked || result.compatibility?.status === "blocked") decision = `blocked: ${blocked ?? "production-compatibility-unproven"}`;
-    else if (ahead) decision = `nothing to publish; waiting for production to reach commit ${ahead.baseline.commit}${current ? "" : `; merged changes publish on the first eligible run after Server CD promotes a commit containing ${run}, with exact run qualification and production compatibility`}`;
-    else if (waitingForCi) decision = `nothing to publish; waiting for successful qualification of commit ${run}`;
-    else if (!current) decision = `nothing to publish; waiting for production to reach commit ${run}; publishes on the first eligible run after Server CD promotes a commit containing ${run}, with exact run qualification and production compatibility`;
-    else if (publishing) decision = `publishing ${item.version} from ${commit}${env.LIVE_PUBLICATION === "true" ? "" : " (dry run)"}`;
+    else if (ahead) decision = `nothing to publish; published baseline is ahead of production ${production}`;
+    else if (publishing) decision = `publishing production ${commit} as ${item.version}${env.LIVE_PUBLICATION === "true" ? "" : " (dry run)"}`;
     summarizePackage(item, production, run, decision, env);
   }
   if (blocked) throw new Error(blocked);
@@ -373,7 +354,7 @@ export async function publishWorkspace(planFile, directory, env = process.env) {
     assert.equal(manifest.name, item.name);
     assert.equal(manifest.version, item.version);
     assert.equal(manifest.mdbaseRelease.commit, env.GITHUB_SHA);
-    execFileSync("npm", ["publish", archive, "--ignore-scripts", "--access", "public", "--registry", `${registry}/`, "--tag", "latest", "--provenance"], { stdio: "inherit" });
+    await publishArchive(archive, item.name, item.version, env);
   }
 }
 
@@ -403,6 +384,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   else if (command === "pack-workspace") packWorkspace(...args);
   else if (command === "publish-workspace") await publishWorkspace(...args);
   else if (command === "compatible") await compatible();
+  else if (command === "runtime-ci") requireRuntimeCi(process.env.GITHUB_SHA);
+  else if (command === "attestation-predicate") writeFileSync(args[0], JSON.stringify(buildPredicate(process.env)));
+  else if (command === "publish-archive") await publishArchive(resolve(args[2]), args[0], args[1]);
   else if (command === "publication-state") {
     const state = await publicationState(...args);
     if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `state=${state}\n`);

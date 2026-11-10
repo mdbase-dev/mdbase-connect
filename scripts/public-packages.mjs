@@ -3,7 +3,6 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const root = resolve(import.meta.dirname, "..");
-const packagesRoot = resolve(root, "packages");
 
 // Dependency order matters when a release is only partly complete and retried.
 export const publicPackageDirectories = [
@@ -14,9 +13,10 @@ export const publicPackageDirectories = [
   "packages/i18n"
 ];
 
-export async function publicPackages() {
+export async function publicPackages(sourceRoot = root) {
+  const packagesRoot = resolve(sourceRoot, "packages");
   const packages = await Promise.all(publicPackageDirectories.map(async (directory) => {
-    const manifest = JSON.parse(await readFile(resolve(root, directory, "package.json"), "utf8"));
+    const manifest = JSON.parse(await readFile(resolve(sourceRoot, directory, "package.json"), "utf8"));
     if (manifest.private === true || typeof manifest.name !== "string") {
       throw new Error(`${directory} is not a publishable package`);
     }
