@@ -3,8 +3,8 @@
 // through, its replacement inline after it). Anchors follow edits between
 // updates. Style them with `@mdbase-dev/ui/comments.css`.
 import { plural, t } from "@lingui/core/macro";
-import { StateEffect, StateField, type Extension } from "@codemirror/state";
-import { Decoration, EditorView, hoverTooltip, WidgetType, type DecorationSet } from "@codemirror/view";
+import { RangeSet, RangeSetBuilder, StateEffect, StateField, type Extension } from "@codemirror/state";
+import { Decoration, EditorView, gutter, GutterMarker, hoverTooltip, WidgetType, type DecorationSet } from "@codemirror/view";
 
 import { editorTarget, locate, type CommentTarget } from "./comments.js";
 import "./i18n.js";
@@ -88,17 +88,77 @@ const anchorField = StateField.define<DecorationSet>({
 const anchorId = (element: EventTarget | null) =>
   element instanceof Element ? element.closest<HTMLElement>("[data-comment]")?.dataset["comment"] : undefined;
 
+const specId = (spec: unknown) => {
+  const { attributes, widget } = spec as { attributes?: Record<string, string>; widget?: Insertion };
+  return attributes?.["data-comment"] ?? widget?.id;
+};
+
+/** The threads anchored on a line, as one mark in the margin. */
+class CommentMarker extends GutterMarker {
+  constructor(readonly ids: readonly string[], readonly active: boolean) {
+    super();
+  }
+  override eq(other: CommentMarker): boolean {
+    return other.active === this.active && other.ids.join("\0") === this.ids.join("\0");
+  }
+  override toDOM(): HTMLElement {
+    const el = document.createElement("button");
+    el.type = "button";
+    // CodeMirror hides gutters from assistive technology; the threads are in the comments panel.
+    el.tabIndex = -1;
+    el.className = `cm-comment-marker${this.active ? " is-active" : ""}`;
+    el.dataset["comment"] = this.ids[0] ?? "";
+    el.textContent = this.ids.length > 1 ? String(this.ids.length) : "";
+    el.title = this.ids.length > 1 ? plural(this.ids.length, { one: "# comment on this line", other: "# comments on this line" }) : t({ message: "Show this comment" });
+    el.setAttribute("aria-label", el.title);
+    return el;
+  }
+}
+
+const activeField = StateField.define<string | null>({
+  create: () => null,
+  update(value, tr) {
+    for (const e of tr.effects) if (e.is(setAnchors)) return e.value.active;
+    return value;
+  },
+});
+
+/** Markers by line. The decorations already follow edits, so lines come from them. */
+const markerField = StateField.define<RangeSet<CommentMarker>>({
+  create: () => RangeSet.empty,
+  update(value, tr) {
+    if (!tr.docChanged && !tr.effects.some((e) => e.is(setAnchors))) return value;
+    const byLine = new Map<number, string[]>();
+    const cursor = tr.state.field(anchorField).iter();
+    for (; cursor.value; cursor.next()) {
+      const id = specId(cursor.value.spec);
+      if (!id) continue;
+      const line = tr.state.doc.lineAt(cursor.from).from;
+      const ids = byLine.get(line) ?? [];
+      if (!ids.includes(id)) ids.push(id);
+      byLine.set(line, ids);
+    }
+    const active = tr.state.field(activeField);
+    const builder = new RangeSetBuilder<CommentMarker>();
+    for (const line of [...byLine.keys()].sort((a, b) => a - b)) {
+      const ids = byLine.get(line) ?? [];
+      builder.add(line, line, new CommentMarker(ids, active !== null && ids.includes(active)));
+    }
+    return builder.finish();
+  },
+});
+
 /**
  * Anchors, a click on one (its thread's id), and a card on hover saying who
- * said what. Call `showCommentAnchors` whenever the threads change.
+ * said what. With `margin`, each commented line also has a mark in the
+ * editor's margin. Call `showCommentAnchors` whenever the threads change.
  */
-export function commentAnchors(onAnchor: (id: string) => void, card?: (id: string) => CommentAnchorCard | null): Extension {
+export function commentAnchors(onAnchor: (id: string) => void, card?: (id: string) => CommentAnchorCard | null, { margin = false }: { readonly margin?: boolean } = {}): Extension {
   const hover = hoverTooltip((view, pos) => {
     if (!card) return null;
     let hit: { id: string; from: number; to: number } | null = null;
     view.state.field(anchorField).between(pos, pos, (from, to, value) => {
-      const spec = value.spec as { attributes?: Record<string, string>; widget?: Insertion };
-      const id = spec.attributes?.["data-comment"] ?? spec.widget?.id;
+      const id = specId(value.spec);
       if (id && !hit) hit = { id, from, to };
     });
     if (!hit) return null;
@@ -140,6 +200,21 @@ export function commentAnchors(onAnchor: (id: string) => void, card?: (id: strin
         return false;
       },
     }),
+    margin ? [
+      activeField,
+      markerField,
+      gutter({
+        class: "cm-comment-gutter",
+        markers: (view) => view.state.field(markerField),
+        domEventHandlers: {
+          click(_view, _line, event) {
+            const id = anchorId(event.target);
+            if (id) onAnchor(id);
+            return Boolean(id);
+          },
+        },
+      }),
+    ] : [],
   ];
 }
 
@@ -152,8 +227,7 @@ export function commentAnchorRange(view: EditorView, id: string): { from: number
   let found: { from: number; to: number } | null = null;
   const cursor = view.state.field(anchorField).iter();
   while (cursor.value && !found) {
-    const spec = cursor.value.spec as { attributes?: Record<string, string>; widget?: Insertion };
-    if ((spec.attributes?.["data-comment"] ?? spec.widget?.id) === id) found = { from: cursor.from, to: cursor.to };
+    if (specId(cursor.value.spec) === id) found = { from: cursor.from, to: cursor.to };
     cursor.next();
   }
   return found;

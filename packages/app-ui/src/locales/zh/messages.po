@@ -15,6 +15,11 @@ msgstr "(文中的一处)"
 msgid "(opens in a new tab)"
 msgstr "（在新标签页中打开）"
 
+#. placeholder {0}: this.ids.length
+#: src/comment-anchors.ts
+msgid "{0, plural, one {# comment on this line} other {# comments on this line}}"
+msgstr "{0, plural, other {此行有 # 条评论}}"
+
 #. placeholder {0}: changes - shownChanges
 #: src/text-diff.ts
 msgid "{0, plural, one {# more changed line} other {# more changed lines}}"
@@ -1135,6 +1140,10 @@ msgstr "在编辑器中显示"
 #: src/CommentsPanel.tsx
 msgid "Show previous 50 comments"
 msgstr "显示之前的 50 条评论"
+
+#: src/comment-anchors.ts
+msgid "Show this comment"
+msgstr "显示此评论"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"

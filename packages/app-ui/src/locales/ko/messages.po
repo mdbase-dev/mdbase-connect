@@ -15,6 +15,11 @@ msgstr "(본문의 한 지점)"
 msgid "(opens in a new tab)"
 msgstr "(새 탭에서 열림)"
 
+#. placeholder {0}: this.ids.length
+#: src/comment-anchors.ts
+msgid "{0, plural, one {# comment on this line} other {# comments on this line}}"
+msgstr "{0, plural, other {이 줄의 댓글 #개}}"
+
 #. placeholder {0}: changes - shownChanges
 #: src/text-diff.ts
 msgid "{0, plural, one {# more changed line} other {# more changed lines}}"
@@ -1135,6 +1140,10 @@ msgstr "편집기에서 표시"
 #: src/CommentsPanel.tsx
 msgid "Show previous 50 comments"
 msgstr "이전 댓글 50개 표시"
+
+#: src/comment-anchors.ts
+msgid "Show this comment"
+msgstr "이 댓글 표시"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"

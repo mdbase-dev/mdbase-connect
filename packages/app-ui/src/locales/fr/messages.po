@@ -15,6 +15,11 @@ msgstr "(un point du texte)"
 msgid "(opens in a new tab)"
 msgstr "(s’ouvre dans un nouvel onglet)"
 
+#. placeholder {0}: this.ids.length
+#: src/comment-anchors.ts
+msgid "{0, plural, one {# comment on this line} other {# comments on this line}}"
+msgstr "{0, plural, one {# commentaire sur cette ligne} other {# commentaires sur cette ligne}}"
+
 #. placeholder {0}: changes - shownChanges
 #: src/text-diff.ts
 msgid "{0, plural, one {# more changed line} other {# more changed lines}}"
@@ -1135,6 +1140,10 @@ msgstr "Afficher dans l’éditeur"
 #: src/CommentsPanel.tsx
 msgid "Show previous 50 comments"
 msgstr "Afficher les 50 commentaires précédents"
+
+#: src/comment-anchors.ts
+msgid "Show this comment"
+msgstr "Afficher ce commentaire"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"

@@ -179,7 +179,7 @@ export function CommentsPanel({ threads, people, loading = false, problem, onRet
         </div>
       )}
       {notice}
-      {pending && <Composer key={`${pending.on ?? ""}\0${pending.quote ?? "\0whole"}\0${pending.suggest ? "suggest" : ""}`} pending={pending} signer={people.signing?.kind === "linked" ? people.me?.name : undefined} onSubmit={onSubmit} onCancel={onCancel} />}
+      {pending && <CommentComposer key={`${pending.on ?? ""}\0${pending.quote ?? "\0whole"}\0${pending.suggest ? "suggest" : ""}`} pending={pending} signer={people.signing?.kind === "linked" ? people.me?.name : undefined} onSubmit={onSubmit} onCancel={onCancel} />}
       {loading && <p className="mdbase-comments-note" role="status">{t({ message: "Loading comments…" })}</p>}
       {problem && <p className="mdbase-comments-note">{t({ message: `Comments could not be loaded: ${problem}` })} {onRetry && <button type="button" className="mdbase-thread-action" onClick={onRetry}>{t({ message: "Try again" })}</button>}</p>}
       {!loading && !problem && !shown.length && !pending && (
@@ -222,7 +222,8 @@ function useAction() {
 
 const submitsOnModEnter = (event: { key: string; metaKey: boolean; ctrlKey: boolean }) => event.key === "Enter" && (event.metaKey || event.ctrlKey);
 
-function Composer({ pending, signer, onSubmit, onCancel }: { pending: PendingComment; signer: string | undefined; onSubmit(text: string, replacement?: string): Promise<CommentResult>; onCancel(): void }) {
+/** The form a new comment or suggested edit is written in, for an app that also shows it beside the text. */
+export function CommentComposer({ pending, signer, onSubmit, onCancel }: { pending: PendingComment; signer: string | undefined; onSubmit(text: string, replacement?: string): Promise<CommentResult>; onCancel(): void }) {
   const quote = pending.quote ?? "";
   const suggest = pending.suggest === true;
   const [text, setText] = useState("");
