@@ -8,6 +8,7 @@
 //! state at `p − 1` readable from the store for verification and void checks.
 
 use std::collections::BTreeSet;
+use std::ops::ControlFlow;
 
 use mdbn_core::plan::{PlanOptions, Stage};
 use mdbn_wire::client::{IncidentKind, ReceiptState};
@@ -78,6 +79,16 @@ fn text_resolver<'a>(
 
 fn valid_path(p: &str) -> bool {
     mdbn_core::paths::check_path(p).is_ok()
+}
+
+/// The transaction an entry's effects build, with the path keys they free and
+/// take (to check collisions after all effects).
+struct EffectStage {
+    tx: Tx,
+    before: super::disk::Before,
+    taken: std::collections::BTreeMap<String, Uuid>,
+    freed: BTreeSet<String>,
+    catalog_changed: bool,
 }
 
 impl<S: Store> Replica<S> {
@@ -1280,503 +1291,15 @@ impl<S: Store> Replica<S> {
         }
         // Build the transaction, checking V7 against current state as we go.
         let instant = payload.mutation.clock.instant;
-        let mut tx = Tx {
-            head: Some(head),
-            ..Tx::default()
+        let EffectStage {
+            mut tx,
+            before,
+            catalog_changed,
+            ..
+        } = match self.stage_effects(p, head, &payload, &effects, instant)? {
+            ControlFlow::Continue(stage) => stage,
+            ControlFlow::Break(outcome) => return Ok(outcome),
         };
-        let mut before = super::disk::Before::new();
-        // Path keys this entry frees and takes, to check collisions after all effects.
-        let mut taken: std::collections::BTreeMap<String, Uuid> = std::collections::BTreeMap::new();
-        let mut freed: BTreeSet<String> = BTreeSet::new();
-        let mut catalog_changed = false;
-        for e in &effects {
-            let e = match e {
-                rt::Effect::Legacy(e) => e,
-                rt::Effect::PutUnindexedMarkdown(f) => {
-                    if !valid_path(&f.path) || !self.unindexed_content_in_bounds(&f.payload.content)
-                    {
-                        return self.commit_payload_void(
-                            head,
-                            &payload,
-                            "V7: unindexed effect descriptor or path",
-                        );
-                    }
-                    let old = tx
-                        .files_put
-                        .iter()
-                        .rev()
-                        .find(|o| o.id == f.id)
-                        .cloned()
-                        .or(self.store.file(&f.id)?);
-                    if old.as_ref().is_some_and(|o|o.kind!=mdbn_wire::unindexed_markdown::FileKindV1::UnindexedOversizedMarkdown) {
-                        return self.commit_payload_void(head,&payload,"V7: unindexed effect changes ordinary kind");
-                    }
-                    let record = self.store.record(&f.id)?;
-                    if payload.mutation.ops.iter().any(|op| match op {
-                        rt::Op::UnindexedMarkdownPut(op) if op.id == f.id => {
-                            op.expected.as_ref().map(|p| &p.content)
-                                != old.as_ref().map(|o| &o.content)
-                                || record.is_some()
-                                || (payload.resurrect.is_none()
-                                    && old.as_ref().is_some_and(|o| o.path != op.path))
-                        }
-                        rt::Op::RecordToUnindexedMarkdown(op) if op.id == f.id => record
-                            .as_ref()
-                            .is_none_or(|r| op.path != r.path || op.prior_revision != r.revision),
-                        _ => false,
-                    }) {
-                        return self.commit_payload_void(head, &payload, "V7: unindexed prior CAS");
-                    }
-                    if let Some(o) = &old {
-                        freed.insert(o.path_key.clone());
-                    }
-                    if let Some(r) = record {
-                        freed.insert(r.path_key);
-                        if self.store.materializes_attachments() {
-                            tx.meta.push(super::attachment_fetch::shown_meta(
-                                &f.id,
-                                Some((&r.path, r.revision)),
-                            ));
-                        }
-                        tx.records_del.push(f.id);
-                    }
-                    tx.records_put.retain(|r| r.id != f.id);
-                    tx.files_del.retain(|id| *id != f.id);
-                    tx.files_put.retain(|r| r.id != f.id);
-                    if self.store.tombstone(&f.id)?.is_some() {
-                        tx.tombstones_del.push(f.id);
-                    }
-                    taken.retain(|_, id| *id != f.id);
-                    let pk = mdbn_core::paths::path_key(&f.path);
-                    if taken.insert(pk.clone(), f.id).is_some_and(|id| id != f.id) {
-                        return self.commit_payload_void(
-                            head,
-                            &payload,
-                            "V7: two entries share a path",
-                        );
-                    }
-                    let local = old
-                        .as_ref()
-                        .filter(|o| o.content == f.payload.content)
-                        .map_or(FileLocal::Remote, |o| o.local);
-                    tx.files_put.push(FileRow {
-                        id: f.id,
-                        path: f.path.clone(),
-                        path_key: pk,
-                        kind: mdbn_wire::unindexed_markdown::FileKindV1::UnindexedOversizedMarkdown,
-                        content: f.payload.content.clone(),
-                        mtime: old
-                            .as_ref()
-                            .filter(|o| o.content == f.payload.content)
-                            .and_then(|o| o.mtime),
-                        media: mdbn_wire::intent::MediaClass::of(&f.path),
-                        modified_seq: p,
-                        bucket: bucket16(&f.id),
-                        local,
-                    });
-                    continue;
-                }
-                rt::Effect::ReindexUnindexedMarkdown(r) => {
-                    let old = tx
-                        .files_put
-                        .iter()
-                        .rev()
-                        .find(|o| o.id == r.id)
-                        .cloned()
-                        .or(self.store.file(&r.id)?);
-                    let Some(old)=old.filter(|o|o.kind==mdbn_wire::unindexed_markdown::FileKindV1::UnindexedOversizedMarkdown) else {
-                        return self.commit_payload_void(head,&payload,"V7: reindex requires unindexed holder");
-                    };
-                    if payload.mutation.ops.iter().any(|op| match op {
-                        rt::Op::UnindexedMarkdownToRecord(op) if op.id == r.id => {
-                            op.path != old.path || op.prior.content != old.content
-                        }
-                        _ => false,
-                    }) {
-                        return self.commit_payload_void(head, &payload, "V7: reindex prior CAS");
-                    }
-                    let Text::Inline(doc) = &r.doc else {
-                        return self.commit_payload_void(
-                            head,
-                            &payload,
-                            "V7: unresolved reindex source",
-                        );
-                    };
-                    if !valid_path(&r.path)
-                        || doc.len() as u64 > mdbn_wire::unindexed_markdown::RECORD_SOURCE_CAP_BYTES
-                    {
-                        return self.commit_payload_void(
-                            head,
-                            &payload,
-                            "V7: reindex source or path",
-                        );
-                    }
-                    if self.store.has_files() {
-                        before
-                            .entry(super::disk::DiskKey::Record(r.id))
-                            .or_insert(Some(super::disk::Shown {
-                                path: old.path.clone(),
-                                rev: old.content.plain_hash(),
-                            }));
-                    }
-                    freed.insert(old.path_key);
-                    taken.retain(|_, id| *id != r.id);
-                    let pk = mdbn_core::paths::path_key(&r.path);
-                    if taken.insert(pk.clone(), r.id).is_some_and(|id| id != r.id) {
-                        return self.commit_payload_void(
-                            head,
-                            &payload,
-                            "V7: two entries share a path",
-                        );
-                    }
-                    tx.files_put.retain(|f| f.id != r.id);
-                    tx.files_del.push(r.id);
-                    tx.records_put.retain(|f| f.id != r.id);
-                    tx.records_del.retain(|id| *id != r.id);
-                    tx.records_put.push(RecordRow {
-                        id: r.id,
-                        path: r.path.clone(),
-                        path_key: pk,
-                        doc: doc.clone(),
-                        revision: mdbn_wire::hash::sha256(doc.as_bytes()),
-                        modified_seq: p,
-                        mtime: old.mtime,
-                        bucket: bucket16(&r.id),
-                        meta: Default::default(),
-                    });
-                    continue;
-                }
-                rt::Effect::ReindexOrdinaryFile(r) => {
-                    let old = tx
-                        .files_put
-                        .iter()
-                        .rev()
-                        .find(|o| o.id == r.id)
-                        .cloned()
-                        .or(self.store.file(&r.id)?);
-                    let Some(old) = old.filter(|o| {
-                        o.kind == mdbn_wire::unindexed_markdown::FileKindV1::Ordinary
-                            && o.path == r.path
-                    }) else {
-                        return self.commit_payload_void(
-                            head,
-                            &payload,
-                            "V7: promotion requires exact ordinary holder",
-                        );
-                    };
-                    if payload.mutation.ops.iter().any(|op| match op {
-                        rt::Op::OrdinaryFileToRecord(op) if op.id == r.id => {
-                            op.path != old.path || op.prior != old.content
-                        }
-                        _ => false,
-                    }) {
-                        return self.commit_payload_void(head, &payload, "V7: promotion prior CAS");
-                    }
-                    let Text::Inline(doc) = &r.doc else {
-                        return self.commit_payload_void(
-                            head,
-                            &payload,
-                            "V7: unresolved ordinary source",
-                        );
-                    };
-                    if !valid_path(&r.path)
-                        || doc.len() as u64 > mdbn_wire::unindexed_markdown::RECORD_SOURCE_CAP_BYTES
-                        || old.content.size() != doc.len() as u64
-                        || old.content.plain_hash() != mdbn_wire::hash::sha256(doc.as_bytes())
-                    {
-                        return self.commit_payload_void(
-                            head,
-                            &payload,
-                            "V7: ordinary source identity or path",
-                        );
-                    }
-                    if self.store.has_files() {
-                        before
-                            .entry(super::disk::DiskKey::Record(r.id))
-                            .or_insert(Some(super::disk::Shown {
-                                path: old.path.clone(),
-                                rev: old.content.plain_hash(),
-                            }));
-                    }
-                    freed.insert(old.path_key);
-                    taken.retain(|_, id| *id != r.id);
-                    let pk = mdbn_core::paths::path_key(&r.path);
-                    if taken.insert(pk.clone(), r.id).is_some_and(|id| id != r.id) {
-                        return self.commit_payload_void(
-                            head,
-                            &payload,
-                            "V7: two entries share a path",
-                        );
-                    }
-                    tx.files_put.retain(|f| f.id != r.id);
-                    tx.files_del.push(r.id);
-                    tx.records_put.retain(|f| f.id != r.id);
-                    tx.records_del.retain(|id| *id != r.id);
-                    tx.records_put.push(RecordRow {
-                        id: r.id,
-                        path: r.path.clone(),
-                        path_key: pk,
-                        doc: doc.clone(),
-                        revision: mdbn_wire::hash::sha256(doc.as_bytes()),
-                        modified_seq: p,
-                        mtime: old.mtime,
-                        bucket: bucket16(&r.id),
-                        meta: Default::default(),
-                    });
-                    continue;
-                }
-                rt::Effect::PutAttachmentFile(f) => {
-                    if !valid_path(&f.path) {
-                        return self.commit_payload_void(head, &payload, "V7: invalid path");
-                    }
-                    if !self.attachment_in_bounds(&f.content) {
-                        return self.commit_payload_void(
-                            head,
-                            &payload,
-                            "V7: attachment descriptor out of range",
-                        );
-                    }
-                    let old = self.store.file(&f.id)?;
-                    if old.as_ref().is_some_and(|o| {
-                        o.kind != mdbn_wire::unindexed_markdown::FileKindV1::Ordinary
-                    }) {
-                        return self.commit_payload_void(
-                            head,
-                            &payload,
-                            "V7: ordinary effect changes file kind",
-                        );
-                    }
-                    if let Some(o) = &old {
-                        freed.insert(o.path_key.clone());
-                    }
-                    if self.store.tombstone(&f.id)?.is_some() {
-                        tx.tombstones_del.push(f.id);
-                    }
-                    let pk = mdbn_core::paths::path_key(&f.path);
-                    if taken.insert(pk.clone(), f.id).is_some_and(|o| o != f.id) {
-                        return self.commit_payload_void(
-                            head,
-                            &payload,
-                            "V7: two entries share a path",
-                        );
-                    }
-                    // The row keeps the signed descriptor, never bytes. Same
-                    // content (a move, a re-put) keeps its local state: a rename
-                    // is metadata only and refetches nothing.
-                    let content =
-                        mdbn_wire::attachment::FileContent::AttachmentV1(f.content.clone());
-                    let local = match &old {
-                        Some(o) if o.content == content => o.local,
-                        _ => FileLocal::Remote,
-                    };
-                    tx.files_put.retain(|x| x.id != f.id);
-                    tx.files_del.retain(|x| *x != f.id);
-                    tx.files_put.push(FileRow {
-                        id: f.id,
-                        path: f.path.clone(),
-                        path_key: pk,
-                        kind: mdbn_wire::unindexed_markdown::FileKindV1::Ordinary,
-                        mtime: f.mtime.or_else(|| {
-                            old.as_ref()
-                                .filter(|o| o.content == content)
-                                .and_then(|o| o.mtime)
-                        }),
-                        content,
-                        media: mdbn_wire::intent::MediaClass::of(&f.path),
-                        modified_seq: p,
-                        bucket: bucket16(&f.id),
-                        local,
-                    });
-                    continue;
-                }
-            };
-            match e {
-                Effect::PutRecord(r) => {
-                    let Text::Inline(doc) = &r.doc else {
-                        return self.commit_payload_void(head, &payload, "V7: unresolved text");
-                    };
-                    if !valid_path(&r.path) {
-                        return self.commit_payload_void(head, &payload, "V7: invalid path");
-                    }
-                    if self.store.file(&r.id)?.is_some_and(|f|f.kind==mdbn_wire::unindexed_markdown::FileKindV1::UnindexedOversizedMarkdown) {
-                        return self.commit_payload_void(head,&payload,"V7: ordinary record effect changes unindexed kind");
-                    }
-                    let stored = self.store.record(&r.id)?;
-                    if let Some(old) = &stored {
-                        freed.insert(old.path_key.clone());
-                    }
-                    if self.store.tombstone(&r.id)?.is_some() {
-                        tx.tombstones_del.push(r.id);
-                    }
-                    let pk = mdbn_core::paths::path_key(&r.path);
-                    if taken.insert(pk.clone(), r.id).is_some_and(|o| o != r.id) {
-                        return self.commit_payload_void(
-                            head,
-                            &payload,
-                            "V7: two records share a path",
-                        );
-                    }
-                    let revision = mdbn_wire::hash::sha256(doc.as_bytes());
-                    // Renames and same-byte writes keep the time of the last byte change.
-                    let prior = tx.records_put.iter().find(|x| x.id == r.id);
-                    let mtime = match prior.or(stored.as_ref()) {
-                        Some(old) if old.revision == revision => old.mtime,
-                        _ => Some(payload.mutation.clock.instant),
-                    };
-                    tx.records_del.retain(|x| *x != r.id);
-                    tx.records_put.retain(|x| x.id != r.id);
-                    tx.records_put.push(RecordRow {
-                        id: r.id,
-                        path: r.path.clone(),
-                        path_key: pk,
-                        doc: doc.clone(),
-                        revision,
-                        modified_seq: p,
-                        mtime,
-                        bucket: bucket16(&r.id),
-                        meta: Default::default(),
-                    });
-                }
-                Effect::RemoveRecord(r) => {
-                    let Some(old) = self.store.record(&r.id)? else {
-                        if tx.records_put.iter().any(|x| x.id == r.id) {
-                            tx.records_put.retain(|x| x.id != r.id);
-                            continue;
-                        }
-                        return self.commit_payload_void(
-                            head,
-                            &payload,
-                            "V7: remove of an unknown record",
-                        );
-                    };
-                    freed.insert(old.path_key.clone());
-                    taken.retain(|_, v| *v != r.id);
-                    tx.records_put.retain(|x| x.id != r.id);
-                    tx.records_del.push(r.id);
-                    tx.tombstones_put.push(TombstoneRow {
-                        id: r.id,
-                        kind: EntityKind::Record,
-                        path: old.path,
-                        path_key: old.path_key,
-                        last: TombstoneLast::Doc(old.doc),
-                        seq: p,
-                        time: instant,
-                    });
-                }
-                Effect::PutFile(f) => {
-                    if !valid_path(&f.path) {
-                        return self.commit_payload_void(head, &payload, "V7: invalid path");
-                    }
-                    if !blob_ref_in_bounds(&f.blob) {
-                        return self.commit_payload_void(
-                            head,
-                            &payload,
-                            "V7: blob part size or count out of range",
-                        );
-                    }
-                    let old = self.store.file(&f.id)?;
-                    if old.as_ref().is_some_and(|o| {
-                        o.kind != mdbn_wire::unindexed_markdown::FileKindV1::Ordinary
-                    }) {
-                        return self.commit_payload_void(
-                            head,
-                            &payload,
-                            "V7: ordinary effect changes file kind",
-                        );
-                    }
-                    if let Some(o) = &old {
-                        freed.insert(o.path_key.clone());
-                    }
-                    if self.store.tombstone(&f.id)?.is_some() {
-                        tx.tombstones_del.push(f.id);
-                    }
-                    let pk = mdbn_core::paths::path_key(&f.path);
-                    if taken.insert(pk.clone(), f.id).is_some_and(|o| o != f.id) {
-                        return self.commit_payload_void(
-                            head,
-                            &payload,
-                            "V7: two entries share a path",
-                        );
-                    }
-                    let local = match &old {
-                        Some(o)
-                            if matches!(
-                                &o.content,
-                                mdbn_wire::attachment::FileContent::Blob(b) if *b == f.blob
-                            ) =>
-                        {
-                            o.local
-                        }
-                        _ => FileLocal::Remote,
-                    };
-                    tx.files_put.push(FileRow {
-                        id: f.id,
-                        path: f.path.clone(),
-                        path_key: pk,
-                        kind: mdbn_wire::unindexed_markdown::FileKindV1::Ordinary,
-                        content: mdbn_wire::attachment::FileContent::Blob(f.blob.clone()),
-                        mtime: None,
-                        media: mdbn_wire::intent::MediaClass::of(&f.path),
-                        modified_seq: p,
-                        bucket: bucket16(&f.id),
-                        local,
-                    });
-                }
-                Effect::RemoveFile(f) => {
-                    let Some(old) = self.store.file(&f.id)? else {
-                        return self.commit_payload_void(
-                            head,
-                            &payload,
-                            "V7: remove of an unknown file",
-                        );
-                    };
-                    freed.insert(old.path_key.clone());
-                    taken.retain(|_, v| *v != f.id);
-                    tx.files_del.push(f.id);
-                    let last = TombstoneLast::from_file(&old).ok_or_else(|| {
-                        StoreError::Corrupt("file row content form unknown to this replica".into())
-                    })?;
-                    tx.tombstones_put.push(TombstoneRow {
-                        id: f.id,
-                        kind: EntityKind::File,
-                        path: old.path,
-                        path_key: old.path_key,
-                        // The tombstone keeps the file's complete content; an
-                        // arm this replica cannot keep is refused, not dropped.
-                        last,
-                        seq: p,
-                        time: instant,
-                    });
-                }
-                Effect::PutResource(r) => {
-                    let Text::Inline(doc) = &r.doc else {
-                        return self.commit_payload_void(head, &payload, "V7: unresolved text");
-                    };
-                    if !valid_path(&r.path) {
-                        return self.commit_payload_void(head, &payload, "V7: invalid path");
-                    }
-                    catalog_changed = true;
-                    tx.resources_put.push((r.path.clone(), doc.clone()));
-                }
-                Effect::RemoveResource(r) => {
-                    catalog_changed = true;
-                    tx.resources_del.push(r.path.clone());
-                }
-                Effect::PutSettings(s) => tx.settings = Some(s.inclusion.clone()),
-            }
-        }
-        // After all effects, every taken path key must be free or held by the taker.
-        for (pk, id) in &taken {
-            let rec = self.store.record_at(pk)?;
-            let file = self.store.file_at(pk)?;
-            let holder = rec.or(file);
-            if let Some(h) = holder
-                && h != *id
-                && !freed.contains(pk)
-            {
-                return self.commit_payload_void(head, &payload, "V7: path already taken");
-            }
-        }
         // Verification (log-entry.md §5) against the state at p − 1. Only this
         // build's own `sem` is re-planned; native results of any other `sem` rest
         // on the structural checks above, as legacy results do.
@@ -2111,6 +1634,658 @@ impl<S: Store> Replica<S> {
             self.hosted_resolve(&receipt);
         }
         Ok(Outcome::Applied)
+    }
+
+    /// Build the transaction from the effects, checking V7 against current state
+    /// as we go: a void verdict breaks with its committed outcome.
+    fn stage_effects(
+        &mut self,
+        p: u64,
+        head: Head,
+        payload: &rt::EntryPayload,
+        effects: &[rt::Effect],
+        instant: i64,
+    ) -> Result<ControlFlow<Outcome, EffectStage>, StoreError> {
+        let mut stage = EffectStage {
+            tx: Tx {
+                head: Some(head),
+                ..Tx::default()
+            },
+            before: super::disk::Before::new(),
+            taken: std::collections::BTreeMap::new(),
+            freed: BTreeSet::new(),
+            catalog_changed: false,
+        };
+        for e in effects {
+            let flow = match e {
+                rt::Effect::Legacy(e) => match e {
+                    Effect::PutRecord(r) => {
+                        self.stage_put_record(p, head, payload, &mut stage, r)?
+                    }
+                    Effect::RemoveRecord(r) => {
+                        self.stage_remove_record(p, head, payload, instant, &mut stage, r)?
+                    }
+                    Effect::PutFile(f) => self.stage_put_file(p, head, payload, &mut stage, f)?,
+                    Effect::RemoveFile(f) => {
+                        self.stage_remove_file(p, head, payload, instant, &mut stage, f)?
+                    }
+                    Effect::PutResource(r) => {
+                        self.stage_put_resource(head, payload, &mut stage, r)?
+                    }
+                    Effect::RemoveResource(r) => {
+                        stage.catalog_changed = true;
+                        stage.tx.resources_del.push(r.path.clone());
+                        ControlFlow::Continue(())
+                    }
+                    Effect::PutSettings(s) => {
+                        stage.tx.settings = Some(s.inclusion.clone());
+                        ControlFlow::Continue(())
+                    }
+                },
+                rt::Effect::PutUnindexedMarkdown(f) => {
+                    self.stage_put_unindexed_markdown(p, head, payload, &mut stage, f)?
+                }
+                rt::Effect::ReindexUnindexedMarkdown(r) => {
+                    self.stage_reindex_unindexed_markdown(p, head, payload, &mut stage, r)?
+                }
+                rt::Effect::ReindexOrdinaryFile(r) => {
+                    self.stage_reindex_ordinary_file(p, head, payload, &mut stage, r)?
+                }
+                rt::Effect::PutAttachmentFile(f) => {
+                    self.stage_put_attachment_file(p, head, payload, &mut stage, f)?
+                }
+            };
+            if let ControlFlow::Break(outcome) = flow {
+                return Ok(ControlFlow::Break(outcome));
+            }
+        }
+        let EffectStage { taken, freed, .. } = &stage;
+        // After all effects, every taken path key must be free or held by the taker.
+        for (pk, id) in taken {
+            let rec = self.store.record_at(pk)?;
+            let file = self.store.file_at(pk)?;
+            let holder = rec.or(file);
+            if let Some(h) = holder
+                && h != *id
+                && !freed.contains(pk)
+            {
+                return self
+                    .commit_payload_void(head, payload, "V7: path already taken")
+                    .map(ControlFlow::Break);
+            }
+        }
+        Ok(ControlFlow::Continue(stage))
+    }
+
+    fn stage_put_unindexed_markdown(
+        &mut self,
+        p: u64,
+        head: Head,
+        payload: &rt::EntryPayload,
+        stage: &mut EffectStage,
+        f: &mdbn_wire::unindexed_markdown::PutUnindexedMarkdown,
+    ) -> Result<ControlFlow<Outcome>, StoreError> {
+        let EffectStage {
+            tx, taken, freed, ..
+        } = stage;
+        if !valid_path(&f.path) || !self.unindexed_content_in_bounds(&f.payload.content) {
+            return self
+                .commit_payload_void(head, payload, "V7: unindexed effect descriptor or path")
+                .map(ControlFlow::Break);
+        }
+        let old = tx
+            .files_put
+            .iter()
+            .rev()
+            .find(|o| o.id == f.id)
+            .cloned()
+            .or(self.store.file(&f.id)?);
+        if old.as_ref().is_some_and(|o| {
+            o.kind != mdbn_wire::unindexed_markdown::FileKindV1::UnindexedOversizedMarkdown
+        }) {
+            return self
+                .commit_payload_void(head, payload, "V7: unindexed effect changes ordinary kind")
+                .map(ControlFlow::Break);
+        }
+        let record = self.store.record(&f.id)?;
+        if payload.mutation.ops.iter().any(|op| match op {
+            rt::Op::UnindexedMarkdownPut(op) if op.id == f.id => {
+                op.expected.as_ref().map(|p| &p.content) != old.as_ref().map(|o| &o.content)
+                    || record.is_some()
+                    || (payload.resurrect.is_none()
+                        && old.as_ref().is_some_and(|o| o.path != op.path))
+            }
+            rt::Op::RecordToUnindexedMarkdown(op) if op.id == f.id => record
+                .as_ref()
+                .is_none_or(|r| op.path != r.path || op.prior_revision != r.revision),
+            _ => false,
+        }) {
+            return self
+                .commit_payload_void(head, payload, "V7: unindexed prior CAS")
+                .map(ControlFlow::Break);
+        }
+        if let Some(o) = &old {
+            freed.insert(o.path_key.clone());
+        }
+        if let Some(r) = record {
+            freed.insert(r.path_key);
+            if self.store.materializes_attachments() {
+                tx.meta.push(super::attachment_fetch::shown_meta(
+                    &f.id,
+                    Some((&r.path, r.revision)),
+                ));
+            }
+            tx.records_del.push(f.id);
+        }
+        tx.records_put.retain(|r| r.id != f.id);
+        tx.files_del.retain(|id| *id != f.id);
+        tx.files_put.retain(|r| r.id != f.id);
+        if self.store.tombstone(&f.id)?.is_some() {
+            tx.tombstones_del.push(f.id);
+        }
+        taken.retain(|_, id| *id != f.id);
+        let pk = mdbn_core::paths::path_key(&f.path);
+        if taken.insert(pk.clone(), f.id).is_some_and(|id| id != f.id) {
+            return self
+                .commit_payload_void(head, payload, "V7: two entries share a path")
+                .map(ControlFlow::Break);
+        }
+        let local = old
+            .as_ref()
+            .filter(|o| o.content == f.payload.content)
+            .map_or(FileLocal::Remote, |o| o.local);
+        tx.files_put.push(FileRow {
+            id: f.id,
+            path: f.path.clone(),
+            path_key: pk,
+            kind: mdbn_wire::unindexed_markdown::FileKindV1::UnindexedOversizedMarkdown,
+            content: f.payload.content.clone(),
+            mtime: old
+                .as_ref()
+                .filter(|o| o.content == f.payload.content)
+                .and_then(|o| o.mtime),
+            media: mdbn_wire::intent::MediaClass::of(&f.path),
+            modified_seq: p,
+            bucket: bucket16(&f.id),
+            local,
+        });
+        Ok(ControlFlow::Continue(()))
+    }
+    fn stage_reindex_unindexed_markdown(
+        &mut self,
+        p: u64,
+        head: Head,
+        payload: &rt::EntryPayload,
+        stage: &mut EffectStage,
+        r: &mdbn_wire::unindexed_markdown::ReindexUnindexedMarkdown,
+    ) -> Result<ControlFlow<Outcome>, StoreError> {
+        let EffectStage {
+            tx,
+            before,
+            taken,
+            freed,
+            ..
+        } = stage;
+        let old = tx
+            .files_put
+            .iter()
+            .rev()
+            .find(|o| o.id == r.id)
+            .cloned()
+            .or(self.store.file(&r.id)?);
+        let Some(old) = old.filter(|o| {
+            o.kind == mdbn_wire::unindexed_markdown::FileKindV1::UnindexedOversizedMarkdown
+        }) else {
+            return self
+                .commit_payload_void(head, payload, "V7: reindex requires unindexed holder")
+                .map(ControlFlow::Break);
+        };
+        if payload.mutation.ops.iter().any(|op| match op {
+            rt::Op::UnindexedMarkdownToRecord(op) if op.id == r.id => {
+                op.path != old.path || op.prior.content != old.content
+            }
+            _ => false,
+        }) {
+            return self
+                .commit_payload_void(head, payload, "V7: reindex prior CAS")
+                .map(ControlFlow::Break);
+        }
+        let Text::Inline(doc) = &r.doc else {
+            return self
+                .commit_payload_void(head, payload, "V7: unresolved reindex source")
+                .map(ControlFlow::Break);
+        };
+        if !valid_path(&r.path)
+            || doc.len() as u64 > mdbn_wire::unindexed_markdown::RECORD_SOURCE_CAP_BYTES
+        {
+            return self
+                .commit_payload_void(head, payload, "V7: reindex source or path")
+                .map(ControlFlow::Break);
+        }
+        if self.store.has_files() {
+            before
+                .entry(super::disk::DiskKey::Record(r.id))
+                .or_insert(Some(super::disk::Shown {
+                    path: old.path.clone(),
+                    rev: old.content.plain_hash(),
+                }));
+        }
+        freed.insert(old.path_key);
+        taken.retain(|_, id| *id != r.id);
+        let pk = mdbn_core::paths::path_key(&r.path);
+        if taken.insert(pk.clone(), r.id).is_some_and(|id| id != r.id) {
+            return self
+                .commit_payload_void(head, payload, "V7: two entries share a path")
+                .map(ControlFlow::Break);
+        }
+        tx.files_put.retain(|f| f.id != r.id);
+        tx.files_del.push(r.id);
+        tx.records_put.retain(|f| f.id != r.id);
+        tx.records_del.retain(|id| *id != r.id);
+        tx.records_put.push(RecordRow {
+            id: r.id,
+            path: r.path.clone(),
+            path_key: pk,
+            doc: doc.clone(),
+            revision: mdbn_wire::hash::sha256(doc.as_bytes()),
+            modified_seq: p,
+            mtime: old.mtime,
+            bucket: bucket16(&r.id),
+            meta: Default::default(),
+        });
+        Ok(ControlFlow::Continue(()))
+    }
+    fn stage_reindex_ordinary_file(
+        &mut self,
+        p: u64,
+        head: Head,
+        payload: &rt::EntryPayload,
+        stage: &mut EffectStage,
+        r: &mdbn_wire::ordinary_file_promotion::ReindexOrdinaryFile,
+    ) -> Result<ControlFlow<Outcome>, StoreError> {
+        let EffectStage {
+            tx,
+            before,
+            taken,
+            freed,
+            ..
+        } = stage;
+        let old = tx
+            .files_put
+            .iter()
+            .rev()
+            .find(|o| o.id == r.id)
+            .cloned()
+            .or(self.store.file(&r.id)?);
+        let Some(old) = old.filter(|o| {
+            o.kind == mdbn_wire::unindexed_markdown::FileKindV1::Ordinary && o.path == r.path
+        }) else {
+            return self
+                .commit_payload_void(
+                    head,
+                    payload,
+                    "V7: promotion requires exact ordinary holder",
+                )
+                .map(ControlFlow::Break);
+        };
+        if payload.mutation.ops.iter().any(|op| match op {
+            rt::Op::OrdinaryFileToRecord(op) if op.id == r.id => {
+                op.path != old.path || op.prior != old.content
+            }
+            _ => false,
+        }) {
+            return self
+                .commit_payload_void(head, payload, "V7: promotion prior CAS")
+                .map(ControlFlow::Break);
+        }
+        let Text::Inline(doc) = &r.doc else {
+            return self
+                .commit_payload_void(head, payload, "V7: unresolved ordinary source")
+                .map(ControlFlow::Break);
+        };
+        if !valid_path(&r.path)
+            || doc.len() as u64 > mdbn_wire::unindexed_markdown::RECORD_SOURCE_CAP_BYTES
+            || old.content.size() != doc.len() as u64
+            || old.content.plain_hash() != mdbn_wire::hash::sha256(doc.as_bytes())
+        {
+            return self
+                .commit_payload_void(head, payload, "V7: ordinary source identity or path")
+                .map(ControlFlow::Break);
+        }
+        if self.store.has_files() {
+            before
+                .entry(super::disk::DiskKey::Record(r.id))
+                .or_insert(Some(super::disk::Shown {
+                    path: old.path.clone(),
+                    rev: old.content.plain_hash(),
+                }));
+        }
+        freed.insert(old.path_key);
+        taken.retain(|_, id| *id != r.id);
+        let pk = mdbn_core::paths::path_key(&r.path);
+        if taken.insert(pk.clone(), r.id).is_some_and(|id| id != r.id) {
+            return self
+                .commit_payload_void(head, payload, "V7: two entries share a path")
+                .map(ControlFlow::Break);
+        }
+        tx.files_put.retain(|f| f.id != r.id);
+        tx.files_del.push(r.id);
+        tx.records_put.retain(|f| f.id != r.id);
+        tx.records_del.retain(|id| *id != r.id);
+        tx.records_put.push(RecordRow {
+            id: r.id,
+            path: r.path.clone(),
+            path_key: pk,
+            doc: doc.clone(),
+            revision: mdbn_wire::hash::sha256(doc.as_bytes()),
+            modified_seq: p,
+            mtime: old.mtime,
+            bucket: bucket16(&r.id),
+            meta: Default::default(),
+        });
+        Ok(ControlFlow::Continue(()))
+    }
+    fn stage_put_attachment_file(
+        &mut self,
+        p: u64,
+        head: Head,
+        payload: &rt::EntryPayload,
+        stage: &mut EffectStage,
+        f: &mdbn_wire::attachment::PutAttachmentFile,
+    ) -> Result<ControlFlow<Outcome>, StoreError> {
+        let EffectStage {
+            tx, taken, freed, ..
+        } = stage;
+        if !valid_path(&f.path) {
+            return self
+                .commit_payload_void(head, payload, "V7: invalid path")
+                .map(ControlFlow::Break);
+        }
+        if !self.attachment_in_bounds(&f.content) {
+            return self
+                .commit_payload_void(head, payload, "V7: attachment descriptor out of range")
+                .map(ControlFlow::Break);
+        }
+        let old = self.store.file(&f.id)?;
+        if old
+            .as_ref()
+            .is_some_and(|o| o.kind != mdbn_wire::unindexed_markdown::FileKindV1::Ordinary)
+        {
+            return self
+                .commit_payload_void(head, payload, "V7: ordinary effect changes file kind")
+                .map(ControlFlow::Break);
+        }
+        if let Some(o) = &old {
+            freed.insert(o.path_key.clone());
+        }
+        if self.store.tombstone(&f.id)?.is_some() {
+            tx.tombstones_del.push(f.id);
+        }
+        let pk = mdbn_core::paths::path_key(&f.path);
+        if taken.insert(pk.clone(), f.id).is_some_and(|o| o != f.id) {
+            return self
+                .commit_payload_void(head, payload, "V7: two entries share a path")
+                .map(ControlFlow::Break);
+        }
+        // The row keeps the signed descriptor, never bytes. Same
+        // content (a move, a re-put) keeps its local state: a rename
+        // is metadata only and refetches nothing.
+        let content = mdbn_wire::attachment::FileContent::AttachmentV1(f.content.clone());
+        let local = match &old {
+            Some(o) if o.content == content => o.local,
+            _ => FileLocal::Remote,
+        };
+        tx.files_put.retain(|x| x.id != f.id);
+        tx.files_del.retain(|x| *x != f.id);
+        tx.files_put.push(FileRow {
+            id: f.id,
+            path: f.path.clone(),
+            path_key: pk,
+            kind: mdbn_wire::unindexed_markdown::FileKindV1::Ordinary,
+            mtime: f.mtime.or_else(|| {
+                old.as_ref()
+                    .filter(|o| o.content == content)
+                    .and_then(|o| o.mtime)
+            }),
+            content,
+            media: mdbn_wire::intent::MediaClass::of(&f.path),
+            modified_seq: p,
+            bucket: bucket16(&f.id),
+            local,
+        });
+        Ok(ControlFlow::Continue(()))
+    }
+    fn stage_put_record(
+        &mut self,
+        p: u64,
+        head: Head,
+        payload: &rt::EntryPayload,
+        stage: &mut EffectStage,
+        r: &mdbn_wire::entry::PutRecord,
+    ) -> Result<ControlFlow<Outcome>, StoreError> {
+        let EffectStage {
+            tx, taken, freed, ..
+        } = stage;
+        let Text::Inline(doc) = &r.doc else {
+            return self
+                .commit_payload_void(head, payload, "V7: unresolved text")
+                .map(ControlFlow::Break);
+        };
+        if !valid_path(&r.path) {
+            return self
+                .commit_payload_void(head, payload, "V7: invalid path")
+                .map(ControlFlow::Break);
+        }
+        if self.store.file(&r.id)?.is_some_and(|f| {
+            f.kind == mdbn_wire::unindexed_markdown::FileKindV1::UnindexedOversizedMarkdown
+        }) {
+            return self
+                .commit_payload_void(
+                    head,
+                    payload,
+                    "V7: ordinary record effect changes unindexed kind",
+                )
+                .map(ControlFlow::Break);
+        }
+        let stored = self.store.record(&r.id)?;
+        if let Some(old) = &stored {
+            freed.insert(old.path_key.clone());
+        }
+        if self.store.tombstone(&r.id)?.is_some() {
+            tx.tombstones_del.push(r.id);
+        }
+        let pk = mdbn_core::paths::path_key(&r.path);
+        if taken.insert(pk.clone(), r.id).is_some_and(|o| o != r.id) {
+            return self
+                .commit_payload_void(head, payload, "V7: two records share a path")
+                .map(ControlFlow::Break);
+        }
+        let revision = mdbn_wire::hash::sha256(doc.as_bytes());
+        // Renames and same-byte writes keep the time of the last byte change.
+        let prior = tx.records_put.iter().find(|x| x.id == r.id);
+        let mtime = match prior.or(stored.as_ref()) {
+            Some(old) if old.revision == revision => old.mtime,
+            _ => Some(payload.mutation.clock.instant),
+        };
+        tx.records_del.retain(|x| *x != r.id);
+        tx.records_put.retain(|x| x.id != r.id);
+        tx.records_put.push(RecordRow {
+            id: r.id,
+            path: r.path.clone(),
+            path_key: pk,
+            doc: doc.clone(),
+            revision,
+            modified_seq: p,
+            mtime,
+            bucket: bucket16(&r.id),
+            meta: Default::default(),
+        });
+        Ok(ControlFlow::Continue(()))
+    }
+    fn stage_remove_record(
+        &mut self,
+        p: u64,
+        head: Head,
+        payload: &rt::EntryPayload,
+        instant: i64,
+        stage: &mut EffectStage,
+        r: &mdbn_wire::entry::RemoveRecord,
+    ) -> Result<ControlFlow<Outcome>, StoreError> {
+        let EffectStage {
+            tx, taken, freed, ..
+        } = stage;
+        let Some(old) = self.store.record(&r.id)? else {
+            if tx.records_put.iter().any(|x| x.id == r.id) {
+                tx.records_put.retain(|x| x.id != r.id);
+                return Ok(ControlFlow::Continue(()));
+            }
+            return self
+                .commit_payload_void(head, payload, "V7: remove of an unknown record")
+                .map(ControlFlow::Break);
+        };
+        freed.insert(old.path_key.clone());
+        taken.retain(|_, v| *v != r.id);
+        tx.records_put.retain(|x| x.id != r.id);
+        tx.records_del.push(r.id);
+        tx.tombstones_put.push(TombstoneRow {
+            id: r.id,
+            kind: EntityKind::Record,
+            path: old.path,
+            path_key: old.path_key,
+            last: TombstoneLast::Doc(old.doc),
+            seq: p,
+            time: instant,
+        });
+        Ok(ControlFlow::Continue(()))
+    }
+    fn stage_put_file(
+        &mut self,
+        p: u64,
+        head: Head,
+        payload: &rt::EntryPayload,
+        stage: &mut EffectStage,
+        f: &mdbn_wire::entry::PutFile,
+    ) -> Result<ControlFlow<Outcome>, StoreError> {
+        let EffectStage {
+            tx, taken, freed, ..
+        } = stage;
+        if !valid_path(&f.path) {
+            return self
+                .commit_payload_void(head, payload, "V7: invalid path")
+                .map(ControlFlow::Break);
+        }
+        if !blob_ref_in_bounds(&f.blob) {
+            return self
+                .commit_payload_void(head, payload, "V7: blob part size or count out of range")
+                .map(ControlFlow::Break);
+        }
+        let old = self.store.file(&f.id)?;
+        if old
+            .as_ref()
+            .is_some_and(|o| o.kind != mdbn_wire::unindexed_markdown::FileKindV1::Ordinary)
+        {
+            return self
+                .commit_payload_void(head, payload, "V7: ordinary effect changes file kind")
+                .map(ControlFlow::Break);
+        }
+        if let Some(o) = &old {
+            freed.insert(o.path_key.clone());
+        }
+        if self.store.tombstone(&f.id)?.is_some() {
+            tx.tombstones_del.push(f.id);
+        }
+        let pk = mdbn_core::paths::path_key(&f.path);
+        if taken.insert(pk.clone(), f.id).is_some_and(|o| o != f.id) {
+            return self
+                .commit_payload_void(head, payload, "V7: two entries share a path")
+                .map(ControlFlow::Break);
+        }
+        let local = match &old {
+            Some(o)
+                if matches!(
+                    &o.content,
+                    mdbn_wire::attachment::FileContent::Blob(b) if *b == f.blob
+                ) =>
+            {
+                o.local
+            }
+            _ => FileLocal::Remote,
+        };
+        tx.files_put.push(FileRow {
+            id: f.id,
+            path: f.path.clone(),
+            path_key: pk,
+            kind: mdbn_wire::unindexed_markdown::FileKindV1::Ordinary,
+            content: mdbn_wire::attachment::FileContent::Blob(f.blob.clone()),
+            mtime: None,
+            media: mdbn_wire::intent::MediaClass::of(&f.path),
+            modified_seq: p,
+            bucket: bucket16(&f.id),
+            local,
+        });
+        Ok(ControlFlow::Continue(()))
+    }
+    fn stage_remove_file(
+        &mut self,
+        p: u64,
+        head: Head,
+        payload: &rt::EntryPayload,
+        instant: i64,
+        stage: &mut EffectStage,
+        f: &mdbn_wire::entry::RemoveFile,
+    ) -> Result<ControlFlow<Outcome>, StoreError> {
+        let EffectStage {
+            tx, taken, freed, ..
+        } = stage;
+        let Some(old) = self.store.file(&f.id)? else {
+            return self
+                .commit_payload_void(head, payload, "V7: remove of an unknown file")
+                .map(ControlFlow::Break);
+        };
+        freed.insert(old.path_key.clone());
+        taken.retain(|_, v| *v != f.id);
+        tx.files_del.push(f.id);
+        let last = TombstoneLast::from_file(&old).ok_or_else(|| {
+            StoreError::Corrupt("file row content form unknown to this replica".into())
+        })?;
+        tx.tombstones_put.push(TombstoneRow {
+            id: f.id,
+            kind: EntityKind::File,
+            path: old.path,
+            path_key: old.path_key,
+            // The tombstone keeps the file's complete content; an
+            // arm this replica cannot keep is refused, not dropped.
+            last,
+            seq: p,
+            time: instant,
+        });
+        Ok(ControlFlow::Continue(()))
+    }
+    fn stage_put_resource(
+        &mut self,
+        head: Head,
+        payload: &rt::EntryPayload,
+        stage: &mut EffectStage,
+        r: &mdbn_wire::entry::PutResource,
+    ) -> Result<ControlFlow<Outcome>, StoreError> {
+        let EffectStage {
+            tx,
+            catalog_changed,
+            ..
+        } = stage;
+        let Text::Inline(doc) = &r.doc else {
+            return self
+                .commit_payload_void(head, payload, "V7: unresolved text")
+                .map(ControlFlow::Break);
+        };
+        if !valid_path(&r.path) {
+            return self
+                .commit_payload_void(head, payload, "V7: invalid path")
+                .map(ControlFlow::Break);
+        }
+        *catalog_changed = true;
+        tx.resources_put.push((r.path.clone(), doc.clone()));
+        Ok(ControlFlow::Continue(()))
     }
 
     /// Recompute every record's index entries under the current catalog, then
