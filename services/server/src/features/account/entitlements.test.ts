@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
-import type { DatabasePool } from "./database-types.js";
-import { createDatabase } from "./db.js";
+import type { DatabasePool } from "../../database-types.js";
+import { createDatabase } from "../../db.js";
 import {
   attachInvitationEntitlement,
   BETA_ENTITLEMENT_PROFILE,
@@ -16,7 +16,7 @@ import {
   type HostedAccountLimits,
   type HostedAccountUsage,
   type HostedProviderClient
-} from "./hosted-provider.js";
+} from "../../hosted-provider.js";
 
 const resources: Array<() => Promise<void>> = [];
 

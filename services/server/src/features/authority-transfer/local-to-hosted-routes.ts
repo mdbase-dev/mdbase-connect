@@ -6,7 +6,7 @@ import type { FastifyInstance } from "fastify";
 import type { CollectionContractDescriptor } from "@mdbase-dev/connect-protocol";
 import { z } from "zod";
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
-import { reconcileHostedAccount } from "../../entitlements.js";
+import { reconcileHostedAccount } from "../account/entitlements.js";
 import type { HostedAuthorityRegistry } from "../../hosted.js";
 import {
   HostedProviderResponseError,

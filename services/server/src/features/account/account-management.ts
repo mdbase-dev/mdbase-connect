@@ -3,21 +3,21 @@ import type {
   DatabaseConnection,
   DatabasePool,
   DatabaseQueryable
-} from "./database-types.js";
-import { queueAccountProviderCleanup } from "./hosted-capability-lifecycle.js";
-import { recordCollectionDeletionIntent } from "./features/next/collection-deletion.js";
-import { completeMigrationBatch } from "./features/next/migration-topology.js";
-import { queueNextPolicy } from "./features/next/policy-outbox.js";
+} from "../../database-types.js";
+import { queueAccountProviderCleanup } from "../../hosted-capability-lifecycle.js";
+import { recordCollectionDeletionIntent } from "../next/collection-deletion.js";
+import { completeMigrationBatch } from "../next/migration-topology.js";
+import { queueNextPolicy } from "../next/policy-outbox.js";
 import type {
   ExternalProvider,
   VerifiedExternalIdentity
-} from "./external-auth.js";
+} from "../../external-auth.js";
 import {
   EMAIL_NORMALIZATION_VERSION,
   normalizeEmailAddress
-} from "./email-identity.js";
-import { audit } from "./platform/audit-events.js";
-import { randomToken, tokenHash } from "./security.js";
+} from "../../email-identity.js";
+import { audit } from "../../platform/audit-events.js";
+import { randomToken, tokenHash } from "../../security.js";
 
 export class ExternalIdentityConflictError extends Error {
   constructor() {

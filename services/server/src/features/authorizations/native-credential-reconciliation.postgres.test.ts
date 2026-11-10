@@ -1,4 +1,4 @@
-import { ensureDevelopmentEntitlement } from "../../entitlements.js";
+import { ensureDevelopmentEntitlement } from "../account/entitlements.js";
 // Atomic immutable token metadata only: no reconciliation endpoint or race claim.
 import { randomBytes, randomUUID, sign } from "node:crypto";
 import pg from "pg";

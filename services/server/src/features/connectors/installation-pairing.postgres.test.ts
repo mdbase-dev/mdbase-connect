@@ -7,7 +7,7 @@ import { applicationDeclaration } from "../../../../../runtime/packages/sdk/src/
 import { resolveApplicationRegistration } from "../../../../../runtime/packages/sdk/src/application/registration.js";
 import { registerApplicationRoutes } from "../applications/routes.js";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import { deleteAccountLocally } from "../../account-management.js";
+import { deleteAccountLocally } from "../account/account-management.js";
 import { createExternalSession } from "../../external-auth.js";
 import { capabilityOperationsForContractVersion, MDBASE_TIMER_FIRED_CONTRACT } from "@mdbase-dev/connect-protocol";
 import { createTestApplicationIdentity, testApplicationAuthorization } from "../../application-authorization.test-helper.js";

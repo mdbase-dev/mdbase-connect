@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type {
   DatabasePool,
   DatabaseQueryable
-} from "./db.js";
+} from "../../db.js";
 
 const SESSION_CLIENT_NAME_MAX_LENGTH = 100;
 

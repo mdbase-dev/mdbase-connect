@@ -3,8 +3,8 @@ import {
   AccountSessionService,
   sessionClientName
 } from "./account-sessions.js";
-import { buildApp } from "./app.js";
-import { createDatabase } from "./db.js";
+import { buildApp } from "../../app.js";
+import { createDatabase } from "../../db.js";
 
 const resources: Array<() => Promise<void>> = [];
 const origin = "http://127.0.0.1:8787";

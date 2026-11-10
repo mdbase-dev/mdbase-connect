@@ -4,7 +4,7 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { registerMigrationSourceWitnessRoutes } from "./migration-source.js";
-import { deleteAccountLocally } from "../../account-management.js";
+import { deleteAccountLocally } from "../account/account-management.js";
 import { setCohortFrozen } from "./migration-rollout.js";
 import { certToJson, ed25519RawPublicKey, loadPolicySigner, type NextControlPlaneConfig } from "./policy-keys.js";
 import { registerNextCollection } from "./policy-outbox.js";

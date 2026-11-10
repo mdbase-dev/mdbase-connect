@@ -4,7 +4,7 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { HostedAuthorityRegistry } from "../../hosted.js";
-import { deleteAccountLocally, drainDeferredAccountDeletions } from "../../account-management.js";
+import { deleteAccountLocally, drainDeferredAccountDeletions } from "../account/account-management.js";
 import { createHostedCollectionForUser, deleteHostedCollectionForUser, renameHostedCollectionForUser } from "../hosted/service.js";
 import { acceptCohortArchive, accountMigrationView, addToCohort, cohortArchiveBinding, createCohort, flipAccountBackend, flipEvidenceDigest, migrationCandidates, migrationsInProgress, recordCollectionCutover, releaseCohort, setCohortFrozen, setPaused, startAccountMigration } from "./migration-rollout.js";
 import { nextAccountsMigrationFrozen, requireAccountNotMigrationFrozen, requireNextAccountNotMigrationFrozen } from "./migration-topology.js";
@@ -14,7 +14,7 @@ import { recoverAccountImportCancellation } from "../authority-transfer/account-
 import { audit } from "../../platform/audit-events.js";
 import { ProviderRevocationWorker, quarantineMissingHostedCollection, quarantineMissingHostedCollectionOnTransaction } from "../../hosted-capability-lifecycle.js";
 import { HostedProviderClient, HostedProviderResponseError, HostedProviderUnavailableError } from "../../hosted-provider.js";
-import { materializePublicSignupEntitlement, reconcileHostedAccountCollections } from "../../entitlements.js";
+import { materializePublicSignupEntitlement, reconcileHostedAccountCollections } from "../account/entitlements.js";
 import { reconcileActiveHostedEntitlements } from "../../auth-admin-entitlements.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;

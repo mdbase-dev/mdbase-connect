@@ -30,7 +30,7 @@ import { audit } from "../../platform/audit-events.js";
 import { apiError } from "../../platform/http-errors.js";
 import { bearerToken } from "../../platform/request-authentication.js";
 import { safeEqual } from "../../security.js";
-import { drainDeferredAccountDeletions } from "../../account-management.js";
+import { drainDeferredAccountDeletions } from "../account/account-management.js";
 import { migrationServiceRateLimit } from "./migration-rate-limit.js";
 import { captureProjection } from "./migration-capture.js";
 import { requireScopedArchiveCoverage } from "./migration-scoped-archive.js";

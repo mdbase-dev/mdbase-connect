@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { deleteAccountLocally } from "./account-management.js";
-import { buildApp } from "./app.js";
-import { createDatabase } from "./db.js";
-import { hashPassword } from "./password.js";
-import { randomToken, tokenHash } from "./security.js";
-import { HostedProviderClient } from "./hosted-provider.js";
+import { buildApp } from "../../app.js";
+import { createDatabase } from "../../db.js";
+import { hashPassword } from "../../password.js";
+import { randomToken, tokenHash } from "../../security.js";
+import { HostedProviderClient } from "../../hosted-provider.js";
 
 const resources: Array<() => Promise<void>> = [];
 const origin = "https://connect.example";

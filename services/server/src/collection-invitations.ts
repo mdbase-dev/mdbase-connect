@@ -10,7 +10,7 @@ import {
 } from "./collection-policy.js";
 import type { DatabaseConnection, DatabasePool, DatabaseQueryable } from "./db.js";
 import { normalizeEmailAddress } from "./email-identity.js";
-import { effectiveEntitlement } from "./entitlements.js";
+import { effectiveEntitlement } from "./features/account/entitlements.js";
 import { audit } from "./platform/audit-events.js";
 import { canonicalUserCode, randomToken, randomUserCode, tokenHash } from "./security.js";
 

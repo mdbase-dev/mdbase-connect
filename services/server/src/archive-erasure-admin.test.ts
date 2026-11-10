@@ -5,7 +5,7 @@ import { drainArchiveErasures } from "./archive-erasure-admin.js";
 import { runAuthAdminCommand } from "./auth-admin.js";
 
 const jobs = vi.hoisted(() => ({ accounts: vi.fn(), provider: vi.fn() }));
-vi.mock("./account-management.js", async original => ({ ...await original<object>(), drainDeferredAccountDeletions: jobs.accounts }));
+vi.mock("./features/account/account-management.js", async original => ({ ...await original<object>(), drainDeferredAccountDeletions: jobs.accounts }));
 vi.mock("./hosted-capability-lifecycle.js", async original => ({ ...await original<object>(), ProviderRevocationWorker: class { drain = jobs.provider; } }));
 const sha = "a".repeat(40), operation = "12345678-1234-1234-1234-123456789abc";
 const input = () => ({ cohort: "test-archive", expectedRevision: sha, operationId: operation, actor: "synthetic", reason: "fixture" });

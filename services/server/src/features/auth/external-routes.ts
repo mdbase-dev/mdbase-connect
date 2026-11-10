@@ -9,8 +9,8 @@ import {
   AccountDeletionAuthorizationError,
   issueAccountActionToken,
   linkExternalIdentity
-} from "../../account-management.js";
-import { sessionClientName } from "../../account-sessions.js";
+} from "../account/account-management.js";
+import { sessionClientName } from "../account/account-sessions.js";
 import type { AuthenticationPolicyStore } from "../../authentication-policy.js";
 import type { DatabasePool } from "../../database-types.js";
 import { createExternalSession, type VerifiedExternalIdentity } from "../../external-auth.js";

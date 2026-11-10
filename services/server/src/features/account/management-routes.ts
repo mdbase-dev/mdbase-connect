@@ -4,7 +4,7 @@ import {
   accountSignInMethodCounts,
   deleteAccountLocally,
   removeExternalIdentity
-} from "../../account-management.js";
+} from "./account-management.js";
 import type { AuthenticationPolicyStore } from "../../authentication-policy.js";
 import type { DatabasePool } from "../../database-types.js";
 import {

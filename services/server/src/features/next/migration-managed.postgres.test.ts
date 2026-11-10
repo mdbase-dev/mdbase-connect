@@ -3,7 +3,7 @@
 // and a modeled pause-mode Worker that drives those real CP routes; no
 // runtime/cloud qualification.
 import { createHash, randomUUID } from "node:crypto";
-import { ensureDevelopmentEntitlement } from "../../entitlements.js";
+import { ensureDevelopmentEntitlement } from "../account/entitlements.js";
 import pg from "pg";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";

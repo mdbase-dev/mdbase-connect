@@ -4,7 +4,7 @@ import { requireLegacyHostedAccount } from "../hosted/service.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { DatabasePool } from "../../database-types.js";
-import { reconcileHostedAccount } from "../../entitlements.js";
+import { reconcileHostedAccount } from "../account/entitlements.js";
 import {
   HostedProviderResponseError,
   type HostedProviderClient

@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
-import type { DatabaseConnection, DatabasePool, DatabaseQueryable } from "./database-types.js";
-import { requireAccountNotMigrationFrozen } from "./features/next/migration-topology.js";
+import type { DatabaseConnection, DatabasePool, DatabaseQueryable } from "../../database-types.js";
+import { requireAccountNotMigrationFrozen } from "../next/migration-topology.js";
 import {
   HostedProviderResponseError,
   type HostedAccountLimits,
   type HostedAccountUsage,
   type HostedProviderClient
-} from "./hosted-provider.js";
+} from "../../hosted-provider.js";
 
 export const BETA_ENTITLEMENT_PROFILE = "beta_v1";
 export const OPEN_BETA_ENTITLEMENT_PROFILE = "open_beta_v1";

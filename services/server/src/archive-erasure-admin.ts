@@ -1,5 +1,5 @@
 import type { DatabasePool } from "./database-types.js";
-import { drainDeferredAccountDeletions } from "./account-management.js";
+import { drainDeferredAccountDeletions } from "./features/account/account-management.js";
 import { ProviderRevocationWorker } from "./hosted-capability-lifecycle.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
 import type { OperatorMutation } from "./instance-admin.js";

@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { backfillFreeEntitlement } from "./auth-admin-entitlements.js";
-import { createDatabase, type DatabasePool } from "./db.js";
+import { backfillFreeEntitlement } from "../../auth-admin-entitlements.js";
+import { createDatabase, type DatabasePool } from "../../db.js";
 import { effectiveEntitlement, grantOperatorEntitlement } from "./entitlements.js";
 
 // Only an explicitly approved, local disposable database is accepted.

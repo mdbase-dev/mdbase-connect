@@ -4,7 +4,7 @@ import { afterEach, expect, it } from "vitest";
 import { buildApp } from "../../app.js";
 import { renderBetaWelcomeEmail, renderOpenBetaWelcomeEmail } from "../../beta-welcome-email.js";
 import { createDatabase } from "../../db.js";
-import { effectiveEntitlement } from "../../entitlements.js";
+import { effectiveEntitlement } from "./entitlements.js";
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { while (cleanup.length) await cleanup.pop()!(); });

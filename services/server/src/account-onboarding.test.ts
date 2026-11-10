@@ -6,7 +6,7 @@ import {
   starterEditorUrl
 } from "./account-onboarding.js";
 import { createDatabase } from "./db.js";
-import { ensureDevelopmentEntitlement } from "./entitlements.js";
+import { ensureDevelopmentEntitlement } from "./features/account/entitlements.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
 
 const resources: Array<() => Promise<void>> = [];

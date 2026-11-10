@@ -8,7 +8,7 @@ import {
   type AuthRateLimitRule
 } from "../../auth-rate-limit.js";
 import { passwordSignupIpRule } from "./password-signup-limit.js";
-import { sessionClientName } from "../../account-sessions.js";
+import { sessionClientName } from "../account/account-sessions.js";
 import { ianaTimezoneSchema } from "../../platform/timezones.js";
 import type { AuthenticationPolicyStore } from "../../authentication-policy.js";
 import type { DatabasePool } from "../../database-types.js";

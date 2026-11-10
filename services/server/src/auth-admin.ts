@@ -21,7 +21,7 @@ import type { HostedProviderClient } from "./hosted-provider.js";
 import {
   grantOperatorEntitlement,
   reconcileHostedAccountCollections
-} from "./entitlements.js";
+} from "./features/account/entitlements.js";
 import {
   EmailDeliveryError,
   type EmailTransport

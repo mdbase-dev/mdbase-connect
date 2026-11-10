@@ -33,7 +33,7 @@ import {
   type HostedTemplate
 } from "../../hosted.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";
-import { reconcileHostedAccount } from "../../entitlements.js";
+import { reconcileHostedAccount } from "../account/entitlements.js";
 import {
   hostedGrantRevocationStatus,
   hostedReplicaRevocationStatus,

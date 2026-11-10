@@ -6,10 +6,10 @@ import {
   AccountDeletionAuthorizationError,
   ExternalIdentityConflictError,
   IdentityRemovalForbiddenError
-} from "../account-management.js";
+} from "../features/account/account-management.js";
 import { AccountUnavailableError } from "../external-auth.js";
 import { InvalidExternalSignupError, ExternalSignupEmailRequiredError } from "../external-signup.js";
-import { HostedEntitlementRequiredError } from "../entitlements.js";
+import { HostedEntitlementRequiredError } from "../features/account/entitlements.js";
 import { GitHubIdentityError } from "../github-auth.js";
 import { GoogleIdentityError } from "../google-auth.js";
 import {

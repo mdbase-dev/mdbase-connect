@@ -5,7 +5,7 @@ import { vi } from "vitest";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "./db.js";
-import { materializePublicSignupEntitlement } from "./entitlements.js";
+import { materializePublicSignupEntitlement } from "./features/account/entitlements.js";
 import { finishAuthorityImportAbort } from "./features/authority-transfer/lifecycle.js";
 import { buildApp } from "./app.js";
 import { audit } from "./platform/audit-events.js";

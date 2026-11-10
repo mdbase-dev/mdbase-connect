@@ -1,4 +1,4 @@
-import { ensureDevelopmentEntitlement } from "../../entitlements.js";
+import { ensureDevelopmentEntitlement } from "../account/entitlements.js";
 import { randomBytes, randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import pg from "pg";

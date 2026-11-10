@@ -21,7 +21,7 @@ import type { GitHubAuthConfig } from "./github-auth.js";
 import type { GoogleAuthConfig } from "./google-auth.js";
 import { HostedAuthorityRegistry } from "./hosted.js";
 import { ProviderRevocationWorker } from "./hosted-capability-lifecycle.js";
-import { drainDeferredAccountDeletions } from "./account-management.js";
+import { drainDeferredAccountDeletions } from "./features/account/account-management.js";
 import { LogServiceClient } from "./features/next/log-service-client.js";
 import { FileQuotaWorker, ObjectGcWorker } from "./features/next/storage-usage.js";
 import { PolicyEmitter } from "./features/next/policy-outbox.js";

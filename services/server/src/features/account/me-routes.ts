@@ -8,7 +8,7 @@ import {
   accountCollectionCreation
 } from "../../collection-catalog.js";
 import type { DatabasePool } from "../../db.js";
-import { effectiveEntitlement } from "../../entitlements.js";
+import { effectiveEntitlement } from "./entitlements.js";
 import {
   contractRequirements,
   effectiveHostedContractDescriptors,

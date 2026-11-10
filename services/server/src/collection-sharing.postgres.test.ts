@@ -13,7 +13,7 @@ import {
   changeHostedCollectionMembershipRole
 } from "./collection-membership-lifecycle.js";
 import { lockHostedMirrorAccess, insertHostedMirror } from "./hosted-mirror-policy.js";
-import { deleteAccountLocally } from "./account-management.js";
+import { deleteAccountLocally } from "./features/account/account-management.js";
 import { ProviderRevocationWorker } from "./hosted-capability-lifecycle.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
 

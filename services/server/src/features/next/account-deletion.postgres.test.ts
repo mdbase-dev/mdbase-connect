@@ -1,9 +1,9 @@
-import { ensureDevelopmentEntitlement } from "../../entitlements.js";
+import { ensureDevelopmentEntitlement } from "../account/entitlements.js";
 import { generateKeyPairSync, randomBytes, randomUUID } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../../app.js";
-import { deleteAccountLocally } from "../../account-management.js";
+import { deleteAccountLocally } from "../account/account-management.js";
 import { changeHostedCollectionMembershipRole, revokeHostedCollectionMembership } from "../../collection-membership-lifecycle.js";
 import { createHostedCollectionMembership, type CollectionMembershipPolicy } from "../../collection-policy.js";
 import { createDatabase, type DatabasePool } from "../../db.js";

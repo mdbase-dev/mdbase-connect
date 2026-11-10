@@ -5,7 +5,7 @@ import {
   FREE_ENTITLEMENT_PROFILE,
   grantOperatorEntitlement,
   reconcileHostedAccountCollections
-} from "./entitlements.js";
+} from "./features/account/entitlements.js";
 import {
   HostedProviderResponseError,
   type HostedAccountUsage,

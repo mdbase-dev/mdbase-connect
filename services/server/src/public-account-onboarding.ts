@@ -1,7 +1,7 @@
 import type { DatabaseQueryable } from "./database-types.js";
 import { scheduleStarterCollection } from "./account-onboarding.js";
 import { scheduleOpenBetaWelcomeEmail } from "./beta-welcome-email.js";
-import { materializePublicSignupEntitlement } from "./entitlements.js";
+import { materializePublicSignupEntitlement } from "./features/account/entitlements.js";
 import { updateEmailPreferences } from "./scheduled-email.js";
 
 /** Runs inside the account-creation transaction for every public signup method. */

@@ -1,7 +1,7 @@
 // Regressions for membership authorization and lifecycle boundaries.
 import { randomUUID } from "node:crypto";
 import { afterEach, expect, it, vi } from "vitest";
-import { deleteAccountLocally } from "./account-management.js";
+import { deleteAccountLocally } from "./features/account/account-management.js";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
 import { createHostedCollectionMembership } from "./collection-policy.js";
