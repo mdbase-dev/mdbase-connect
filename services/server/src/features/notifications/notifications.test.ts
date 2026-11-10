@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { MDBASE_RECORD_MODIFIED_CONTRACT } from "@mdbase-dev/connect-protocol";
-import { buildApp } from "./app.js";
-import { createDatabase, type DatabasePool } from "./db.js";
-import { HostedProviderClient } from "./hosted-provider.js";
+import { buildApp } from "../../app.js";
+import { createDatabase, type DatabasePool } from "../../db.js";
+import { HostedProviderClient } from "../../hosted-provider.js";
 import type {
   FcmPushTarget,
   FcmPushTransport,
@@ -13,7 +13,7 @@ import type {
   WebhookDeliveryTarget,
   WebhookDeliveryTransport
 } from "./notifications.js";
-import { tokenHash } from "./security.js";
+import { tokenHash } from "../../security.js";
 
 class RecordingPushTransport implements PushTransport {
   readonly deliveries: Array<{ target: PushSubscriptionTarget; payload: string }> = [];

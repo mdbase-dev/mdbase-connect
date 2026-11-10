@@ -3,18 +3,18 @@ import type {
   ApplicationNotifications,
   NotificationCriterion
 } from "@mdbase-dev/connect-protocol";
-import type { DatabasePool, DatabaseQueryable } from "./db.js";
+import type { DatabasePool, DatabaseQueryable } from "../../db.js";
 import {
   PushTargetKeyUnavailable,
   type PushTargetSealer
-} from "./features/next/push-target-seal.js";
+} from "../next/push-target-seal.js";
 import {
   legacyTimerGrantResolver,
   type TimerGrantResolver
-} from "./features/next/timers/grants.js";
+} from "../next/timers/grants.js";
 
-import { legacyTaskReminderRetired } from "./features/next/timers/tasknotes-retirement.js";
-import { readInstallationTimerDeclaration } from "./features/next/timers/installation-declaration.js";
+import { legacyTaskReminderRetired } from "../next/timers/tasknotes-retirement.js";
+import { readInstallationTimerDeclaration } from "../next/timers/installation-declaration.js";
 
 export interface PushSubscriptionTarget {
   endpoint: string;

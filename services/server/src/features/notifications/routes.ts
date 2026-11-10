@@ -12,7 +12,7 @@ import {
   backgroundGrantNotificationDeclaration,
   type NotificationService,
   type NotificationTransports
-} from "../../notifications.js";
+} from "./notifications.js";
 import { tokenHash } from "../../security.js";
 import {
   currentInstallationTimerAuthority,

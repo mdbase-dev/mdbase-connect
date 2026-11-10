@@ -4,7 +4,7 @@ import { MDBASE_TIMER_FIRED_CONTRACT } from "@mdbase-dev/connect-protocol";
 import { buildApp } from "../../../app.js";
 import { createDatabase, type DatabasePool } from "../../../db.js";
 import { HostedProviderClient } from "../../../hosted-provider.js";
-import type { PushSubscriptionTarget, PushTransport } from "../../../notifications.js";
+import type { PushSubscriptionTarget, PushTransport } from "../../notifications/notifications.js";
 import { tokenHash } from "../../../security.js";
 import {
   PushTargetSealer,

@@ -6,10 +6,10 @@ import { assertControlPlaneMigrationsCurrent } from "./migrations.js";
 import { runtimeConfigFromEnv } from "./platform/runtime-config.js";
 import { HostedProviderClient } from "./hosted-provider.js";
 import { createRelayBroker } from "./features/relay/relay-broker.js";
-import { WebPushTransport } from "./web-push.js";
-import { FcmTransport } from "./fcm.js";
+import { WebPushTransport } from "./features/notifications/web-push.js";
+import { FcmTransport } from "./features/notifications/fcm.js";
 import { retireLegacyContractScopedGrants } from "./legacy-backfills.js";
-import { SignedWebhookTransport } from "./webhook.js";
+import { SignedWebhookTransport } from "./features/notifications/webhook.js";
 import { ResendEmailTransport } from "./features/email/email.js";
 
 const port = Number(process.env.PORT ?? 8787);

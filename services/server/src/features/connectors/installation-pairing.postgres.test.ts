@@ -42,7 +42,7 @@ import { desiredTimer } from "../next/timers/model.js";
 import { TimerWorker, notificationsConsumer, timerEventId } from "../next/timers/worker.js";
 import { PushTargetSealer } from "../next/push-target-seal.js";
 import { buildPolicySnapshot, type LeasePolicySnapshot } from "../relay/relay-policy.js";
-import { NotificationService, type NotificationTransports } from "../../notifications.js";
+import { NotificationService, type NotificationTransports } from "../notifications/notifications.js";
 import { registerNotificationRoutes } from "../notifications/routes.js";
 
 vi.mock("../../../../../runtime/packages/sdk/src/application/packaged-trust.js", () => ({

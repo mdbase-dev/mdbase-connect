@@ -57,7 +57,7 @@ import { registerNextRolloutRoutes } from "./features/next/rollout-routes.js";
 import { registerNextRouteRoutes } from "./features/next/route-routes.js";
 import { registerClientKeyAttachRoute } from "./features/next/client-key-attach.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
-import { NotificationService, type NotificationTransports } from "./notifications.js";
+import { NotificationService, type NotificationTransports } from "./features/notifications/notifications.js";
 import { RelayHub } from "./features/relay/relay.js";
 import { LocalRelayBroker, type RelayBroker } from "./features/relay/relay-broker.js";
 import type {
