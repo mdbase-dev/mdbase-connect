@@ -32,6 +32,17 @@ interface Session {
   grant: string;
   /** Served by the hosted replica (cloud copy), not a user device. */
   hosted: boolean;
+  /** Closed by the gateway: never handed out again. */
+  ended: boolean;
+}
+
+/** What a write is about, kept so that running it again is the same write. */
+interface WriteMemo {
+  /** The record ID a create mints. */
+  createId: string;
+  /** The record a rename found at its old path the first time. */
+  recordId?: string;
+  expires: number;
 }
 
 /** The legacy authority path should serve this call. */
@@ -46,14 +57,26 @@ const WRITE_TIMEOUT_MS = 30_000;
 // An open waits that out for about 20 s in all; a connection whose wait ran out does
 // not wait again until it has opened.
 const HOSTED_GRACE_DELAYS_MS = [1_000, 2_000, 3_000, 4_000, 5_000, 5_000];
-// How often one tool call is run again after the hosted replica closed its session.
+// How often one tool call is run again after the hosted replica closed its session,
+// and how long after the call began a rerun may still start.
 const HOSTED_RETRIES = 2;
+const HOSTED_RERUN_WITHIN_MS = 30_000;
+// Route refusals that say the grant no longer stands. A session open under it ends;
+// any other failure (Connect out of reach or erroring, an expired access token) only
+// fails the call that met it.
+const GRANT_REFUSALS = new Set(["reconnect_required", "access_removed", "sync_required", "authorization_changed"]);
+// A client told to retry a write with the same mutation_id does so within minutes.
+const WRITE_MEMO_TTL_MS = 15 * 60_000;
+const WRITE_MEMO_MAX = 4_096;
+const NO_MEMO: WriteMemo = { createId: "", expires: 0 };
 
 export class NextGateway {
   private readonly sessions = new Map<string, Promise<Session>>();
   private readonly legacy = new Map<string, number>();
   /** Connections whose last hosted open used up its grace without opening. */
   private readonly hostedSpent = new Set<string>();
+  /** By connection and mutation ID; in insertion order, so the oldest entry comes first. */
+  private readonly writes = new Map<string, WriteMemo>();
   private readonly fetch: typeof fetch;
 
   constructor(private readonly options: {
@@ -73,27 +96,38 @@ export class NextGateway {
   /** Run one tool operation on next, or return LEGACY. */
   async run(connection: NextConnection, accessToken: string, operation: string, input: Record<string, unknown>, requestId: string, signal?: AbortSignal): Promise<unknown> {
     if (!connection.native && (this.legacy.get(connection.id) ?? 0) > this.now()) return LEGACY;
-    // One record ID for every attempt: a create that is run again is the same create.
-    const createId = uuidv7();
+    const started = this.now();
+    const memo = operation === "create" || operation === "rename" ? this.memo(`${connection.id}:${requestId}`) : NO_MEMO;
     for (let retry = 0; ; retry++) {
       const session = await this.session(connection, accessToken, signal);
       if (session === LEGACY) return LEGACY;
-      let dropped = false;
       try {
-        return await execute(session.client, connection, operation, input, requestId, createId, signal);
+        return await execute(session.client, connection, operation, input, requestId, memo, signal);
       } catch (error) {
-        if (isMdbaseError(error) && (error.code === "unavailable" || error.code === "unauthenticated")) {
-          this.drop(connection.id);
-          dropped = true;
-        }
+        if (isMdbaseError(error) && (error.code === "unavailable" || error.code === "unauthenticated")) this.end(connection.id, session);
         // The hosted replica closed the session under the call. Reopen and run it
         // again: a write keeps its mutation ID, so it is not applied twice.
         const closed = session.hosted && isMdbaseError(error, "unavailable") && !error.reason;
-        if (!closed || retry >= HOSTED_RETRIES || signal?.aborted) throw gatewayError(error, !!connection.native);
+        const again = closed && retry < HOSTED_RETRIES && !signal?.aborted && this.now() - started < HOSTED_RERUN_WITHIN_MS;
+        if (!again) throw gatewayError(error, !!connection.native);
       } finally {
-        if (!dropped) this.touch(connection.id, session);
+        this.touch(connection.id, session);
       }
     }
+  }
+
+  /** This mutation's memo: the one an earlier attempt left, or a new one. */
+  private memo(key: string): WriteMemo {
+    const now = this.now();
+    const known = this.writes.get(key);
+    if (known && known.expires > now) return known;
+    for (const [id, entry] of this.writes) {
+      if (entry.expires > now && this.writes.size < WRITE_MEMO_MAX) break;
+      this.writes.delete(id);
+    }
+    const memo = { createId: uuidv7(), expires: now + WRITE_MEMO_TTL_MS };
+    this.writes.set(key, memo);
+    return memo;
   }
 
   private async session(connection: NextConnection, accessToken: string, signal?: AbortSignal): Promise<Session | typeof LEGACY> {
@@ -104,8 +138,7 @@ export class NextGateway {
     try {
       route = await this.route(connection, accessToken, true, signal);
     } catch (error) {
-      // Connect being out of reach says nothing about the grant; anything else ends the session.
-      if (!(error instanceof GatewayOperationError && error.code === "control_unreachable")) this.drop(connection.id);
+      if (error instanceof GatewayOperationError && GRANT_REFUSALS.has(error.code)) this.drop(connection.id);
       throw error;
     }
     if (route === LEGACY) {
@@ -115,34 +148,55 @@ export class NextGateway {
     }
     const existing = this.sessions.get(connection.id);
     if (existing) {
-      const session = await existing.catch(() => null);
-      if (session && session.keyHandle === connection.key_handle && session.grant === route.grant) {
+      const session = await abortable(existing.catch(() => null), signal);
+      if (session && !session.ended && session.keyHandle === connection.key_handle && session.grant === route.grant) {
         session.token.value = accessToken;
         return session;
       }
-      this.drop(connection.id);
+      // Another call may have replaced it while this one waited.
+      if (this.sessions.get(connection.id) === existing) {
+        this.sessions.delete(connection.id);
+        if (session) this.end(connection.id, session);
+      } else {
+        return this.session(connection, accessToken, signal);
+      }
     }
     const token = { value: accessToken };
     const opening = (async () => {
       const key = await this.options.noise.get(connection.key_handle!);
       if (!key) throw GatewayOperationError.reconnectRequired(connection);
+      // The SDK reports a route it could not resolve as a replica it could not reach.
+      // Keep what Connect said, so that the open neither waits on it nor hides it.
+      let refused: unknown = null;
       const resolveRoute = connection.native ? async () => {
-        const current = await this.route(connection, token.value, false);
-        if (current === LEGACY) throw new GatewayOperationError("control_error", "Native collection routing is unavailable.");
-        if (current.grant !== route.grant) throw new GatewayOperationError("authorization_changed", "Connect returned a different routing grant.");
-        return routeFromControl({ collection: connection.collection_id, ...current }, token.value);
+        try {
+          const current = await this.route(connection, token.value, false);
+          if (current === LEGACY) throw new GatewayOperationError("control_error", "Native collection routing is unavailable.");
+          if (current.grant !== route.grant) throw new GatewayOperationError("authorization_changed", "Connect returned a different routing grant.");
+          return routeFromControl({ collection: connection.collection_id, ...current }, token.value);
+        } catch (error) {
+          refused = error;
+          throw error;
+        }
       } : undefined;
       const open = this.options.open ?? openClient(this.fetch, this.options.version);
       const hosted = route.targets[0]?.kind === "hosted";
-      const client = await this.openWithGrace(connection, hosted,
-        () => open({ connection, grant: route.grant, key, token, ...(resolveRoute ? { resolveRoute } : {}) }));
-      return { client, token, idle: null, keyHandle: connection.key_handle, grant: route.grant, hosted } satisfies Session;
+      const client = await this.openWithGrace(connection, hosted, async () => {
+        refused = null;
+        try {
+          return await open({ connection, grant: route.grant, key, token, ...(resolveRoute ? { resolveRoute } : {}) });
+        } catch (error) {
+          throw refused ?? error;
+        }
+      });
+      return { client, token, idle: null, keyHandle: connection.key_handle, grant: route.grant, hosted, ended: false } satisfies Session;
     })();
     this.sessions.set(connection.id, opening);
+    // Callers share the open; one that gives up leaves it running for the others.
+    opening.catch(() => { if (this.sessions.get(connection.id) === opening) this.sessions.delete(connection.id); });
     try {
-      return await opening;
+      return await abortable(opening, signal);
     } catch (error) {
-      if (this.sessions.get(connection.id) === opening) this.sessions.delete(connection.id);
       throw gatewayError(error, !!connection.native);
     }
   }
@@ -150,7 +204,8 @@ export class NextGateway {
   /**
    * Open a session; on a hosted route, retry a session the replica closed during the
    * handshake while it cannot serve this grant yet. Each attempt resolves the route
-   * again, so a revoked or changed grant ends the wait at once.
+   * again, so a revoked or changed grant ends the wait at once. A Worker that cannot
+   * be reached at all looks the same from here and is waited for as well.
    */
   private async openWithGrace(connection: NextConnection, hosted: boolean, open: () => Promise<MdbaseClient>): Promise<MdbaseClient> {
     if (!hosted) return open();
@@ -219,15 +274,27 @@ export class NextGateway {
   }
 
   private touch(id: string, session: Session): void {
+    if (session.ended) return;
     if (session.idle) clearTimeout(session.idle);
-    session.idle = setTimeout(() => this.drop(id), IDLE_MS);
+    session.idle = setTimeout(() => this.end(id, session), IDLE_MS);
     session.idle.unref?.();
   }
 
+  /** Close this session, and forget it if it is still the connection's session. */
+  private end(id: string, session: Session): void {
+    if (session.ended) return;
+    session.ended = true;
+    if (session.idle) clearTimeout(session.idle);
+    session.client.close();
+    const current = this.sessions.get(id);
+    void current?.then((value) => { if (value === session && this.sessions.get(id) === current) this.sessions.delete(id); }, () => undefined);
+  }
+
+  /** Close whatever session the connection has. */
   drop(id: string): void {
     const session = this.sessions.get(id);
     this.sessions.delete(id);
-    void session?.then((value) => { if (value.idle) clearTimeout(value.idle); value.client.close(); }, () => undefined);
+    void session?.then((value) => this.end(id, value), () => undefined);
   }
 
   close(): void {
@@ -237,6 +304,18 @@ export class NextGateway {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => { setTimeout(resolve, ms).unref(); });
+}
+
+/** `promise`, unless the caller gives up first. The work behind it carries on. */
+function abortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  const cancelled = () => new GatewayOperationError("cancelled", "The call was cancelled.");
+  if (signal.aborted) return Promise.reject(cancelled());
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(cancelled());
+    signal.addEventListener("abort", abort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+  });
 }
 
 function openClient(fetchImpl: typeof fetch, version: string) {
@@ -255,7 +334,7 @@ function openClient(fetchImpl: typeof fetch, version: string) {
   };
 }
 
-async function execute(client: MdbaseClient, connection: NextConnection, operation: string, input: Record<string, unknown>, requestId: string, createId: string, signal?: AbortSignal): Promise<unknown> {
+async function execute(client: MdbaseClient, connection: NextConnection, operation: string, input: Record<string, unknown>, requestId: string, memo: WriteMemo, signal?: AbortSignal): Promise<unknown> {
   const write = { mutationId: requestId, wait: "confirmed" as const, include: { effective: true, body: true }, ...(signal ? { signal } : {}) };
   switch (operation) {
     case "describe": {
@@ -290,7 +369,7 @@ async function execute(client: MdbaseClient, connection: NextConnection, operati
       return typeDocument(type.name, await client.resources.get(type.path, signal));
     }
     case "create": {
-      const id = createId;
+      const id = memo.createId;
       const created = await settle(client.create({
         id,
         ...(typeof input.path === "string" ? { path: input.path } : {}),
@@ -327,10 +406,13 @@ async function execute(client: MdbaseClient, connection: NextConnection, operati
       const current = await find(client, String(input.from), signal);
       if (!current) {
         // Run again after its answer was lost: the record is already at its new path.
-        const moved = await confirmedBefore(client, requestId, signal) ? await find(client, String(input.to), signal) : null;
+        // By ID when an earlier attempt saw it; the replica may have normalized the path.
+        const moved = !await confirmedBefore(client, requestId, signal) ? null
+          : memo.recordId ? await client.find(memo.recordId, RECORD_VIEW, signal) : await find(client, String(input.to), signal);
         if (!moved) throw notFound(String(input.from));
         return { ...recordDocument(moved), from: String(input.from), to: moved.path };
       }
+      memo.recordId = current.id;
       const renamed = await settle(client.rename(current, String(input.to), {
         ...write, updateRefs: input.update_refs !== false, ...(typeof input.if_revision === "string" ? { ifRevision: input.if_revision } : {})
       }), () => client.find(current.id, RECORD_VIEW, signal));

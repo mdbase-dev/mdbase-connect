@@ -11,7 +11,7 @@ const connection: NextConnection = {
 };
 const grantId = "4c18af2e-b04a-4b77-b83e-493c3695962e", authorizationId = "0b8f6a7e-3c1d-4e2f-9a0b-1c2d3e4f5a6b";
 
-async function fixture(routes: Array<{ status: number; body: unknown }>, attachStatus = 200, hasNoise = false, sleep?: (ms: number) => Promise<void>) {
+async function fixture(routes: Array<{ status: number; body: unknown }>, attachStatus = 200, hasNoise = false, sleep?: (ms: number) => Promise<void>, now?: () => number) {
   const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
   const grantKey = { handle: "gk-1", signingPrivateKey: pair.privateKey, signingPublicKey: "" } as GrantKeyRecord;
   const verifier = createPublicKey({ key: await crypto.subtle.exportKey("jwk", pair.publicKey) as never, format: "jwk" });
@@ -30,7 +30,7 @@ async function fixture(routes: Array<{ status: number; body: unknown }>, attachS
   });
   const client = { query: vi.fn(async () => ({ records: [], complete: true, asOf: 1 })), close: vi.fn() } as unknown as MdbaseClient;
   const open = vi.fn<NonNullable<ConstructorParameters<typeof NextGateway>[0]["open"]>>(async () => client);
-  const gateway = new NextGateway({ keyStore: { get: async () => grantKey } as unknown as GrantKeyStore, noise, version: "test", fetch: fetch as typeof globalThis.fetch, open, ...(sleep ? { sleep } : {}) });
+  const gateway = new NextGateway({ keyStore: { get: async () => grantKey } as unknown as GrantKeyStore, noise, version: "test", fetch: fetch as typeof globalThis.fetch, open, ...(sleep ? { sleep } : {}), ...(now ? { now } : {}) });
   return { gateway, calls, open, verifier, noiseKey: () => stored };
 }
 
@@ -188,6 +188,28 @@ describe("NextGateway", () => {
       setup.gateway.close();
     });
 
+    it("does not wait when Connect refuses the route during the open, and reports what Connect said", async () => {
+      const sleep = vi.fn(async () => undefined);
+      const setup = await fixture([hostedRoute, { status: 409, body: {} }], 200, true, sleep);
+      // As the SDK does: a route that cannot be resolved surfaces as an unreachable replica.
+      setup.open.mockImplementationOnce(async ({ resolveRoute }) => {
+        await resolveRoute!().catch(() => { throw mdbaseError("unavailable", "cannot reach the replica"); });
+        throw new Error("unreachable");
+      });
+      await expect(setup.gateway.run(native, "access", "query", {}, "req-1")).rejects.toMatchObject({ code: "reconnect_required" });
+      expect(setup.open).toHaveBeenCalledTimes(1);
+      expect(sleep).not.toHaveBeenCalled();
+    });
+
+    it("lets a caller that gives up leave the wait", async () => {
+      const abort = new AbortController();
+      const sleep = vi.fn(() => { abort.abort(); return new Promise<void>(() => undefined); });
+      const setup = await fixture([hostedRoute], 200, true, sleep);
+      setup.open.mockRejectedValueOnce(handshakeClosed());
+      await expect(setup.gateway.run(native, "access", "query", {}, "req-1", abort.signal)).rejects.toMatchObject({ code: "cancelled" });
+      expect(setup.open).toHaveBeenCalledTimes(1);
+    });
+
     it.each([
       { name: "a device target", targets: [{ kind: "desktop" }], error: handshakeClosed(), code: "unavailable" },
       { name: "a refusal that names its reason", targets: [{ kind: "hosted" }], error: mdbaseError("unavailable", "no device", "no_device_online"), code: "no_device_online" },
@@ -224,7 +246,6 @@ describe("NextGateway", () => {
     it.each([
       { name: "the grant needs a new approval", route: { status: 409, body: {} }, code: "reconnect_required" },
       { name: "access was removed", route: { status: 200, body: { collection: "col-1", grant: grantId, targets: [], availability: { state: "unavailable", reason: "access_removed" } } }, code: "access_removed" },
-      { name: "Connect access expired", route: { status: 401, body: {} }, code: "authority_authentication_expired" },
       { name: "the routing grant changed", route: { status: 200, body: { ...routed.body, grant: "other-log-grant", authorization_grant: "other" } }, code: "authorization_changed" }
     ])("ends at once when $name", async ({ route, code }) => {
       const setup = await opened([hostedRoute, route]);
@@ -247,13 +268,64 @@ describe("NextGateway", () => {
       await vi.waitFor(() => expect(setup.close).toHaveBeenCalled());
     });
 
-    it("survives Connect being out of reach, without serving the call", async () => {
-      const setup = await opened([hostedRoute, { status: 0, body: null }, hostedRoute]);
-      await expect(setup.gateway.run(native, "access", "query", {}, "req-2")).rejects.toMatchObject({ code: "control_unreachable" });
+    it.each([
+      { name: "Connect being out of reach", route: { status: 0, body: null }, code: "control_unreachable" },
+      { name: "an expired access token", route: { status: 401, body: {} }, code: "authority_authentication_expired" },
+      { name: "a Connect error", route: { status: 503, body: {} }, code: "control_error" },
+      { name: "its device going offline", route: { status: 200, body: { collection: "col-1", grant: grantId, targets: [], availability: { state: "unavailable", reason: "device_offline" } } }, code: "device_offline" }
+    ])("survives $name, without serving the call", async ({ route, code }) => {
+      const setup = await opened([hostedRoute, route, hostedRoute]);
+      await expect(setup.gateway.run(native, "access", "query", {}, "req-2")).rejects.toMatchObject({ code });
       await expect(setup.gateway.run(native, "access", "query", {}, "req-3")).resolves.toEqual(emptyPage);
       expect(setup.open).toHaveBeenCalledTimes(1);
       expect(setup.close).not.toHaveBeenCalled();
       setup.gateway.close();
+    });
+
+    it("is not closed by a call that failed on the session before it", async () => {
+      const device = { status: 200, body: { ...routed.body, targets: [{ kind: "desktop" }] } };
+      const setup = await fixture([device, device, device], 200, true);
+      let fail!: (error: unknown) => void;
+      const firstClose = vi.fn(), secondClose = vi.fn();
+      setup.open.mockResolvedValueOnce({ query: vi.fn(() => new Promise((_, reject) => { fail = reject; })), close: firstClose } as unknown as MdbaseClient);
+      setup.open.mockResolvedValueOnce({ query: vi.fn(async () => ({ records: [], complete: true, asOf: 1 })), close: secondClose } as unknown as MdbaseClient);
+      const slow = setup.gateway.run(connection, "access", "query", {}, "req-1");
+      await vi.waitFor(() => expect(fail).toBeDefined());
+      setup.gateway.drop(connection.id);
+      await expect(setup.gateway.run(connection, "access", "query", {}, "req-2")).resolves.toEqual(emptyPage);
+      fail(mdbaseError("unavailable", "connection to the replica closed"));
+      await expect(slow).rejects.toMatchObject({ code: "unavailable" });
+      await expect(setup.gateway.run(connection, "access", "query", {}, "req-3")).resolves.toEqual(emptyPage);
+      expect(firstClose).toHaveBeenCalledTimes(1);
+      expect(secondClose).not.toHaveBeenCalled();
+      expect(setup.open).toHaveBeenCalledTimes(2);
+      setup.gateway.close();
+    });
+
+    it("is not closed by the idle timer of the session before it", async () => {
+      vi.useFakeTimers();
+      try {
+        const setup = await fixture([routed, routed, routed], 200, true);
+        let finish!: (page: unknown) => void;
+        const secondClose = vi.fn();
+        setup.open.mockResolvedValueOnce({ query: vi.fn(() => new Promise((resolve) => { finish = resolve; })), close: vi.fn() } as unknown as MdbaseClient);
+        setup.open.mockResolvedValueOnce({ query: vi.fn(async () => ({ records: [], complete: true, asOf: 1 })), close: secondClose } as unknown as MdbaseClient);
+        const slow = setup.gateway.run(connection, "access", "query", {}, "req-1");
+        await vi.waitFor(() => expect(finish).toBeDefined());
+        setup.gateway.drop(connection.id);
+        await setup.gateway.run(connection, "access", "query", {}, "req-2");
+        finish({ records: [], complete: true, asOf: 1 });
+        await slow;
+        // Still in use after four minutes: only its own five idle minutes may close it.
+        await vi.advanceTimersByTimeAsync(4 * 60_000);
+        await setup.gateway.run(connection, "access", "query", {}, "req-3");
+        await vi.advanceTimersByTimeAsync(2 * 60_000);
+        expect(secondClose).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(4 * 60_000);
+        expect(secondClose).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 
@@ -318,6 +390,43 @@ describe("NextGateway", () => {
       expect(setup.open).toHaveBeenCalledTimes(1);
     });
 
+    it("reopens once for calls that were running together", async () => {
+      const fail = () => { throw sessionClosed(); };
+      const second = vi.fn(async () => emptyPage);
+      // Four routes: each call is routed, and routed again when it is run again.
+      const setup = await sessions([{ query: vi.fn(async () => { await Promise.resolve(); return fail(); }) }, { query: second }, { query: second }, { query: second }]);
+      const results = await Promise.all([
+        setup.gateway.run(native, "access", "query", {}, "req-1"),
+        setup.gateway.run(native, "access", "query", {}, "req-2")
+      ]);
+      expect(results).toEqual([{ results: [], meta: { has_more: false } }, { results: [], meta: { has_more: false } }]);
+      expect(setup.open).toHaveBeenCalledTimes(2);
+      expect(second).toHaveBeenCalledTimes(2);
+      setup.gateway.close();
+    });
+
+    it("does not start another attempt 30 s after the call began", async () => {
+      let clock = 1_000_000;
+      const query = vi.fn(async () => { clock += 31_000; throw sessionClosed(); });
+      const setup = await fixture([hostedRoute, hostedRoute], 200, true, vi.fn(async () => undefined), () => clock);
+      setup.open.mockResolvedValue({ query, close: vi.fn() } as unknown as MdbaseClient);
+      await expect(setup.gateway.run(native, "access", "query", {}, "req-1")).rejects.toMatchObject({ code: "unavailable" });
+      expect(query).toHaveBeenCalledTimes(1);
+    });
+
+    it("gives the same create its record ID again when the client retries it", async () => {
+      const busy = vi.fn(async () => { throw mdbaseError("unavailable", "busy", "busy"); });
+      const create = vi.fn(async () => confirmed()), find = vi.fn(async () => record);
+      const setup = await sessions([{ create: busy }, { create, find }, { create, find }]);
+      await expect(setup.gateway.run(native, "access", "create", { path: "notes/a.md" }, "req-1")).rejects.toMatchObject({ code: "busy" });
+      await setup.gateway.run(native, "access", "create", { path: "notes/a.md" }, "req-1");
+      await setup.gateway.run(native, "access", "create", { path: "notes/a.md" }, "req-2");
+      const ids = [busy.mock.calls[0], create.mock.calls[0], create.mock.calls[1]].map((call) => (call as unknown as [{ id: string }])[0].id);
+      expect(ids[1]).toBe(ids[0]);
+      expect(ids[2]).not.toBe(ids[0]);
+      setup.gateway.close();
+    });
+
     it("runs a create again as the same create", async () => {
       const first = vi.fn(async () => { throw sessionClosed(); }), second = vi.fn(async () => confirmed());
       const find = vi.fn(async () => record);
@@ -369,6 +478,19 @@ describe("NextGateway", () => {
       const find = vi.fn(async (target: unknown) => (target as { path: string }).path === "notes/b.md" ? moved : null);
       const setup = await sessions([{ find, receipt: vi.fn(async () => ({ mutation: "req-1", state: "confirmed" })) }]);
       await expect(setup.gateway.run(native, "access", "rename", { from: "notes/a.md", to: "notes/b.md" }, "req-1")).resolves.toMatchObject({ path: "notes/b.md", from: "notes/a.md", to: "notes/b.md" });
+      setup.gateway.close();
+    });
+
+    it("finds a renamed record by its ID when an earlier attempt saw it", async () => {
+      const moved = { ...record, path: "notes/b.md" };
+      const rename = vi.fn(async () => ({ records: [], confirmed: Promise.reject(sessionClosed()) }));
+      const find = vi.fn(async (target: unknown) => target === record.id ? moved : null);
+      const setup = await sessions([
+        { find: vi.fn(async () => record), rename },
+        { find, receipt: vi.fn(async () => ({ mutation: "req-1", state: "confirmed" })) }
+      ]);
+      await expect(setup.gateway.run(native, "access", "rename", { from: "notes/a.md", to: "notes/b" }, "req-1")).resolves.toMatchObject({ path: "notes/b.md", from: "notes/a.md", to: "notes/b.md" });
+      expect(find).toHaveBeenLastCalledWith(record.id, { effective: true, body: true }, undefined);
       setup.gateway.close();
     });
 
