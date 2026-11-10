@@ -81,6 +81,10 @@ fn valid_path(p: &str) -> bool {
     mdbn_core::paths::check_path(p).is_ok()
 }
 
+/// What a phase of apply returns: its result for the next phase, or the outcome
+/// that ends the entry here. A store error ends it with nothing committed.
+type Phase<T> = Result<ControlFlow<Outcome, T>, StoreError>;
+
 /// The transaction an entry's effects build, with the path keys they free and
 /// take (to check collisions after all effects).
 struct EffectStage {
@@ -89,6 +93,28 @@ struct EffectStage {
     taken: std::collections::BTreeMap<String, Uuid>,
     freed: BTreeSet<String>,
     catalog_changed: bool,
+}
+
+/// What staging the entry's metadata and receipt rows decides for the commit.
+struct MetaStage {
+    catalog: std::sync::Arc<mdbn_core::types::Catalog>,
+    receipt_conflicts: Vec<mdbn_wire::entry::Conflict>,
+    log_time: i64,
+    ratchet: u64,
+}
+
+/// Whether the entry is this replica's own pending mutation, and how it resolves.
+struct OwnResolution {
+    own: bool,
+    own_match: bool,
+    relocated_from: Option<u64>,
+}
+
+/// What the entry changes, for the caller's rebase keys and the after-commit work.
+struct ChangeStage {
+    legacy_effects: Vec<Effect>,
+    attachment_files: Vec<Uuid>,
+    holds_changed: bool,
 }
 
 impl<S: Store> Replica<S> {
@@ -1114,6 +1140,80 @@ impl<S: Store> Replica<S> {
         writer: Option<Uuid>,
         refs: Option<&[mdbn_wire::common::Hash]>,
     ) -> Result<Outcome, StoreError> {
+        if let ControlFlow::Break(outcome) = self.delegation_guard(&payload)? {
+            return Ok(outcome);
+        }
+        // V7: results are structurally valid.
+        let resolved = match self.resolve_text_table(head, &payload, changed, writer, refs)? {
+            ControlFlow::Continue(resolved) => resolved,
+            ControlFlow::Break(outcome) => return Ok(outcome),
+        };
+        let texts = payload.texts.clone().unwrap_or_default();
+        let t = text_resolver(&texts, &resolved);
+        let (effects, conflicts) = match self.resolve_result_texts(head, &payload, &t)? {
+            ControlFlow::Continue(resolved) => resolved,
+            ControlFlow::Break(outcome) => return Ok(outcome),
+        };
+        let (mutation, native) = match self.check_structure(head, &payload, &conflicts, &t)? {
+            ControlFlow::Continue(checked) => checked,
+            ControlFlow::Break(outcome) => return Ok(outcome),
+        };
+        // Build the transaction, checking V7 against current state as we go.
+        let instant = payload.mutation.clock.instant;
+        let EffectStage {
+            mut tx,
+            before,
+            catalog_changed,
+            ..
+        } = match self.stage_effects(p, head, &payload, &effects, instant)? {
+            ControlFlow::Continue(stage) => stage,
+            ControlFlow::Break(outcome) => return Ok(outcome),
+        };
+        let source_meta = match self.verify_against_planner(
+            p, head, &payload, &mutation, &effects, &conflicts, native, changed, writer, refs,
+        )? {
+            ControlFlow::Continue(meta) => meta,
+            ControlFlow::Break(outcome) => return Ok(outcome),
+        };
+
+        tx.meta.extend(source_meta);
+        let meta = self.stage_receipts_and_meta(
+            p,
+            &payload,
+            &conflicts,
+            instant,
+            catalog_changed,
+            &mut tx,
+        )?;
+        let own = self.resolve_own(p, &payload, writer, &meta.receipt_conflicts, &mut tx)?;
+        let changes = self.stage_change_keys_and_holds(
+            &payload,
+            &effects,
+            &conflicts,
+            &t,
+            catalog_changed,
+            own.own_match,
+            changed,
+            &mut tx,
+        )?;
+        self.finish_apply(
+            p,
+            head,
+            &payload,
+            instant,
+            tx,
+            before,
+            catalog_changed,
+            changed,
+            meta,
+            own,
+            changes,
+        )
+    }
+
+    /// A delegated file operation on a native unindexed file is not mediated by
+    /// this build: stall before anything else is read.
+    fn delegation_guard(&self, payload: &rt::EntryPayload) -> Phase<()> {
         if payload.mutation.on_behalf.is_some() {
             for op in &payload.mutation.ops {
                 let id = match op {
@@ -1126,41 +1226,57 @@ impl<S: Store> Replica<S> {
                 if let Some(id) = id && self.store.file(&id)?.is_some_and(|f| {
                     f.kind == mdbn_wire::unindexed_markdown::FileKindV1::UnindexedOversizedMarkdown
                 }) {
-                    return Ok(Outcome::Stall(
+                    return Ok(ControlFlow::Break(Outcome::Stall(
                         IncidentKind::UpgradeRequired,
                         "delegated native file mediation is not supported".into(),
-                    ));
+                    )));
                 }
             }
         }
-        // V7: results are structurally valid.
-        let resolved =
-            zeroize::Zeroizing::new(match self.reverse_text_check(head, &payload, refs) {
+        Ok(ControlFlow::Continue(()))
+    }
+
+    /// The entry's text table, resolved against the state at p − 1 (or from the
+    /// reverse text source of a native entry).
+    fn resolve_text_table(
+        &mut self,
+        head: Head,
+        payload: &rt::EntryPayload,
+        changed: &mut BTreeSet<String>,
+        writer: Option<Uuid>,
+        refs: Option<&[mdbn_wire::common::Hash]>,
+    ) -> Phase<zeroize::Zeroizing<Vec<Option<String>>>> {
+        Ok(ControlFlow::Continue(zeroize::Zeroizing::new(
+            match self.reverse_text_check(head, payload, refs) {
                 super::unindexed_reverse_text::Check::Legacy => {
                     let Ok(texts) = self.resolve_texts(&payload.texts) else {
-                        return self.commit_payload_void(head, &payload, "V7: text table");
+                        return self
+                            .commit_payload_void(head, payload, "V7: text table")
+                            .map(ControlFlow::Break);
                     };
                     texts
                 }
                 super::unindexed_reverse_text::Check::Ready(texts) => texts,
-                super::unindexed_reverse_text::Check::Pending => return Ok(Outcome::SourcePending),
+                super::unindexed_reverse_text::Check::Pending => {
+                    return Ok(ControlFlow::Break(Outcome::SourcePending));
+                }
                 super::unindexed_reverse_text::Check::InvalidShape => {
-                    return self.commit_payload_void(
-                        head,
-                        &payload,
-                        "V7: reverse text descriptor or refs",
-                    );
+                    return self
+                        .commit_payload_void(head, payload, "V7: reverse text descriptor or refs")
+                        .map(ControlFlow::Break);
                 }
                 super::unindexed_reverse_text::Check::InvalidUtf8 => {
-                    return self.commit_unindexed_invalid_utf8(head, &payload, writer, changed);
+                    return self
+                        .commit_unindexed_invalid_utf8(head, payload, writer, changed)
+                        .map(ControlFlow::Break);
                 }
                 super::unindexed_reverse_text::Check::Failed(
                     crate::attachments::StreamError::NoKey,
                 ) => {
-                    return Ok(Outcome::Stall(
+                    return Ok(ControlFlow::Break(Outcome::Stall(
                         IncidentKind::WaitingForKey,
                         "reverse text key unavailable".into(),
-                    ));
+                    )));
                 }
                 super::unindexed_reverse_text::Check::Failed(e) => {
                     self.incident(
@@ -1168,11 +1284,19 @@ impl<S: Store> Replica<S> {
                         Some(Value::Text(format!("reverse text source: {e:?}"))),
                     );
                     self.reverse_text_retry(head);
-                    return Ok(Outcome::SourcePending);
+                    return Ok(ControlFlow::Break(Outcome::SourcePending));
                 }
-            });
-        let texts = payload.texts.clone().unwrap_or_default();
-        let t = text_resolver(&texts, &resolved);
+            },
+        )))
+    }
+
+    /// The entry's effects and conflicts with every text resolved.
+    fn resolve_result_texts(
+        &mut self,
+        head: Head,
+        payload: &rt::EntryPayload,
+        t: &impl Fn(&Text) -> CResult<String>,
+    ) -> Phase<(Vec<rt::Effect>, Vec<rt::Conflict>)> {
         let effects: Vec<rt::Effect> = match payload
             .effects
             .iter()
@@ -1202,7 +1326,11 @@ impl<S: Store> Replica<S> {
             .collect::<CResult<Vec<_>>>()
         {
             Ok(e) => e,
-            Err(_) => return self.commit_payload_void(head, &payload, "V7: effect texts"),
+            Err(_) => {
+                return self
+                    .commit_payload_void(head, payload, "V7: effect texts")
+                    .map(ControlFlow::Break);
+            }
         };
         let conflicts = match payload
             .conflicts
@@ -1212,8 +1340,25 @@ impl<S: Store> Replica<S> {
             .collect::<CResult<Vec<_>>>()
         {
             Ok(c) => c,
-            Err(_) => return self.commit_payload_void(head, &payload, "V7: conflict texts"),
+            Err(_) => {
+                return self
+                    .commit_payload_void(head, payload, "V7: conflict texts")
+                    .map(ControlFlow::Break);
+            }
         };
+        Ok(ControlFlow::Continue((effects, conflicts)))
+    }
+
+    /// The V7 checks that need no state: bounds, status, operation count, source,
+    /// and the request itself. Yields the resolved mutation and whether the entry
+    /// carries a native operation.
+    fn check_structure(
+        &mut self,
+        head: Head,
+        payload: &rt::EntryPayload,
+        conflicts: &[rt::Conflict],
+        t: &impl Fn(&Text) -> CResult<String>,
+    ) -> Phase<(mdbn_core::intent::Mutation, bool)> {
         let conflict_blob_ok = conflicts.iter().all(|c| {
             [Some(&c.kept), Some(&c.lost), c.base.as_ref()]
                 .into_iter()
@@ -1230,21 +1375,19 @@ impl<S: Store> Replica<S> {
                 })
         });
         if !conflict_blob_ok {
-            return self.commit_payload_void(
-                head,
-                &payload,
-                "V7: blob part size or count out of range",
-            );
+            return self
+                .commit_payload_void(head, payload, "V7: blob part size or count out of range")
+                .map(ControlFlow::Break);
         }
         if (payload.status == Status::Conflicted) == conflicts.is_empty() {
-            return self.commit_payload_void(
-                head,
-                &payload,
-                "V7: status inconsistent with conflicts",
-            );
+            return self
+                .commit_payload_void(head, payload, "V7: status inconsistent with conflicts")
+                .map(ControlFlow::Break);
         }
         if payload.mutation.ops.len() > 1000 {
-            return self.commit_payload_void(head, &payload, "V7: too many operations");
+            return self
+                .commit_payload_void(head, payload, "V7: too many operations")
+                .map(ControlFlow::Break);
         }
         if payload.mutation.source == mdbn_wire::intent::Source::External
             && payload.mutation.ops.iter().any(|o| {
@@ -1259,20 +1402,28 @@ impl<S: Store> Replica<S> {
                 )
             })
         {
-            return self.commit_payload_void(
-                head,
-                &payload,
-                "V7: external source on an api-only operation",
-            );
+            return self
+                .commit_payload_void(
+                    head,
+                    payload,
+                    "V7: external source on an api-only operation",
+                )
+                .map(ControlFlow::Break);
         }
         let mutation = match convert::runtime_mutation(&payload.mutation, &t) {
             Ok(m) => m,
-            Err(_) => return self.commit_payload_void(head, &payload, "V7: mutation texts"),
+            Err(_) => {
+                return self
+                    .commit_payload_void(head, payload, "V7: mutation texts")
+                    .map(ControlFlow::Break);
+            }
         };
 
-        let native = super::unindexed_apply::contains_native(&payload);
+        let native = super::unindexed_apply::contains_native(payload);
         if native && mdbn_core::plan::check_request(&mutation).is_err() {
-            return self.commit_payload_void(head, &payload, "V7: invalid request");
+            return self
+                .commit_payload_void(head, payload, "V7: invalid request")
+                .map(ControlFlow::Break);
         }
         // T6b always verifies full kind/path/prior CAS, even for our own entry or
         // when optional legacy result checking is disabled.
@@ -1287,19 +1438,30 @@ impl<S: Store> Replica<S> {
                 _ => false,
             })
         {
-            return self.commit_payload_void(head, &payload, "V7: unindexed source descriptor");
+            return self
+                .commit_payload_void(head, payload, "V7: unindexed source descriptor")
+                .map(ControlFlow::Break);
         }
-        // Build the transaction, checking V7 against current state as we go.
-        let instant = payload.mutation.clock.instant;
-        let EffectStage {
-            mut tx,
-            before,
-            catalog_changed,
-            ..
-        } = match self.stage_effects(p, head, &payload, &effects, instant)? {
-            ControlFlow::Continue(stage) => stage,
-            ControlFlow::Break(outcome) => return Ok(outcome),
-        };
+        Ok(ControlFlow::Continue((mutation, native)))
+    }
+
+    /// Verification against the state at p − 1: re-plan what this build can,
+    /// check a native entry's source, and count the result. Yields the source
+    /// metadata a native entry stores.
+    #[allow(clippy::too_many_arguments)]
+    fn verify_against_planner(
+        &mut self,
+        p: u64,
+        head: Head,
+        payload: &rt::EntryPayload,
+        mutation: &mdbn_core::intent::Mutation,
+        effects: &Vec<rt::Effect>,
+        conflicts: &Vec<rt::Conflict>,
+        native: bool,
+        changed: &mut BTreeSet<String>,
+        writer: Option<Uuid>,
+        refs: Option<&[mdbn_wire::common::Hash]>,
+    ) -> Phase<Vec<crate::store::MetaPut>> {
         // Verification (log-entry.md §5) against the state at p − 1. Only this
         // build's own `sem` is re-planned; native results of any other `sem` rest
         // on the structural checks above, as legacy results do.
@@ -1317,7 +1479,7 @@ impl<S: Store> Replica<S> {
             } else {
                 Stage::Head
             };
-            let r = self.planner.plan(&mutation, &view, &PlanOptions { stage });
+            let r = self.planner.plan(mutation, &view, &PlanOptions { stage });
             if native && let Some(e) = view.error() {
                 return Err(e);
             }
@@ -1330,14 +1492,14 @@ impl<S: Store> Replica<S> {
                             .map(convert::wruntime_effect)
                             .collect::<CResult<Vec<_>>>()
                             .as_ref()
-                            == Ok(&effects)
+                            == Ok(effects)
                         && pl
                             .conflicts
                             .iter()
                             .map(convert::wruntime_conflict)
                             .collect::<CResult<Vec<_>>>()
                             .as_ref()
-                            == Ok(&conflicts)
+                            == Ok(conflicts)
                         && pl.aliases.iter().map(convert::walias).collect::<Vec<_>>()
                             == payload.aliases.clone().unwrap_or_default()
                 }
@@ -1355,29 +1517,35 @@ impl<S: Store> Replica<S> {
             self.stats.unverified += 1;
         }
         let source_meta = if native {
-            match self.unindexed_source_check(head, &payload, refs) {
+            match self.unindexed_source_check(head, payload, refs) {
                 super::unindexed_apply::Check::StoreFailed(e) => return Err(e),
-                super::unindexed_apply::Check::Pending => return Ok(Outcome::SourcePending),
+                super::unindexed_apply::Check::Pending => {
+                    return Ok(ControlFlow::Break(Outcome::SourcePending));
+                }
                 super::unindexed_apply::Check::Ready(meta) => meta,
                 super::unindexed_apply::Check::InvalidUtf8 => {
-                    return self.commit_unindexed_invalid_utf8(head, &payload, writer, changed);
+                    return self
+                        .commit_unindexed_invalid_utf8(head, payload, writer, changed)
+                        .map(ControlFlow::Break);
                 }
                 super::unindexed_apply::Check::InvalidRefs => {
-                    return self.commit_payload_void(head, &payload, "V7: native source refs");
+                    return self
+                        .commit_payload_void(head, payload, "V7: native source refs")
+                        .map(ControlFlow::Break);
                 }
                 super::unindexed_apply::Check::Failed(crate::attachments::StreamError::NoKey) => {
-                    return Ok(Outcome::Stall(
+                    return Ok(ControlFlow::Break(Outcome::Stall(
                         IncidentKind::WaitingForKey,
                         "T6b source key unavailable".into(),
-                    ));
+                    )));
                 }
                 super::unindexed_apply::Check::Failed(e) => {
                     self.incident(
                         IncidentKind::Integrity,
                         Some(Value::Text(format!("T6b source: {e:?}"))),
                     );
-                    self.unindexed_source_retry(head, &payload);
-                    return Ok(Outcome::SourcePending);
+                    self.unindexed_source_retry(head, payload);
+                    return Ok(ControlFlow::Break(Outcome::SourcePending));
                 }
             }
         } else {
@@ -1393,10 +1561,10 @@ impl<S: Store> Replica<S> {
             if self.stalled != Some((IncidentKind::UpgradeRequired, p)) {
                 self.verify_mismatch(p);
             }
-            return Ok(Outcome::Stall(
+            return Ok(ControlFlow::Break(Outcome::Stall(
                 IncidentKind::UpgradeRequired,
                 "native results cannot be verified by this build's planner".into(),
-            ));
+            )));
         }
         if native {
             if same_sem {
@@ -1405,8 +1573,21 @@ impl<S: Store> Replica<S> {
                 self.stats.unverified += 1;
             }
         }
+        Ok(ControlFlow::Continue(source_meta))
+    }
 
-        tx.meta.extend(source_meta);
+    /// Stage what the entry stores besides its effects: record metadata under
+    /// the catalog it leaves, aliases, conflicts, its receipt, the horizon and
+    /// the log state.
+    fn stage_receipts_and_meta(
+        &self,
+        p: u64,
+        payload: &rt::EntryPayload,
+        conflicts: &[rt::Conflict],
+        instant: i64,
+        catalog_changed: bool,
+        tx: &mut Tx,
+    ) -> Result<MetaStage, StoreError> {
         // Record metadata under the catalog after this entry's resource effects.
         let catalog = if catalog_changed {
             let mut rs: std::collections::BTreeMap<String, String> =
@@ -1433,7 +1614,7 @@ impl<S: Store> Replica<S> {
                 record: a.record,
             });
         }
-        for c in &conflicts {
+        for c in conflicts {
             tx.conflicts_put.push(ConflictRow {
                 mutation: payload.mutation.id,
                 seq: p,
@@ -1467,6 +1648,24 @@ impl<S: Store> Replica<S> {
         let ratchet = self.sem_ratchet().max(payload.sem.major);
         tx.meta
             .push((meta_keys::LOG_STATE.into(), log_state(log_time, ratchet)));
+        Ok(MetaStage {
+            catalog,
+            receipt_conflicts,
+            log_time,
+            ratchet,
+        })
+    }
+
+    /// Resolve this replica's own pending mutation against the entry: hand over
+    /// the pending row and stage the local receipt.
+    fn resolve_own(
+        &self,
+        p: u64,
+        payload: &rt::EntryPayload,
+        writer: Option<Uuid>,
+        receipt_conflicts: &[mdbn_wire::entry::Conflict],
+        tx: &mut Tx,
+    ) -> Result<OwnResolution, StoreError> {
         // Our own mutation: confirmed.
         let pending = self.store.pending_get(&payload.mutation.id)?;
         let own = pending.is_some();
@@ -1505,12 +1704,33 @@ impl<S: Store> Replica<S> {
                 state: ReceiptState::Confirmed,
                 seq: (!self.local_only()).then_some(p),
                 status: Some(payload.status),
-                conflicts: receipt_conflicts.clone(),
+                conflicts: receipt_conflicts.to_vec(),
                 problem: None,
                 resolved_at: self.now(),
                 grant: mediated_grant.or(payload.mutation.on_behalf),
             });
         }
+        Ok(OwnResolution {
+            own,
+            own_match,
+            relocated_from,
+        })
+    }
+
+    /// Hand the caller the keys this entry changes and stage the holds of its
+    /// conflicts.
+    #[allow(clippy::too_many_arguments)]
+    fn stage_change_keys_and_holds(
+        &self,
+        payload: &rt::EntryPayload,
+        effects: &[rt::Effect],
+        conflicts: &[rt::Conflict],
+        t: &impl Fn(&Text) -> CResult<String>,
+        catalog_changed: bool,
+        own_match: bool,
+        changed: &mut BTreeSet<String>,
+        tx: &mut Tx,
+    ) -> Result<ChangeStage, StoreError> {
         // Rebase keys.
         let legacy_effects: Vec<Effect> = effects
             .iter()
@@ -1524,7 +1744,7 @@ impl<S: Store> Replica<S> {
             .collect();
         changed.extend(effect_keys(&legacy_effects));
         changed.extend(super::path_keys(&legacy_effects));
-        for e in &effects {
+        for e in effects {
             let identity = match e {
                 rt::Effect::PutAttachmentFile(f) => Some((f.id, &f.path)),
                 rt::Effect::PutUnindexedMarkdown(f) => Some((f.id, &f.path)),
@@ -1537,7 +1757,7 @@ impl<S: Store> Replica<S> {
                 changed.insert(format!("p:{}", mdbn_core::paths::path_key(path)));
             }
         }
-        let mut attachment_files = super::attachment_fetch::touched_files(&effects);
+        let mut attachment_files = super::attachment_fetch::touched_files(effects);
         if catalog_changed {
             for (p, _) in &tx.resources_put {
                 changed.insert(resource_key(p));
@@ -1547,7 +1767,7 @@ impl<S: Store> Replica<S> {
             }
         }
         if own_match && payload.mutation.origin == self.cfg.replica_id {
-            self.prepare_conflict_holds(&payload.mutation, &conflicts, &mut tx, &t)?;
+            self.prepare_conflict_holds(&payload.mutation, conflicts, tx, &t)?;
         }
         let holds_changed = !tx.holds_put.is_empty()
             || self.store.holds()?.iter().any(|hold| {
@@ -1556,6 +1776,45 @@ impl<S: Store> Replica<S> {
                         || changed.contains(&resource_key(&hold.path)))
             });
         attachment_files.extend(tx.holds_put.iter().map(|h| h.id));
+        Ok(ChangeStage {
+            legacy_effects,
+            attachment_files,
+            holds_changed,
+        })
+    }
+
+    /// Commit the entry, then move the replica's in-memory state to it.
+    #[allow(clippy::too_many_arguments)]
+    fn finish_apply(
+        &mut self,
+        p: u64,
+        head: Head,
+        payload: &rt::EntryPayload,
+        instant: i64,
+        mut tx: Tx,
+        before: super::disk::Before,
+        catalog_changed: bool,
+        changed: &mut BTreeSet<String>,
+        meta: MetaStage,
+        resolution: OwnResolution,
+        changes: ChangeStage,
+    ) -> Result<Outcome, StoreError> {
+        let MetaStage {
+            catalog,
+            receipt_conflicts,
+            log_time,
+            ratchet,
+        } = meta;
+        let OwnResolution {
+            own,
+            own_match,
+            relocated_from,
+        } = resolution;
+        let ChangeStage {
+            legacy_effects,
+            attachment_files,
+            holds_changed,
+        } = changes;
         for (key, shown) in before {
             self.before.entry(key).or_insert(shown);
         }
