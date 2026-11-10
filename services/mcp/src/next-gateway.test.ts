@@ -225,60 +225,24 @@ describe("NextGateway", () => {
   });
 
   describe("an open session", () => {
-    const hostedRoute = { status: 200, body: { ...routed.body, authorization_grant: grantId } };
     const emptyPage = { results: [], meta: { has_more: false } };
-    async function opened(routes: Array<{ status: number; body: unknown }>, target: NextConnection = native) {
-      const setup = await fixture(routes, 200, true);
-      const close = vi.fn();
-      setup.open.mockResolvedValueOnce({ query: vi.fn(async () => ({ records: [], complete: true, asOf: 1 })), close } as unknown as MdbaseClient);
-      await expect(setup.gateway.run(target, "access", "query", {}, "req-1")).resolves.toEqual(emptyPage);
-      return { ...setup, close };
-    }
 
-    it("is reused only after Connect has routed the call again", async () => {
-      const setup = await opened([hostedRoute, hostedRoute]);
-      await expect(setup.gateway.run(native, "access", "query", {}, "req-2")).resolves.toEqual(emptyPage);
-      expect(setup.open).toHaveBeenCalledTimes(1);
-      expect(setup.calls).toHaveLength(2);
-      setup.gateway.close();
-    });
-
-    it.each([
-      { name: "the grant needs a new approval", route: { status: 409, body: {} }, code: "reconnect_required" },
-      { name: "access was removed", route: { status: 200, body: { collection: "col-1", grant: grantId, targets: [], availability: { state: "unavailable", reason: "access_removed" } } }, code: "access_removed" },
-      { name: "the routing grant changed", route: { status: 200, body: { ...routed.body, grant: "other-log-grant", authorization_grant: "other" } }, code: "authorization_changed" }
-    ])("ends at once when $name", async ({ route, code }) => {
-      const setup = await opened([hostedRoute, route]);
-      await expect(setup.gateway.run(native, "access", "query", {}, "req-2")).rejects.toMatchObject({ code });
-      await vi.waitFor(() => expect(setup.close).toHaveBeenCalled());
-      expect(setup.open).toHaveBeenCalledTimes(1);
-    });
-
-    it("is replaced when Connect routes the collection under another grant", async () => {
-      const setup = await opened([routed, { status: 200, body: { ...routed.body, grant: "newer-log-grant" } }], connection);
+    it("is reused without asking Connect for the route again", async () => {
+      const setup = await fixture([routed], 200, true);
+      await expect(setup.gateway.run(connection, "access", "query", {}, "req-1")).resolves.toEqual(emptyPage);
       await expect(setup.gateway.run(connection, "access", "query", {}, "req-2")).resolves.toEqual(emptyPage);
-      await vi.waitFor(() => expect(setup.close).toHaveBeenCalled());
-      expect(setup.open).toHaveBeenLastCalledWith(expect.objectContaining({ grant: "newer-log-grant" }));
+      expect(setup.open).toHaveBeenCalledTimes(1);
+      expect(setup.calls).toHaveLength(1);
       setup.gateway.close();
     });
 
-    it("ends when Connect stops routing the collection on next", async () => {
-      const setup = await opened([routed, { status: 200, body: { collection: "col-1", grant: "log-grant", targets: [] } }], connection);
-      await expect(setup.gateway.run(connection, "access", "query", {}, "req-2")).resolves.toBe(LEGACY);
-      await vi.waitFor(() => expect(setup.close).toHaveBeenCalled());
-    });
-
-    it.each([
-      { name: "Connect being out of reach", route: { status: 0, body: null }, code: "control_unreachable" },
-      { name: "an expired access token", route: { status: 401, body: {} }, code: "authority_authentication_expired" },
-      { name: "a Connect error", route: { status: 503, body: {} }, code: "control_error" },
-      { name: "its device going offline", route: { status: 200, body: { collection: "col-1", grant: grantId, targets: [], availability: { state: "unavailable", reason: "device_offline" } } }, code: "device_offline" }
-    ])("survives $name, without serving the call", async ({ route, code }) => {
-      const setup = await opened([hostedRoute, route, hostedRoute]);
-      await expect(setup.gateway.run(native, "access", "query", {}, "req-2")).rejects.toMatchObject({ code });
-      await expect(setup.gateway.run(native, "access", "query", {}, "req-3")).resolves.toEqual(emptyPage);
+    it("is opened once for calls that arrive together", async () => {
+      const setup = await fixture([routed, routed], 200, true);
+      await Promise.all([
+        setup.gateway.run(connection, "access", "query", {}, "req-1"),
+        setup.gateway.run(connection, "access", "query", {}, "req-2")
+      ]);
       expect(setup.open).toHaveBeenCalledTimes(1);
-      expect(setup.close).not.toHaveBeenCalled();
       setup.gateway.close();
     });
 
@@ -393,7 +357,7 @@ describe("NextGateway", () => {
     it("reopens once for calls that were running together", async () => {
       const fail = () => { throw sessionClosed(); };
       const second = vi.fn(async () => emptyPage);
-      // Four routes: each call is routed, and routed again when it is run again.
+      // Spare routes: both calls may ask Connect before either has opened the session.
       const setup = await sessions([{ query: vi.fn(async () => { await Promise.resolve(); return fail(); }) }, { query: second }, { query: second }, { query: second }]);
       const results = await Promise.all([
         setup.gateway.run(native, "access", "query", {}, "req-1"),

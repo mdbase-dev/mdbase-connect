@@ -28,8 +28,6 @@ interface Session {
   token: { value: string };
   idle: ReturnType<typeof setTimeout> | null;
   keyHandle: string | null;
-  /** The routing grant the session was opened under. */
-  grant: string;
   /** Served by the hosted replica (cloud copy), not a user device. */
   hosted: boolean;
   /** Closed by the gateway: never handed out again. */
@@ -61,10 +59,6 @@ const HOSTED_GRACE_DELAYS_MS = [1_000, 2_000, 3_000, 4_000, 5_000, 5_000];
 // and how long after the call began a rerun may still start.
 const HOSTED_RETRIES = 2;
 const HOSTED_RERUN_WITHIN_MS = 30_000;
-// Route refusals that say the grant no longer stands. A session open under it ends;
-// any other failure (Connect out of reach or erroring, an expired access token) only
-// fails the call that met it.
-const GRANT_REFUSALS = new Set(["reconnect_required", "access_removed", "sync_required", "authorization_changed"]);
 // A client told to retry a write with the same mutation_id does so within minutes.
 const WRITE_MEMO_TTL_MS = 15 * 60_000;
 const WRITE_MEMO_MAX = 4_096;
@@ -121,6 +115,7 @@ export class NextGateway {
     const now = this.now();
     const known = this.writes.get(key);
     if (known && known.expires > now) return known;
+    this.writes.delete(key);
     for (const [id, entry] of this.writes) {
       if (entry.expires > now && this.writes.size < WRITE_MEMO_MAX) break;
       this.writes.delete(id);
@@ -131,36 +126,25 @@ export class NextGateway {
   }
 
   private async session(connection: NextConnection, accessToken: string, signal?: AbortSignal): Promise<Session | typeof LEGACY> {
-    // Connect authorizes every call, as it does on the legacy path. A replica learns of
-    // a revoked grant from the log, seconds later; an open session must not outlive
-    // the grant for that long.
-    let route: Awaited<ReturnType<NextGateway["route"]>>;
-    try {
-      route = await this.route(connection, accessToken, true, signal);
-    } catch (error) {
-      if (error instanceof GatewayOperationError && GRANT_REFUSALS.has(error.code)) this.drop(connection.id);
-      throw error;
-    }
-    if (route === LEGACY) {
-      this.drop(connection.id);
-      this.legacy.set(connection.id, this.now() + LEGACY_TTL_MS);
-      return LEGACY;
-    }
     const existing = this.sessions.get(connection.id);
     if (existing) {
       const session = await abortable(existing.catch(() => null), signal);
-      if (session && !session.ended && session.keyHandle === connection.key_handle && session.grant === route.grant) {
+      if (session && !session.ended && session.keyHandle === connection.key_handle) {
         session.token.value = accessToken;
         return session;
       }
       // Another call may have replaced it while this one waited.
-      if (this.sessions.get(connection.id) === existing) {
-        this.sessions.delete(connection.id);
-        if (session) this.end(connection.id, session);
-      } else {
-        return this.session(connection, accessToken, signal);
-      }
+      if (this.sessions.get(connection.id) !== existing) return this.session(connection, accessToken, signal);
+      this.sessions.delete(connection.id);
+      if (session) this.end(connection.id, session);
     }
+    const route = await this.route(connection, accessToken, true, signal);
+    if (route === LEGACY) {
+      this.legacy.set(connection.id, this.now() + LEGACY_TTL_MS);
+      return LEGACY;
+    }
+    // Another call may have opened one while Connect answered.
+    if (this.sessions.has(connection.id)) return this.session(connection, accessToken, signal);
     const token = { value: accessToken };
     const opening = (async () => {
       const key = await this.options.noise.get(connection.key_handle!);
@@ -189,7 +173,7 @@ export class NextGateway {
           throw refused ?? error;
         }
       });
-      return { client, token, idle: null, keyHandle: connection.key_handle, grant: route.grant, hosted, ended: false } satisfies Session;
+      return { client, token, idle: null, keyHandle: connection.key_handle, hosted, ended: false } satisfies Session;
     })();
     this.sessions.set(connection.id, opening);
     // Callers share the open; one that gives up leaves it running for the others.
