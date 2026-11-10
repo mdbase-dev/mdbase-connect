@@ -1,8 +1,10 @@
 /**
  * The log transport: unary HTTP RPC to the log Worker over the `LOG` service
- * binding (`GET /v1/nonce`, `POST /v1/rpc`), with the service device's bearer token
- * and an `ls-http` possession proof signed inside the engine. No standing socket,
- * so the DO can hibernate; new entries are learned by re-running the subscription.
+ * binding (`POST /v1/rpc`), with the service device's bearer token and an
+ * `ls-http` possession proof signed inside the engine. The nonce is the previous
+ * response's piggybacked one (`SpareNonces`), else `GET /v1/nonce`. No standing
+ * socket, so the DO can hibernate; new entries are learned by re-running the
+ * subscription.
  *
  * Failures never become definitive results: a transport error is "no response"
  * (the engine retries identical bytes), connectivity loss is "offline".
@@ -13,6 +15,9 @@ import { appendObservation, type AppendObservation } from "./append-observe.ts";
 import type { ObjectOriginPolicy } from "./object-origins.ts";
 import { completeObjectReply } from "./object-download.ts";
 import { deadline } from "./deadline.ts";
+import { nonceFromHex, nonceRefusal, SpareNonces } from "../../../packages/sdk/src/app-host/spare-nonces.ts";
+
+export { SpareNonces };
 
 const ORIGIN = "https://log.internal"; // service binding: the host part is ignored
 const MAX_REPLY_BYTES = 16 << 20;
@@ -20,6 +25,9 @@ const MAX_REPLY_BYTES = 16 << 20;
 const MAX_APPEND_REPLY_BYTES = 64 << 10;
 /** A nonce is 64 hex characters (plus optional whitespace). */
 const MAX_NONCE_BYTES = 128;
+/** A nonce refusal is a ~40-byte ls-response with no message; larger replies are
+ * never decoded here (the engine decodes every reply itself). */
+const MAX_NONCE_REFUSAL_BYTES = 256;
 const TIMEOUT_MS = 15_000;
 
 /**
@@ -181,6 +189,7 @@ export async function sendCall(
   observeAppend?: (call: LogCallOut, observation: AppendObservation) => void,
   readReplyCap = MAX_REPLY_BYTES,
   objectOrigins?: ObjectOriginPolicy,
+  nonces = new SpareNonces(),
 ): Promise<SendOutcome> {
   if (!fence()) return "dropped";
   // Everything about the call is captured ONCE, before any await: its ID, method,
@@ -219,42 +228,58 @@ export async function sendCall(
   const timeout = deadline(TIMEOUT_MS);
   const signal = timeout.signal;
   try {
-    const nr = await log.fetch(`${ORIGIN}/v1/nonce`, { signal });
-    if (!fence()) {
-      await nr.body?.cancel();
-      return markStale();
+    // Steady state: the previous response's piggybacked nonce, so one request per call.
+    let spare = nonces.take();
+    for (;;) {
+      let nonce = spare;
+      if (!nonce) {
+        const nr = await log.fetch(`${ORIGIN}/v1/nonce`, { signal });
+        if (!fence()) {
+          await nr.body?.cancel();
+          return markStale();
+        }
+        const nonceHex = new TextDecoder().decode(await boundedBytes(nr, MAX_NONCE_BYTES)).trim();
+        if (!fence()) return markStale();
+        nonce = nr.ok ? nonceFromHex(nonceHex) : null;
+        if (!nonce) throw new Error("nonce");
+      }
+      const sig = engine.signRpc(method, key0, token, frame, nonce);
+      const r = await log.fetch(`${ORIGIN}/v1/rpc`, {
+        method: "POST",
+        signal,
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/cbor",
+          "x-mdbase-nonce": hex(nonce),
+          "x-mdbase-sig": hex(sig),
+        },
+        body: frame,
+      });
+      nonce.fill(0);
+      nonces.keep(r.headers);
+      if (!fence()) {
+        // Sent: an append's (small, bounded) outcome is kept; anything else is
+        // cancelled at once rather than drained.
+        if (isAppend && r.ok) reply = await boundedBytes(r, MAX_APPEND_REPLY_BYTES).catch(() => null);
+        else await r.body?.cancel();
+        return markStale();
+      }
+      if (!r.ok) {
+        httpStatus = r.status;
+        await r.body?.cancel();
+        throw new Error(`rpc ${r.status}`);
+      }
+      reply = await boundedBytes(r, isAppend ? MAX_APPEND_REPLY_BYTES : Math.min(readReplyCap, MAX_REPLY_BYTES));
+      // The session moved while this call was out: never feed a later engine.
+      if (!fence()) return markStale();
+      // A refused spare (expired, or already used) was rejected before dispatch,
+      // so nothing happened: send once more with a fresh nonce. Any other reply,
+      // and every unknown outcome above, keeps its handling and is never resent.
+      if (!spare || !refusedNonce(reply)) break;
+      reply.fill(0);
+      reply = null;
+      spare = null;
     }
-    const nonceHex = new TextDecoder().decode(await boundedBytes(nr, MAX_NONCE_BYTES)).trim();
-    if (!fence()) return markStale();
-    if (!nr.ok || !/^[0-9a-f]{64}$/.test(nonceHex)) throw new Error("nonce");
-    const nonce = Uint8Array.from(nonceHex.match(/../g)!.map((h) => parseInt(h, 16)));
-    const sig = engine.signRpc(method, key0, token, frame, nonce);
-    const r = await log.fetch(`${ORIGIN}/v1/rpc`, {
-      method: "POST",
-      signal,
-      headers: {
-        authorization: `Bearer ${token}`,
-        "content-type": "application/cbor",
-        "x-mdbase-nonce": nonceHex,
-        "x-mdbase-sig": hex(sig),
-      },
-      body: frame,
-    });
-    if (!fence()) {
-      // Sent: an append's (small, bounded) outcome is kept; anything else is
-      // cancelled at once rather than drained.
-      if (isAppend && r.ok) reply = await boundedBytes(r, MAX_APPEND_REPLY_BYTES).catch(() => null);
-      else await r.body?.cancel();
-      return markStale();
-    }
-    if (!r.ok) {
-      httpStatus = r.status;
-      await r.body?.cancel();
-      throw new Error(`rpc ${r.status}`);
-    }
-    reply = await boundedBytes(r, isAppend ? MAX_APPEND_REPLY_BYTES : Math.min(readReplyCap, MAX_REPLY_BYTES));
-    // The session moved while this call was out: never feed a later engine.
-    if (!fence()) return markStale();
     let replyCurrent = fence;
     if (method === "get_object" && objectOrigins) {
       const completed = await completeObjectReply(log, frame, reply, id, fence, objectOrigins, signal);
@@ -328,6 +353,8 @@ export interface PumpHooks {
   /** Normal object reads only; pinned attachment metadata keeps raw Direct. */
   objectOrigins?: ObjectOriginPolicy;
   report?: PumpReport;
+  /** The actor's piggybacked nonces, kept across pumps (default: this pump's own). */
+  nonces?: SpareNonces;
 }
 
 /** Move every queued log call (and the calls their replies queue) until quiet.
@@ -347,6 +374,7 @@ export async function pumpLog(
   hooks: PumpHooks = {},
 ): Promise<void> {
   let refreshed = false;
+  const nonces = hooks.nonces ?? new SpareNonces();
   rounds: for (let i = 0; i < maxRounds; i++) {
     if (!fence()) return;
     // A bound session with nothing queued needs no token: quiet.
@@ -372,7 +400,7 @@ export async function pumpLog(
       try { observeCall?.(c); } catch { /* Telemetry cannot affect transport. */ }
       if (!fence()) { c.frame.fill(0); return; }
       const method = hooks.report || timings ? methodOf(c.frame) : "";
-      const outcome = await sendCall(log, engine, t, c, fence, stale, observeAppend, MAX_REPLY_BYTES, hooks.objectOrigins);
+      const outcome = await sendCall(log, engine, t, c, fence, stale, observeAppend, MAX_REPLY_BYTES, hooks.objectOrigins, nonces);
       note(timings, method, started);
       if (hooks.report) {
         if (outcome === "failed" || outcome === "refused") hooks.report.failed++;
@@ -392,6 +420,11 @@ export async function pumpLog(
       }
     }
   }
+}
+
+function refusedNonce(reply: Uint8Array): boolean {
+  if (reply.length > MAX_NONCE_REFUSAL_BYTES) return false;
+  try { return nonceRefusal(decode(reply)); } catch { return false; }
 }
 
 function methodOf(frame: Uint8Array): string {

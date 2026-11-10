@@ -5,6 +5,7 @@ import { decode, encode, type CborValue } from "../cbor.js";
 import { uuidToBytes } from "../codec.js";
 import type { AppLogCall, AppLogTransport } from "./log-pump.js";
 import { appServerBody, appServerOutcome, appServerProblem, isAppServerProblem, type AppServerOutcome, type AppServerProblem } from "./cp-problem.js";
+import { nonceFromHex, nonceRefusal, SpareNonces } from "./spare-nonces.js";
 
 const MAX_FRAME = 16 * 1024 * 1024, MAX_OBJECT = 9 * 1024 * 1024;
 const METHODS = new Set(["append", "read", "head", "subscribe", "unsubscribe", "put_object", "get_object", "has_objects", "put_snapshot", "get_snapshot", "endorse_snapshot", "stream_join", "stream_leave", "stream_send"]);
@@ -88,17 +89,6 @@ function proof(endpoint: number | bigint, originalCallId: bigint, method: string
   return Object.freeze({ endpoint, originalCallId, frame: frame.slice(), token, method, path: "/v1/rpc", collection, nonce: nonce.slice(), bodyHash, tokenHash, digest });
 }
 interface Request { id: bigint; method: string; params: MapValue }
-/** A worker's piggybacked next nonce (`x-mdbase-next-nonce`) is minted like
- * `GET /v1/nonce` and lives 60 s server-side; use it well inside that. */
-const SPARE_NONCE_MS = 40_000, SPARE_NONCES = 6, NEXT_NONCE = "x-mdbase-next-nonce";
-function nonceBytes(text: string): Uint8Array | null { return /^[0-9a-f]{64}$/.test(text) ? Uint8Array.from(text.match(/../g)!.map(v => parseInt(v, 16))) : null; }
-/** An auth refusal of the nonce itself (never dispatched), safe to retry once with a fresh nonce. */
-function nonceRefused(reply: Uint8Array): boolean {
-  try {
-    const e = (decode(reply) as MapValue).get(3); if (!(e instanceof Map)) return false;
-    const m = e as MapValue; return m.get(0) === "unauthenticated" && (m.get(1) === "nonce" || m.get(1) === "replay");
-  } catch { return false; }
-}
 interface Direct { url: string; headers: Headers; expires: number }
 
 /** All operations are bound to ONE immutable authenticated generation. A throw is
@@ -114,9 +104,8 @@ export class AppHttpLogTransport implements AppLogTransport {
   private readonly now: () => number;
   private readonly loopback: boolean;
   private commitId = (1n << 64n) - 1n;
-  /** Unused piggybacked nonces (one per reply, a few kept for concurrent RPCs);
-   * each is taken (never shared) by exactly one later RPC. */
-  private spares: { nonce: Uint8Array; at: number }[] = [];
+  /** Unused piggybacked nonces; each is taken (never shared) by exactly one later RPC. */
+  private readonly spares: SpareNonces;
   private responseId = 0;
   private readonly receiving = new Map<number, number>();
   /** Only active logical sends, with bytes admitted under the existing body /
@@ -135,6 +124,7 @@ export class AppHttpLogTransport implements AppLogTransport {
       // transport already trusts with every RPC; extra object-store origins are opt-in.
       this.approved = new Set([this.base, ...authority.directOrigins.map(v => origin(v, this.loopback))]);
       this.fetchImpl = options.fetch ?? globalThis.fetch; this.now = options.now ?? Date.now;
+      this.spares = new SpareNonces(this.now);
     } catch { throw error("binding"); }
   }
   isCurrent(): boolean {
@@ -204,33 +194,18 @@ export class AppHttpLogTransport implements AppLogTransport {
     const server = appServerProblem(r.status, body, r.headers);
     return new AppHttpLogError(appServerOutcome(server) ?? "unavailable", server);
   }
-  /** Take the newest fresh spare nonce; it is single use, so never hand it out twice. */
-  private takeSpare(): Uint8Array | null {
-    for (let spare = this.spares.pop(); spare; spare = this.spares.pop()) {
-      const age = this.now() - spare.at;
-      if (age >= 0 && age < SPARE_NONCE_MS) return spare.nonce;
-      spare.nonce.fill(0);
-    }
-    return null;
-  }
-  private keepSpare(r: Response): void {
-    const next = nonceBytes(r.headers.get(NEXT_NONCE) ?? "");
-    if (!next) return;
-    this.spares.push({ nonce: next, at: this.now() });
-    while (this.spares.length > SPARE_NONCES) this.spares.shift()!.nonce.fill(0);
-  }
   private async freshNonce(signal: AbortSignal, receive: (bytes: number) => void): Promise<Uint8Array> {
     const nr = await this.fetch(`${this.base}/v1/nonce`, {}, signal, 15_000);
     if (!nr.ok) throw await this.refusal(nr, signal, receive);
     const raw = await this.read(nr, 128, signal, receive);
-    try { this.check(signal); const nonce = nonceBytes(new TextDecoder("utf-8", { fatal: true }).decode(raw).trim()); if (!nonce) throw error("shape"); return nonce; } finally { raw.fill(0); }
+    try { this.check(signal); const nonce = nonceFromHex(new TextDecoder("utf-8", { fatal: true }).decode(raw).trim()); if (!nonce) throw error("shape"); return nonce; } finally { raw.fill(0); }
   }
   private async rpc(frame: Uint8Array, method: string, id: bigint, signal: AbortSignal, receive: (bytes: number) => void, originalId = id, allowSpare = true): Promise<Uint8Array> {
     this.check(signal); const token = await this.authority.accessToken({ signal }); this.check(signal);
     if (typeof token !== "string" || !token || token.length > 16 * 1024 || /[\r\n]/.test(token)) throw error("shape");
     // Steady state: the previous response's piggybacked nonce, so one request per RPC.
     // Older workers send none; then (and when it is stale) fall back to GET /v1/nonce.
-    const spare = allowSpare ? this.takeSpare() : null;
+    const spare = allowSpare ? this.spares.take() : null;
     const nonce = spare ?? await this.freshNonce(signal, receive);
     this.check(signal); const p = proof(this.endpoint, originalId, method, this.collection, token, frame, nonce); nonce.fill(0);
     let signature: Uint8Array | null = null;
@@ -238,13 +213,14 @@ export class AppHttpLogTransport implements AppLogTransport {
       signature = await this.authority.signLogProof(p, { signal }); this.check(signal);
       if (!(signature instanceof Uint8Array) || signature.length !== 64) throw error("shape");
       const r = await this.fetch(`${this.base}/v1/rpc`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/cbor", "x-mdbase-nonce": hex(p.nonce), "x-mdbase-sig": hex(signature) }, body: frame as BodyInit }, signal, 15_000);
-      this.keepSpare(r);
+      this.spares.keep(r.headers);
       if (r.status === 401) this.authority.invalidateToken?.(token);
       if (!r.ok) throw await this.refusal(r, signal, receive);
       const reply = await this.read(r, method === "append" ? 64 * 1024 : MAX_FRAME, signal, receive);
-      try { this.check(signal); this.response(reply, id); } catch (e) { reply.fill(0); throw e; }
+      let refused: boolean;
+      try { this.check(signal); refused = nonceRefusal(this.response(reply, id)); } catch (e) { reply.fill(0); throw e; }
       // A refused spare (clock skew, or reused) was rejected before dispatch: retry once fresh.
-      if (spare && nonceRefused(reply)) { reply.fill(0); return await this.rpc(frame, method, id, signal, receive, originalId, false); }
+      if (spare && refused) { reply.fill(0); return await this.rpc(frame, method, id, signal, receive, originalId, false); }
       return reply;
     } finally { signature?.fill(0); p.frame.fill(0); p.nonce.fill(0); p.bodyHash.fill(0); p.tokenHash.fill(0); p.digest.fill(0); }
   }
