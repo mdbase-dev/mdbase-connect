@@ -81,7 +81,7 @@ describePg("installation device sign-in on daemon pairing", () => {
     db = await createDatabase(url.toString());
     await app.register(cookie);
     registerErrorHandler(app);
-    registerApplicationRoutes(app,{db,allowInsecureManifests:true});
+    registerApplicationRoutes(app,{db});
     registerAccountOverviewRoute(app,{db,relay:new RelayHub(db),publicUrl:"https://connect.test",authenticationPolicy:new AuthenticationPolicyStore(db,"open")});
     registerConnectorPairingRoutes(app, { db, publicUrl: "https://connect.test", installationDevices: true, installationEnvironment: "lab", relay:{pushPolicy:async(connector)=>{
       const snapshot=await buildPolicySnapshot(db,connector,55_000,undefined,()=>true,"lease_v1",true,true,true) as LeasePolicySnapshot;

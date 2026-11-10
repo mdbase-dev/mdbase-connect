@@ -15,21 +15,17 @@ const declaration=(origin:string,platform:unknown="native")=>applicationDeclarat
 const release=():AppBundledReleaseTrust=>({schema:"mdbn-app-trust/release/1",environment:"production",cpOrigin:"https://cp.test",logOrigin:"https://log.test",assetSha256:"a".repeat(64),source:{repository:"mdbase-dev/mdbase-connect",commit:"b".repeat(40),version:"test.1"},trustedRoots:[new Uint8Array(32).fill(1)],policyPins:Uint8Array.of(1)});
 afterEach(()=>vi.restoreAllMocks());
 describe("declared native production loopback",()=>{
-  it.each(["http://127.0.0.1","http://127.0.0.1:1","http://127.0.0.1:49152","http://127.0.0.1:65535"])("accepts %s only with the native declaration",origin=>{
-    expect(appOriginPlatform(origin,false,"native")).toBe("native");
-    expect(appOriginPlatform(origin)).toBeNull();
+  it.each(["http://127.0.0.1","http://127.0.0.1:1","http://127.0.0.1:49152","http://127.0.0.1:65535"])("accepts %s as a declared native origin",origin=>{
+    expect(appOriginPlatform(origin,"native")).toBe("native");
+    expect(appOriginPlatform(origin)).toBe("web");
     expect(compileApplicationManifest(declaration(origin)).manifest).toMatchObject({platform:"native",homepage:origin});
-    expect(()=>declaration(origin,null)).toThrow();
-    expect(selectAppEnvironment({environment:"production",appOrigin:origin,platform:"native",release:release()})).toMatchObject({allowLoopbackHttp:false,allowNativeLoopbackHttp:true});
-    expect(()=>selectAppEnvironment({environment:"production",appOrigin:origin,release:release()})).toThrow();
-    expect(declaredReturnUrl(`${origin}/callback`,manifest(origin),false)).toBe(true);
-    expect(declaredReturnUrl(`${origin}/other`,manifest(origin),false)).toBe(false);
-    expect(declaredReturnUrl(`${origin}/callback`,manifest(origin,null),false)).toBe(false);
+    expect(selectAppEnvironment({environment:"production",appOrigin:origin,release:release()})).toMatchObject({appOrigin:origin,allowLoopbackHttp:false});
+    expect(declaredReturnUrl(`${origin}/callback`,manifest(origin))).toBe(true);
+    expect(declaredReturnUrl(`${origin}/other`,manifest(origin))).toBe(false);
   });
   it.each(["http://localhost:49152","http://x.localhost:49152","http://127.0.0.2:49152","http://192.168.0.1:49152","http://[::1]:49152","http://127.1:49152","http://2130706433:49152","http://127.0.0.1.evil.test:49152","http://user@127.0.0.1:49152","http://127.0.0.1:0","http://127.0.0.1:65536","app://obsidian.md"])("refuses %s despite native claim",origin=>{
-    expect(appOriginPlatform(origin,false,"native")).toBeNull();
+    expect(appOriginPlatform(origin,"native")).toBeNull();
     expect(()=>declaration(origin)).toThrow();
-    expect(()=>selectAppEnvironment({environment:"production",appOrigin:origin,platform:"native",release:release()})).toThrow();
   });
   it.each(["https://remote.example.test","https://127.0.0.1:49152","http://localhost:49152","http://[::1]:49152"])("rejects a native manifest with %s in any origin-bearing field",other=>{
     const origin="http://127.0.0.1:49152",base=manifest(origin);
@@ -42,9 +38,9 @@ describe("declared native production loopback",()=>{
   it("keeps CP/log HTTPS and exact return-URL ports despite native claim",()=>{
     const origin="http://127.0.0.1:49152";
     for(const field of ["cpOrigin","logOrigin"])
-      expect(()=>selectAppEnvironment({environment:"production",appOrigin:origin,platform:"native",release:{...release(),[field]:origin}})).toThrow();
-    expect(declaredReturnUrl("http://127.0.0.1:49153/callback",manifest(origin),false)).toBe(false);
-    expect(declaredReturnUrl("app://obsidian.md/callback",{...manifest(origin),redirect_uris:["app://obsidian.md/callback"]},false)).toBe(false);
+      expect(()=>selectAppEnvironment({environment:"production",appOrigin:origin,release:{...release(),[field]:origin}})).toThrow();
+    expect(declaredReturnUrl("http://127.0.0.1:49153/callback",manifest(origin))).toBe(false);
+    expect(declaredReturnUrl("app://obsidian.md/callback",{...manifest(origin),redirect_uris:["app://obsidian.md/callback"]})).toBe(false);
   });
   it("registers the canonical native declaration and keeps its current port binding",async()=>{
     const origin="http://127.0.0.1:49152",input=declaration(origin),canonical=parseVersionedAppManifest(input.manifest).manifest;
@@ -58,7 +54,7 @@ describe("declared native production loopback",()=>{
     const origin="http://127.0.0.1:49152",bytes=Uint8Array.of(0,97,115,109),sha256=Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",bytes)),x=>x.toString(16).padStart(2,"0")).join("");
     const asset={url:`${origin}/runtime.wasm`,sha256,bytes:4,maxBytes:4},fetch=vi.fn(async()=>new Response(bytes));
     const assets=applicationNativeAssets(declaration(origin),{release,runtime:asset,sqlite:asset,initializeSqlite:vi.fn()},vi.fn(),fetch);
-    expect(assets.environment.appOrigin).toBe(origin);expect(assets.collection.allowLoopbackHttp).toBe(false);expect(assets.collection.allowNativeLoopbackHttp).toBe(true);
+    expect(assets.environment.appOrigin).toBe(origin);expect(assets.collection.allowLoopbackHttp).toBe(false);
     expect(await assets.loadRuntime({signal:new AbortController().signal})).toEqual(bytes);
     expect(assets.collection.setupJournal.appOrigin).toBe(origin);
   });

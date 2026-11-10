@@ -13,10 +13,13 @@ export function localApplicationHttpOrigin(value: string): boolean {
   } catch { return false; }
 }
 
-/** LAB loopback HTTP admission, only behind a caller's explicit LAB flag; local
- * builds narrow it to {@link localApplicationHttpOrigin}. Not the native
- * exception, which is canonical 127.0.0.1 only (`isNativeLoopbackOrigin`). */
-export function labLoopbackHttpOrigin(value: string): boolean {
+/** A loopback HTTP origin; local builds narrow it to {@link localApplicationHttpOrigin}.
+ * As an application's own origin it is admitted in every environment: it is
+ * where an application runs while it is developed. As one of mdbase's origins
+ * (control plane, log) it also needs the caller's LAB flag, see
+ * `serviceLoopbackAllowed`. Not the native exception, which is canonical
+ * 127.0.0.1 only (`isNativeLoopbackOrigin`). */
+export function loopbackHttpOrigin(value: string): boolean {
   if (LOCAL_APPLICATION_BUILD) return localApplicationHttpOrigin(value);
   try {
     const url = new URL(value);

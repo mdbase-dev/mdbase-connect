@@ -1,7 +1,7 @@
 import {storageNamespaceDigest} from "./storage-scope.js";
 import {appOriginPlatform} from "../app-host/app-origin.js";
 import {mdbaseError} from "../errors.js";
-import {applicationEnvironmentAllowed, applicationLoopbackAllowed, localApplicationEnvironment, localApplicationOrigin} from "./local-build.js";
+import {applicationEnvironmentAllowed, localApplicationEnvironment, localApplicationOrigin} from "./local-build.js";
 
 export type ApplicationJson=null|boolean|number|string|readonly ApplicationJson[]|{readonly[key:string]:ApplicationJson};
 export interface ApplicationStorageDeclaration {
@@ -82,7 +82,7 @@ export function applicationDeclaration(input:MdbaseApplicationDeclaration):Reado
     ||typeof name!=="string"||!name.trim()||new TextEncoder().encode(name).length>100||/[\u0000-\u001f\u007f]/.test(name)
     ||typeof origin!=="string"||typeof environment!=="string"||!applicationEnvironmentAllowed(environment)||!manifest||Array.isArray(manifest)||typeof manifest!=="object")fail();
   if(localApplicationEnvironment(environment)&&!localApplicationOrigin(origin))fail();
-  const platform=appOriginPlatform(origin,applicationLoopbackAllowed(environment),(manifest as Record<string,ApplicationJson>).platform === "native" ? "native" : undefined);
+  const platform=appOriginPlatform(origin,(manifest as Record<string,ApplicationJson>).platform === "native" ? "native" : undefined);
   const kind=data.installationKind??(platform==="mobile"?"mobile":"app-runtime");
   if(platform===null||(kind!=="app-runtime"&&kind!=="mobile")||(platform==="mobile"&&kind!=="mobile")||((platform==="extension"||platform==="native")&&kind!=="app-runtime"))fail();
   const override=data.storage;if(override!==undefined&&(!override||Array.isArray(override)||typeof override!=="object"||Object.keys(override).some(key=>!["joinDatabaseName","setupDatabaseName","unsyncedDatabaseName","applicationNamespace"].includes(key))))fail();

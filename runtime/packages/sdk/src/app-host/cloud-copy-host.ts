@@ -278,7 +278,6 @@ export class AppWebCloudCopyHost {
         loadRuntime(options: { signal: AbortSignal }): Promise<Uint8Array>;
         fetch?: typeof fetch;
         allowLoopbackHttp?: boolean;
-        allowNativeLoopbackHttp?: boolean;
     }): Promise<AppWebCloudCopyHost> {
         const {
             session,
@@ -290,7 +289,6 @@ export class AppWebCloudCopyHost {
             loadRuntime,
             fetch: request,
             allowLoopbackHttp,
-            allowNativeLoopbackHttp,
         } = options;
         let host: AppWebCloudCopyHost | null = null;
         try {
@@ -302,7 +300,7 @@ export class AppWebCloudCopyHost {
                 origin,
                 signal,
             );
-            const {custody, restored} = await host.openOwnedDevice({mode, signal, loadRuntime, allowLoopbackHttp, allowNativeLoopbackHttp, requireReceipt: true});
+            const {custody, restored} = await host.openOwnedDevice({mode, signal, loadRuntime, requireReceipt: true});
             if (mode === "existing") {
                 host.native!.acknowledgeDeviceRegistration(restored!.receipt!);
                 host.check(signal);
@@ -341,9 +339,8 @@ export class AppWebCloudCopyHost {
         signal: AbortSignal;
         loadRuntime(options: {signal: AbortSignal}): Promise<Uint8Array>;
         allowLoopbackHttp?: boolean;
-        allowNativeLoopbackHttp?: boolean;
     }): Promise<AppWebCloudCopyHost> {
-        const {signIn, installation, release, origin, signal, loadRuntime, allowLoopbackHttp, allowNativeLoopbackHttp} = options;
+        const {signIn, installation, release, origin, signal, loadRuntime, allowLoopbackHttp} = options;
         let host: AppWebCloudCopyHost | null = null;
         try {
             const session = signIn.confirmedHostSession(release.logOrigin, release.environment);
@@ -351,7 +348,7 @@ export class AppWebCloudCopyHost {
             host.signIn = signIn;
             const prepared = await signIn.prepareOriginalDevice(installation);
             host.check(signal);
-            const {custody, restored} = await host.openOwnedDevice({mode: prepared.mode, signal, loadRuntime, allowLoopbackHttp, allowNativeLoopbackHttp, requireReceipt: false});
+            const {custody, restored} = await host.openOwnedDevice({mode: prepared.mode, signal, loadRuntime, requireReceipt: false});
             host.originalCustody = custody;
             if (restored?.receipt && signIn.view().state !== "paired") throw fail("recovery_required");
             // Protect original Noise immediately, even before explicit attestation.
@@ -390,19 +387,17 @@ export class AppWebCloudCopyHost {
         mode: "fresh" | "existing";
         signal: AbortSignal;
         loadRuntime(options: {signal: AbortSignal}): Promise<Uint8Array>;
-        allowLoopbackHttp?: boolean;
-        allowNativeLoopbackHttp?: boolean;
         requireReceipt: boolean;
     }) {
-        const {mode, signal, loadRuntime, allowLoopbackHttp, allowNativeLoopbackHttp, requireReceipt} = options;
+        const {mode, signal, loadRuntime, requireReceipt} = options;
         this.check(signal);
-        this.provider = await AppIndexedDbDeviceKeyProvider.open({source: this.pin, origin: this.origin, mode, signal, allowLoopbackHttp, allowNativeLoopbackHttp});
+        this.provider = await AppIndexedDbDeviceKeyProvider.open({source: this.pin, origin: this.origin, mode, signal});
         this.check(signal);
         this.key = this.provider.deviceCustodyKek({signal});
         this.check(signal);
-        this.keys = await AppIndexedDbDeviceKeyProtectedStore.open({source: this.pin, origin: this.origin, mode, signal, allowLoopbackHttp, allowNativeLoopbackHttp});
+        this.keys = await AppIndexedDbDeviceKeyProtectedStore.open({source: this.pin, origin: this.origin, mode, signal});
         this.check(signal);
-        this.noiseStore = await AppIndexedDbNoiseProtectedStore.open({source: this.pin, origin: this.origin, mode, signal, allowLoopbackHttp, allowNativeLoopbackHttp});
+        this.noiseStore = await AppIndexedDbNoiseProtectedStore.open({source: this.pin, origin: this.origin, mode, signal});
         this.check(signal);
         this.noise = new AppWebNoiseCustody(this.pin, this.key, this.noiseStore);
         const restored = await this.noise.restore({signal});
@@ -435,7 +430,6 @@ export class AppWebCloudCopyHost {
         displayName?: string;
         fetch?: typeof fetch;
         allowLoopbackHttp?: boolean;
-        allowNativeLoopbackHttp?: boolean;
     }): Promise<AppCloudCopyBootstrapMetadata> {
         const {
             scope,
@@ -446,7 +440,6 @@ export class AppWebCloudCopyHost {
             reconcile,
             fetch: request,
             allowLoopbackHttp,
-            allowNativeLoopbackHttp,
         } = options;
         const signal = this.operationSignal(callerSignal);
         const requestedName = options.displayName;
@@ -508,8 +501,6 @@ export class AppWebCloudCopyHost {
                 origin: this.origin,
                 mode: outcomeMode,
                 signal,
-                allowLoopbackHttp,
-                allowNativeLoopbackHttp,
             });
             this.checkCollection(signal);
             this.outcome = new AppWebCloudCopyBootstrapPersistence(

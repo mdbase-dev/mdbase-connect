@@ -367,7 +367,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
             ) : (
               <>
                 <RequestIdentity request={{ application_name: pairing.connector_name, application_origin: pairing.app_origin,
-                  platform: pairing.app_platform, homepage: pairing.app_origin ?? "", expires_at: pairing.expires_at }} showClientKey={false} />
+                  homepage: pairing.app_origin ?? "", expires_at: pairing.expires_at }} showClientKey={false} />
                 {installationAccountLabel(pairing) ? (
                   <p className="installation-account-label"><Trans>Account: {literal(installationAccountLabel(pairing))}</Trans></p>
                 ) : (

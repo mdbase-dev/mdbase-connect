@@ -47,6 +47,13 @@ describe("SDK packaged application assets",()=>{
       expect(()=>select("lab","null")).toThrow();
     } finally {vi.unstubAllGlobals();}
   });
+  it("selects the assets beside a development server's versioned module URL",async()=>{
+    const select=await selector("http://localhost:5173/node_modules/@mdbase-dev/sdk/dist/application/packaged-assets.js?v=ce183db8");
+    const assets=select("lab","http://localhost:5173");
+    expect(assets.runtime.url).toBe("http://localhost:5173/node_modules/@mdbase-dev/sdk/dist/native/runtime.wasm");
+    expect(assets.sqlite.url).toBe("http://localhost:5173/node_modules/@mdbase-dev/sdk/dist/native/sqlite3.wasm");
+  });
+  it("refuses a module anchor that carries credentials",async()=>{const select=await selector("https://user:secret@app.test/sdk/application/packaged-assets.js");expect(()=>select("lab","https://app.test")).toThrow();});
   it("refuses a foreign module anchor",async()=>{const select=await selector("https://foreign.test/sdk/application/a.js");expect(()=>select("lab","https://app.test")).toThrow();});
   it("selector uses the canonical packaging pins without exposing build provenance or initializer metadata",async()=>{
     const select=await selector("https://app.test/sdk/application/packaged-assets.js");

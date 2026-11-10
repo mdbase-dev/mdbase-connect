@@ -1,6 +1,6 @@
 import {isAppOrigin,urlOrigin} from "../app-host/app-origin.js";
 import {isMdbaseError,mdbaseError} from "../errors.js";
-import {applicationEnvironmentAllowed,applicationLoopbackAllowed,localApplicationEnvironment,localApplicationOrigin} from "./local-build.js";
+import {applicationEnvironmentAllowed,localApplicationEnvironment,localApplicationOrigin} from "./local-build.js";
 
 /** SDK build/packaging input only, not an application declaration option.
  * Hash integrity does NOT authenticate this descriptor or the release context. */
@@ -12,7 +12,6 @@ export interface ApplicationAsset {
 }
 export interface ApplicationAssetHost {
   readonly origin:string;
-  readonly platform?:"native";
   readonly environment:"lab"|"staging"|"production"|"local";
   readonly fetch?:typeof fetch;
 }
@@ -30,7 +29,7 @@ export function applicationAssetLoader(input:ApplicationAsset,source:Application
   const asset=Object.freeze({...input}),host=Object.freeze({...source});
   let url:URL,origin:URL;
   try{url=new URL(asset.url);origin=new URL(host.origin);}catch{throw error("application_asset_binding");}
-  if(!isAppOrigin(host.origin,applicationLoopbackAllowed(host.environment),host.platform)||origin.protocol!==url.protocol
+  if(!isAppOrigin(host.origin)||origin.protocol!==url.protocol
     ||!applicationEnvironmentAllowed(host.environment)||(localApplicationEnvironment(host.environment)&&!localApplicationOrigin(host.origin))||urlOrigin(url)!==host.origin||url.username||url.password||url.search||url.hash
     ||!/^[0-9a-f]{64}$/.test(asset.sha256)||!Number.isSafeInteger(asset.bytes)||asset.bytes<1
     ||!Number.isSafeInteger(asset.maxBytes)||asset.maxBytes<asset.bytes||asset.maxBytes>4*1024*1024)throw error("application_asset_binding");

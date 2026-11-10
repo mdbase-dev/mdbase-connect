@@ -30,6 +30,11 @@ describe("registered installation origins", () => {
   it.each(["http://localhost:48218", "http://127.0.0.1:48219", "http://127.0.0.1", "https://127.0.0.1:48218", "http://127.0.0.1:48218/", "http://127.0.0.1:48218/path", "http://127.0.0.2:48218", "null", undefined])("refuses missing/changed host, port, scheme or URL form %s", async origin => {
     await expect(installationApp(registry().db, "lab", id, origin, "app-runtime")).rejects.toMatchObject({code: "installation_app_not_allowed"});
   });
+  it.each(["production", "staging"])("a loopback origin that is only listed for %s never pairs there", async environment => {
+    const {db} = registry({[environment]: {"app-runtime": [local, "http://localhost:5173"]}});
+    for (const origin of [local, "http://localhost:5173"])
+      await expect(installationApp(db, environment, id, origin, "app-runtime")).rejects.toMatchObject({code: "installation_app_not_allowed", status: 403});
+  });
   it("uses separate exact registered production/staging policies, without fallback", async () => {
     const {db} = registry();
     expect((await installationApp(db, "production", id, "https://notes.example.test", "app-runtime")).origin).toBe("https://notes.example.test");
@@ -77,6 +82,24 @@ describe("self-registered application pairing origins", () => {
       await expect(installationApp(db, "production", app.id, "https://journal-lookalike.example.test", "app-runtime"))
         .rejects.toMatchObject({ code: "installation_app_not_allowed", status: 403 });
     } finally { await db.end(); }
+  });
+  it.each(["production", "staging"])("pairs an application under development from the loopback origin its manifest declares in %s", async environment => {
+    const db = await createDatabase("memory");
+    try {
+      const dev = "http://localhost:5173";
+      const published = await upsertApplication(db, registerApplicationManifest(journal));
+      const app = await upsertApplication(db, registerApplicationManifest({ ...journal, homepage: dev, redirect_uris: [`${dev}/callback`] }));
+      expect(app.id).not.toBe(published.id);
+      expect(app.canonical_identity).not.toBe(published.canonical_identity);
+      expect(await installationApp(db, environment, app.id, dev, "app-runtime")).toEqual({ id: app.id, origin: dev, name: "Journal" });
+      for (const origin of ["http://localhost:5174", "http://127.0.0.1:5173", "http://[::1]:5173", "https://localhost:5173", "http://localhost.example.test:5173", "http://192.168.0.1:5173"])
+        await expect(installationApp(db, environment, app.id, origin, "app-runtime")).rejects.toMatchObject({ code: "installation_app_not_allowed", status: 403 });
+      await expect(installationApp(db, environment, app.id, dev, "mobile")).rejects.toMatchObject({ code: "installation_app_not_allowed" });
+      await expect(installationApp(db, environment, published.id, dev, "app-runtime")).rejects.toMatchObject({ code: "installation_app_not_allowed" });
+    } finally { await db.end(); }
+  });
+  it.each(["http://remote.example.test/", "http://192.168.0.1:5173/", "http://localhost.example.test/"])("refuses to register the insecure non-loopback homepage %s", homepage => {
+    expect(() => registerApplicationManifest({ ...journal, homepage, redirect_uris: [`${homepage}callback`] })).toThrow();
   });
   it("assigns a different registered identity when a lookalike changes the declaration origin", async () => {
     const db = await createDatabase("memory");

@@ -43,7 +43,7 @@ export function applicationWorkerSession(
     cpOrigin:assets.environment.cpOrigin,environment:binding.environment,
     release:assets.release,signal,locks,loadRuntime:assets.loadRuntime,
     openPortal:portal,openCollection:createAppWebCollectionAdapter(collection),
-    autoSelect:"never",localDatabases:Object.freeze([collection.joinDatabaseName,collection.setupJournal.databaseName]),...(fetcher?{fetch:fetcher}:{}),allowLoopbackHttp:assets.environment.allowLoopbackHttp,allowNativeLoopbackHttp:assets.environment.allowNativeLoopbackHttp,
+    autoSelect:"never",localDatabases:Object.freeze([collection.joinDatabaseName,collection.setupJournal.databaseName]),...(fetcher?{fetch:fetcher}:{}),allowLoopbackHttp:assets.environment.allowLoopbackHttp,
     // Omit requestedCreateCollections: ORIGINAL stored request terms must not
     // be silently rewritten during restore. A fresh installation asks to create
     // collections so first-run approval can offer "New collection…" (a new
