@@ -143,6 +143,7 @@ These describe the legacy Connect stack (`crates/connect-*`, legacy hosted
 provider, mirrors) and the migration of its accounts to the runtime. They go
 with that code.
 
+- [legacy-retirement.md](legacy-retirement.md) — what can be deleted, in what order, and what each step waits on.
 - [cli-daemon.md](cli-daemon.md) — legacy connector CLI and daemon.
 - [sync.md](sync.md) — legacy hosted collections and sync.
 - [hosted-provider.md](hosted-provider.md) — legacy hosted provider.
