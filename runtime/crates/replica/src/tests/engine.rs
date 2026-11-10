@@ -3150,6 +3150,167 @@ fn account_key_unknown_commit_faults_until_reopen() {
     );
 }
 
+/// AK1 on the app composition (`KeyringPersistence::RebuildOnOpen`), which is
+/// what a first-party installation device uses: an enrolled `app-runtime`
+/// device with no trusted signers is not keyed, and a restart before any
+/// unlock leaves it not keyed without failing the keyring rebuild. It unlocks
+/// with `R` alone; once the self-grant has applied, a reopen with only the
+/// device keys (no `R`, no keyring at rest) rebuilds the key from the log, still
+/// trusts the account-key device that delivered it, reads what it had not
+/// applied and seals new entries.
+#[test]
+fn account_key_unlock_on_the_app_store_stays_keyed_after_a_reopen_without_the_secret() {
+    use crate::crypto::recovery::RecoveryKey;
+    use crate::seal::KeyringSealer;
+    use crate::store::meta_keys::KEYRING;
+    use mdbn_wire::common::B32;
+    use mdbn_wire::policy::{DeviceEnrol, DeviceKind, PolicyOp};
+    let svc = FakeLogService::new();
+    let (a_dev, b_dev) = (B16([101; 16]), B16([102; 16]));
+    let (a_sign, a_kem) = ([0x31u8; 32], [0x32u8; 32]);
+    let (b_sign, b_kem) = ([0x41u8; 32], [0x42u8; 32]);
+    let mut cp = crate::testkit::TestControlPlane::signed(COL);
+    cp.genesis_with_keys(&svc, mdbn_wire::policy::CState::E2e, a_dev, &a_sign, &a_kem);
+    let mut a = node_with(
+        &svc,
+        1,
+        MemStore::new(),
+        vec![],
+        Some(Box::new(KeyringSealer::new(COL, a_dev, &a_sign, &a_kem))),
+    );
+    settle(&mut [&mut a]);
+    assert_eq!(a.r.policy.epoch, 1);
+    let enrol = |device, sign_pk: [u8; 32], kem_pk: [u8; 32], kind, noise: [u8; 32]| {
+        PolicyOp::DeviceEnrol(DeviceEnrol {
+            device,
+            account: crate::testkit::TEST_OWNER,
+            kind,
+            sign_pk: B32(sign_pk),
+            kem_pk: B32(kem_pk),
+            noise_pk: B32(noise),
+            sas_commit: None,
+            local_root: None,
+        })
+    };
+    // The desktop device set the account key up and keyed its recovery device.
+    let mut e = crate::crypto::TestEntropy::new(5);
+    let r = RecoveryKey::generate(&mut e);
+    let rk = r.derive(&COL);
+    cp.append(
+        &svc,
+        vec![enrol(
+            rk.device,
+            rk.signer.public(),
+            rk.kem.pk,
+            DeviceKind::Recovery,
+            [0; 32],
+        )],
+    );
+    settle(&mut [&mut a]);
+    a.r.key_account_key_device(&rk).unwrap();
+    settle(&mut [&mut a]);
+    assert_eq!(a.r.account_key_device_keyed(&rk), Ok(true));
+    a.create(1, "secret.md", "for my other devices");
+    settle(&mut [&mut a]);
+
+    // The installation device: app-runtime kind, the app store, no trusted signers.
+    let b_kem_pk = crate::crypto::hpke::KemKeyPair::from_secret(&b_kem).pk;
+    let b_sign_pk = crate::crypto::sign::DeviceSigner::from_seed(&b_sign).public();
+    cp.append(
+        &svc,
+        vec![enrol(
+            b_dev,
+            b_sign_pk,
+            b_kem_pk,
+            DeviceKind::AppRuntime,
+            [9; 32],
+        )],
+    );
+    let sealer = || -> Option<Box<dyn crate::seal::Sealer>> {
+        Some(Box::new(KeyringSealer::new(COL, b_dev, &b_sign, &b_kem)))
+    };
+    let store = MemStore::new().with_keyring_rebuild();
+    let data = store.data();
+    let mut b = node_with(&svc, 2, store, vec![], sealer());
+    settle(&mut [&mut b]);
+    assert_eq!(
+        b.r.account_key_unlock_state(),
+        Ok(false),
+        "enrolled, locked"
+    );
+    assert!(!b.r.account_key_unlocked());
+    assert_eq!(b.doc(1), None, "not keyed yet");
+    drop(b);
+
+    // A restart before any unlock: still locked, and the rebuild does not fail.
+    let mut b = node_with(&svc, 2, MemStore::shared(data.clone()), vec![], sealer());
+    settle(&mut [&mut b]);
+    assert!(!b.r.keyring_rebuilding() && !b.r.keyring_rebuild_failed());
+    assert_eq!(b.r.account_key_unlock_state(), Ok(false), "still locked");
+    assert!(b.r.testing_epoch_keys().is_empty());
+    assert_eq!(b.doc(1), None);
+
+    // The person types the password (or recovery key): R is recovered locally.
+    b.r.self_grant_with_account_key(RecoveryKey::from_bytes(*r.expose()).derive(&COL))
+        .unwrap();
+    assert!(!b.r.account_key_unlocked(), "started is not unlocked");
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(
+        b.r.account_key_unlock_state(),
+        Ok(true),
+        "the grant applied"
+    );
+    assert!(b.r.policy.devices[&b_dev].keyed);
+    assert_eq!(b.r.policy.devices[&b_dev].delivered_by, Some(rk.device));
+    assert!(!b.r.key_untrusted);
+    assert_eq!(b.doc(1).as_deref(), Some("for my other devices"));
+    assert_eq!(b.r.sync_status().incidents, vec![]);
+    assert_eq!(
+        data.borrow().keyring_writes,
+        0,
+        "the unlock never handed the app store its keyring"
+    );
+    assert_eq!(crate::Store::meta(b.r.store(), KEYRING).unwrap(), None);
+    drop(b);
+
+    // Meanwhile the desktop writes an entry the app store has not applied.
+    a.create(2, "later.md", "written while the app was closed");
+    settle(&mut [&mut a]);
+
+    // Reopen with the device keys only: no R, no keyring at rest.
+    let mut b = node_with(&svc, 2, MemStore::shared(data.clone()), vec![], sealer());
+    assert!(b.r.keyring_rebuilding());
+    assert!(b.r.testing_epoch_keys().is_empty(), "no keys until rebuilt");
+    settle(&mut [&mut a, &mut b]);
+    assert!(!b.r.keyring_rebuilding() && !b.r.keyring_rebuild_failed());
+    assert_eq!(b.r.testing_epoch_keys().len(), 1, "epoch 1 rebuilt");
+    assert_eq!(
+        b.r.account_key_unlock_state(),
+        Ok(true),
+        "keyed without the secret"
+    );
+    assert!(
+        !b.r.key_untrusted,
+        "the unlocked account-key device is still trusted"
+    );
+    assert_eq!(
+        b.doc(2).as_deref(),
+        Some("written while the app was closed"),
+        "decrypted"
+    );
+    assert_eq!(b.r.stats.voided, 0);
+    assert_eq!(b.r.sync_status().incidents, vec![]);
+    // It seals with the rebuilt key, and the desktop reads it.
+    b.create(3, "from-app.md", "sealed by the installation device");
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(b.r.sync_status().pending, 0);
+    assert_eq!(
+        a.doc(3).as_deref(),
+        Some("sealed by the installation device")
+    );
+    assert_eq!(data.borrow().keyring_writes, 0);
+}
+
 /// AK1, a private collection created after the account key was set up (LAB
 /// two-device run 10070637): device B unlocks before any device holding `R` has
 /// enrolled and keyed the collection's account-key device. The unlock is refused

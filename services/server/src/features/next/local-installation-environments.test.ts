@@ -38,7 +38,7 @@ it.each(cases)("binds pairing, frozen timers and background metadata to the serv
   const input = { request_id: id, pairing_secret: "test-pairing-secret", installation_id: id, device_id: id, kind };
   const pairing = { id, installation_id: id, device_id: id, app_id: id, app_origin: entry.origin, kind,
     timer_declaration: declaration, expires_at: new Date(Date.now() + 60_000), previous_pairing_id: null,
-    scope_only: false, requested_create_collections: false, recovery_collection_id: null,
+    scope_only: false, requested_create_collections: false, requested_private_device: false, approved_private_device_collection_ids: [], recovery_collection_id: null,
     file_access_collection_id: null, file_access_reason: null, requested_file_actions: null };
   const query = vi.fn(async (sql: string) => ({ rows: sql.includes("FROM applications") ? [registered]
     : sql.includes("SELECT p.*") ? [pairing]

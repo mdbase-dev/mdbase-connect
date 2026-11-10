@@ -42,6 +42,22 @@ describe("account browser sessions", () => {
     })).statusCode).toBe(403);
   });
 
+  it("lets a browser app origin send the device-proof headers with its bearer, without credentials", async () => {
+    // The CORS policy reflects any origin and whatever headers the preflight names, so an
+    // app such as app://obsidian.md can call the challenge and account-key routes.
+    const { app } = await fixture();
+    const headers = "authorization,x-mdbase-device-id,x-mdbase-challenge,x-mdbase-signature";
+    for (const [method, url] of [["GET", "/v1/next/account-key"], ["GET", "/v1/next/account-key/status"], ["POST", "/v1/next/devices/challenge"]]) {
+      const preflight = await app.inject({ method: "OPTIONS", url, headers: {
+        origin: "app://obsidian.md", "access-control-request-method": method, "access-control-request-headers": headers } });
+      expect(preflight.statusCode, url).toBe(204);
+      expect(preflight.headers["access-control-allow-origin"]).toBe("app://obsidian.md");
+      expect(preflight.headers["access-control-allow-headers"]).toBe(headers);
+      expect(String(preflight.headers["access-control-allow-methods"]).split(", ")).toContain(method);
+      expect(preflight.headers["access-control-allow-credentials"]).toBeUndefined();
+    }
+  });
+
   it("lists active sessions, identifies the current browser, and revokes only owned sessions", async () => {
     const { app } = await fixture();
     const first = await login(
