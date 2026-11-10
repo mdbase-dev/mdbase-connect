@@ -128,8 +128,12 @@ mostly the single 10k cold open (about 11 s on the reference machine, extrapolat
 `perf`, so it does not cost minutes on every PR.
 
 `mdbn-perf run` notes which path `replica.query_tasks_open` took (indexed or the per-record
-fallback, with the reason) from `Replica::query_stats`. The native scenarios go through the public
-`mdbase` library, which does not expose those counts; their growth slopes show the same thing.
+fallback, with the reason) from `Replica::query_stats`. The replica scenarios run on a `MemStore`,
+which keeps no query index, and the per-record path refuses a query that has to read more than
+1,000 records. The 10k corpus has about 2,800 tasks, so there the scenario reports that refusal, has
+no timings and so has no growth slope. The native scenarios
+go through the public `mdbase` library, which does not expose those counts; their growth slopes
+show the same thing.
 
 To refresh the baseline, on the reference machine (quiet, `uptime` load near zero, release build):
 
