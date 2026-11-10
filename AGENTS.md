@@ -52,6 +52,9 @@ explicit failure over silent recovery, and simplification over expansion.
 - Use `pnpm test:fast`, `pnpm test:integration`, and the narrowest registered
   `pnpm test:system -- --suite ...` selection for test-infrastructure changes;
   use `pnpm test:all` only when every local system boundary is required.
+- List every change in the pull request description, including small ones
+  and ones nobody asked for. A change to how an existing feature behaves,
+  other than a bug fix, gets its own line there and a changelog fragment.
 - Add release notes as `changelog.d/<pr-or-slug>.md`, not shared
   `CHANGELOG.md` edits. Use one `## Breaking|Added|Changed|Fixed|Removed|Security`
   section and Markdown bullets; run `pnpm check:changelog`.
