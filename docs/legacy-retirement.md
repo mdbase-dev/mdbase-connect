@@ -8,7 +8,7 @@ them. Traced read-only on 2026-11-10 from `origin/main` fb59ee214, mdbase-cloud-
 
 Tiers:
 
-- **0**: delete now; nothing consumes it.
+- **0**: deleted in #1360 (the Candidate B storage benchmark and staging leftovers).
 - **1**: delete after a code-only change, here or in mdbase-cloud-ops.
 - **2**: blocked on a production condition; the "Check" column says how to check it.
 - **Keep**: looks legacy but is current.
@@ -35,18 +35,6 @@ state and locks, public endpoints):
   the first build that bundles `mdbn-daemon`. `packages/protocol` still accepts
   connectors from `0.1.0-beta.33`.
 
-## Tier 0: delete now
-
-| Unit | Lines | Evidence nothing consumes it | Same-PR edits |
-| --- | --- | --- | --- |
-| `crates/connect-hosted-storage-benchmark` (bin `hosted-storage-benchmark`) | 4,196 | No workflow, package script, Dockerfile or cloud-ops reference. Its only build is `cargo build --workspace`. It was the Candidate B storage benchmark, with results dated 2026-08-16. | Drop the workspace member. Regenerate `Cargo.lock` and `deploy/docker/Cargo.lock.hosted-provider`; the second is a provider image input, so the next CD rebuilds the provider. Remove the `config/architecture-budgets.json` entries, or leave them for release prep to refresh. |
-| `scripts/hosted-storage-benchmark/` | 2,280 | Only the crate above and its own fixtures use it. | None. |
-| `docs/benchmarks/hosted-storage-model/` | 316,837 (50 files, mostly fixtures and results) | Only the two units above read it. Elsewhere it is cited as text, never read: `docs/decisions/0011-*.md` and the doc comment at `runtime/crates/migrate/src/rehearsal/mod.rs:5`. The rehearsal `shape` module generates its own data. | Remove the `.gitignore:22` exception. Reword the 0011 and rehearsal citations to name the commit. |
-| `scripts/staging-candidate-b-live-mission.mjs` | 516 | No references in Connect or cloud-ops. Last changed 2026-09-27. Candidate B services are decommissioned (cloud-ops `.ops/tasks/decommission-candidate-b-services.md`, status done). | None. |
-| `docs/architecture/candidate-b-beta69-rollback-evidence.md`, `candidate-b-consolidated-schema-diff.md`, `hosted-consumer-staging-missions.md` | 317 | Referenced only by completed cloud-ops tasks and two legacy docs. | Remove the links in `docs/architecture/hosted-projection-migration.md:147` and `hosted-queryable-execution.md:17`. |
-
-Tier 0 removes about 7.3k source and doc lines plus about 317k fixture and result lines.
-
 ## Tier 1: delete after a code-only change
 
 These do not serve production traffic. They are still wired into CI, the release
@@ -58,7 +46,6 @@ can be deleted.
 | Legacy CLI and daemon: `crates/connect-cli` (`mdbase-cli`, bin `mdbase`), `connect-agent` (`mdbase-connect-daemon`), `connect-core`, `connect-mirror` | 69,821 | <ul><li>`deploy/docker/Dockerfile.client`, which builds image `ghcr.io/mdbase-dev/mdbase-connect-client`.</li><li>The client matrix in `publish-images.yml` and `publish-staging-images.yml`.</li><li>In `server-ci.yml`, the `windows-filesystem` job (`-p mdbase-connect-core -p mdbase-connect-daemon`) and the root-workspace fmt and clippy runs.</li><li>`windows-daemon-lifecycle.yml`, `performance-observations.yml` (mirror profile), `flake-stress.yml` via `scripts/ci/stress.mjs`, and `rust-caches.yml` (connect-debug).</li><li>The `legacy-local` system suite, `pnpm e2e:legacy` (`scripts/e2e.mjs` runs `target/debug/mdbase connect daemon run`), and the `provider` suite.</li><li>**cloud-ops:** `MDBASE_CONNECT_CLIENT_IMAGE` in `render/{release,staging-release,lab-release}.env` and `.lock.json`. On every server CD, `bin/prepare-release-client`, `bin/qualify-staging-clients` and `bin/deploy-staging-release` (phase `signed-client-relay-qualification`) run the candidate and N-1 client images.</li></ul> | <ol><li>In cloud-ops, remove or replace the `signed-client-relay-qualification` phase and the client-image lock fields. The agents-notes task `tasks/2026-11-08-retire-legacy-root-daemon-cli.md` already notes that this phase qualifies the wrong binary.</li><li>Done: `pnpm e2e` runs the runtime daemon (`runtime-daemon` suite), and `AGENTS.md` says so. Delete the `legacy-local` suite and `e2e:legacy` with these crates.</li><li>Drop the client image from both publish workflows, then delete `Dockerfile.client`.</li><li>Remove these crates from `windows-filesystem`, `windows-daemon-lifecycle`, `performance-observations`, `flake-stress` (keep its provider, packages and server parts until Tier 2) and `rust-caches`.</li><li>Move the provider suite's mirror CLI to `packages/sync`, or drop that step.</li></ol> |
 | `crates/connect-testbed-adapter` | 367 | The `server-ci` `runtime-testbed` job runs it against the mdbase-spec testbed. | Point that job at the runtime adapter, or drop it. The runtime has its own conformance. |
 | Scripts used only by the CLI group: `scripts/e2e.mjs`, `mirror-live-vault.mjs`, `mirror-writable-live-vault.mjs`, `mirror-profile.mjs`, `mirror-profile-baseline.json`, `profile-file-mirror.mjs`, `assert-mirror-performance.mjs` | about 4.5k with `relay-e2e.mjs`, which stays | `legacy-local` suite, `performance-observations.yml`, root `profile:mirror*` and `check:mirror:mobile` scripts | Same changes as the CLI row. |
-| Stale desktop release triggers | under 20 | The `desktop-release.yml` path filters (`Cargo.toml`, `Cargo.lock`, `crates/**`, `deploy/docker/mdbase-rs-revision`) and the regex in `scripts/continuous-desktop-release.mjs:14`. The desktop bundles `mdbn-daemon` from `runtime/`, not the root crates. | Edit the filters. This can be done now and is independent of the rows above. |
 | CLI and daemon docs: `docs/unified-cli.md` (already marked superseded), the legacy sections of `docs/cli-daemon.md`, `docs/windows-core-flakes.md`, `docs/file-io-campaign.md` | 717 | Links only | Delete together with the CLI crates. |
 
 Deleting the CLI drops the N-1 old-connector qualification, but it does not change
@@ -161,5 +148,5 @@ from an agent session.
   2a work starts.
 - Every server CD rebuilds the provider. `continuous_deployment.py` treats changes
   under `crates/**`, `Cargo.toml`, `Dockerfile.client`, `mdbase-rs-revision` and
-  `packages/sync` as runtime changes, so Tier 0 and Tier 1 deletions will trigger
+  `packages/sync` as runtime changes, so Tier 1 deletions will trigger
   a provider rebuild.
