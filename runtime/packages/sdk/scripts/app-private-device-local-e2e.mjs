@@ -66,6 +66,9 @@
  *   database at the moment its real, correctly signed request is forwarded
  *   (and restored afterwards). The status route needs no proof and is also
  *   called with the credential of an installation that never had the scope.
+ * - Step 9 removes the app's access in the portal's own request
+ *   (`remove-installation-access`, as the installation details page sends it)
+ *   and asks for it again with the app's own "Request access again" (`approve`).
  * - Key management: the daemon keeps an account key only in the OS keychain
  *   (it refuses the test file backend), so the desktop gets a real but
  *   throwaway one: `gnome-keyring-daemon` on a private D-Bus session bus with
@@ -103,7 +106,8 @@ try {
       phase: { kind: p.kind, collectionId: p.collectionId ?? null, problem: problem(p.problem ?? p.notice ?? null),
         ...(p.kind === "needs_unlock" ? { mode: p.mode, unlocking: p.unlocking } : {}),
         ...(p.kind === "choosing" ? { lastApproval: p.lastApproval ? { outcome: p.lastApproval.outcome } : null } : {}),
-        ...(p.kind === "authorizing" ? { purpose: p.purpose } : {}) },
+        ...(p.kind === "authorizing" ? { purpose: p.purpose } : {}),
+        ...(p.kind === "needs_approval" ? { declined: p.declined } : {}) },
       status: s.status, problemCode: s.problem ?? null, selectedCollectionId: s.selectedCollectionId ?? null,
       collections: s.collections.map(c => ({ collectionId: c.collectionId, displayName: c.displayName, role: c.role, mode: c.mode ?? null, kind: c.kind ?? null })),
     };
@@ -113,10 +117,13 @@ try {
   mdbase.subscribe(note); note();
   const failure = e => ({ name: e?.name ?? null, message: String(e?.message ?? e), code: e?.code ?? null, reason: e?.reason ?? null });
   const records = id => { const c = mdbase.connection(id); if (!c) throw Error("no connection for " + id); return c.records; };
-  let signIn = null;
+  let signIn = null, approval = null;
   document.getElementById("sign-in").addEventListener("click", () => { signIn = mdbase.signIn().then(() => ({ ok: true }), e => ({ ok: false, error: failure(e) })); });
+  // "Request access again": the click is the person's; the collection is the one the app shows as removed.
+  document.getElementById("approve").addEventListener("click", () => { approval = mdbase.approve(window.e2eApproveId).then(() => ({ ok: true }), e => ({ ok: false, error: failure(e) })); });
   window.e2e = {
-    view, history: () => history.map(line => JSON.parse(line)), signedIn: () => signIn,
+    view, history: () => history.map(line => JSON.parse(line)), signedIn: () => signIn, approved: () => approval,
+    target: id => { window.e2eApproveId = id; },
     async settle(kinds, ms) {
       const until = Date.now() + ms;
       for (;;) {
@@ -420,7 +427,7 @@ try {
     const path = new URL(request.url, appOrigin).pathname;
     const send = (file, type) => { response.writeHead(200, { "content-type": type, "cache-control": "no-store" }); createReadStream(file).pipe(response); };
     if (path === "/" || path === "/callback") { response.writeHead(200, { "content-type": "text/html", "cache-control": "no-store" });
-      response.end('<!doctype html><meta charset="utf-8"><title>Private device e2e</title><button id="sign-in">Sign in</button><script type="module" src="/sdk/application/e2e-page.js"></script>'); return; }
+      response.end('<!doctype html><meta charset="utf-8"><title>Private device e2e</title><button id="sign-in">Sign in</button><button id="approve">Request access again</button><script type="module" src="/sdk/application/e2e-page.js"></script>'); return; }
     if (path === "/e2e-config.json") { response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" }); response.end(JSON.stringify({ declaration })); return; }
     if (path === "/sdk/application/e2e-page.js") return send(join(appDirectory, "e2e-page.js"), "text/javascript");
     if (path.startsWith("/sdk/")) {
@@ -699,9 +706,131 @@ try {
   step("account-key fetch: 403 installation_collection_not_approved (the app's own signed proof)");
   await app(d2, "close"); await d2.close();
 
+  // ------------------------------------------------------------------- step 9
+  section("9. remove the app's access, edit on the desktop meanwhile, request access again: sync resumes");
+  const editedMarker = `desktop-edited-while-removed-${nonce}`, againMarker = `app-wrote-again-${nonce}`, againPath = `tasks/app-again-${nonce}.md`;
+  // Step 6's reopened installation is still open and ready; a second Chromium
+  // on the same profile would be a second tab of the same app.
+  const b3 = b2;
+  view = await settle(b3, ["ready", "choosing", "needs_unlock", "problem"]);
+  assert.deepEqual([view.phase.kind, view.phase.collectionId], ["ready", collectionId], JSON.stringify(view.phase));
+  // The portal's request from the installation details page.
+  const removedAccess = await portal("POST", `/v1/account/applications/${applicationId}/remove-installation-access`, { collection_id: collectionId, confirm: true });
+  assert.equal(removedAccess.status, 200, `remove-installation-access: ${removedAccess.text}`);
+  assert.deepEqual(await scopeRows(signedB.connectorId), [], "the installation's consent row is gone");
+  console.log(`   removed: ${removedAccess.text}`);
+  // The open app learns of it by itself, or (failing that) when the person next opens it.
+  let removedView = await settle(b3, ["problem", "signed_out", "choosing"], 60_000).catch(() => null);
+  if (!removedView) {
+    console.log("   the open app did not notice within 60 s; reopening it");
+    await app(b3, "close").catch(() => {}); await b3.close();
+  }
+  const b4 = removedView ? b3 : await open("b-main");
+  if (!removedView) { await app(b4, "start"); removedView = await settle(b4, ["problem", "signed_out", "choosing", "ready", "needs_unlock"]); }
+  // A device-only receipt names no selection, so a reopened app asks which
+  // collection (as in step 6); the person picks the one they were using.
+  if (removedView.phase.kind === "choosing") { await app(b4, "select", collectionId).catch(() => {}); removedView = await settle(b4, ["problem", "signed_out", "ready", "needs_unlock", "needs_approval"]); }
+  assert.deepEqual([removedView.phase.kind, removedView.phase.collectionId, removedView.phase.problem?.key], ["problem", collectionId, "installation_scope_removed"], JSON.stringify(removedView.phase));
+  step("access removed in the portal: the app shows installation_scope_removed for the collection");
+  // An edit on the desktop while the app has no access.
+  const editedPath = join(folder, desktopPath);
+  writeFileSync(editedPath, readFileSync(editedPath, "utf8").replace(desktopMarker, editedMarker).replace("status: open", "status: done"));
+  await poll(async () => JSON.stringify(await mdbase(["read", desktopPath, "-C", folder]).catch(() => null)).includes(editedMarker), "the desktop never took the edit", 600, 100);
+  const blocked = await app(b4, "create", collectionId, { type: "task", path: `tasks/blocked-${nonce}.md`, frontmatter: { title: "blocked", status: "open" } }).then(() => null, error => String(error?.message ?? error));
+  assert.ok(blocked, "the app cannot write to a collection whose access was removed");
+  step(`the desktop edited ${desktopPath} while access was removed; the app could not write (${blocked.split("\n")[0].slice(0, 120)})`);
+  /** "Request access again": the app's own click; `answer` is what the portal does, or null when no window opens. */
+  async function requestAgain(browser, answer) {
+    const from_ = connect_.exchanges.length;
+    await app(browser, "target", collectionId);
+    const popup = answer ? browser.context.waitForEvent("page", { timeout: 60_000 }) : null;
+    await browser.page.click("#approve");
+    let pairingId = null, shown = null, decided = null;
+    if (answer) {
+      const window_ = await popup;
+      // The SDK opens the window and then points it at the portal; the first load may be aborted.
+      pairingId = await poll(() => { const path = new URL(window_.url()).pathname; return path.startsWith("/pair/") ? path.split("/").pop() : null; }, "the approval window never reached the portal", 600, 100);
+      const selected = await portal("POST", `/v1/pairing-requests/${pairingId}/select-account`);
+      assert.equal(selected.status, 200, `select-account: ${selected.text}`);
+      shown = await poll(async () => {
+        const reply = await portal("GET", `/v1/pairing-requests/${pairingId}`);
+        return typeof reply.value?.pairing?.fingerprint === "string" ? reply.value.pairing : null;
+      }, "the app never attested its fresh device", 600, 100);
+      decided = await answer(pairingId, shown);
+    }
+    const outcome = await poll(() => browser.page.evaluate(() => window.e2e.approved()), "approve() never settled", 600, 100);
+    const start = since(from_, exchange => exchange.method === "POST" && pathOf(exchange) === "/v1/pairing-requests").at(0);
+    // approve() settles once the window is open; the portal's answer reaches the app as its phase.
+    const view_ = answer ? await settle(browser, ["problem", "needs_approval", "needs_unlock", "ready", "choosing", "needs_setup", "signed_out"]) : await app(browser, "view");
+    return { from: from_, pairingId, shown, decided, outcome, start, view: view_ };
+  }
+  // The operator has turned app devices off: a clear refusal, not "needs an update".
+  await bootConnect(false);
+  const off = await requestAgain(b4, null);
+  console.log(`   switch off: START ${off.start?.status} ${off.start?.reply?.toString().slice(0, 200)}; approve() ${JSON.stringify(off.outcome)}; phase ${JSON.stringify(off.view.phase)}`);
+  assert.equal(JSON.parse(off.start.body.toString()).installation.requested_private_device, true, "the recovery asks for device access again");
+  assert.equal(JSON.parse(off.start.body.toString()).installation.recovery_collection_id, collectionId);
+  assert.deepEqual([off.start.status, json(off.start)?.error?.code], [403, "installation_private_device_not_allowed"]);
+  assert.equal(off.outcome.ok, false);
+  assert.equal([off.outcome.error?.reason, off.outcome.error?.code, off.view.phase.problem?.key, off.view.problemCode].includes("private_device_not_allowed"), true, `the app reports private_device_not_allowed: ${JSON.stringify(off)}`);
+  assert.equal([off.view.phase.problem?.key, off.view.problemCode].some(key => /update/.test(String(key))), false, "never \"needs an update\"");
+  step("switch off: START 403 installation_private_device_not_allowed; the app reports private_device_not_allowed, not an update");
+  await bootConnect(true);
+  // The person declines in the portal: the existing "not approved" refusal.
+  const declined = await requestAgain(b4, async pairingId => {
+    const denied = await portal("POST", `/v1/pairing-requests/${pairingId}/deny`);
+    assert.equal(denied.status, 200, `deny: ${denied.text}`); return denied.value;
+  });
+  console.log(`   declined: approve() ${JSON.stringify(declined.outcome)}; phase ${JSON.stringify(declined.view.phase)}`);
+  // The app is told it was declined (the existing outcomes: a refused sign-in,
+  // or the collection still awaiting approval, marked declined); nothing is granted.
+  const phase_ = declined.view.phase;
+  assert.equal(declined.outcome.error?.reason === "refused" || phase_.problem?.key === "refused" || declined.view.problemCode === "refused" ||
+    (phase_.kind === "needs_approval" && phase_.declined === true) || phase_.lastApproval?.outcome === "declined", true, `the app reports the decline: ${JSON.stringify(declined)}`);
+  assert.equal([phase_.problem?.key, declined.view.problemCode].some(key => /update/.test(String(key))), false, "never \"needs an update\"");
+  assert.deepEqual((await rows("SELECT d.connector_id FROM installation_device_pairings d JOIN installation_collection_scopes s ON s.connector_id=d.connector_id WHERE d.pairing_id=$1", [declined.pairingId])), [], "the declined request has no scope");
+  step(`declined in the portal: the app reports the decline (${phase_.kind}), and nothing was granted`);
+  // Approved: the same per-collection Private device consent as the first sign-in, nothing wider.
+  const again = await requestAgain(b4, async (pairingId, shown) => {
+    assert.equal(shown.requested_private_device, true, "the recovery was granted the device ask");
+    assert.deepEqual(shown.collections.map(collection => [collection.collection_id, collection.kind]), [[collectionId, "private_device"]], "only the removed collection, offered for device access");
+    const approved = await portal("POST", `/v1/pairing-requests/${pairingId}/approve`, { fingerprint: shown.fingerprint, collection_ids: [], create_collections: false, private_device_collection_ids: [collectionId] });
+    assert.equal(approved.status, 200, `approve: ${approved.text}`); return approved.value;
+  });
+  console.log(`   approve(): ${JSON.stringify(again.outcome)}`);
+  assert.deepEqual(again.outcome, { ok: true }, "the app's approve() resolved");
+  const exchangedAgain = await awaitExchange(again.from, exchange => exchange.method === "POST" && pathOf(exchange) === `/v1/pairing-requests/${again.pairingId}/exchange` && typeof json(exchange)?.token === "string", "the recovery's credential exchange");
+  const receiptAgain = json(exchangedAgain);
+  assert.equal(receiptAgain.recovery_collection_id, collectionId);
+  assert.deepEqual([receiptAgain.collection_ids, receiptAgain.private_device_collection_ids], [[], [collectionId]], "the receipt is the one device scope");
+  assert.equal(Object.hasOwn(receiptAgain, "selected_collection_id"), false);
+  const connectorAgain = (await rows("SELECT connector_id FROM installation_device_pairings WHERE pairing_id=$1", [again.pairingId]))[0].connector_id;
+  assert.notEqual(connectorAgain, signedB.connectorId, "a fresh installation for the collection");
+  assert.deepEqual(await scopeRows(connectorAgain), [{ collection_id: collectionId, private_device: true }], "its one scope is the collection, as device access");
+  assert.deepEqual(await scopeRows(signedB.connectorId), [], "the removed installation stays removed");
+  step("request access again: the portal offered only the collection, for device access; approved, the receipt and scope are that one device scope");
+  view = await settle(b4, ["needs_unlock", "ready", "problem", "choosing", "needs_setup", "needs_approval"]);
+  if (view.phase.kind === "choosing") { await app(b4, "select", collectionId); view = await settle(b4, ["needs_unlock", "ready", "problem", "needs_setup", "needs_approval"]); }
+  console.log(`   the app after approval: ${JSON.stringify(view.phase)}`);
+  if (view.phase.kind === "needs_unlock") {
+    // A fresh device: the removed one's key is gone for good, so the encryption password unlocks it once.
+    view = await app(b4, "unlock", collectionId, { password });
+    assert.equal(view.error, undefined, `unlock() rejected: ${JSON.stringify(view)}`);
+    view = await settle(b4, ["ready", "needs_unlock", "problem"]);
+  }
+  assert.deepEqual([view.phase.kind, view.phase.collectionId], ["ready", collectionId], JSON.stringify(view.phase));
+  const edited = await readInApp(b4, desktopPath, editedMarker);
+  assert.match(edited.document, /status: done/);
+  await readInApp(b4, appPath, appMarker);
+  step("ready again in the same app; it reads the desktop's edit made while access was removed, and the earlier records");
+  await app(b4, "create", collectionId, { type: "task", path: againPath, frontmatter: { title: againMarker, status: "open" }, body: `Body ${againMarker}.\n` });
+  await poll(async () => JSON.stringify(await mdbase(["read", againPath, "-C", folder]).catch(() => null)).includes(againMarker), `the desktop never read ${againPath}`, 600, 200);
+  step(`the app's new record ${againPath} reached the desktop`);
+  await app(b4, "close"); await b4.close();
+
   // --------------------------------------------------------- sealed bytes only
   section("the log service only ever saw sealed bytes");
-  const markers = [desktopMarker, appMarker, `desk-${nonce}`, `app-${nonce}`].map(text => Buffer.from(text));
+  const markers = [desktopMarker, appMarker, `desk-${nonce}`, `app-${nonce}`, `desktop-edited-while-removed-${nonce}`, `app-wrote-again-${nonce}`, `app-again-${nonce}`].map(text => Buffer.from(text));
   const id = uuidBytes(collectionId);
   const seen = [];
   for (const exchange of log.exchanges) seen.push({ origin: exchange.headers.origin ?? null, bytes: [Buffer.from(exchange.path), exchange.body, exchange.reply ?? Buffer.alloc(0)] });

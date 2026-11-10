@@ -20,7 +20,7 @@ const rootOwner="bundle:scoped-unit";
 const hex=(b:Uint8Array)=>Array.from(b,x=>x.toString(16).padStart(2,"0")).join("");
 const release:AppBundledReleaseTrust={schema:"mdbn-app-trust/release/1",environment:"production",cpOrigin,logOrigin:"https://log.example.test",assetSha256:"11".repeat(32),source:{repository:"mdbase-dev/mdbase-connect",commit:"22".repeat(20),version:"test"},trustedRoots:[new Uint8Array(32).fill(3)],policyPins:Uint8Array.of(1)};
 afterEach(()=>{vi.restoreAllMocks();vi.unstubAllGlobals();vi.useRealTimers();});
-async function fixture() {
+async function fixture(device:string|null=null) {
   vi.useFakeTimers();vi.stubGlobal("crypto",webcrypto);vi.stubGlobal("location",{origin});
   const trace:string[]=[], ledgers=new Map<string,Uint8Array>(), parent=new AbortController(), locks=signInLocks();
   const legacyName=`mdbase-app-sign-in-v1-${appId}-${cpOrigin}`;
@@ -36,6 +36,8 @@ async function fixture() {
     proof:{sign_pk:hex(rootKeys.signPublicKey),kem_pk:hex(rootKeys.kemPublicKey),noise_pk:hex(rootKeys.noisePublicKey),sig:"ab".repeat(64)},token:`idev_${"r".repeat(43)}`,
     collectionSelection:{requestId:"",selectedCollectionId:target,createdCollectionIds:[] as string[]}};
   root.collectionSelection.requestId=root.requestId;
+  // An app that asks for device access, whose original installation held `device` as Private device access.
+  if(device)Object.assign(root,{requestedPrivateDevice:true,privateDeviceCollectionIds:[device],collectionSelection:{...root.collectionSelection,selectedCollectionId:device===target?sibling:target}});
   ledgers.set(rootOwner,new TextEncoder().encode(JSON.stringify(root)));
   const read=(owner=rootOwner)=>JSON.parse(new TextDecoder().decode(ledgers.get(owner)!));
   vi.spyOn(AppInstallationStore,"open").mockImplementation(async(p,initial)=>{
@@ -49,7 +51,7 @@ async function fixture() {
       return {store:store as unknown as AppInstallationStore,plaintext:new Uint8Array(bytes)};
     } catch(error) {await lease.release();throw error;}
   });
-  type InstallationRequest={request_id:string;installation_id:string;device_id:string;pairing_secret:string;recovery_collection_id:string;renewal?:Record<string,string>};
+  type InstallationRequest={request_id:string;installation_id:string;device_id:string;pairing_secret:string;recovery_collection_id:string;requested_private_device?:boolean;renewal?:Record<string,string>};
   type Row={request:InstallationRequest;account:string|null;connector:string;proof:Record<string,string>|null;token:string};
   const rows=new Map<string,Row>(), starts:InstallationRequest[]=[], requests:{path:string;body:unknown}[]=[];
   let portalAccount=B, failure:"none"|"429"|"unknown"="none", eraseFailure=false,partialErase=false;
@@ -79,7 +81,9 @@ async function fixture() {
     if(!row.account)return respond({status:"pending"},202);
     const selected={request_id:id,account_id:row.account,connector_id:row.connector,device_id:row.request.device_id,installation_id:row.request.installation_id,kind:"app-runtime",challenge:"ab".repeat(32),approval_mode:"password-ak1",app_id:appId,app_origin:origin,expires_at:Date.now()+600000,account_email:row.account===A?"a@example.test":"b@example.test",account_selection_confirmed:true,recovery_collection_id:target};
     if(!row.proof)return respond({status:"account_selected",...selected},202);
-    return respond({status:"paired",...selected,connector:{id:row.connector,name:"Scoped notes"},token:row.token,registration:{device_id:row.request.device_id,sign_pk:row.proof.sign_pk,kem_pk:row.proof.kem_pk,noise_pk:row.proof.noise_pk},collection_ids:[target],create_collections:false,selected_collection_id:target,created_collection_ids:[]});
+    // A recovery that asked for device access is approved as that one device scope, as Connect does.
+    const scope=row.request.requested_private_device?{collection_ids:[],create_collections:false,private_device_collection_ids:[target]}:{collection_ids:[target],create_collections:false,selected_collection_id:target,created_collection_ids:[]};
+    return respond({status:"paired",...selected,connector:{id:row.connector,name:"Scoped notes"},token:row.token,registration:{device_id:row.request.device_id,sign_pk:row.proof.sign_pk,kem_pk:row.proof.kem_pk,noise_pk:row.proof.noise_pk},...scope});
   });
   const windows:{closed:boolean;navigate:ReturnType<typeof vi.fn>;close:ReturnType<typeof vi.fn>}[]=[];
   const openPortal=vi.fn(()=>{
@@ -101,12 +105,29 @@ async function fixture() {
   });
   vi.spyOn(erasure,"eraseAppCollectionAccess").mockResolvedValue(true);
   const openCollection=vi.fn(async (p:Parameters<AppWebSignInSessionOptions<{id:string;isCurrent():boolean}>["openCollection"]>[0])=>({state:"ready" as const,connection:{id:p.scope.collection,isCurrent:()=>!p.signal.aborted},close:async()=>{}}));
-  const sessionOptions:AppWebSignInSessionOptions<{id:string;isCurrent():boolean}>={appId,appName:"Scoped notes",origin,cpOrigin,environment:"production",release,owner:rootOwner,signal:parent.signal,fetch:fetcher,locks:locks.port,autoSelect:"never",loadRuntime:async()=>new Uint8Array([1]),openPortal,openCollection};
+  const sessionOptions:AppWebSignInSessionOptions<{id:string;isCurrent():boolean}>={appId,appName:"Scoped notes",origin,cpOrigin,environment:"production",release,owner:rootOwner,signal:parent.signal,fetch:fetcher,locks:locks.port,autoSelect:"never",loadRuntime:async()=>new Uint8Array([1]),openPortal,openCollection,...(device?{freshRequestedPrivateDevice:true}:{})};
   const session=new AppScopedSignInSession(sessionOptions);
   await session.start();
   return {session,parent,read,ledgers,root,rows,starts,requests,trace,windows,hostOpen,erase,openCollection,fetcher,guardHeld,locks,options:sessionOptions,setAccount:(value:string)=>{portalAccount=value;},setFailure:(value:typeof failure)=>{failure=value;},failErase:()=>{eraseFailure=true;},failPartialErase:()=>{partialErase=true;}};
 }
 describe("composed scoped browser recovery",()=>{
+  it("asks again for device access only for a collection the original installation held as Private device access",async()=>{
+    const f=await fixture(target);f.setAccount(A);
+    await f.session.authorize({collectionHint:target});await vi.advanceTimersByTimeAsync(1000);
+    expect(f.starts[0]).toMatchObject({recovery_collection_id:target,requested_private_device:true});
+    const child=f.read(`${rootOwner}:scope:${f.read().collectionRecoveries[target]}`);
+    expect(child).toMatchObject({requestedPrivateDevice:true,collectionIds:[target],privateDeviceCollectionIds:[target],recoveryFor:{accountId:A,collectionId:target}});
+    expect(child).not.toHaveProperty("collectionSelection");expect(child.token).toMatch(/^idev_/);
+    await f.session.close();
+    // A removed cloud-copy collection, in an app that asks or one that does not, recovers as today: no device ask.
+    for(const device of [sibling,null]){
+      const g=await fixture(device);g.setAccount(A);
+      await g.session.authorize({collectionHint:target});await vi.advanceTimersByTimeAsync(1000);
+      expect(g.starts).toHaveLength(1);expect(g.starts[0]).not.toHaveProperty("requested_private_device");
+      expect(g.read(`${rootOwner}:scope:${g.read().collectionRecoveries[target]}`)).toMatchObject({collectionIds:[target],collectionSelection:{selectedCollectionId:target}});
+      await g.session.close();vi.restoreAllMocks();vi.unstubAllGlobals();vi.useRealTimers();
+    }
+  });
   it("definite wrong B stops before authority, then an explicit gesture completes A on BOTH fresh IDs",async()=>{
     const f=await fixture();await f.session.openCollection(sibling);const heldSibling=f.session.connection(sibling),rootBefore=f.read(),hostCount=f.hostOpen.mock.calls.length;
     await expect(f.session.authorize({collectionHint:target})).rejects.toMatchObject({reason:"recovery_account_mismatch"});

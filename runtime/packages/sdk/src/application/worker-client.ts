@@ -69,6 +69,10 @@ export class ApplicationWorkerClient {
     if(portal){
       if(!["authorize","renewExpiredPairing","requestFileAccess"].includes(action))return Promise.reject(new ApplicationWorkerError("application_worker_binding"));
       this.portal?.life.abort();
+      // A window this page replaces is released like one the person closed:
+      // the Worker's late calls for it (a `cancel` once the new request
+      // supersedes it) are refused, not a protocol fault.
+      if(this.portal)this.closedPortal=this.portal.id;
       try{this.portal?.value.close();}catch{this.quarantine("application_worker_stop_failed");return Promise.reject(this.fault);}
       this.portal={id,value:portal,caller,life:new AbortController(),lastRpc:0,busy:false};this.watchPortal();
     }
@@ -124,9 +128,9 @@ export class ApplicationWorkerClient {
       if(kind==="fatal"){if(id!==0)throw new ApplicationWorkerError("application_worker_binding");this.quarantine("application_worker_stop_failed");return;}
       if(kind==="nativeAuthorization"){
         const call=nativeAuthorizationCall(value),held=this.portal;
-        if(!held&&id===this.closedPortal){
+        if(id===this.closedPortal&&held?.id!==id){
           // The person closed this window and this page released it at that
-          // report. A call the Worker makes for it (posted before the report
+          // report, or a later request replaced it. A call the Worker makes for it (posted before the report
           // arrived, or on the final read after it) is refused and never run:
           // preparation is optional and the receipt decides. Not a protocol
           // fault, so the client is not quarantined.

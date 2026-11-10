@@ -11,7 +11,7 @@ export interface AppServerProblem {
   readonly updateUrl: string | null;
 }
 /** Outcomes apps must be able to tell apart. */
-export type AppServerOutcome = "collection_not_yet_migrated" | "collection_migrating" | "account_suspended" | "update_required" | "account_collection_quota_exceeded";
+export type AppServerOutcome = "collection_not_yet_migrated" | "collection_migrating" | "account_suspended" | "update_required" | "account_collection_quota_exceeded" | "private_device_not_allowed";
 
 const NAME = /^[a-z][a-z0-9_]{0,63}$/;
 const genuine = new WeakSet<object>();
@@ -95,6 +95,9 @@ export function appServerOutcome(problem: AppServerProblem | null | undefined): 
   if (names.includes("collection_not_yet_migrated")) return "collection_not_yet_migrated";
   if (names.includes("collection_migrating")) return "collection_migrating";
   if (names.includes("account_suspended")) return "account_suspended";
+  // A recovery sign-in asked for a Private collection's key back and this server
+  // (its switch, or the app's registered manifest) does not allow it.
+  if (problem.status === 403 && problem.code === "installation_private_device_not_allowed") return "private_device_not_allowed";
   // CP: 409 collection_unavailable {reason: moved_to_next_runtime, update_url}.
   if (names.some(n => n === "moved_to_next_runtime" || n === "collection_moved" || n === "client_update_required") || problem.status === 426) return "update_required";
   return null;

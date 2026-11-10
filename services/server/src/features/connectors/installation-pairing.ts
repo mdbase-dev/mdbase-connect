@@ -292,13 +292,15 @@ export async function startInstallationPairing(
   // this server does not grant is recorded as not asked and sign-in goes on as for
   // any other app. Granted, with the switch on, only to an application whose
   // registered manifest declares `offline.replica`, for its own app-runtime device,
-  // never on a recovery sign-in or a file-access request. Granting the ask only
-  // offers the choice: the person's portal consent decides. The decision is made
-  // once, when the window is first created, and a replay or renewal keeps it
-  // whatever the switch says by then: an operator's change never makes an app's
-  // unchanged request look like a changed one. Only a granted ask that the client
-  // itself drops is refused below.
-  const privateDeviceAsk = input.requested_private_device === true && input.kind === "app-runtime" && !input.recovery_collection_id && !input.file_access
+  // never on a file-access request. Granting the ask only offers the choice: the
+  // person's portal consent decides. The decision is made once, when the window is
+  // first created, and a replay or renewal keeps it whatever the switch says by
+  // then: an operator's change never makes an app's unchanged request look like a
+  // changed one. Only a granted ask that the client itself drops is refused below.
+  // A recovery sign-in asks only to get back a collection it held as device
+  // access, so there an ask that cannot be granted is refused when the window is
+  // created: nothing else could restore that collection to this app.
+  const privateDeviceAsk = input.requested_private_device === true && input.kind === "app-runtime" && !input.file_access
     && privateDevicesEnabled(privateDevice) && app.offlineReplica === true;
   const privateDeviceDropped = (granted: boolean) => granted && input.requested_private_device !== true;
   if (input.file_access) {
@@ -356,6 +358,7 @@ export async function startInstallationPairing(
         if (prior.user_id) { await active(c,prior.user_id); await ordinary(c,prior.user_id); }
         await c.query("UPDATE pairing_requests SET revoked_at=COALESCE(revoked_at,now()) WHERE id=$1", [prior.id]);
       } else if (input.renewal) return fail("installation_original_window_required");
+      if (input.recovery_collection_id && input.requested_private_device === true && !(prior ? prior.requested_private_device : privateDeviceAsk)) privateDeviceRefused();
       await c.query("INSERT INTO pairing_requests(id,secret_hash,connector_name,user_id,expires_at) VALUES($1,$2,$3,$4,now()+interval '10 minutes')", [input.request_id,tokenHash(input.pairing_secret),app.name,prior?.user_id??null]);
       // A renewed window retains the SAME attested key, challenge, connector,
       // account and signature. A denial requires explicit SAME-account selection
@@ -642,10 +645,10 @@ export async function approveInstallationPairing(
       fail("installation_attestation_required");
     if (!r.sign_pk || fingerprint !== clientFingerprint(r.sign_pk)) return fail("installation_fingerprint_changed", 403);
     if (r.recovery_collection_id && (r.file_access_collection_id || consent.file_actions)) fail("installation_recovery_target_changed");
-    if (consent.selected_collection_kind!=="private") requireRecoveryScope(r,consent.collection_ids,consent.selected_collection_id??null,consent.create_collections);
     // Device access to Private collections is its own explicit list: only when the
     // original request asked for it, and never mixed with an app grant or file access.
     const deviceIds = [...(consent.private_device_collection_ids ?? [])].sort();
+    if (consent.selected_collection_kind!=="private") requireRecoveryScope(r,consent.collection_ids,consent.selected_collection_id??null,consent.create_collections,deviceIds);
     if (deviceIds.length && (consent.selected_collection_kind==="private" || consent.file_actions || r.file_access_collection_id)) fail("installation_invalid_scope",400);
     if (deviceIds.length && !r.requested_private_device) privateDeviceRefused();
     if (r.file_access_collection_id || consent.file_actions) return approveFileAccess(c, r, user, consent);
@@ -877,12 +880,18 @@ function credential(r: Row, secret: string): string {
     .digest("base64url")}`;
 }
 /** The original recovery CID is a constraint, never a grant or UX hint. */
-function requireRecoveryScope(r: Row, ids=r.approved_collection_ids, selected=r.selected_collection_id, create=r.approved_create_collections): void {
+function requireRecoveryScope(r: Row, ids=r.approved_collection_ids, selected=r.selected_collection_id, create=r.approved_create_collections, device=r.approved_private_device_collection_ids): void {
   if (r.native_selection_collection_id && r.native_authorization_id && r.recovery_collection_id) {
-    if (r.native_selection_collection_id!==r.recovery_collection_id || ids.length || selected || create || r.created_collection_ids.length) fail("installation_recovery_target_changed");
+    if (r.native_selection_collection_id!==r.recovery_collection_id || ids.length || selected || create || device.length || r.created_collection_ids.length) fail("installation_recovery_target_changed");
     return;
   }
-  if (r.recovery_collection_id && (ids.length!==1 || ids[0]!==r.recovery_collection_id || selected!==r.recovery_collection_id || create || r.created_collection_ids.length)) fail("installation_recovery_target_changed");
+  if (!r.recovery_collection_id) return;
+  // Exactly the recovered collection, either as the one cloud copy (approved and
+  // selected) or as the one Private device collection (no selection), never both.
+  const recovered = device.length
+    ? device.length===1 && device[0]===r.recovery_collection_id && !ids.length && !selected
+    : ids.length===1 && ids[0]===r.recovery_collection_id && selected===r.recovery_collection_id;
+  if (!recovered || create || r.created_collection_ids.length) fail("installation_recovery_target_changed");
 }
 /** Add only after explicit consent, under the same credential lock used by
  * creates/mints. Recheck membership at exchange, not just at portal approval.
@@ -893,6 +902,9 @@ async function persistScope(c: Connection, r: Row, privateDevice?: PrivateDevice
   // cloud copies approved with it are still issued; the device access is withdrawn
   // from the request itself, so this receipt and every replay of it say so.
   if (r.approved_private_device_collection_ids.length && !privateDevicesEnabled(privateDevice)) {
+    // A recovery approved only the Private device collection it recovers: with
+    // the switch off it would get a credential for nothing, so it is refused.
+    if (r.recovery_collection_id) privateDeviceRefused();
     await c.query("UPDATE installation_device_pairings SET approved_private_device_collection_ids='{}' WHERE pairing_id=$1",[r.id]);
     r.approved_private_device_collection_ids = [];
   }
