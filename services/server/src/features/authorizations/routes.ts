@@ -1,6 +1,6 @@
 import { isNativeLoopbackOrigin } from "@mdbase-dev/connect-protocol/manifest";
 import { randomUUID } from "node:crypto";
-import { previewCollectionGrant } from "../../grant-planner.js";
+import { previewCollectionGrant } from "../grants/grant-planner.js";
 import { queueHostedGrantRevocation } from "../../hosted-capability-lifecycle.js";
 import type {
   ApplicationNotifications,
@@ -15,7 +15,7 @@ import { assertFreshApplicationAuthorization, requirementContractVersion, signed
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { parseApplicationAuthorization, verifyApplicationAuthorization } from "../../application-authorization.js";
-import { isCanonicalCollectionGrantScope } from "../../application-grant-scope.js";
+import { isCanonicalCollectionGrantScope } from "../grants/application-grant-scope.js";
 import {
   accessView,
   COLLECTION_OPERATIONS,

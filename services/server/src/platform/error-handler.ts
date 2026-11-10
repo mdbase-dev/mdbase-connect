@@ -46,7 +46,7 @@ import {
 import { CollectionAccessDeniedError } from "../collection-access.js";
 import { CollectionInvitationError } from "../collection-invitations.js";
 import { CollectionMembershipPolicyError } from "../collection-policy.js";
-import { GrantPlanningError } from "../grant-planner.js";
+import { GrantPlanningError } from "../features/grants/grant-planner.js";
 import {
   CutoverProblemError,
   cutoverProblem,

@@ -19,7 +19,7 @@ import { queueNextGrantPolicy } from "../next/grant-policy.js";
 import { planFreshNextGrant } from "../next/fresh-authorization.js";
 import { requireCollectionAction, resolveLocalCollectionAccess, type CollectionAccessContext } from "../../collection-access.js";
 import type { DatabasePool } from "../../db.js";
-import { planCollectionGrant } from "../../grant-planner.js";
+import { planCollectionGrant } from "../grants/grant-planner.js";
 import { RelayUnavailableError, type RelayHub } from "../../relay.js";
 import { audit } from "../../platform/audit-events.js";
 import { RequestValidationError } from "../../platform/http-errors.js";

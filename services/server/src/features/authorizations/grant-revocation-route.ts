@@ -11,7 +11,7 @@ import { audit } from "../../platform/audit-events.js";
 import { apiError } from "../../platform/http-errors.js";
 import { requireUser } from "../../platform/request-authentication.js";
 import type { RelayHub } from "../../relay.js";
-import { deliverGrantRevocations, localGrantRevocationStatus, queueLocalGrantRevocations } from "../../local-grant-revocation.js";
+import { deliverGrantRevocations, localGrantRevocationStatus, queueLocalGrantRevocations } from "../grants/local-grant-revocation.js";
 
 interface GrantRevocationRouteOptions {
   db: DatabasePool;

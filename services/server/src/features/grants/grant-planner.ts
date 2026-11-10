@@ -14,10 +14,10 @@ import {
   FILE_PROTOCOL_VERSION,
   applicationOperationSelectionIsAtomic
 } from "@mdbase-dev/connect-protocol";
-import type { CollectionAccessContext } from "./collection-access.js";
+import type { CollectionAccessContext } from "../../collection-access.js";
 import { requiresWriteReplica } from "./collection-operation-policy.js";
 
-import { fileRequestForRequirements, legacyOperationSelectionAllowed, requirementContractVersion, type ApplicationRequirements } from "./features/applications/application-requirements.js";
+import { fileRequestForRequirements, legacyOperationSelectionAllowed, requirementContractVersion, type ApplicationRequirements } from "../applications/application-requirements.js";
 
 const WRITE_FILE_ACTIONS = new Set(["add", "replace", "move", "delete"]);
 

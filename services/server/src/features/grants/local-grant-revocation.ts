@@ -1,4 +1,4 @@
-import type { DatabasePool } from "./db.js";
+import type { DatabasePool } from "../../db.js";
 
 export async function deliverGrantRevocations(relay: { pushPolicy(connectorId: string): Promise<void> }, connectorIds: Array<string | null>, log: { warn(message: string): void }): Promise<void> {
   for (const connectorId of new Set(connectorIds)) {

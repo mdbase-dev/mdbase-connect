@@ -1,5 +1,5 @@
 import { SyncError } from "@mdbase-dev/connect-sync";
-import { isCanonicalCollectionGrantScope } from "./application-grant-scope.js";
+import { isCanonicalCollectionGrantScope } from "./features/grants/application-grant-scope.js";
 import {
   CollectionAccessDeniedError,
   requireCollectionAction,

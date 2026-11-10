@@ -10,7 +10,7 @@ import { AuthenticationPolicyStore } from "../auth/authentication-policy.js";
 import { RelayHub } from "../../relay.js";
 import { tokenHash } from "../../security.js";
 import { registerAccountOverviewRoute } from "../account/me-routes.js";
-import { confirmLocalGrantRevocations, localGrantRevocationStatus, queueLocalGrantRevocations } from "../../local-grant-revocation.js";
+import { confirmLocalGrantRevocations, localGrantRevocationStatus, queueLocalGrantRevocations } from "../grants/local-grant-revocation.js";
 import { FakeLogService, certify } from "../../../test/policy-log.js";
 import { localGrantFixture } from "./next-fixtures.test-helper.js";
 import { LogServiceClient } from "./log-service-client.js";

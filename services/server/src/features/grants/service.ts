@@ -11,7 +11,7 @@ import type {
 import {
   collectionGrantScope,
   isCanonicalCollectionGrantScope
-} from "../../application-grant-scope.js";
+} from "./application-grant-scope.js";
 import type { DatabasePool, DatabaseQueryable } from "../../db.js";
 import { parsePersistedApplicationAuthorization } from "../../application-authorization.js";
 import {
@@ -23,7 +23,7 @@ import {
   HostedProviderClient,
   HostedProviderResponseError
 } from "../../hosted-provider.js";
-import { fileCapabilityPermittedByRequirements } from "../../grant-planner.js";
+import { fileCapabilityPermittedByRequirements } from "./grant-planner.js";
 import { RelayHub } from "../../relay.js";
 import { audit } from "../../platform/audit-events.js";
 import {

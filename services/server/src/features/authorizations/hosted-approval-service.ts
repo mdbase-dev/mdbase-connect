@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { assertFreshApplicationAuthorization, type ApplicationRequirements } from "../applications/application-requirements.js";
 import { type ApplicationNotifications, type ApplicationAuthorizationProof, type ApplicationProvisions, type CollectionOperation, type ContractSetupChoice, type FileAction, isSupportedOperationTransport } from "@mdbase-dev/connect-protocol";
-import { isCanonicalCollectionGrantScope } from "../../application-grant-scope.js";
+import { isCanonicalCollectionGrantScope } from "../grants/application-grant-scope.js";
 import { copyClientNoiseKeyToGrant } from "../next/client-key.js";
 import { queueNextGrantPolicy } from "../next/grant-policy.js";
 import { requireCollectionAction, resolveHostedCollectionAccess, type CollectionAccessContext } from "../../collection-access.js";

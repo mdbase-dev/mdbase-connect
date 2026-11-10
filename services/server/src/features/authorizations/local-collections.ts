@@ -11,7 +11,7 @@ import { accessView, COLLECTION_ACTIONS, COLLECTION_OPERATIONS, CollectionAccess
 import { listLocalCollectionsVisibleToUser } from "../../collection-catalog.js";
 import type { DatabasePool } from "../../db.js";
 import { ConnectorOperationError, RelayUnavailableError, type RelayHub } from "../../relay.js";
-import { GrantPlanningError, planCollectionGrant } from "../../grant-planner.js";
+import { GrantPlanningError, planCollectionGrant } from "../grants/grant-planner.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 import { contractSetupChoiceSchema } from "../../platform/protocol-schemas.js";
 import { approvePortalAuthorization } from "./approval-service.js";

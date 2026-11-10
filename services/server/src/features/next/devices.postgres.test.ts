@@ -22,7 +22,7 @@ import { ed25519RawPublicKey } from "./policy-keys.js";
 import { clientKeyDigest } from "./grant-approval.js";
 import { registerNextDeviceRoutes } from "./device-routes.js";
 import { tokenHash } from "../../security.js";
-import { confirmLocalGrantRevocations } from "../../local-grant-revocation.js";
+import { confirmLocalGrantRevocations } from "../grants/local-grant-revocation.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";

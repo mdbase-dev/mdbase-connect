@@ -8,7 +8,7 @@ import type { ApplicationRequirements } from "../applications/application-requir
 import { tokenHash } from "../../security.js";
 import { registerAuthorizationRoutes } from "../authorizations/routes.js";
 import type { AuthorizationRouteOptions } from "../authorizations/route-options.js";
-import { queueLocalGrantRevocations } from "../../local-grant-revocation.js";
+import { queueLocalGrantRevocations } from "../grants/local-grant-revocation.js";
 import { localGrantFixture } from "./next-fixtures.test-helper.js";
 import { exactNextGrantCapabilities, queueNextGrantPolicy } from "./grant-policy.js";
 import { registerNextRouteRoutes } from "./route-routes.js";

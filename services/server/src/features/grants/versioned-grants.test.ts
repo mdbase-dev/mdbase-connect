@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import { APPLICATION_SETUP_OPERATIONS, CONNECT_CONTRACT_SUPPORT, authorizationContractRequirements, MDBASE_TIMER_FIRED_CONTRACT, operationsForApplicationCapabilities } from "@mdbase-dev/connect-protocol";
 import type { CollectionOperation } from "@mdbase-dev/connect-protocol";
 import type { LegacyApplicationCapabilityId } from "@mdbase-dev/connect-protocol";
-import { canonicalSha256 } from "./canonical-json.js";
-import { ownerAccess } from "./collection-access.js";
+import { canonicalSha256 } from "../../canonical-json.js";
+import { ownerAccess } from "../../collection-access.js";
 import { planCollectionGrant } from "./grant-planner.js";
-import { registerApplicationManifest } from "./manifest.js";
-import { assertOperationsAllowedByApplication, operationsAllowedByRequirements } from "./features/grants/policy.js";
-import type { ApplicationRequirements } from "./features/applications/application-requirements.js";
+import { registerApplicationManifest } from "../../manifest.js";
+import { assertOperationsAllowedByApplication, operationsAllowedByRequirements } from "./policy.js";
+import type { ApplicationRequirements } from "../applications/application-requirements.js";
 
 const owner = ownerAccess({ collectionId: "collection", authorityKind: "hosted", authorityRowId: "collection", ownerUserId: "owner", authorityEpoch: 1, authorityState: "active", displayName: "Fixture" }, "owner");
 const declaration = (requirements: ApplicationRequirements) => ({

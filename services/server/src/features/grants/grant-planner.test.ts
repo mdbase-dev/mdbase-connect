@@ -4,9 +4,9 @@ import { operationsForApplicationCapabilities } from "@mdbase-dev/connect-protoc
 import {
   ownerAccess,
   type CollectionAccessContext
-} from "./collection-access.js";
+} from "../../collection-access.js";
 import { fileCapabilityPermittedByRequirements, planCollectionGrant, previewCollectionGrant } from "./grant-planner.js";
-import { signedFileRequestForRequirements } from "./features/applications/application-requirements.js";
+import { signedFileRequestForRequirements } from "../applications/application-requirements.js";
 
 const owner = ownerAccess({
   collectionId: "collection",
