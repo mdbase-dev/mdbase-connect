@@ -506,7 +506,7 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
       ?Object.freeze({...shown,collections:Object.freeze(shown.collections.filter(c=>!hidden.has(c.collectionId)||c.collectionId===shown.selectedCollectionId))}):shown;
     const id=base.selectedCollectionId,connection=id&&!this.closed?this.privates?.connection(id)??this.runtime?.connection(id)??null:null;
     const openingUnsynced=this.unsyncedOpening>0&&!base.unsynced&&!base.signOutResult&&selection.requested.collectionId===null;
-    let phase=applicationPhase({...base,selection},{connection,previous:last?.value.phase??null,openingUnsynced,...(this.cpOrigin?{cpOrigin:this.cpOrigin}:{})});
+    let phase=applicationPhase({...base,selection},{connection,previous:last?.value.phase??null,openingUnsynced,startPending:this.selection?.startPending()??false,...(this.cpOrigin?{cpOrigin:this.cpOrigin}:{})});
     phase=this.trackOpening(phase);this.timing.observe(phase);
     const sync=this.trackSync(phase,base.problem,base.transport??null,base.live??null);
     const writes=this.syncing?.writes()??null;

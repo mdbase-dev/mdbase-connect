@@ -76,6 +76,9 @@ export interface ApplicationPhaseOptions {
   /** This start opens work before connecting next: signed out is a step on the
    * way, not a screen to show. */
   readonly openingUnsynced?: boolean;
+  /** The start request (URL or remembered collection) is not decided yet: a
+   * paired session with nothing selected is still starting, not choosing. */
+  readonly startPending?: boolean;
 }
 
 type Snapshot = Pick<MdbaseApplicationSnapshot, "status" | "signIn" | "collections" | "selectedCollectionId" | "problem" | "readiness" | "selection"> & Partial<Pick<MdbaseApplicationSnapshot, "problemDetail" | "removedScopeIds" | "recoveryAccountLabel" | "openingProgress" | "unsynced" | "unlock">>;
@@ -156,6 +159,8 @@ function derive(s: Snapshot, o: ApplicationPhaseOptions): MdbasePhase {
     const name = s.collections.find(c => c.collectionId === id)?.displayName ?? requested?.displayName ?? null;
     return { kind: "opening", collectionId: id, displayName: name, slow: !!o.slow };
   }
+  // The remembered collection opens next; do not flash the chooser before it.
+  if (o.startPending && paired && s.status === "unselected" && !s.problem && sel?.state === "none") return { kind: "starting" };
   return { kind: "choosing", lastApproval: sel?.lastApproval ?? null };
 }
 

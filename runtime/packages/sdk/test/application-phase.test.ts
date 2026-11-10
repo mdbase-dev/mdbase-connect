@@ -116,3 +116,16 @@ it("a locked Private collection is needs_unlock with the account-key mode, never
   // A stray lock on any other status is ignored.
   expect(applicationPhase(snap({unlock:{mode:"password",unlocking:false,problem:null}}),{connection}).kind).toBe("ready");
 });
+
+it("a paired session with nothing selected is still starting until the start request is decided",()=>{
+  const none={state:"none" as const,problem:null,usable:null,requested:{collectionId:null,source:"none" as const,displayName:null,approved:false}};
+  const paired={state:"paired"} as MdbaseApplicationSnapshot["signIn"];
+  const idle=snap({status:"unselected",selectedCollectionId:null,signIn:paired,selection:none});
+  expect(applicationPhase(idle,{startPending:true})).toEqual({kind:"starting"});
+  expect(applicationPhase(idle,{startPending:false})).toMatchObject({kind:"choosing"});
+  expect(applicationPhase(idle)).toMatchObject({kind:"choosing"});
+  // Only that one wait is held: a problem, a request or a signed-out session shows as before.
+  expect(applicationPhase(snap({status:"unselected",selectedCollectionId:null,signIn:paired,selection:none,problem:"unavailable"}),{startPending:true})).toMatchObject({kind:"choosing"});
+  expect(applicationPhase(snap({status:"unselected",selectedCollectionId:null,signIn:null,selection:none}),{startPending:true})).toMatchObject({kind:"choosing"});
+  expect(applicationPhase(snap({status:"unselected",selectedCollectionId:null,signIn:paired,selection:{...none,state:"opening",requested:{collectionId:A,source:"user",displayName:"Notes",approved:true}}}),{startPending:true})).toMatchObject({kind:"opening",collectionId:A});
+});
