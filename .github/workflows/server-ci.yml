@@ -698,7 +698,7 @@ jobs:
       matrix:
         include:
           - shard: local-relay
-            suites: local,relay
+            suites: legacy-local,relay
             browser: true
             timeout: 55
           - shard: sync

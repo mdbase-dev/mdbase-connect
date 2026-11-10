@@ -429,6 +429,30 @@ textarea.mdbase-field {
   margin-inline: 3px;
 }
 
+/* The app menu's last line: the new-tab note, and a quiet link to the SDK guide. */
+.mdbase-app-menu-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2px 12px;
+}
+
+.mdbase-app-menu-build {
+  margin: -2px -6px;
+  padding: 2px 6px;
+  border-radius: var(--control-radius);
+  color: var(--color-text-soft);
+  text-decoration: none;
+}
+
+.mdbase-app-menu-build:hover,
+.mdbase-menu .mdbase-app-menu-build:focus-visible {
+  outline: 0;
+  color: var(--color-text);
+  background: var(--color-accent-soft);
+}
+
 .mdbase-app-menu-external {
   width: 15px;
   height: 15px;

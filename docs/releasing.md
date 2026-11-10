@@ -43,6 +43,7 @@ pnpm package:audit
 pnpm test:browser-storage
 pnpm test:accessibility
 pnpm e2e
+pnpm e2e:legacy
 pnpm e2e:container
 pnpm e2e:relay
 pnpm e2e:sync

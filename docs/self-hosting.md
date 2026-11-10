@@ -117,6 +117,12 @@ docker compose \
   up -d
 ```
 
+The stack sets `MDBASE_NEW_ACCOUNT_BACKEND=legacy`, so new accounts are
+created on the legacy backend, the only one a self-hosted stack can run. The
+server's own default is `next`, which requires the next control plane
+(`MDBASE_NEXT_CONTROL_PLANE=1`) and refuses to start without it. A custom
+deployment that does not use this compose file must set the variable itself.
+
 The stack runs the database migration as a one-shot service before starting
 Connect. Confirm that the service and its dependencies are healthy:
 

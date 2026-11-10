@@ -22,6 +22,7 @@ on:
       - "config/next-trust/**"
       - "scripts/continuous-sdk-release.mjs"
       - "scripts/lib/sdk-publication.mjs"
+      - "scripts/lib/managed-app-origins.mjs"
       - "tools/editor-native-publisher/**"
   workflow_dispatch:
     inputs:

@@ -182,6 +182,10 @@ msgstr "Parcourir et modifier les documents"
 msgid "Browser, OS, viewport and recent error codes. No note contents, paths or credentials."
 msgstr "Navigateur, système d’exploitation, taille de la fenêtre et codes d’erreur récents. Aucun contenu de note, chemin ni identifiant de connexion."
 
+#: src/AppSwitcher.tsx
+msgid "Build your own"
+msgstr "Créez votre propre application"
+
 #: src/CommentsPanel.tsx
 msgid "by {resolver}"
 msgstr "par {resolver}"

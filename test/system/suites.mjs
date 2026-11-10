@@ -1,6 +1,12 @@
 export const systemSuites = Object.freeze({
-  local: {
-    description: "Local connector, control plane, browser, and grant lifecycle",
+  "runtime-daemon": {
+    description: "Runtime daemon request path against a local control plane (pnpm e2e)",
+    prepare: ["packages", "runtime-daemon"],
+    command: ["node", "scripts/next-e2e.mjs"]
+  },
+  // Retire with the root connect-* crates (docs/legacy-retirement.md).
+  "legacy-local": {
+    description: "Legacy connector, control plane, browser, and grant lifecycle",
     prepare: ["packages", "rust-workspace"],
     command: ["node", "scripts/e2e.mjs"]
   },
@@ -55,7 +61,15 @@ export const preparationSteps = Object.freeze({
   "provider-binary": [
     "cargo", "build", "-p", "mdbase-connect-hosted-provider"
   ],
-  "cli-binary": ["cargo", "build", "-p", "mdbase-cli"]
+  "cli-binary": ["cargo", "build", "-p", "mdbase-cli"],
+  "runtime-daemon": [
+    "cargo", "build", "-p", "mdbn-daemon", "--bin", "mdbase", "--example", "loopback_daemon"
+  ]
+});
+
+// Steps that build another Cargo workspace run there; the rest at the root.
+export const preparationDirectories = Object.freeze({
+  "runtime-daemon": "runtime"
 });
 
 // What the suites run from target/debug, which rcargo copies back.
@@ -63,5 +77,6 @@ export const pulledBinaries = Object.freeze({
   "rust-workspace": ["mdbase"],
   "provider-binaries": ["mdbase-connect-hosted-provider", "mdbase"],
   "provider-binary": ["mdbase-connect-hosted-provider"],
-  "cli-binary": ["mdbase"]
+  "cli-binary": ["mdbase"],
+  "runtime-daemon": ["mdbase", "debug/examples/loopback_daemon"]
 });
