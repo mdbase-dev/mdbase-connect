@@ -64,7 +64,7 @@ export interface RuntimeConfig {
   pushTargetSeal?: PushTargetSealerConfig | null;
   /** Update link and optional minimum version shown to clients of moved collections. */
   clientUpdate?: ClientUpdatePolicy;
-  /** Backend of newly created accounts (MDBASE_NEW_ACCOUNT_BACKEND); legacy when absent. */
+  /** Backend of newly created accounts (MDBASE_NEW_ACCOUNT_BACKEND); next when absent. */
   newAccountBackend?: AccountBackend;
 }
 
@@ -367,6 +367,7 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
       "MDBASE_CONNECT_WEBHOOK_SIGNING_KEY_ID and MDBASE_CONNECT_WEBHOOK_SIGNING_PRIVATE_KEY must be configured together."
     );
   }
+  const nextControlPlane = parseNextControlPlaneEnv(env);
   return validateRuntimeConfig({
     host,
     publicUrl: env.PUBLIC_URL ?? `http://${host}:${port}`,
@@ -410,11 +411,11 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
           previousPublicKeys: webhookPreviousPublicKeys
         }
       : null,
-    nextControlPlane: parseNextControlPlaneEnv(env),
+    nextControlPlane,
     nextTimers: parseNextTimersEnv(env),
     pushTargetSeal: parsePushTargetSealerEnv(env),
     clientUpdate: parseClientUpdateEnv(env),
-    newAccountBackend: parseNewAccountBackendEnv(env)
+    newAccountBackend: parseNewAccountBackendEnv(env, nextControlPlane)
   });
 }
 
@@ -428,10 +429,16 @@ function parseClientUpdateEnv(env: NodeJS.ProcessEnv): ClientUpdatePolicy {
   return { updateUrl, minimumClientVersion };
 }
 
-function parseNewAccountBackendEnv(env: NodeJS.ProcessEnv): AccountBackend {
-  const value = env.MDBASE_NEW_ACCOUNT_BACKEND?.trim() || "legacy";
+function parseNewAccountBackendEnv(
+  env: NodeJS.ProcessEnv, nextControlPlane: NextControlPlaneConfig | null
+): AccountBackend {
+  const value = env.MDBASE_NEW_ACCOUNT_BACKEND?.trim() || "next";
   if (value !== "legacy" && value !== "next") {
     throw new Error("MDBASE_NEW_ACCOUNT_BACKEND must be legacy or next.");
+  }
+  // A next account is unusable without the next routes and policy signer.
+  if (value === "next" && !nextControlPlane) {
+    throw new Error("MDBASE_NEW_ACCOUNT_BACKEND=next (the default) requires MDBASE_NEXT_CONTROL_PLANE=1; set MDBASE_NEW_ACCOUNT_BACKEND=legacy to create legacy accounts.");
   }
   return value;
 }

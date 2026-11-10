@@ -283,6 +283,7 @@ docker run --detach --name mdbase-connect-upgrade-candidate \
   --env PUBLIC_URL="$UPGRADE_SERVER_URL" \
   --env PORT="$UPGRADE_SERVER_PORT" \
   --env MDBASE_CONNECT_DEV_AUTH=1 \
+  --env MDBASE_NEW_ACCOUNT_BACKEND=legacy \
   --env MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS=1 \
   "$CANDIDATE_IMAGE" >/dev/null
 if ! upgrade_wait_http \

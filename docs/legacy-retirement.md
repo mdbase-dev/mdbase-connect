@@ -28,9 +28,8 @@ state and locks, public endpoints):
 - The legacy provider `mdbase-connect-hosted-provider` (`sync.mdbase.dev`) is live:
   `/ready` returns 200. Every server CD rebuilds and redeploys it at the same
   revision as Connect.
-- Production sets `MDBASE_NEW_ACCOUNT_BACKEND=next` in the Render env only. The code
-  default is still `legacy` (`services/server/src/runtime-config.ts`), and
-  `render.yaml` does not declare the variable.
+- Production sets `MDBASE_NEW_ACCOUNT_BACKEND=next` in the Render env, which now
+  matches the code default (`services/server/src/runtime-config.ts`).
 - `config/desktop-update-minimum.json` sets the desktop minimum to `0.1.0-beta.130`,
   the first build that bundles `mdbn-daemon`. `packages/protocol` still accepts
   connectors from `0.1.0-beta.33`.
@@ -142,10 +141,10 @@ from an agent session.
 
 ## Risks that cross tiers
 
-- `MDBASE_NEW_ACCOUNT_BACKEND` defaults to `legacy` in code, and `render.yaml` does
-  not declare it. A rebuilt service, a new environment or a self-host would create
-  legacy accounts again. Fixing this is a code change, and it should happen before
-  2a work starts.
+- `MDBASE_NEW_ACCOUNT_BACKEND` now defaults to `next` in code, and the server refuses
+  to start with `next` but without `MDBASE_NEXT_CONTROL_PLANE=1`. The self-host and
+  local compose stacks, the tailnet stack and the server upgrade tests set `legacy`
+  explicitly. Retiring the legacy stack must also remove those settings.
 - Every server CD rebuilds the provider. `continuous_deployment.py` treats changes
   under `crates/**`, `Cargo.toml`, `Dockerfile.client`, `mdbase-rs-revision` and
   `packages/sync` as runtime changes, so Tier 1 deletions will trigger
