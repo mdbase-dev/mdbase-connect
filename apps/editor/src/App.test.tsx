@@ -1372,6 +1372,11 @@ class DirectAccessGateway extends DemoCollectionGateway {
   checkCalls = 0;
   requestCalls = 0;
 
+  constructor() {
+    // The permission flow needs no large collection; 240 default notes timed out on macOS Intel.
+    super(12);
+  }
+
   protected override currentConnection(): ConnectionSummary | null {
     const connection = super.currentConnection();
     return connection ? {
