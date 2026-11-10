@@ -310,6 +310,8 @@ export function applySuggestion(body: string, target: CommentTarget, replacement
 
 export interface PlacedThread {
   readonly thread: CommentThread;
+  /** The record it is on, for a panel that shows the threads of several. */
+  readonly record?: string;
   /** Where its passage is now: "whole" for a comment on the whole record, null when detached. */
   readonly at: Located | "whole" | null;
 }
@@ -436,6 +438,12 @@ export function personName(link: string | undefined, people: CommentPeople): str
 /** Whether `comment` was written by the signed-in account's person. */
 export function writtenByMe(comment: CommentRecord, people: CommentPeople): boolean {
   return Boolean(people.me && comment.createdBy && personKey(comment.createdBy) === personKey(people.me.link));
+}
+
+/** Whether anyone else has written in the thread since `since` (a thread only of one's own is never new). */
+export function threadIsNew(thread: CommentThread, since: string | undefined, people: CommentPeople): boolean {
+  if (!since) return false;
+  return [thread.root, ...thread.replies].some((c) => !c.deletedAt && !writtenByMe(c, people) && c.createdAt > since);
 }
 
 /**

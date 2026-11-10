@@ -16,7 +16,8 @@ import { AppCollectionSetupJournal, type AppCollectionSetupJournalOptions } from
 import { attachAppCollectionControl, appCollectionControlClient, type AppCollectionControlClient, type AppResourceSetupPort } from "./collection-control.js";
 import { appLocalConnector, type AppLocalConnector } from "./local-facade.js";
 import type { AppReplicaScope } from "./owner.js";
-import type { AppWebSignInSessionOptions, AppWebCollectionConnection } from "./web-sign-in-session.js";
+import type { AppWebSignInSessionOptions, AppWebCollectionConnection, AppWebCollectionLock } from "./web-sign-in-session.js";
+import { AppAccountKeyUnlockError, type AppAccountKeySecret } from "./account-key-host.js";
 import type { ModelResourceSetupJournal } from "./collection-setup-types.js";
 import { createAppCollectionPeople } from "./collection-people.js";
 import type { MdbasePeopleClient } from "../people.js";
@@ -44,6 +45,10 @@ export interface AppWebCollectionHandoff {
   readonly controlPort: MessagePort;
   /** SDK-configured metadata authority on SAME control channel; not consent. */
   readonly people?: true;
+  /** A Private device scope. People metadata is not admitted for it, so
+   * `people` is never present with this; the collection's records, files and
+   * setup are served as for any other collection. */
+  readonly privateDevice?: true;
   /** Present only for the original chosen native reminder consent. */
   readonly timerPort?: MessagePort;
 }
@@ -92,6 +97,8 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
     if (occupied.has(slot)) throw fail("fenced"); occupied.add(slot);
     const {host, installation: custody, signal: parentSignal, collection, setupPolicy} = context;
     const ownership = custody.isCurrent, displayName = collection.displayName;
+    /** A Private (e2e) collection this installation device is enrolled in. */
+    const isPrivate = collection.mode === "private";
     const report = (stage: import("./opening-progress.js").AppOpeningProgress) => {
       if (!current()) return;
       try { context.onProgress?.(stage); } catch { /* display observers do not own opening */ }
@@ -104,6 +111,11 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
     let timers: ReturnType<typeof host.openTimersPort> = null;
     let journal: AppCollectionSetupJournal | null = null, data: MessageChannel | null = null, command: MessageChannel | null = null;
     let assessment: "ready" | "setup_required" = "setup_required";
+    /** Private only: enrolled and adopted, but this device holds no collection
+     * key. No data facade, handoff, log drive or push socket exists while set. */
+    let locked: AppWebCollectionLock | null = null;
+    /** The log drive loop runs only once the open has a verified read. */
+    let started = false;
     let push: AppLogPushChannel | null = null, paused = false, pausing: ReturnType<typeof setTimeout> | null = null, kicked = false;
     /** Access ended on the log (removed, device revoked, collection gone). Terminal. */
     let ended: AppLogPushEnd | null = null;
@@ -199,7 +211,7 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
       try { return host.pendingWrites() > 0; } catch { return false; }
     };
     const schedule = () => {
-      if (!current()) return;
+      if (!started || !current()) return;
       // Hidden with nothing left to send: close the socket; showing reconnects.
       if (!foreground && !flushing() && !kicked) { if (!driving) push?.suspend(); return; }
       if (timer !== null || driving) return;
@@ -280,12 +292,20 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
       check();
       journal = new AppCollectionSetupJournal({...options.setupJournal, scope, isCurrent: current}); // validate BUILD config before bootstrap IO
       const ledger = new AppCollectionJoinLedger({databaseName: options.joinDatabaseName, scope, isCurrent: current});
-      const attempt = await ledger.prepare({signal: life.signal}); check();
-      report("joining");
-      await host.bootstrapCloudCopy({scope, collectionCurrent: current, purpose: "join", outcomeMode: attempt.outcomeMode,
-        signal: life.signal, ...(attempt.outcomeMode === "existing" ? {reconcile: "explicit-unknown-outcome" as const} : {}),
-        fetch: options.fetch, allowLoopbackHttp: options.allowLoopbackHttp}); check();
-      await ledger.complete({signal: life.signal}); check();
+      if (isPrivate) {
+        // The protected enrol marker and its operation record decide fresh or
+        // existing; the cloud-copy join marker is neither written nor read.
+        report("joining");
+        await host.bootstrapPrivateDevice({scope, collectionCurrent: current, signal: life.signal,
+          fetch: options.fetch, allowLoopbackHttp: options.allowLoopbackHttp}); check();
+      } else {
+        const attempt = await ledger.prepare({signal: life.signal}); check();
+        report("joining");
+        await host.bootstrapCloudCopy({scope, collectionCurrent: current, purpose: "join", outcomeMode: attempt.outcomeMode,
+          signal: life.signal, ...(attempt.outcomeMode === "existing" ? {reconcile: "explicit-unknown-outcome" as const} : {}),
+          fetch: options.fetch, allowLoopbackHttp: options.allowLoopbackHttp}); check();
+        await ledger.complete({signal: life.signal}); check();
+      }
       const receipt = host.registeredReceipt();
       if (receipt.installationId !== scope.installation) throw fail("binding");
       let ledgerRows: AppLedgerRows | null = null;
@@ -313,11 +333,31 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
           // kept no token; accessToken obtains a NEW challenge and proof.
         }
       }
+      const generation = crypto.randomUUID();
+      // Set by the shared tail below; a locked collection has neither.
+      let attachOpened: (() => AppWebCollectionHandoff | null) | null = null;
+      let detachOpened: ((handoff: AppWebCollectionHandoff) => void) | null = null;
+      if (isPrivate) {
+        // An enrolled device is not a keyed one. Decide from the native applied
+        // policy BEFORE any verified read, which an unkeyed device cannot reach.
+        report("syncing");
+        const key = await host.settlePrivateKey({signal: life.signal}); check();
+        if (key === "locked") {
+          // The mode comes from the status route only; a failed read fails the
+          // open. No mode is assumed.
+          const mode = await host.accountKeyMode({signal: life.signal}); check();
+          locked = {mode, unlocking: false, problem: null};
+        }
+      }
+      /** Verified read, log drive, setup and the one handoff: the same tail for
+       * a cloud copy, a keyed Private device and one just unlocked. */
+      const finishOpen = async () => {
       const warm = await ledger.syncedBefore({signal: life.signal}); check();
       report("syncing");
       await host.waitForVerifiedRead({signal: life.signal, cold: !warm, onProgress: report}); check();
       // Drive the log now: the first catch-up below needs it, and a write or
       // file transfer drives the log at once rather than on the next turn.
+      started = true;
       host.onLogWork?.(kick);
       schedule();
       try {
@@ -335,18 +375,19 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
       if (warm) { report("syncing"); await waitForWarmSync(); } check();
       report("checking_setup");
       void ledger.markSynced({signal: life.signal}).catch(() => {});
-      const intent = await journal.load(life.signal); check();
+      const intent = await journal!.load(life.signal); check();
       const setupMode = intent && intent.version !== 1 && (intent.phase === "attempted" || intent.phase === "confirmed") ? "reconcile-original" :
         intent === null && setupPolicy === "approved-new-collection" ? "approved-new" : "inspect";
-      const generation = crypto.randomUUID();
-      const people = options.people === true ? {people: true as const} : {};
+      // People metadata is not admitted for a Private device scope.
+      const withPeople = options.people === true && !isPrivate;
+      const people = withPeople ? {people: true as const} : isPrivate ? {privateDevice: true as const} : {};
       // Each tab: a data facade on its data port, and a control on its control port.
       // One setup turn across the tabs: a tab never races another tab's setup steps.
       const setupTurn = {owner: null};
       const controlFor = (dataPort: MessagePort, port: MessagePort, foreground: (active: boolean) => void, failed: () => void) =>
         attachAppCollectionControl(port, {scope, generation}, {journal: journal!, resourceSetup: host.attachDataFacade(dataPort), signal: life.signal, isCurrent: current, ledger: () => current() ? ledgerRows : null, setupTurn,
           assess(state) {check(); assessment = state; changed();}, foreground, onProtocolFailure: failed,
-          ...(options.people === true ? {peopleAuthority: host.peopleAuthority()} : {})});
+          ...(withPeople ? {peopleAuthority: host.peopleAuthority()} : {})});
       timers = host.openTimersPort({scope,generation,signal:life.signal}); check();
       data = new MessageChannel(); command = new MessageChannel();
       control = controlFor(data.port1, command.port1, setForeground, abort); check();
@@ -394,18 +435,49 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
           return null;
         }
       };
-      const connection: AppWebNativeCollection = Object.freeze({scope, generation, isCurrent: current, setForeground, attach, detach});
+      attachOpened = attach; detachOpened = detach;
+      options.handoff(Object.freeze({schema: "mdbn-app-collection/1", scope, generation, displayName, setupMode, dataPort: data.port2, controlPort: command.port2,
+        ...people, ...(timers ? {timerPort:timers.port} : {})}));
+      check(); schedule();
+      };
+      const connection: AppWebNativeCollection = Object.freeze({scope, generation, isCurrent: current, setForeground,
+        attach: () => attachOpened ? attachOpened() : null,
+        detach: (handoff: AppWebCollectionHandoff) => { detachOpened?.(handoff); }});
+      /** Account-key unlock of the locked collection. A typed unlock refusal
+       * (wrong password, strict account, unreachable service) leaves it locked
+       * with `problem` set and resolves. Any other failure closed this adapter.
+       * On success the open continues: the handoff is delivered before this
+       * resolves, and the state stays `needs_unlock` (unlocking) until then. */
+      const unlock = async (secret: AppAccountKeySecret): Promise<void> => {
+        check();
+        if (!locked || locked.unlocking) throw fail("binding");
+        locked = {mode: locked.mode, unlocking: true, problem: null}; changed();
+        try {
+          await host.unlockAccountKey(secret, {signal: life.signal,
+            onMode: mode => { if (locked && current()) locked = {...locked, mode}; }});
+          check();
+        } catch (error) {
+          if (error instanceof AppAccountKeyUnlockError && current() && locked) {
+            locked = {mode: locked.mode, unlocking: false, problem: error.reason}; changed();
+            return;
+          }
+          await close(); throw error;
+        }
+        try { await finishOpen(); check(); } catch (error) { await close(); throw error; }
+        locked = null; changed();
+      };
       const result: AppWebCollectionConnection<AppWebNativeCollection> = {
-        get state() {return current() ? assessment : "setup_required";},
+        get state() {return !current() ? "setup_required" as const : locked ? "needs_unlock" as const : assessment;},
+        get locked() {return current() && locked ? Object.freeze({...locked}) : null;},
         get problem() {return current() ? problem : null;},
         get health() {return current() ? health : null;},
         get live() {return current() ? !paused : null;},
         get ended() {return current() ? ended : null;}, connection, close,
         subscribe(listener) {check(); listeners.add(listener); return () => {listeners.delete(listener);};},
+        ...(isPrivate ? {unlock} : {}),
       };
-      options.handoff(Object.freeze({schema: "mdbn-app-collection/1", scope, generation, displayName, setupMode, dataPort: data.port2, controlPort: command.port2,
-        ...people, ...(timers ? {timerPort:timers.port} : {})}));
-      check(); schedule();
+      if (!locked) await finishOpen();
+      check();
       return Object.freeze(result);
     } catch (error) {await close(); throw error;}
   };
@@ -434,7 +506,8 @@ export async function openAppWebCollectionClient(handoff: AppWebCollectionHandof
   timerCriteria?: readonly string[];
 }): Promise<AppWebCollectionClient> {
   if (handoff.schema !== "mdbn-app-collection/1" || used.has(handoff.dataPort) || used.has(handoff.controlPort) || handoff.dataPort === handoff.controlPort ||
-    !["inspect", "approved-new", "reconcile-original"].includes(handoff.setupMode) || (handoff.people !== undefined && handoff.people !== true) || options.signal.aborted) throw fail("binding");
+    !["inspect", "approved-new", "reconcile-original"].includes(handoff.setupMode) || (handoff.people !== undefined && handoff.people !== true) ||
+    (handoff.privateDevice !== undefined && (handoff.privateDevice !== true || handoff.people !== undefined)) || options.signal.aborted) throw fail("binding");
   if(handoff.timerPort && (used.has(handoff.timerPort) || handoff.timerPort===handoff.dataPort || handoff.timerPort===handoff.controlPort)) throw fail("binding");
   used.add(handoff.dataPort); used.add(handoff.controlPort); if(handoff.timerPort)used.add(handoff.timerPort);
   const scope = Object.freeze({...handoff.scope}), generation = handoff.generation, setupMode = handoff.setupMode, peopleEnabled = handoff.people === true;

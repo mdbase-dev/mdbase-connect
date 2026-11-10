@@ -14,7 +14,7 @@ use mdbn_wire::schema::Wire;
 use mdbn_wire::snapshot::{BasePayload, BaseSource};
 
 use super::engine::{COL, Node, node, settle};
-use crate::fake::FakeLogService;
+use crate::fake::{FakeLogService, blob_part};
 use crate::log::{LogClient, LogPort, LogRequest};
 use crate::mem::MemStore;
 use crate::replica::base::{BaseError, Gen0Base, build_base, check_base};
@@ -38,8 +38,8 @@ fn parts(b: &BlobRef) -> Option<Vec<B32>> {
 }
 
 /// Append a base signed by node 1's device at the current head, with the given
-/// `refs`. Every ref is stored first (opaque bytes: the service only checks that a
-/// referenced object exists).
+/// `refs`. Every ref is stored first (an opaque blob part: the service only checks
+/// that a referenced object exists).
 fn append_base(svc: &FakeLogService, payload: &BasePayload, refs: Vec<B32>) -> u64 {
     let mut c = svc.client(B16([101; 16]));
     for address in &refs {
@@ -47,7 +47,7 @@ fn append_base(svc: &FakeLogService, payload: &BasePayload, refs: Vec<B32>) -> u
             collection: COL,
             address: *address,
             kind: ItemKind::BlobPart,
-            bytes: vec![0xee; 8],
+            bytes: blob_part(COL, &[0xee; 8]),
         })
         .unwrap();
     }
@@ -210,7 +210,7 @@ fn write_gen0(
             collection: COL,
             address: *a,
             kind: ItemKind::BlobPart,
-            bytes: vec![0xee; 8],
+            bytes: blob_part(COL, &[0xee; 8]),
         })
         .unwrap();
     }

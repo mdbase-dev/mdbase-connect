@@ -18,6 +18,7 @@ import {
   placeThreads,
   recordThreads,
   utf16Offset,
+  threadIsNew,
   writtenByMe,
   type CommentRecord,
 } from "./comments.js";
@@ -213,5 +214,19 @@ describe("writing comments", () => {
     expect(personName("[[people/someone|Someone Else]]", people)).toBe("Someone Else");
     expect(writtenByMe(root, people)).toBe(true);
     expect(writtenByMe(root, { names: new Map() })).toBe(false);
+  });
+
+  it("marks a thread new when someone else has written in it since the last visit", () => {
+    const people = { names: new Map(), me: { link: "[[people/Sam Okafor]]", name: "Sam Okafor" } };
+    const comment = (path: string, by: string, at: string, more: Record<string, unknown> = {}) =>
+      commentFromRecord(path, { document: "[[chapters/method]]", created_by: by, created_at: at, ...more }, "text") as CommentRecord;
+    const mine = comment("comments/a.md", "[[people/Sam Okafor]]", "2026-10-02T09:00:00Z");
+    const theirs = comment("comments/b.md", "[[people/Jordan Ellis]]", "2026-10-02T10:00:00Z");
+    const since = "2026-10-01T00:00:00Z";
+    expect(threadIsNew({ root: mine, replies: [] }, since, people)).toBe(false);
+    expect(threadIsNew({ root: mine, replies: [theirs] }, since, people)).toBe(true);
+    expect(threadIsNew({ root: mine, replies: [theirs] }, "2026-10-03T00:00:00Z", people)).toBe(false);
+    expect(threadIsNew({ root: mine, replies: [{ ...theirs, deletedAt: "2026-10-02T11:00:00Z" }] }, since, people)).toBe(false);
+    expect(threadIsNew({ root: theirs, replies: [] }, undefined, people)).toBe(false);
   });
 });

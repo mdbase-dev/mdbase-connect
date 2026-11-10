@@ -810,6 +810,22 @@ mod abi {
         super::runtime::wipe(&mut bytes);
         give(signature)
     }
+    /// Fixed account-key-fetch purpose (`GET /v1/next/account-key`); returns
+    /// ONLY a signature or refusal. No other account-key proof is exported.
+    ///
+    /// # Safety
+    /// `{0: challenge32, 1: account16}` must come from alloc(len), consumed/wiped
+    /// on every path.
+    #[unsafe(no_mangle)]
+    #[cfg(feature = "app-runtime")]
+    pub unsafe extern "C" fn rt_app_account_key_fetch_sign(ptr: *mut u8, len: usize) -> u64 {
+        let mut bytes = unsafe { take(ptr, len) };
+        let signature = rt()
+            .and_then(Active::app)
+            .map_or_else(Vec::new, |r| r.sign_account_key_fetch_consuming(&mut bytes));
+        super::runtime::wipe(&mut bytes);
+        give(signature)
+    }
     /// Current opaque log lifetime, zero before bind/after terminal retirement.
     #[unsafe(no_mangle)]
     #[cfg(feature = "app-runtime")]

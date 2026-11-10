@@ -63,7 +63,12 @@ export interface DevicePairing {
   account_upgrade?: "in_progress" | "postponed" | "scheduled" | "not_scheduled" | null;
   retained_collection_ids?: string[];
   retained_create_collections?: boolean;
-  collections?: Array<{collection_id:string;display_name:string;role:string;kind?:"private"}>;
+  /** Present only when the app asked to hold private collections' keys on this device. */
+  requested_private_device?: boolean;
+  approved_private_device_collection_ids?: string[];
+  retained_private_device_collection_ids?: string[];
+  /** `private` opens through a computer (app grant); `private_device` gives this device the key. */
+  collections?: Array<{collection_id:string;display_name:string;role:string;kind?:"private"|"private_device"}>;
   file_access?: FileAccessRequest;
 }
 interface FileAccessRequest {

@@ -194,3 +194,20 @@ The Playwright suite covers production-shaped user flows, accessibility,
 responsive behavior, and a 10,000-note collection. `pnpm build` is followed by
 `pnpm check:bundle`, which enforces gzip budgets for initial JavaScript and CSS.
 CI runs all four gates before deployment.
+
+## Comments
+
+A collection with a type that implements `mdbase.comment` gets comments on
+every note. The contract's reading (threads, anchors, the fields a new comment
+or a change writes) is shared in `@mdbase-dev/ui/comments`, with the thread
+panel and the CodeMirror anchors beside it, so the Editor and other apps agree
+on what a comment is. `note-comments.ts` maps the contract onto the type's own
+field names; `use-note-comments.ts` derives the open note's threads from the
+collection index, so comments written elsewhere arrive with every other
+change, and writes through the gateway into the same index.
+
+Comment records are ordinary notes: they appear in lists and open like any
+other file. A stored anchor counts positions in the note's stored body, which
+includes a heading title the editor shows separately and may keep `\r\n`, so
+positions are shifted to and from the editor's text and the quote remains the
+authority. There are no comments before a collection is connected.

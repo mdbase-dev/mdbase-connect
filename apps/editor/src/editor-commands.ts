@@ -31,6 +31,8 @@ export const commandDefinitions = {
   "set-property": { get label() { return t`Set property`; }, get hint() { return t`Selected notes`; } },
   "clear-selection": { get label() { return t`Clear selection`; } },
   properties: { get label() { return t`Note properties`; } },
+  comments: { get label() { return t`Comments`; } },
+  comment: { get label() { return t`Comment on the selection`; }, shortcut: "mod+alt+M", group: "Text" },
   outline: { get label() { return t`Document outline`; } },
   backlinks: { get label() { return t`Linked from`; } },
   focus: { get label() { return t`Focus mode`; }, shortcut: "mod+shift+F", group: "Navigate" },

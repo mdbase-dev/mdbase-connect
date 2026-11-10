@@ -508,6 +508,10 @@ msgstr "绘制"
 msgid "Esc"
 msgstr "Esc"
 
+#: src/CommentsPanel.tsx
+msgid "Everyone"
+msgstr "所有人"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Everyone, including you, loses access to it on every device and app right away. This can't be undone."
@@ -597,6 +601,10 @@ msgstr "信息"
 #: src/CommentsPanel.tsx
 msgid "Insert “{replacement}”"
 msgstr "插入“{replacement}”"
+
+#: src/CommentsPanel.tsx
+msgid "Insert at the cursor"
+msgstr "在光标处插入"
 
 #: src/live-preview/table-controls.ts
 msgctxt "table"
@@ -690,6 +698,10 @@ msgstr "mdbase 将能够读取此集合及其现有历史记录，并在你的�
 msgid "Menu"
 msgstr "菜单"
 
+#: src/CommentsPanel.tsx
+msgid "Mine"
+msgstr "我的"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "More for {collection}"
@@ -727,6 +739,14 @@ msgstr "需要处理"
 #: src/CommentsPanel.tsx
 msgid "New comment"
 msgstr "新评论"
+
+#: src/CommentsPanel.tsx
+msgid "New since last visit ({newCount})"
+msgstr "上次访问后新增（{newCount}）"
+
+#: src/CommentsPanel.tsx
+msgid "New since your last visit"
+msgstr "自上次访问后新增"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -767,10 +787,6 @@ msgstr "没有匹配项"
 #: src/CommentsPanel.tsx
 msgid "Nothing resolved yet."
 msgstr "尚无已解决的评论。"
-
-#: src/CommentsPanel.tsx
-msgid "On the whole note"
-msgstr "针对整篇笔记"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
@@ -889,6 +905,10 @@ msgstr "引用"
 msgid "Read and annotate sources"
 msgstr "阅读和注释来源"
 
+#: src/CommentsPanel.tsx
+msgid "Reason for the suggestion"
+msgstr "建议理由"
+
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "Refresh status"
@@ -938,6 +958,10 @@ msgstr "重新打开"
 #: src/CommentsPanel.tsx
 msgid "Replace “{exact}” with “{replacement}”"
 msgstr "将“{exact}”替换为“{replacement}”"
+
+#: src/CommentsPanel.tsx
+msgid "Replace with"
+msgstr "替换为"
 
 #: src/Feedback.tsx
 msgid "Replies aren’t guaranteed. Not for security reports or urgent support."
@@ -1094,9 +1118,23 @@ msgstr "分享你喜欢的内容"
 msgid "Show"
 msgstr "显示"
 
+#. placeholder {0}: logical.length
 #: src/CommentsPanel.tsx
-msgid "Show in the note"
-msgstr "在笔记中显示"
+msgid "Show 50 more comments · {0}"
+msgstr "再显示 50 条评论 · {0}"
+
+#. placeholder {0}: thread.replies.length
+#: src/CommentsPanel.tsx
+msgid "Show 50 more replies · {0}"
+msgstr "再显示 50 条回复 · {0}"
+
+#: src/CommentsPanel.tsx
+msgid "Show in the editor"
+msgstr "在编辑器中显示"
+
+#: src/CommentsPanel.tsx
+msgid "Show previous 50 comments"
+msgstr "显示之前的 50 条评论"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -1178,6 +1216,14 @@ msgctxt "callout type"
 msgid "Success"
 msgstr "成功"
 
+#: src/CommentsPanel.tsx
+msgid "Suggest"
+msgstr "建议"
+
+#: src/CommentsPanel.tsx
+msgid "Suggest an edit"
+msgstr "提出编辑建议"
+
 #: src/feedback-data.ts
 msgid "Suggest an improvement"
 msgstr "提出改进建议"
@@ -1189,6 +1235,10 @@ msgstr "修改建议"
 #: src/comment-anchors.ts
 msgid "Suggested insertion"
 msgstr "建议插入的内容"
+
+#: src/CommentsPanel.tsx
+msgid "Suggested text"
+msgstr "建议文本"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -1293,6 +1343,11 @@ msgstr "此集合"
 msgctxt "Collection access interface"
 msgid "This device is still listed under your account until you remove it there."
 msgstr "在账户中移除此设备之前，它仍会显示在设备列表中。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "This is a Private collection, and this device doesn't have its key yet."
+msgstr "这是私有集合，此设备尚未获得其密钥。"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -1432,6 +1487,18 @@ msgstr "你希望改进什么？"
 #: src/feedback-data.ts
 msgid "What’s working well for you?"
 msgstr "哪些方面对你很有帮助？"
+
+#: src/CommentsPanel.tsx
+msgid "Whole text"
+msgstr "全文"
+
+#: src/CommentsPanel.tsx
+msgid "Whose comments"
+msgstr "谁的评论"
+
+#: src/CommentsPanel.tsx
+msgid "Why (optional)"
+msgstr "原因（可选）"
 
 #: src/CommentsPanel.tsx
 msgid "Withdraw"

@@ -168,7 +168,7 @@ export function backgroundTimerGrantResolver(db: DatabasePool, environment: Inst
       const device: Device = { kind: row.device_kind, sign_pk: row.sign_pk, kem_pk: row.kem_pk, noise_pk: row.noise_pk };
       await currentCollectionDevice(client,connector,row.collection_id,row.device_id,device);
       const scoped = await client.query(
-        "SELECT 1 FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2 FOR SHARE",
+        "SELECT 1 FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2 AND NOT private_device FOR SHARE",
         [row.native_connector_id,row.collection_id]
       );
       if (!scoped.rows.length) return grant;

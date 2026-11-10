@@ -9,7 +9,7 @@ import type { MdbaseApplicationDeclaration } from "./declaration.js";
 import {
   MdbaseConnect, type MdbaseApplication, type MdbaseApplicationConnection, type MdbaseApplicationReadinessSnapshot,
   type MdbaseApplicationRequestOptions, type MdbaseApplicationSnapshot, type MdbaseCollectionDeleteOptions, type MdbaseConnectOptions, type MdbaseLinks,
-  type MdbaseSignOutOptions, type MdbaseTransferOptions, type MdbaseTransferPlanOptions,
+  type MdbaseSignOutOptions, type MdbaseTransferOptions, type MdbaseTransferPlanOptions, type MdbaseUnlockSecret,
 } from "./entry.js";
 import type { MdbaseTransferPlan, MdbaseTransferResult } from "./unsynced-transfer.js";
 import type { MdbasePhase } from "./phase.js";
@@ -60,6 +60,11 @@ export interface Mdbase {
   forget(collectionId: string, options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>;
   deleteCollection(collectionId: string, options: MdbaseCollectionDeleteOptions): Promise<MdbaseSnapshot>;
   requestAccess(request: MdbaseAccessRequest, options: MdbaseAccessRequestOptions): Promise<MdbaseAccessResult>;
+  /** Unlock the open Private collection (`phase.kind === "needs_unlock"` with
+   * `mode: "password"`) with the encryption password or the recovery key.
+   * Resolves once the attempt settled: opened, or still `needs_unlock` with
+   * `phase.problem` set. Pass the typed value straight through; keep no copy. */
+  unlock(collectionId: string, secret: MdbaseUnlockSecret, options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>;
   /** Re-check the open collection now. */
   assess(options?: MdbaseApplicationRequestOptions): Promise<MdbaseApplicationReadinessSnapshot>;
   readonly setup: {
@@ -127,6 +132,10 @@ export function mdbaseFront(entry: Pick<MdbaseConnect, "application" | "connecti
     forget: async (id: string, o?: MdbaseApplicationRequestOptions) => strict(await app.forget(id, o)),
     deleteCollection: async (id: string, o: MdbaseCollectionDeleteOptions) => strict(await app.deleteCollection(id, o)),
     requestAccess: (request: MdbaseAccessRequest, o: MdbaseAccessRequestOptions) => app.requestAccess(request, o),
+    unlock: async (id: string, secret: MdbaseUnlockSecret, o?: MdbaseApplicationRequestOptions) => {
+      if (!app.unlock) throw mdbaseError("unavailable", "Unlocking a Private collection isn't available here.", "application_not_yet_available");
+      return strict(await app.unlock(id, secret, o));
+    },
     assess: (o?: MdbaseApplicationRequestOptions) => app.assess(o),
     setup: Object.freeze({
       plan: (o?: MdbaseSetupPlanOptions) => app.setup.plan(o),

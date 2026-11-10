@@ -3,11 +3,19 @@
 import type { DatabaseConnection } from "../../database-types.js";
 import type { ConnectorIdentity } from "../../platform/request-authentication.js";
 import { CreateError } from "./bootstrap-common.js";
+import type { NextControlPlaneConfig } from "./policy-keys.js";
 
-/** Ordinary daemons retain their existing controls. Installation identities never
- * become ordinary if their credential row disappears after authentication. */
-export async function requireInstallationScope(client: DatabaseConnection, connector: ConnectorIdentity, collection?: string, create = false): Promise<void> {
-  if (!connector.installation_device_id) return;
+/** The server's Private device gate: the bootstrap flag and the operator's switch. */
+export type PrivateDeviceGate = Pick<NextControlPlaneConfig, "privateBootstrap" | "privateAppDevices">;
+/** Whether this server lets installations be devices of Private collections at all.
+ * It names no application: Connect cannot verify a publisher, so the person's portal
+ * consent for each collection is the control. Asked at request and again at every
+ * use, so turning the switch off stops every installation. */
+export const privateDevicesEnabled = (gate: PrivateDeviceGate | undefined): boolean =>
+  !!gate?.privateBootstrap && !!gate.privateAppDevices;
+
+/** The installation's current credential, share-locked with its connector, account and device. */
+async function currentCredential(client: DatabaseConnection, connector: ConnectorIdentity): Promise<{ create_collections: boolean }> {
   const row = await client.query<{ create_collections: boolean }>(
     `SELECT k.create_collections FROM installation_device_credentials k
        JOIN connectors c ON c.id=k.connector_id JOIN users u ON u.id=c.user_id
@@ -20,20 +28,68 @@ export async function requireInstallationScope(client: DatabaseConnection, conne
     [connector.id,connector.installation_device_id,connector.user_id]
   );
   if (!row.rows[0]) throw new CreateError(403,"installation_not_current");
-  if (create && !row.rows[0].create_collections) throw new CreateError(409,"installation_create_consent_required");
+  return row.rows[0];
+}
+
+/** Ordinary daemons retain their existing controls. Installation identities never
+ * become ordinary if their credential row disappears after authentication. */
+export async function requireInstallationScope(client: DatabaseConnection, connector: ConnectorIdentity, collection?: string, create = false): Promise<void> {
+  if (!connector.installation_device_id) return;
+  const credential = await currentCredential(client, connector);
+  if (create && !credential.create_collections) throw new CreateError(409,"installation_create_consent_required");
   if (collection) {
     const scope = await client.query(
       `SELECT 1 FROM installation_collection_scopes s JOIN next_collections n ON n.collection_id=s.collection_id JOIN users owner ON owner.id=n.owner_user_id
-       WHERE s.connector_id=$1 AND s.collection_id=$2 AND n.runtime='next' AND n.sync='cloud_copy' AND n.left_sync_at IS NULL AND owner.suspended_at IS NULL FOR SHARE OF s,n,owner`, [connector.id,collection]);
+       WHERE s.connector_id=$1 AND s.collection_id=$2 AND NOT s.private_device AND n.runtime='next' AND n.sync='cloud_copy' AND n.left_sync_at IS NULL AND owner.suspended_at IS NULL FOR SHARE OF s,n,owner`, [connector.id,collection]);
     if (!scope.rows.length) throw new CreateError(403,"installation_collection_not_approved");
   }
+}
+
+/** Whether an installation credential's request for this collection is a Private
+ * device request: the switch is on and the collection is Private now. Everything else,
+ * including every request while the switch is off, keeps the cloud-copy rules. */
+export async function privateDeviceTarget(client: DatabaseConnection, gate: PrivateDeviceGate | undefined, connector: ConnectorIdentity, collection: string): Promise<boolean> {
+  if (!connector.installation_device_id || !privateDevicesEnabled(gate)) return false;
+  return (await client.query("SELECT 1 FROM next_collections WHERE collection_id=$1 AND sync='private'", [collection])).rows.length > 0;
+}
+
+/** Private device authority of an installation credential: the switch on, a current
+ * credential, and explicit `private_device` consent. For one
+ * collection, that collection's consent while it is a current Private collection;
+ * with none (the account-key routes), at least one such consent whose account is
+ * still a member and whose device is not revoked there. Never inferred from
+ * membership, device kind, a cloud-copy scope or an enrolment. Ordinary daemons
+ * retain their existing controls. */
+export async function requirePrivateDeviceScope(client: DatabaseConnection, gate: PrivateDeviceGate | undefined, connector: ConnectorIdentity, collection?: string): Promise<void> {
+  if (!connector.installation_device_id) return;
+  await currentCredential(client, connector);
+  if (!privateDevicesEnabled(gate)) throw new CreateError(403,"installation_collection_not_approved");
+  if (collection) {
+    const scope = await client.query(
+      `SELECT 1 FROM installation_collection_scopes s JOIN next_collections n ON n.collection_id=s.collection_id JOIN users owner ON owner.id=n.owner_user_id
+       WHERE s.connector_id=$1 AND s.collection_id=$2 AND s.private_device AND n.runtime='next' AND n.sync='private' AND n.left_sync_at IS NULL AND owner.suspended_at IS NULL FOR SHARE OF s,n,owner`, [connector.id,collection]);
+    if (!scope.rows.length) throw new CreateError(403,"installation_collection_not_approved");
+  } else if (!(await installationCollections(client,connector.user_id,connector.id,connector.installation_device_id,false,"private")).length) {
+    throw new CreateError(403,"installation_collection_not_approved");
+  }
+}
+
+/** The installation's own Private device listing: nothing while the switch is off,
+ * then its consented Private collections it is still a member of. The caller has
+ * already required a current credential. */
+export async function privateDeviceCollections(client: DatabaseConnection, gate: PrivateDeviceGate | undefined, connector: ConnectorIdentity, fileActions = false) {
+  if (!connector.installation_device_id || !privateDevicesEnabled(gate)) return [];
+  return installationCollections(client,connector.user_id,connector.id,connector.installation_device_id,fileActions,"private");
 }
 
 /** Scoped metadata, not an enrolment/readiness assertion. Used by the portal before
  * approval and the installation's list after approval. No arbitrary future scope. */
 /** With `fileActions` (an installation credential's own listing), each row also
- * carries its approved optional file actions; other callers keep the old shape. */
-export async function installationCollections(client: DatabaseConnection, account: string, connector?: string, device?: string, fileActions = false) {
+ * carries its approved optional file actions; other callers keep the old shape.
+ * `mode` selects the collections of one mode and, for a credential, only its
+ * consent of that kind: a cloud-copy scope never lists a Private collection and
+ * Private device consent never lists a cloud copy. */
+export async function installationCollections(client: DatabaseConnection, account: string, connector?: string, device?: string, fileActions = false, mode: "cloud_copy" | "private" = "cloud_copy") {
   const rows = await client.query<{collection_id:string;display_name:string;role:"owner"|"editor"|"viewer";file_actions?:string[]}>(
     `SELECT n.collection_id,
        COALESCE(n.display_name,'New collection') AS display_name,
@@ -49,11 +105,11 @@ export async function installationCollections(client: DatabaseConnection, accoun
        ORDER BY CASE WHEN b.state='appended' AND b.lost_at IS NULL THEN 0 ELSE 1 END DESC,
          b.seq DESC NULLS LAST,o.id DESC,e.ord DESC LIMIT 1
      ) member
-     WHERE n.runtime='next' AND n.sync='cloud_copy' AND n.left_sync_at IS NULL
+     WHERE n.runtime='next' AND n.sync=$4::text AND n.left_sync_at IS NULL
        AND owner.suspended_at IS NULL AND member.op='member-set'
-       AND ($2::uuid IS NULL OR EXISTS (SELECT 1 FROM installation_collection_scopes s WHERE s.connector_id=$2 AND s.collection_id=n.collection_id))
+       AND ($2::uuid IS NULL OR EXISTS (SELECT 1 FROM installation_collection_scopes s WHERE s.connector_id=$2 AND s.collection_id=n.collection_id AND s.private_device=($4::text='private')))
        AND ($3::uuid IS NULL OR NOT EXISTS (SELECT 1 FROM next_policy_outbox o WHERE o.collection_id=n.collection_id AND o.ops->'ops' @> jsonb_build_array(jsonb_build_object('op','device-revoke','device',$3::uuid::text))))
-     ORDER BY n.collection_id LIMIT 1001`, [account,connector??null,device??null]
+     ORDER BY n.collection_id LIMIT 1001`, [account,connector??null,device??null,mode]
   );
   if (rows.rows.length>1000) throw new CreateError(409,"installation_scope_limit");
   return rows.rows;

@@ -375,6 +375,72 @@ Not covered yet for Private collections:
   report it: older servers, or an account whose access needs renewing. Gate
   owner actions on `role === "owner"`; Connect still checks each action.
 
+## Private collections on the app's own replica
+
+An app that hosts its own replica through `MdbaseApplication` (`createMdbase`)
+can open an existing Private collection with that replica, as a device of the
+collection, instead of through the relay. The person unlocks it once with the
+account's encryption password or recovery key. Connect only offers this to
+apps it allows to hold a Private key.
+
+- **Ask for it.** List `offline.replica` in the declaration's capabilities,
+  under `requirements.capabilities.optional` or `required`. Prefer `optional`:
+  the app then still signs in and syncs cloud copies where device access is not
+  offered, and consent for an app grant on a current account refuses an app
+  that lists it as required. The sign-in request asks for device access
+  (`requested_private_device`), and the person chooses which Private
+  collections to share. A server that does not know the request is asked again
+  without it, and one that does not offer device access to this app answers
+  with no Private collections; both leave an ordinary cloud-copy sign-in. An
+  installation paired before this needs to ask for access again.
+- **List.** Entries in `snapshot.collections` carry `mode: "private"`; absent
+  means a cloud copy. A server from before this feature (after a rollback)
+  answers the list without modes; the SDK then asks once more with the earlier
+  request, so file actions are kept and no Private entry is listed.
+- **Open.** `select(id)` as usual. An approval that shares only Private
+  collections names no selected collection, so the app arrives in its chooser;
+  when exactly one collection is approved the application opens it by itself,
+  as it does a sole cloud copy. A device that already holds the key goes
+  straight to `ready`. One that doesn't reads
+  `{kind: "needs_unlock", collectionId, displayName, mode, unlocking, problem}`.
+  There is no `connection` while locked.
+- **Unlock.** For `mode: "password"`, call
+  `mdbase.unlock(collectionId, {password})` or `{recoveryKey}` with what the
+  person typed, and keep no copy. It resolves when the attempt has settled: the
+  collection continues to `ready` (or `needs_setup`) without a reload, or the
+  phase is still `needs_unlock` with `problem` set. `problem` is an
+  `MdbaseProblem` with its copy already described; its `key` is one of
+  `wrong_secret`, `invalid_recovery_key`, `rate_limited`, `unavailable`,
+  `unlock_unavailable` or `unlock_failed`. `mode: "strict"`
+  and `mode: "none"` cannot be unlocked here: explain that this collection has
+  to be opened on a computer running the mdbase app.
+- **Retries.** Connect limits how often an account's sealed key can be fetched
+  (10 an hour, shared by all of the account's devices; `rate_limited` carries
+  the wait). A mistyped recovery key (`invalid_recovery_key`) and a password
+  shorter than the 12-character minimum (`wrong_secret`) are refused in the
+  Worker without any request. After a wrong secret the Worker keeps the sealed
+  bundle in memory for the next attempt on the same locked collection, and
+  uses it only while Connect's status still reports the same account key
+  version; it is dropped when the collection unlocks or closes.
+- **Afterwards.** Once the unlock has applied, reopening needs no secret. A
+  restart before it applied returns to `needs_unlock`.
+
+The password or recovery key is sent to the Worker as bytes that are wiped in
+the tab as soon as they are posted and in the Worker when the call settles. The
+key it unlocks is used once and wiped; neither is stored. One installation can
+be a device of one Private collection (`private_device_limit` for a second),
+and People is not available for these collections yet: `connection.people`
+is present, and its reads reject with `upgrade_required`
+(`people_unsupported`).
+
+To fetch the sealed account key, the app runtime signs one fixed request: the
+account-key fetch proof for its own connector and device, over the server's
+challenge and the signed-in account. It signs nothing else for the account key
+(no change, no strict approval, no caller-chosen digest), and the fetched
+bundle is still sealed under the person's password or recovery key, which both
+kinds of unlock need. An older app runtime without this signer answers
+`unlock_unavailable`, and the collection stays `needs_unlock`.
+
 ## Managed application build environments
 
 Application declarations support explicit `lab`, `staging` and `production`

@@ -21,7 +21,9 @@ import { pendingWrites, signOutPendingWritesError } from "../application/sign-ou
 import { mdbaseFront, type Mdbase } from "../application/front-door.js";
 
 /** The screen to start on (or switch to with `set`). */
-export type TestAppPreset = "signed_out" | "choosing" | "opening" | "needs_setup" | "ready" | "second_tab" | { readonly problem: ProblemCode };
+export type TestAppPreset = "signed_out" | "choosing" | "opening" | "needs_setup" | "ready" | "second_tab" | { readonly problem: ProblemCode }
+  /** A Private collection waiting for the account key, in this account-key mode. */
+  | { readonly needsUnlock: "password" | "strict" | "none" };
 export interface TestAppCollection {
   readonly id?: string;
   readonly name?: string;
@@ -44,6 +46,8 @@ export type TestAppFault =
   | { readonly action: "approve" | "authorize"; readonly outcome: "declined" | "closed" }
   /** Opening the collection fails: the snapshot is blocked with this problem. */
   | { readonly action: "select"; readonly problem: ProblemCode }
+  /** The unlock fails (e.g. `wrong_secret`): still `needs_unlock`, with this problem. */
+  | { readonly action: "unlock"; readonly problem: ProblemCode }
   /** `setup.apply` rejects: the collection changed since review, or the result is unknown. */
   | { readonly action: "applySetup"; readonly reason: "setup_changed" | "outcome_unknown" }
   /** Any action rejects with an `MdbaseError` of this code and reason. */
@@ -105,6 +109,8 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     if (preset === "signed_out") return { ...base, status: "signed_out", signIn: null, collections: [] };
     if (preset === "choosing") return { ...base, status: "unselected" };
     if (preset === "second_tab") return { ...base, status: "blocked", problem: "open_in_another_tab" };
+    if (typeof preset === "object" && "needsUnlock" in preset) return { ...base, status: "needs_unlock", selectedCollectionId: id, selection: selection("opening", id, false),
+      unlock: { mode: preset.needsUnlock, unlocking: false, problem: null } };
     if (typeof preset === "object") return { ...base, status: "blocked", problem: preset.problem, selectedCollectionId: id, selection: selection("blocked", id, false) };
     if (preset === "opening") return { ...base, status: "opening", selectedCollectionId: id, selection: selection("opening", id, false) };
     const ready = preset === "ready";
@@ -140,6 +146,14 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
   controls.setHandler("select", call => {
     const fault = errorFault("select");
     if (fault && "problem" in fault) return snapshotFor({ problem: fault.problem }, call.collectionId ?? null);
+    return snapshotFor("ready", call.collectionId ?? null);
+  });
+  // Like production: a failed unlock stays locked with its problem; only a
+  // collection waiting to be unlocked can be unlocked.
+  controls.setHandler("unlock", call => {
+    const fault = errorFault("unlock"), s = current();
+    if (s.status !== "needs_unlock" || s.selectedCollectionId !== call.collectionId) throw mdbaseError("invalid_request", "This collection is not waiting to be unlocked.", "unlock_not_locked");
+    if (fault && "problem" in fault) return { ...s, unlock: { mode: s.unlock?.mode ?? "password", unlocking: false, problem: fault.problem } };
     return snapshotFor("ready", call.collectionId ?? null);
   });
   // Like production: unconfirmed writes on the open collection refuse sign-out unless discarded.

@@ -373,8 +373,12 @@ it("P5: a warm open reuses the verified registration; a changed manifest registe
     vi.stubGlobal("localStorage", { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => { store.set(k, v); }, removeItem: (k: string) => { store.delete(k); } });
     try {
         const f = fixture();
-        const first = await resolveApplicationRegistration(f.input);
-        expect(await resolveApplicationRegistration(f.input)).toEqual(first);
+        // Startup overlaps only a registration that goes to the network.
+        const onRequest = vi.fn(() => { throw new Error("observer"); });
+        const first = await resolveApplicationRegistration({ ...f.input, onRequest });
+        expect(onRequest).toHaveBeenCalledOnce();
+        expect(await resolveApplicationRegistration({ ...f.input, onRequest })).toEqual(first);
+        expect(onRequest).toHaveBeenCalledOnce();
         expect(f.fetch).toHaveBeenCalledOnce();
         // A changed manifest has another digest: no cached receipt applies.
         const changed = { ...f.input, declaration: { ...f.input.declaration, manifest: { ...(f.input.declaration.manifest as Record<string, unknown>), redirect_uris: ["http://127.0.0.1:48218/other"] } } };

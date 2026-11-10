@@ -35,3 +35,35 @@ it("createTestMdbase: the createMdbase front door over the fixture",async()=>{
     expect((await mdbase.setup.apply({} as never)).outcome).toBe("changed");
   }finally{await mdbase.close();}
 });
+
+it("createTestApp: a locked Private collection, a wrong secret, then an unlock that opens it",async()=>{
+  const app=await createTestApp({phase:{needsUnlock:"password"},collections:[{name:"Journal",records:[{path:"today.md",body:"Hi"}]}]});
+  try{
+    const a=app.application,id=a.getSnapshot().collections[0]!.collectionId;
+    expect(a.getSnapshot().phase).toEqual({kind:"needs_unlock",collectionId:id,displayName:"Journal",mode:"password",unlocking:false,problem:null});
+    app.fail({action:"unlock",problem:"wrong_secret"});
+    const wrong=await a.unlock!(id,{password:"not the password"});
+    expect(wrong.phase).toMatchObject({kind:"needs_unlock",mode:"password",unlocking:false,problem:{key:"wrong_secret"}});
+    const opened=await a.unlock!(id,{recoveryKey:"AAAA-BBBB-CCCC"});
+    expect(opened.phase?.kind).toBe("ready");
+    if(opened.phase?.kind==="ready")expect((await opened.phase.connection.records.query({})).records.map(r=>r.path)).toEqual(["today.md"]);
+    // Only a collection waiting to be unlocked can be unlocked.
+    await expect(a.unlock!(id,{password:"correct horse battery staple"})).rejects.toMatchObject({code:"invalid_request",reason:"unlock_not_locked"});
+    // The fixture records which kind of secret was given, never the secret.
+    const all=app.controls.observedActions(),calls=all.filter(call=>call.action==="unlock");
+    expect(calls.map(call=>call.secret)).toEqual(["password","recoveryKey","password"]);
+    expect(JSON.stringify(all)).not.toContain("not the password");expect(JSON.stringify(all)).not.toContain("AAAA-BBBB");
+    for(const mode of ["strict","none"] as const){app.set({needsUnlock:mode});expect(a.getSnapshot().phase).toMatchObject({kind:"needs_unlock",mode,problem:null});}
+  }finally{await app.close();}
+});
+
+it("createTestMdbase: unlock through the front door",async()=>{
+  const mdbase=await createTestMdbase({phase:{needsUnlock:"password"},collections:[{name:"Journal"}]});
+  try{
+    const id=mdbase.getSnapshot().collections[0]!.collectionId;
+    expect(mdbase.getSnapshot().phase).toMatchObject({kind:"needs_unlock",collectionId:id,mode:"password"});
+    mdbase.fixture.fail({action:"unlock",problem:"rate_limited"});
+    expect((await mdbase.unlock(id,{password:"correct horse battery staple"})).phase).toMatchObject({kind:"needs_unlock",problem:{key:"rate_limited"}});
+    expect((await mdbase.unlock(id,{password:"correct horse battery staple"})).phase?.kind).toBe("ready");
+  }finally{await mdbase.close();}
+});

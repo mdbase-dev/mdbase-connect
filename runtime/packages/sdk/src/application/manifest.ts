@@ -24,6 +24,12 @@ export function compileApplicationManifest(declaration:Readonly<ApplicationDecla
   const capabilities=requirements.capabilities;
   const nativeCapabilities=capabilities?.contract_version===2?
     Object.freeze({capabilityContractVersion:2 as const,requiredNativeCapabilities:Object.freeze([...capabilities.required])}):null;
+  // `offline.replica` in EITHER list is the app's request to join Private
+  // collections as a keyed device. Optional is the declaration for an app that
+  // must keep working where Connect does not offer device access: it adds no
+  // readiness requirement (only `required` does, above) and no consent group.
+  const privateDeviceDeclared=capabilities?.contract_version===2&&
+    [...capabilities.required,...(capabilities.optional??[])].includes("offline.replica");
   return Object.freeze({contractVersion:versioned.contractVersion,manifest,semanticVersion,operations,
-    ...(files?{files:frozen(files)}:{}),contracts,nativeCapabilities});
+    ...(files?{files:frozen(files)}:{}),contracts,nativeCapabilities,privateDeviceDeclared});
 }

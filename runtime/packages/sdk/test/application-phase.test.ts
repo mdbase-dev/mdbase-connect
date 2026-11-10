@@ -55,6 +55,10 @@ it("maps sign-in, approval, choosing and the second-tab case to phases with type
   expect(applicationPhase(snap({status:"signed_out",collections:[],selectedCollectionId:null,selection:none}))).toEqual({kind:"signed_out",notice:null} satisfies MdbasePhase);
   expect(applicationPhase(snap({status:"signed_out",problem:"approval_window_closed",collections:[],selectedCollectionId:null,selection:none})))
     .toMatchObject({kind:"signed_out",notice:{key:"approval_window_closed"}});
+  // A start that opens work before connecting next never shows sign-in on the way; a notice still does.
+  expect(applicationPhase(snap({status:"signed_out",collections:[],selectedCollectionId:null,selection:none}),{openingUnsynced:true})).toEqual({kind:"starting"} satisfies MdbasePhase);
+  expect(applicationPhase(snap({status:"signed_out",problem:"approval_window_closed",collections:[],selectedCollectionId:null,selection:none}),{openingUnsynced:true}))
+    .toMatchObject({kind:"signed_out",notice:{key:"approval_window_closed"}});
   const lastApproval={kind:"add",outcome:"closed",collectionId:null} as const;
   expect(applicationPhase(snap({status:"unselected",selectedCollectionId:null,selection:{...none,lastApproval}}))).toEqual({kind:"choosing",lastApproval});
   expect(applicationPhase(snap({status:"unselected",selectedCollectionId:null,selection:{state:"approval_required",problem:"application_selection_not_approved",usable:null,requested:{collectionId:A,source:"url",displayName:null,approved:false}}})))
@@ -81,4 +85,34 @@ it("the unsynced collection is its own phase: never ready, never listed, signing
   expect(applicationPhase(shown({status:"blocked",problem:"open_in_another_tab"}),{connection:unsyncedConnection})).toMatchObject({kind:"problem",collectionId:U});
   // Signing in from it shows the sign-in window, the work stays open behind it.
   expect(applicationPhase(shown({status:"authorizing"}),{connection:unsyncedConnection})).toMatchObject({kind:"authorizing",purpose:"sign_in"});
+});
+
+it("a locked Private collection is needs_unlock with the account-key mode, never opening, ready or a guessed mode",()=>{
+  const locked=(unlock:MdbaseApplicationSnapshot["unlock"],over:Partial<MdbaseApplicationSnapshot>={})=>applicationPhase(snap({status:"needs_unlock",unlock,collections:[{...collection,mode:"private"}],
+    selection:{state:"opening",problem:null,usable:null,requested:{collectionId:A,source:"url",displayName:"Notes",approved:true}},...over}));
+  expect(locked({mode:"password",unlocking:false,problem:null})).toEqual({kind:"needs_unlock",collectionId:A,displayName:"Notes",mode:"password",unlocking:false,problem:null} satisfies MdbasePhase);
+  expect(locked({mode:"strict",unlocking:false,problem:null})).toMatchObject({kind:"needs_unlock",mode:"strict"});
+  expect(locked({mode:"none",unlocking:false,problem:null})).toMatchObject({kind:"needs_unlock",mode:"none"});
+  expect(locked({mode:"password",unlocking:true,problem:null})).toMatchObject({kind:"needs_unlock",unlocking:true,problem:null});
+  // The last failed attempt is described in plain language; the code never reaches the copy.
+  const wrong=locked({mode:"password",unlocking:false,problem:"wrong_secret"});
+  expect(wrong).toMatchObject({kind:"needs_unlock",unlocking:false,problem:{key:"wrong_secret"}});
+  if(wrong.kind!=="needs_unlock"||!wrong.problem)throw Error("expected a described problem");
+  expect(wrong.problem.message).not.toContain("wrong_secret");expect(wrong.problem.message).not.toContain(A);
+  for(const key of ["invalid_recovery_key","no_account_key","unlock_strict","rate_limited","unavailable","unlock_unavailable","unlock_failed"])
+    expect(locked({mode:"password",unlocking:false,problem:key})).toMatchObject({kind:"needs_unlock",problem:{key}});
+  // An unknown code still shows a problem (never null, never the raw code).
+  const unknown=locked({mode:"password",unlocking:false,problem:"some_new_code"});
+  if(unknown.kind!=="needs_unlock"||!unknown.problem)throw Error("expected a fallback problem");
+  expect(unknown.problem.message).not.toContain("some_new_code");
+  // Malformed: locked without its lock display is a problem, not an unlock form with a guessed mode.
+  expect(locked(null)).toMatchObject({kind:"problem",collectionId:A});
+  expect(locked(undefined)).toMatchObject({kind:"problem",collectionId:A});
+  // The display name falls back to the requested name, then null.
+  expect(locked({mode:"password",unlocking:false,problem:null},{collections:[]})).toMatchObject({kind:"needs_unlock",displayName:"Notes"});
+  // A previous ready phase of this collection never holds over a locked collection.
+  const ready=applicationPhase(snap({}),{connection});
+  expect(applicationPhase(snap({status:"needs_unlock",unlock:{mode:"password",unlocking:false,problem:null}}),{previous:ready}).kind).toBe("needs_unlock");
+  // A stray lock on any other status is ignored.
+  expect(applicationPhase(snap({unlock:{mode:"password",unlocking:false,problem:null}}),{connection}).kind).toBe("ready");
 });

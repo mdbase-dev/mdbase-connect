@@ -49,6 +49,24 @@ describe("collectionView", () => {
       expect(collectionView(snapshot({...phase, slow: false}), app).lead).toBeNull();
     }
   });
+  it("shows a locked Private collection as one that cannot be opened here, in plain words, with a way to another collection", () => {
+    // Read structurally: SDK releases before Private collections on the app's own copy have no such phase.
+    const locked = (extra: object = {}) => ({ kind: "needs_unlock", collectionId: A, displayName: "Journal", mode: "password", unlocking: false, problem: null, ...extra }) as unknown as MdbasePhase;
+    const view = collectionView(snapshot(locked(), { selectedCollectionId: A }), app);
+    expect(view).toMatchObject({ kind: "problem", collectionId: A, unsynced: false, canChooseAnother: true, lead: null,
+      heading: "Can't open [test] Field notes from the long expedition",
+      notice: { key: "needs_unlock", tone: "info", title: null, control: null, transient: false,
+        message: "This is a Private collection, and this device doesn't have its key yet." } });
+    expect(view.current?.id).toBe(A);
+    // The SDK's own description of a failed unlock replaces the plain line; it gets no button here.
+    const problem = { ...describeError("open_failed")!, transient: false };
+    const failed = collectionView(snapshot(locked({ problem, mode: "strict" })), app);
+    expect(failed).toMatchObject({ kind: "problem", notice: { key: problem.key, title: problem.title, message: problem.message, control: null } });
+    // A collection that is not listed keeps the name the phase carries, or none.
+    const other = "99999999-9999-4999-8999-999999999999";
+    expect(collectionView(snapshot(locked({ collectionId: other })), app).heading).toBe("Can't open Journal");
+    expect(collectionView(snapshot(locked({ collectionId: other, displayName: null })), app).heading).toBe("Can't continue");
+  });
   it("names the blocked collection in the heading, puts its fix inside the problem, and lists it once as current", () => {
     const problem = describeError("collection_migrating")!;
     const view = collectionView(snapshot({ kind: "problem", collectionId: A, problem: { ...problem, transient: false } }, { status: "blocked", selectedCollectionId: A }), app);

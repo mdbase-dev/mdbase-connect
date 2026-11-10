@@ -295,6 +295,7 @@ export async function openAppUnsyncedCollection(options: AppUnsyncedCollectionOp
   let runtime: AppWasmRuntime | null = null, sqlClose: (() => Promise<void>) | null = null, fence: (() => void) | null = null;
   let journal: AppCollectionSetupJournal | null = null, ledger: AppLedgerRows | null = null;
   let assessment: "ready" | "setup_required" = "setup_required";
+  let loading: Promise<Uint8Array> | null = null;
   let saved: AppUnsyncedWork | null = null, marking = false, writes = 0;
   let mode: AppWebCollectionHandoff["setupMode"] = "approved-new";
   const generation = crypto.randomUUID(), setupTurn: AppCollectionSetupTurn = {owner: null};
@@ -346,10 +347,12 @@ export async function openAppUnsyncedCollection(options: AppUnsyncedCollectionOp
   try {
     lease = await acquireAppReplicaLease(options.locks, scope, signal);
     journal = new AppCollectionSetupJournal({...options.setupJournal, scope, isCurrent: current});
-    const artifact = await options.loadRuntime({signal});
-    if (!current()) throw fail("fenced");
+    // The runtime's bytes load while SQLite opens; a failure is reported below.
+    loading = options.loadRuntime({signal}); loading.catch(() => {});
     const sql = await openSql({scope, signal});
     sqlClose = () => sql.close(); fence = () => sql.sql.fence(); ledger = sql.ledger ?? null;
+    if (!current()) throw fail("fenced");
+    const artifact = await loading;
     if (!current()) throw fail("fenced");
     runtime = await AppWasmRuntime.create(new Uint8Array(artifact), sql.sql);
     if (!current()) throw fail("fenced");
@@ -394,5 +397,5 @@ export async function openAppUnsyncedCollection(options: AppUnsyncedCollectionOp
       get writes() { return writes; },
       subscribe(listener: () => void) { if (!current()) throw fail("fenced"); listeners.add(listener); return () => { listeners.delete(listener); }; },
     });
-  } catch (error) { await close().catch(() => {}); throw error; }
+  } catch (error) { await close().catch(() => {}); await loading?.catch(() => {}); throw error; }
 }

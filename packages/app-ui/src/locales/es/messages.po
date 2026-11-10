@@ -508,6 +508,10 @@ msgstr "Dibujar"
 msgid "Esc"
 msgstr "Esc"
 
+#: src/CommentsPanel.tsx
+msgid "Everyone"
+msgstr "Todo el mundo"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Everyone, including you, loses access to it on every device and app right away. This can't be undone."
@@ -597,6 +601,10 @@ msgstr "Información"
 #: src/CommentsPanel.tsx
 msgid "Insert “{replacement}”"
 msgstr "Insertar «{replacement}»"
+
+#: src/CommentsPanel.tsx
+msgid "Insert at the cursor"
+msgstr "Insertar en el cursor"
 
 #: src/live-preview/table-controls.ts
 msgctxt "table"
@@ -690,6 +698,10 @@ msgstr "mdbase podrá leer la colección, incluido su historial existente, y ofr
 msgid "Menu"
 msgstr "Menú"
 
+#: src/CommentsPanel.tsx
+msgid "Mine"
+msgstr "La mía"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "More for {collection}"
@@ -727,6 +739,14 @@ msgstr "Requiere atención"
 #: src/CommentsPanel.tsx
 msgid "New comment"
 msgstr "Nuevo comentario"
+
+#: src/CommentsPanel.tsx
+msgid "New since last visit ({newCount})"
+msgstr "Novedades desde la última visita ({newCount})"
+
+#: src/CommentsPanel.tsx
+msgid "New since your last visit"
+msgstr "Novedades desde tu última visita"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -767,10 +787,6 @@ msgstr "No hay coincidencias"
 #: src/CommentsPanel.tsx
 msgid "Nothing resolved yet."
 msgstr "Aún no hay nada resuelto."
-
-#: src/CommentsPanel.tsx
-msgid "On the whole note"
-msgstr "Sobre toda la nota"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
@@ -889,6 +905,10 @@ msgstr "Cita"
 msgid "Read and annotate sources"
 msgstr "Leer y anotar fuentes"
 
+#: src/CommentsPanel.tsx
+msgid "Reason for the suggestion"
+msgstr "Motivo de la sugerencia"
+
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "Refresh status"
@@ -938,6 +958,10 @@ msgstr "Reabrir"
 #: src/CommentsPanel.tsx
 msgid "Replace “{exact}” with “{replacement}”"
 msgstr "Reemplazar «{exact}» por «{replacement}»"
+
+#: src/CommentsPanel.tsx
+msgid "Replace with"
+msgstr "Reemplazar por"
 
 #: src/Feedback.tsx
 msgid "Replies aren’t guaranteed. Not for security reports or urgent support."
@@ -1094,9 +1118,23 @@ msgstr "Compartir algo que te gusta"
 msgid "Show"
 msgstr "Mostrar"
 
+#. placeholder {0}: logical.length
 #: src/CommentsPanel.tsx
-msgid "Show in the note"
-msgstr "Mostrar en la nota"
+msgid "Show 50 more comments · {0}"
+msgstr "Mostrar 50 comentarios más · {0}"
+
+#. placeholder {0}: thread.replies.length
+#: src/CommentsPanel.tsx
+msgid "Show 50 more replies · {0}"
+msgstr "Mostrar 50 respuestas más · {0}"
+
+#: src/CommentsPanel.tsx
+msgid "Show in the editor"
+msgstr "Mostrar en el editor"
+
+#: src/CommentsPanel.tsx
+msgid "Show previous 50 comments"
+msgstr "Mostrar los 50 comentarios anteriores"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -1178,6 +1216,14 @@ msgctxt "callout type"
 msgid "Success"
 msgstr "Éxito"
 
+#: src/CommentsPanel.tsx
+msgid "Suggest"
+msgstr "Sugerir"
+
+#: src/CommentsPanel.tsx
+msgid "Suggest an edit"
+msgstr "Sugerir una edición"
+
 #: src/feedback-data.ts
 msgid "Suggest an improvement"
 msgstr "Sugerir una mejora"
@@ -1189,6 +1235,10 @@ msgstr "Edición sugerida"
 #: src/comment-anchors.ts
 msgid "Suggested insertion"
 msgstr "Inserción sugerida"
+
+#: src/CommentsPanel.tsx
+msgid "Suggested text"
+msgstr "Texto sugerido"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -1293,6 +1343,11 @@ msgstr "esta colección"
 msgctxt "Collection access interface"
 msgid "This device is still listed under your account until you remove it there."
 msgstr "Este dispositivo seguirá apareciendo en tu cuenta hasta que lo quites allí."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "This is a Private collection, and this device doesn't have its key yet."
+msgstr "Esta es una colección privada y este dispositivo aún no tiene su clave."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -1432,6 +1487,18 @@ msgstr "¿Qué te gustaría mejorar?"
 #: src/feedback-data.ts
 msgid "What’s working well for you?"
 msgstr "¿Qué te está funcionando bien?"
+
+#: src/CommentsPanel.tsx
+msgid "Whole text"
+msgstr "Texto completo"
+
+#: src/CommentsPanel.tsx
+msgid "Whose comments"
+msgstr "De quién son los comentarios"
+
+#: src/CommentsPanel.tsx
+msgid "Why (optional)"
+msgstr "Motivo (opcional)"
 
 #: src/CommentsPanel.tsx
 msgid "Withdraw"

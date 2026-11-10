@@ -10,7 +10,7 @@ const account = "11111111-1111-4111-8111-111111111111", connector = "22222222-22
 const pk = {signPublicKey: new Uint8Array(32).fill(3), kemPublicKey: new Uint8Array(32).fill(4), noisePublicKey: new Uint8Array(32).fill(5)};
 const hex = (b: Uint8Array) => Array.from(b, v => v.toString(16).padStart(2, "0")).join("");
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
-async function fixture(requestedCreateCollections = false, extra: {installationKind?: "app-runtime" | "mobile"; owner?: string; requestedCreateCollections?: boolean; freshRequestedCreateCollections?: boolean; recoveryFor?: Readonly<{accountId: string; collectionId: string}>} = {}) {
+async function fixture(requestedCreateCollections = false, extra: {installationKind?: "app-runtime" | "mobile"; owner?: string; requestedCreateCollections?: boolean; freshRequestedCreateCollections?: boolean; freshRequestedPrivateDevice?: boolean; recoveryFor?: Readonly<{accountId: string; collectionId: string}>} = {}) {
   vi.stubGlobal("crypto", webcrypto); vi.stubGlobal("location", {origin});
   const trace: string[] = [], requests: {path: string; body: unknown; bearer: unknown}[] = [];
   let saved: Uint8Array | null = null, current = true, selected = false, approved = false, commitFailure = false, failHttp = false, oversized = false;
@@ -31,7 +31,7 @@ async function fixture(requestedCreateCollections = false, extra: {installationK
     let status = 200, value: Record<string, unknown>;
     const selection = {request_id: state.requestId, account_id: account, connector_id: connector, device_id: state.deviceId, installation_id: state.installationId, kind: state.kind, challenge: "ab".repeat(32), approval_mode: "password-ak1", app_id: state.appId, app_origin: state.origin, expires_at: Date.now() + 600000};
     if (path === "/v1/pairing-requests") {
-      expect(body.installation).toEqual({app_id: state.appId, request_id: state.requestId, pairing_secret: state.secret, installation_id: state.installationId, device_id: state.deviceId, kind: state.kind, requested_create_collections: state.requestedCreateCollections ?? false, ...(state.recoveryFor ? {recovery_collection_id: state.recoveryFor.collectionId} : {}), ...(state.renewal ? {renewal:{request_id:state.renewal.requestId,pairing_secret:state.renewal.secret}} : {})}); expect(bearer).toBeUndefined();
+      expect(body.installation).toEqual({app_id: state.appId, request_id: state.requestId, pairing_secret: state.secret, installation_id: state.installationId, device_id: state.deviceId, kind: state.kind, requested_create_collections: state.requestedCreateCollections ?? false, ...(state.requestedPrivateDevice === true ? {requested_private_device: true} : {}), ...(state.recoveryFor ? {recovery_collection_id: state.recoveryFor.collectionId} : {}), ...(state.renewal ? {renewal:{request_id:state.renewal.requestId,pairing_secret:state.renewal.secret}} : {})}); expect(bearer).toBeUndefined();
       value = {pairing_id: state.requestId, pairing_secret: state.secret, verification_uri: `${cpOrigin}/pair/${state.requestId}`, expires_in: 600, installation_device: true, app_id: state.appId, app_origin: state.origin, app_name: appName};
     } else {
       expect(bearer).toBe(`Bearer ${state.secret}`);
@@ -988,5 +988,235 @@ describe("optional file actions asked for at the moment of use", () => {
     vi.mocked(f.request).mockImplementationOnce(async () => new Response(JSON.stringify({collections: [
       {collection_id: collection, display_name: "Tasks", role: "editor", file_actions: ["add", "nope"]}]})));
     await expect(f.flow.listApprovedCollections(f.installation)).rejects.toMatchObject({reason: "response"});
+  });
+});
+
+describe("Private device consent (requested_private_device)", () => {
+  const other = "77777777-7777-4777-8777-777777777777";
+  async function pairedDevice(receipt: Record<string, unknown>, ask = true) {
+    const f = await fixture(false, ask ? {freshRequestedPrivateDevice: true} : {}); await confirmed(f); await f.flow.attest(f); f.setApproved();
+    f.change(v => { if (v.status === "paired") Object.assign(v, receipt); });
+    return f;
+  }
+  const list = (f: Awaited<ReturnType<typeof fixture>>, rows: unknown[]) => vi.mocked(f.request).mockImplementationOnce(async () => new Response(JSON.stringify({collections: rows})));
+  it("is asked only by a fresh installation that opted in, stored with the request, and absent from every other START body", async () => {
+    const f = await fixture(false, {freshRequestedPrivateDevice: true});
+    expect(f.read().requestedPrivateDevice).toBe(true);
+    await f.flow.start();
+    expect(f.requests[0]!.body).toMatchObject({installation: {requested_private_device: true, requested_create_collections: false}});
+    await f.flow.close();
+    // A restored ledger keeps the terms it was stored with, whatever the option says now.
+    const kept = await AppProtectedInstallationSignIn.open({...f.options, mode: "existing", freshRequestedPrivateDevice: false});
+    expect(f.read().requestedPrivateDevice).toBe(true); await kept.start();
+    expect(f.requests.at(-1)!.body).toMatchObject({installation: {requested_private_device: true}}); await kept.close();
+    // Today's body is unchanged: the field is absent, not false.
+    const plain = await fixture(); await plain.flow.start();
+    expect(Object.keys((plain.requests[0]!.body as {installation: object}).installation)).not.toContain("requested_private_device");
+    expect(plain.read()).not.toHaveProperty("requestedPrivateDevice");
+    await plain.flow.close();
+    const restored = await AppProtectedInstallationSignIn.open({...plain.options, mode: "existing", freshRequestedPrivateDevice: true});
+    expect(plain.read()).not.toHaveProperty("requestedPrivateDevice");
+    await restored.start(); expect(Object.keys((plain.requests.at(-1)!.body as {installation: object}).installation)).not.toContain("requested_private_device");
+    await restored.close();
+  });
+  it("refuses a malformed option and a scoped recovery that asks for device access", async () => {
+    await expect(fixture(false, {freshRequestedPrivateDevice: "yes" as never})).rejects.toThrow("binding");
+    await expect(fixture(false, {owner: "owner-a", requestedCreateCollections: undefined, freshRequestedPrivateDevice: true, recoveryFor: {accountId: account, collectionId: collection}})).rejects.toThrow("binding");
+  });
+  it("records the approved Private device scopes from the receipt as an explicit subset of the approved collections", async () => {
+    const f = await pairedDevice({collection_ids: [collection], create_collections: false, private_device_collection_ids: [other]});
+    await f.flow.exchange();
+    expect(f.flow.view()).toMatchObject({state: "paired", collectionIds: [collection, other], privateDeviceCollectionIds: [other]});
+    expect(f.read().privateDeviceCollectionIds).toEqual([other]);
+    await f.flow.close();
+    const restored = await AppProtectedInstallationSignIn.open({...f.options, mode: "existing"});
+    expect(restored.view()).toMatchObject({collectionIds: [collection, other], privateDeviceCollectionIds: [other]}); await restored.close();
+  });
+  it("an absent or empty list is today's receipt: cloud copies only", async () => {
+    const absent = await pairedDevice({collection_ids: [collection], create_collections: false}); await absent.flow.exchange();
+    expect(absent.flow.view()).toMatchObject({collectionIds: [collection]}); expect(absent.flow.view()).not.toHaveProperty("privateDeviceCollectionIds");
+    const empty = await pairedDevice({collection_ids: [collection], create_collections: false, private_device_collection_ids: []}); await empty.flow.exchange();
+    expect(empty.flow.view()).not.toHaveProperty("privateDeviceCollectionIds"); expect(empty.read()).not.toHaveProperty("privateDeviceCollectionIds");
+  });
+  it.each([
+    ["a request that did not ask", {collection_ids: [], create_collections: false, private_device_collection_ids: [other]}, false],
+    ["a scope listed as both a cloud copy and a Private device", {collection_ids: [other], create_collections: false, private_device_collection_ids: [other]}, true],
+    ["a duplicate", {collection_ids: [], create_collections: false, private_device_collection_ids: [other, other]}, true],
+    ["a list that is not UUIDs", {collection_ids: [], create_collections: false, private_device_collection_ids: ["private"]}, true],
+    ["an unscoped receipt", {private_device_collection_ids: [other]}, true],
+  ])("refuses Private device scopes for %s before protecting the token", async (_name, receipt, ask) => {
+    const f = await pairedDevice(receipt, ask);
+    await expect(f.flow.exchange()).rejects.toThrow("response"); expect(f.read().token).toBeNull();
+  });
+  it("lists a row as Private only with this installation's Private device scope; a listed mode never adds or changes consent", async () => {
+    const f = await pairedDevice({collection_ids: [collection], create_collections: false, private_device_collection_ids: [other]}); await f.flow.exchange();
+    list(f, [{collection_id: collection, display_name: "Tasks", role: "editor", mode: "cloud_copy"}, {collection_id: other, display_name: "Journal", role: "owner", mode: "private"}]);
+    expect(await f.flow.listApprovedCollections(f.installation)).toEqual([{collectionId: collection, displayName: "Tasks", role: "editor"}, {collectionId: other, displayName: "Journal", role: "owner", mode: "private"}]);
+    // The server says a cloud-copy scope is now Private (or the reverse): neither row is offered.
+    list(f, [{collection_id: collection, display_name: "Tasks", role: "editor", mode: "private"}, {collection_id: other, display_name: "Journal", role: "owner", mode: "cloud_copy"}]);
+    expect(await f.flow.listApprovedCollections(f.installation)).toEqual([]);
+    // A row without a mode is a cloud copy, as today; it is not offered for a Private device scope.
+    list(f, [{collection_id: collection, display_name: "Tasks", role: "editor", mode: "cloud_copy"}, {collection_id: other, display_name: "Journal", role: "owner"}]);
+    expect(await f.flow.listApprovedCollections(f.installation)).toEqual([{collectionId: collection, displayName: "Tasks", role: "editor"}]);
+    list(f, [{collection_id: collection, display_name: "Tasks", role: "editor", mode: "e2e"}]);
+    await expect(f.flow.listApprovedCollections(f.installation)).rejects.toMatchObject({reason: "response"});
+  });
+  it("asks the list for modes only when the app declares device access and holds a Private device scope; every other request is today's", async () => {
+    const urls: string[] = [];
+    const listed = (f: Awaited<ReturnType<typeof fixture>>) => vi.mocked(f.request).mockImplementationOnce(async (input, init) => {
+      urls.push(String(input)); expect(init).toMatchObject({method: "GET"}); expect(init!.body).toBeUndefined();
+      return new Response(JSON.stringify({collections: []}));
+    });
+    const today = `${cpOrigin}/v1/next/collections?include=file_actions`;
+    // No declaration: byte-identical to today, before and after sign-in state changes.
+    const plain = await paired(); listed(plain); await plain.flow.listApprovedCollections(plain.installation);
+    expect(urls).toEqual([today]);
+    // Declared, but no Private device scope was approved (or the server never offered one).
+    const declared = await pairedDevice({collection_ids: [collection], create_collections: false}); await declared.flow.exchange();
+    listed(declared); await declared.flow.listApprovedCollections(declared.installation);
+    expect(urls).toEqual([today, today]);
+    // Declared and holding a Private device scope.
+    const device = await pairedDevice({collection_ids: [collection], create_collections: false, private_device_collection_ids: [other]}); await device.flow.exchange();
+    listed(device); await device.flow.listApprovedCollections(device.installation);
+    expect(urls.at(-1)).toBe(`${cpOrigin}/v1/next/collections?include=file_actions,mode`);
+    // The same stored scope under an app build that no longer declares it: today's request.
+    await device.flow.close();
+    const undeclared = await AppProtectedInstallationSignIn.open({...device.options, mode: "existing", freshRequestedPrivateDevice: false});
+    listed(device); await undeclared.listApprovedCollections(device.installation);
+    expect(urls.at(-1)).toBe(today); await undeclared.close();
+  });
+  it("a server from before the mode listing (a rollback) answers bare rows: the list is asked once more as today's request, so file actions survive", async () => {
+    const f = await pairedDevice({collection_ids: [collection], create_collections: false, private_device_collection_ids: [other]}); await f.flow.exchange();
+    const urls: string[] = [], today = `${cpOrigin}/v1/next/collections?include=file_actions`;
+    // What a server that matches only `include=file_actions` exactly does: any other spelling gets no file actions.
+    const old = (rows: Record<string, unknown>[]) => vi.mocked(f.request).mockImplementationOnce(async (input, init) => {
+      urls.push(String(input)); expect(init).toMatchObject({method: "GET", headers: {authorization: `Bearer ${f.read().token}`}});
+      return new Response(JSON.stringify({collections: rows.map(row => String(input) === today ? {...row, file_actions: ["read"]} : row)}));
+    });
+    const tasks = {collection_id: collection, display_name: "Tasks", role: "editor"};
+    old([tasks]); old([tasks]);
+    expect(await f.flow.listApprovedCollections(f.installation)).toEqual([{collectionId: collection, displayName: "Tasks", role: "editor", fileActions: ["read"]}]);
+    expect(urls).toEqual([`${today},mode`, today]);
+    // The old server lists no Private row; one it did list without a mode is still not offered.
+    urls.length = 0; old([tasks, {collection_id: other, display_name: "Journal", role: "owner"}]); old([tasks, {collection_id: other, display_name: "Journal", role: "owner"}]);
+    expect(await f.flow.listApprovedCollections(f.installation)).toEqual([{collectionId: collection, displayName: "Tasks", role: "editor", fileActions: ["read"]}]);
+    expect(urls).toEqual([`${today},mode`, today]);
+    // Asked once more only: the second answer is taken as it is. An empty listing, or one that answers `mode` on any row, is not repeated.
+    urls.length = 0; old([]);
+    expect(await f.flow.listApprovedCollections(f.installation)).toEqual([]); expect(urls).toEqual([`${today},mode`]);
+    urls.length = 0; old([{...tasks, mode: "cloud_copy", file_actions: ["read"]}]);
+    expect(await f.flow.listApprovedCollections(f.installation)).toEqual([{collectionId: collection, displayName: "Tasks", role: "editor", fileActions: ["read"]}]); expect(urls).toEqual([`${today},mode`]);
+    // A failure of the repeated request is the listing's own failure, handled as any other.
+    urls.length = 0; old([tasks]);
+    vi.mocked(f.request).mockImplementationOnce(async input => { urls.push(String(input)); return new Response(JSON.stringify({error: {code: "unavailable"}}), {status: 503}); });
+    await expect(f.flow.listApprovedCollections(f.installation)).rejects.toBeInstanceOf(AppInstallationSignInError); expect(urls).toEqual([`${today},mode`, today]);
+  });
+  it("an installation without device consent never sees a Private row, whatever the list says", async () => {
+    const f = await paired();
+    list(f, [{collection_id: collection, display_name: "Tasks", role: "editor", mode: "private"}]);
+    expect(await f.flow.listApprovedCollections(f.installation)).toEqual([]);
+  });
+  it("additive consent asks again only when told to and merges added Private device scopes", async () => {
+    const f = await pairedDevice({collection_ids: [collection], create_collections: false}); await f.flow.exchange();
+    vi.mocked(f.request).mockImplementationOnce(async (_input, init) => {
+      const s = f.read(), r = s.consentRequest;
+      expect(r.requestedPrivateDevice).toBe(true);
+      expect(JSON.parse(String(init!.body))).toEqual({installation: {app_id: s.appId, request_id: r.requestId, pairing_secret: r.secret, installation_id: s.installationId, device_id: s.deviceId, kind: s.kind, requested_create_collections: false, requested_private_device: true, reconsent: true}});
+      return new Response(JSON.stringify({pairing_id: r.requestId, pairing_secret: r.secret, verification_uri: `${cpOrigin}/pair/${r.requestId}`, expires_in: 600, installation_device: true, app_id: s.appId, app_origin: origin, app_name: appName}));
+    });
+    expect(await f.flow.startCollectionConsent(f.installation, false, {}, true)).toMatchObject({state: "pending", requestedPrivateDevice: true});
+    consentExchange(f, v => { v.added_collection_ids = []; v.private_device_collection_ids = [other]; });
+    expect(await f.flow.exchangeCollectionConsent(f.installation)).toMatchObject({state: "scope_updated", addedCollectionIds: [other]});
+    expect(f.flow.view()).toMatchObject({collectionIds: [collection, other], privateDeviceCollectionIds: [other]});
+  });
+  it.each([
+    ["a window that did not ask", false, (v: Record<string, unknown>) => { v.added_collection_ids = []; v.private_device_collection_ids = [other]; }],
+    ["turning an approved cloud copy into a Private device", true, (v: Record<string, unknown>) => { v.added_collection_ids = []; v.private_device_collection_ids = [collection]; }],
+    ["a scope in both lists", true, (v: Record<string, unknown>) => { v.added_collection_ids = [other]; v.private_device_collection_ids = [other]; }],
+  ])("additive consent refuses %s and keeps the original scope", async (_name, ask, change) => {
+    const f = await pairedDevice({collection_ids: [collection], create_collections: false}); await f.flow.exchange();
+    vi.mocked(f.request).mockImplementationOnce(async () => { const s = f.read(), r = s.consentRequest;
+      return new Response(JSON.stringify({pairing_id: r.requestId, pairing_secret: r.secret, verification_uri: `${cpOrigin}/pair/${r.requestId}`, expires_in: 600, installation_device: true, app_id: s.appId, app_origin: origin, app_name: appName})); });
+    await f.flow.startCollectionConsent(f.installation, false, {}, ask);
+    consentExchange(f, change);
+    await expect(f.flow.exchangeCollectionConsent(f.installation)).rejects.toThrow("response");
+    expect(f.flow.view()).toMatchObject({collectionIds: [collection]}); expect(f.flow.view()).not.toHaveProperty("privateDeviceCollectionIds");
+  });
+  it("additive consent that asked and gets a receipt without either Private device key adds cloud copies only, with no error", async () => {
+    const f = await pairedDevice({collection_ids: [collection], create_collections: false}); await f.flow.exchange();
+    vi.mocked(f.request).mockImplementationOnce(async () => { const s = f.read(), r = s.consentRequest;
+      return new Response(JSON.stringify({pairing_id: r.requestId, pairing_secret: r.secret, verification_uri: `${cpOrigin}/pair/${r.requestId}`, expires_in: 600, installation_device: true, app_id: s.appId, app_origin: origin, app_name: appName})); });
+    await f.flow.startCollectionConsent(f.installation, false, {}, true);
+    consentExchange(f, v => { v.added_collection_ids = [other]; });
+    expect(await f.flow.exchangeCollectionConsent(f.installation)).toMatchObject({state: "scope_updated", addedCollectionIds: [other]});
+    expect(f.flow.view()).toMatchObject({collectionIds: [collection, other]}); expect(f.flow.view()).not.toHaveProperty("privateDeviceCollectionIds");
+  });
+  // A server from before this feature parses START strictly (zod .strict()).
+  const unknownField = (message = 'Unrecognized key: "requested_private_device"', code = "invalid_request", status = 400) =>
+    new Response(JSON.stringify({error: {code, message}}), {status});
+  it("repeats START once without the field when an older server refuses it as an unknown key, and then never asked", async () => {
+    const f = await fixture(false, {freshRequestedPrivateDevice: true});
+    vi.mocked(f.request).mockImplementationOnce(async (_input, init) => {
+      f.requests.push({path: "/v1/pairing-requests", body: JSON.parse(String(init!.body)), bearer: undefined}); return unknownField();
+    });
+    expect(await f.flow.start()).toMatchObject({state: "pending"});
+    expect(f.requests).toHaveLength(2);
+    const [first, second] = f.requests.map(r => (r.body as {installation: Record<string, unknown>}).installation);
+    expect(first).toMatchObject({requested_private_device: true});
+    // Same request, same secret, same actor: only the one field is gone.
+    const {requested_private_device: _asked, ...rest} = first!; expect(second).toEqual(rest);
+    expect(f.read()).not.toHaveProperty("requestedPrivateDevice");
+    // The request no longer asked, so a receipt naming a Private device scope is refused.
+    await confirmed(f); await f.flow.attest(f); f.setApproved();
+    f.change(v => { if (v.status === "paired") Object.assign(v, {collection_ids: [], create_collections: false, private_device_collection_ids: [other]}); });
+    await expect(f.flow.exchange()).rejects.toThrow("response"); expect(f.read().token).toBeNull();
+  });
+  it("signs in with cloud copies after that repeat", async () => {
+    const f = await fixture(false, {freshRequestedPrivateDevice: true});
+    vi.mocked(f.request).mockImplementationOnce(async () => unknownField("Unrecognized key(s) in object: 'requested_private_device'"));
+    await f.flow.start(); expect(vi.mocked(f.request)).toHaveBeenCalledTimes(2);
+    await confirmed(f); await f.flow.attest(f); f.setApproved();
+    f.change(v => { if (v.status === "paired") Object.assign(v, {collection_ids: [collection], create_collections: false}); });
+    await f.flow.exchange();
+    expect(f.flow.view()).toMatchObject({state: "paired", collectionIds: [collection]}); expect(f.flow.view()).not.toHaveProperty("privateDeviceCollectionIds");
+  });
+  it("repeats at most once: a second unknown-key refusal is the refusal", async () => {
+    const f = await fixture(false, {freshRequestedPrivateDevice: true});
+    vi.mocked(f.request).mockImplementationOnce(async () => unknownField()).mockImplementationOnce(async () => unknownField());
+    await expect(f.flow.start()).rejects.toMatchObject({reason: "refused", server: {status: 400, code: "invalid_request"}});
+    expect(vi.mocked(f.request)).toHaveBeenCalledTimes(2);
+  });
+  it.each([
+    ["another validation refusal", () => unknownField("Invalid input: expected string, received number")],
+    ["another unknown key", () => unknownField('Unrecognized key: "requested_create_collections"')],
+    ["another code", () => unknownField(undefined, "installation_invalid_scope")],
+    ["another status", () => unknownField(undefined, undefined, 403)],
+    ["a message that is not a string", () => new Response(JSON.stringify({error: {code: "invalid_request", message: ["requested_private_device"]}}), {status: 400})],
+  ])("does not repeat START for %s", async (_name, reply) => {
+    const f = await fixture(false, {freshRequestedPrivateDevice: true});
+    vi.mocked(f.request).mockImplementationOnce(async () => reply());
+    await expect(f.flow.start()).rejects.toMatchObject({reason: "refused"});
+    expect(vi.mocked(f.request)).toHaveBeenCalledTimes(1); expect(f.read().requestedPrivateDevice).toBe(true);
+  });
+  it("an app that did not ask never repeats START, whatever the refusal says", async () => {
+    const f = await fixture();
+    vi.mocked(f.request).mockImplementationOnce(async () => unknownField());
+    await expect(f.flow.start()).rejects.toMatchObject({reason: "refused"});
+    expect(vi.mocked(f.request)).toHaveBeenCalledTimes(1);
+  });
+  it("additive consent repeats its START once without the field on the same refusal and keeps the stored window", async () => {
+    const f = await pairedDevice({collection_ids: [collection], create_collections: false}); await f.flow.exchange();
+    const bodies: Record<string, unknown>[] = [];
+    vi.mocked(f.request).mockImplementationOnce(async (_input, init) => { bodies.push(JSON.parse(String(init!.body)).installation); return unknownField(); })
+      .mockImplementationOnce(async (_input, init) => { bodies.push(JSON.parse(String(init!.body)).installation); const s = f.read(), r = s.consentRequest;
+        return new Response(JSON.stringify({pairing_id: r.requestId, pairing_secret: r.secret, verification_uri: `${cpOrigin}/pair/${r.requestId}`, expires_in: 600, installation_device: true, app_id: s.appId, app_origin: origin, app_name: appName})); });
+    const view = await f.flow.startCollectionConsent(f.installation, false, {}, true);
+    expect(view).toMatchObject({state: "pending"}); expect(view).not.toHaveProperty("requestedPrivateDevice");
+    expect(bodies).toHaveLength(2); expect(bodies[0]).toMatchObject({requested_private_device: true, reconsent: true});
+    const {requested_private_device: _asked, ...rest} = bodies[0]!; expect(bodies[1]).toEqual(rest);
+    expect(f.read().consentRequest).not.toHaveProperty("requestedPrivateDevice");
+    // The window no longer asked: a Private device scope in its receipt is refused.
+    consentExchange(f, v => { v.added_collection_ids = []; v.private_device_collection_ids = [other]; });
+    await expect(f.flow.exchangeCollectionConsent(f.installation)).rejects.toThrow("response");
   });
 });

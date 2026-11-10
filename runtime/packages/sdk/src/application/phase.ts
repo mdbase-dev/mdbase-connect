@@ -37,6 +37,14 @@ export type MdbasePhase =
   | { readonly kind: "opening"; readonly collectionId: string; readonly displayName: string | null; readonly slow: boolean; readonly progress?: import("../app-host/opening-progress.js").AppOpeningProgress | null }
   /** The requested collection is not approved for this app (yet). */
   | { readonly kind: "needs_approval"; readonly collectionId: string; readonly displayName: string | null; readonly declined: boolean }
+  /** A Private collection this device has joined but cannot read yet: it has
+   * no key. `mode` is the account's key mode. `password`: ask for the
+   * encryption password (or the recovery key) and call
+   * `unlock(collectionId, secret)`. `strict` and `none` cannot be unlocked
+   * here: explain that it needs a computer running the mdbase app. `unlocking`
+   * while an unlock runs; `problem` describes the last failed attempt. */
+  | { readonly kind: "needs_unlock"; readonly collectionId: string; readonly displayName: string | null;
+      readonly mode: "password" | "strict" | "none"; readonly unlocking: boolean; readonly problem: MdbaseProblem | null }
   /** Open, but needs a one-time setup: `setup.plan()` then `setup.apply(plan)`. */
   | { readonly kind: "needs_setup"; readonly collectionId: string; readonly collection: MdbaseCollectionSummary }
   /** Open and usable. `rechecking` and `problem` are informational only. */
@@ -65,9 +73,12 @@ export interface ApplicationPhaseOptions {
   /** Set when the current opening has lasted SLOW_OPENING_MS. */
   readonly slow?: boolean;
   readonly cpOrigin?: string;
+  /** This start opens work before connecting next: signed out is a step on the
+   * way, not a screen to show. */
+  readonly openingUnsynced?: boolean;
 }
 
-type Snapshot = Pick<MdbaseApplicationSnapshot, "status" | "signIn" | "collections" | "selectedCollectionId" | "problem" | "readiness" | "selection"> & Partial<Pick<MdbaseApplicationSnapshot, "problemDetail" | "removedScopeIds" | "recoveryAccountLabel" | "openingProgress" | "unsynced">>;
+type Snapshot = Pick<MdbaseApplicationSnapshot, "status" | "signIn" | "collections" | "selectedCollectionId" | "problem" | "readiness" | "selection"> & Partial<Pick<MdbaseApplicationSnapshot, "problemDetail" | "removedScopeIds" | "recoveryAccountLabel" | "openingProgress" | "unsynced" | "unlock">>;
 
 const current = (c: MdbaseApplicationConnection | null | undefined, id: string): c is MdbaseApplicationConnection => {
   try { return !!c && c.id === id && c.isCurrent(); } catch { return false; }
@@ -110,11 +121,18 @@ function derive(s: Snapshot, o: ApplicationPhaseOptions): MdbasePhase {
     const id = requested?.collectionId ?? null;
     return id && s.status === "starting" ? { kind: "opening", collectionId: id, displayName: requested?.displayName ?? null, slow: !!o.slow } : { kind: "starting" };
   }
-  if (s.status === "signed_out") return { kind: "signed_out", notice: s.problem ? describe(s, cp) : null };
+  if (s.status === "signed_out") return o.openingUnsynced && !s.problem ? { kind: "starting" } : { kind: "signed_out", notice: s.problem ? describe(s, cp) : null };
   if (s.status === "blocked") {
     const id = s.selectedCollectionId ?? requested?.collectionId ?? null;
     if (s.problem === "recovery_account_mismatch") return {kind: "problem", collectionId: id, problem: describeError(s, {cpOrigin: cp, recoveryAccountLabel: s.recoveryAccountLabel})!};
     return { kind: "problem", collectionId: id, problem: id && s.removedScopeIds?.includes(id) ? fallback("installation_scope_removed", cp) : describe(s, cp) ?? fallback("open_failed", cp) };
+  }
+  if (s.status === "needs_unlock" && s.selectedCollectionId) {
+    const id = s.selectedCollectionId, lock = s.unlock ?? null;
+    // A locked snapshot without its lock display is malformed: no mode is guessed.
+    if (!lock) return { kind: "problem", collectionId: id, problem: fallback("open_failed", cp) };
+    return { kind: "needs_unlock", collectionId: id, displayName: s.collections.find(c => c.collectionId === id)?.displayName ?? requested?.displayName ?? null,
+      mode: lock.mode, unlocking: lock.unlocking, problem: lock.problem === null ? null : describe(lock.problem, cp) ?? fallback("unlock_failed", cp) };
   }
   if (sel?.state === "approval_required" && requested?.collectionId && s.removedScopeIds?.includes(requested.collectionId))
     return {kind: "problem", collectionId: requested.collectionId, problem: fallback("installation_scope_removed", cp)};

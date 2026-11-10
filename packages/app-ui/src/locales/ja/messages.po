@@ -508,6 +508,10 @@ msgstr "描画"
 msgid "Esc"
 msgstr "Esc"
 
+#: src/CommentsPanel.tsx
+msgid "Everyone"
+msgstr "全員"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Everyone, including you, loses access to it on every device and app right away. This can't be undone."
@@ -597,6 +601,10 @@ msgstr "情報"
 #: src/CommentsPanel.tsx
 msgid "Insert “{replacement}”"
 msgstr "「{replacement}」を挿入"
+
+#: src/CommentsPanel.tsx
+msgid "Insert at the cursor"
+msgstr "カーソル位置に挿入"
 
 #: src/live-preview/table-controls.ts
 msgctxt "table"
@@ -690,6 +698,10 @@ msgstr "mdbase は既存の履歴を含むコレクションを読み取り、�
 msgid "Menu"
 msgstr "メニュー"
 
+#: src/CommentsPanel.tsx
+msgid "Mine"
+msgstr "自分のもの"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "More for {collection}"
@@ -727,6 +739,14 @@ msgstr "要確認"
 #: src/CommentsPanel.tsx
 msgid "New comment"
 msgstr "新しいコメント"
+
+#: src/CommentsPanel.tsx
+msgid "New since last visit ({newCount})"
+msgstr "前回の訪問以降の新着（{newCount}件）"
+
+#: src/CommentsPanel.tsx
+msgid "New since your last visit"
+msgstr "前回の訪問以降の新着"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -767,10 +787,6 @@ msgstr "一致する項目はありません"
 #: src/CommentsPanel.tsx
 msgid "Nothing resolved yet."
 msgstr "解決済みのものはまだありません。"
-
-#: src/CommentsPanel.tsx
-msgid "On the whole note"
-msgstr "ノート全体について"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
@@ -889,6 +905,10 @@ msgstr "引用"
 msgid "Read and annotate sources"
 msgstr "出典の閲覧と注釈"
 
+#: src/CommentsPanel.tsx
+msgid "Reason for the suggestion"
+msgstr "提案の理由"
+
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "Refresh status"
@@ -938,6 +958,10 @@ msgstr "再オープン"
 #: src/CommentsPanel.tsx
 msgid "Replace “{exact}” with “{replacement}”"
 msgstr "「{exact}」を「{replacement}」に置換"
+
+#: src/CommentsPanel.tsx
+msgid "Replace with"
+msgstr "置換するテキスト"
 
 #: src/Feedback.tsx
 msgid "Replies aren’t guaranteed. Not for security reports or urgent support."
@@ -1094,9 +1118,23 @@ msgstr "気に入った点を教えてください"
 msgid "Show"
 msgstr "表示"
 
+#. placeholder {0}: logical.length
 #: src/CommentsPanel.tsx
-msgid "Show in the note"
-msgstr "ノート内で表示"
+msgid "Show 50 more comments · {0}"
+msgstr "コメントをさらに50件表示 · {0}"
+
+#. placeholder {0}: thread.replies.length
+#: src/CommentsPanel.tsx
+msgid "Show 50 more replies · {0}"
+msgstr "返信をさらに50件表示 · {0}"
+
+#: src/CommentsPanel.tsx
+msgid "Show in the editor"
+msgstr "エディターで表示"
+
+#: src/CommentsPanel.tsx
+msgid "Show previous 50 comments"
+msgstr "前の50件のコメントを表示"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -1178,6 +1216,14 @@ msgctxt "callout type"
 msgid "Success"
 msgstr "成功"
 
+#: src/CommentsPanel.tsx
+msgid "Suggest"
+msgstr "提案"
+
+#: src/CommentsPanel.tsx
+msgid "Suggest an edit"
+msgstr "編集を提案"
+
 #: src/feedback-data.ts
 msgid "Suggest an improvement"
 msgstr "改善を提案"
@@ -1189,6 +1235,10 @@ msgstr "編集の提案"
 #: src/comment-anchors.ts
 msgid "Suggested insertion"
 msgstr "挿入の提案"
+
+#: src/CommentsPanel.tsx
+msgid "Suggested text"
+msgstr "提案されたテキスト"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -1293,6 +1343,11 @@ msgstr "このコレクション"
 msgctxt "Collection access interface"
 msgid "This device is still listed under your account until you remove it there."
 msgstr "アカウントから削除するまで、このデバイスはアカウントに表示されます。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "This is a Private collection, and this device doesn't have its key yet."
+msgstr "これはプライベートコレクションで、このデバイスにはまだ鍵がありません。"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -1432,6 +1487,18 @@ msgstr "どのような改善を希望しますか？"
 #: src/feedback-data.ts
 msgid "What’s working well for you?"
 msgstr "うまく機能している点を教えてください。"
+
+#: src/CommentsPanel.tsx
+msgid "Whole text"
+msgstr "テキスト全体"
+
+#: src/CommentsPanel.tsx
+msgid "Whose comments"
+msgstr "誰のコメント"
+
+#: src/CommentsPanel.tsx
+msgid "Why (optional)"
+msgstr "理由（任意）"
 
 #: src/CommentsPanel.tsx
 msgid "Withdraw"
