@@ -182,3 +182,24 @@ describe("application entry in a browser below the feature floor",()=>{
     expect(app.getSnapshot()).toMatchObject({status:"blocked",problem:"browser_unsupported",phase:{kind:"unavailable",problem:{key:"browser_unsupported"}}});
   });
 });
+
+describe("application entry starting with work before connecting",()=>{
+  it("stays on starting, not the sign-in screen, until the unsynced open settles",async()=>{
+    const signedOut={...unselected,status:"signed_out"};
+    const app=new MdbaseConnect(declaration,{unsynced:true}).application();
+    FakeWorker.replies=false;const kinds:string[]=[];app.subscribe(()=>kinds.push(app.getSnapshot().phase?.kind??""));
+    const starting=app.start();
+    await vi.waitFor(()=>expect(FakeWorker.all[0]?.requests).toHaveLength(1));
+    const worker=FakeWorker.all[0]!;worker.reply(worker.requests[0]![2] as number,signedOut);
+    await vi.waitFor(()=>expect(actions(worker)).toEqual(["start","openUnsynced"]));
+    // The Worker says signed out; the open that replaces that screen is under way.
+    expect(app.getSnapshot().status).toBe("signed_out");expect(app.getSnapshot().phase?.kind).toBe("starting");
+    expect(kinds).not.toContain("signed_out");
+    // It did not open: only now is signed out what the person sees.
+    worker.reply(worker.requests[1]![2] as number,signedOut);await starting;
+    expect(app.getSnapshot().phase?.kind).toBe("signed_out");expect(kinds.at(-1)).toBe("signed_out");
+    // A later start does not try again, and does not hide the sign-in screen.
+    await app.start();expect(actions(worker)).toEqual(["start","openUnsynced"]);
+    expect(app.getSnapshot().phase?.kind).toBe("signed_out");expect(kinds.filter(kind=>kind==="starting").length).toBeGreaterThan(0);
+  });
+});

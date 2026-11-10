@@ -379,7 +379,8 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
       start:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>{
        // Until this start settles, signed out is a step towards work before
        // connecting, so the sign-in screen is not shown and then replaced.
-       const opens=this.unsyncedFirst&&!this.unsyncedTried;if(opens){this.unsyncedOpening++;this.revision++;}
+       // A start without a runtime installs one, which tries the unsynced open again.
+       const opens=this.unsyncedFirst&&(!this.unsyncedTried||this.runtime===null);if(opens){this.unsyncedOpening++;this.revision++;this.notify(false);}
        return this.call(async runtime=>{
         const native=runtime.getNativeSnapshot();
         if(native.status==="blocked"&&native.signIn&&native.selectedCollectionId===null)
@@ -659,14 +660,17 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
       const warm=()=>{
         if(!this.unsyncedFirst)return;
         const host={origin:this.declaration.origin,environment:this.declaration.environment};
-        for(const asset of [packaged.runtime,packaged.sqlite])void applicationAssetLoader(asset,host)({signal:this.lifetime.signal}).catch(()=>{/* the Worker's own read reports it */});
+        // A failure here is the Worker's to report, from its own read.
+        for(const asset of [packaged.runtime,packaged.sqlite])try{void applicationAssetLoader(asset,host)({signal:this.lifetime.signal}).catch(()=>{});}catch{/* as above */}
       };
       // UI runtime/collection setup is only needed when activating a session;
-      // its module loads beside registration.
-      const [registered,{ApplicationRuntime}]=await this.timing.time("registration",()=>Promise.all([
-        resolveApplicationRegistration({declaration:this.declaration,signal:this.lifetime.signal,isCurrent:()=>!this.closed,onRequest:warm}),
-        import("./runtime.js"),
-      ]));this.check();
+      // its module loads beside registration. A refused registration is still
+      // the error reported: the module's own failure only shows after it.
+      const loading=import("./runtime.js");loading.catch(()=>{/* awaited below */});
+      const {registered,ApplicationRuntime}=await this.timing.time("registration",async()=>{
+        const registered=await resolveApplicationRegistration({declaration:this.declaration,signal:this.lifetime.signal,isCurrent:()=>!this.closed,onRequest:warm});
+        return {registered,ApplicationRuntime:(await loading).ApplicationRuntime};
+      });this.check();
       // A pagehide during registration or loading superseded this start: no Worker for it.
       if(incarnation!==this.incarnation)throw mdbaseError("cancelled","Application entry fenced","application_entry_fenced");
       const declaration=rebindApplicationDeclaration(this.declaration,registered);
