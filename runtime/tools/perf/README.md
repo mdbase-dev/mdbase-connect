@@ -98,7 +98,8 @@ available.
   refuses above ~50–75 tasks). For each scenario the gate takes the growth of its fastest iteration
   between the sizes as a log-log slope: `ln(t10k / t1k) / ln(10)`, so 0 is flat (backlinks, a
   commit), 1 is linear (a cold open) and 2 is quadratic. A slope fails when it is more than 0.5 above
-  the baseline's `growth` entry.
+  the baseline's `growth` entry, or above 0.5 when that entry is negative (a sub-millisecond
+  scenario's slope is noise around flat).
 
 A check fails the gate only when it fails in two consecutive runs; the gate re-runs both sizes to
 confirm. A scenario missing from the baseline is reported and not checked; one in the baseline but

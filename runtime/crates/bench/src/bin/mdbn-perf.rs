@@ -370,7 +370,9 @@ fn gate(o: &Opts, cal: f64, meta: serde_json::Value) {
             kind: Kind::Growth,
             name: name.clone(),
             want,
-            limit: want + GROWTH_MARGIN,
+            // A recorded slope below flat is noise in a sub-millisecond
+            // scenario, not a standard to hold later runs to.
+            limit: want.max(0.0) + GROWTH_MARGIN,
         }))
         .collect();
     for c in &checks {
