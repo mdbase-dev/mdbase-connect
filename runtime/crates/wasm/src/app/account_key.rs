@@ -1,6 +1,8 @@
 //! HOST ONLY consuming AK1 unlock of this existing app collection. Delegates
 //! recovery derivation/self-grant/status to the production Replica gates; no
-//! raw R/derived key export, new signer, policy shortcut or strict-mode fallback.
+//! raw R/derived key export, policy shortcut or strict-mode fallback. The one
+//! AK1 signature this runtime gives a host is the fixed bundle-fetch proof
+//! (`AppRuntime::sign_account_key_fetch_consuming`); nothing here signs.
 use super::{AppRuntime, wipe};
 use mdbn_replica::{crypto::recovery::RecoveryKey, replica::AccountKeyRefusal};
 use mdbn_wire::cbor::{self, Cbor};

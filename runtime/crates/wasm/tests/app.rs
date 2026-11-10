@@ -315,6 +315,156 @@ fn consuming_adoption_moves_original_signer_connector_noise_and_preserves_v1_gat
     assert!(r.sign_cp_log_token_consuming(&mut [11; 32]).is_empty());
     assert!(r.healthy());
 }
+fn account_key_fetch_input(challenge: u8, account: u8) -> Vec<u8> {
+    cbor::encode(&Cbor::Map(vec![
+        (Cbor::Uint(0), Cbor::Bytes(vec![challenge; 32])),
+        (Cbor::Uint(1), B16([account; 16]).to_cbor()),
+    ]))
+    .unwrap()
+}
+/// What the control plane verifies for `GET /v1/next/account-key`:
+/// `H("mdbase/v1/account-key-fetch", cbor[challenge, connector, device, account])`.
+fn account_key_fetch_digest(challenge: u8, connector: u8, device: u8, account: u8) -> [u8; 32] {
+    let transcript = cbor::encode(&Cbor::Array(vec![
+        Cbor::Bytes(vec![challenge; 32]),
+        B16([connector; 16]).to_cbor(),
+        B16([device; 16]).to_cbor(),
+        B16([account; 16]).to_cbor(),
+    ]))
+    .unwrap();
+    mdbn_wire::hash::h("mdbase/v1/account-key-fetch", &transcript).0
+}
+#[test]
+fn account_key_fetch_proof_is_one_fixed_purpose_of_the_adopted_native_identity() {
+    use mdbn_replica::crypto::sign::{DeviceSigner, verify_digest};
+    let (d, _) = registered_device();
+    let mut r = d
+        .adopt_consuming(
+            &mut adoption(),
+            Box::new(Schema(Rc::new(Cell::new(0)))),
+            host(),
+        )
+        .unwrap();
+    assert!(r.bind_cp_connector(B16([6; 16])));
+    let mut input = account_key_fetch_input(11, 8);
+    let sig = r.sign_account_key_fetch_consuming(&mut input);
+    assert!(input.iter().all(|b| *b == 0), "consumed and wiped");
+    // Connector 6 and device 3 are the registered native pins; the host gave
+    // only the challenge and the account.
+    let pk = DeviceSigner::from_seed(&[4; 32]).public();
+    let sig: [u8; 64] = sig.try_into().expect("a 64-byte signature");
+    assert!(verify_digest(
+        &pk,
+        &account_key_fetch_digest(11, 6, 3, 8),
+        &sig
+    ));
+    for (challenge, connector, device, account) in
+        [(12, 6, 3, 8), (11, 9, 3, 8), (11, 6, 7, 8), (11, 6, 3, 1)]
+    {
+        assert!(!verify_digest(
+            &pk,
+            &account_key_fetch_digest(challenge, connector, device, account),
+            &sig
+        ));
+    }
+    let other_account = r.sign_account_key_fetch_consuming(&mut account_key_fetch_input(11, 9));
+    let other_challenge = r.sign_account_key_fetch_consuming(&mut account_key_fetch_input(12, 8));
+    assert_eq!(other_account.len(), 64);
+    assert_eq!(other_challenge.len(), 64);
+    assert_ne!(other_account, sig.to_vec());
+    assert_ne!(other_challenge, sig.to_vec());
+    // It is not the log-token proof of the same challenge, and a bare
+    // challenge or digest is not an input.
+    let token = r.sign_cp_log_token_consuming(&mut [11; 32]);
+    assert_ne!(token, sig.to_vec());
+    for mut bad in [
+        vec![11; 32],
+        account_key_fetch_digest(11, 6, 3, 8).to_vec(),
+        account_key_fetch_input(11, 0),
+        account_key_fetch_input(11, 8)[..53].to_vec(),
+        vec![0; 54],
+    ] {
+        assert!(r.sign_account_key_fetch_consuming(&mut bad).is_empty());
+        assert!(bad.iter().all(|b| *b == 0));
+    }
+    assert!(r.healthy(), "a refused proof does not fence the runtime");
+    r.retire_log();
+    let mut late = account_key_fetch_input(11, 8);
+    assert!(r.sign_account_key_fetch_consuming(&mut late).is_empty());
+    assert!(late.iter().all(|b| *b == 0));
+}
+/// A SQL host that stops answering once told to: the app index fences.
+struct Failing(Schema, Rc<Cell<bool>>);
+impl AppSqlHost for Failing {
+    fn run(&mut self, request: &[u8]) -> Option<Vec<u8>> {
+        if self.1.get() {
+            return None;
+        }
+        self.0.run(request)
+    }
+}
+#[test]
+fn account_key_fetch_proof_is_refused_unbound_unhealthy_and_local() {
+    // Unbound: no connector pin yet.
+    let mut r = open();
+    let mut input = account_key_fetch_input(11, 8);
+    assert!(r.sign_account_key_fetch_consuming(&mut input).is_empty());
+    assert!(input.iter().all(|b| *b == 0));
+    assert!(r.bind_cp_connector(B16([6; 16])));
+    assert_eq!(
+        r.sign_account_key_fetch_consuming(&mut account_key_fetch_input(11, 8))
+            .len(),
+        64
+    );
+    // Unhealthy: the SQL host failed, so the store is fenced.
+    let fail = Rc::new(Cell::new(false));
+    let mut r = AppRuntime::open_consuming(
+        &mut config(),
+        Box::new(Failing(Schema(Rc::new(Cell::new(0))), fail.clone())),
+        host(),
+    )
+    .unwrap();
+    assert!(r.bind_cp_connector(B16([6; 16])));
+    assert_eq!(
+        r.sign_account_key_fetch_consuming(&mut account_key_fetch_input(11, 8))
+            .len(),
+        64
+    );
+    fail.set(true);
+    let mut request = cbor::encode(&Cbor::Array(vec![
+        Cbor::Uint(1),
+        Cbor::Uint(0),
+        Cbor::Map(vec![
+            (
+                Cbor::Text("id".into()),
+                Cbor::Text("org.example.app".into()),
+            ),
+            (Cbor::Text("requirements".into()), Cbor::Map(Vec::new())),
+            (Cbor::Text("provisions".into()), Cbor::Map(Vec::new())),
+        ]),
+        Cbor::Null,
+    ]))
+    .unwrap();
+    r.resources_consuming(8, &mut request);
+    r.tick(1_800_000_000_001);
+    assert!(!r.healthy(), "the fixture fenced the store");
+    let mut input = account_key_fetch_input(11, 8);
+    assert!(r.sign_account_key_fetch_consuming(&mut input).is_empty());
+    assert!(input.iter().all(|b| *b == 0));
+    assert!(r.sign_cp_log_token_consuming(&mut [11; 32]).is_empty());
+    // Unsynced (local-only): no connector, no signer.
+    let local = AppRuntime::open_local_consuming(
+        &mut local_config(),
+        Box::new(Schema(Rc::new(Cell::new(0)))),
+        host(),
+    )
+    .unwrap();
+    assert!(
+        local
+            .sign_account_key_fetch_consuming(&mut account_key_fetch_input(11, 8))
+            .is_empty()
+    );
+}
 #[test]
 fn offline_reopen_requires_exact_protected_registration_receipt_not_ciphertext_possession() {
     let (_, public) = registered_device();

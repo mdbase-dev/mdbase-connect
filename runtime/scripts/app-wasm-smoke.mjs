@@ -4,7 +4,7 @@
  * Usage: npm ci --prefix packages/sdk; node scripts/app-wasm-smoke.mjs <app.wasm>
  */
 import assert from "node:assert/strict";
-import { createHash, generateKeyPairSync } from "node:crypto";
+import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, verify } from "node:crypto";
 import { appPolicyPinsFixture } from "../packages/sdk/scripts/app-policy-pins-fixture.mjs";
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync, mkdirSync } from "node:fs";
@@ -80,6 +80,15 @@ const config = (opened = 0, replica = 2) => encode(new Map([
   [4, 37], [5, [rootPk]], [6, [new Uint8Array(16).fill(3)]], [7, new Uint8Array(32).fill(8)],
   [8, 0], [9, false], [10, new Uint8Array(32).fill(4)], [11, new Uint8Array(32).fill(5)], [12, opened], [13, version], [16, pins],
 ]));
+// The one fixed account-key fetch proof, as a server would recompute it:
+// H("mdbase/v1/account-key-fetch", cbor[challenge, connector, device, account])
+// under this fixture's device key (config key 10), connector and device.
+const fetchTag = new TextEncoder().encode("mdbase/v1/account-key-fetch");
+const fetchKey = createPublicKey(createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.alloc(32, 4)]), format: "der", type: "pkcs8" }));
+const fetchInput = (challenge, account) => encode(new Map([[0, challenge], [1, account]]));
+const fetchDigest = (challenge, account, connector = new Uint8Array(16).fill(1), device = new Uint8Array(16).fill(3)) =>
+  createHash("sha256").update(Uint8Array.of(fetchTag.length)).update(fetchTag).update(encode([challenge, connector, device, account])).digest();
+function fetchSign(r, bytes) { return r.take(r.x.rt_app_account_key_fetch_sign(r.put(bytes), bytes.length)); }
 async function create() {
   let x;
   const index = new TestIndex(), bridge = new AppBinaryIndexHost(index);
@@ -142,8 +151,14 @@ try {
   const observation = decode(a.take(a.x.rt_app_observations()));
   assert.equal(observation.get(3), true); // actual typed staging support
   assert.equal(observation.get(4), false); // no reopen fence
+  // Account-key fetch proof: this runtime never had a connector bound, so it
+  // signs nothing, before or after the log is bound.
+  assert.equal(typeof a.x.rt_app_account_key_fetch_sign, "function", "account-key fetch proof export");
+  const challenge = new Uint8Array(32).fill(0x31), account = new Uint8Array(16).fill(0x41);
+  assert.equal(fetchSign(a, fetchInput(challenge, account)).length, 0, "no proof without a bound connector");
   assert.equal(a.x.rt_app_log_bind(38n, a.put(new Uint8Array(16).fill(1)), 16), 0);
   assert.equal(a.x.rt_app_log_bind(37n, a.put(new Uint8Array(16).fill(1)), 16), 1);
+  assert.equal(fetchSign(a, fetchInput(challenge, account)).length, 0, "a log bind is not a connector bind");
   const calls = decode(a.take(a.x.rt_app_log_calls())); assert(calls.length > 0);
   const frame = decode(calls[0].get(1)), id = BigInt(frame.get(1));
   assert.equal(frame.get(2), "head"); // native HTTP adapter; engine scope remains Subscribe
@@ -166,7 +181,34 @@ try {
   // New module, same actual SQLite database. No erase or RAM replacement.
   const b = await create(); assert.equal(b.open(config(1)), "");
   assert.equal(db.prepare("SELECT count(*) AS n FROM st_meta").get().n, meta.length);
+  // Account-key fetch proof on the actual artifact: one fixed purpose, signed
+  // only once the host has bound the connector, with the native connector and
+  // device. The caller supplies the server challenge and its account, no more.
+  const connector = new Uint8Array(16).fill(6);
+  assert.equal(fetchSign(b, fetchInput(challenge, account)).length, 0, "no proof before the connector is bound");
+  assert.equal(b.x.rt_app_cp_bind_connector(b.put(connector), 16), 1);
+  const fetchProof = fetchSign(b, fetchInput(challenge, account));
+  assert.equal(fetchProof.length, 64, "bound runtime signs the fetch proof");
+  assert(verify(null, fetchDigest(challenge, account, connector), fetchKey, fetchProof), "proof verifies against the server's digest");
+  assert(!verify(null, fetchDigest(challenge, account, new Uint8Array(16).fill(1)), fetchKey, fetchProof), "another connector does not verify");
+  assert(!verify(null, fetchDigest(challenge, account, connector, new Uint8Array(16).fill(2)), fetchKey, fetchProof), "another device does not verify");
+  const otherAccount = fetchSign(b, fetchInput(challenge, new Uint8Array(16).fill(0x42)));
+  assert.equal(otherAccount.length, 64); assert.notDeepEqual(otherAccount, fetchProof);
+  assert(!verify(null, fetchDigest(challenge, account, connector), fetchKey, otherAccount));
+  const otherChallenge = fetchSign(b, fetchInput(new Uint8Array(32).fill(0x32), account));
+  assert.equal(otherChallenge.length, 64); assert.notDeepEqual(otherChallenge, fetchProof);
+  // Not a digest or route signer: anything but the exact canonical pair is refused.
+  for (const refused of [
+    new Uint8Array(32).fill(0x31), new Uint8Array(fetchDigest(challenge, account, connector)), new Uint8Array(0),
+    fetchInput(new Uint8Array(31).fill(0x31), account), fetchInput(challenge, new Uint8Array(16)),
+    fetchInput(challenge, new Uint8Array(17).fill(0x41)), encode(new Map([[0, challenge], [1, account], [2, "put"]])),
+    encode(new Map([[0, challenge], [1, account], [2, connector]])), encode([challenge, account]),
+  ]) assert.equal(fetchSign(b, refused).length, 0, "non-canonical fetch proof input refused");
+  assert.equal(fetchSign(b, fetchInput(challenge, account)).length, 64, "a refusal does not spend the signer");
+  b.x.rt_app_log_retire();
+  assert.equal(fetchSign(b, fetchInput(challenge, account)).length, 0, "no fetch proof after retirement");
   assert.equal(b.x.rt_app_shutdown(), 1);
+  assert.equal(fetchSign(b, fetchInput(challenge, account)).length, 0, "no fetch proof after shutdown");
   // Exact persisted record_c fixture in an already-owned ephemeral database.
   // The real AppRuntime/TentativeStore open must backfill its unready index;
   // this is not merely a direct Store::records(Page16) call.
@@ -248,6 +290,7 @@ try {
   assert.equal(openLocal(u2, localConfig(0)), "");
   assert(sqlCalls > syncedSql, "unsynced open uses the tentative SQL store");
   assert.equal(u2.x.rt_app_log_bind(0n, u2.put(new Uint8Array(16).fill(0x21)), 16), 0, "no log binding");
+  assert.equal(fetchSign(u2, fetchInput(new Uint8Array(32).fill(0x31), new Uint8Array(16).fill(0x41))).length, 0, "an unsynced runtime signs no fetch proof");
   assert.equal(decode(u2.take(u2.x.rt_app_log_calls())).length, 0, "no log calls");
   const call = localSession(u2);
   call("submit", submitParams.enc({ ops: [{ kind: "create", id: recordId, path: "first.md", body: "Started before connecting.\n" }], mutationId }));
@@ -266,5 +309,5 @@ try {
   assert.equal(again.revision, got.revision);
   assert.equal(u3.x.rt_app_shutdown(), 1);
   console.log(JSON.stringify({ unsynced: true, localCommitConfirmed: true, logCalls: 0, logBindRefused: true, syncedBootstrapRefused: true, reopened: true }));
-  console.log(JSON.stringify({ actualWasm: true, sqliteVersion: version, sqlCalls, metadataRows: meta.length, staging: true, keyringPersisted: false, warmReopen: true, singleUseModule: true, legacyMemStoreRefused: true, staleLogReplyRefused: true, statelessSetup: true, scopedHttpSigner: true, terminalRetirement: true, physicalDurabilityQualified: false }));
+  console.log(JSON.stringify({ actualWasm: true, sqliteVersion: version, sqlCalls, metadataRows: meta.length, staging: true, keyringPersisted: false, warmReopen: true, singleUseModule: true, legacyMemStoreRefused: true, staleLogReplyRefused: true, statelessSetup: true, scopedHttpSigner: true, accountKeyFetchProof: true, terminalRetirement: true, physicalDurabilityQualified: false }));
 } finally { db.close(); }
