@@ -32,7 +32,7 @@ import type { Gen0Result } from "./migration-gen0-input.js";
 import { AlarmLifecycle } from "./alarm-lifecycle.ts";
 import { withDeadline } from "./deadline.ts";
 import { attachmentSlots, ChunkBusy, type ChunkPermit } from "./chunk-slots.ts";
-import { deploymentLog, pumpLog, PumpReport, StaleAppendStore, type CallTimings } from "./log.js";
+import { deploymentLog, pumpLog, PumpReport, SpareNonces, StaleAppendStore, type CallTimings } from "./log.js";
 import { DENY_ADMISSION, DENY_CUSTODY, DENY_WRAPPER, type Admission, type Custody, type OpenKeys } from "./seams.js";
 import { distinctServiceTokens, generateServiceDevice, serviceActivation, serviceCollection } from "./service-devices.js";
 import { PitrCut, PitrWork } from "./pitr-cut.ts";
@@ -167,6 +167,8 @@ export class HostedCollection extends DurableObject<Env> {
   /** Appends whose outcome arrived for a stale session: exact bytes, bounded by
    * credits reserved before sending, never evicted. */
   private staleAppends = new StaleAppendStore();
+  /** The log's piggybacked nonces: memory only, so eviction costs one `GET /v1/nonce`. */
+  private logNonces = new SpareNonces();
   private collection: string | null = null;
   private readonly objectOrigins: ObjectOriginPolicy;
   private custody: Custody;
@@ -1036,7 +1038,7 @@ export class HostedCollection extends DurableObject<Env> {
       if (current() && hasGrantAppend(call.frame)) wakeLog(tag, this.escrow ? "escrow" : "hosted", "grant_emitted", undefined, grantRecipients(call.frame));
     } : undefined, tag ? (call, observation) => {
       if (current() && hasGrantAppend(call.frame)) wakeLog(tag, this.escrow ? "escrow" : "hosted", "grant_append_outcome", observation);
-    } : undefined, { tokenRefused: () => this.dropLogToken(), report, objectOrigins: this.objectOrigins });
+    } : undefined, { tokenRefused: () => this.dropLogToken(), report, objectOrigins: this.objectOrigins, nonces: this.logNonces });
     if (!current() || !await this.checkPinRebuild(engine) || !current()) return;
     this.pruneAttachment();
     delivered += this.deliver(engine); // read_file response precedes object/network waits
