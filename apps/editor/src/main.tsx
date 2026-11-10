@@ -67,6 +67,10 @@ if (grantCallback) {
 }
 // One SDK owner for the module lifetime; construction does no registration IO.
 const sdk = portalUrl && !wrongOrigin && !managementTarget && !demoGateway && !grantCallback ? createEditorMdbase({ origin: location.origin, environment }) : null;
+// Pages that show the editor fetch its chunks while the SDK opens, not after:
+// the lazy boundaries' own import() joins this in-flight module load. A failed
+// load is reported by the boundary that renders it.
+if (sdk || demoGateway) for (const chunk of [import("./App"), import("./CodeEditor")]) chunk.catch(() => {});
 
 function EditorWorkspace() {
   useLingui();

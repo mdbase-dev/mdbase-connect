@@ -1,12 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { createEditorMdbase, renderRoot } = vi.hoisted(() => ({ createEditorMdbase: vi.fn(() => ({})), renderRoot: vi.fn() }));
+const { createEditorMdbase, renderRoot, appChunk, codeEditorChunk } = vi.hoisted(() => ({ createEditorMdbase: vi.fn(() => ({})), renderRoot: vi.fn(),
+  appChunk: vi.fn(() => ({ App: () => null })), codeEditorChunk: vi.fn(() => ({ CodeEditor: () => null })) }));
 vi.mock("./SdkEditorRoot", () => ({ createEditorMdbase, SdkEditorRoot: () => null }));
 vi.mock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render: renderRoot })) }));
 
 beforeEach(() => {
   vi.resetModules();
-  createEditorMdbase.mockClear(); renderRoot.mockClear();
+  createEditorMdbase.mockClear(); renderRoot.mockClear(); appChunk.mockClear(); codeEditorChunk.mockClear();
+  // Registered per test: a mocked module is evaluated once per registration.
+  vi.doMock("./App", () => appChunk());
+  vi.doMock("./CodeEditor", () => codeEditorChunk());
   document.body.innerHTML = '<div id="root"></div>';
   vi.stubEnv("VITE_MDBASE_EDITOR_DEMO", "0");
 });
@@ -69,6 +73,57 @@ describe("native Editor target entry", () => {
     vi.stubGlobal("location", new URL(`http://127.0.0.1:42873/${query}`));
     await import("./main");
     expect(createEditorMdbase).not.toHaveBeenCalled();
+    expect(renderRoot).toHaveBeenCalledOnce();
+  });
+});
+
+// The SDK double never opens, and the root renders nothing: a chunk requested
+// here was started at module load, independent of the collection opening.
+describe("editor chunk preload", () => {
+  // A mocked module resolves asynchronously; a refused page gets the same
+  // window to (wrongly) request one.
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 100));
+  it.each([
+    ["the native SDK", "production", "https://editor.mdbase.dev/", "0"],
+    ["the demo entry", "production", "http://127.0.0.1:42873/?demo=12", "1"],
+  ])("starts the editor chunks before anything renders on %s", async (_entry, environment, href, demo) => {
+    vi.stubEnv("VITE_MDBASE_ENV", environment);
+    vi.stubEnv("VITE_MDBASE_EDITOR_DEMO", demo);
+    vi.stubGlobal("location", new URL(href));
+    await import("./main");
+    await vi.waitFor(() => {
+      expect(appChunk).toHaveBeenCalledOnce();
+      expect(codeEditorChunk).toHaveBeenCalledOnce();
+    });
+  });
+  it.each([
+    ["a refused origin", "https://editor-staging.mdbase.dev/"],
+    ["the Private grant callback", "https://editor.mdbase.dev/?state=s&code=c"],
+    ["a retired /connect bookmark", "https://editor.mdbase.dev/connect/account"],
+    ["an invalid Connect server", "https://editor.mdbase.dev/?server=ftp://connect.mdbase.dev"],
+  ])("does not fetch editor chunks for %s", async (_page, href) => {
+    vi.stubEnv("VITE_MDBASE_ENV", "production");
+    vi.stubGlobal("location", Object.assign(new URL(href), { replace: vi.fn() }));
+    await import("./main");
+    await settle();
+    expect(createEditorMdbase).not.toHaveBeenCalled();
+    expect(appChunk).not.toHaveBeenCalled();
+    expect(codeEditorChunk).not.toHaveBeenCalled();
+  });
+  // Vitest fails the run on an unhandled rejection, so this load failing
+  // unobserved would fail here.
+  it("leaves a failed chunk load to the boundary that renders it, without an unhandled rejection", async () => {
+    appChunk.mockImplementationOnce(() => { throw new Error("chunk unavailable"); });
+    codeEditorChunk.mockImplementationOnce(() => { throw new Error("chunk unavailable"); });
+    vi.stubEnv("VITE_MDBASE_ENV", "production");
+    vi.stubGlobal("location", new URL("https://editor.mdbase.dev/"));
+    await import("./main");
+    await vi.waitFor(() => {
+      expect(appChunk).toHaveBeenCalledOnce();
+      expect(codeEditorChunk).toHaveBeenCalledOnce();
+    });
+    await settle();
+    expect(createEditorMdbase).toHaveBeenCalledOnce();
     expect(renderRoot).toHaveBeenCalledOnce();
   });
 });
