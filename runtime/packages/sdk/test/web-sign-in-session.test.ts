@@ -781,3 +781,96 @@ describe("shared first-party web sign-in", () => {
     const f = fixture("paired", "never"); await f.session.start(); await expect(f.session.select(installation)).rejects.toMatchObject({reason: "refused"}); expect(f.openCollection).not.toHaveBeenCalled(); await f.session.close();
   });
 });
+describe("a locked Private collection (needs_unlock)", () => {
+  /** A stand-in adapter for a Private entry: enrolled, no key, then whatever `unlock` decides. */
+  function lockedCollection(f: ReturnType<typeof fixture>, mode: "password" | "strict" | "none" = "password") {
+    let state: "ready" | "setup_required" | "needs_unlock" = "needs_unlock";
+    let locked: {mode: "password" | "strict" | "none"; unlocking: boolean; problem: string | null} | null = {mode, unlocking: false, problem: null};
+    const secrets: unknown[] = [];
+    const unlock = vi.fn(async (secret: unknown) => {
+      secrets.push(secret);
+      if ((secret as {password?: string}).password === "correct horse battery staple") {state = "ready"; locked = null;}
+      else locked = {mode, unlocking: false, problem: "wrong_secret"};
+    });
+    f.flow.listApprovedCollections.mockResolvedValue([{collectionId, displayName: "My notes", role: "owner", mode: "private"}] as never);
+    f.openCollection.mockImplementation(async () => ({get state() {return state;}, get locked() {return locked;}, unlock, connection: f.connection, close: f.closeConnection}) as never);
+    return {unlock, secrets, set: (next: typeof locked) => {locked = next;}};
+  }
+  it("selecting it reads needs_unlock with the account-key mode, lists it as Private, and exposes no connection", async () => {
+    const f = fixture("paired", "never"), p = lockedCollection(f, "strict");
+    await f.session.start();
+    expect(f.session.getSnapshot().collections).toEqual([{collectionId, displayName: "My notes", role: "owner", mode: "private"}]);
+    const view = await f.session.select(collectionId);
+    expect(view).toMatchObject({status: "needs_unlock", selectedCollectionId: collectionId, problem: null, unlock: {mode: "strict", unlocking: false, problem: null}});
+    expect(f.session.getSnapshot()).toMatchObject({status: "needs_unlock", unlock: {mode: "strict", unlocking: false, problem: null}});
+    expect(f.session.connection(collectionId)).toBeNull();
+    expect(p.unlock).not.toHaveBeenCalled();
+    // Selecting it again does not reopen or unlock it.
+    await f.session.select(collectionId);
+    expect(f.openCollection).toHaveBeenCalledOnce();
+    expect(f.session.getSnapshot().status).toBe("needs_unlock");
+    await f.session.close();
+    expect(f.closeConnection).toHaveBeenCalledOnce();
+  });
+  it("a wrong secret stays needs_unlock with its problem and is not a blocked collection; the right one opens it without reopening", async () => {
+    const f = fixture("paired", "never"), p = lockedCollection(f);
+    await f.session.start(); await f.session.select(collectionId);
+    const wrong = await f.session.unlockCollection(collectionId, {password: "not the password"});
+    expect(wrong).toMatchObject({status: "needs_unlock", problem: null, unlock: {mode: "password", unlocking: false, problem: "wrong_secret"}});
+    expect(f.session.connection(collectionId)).toBeNull();
+    const secret = {password: "correct horse battery staple"};
+    const opened = await f.session.unlockCollection(collectionId, secret);
+    expect(opened).toMatchObject({status: "ready", selectedCollectionId: collectionId, problem: null});
+    expect(opened.unlock ?? null).toBeNull();
+    expect(f.session.connection(collectionId)).toBe(f.connection);
+    // The secret object went to the adapter only: never onto a snapshot.
+    expect(p.secrets[1]).toBe(secret);
+    expect(JSON.stringify(f.session.getSnapshot())).not.toContain("correct horse");
+    expect(f.openCollection).toHaveBeenCalledOnce();
+    expect(f.closeConnection).not.toHaveBeenCalled();
+    // Open now: another unlock is a refused misuse and changes nothing.
+    await expect(f.session.unlockCollection(collectionId, secret)).rejects.toMatchObject({reason: "refused"});
+    expect(f.session.getSnapshot()).toMatchObject({status: "ready", problem: null});
+    await f.session.close();
+  });
+  it("refuses an unlock for a collection that is not held or not locked, without blocking anything", async () => {
+    const f = fixture("paired", "never"), p = lockedCollection(f);
+    await f.session.start();
+    await expect(f.session.unlockCollection(collectionId, {password: "correct horse battery staple"})).rejects.toMatchObject({reason: "refused"});
+    expect(f.session.getSnapshot()).toMatchObject({status: "unselected", problem: null});
+    await f.session.select(collectionId);
+    await expect(f.session.unlockCollection("77777777-7777-4777-8777-777777777777", {password: "correct horse battery staple"})).rejects.toMatchObject({reason: "refused"});
+    expect(p.unlock).not.toHaveBeenCalled();
+    expect(f.session.getSnapshot()).toMatchObject({status: "needs_unlock", problem: null});
+    await f.session.close();
+  });
+  it("an unlock that ends the adapter blocks the collection like a failed open, and the secret is not in the problem", async () => {
+    const f = fixture("paired", "never"), p = lockedCollection(f);
+    await f.session.start(); await f.session.select(collectionId);
+    p.unlock.mockRejectedValueOnce(new AppCloudCopyHostError("unavailable"));
+    await expect(f.session.unlockCollection(collectionId, {password: "correct horse battery staple"})).rejects.toMatchObject({reason: "unavailable"});
+    const view = f.session.viewFor(collectionId);
+    expect(view).toMatchObject({status: "blocked", problem: "unavailable"});
+    expect(view.unlock ?? null).toBeNull();
+    expect(JSON.stringify(view)).not.toContain("correct horse");
+    expect(f.session.connection(collectionId)).toBeNull();
+    await f.session.close();
+  });
+  it.each([
+    ["no unlock action", {state: "needs_unlock", locked: {mode: "password", unlocking: false, problem: null}}],
+    ["no lock display", {state: "needs_unlock", locked: null, unlock: async () => {}}],
+    ["an unknown mode", {state: "needs_unlock", locked: {mode: "pin", unlocking: false, problem: null}, unlock: async () => {}}],
+    ["a problem that is not a stable code", {state: "needs_unlock", locked: {mode: "password", unlocking: false, problem: "Wrong password for person@example.test"}, unlock: async () => {}}],
+  ])("refuses a malformed locked adapter (%s) instead of showing an unlock form", async (_name, adapter) => {
+    const f = fixture("paired", "never");
+    f.openCollection.mockImplementation(async () => ({...adapter, connection: f.connection, close: f.closeConnection}) as never);
+    await f.session.start();
+    await expect(f.session.select(collectionId)).rejects.toMatchObject({reason: "response"});
+    expect(f.session.getSnapshot().status).toBe("blocked");
+    expect(f.session.getSnapshot().unlock ?? null).toBeNull();
+    expect(f.session.connection(collectionId)).toBeNull();
+    // Quarantined like any failed open: the adapter is closed with the session.
+    await f.session.close();
+    expect(f.closeConnection).toHaveBeenCalledOnce();
+  });
+});

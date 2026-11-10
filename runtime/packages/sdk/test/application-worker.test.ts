@@ -10,7 +10,7 @@ import {describeError} from "../src/describe-error.js";
 import {ApplicationWorkerReplyError} from "../src/application/worker-client.js";
 import * as WorkerSession from "../src/application/worker-session.js";
 import type {ApplicationWorkerSessionHost} from "../src/application/worker-session.js";
-import {APPLICATION_WORKER_PROTOCOL as schema,APPLICATION_WORKER_MAX_ID,ApplicationWorkerError,applicationWorkerRequest,applicationWorkerProblem,type ApplicationWorkerEvent,type ApplicationWorkerAction} from "../src/application/worker-protocol.js";
+import {APPLICATION_WORKER_PROTOCOL as schema,APPLICATION_WORKER_MAX_ID,APPLICATION_WORKER_MAX_SECRET_BYTES,ApplicationWorkerError,applicationWorkerRequest,applicationWorkerProblem,type ApplicationWorkerEvent,type ApplicationWorkerAction} from "../src/application/worker-protocol.js";
 import {mdbaseError} from "../src/errors.js";
 const binding="original_worker_binding",origin="https://app.test",cpOrigin="https://cp.test",id="5cdfa020-c201-4da8-845a-f2cc9969eade";
 const active:ApplicationWorkerHost[]=[],ports:MessagePort[]=[];
@@ -154,6 +154,79 @@ describe("private SDK Worker bounded lifecycle",()=>{
     expect(detach).toHaveBeenCalledOnce();
     await vi.waitFor(()=>expect(setForeground).toHaveBeenLastCalledWith(false));
     f.send(2,"refreshCollections");expect((await f.event("reply",2))[4]).toMatchObject({ok:true});
+  });
+  it("validates the unlock frame: canonical collection, secret kind and bounded bytes, keeping the caller's own byte array",()=>{
+    const bytes=new TextEncoder().encode("correct horse battery staple");
+    const ok=applicationWorkerRequest([schema,binding,4,"unlock",[id,"password",bytes]],binding);
+    expect(ok[3]).toBe("unlock");expect((ok[4] as readonly unknown[])[2]).toBe(bytes);expect(Object.isFrozen(ok[4])).toBe(true);
+    expect(applicationWorkerRequest([schema,binding,4,"unlock",[id,"recoveryKey",new Uint8Array(APPLICATION_WORKER_MAX_SECRET_BYTES).fill(65)]],binding)[3]).toBe("unlock");
+    for(const payload of [null,id,[id,"password"],[id,"password",bytes,bytes],["not-a-uuid","password",bytes],[id.toUpperCase(),"password",bytes],["00000000-0000-0000-0000-000000000000","password",bytes],
+      [id,"pin",bytes],[id,"password","correct horse battery staple"],[id,"password",[1,2,3]],[id,"password",new Uint8Array(0)],[id,"password",new Uint8Array(APPLICATION_WORKER_MAX_SECRET_BYTES+1)],[id,"password",bytes.buffer]])
+      expect(()=>applicationWorkerRequest([schema,binding,4,"unlock",payload],binding)).toThrow(ApplicationWorkerError);
+    // Never a one-way signal.
+    expect(()=>applicationWorkerRequest([schema,binding,0,"unlock",[id,"password",bytes]],binding)).toThrow(ApplicationWorkerError);
+  });
+  it("unlock reaches the session once, from the tab showing the collection, and the Worker's copy of the secret is wiped",async()=>{
+    const f=fixture();await f.event("nativeSnapshot",0);
+    vi.spyOn(f.host.session,"openCollection").mockImplementation(async()=>f.host.session.getSnapshot());
+    const seen:Uint8Array[]=[],decode=TextDecoder.prototype.decode;
+    vi.spyOn(TextDecoder.prototype,"decode").mockImplementation(function(this:TextDecoder,input?:AllowSharedBufferSource,options?:TextDecodeOptions){if(input instanceof Uint8Array)seen.push(input);return decode.call(this,input,options);});
+    const held=deferred<ReturnType<typeof f.host.session.getSnapshot>>(),secrets:unknown[]=[];
+    const unlock=vi.spyOn(f.host.session,"unlockCollection").mockImplementation((collection,secret)=>{secrets.push([collection,secret]);return held.promise;});
+    const post=(requestId:number,kind:"password"|"recoveryKey",text:string)=>f.send(requestId,"unlock",[id,kind,new TextEncoder().encode(text)] as never);
+    // Not the tab showing this collection: refused before the secret is decoded or used.
+    post(1,"password","correct horse battery staple");
+    expect((await f.event("reply",1))[4]).toMatchObject({ok:false,problem:{code:"refused"}});expect(unlock).not.toHaveBeenCalled();expect(seen).toHaveLength(0);
+    f.send(2,"select",id);await f.event("reply",2);
+    post(3,"password","correct horse battery staple");
+    await vi.waitFor(()=>expect(unlock).toHaveBeenCalledOnce());
+    expect(secrets).toEqual([[id,{password:"correct horse battery staple"}]]);
+    // Wiped before the unlock settles, not after it.
+    expect(seen).toHaveLength(1);expect(seen[0]!.length).toBe(28);expect(seen[0]!.every(value=>value===0)).toBe(true);
+    // One request per tab: a second secret is answered busy and never reaches the session.
+    post(4,"recoveryKey","AAAA-BBBB");
+    expect((await f.event("reply",4))[4]).toMatchObject({ok:false,problem:{code:"application_worker_busy"}});expect(unlock).toHaveBeenCalledOnce();
+    held.resolve(f.host.session.getSnapshot());expect((await f.event("reply",3))[4]).toMatchObject({ok:true});
+    post(5,"recoveryKey","AAAA-BBBB");await f.event("reply",5);
+    expect(secrets[1]).toEqual([id,{recoveryKey:"AAAA-BBBB"}]);expect(seen[1]!.every(value=>value===0)).toBe(true);
+    // The reply and every event carry a snapshot only: no secret text anywhere on the port.
+    expect(JSON.stringify(f.events)).not.toContain("correct horse");expect(JSON.stringify(f.events)).not.toContain("AAAA-BBBB");
+  });
+  it("an unlock request that left the queue as the Worker lifetime ended is fenced unused, with its secret wiped",async()=>{
+    const f=fixture();await f.event("nativeSnapshot",0);
+    vi.spyOn(f.host.session,"openCollection").mockImplementation(async()=>f.host.session.getSnapshot());
+    const unlock=vi.spyOn(f.host.session,"unlockCollection"),decoded=vi.spyOn(TextDecoder.prototype,"decode");
+    f.send(1,"select",id);await f.event("reply",1);decoded.mockClear();
+    const internals=f.host as unknown as {pump():void;invoke(client:unknown,request:readonly unknown[]):Promise<void>;active:{request?:readonly unknown[]}|null};
+    const invoke=internals.invoke.bind(f.host),pump=internals.pump.bind(f.host);
+    let taken:Uint8Array|null=null,before="",fenced:unknown=null;
+    vi.spyOn(internals,"invoke").mockImplementation(async(client,request)=>{
+      if(request[3]!=="unlock")return invoke(client,request);
+      taken=(request[4] as readonly unknown[])[2] as Uint8Array;
+      try{await invoke(client,request);}catch(error){fenced=error;throw error;}
+    });
+    // stop() lands after the request is taken from the queue and before its turn runs:
+    // the queue it wipes no longer holds this request.
+    vi.spyOn(internals,"pump").mockImplementation(()=>{
+      pump();const request=internals.active?.request;
+      if(request?.[3]==="unlock"){before=new TextDecoder().decode(((request[4] as readonly unknown[])[2] as Uint8Array).slice());decoded.mockClear();void f.host.stop();}
+    });
+    f.send(2,"unlock",[id,"password",new TextEncoder().encode("correct horse battery staple")] as never);
+    await vi.waitFor(()=>expect(fenced).toBeInstanceOf(ApplicationWorkerError));
+    expect(fenced).toMatchObject({code:"application_worker_fenced"});expect(before).toBe("correct horse battery staple");
+    expect(taken).toHaveLength(28);expect(taken!.every(value=>value===0)).toBe(true);
+    // Never decoded, never handed to the session.
+    expect(decoded).not.toHaveBeenCalled();expect(unlock).not.toHaveBeenCalled();
+  });
+  it("a secret that is not valid UTF-8 never reaches the session, and a failed unlock replies with its typed problem only",async()=>{
+    const f=fixture();await f.event("nativeSnapshot",0);
+    vi.spyOn(f.host.session,"openCollection").mockImplementation(async()=>f.host.session.getSnapshot());
+    const unlock=vi.spyOn(f.host.session,"unlockCollection").mockRejectedValue(new AppInstallationSignInError("refused"));
+    f.send(1,"select",id);await f.event("reply",1);
+    f.send(2,"unlock",[id,"password",new Uint8Array([0xff,0xfe,0xfd])] as never);
+    expect((await f.event("reply",2))[4]).toMatchObject({ok:false,problem:{code:"application_worker_binding"}});expect(unlock).not.toHaveBeenCalled();
+    f.send(3,"unlock",[id,"password",new TextEncoder().encode("correct horse battery staple")] as never);
+    const reply=(await f.event("reply",3))[4];expect(reply).toMatchObject({ok:false,problem:{code:"refused"}});expect(JSON.stringify(reply)).not.toContain("correct horse");
   });
   it("failed physical stop is memoized/quarantined, never retried to manufacture success",async()=>{
     const f=fixture(),physical=vi.fn(()=>Promise.reject(new Error("private original shutdown failure")));let stopped:Promise<void>|null=null;

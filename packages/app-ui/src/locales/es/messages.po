@@ -1296,6 +1296,11 @@ msgstr "Este dispositivo seguirá apareciendo en tu cuenta hasta que lo quites a
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "This is a Private collection, and this device doesn't have its key yet."
+msgstr "Esta es una colección privada y este dispositivo aún no tiene su clave."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "This is taking longer than usual."
 msgstr "Esto está tardando más de lo habitual."
 

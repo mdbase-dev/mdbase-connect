@@ -1296,6 +1296,11 @@ msgstr "This device is still listed under your account until you remove it there
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "This is a Private collection, and this device doesn't have its key yet."
+msgstr "This is a Private collection, and this device doesn't have its key yet."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "This is taking longer than usual."
 msgstr "This is taking longer than usual."
 

@@ -32,6 +32,11 @@ import {
     type AppCloudCopyOutcomeScope,
 } from "./cloud-copy-persistence.js";
 import { AppIndexedDbCloudCopyOutcomeStore } from "./cloud-copy-persistence-idb.js";
+import { AppCpPrivateBootstrap, type AppCpPrivateSession, type AppPrivateBootstrapMetadata } from "./private-bootstrap.js";
+import { AppWebPrivateBootstrapPersistence } from "./private-persistence.js";
+import { AppIndexedDbPrivateBootstrapStore } from "./private-persistence-idb.js";
+import { AppAccountKeySealedBundle, readAccountKeyMode, unlockPrivateDevice, type AppAccountKeyNative, type AppAccountKeySecret, type AppAccountKeySession } from "./account-key-host.js";
+import type { AccountKeyMode } from "../private-account.js";
 import type { AppReplicaScope } from "./owner.js";
 import type { AppSqlLifetime } from "./wasm-runtime.js";
 import { AppIndexedDbDeviceKeyProvider } from "./device-key-provider.js";
@@ -48,8 +53,11 @@ import type { AppInstallationCustodyAuthority } from "./owner.js";
 import {
     AppWasmRuntime,
     AppStrictDeviceApprovalError,
+    type AppAccountKeyPin,
+    type AppAccountKeyState,
     type AppDeviceRegistrationReceipt,
     type AppNoiseCustodyResult,
+    type AppPrivateEnrolOperationMarker,
 } from "./wasm-runtime.js";
 
 /** Authenticated first-party selection, NOT caller/UI-selected grant authority.
@@ -69,7 +77,10 @@ export type AppCloudCopyHostRelease = AppBundledReleaseTrust;
 export class AppCloudCopyHostError extends Error {
     constructor(
         readonly reason:
-            "binding" | "fenced" | "recovery_required" | "unavailable" | "sync_stalled",
+            | "binding" | "fenced" | "recovery_required" | "unavailable" | "sync_stalled"
+            /** This installation device is already enrolled in another Private
+             * collection: its custody holds one enrol marker. */
+            | "private_device_limit",
     ) {
         super(`app cloud copy host: ${reason}`);
         this.name = "AppCloudCopyHostError";
@@ -108,7 +119,18 @@ export class AppWebCloudCopyHost {
     private bootstrap: AppCpCloudCopyBootstrap | null = null;
     private bootstrapConfirmed = false;
     private collectionScope: Readonly<AppReplicaScope> | null = null;
-    private collectionSession: AppCpCloudCopySession | null = null;
+    private collectionSession: AppCpCloudCopySession | AppCpPrivateSession | null = null;
+    /** The protected public Private enrol marker restored with this device's
+     * custody, or null. One per installation device; decides fresh or existing. */
+    private restoredPrivateMarker: AppPrivateEnrolOperationMarker | null = null;
+    private privateStore: AppIndexedDbPrivateBootstrapStore | null = null;
+    private privateBootstrap: AppCpPrivateBootstrap | null = null;
+    private privateMetadata: AppPrivateBootstrapMetadata | null = null;
+    /** Set only by a Private (e2e) adoption; account-key calls require it. */
+    private accountKeyPin: AppAccountKeyPin | null = null;
+    private accountKeyWork = false;
+    /** The sealed bundle of this locked collection between unlock attempts: RAM only, dropped on unlock and on close. */
+    private readonly accountKeySealed = new AppAccountKeySealedBundle();
     private adoptedEndpoint: number | bigint | null = null;
     private sqlAttempted = false;
     private sqlClose: (() => Promise<void>) | null = null;
@@ -403,6 +425,7 @@ export class AppWebCloudCopyHost {
         const restored = await this.noise.restore({signal});
         this.check(signal);
         if (mode === "existing" ? !restored || (requireReceipt && !restored.receipt) : restored !== null) throw fail("recovery_required");
+        this.restoredPrivateMarker = restored?.privateEnrolMarker ?? null;
         const artifact = await loadRuntime(Object.freeze({signal}));
         this.check(signal);
         if (!(artifact instanceof Uint8Array) || !artifact.length) throw fail("binding");
@@ -530,6 +553,137 @@ export class AppWebCloudCopyHost {
             throw error;
         }
     }
+    /** Private (e2e) enrolment of THIS installation device into one existing
+     * collection, in the same owned Worker and with the same native device and
+     * KEK as a cloud copy. The protected public enrol marker decides fresh or
+     * existing: a marker without its operation record refuses, never re-creates.
+     * No SQL is opened here. An acknowledged enrolment is NOT approval or a key:
+     * the device stays unkeyed until a key grant applies (see settlePrivateKey). */
+    async bootstrapPrivateDevice(options: {
+        scope: Readonly<AppReplicaScope>;
+        collectionCurrent(): boolean;
+        signal: AbortSignal;
+        fetch?: typeof fetch;
+        allowLoopbackHttp?: boolean;
+    }): Promise<void> {
+        const { scope, collectionCurrent, signal: callerSignal, fetch: request, allowLoopbackHttp } = options;
+        const signal = this.operationSignal(callerSignal);
+        this.check(signal);
+        if (
+            this.collectionAttempted ||
+            !this.native ||
+            !this.key ||
+            !this.noise ||
+            !this.publicReceipt ||
+            scope.account !== this.selected.accountId ||
+            scope.installation !== this.selected.installationId ||
+            uuidToBytes(scope.collection).every((v) => v === 0)
+        )
+            throw fail("binding");
+        const marker = this.restoredPrivateMarker;
+        // The device custody keeps ONE enrol marker and never replaces it.
+        if (marker && marker.collection !== scope.collection) throw fail("private_device_limit");
+        const original = Object.freeze({
+            account: scope.account,
+            installation: scope.installation,
+            collection: scope.collection,
+        });
+        const current = () => {
+            try {
+                return (
+                    this.current() &&
+                    !signal.aborted &&
+                    options.scope === scope &&
+                    options.collectionCurrent === collectionCurrent &&
+                    Object.entries(original).every(
+                        ([k, v]) => scope[k as keyof AppReplicaScope] === v,
+                    ) &&
+                    collectionCurrent.call(options) === true
+                );
+            } catch {
+                return false;
+            }
+        };
+        if (!current()) throw fail("fenced");
+        this.collectionAttempted = true;
+        this.collectionSignal = signal;
+        this.collectionCurrent = current;
+        this.collectionScope = original;
+        // The record's AAD and metadata bind the first bundled root; adoption
+        // below trusts the bundled release roots, as a cloud copy does.
+        const source: AppCpPrivateSession = Object.freeze({
+            ...this.pin,
+            collection: original.collection,
+            purpose: "enrol" as const,
+            rootPublicKey: new Uint8Array(this.trust.trustedRoots[0]!),
+            isCurrent: current,
+        });
+        this.collectionSession = source;
+        try {
+            this.privateStore = await AppIndexedDbPrivateBootstrapStore.open({
+                source,
+                origin: this.origin,
+                mode: marker ? "existing" : "fresh",
+                signal,
+            });
+            this.checkCollection(signal);
+            const persistence = new AppWebPrivateBootstrapPersistence(
+                source,
+                this.publicReceipt,
+                this.key,
+                this.privateStore,
+                this.noise,
+                { allowLoopbackHttp },
+            );
+            this.native.preparePrivateCollection(source, marker ? { mode: "existing", marker } : { mode: "fresh" });
+            this.checkCollection(signal);
+            this.privateBootstrap = new AppCpPrivateBootstrap(this.native, source, persistence, { fetch: request, allowLoopbackHttp });
+            this.privateMetadata = await this.privateBootstrap.bootstrap(Object.freeze({ signal }));
+            this.checkCollection(signal);
+            this.bootstrapConfirmed = true;
+        } catch (error) {
+            await this.close();
+            throw error;
+        }
+    }
+    /** e2e adoption of the enrolled Private device: bundled release roots and
+     * policy pins, the protected genesis pin of the enrol response, no
+     * cloud-copy opt-in. Verified read and a key are still required. */
+    private adoptPrivateDevice(
+        options: Omit<AppCloudCopyAdoptionOptions, "cloudCopyOptIn">,
+        sql: AppSqlLifetime,
+    ): void {
+        const signal = this.operationSignal(options.signal);
+        this.checkCollection(signal);
+        const metadata = this.privateMetadata, receipt = this.publicReceipt;
+        if (!this.native || !this.privateBootstrap || !metadata || !receipt || !this.bootstrapConfirmed || this.adoptedEndpoint !== null)
+            throw fail("fenced");
+        const collection = metadata.collection;
+        this.native.adoptDevice({
+            replicaId: options.replicaId,
+            endpoint: options.endpoint,
+            opened: options.opened,
+            sqliteVersion: options.sqliteVersion,
+            collection,
+            deviceId: metadata.deviceId,
+            state: "e2e",
+            cloudCopyOptIn: false,
+            trustedRoots: this.trust.trustedRoots.map((v) => new Uint8Array(v)),
+            policyPins: new Uint8Array(this.trust.policyPins),
+            trustedSigners: [],
+            expectedGenesis: metadata.expectedGenesis,
+        }, sql);
+        this.checkCollection(signal);
+        this.adoptedEndpoint = options.endpoint;
+        this.accountKeyPin = Object.freeze({
+            connectorId: receipt.connectorId,
+            deviceId: receipt.deviceId,
+            installationId: receipt.installationId,
+            collection,
+            approvalMode: "password-ak1" as const,
+            isCurrent: () => this.collectionCurrent?.() === true,
+        });
+    }
     private checkCollection(signal: AbortSignal): void {
         this.check(signal);
         if (this.collectionCurrent?.() !== true) throw fail("fenced");
@@ -608,7 +762,12 @@ export class AppWebCloudCopyHost {
             this.collectionSql = opened.sql;
             this.checkCollection(signal);
             if (options.openSql !== openSql) throw fail("fenced");
-            this.adoptCloudCopy(
+            if (this.privateBootstrap)
+                this.adoptPrivateDevice(
+                    { signal, replicaId, endpoint, opened: opened.opened, sqliteVersion: opened.sqliteVersion },
+                    opened.sql,
+                );
+            else this.adoptCloudCopy(
                 {
                     signal,
                     replicaId,
@@ -687,7 +846,8 @@ export class AppWebCloudCopyHost {
      * only public projections across its caller channel. */
     peopleAuthority(): PeopleAuthority {
         this.checkCollection(this.lifetime);
-        if (!this.collectionSession || this.adoptedEndpoint === null || !this.logRequest)
+        // People metadata is not admitted for a Private device scope.
+        if (!this.collectionSession || this.adoptedEndpoint === null || !this.logRequest || this.accountKeyPin)
             throw fail("binding");
         if (!this.peopleMetadata) {
             const endpoint = this.adoptedEndpoint, session = this.collectionSession;
@@ -1046,6 +1206,128 @@ export class AppWebCloudCopyHost {
             this.readAbort = null;
         }
     }
+    /** True for an adopted Private (e2e) collection. */
+    get privateDevice(): boolean {
+        return this.accountKeyPin !== null;
+    }
+    private accountKeyState(): AppAccountKeyState {
+        if (!this.native || !this.accountKeyPin || this.adoptedEndpoint === null) throw fail("binding");
+        return this.native.accountKeyStatus(this.accountKeyPin);
+    }
+    /** Whether the adopted Private device holds the collection key, from the
+     * native applied policy only. `keyed` needs no network on a replica whose
+     * grant already applied. Otherwise the log is driven until the replica has
+     * read as far as it can: caught up, or stopped at a sealed item with no
+     * usable grant ahead, is `locked` (unlock with the account key). The budget
+     * bounds inactivity, as the cold verified read does. Never a verified read,
+     * a key override or an inference from the enrol response. */
+    async settlePrivateKey(options: { signal: AbortSignal; timeoutMs?: number }): Promise<"keyed" | "locked"> {
+        const { timeoutMs = 15000 } = options;
+        const signal = this.operationSignal(options.signal);
+        this.checkCollection(signal);
+        if (!this.native || !this.pump || !this.accountKeyPin || this.adoptedEndpoint === null ||
+            !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 15000)
+            throw fail("binding");
+        let high: number[] | null = null, last = Date.now(), delay = 100, woken = false;
+        // A stale known head must not read as caught up: one head wake comes
+        // before any `locked` conclusion.
+        const locked = async (): Promise<boolean> => {
+            if (woken) return true;
+            woken = true;
+            await this.wakeCollectionLog({ signal });
+            return false;
+        };
+        for (;;) {
+            const state = this.accountKeyState();
+            if (state.state === "keyed") return "keyed";
+            // A faulted apply is not a locked collection.
+            if (state.state === "refused" && state.reason === "outcome_unknown") throw fail("recovery_required");
+            await this.driveCollection({ signal });
+            const refusal = this.pump?.terminalProblem;
+            if (isAppServerProblem(refusal))
+                throw new AppHttpLogError(appServerOutcome(refusal) ?? "unavailable", refusal);
+            if (this.accountKeyState().state === "keyed") return "keyed";
+            const observation = this.native.observations();
+            if (observation.requiresReopen || observation.keyringRebuildFailed) throw fail("recovery_required");
+            const wait = initialSyncWait(observation.status);
+            // Unreachable log: neither keyed nor locked can be told apart.
+            if (wait === "offline" || this.pump?.transportHealth?.kind === "offline") throw fail("unavailable");
+            const reason = wait === "waiting_for_key" ? keyWaitDetail(observation.status)?.key : undefined;
+            if (wait === null || (reason !== undefined && reason !== "reading")) {
+                if (await locked()) return "locked";
+                continue;
+            }
+            const now = Date.now(), next = [observation.status.confirmedThrough, observation.status.headKnown, this.pump!.readProgress];
+            if (high === null || next.some((value, i) => value > high![i]!)) last = now;
+            high = high === null ? next : next.map((value, i) => Math.max(value, high![i]!));
+            if (now - last >= timeoutMs) throw fail("sync_stalled");
+            await waitForOpenRetry(delay, signal);
+            this.checkCollection(signal);
+            delay = Math.min(1_000, delay * 2);
+        }
+    }
+    private accountKeySession(pin: AppAccountKeyPin): AppAccountKeySession {
+        const session = this.collectionSession;
+        if (!session) throw fail("binding");
+        return Object.freeze({
+            accountId: this.selected.accountId,
+            connectorId: pin.connectorId,
+            deviceId: pin.deviceId,
+            collection: pin.collection,
+            cpOrigin: this.selected.cpOrigin,
+            isCurrent: () => this.collectionCurrent?.() === true && this.accountKeyPin === pin,
+            connectorBearer: async ({ signal }: { signal: AbortSignal }) => {
+                signal.throwIfAborted();
+                this.checkCollection(this.lifetime);
+                // Custody admits ONLY the original owner lifetime; the
+                // request's own signal controls its HTTP work.
+                const bearer = await session.connectorBearer({ signal: this.lifetime });
+                this.checkCollection(this.lifetime);
+                signal.throwIfAborted();
+                return bearer;
+            },
+        });
+    }
+    /** The account's key mode from the fixed status route, over the same pinned
+     * CP transport as the log token. Display only: it grants nothing. */
+    async accountKeyMode(options: { signal: AbortSignal }): Promise<AccountKeyMode> {
+        const signal = this.operationSignal(options.signal);
+        this.checkCollection(signal);
+        const pin = this.accountKeyPin;
+        if (!pin || !this.logRequest) throw fail("binding");
+        return readAccountKeyMode(this.accountKeySession(pin), { signal, fetch: this.logRequest, allowLoopbackHttp: this.logLoopback });
+    }
+    /** Unlock the adopted Private collection with the account key (encryption
+     * password or recovery key). Resolves only once the native applied policy
+     * has this device keyed. `AppAccountKeyUnlockError` leaves it locked for
+     * another attempt; any other rejection ended this owner. `R` stays inside
+     * this call and is wiped when it settles; the sealed bundle is kept in RAM
+     * only after a wrong secret, for the next attempt of this same locked
+     * collection. Verified read is still required before any data facade. */
+    async unlockAccountKey(secret: AppAccountKeySecret, options: { signal: AbortSignal; onMode?(mode: AccountKeyMode): void }): Promise<void> {
+        const signal = this.operationSignal(options.signal);
+        this.checkCollection(signal);
+        const native = this.native, pin = this.accountKeyPin, request = this.logRequest;
+        if (!native || !pin || !request || !this.pump || this.adoptedEndpoint === null || this.accountKeyWork) throw fail("binding");
+        const view: AppAccountKeyNative = Object.freeze({
+            supportsFetchProof: () => native.supportsAccountKeyFetchProof,
+            signFetch: (challenge: Uint8Array) => native.signAccountKeyFetch(pin, this.selected.accountId, challenge),
+            unlockConsuming: (loan: Uint8Array) => native.unlockAccountKeyConsuming(pin, loan),
+            status: () => native.accountKeyStatus(pin),
+            drive: (turn: { signal: AbortSignal }) => this.driveCollection({ signal: turn.signal }),
+            headKnown: () => native.observations().status.headKnown,
+        });
+        this.accountKeyWork = true;
+        try {
+            await unlockPrivateDevice(this.accountKeySession(pin), view, secret, {
+                signal, fetch: request, allowLoopbackHttp: this.logLoopback, sealed: this.accountKeySealed,
+                ...(options.onMode ? { onMode: options.onMode } : {}),
+            });
+            this.checkCollection(signal);
+        } finally {
+            this.accountKeyWork = false;
+        }
+    }
     /** A data-only Worker port per attached tab, only after a genuine native typed read passed.
      * Every subsequent frame remains gated by native trust/applied/key/read.
      * Host controls, SQL/custody/log tokens and owner unlock are never RPCs. */
@@ -1110,6 +1392,7 @@ export class AppWebCloudCopyHost {
             () => this.peopleMetadata?.authority.close(),
             () => this.bootstrap?.close(),
             () => this.outcome?.close(),
+            () => this.accountKeySealed.clear(),
         ]) {
             try {
                 close();
@@ -1136,6 +1419,7 @@ export class AppWebCloudCopyHost {
                 this.signIn = null;
                 this.publicReceipt = null;
                 this.outcomeStore?.close();
+                this.privateStore?.close();
                 this.noiseStore?.close();
                 this.keys?.close();
                 this.provider?.close();

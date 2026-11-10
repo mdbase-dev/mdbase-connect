@@ -1,5 +1,7 @@
 import {openAppWebCollectionClient,type AppWebCollectionHandoff,type AppWebCollectionClient} from "../app-host/web-collection.js";
 import type {ClientOptions} from "../client.js";
+import {mdbaseError} from "../errors.js";
+import {MdbasePeopleClient,type PeopleAuthority} from "../people.js";
 import type {MdbaseApplicationConnection} from "./entry.js";
 
 export class ApplicationUiConnectionError extends Error {
@@ -13,6 +15,13 @@ interface Owned {
   readonly lifetime:AbortController;
 }
 const seen=new WeakSet<MessagePort>();
+/** People metadata is not admitted for a Private device scope. The connection
+ * still carries the ordinary People client; every metadata read is refused
+ * with the same typed refusal a server without People gives, and nothing is
+ * requested. Readiness reports it on the advisory `people` facet only. */
+function privateDevicePeople(collection:string,isCurrent:()=>boolean):PeopleAuthority {
+  return Object.freeze({collection,isCurrent,request:()=>Promise.reject(mdbaseError("upgrade_required","People is not available for a Private collection opened by this app","people_unsupported"))});
+}
 const uuid=/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
 /** SDK UI owner for the ONE original borrowed data client. Retire before issuing
  * a native switch. Logical/UI retirement is NOT physical native/SQL/lease drain:
@@ -55,7 +64,10 @@ export class ApplicationUiConnections {
     if(value.schema!=="mdbn-app-collection/1"||Object.keys(scope).sort().join()!=="account,collection,installation"||Object.values(scope).some(id=>!uuid.test(id)||id==="00000000-0000-0000-0000-000000000000")||
       typeof generation!=="string"||!generation||generation.length>256||typeof displayName!=="string"||!displayName.trim()||new TextEncoder().encode(displayName).length>4096||
       !["inspect","approved-new","reconcile-original"].includes(value.setupMode))return reject("application_connection_binding");
-    if(value.people!==true)return reject("application_connection_people_unavailable");
+    // Exactly one of: the People authority, or a Private device scope (which has none).
+    const privateDevice=value.privateDevice===true;
+    if(value.privateDevice!==undefined&&(!privateDevice||value.people!==undefined))return reject("application_connection_binding");
+    if(value.people!==true&&!privateDevice)return reject("application_connection_people_unavailable");
     const handoff=Object.freeze({...value,scope,generation,displayName});
     const lifetime=new AbortController(),epoch=this.epoch;
     this.opening=lifetime;
@@ -68,8 +80,8 @@ export class ApplicationUiConnections {
       ui=await openAppWebCollectionClient(handoff,{app:this.app,signal,timerCriteria:this.timerCriteria});
       if(!valid()||caller.aborted)throw new ApplicationUiConnectionError("application_connection_fenced");
       if(ui.client.collection!==scope.collection||ui.client.link!=="open")throw new ApplicationUiConnectionError("application_connection_binding");
-      if(!ui.people)throw new ApplicationUiConnectionError("application_connection_people_unavailable");
-      const original=ui,people=ui.people;
+      if(privateDevice?ui.people!==undefined:!ui.people)throw new ApplicationUiConnectionError(privateDevice?"application_connection_binding":"application_connection_people_unavailable");
+      const original=ui,people=ui.people??new MdbasePeopleClient(original.client,privateDevicePeople(scope.collection,()=>valid()&&this.current?.ui===original&&original.client.link==="open"));
       const publicConnection:MdbaseApplicationConnection=Object.freeze({id:scope.collection,scope,generation,displayName,records:original.client,files:original.client.files,people,
         ...(original.timers?{timers:original.timers}:{}),isCurrent:()=>valid()&&this.current?.ui===original&&original.client.link==="open"});
       this.current={public:publicConnection,ui:original,lifetime};return publicConnection;

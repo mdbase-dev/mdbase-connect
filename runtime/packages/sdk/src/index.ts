@@ -52,7 +52,7 @@ export type {MdbaseTransferItem,MdbaseTransferMap,MdbaseTransferPlan,MdbaseTrans
 export type {MdbaseTransferOptions,MdbaseTransferPlanOptions} from "./application/entry.js";
 export {effectiveCapabilities} from "./application/capabilities.js";
 export type {MdbaseApplicationCapability,MdbaseApplicationCapabilities} from "./application/capabilities.js";
-export type {MdbaseApplicationEntry,MdbaseApplication,MdbaseApplicationConnection,MdbaseApplicationSnapshot,MdbaseApplicationRequestOptions,MdbaseCollectionDeleteOptions,MdbaseSignOutOptions,MdbaseConnectOptions,MdbaseSignInOpener,
+export type {MdbaseApplicationEntry,MdbaseApplication,MdbaseApplicationConnection,MdbaseApplicationSnapshot,MdbaseApplicationRequestOptions,MdbaseCollectionDeleteOptions,MdbaseSignOutOptions,MdbaseUnlockSecret,MdbaseConnectOptions,MdbaseSignInOpener,
   MdbaseApplicationFacet,MdbaseApplicationProblem,MdbaseApplicationAssessment,MdbaseUnavailableType,MdbaseApplicationFacetSnapshot,MdbaseApplicationReadinessSnapshot,MdbaseLinks} from "./application/entry.js";
 export type {MdbaseApplicationSetup,MdbaseSetupPlan,MdbaseSetupPlanOptions,MdbaseSetupRecord,MdbaseSetupChange,MdbaseSetupChangeKind,MdbaseSetupConflict,MdbaseSetupRefusalCode} from "./application/setup.js";
 export type {MdbaseAccessRequest,MdbaseAccessRequestOptions,MdbaseAccessResult} from "./application/file-access.js";

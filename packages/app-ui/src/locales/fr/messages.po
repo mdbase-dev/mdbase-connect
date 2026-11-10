@@ -1296,6 +1296,11 @@ msgstr "Cet appareil reste associé à votre compte tant que vous ne l’y avez 
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "This is a Private collection, and this device doesn't have its key yet."
+msgstr "Il s’agit d’une collection privée, et cet appareil n’a pas encore sa clé."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "This is taking longer than usual."
 msgstr "Cela prend plus de temps que d’habitude."
 

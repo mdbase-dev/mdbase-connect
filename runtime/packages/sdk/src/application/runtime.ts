@@ -2,7 +2,9 @@ import type {AppWebSignInPortal,AppWebSignInSnapshot} from "../app-host/web-sign
 import type {AppWebCollectionHandoff} from "../app-host/web-collection.js";
 import type {ApplicationDeclarationSnapshot} from "./declaration.js";
 import type {compileApplicationManifest} from "./manifest.js";
-import type {MdbaseApplicationConnection,MdbaseApplicationProblem,MdbaseApplicationReadinessSnapshot,MdbaseApplicationRequestOptions,MdbaseApplicationSnapshot as PublicSnapshot,MdbaseSignOutOptions} from "./entry.js";
+import type {MdbaseApplicationConnection,MdbaseApplicationProblem,MdbaseApplicationReadinessSnapshot,MdbaseApplicationRequestOptions,MdbaseApplicationSnapshot as PublicSnapshot,MdbaseSignOutOptions,MdbaseUnlockSecret} from "./entry.js";
+import {mdbaseError} from "../errors.js";
+import {APPLICATION_WORKER_MAX_SECRET_BYTES,type ApplicationWorkerUnlockPayload} from "./worker-protocol.js";
 import {pendingWrites,signOutPendingWritesError} from "./sign-out.js";
 import {ApplicationScope} from "./scope.js";
 import {ApplicationUiConnections} from "./ui-connections.js";
@@ -26,6 +28,18 @@ export interface ApplicationRuntimeActivation {
   readonly port:MessagePort;readonly binding:string;
   nativeAuthorization?:import("./worker-client.js").ApplicationWorkerClientOwner["nativeAuthorization"];
   releaseWorker():void;
+}
+/** The typed secret as bounded UTF-8 bytes (wipeable, unlike the string). */
+function unlockPayload(id:string,secret:MdbaseUnlockSecret):ApplicationWorkerUnlockPayload{
+  const invalid=()=>mdbaseError("invalid_request","Pass the collection and either { password } or { recoveryKey }.","unlock_secret_invalid");
+  if(typeof id!=="string"||!secret||typeof secret!=="object")throw invalid();
+  const password=Object.hasOwn(secret,"password"),recovery=Object.hasOwn(secret,"recoveryKey");
+  if(password===recovery)throw invalid();
+  const text:unknown=password?(secret as {password:unknown}).password:(secret as {recoveryKey:unknown}).recoveryKey;
+  if(typeof text!=="string"||!text.length)throw invalid();
+  const bytes=new TextEncoder().encode(text);
+  if(bytes.length>APPLICATION_WORKER_MAX_SECRET_BYTES){bytes.fill(0);throw invalid();}
+  return Object.freeze([id,password?"password":"recoveryKey",bytes] as const);
 }
 export class ApplicationRuntimeError extends Error {
   constructor(readonly code:"application_busy"|"application_fenced"|"application_stop_failed"|"application_connection_unavailable"){
@@ -58,7 +72,7 @@ export class ApplicationRuntime {
       attached:value=>this.attached(value),
       releaseWorker:input.releaseWorker,
       ...(input.nativeAuthorization?{nativeAuthorization:input.nativeAuthorization}:{}),
-      failed:error=>{if(!this.closed){this.raw=Object.freeze({...this.raw,status:"blocked",problem:error.code});this.publish();}},
+      failed:error=>{if(!this.closed){this.raw=Object.freeze({...this.raw,status:"blocked",problem:error.code,unlock:null});this.publish();}},
     });
     this.unsubscribe=this.scope.subscribe(()=>this.publish());
   }
@@ -104,7 +118,7 @@ export class ApplicationRuntime {
   async queue<T>(work:()=>Promise<T>):Promise<T>{while(this.pending&&!this.closed)await this.pending.catch(()=>{});return work();}
   subscribe(listener:()=>void):()=>void{this.listeners.add(listener);return()=>{this.listeners.delete(listener);};}
   private publish():void {
-    if(this.closed){this.snapshot=Object.freeze({...this.raw,status:this.stopped?"closed":"blocked",problem:this.stopped?null:this.stopFailed?"application_stop_failed":"application_closing",selectedCollectionId:null,readiness:emptyReadiness()});}
+    if(this.closed){this.snapshot=Object.freeze({...this.raw,status:this.stopped?"closed":"blocked",problem:this.stopped?null:this.stopFailed?"application_stop_failed":"application_closing",selectedCollectionId:null,unlock:null,readiness:emptyReadiness()});}
     else {
       const readiness=this.scope.getReadiness()??emptyReadiness();let status=this.raw.status,problem=this.raw.problem,detail:MdbaseApplicationProblem["detail"];
       const id=this.raw.selectedCollectionId;
@@ -187,6 +201,24 @@ export class ApplicationRuntime {
       // UI retirement above is not the native shutdown/SQL/lease certificate.
       return this.complete(await this.worker.request("select",id,caller),caller);
     },caller);
+  }
+  /** Unlock the locked Private collection this tab shows with the account key.
+   * The typed secret crosses to the Worker once, as UTF-8 bytes; this tab's
+   * copy is wiped as soon as it is posted and on every other path. A wrong
+   * secret resolves, still `needs_unlock`, with `unlock.problem` set. On
+   * success the collection's ports arrive on this same request. */
+  unlock(id:string,secret:MdbaseUnlockSecret,options:MdbaseApplicationRequestOptions={}):Promise<MdbaseApplicationSnapshot>{
+    const caller=this.signal(options);
+    let payload:ApplicationWorkerUnlockPayload;
+    try{payload=unlockPayload(id,secret);}catch(error){return Promise.reject(error);}
+    const wipe=()=>{payload[2].fill(0);};
+    return this.action(async()=>{
+      if(this.raw.selectedCollectionId!==id||this.raw.status!=="needs_unlock")throw mdbaseError("invalid_request","This collection is not waiting to be unlocked.","unlock_not_locked");
+      // Posting clones the bytes synchronously: wipe before any await.
+      let reply:Promise<AppWebSignInSnapshot>;
+      try{reply=this.worker.request("unlock",payload,caller);}finally{wipe();}
+      return this.complete(await reply,caller);
+    },caller).finally(wipe);
   }
   /** Open this app's unsynced collection in this tab (work before connecting).
    * The Worker creates it on first use; the sign-in session is unchanged. */

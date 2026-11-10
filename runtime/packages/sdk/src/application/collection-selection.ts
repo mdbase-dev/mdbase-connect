@@ -63,8 +63,11 @@ export interface ApplicationApprovalOutcome {
 }
 const validId=(id:unknown):id is string=>typeof id==="string"&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)&&id!=="00000000-0000-0000-0000-000000000000";
 const isOpen=(s:AppWebSignInSnapshot)=>s.status==="ready"||s.status==="setup_required";
+/** A Private collection the session holds enrolled but without its key: held
+ * (not opening, not usable) until the person unlocks it or leaves it. */
+const isLocked=(s:AppWebSignInSnapshot)=>s.status==="needs_unlock";
 /** Approved list is current and no session operation is opening/authorizing. */
-const settled=(s:AppWebSignInSnapshot)=>s.signIn?.state==="paired"&&(s.status==="unselected"||s.status==="blocked"||isOpen(s));
+const settled=(s:AppWebSignInSnapshot)=>s.signIn?.state==="paired"&&(s.status==="unselected"||s.status==="blocked"||isOpen(s)||isLocked(s));
 const inFlight=(s:AppWebSignInSnapshot)=>s.status==="not_started"||s.status==="starting"||s.status==="signed_out"||s.status==="authorizing";
 const approved=(s:AppWebSignInSnapshot,id:string|null)=>id===null?null:s.collections.find(c=>c.collectionId===id)??null;
 
@@ -122,7 +125,7 @@ export class ApplicationCollectionSelection {
     return this.whenIdle(async()=>{
       const s=this.session.getSnapshot();
       if(this.requested().requestedCollectionId!==collectionId)return; // superseded by newer intent
-      if(collectionId===null?s.selectedCollectionId===null&&s.status!=="opening":(s.selectedCollectionId===collectionId&&isOpen(s))||!approved(s,collectionId))return;
+      if(collectionId===null?s.selectedCollectionId===null&&s.status!=="opening":(s.selectedCollectionId===collectionId&&(isOpen(s)||isLocked(s)))||!approved(s,collectionId))return;
       await this.run(collectionId,options,true);
     }).then(()=>this.value);
   }
@@ -214,7 +217,9 @@ export class ApplicationCollectionSelection {
     else if(this.approval)state="approving";
     else if(id===null)state="none";
     else if(usable?.collectionId===id)state="usable";
-    else if(s.selectedCollectionId===id&&(s.status==="blocked"||s.status==="opening"))state=s.status==="blocked"?"blocked":"opening";
+    // A locked collection is held but not usable: `opening` here, and the
+    // phase (`needs_unlock`) says what it is waiting for.
+    else if(s.selectedCollectionId===id&&(s.status==="blocked"||s.status==="opening"||isLocked(s)))state=s.status==="blocked"?"blocked":"opening";
     else if(!settled(s))state="pending";
     else if(wanted)state="opening";
     else if(this.session.listing?.())state="pending";
@@ -264,8 +269,8 @@ export class ApplicationCollectionSelection {
     }
     const r=this.requested(),id=r.requestedCollectionId;
     if(r.problem)return;
-    if(id===null){if(this.attempted!==null&&s.selectedCollectionId!==null&&isOpen(s))void this.run(null);return;}
-    if(s.selectedCollectionId===id&&(isOpen(s)||s.status==="opening")){this.attempted=id;return;}
+    if(id===null){if(this.attempted!==null&&s.selectedCollectionId!==null&&(isOpen(s)||isLocked(s)))void this.run(null);return;}
+    if(s.selectedCollectionId===id&&(isOpen(s)||isLocked(s)||s.status==="opening")){this.attempted=id;return;}
     if(!approved(s,id)||this.attempted===id)return;
     void this.run(id);
   }
@@ -281,7 +286,7 @@ export class ApplicationCollectionSelection {
       if(picked!==this.requested().requestedCollectionId){this.startTarget=null;this.browser.select(picked,{history:"replace"});}
       this.lastApproval=Object.freeze({kind:a.kind,outcome:outcome(picked),collectionId:picked});
       this.refresh();
-      if(s.selectedCollectionId===picked&&(isOpen(s)||s.status==="opening"))this.attempted=picked;else void this.run(picked);
+      if(s.selectedCollectionId===picked&&(isOpen(s)||isLocked(s)||s.status==="opening"))this.attempted=picked;else void this.run(picked);
       return;
     }
     const id=this.requested().requestedCollectionId;
