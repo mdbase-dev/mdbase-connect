@@ -66,6 +66,17 @@ When the MCP OAuth grant includes `mdbase:write`, the gateway also advertises:
 - `create_record`, `update_record`, `delete_record`, and `rename_record`;
 - `create_type` and `update_type`.
 
+Every tool sets `readOnlyHint`, `destructiveHint` and `openWorldHint`
+explicitly. `update_record`, `update_type` and `delete_record` are destructive
+because they overwrite or remove existing data, so hosts that honour the hint
+ask before running them. `rename_record` is not: it refuses a target path that
+is already taken, so it loses nothing. A host may use the gateway without the
+plugin skills, so the server also sends MCP `instructions` and tool
+descriptions that carry the same rules: start with `list_connections`, use
+`add_connection` for an unlisted collection, use collection-relative paths only,
+confirm deletions, bulk changes and type changes first, and report saved paths.
+`services/mcp/src/mcp.test.ts` checks the hints and instructions.
+
 The Connect grant may be narrower than the MCP OAuth scope. In that case the
 gateway rejects an unavailable operation and tells the user to reconnect with
 broader collection access; it never expands the upstream grant itself.
