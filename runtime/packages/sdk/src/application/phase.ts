@@ -73,6 +73,9 @@ export interface ApplicationPhaseOptions {
   /** Set when the current opening has lasted SLOW_OPENING_MS. */
   readonly slow?: boolean;
   readonly cpOrigin?: string;
+  /** This start opens work before connecting next: signed out is a step on the
+   * way, not a screen to show. */
+  readonly openingUnsynced?: boolean;
 }
 
 type Snapshot = Pick<MdbaseApplicationSnapshot, "status" | "signIn" | "collections" | "selectedCollectionId" | "problem" | "readiness" | "selection"> & Partial<Pick<MdbaseApplicationSnapshot, "problemDetail" | "removedScopeIds" | "recoveryAccountLabel" | "openingProgress" | "unsynced" | "unlock">>;
@@ -118,7 +121,7 @@ function derive(s: Snapshot, o: ApplicationPhaseOptions): MdbasePhase {
     const id = requested?.collectionId ?? null;
     return id && s.status === "starting" ? { kind: "opening", collectionId: id, displayName: requested?.displayName ?? null, slow: !!o.slow } : { kind: "starting" };
   }
-  if (s.status === "signed_out") return { kind: "signed_out", notice: s.problem ? describe(s, cp) : null };
+  if (s.status === "signed_out") return o.openingUnsynced && !s.problem ? { kind: "starting" } : { kind: "signed_out", notice: s.problem ? describe(s, cp) : null };
   if (s.status === "blocked") {
     const id = s.selectedCollectionId ?? requested?.collectionId ?? null;
     if (s.problem === "recovery_account_mismatch") return {kind: "problem", collectionId: id, problem: describeError(s, {cpOrigin: cp, recoveryAccountLabel: s.recoveryAccountLabel})!};

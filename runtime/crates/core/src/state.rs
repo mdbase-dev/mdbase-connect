@@ -14,7 +14,7 @@
 //! ([`crate::paths::path_key`]).
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use crate::ids::{FileId, Hash, RecordId, Uuid};
 use crate::intent::{FileContent, FileInclusion, FileKind};
@@ -145,7 +145,9 @@ pub struct MemState {
     aliases: BTreeMap<String, RecordId>,
     resources: BTreeMap<String, Arc<str>>,
     settings: FileInclusion,
-    catalog: Arc<Catalog>,
+    /// Compiled from `resources` on first use after they change, so a run of
+    /// resource writes compiles once instead of once per write.
+    catalog: OnceLock<Arc<Catalog>>,
 }
 
 impl Default for MemState {
@@ -165,7 +167,7 @@ impl MemState {
             aliases: BTreeMap::new(),
             resources: BTreeMap::new(),
             settings: FileInclusion::default(),
-            catalog: Arc::new(Catalog::empty()),
+            catalog: OnceLock::from(Arc::new(Catalog::empty())),
         }
     }
 
@@ -225,11 +227,11 @@ impl MemState {
             }
             Effect::PutResource { path, doc } => {
                 self.resources.insert(path.clone(), Arc::from(doc.as_str()));
-                self.recompile();
+                self.catalog = OnceLock::new();
             }
             Effect::RemoveResource { path } => {
                 self.resources.remove(path);
-                self.recompile();
+                self.catalog = OnceLock::new();
             }
             Effect::PutSettings(s) => self.settings = s.clone(),
         }
@@ -324,17 +326,15 @@ impl MemState {
             }
         }
     }
-
-    fn recompile(&mut self) {
-        self.catalog = Arc::new(Catalog::load(
-            self.resources.iter().map(|(p, s)| (p.as_str(), &**s)),
-        ));
-    }
 }
 
 impl StateView for MemState {
     fn catalog(&self) -> Arc<Catalog> {
-        Arc::clone(&self.catalog)
+        Arc::clone(self.catalog.get_or_init(|| {
+            Arc::new(Catalog::load(
+                self.resources.iter().map(|(p, s)| (p.as_str(), &**s)),
+            ))
+        }))
     }
     fn record(&self, id: &RecordId) -> Option<StoredRecord> {
         self.records.get(id).cloned()
@@ -406,7 +406,9 @@ pub struct Overlay<'a> {
     aliases: BTreeMap<String, RecordId>,
     resources: BTreeMap<String, Option<Arc<str>>>,
     settings: Option<FileInclusion>,
-    catalog: Option<Arc<Catalog>>,
+    /// `Some` once the layer changes a resource; compiled on first use after
+    /// the latest change. `None` reads the base catalog.
+    catalog: Option<OnceLock<Arc<Catalog>>>,
 }
 
 impl<'a> Overlay<'a> {
@@ -504,11 +506,11 @@ impl<'a> Overlay<'a> {
             Effect::PutResource { path, doc } => {
                 self.resources
                     .insert(path.clone(), Some(Arc::from(doc.as_str())));
-                self.recompile();
+                self.catalog = Some(OnceLock::new());
             }
             Effect::RemoveResource { path } => {
                 self.resources.insert(path.clone(), None);
-                self.recompile();
+                self.catalog = Some(OnceLock::new());
             }
             Effect::PutSettings(s) => self.settings = Some(s.clone()),
         }
@@ -569,17 +571,6 @@ impl<'a> Overlay<'a> {
         }
     }
 
-    fn recompile(&mut self) {
-        let paths = self.resource_paths();
-        let sources: Vec<(String, Arc<str>)> = paths
-            .into_iter()
-            .filter_map(|p| self.resource(&p).map(|s| (p, s)))
-            .collect();
-        self.catalog = Some(Arc::new(Catalog::load(
-            sources.iter().map(|(p, s)| (p.as_str(), &**s)),
-        )));
-    }
-
     /// Records changed in the layer (live ones), sorted by ID.
     fn layer_records(&self) -> impl Iterator<Item = &StoredRecord> {
         self.records.values().flatten()
@@ -603,7 +594,16 @@ impl<'a> Overlay<'a> {
 impl StateView for Overlay<'_> {
     fn catalog(&self) -> Arc<Catalog> {
         match &self.catalog {
-            Some(c) => Arc::clone(c),
+            Some(compiled) => Arc::clone(compiled.get_or_init(|| {
+                let sources: Vec<(String, Arc<str>)> = self
+                    .resource_paths()
+                    .into_iter()
+                    .filter_map(|p| self.resource(&p).map(|s| (p, s)))
+                    .collect();
+                Arc::new(Catalog::load(
+                    sources.iter().map(|(p, s)| (p.as_str(), &**s)),
+                ))
+            })),
             None => self.base.catalog(),
         }
     }
@@ -754,5 +754,45 @@ mod tests {
         s.insert_record(id(1), "a.md", "y");
         assert!(s.tombstone(&id(1)).is_none());
         assert_eq!(s.at_path_key("a.md"), Some(PathHolder::Record(id(1))));
+    }
+
+    fn extensions(state: &dyn StateView) -> Vec<String> {
+        state.catalog().settings().record_extensions.clone()
+    }
+    fn config(extensions: &str) -> Effect {
+        Effect::PutResource {
+            path: crate::types::CONFIG_PATH.into(),
+            doc: format!("spec_version: '0.3.0'\nsettings:\n  record_extensions: [{extensions}]\n"),
+        }
+    }
+
+    /// The catalog compiles on demand, so every read still has to see the
+    /// resources as they are now: after several writes, after an earlier read,
+    /// and in a layer over a base that keeps its own.
+    #[test]
+    fn catalog_follows_resource_writes_in_state_and_layer() {
+        let mut base = MemState::new();
+        assert_eq!(extensions(&base), ["md"]);
+        base.apply_effect(&config("md, txt"));
+        base.apply_effect(&config("md, base"));
+        assert_eq!(extensions(&base), ["md", "base"]);
+        base.apply_effect(&Effect::RemoveResource {
+            path: crate::types::CONFIG_PATH.into(),
+        });
+        assert_eq!(extensions(&base), ["md"]);
+        base.apply_effect(&config("md, txt"));
+        assert_eq!(extensions(&base.clone()), ["md", "txt"]);
+
+        let mut layer = Overlay::new(&base);
+        assert!(Arc::ptr_eq(&layer.catalog(), &base.catalog()));
+        layer.apply_effect(&config("md, canvas"));
+        assert_eq!(extensions(&layer), ["md", "canvas"]);
+        layer.apply_effect(&config("md, base"));
+        assert_eq!(extensions(&layer), ["md", "base"]);
+        layer.apply_effect(&Effect::RemoveResource {
+            path: crate::types::CONFIG_PATH.into(),
+        });
+        assert_eq!(extensions(&layer), ["md"]);
+        assert_eq!(extensions(&base), ["md", "txt"]);
     }
 }

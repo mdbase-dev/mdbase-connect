@@ -4,7 +4,9 @@ import {currentAppOrigin,isAppOrigin,urlOrigin} from "../app-host/app-origin.js"
 import {compileApplicationManifest} from "./manifest.js";
 import {declaredReturnUrl} from "./return-url.js";
 import {resolveApplicationRegistration} from "./registration.js";
+import {applicationAssetLoader} from "./asset-loader.js";
 import {packagedApplicationAssets} from "./packaged-assets.js";
+import {ApplicationStartupTiming} from "./startup-timing.js";
 import {appReleaseTrust} from "./packaged-trust.js";
 import {serviceLoopbackAllowed} from "./local-build.js";
 import {selectAppEnvironment} from "../app-host/app-environment.js";
@@ -365,6 +367,9 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
   private readonly privates:ApplicationPrivateCollections|null=null;
   /** Open the unsynced collection when started signed out; tried once per start. */
   private readonly unsyncedFirst:boolean;private unsyncedTried=false;
+  /** Starts that may still open work before connecting (see `start`). */
+  private unsyncedOpening=0;
+  private readonly timing=new ApplicationStartupTiming();
   private readonly overlaid=new WeakMap<object,{revision:number;value:object}>();
   constructor(declaration:MdbaseApplicationDeclaration,options:MdbaseConnectOptions={}){
     this.declaration=applicationDeclaration(declaration);this.compiled=compileApplicationManifest(this.declaration);
@@ -383,11 +388,16 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
     this.selection.subscribe(()=>{this.unforgetApproved();this.notify(false);});
     const view=()=>this.getSnapshot();
     this.app=Object.freeze({getSnapshot:view,subscribe:(listener:()=>void)=>{this.listeners.add(listener);return()=>{this.listeners.delete(listener);};},
-      start:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>this.call(async runtime=>{
+      start:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>{
+       // Until this start settles, signed out is a step towards work before
+       // connecting, so the sign-in screen is not shown and then replaced.
+       // A start without a runtime installs one, which tries the unsynced open again.
+       const opens=this.unsyncedFirst&&(!this.unsyncedTried||this.runtime===null);if(opens){this.unsyncedOpening++;this.revision++;this.notify(false);}
+       return this.call(async runtime=>{
         const native=runtime.getNativeSnapshot();
         if(native.status==="blocked"&&native.signIn&&native.selectedCollectionId===null)
           await runtime.queue(()=>runtime.start(options));
-        else await this.started(runtime,options);
+        else await this.timing.time("session",()=>this.started(runtime,options));
         const selection=this.choose(),snapshot=selection.getSnapshot();
         if(snapshot.state==="blocked"&&snapshot.requested.approved&&snapshot.requested.collectionId!==null)
           await selection.select(snapshot.requested.collectionId,options);
@@ -395,7 +405,7 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
         // never moves the person into browser-only work by itself.
         const after=runtime.getNativeSnapshot();
         if(this.unsyncedFirst&&!this.unsyncedTried&&after.status==="signed_out"&&!after.unsynced&&!after.signOutResult&&selection.getSnapshot().requested.collectionId===null){
-          this.unsyncedTried=true;await runtime.queue(()=>runtime.openUnsynced(options));
+          this.unsyncedTried=true;await this.timing.time("unsynced",()=>runtime.queue(()=>runtime.openUnsynced(options)));
         }
       }).catch(error=>{
         // Open in another tab is a wait, not a failure: the snapshot says so and
@@ -403,7 +413,7 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
         const native=this.runtime?.getNativeSnapshot();
         if((error as {code?:unknown})?.code==="open_in_another_tab"&&native?.status==="blocked"&&native.problem==="open_in_another_tab")return;
         throw error;
-      })),
+      }).finally(()=>{if(opens){this.unsyncedOpening--;this.revision++;this.notify(false);}});}),
       authorize:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>this.approve(undefined,options)),
       approve:(id?:string|null,options?:MdbaseApplicationRequestOptions)=>this.track(()=>this.approve(id,options)),
       reauthorize:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>{
@@ -495,8 +505,9 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
     const base=hidden?.size&&shown.collections.some(c=>hidden.has(c.collectionId)&&c.collectionId!==shown.selectedCollectionId)
       ?Object.freeze({...shown,collections:Object.freeze(shown.collections.filter(c=>!hidden.has(c.collectionId)||c.collectionId===shown.selectedCollectionId))}):shown;
     const id=base.selectedCollectionId,connection=id&&!this.closed?this.privates?.connection(id)??this.runtime?.connection(id)??null:null;
-    let phase=applicationPhase({...base,selection},{connection,previous:last?.value.phase??null,...(this.cpOrigin?{cpOrigin:this.cpOrigin}:{})});
-    phase=this.trackOpening(phase);
+    const openingUnsynced=this.unsyncedOpening>0&&!base.unsynced&&!base.signOutResult&&selection.requested.collectionId===null;
+    let phase=applicationPhase({...base,selection},{connection,previous:last?.value.phase??null,openingUnsynced,...(this.cpOrigin?{cpOrigin:this.cpOrigin}:{})});
+    phase=this.trackOpening(phase);this.timing.observe(phase);
     const sync=this.trackSync(phase,base.problem,base.transport??null,base.live??null);
     const writes=this.syncing?.writes()??null;
     const saveWarning=this.trackSaveWarning();
@@ -652,15 +663,29 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
       if(typeof import.meta.url!=="string")throw unavailable();
       const moduleUrl=new URL(import.meta.url);
       if(urlOrigin(moduleUrl)!==this.declaration.origin||currentAppOrigin()!==this.declaration.origin)throw mdbaseError("unavailable","Application module binding unavailable","application_worker_module_binding");
-      const environment=this.environment();packagedApplicationAssets(this.declaration.environment,this.declaration.origin);
+      const environment=this.environment(),packaged=packagedApplicationAssets(this.declaration.environment,this.declaration.origin);
       // A browser below the SDK's feature floor fails here, once, with a typed
       // problem — before any registration, Worker, key or storage allocation.
-      const capabilities=await probeBrowserCapabilities();this.check();
+      const capabilities=await this.timing.time("capabilities",()=>probeBrowserCapabilities());this.check();
       if(!capabilities.ok)throw mdbaseError("unavailable","This browser can't run mdbase",{reason:capabilities.problem,details:new Map([["missing",capabilities.missing.join(",")]])});
       // Registration resolves BEFORE any Worker, key, profile or DB allocation.
-      const registered=await resolveApplicationRegistration({declaration:this.declaration,signal:this.lifetime.signal,isCurrent:()=>!this.closed});this.check();
-      // UI runtime/collection setup is only needed when activating a session.
-      const {ApplicationRuntime}=await import("./runtime.js");this.check();
+      // A first visit registers over the network. Work before connecting opens
+      // right after, so the Worker's verified public assets are fetched during
+      // that wait: same loader, pins and cache as the Worker's own read.
+      const warm=()=>{
+        if(!this.unsyncedFirst)return;
+        const host={origin:this.declaration.origin,environment:this.declaration.environment};
+        // A failure here is the Worker's to report, from its own read.
+        for(const asset of [packaged.runtime,packaged.sqlite])try{void applicationAssetLoader(asset,host)({signal:this.lifetime.signal}).catch(()=>{});}catch{/* as above */}
+      };
+      // UI runtime/collection setup is only needed when activating a session;
+      // its module loads beside registration. A refused registration is still
+      // the error reported: the module's own failure only shows after it.
+      const loading=import("./runtime.js");loading.catch(()=>{/* awaited below */});
+      const {registered,ApplicationRuntime}=await this.timing.time("registration",async()=>{
+        const registered=await resolveApplicationRegistration({declaration:this.declaration,signal:this.lifetime.signal,isCurrent:()=>!this.closed,onRequest:warm});
+        return {registered,ApplicationRuntime:(await loading).ApplicationRuntime};
+      });this.check();
       // A pagehide during registration or loading superseded this start: no Worker for it.
       if(incarnation!==this.incarnation)throw mdbaseError("cancelled","Application entry fenced","application_entry_fenced");
       const declaration=rebindApplicationDeclaration(this.declaration,registered);
@@ -672,7 +697,7 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
       };
       // One session per app per browser: lead (run the Worker) or join the leader.
       const tabs=this.tabsFor(signInScope),election=new AbortController();this.election?.abort();this.election=election;
-      const role=tabs?await tabs.elect(AbortSignal.any([this.lifetime.signal,election.signal])):{kind:"leader" as const};
+      const role=tabs?await this.timing.time("election",()=>tabs.elect(AbortSignal.any([this.lifetime.signal,election.signal]))):{kind:"leader" as const};
       if(this.closed||this.hidden||incarnation!==this.incarnation||election.signal.aborted){
         if(role.kind==="follower")role.leave();else tabs?.resign();
         throw mdbaseError("cancelled","Application entry fenced","application_entry_fenced");

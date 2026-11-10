@@ -23,6 +23,9 @@ export interface ApplicationRegistrationOptions {
     readonly signal: AbortSignal;
     isCurrent(): boolean;
     readonly fetch?: typeof fetch;
+    /** Called once when registration goes to the network (a remembered
+     * registration never calls it), so startup can overlap that wait. */
+    onRequest?(): void;
 }
 export interface ApplicationRegistration {
     readonly id: string;
@@ -360,6 +363,8 @@ export async function resolveApplicationRegistration(
         });
     }
     try {
+        current();
+        try { input.onRequest?.(); } catch { /* an observer never changes registration */ }
         for (let attempt = 0; attempt < 3; attempt++) {
             current();
             let response: Response | undefined;

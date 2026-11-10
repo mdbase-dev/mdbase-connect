@@ -55,6 +55,10 @@ it("maps sign-in, approval, choosing and the second-tab case to phases with type
   expect(applicationPhase(snap({status:"signed_out",collections:[],selectedCollectionId:null,selection:none}))).toEqual({kind:"signed_out",notice:null} satisfies MdbasePhase);
   expect(applicationPhase(snap({status:"signed_out",problem:"approval_window_closed",collections:[],selectedCollectionId:null,selection:none})))
     .toMatchObject({kind:"signed_out",notice:{key:"approval_window_closed"}});
+  // A start that opens work before connecting next never shows sign-in on the way; a notice still does.
+  expect(applicationPhase(snap({status:"signed_out",collections:[],selectedCollectionId:null,selection:none}),{openingUnsynced:true})).toEqual({kind:"starting"} satisfies MdbasePhase);
+  expect(applicationPhase(snap({status:"signed_out",problem:"approval_window_closed",collections:[],selectedCollectionId:null,selection:none}),{openingUnsynced:true}))
+    .toMatchObject({kind:"signed_out",notice:{key:"approval_window_closed"}});
   const lastApproval={kind:"add",outcome:"closed",collectionId:null} as const;
   expect(applicationPhase(snap({status:"unselected",selectedCollectionId:null,selection:{...none,lastApproval}}))).toEqual({kind:"choosing",lastApproval});
   expect(applicationPhase(snap({status:"unselected",selectedCollectionId:null,selection:{state:"approval_required",problem:"application_selection_not_approved",usable:null,requested:{collectionId:A,source:"url",displayName:null,approved:false}}})))
