@@ -184,11 +184,16 @@ describe("a replica that synced before opens from this device", () => {
     await vi.waitFor(() => expect(f.host.driveCollection).toHaveBeenCalled());
     expect(f.host.startCollectionLog).toHaveBeenCalledTimes(2);
   });
-  it("closing while the token request is still out neither binds nor reports a failure", async () => {
+  // Before the first turn has taken the request, and after: close waits for a
+  // turn under way, which ends when the host's request honours the abort.
+  it.each([0, 20])("closing while the token request is still out neither binds nor reports a failure (%i ms in)", async wait => {
     await syncedBefore();
     const f = fixture(); let refuse!: (error: unknown) => void;
-    f.host.startCollectionLog.mockImplementationOnce(() => new Promise<void>((_resolve, reject) => {refuse = reject;}));
+    f.host.startCollectionLog.mockImplementationOnce(((options: {signal: AbortSignal}) => new Promise<void>((_resolve, reject) => {
+      refuse = reject; options.signal.addEventListener("abort", () => reject(options.signal.reason), {once: true});
+    })) as () => Promise<void>);
     const result = await f.open(), seen = vi.fn(); result.subscribe!(seen);
+    await new Promise(resolve => setTimeout(resolve, wait));
     await result.close(); seen.mockClear();
     refuse(new AppCpAuthorityError("unavailable", appServerProblem(403, {error: {code: "invalid_proof"}})));
     await new Promise(resolve => setTimeout(resolve, 20));
