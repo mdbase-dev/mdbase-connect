@@ -1196,12 +1196,18 @@ describePg("installation device sign-in on daemon pairing", () => {
     const mobile=deviceRequest(appId); mobile.installation.kind="mobile";
     expect((await startDevice(mobile)).statusCode).toBe(201);
     expect(await asked(mobile.installation.request_id)).toBe(false);
-    // Never a recovery sign-in: it is answered exactly as the same request without the ask.
-    const recovery=deviceRequest(appId), plainRecovery=original(); plainRecovery.installation.app_id=appId;
-    recovery.installation.recovery_collection_id=(plainRecovery as Input).installation.recovery_collection_id=randomUUID();
-    const [withAsk,without]=[await startDevice(recovery),await startDevice(plainRecovery)];
-    expect([withAsk.statusCode,withAsk.json().error?.code]).toEqual([without.statusCode,without.json().error?.code]);
-    if (withAsk.statusCode===201) expect(await asked(recovery.installation.request_id)).toBe(false);
+    // A recovery sign-in asks only to get back a collection it held as device access: granted
+    // as for any sign-in, and otherwise refused, since nothing else could restore it.
+    const recovery=deviceRequest(appId); recovery.installation.recovery_collection_id=randomUUID();
+    const recovering=await startDevice(recovery);
+    expect(recovering.statusCode,recovering.body).toBe(201); expect(recovering.json().recovery_collection_id).toBe(recovery.installation.recovery_collection_id);
+    expect(await asked(recovery.installation.request_id)).toBe(true);
+    for (const [refusedApp,off] of [[appId,true],[(await registeredApp(`bundle:test.undeclared.${randomUUID()}`,{access:"full_collection",contracts:[],capabilities:{contract_version:2,required:["collection.read"]}})),false]] as const) {
+      const refusedRecovery=deviceRequest(refusedApp); refusedRecovery.installation.recovery_collection_id=randomUUID();
+      const refused=await (off ? switchedOff(()=>startDevice(refusedRecovery)) : startDevice(refusedRecovery));
+      expect([refused.statusCode,refused.json().error.code]).toEqual([403,"installation_private_device_not_allowed"]);
+      expect((await db.query("SELECT id FROM pairing_requests WHERE id=$1",[refusedRecovery.installation.request_id])).rows).toEqual([]);
+    }
     // A value that is not a boolean is malformed.
     const malformed=await startDevice({...deviceRequest(appId),installation:{...deviceRequest(appId).installation,requested_private_device:"yes"}} as unknown as Input);
     expect(malformed.statusCode).toBe(400);
@@ -1347,12 +1353,80 @@ describePg("installation device sign-in on daemon pairing", () => {
     for (const field of ["selected_collection_id","created_collection_ids","native_selection"]) expect(paired[field]).toBeUndefined();
     expect(await scopes(p.selected.connector_id)).toEqual([{collection_id:own,private_device:true}]);
   });
+  it("restores a removed Private device collection by a recovery sign-in, with the same per-collection consent and nothing wider",async()=>{
+    const owner=await account(), own=await scopeCollection(owner.user,owner.user,"private"), other=await scopeCollection(owner.user,owner.user,"private"), cloud=await scopeCollection(owner.user), appId=await deviceApp();
+    const first=await devicePrepared(owner,appId);
+    expect((await deviceApprove(first,first.flow,{private_device_collection_ids:[own,other]})).statusCode).toBe(200);
+    expect((await first.flow.exchange()).json()).toMatchObject({status:"paired",private_device_collection_ids:[own,other].sort()});
+    // The person removes the app's access to one collection in Connect, Apps.
+    const removed=await app.inject({method:"POST",url:`/v1/account/applications/${appId}/remove-installation-access`,headers:owner.headers,payload:{collection_id:own,confirm:true}});
+    expect(removed.statusCode,removed.body).toBe(200);
+    expect(await scopes(first.selected.connector_id)).toEqual([{collection_id:other,private_device:true}]);
+    /** The SDK's fresh scoped slot for the removed collection: a new installation and device, asking again. */
+    const recover=async(asked=true)=>{
+      const input=deviceRequest(appId); input.installation.recovery_collection_id=own;
+      if (!asked) delete input.installation.requested_private_device;
+      const flow=await start(input);
+      expect((await app.inject({method:"POST",url:`${flow.base}/select-account`,headers:owner.headers})).statusCode).toBe(200);
+      const selected=(await flow.exchange()).json(), proof=await attest(input,selected);
+      expect(proof.result.statusCode).toBe(200);
+      return {owner,input,flow,selected,proof};
+    };
+    const r=await recover();
+    // The portal offers exactly the recovered collection, with the device-access (key-keeping) label, and no app grant.
+    const shown=(await app.inject({method:"GET",url:r.flow.base,headers:owner.headers})).json().pairing;
+    expect(shown).toMatchObject({recovery_collection_id:own,requested_private_device:true,approved_private_device_collection_ids:[]});
+    expect(shown.collections).toEqual([{collection_id:own,display_name:"New collection",role:"owner",kind:"private_device"}]);
+    // Nothing wider than the recovered collection as device access.
+    const wider:[Record<string,unknown>,number,string][]=[
+      [{private_device_collection_ids:[other]},409,"installation_recovery_target_changed"],
+      [{private_device_collection_ids:[own,other]},409,"installation_recovery_target_changed"],
+      [{collection_ids:[cloud],private_device_collection_ids:[own]},409,"installation_recovery_target_changed"],
+      [{collection_ids:[own],selected_collection_id:own},403,"installation_collection_unavailable"], // A Private collection is never a cloud copy.
+      [{collection_ids:[cloud],selected_collection_id:cloud},409,"installation_recovery_target_changed"],
+      [{private_device_collection_ids:[own],create_collections:true},409,"installation_recovery_target_changed"],
+    ];
+    for (const [consent,status,code] of wider) {
+      const refused=await deviceApprove(r,r.flow,consent);
+      expect([refused.statusCode,refused.json().error.code],JSON.stringify(consent)).toEqual([status,code]);
+    }
+    // PostgreSQL holds the shape too: a recovery's device scope is only its own collection.
+    await expect(db.query("UPDATE installation_device_pairings SET approved_private_device_collection_ids=$2,approved_session_epoch=1 WHERE pairing_id=$1",[r.input.installation.request_id,[other]])).rejects.toMatchObject({code:"23514"});
+    expect((await deviceApprove(r,r.flow,{private_device_collection_ids:[own]})).statusCode).toBe(200);
+    const receipt=(await r.flow.exchange()).json();
+    expect(receipt).toMatchObject({status:"paired",recovery_collection_id:own,collection_ids:[],private_device_collection_ids:[own]});
+    for (const field of ["selected_collection_id","created_collection_ids","native_selection"]) expect(receipt[field]).toBeUndefined();
+    expect(receipt.connector.id).not.toBe(first.selected.connector_id);
+    expect(await scopes(r.selected.connector_id)).toEqual([{collection_id:own,private_device:true}]);
+    expect(publicOutcome((await r.flow.exchange()).json())).toEqual(publicOutcome(receipt));
+    // The switch turned off between the person's approval and the app collecting its credential:
+    // a recovery would get a credential for nothing, so it is refused and nothing is issued.
+    await app.inject({method:"POST",url:`/v1/account/applications/${appId}/remove-installation-access`,headers:owner.headers,payload:{collection_id:own,confirm:true}});
+    const lapsed=await recover();
+    expect((await deviceApprove(lapsed,lapsed.flow,{private_device_collection_ids:[own]})).statusCode).toBe(200);
+    const stopped=await switchedOff(()=>lapsed.flow.exchange());
+    expect([stopped.statusCode,stopped.json().error.code]).toEqual([403,"installation_private_device_not_allowed"]);
+    expect((await db.query("SELECT 1 FROM installation_device_credentials WHERE connector_id=$1",[lapsed.selected.connector_id])).rows).toEqual([]);
+    // A recovery that does not ask (an older SDK) keeps today's behaviour: no device choice.
+    const old=await recover(false);
+    const oldShown=(await app.inject({method:"GET",url:old.flow.base,headers:owner.headers})).json().pairing;
+    expect("requested_private_device" in oldShown).toBe(false);
+    expect(oldShown.collections.some((c:{kind?:string})=>c.kind==="private_device")).toBe(false);
+    const unasked=await deviceApprove(old,old.flow,{private_device_collection_ids:[own]});
+    expect([unasked.statusCode,unasked.json().error.code]).toEqual([403,"installation_private_device_not_allowed"]);
+  });
   it("adds Private device access by re-consent and removes it explicitly",async()=>{
     const owner=await account(), first=await scopeCollection(owner.user,owner.user,"private"), second=await scopeCollection(owner.user,owner.user,"private"), cloud=await scopeCollection(owner.user);
     const p=await devicePrepared(owner);
     expect((await deviceApprove(p,p.flow,{private_device_collection_ids:[first]})).statusCode).toBe(200);
     const token=(await p.flow.exchange()).json().token as string, bearer={authorization:`Bearer ${token}`};
     const again=(ask:boolean):Input=>({...p.input,installation:{...p.input.installation,request_id:randomUUID(),pairing_secret:randomToken("pair"),reconsent:true,requested_private_device:ask}});
+    // A re-consent that names a recovery collection and asks is refused, like a recovery
+    // sign-in, when the ask cannot be granted: it is never recorded as not asked.
+    const recoveringAgain=again(true); recoveringAgain.installation.recovery_collection_id=first;
+    const refusedAgain=await switchedOff(()=>startDevice(recoveringAgain,bearer));
+    expect([refusedAgain.statusCode,refusedAgain.json().error.code]).toEqual([403,"installation_private_device_not_allowed"]);
+    expect((await db.query("SELECT id FROM pairing_requests WHERE id=$1",[recoveringAgain.installation.request_id])).rows).toEqual([]);
     // A re-consent that does not ask cannot add device access, and its receipt keeps its shape.
     const plain=again(false);
     expect((await startDevice(plain,bearer)).statusCode).toBe(201);

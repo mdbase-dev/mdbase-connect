@@ -26,7 +26,7 @@ export interface AppWebSignInProblemDetail {
   /** Bounded socket observation only; never raw close text or admission evidence. */
   readonly relay?: RelayCloseDiagnostic;
 }
-const reasons = new Set(["binding", "fenced", "busy", "open_in_another_tab", "account_confirmation_required", "recovery_account_mismatch", "outcome_unknown", "response", "refused", "expired", "recovery_required", "unavailable", "collection_migrating", "collection_not_yet_migrated", "account_suspended", "update_required", "private_device_limit"]);
+const reasons = new Set(["binding", "fenced", "busy", "open_in_another_tab", "account_confirmation_required", "recovery_account_mismatch", "outcome_unknown", "response", "refused", "expired", "recovery_required", "unavailable", "collection_migrating", "collection_not_yet_migrated", "account_suspended", "update_required", "private_device_limit", "private_device_not_allowed"]);
 const domCodes = new Set(["AbortError", "ConstraintError", "DataCloneError", "InvalidStateError", "NotAllowedError", "NotFoundError", "NotReadableError", "OperationError", "QuotaExceededError", "SecurityError", "TimeoutError", "TransactionInactiveError", "UnknownError", "VersionError"]);
 const result = (problem: string, name: string, code: string | null, server?: AppServerProblem) => Object.freeze({problem, detail: Object.freeze({name, code, ...(server ? {server} : {})})});
 

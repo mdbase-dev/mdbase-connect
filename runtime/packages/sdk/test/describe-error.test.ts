@@ -27,6 +27,13 @@ describe("describeError", () => {
     expect(ACCOUNT_COLLECTION_QUOTA_MESSAGE).toContain("delete one you own if Delete is available");
     expect(describeError("quota_exceeded")?.title).toBe("Out of storage");
   });
+  it("says plainly when a Private collection's access can't be restored in this app, without suggesting an update", () => {
+    const server = {status: 403, code: "installation_private_device_not_allowed", reason: null, retryAfterMs: null, updateUrl: null};
+    for (const input of [{reason: "private_device_not_allowed", server}, {problem: "private_device_not_allowed", problemDetail: {server}}]) {
+      expect(describeError(input)).toMatchObject({key: "private_device_not_allowed", title: "This app can't keep this collection", action: "none", severity: "warning"});
+      expect(describeError(input)?.updateUrl ?? null).toBeNull();
+    }
+  });
   it("explains Viewer write refusals without suggesting app approval", () => {
     expect(describeError(new MdbaseError({ code: "forbidden", recovery: "none", message: "raw diagnostic", reason: "read_only" })))
       .toMatchObject({ key: "read_only", title: "View access only", message: "You have view access, so changes can't be saved. Ask the collection's owner for edit access.", action: "none", severity: "warning" });

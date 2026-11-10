@@ -321,7 +321,7 @@ export class AppProtectedInstallationSignIn {
       if (p.freshRequestedPrivateDevice !== undefined && typeof p.freshRequestedPrivateDevice !== "boolean") throw fail("binding");
       if (p.recoveryFor !== undefined) {
         const binding = object(p.recoveryFor, "accountId,collectionId"); id(binding.accountId); id(binding.collectionId);
-        if (!p.owner || p.requestedCreateCollections === true || p.freshRequestedCreateCollections === true || p.freshRequestedPrivateDevice === true) throw fail("binding");
+        if (!p.owner || p.requestedCreateCollections === true || p.freshRequestedCreateCollections === true) throw fail("binding");
       }
       if (selection !== undefined) {
         if (!isAppEnvironmentSelection(selection) || selection.environment !== p.environment ||
@@ -359,14 +359,15 @@ export class AppProtectedInstallationSignIn {
     if (s.requestedPrivateDevice !== undefined && s.requestedPrivateDevice !== true) throw fail("recovery_required");
     if (s.privateDeviceCollectionIds !== undefined) {
       const scopes = this.collectionIds(s.privateDeviceCollectionIds);
-      if (!scopes.length || !s.token || s.recoveryFor !== undefined || scopes.some(c => !s.collectionIds.includes(c))) throw fail("recovery_required");
+      if (!scopes.length || !s.token || scopes.some(c => !s.collectionIds.includes(c))) throw fail("recovery_required");
       s.privateDeviceCollectionIds = scopes;
     }
     if (s.recoveryFor !== undefined) {
       const binding = object(s.recoveryFor, "accountId,collectionId"); id(binding.accountId); id(binding.collectionId);
     }
     if ((s.recoveryFor === undefined) !== (p.recoveryFor === undefined) || s.recoveryFor?.accountId !== p.recoveryFor?.accountId || s.recoveryFor?.collectionId !== p.recoveryFor?.collectionId || (s.recoveryFor && (s.requestedCreateCollections || s.createCollections ||
-      (s.selection && s.selection.accountId !== s.recoveryFor.accountId) || (s.token && (s.nativeSelection ? s.collectionIds.length !== 0 || s.nativeSelection.collectionId !== s.recoveryFor.collectionId : s.collectionIds.length !== 1 || s.collectionIds[0] !== s.recoveryFor.collectionId || s.collectionSelection?.selectedCollectionId !== s.recoveryFor.collectionId))))) throw fail("recovery_required");
+      (s.selection && s.selection.accountId !== s.recoveryFor.accountId) || (s.token && (s.nativeSelection ? s.collectionIds.length !== 0 || s.nativeSelection.collectionId !== s.recoveryFor.collectionId
+        : !AppProtectedInstallationSignIn.recovered(s.recoveryFor.collectionId, s.collectionIds, s.privateDeviceCollectionIds ?? [], s.collectionSelection)))))) throw fail("recovery_required");
     if (s.consentRequest !== null) {
       const c = object(s.consentRequest, `requestId,secret,requestedCreateCollections,challenge,completed,addedCollectionIds,approvedCreateCollections${Object.hasOwn(s.consentRequest, "requestedPrivateDevice") ? ",requestedPrivateDevice" : ""}${portalKeys(s.consentRequest, true)}`);
       if (c.requestedPrivateDevice !== undefined && c.requestedPrivateDevice !== true) throw fail("recovery_required");
@@ -605,7 +606,10 @@ export class AppProtectedInstallationSignIn {
     return this.exclusive(async () => {
       if (this.state.token) return this.view();
       const {status, value: v} = await this.json(`/v1/pairing-requests/${this.state.requestId}/exchange`, true);
-      if (v.status === "pending") { object(v, "status"); if (status !== 202 || this.state.selection) throw fail("response"); return this.view(); }
+      // A window renewed after a denial waits for the SAME account to be chosen
+      // again (Connect keeps its account, connector and challenge, and selected()
+      // still binds them), so it may read pending while this state holds the selection.
+      if (v.status === "pending") { object(v, "status"); if (status !== 202 || (this.state.selection && !this.state.renewal)) throw fail("response"); return this.view(); }
       const keys = `status,request_id,account_id,connector_id,device_id,installation_id,kind,challenge,approval_mode,app_id,app_origin,expires_at${portalKeys(v)}${this.recoveryTargetKeys()}`;
       if (v.status === "account_selected" || v.status === "awaiting_approval") {
         object(v, keys); if (status !== 202 || (v.status === "awaiting_approval" && !this.state.proof)) throw fail("response");
@@ -631,8 +635,8 @@ export class AppProtectedInstallationSignIn {
       const nativeSelection = native ? this.parseNativeSelection(v.native_selection, this.state.requestId) : undefined;
       if (native && (!scoped || picked || createCollections || collectionIds.length !== 0 || v.timer_consent === true)) throw fail("response");
       if (this.state.recoveryFor && nativeSelection && nativeSelection.collectionId !== this.state.recoveryFor.collectionId) throw fail("binding");
-      if (this.state.recoveryFor && !nativeSelection && (createCollections || collectionIds.length !== 1 || collectionIds[0] !== this.state.recoveryFor.collectionId ||
-        collectionSelection?.selectedCollectionId !== this.state.recoveryFor.collectionId || collectionSelection.createdCollectionIds.length !== 0)) throw fail("binding");
+      if (this.state.recoveryFor && !nativeSelection && (createCollections ||
+        !AppProtectedInstallationSignIn.recovered(this.state.recoveryFor.collectionId, collectionIds, privateDeviceCollectionIds, collectionSelection))) throw fail("binding");
       if (v.timer_consent===true && !collectionSelection) throw fail("response");
       // Device access approved without a pick: Connect never names a Private
       // device collection as the selection, so this receipt carries none.
@@ -640,6 +644,13 @@ export class AppProtectedInstallationSignIn {
       const reminder=timerConsent(v,this.state.requestId,collectionIds,selection.portalConfirmed===true,collectionSelection?.selectedCollectionId);
       const token = text(v.token, /^idev_[A-Za-z0-9_-]{43}$/); await this.save({...this.state, selection, token, collectionIds, createCollections, privateDeviceCollectionIds: privateDeviceCollectionIds.length ? privateDeviceCollectionIds : undefined, nativeSelection, ...(nativeSelection || deviceOnly ? {collectionSelection:undefined} : collectionSelection ? {collectionSelection} : {}), ...(reminder ? {timerConsent:reminder} : {})}); return this.view();
     });
+  }
+  /** A recovery slot holds exactly its one collection: the selected cloud copy,
+   * or the one Private device scope (which Connect never names as a selection). */
+  private static recovered(collection: string, ids: readonly string[], device: readonly string[], selection: AppInstallationCollectionSelection | undefined): boolean {
+    if (ids.length !== 1 || ids[0] !== collection) return false;
+    return device.length ? device.length === 1 && device[0] === collection && selection === undefined
+      : selection?.selectedCollectionId === collection && selection.createdCollectionIds.length === 0;
   }
   private parseNativeSelection(value: unknown, requestId: string): AppNativeSelection {
     const n = object(value,"authorization_request_id,collection_id"), a = this.state.nativeAuthorization;
