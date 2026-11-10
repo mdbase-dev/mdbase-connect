@@ -22,9 +22,9 @@ use mdbn_store_file::index::{
     SqlValue, Stmt, StmtResult,
 };
 use mdbn_store_file::index_codec::{CodecLimits, IndexRequest, encode_request};
-use mdbn_wire::client::{HelloParams, IncidentKind, Include, SubmitParams};
-use mdbn_wire::common::{B16, Text, Value, Version};
-use mdbn_wire::intent::{Create, Op, ResourcePut};
+use mdbn_wire::client::{HelloParams, IncidentKind, Include, RecordView, SubmitParams};
+use mdbn_wire::common::{B16, DataMap, Text, Value, Version};
+use mdbn_wire::intent::{Create, Op, ResourcePut, Update};
 
 const COL: B16 = B16([7; 16]);
 const TASK: &str = "---\nkind: mdbase.type\nname: task\nmatch: {path_glob: 'tasks/*.md'}\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    properties:\n      priority: {}\n      status: {type: string}\n---\n";
@@ -122,6 +122,24 @@ fn store_and_index(name: &str) -> (Store, Rc<RefCell<ProfiledIndex>>) {
 }
 
 fn open(svc: &FakeLogService, store: Store) -> Node {
+    open_sealed(
+        svc,
+        store,
+        Box::new(PlainSealer::for_device(B16([101; 16]))),
+        DeviceSecrets {
+            sign_sk: [1; 32],
+            kem_sk: [1; 32],
+        },
+    )
+}
+
+/// Device 101 on `svc`, bootstrapping an E2E collection when the log is empty.
+fn open_sealed(
+    svc: &FakeLogService,
+    store: Store,
+    sealer: Box<dyn mdbn_replica::seal::Sealer>,
+    secrets: DeviceSecrets,
+) -> Node {
     let devices: Vec<B16> = (101..=109u8).map(|d| B16([d; 16])).collect();
     if svc.head(&COL).0 == 0 {
         TestControlPlane::new(COL).bootstrap(svc, mdbn_wire::policy::CState::E2e, &devices);
@@ -149,18 +167,8 @@ fn open(svc: &FakeLogService, store: Store) -> Node {
         entropy: Box::new(mdbn_replica::crypto::TestEntropy::new(1)),
         zones: Box::new(UtcOnly),
     };
-    let mut r = Replica::open(
-        cfg,
-        store,
-        Box::new(CorePlanner),
-        Box::new(PlainSealer::for_device(B16([101; 16]))),
-        host,
-        DeviceSecrets {
-            sign_sk: [1; 32],
-            kem_sk: [1; 32],
-        },
-    )
-    .expect("open");
+    let mut r =
+        Replica::open(cfg, store, Box::new(CorePlanner), sealer, host, secrets).expect("open");
     // The native desktop host: its non-indexed queries keep the unbudgeted scan.
     r.set_query_execution_profile(mdbn_replica::QueryExecutionProfile::Desktop);
     let (s, _) = r
@@ -384,23 +392,38 @@ fn indexed_answers_equal_the_per_record_path_with_pending_edits() {
         }
     }
 
-    // Pending (unconfirmed) edits: a new high-priority task and a re-prioritised one.
+    // Pending (unconfirmed) edits: a new high-priority task, a re-prioritised
+    // one and a deleted one.
     submit(
         &mut node,
-        vec![create(
-            9001,
-            "tasks/pending.md",
-            task(9001).replace("Task", "Pending").replacen(
-                &format!("priority: {}", 9001 % 7),
-                "priority: 6",
-                1,
+        vec![
+            create(
+                9001,
+                "tasks/pending.md",
+                task(9001).replace("Task", "Pending").replacen(
+                    &format!("priority: {}", 9001 % 7),
+                    "priority: 6",
+                    1,
+                ),
             ),
-        )],
+            update(10, vec![("priority".into(), Value::Int(6))], None),
+            Op::Delete(mdbn_wire::intent::Delete {
+                id: id(11),
+                base_revision: None,
+                if_revision: None,
+            }),
+        ],
     );
     for case in &cases {
         let (a, b) = both(&mut node, case, 0, 50);
         assert_eq!(a, b, "pending: {case:?}");
+        // Pending edits page by cursor in the per-record order, the pending
+        // record included (with limit 1 it is a page's frontier).
+        let full = per_record_ids(&mut node, case);
+        same_order(&paged_ids(&mut node, case, 37), &full, case);
     }
+    let full = per_record_ids(&mut node, &cases[0]);
+    same_order(&paged_ids(&mut node, &cases[0], 1), &full, &cases[0]);
     let sixes = vec![
         types.clone(),
         ("where", Value::Text("priority == 6".into())),
@@ -901,6 +924,82 @@ fn constrained_host_streams_open_tasks_at_50k() {
     stream_open_tasks(50_000);
 }
 
+/// Every page of `query` by cursor, each answered by the index.
+fn indexed_pages(node: &mut Node, query: Value, include: Include) -> Vec<Vec<RecordView>> {
+    let before = node.r.query_stats();
+    let mut out = Vec::new();
+    let mut page = node
+        .r
+        .query(node.s, query.clone(), include.clone())
+        .unwrap();
+    loop {
+        out.push(page.records.clone());
+        let Some(cursor) = page.cursor.clone() else {
+            assert_eq!(page.has_more, Some(false));
+            break;
+        };
+        assert_eq!(page.has_more, Some(true));
+        page = node
+            .r
+            .query(node.s, with_cursor(&query, &cursor), include.clone())
+            .unwrap();
+    }
+    let after = node.r.query_stats();
+    assert_eq!(after.indexed - before.indexed, out.len() as u64);
+    assert_eq!(
+        (after.declined, after.failed),
+        (before.declined, before.failed)
+    );
+    out
+}
+
+/// The IDs of every page of `query` with `limit`, by cursor.
+fn paged_ids(node: &mut Node, query: &[(&str, Value)], limit: i64) -> Vec<B16> {
+    let mut windowed = query.to_vec();
+    windowed.push(("limit", Value::Int(limit)));
+    indexed_pages(node, q(&windowed), none())
+        .iter()
+        .flatten()
+        .map(|r| r.id)
+        .collect()
+}
+
+/// Paged IDs equal the per-record order; reports where they first differ.
+fn same_order(paged: &[B16], full: &[B16], query: &[(&str, Value)]) {
+    let first = paged.iter().zip(full).position(|(a, b)| a != b);
+    assert!(
+        first.is_none() && paged.len() == full.len(),
+        "{query:?}: {} paged, {} per-record, first difference at {first:?}: {:?} vs {:?}",
+        paged.len(),
+        full.len(),
+        first.map(|i| &paged[i.saturating_sub(1)..(i + 2).min(paged.len())]),
+        first.map(|i| &full[i.saturating_sub(1)..(i + 2).min(full.len())]),
+    );
+}
+
+/// The per-record answer for `query` (no limit declines the index).
+fn per_record_ids(node: &mut Node, query: &[(&str, Value)]) -> Vec<B16> {
+    let full = node.r.query(node.s, q(query), none()).expect("full query");
+    full.records.iter().map(|r| r.id).collect()
+}
+
+fn update(n: u32, patch: Vec<(String, Value)>, body: Option<String>) -> Op {
+    Op::Update(Update {
+        id: id(n),
+        patch: (!patch.is_empty()).then_some(DataMap(patch)),
+        unset: None,
+        add: None,
+        remove: None,
+        body: body.map(Text::Inline),
+        body_edits: None,
+        body_base: None,
+        body_base_text: None,
+        base: None,
+        if_revision: None,
+        update_refs: None,
+    })
+}
+
 fn with_cursor(query: &Value, cursor: &str) -> Value {
     let Value::Map(fields) = query else {
         panic!("map query");
@@ -1082,6 +1181,14 @@ fn query_keysets_are_repeatable_bounded_session_bound_and_explicitly_stale() {
             .as_deref(),
         Some("cursor_stale")
     );
+    // A cursor minted while edits are pending is stale after another edit.
+    submit(&mut node, vec![create(9998, "tasks/draft.md", task(9998))]);
+    let pending = node.r.query(node.s, original.clone(), none()).unwrap();
+    let resumed_pending = with_cursor(&original, &pending.cursor.unwrap());
+    submit(&mut node, vec![create(9997, "tasks/draft2.md", task(9997))]);
+    let error = node.r.query(node.s, resumed_pending, none()).unwrap_err();
+    assert_eq!(error.problem().reason.as_deref(), Some("cursor_stale"));
+    node.pump();
     node.r.close(node.s);
     assert_eq!(
         node.r
@@ -1311,18 +1418,287 @@ fn query_keysets_end_pages_at_the_source_budget_and_continue_by_cursor() {
     assert!(second.cursor.is_none());
     assert_eq!(second.has_more, Some(false));
     assert_ne!(first.records[0].id, second.records[0].id);
-    // Pending edits merge into the whole window and mint no cursor: that path
-    // still refuses explicitly instead of returning a short page.
+    // Pending edits merge into keyset pages by their index keys and end at
+    // the source budget the same way: nothing repeated or skipped.
     submit(
         &mut node,
         vec![create(9001, "tasks/pending.md", large(9001))],
     );
-    let err = node.r.query(node.s, all, none()).unwrap_err();
+    let by_priority = [("order_by", order("priority", "asc"))];
+    let paged = paged_ids(&mut node, &by_priority, 600);
+    assert_eq!(paged.len(), 601);
+    same_order(
+        &paged,
+        &per_record_ids(&mut node, &by_priority),
+        &by_priority,
+    );
+    // Without a cursor (an offset counts merged records) the window still
+    // refuses explicitly instead of returning a short page.
+    let deep = q(&[
+        ("order_by", order("priority", "asc")),
+        ("limit", Value::Int(600)),
+        ("offset", Value::Int(1)),
+    ]);
+    let err = node.r.query(node.s, deep, none()).unwrap_err();
     assert_eq!(err.problem().code, "too_large");
     assert_eq!(
         err.problem().reason.as_deref(),
         Some("query_budget_exceeded")
     );
+}
+
+/// A note just under the 1 MiB record cap, written to a cloud-copy collection
+/// whose entries are compressed (as in LAB), is stored as a row larger than the
+/// 1 MiB query budget on its own: admission bounds the source, not the path and
+/// metadata stored beside it. On a memory-constrained host it is listed on a
+/// page of its own, opened with its body, read by path and deleted.
+#[test]
+fn query_keysets_serve_a_record_over_the_source_budget_on_its_own_page() {
+    use mdbn_replica::api::Target;
+    use mdbn_wire::intent::Delete;
+    use mdbn_wire::unindexed_markdown::RECORD_SOURCE_CAP_BYTES;
+    let cap = usize::try_from(RECORD_SOURCE_CAP_BYTES).unwrap();
+    // mdbn_bench::sync's device 1 is device 101 here, with these keys.
+    let service = mdbn_bench::sync::world(1, mdbn_wire::policy::CState::CloudCopy);
+    let (sign, kem) = ([0x31; 32], [0x41; 32]);
+    let (store, index) = store_and_index("query_keysets_large_note");
+    let mut node = open_sealed(
+        &service,
+        store,
+        Box::new(mdbn_replica::seal::KeyringSealer::new(
+            COL,
+            B16([101; 16]),
+            &sign,
+            &kem,
+        )),
+        DeviceSecrets {
+            sign_sk: sign,
+            kem_sk: kem,
+        },
+    );
+    node.r
+        .set_query_execution_profile(mdbn_replica::QueryExecutionProfile::MemoryConstrained);
+    seed(&mut node, 20);
+    let mut big = String::from("---\npriority: 3\nstatus: open\n---\n");
+    let front = big.len();
+    let mut n = 0;
+    while big.len() < cap - 64 {
+        n += 1;
+        big.push_str(&format!("Paragraph {n} of a long pasted chapter.\n\n"));
+    }
+    big.push_str(&"x".repeat(cap - 1 - big.len()));
+    submit(&mut node, vec![create(9001, "tasks/big.md", big.clone())]);
+    node.pump();
+    // Over the cap is never a record: refused when submitted.
+    let over = node.r.submit(
+        node.s,
+        SubmitParams {
+            ops: vec![create(9002, "tasks/over.md", format!("{big}xx"))],
+            mutation_id: None,
+            conflict_mode: None,
+            timezone: None,
+            allow_partial: None,
+            mutation_ids: None,
+            dry_run: None,
+            include: None,
+            wait: None,
+        },
+    );
+    assert!(!matches!(over, Ok(r) if r.iter().all(|r| r.problem.is_none())));
+    node.pump();
+    use mdbn_replica::store::Store as _;
+    assert_eq!(node.r.store().record_count().unwrap(), 21);
+    let row = sql_count(&index, "SELECT max(length(row)) FROM st_rec");
+    assert!(
+        row > 1 << 20,
+        "the stored row alone exceeds the budget: {row}"
+    );
+
+    // Listing (Writer's index pages by 500): the large note is a page alone.
+    let list = q(&[
+        ("types", Value::List(vec![Value::Text("task".into())])),
+        ("order_by", order("priority", "asc")),
+        ("limit", Value::Int(500)),
+    ]);
+    let listed = indexed_pages(&mut node, list.clone(), none());
+    let ids: Vec<B16> = listed.iter().flatten().map(|r| r.id).collect();
+    assert_eq!(ids.len(), 21);
+    assert_eq!(
+        ids.iter().collect::<std::collections::BTreeSet<_>>().len(),
+        21
+    );
+    assert!(listed.iter().any(|p| p.len() == 1 && p[0].id == id(9001)));
+    // Opening a manuscript selects its notes by path, bodies included.
+    let open_query = q(&[
+        ("types", Value::List(vec![Value::Text("task".into())])),
+        (
+            "where",
+            Value::Text("file.path in [\"tasks/t00001.md\", \"tasks/big.md\"]".into()),
+        ),
+        ("limit", Value::Int(2)),
+    ]);
+    let body = Include {
+        body: Some(true),
+        ..none()
+    };
+    let opened: Vec<_> = indexed_pages(&mut node, open_query.clone(), body.clone()).concat();
+    assert_eq!(opened.len(), 2);
+    let large = opened.iter().find(|r| r.id == id(9001)).unwrap();
+    assert_eq!(large.body.as_deref(), Some(&big[front..]));
+    let read = node
+        .r
+        .get(
+            node.s,
+            Target::Path("tasks/big.md".into()),
+            Include {
+                document: Some(true),
+                ..none()
+            },
+        )
+        .unwrap();
+    assert_eq!(read.document.as_deref(), Some(big.as_str()));
+
+    // While edits are pending (saving, or offline), on both host profiles:
+    // an unrelated note pending, then the large note itself.
+    let mut current = big.clone();
+    let mut confirmed = big.clone();
+    for (round, profile) in [
+        mdbn_replica::QueryExecutionProfile::MemoryConstrained,
+        mdbn_replica::QueryExecutionProfile::Desktop,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        node.r.set_query_execution_profile(profile);
+        let scratch = u32::try_from(9100 + round).unwrap();
+        submit(
+            &mut node,
+            vec![create(
+                scratch,
+                &format!("notes/scratch{round}.md"),
+                "Draft\n".into(),
+            )],
+        );
+        current.replace_range(current.len() - 1.., if round == 0 { "y" } else { "z" });
+        for pending in [None, Some(current.clone())] {
+            if let Some(doc) = &pending {
+                submit(
+                    &mut node,
+                    vec![update(9001, vec![], Some(doc[front..].to_string()))],
+                );
+            }
+            let listed = indexed_pages(&mut node, list.clone(), none());
+            let ids: Vec<B16> = listed.iter().flatten().map(|r| r.id).collect();
+            assert_eq!(ids.len(), 21, "{profile:?} {pending:?}");
+            assert_eq!(
+                ids.iter().collect::<std::collections::BTreeSet<_>>().len(),
+                21
+            );
+            assert!(listed.iter().any(|p| p.len() == 1 && p[0].id == id(9001)));
+            let opened: Vec<_> =
+                indexed_pages(&mut node, open_query.clone(), body.clone()).concat();
+            assert_eq!(opened.len(), 2);
+            let expected = pending.as_deref().unwrap_or(&confirmed);
+            let large = opened.iter().find(|r| r.id == id(9001)).unwrap();
+            assert_eq!(large.body.as_deref(), Some(&expected[front..]));
+        }
+        node.pump();
+        confirmed = current.clone();
+        assert_eq!(node.r.store().record_count().unwrap(), 22 + round as u64);
+        let read = node
+            .r
+            .get(
+                node.s,
+                Target::Path("tasks/big.md".into()),
+                Include {
+                    document: Some(true),
+                    ..none()
+                },
+            )
+            .unwrap();
+        assert!(read.document.unwrap().ends_with(&current[front..]));
+    }
+    node.r
+        .set_query_execution_profile(mdbn_replica::QueryExecutionProfile::MemoryConstrained);
+
+    submit(
+        &mut node,
+        vec![Op::Delete(Delete {
+            id: id(9001),
+            base_revision: None,
+            if_revision: None,
+        })],
+    );
+    node.pump();
+    assert_eq!(node.r.store().record_count().unwrap(), 22);
+    let listed = indexed_pages(&mut node, list, none());
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].len(), 20);
+}
+
+/// Frontmatter aliases expand when a record is stored: a small note can be a
+/// stored row far beyond the record cap. A page never loads such a row; it is
+/// refused explicitly, and the note stays readable by path and deletable.
+#[test]
+fn query_keysets_refuse_a_stored_row_beyond_the_single_record_ceiling() {
+    use mdbn_replica::api::Target;
+    use mdbn_replica::store_query::SINGLE_RECORD_MAX_BYTES;
+    use mdbn_wire::intent::Delete;
+    let service = FakeLogService::new();
+    let (store, index) = store_and_index("query_keysets_alias_row");
+    let mut node = open(&service, store);
+    node.r
+        .set_query_execution_profile(mdbn_replica::QueryExecutionProfile::MemoryConstrained);
+    seed(&mut node, 5);
+    let doc = format!(
+        "---\npriority: 0\nstatus: open\nbase: &b \"{}\"\ncopies: [{}]\n---\nAliases\n",
+        "x".repeat(8192),
+        vec!["*b"; 320].join(", ")
+    );
+    assert!(doc.len() < 16 << 10);
+    submit(&mut node, vec![create(9001, "tasks/alias.md", doc.clone())]);
+    node.pump();
+    use mdbn_replica::store::Store as _;
+    assert_eq!(node.r.store().record_count().unwrap(), 6);
+    let row = sql_count(&index, "SELECT max(length(row)) FROM st_rec");
+    assert!(
+        row > i64::try_from(SINGLE_RECORD_MAX_BYTES).unwrap(),
+        "the expanded row exceeds the ceiling: {row}"
+    );
+    let list = q(&[
+        ("types", Value::List(vec![Value::Text("task".into())])),
+        ("order_by", order("priority", "asc")),
+        ("limit", Value::Int(500)),
+    ]);
+    let err = node.r.query(node.s, list.clone(), none()).unwrap_err();
+    assert_eq!(err.problem().code, "too_large");
+    assert_eq!(
+        err.problem().reason.as_deref(),
+        Some("query_budget_exceeded")
+    );
+    let read = node
+        .r
+        .get(
+            node.s,
+            Target::Path("tasks/alias.md".into()),
+            Include {
+                document: Some(true),
+                ..none()
+            },
+        )
+        .unwrap();
+    assert_eq!(read.document.as_deref(), Some(doc.as_str()));
+    submit(
+        &mut node,
+        vec![Op::Delete(Delete {
+            id: id(9001),
+            base_revision: None,
+            if_revision: None,
+        })],
+    );
+    node.pump();
+    assert_eq!(node.r.store().record_count().unwrap(), 5);
+    assert_eq!(indexed_pages(&mut node, list, none()).concat().len(), 5);
 }
 
 #[test]

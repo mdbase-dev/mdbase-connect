@@ -14,12 +14,16 @@
 //! Pending local edits (the layer) are exact too: touched IDs are dropped from the
 //! confirmed selection (over-selecting by the layer size), the layered records are
 //! evaluated with the plan itself, and the merge uses the plan's own comparator.
+//! A cursor page merges them by the index keys each would have once confirmed,
+//! so it pages like any keyset page.
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use mdbn_core::query::indexed::AtomKind;
 use mdbn_core::query::profile::{self, Predicate};
 use mdbn_core::query::{QueryEnv, QueryPlan, QueryRecord, Verdict};
-use mdbn_core::state::StateView;
+use mdbn_core::state::{StateView, StoredRecord};
+use mdbn_core::types::Catalog;
 use mdbn_wire::client::{Include, QueryResult, RecordView};
 use mdbn_wire::common::Uuid;
 
@@ -30,7 +34,10 @@ use crate::convert;
 use crate::layer::LayerView;
 use crate::plan::QueryProjectionContext;
 use crate::store::{RecordRow, Store, StoreError};
-use crate::store_query::{QueryBudget, QueryIndexRequest, QueryKeyedId};
+use crate::store_query::{
+    QueryAtom, QueryBudget, QueryColumn, QueryIndexRequest, QueryKeyedId, QueryOrder,
+    SINGLE_RECORD_MAX_BYTES,
+};
 
 /// Whether an indexed page may end early at the request's source budget.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -122,6 +129,32 @@ fn budget_error(what: &str) -> ApiError {
     )
 }
 
+/// A pending record's ordering tuple: the atoms the index derives once it is
+/// confirmed (the path as Text bytes, a declared field through the captured
+/// projection). None when a term is not materialized or does not project.
+fn layered_keys(
+    context: &QueryProjectionContext,
+    order: &[QueryOrder],
+    path: &str,
+    record: &QueryRecord<'_>,
+) -> Option<Vec<QueryAtom>> {
+    let atoms = context.project_atoms(record).ok()?;
+    order
+        .iter()
+        .map(|o| match &o.column {
+            QueryColumn::Path => Some(QueryAtom {
+                kind: AtomKind::Text as u8,
+                key: path.as_bytes().to_vec(),
+            }),
+            QueryColumn::Field(f) => context
+                .fields()
+                .iter()
+                .position(|d| d == f)
+                .and_then(|i| atoms.get(i).cloned()),
+        })
+        .collect()
+}
+
 /// Map a store error on the indexed path: `Full` there means a request budget.
 fn indexed_err(e: StoreError, what: &str) -> ApiError {
     match e {
@@ -130,12 +163,8 @@ fn indexed_err(e: StoreError, what: &str) -> ApiError {
     }
 }
 
-fn compare_keys(
-    a: &QueryKeyedId,
-    b: &QueryKeyedId,
-    request: &QueryIndexRequest,
-) -> std::cmp::Ordering {
-    for ((a, b), order) in a.keys.iter().zip(&b.keys).zip(&request.order) {
+fn compare_keys(a: &QueryKeyedId, b: &QueryKeyedId, order: &[QueryOrder]) -> std::cmp::Ordering {
+    for ((a, b), order) in a.keys.iter().zip(&b.keys).zip(order) {
         let cmp = a.kind.cmp(&b.kind).then_with(|| a.key.cmp(&b.key));
         let cmp = if order.descending { cmp.reverse() } else { cmp };
         if !cmp.is_eq() {
@@ -174,7 +203,7 @@ fn validate_keyset_page(
                 .ok_or_else(bad)?;
         }
         if bytes > request.max_key_bytes
-            || previous.is_some_and(|p| !compare_keys(row, p, request).is_gt())
+            || previous.is_some_and(|p| !compare_keys(row, p, &request.order).is_gt())
         {
             return Err(bad());
         }
@@ -462,7 +491,11 @@ impl<S: Store> Replica<S> {
             ));
         }
         let paged = touched.is_empty();
-        if after.is_some() && !paged {
+        // A cursor caller pages pending edits too: each layered match takes its
+        // place in the index order by its own index keys. Its first page has no
+        // offset (an offset counts merged records, which the index cannot skip).
+        let merged = !paged && window_mode == Window::BudgetBounded && q.offset == 0;
+        if after.is_some() && !paged && !merged {
             return Ok(Err(Decline::Window));
         }
         let (skip, need) = if paged {
@@ -519,28 +552,38 @@ impl<S: Store> Replica<S> {
                 .map_err(|e| indexed_err(e, "the selected keys"))?
                 .ok_or_else(|| ErrorCode::Unavailable.err("query index unavailable"))?;
             self.trace_query("seek_end");
-            if paged {
+            if paged || merged {
                 validate_keyset_page(request, &page)?;
             }
             has_more = page.has_more;
+            // A merged page keeps every selected row: its own cut decides `has_more`.
+            let keep = if merged {
+                usize::MAX
+            } else {
+                usize::try_from(window).unwrap_or(usize::MAX)
+            };
             confirmed.extend(
                 page.rows
                     .into_iter()
                     .filter(|r| !touched.contains(&r.id))
-                    .take(usize::try_from(window).unwrap_or(usize::MAX)),
+                    .take(keep),
             );
         }
 
         // Layered: the layered documents, charged before they are parsed and
         // evaluated by the plan itself.
         let mut layered = Vec::new();
+        let mut keyed = Vec::new();
         for id in &touched {
             let Some(rec) = lv.record(&convert::uuid(id)) else {
                 continue;
             };
-            budget
-                .charge(1, rec.source.len() as u64)
-                .map_err(|e| indexed_err(e, "the pending records"))?;
+            // Merged pages charge the layered records they return, below.
+            if !merged {
+                budget
+                    .charge(1, rec.source.len() as u64)
+                    .map_err(|e| indexed_err(e, "the pending records"))?;
+            }
             let doc = mdbn_core::doc::Document::parse_at(&rec.path, &*rec.source);
             let fm = doc.frontmatter();
             let types = catalog.membership(&rec.path, fm).types;
@@ -553,9 +596,40 @@ impl<S: Store> Replica<S> {
                 },
                 env,
             );
-            if verdict == Verdict::Match {
+            if verdict == Verdict::Match && merged {
+                let record = QueryRecord {
+                    path: &rec.path,
+                    types: &types,
+                    frontmatter: fm,
+                    body: None,
+                };
+                let Some(keys) = request
+                    .as_ref()
+                    .and_then(|r| layered_keys(context, &r.order, &rec.path, &record))
+                else {
+                    return Ok(Err(Decline::Field));
+                };
+                let key = QueryKeyedId {
+                    id: *id,
+                    keys,
+                    encoded_bytes: rec.source.len() as u64,
+                };
+                keyed.push((key, rec));
+            } else if verdict == Verdict::Match {
                 layered.push((*id, rec));
             }
+        }
+        if merged {
+            return self.merged_page(
+                catalog,
+                request.as_ref(),
+                after,
+                confirmed,
+                has_more,
+                keyed,
+                usize::try_from(limit).unwrap_or(usize::MAX),
+                include,
+            );
         }
 
         // The store already skipped `offset` when paged.
@@ -578,16 +652,23 @@ impl<S: Store> Replica<S> {
             confirmed.iter().collect()
         };
         // A keyset page ends at the last record that fits the source budget; its
-        // frontier continues from there. Whole windows, merged pending edits and
-        // a first record beyond the budget on its own still refuse explicitly.
-        let fits = fitting_prefix(&hydrate, budget.bytes_left(), budget.records_left());
+        // frontier continues from there. A first record beyond the budget on its
+        // own is the whole page: a source at the record cap plus its path and
+        // metadata exceeds the budget, and such a record must stay listable.
+        // Whole windows and merged pending edits still refuse explicitly.
+        let mut fits = fitting_prefix(&hydrate, budget.bytes_left(), budget.records_left());
         let short = fits < hydrate.len();
         if short {
-            if window_mode != Window::BudgetBounded || !paged || fits == 0 {
+            if window_mode != Window::BudgetBounded || !paged {
                 return Err(budget_error("the matching records"));
             }
+            if fits == 0 {
+                budget = QueryBudget::single(hydrate[0].encoded_bytes)
+                    .ok_or_else(|| budget_error("the matching record"))?;
+                fits = 1;
+            }
+            has_more |= fits < hydrate.len();
             hydrate.truncate(fits);
-            has_more = true;
         }
         let ids: Vec<Uuid> = hydrate.iter().map(|r| r.id).collect();
         self.trace_query("hydrate_start");
@@ -707,6 +788,118 @@ impl<S: Store> Replica<S> {
                 // Exact from the index when paged (no pending edits); otherwise left
                 // to the per-record path's semantics.
                 has_more: paged.then_some(has_more),
+            },
+        }))
+    }
+}
+
+impl<S: Store> Replica<S> {
+    /// A keyset page with pending edits: `layered` (keyed matches) merge into
+    /// `confirmed` (the index page after `after`, touched identities removed;
+    /// `more` when the index has rows beyond it) by the index order, then end
+    /// at the source budget like any keyset page. The selection over-selects by
+    /// the layer size, so the first `limit` merged items all precede rows the
+    /// index has not returned yet.
+    #[allow(clippy::too_many_arguments)]
+    fn merged_page(
+        &self,
+        catalog: &Catalog,
+        request: Option<&QueryIndexRequest>,
+        after: Option<&QueryKeyedId>,
+        confirmed: Vec<QueryKeyedId>,
+        more: bool,
+        mut layered: Vec<(QueryKeyedId, StoredRecord)>,
+        limit: usize,
+        include: &Include,
+    ) -> ApiResult<Result<IndexedQueryPage, Decline>> {
+        let order = request.map_or(&[][..], |r| &r.order[..]);
+        if let Some(after) = after {
+            layered.retain(|(key, _)| compare_keys(key, after, order).is_gt());
+        }
+        let mut items: Vec<(QueryKeyedId, Option<StoredRecord>)> = confirmed
+            .into_iter()
+            .map(|key| (key, None))
+            .chain(layered.into_iter().map(|(key, rec)| (key, Some(rec))))
+            .collect();
+        items.sort_by(|a, b| compare_keys(&a.0, &b.0, order));
+        let total = items.len();
+        items.truncate(limit);
+        // Confirmed rows cost their stored row, layered ones their source.
+        let keys: Vec<&QueryKeyedId> = items.iter().map(|(key, _)| key).collect();
+        let mut fits = fitting_prefix(&keys, MAX_BYTES, MAX_SELECTED as u32);
+        let mut budget = QueryBudget::new(MAX_SELECTED as u32, MAX_BYTES);
+        if fits == 0
+            && let Some((first, _)) = items.first()
+        {
+            budget = QueryBudget::single(first.encoded_bytes)
+                .ok_or_else(|| budget_error("the matching record"))?;
+            fits = 1;
+        }
+        let has_more = more || total > fits;
+        items.truncate(fits);
+
+        let ids: Vec<Uuid> = items
+            .iter()
+            .filter(|(_, rec)| rec.is_none())
+            .map(|(key, _)| key.id)
+            .collect();
+        let stale = || {
+            ErrorCode::Unavailable.err_with_reason(
+                "query_index_stale",
+                "the query index changed during the query; retry",
+            )
+        };
+        let rows = self
+            .store
+            .hydrate_query_at(&ids, self.head, &mut budget)
+            .map_err(|e| indexed_err(e, "the matching records"))?;
+        let mut by_id: BTreeMap<Uuid, RecordRow> = rows.into_iter().map(|r| (r.id, r)).collect();
+        let mut records = Vec::with_capacity(items.len());
+        for (key, rec) in &items {
+            records.push(match rec {
+                None => {
+                    let r = by_id.remove(&key.id).ok_or_else(stale)?;
+                    record_view(
+                        catalog,
+                        &r.id,
+                        &r.path,
+                        &r.doc,
+                        (r.modified_seq, r.mtime),
+                        false,
+                        include,
+                    )
+                }
+                Some(rec) => {
+                    // Its confirmed base is read for its position only, one row
+                    // at a time, bounded like a record on a page of its own.
+                    let mut base = QueryBudget::single(SINGLE_RECORD_MAX_BYTES)
+                        .ok_or_else(|| budget_error("the pending record"))?;
+                    let position = self.base_position(&key.id, &mut base)?;
+                    record_view(
+                        catalog,
+                        &key.id,
+                        &rec.path,
+                        &rec.source,
+                        position,
+                        true,
+                        include,
+                    )
+                }
+            });
+        }
+        Ok(Ok(IndexedQueryPage {
+            frontier: items.last().map(|(key, _)| key.clone()),
+            result: QueryResult {
+                records,
+                cursor: None,
+                complete: true,
+                as_of: self.view_version,
+                columns: None,
+                total_count: None,
+                diagnostics: None,
+                view: None,
+                groups: None,
+                has_more: Some(has_more),
             },
         }))
     }

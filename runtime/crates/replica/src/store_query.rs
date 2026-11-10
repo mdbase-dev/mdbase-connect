@@ -327,6 +327,11 @@ pub struct QueryRecordSize {
     /// Conservative encoded source size; no document has been copied.
     pub encoded_bytes: u64,
 }
+/// Largest stored row one record's page may hold: the 1 MiB record source cap
+/// plus as much again for the path and metadata stored beside it (membership,
+/// effective frontmatter, links). A larger row (frontmatter aliases expand when
+/// stored) is refused explicitly.
+pub const SINGLE_RECORD_MAX_BYTES: u64 = 2 << 20;
 /// One request owns ONE budget across every page/retry/restart; no refunds.
 #[derive(Debug, PartialEq, Eq)]
 pub struct QueryBudget {
@@ -345,6 +350,16 @@ impl QueryBudget {
             records_left: records.min(1000),
             bytes_left: bytes.min(1 << 20),
         }
+    }
+    /// Exactly one record charged at its own encoded size, which may exceed the
+    /// binding profile: admission bounds a record's source, not its whole row,
+    /// so a record alone over the profile still needs a page of its own. None
+    /// beyond [`SINGLE_RECORD_MAX_BYTES`].
+    pub(crate) fn single(bytes: u64) -> Option<Self> {
+        (bytes <= SINGLE_RECORD_MAX_BYTES).then_some(Self {
+            records_left: 1,
+            bytes_left: bytes,
+        })
     }
     /// Remaining cumulative record count.
     pub fn records_left(&self) -> u32 {
