@@ -16,7 +16,7 @@ import {
 import { ed25519PublicKeyObject } from "../next/policy-keys.js";
 import { currentMember, currentSession, inTransaction, lock, refuseRevoked } from "../next/bootstrap-common.js";
 import type { ConnectorIdentity, User } from "../../platform/request-authentication.js";
-import { installationCollections, requireInstallationScope } from "../next/installation-scope.js";
+import { installationCollections, privateDevicesEnabled, requireInstallationScope, type PrivateDeviceGate } from "../next/installation-scope.js";
 import { nextDeviceNeedsRevoke, queueNextPolicy } from "../next/policy-outbox.js";
 import { findInstallationApplication } from "../applications/store.js";
 import { installationTimerDeclaration, readInstallationTimerDeclaration, type InstallationTimerBinding, type InstallationTimerDeclaration } from "../next/timers/installation-declaration.js";
@@ -33,6 +33,18 @@ function fail(code: string, status = 409): never {
     "The original device sign-in cannot continue. Preserve its state and reconcile.",
   );
 }
+/** Private device access is the person's portal consent, behind the operator's
+ * switch. Sign-in never refuses an app for asking; an approval that names device
+ * access the request was not granted, or made after the switch was turned off, is
+ * refused. Exchange then issues the credential without device access, and every use
+ * of a scope while the switch is off is refused. */
+const privateDeviceRefused = (): never => {
+  throw new InstallationPairingError(
+    403,
+    "installation_private_device_not_allowed",
+    "This app cannot hold the keys of private collections on this server.",
+  );
+};
 const strict = (): never => {
   throw new InstallationPairingError(
     403,
@@ -69,7 +81,7 @@ export async function installationApp(db: DatabaseQueryable, environment: string
   if (!app.name || !app.family_identity) throw new Error("Invalid registered installation identity.");
   const timerDeclaration = installationTimerDeclaration(app, { environment: environment as InstallationTimerBinding["environment"], app_origin: origin, kind }, environment);
   const optionalFileActions = [...declaredOptionalFileActions(app.requirements)];
-  return Object.freeze({ id: app.id, origin, name: app.name, ...(timerDeclaration ? { timerDeclaration } : {}), ...(optionalFileActions.length ? { optionalFileActions } : {}) });
+  return Object.freeze({ id: app.id, origin, name: app.name, ...(timerDeclaration ? { timerDeclaration } : {}), ...(optionalFileActions.length ? { optionalFileActions } : {}), ...(declaresOfflineReplica(app.requirements) ? { offlineReplica: true as const } : {}) });
 }
 type Connection = Awaited<ReturnType<DatabasePool["connect"]>>;
 interface Row {
@@ -109,6 +121,8 @@ interface Row {
   requested_create_collections: boolean;
   approved_create_collections: boolean;
   approved_collection_ids: string[];
+  requested_private_device: boolean;
+  approved_private_device_collection_ids: string[];
   scope_only: boolean;
   approved_session_epoch: string | number | null;
   timer_declaration: InstallationTimerDeclaration | null;
@@ -129,6 +143,15 @@ function declaredOptionalFileActions(requirements: unknown): Set<string> {
   const optional = files && typeof files === "object" ? (files as {optional?: unknown}).optional : undefined;
   return new Set(Array.isArray(optional) ? optional.filter((value): value is string => typeof value === "string") : []);
 }
+/** Whether the registered manifest declares `offline.replica`, required or
+ * optional. Never caller metadata. Registration is open, so this is what an app
+ * says it wants, not evidence of who published it. */
+function declaresOfflineReplica(requirements: unknown): boolean {
+  const capabilities = requirements && typeof requirements === "object" ? (requirements as {capabilities?: unknown}).capabilities : undefined;
+  if (!capabilities || typeof capabilities !== "object") return false;
+  const { required, optional } = capabilities as {required?: unknown; optional?: unknown};
+  return [required,optional].some(list => Array.isArray(list) && list.includes("offline.replica"));
+}
 const tx = inTransaction;
 async function row(
   c: Pick<Connection, "query">,
@@ -139,7 +162,7 @@ async function row(
   includeRevoked = false,
 ): Promise<Row> {
   const found = await c.query<Row>(
-    `SELECT p.*, i.installation_id,i.previous_pairing_id,i.app_id,i.app_origin,i.device_id,i.connector_id,i.kind,i.challenge,i.account_selected_at,COALESCE(i.sign_pk,k.sign_pk) AS sign_pk,COALESCE(i.kem_pk,k.kem_pk) AS kem_pk,COALESCE(i.noise_pk,k.noise_pk) AS noise_pk,i.registration_sig,i.attested_at,i.requested_create_collections,i.approved_create_collections,i.approved_collection_ids,i.scope_only,i.approved_session_epoch,i.portal_account_confirmed_at,i.portal_account_email,i.portal_account_provider,i.portal_account_login,i.portal_account_session_id,i.portal_account_session_epoch,i.selected_collection_id,i.recovery_collection_id,i.created_collection_ids,i.timer_declaration,i.timer_consent,i.file_access_collection_id,i.requested_file_actions,i.file_access_reason,i.approved_file_actions,na.authorization_request_id AS native_authorization_id,na.selected_collection_id AS native_selection_collection_id FROM pairing_requests p JOIN installation_device_pairings i ON i.pairing_id=p.id LEFT JOIN installation_device_credentials k ON k.connector_id=i.connector_id AND i.scope_only LEFT JOIN installation_native_authorizations na ON na.pairing_id=i.pairing_id WHERE p.id=$1 ${includeRevoked ? "" : "AND p.revoked_at IS NULL"} ${secret === undefined ? "" : "AND p.secret_hash=$2"} ${lock ? "FOR UPDATE OF p,i" : ""}`,
+    `SELECT p.*, i.installation_id,i.previous_pairing_id,i.app_id,i.app_origin,i.device_id,i.connector_id,i.kind,i.challenge,i.account_selected_at,COALESCE(i.sign_pk,k.sign_pk) AS sign_pk,COALESCE(i.kem_pk,k.kem_pk) AS kem_pk,COALESCE(i.noise_pk,k.noise_pk) AS noise_pk,i.registration_sig,i.attested_at,i.requested_create_collections,i.approved_create_collections,i.approved_collection_ids,i.requested_private_device,i.approved_private_device_collection_ids,i.scope_only,i.approved_session_epoch,i.portal_account_confirmed_at,i.portal_account_email,i.portal_account_provider,i.portal_account_login,i.portal_account_session_id,i.portal_account_session_epoch,i.selected_collection_id,i.recovery_collection_id,i.created_collection_ids,i.timer_declaration,i.timer_consent,i.file_access_collection_id,i.requested_file_actions,i.file_access_reason,i.approved_file_actions,na.authorization_request_id AS native_authorization_id,na.selected_collection_id AS native_selection_collection_id FROM pairing_requests p JOIN installation_device_pairings i ON i.pairing_id=p.id LEFT JOIN installation_device_credentials k ON k.connector_id=i.connector_id AND i.scope_only LEFT JOIN installation_native_authorizations na ON na.pairing_id=i.pairing_id WHERE p.id=$1 ${includeRevoked ? "" : "AND p.revoked_at IS NULL"} ${secret === undefined ? "" : "AND p.secret_hash=$2"} ${lock ? "FOR UPDATE OF p,i" : ""}`,
     [id, ...(secret === undefined ? [] : [tokenHash(secret)])],
   );
   const r = found.rows[0];
@@ -257,13 +280,27 @@ export async function installationPairingExists(
 }
 export async function startInstallationPairing(
   db: DatabasePool,
-  input: { request_id: string; pairing_secret: string; installation_id: string; device_id: string; kind: "app-runtime" | "mobile"; requested_create_collections?: boolean; recovery_collection_id?: string; collection_hint?: string; reconsent?: boolean; renewal?: { request_id: string; pairing_secret: string }; file_access?: InstallationFileAccessInput },
+  input: { request_id: string; pairing_secret: string; installation_id: string; device_id: string; kind: "app-runtime" | "mobile"; requested_create_collections?: boolean; requested_private_device?: boolean; recovery_collection_id?: string; collection_hint?: string; reconsent?: boolean; renewal?: { request_id: string; pairing_secret: string }; file_access?: InstallationFileAccessInput },
   app: Awaited<ReturnType<typeof installationApp>>,
   publicUrl: string,
   existingConnector?: ConnectorIdentity,
   serverEnvironment?: string,
+  privateDevice?: PrivateDeviceGate,
 ) {
   if (input.recovery_collection_id && (input.requested_create_collections || input.file_access)) fail("installation_invalid_scope",400);
+  // An app asks on every sign-in without knowing this server's switch, so an ask
+  // this server does not grant is recorded as not asked and sign-in goes on as for
+  // any other app. Granted, with the switch on, only to an application whose
+  // registered manifest declares `offline.replica`, for its own app-runtime device,
+  // never on a recovery sign-in or a file-access request. Granting the ask only
+  // offers the choice: the person's portal consent decides. The decision is made
+  // once, when the window is first created, and a replay or renewal keeps it
+  // whatever the switch says by then: an operator's change never makes an app's
+  // unchanged request look like a changed one. Only a granted ask that the client
+  // itself drops is refused below.
+  const privateDeviceAsk = input.requested_private_device === true && input.kind === "app-runtime" && !input.recovery_collection_id && !input.file_access
+    && privateDevicesEnabled(privateDevice) && app.offlineReplica === true;
+  const privateDeviceDropped = (granted: boolean) => granted && input.requested_private_device !== true;
   if (input.file_access) {
     // One collection, declared optional actions, a single-line reason, and only
     // as a re-consent of an existing installation credential.
@@ -296,7 +333,7 @@ export async function startInstallationPairing(
         // Re-consent uses the current authenticated credential, not a fabricated
         // device attestation or a second registration. The public keys are read
         // from that credential even if the original pairing window was pruned.
-        await c.query("INSERT INTO installation_device_pairings(pairing_id,installation_id,device_id,connector_id,app_id,app_origin,kind,challenge,account_selected_at,requested_create_collections,scope_only,timer_declaration,recovery_collection_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now(),$9,true,$10::jsonb,$11)",[input.request_id,input.installation_id,input.device_id,k.connector_id,app.id,app.origin,input.kind,randomBytes(32),input.requested_create_collections??false,app.timerDeclaration ? JSON.stringify(app.timerDeclaration) : null,input.recovery_collection_id??null]);
+        await c.query("INSERT INTO installation_device_pairings(pairing_id,installation_id,device_id,connector_id,app_id,app_origin,kind,challenge,account_selected_at,requested_create_collections,scope_only,timer_declaration,recovery_collection_id,requested_private_device) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now(),$9,true,$10::jsonb,$11,$12)",[input.request_id,input.installation_id,input.device_id,k.connector_id,app.id,app.origin,input.kind,randomBytes(32),input.requested_create_collections??false,app.timerDeclaration ? JSON.stringify(app.timerDeclaration) : null,input.recovery_collection_id??null,privateDeviceAsk]);
         if (input.file_access) {
           const scoped = await c.query("SELECT 1 FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2 FOR SHARE",[existingConnector.id,input.file_access.collection_id]);
           if (!scoped.rows.length) return fail("installation_collection_unavailable",403);
@@ -311,7 +348,7 @@ export async function startInstallationPairing(
         prior = await row(c, serverEnvironment,input.renewal.request_id,input.renewal.pairing_secret,true,true);
         if (prior.consumed_at || (!prior.revoked_at && new Date(prior.expires_at).getTime()>Date.now())) return fail("installation_window_not_closed");
         if (prior.recovery_collection_id !== (input.recovery_collection_id??null)) fail("installation_recovery_target_changed");
-        if (prior.scope_only || prior.requested_create_collections!==(input.requested_create_collections??false) || prior.installation_id!==input.installation_id || prior.device_id!==input.device_id || prior.kind!==input.kind || prior.app_id!==app.id || prior.app_origin!==app.origin) return fail("installation_original_binding_changed");
+        if (prior.scope_only || prior.requested_create_collections!==(input.requested_create_collections??false) || privateDeviceDropped(prior.requested_private_device) || prior.installation_id!==input.installation_id || prior.device_id!==input.device_id || prior.kind!==input.kind || prior.app_id!==app.id || prior.app_origin!==app.origin) return fail("installation_original_binding_changed");
         // Only the latest closed window can be renewed. An already-created
         // successor blocks a parallel renewal, even if its parent was denied.
         const successors = await c.query("SELECT pairing_id FROM installation_device_pairings WHERE previous_pairing_id=$1", [prior.id]);
@@ -324,12 +361,12 @@ export async function startInstallationPairing(
       // account and signature. A denial requires explicit SAME-account selection
       // again before approval; expiry alone retains the previous selection.
       await c.query("INSERT INTO installation_device_pairings(pairing_id,previous_pairing_id,installation_id,device_id,connector_id,app_id,app_origin,kind,challenge,account_selected_at,sign_pk,kem_pk,noise_pk,registration_sig,attested_at,timer_declaration,recovery_collection_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17)", [input.request_id,prior?.id??null,input.installation_id,input.device_id,prior?.connector_id??randomUUID(),app.id,app.origin,input.kind,prior?.challenge??randomBytes(32),prior?.revoked_at?null:prior?.account_selected_at??null,prior?.sign_pk??null,prior?.kem_pk??null,prior?.noise_pk??null,prior?.registration_sig??null,prior?.attested_at??null,app.timerDeclaration ? JSON.stringify(app.timerDeclaration) : null,input.recovery_collection_id??null]);
-      await c.query("UPDATE installation_device_pairings SET requested_create_collections=$2 WHERE pairing_id=$1",[input.request_id,input.requested_create_collections??false]);
+      await c.query("UPDATE installation_device_pairings SET requested_create_collections=$2,requested_private_device=$3 WHERE pairing_id=$1",[input.request_id,input.requested_create_collections??false,prior ? prior.requested_private_device : privateDeviceAsk]);
       }
     }
     const r = await row(c, serverEnvironment,input.request_id,input.pairing_secret,true);
     if (r.recovery_collection_id !== (input.recovery_collection_id??null)) fail("installation_recovery_target_changed");
-    if (r.scope_only!==(input.reconsent??false) || r.requested_create_collections!==(input.requested_create_collections??false)) return fail("installation_original_binding_changed");
+    if (r.scope_only!==(input.reconsent??false) || r.requested_create_collections!==(input.requested_create_collections??false) || privateDeviceDropped(r.requested_private_device)) return fail("installation_original_binding_changed");
     const fileAccess = input.file_access;
     if (r.file_access_collection_id!==(fileAccess?.collection_id??null) || r.file_access_reason!==(fileAccess?.reason??null) ||
       JSON.stringify(r.requested_file_actions)!==JSON.stringify(fileAccess?sortedActions(fileAccess.actions):null)) return fail("installation_original_binding_changed");
@@ -366,6 +403,7 @@ export async function inspectInstallationPairing(
   collectionHint?: string,
   returnUrl?: string,
   serverEnvironment?: string,
+  privateDevice?: PrivateDeviceGate,
 ) {
   if (authenticated.id !== user) fail("installation_account_changed", 403);
   const identity = portalAccountIdentity(authenticated);
@@ -379,7 +417,11 @@ export async function inspectInstallationPairing(
   // First-party portal preview only; no account selection or SDK disclosure.
   const eligible = await tx(db, async c => {
     const hosted=await installationCollections(c,user,undefined,r.device_id);
-    const native=r.file_access_collection_id ? [] : await privateInstallationChoices(c,user,r.app_id);
+    // A request for device access offers the account's Private collections for
+    // that, with their own consent copy, in place of the app-grant choices.
+    const native=r.file_access_collection_id ? [] : r.requested_private_device && privateDevicesEnabled(privateDevice)
+      ? (await installationCollections(c,user,undefined,r.device_id,false,"private")).map(collection=>({...collection,kind:"private_device" as const}))
+      : await privateInstallationChoices(c,user,r.app_id);
     if (hosted.length+native.length>1000) fail("installation_scope_limit");
     return [...hosted,...native];
   });
@@ -429,7 +471,12 @@ export async function inspectInstallationPairing(
       // once more; the portal says why instead of looking like a fresh sign-in.
       // Only a migrated account has a cohort membership; a new next account does not.
       account_upgraded: !r.scope_only && (await db.query("SELECT 1 FROM next_migration_account_flips f JOIN next_migration_cohort_members m ON m.account_id=f.account_id WHERE f.account_id=$1",[user])).rows.length > 0,
-      retained_collection_ids: r.scope_only ? (await db.query<{collection_id:string}>("SELECT collection_id FROM installation_collection_scopes WHERE connector_id=$1 ORDER BY collection_id",[r.connector_id])).rows.map(row=>row.collection_id) : [],
+      retained_collection_ids: r.scope_only ? (await db.query<{collection_id:string}>("SELECT collection_id FROM installation_collection_scopes WHERE connector_id=$1 AND NOT private_device ORDER BY collection_id",[r.connector_id])).rows.map(row=>row.collection_id) : [],
+      ...(r.requested_private_device ? {
+        requested_private_device: true as const,
+        approved_private_device_collection_ids: r.approved_private_device_collection_ids,
+        retained_private_device_collection_ids: r.scope_only ? (await db.query<{collection_id:string}>("SELECT collection_id FROM installation_collection_scopes WHERE connector_id=$1 AND private_device ORDER BY collection_id",[r.connector_id])).rows.map(row=>row.collection_id) : [],
+      } : {}),
       retained_create_collections: r.scope_only ? (await db.query<{create_collections:boolean}>("SELECT create_collections FROM installation_device_credentials WHERE connector_id=$1",[r.connector_id])).rows[0]?.create_collections??false : false,
       collections,
       collection_hint: hint,
@@ -581,8 +628,9 @@ export async function approveInstallationPairing(
   user: string,
   session: string,
   fingerprint: string,
-  consent: {collection_ids:string[];create_collections:boolean;selected_collection_id?:string;selected_collection_kind?:"cloud_copy"|"private";timer_consent?:boolean;file_actions?:FileAction[]} = {collection_ids:[],create_collections:false},
+  consent: {collection_ids:string[];create_collections:boolean;selected_collection_id?:string;selected_collection_kind?:"cloud_copy"|"private";timer_consent?:boolean;file_actions?:FileAction[];private_device_collection_ids?:string[]} = {collection_ids:[],create_collections:false},
   serverEnvironment?: string,
+  privateDevice?: PrivateDeviceGate,
 ) {
   return tx(db, async (c) => {
     await active(c, user, true);
@@ -595,6 +643,11 @@ export async function approveInstallationPairing(
     if (!r.sign_pk || fingerprint !== clientFingerprint(r.sign_pk)) return fail("installation_fingerprint_changed", 403);
     if (r.recovery_collection_id && (r.file_access_collection_id || consent.file_actions)) fail("installation_recovery_target_changed");
     if (consent.selected_collection_kind!=="private") requireRecoveryScope(r,consent.collection_ids,consent.selected_collection_id??null,consent.create_collections);
+    // Device access to Private collections is its own explicit list: only when the
+    // original request asked for it, and never mixed with an app grant or file access.
+    const deviceIds = [...(consent.private_device_collection_ids ?? [])].sort();
+    if (deviceIds.length && (consent.selected_collection_kind==="private" || consent.file_actions || r.file_access_collection_id)) fail("installation_invalid_scope",400);
+    if (deviceIds.length && !r.requested_private_device) privateDeviceRefused();
     if (r.file_access_collection_id || consent.file_actions) return approveFileAccess(c, r, user, consent);
     const selected = consent.selected_collection_id ?? null;
     // Manual legacy approval remains supported, but can never fabricate the
@@ -607,7 +660,7 @@ export async function approveInstallationPairing(
     if (consent.selected_collection_kind==="private") {
       if (!selected || !r.portal_account_confirmed_at || consent.collection_ids.length || consent.create_collections || consent.timer_consent===true || consent.file_actions || r.file_access_collection_id) fail("installation_invalid_scope",400);
       if (r.recovery_collection_id && r.recovery_collection_id!==selected) fail("installation_recovery_target_changed");
-      if (r.approved_at && (r.selected_collection_id || r.approved_collection_ids.length || r.approved_create_collections)) fail("installation_approved_scope_changed");
+      if (r.approved_at && (r.selected_collection_id || r.approved_collection_ids.length || r.approved_create_collections || r.approved_private_device_collection_ids.length)) fail("installation_approved_scope_changed");
       const native=await approveInstallationNativeChoice(c,r,selected);
       if (native.fresh) {
         await c.query("UPDATE installation_device_pairings SET approved_collection_ids='{}',approved_create_collections=false,approved_session_epoch=(SELECT session_epoch FROM users WHERE id=$2),selected_collection_id=NULL WHERE pairing_id=$1",[id,user]);
@@ -618,7 +671,9 @@ export async function approveInstallationPairing(
     }
     const ids = [...consent.collection_ids].sort();
     if (new Set(ids).size!==ids.length || ids.length>1000 || (consent.create_collections && !r.requested_create_collections)) return fail("installation_invalid_scope",400);
-    if (r.approved_at && (r.approved_create_collections!==consent.create_collections || r.selected_collection_id!==selected || JSON.stringify([...r.approved_collection_ids].sort())!==JSON.stringify(ids))) return fail("installation_approved_scope_changed");
+    if (new Set(deviceIds).size!==deviceIds.length || deviceIds.length>1000 || deviceIds.some(collection=>ids.includes(collection) || collection===selected)) return fail("installation_invalid_scope",400);
+    if (r.approved_at && (r.approved_create_collections!==consent.create_collections || r.selected_collection_id!==selected || JSON.stringify([...r.approved_collection_ids].sort())!==JSON.stringify(ids)
+      || JSON.stringify([...r.approved_private_device_collection_ids].sort())!==JSON.stringify(deviceIds))) return fail("installation_approved_scope_changed");
     if (r.approved_at && consent.timer_consent !== undefined && consent.timer_consent !== r.timer_consent) fail("installation_approved_timer_consent_changed");
     if (!r.approved_at) {
       if (consent.timer_consent === true) {
@@ -635,7 +690,7 @@ export async function approveInstallationPairing(
           "The app's reminder permissions changed. You can continue with reminders off, then turn them on with a new approval. Your device keys stay the same.");
       }
       if (selected && !ids.includes(selected)) {
-        const retained = r.scope_only && (await c.query("SELECT 1 FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2",[r.connector_id,selected])).rows.length;
+        const retained = r.scope_only && (await c.query("SELECT 1 FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2 AND NOT private_device",[r.connector_id,selected])).rows.length;
         if (!retained) fail("installation_invalid_scope",400);
       }
       if (selected) {
@@ -650,10 +705,23 @@ export async function approveInstallationPairing(
         await currentMember(c,collection,user);
         await refuseRevoked(c,collection,r.device_id);
       }
+      if (deviceIds.length) {
+        // This request's own portal confirmation in the current session, as for a
+        // selection: a manual approval can never record device access.
+        if (!privateDevicesEnabled(privateDevice)) privateDeviceRefused();
+        const epoch = (await c.query<{session_epoch:string|number}>("SELECT session_epoch FROM users WHERE id=$1",[user])).rows[0]?.session_epoch;
+        if (!r.portal_account_confirmed_at || String(epoch)!==String(r.portal_account_session_epoch)) fail("installation_account_confirmation_required",403);
+      }
+      for (const collection of deviceIds) {
+        const current = await c.query("SELECT 1 FROM next_collections n JOIN users owner ON owner.id=n.owner_user_id WHERE n.collection_id=$1 AND n.runtime='next' AND n.sync='private' AND n.left_sync_at IS NULL AND owner.suspended_at IS NULL FOR SHARE OF n,owner",[collection]);
+        if (!current.rows.length) return fail("installation_collection_unavailable",403);
+        await currentMember(c,collection,user);
+        await refuseRevoked(c,collection,r.device_id);
+      }
       if (selected && (await c.query("SELECT 1 FROM installation_pairing_collection_creations WHERE pairing_id=$1 AND collection_id=$2 AND completed_at IS NULL",[id,selected])).rows.length)
         fail("installation_creation_incomplete",503);
       const created = selected ? (await c.query<{collection_id:string}>("SELECT collection_id FROM installation_pairing_collection_creations WHERE pairing_id=$1 AND completed_at IS NOT NULL AND collection_id=ANY($2::uuid[]) ORDER BY collection_id",[id,ids])).rows.map(row=>row.collection_id) : [];
-      await c.query("UPDATE installation_device_pairings SET approved_collection_ids=$2,approved_create_collections=$3,approved_session_epoch=(SELECT session_epoch FROM users WHERE id=$4),selected_collection_id=$5,created_collection_ids=$6,timer_consent=$7 WHERE pairing_id=$1",[id,ids,consent.create_collections,user,selected,created,consent.timer_consent??null]);
+      await c.query("UPDATE installation_device_pairings SET approved_collection_ids=$2,approved_create_collections=$3,approved_session_epoch=(SELECT session_epoch FROM users WHERE id=$4),selected_collection_id=$5,created_collection_ids=$6,timer_consent=$7,approved_private_device_collection_ids=$8 WHERE pairing_id=$1",[id,ids,consent.create_collections,user,selected,created,consent.timer_consent??null,deviceIds]);
       await c.query(
         "UPDATE pairing_requests SET approved_at=now(),expires_at=GREATEST(expires_at,now()+interval '10 minutes') WHERE id=$1",
         [id],
@@ -819,21 +887,35 @@ function requireRecoveryScope(r: Row, ids=r.approved_collection_ids, selected=r.
 /** Add only after explicit consent, under the same credential lock used by
  * creates/mints. Recheck membership at exchange, not just at portal approval.
  * Re-consent never removes collection access or revokes a device as a hidden side effect. */
-async function persistScope(c: Connection, r: Row): Promise<void> {
+async function persistScope(c: Connection, r: Row, privateDevice?: PrivateDeviceGate): Promise<void> {
   requireRecoveryScope(r);
+  // The switch was turned off after the person approved. The credential and the
+  // cloud copies approved with it are still issued; the device access is withdrawn
+  // from the request itself, so this receipt and every replay of it say so.
+  if (r.approved_private_device_collection_ids.length && !privateDevicesEnabled(privateDevice)) {
+    await c.query("UPDATE installation_device_pairings SET approved_private_device_collection_ids='{}' WHERE pairing_id=$1",[r.id]);
+    r.approved_private_device_collection_ids = [];
+  }
   await c.query("UPDATE installation_device_credentials SET create_collections=create_collections OR $2 WHERE connector_id=$1",[r.connector_id,r.approved_create_collections]);
   if (r.scope_only && r.selected_collection_id && !r.approved_collection_ids.includes(r.selected_collection_id)) {
-    const retained = await c.query("SELECT 1 FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2",[r.connector_id,r.selected_collection_id]);
+    const retained = await c.query("SELECT 1 FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2 AND NOT private_device",[r.connector_id,r.selected_collection_id]);
     if (!retained.rows.length) fail("installation_collection_unavailable",403);
   }
-  for (const collection of [...new Set([...r.approved_collection_ids,...(r.selected_collection_id?[r.selected_collection_id]:[])])].sort()) {
-    const current = await c.query("SELECT 1 FROM next_collections n JOIN users owner ON owner.id=n.owner_user_id WHERE n.collection_id=$1 AND n.runtime='next' AND n.sync='cloud_copy' AND n.left_sync_at IS NULL AND owner.suspended_at IS NULL FOR UPDATE OF n",[collection]);
+  // One lock order for both kinds. Each consent holds only while its collection
+  // is still the mode the person approved it as.
+  for (const collection of [...new Set([...r.approved_collection_ids,...(r.selected_collection_id?[r.selected_collection_id]:[]),...r.approved_private_device_collection_ids])].sort()) {
+    const current = await c.query("SELECT 1 FROM next_collections n JOIN users owner ON owner.id=n.owner_user_id WHERE n.collection_id=$1 AND n.runtime='next' AND n.sync=$2 AND n.left_sync_at IS NULL AND owner.suspended_at IS NULL FOR UPDATE OF n",
+      [collection,r.approved_private_device_collection_ids.includes(collection)?"private":"cloud_copy"]);
     if (!current.rows.length) return fail("installation_collection_unavailable",403);
     await currentMember(c,collection,r.user_id!);
     await refuseRevoked(c,collection,r.device_id);
   }
+  // The row records the latest explicit consent of either kind, never both.
+  // Optional file actions approved under the other kind are asked for again.
   for (const collection of r.approved_collection_ids)
-    await c.query("INSERT INTO installation_collection_scopes(connector_id,collection_id) VALUES($1,$2) ON CONFLICT DO NOTHING",[r.connector_id,collection]);
+    await c.query("INSERT INTO installation_collection_scopes(connector_id,collection_id) VALUES($1,$2) ON CONFLICT (connector_id,collection_id) DO UPDATE SET private_device=false,file_actions=DEFAULT WHERE installation_collection_scopes.private_device",[r.connector_id,collection]);
+  for (const collection of r.approved_private_device_collection_ids)
+    await c.query("INSERT INTO installation_collection_scopes(connector_id,collection_id,private_device) VALUES($1,$2,true) ON CONFLICT (connector_id,collection_id) DO UPDATE SET private_device=true,file_actions=DEFAULT WHERE NOT installation_collection_scopes.private_device",[r.connector_id,collection]);
 }
 // Exactly this request's approved IDs and explicitly selected collection;
 // never the retained-scope inventory or permission to create future collections.
@@ -884,6 +966,7 @@ export async function exchangeInstallationPairing(
   id: string,
   secret: string,
   serverEnvironment?: string,
+  privateDevice?: PrivateDeviceGate,
 ) {
   return tx(db, async (c) => {
     const initial = await row(c, serverEnvironment, id, secret, false, true);
@@ -916,12 +999,12 @@ export async function exchangeInstallationPairing(
       if (!r.consumed_at) {
         const epoch = (await c.query<{session_epoch:string|number}>("SELECT session_epoch FROM users WHERE id=$1",[r.user_id])).rows[0]?.session_epoch;
         if (r.approved_session_epoch===null || String(epoch)!==String(r.approved_session_epoch)) return fail("installation_approval_not_current",403);
-        await persistScope(c,r);
+        await persistScope(c,r,privateDevice);
         await c.query("UPDATE pairing_requests SET consumed_at=now() WHERE id=$1",[id]);
       }
       if (r.file_access_collection_id)
         return {status:"file_access_updated" as const,request_id:r.id,collection_id:r.file_access_collection_id,file_actions:r.approved_file_actions??[]};
-      return {status:"scope_updated" as const,...selection(r),...collectionSelection(r),...await timerReceipt(c,r,serverEnvironment),added_collection_ids:r.approved_collection_ids,approved_create_collections:r.approved_create_collections};
+      return {status:"scope_updated" as const,...selection(r),...collectionSelection(r),...await timerReceipt(c,r,serverEnvironment),added_collection_ids:r.approved_collection_ids,approved_create_collections:r.approved_create_collections,...(r.requested_private_device ? {added_private_device_collection_ids:r.approved_private_device_collection_ids} : {})};
     }
     const token = credential(r, secret);
     if (!r.consumed_at) {
@@ -954,7 +1037,7 @@ export async function exchangeInstallationPairing(
         "INSERT INTO installation_device_credentials(pairing_id,connector_id,device_id,installation_id,token_hash,app_id,app_origin,kind,sign_pk,kem_pk,noise_pk) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
         [id, r.connector_id, r.device_id, r.installation_id, tokenHash(token),r.app_id,r.app_origin,r.kind,r.sign_pk,r.kem_pk,r.noise_pk],
       );
-      await persistScope(c,r);
+      await persistScope(c,r,privateDevice);
       await persistTimerConsent(c,r);
       await c.query(
         "UPDATE pairing_requests SET consumed_at=now() WHERE id=$1",
@@ -991,6 +1074,9 @@ export async function exchangeInstallationPairing(
       ...await timerReceipt(c,r,serverEnvironment),
       collection_ids:r.approved_collection_ids,
       create_collections:r.approved_create_collections,
+      // Only a request that asked for device access carries its outcome, so
+      // SDKs that check the exact receipt shape keep working.
+      ...(r.requested_private_device ? {private_device_collection_ids:r.approved_private_device_collection_ids} : {}),
       connector: { id: r.connector_id, name: r.connector_name },
       token,
       registration: {

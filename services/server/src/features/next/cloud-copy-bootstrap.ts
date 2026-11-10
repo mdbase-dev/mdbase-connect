@@ -33,7 +33,7 @@ import { pitrCollection, pitrLabel, pitrLogUrl } from "./lab-pitr-config.js";
 import { appendedCloudCopyBatch, appendedCloudCopyGenesis, cloudCopyMetadata, createServiceCloudCopy, currentCloudCopy,
   existingCloudCopy as existing, generateCloudCopyServices, loadCloudCopyRecords, type CloudCopyBootstrapOptions } from "./service-cloud-copy.js";
 
-import { installationCollections, requireInstallationScope } from "./installation-scope.js";
+import { installationCollections, privateDeviceCollections, requireInstallationScope } from "./installation-scope.js";
 import { collectionDisplayName, DEFAULT_COLLECTION_DISPLAY_NAME, validateInitialCollectionName } from "./collection-display-name.js";
 import { registerCollectionNameRoutes } from "./collection-name-routes.js";
 import { requireCollectionNotDeleted } from "./collection-deletion.js";
@@ -113,12 +113,23 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
     const connector = await requireInstallationDeviceConnector(request,reply,options.db);
     if (!connector) return reply;
     if (!connector.installation_device_id) return reply.code(403).send(apiError("installation_credential_required","Use an installation credential."));
-    // Opt-in, so SDKs that check the exact row shape keep working.
-    const fileActions = (request.query as {include?: unknown} | undefined)?.include === "file_actions";
+    // Opt-in (`?include=file_actions,mode`), so SDKs that check the exact row shape
+    // keep working. `mode` adds each row's mode and, with it, the Private collections
+    // this installation has device consent for (docs/installation-private-device.md).
+    const include = (request.query as {include?: unknown} | undefined)?.include;
+    const included = typeof include === "string" ? include.split(",") : [];
+    const fileActions = included.includes("file_actions");
     try {
       return await inTransaction(options.db,async client=> {
         await requireInstallationScope(client,connector);
-        return {collections:await installationCollections(client,connector.user_id,connector.id,connector.installation_device_id,fileActions)};
+        const cloudCopies = await installationCollections(client,connector.user_id,connector.id,connector.installation_device_id,fileActions);
+        if (!included.includes("mode")) return {collections:cloudCopies};
+        const collections = [
+          ...cloudCopies.map(row=>({...row,mode:"cloud_copy" as const})),
+          ...(await privateDeviceCollections(client,options.next,connector,fileActions)).map(row=>({...row,mode:"private" as const})),
+        ].sort((a,b)=>a.collection_id<b.collection_id?-1:1);
+        if (collections.length>1000) throw new CreateError(409,"installation_scope_limit");
+        return {collections};
       });
     } catch (error) { return refuse(reply,error,"The approved collection list is unavailable."); }
   });

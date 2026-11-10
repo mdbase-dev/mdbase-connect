@@ -27,7 +27,8 @@ import type { FastifyInstance } from "fastify";
 import { AuthRateLimiter, type AuthRateLimitRule } from "../auth/auth-rate-limit.js";
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
-import { requireConnector } from "../../platform/request-authentication.js";
+import { requireConnector, requireInstallationDeviceConnector } from "../../platform/request-authentication.js";
+import { privateDevicesEnabled, requirePrivateDeviceScope } from "./installation-scope.js";
 import {
   authenticate, CreateError, currentIdentity, currentMember, ENROLMENT, enrolmentKey, exactEnrolment, inTransaction, lock, NIL, refuse, refuseRevoked,
   type Connector, type Device, type Proof
@@ -245,21 +246,28 @@ export function registerAccountKeyRoutes(app: FastifyInstance, options: {
     return device;
   }
 
+  // An installation credential reaches status and fetch only, and only while it holds
+  // explicit Private device consent (docs/installation-private-device.md). With
+  // the switch off these routes answer it exactly as every other route does.
+  const reader: typeof requireConnector = (request, reply, db) => (privateDevicesEnabled(options.next) ? requireInstallationDeviceConnector : requireConnector)(request, reply, db);
+
   // ---- Status: metadata only (no bundle), not on the account's fetch budget. ----
   app.get("/v1/next/account-key/status", { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } }, async (request, reply) => {
     reply.header("cache-control", "no-store");
-    const connector = await requireConnector(request, reply, options.db);
+    const connector = await reader(request, reply, options.db);
     if (!connector) return reply;
     try {
       return await inTransaction(options.db, async (client) => {
         const current = await client.query("SELECT 1 FROM users WHERE id = $1 AND suspended_at IS NULL FOR SHARE", [connector.user_id]);
         if (!current.rows.length) throw new CreateError(403, "identity_not_current");
+        await requirePrivateDeviceScope(client, options.next, connector);
         await lockAccount(client, connector.user_id);
         const row = await accountRow(client, connector.user_id, "SHARE");
         if (!row) return { mode: "none", version: 0 };
         return {
           mode: row.mode, version: Number(row.version), ...(row.key_id ? { key_id: row.key_id.toString("hex") } : {}),
-          ...(row.mode === "strict" ? await strictCompletion(client, connector.user_id, Number(row.version)) : {})
+          // The pending strict targets are the account's inventory, not an installation's scope.
+          ...(row.mode === "strict" && !connector.installation_device_id ? await strictCompletion(client, connector.user_id, Number(row.version)) : {})
         };
       });
     } catch (error) {
@@ -270,7 +278,7 @@ export function registerAccountKeyRoutes(app: FastifyInstance, options: {
   // ---- Fetch: the proof is in headers; a GET has no body. ----
   app.get("/v1/next/account-key", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
     reply.header("cache-control", "no-store");
-    const connector = await requireConnector(request, reply, options.db);
+    const connector = await reader(request, reply, options.db);
     if (!connector) return reply;
     const h = (name: string) => {
       const v = request.headers[name];
@@ -284,8 +292,13 @@ export function registerAccountKeyRoutes(app: FastifyInstance, options: {
     const digest = (challenge: Uint8Array) => accountKeyFetchDigest({ challenge, connector: connector.id, device: body.device_id, account });
     try {
       // The proof is checked (and its challenge consumed) first, so only a signed-in
-      // device of the account spends the account's fetch budget.
-      const device = await inTransaction(options.db, (client) => proven(client, body, connector, digest));
+      // device of the account spends the account's fetch budget. An installation
+      // also needs its Private device consent, before the budget and after it.
+      const device = await inTransaction(options.db, async (client) => {
+        const proved = await proven(client, body, connector, digest);
+        await requirePrivateDeviceScope(client, options.next, connector);
+        return proved;
+      });
       const retry = await allowed("next-account-key-fetch", account, ACCOUNT_KEY_FETCH_LIMIT);
       if (retry !== null) {
         reply.header("retry-after", String(retry));
@@ -293,6 +306,7 @@ export function registerAccountKeyRoutes(app: FastifyInstance, options: {
       }
       const row = await inTransaction(options.db, async (client) => {
         await currentIdentity(client, connector, body.device_id, device);
+        await requirePrivateDeviceScope(client, options.next, connector);
         return accountRow(client, account, "SHARE");
       });
       request.log.info({ event: "next_account_key_fetch", account, device: body.device_id, mode: row?.mode ?? "none" }, "account key fetched");

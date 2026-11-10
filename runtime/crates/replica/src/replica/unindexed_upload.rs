@@ -261,11 +261,7 @@ impl<S: Store> Replica<S> {
                         LogRequest::PutObject {
                             collection: self.cfg.collection,
                             address: o.cipher_hash,
-                            kind: if u.finished.is_some() {
-                                ItemKind::Manifest
-                            } else {
-                                ItemKind::Chunk
-                            },
+                            kind: ItemKind::BlobPart,
                             bytes: o.bytes.clone(),
                         },
                         Call::Put,

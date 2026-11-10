@@ -12,7 +12,6 @@ const repoRoot = resolve(import.meta.dirname, "../..");
 test("every system suite has an existing command and known preparation steps", async () => {
   assert.deepEqual(Object.keys(systemSuites), [
     "runtime-daemon",
-    "legacy-local",
     "relay",
     "sync",
     "provider",

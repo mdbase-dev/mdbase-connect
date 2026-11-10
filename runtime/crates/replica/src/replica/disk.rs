@@ -1035,6 +1035,44 @@ impl<S: Store> Replica<S> {
         Ok(())
     }
 
+    /// The source of a file the store observed as an attachment at a path the
+    /// catalog reads as a record. A file store reads only its own extensions
+    /// whole, so a record extension from `settings.record_extensions` (such as
+    /// `base`) arrives hashed, not read. `None` leaves the observation as it
+    /// is: not such a path, over the record cap, not UTF-8, changed since it
+    /// was hashed, or a store that cannot read files.
+    fn record_source_of_attachment(
+        &mut self,
+        catalog: &Catalog,
+        o: &Observation,
+        destination_valid: bool,
+    ) -> Result<Option<String>, StoreError> {
+        let Some(Observed::Attachment {
+            digest,
+            size,
+            class: crate::store::AttachmentClass::Ordinary,
+        }) = &o.now
+        else {
+            return Ok(None);
+        };
+        if !destination_valid
+            || *size > mdbn_core::intent::RECORD_SOURCE_CAP_BYTES
+            || catalog.is_resource_path(&o.path)
+            || !catalog.is_record_path(&o.path)
+        {
+            return Ok(None);
+        }
+        let Some(mut source) = self.store.attachment_source(&o.path, *size)? else {
+            return Ok(None);
+        };
+        let mut bytes = vec![0; *size as usize];
+        if source.read_at(0, &mut bytes).is_err() || mdbn_wire::hash::sha256(&bytes) != *digest {
+            // Changed since it was hashed: the store observes it again.
+            return Ok(None);
+        }
+        Ok(String::from_utf8(bytes).ok())
+    }
+
     fn ingest_one(
         &mut self,
         o: Observation,
@@ -1045,6 +1083,13 @@ impl<S: Store> Replica<S> {
         // Admit record source before cloning/parsing or touching shown state.
         // Resource documents are a different namespace with their own rules.
         let catalog = self.layer.catalog().unwrap_or_else(|| self.catalog.clone());
+        let o = match self.record_source_of_attachment(&catalog, &o, destination_valid)? {
+            Some(source) => Observation {
+                now: Some(Observed::Text(source)),
+                ..o
+            },
+            None => o,
+        };
         if destination_valid
             && !catalog.is_resource_path(&o.path)
             && catalog.is_record_path(&o.path)

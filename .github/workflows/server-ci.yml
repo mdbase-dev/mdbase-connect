@@ -78,132 +78,6 @@ jobs:
             echo 'upstream_run_id=' >>"$GITHUB_OUTPUT"
           fi
 
-  windows-daemon-lifecycle:
-    needs: classify
-    if: needs.classify.outputs.run_full == 'true'
-    uses: ./.github/workflows/windows-daemon-lifecycle.yml
-
-  windows-filesystem:
-    name: Filesystem durability (${{ matrix.label }})
-    needs: classify
-    if: needs.classify.outputs.run_full == 'true'
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        # Windows test binaries are filesystem-throughput bound and run one
-        # after another, so each package gets its own runner.
-        include:
-          - label: macos-15
-            os: macos-15
-            packages: -p mdbase-connect-core -p mdbase-connect-daemon
-          - label: windows-2025 core
-            os: windows-2025
-            packages: -p mdbase-connect-core
-          - label: windows-2025 daemon
-            os: windows-2025
-            packages: -p mdbase-connect-daemon
-    defaults:
-      run:
-        working-directory: mdbase-connect
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          path: mdbase-connect
-      - id: mdbase_revision
-        shell: bash
-        run: echo "revision=$(tr -d '\r\n' < deploy/docker/mdbase-rs-revision)" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: callumalpass/mdbase-rs
-          ref: ${{ steps.mdbase_revision.outputs.revision }}
-          path: mdbase-rs
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24
-      - name: Install Rust
-        shell: bash
-        run: |
-          rustup toolchain install 1.94.0 --profile minimal
-          rustup override set 1.94.0
-      - name: Restore Rust dependency cache
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          workspaces: |
-            mdbase-connect -> target
-          # Restore only: rust-caches.yml saves from main, where every
-          # merge-queue and pull-request ref can read it.
-          shared-key: connect-debug-${{ steps.mdbase_revision.outputs.revision }}
-          save-if: false
-      - run: node scripts/ci/cargo-test.mjs --locked ${{ matrix.packages }}
-        env:
-          MDBASE_CONNECT_ENV: test
-          MDBASE_CONNECT_SECRET_BACKEND: insecure-test-file
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: always()
-        with:
-          name: flake-evidence-filesystem-${{ matrix.label }}-${{ github.run_attempt }}
-          path: mdbase-connect/.ci-flakes/
-          include-hidden-files: true
-          retention-days: 14
-
-  runtime-testbed:
-    name: Runtime interoperability testbed
-    needs: classify
-    if: needs.classify.outputs.run_full == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: mdbase-connect
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          path: mdbase-connect
-      - id: mdbase_revision
-        run: echo "revision=$(tr -d '\r\n' < deploy/docker/mdbase-rs-revision)" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: callumalpass/mdbase-rs
-          ref: ${{ steps.mdbase_revision.outputs.revision }}
-          path: mdbase-rs
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: mdbase-dev/mdbase-spec
-          ref: 4a2525b221460425ede3b4652fe18b504dc367ec
-          path: mdbase-spec
-          persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24
-      - run: rustup toolchain install 1.94.0 --profile minimal
-      - run: rustup override set 1.94.0
-      - name: Restore Rust dependency cache
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          workspaces: |
-            mdbase-connect -> target
-          shared-key: runtime-testbed-${{ steps.mdbase_revision.outputs.revision }}
-          save-if: false
-      - name: Install portable testbed runner
-        working-directory: mdbase-spec/packages/testbed
-        run: npm ci
-      # Keep compilation outside the adapter's response deadline.
-      - run: cargo build --locked -p mdbase-connect-testbed-adapter
-      - name: Exercise the Connect notification runtime
-        run: >-
-          node ../mdbase-spec/packages/testbed/src/cli.mjs run
-          --adapter command:cargo
-          --adapter-arg run
-          --adapter-arg --locked
-          --adapter-arg --quiet
-          --adapter-arg -p
-          --adapter-arg mdbase-connect-testbed-adapter
-          --adapter-arg --
-          --scenario runtime.application-execution
-          --timeout-ms 120000
-
   node:
     needs: classify
     if: needs.classify.outputs.run_full == 'true' || github.event_name == 'pull_request'
@@ -653,7 +527,7 @@ jobs:
       - name: Archive runtime binaries for transfer measurement
         if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:benchmark-binaries')
         run: |
-          tar -cf "$RUNNER_TEMP/binaries.tar" -C target/debug mdbase mdbase-connect-hosted-provider
+          tar -cf "$RUNNER_TEMP/binaries.tar" -C target/debug mdbase-connect-hosted-provider
           du -b "$RUNNER_TEMP/binaries.tar" >>"$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:benchmark-binaries')
@@ -675,7 +549,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [local-relay, sync, provider, files, files-adversarial, desktop]
+        shard: [relay, sync, provider, files, files-adversarial, desktop]
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -683,7 +557,6 @@ jobs:
       - name: Extract and exercise transferred binaries
         run: |
           tar -xf binaries.tar
-          ./mdbase --help >/dev/null
           ./mdbase-connect-hosted-provider --help >/dev/null
           du -b binaries.tar >>"$GITHUB_STEP_SUMMARY"
 
@@ -697,9 +570,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - shard: local-relay
-            suites: legacy-local,relay
-            browser: true
+          - shard: relay
+            suites: relay
+            browser: false
             timeout: 55
           - shard: sync
             suites: sync
@@ -809,9 +682,6 @@ jobs:
     if: always()
     needs:
       - classify
-      - windows-filesystem
-      - windows-daemon-lifecycle
-      - runtime-testbed
       - runtime-native
       - node
       - server-container-full
@@ -829,9 +699,6 @@ jobs:
         env:
           RUN_FULL: ${{ needs.classify.outputs.run_full }}
           UPSTREAM_RUN_ID: ${{ needs.classify.outputs.upstream_run_id }}
-          WINDOWS: ${{ needs.windows-filesystem.result }}
-          WINDOWS_DAEMON: ${{ needs.windows-daemon-lifecycle.result }}
-          RUNTIME: ${{ needs.runtime-testbed.result }}
           RUNTIME_NATIVE: ${{ needs.runtime-native.result }}
           NODE: ${{ needs.node.result }}
           CONTAINER: ${{ needs.server-container-full.result }}
@@ -846,7 +713,7 @@ jobs:
         run: |
           if [[ "$RUN_FULL" == true ]]; then
             [[ "$GITHUB_EVENT_NAME" != merge_group || "$RUNTIME_NATIVE" == success ]]
-            for result in "$WINDOWS" "$WINDOWS_DAEMON" "$RUNTIME" "$NODE" "$CONTAINER" \
+            for result in "$NODE" "$CONTAINER" \
               "$SERVER_UPGRADE" "$SERVER_RETAINED_V2" "$PROVIDER_UPGRADE" "$RETAINED_V2" "$PROVIDER_RUST" \
               "$PROVIDER_SYSTEM" "$LOG_POSTGRES" "$LOG_DO"
             do

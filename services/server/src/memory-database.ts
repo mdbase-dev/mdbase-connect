@@ -132,6 +132,10 @@ export async function openMemoryDatabase(): Promise<DatabasePool> {
     // CHECKs. Keep the columns; shape enforcement requires real PG tests.
     const fileAccessShape = "-- mdbase:installation-file-access-shape:v1";
     if (sql.includes(fileAccessShape)) return memory.public.many(sql.slice(0, sql.indexOf(fileAccessShape)));
+    // pg-mem lacks the array operators of the Private device CHECK. Keep the
+    // columns; shape enforcement requires real PG tests.
+    const privateDeviceShape = "-- mdbase:installation-private-device-shape:v1";
+    if (sql.includes(privateDeviceShape)) return memory.public.many(sql.slice(0, sql.indexOf(privateDeviceShape)));
     // pg-mem lacks recovery array/null-safe CHECKs and deferred triggers.
     // Schema-only prefix for existing memory consumers; recovery authority
     // and partial-commit invariants are qualified by real PostgreSQL only.

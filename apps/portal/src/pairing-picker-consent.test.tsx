@@ -226,3 +226,65 @@ describe("one explicit collection consent", () => {
     expect(document.querySelectorAll("code")).toHaveLength(0);
   });
 });
+
+describe("device access to a Private collection", () => {
+  const asked: Partial<DevicePairing> = { requested_private_device: true, collections: [
+    { collection_id: "notes", display_name: "Notes", role: "owner" },
+    { collection_id: "vault", display_name: "Vault", role: "owner", kind: "private_device" },
+    { collection_id: "team", display_name: "Team", role: "editor", kind: "private_device" },
+  ] };
+  const keyCopy = "Reader on this device will hold the key to the private collections you allow here and will be able to read them. It will ask for your encryption password. Only allow this if you trust Reader with that password.";
+  const receipt = () => within(document.querySelector<HTMLElement>(".approval-receipt")!);
+  async function approve(f: Awaited<ReturnType<typeof fixture>>) {
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole("button", { name: "Open Reader" })); f.attest();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(f.posts().map(([path]) => path.split("/").at(-1))).toEqual(["select-account", "approve"]);
+    return JSON.parse(f.posts()[1][1]!.body as string);
+  }
+
+  it("labels the choice and says, beside the decision, that this device will hold the key", async () => {
+    const f = await fixture(asked);
+    expect(screen.getByRole("option", { name: "Vault" })).toHaveAccessibleDescription("Private collection — key kept on this device");
+    expect(screen.getByRole("option", { name: "Team" })).toHaveAccessibleDescription("Private collection — key kept on this device · Shared with you");
+    expect(screen.getByRole("option", { name: "Notes" })).toHaveAccessibleDescription("Cloud copy");
+    expect(receipt().queryByText(keyCopy)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("option", { name: "Vault" }));
+    expect(receipt().getByText(keyCopy)).toBeVisible();
+    expect(receipt().getByText("Private collection — key kept on this device")).toBeVisible();
+    // Not the app-grant path: nothing here opens through a computer.
+    expect(screen.queryByText(/This collection stays on your computer/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("option", { name: "Notes" }));
+    expect(receipt().queryByText(keyCopy)).not.toBeInTheDocument();
+    expect(f.posts()).toEqual([]);
+  });
+
+  it("approves it in its own list, never as the selected collection, an app grant or a reminder target", async () => {
+    const f = await fixture({ ...asked, timer_declaration: { digest: "declared" } });
+    expect(screen.getByRole("checkbox", { name: "Allow Reader to send you reminders" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("option", { name: "Vault" }));
+    expect(screen.queryByRole("checkbox", { name: "Allow Reader to send you reminders" })).not.toBeInTheDocument();
+    expect(await approve(f)).toEqual({ fingerprint: "1234-5678", collection_ids: [], create_collections: false, private_device_collection_ids: ["vault"] });
+    expect(screen.getByRole("heading", { name: "Access approved" })).toBeInTheDocument();
+  });
+
+  it("adds it beside a cloud copy opened in the app, with the same notice", async () => {
+    const f = await fixture(asked);
+    fireEvent.click(screen.getByRole("option", { name: "Notes" }));
+    fireEvent.click(screen.getByText("Allow offline access to additional collections"));
+    fireEvent.click(screen.getByRole("checkbox", { name: /Team/ }));
+    expect(receipt().getByText(keyCopy)).toBeVisible();
+    expect(await approve(f)).toEqual({ fingerprint: "1234-5678", collection_ids: ["notes"], create_collections: false, selected_collection_id: "notes", private_device_collection_ids: ["team"] });
+  });
+
+  it("keeps device access it already has, offers to revoke it, and does not ask for it again", async () => {
+    const f = await fixture({ ...asked, scope_only: true, retained_collection_ids: [], retained_private_device_collection_ids: ["vault"] });
+    fireEvent.click(screen.getByRole("option", { name: "Notes" }));
+    fireEvent.click(screen.getByText("Allow offline access to additional collections"));
+    const kept = screen.getByRole("checkbox", { name: /Vault.*already allowed/ });
+    expect(kept).toBeChecked(); expect(kept).toBeDisabled();
+    expect(within(kept.closest<HTMLElement>(".installation-additional-collection")!).getByRole("button", { name: "Revoke access" })).toBeEnabled();
+    expect(receipt().queryByText(keyCopy)).not.toBeInTheDocument();
+    expect(await approve(f)).toEqual({ fingerprint: "1234-5678", collection_ids: ["notes"], create_collections: false, selected_collection_id: "notes" });
+  });
+});

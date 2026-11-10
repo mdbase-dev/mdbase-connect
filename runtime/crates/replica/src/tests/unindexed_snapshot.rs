@@ -211,14 +211,16 @@ fn fake_ls_rejects_exact_ranges_past_eof_without_clamping() {
     let service = crate::fake::FakeLogService::new();
     let mut log = service.client(B16([4; 16]));
     let address = B32([9; 32]);
+    let stored = crate::fake::blob_part(super::engine::COL, &[1, 2, 3]);
     log.call(LogRequest::PutObject {
         collection: super::engine::COL,
         address,
         kind: ItemKind::BlobPart,
-        bytes: vec![1, 2, 3],
+        bytes: stored.clone(),
     })
     .unwrap();
-    for range in [(0, 4), (4, 0), (u64::MAX, 1), (1, u64::MAX)] {
+    let end = stored.len() as u64;
+    for range in [(0, end + 1), (end + 1, 0), (u64::MAX, 1), (1, u64::MAX)] {
         assert!(
             matches!(
                 log.call(LogRequest::GetObject {
@@ -245,8 +247,8 @@ fn fake_ls_rejects_exact_ranges_past_eof_without_clamping() {
     else {
         panic!("not an object reply")
     };
-    assert_eq!(bytes, [2, 3]);
-    assert_eq!(size, 3);
+    assert_eq!(bytes.as_slice(), &stored[1..3]);
+    assert_eq!(size, end);
 }
 #[test]
 fn source_authentication_requests_complete_objects_not_upper_bound_ranges() {

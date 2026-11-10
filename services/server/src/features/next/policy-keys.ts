@@ -50,6 +50,12 @@ export interface NextControlPlaneConfig {
   cloudCopyBootstrap?: { hosted: { url: string; token: string }; escrow: { url: string; token: string } };
   /** Private collection create and device enrol routes; set only by MDBASE_NEXT_PRIVATE_BOOTSTRAP=1. */
   privateBootstrap?: true;
+  /**
+   * Default-off switch: an application's installation may ask to be a device of
+   * the person's Private collections. Set only by MDBASE_NEXT_PRIVATE_APP_DEVICES=1
+   * with MDBASE_NEXT_PRIVATE_BOOTSTRAP=1. Portal consent decides, per collection.
+   */
+  privateAppDevices?: true;
   /** Default-off release gate; enabled only by the explicit server setting. */
   collectionModeExecution?: true;
   /** Default-off release gate for the scheduled object sweep; enabled only by MDBASE_NEXT_OBJECT_GC=1. */
@@ -184,6 +190,11 @@ export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPla
   if (!["", "0", "1"].includes(collectionModeExecution)) throw new Error("MDBASE_NEXT_COLLECTION_MODE_EXECUTION must be 0 or 1.");
   const privateBootstrap = env.MDBASE_NEXT_PRIVATE_BOOTSTRAP?.trim() ?? "";
   if (privateBootstrap !== "" && privateBootstrap !== "0" && privateBootstrap !== "1") throw new Error("MDBASE_NEXT_PRIVATE_BOOTSTRAP must be 0 or 1.");
+  // A switch of its own: servers that already run the private bootstrap do not
+  // start admitting installations as Private devices until an operator says so.
+  const privateAppDevices = env.MDBASE_NEXT_PRIVATE_APP_DEVICES?.trim() ?? "";
+  if (!["", "0", "1"].includes(privateAppDevices)) throw new Error("MDBASE_NEXT_PRIVATE_APP_DEVICES must be 0 or 1.");
+  if (privateAppDevices === "1" && privateBootstrap !== "1") throw new Error("MDBASE_NEXT_PRIVATE_APP_DEVICES=1 requires MDBASE_NEXT_PRIVATE_BOOTSTRAP=1.");
   return {
     rootPublicKey: hexBytes(root, 32, "MDBASE_NEXT_ROOT_PUBLIC_KEY"),
     policyPrivateKeyPem: pem,
@@ -195,6 +206,7 @@ export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPla
     ...(cloudCopyBootstrap ? { cloudCopyBootstrap } : {}),
     ...(migrationRouting ? { migrationRouting } : {}),
     ...(privateBootstrap === "1" ? { privateBootstrap: true as const } : {}),
+    ...(privateAppDevices === "1" ? { privateAppDevices: true as const } : {}),
     ...(collectionModeExecution === "1" ? { collectionModeExecution: true as const } : {}),
     ...(objectGc === "1" ? { objectGc: true as const } : {}),
     ...(fileQuota ? { fileQuota: fileQuota as "report" | "enforce" } : {}),
