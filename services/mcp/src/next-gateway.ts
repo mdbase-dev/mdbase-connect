@@ -3,9 +3,10 @@
 // the hosted replica (cloud copy) or a user device through the relay (Private), and
 // runs the tool there. Collections the control plane does not route stay on the
 // legacy authority path until it is removed.
-import { connect, controlRouteResolver, describeError, isMdbaseError, relayConnector, routeFromControl, type KeyPair, type MdbaseClient, type RecordView, type Write } from "@mdbase-dev/sdk";
+import { connect, controlRouteResolver, describeError, isMdbaseError, routeFromControl, type KeyPair, type MdbaseClient, type RecordView, type Write } from "@mdbase-dev/sdk";
 import type { GrantKeyStore } from "@mdbase-dev/connect/crypto";
 import { GatewayOperationError } from "./errors.js";
+import { gatewayConnector } from "./next-connector.js";
 import { clientKeyAttachBody, type NoiseKeyStore } from "./next-keys.js";
 import {
   changesInput, changesOutput, collectionDescription, contractQueryOutput, implementationDigests, nextQueryPlan, queryOutput,
@@ -177,7 +178,7 @@ function openClient(fetchImpl: typeof fetch, version: string) {
       fetch: fetchImpl
     });
     return connect({
-      connector: relayConnector({ collection: connection.collection_id, grant, staticKey: key, resolveRoute }),
+      connector: gatewayConnector({ collection: connection.collection_id, grant, staticKey: key, resolveRoute }),
       app: { name: "dev.mdbase.mcp", version },
       reconnect: false
     });
