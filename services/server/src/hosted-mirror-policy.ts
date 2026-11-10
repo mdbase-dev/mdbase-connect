@@ -5,13 +5,13 @@ import {
   requireCollectionAction,
   resolveHostedCollectionAccess,
   type CollectionAccessContext
-} from "./collection-access.js";
-import { membershipPolicyPreset } from "./collection-policy.js";
+} from "./features/collections/collection-access.js";
+import { membershipPolicyPreset } from "./features/collections/collection-policy.js";
 import {
   membershipBindingForAccess,
   matchesMembershipBinding,
   type StoredCollectionMembershipBinding
-} from "./collection-membership-binding.js";
+} from "./features/collections/collection-membership-binding.js";
 import type { DatabaseQueryable } from "./db.js";
 
 /** Mirrors expose a whole collection. A partial policy cannot be represented by

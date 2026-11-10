@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { requireHostedCollectionNotMigrationFrozen } from "../next/migration-topology.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { resolveHostedCollectionAccess } from "../../collection-access.js";
+import { resolveHostedCollectionAccess } from "../collections/collection-access.js";
 import type { DatabasePool } from "../../database-types.js";
 import type { HostedAuthorityRegistry } from "../../hosted.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";

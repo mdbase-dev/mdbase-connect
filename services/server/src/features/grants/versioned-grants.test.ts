@@ -3,7 +3,7 @@ import { APPLICATION_SETUP_OPERATIONS, CONNECT_CONTRACT_SUPPORT, authorizationCo
 import type { CollectionOperation } from "@mdbase-dev/connect-protocol";
 import type { LegacyApplicationCapabilityId } from "@mdbase-dev/connect-protocol";
 import { canonicalSha256 } from "../../canonical-json.js";
-import { ownerAccess } from "../../collection-access.js";
+import { ownerAccess } from "../collections/collection-access.js";
 import { planCollectionGrant } from "./grant-planner.js";
 import { registerApplicationManifest } from "../../manifest.js";
 import { assertOperationsAllowedByApplication, operationsAllowedByRequirements } from "./policy.js";

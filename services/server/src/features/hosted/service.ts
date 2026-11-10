@@ -16,10 +16,10 @@ import {
   resolveHostedCollectionAccess,
   type CollectionAction,
   type CollectionAccessContext
-} from "../../collection-access.js";
+} from "../collections/collection-access.js";
 import {
   listHostedCollectionsVisibleToUser
-} from "../../collection-catalog.js";
+} from "../collections/collection-catalog.js";
 import type {
   DatabaseConnection,
   DatabasePool,

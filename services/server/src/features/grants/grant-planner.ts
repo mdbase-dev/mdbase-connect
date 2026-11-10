@@ -14,7 +14,7 @@ import {
   FILE_PROTOCOL_VERSION,
   applicationOperationSelectionIsAtomic
 } from "@mdbase-dev/connect-protocol";
-import type { CollectionAccessContext } from "../../collection-access.js";
+import type { CollectionAccessContext } from "../collections/collection-access.js";
 import { requiresWriteReplica } from "./collection-operation-policy.js";
 
 import { fileRequestForRequirements, legacyOperationSelectionAllowed, requirementContractVersion, type ApplicationRequirements } from "../applications/application-requirements.js";

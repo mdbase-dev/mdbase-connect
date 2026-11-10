@@ -10,12 +10,12 @@ import {
   resolveHostedCollectionAccess,
   resolveLocalCollectionAccess,
   type CollectionAccessContext
-} from "../../collection-access.js";
+} from "../collections/collection-access.js";
 import type { DatabaseQueryable } from "../../db.js";
 import {
   matchesMembershipBinding,
   membershipBindingForAccess
-} from "../../collection-membership-binding.js";
+} from "../collections/collection-membership-binding.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";
 import { randomToken, tokenHash } from "../../security.js";
 import { authorityUrl } from "../../platform/authority-url.js";

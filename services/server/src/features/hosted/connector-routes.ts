@@ -10,8 +10,8 @@ import {
   requireCollectionAction,
   resolveHostedCollectionAccess,
   type CollectionAccessContext
-} from "../../collection-access.js";
-import { resolveHostedCollection } from "../../collection-catalog.js";
+} from "../collections/collection-access.js";
+import { resolveHostedCollection } from "../collections/collection-catalog.js";
 import type { HostedAuthorityRegistry } from "../../hosted.js";
 import { audit } from "../../platform/audit-events.js";
 import { apiError } from "../../platform/http-errors.js";

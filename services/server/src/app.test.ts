@@ -26,7 +26,7 @@ import { createDatabase } from "./db.js";
 import {
   createHostedCollectionMembership,
   membershipPolicyPreset
-} from "./collection-policy.js";
+} from "./features/collections/collection-policy.js";
 import {
   HostedProviderClient,
   HostedProviderUnavailableError,

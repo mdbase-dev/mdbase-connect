@@ -4,7 +4,7 @@ import { operationsForApplicationCapabilities } from "@mdbase-dev/connect-protoc
 import {
   ownerAccess,
   type CollectionAccessContext
-} from "../../collection-access.js";
+} from "../collections/collection-access.js";
 import { fileCapabilityPermittedByRequirements, planCollectionGrant, previewCollectionGrant } from "./grant-planner.js";
 import { signedFileRequestForRequirements } from "../applications/application-requirements.js";
 

@@ -1,5 +1,5 @@
 import { SyncError } from "@mdbase-dev/connect-sync";
-import { resolveHostedCollectionAccess } from "../../collection-access.js";
+import { resolveHostedCollectionAccess } from "../collections/collection-access.js";
 import type {
   DatabasePool,
   DatabaseQueryable

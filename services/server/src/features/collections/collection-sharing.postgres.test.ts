@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { renameHostedCollectionForUser } from "./features/hosted/service.js";
+import { renameHostedCollectionForUser } from "../hosted/service.js";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { createDatabase, type DatabasePool } from "./db.js";
+import { createDatabase, type DatabasePool } from "../../db.js";
 import {
   createCollectionInvitationCode,
   createHostedCollectionInvitation,
@@ -12,10 +12,10 @@ import {
   revokeHostedCollectionMembership,
   changeHostedCollectionMembershipRole
 } from "./collection-membership-lifecycle.js";
-import { lockHostedMirrorAccess, insertHostedMirror } from "./hosted-mirror-policy.js";
-import { deleteAccountLocally } from "./features/account/account-management.js";
-import { ProviderRevocationWorker } from "./hosted-capability-lifecycle.js";
-import type { HostedProviderClient } from "./hosted-provider.js";
+import { lockHostedMirrorAccess, insertHostedMirror } from "../../hosted-mirror-policy.js";
+import { deleteAccountLocally } from "../account/account-management.js";
+import { ProviderRevocationWorker } from "../../hosted-capability-lifecycle.js";
+import type { HostedProviderClient } from "../../hosted-provider.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved =

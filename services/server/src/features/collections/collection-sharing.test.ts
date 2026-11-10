@@ -1,9 +1,9 @@
 // Regressions for membership authorization and lifecycle boundaries.
 import { randomUUID } from "node:crypto";
 import { afterEach, expect, it, vi } from "vitest";
-import { deleteAccountLocally } from "./features/account/account-management.js";
-import { buildApp } from "./app.js";
-import { createDatabase } from "./db.js";
+import { deleteAccountLocally } from "../account/account-management.js";
+import { buildApp } from "../../app.js";
+import { createDatabase } from "../../db.js";
 import { createHostedCollectionMembership } from "./collection-policy.js";
 import {
   changeHostedCollectionMembershipRole,
@@ -14,7 +14,7 @@ import {
   createHostedCollectionInvitation,
   acceptHostedCollectionInvitation
 } from "./collection-invitations.js";
-import type { HostedProviderClient } from "./hosted-provider.js";
+import type { HostedProviderClient } from "../../hosted-provider.js";
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => {
   while (cleanup.length) await cleanup.pop()!();

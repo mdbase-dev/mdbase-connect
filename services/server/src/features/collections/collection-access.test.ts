@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
-import { createDatabase, type DatabasePool } from "./db.js";
+import { createDatabase, type DatabasePool } from "../../db.js";
 import {
   accessView,
   requireCollectionAction,

@@ -11,11 +11,11 @@ import {
 } from "./collection-invitations.js";
 import { createHostedCollectionMembership } from "./collection-policy.js";
 import { revokeHostedCollectionMembership } from "./collection-membership-lifecycle.js";
-import { createDatabase, type DatabasePool } from "./db.js";
-import { effectiveEntitlement } from "./features/account/entitlements.js";
-import { tokenHash } from "./security.js";
-import { ProviderRevocationWorker } from "./hosted-capability-lifecycle.js";
-import type { HostedProviderClient } from "./hosted-provider.js";
+import { createDatabase, type DatabasePool } from "../../db.js";
+import { effectiveEntitlement } from "../account/entitlements.js";
+import { tokenHash } from "../../security.js";
+import { ProviderRevocationWorker } from "../../hosted-capability-lifecycle.js";
+import type { HostedProviderClient } from "../../hosted-provider.js";
 
 let database: DatabasePool | undefined;
 afterEach(async () => database?.end());

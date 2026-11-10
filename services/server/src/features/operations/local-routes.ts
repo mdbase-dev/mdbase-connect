@@ -14,7 +14,7 @@ import { z } from "zod";
 import {
   COLLECTION_OPERATIONS,
   localCollectionUnavailableError
-} from "../../collection-access.js";
+} from "../collections/collection-access.js";
 import type { DatabasePool } from "../../database-types.js";
 import {
   ConnectorOperationError,

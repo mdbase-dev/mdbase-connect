@@ -1,14 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { requireCollectionSharingManager } from "./collection-access.js";
 import { lockCollectionSharingAuthority } from "./collection-sharing-authority.js";
-import { queueNextPolicy } from "./features/next/policy-outbox.js";
+import { queueNextPolicy } from "../next/policy-outbox.js";
 import {
   CollectionMembershipPolicyError,
   membershipPolicyPreset,
   type CollectionMembershipRole
 } from "./collection-policy.js";
-import type { DatabaseConnection, DatabasePool, DatabaseQueryable } from "./db.js";
-import { audit } from "./platform/audit-events.js";
+import type { DatabaseConnection, DatabasePool, DatabaseQueryable } from "../../db.js";
+import { audit } from "../../platform/audit-events.js";
 
 export interface MembershipTransitionResult {
   membershipId: string;

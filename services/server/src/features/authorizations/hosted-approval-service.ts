@@ -6,12 +6,12 @@ import { type ApplicationNotifications, type ApplicationAuthorizationProof, type
 import { isCanonicalCollectionGrantScope } from "../grants/application-grant-scope.js";
 import { copyClientNoiseKeyToGrant } from "../next/client-key.js";
 import { queueNextGrantPolicy } from "../next/grant-policy.js";
-import { requireCollectionAction, resolveHostedCollectionAccess, type CollectionAccessContext } from "../../collection-access.js";
+import { requireCollectionAction, resolveHostedCollectionAccess, type CollectionAccessContext } from "../collections/collection-access.js";
 import type { DatabasePool } from "../../db.js";
 import {
   matchesMembershipBinding,
   membershipBindingForAccess
-} from "../../collection-membership-binding.js";
+} from "../collections/collection-membership-binding.js";
 import { contractRequirements } from "../../hosted.js";
 import { HostedProviderClient } from "../../hosted-provider.js";
 import {

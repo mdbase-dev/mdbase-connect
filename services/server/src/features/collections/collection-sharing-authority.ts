@@ -1,8 +1,8 @@
-import type { DatabaseConnection, DatabaseQueryable } from "./database-types.js";
-import { requireCollectionNotDeleted } from "./features/next/collection-deletion.js";
-import { requireAccountNotMigrationFrozen, requireNextAccountNotMigrationFrozen } from "./features/next/migration-topology.js";
-import { InvitationMigrationPending, requireCompletedMigrationInvitation } from "./features/next/migration-sharing.js";
-import { RequestValidationError } from "./platform/http-errors.js";
+import type { DatabaseConnection, DatabaseQueryable } from "../../database-types.js";
+import { requireCollectionNotDeleted } from "../next/collection-deletion.js";
+import { requireAccountNotMigrationFrozen, requireNextAccountNotMigrationFrozen } from "../next/migration-topology.js";
+import { InvitationMigrationPending, requireCompletedMigrationInvitation } from "../next/migration-sharing.js";
+import { RequestValidationError } from "../../platform/http-errors.js";
 
 export interface CollectionSharingAuthority {
   kind: "native" | "hosted";

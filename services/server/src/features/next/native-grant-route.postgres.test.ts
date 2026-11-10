@@ -22,8 +22,8 @@ import { buildPolicySnapshot, type LeasePolicySnapshot } from "../../relay-polic
 import { registerConnectorGrantRoutes } from "../grants/connector-routes.js";
 import { registerPeopleRoutes } from "../account/people-routes.js";
 import { legacyTimerGrantResolver } from "./timers/grants.js";
-import { createHostedCollectionMembership } from "../../collection-policy.js";
-import { revokeHostedCollectionMembership } from "../../collection-membership-lifecycle.js";
+import { createHostedCollectionMembership } from "../collections/collection-policy.js";
+import { revokeHostedCollectionMembership } from "../collections/collection-membership-lifecycle.js";
 import { registerAuthorizationRoutes } from "../authorizations/routes.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
 import type { RelayHub } from "../../relay.js";

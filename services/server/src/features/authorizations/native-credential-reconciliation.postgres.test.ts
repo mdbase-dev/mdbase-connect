@@ -12,7 +12,7 @@ import { registerApplicationManifest } from "../../manifest.js";
 import { pkceChallenge, tokenHash } from "../../security.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
 import type { RelayHub } from "../../relay.js";
-import { createHostedCollectionMembership } from "../../collection-policy.js";
+import { createHostedCollectionMembership } from "../collections/collection-policy.js";
 import { registerAuthorizationPollingRoutes } from "./polling-routes.js";
 import { AUTHORITY_PROOF_HEADERS, AUTHORITY_PROOF_VERSION } from "@mdbase-dev/connect-protocol";
 import { authorityProofMessage } from "../../authority-proof.js";

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { accountMigrating, configureTopologyTransaction, requireAccountNotMigrationFrozen } from "./features/next/migration-topology.js";
 import { RequestValidationError } from "./platform/http-errors.js";
 import type { DatabaseConnection, DatabasePool, DatabaseQueryable } from "./db.js";
-import { finalizeReadyMembershipTransitions } from "./collection-membership-lifecycle.js";
+import { finalizeReadyMembershipTransitions } from "./features/collections/collection-membership-lifecycle.js";
 import { audit } from "./platform/audit-events.js";
 import {
   HostedProviderResponseError,

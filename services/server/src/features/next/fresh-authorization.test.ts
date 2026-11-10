@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { APPLICATION_CAPABILITY_DEFINITIONS, type CollectionOperation } from "@mdbase-dev/connect-protocol";
 import type { ApplicationRequirements } from "../applications/application-requirements.js";
-import { ownerAccess } from "../../collection-access.js";
+import { ownerAccess } from "../collections/collection-access.js";
 import type { DatabaseQueryable } from "../../database-types.js";
 import { planCollectionGrant } from "../grants/grant-planner.js";
 import { registerApplicationManifest } from "../../manifest.js";

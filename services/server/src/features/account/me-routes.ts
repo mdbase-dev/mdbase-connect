@@ -1,12 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { accessView, requireCollectionAction, resolveHostedCollectionAccess, resolveLocalCollectionAccess } from "../../collection-access.js";
+import { accessView, requireCollectionAction, resolveHostedCollectionAccess, resolveLocalCollectionAccess } from "../collections/collection-access.js";
 import {
   listHostedCollectionsVisibleToUser,
   listLocalCollectionsVisibleToUser,
   listNativeCollectionsVisibleToUser,
   accountCollectionCreation
-} from "../../collection-catalog.js";
+} from "../collections/collection-catalog.js";
 import type { DatabasePool } from "../../db.js";
 import { effectiveEntitlement } from "./entitlements.js";
 import {

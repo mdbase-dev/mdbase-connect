@@ -22,13 +22,13 @@ import {
   requireCollectionAction,
   resolveHostedCollectionAccess,
   resolveLocalCollectionAccess
-} from "../../collection-access.js";
+} from "../collections/collection-access.js";
 import {
   accountCollectionCreation,
   listHostedCollectionsVisibleToUser,
   listNativeCollectionsVisibleToUser,
   resolveHostedCollection
-} from "../../collection-catalog.js";
+} from "../collections/collection-catalog.js";
 import {
   contractRequirements,
   effectiveHostedContractDescriptors

@@ -7,8 +7,8 @@ import type {
   CollectionTypeDescriptor
 } from "@mdbase-dev/connect-protocol";
 import { isConnectProblem, PEOPLE_PERMISSIONS } from "@mdbase-dev/connect-protocol";
-import { accessView, COLLECTION_ACTIONS, COLLECTION_OPERATIONS, CollectionAccessDeniedError, requireCollectionAction, resolveLocalCollectionAccess } from "../../collection-access.js";
-import { listLocalCollectionsVisibleToUser } from "../../collection-catalog.js";
+import { accessView, COLLECTION_ACTIONS, COLLECTION_OPERATIONS, CollectionAccessDeniedError, requireCollectionAction, resolveLocalCollectionAccess } from "../collections/collection-access.js";
+import { listLocalCollectionsVisibleToUser } from "../collections/collection-catalog.js";
 import type { DatabasePool } from "../../db.js";
 import { ConnectorOperationError, RelayUnavailableError, type RelayHub } from "../../relay.js";
 import { GrantPlanningError, planCollectionGrant } from "../grants/grant-planner.js";

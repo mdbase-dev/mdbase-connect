@@ -1,5 +1,5 @@
-import { listHostedCollectionsVisibleToUser } from "../../collection-catalog.js";
-import { resolveHostedCollectionAccess } from "../../collection-access.js";
+import { listHostedCollectionsVisibleToUser } from "../collections/collection-catalog.js";
+import { resolveHostedCollectionAccess } from "../collections/collection-access.js";
 import { approveMirrorPairing, assertMirrorAccess, lockHostedMirrorAccess, insertHostedMirror, lockMirrorForRenewal } from "../../hosted-mirror-policy.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";

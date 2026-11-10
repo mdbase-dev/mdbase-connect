@@ -6,7 +6,7 @@ import type {
 } from "@mdbase-dev/connect-protocol";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { COLLECTION_OPERATIONS } from "../../collection-access.js";
+import { COLLECTION_OPERATIONS } from "../collections/collection-access.js";
 import type { DatabasePool } from "../../db.js";
 import { collectionContractDescriptorSchema } from "../../platform/protocol-schemas.js";
 import type { RelayHub } from "../../relay.js";

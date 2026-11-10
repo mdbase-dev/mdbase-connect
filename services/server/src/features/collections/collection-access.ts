@@ -4,8 +4,8 @@ import {
   type FileCapability,
   type GrantScope
 } from "@mdbase-dev/connect-protocol";
-import type { DatabaseQueryable } from "./db.js";
-import { CutoverProblemError } from "./features/next/cutover-problems.js";
+import type { DatabaseQueryable } from "../../db.js";
+import { CutoverProblemError } from "../next/cutover-problems.js";
 import { resolveCollectionSharingAuthority, type CollectionSharingAuthority } from "./collection-sharing-authority.js";
 import {
   resolveHostedCollection,

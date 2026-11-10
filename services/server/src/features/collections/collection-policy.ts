@@ -9,10 +9,10 @@ import {
   type GrantScope
 } from "@mdbase-dev/connect-protocol";
 import { z } from "zod";
-import { collectionContractDescriptorSchema } from "./platform/protocol-schemas.js";
-import type { DatabasePool, DatabaseQueryable } from "./db.js";
+import { collectionContractDescriptorSchema } from "../../platform/protocol-schemas.js";
+import type { DatabasePool, DatabaseQueryable } from "../../db.js";
 import { lockCollectionSharingAuthority } from "./collection-sharing-authority.js";
-import { queueNextPolicy } from "./features/next/policy-outbox.js";
+import { queueNextPolicy } from "../next/policy-outbox.js";
 
 export const COLLECTION_ACTIONS = [
   "collection.discover",

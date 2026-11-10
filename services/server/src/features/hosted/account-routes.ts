@@ -3,7 +3,7 @@ import { insertHostedMirror, lockHostedMirrorAccess, lockMirrorForRenewal } from
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { resolveHostedCollectionAccess } from "../../collection-access.js";
+import { resolveHostedCollectionAccess } from "../collections/collection-access.js";
 import {
   type HostedAuthorityRegistry
 } from "../../hosted.js";

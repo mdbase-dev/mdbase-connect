@@ -15,7 +15,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import {
   localCollectionUnavailableError
-} from "../../collection-access.js";
+} from "../collections/collection-access.js";
 import type { DatabasePool } from "../../database-types.js";
 import {
   apiError,
