@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
-import { AuthAdminUsageError, runAuthAdminCommand } from "./auth-admin.js";
-import { createDatabase, type DatabasePool } from "./db.js";
-import type { HostedProviderClient } from "./hosted-provider.js";
+import { AuthAdminUsageError, runAuthAdminCommand } from "../../auth-admin.js";
+import { createDatabase, type DatabasePool } from "../../db.js";
+import type { HostedProviderClient } from "../../hosted-provider.js";
 import { pruneUsageHistory, USAGE_RETENTION_DAYS } from "./usage-report.js";
 
 const resources: Array<() => Promise<void>> = [];

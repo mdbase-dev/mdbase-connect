@@ -17,7 +17,7 @@ import { fileRequestForRequirements } from "../../application-requirements.js";
 import { acceptCohortArchive, addToCohort, cohortArchiveBinding, createCohort, flipAccountBackend, flipEvidenceDigest, releaseCohort, setCohortFrozen, setPaused, startAccountMigration } from "../next/migration-rollout.js";
 import { ZERO_HOSTED_ARCHIVE_SCHEMA } from "../next/migration-archive-profile.js";
 import { randomToken, tokenHash } from "../../security.js";
-import { pruneUsageHistory } from "../../usage-report.js";
+import { pruneUsageHistory } from "../usage/usage-report.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
 import { AuthenticationPolicyStore } from "../auth/authentication-policy.js";
 import { RelayHub } from "../../relay.js";

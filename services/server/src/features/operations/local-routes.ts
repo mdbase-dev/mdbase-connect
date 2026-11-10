@@ -22,7 +22,7 @@ import {
   RelayUnavailableError
 } from "../../relay.js";
 import { tokenHash } from "../../security.js";
-import { recordProtocolUsage } from "../../protocol-telemetry.js";
+import { recordProtocolUsage } from "../usage/protocol-telemetry.js";
 import {
   apiError,
   insufficientAccessError

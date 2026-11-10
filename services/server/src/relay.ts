@@ -28,7 +28,7 @@ import {
   requestPolicyPush, type ExactPolicyAcknowledgement
 } from "./relay-policy-session.js";
 import type { WebSocket } from "ws";
-import { recordConnectorProtocolUsage } from "./protocol-telemetry.js";
+import { recordConnectorProtocolUsage } from "./features/usage/protocol-telemetry.js";
 import {
   CONNECTOR_UPDATE_URL, currentRelayGeneration, lockAuthorizationGeneration,
   receiveRelayHello, recordIncompatibleRelay, rejectIncompatibleRelay, rejectUnavailableRelay,

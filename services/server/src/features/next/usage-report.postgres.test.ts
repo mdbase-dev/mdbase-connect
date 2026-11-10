@@ -3,7 +3,7 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { runAuthAdminCommand } from "../../auth-admin.js";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import { pruneUsageHistory } from "../../usage-report.js";
+import { pruneUsageHistory } from "../usage/usage-report.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";

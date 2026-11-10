@@ -16,7 +16,7 @@ import type { EmailTransport } from "./features/email/email.js";
 import { registerResendWebhookRoute } from "./features/email/email-provider-webhooks.js";
 import { renderScheduledEmail } from "./features/email/beta-welcome-email.js";
 import { ScheduledEmailWorker } from "./features/email/scheduled-email.js";
-import { UsageRetentionWorker } from "./usage-report.js";
+import { UsageRetentionWorker } from "./features/usage/usage-report.js";
 import type { GitHubAuthConfig } from "./features/auth/github-auth.js";
 import type { GoogleAuthConfig } from "./features/auth/google-auth.js";
 import { HostedAuthorityRegistry } from "./hosted.js";

@@ -3,7 +3,7 @@ import { usage } from "./features/instance-admin/auth-admin-usage.js";
 import { migrationExecutableSha256, repairAuthorityImportSources } from "./migrations.js";
 import type { DatabasePool } from "./db.js";
 import { compatibilityReport } from "./features/instance-admin/auth-admin-compatibility.js";
-import { usageReport } from "./usage-report.js";
+import { usageReport } from "./features/usage/usage-report.js";
 import { drainArchiveErasures } from "./features/instance-admin/archive-erasure-admin.js";
 import {
   backfillFreeEntitlement,

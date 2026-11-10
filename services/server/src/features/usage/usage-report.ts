@@ -1,9 +1,9 @@
-import type { DatabasePool } from "./db.js";
+import type { DatabasePool } from "../../db.js";
 import {
   isoTimestamp,
   reportWindowDays
-} from "./features/instance-admin/auth-admin-compatibility.js";
-import { invitationStatus } from "./features/instance-admin/instance-admin-invitations.js";
+} from "../instance-admin/auth-admin-compatibility.js";
+import { invitationStatus } from "../instance-admin/instance-admin-invitations.js";
 
 // Operator-only product usage report. Every figure is derived from control-plane
 // rows: no collection content, path, query, or per-operation record is read.
