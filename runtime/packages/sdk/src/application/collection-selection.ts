@@ -91,6 +91,8 @@ export class ApplicationCollectionSelection {
   private startHeld=true;
   /** The request whose open the session reported as failed (blocked). */
   private failed:string|null=null;
+  /** The session snapshot when the current attempt began. */
+  private before:AppWebSignInSnapshot|null=null;
   /** Last request auto-opened (null = auto-cleared); undefined = none yet. */
   private attempted:string|null|undefined=undefined;
   private lastRequested:string|null=null;
@@ -207,6 +209,15 @@ export class ApplicationCollectionSelection {
   private refresh():void {
     const id=this.requested().requestedCollectionId;
     if(id!==this.lastRequested){this.lastRequested=id;this.attempted=undefined;this.failed=null;if(this.declined!==id)this.declined=null;}
+    // Noted on every snapshot, not only when reconcile runs: the session can
+    // publish a failed open and clear it again (a re-read queued behind the
+    // open) before the next reconcile, and the cleared one alone looks like an
+    // open still under way. A retryable failure reads `unselected` with its
+    // problem set rather than `blocked`.
+    if(id!==null&&this.attempted===id){
+      const s=this.session.getSnapshot();
+      if(s!==this.before&&(s.status==="blocked"?s.selectedCollectionId===id:s.status==="unselected"&&s.problem!==null))this.failed=id;
+    }
     const next=this.derive(),key=this.keyOf(next);
     if(next.state==="usable")this.remember(next.usable!.collectionId);
     if(key===this.key)return;
@@ -238,7 +249,8 @@ export class ApplicationCollectionSelection {
   }
   private async whenIdle(work:()=>Promise<void>):Promise<void>{while(this.opening)await this.opening;this.check();await work();}
   private run(id:string|null,options:ApplicationSelectionRequestOptions={},explicit=false):Promise<void> {
-    this.attempted=id;
+    // What the session showed before this attempt is not its outcome.
+    this.attempted=id;this.failed=null;this.before=this.session.getSnapshot();
     const request=options.signal?{signal:options.signal}:{};
     const raw=Promise.resolve().then(()=>id===null?this.session.clear(request):this.session.open(id,request));
     // Failures surface through the session snapshot (blocked + typed problem);

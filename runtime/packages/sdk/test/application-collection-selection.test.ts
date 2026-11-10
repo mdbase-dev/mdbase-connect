@@ -212,6 +212,44 @@ describe("SDK collection selection: requested URL collection vs usable collectio
     session.publish({status:"unselected",problem:null});await settle();expect(session.opened).toEqual([A,A]);selection.close();
   });
 
+  it("reopens when the session clears the failure before the selection has looked at it",async()=>{
+    // The re-read was queued behind the open: `blocked`, the rejection and the
+    // cleared snapshot all arrive before the selection's next turn.
+    const session=signInSession({collections:[A,B]});session.failing.add(A);
+    const open=session.port.open;
+    const port:ApplicationSelectionSession={...session.port,open:async(id,options)=>{try{await open(id,options);}catch(error){session.publish({status:"unselected",problem:null});throw error;}}};
+    const web=browser(`${origin}/?collection=${A}`),selection=new ApplicationCollectionSelection({browser:new ApplicationBrowserSelection(origin,{},web.port),session:port});
+    selection.start();await settle();
+    expect(session.opened).toEqual([A,A]);expect(selection.getSnapshot()).toMatchObject({state:"usable",usable:{collectionId:A}});selection.close();
+  });
+
+  it("reopens once after a retryable failure, which reads unselected with its problem set, is cleared",async()=>{
+    const session=signInSession({collections:[A,B]});let retryable=true;
+    const open=session.port.open;
+    const port:ApplicationSelectionSession={...session.port,open:async(id,options)=>{
+      if(!retryable)return open(id,options);
+      retryable=false;session.opened.push(id);session.publish({status:"opening",selectedCollectionId:id});await Promise.resolve();
+      session.publish({status:"unselected",problem:"unavailable"});throw new Error("unavailable");
+    }};
+    const web=browser(`${origin}/?collection=${A}`),selection=new ApplicationCollectionSelection({browser:new ApplicationBrowserSelection(origin,{},web.port),session:port});
+    selection.start();await settle();
+    expect(session.opened).toEqual([A]);
+    session.publish({status:"unselected",problem:null});await settle();
+    expect(session.opened).toEqual([A,A]);expect(selection.getSnapshot()).toMatchObject({state:"usable",usable:{collectionId:A}});selection.close();
+  });
+
+  it("an attempt that ends without a failure is not reopened because of an earlier one's problem",async()=>{
+    const session=signInSession({collections:[A,B]});
+    session.publish({status:"unselected",problem:"unavailable"});
+    // The open ends quietly (cancelled) while the earlier problem is still showing.
+    const port:ApplicationSelectionSession={...session.port,open:async id=>{session.opened.push(id);await Promise.resolve();throw new Error("aborted");}};
+    const web=browser(`${origin}/?collection=${A}`),selection=new ApplicationCollectionSelection({browser:new ApplicationBrowserSelection(origin,{},web.port),session:port});
+    selection.start();await settle();
+    expect(session.opened).toEqual([A]);
+    session.publish({status:"unselected",problem:null});await settle();
+    expect(session.opened).toEqual([A]);selection.close();
+  });
+
   it("a re-read that leaves the failure in place, or drops the approval, does not reopen",async()=>{
     const session=signInSession({collections:[A,B]});session.failing.add(A);
     const {selection}=setup(`${origin}/?collection=${A}`,session);await settle();
