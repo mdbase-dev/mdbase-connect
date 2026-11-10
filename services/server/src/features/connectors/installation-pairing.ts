@@ -331,6 +331,9 @@ export async function startInstallationPairing(
         if (!k) return fail("installation_original_binding_changed");
         await active(c,existingConnector.user_id,true);
         await ordinary(c,existingConnector.user_id);
+        // A re-consent that names a recovery collection is held to the recovery
+        // rule below: an ask that cannot be granted is refused, never dropped.
+        if (input.recovery_collection_id && input.requested_private_device === true && !privateDeviceAsk) privateDeviceRefused();
         await c.query("INSERT INTO pairing_requests(id,secret_hash,connector_name,user_id,expires_at) VALUES($1,$2,$3,$4,now()+interval '10 minutes')",[input.request_id,tokenHash(input.pairing_secret),app.name,existingConnector.user_id]);
         // Re-consent uses the current authenticated credential, not a fabricated
         // device attestation or a second registration. The public keys are read

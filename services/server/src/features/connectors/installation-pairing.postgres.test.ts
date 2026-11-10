@@ -1421,6 +1421,12 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect((await deviceApprove(p,p.flow,{private_device_collection_ids:[first]})).statusCode).toBe(200);
     const token=(await p.flow.exchange()).json().token as string, bearer={authorization:`Bearer ${token}`};
     const again=(ask:boolean):Input=>({...p.input,installation:{...p.input.installation,request_id:randomUUID(),pairing_secret:randomToken("pair"),reconsent:true,requested_private_device:ask}});
+    // A re-consent that names a recovery collection and asks is refused, like a recovery
+    // sign-in, when the ask cannot be granted: it is never recorded as not asked.
+    const recoveringAgain=again(true); recoveringAgain.installation.recovery_collection_id=first;
+    const refusedAgain=await switchedOff(()=>startDevice(recoveringAgain,bearer));
+    expect([refusedAgain.statusCode,refusedAgain.json().error.code]).toEqual([403,"installation_private_device_not_allowed"]);
+    expect((await db.query("SELECT id FROM pairing_requests WHERE id=$1",[recoveringAgain.installation.request_id])).rows).toEqual([]);
     // A re-consent that does not ask cannot add device access, and its receipt keeps its shape.
     const plain=again(false);
     expect((await startDevice(plain,bearer)).statusCode).toBe(201);

@@ -1059,14 +1059,14 @@ describe("Private device consent (requested_private_device)", () => {
       expect(restored.view()).toMatchObject({collectionIds: [collection], privateDeviceCollectionIds: [collection]}); await restored.close();
     });
     it.each([
-      ["another collection's device scope", {collection_ids: [], create_collections: false, private_device_collection_ids: [other]}],
-      ["a second device scope", {collection_ids: [], create_collections: false, private_device_collection_ids: [collection, other]}],
-      ["a device scope with a cloud copy", {collection_ids: [other], create_collections: false, private_device_collection_ids: [collection]}],
-      ["a device scope with a selection", {collection_ids: [], create_collections: false, private_device_collection_ids: [collection], selected_collection_id: collection, created_collection_ids: []}],
-      ["a device scope with creation", {collection_ids: [], create_collections: true, private_device_collection_ids: [collection]}],
-    ])("refuses %s before protecting the token", async (_name, receipt) => {
+      ["another collection's device scope", "binding", {collection_ids: [], create_collections: false, private_device_collection_ids: [other]}],
+      ["a second device scope", "binding", {collection_ids: [], create_collections: false, private_device_collection_ids: [collection, other]}],
+      ["a device scope with a cloud copy", "binding", {collection_ids: [other], create_collections: false, private_device_collection_ids: [collection]}],
+      ["a device scope with a selection", "binding", {collection_ids: [], create_collections: false, private_device_collection_ids: [collection], selected_collection_id: collection, created_collection_ids: []}],
+      ["a device scope with creation", "response", {collection_ids: [], create_collections: true, private_device_collection_ids: [collection]}],
+    ])("refuses %s before protecting the token", async (_name, reason, receipt) => {
       const f = await recovering(receipt);
-      await expect(f.flow.exchange()).rejects.toThrow(); expect(f.read().token).toBeNull();
+      await expect(f.flow.exchange()).rejects.toMatchObject({reason}); expect(f.read().token).toBeNull();
     });
     it("reports Connect's refusal to give the key back as its own outcome, not as an update or a generic refusal", async () => {
       const refusal = () => new Response(JSON.stringify({error: {code: "installation_private_device_not_allowed", message: "not allowed"}}), {status: 403});
