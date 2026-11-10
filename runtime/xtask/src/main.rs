@@ -4,6 +4,7 @@
 #![allow(clippy::disallowed_methods, clippy::disallowed_types)]
 
 mod arch;
+mod codegen;
 
 use std::fmt::Write as _;
 use std::fs;
@@ -18,6 +19,8 @@ type Result<T> = std::result::Result<T, String>;
 const USAGE: &str = "\
 cargo xtask <command>
 
+  codegen       generate Rust and TS wire codecs from docs/contracts/wire.cddl
+                (--check: fail if the checked-in output is stale)
   arch          crate dependency direction, portable dependency trees, lint
                 inheritance, determinism source scan
   wasm          build target/wasm/runtime.wasm (wasm-release profile + wasm-opt -Oz)
@@ -38,6 +41,7 @@ fn main() -> ExitCode {
     let cmd = std::env::args().nth(1).unwrap_or_default();
     let result = match cmd.as_str() {
         "arch" => arch::run(),
+        "codegen" => codegen::run(std::env::args().nth(2).as_deref() == Some("--check")),
         "wasm" => wasm_build().map(|_| ()),
         "wasm-size" => wasm_size(),
         "wasm-app" => wasm_app(),
@@ -424,6 +428,7 @@ fn ci() -> Result<()> {
             "warnings",
         ],
         &["xtask", "arch"],
+        &["xtask", "codegen", "--check"],
         &["deny", "--locked", "check"],
         &["test", "--workspace", "--locked"],
         &[

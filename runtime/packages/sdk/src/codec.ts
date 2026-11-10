@@ -388,3 +388,18 @@ export function lazy<T>(f: () => Codec<T>): Codec<T> {
     dec: (x) => get().dec(x),
   };
 }
+
+// ------------------------------------------------------------------ common types (00-overview.md §3.4)
+
+/** `version` / `sem`: `[major, minor]`. */
+export interface Version {
+  major: number;
+  minor: number;
+}
+
+export const version: Codec<Version> = mapped(
+  "version",
+  tuple<[number, number]>("version", [uint, uint]),
+  ([major, minor]) => ({ major, minor }),
+  (v): [number, number] => [v.major, v.minor],
+);
