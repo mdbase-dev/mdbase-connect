@@ -5361,6 +5361,7 @@ RelayConnectorOptions@transport/relay.ts
 RelayRoute@transport/relay.ts
   noisePublicKey: Uint8Array<ArrayBufferLike>
   pipe?: { collection: string; accessToken: string; } | undefined
+  prologueFirst?: boolean | undefined
   targetDevice: string
   url: string
 

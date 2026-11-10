@@ -102,6 +102,74 @@ describe("relay transport (Noise over WebSocket)", () => {
     ).rejects.toMatchObject({ code: "unauthenticated" });
   });
 
+  it("a hosted route sends the 64-byte prologue in clear before Noise message 1", async () => {
+    const replica = new MemoryReplica({ confirmDelayMs: 0 });
+    const device = uuidv7();
+    const grant = uuidv7();
+    const replicaKey = generateKeyPair();
+    const clientKey = await loadOrCreateClientKey("app", { storage: memoryKeyStorage() });
+    const prologue = clientPrologue(uuidToBytes(replica.collection), uuidToBytes(grant), uuidToBytes(device));
+    const first: Uint8Array[] = [];
+    // The hosted Worker's app socket (`hosted-worker/src/app.ts`): the first message
+    // must be the clear prologue, or the socket is closed; Noise IK follows.
+    const ws = fakeWebSocket((carrier) => {
+      carrier.onmessage = (m) => {
+        first.push(m);
+        if (m.length !== 64 || toHex(m) !== toHex(prologue)) return carrier.close();
+        serveNoise(carrier, replica.connector(), {
+          staticKey: replicaKey,
+          prologue,
+          authorize: (k) => toHex(k) === toHex(clientKey.publicKey),
+        });
+      };
+    });
+    const { routeFromControl } = await import("../src/transport/control-route.js");
+    const target = { device, noise_pk: toHex(replicaKey.publicKey), url: "wss://hosted.test/v1/hosted/app?collection=" + replica.collection };
+    const route = routeFromControl({ collection: replica.collection, grant, targets: [{ kind: "hosted", ...target }] }, "tok")!;
+    expect(route.prologueFirst).toBe(true);
+    expect(route.pipe).toBeUndefined();
+    // Relay targets carry the same values in `pipe_open` and never send it in clear.
+    const relayed = routeFromControl({ collection: replica.collection, grant, targets: [{ kind: "desktop", ...target, relay_collection: replica.collection }] }, "tok")!;
+    expect(relayed.prologueFirst).toBeUndefined();
+    const c = await connect({
+      app,
+      connector: relayConnector({ collection: replica.collection, grant, staticKey: clientKey, webSocket: ws, resolveRoute: async () => route }),
+    });
+    expect(first).toHaveLength(1);
+    expect(toHex(first[0]!)).toBe(toHex(prologue));
+    const w = await c.create({ path: "a.md", body: "hosted" });
+    await w.confirmed;
+    expect((await c.get({ path: "a.md" }, { body: true })).body).toBe("hosted");
+    c.close();
+  });
+
+  it("a hosted route without the clear prologue is closed before any response", async () => {
+    const replica = new MemoryReplica();
+    const device = uuidv7();
+    const grant = uuidv7();
+    const replicaKey = generateKeyPair();
+    const prologue = clientPrologue(uuidToBytes(replica.collection), uuidToBytes(grant), uuidToBytes(device));
+    const ws = fakeWebSocket((carrier) => {
+      carrier.onmessage = (m) => {
+        if (m.length !== 64 || toHex(m) !== toHex(prologue)) return carrier.close();
+        serveNoise(carrier, replica.connector(), { staticKey: replicaKey, prologue });
+      };
+    });
+    // A direct route that is not marked hosted keeps the plain carrier (Noise message 1 first).
+    await expect(
+      connect({
+        app,
+        connector: relayConnector({
+          collection: replica.collection,
+          grant,
+          staticKey: generateKeyPair(),
+          webSocket: ws,
+          resolveRoute: async () => ({ url: "wss://x", targetDevice: device, noisePublicKey: replicaKey.publicKey }),
+        }),
+      }),
+    ).rejects.toMatchObject({ code: "unavailable" });
+  });
+
   it("a wrong replica key fails the handshake", async () => {
     const replica = new MemoryReplica();
     const device = uuidv7();
