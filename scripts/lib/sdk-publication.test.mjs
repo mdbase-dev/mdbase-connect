@@ -162,7 +162,7 @@ test("workflow builds all variants once, isolates both publisher credentials and
   const workflow = readFileSync(join(root, ".github/workflows/publish-sdk-npm.yml"), "utf8");
   assert.match(workflow, /dry_run:[\s\S]*?default: true/);
   assert.doesNotMatch(workflow, /production_verified_commit:/);
-  assert.match(workflow, /group: sdk-publication-\$\{\{ github.event_name == 'pull_request' && github.ref \|\| 'live' \}\}/);
+  assert.match(workflow, /group: sdk-publication-\$\{\{ github.event_name == 'pull_request' && github.ref \|\| startsWith\(github.ref, 'refs\/tags\/'\) && 'live' \|\| 'coordinator' \}\}/);
   assert.match(workflow, /cancel-in-progress: \$\{\{ github.event_name == 'pull_request' \}\}/);
   for (const path of ["runtime/crates/**", "runtime/Cargo.toml", "runtime/Cargo.lock",
     "runtime/rust-toolchain.toml", "runtime/.cargo/**", "runtime/xtask/**", "runtime/tools/wasm/**"]) {
@@ -173,7 +173,10 @@ test("workflow builds all variants once, isolates both publisher credentials and
   assert.match(workflow, /cargo xtask wasm-app/);
   assert.match(workflow, /verify-qualified-commit/);
   assert.match(workflow, /--workflow runtime-ci.yml/);
-  const [build, publishers] = workflow.split("\n  publish:\n");
+  const [planning, publishers] = workflow.split("\n  publish:\n");
+  const build = planning.split("\n  build:\n")[1];
+  // The coordinator's tag reservation is the only pre-publish write.
+  assert.match(planning.split("\n  reserve:\n")[1].split("\n  build:\n")[0], /actions: write\n      contents: write/);
   const [publish, internal] = publishers.split("\n  attest-internal:\n");
   const [attest, release] = internal.split("\n  publish-internal:\n");
   assert(!build.includes("id-token: write"));
@@ -181,14 +184,14 @@ test("workflow builds all variants once, isolates both publisher credentials and
   assert(!workflow.includes("inputs.environment"));
   assert.equal(workflow.match(/cargo xtask wasm-app/g).length, 1);
   assert.match(build, /sdk-publication.mjs pack-all/);
-  assert.match(build, /sdk-prerelease.test.mjs/);
+  assert.match(planning, /sdk-prerelease.test.mjs/);
   assert.match(publish, /!inputs.dry_run/);
   assert.match(publish, /environment: npm-sdk/);
   assert.match(publish, /sdk-publication.mjs ready/);
   assert.match(publish, /sdk-publication.mjs verify-npm/);
   assert.match(publish, /continuous-sdk-release.mjs compatible/);
   assert.match(publish, /continuous-sdk-release.mjs publication-state/);
-  assert.match(publish, /if: steps\.publication\.outputs\.state == 'absent'\n\s+run: \|\n\s+export GITHUB_SHA="\$CLIENT_RELEASE_COMMIT"\n\s+npm publish/);
+  assert.match(publish, /if: steps\.publication\.outputs\.state == 'absent'\n\s+run: npm publish/);
   assert.match(release, /needs\.publish\.outputs\.state == 'absent'/);
   assert.match(publish, /id-token: write/);
   assert(!workflow.includes("NODE_AUTH_TOKEN"));

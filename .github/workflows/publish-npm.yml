@@ -24,8 +24,10 @@ permissions:
   contents: read
   actions: read
 
+# Tag runs publish one at a time, in reservation order. The main coordinator has
+# its own group, so it never displaces a pending tag run.
 concurrency:
-  group: npm-publication-${{ github.event_name == 'pull_request' && github.ref || 'live' }}
+  group: npm-publication-${{ github.event_name == 'pull_request' && github.ref || startsWith(github.ref, 'refs/tags/') && 'live' || 'coordinator' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -43,15 +45,20 @@ jobs:
 
   plan:
     needs: validate
+    # On main: coordinate. On a coordinator-reserved v0.1.0-beta.N tag: publish
+    # that tag's commit, which is this run's own commit.
     if: >-
-      github.repository == 'mdbase-dev/mdbase-connect' && github.ref == 'refs/heads/main' &&
+      github.repository == 'mdbase-dev/mdbase-connect' &&
+      ((github.ref == 'refs/heads/main' &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository))
+      github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository))) ||
+      (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v0.1.0-beta.')))
     runs-on: ubuntu-24.04
     outputs:
       commit: ${{ steps.plan.outputs.commit }}
       changed: ${{ steps.plan.outputs.changed }}
+      reserve: ${{ steps.plan.outputs.reserve }}
       artifact_run_id: ${{ steps.plan.outputs.artifact_run_id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -81,16 +88,37 @@ jobs:
           path: ${{ runner.temp }}/npm-release-plan.json
           if-no-files-found: error
 
-  pack:
+  reserve:
     needs: plan
-    if: needs.plan.outputs.changed == 'true'
-    env:
-      CLIENT_RELEASE_COMMIT: ${{ needs.plan.outputs.commit }}
+    if: github.ref == 'refs/heads/main' && needs.plan.outputs.reserve == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: write
+      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ needs.plan.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: npm-release-plan
+          path: ${{ runner.temp }}/npm-plan
+      - name: Reserve the release tag at the selected production commit and publish from it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/continuous-sdk-release.mjs reserve "$RUNNER_TEMP/npm-plan/npm-release-plan.json"
+
+  pack:
+    needs: plan
+    if: startsWith(github.ref, 'refs/tags/v0.1.0-beta.') && needs.plan.outputs.changed == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24
@@ -105,9 +133,7 @@ jobs:
           path: ${{ runner.temp }}/qualified-packages
           run-id: ${{ needs.plan.outputs.artifact_run_id }}
           github-token: ${{ github.token }}
-      - run: |
-          export GITHUB_SHA="$CLIENT_RELEASE_COMMIT"
-          node scripts/continuous-sdk-release.mjs pack-workspace "$RUNNER_TEMP/npm-plan/npm-release-plan.json" "$RUNNER_TEMP/qualified-packages" "$RUNNER_TEMP/npm-packages"
+      - run: node scripts/continuous-sdk-release.mjs pack-workspace "$RUNNER_TEMP/npm-plan/npm-release-plan.json" "$RUNNER_TEMP/qualified-packages" "$RUNNER_TEMP/npm-packages"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: versioned-npm-packages
@@ -117,9 +143,7 @@ jobs:
   publish:
     name: Publish changed SDK packages
     needs: [plan, pack]
-    if: github.ref == 'refs/heads/main' && needs.plan.outputs.changed == 'true' && (github.event_name != 'workflow_dispatch' || !inputs.dry_run)
-    env:
-      CLIENT_RELEASE_COMMIT: ${{ needs.plan.outputs.commit }}
+    if: startsWith(github.ref, 'refs/tags/v0.1.0-beta.') && needs.plan.outputs.changed == 'true' && (github.event_name != 'workflow_dispatch' || !inputs.dry_run)
     runs-on: ubuntu-24.04
     environment: npm
     permissions:
@@ -129,19 +153,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ needs.plan.outputs.commit }}
           fetch-depth: 0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
-      - run: |
-          export GITHUB_SHA="$CLIENT_RELEASE_COMMIT"
-          npm install --global npm@11
-      - run: |
-          export GITHUB_SHA="$CLIENT_RELEASE_COMMIT"
-          node scripts/check-release-readiness.mjs
+      - run: npm install --global npm@11
+      - run: node scripts/check-release-readiness.mjs
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: npm-release-plan
@@ -154,7 +173,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          export GITHUB_SHA="$CLIENT_RELEASE_COMMIT"
           scripts/ci/verify-qualified-commit "$GITHUB_SHA"
           node scripts/continuous-sdk-release.mjs compatible
           node scripts/continuous-sdk-release.mjs publish-workspace "$RUNNER_TEMP/npm-plan/npm-release-plan.json" "$RUNNER_TEMP/npm-packages"
