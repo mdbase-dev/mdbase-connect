@@ -164,43 +164,6 @@ async function cargoManifests(root) {
   return manifests;
 }
 
-// connect-core executes typed local runtime outcomes; the v0.3 OperationResult
-// shape exists only at the single boundary adapter in runtime_operations.rs.
-function localRuntimeFailures(sources) {
-  const failures = [];
-  const files = [
-    "crates/connect-core/src/registry/runtime_operations.rs",
-    "crates/connect-core/src/registry/runtime_executor.rs"
-  ];
-  for (const file of files) {
-    const source = sources.get(file);
-    if (!source) continue;
-    const forbidden = [
-      [/\.result\.result\b/g, "deprecated nested OperationResult access"],
-      [/pointer\(["']\/result\/(?:frontmatter|types)["']\)/g, "record JSON-pointer inspection"],
-      [/serde_json::from_value[^\n]*(?:RecordDocument|CanonicalOperation)/g, "typed outcome recovery through JSON"]
-    ];
-    for (const [pattern, description] of forbidden) {
-      const count = matchCount(source, pattern);
-      if (count > 0) failures.push(`${file} has ${count} forbidden ${description} seam(s).`);
-    }
-    const operationResults = matchCount(source, /mdbase::v03::OperationResult/g);
-    const allowed = file.endsWith("runtime_operations.rs") ? 1 : 0;
-    if (operationResults > allowed) {
-      failures.push(`${file} has ${operationResults} internal OperationResult reference(s); only ${allowed} boundary adapter reference(s) are allowed.`);
-    }
-  }
-  if (sources.has(files[0])) {
-    const toV03 = [...sources]
-      .filter(([file]) => file.startsWith("crates/connect-core/src/"))
-      .reduce((total, [, source]) => total + matchCount(source, /\.to_v03\(/g), 0);
-    if (toV03 !== 1) {
-      failures.push(`connect-core must have exactly one v0.3 boundary adapter; found ${toV03} to_v03 call(s).`);
-    }
-  }
-  return failures;
-}
-
 // Canonical operation outcomes are constructed and read only through mdbase's
 // typed API; Connect must not build wire-only values or reach into fields.
 const FORBIDDEN_RUST = [
@@ -214,7 +177,7 @@ const PROJECTION_ASSERTION =
 
 export async function evaluateArchitecture(root) {
   const sources = await productionSources(root);
-  const failures = localRuntimeFailures(sources);
+  const failures = [];
 
   for (const [file, source] of sources) {
     if (!file.endsWith(".rs")) continue;

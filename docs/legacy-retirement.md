@@ -63,8 +63,14 @@ pipeline change can be reverted on its own:
      package now names `runtime/crates/daemon` for the connector boundaries.
      `docs/unified-cli.md`, `windows-core-flakes.md` and `file-io-campaign.md`
      were already removed in #1356.
-2. **Deletion.** Removes `crates/connect-cli`, `connect-agent`, `connect-core`,
-   `connect-mirror` and `connect-testbed-adapter` and what only they needed.
+2. **Deletion.** Removed `crates/connect-cli`, `connect-agent`, `connect-core`,
+   `connect-mirror` and `connect-testbed-adapter`, the workspace dependencies
+   only they used (`directories`, `iana-time-zone`, `keyring`, `notify`,
+   `rusqlite`, `tokio-tungstenite`) and their lock entries, their CODEOWNERS
+   lines, and the architecture check's `connect-core` runtime seam rule. No kept
+   crate depended on them. The `local` cases in
+   `packages/protocol/test/fixtures/collection-changes-v1.json` stay as client
+   decoding fixtures.
 
 The relay keeps accepting old connectors (Keep). Query Q4 below still shows
 whether any are left.

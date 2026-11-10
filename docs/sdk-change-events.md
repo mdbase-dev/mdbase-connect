@@ -29,12 +29,9 @@ user. Without a `document`, as in Node, the interval is unchanged.
 ## Producer evidence
 
 [`collection-changes-v1.json`](../packages/protocol/test/fixtures/collection-changes-v1.json)
-contains deterministic payload captures checked directly against the emitters:
+contains deterministic payload captures. The `local` cases were captured from
+the retired legacy connector's emitter and remain client decoding fixtures.
 
-- Local: `watch_event` in
-  `crates/connect-core/src/registry/runtime_changes.rs`. The fixture test feeds
-  canonical record/resource transitions through the real emitter and asserts
-  exact event ID and payload equality, including runtime metadata.
 - Hosted: `application_change` in
   `crates/connect-hosted-provider/src/provider/policy.rs`. The fixture test feeds
   before/after `SyncRecord` projections through the real emitter and asserts
