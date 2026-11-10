@@ -4,7 +4,7 @@ import type { DatabasePool } from "../../database-types.js";
 import { EMAIL_NORMALIZATION_VERSION, normalizeEmailAddress } from "./email-identity.js";
 import { createExternalSessionInTransaction, type VerifiedExternalIdentity } from "./external-auth.js";
 import type { AccountBackend } from "../next/account-backend-flip.js";
-import { completePublicAccountOnboarding } from "../../public-account-onboarding.js";
+import { completePublicAccountOnboarding } from "../onboarding/public-account-onboarding.js";
 import { PublicSignupUnavailableError } from "./public-signup.js";
 import { randomToken, safeEqual, tokenHash } from "../../security.js";
 

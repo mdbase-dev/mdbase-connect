@@ -27,7 +27,7 @@ import {
   materializeInvitationEntitlement
 } from "../account/entitlements.js";
 import { scheduleBetaWelcomeEmail } from "../../beta-welcome-email.js";
-import { scheduleStarterCollection } from "../../account-onboarding.js";
+import { scheduleStarterCollection } from "../onboarding/account-onboarding.js";
 import { provisionNewAccountBackend, type AccountBackend } from "../next/account-backend-flip.js";
 
 const DEFAULT_INVITATION_LIFETIME_SECONDS = 7 * 24 * 60 * 60;

@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { DatabaseQueryable } from "./database-types.js";
+import type { DatabaseQueryable } from "../../database-types.js";
 import {
   createHostedCollectionForUser,
   type HostedServiceOptions
-} from "./features/hosted/service.js";
+} from "../hosted/service.js";
 import {
   STARTER_COLLECTION_NAME,
   STARTER_TEMPLATE_VERSION

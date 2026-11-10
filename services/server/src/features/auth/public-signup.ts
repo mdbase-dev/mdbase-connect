@@ -12,7 +12,7 @@ import {
   AuthenticationPolicyStore,
   type AuthenticationSettings
 } from "./authentication-policy.js";
-import { completePublicAccountOnboarding } from "../../public-account-onboarding.js";
+import { completePublicAccountOnboarding } from "../onboarding/public-account-onboarding.js";
 import { hashPassword } from "./password.js";
 import { randomToken, tokenHash } from "../../security.js";
 import { provisionNewAccountBackend, type AccountBackend } from "../next/account-backend-flip.js";
