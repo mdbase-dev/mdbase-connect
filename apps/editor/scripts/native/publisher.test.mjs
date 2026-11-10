@@ -1,8 +1,8 @@
 // Public data and transport doubles; no deployment or credentials.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
-import { cp, readFile, mkdtemp, writeFile, mkdir, rm } from 'node:fs/promises';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { chmod, cp, readFile, mkdtemp, writeFile, mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -106,7 +106,7 @@ it('pins staging to the production version and verifies both release digests and
   {name:'sdk-staging.tgz',digest:'sha256:'+sha(bytes),browser_download_url:prefix+'sdk-staging.tgz'},
   {name:'sdk-staging.tgz.sigstore.json',digest:'sha256:'+sha(proof),browser_download_url:prefix+'sdk-staging.tgz.sigstore.json'}]};
  let called=false;
- const options={fetchImpl:async url=>url.includes('api.github.com')?Response.json(release):new Response(url.endsWith('.json')?proof:bytes),
+ const options={token:'',fetchImpl:async url=>url.includes('api.github.com')?Response.json(release):new Response(url.endsWith('.json')?proof:bytes),
   run:(command,args)=>{called=true;assert.equal(command,'gh');assert.ok(args.includes('--bundle'));assert.ok(args.includes(pin.sourceCommit));assert.ok(args.includes('mdbase-dev/mdbase-connect/.github/workflows/publish-sdk-npm.yml'));}};
  assert.equal((await stagingArchive(pin,options)).authentication.sha256,sha(bytes));assert.equal(called,true);
  await assert.rejects(stagingArchive(pin,{...options,fetchImpl:async url=>url.includes('api.github.com')?Response.json(release):new Response('wrong')}),/digest mismatch/);
@@ -136,6 +136,49 @@ it('derives the staging frozen install without changing any other dependency',as
   pkg.dependencies['@mdbase-dev/sdk']=originalPackage.dependencies['@mdbase-dev/sdk'];
   assert.deepEqual(pkg,originalPackage);
  }finally{await rm(f.root,{recursive:true,force:true});}
+});
+it('uses authenticated assets for staging installation and installed-byte comparison',async context=>{
+ const fixture=await originalsFixture(),previous=process.env.GITHUB_TOKEN;
+ process.env.GITHUB_TOKEN='test-job-token';
+ context.after(()=>{if(previous===undefined)delete process.env.GITHUB_TOKEN;else process.env.GITHUB_TOKEN=previous;});
+ try {
+  const sdkTrust=await loadOriginals(fixture.options),{pin,bytes}=await productionPin(fixture.root);
+  const tag='sdk-v'+pin.version,path=`https://github.com/mdbase-dev/mdbase-connect/releases/download/${tag}/sdk-staging.tgz`;
+  const archive={...sdkTrust.archives.sdk,path},seen=[];
+  const metadata=`https://api.github.com/repos/mdbase-dev/mdbase-connect/releases/tags/${tag}`;
+  const asset='https://api.github.com/repos/mdbase-dev/mdbase-connect/releases/assets/100';
+  const fetchImpl=async(url,init)=>{
+   seen.push(url);assert.equal(init.headers.authorization,'Bearer test-job-token');
+   if(url===metadata)return Response.json({tag_name:tag,prerelease:true,draft:false,assets:[
+    {id:100,name:'sdk-staging.tgz',digest:'sha256:'+sha(bytes),browser_download_url:path}
+   ]});
+   assert.equal(url,asset);assert.equal(init.headers.accept,'application/octet-stream');
+   return new Response(bytes);
+  };
+  const plan={target:'staging',sdkTrust:{...sdkTrust,archives:{...sdkTrust.archives,sdk:archive}}};
+  await prepareInstall(plan,fixture.root,fetchImpl);
+  assert.deepEqual(await readFile(join(fixture.app,'vendor/sdk-staging.tgz')),bytes);
+  await compareInstalled(fixture.root,{sdk:archive},{fetchImpl});
+  assert.deepEqual(seen,[metadata,asset,metadata,asset]);
+  const wrong=async(url,init)=>url===metadata?fetchImpl(url,init):new Response('wrong bytes');
+  await assert.rejects(prepareInstall(plan,fixture.root,wrong),/Staging install archive mismatch/);
+  await assert.rejects(compareInstalled(fixture.root,{sdk:archive},{fetchImpl:wrong}),/installed comparison archive mismatch/);
+ }finally{await rm(fixture.root,{recursive:true,force:true});}
+});
+it('removes the intake job token before executing dependency or application build commands',async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'editor-build-token-'));
+ try {
+  const executable=join(directory,'pnpm');
+  await writeFile(executable,'#!/bin/sh\n[ -z "${GITHUB_TOKEN+x}" ] || exit 99\nprintf "build-token-cleared\\n" >&2\nexit 73\n');
+  await chmod(executable,0o755);
+  await writeFile(join(directory,'plan.json'),JSON.stringify({sdkTrust:{archives:{},release:{}}}));
+  const result=spawnSync(process.execPath,[join(repoRoot,'apps/editor/scripts/native/build.mjs'),directory],{
+   cwd:directory,encoding:'utf8',env:{...process.env,PATH:directory+':'+process.env.PATH,GITHUB_TOKEN:'test-job-token'}
+  });
+  assert.notEqual(result.status,0);
+  assert.match(result.stderr,/build-token-cleared/);
+  assert.doesNotMatch(result.stderr,/test-job-token/);
+ }finally{await rm(directory,{recursive:true,force:true});}
 });
 it('rolls production back, verifies the previous id and every transitive asset, and keeps failure evidence',async()=>{
  const previousId='87654321-1234-4234-8234-123456789abc',previousUrl='https://87654321.mdbase-editor.pages.dev',failedId='12345678-1234-4234-8234-123456789abc';
@@ -260,7 +303,10 @@ it('accounts for ALL static bytes plus SOURCE-owned headers/redirects; refuses t
   };
   const staleAsset=staleEdge(path=>path==='/assets/a.js');
   assert.equal((await verifyHosting({origin,inventory:f.inventory,deployment,fetchImpl:staleAsset})).ok,true,'unchanged asset may keep previous headers on the alias');
-  assert.equal((await verifyHosting({origin:deployment.url,inventory:f.inventory,deployment,fetchImpl:staleAsset})).ok,false,'the immutable URL proves the policy on every file');
+  const immutableStale=await verifyHosting({origin:deployment.url,inventory:f.inventory,deployment,fetchImpl:staleAsset});
+  assert.equal(immutableStale.ok,false,'the immutable URL proves the policy on every file');
+  assert.deepEqual(immutableStale.failures.find(x=>x.path==='/assets/a.js'),{path:'/assets/a.js',reason:'trusted-live-header-policy-failed',
+   detail:'Live source-owned header policy mismatch: Content-Security-Policy'},'the report names the rule, never the served value');
   const staleDocument=staleEdge((path,response)=>response.headers.get('content-type')==='text/html');
   assert.equal((await verifyHosting({origin,inventory:f.inventory,deployment,fetchImpl:staleDocument})).ok,false,'documents prove the policy on the alias');
   await writeFile(join(f.root,'_headers'),headersPolicy+'# changed\n');
@@ -327,4 +373,16 @@ it('re-verifies only the custom alias inside a bounded settle window after the i
  assert.ok(stuck.calls.every(c=>c.totalTimeoutMs>0 && c.totalTimeoutMs<=180000));
  assert.ok(never.aliasAttempts.at(-1).startedMs<=300000);
  await assert.rejects(verifyPublication({...stuck.options,deployment:{...deployment,sourceSha:'c'.repeat(40)}}),/mismatch/);
+});
+
+it('recovery failures name the fixed refusal or only the error type', () => {
+ const script=new URL('./rollback.mjs',import.meta.url).pathname;
+ const run=(...args)=>spawnSync(process.execPath,[script,...args],{encoding:'utf8',
+  env:{PATH:process.env.PATH,TARGET:'production',CLOUDFLARE_API_TOKEN:'',CLOUDFLARE_ACCOUNT_ID:''}});
+ const refused=run('snapshot',tmpdir());
+ assert.equal(refused.status,1);
+ assert.equal(refused.stderr,'Editor recovery operation failed: Pages credentials required\n');
+ const other=run('unknown-command',tmpdir());
+ assert.equal(other.status,1);
+ assert.equal(other.stderr,'Editor recovery operation failed: transport or runtime error (Error)\n');
 });

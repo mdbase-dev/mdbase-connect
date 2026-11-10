@@ -23,6 +23,7 @@ import type {
   CollectionSessionSnapshot,
   ConnectionSummary,
   CreateNoteInput,
+  LinkTarget,
   NoteDocument,
   NoteContentRequest,
   NoteIndexRequest,
@@ -187,6 +188,25 @@ export class DemoCollectionGateway implements CollectionGateway {
       total: notes.length
     });
     return { notes, snapshot };
+  }
+
+  async backlinks(path: string): Promise<string[]> {
+    await delay(5);
+    const target = path.replace(/\.md$/i, "");
+    const stem = target.split("/").pop();
+    return this.notes
+      .filter((note) => note.path !== path && demoLinks(note.body ?? "").some((link) => {
+        const name = link.replace(/\.md$/i, "");
+        return name === target || name === stem;
+      }))
+      .map((note) => note.path)
+      .sort();
+  }
+
+  async resolveLinks(from: string, links: readonly string[]): Promise<LinkTarget[]> {
+    await delay(5);
+    const notes = this.notes.map((note) => note.path), files = this.files.map((file) => file.path);
+    return links.map((raw) => demoResolve(raw, from, notes, files));
   }
 
   async mostRecentNote(): Promise<string | undefined> {
@@ -867,6 +887,33 @@ function demoLinks(body: string): string[] {
   const wikilinks = [...body.matchAll(/(?<!!)\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g)].map((match) => match[1].trim());
   const markdown = [...body.matchAll(/(?<!!)\[[^\]]+\]\((?!https?:\/\/)([^)#]+)(?:#[^)]*)?\)/g)].map((match) => match[1].trim());
   return [...new Set([...wikilinks, ...markdown])];
+}
+
+/** Demo-only stand-in for the collection's link resolution: paths, `.md`
+ * completion and simple names by basename, nearest folder first. */
+function demoResolve(raw: string, from: string, notes: readonly string[], files: readonly string[]): LinkTarget {
+  const wiki = /^!?\[\[([^\]|#]*)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]$/.exec(raw);
+  const markdown = wiki ? undefined : /^!?\[[^\]]*\]\(<?([^)#>]*)>?(?:#[^)]*)?\)$/.exec(raw);
+  const target = (wiki?.[1] ?? markdown?.[1])?.trim();
+  if (!target || /^[a-z][a-z\d+.-]*:/i.test(target)) return { kind: "invalid" };
+  const folder = from.includes("/") ? from.slice(0, from.lastIndexOf("/")) : "";
+  const kindOf = (path: string): LinkTarget => notes.includes(path) ? { kind: "note", path } : { kind: "file", path };
+  const all = [...notes, ...files];
+  if (markdown || target.includes("/")) {
+    const relative = markdown ? !target.startsWith("/") : target.startsWith("./") || target.startsWith("../");
+    const parts: string[] = [];
+    for (const part of (relative && folder ? `${folder}/${target}` : target.replace(/^\/+/, "")).split("/")) {
+      if (part === "..") { if (!parts.pop()) return { kind: "invalid" }; } else if (part && part !== ".") parts.push(part);
+    }
+    const path = parts.join("/");
+    const found = [path, `${path}.md`].find((candidate) => all.includes(candidate));
+    return found ? kindOf(found) : { kind: "missing" };
+  }
+  const key = target.replace(/\.md$/i, "").toLocaleLowerCase();
+  const segments = (path: string) => path.split("/").length;
+  const matches = all.filter((path) => path.split("/").pop()!.replace(/\.md$/i, "").toLocaleLowerCase() === key)
+    .sort((a, b) => Number(b.startsWith(`${folder}/`)) - Number(a.startsWith(`${folder}/`)) || segments(a) - segments(b) || (a < b ? -1 : 1));
+  return matches[0] ? kindOf(matches[0]) : { kind: "missing" };
 }
 
 function demoEmbeds(body: string): string[] {

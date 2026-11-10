@@ -3,7 +3,7 @@
 use crate::cbor::Cbor;
 use crate::common::{B16, Bytes, DataMap, Hash, Sem, Uuid, Value, Version};
 use crate::entry::{Conflict, Status};
-use crate::intent::{ConflictMode, MediaClass, Op};
+use crate::intent::{ConflictMode, Level, MediaClass, Op};
 use crate::policy::Role;
 use crate::schema::{Ann, SchemaError, Wire, type_err};
 use crate::snapshot::TextOrBlob;
@@ -558,6 +558,86 @@ wire_struct! {
 }
 
 wire_enum! {
+    /// How a link resolved (spec 08).
+    pub enum LinkKind {
+        /// Exactly one record.
+        Record = 0,
+        /// A non-record file.
+        File = 1,
+        /// Several candidates.
+        Ambiguous = 2,
+        /// Nothing matches.
+        NotFound = 3,
+        /// The target escapes the collection root.
+        Invalid = 4,
+    }
+}
+
+wire_struct! {
+    /// A link's resolution at the local view (replica-client-api.md §4.2, §4.3).
+    pub struct LinkResolution {
+        /// Outcome.
+        0 req kind: LinkKind,
+        /// The resolved record or file.
+        1 opt target: Uuid,
+        /// Its path.
+        2 opt path: String,
+        /// Sorted candidate paths; present only when ambiguous.
+        3 opt candidates: Vec<String>,
+    }
+}
+
+wire_struct! {
+    /// One link occurrence (replica-client-api.md §4.2).
+    pub struct LinkView {
+        /// The occurrence exactly as written.
+        0 req raw: String,
+        /// An embed.
+        1 req embed: bool,
+        /// Its resolution.
+        2 req resolution: LinkResolution,
+        /// The frontmatter field holding it; absent for the body.
+        3 opt field: String,
+    }
+}
+
+wire_struct! {
+    /// One referring record and its links to the target.
+    pub struct Backlink {
+        /// The referring record.
+        0 req record: RecordView,
+        /// Its links that resolve to the target; never empty.
+        1 req links: Vec<LinkView>,
+    }
+}
+
+wire_struct! {
+    /// One page of backlinks (replica-client-api.md §4.2).
+    pub struct BacklinksResult {
+        /// Referring records in path order.
+        0 req backlinks: Vec<Backlink>,
+        /// Next-page cursor.
+        1 opt cursor: String,
+        /// False during a snapshot install.
+        2 req complete: bool,
+        /// Local view version.
+        3 req as_of: u64,
+    }
+}
+
+wire_struct! {
+    /// Links resolved where they are written (replica-client-api.md §4.3).
+    pub struct ResolveLinksResult {
+        /// One resolution per requested link, in request order.
+        0 req resolutions: Vec<LinkResolution>,
+        /// Local view version.
+        1 req as_of: u64,
+        /// False during a snapshot install.
+        2 req complete: bool,
+    }
+}
+
+wire_enum! {
     /// Live query update kind.
     pub enum UpdateKind {
         /// The full result.
@@ -681,6 +761,9 @@ wire_struct! {
         7 opt include: Include,
         /// When to return.
         8 opt wait: WaitFor,
+        /// Validation level for this write's single-record checks; absent means
+        /// the collection's `settings.validation` (spec 04).
+        9 opt validation: Level,
     }
 }
 

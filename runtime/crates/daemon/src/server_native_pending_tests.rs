@@ -352,6 +352,7 @@ async fn original_native_capture(lose_capture_ack: bool) {
         mutation_ids: None,
         dry_run: None,
         include: None,
+        validation: None,
     };
     assert!(
         f.runtime

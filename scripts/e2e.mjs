@@ -44,7 +44,6 @@ const database = await createDatabase("memory");
 const { app } = await buildApp({
   db: database,
   devAuth: true,
-  allowInsecureManifests: true,
   portalDist: join(repoRoot, "apps", "portal", "dist"),
   publicUrl: serverUrl
 });

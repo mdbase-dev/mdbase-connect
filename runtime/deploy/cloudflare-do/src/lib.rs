@@ -260,8 +260,11 @@ const SCHEMA: &[&str] = &[
     // Used only in the credential registry object (§12).
     "CREATE TABLE IF NOT EXISTS revoked_devices (device BLOB PRIMARY KEY, revoked_at INTEGER NOT NULL)",
     // Single-use HTTPS proofs must survive hibernation and Worker updates.
+    // Replay refusal is the primary key alone. The table holds at most one TTL
+    // of nonces, so pruning scans it instead of keeping an `expires_at` index,
+    // which doubled the rows written by every signed RPC.
     "CREATE TABLE IF NOT EXISTS used_http_nonces (nonce BLOB PRIMARY KEY, expires_at INTEGER NOT NULL)",
-    "CREATE INDEX IF NOT EXISTS used_http_nonces_expiry ON used_http_nonces (expires_at)",
+    "DROP INDEX IF EXISTS used_http_nonces_expiry",
 ];
 
 /// The object named by the nil UUID is the service-wide credential registry
@@ -271,6 +274,8 @@ const REGISTRY: Uuid = B16([0; 16]);
 /// The collection's SQLite storage. The object is the actor; the async mutex only
 /// keeps two write transactions from interleaving across an `await` (there is
 /// none inside an append, but object commits await R2 outside the transaction).
+/// The nil-registry floor read happens before the mutex (see
+/// [`deletion_floor::FloorCache`]), so a slow registry never holds it.
 pub struct DoBackend {
     sql: SqlStorage,
     storage: Storage,
@@ -283,6 +288,10 @@ pub struct DoBackend {
     actor_id: String,
     /// This object is the credential registry (learned from its first request).
     is_registry: std::cell::Cell<bool>,
+    /// Collection actor: the registry's last answer about this collection's floor.
+    floor_cache: RefCell<deletion_floor::FloorCache>,
+    /// Registry: collections whose actor is being fenced, with a count of fences.
+    fencing: RefCell<BTreeMap<Uuid, u32>>,
 }
 
 impl DoBackend {
@@ -332,6 +341,8 @@ impl DoBackend {
 
     /// Consume an already authenticated HTTPS nonce durably. No await separates
     /// pruning and insertion, and the unique key serializes concurrent requests.
+    /// A replay is the `INSERT OR IGNORE` conflict on the primary key; it never
+    /// depends on `expires_at`, which only bounds the table.
     fn consume_http_nonce(&self, nonce: &[u8; 32], now: i64) -> LsResult<()> {
         self.exec(
             "DELETE FROM used_http_nonces WHERE expires_at < ?",
@@ -449,11 +460,12 @@ impl Backend for DoBackend {
         collection: &Uuid,
         budget: &Budget,
     ) -> LsResult<Option<mdbn_log_service::deletion::CollectionDeletionRecord>> {
-        self.lookup_deletion_floor(collection, budget).await
+        self.cached_deletion_floor(collection, budget).await
     }
-    // DoTxn::commit refuses every publishing write set on the registry floor
-    // (and pending Closing) under the producer lock, then re-checks the local
-    // destination denial inside the synchronous storage transaction.
+    // DoTxn::commit refuses every publishing write set on the cached registry
+    // floor answer (fenced by the registry before any floor or Closing insert),
+    // then re-checks the local destination denial inside the synchronous
+    // storage transaction.
     fn fences_deletion_floor_at_commit(&self) -> bool {
         true
     }
@@ -472,10 +484,6 @@ impl Backend for DoBackend {
         mode: Mode,
         budget: &Budget,
     ) -> LsResult<DoTxn<'_>> {
-        let guard = match mode {
-            Mode::Write => Some(self.lock.lock().await),
-            Mode::Read => None,
-        };
         // WebSocket requests can name arbitrary collections. Never let a frame
         // access or create a collection under a different namespace actor, even
         // before genesis or after hibernation.
@@ -485,6 +493,15 @@ impl Backend for DoBackend {
                 "actor_collection",
             ));
         }
+        // A writer may publish: learn the floor before queueing for the lock,
+        // so the registry round trip never runs while another writer waits.
+        let guard = match mode {
+            Mode::Write => {
+                self.prefetch_deletion_floor(c, budget).await;
+                Some(self.lock.lock().await)
+            }
+            Mode::Read => None,
+        };
         Ok(DoTxn {
             be: self,
             _guard: guard,
@@ -617,6 +634,14 @@ impl Txn for DoTxn<'_> {
         Ok(r.first().map_or(0, |r| as_i64(&r[0]) as u64))
     }
 
+    async fn committed_blob_bytes(&mut self) -> LsResult<u64> {
+        let r = self.be.exec(
+            "SELECT coalesce(sum(size), 0) FROM objects WHERE committed = 1 AND kind = 18",
+            vec![],
+        )?;
+        Ok(r.first().map_or(0, |r| as_i64(&r[0]) as u64))
+    }
+
     async fn gc_candidates(&mut self, before: i64, limit: u64) -> LsResult<Vec<ObjectMeta>> {
         let rows = self.be.exec(
             "SELECT address, kind, size, checksum, committed, created_at FROM objects o
@@ -671,22 +696,12 @@ impl Txn for DoTxn<'_> {
 
     async fn commit(self) -> LsResult<()> {
         let publishes = deletion_floor::publishes(&self.writes);
+        // Every guard below and the storage transaction are synchronous: the
+        // floor answer was fetched before the write lock, and a registry fence
+        // since then leaves it unknown, which refuses.
         if publishes {
             self.be.refuse_destination_denial()?;
-            let collection = self
-                .be
-                .route()?
-                .ok_or_else(mdbn_log_service::deletion::CollectionDeletionRecord::unavailable)?;
-            self.be
-                .refuse_deletion_floor(&collection, &self.budget)
-                .await?;
-        }
-        // All guards below and the storage transaction are synchronous. No SQL
-        // cursor or partially applied write crosses the authority read await.
-        // The nil reply is supplementary: Closing may have committed while the
-        // producer held its write lock across that await.
-        if publishes {
-            self.be.refuse_destination_denial()?;
+            self.be.refuse_cached_deletion_floor()?;
         }
         self.be.backup_guard(&self.writes)?;
         let has_restore_aux = self.be.restore_aux_guard(&self.writes)?;
@@ -1563,6 +1578,8 @@ impl LogActor {
             ns: env.durable_object("LOG").expect("LOG binding"),
             location: do_location::Placement::from_env(&env).map(|p| p.default),
             is_registry: std::cell::Cell::new(false),
+            floor_cache: RefCell::default(),
+            fencing: RefCell::default(),
         };
         backend
             .is_registry
@@ -1602,6 +1619,13 @@ impl LogActor {
         let Some(c) = Self::collection_from(&req) else {
             return Response::error("missing ?c=<collection>", 400);
         };
+        if req.path() == deletion_floor::FENCE_PATH {
+            // Namespace-only, and before any route row: a fence touches memory
+            // only. It needs no authority; a stray fence costs one more lookup,
+            // and refuses writers already past their read.
+            self.svc.backend.fence_floor_cache();
+            return Response::empty();
+        }
         self.svc
             .backend
             .record_route(&c)
@@ -1645,9 +1669,12 @@ impl LogActor {
         self.host.restore(c);
         let path = req.path();
         if path == "/collection-deleted" {
-            // Namespace-only wakeup. The floor remains the authority, not the caller.
+            // Namespace-only wakeup. The floor remains the authority, not the
+            // caller. Fence first: a registry that inserted without fencing
+            // (one still on the previous build mid-deploy) notifies afterwards.
+            self.svc.backend.fence_floor_cache();
             let budget = Budget::default();
-            match self.svc.backend.lookup_deletion_floor(&c, &budget).await {
+            match self.svc.backend.cached_deletion_floor(&c, &budget).await {
                 Ok(Some(_)) => {
                     let pushes = self.host.with_hub(&c, |hub| hub.close_gone());
                     self.host.deliver(pushes);
@@ -1808,7 +1835,11 @@ impl LogActor {
                     return Ok((rq.id, result));
                 }
                 if rq.method == collection_closing::METHOD {
-                    let result = self.svc.backend.begin_collection_closing(&p, &rq.params)?;
+                    let result = self
+                        .svc
+                        .backend
+                        .begin_collection_closing(&p, &rq.params)
+                        .await?;
                     return Ok((rq.id, result));
                 }
                 if matches!(rq.method.as_str(), "restore_aux_begin" | "restore_aux_page") {

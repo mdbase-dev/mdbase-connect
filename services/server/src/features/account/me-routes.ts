@@ -1,20 +1,22 @@
 import type { FastifyInstance } from "fastify";
-import { accessView, requireCollectionAction, resolveHostedCollectionAccess, resolveLocalCollectionAccess } from "../../collection-access.js";
+import { z } from "zod";
+import { accessView, requireCollectionAction, resolveHostedCollectionAccess, resolveLocalCollectionAccess } from "../collections/collection-access.js";
 import {
   listHostedCollectionsVisibleToUser,
   listLocalCollectionsVisibleToUser,
-  listNativeCollectionsVisibleToUser
-} from "../../collection-catalog.js";
+  listNativeCollectionsVisibleToUser,
+  accountCollectionCreation
+} from "../collections/collection-catalog.js";
 import type { DatabasePool } from "../../db.js";
-import { effectiveEntitlement } from "../../entitlements.js";
+import { effectiveEntitlement } from "./entitlements.js";
 import {
   contractRequirements,
   effectiveHostedContractDescriptors,
   type HostedAuthorityRegistry
-} from "../../hosted.js";
-import type { HostedProviderClient } from "../../hosted-provider.js";
-import type { RelayHub } from "../../relay.js";
-import type { AuthenticationPolicyStore } from "../../authentication-policy.js";
+} from "../hosted/hosted.js";
+import type { HostedProviderClient } from "../hosted/hosted-provider.js";
+import type { RelayHub } from "../relay/relay.js";
+import type { AuthenticationPolicyStore } from "../auth/authentication-policy.js";
 import { requireUser } from "../../platform/request-authentication.js";
 import { sqlPlaceholders } from "../../platform/sql.js";
 import { liveAuthorizationCollections } from "../authorizations/local-collections.js";
@@ -23,7 +25,12 @@ import { requiresHostedCollection } from "../grants/policy.js";
 import { hostedMirrorReplicas } from "../hosted/service.js";
 import type { LogServiceClient } from "../next/log-service-client.js";
 import { nativeDevicesByCollection } from "../next/native-grant-target.js";
-import { nextStoredBytes } from "../next/storage-usage.js";
+import { nextFileBytes } from "../next/storage-usage.js";
+
+/** The native replica's record source cap (`RECORD_SOURCE_CAP_BYTES`, pinned by
+ * document-limit.test.ts). It bounds every next-backend document; an entitlement's
+ * document limit is the legacy hosted provider's. */
+const NATIVE_DOCUMENT_MAX_BYTES = 1_048_576;
 
 interface AccountOverviewRouteOptions {
   db: DatabasePool;
@@ -64,10 +71,10 @@ export function registerAccountOverviewRoute(
       options.tailscaleAuth
     );
     if (!authenticated) return;
+    // The portal's frequent refresh omits native storage: each read asks every held collection's log.
+    const { native_storage: nativeStorage } = z.object({ native_storage: z.literal("omit").optional() }).parse(request.query);
     const { authentication_provider: authenticationProvider, ...user } = authenticated;
-    const accountBackend = (await options.db.query<{account_backend:string; flipped:boolean}>(`SELECT u.account_backend,
-      f.account_id IS NOT NULL AS flipped FROM users u LEFT JOIN next_migration_account_flips f ON f.account_id=u.id
-      WHERE u.id=$1 AND u.suspended_at IS NULL`, [user.id])).rows[0];
+    const creation = await accountCollectionCreation(options.db, user.id, options);
     const nativeCollections = await listNativeCollectionsVisibleToUser(options.db, user.id);
     const nativeComputers = await nativeDevicesByCollection(options.db, nativeCollections.map(collection => collection.id), user.id);
     const nativeCreator = await options.db.query(
@@ -244,8 +251,11 @@ export function registerAccountOverviewRoute(
               a.requirements, a.provisions, a.notifications
        FROM authorization_requests ar
        JOIN applications a ON a.id = ar.application_id
+       -- Only the app's original collection chooser can complete a linked
+       -- Native companion, so the portal cannot act on it.
+       LEFT JOIN installation_native_authorizations na ON na.authorization_request_id = ar.id
        WHERE ar.user_id = $1 AND ar.completed_at IS NULL AND ar.denied_at IS NULL
-         AND ar.expires_at > now()
+         AND ar.expires_at > now() AND na.pairing_id IS NULL
        ORDER BY ar.expires_at`,
       [user.id]
     );
@@ -273,9 +283,9 @@ export function registerAccountOverviewRoute(
       }
     }
     let nativeStorageBytes = null;
-    if (options.nextLog && entitlement && accountBackend?.account_backend === "next") {
+    if (nativeStorage !== "omit" && options.nextLog && entitlement && creation.backend === "next") {
       try {
-        nativeStorageBytes = await nextStoredBytes(options.db, options.nextLog, user.id);
+        nativeStorageBytes = await nextFileBytes(options.db, options.nextLog, user.id);
       } catch (error) {
         request.log.warn({ error }, "Native storage usage is unavailable");
       }
@@ -289,7 +299,8 @@ export function registerAccountOverviewRoute(
         limits: {
           hosted_storage_bytes: entitlement.hostedStorageBytes,
           retained_file_bytes: entitlement.retainedFileBytes,
-          max_document_bytes: entitlement.maxDocumentBytes,
+          max_document_bytes: creation.backend === "next"
+            ? NATIVE_DOCUMENT_MAX_BYTES : entitlement.maxDocumentBytes,
           max_single_file_bytes: entitlement.maxSingleFileBytes,
           max_mirror_replicas_per_collection:
             entitlement.maxMirrorReplicasPerCollection,
@@ -307,7 +318,7 @@ export function registerAccountOverviewRoute(
             hostedUsage.live_content_bytes + hostedUsage.live_file_bytes,
           retained_file_bytes: hostedUsage.retained_file_bytes
         } : null,
-        native_storage_bytes: nativeStorageBytes,
+        ...(nativeStorage === "omit" ? {} : { native_storage_bytes: nativeStorageBytes }),
         reconciliation: storageAccount.rows[0] ? {
           entitlement_revision: Number(storageAccount.rows[0].entitlement_revision),
           provider_revision: Number(storageAccount.rows[0].provider_revision)
@@ -315,7 +326,7 @@ export function registerAccountOverviewRoute(
       } : null,
       hosted_collections_available: options.hostedCollections === true,
       native_collection_creation_available: nativeCreator.rows.length > 0,
-      collection_creation_available: accountBackend?.account_backend === "next" ? accountBackend.flipped && options.nativeCollectionCreation === true : accountBackend?.account_backend === "legacy" && options.hostedCollections === true,
+      collection_creation_available: creation.available,
       collection_sharing_available: options.hostedCollections === true && options.hostedSharing === true,
       authentication: {
         provider: authenticationProvider ?? (options.tailscaleAuth ? "tailscale" : "session"),

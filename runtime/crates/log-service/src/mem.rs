@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use async_lock::{Mutex as AsyncMutex, MutexGuardArc};
 use mdbn_wire::common::{B16, B32, Uuid};
+use mdbn_wire::envelope::ItemKind;
 use mdbn_wire::hash::{CHAIN_ZERO, chain_hash};
 
 use crate::backend::{Archive, Backend, Mode, ObjectStore, Txn, Write};
@@ -223,6 +224,15 @@ impl Txn for MemTxn {
             .range(..=c)
             .filter(|(_, i)| i.kind == 1)
             .map(|(_, i)| i.bytes.len() as u64)
+            .sum())
+    }
+    async fn committed_blob_bytes(&mut self) -> Result<u64> {
+        Ok(self
+            .g
+            .objects
+            .values()
+            .filter(|o| o.committed && o.kind == ItemKind::BlobPart.value())
+            .map(|o| o.size)
             .sum())
     }
     async fn gc_candidates(&mut self, before: i64, limit: u64) -> Result<Vec<ObjectMeta>> {

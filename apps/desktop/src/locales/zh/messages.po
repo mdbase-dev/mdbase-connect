@@ -25,15 +25,18 @@ msgstr " 旧文件夹 {0} 保持原样。"
 msgid ", and the files already in it become the first synced version"
 msgstr "，且其中现有文件将成为第一个同步版本"
 
+#. placeholder {0}: pendingApps.length
+#: src/renderer/home-view.tsx
+msgid "{0, plural, one {# app is waiting for your approval.} other {# apps are waiting for your approval.}}"
+msgstr "{0, plural, other {# 个应用正在等待你的批准。}}"
+
 #. placeholder {0}: collection.sync.pending
 #: src/renderer/daemon-view.mts
 msgid "{0, plural, one {# change to sync} other {# changes to sync}}"
 msgstr "{0, plural, other {# 项更改待同步}}"
 
 #. placeholder {0}: app.grants.length
-#. placeholder {0}: collections.length
 #: src/renderer/access-view.tsx
-#: src/renderer/main.tsx
 msgid "{0, plural, one {# collection} other {# collections}}"
 msgstr "{0, plural, other {# 个集合}}"
 
@@ -70,12 +73,12 @@ msgstr "{0} 无法再通过此电脑使用 {1}。"
 msgid "{0} can now use {where}."
 msgstr "{0} 现在可以使用 {where}。"
 
-#. placeholder {0}: lastSyncTarget.name
+#. placeholder {0}: syncCollection.name
 #: src/renderer/collections-view.tsx
 msgid "{0} now syncs privately."
 msgstr "{0} 现在进行私有同步。"
 
-#. placeholder {0}: lastSyncTarget.name
+#. placeholder {0}: syncCollection.name
 #: src/renderer/collections-view.tsx
 msgid "{0} now syncs."
 msgstr "{0} 现在开始同步。"
@@ -136,10 +139,6 @@ msgstr "{app} 现在可以使用 {collection}"
 #: src/renderer/daemon-view.mts
 msgid "{app} lost access to {collection} in your account"
 msgstr "{app} 在你的账户中失去了对 {collection} 的访问权限"
-
-#: src/renderer/main.tsx
-msgid "{attention, plural, one {# item needs you} other {# items need you}}"
-msgstr "{attention, plural, other {# 项内容需要你处理}}"
 
 #: src/renderer/daemon-view.mts
 msgid "{collection} moved here from mdbase Connect (its files were not touched)"
@@ -206,10 +205,6 @@ msgstr "{safe} 当 mdbase 能够连接服务器并确认你的账户已升级时
 msgid "{safe} They will move automatically when your account is upgraded, shortly."
 msgstr "{safe} 账户即将升级，届时它们会自动迁移。"
 
-#: src/renderer/main.tsx
-msgid "{synced} synced"
-msgstr "已同步 {synced}"
-
 #: src/renderer/takeover-state.mts
 msgid "{waiting, plural, one {“{name}” syncs again{location}. # edit made in “{name}” before the move is added once it has caught up.{after}{oldFolder}} other {“{name}” syncs again{location}. # edits made in “{name}” before the move are added once it has caught up.{after}{oldFolder}}}"
 msgstr "{waiting, plural, other {“{name}”重新开始同步{location}。迁移前在“{name}”中进行的 # 项编辑，会在同步追上进度后加入。{after}{oldFolder}}}"
@@ -239,6 +234,10 @@ msgid "<0/>Allow hosted mirrors to stop until I join them again"
 msgstr "<0/>允许托管镜像暂停，直到我重新加入"
 
 #: src/renderer/collections-view.tsx
+msgid "<0/>Encrypt end to end so mdbase cannot read it"
+msgstr "<0/>端到端加密，mdbase 无法读取"
+
+#: src/renderer/collections-view.tsx
 msgid "<0/>I have checked these files"
 msgstr "<0/>我已检查这些文件"
 
@@ -259,6 +258,11 @@ msgstr "此位置已有名为“{0}”的文件夹。请选择其他名称，或
 #: src/renderer/device-requests.tsx
 msgid "a Private collection"
 msgstr "一个私有集合"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Access: {access}"
+msgstr "访问权限：{access}"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
@@ -293,21 +297,32 @@ msgstr "添加 Markdown 笔记文件夹或创建新集合。"
 msgid "Add existing"
 msgstr "添加现有文件夹"
 
+#: src/renderer/home-view.tsx
 #: src/renderer/main.tsx
 msgid "Add existing folder"
 msgstr "添加现有文件夹"
 
-#: src/renderer/main.tsx
+#: src/renderer/home-view.tsx
 msgid "Add your first collection"
 msgstr "添加你的第一个集合"
 
-#: src/renderer/main.tsx
-msgid "All on this computer only"
-msgstr "全部仅存储在此电脑上"
+#: src/renderer/collections-view.tsx
+msgid "Advanced"
+msgstr "高级"
 
 #: src/renderer/device-requests.tsx
 msgid "Allow"
 msgstr "允许"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Allow"
+msgstr "允许"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Allow {app} to use {collection} through this computer?"
+msgstr "允许 {app} 通过这台电脑使用 {collection} 吗？"
 
 #: src/renderer/device-requests.tsx
 msgid "Allow only a computer you are setting up yourself."
@@ -321,6 +336,10 @@ msgstr "正在允许{who}…"
 msgctxt "Local connection status"
 msgid "An app"
 msgstr "一个应用"
+
+#: src/renderer/home-view.tsx
+msgid "An app asks for access to a collection the first time you use it, and you choose what it can do."
+msgstr "应用首次使用时会请求访问集合，由你决定它可以做什么。"
 
 #: src/renderer/daemon-view.mts
 msgid "Another app, such as Obsidian, is using this folder right now. mdbase opens it when that app lets go."
@@ -351,6 +370,11 @@ msgstr "应用批准"
 msgid "App key"
 msgstr "应用密钥"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "App key: {key}"
+msgstr "应用密钥：{key}"
+
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Appearance"
@@ -359,6 +383,11 @@ msgstr "外观"
 #: src/renderer/main.tsx
 msgid "Application"
 msgstr "应用"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Approve app access"
+msgstr "批准应用访问"
 
 #: src/renderer/sign-in-panel.tsx
 msgid "Approve this computer in your browser. This window updates automatically."
@@ -383,9 +412,17 @@ msgstr "恢复前，应用无法使用它。"
 msgid "Apps keep working while the change finishes."
 msgstr "更改完成期间，应用仍可继续工作。"
 
+#: src/renderer/home-view.tsx
+msgid "Apps open in a window of their own in your default browser."
+msgstr "应用会在默认浏览器的独立窗口中打开。"
+
 #: src/renderer/access-view.tsx
 msgid "Apps that can use your collections through this computer."
 msgstr "可以通过此电脑使用你集合的应用。"
+
+#: src/renderer/home-view.tsx
+msgid "Apps you approve appear here."
+msgstr "你批准的应用会显示在这里。"
 
 #: src/renderer/access-view.tsx
 msgid "Apps you approve in mdbase appear here before they can connect."
@@ -395,13 +432,13 @@ msgstr "你在 mdbase 中批准的应用会在连接前显示在这里。"
 msgid "Apps you approve in mdbase reach your local collections through this computer."
 msgstr "你在 mdbase 中批准的应用会通过此电脑访问你的本地集合。"
 
-#: src/renderer/main.tsx
-msgid "Apps you approve reach your collections through this computer"
-msgstr "你批准的应用会通过此电脑访问你的集合"
-
 #: src/renderer/access-view.tsx
 msgid "Apps you used with mdbase Connect appear here once Private sync is on for the {movedWaiting, plural, one {collection} other {collections}} that moved to this computer. mdbase turns it on by itself; you don't need to approve those apps again."
 msgstr "你使用过的 mdbase Connect 应用会在迁移到此电脑的{movedWaiting, plural, other {集合}}开启私有同步后显示在这里。mdbase 会自行开启同步，你无需重新批准这些应用。"
+
+#: src/renderer/collections-view.tsx
+msgid "Archive/Recordings"
+msgstr "归档/录音"
 
 #: src/renderer/main.tsx
 msgid "Ask before new apps connect"
@@ -412,9 +449,18 @@ msgstr "新应用连接前询问"
 msgid "Asked {0}"
 msgstr "请求于 {0}"
 
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Audio"
+msgstr "音频"
+
 #: src/renderer/main.tsx
 msgid "Available in installed builds"
 msgstr "在已安装版本中可用"
+
+#: src/renderer/collections-view.tsx
+msgid "Back to collection"
+msgstr "返回集合"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
@@ -474,6 +520,11 @@ msgstr "检查更新"
 msgid "Check that {0} shows the same key."
 msgstr "检查 {0} 是否显示相同的密钥。"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Check that the app's access request in your browser shows the same key."
+msgstr "请确认浏览器中该应用的访问请求显示的是同一个密钥。"
+
 #: src/renderer/takeover-state.mts
 msgid "Check that the disk is not full, then try again. Nothing was changed."
 msgstr "请检查磁盘是否已满，然后重试。没有任何内容被更改。"
@@ -514,7 +565,7 @@ msgctxt "Desktop application"
 msgid "Choose a collection folder"
 msgstr "选择集合文件夹"
 
-#: src/renderer/main.tsx
+#: src/renderer/home-view.tsx
 msgid "Choose a folder of Markdown notes, or create a new one. It stays on this computer; your apps reach it through mdbase."
 msgstr "选择 Markdown 笔记文件夹，或新建一个。它会保留在此电脑上；你的应用可通过 mdbase 访问。"
 
@@ -551,6 +602,10 @@ msgctxt "Desktop application"
 msgid "Choose where to create the folder."
 msgstr "选择创建文件夹的位置。"
 
+#: src/renderer/collections-view.tsx
+msgid "Choose which files this collection syncs, on every device. Notes always sync, and files that already synced stay where they are."
+msgstr "选择此收藏集在所有设备上同步哪些文件。笔记始终同步，已同步的文件保持不变。"
+
 #: src/renderer/ui-components.tsx
 msgid "Clear filter"
 msgstr "清除筛选"
@@ -563,10 +618,6 @@ msgstr "关闭正在编辑此文件夹的应用，然后选择“迁移到新同
 msgctxt "Connect interface"
 msgid "Close navigation"
 msgstr "关闭导航"
-
-#: src/renderer/collections-view.tsx
-msgid "Cloud copy"
-msgstr "云端副本"
 
 #: src/renderer/daemon-view.mts
 msgid "Collection deleted"
@@ -581,6 +632,7 @@ msgctxt "Desktop application"
 msgid "Collection name must be between 1 and 100 characters."
 msgstr "集合名称长度必须为 1 到 100 个字符。"
 
+#: src/renderer/home-view.tsx
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
 msgctxt "Connect interface"
@@ -590,10 +642,6 @@ msgstr "集合"
 #: src/renderer/main.tsx
 msgid "Collections stay on this computer. Synced collections send changes to mdbase; private sync encrypts them so mdbase cannot read them. Your account only receives collection names and app-access details."
 msgstr "集合保留在此电脑上。已同步的集合会将更改发送到 mdbase；私有同步会对更改加密，使 mdbase 无法读取。你的账户只会收到集合名称和应用访问详情。"
-
-#: src/renderer/main.tsx
-msgid "Collections, app access and sync status in one place."
-msgstr "集中查看集合、应用访问权限和同步状态。"
 
 #: src/renderer/main.tsx
 msgid "Color theme"
@@ -678,9 +726,15 @@ msgctxt "Local connection status"
 msgid "create and edit records"
 msgstr "创建和编辑记录"
 
+#: src/renderer/home-view.tsx
 #: src/renderer/main.tsx
 msgid "Create collection"
 msgstr "创建集合"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "create records and files"
+msgstr "创建记录和文件"
 
 #: src/renderer/main.tsx
 msgid "Create the folder in"
@@ -705,11 +759,21 @@ msgctxt "Local connection status"
 msgid "delete records"
 msgstr "删除记录"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "delete records and files"
+msgstr "删除记录和文件"
+
 #: src/renderer/collections-view.tsx
 msgid "Deleted on another device"
 msgstr "已在另一台设备上删除"
 
 #: src/renderer/device-requests.tsx
+msgid "Deny"
+msgstr "拒绝"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
 msgid "Deny"
 msgstr "拒绝"
 
@@ -756,6 +820,11 @@ msgstr "正在下载经过验证的版本 {0}…"
 msgid "Each folder stays where it is. Sync is optional."
 msgstr "每个文件夹会保留在原位置。同步可选。"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "edit records and files"
+msgstr "编辑记录和文件"
+
 #: src/renderer/collections-view.tsx
 msgid "Edited here before the move but never uploaded, and changed elsewhere since; the current version is in the folder"
 msgstr "迁移前已在此处编辑但从未上传，且此后其他地方也有更改；当前版本位于以下文件夹中："
@@ -773,14 +842,19 @@ msgstr "托管集合中待上传的编辑无法为迁移保存"
 msgid "Email support@mdbase.dev and include a diagnostics report. We'll finish your upgrade or move this computer back to mdbase Connect."
 msgstr "请发送邮件至 support@mdbase.dev 并附上诊断报告。我们将完成升级，或让此电脑退回 mdbase Connect。"
 
-#: src/renderer/collections-view.tsx
-msgid "End-to-end encrypted: mdbase cannot read it. Web apps work only while one of your devices is online."
-msgstr "端到端加密：mdbase 无法读取。只有你的某台设备在线时，网页应用才能使用。"
-
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "输入此电脑的名称。"
+
+#. placeholder {0}: collection.name
+#: src/renderer/collections-view.tsx
+msgid "File sync settings for {0} were saved."
+msgstr "已保存 {0} 的文件同步设置。"
+
+#: src/renderer/collections-view.tsx
+msgid "File types"
+msgstr "文件类型"
 
 #: src/renderer/activity-view.tsx
 msgid "Filter activity"
@@ -807,6 +881,19 @@ msgstr "文件夹位置绝不会上传。"
 msgid "Folders on this computer that your apps can use, and how each one syncs."
 msgstr "此电脑上供应用使用的文件夹，以及每个文件夹的同步方式。"
 
+#: src/renderer/collections-view.tsx
+msgid "Folders to leave out"
+msgstr "要排除的文件夹"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Folders: {folders}"
+msgstr "文件夹：{folders}"
+
+#: src/renderer/collections-view.tsx
+msgid "From the last sync attempt, not a current file check."
+msgstr "这些信息来自上次同步尝试，并非当前的文件检查结果。"
+
 #: src/renderer/main.tsx
 msgid "Go to {label}"
 msgstr "前往 {label}"
@@ -816,6 +903,12 @@ msgstr "前往 {label}"
 msgid "Hide {0, plural, one {# file} other {# files}}"
 msgstr "{0, plural, other {隐藏 # 个文件}}"
 
+#: src/renderer/main.tsx
+#: src/renderer/ui-components.tsx
+msgctxt "Connect interface"
+msgid "Home"
+msgstr "主页"
+
 #: src/renderer/takeover-state.mts
 msgid "hosted collections still have edits waiting to upload"
 msgstr "托管集合仍有编辑等待上传"
@@ -823,10 +916,6 @@ msgstr "托管集合仍有编辑等待上传"
 #: src/renderer/main.tsx
 msgid "How new apps get access to your local collections."
 msgstr "新应用如何取得本地集合的访问权限。"
-
-#: src/renderer/collections-view.tsx
-msgid "How should it sync?"
-msgstr "如何同步？"
 
 #: src/renderer/main.tsx
 msgid "How this computer appears in your mdbase account"
@@ -837,6 +926,11 @@ msgstr "此电脑在 mdbase 账户中的显示方式"
 #: src/renderer/access-view.tsx
 msgid "If you approve, {0} will be able to {1} in {where}, through this computer. You can revoke this at any time."
 msgstr "如果你批准，{0} 将能够通过此电脑在 {where} 中{1}。你可以随时撤销。"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Images"
+msgstr "图片"
 
 #. placeholder {0}: status.target_version
 #. placeholder {0}: update.target_version
@@ -875,6 +969,11 @@ msgstr "它的 mdbase.yaml 中有一个 x-mdbase-connect 条目，而这台电�
 msgctxt "Local connection status"
 msgid "Joining this collection…"
 msgstr "正在加入此集合…"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "keep an offline copy"
+msgstr "保留离线副本"
 
 #: src/renderer/collections-view.tsx
 msgid "Keep both"
@@ -930,6 +1029,25 @@ msgid "Leave mdbase Connect's data in place and contact support with a diagnosti
 msgstr "保留 mdbase Connect 的数据，并携诊断报告联系支持人员。"
 
 #: src/renderer/collections-view.tsx
+msgid "Leave out files larger than"
+msgstr "排除大于以下大小的文件"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Let new apps use your local collections without asking you first?"
+msgstr "允许新应用无需事先询问即可使用你的本地集合吗？"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Let Obsidian on this computer use {collection}?"
+msgstr "允许这台电脑上的 Obsidian 使用 {collection} 吗？"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Link Obsidian"
+msgstr "关联 Obsidian"
+
+#: src/renderer/collections-view.tsx
 msgid "Loading…"
 msgstr "正在加载…"
 
@@ -937,13 +1055,37 @@ msgstr "正在加载…"
 msgid "Looked like an accidental overwrite"
 msgstr "疑似意外覆盖"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Make {collection} private?"
+msgstr "将 {collection} 设为私有吗？"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Make private"
+msgstr "设为私有"
+
 #: src/renderer/main.tsx
 msgid "Manage in mdbase"
 msgstr "在 mdbase 中管理"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "manage saved views"
+msgstr "管理已保存的视图"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "manage types and collection setup"
+msgstr "管理类型和集合设置"
+
 #: src/renderer/access-view.tsx
 msgid "Mark as seen"
 msgstr "标记为已查看"
+
+#: src/renderer/collections-view.tsx
+msgid "MB"
+msgstr "MB"
 
 #. placeholder {0}: bundled.version
 #. placeholder {1}: result.version
@@ -1042,8 +1184,8 @@ msgid "mdbase is not running on this computer. It restarts automatically; if thi
 msgstr "mdbase 未在此电脑上运行。它会自动重启；如果问题持续，请重启 mdbase connect。"
 
 #: src/renderer/collections-view.tsx
-msgid "mdbase keeps a copy, so web apps and agents can use it while your devices are off."
-msgstr "mdbase 会保留一个副本，因此设备关闭时，网页应用和代理仍能使用它。"
+msgid "mdbase keeps a cloud copy, so web apps and agents can use this collection while your devices are off."
+msgstr "mdbase 会保留一份云端副本，即使你的设备关机，网页应用和智能体也能使用此集合。"
 
 #: src/renderer/collections-view.tsx
 msgid "mdbase kept these files instead of overwriting them. Choose which version to keep."
@@ -1087,6 +1229,15 @@ msgctxt "Desktop application"
 msgid "mdbase starting"
 msgstr "mdbase 正在启动"
 
+#: src/renderer/collections-view.tsx
+msgid "mdbase stores only encrypted changes. Web apps and agents can use this collection only while one of your devices with the desktop app is online."
+msgstr "mdbase 只存储加密后的更改。只有当你某台装有桌面应用的设备在线时，网页应用和智能体才能使用此集合。"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off."
+msgstr "mdbase 将能够读取此集合及其现有历史记录，并在你的设备关闭时提供访问。"
+
 #. placeholder {0}: reason.replaceAll("_", " ")
 #: src/renderer/takeover-state.mts
 msgid "mdbase will retry ({0})"
@@ -1117,6 +1268,10 @@ msgstr "迁移已推迟"
 #: src/renderer/takeover-state.mts
 msgid "Migration postponed: {0}"
 msgstr "迁移已推迟：{0}"
+
+#: src/renderer/home-view.tsx
+msgid "More apps from mdbase"
+msgstr "更多 mdbase 应用"
 
 #: src/renderer/takeover-panel.tsx
 #: src/renderer/takeover-state.mts
@@ -1172,6 +1327,10 @@ msgctxt "Connect interface"
 msgid "No apps connected"
 msgstr "没有已连接的应用"
 
+#: src/renderer/home-view.tsx
+msgid "No apps yet"
+msgstr "暂无应用"
+
 #: src/renderer/collections-view.tsx
 msgctxt "Local collection management"
 msgid "No collections yet"
@@ -1201,10 +1360,6 @@ msgstr "没有待处理事项"
 msgid "Nothing is waiting."
 msgstr "没有待处理事项。"
 
-#: src/renderer/main.tsx
-msgid "Nothing waiting"
-msgstr "无待处理事项"
-
 #: src/renderer/takeover-state.mts
 msgid "Nothing was changed. Contact support with a diagnostics report."
 msgstr "没有任何内容被更改。请携诊断报告联系支持人员。"
@@ -1232,13 +1387,28 @@ msgctxt "Local connection status"
 msgid "On this computer only"
 msgstr "仅在此电脑上"
 
+#: src/renderer/collections-view.tsx
+msgid "One folder per line, relative to the collection."
+msgstr "每行一个文件夹，路径相对于收藏集。"
+
 #: src/renderer/device-requests.tsx
 msgid "Only allow if this matches the code on {who}"
 msgstr "仅在此代码与{who}上的代码一致时允许"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content."
+msgstr "切换完成后，只有你的设备能够读取新内容。mdbase 可能仍能读取旧内容。"
+
+#: src/renderer/home-view.tsx
+msgid "Open"
+msgstr "打开"
+
+#. placeholder {0}: app.name
 #. placeholder {0}: status.target_version
 #. placeholder {0}: update.target_version
 #: src/main/main.ts
+#: src/renderer/home-view.tsx
 #: src/renderer/main.tsx
 msgid "Open {0}"
 msgstr "打开 {0}"
@@ -1270,6 +1440,10 @@ msgstr "打开你想使用的应用，并将它连接到 mdbase。你会在浏�
 msgid "Open update"
 msgstr "打开更新"
 
+#: src/renderer/main.tsx
+msgid "Open your apps and see the collections they use."
+msgstr "打开你的应用，并查看它们使用的集合。"
+
 #: src/renderer/sign-in-panel.tsx
 msgctxt "Connect interface"
 msgid "Opening browser…"
@@ -1279,11 +1453,10 @@ msgstr "正在打开浏览器…"
 msgid "Opening…"
 msgstr "正在打开…"
 
-#: src/renderer/main.tsx
-#: src/renderer/ui-components.tsx
-msgctxt "Connect interface"
-msgid "Overview"
-msgstr "概览"
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Other files"
+msgstr "其他文件"
 
 #: src/renderer/collections-view.tsx
 msgctxt "Local collection management"
@@ -1293,6 +1466,11 @@ msgstr "暂停"
 #: src/renderer/daemon-view.mts
 msgid "Paused"
 msgstr "已暂停"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "PDFs"
+msgstr "PDF"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"
@@ -1306,10 +1484,6 @@ msgstr "正在准备比对代码…"
 #: src/renderer/main.tsx
 msgid "Previous version restored"
 msgstr "已恢复旧版本"
-
-#: src/renderer/collections-view.tsx
-msgid "Private"
-msgstr "私有"
 
 #: src/renderer/daemon-view.mts
 msgid "Private sync (end-to-end encrypted)"
@@ -1333,6 +1507,11 @@ msgstr "读取和添加文件"
 msgctxt "Local connection status"
 msgid "read records"
 msgstr "读取记录"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "read records and files"
+msgstr "读取记录和文件"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
@@ -1389,9 +1568,18 @@ msgctxt "Local collection management"
 msgid "Resume"
 msgstr "恢复"
 
+#: src/renderer/collections-view.tsx
+#: src/renderer/daemon-view.mts
+msgid "Resume this collection to check its files before turning on sync."
+msgstr "开启同步前，请恢复此集合以检查其文件。"
+
 #: src/renderer/takeover-panel.tsx
 msgid "Returned to the old engine"
 msgstr "已退回旧引擎"
+
+#: src/renderer/home-view.tsx
+msgid "Review"
+msgstr "查看"
 
 #. placeholder {0}: view.holds
 #: src/renderer/collections-view.tsx
@@ -1419,7 +1607,17 @@ msgctxt "Connect interface"
 msgid "Revoked"
 msgstr "已撤销"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "run scheduled background tasks"
+msgstr "运行计划的后台任务"
+
 #: src/renderer/main.tsx
+msgid "Save"
+msgstr "保存"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File sync settings"
 msgid "Save"
 msgstr "保存"
 
@@ -1553,6 +1751,10 @@ msgstr "正在登录"
 msgid "Signing out did not finish. Try signing out again."
 msgstr "退出登录未完成。请再次尝试退出登录。"
 
+#: src/renderer/collections-view.tsx
+msgid "Size limit in megabytes"
+msgstr "大小上限（MB）"
+
 #: src/renderer/takeover-state.mts
 msgid "Some edits from before the move need your attention."
 msgstr "迁移前的一些编辑需要你处理。"
@@ -1574,6 +1776,10 @@ msgctxt "Connect interface"
 msgid "Start at login"
 msgstr "登录时启动"
 
+#: src/renderer/home-view.tsx
+msgid "Start with an app"
+msgstr "从一个应用开始"
+
 #: src/renderer/takeover-state.mts
 msgid "Stay online until uploads finish, then try again."
 msgstr "保持在线，等待上传完成后再重试。"
@@ -1588,10 +1794,6 @@ msgstr "禁止 {0} 通过此电脑使用 {1}？"
 msgid "Stopped"
 msgstr "已停止"
 
-#: src/renderer/collections-view.tsx
-msgid "Sync"
-msgstr "同步"
-
 #. placeholder {0}: /[.!?]$/.test(sentence) ? sentence : `${sentence}.`
 #: src/renderer/view-model.ts
 msgid "Sync could not be turned on: {0} {unchanged}"
@@ -1602,6 +1804,10 @@ msgstr "无法开启同步：{0} {unchanged}"
 msgid "sync problem: {0}"
 msgstr "同步问题：{0}"
 
+#: src/renderer/view-model.ts
+msgid "Sync setup stopped, and the collection is paused. Close this window, then choose Resume before trying again. {unchanged}"
+msgstr "同步设置已停止，集合已暂停。请关闭此窗口，选择“恢复”后再重试。{unchanged}"
+
 #: src/renderer/daemon-view.mts
 msgid "Sync stopped"
 msgstr "同步已停止"
@@ -1610,6 +1816,10 @@ msgstr "同步已停止"
 msgctxt "Local connection status"
 msgid "Synced"
 msgstr "已同步"
+
+#: src/renderer/collections-view.tsx
+msgid "Synced files"
+msgstr "同步的文件"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1623,6 +1833,10 @@ msgstr "跟随操作系统外观"
 #: src/renderer/collections-view.tsx
 msgid "Take the other version"
 msgstr "采用另一版本"
+
+#: src/renderer/collections-view.tsx
+msgid "Technical details"
+msgstr "技术详情"
 
 #: src/main/boot-gate.ts
 msgctxt "Desktop application"
@@ -1867,6 +2081,21 @@ msgstr "此版本的 mdbase 已不受支持。版本 {0} 已通过验证；请�
 msgid "This version of mdbase is too old for the service. Update mdbase."
 msgstr "此版本的 mdbase 太旧，无法使用该服务。请更新 mdbase。"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Turn off approval"
+msgstr "关闭审批"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Turn on Cloud copy"
+msgstr "启用云端副本"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Turn on Cloud copy for {collection}?"
+msgstr "为 {collection} 启用云端副本吗？"
+
 #: src/renderer/collections-view.tsx
 msgid "Turn on sync"
 msgstr "开启同步"
@@ -1971,6 +2200,11 @@ msgstr "版本 {0} 正逐步推送至 {1}% 的安装实例。"
 msgid "Version {0} is verified and ready to install."
 msgstr "版本 {0} 已通过验证，可供安装。"
 
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Video"
+msgstr "视频"
+
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"
 msgid "Waiting"
@@ -2019,6 +2253,11 @@ msgstr "开启后，你在 mdbase 中批准的应用还需要等待你在此电�
 msgid "When this folder moved to the new sync engine, mdbase kept another version of {0, plural, one {# file} other {# files}}. The folder has this computer's version; check it before sync starts from it."
 msgstr "此文件夹迁移到新同步引擎时，mdbase 保留了 {0, plural, other {# 个文件}} 的另一个版本。文件夹中是此电脑的版本；从该版本开始同步前，请先检查。"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "whole collection"
+msgstr "整个集合"
+
 #: src/renderer/main.tsx
 msgid "Workouts"
 msgstr "锻炼记录"
@@ -2035,6 +2274,11 @@ msgstr "你已拒绝 {app} 访问 {collection}"
 msgid "You revoked {app} on {collection}"
 msgstr "你已撤销 {app} 对 {collection} 的访问权限"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "You will still be notified."
+msgstr "你仍会收到通知。"
+
 #: src/renderer/takeover-state.mts
 msgid "Your account still uses mdbase Connect"
 msgstr "你的账户仍在使用 mdbase Connect"
@@ -2042,6 +2286,14 @@ msgstr "你的账户仍在使用 mdbase Connect"
 #: src/renderer/sign-in-panel.tsx
 msgid "Your application request will keep waiting. Sign in so you can choose a folder on this computer, then continue the same request."
 msgstr "应用请求会继续等待。请登录，选择此电脑上的文件夹，然后继续处理同一个请求。"
+
+#: src/renderer/home-view.tsx
+msgid "Your apps"
+msgstr "你的应用"
+
+#: src/renderer/home-view.tsx
+msgid "Your apps could not be listed. {failure}"
+msgstr "无法列出你的应用。{failure}"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"

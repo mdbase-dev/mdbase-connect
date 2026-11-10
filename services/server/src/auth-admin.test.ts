@@ -8,13 +8,13 @@ import { createDatabase } from "./db.js";
 import {
   EmailDeliveryError,
   type EmailTransport
-} from "./email.js";
+} from "./features/email/email.js";
 import {
   HostedProviderResponseError,
   type HostedAccountLimits,
   type HostedAccountUsage,
   type HostedProviderClient
-} from "./hosted-provider.js";
+} from "./features/hosted/hosted-provider.js";
 import { tokenHash } from "./security.js";
 
 const resources: Array<() => Promise<void>> = [];
@@ -544,6 +544,33 @@ describe("authentication operator command", () => {
     ]);
   });
 
+  it("grants a next account the operator plan without the legacy provider", async () => {
+    const context = await fixture();
+    const userId = "10000000-0000-4000-8000-000000000087";
+    await context.db.query(
+      `INSERT INTO users (id, email, name, account_backend)
+       VALUES ($1, 'operator@example.com', 'Operator', 'next')`,
+      [userId]
+    );
+    const provider = fakeHostedProvider();
+    const upsert = vi.spyOn(provider, "upsertAccount");
+    const result = await runAuthAdminCommand([
+      "entitlements", "grant", "--user", userId, "--profile", "operator_v1",
+      "--operation-id", "20000000-0000-4000-8000-000000000087",
+      "--actor", "operator:test", "--reason", "Operator account storage"
+    ], { ...context, hostedProvider: provider });
+    expect(result).toMatchObject({ user_id: userId, changed: true, reconciliation: null });
+    expect(upsert).not.toHaveBeenCalled();
+    const shown = await runAuthAdminCommand([
+      "entitlements", "show", "--user", userId
+    ], context) as { effective: { hostedStorageBytes: number; maxHostedCollections: number; maxSingleFileBytes: number } };
+    expect(shown.effective).toMatchObject({
+      hostedStorageBytes: 50 * 1024 ** 3,
+      maxHostedCollections: 100,
+      maxSingleFileBytes: 1024 ** 3
+    });
+  });
+
   it.each([
     { revision: 0, status: 404, code: "hosted_account_not_found", pending: true },
     { revision: 1, status: 404, code: "hosted_account_not_found", pending: false },
@@ -660,7 +687,7 @@ describe("authentication operator command", () => {
           live_content_bytes: 0,
           live_file_bytes: 0,
           retained_file_bytes: 0,
-          ...limits
+          limits
         };
         usage.set(accountId, next);
         return next;
@@ -904,7 +931,7 @@ function fakeHostedProvider(): HostedProviderClient {
         live_content_bytes: 0,
         live_file_bytes: 0,
         retained_file_bytes: 0,
-        ...limits
+        limits
       };
       return usage;
     },

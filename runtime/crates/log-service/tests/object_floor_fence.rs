@@ -102,6 +102,9 @@ impl Txn for CountingTxn<'_> {
     async fn entry_bytes_through(&mut self, c: u64) -> Result<u64> {
         self.inner.entry_bytes_through(c).await
     }
+    async fn committed_blob_bytes(&mut self) -> Result<u64> {
+        self.inner.committed_blob_bytes().await
+    }
     async fn gc_candidates(&mut self, b: i64, l: u64) -> Result<Vec<ObjectMeta>> {
         self.inner.gc_candidates(b, l).await
     }

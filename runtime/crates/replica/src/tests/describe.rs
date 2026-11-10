@@ -204,6 +204,7 @@ fn pending_resources(a: &mut Node, resources: Vec<(&str, String)>) {
                 dry_run: None,
                 include: None,
                 wait: None,
+                validation: None,
             },
         )
         .unwrap();
@@ -605,6 +606,7 @@ fn contract_records_read_and_map_writes_through_the_local_catalog() {
                 dry_run: None,
                 include: None,
                 wait: None,
+                validation: None,
             },
         )
         .unwrap();

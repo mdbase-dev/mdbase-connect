@@ -29,7 +29,7 @@ import { CreateError } from "./bootstrap-common.js";
 import { requireCollectionNotDeleted } from "./collection-deletion.js";
 import { requireInstallationScope } from "./installation-scope.js";
 import { requireInstallationDeviceConnector } from "../../platform/request-authentication.js";
-import { recordDeviceActivity } from "../../protocol-telemetry.js";
+import { recordDeviceActivity } from "../usage/protocol-telemetry.js";
 import { LOG_TOKEN_LIFETIME_MS, type LogServiceClient } from "./log-service-client.js";
 import { ed25519PublicKeyObject } from "./policy-keys.js";
 import { domainHash, encodeCbor, uuidBytes, type RegisteredDeviceKind } from "./policy-wire.js";

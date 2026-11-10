@@ -8,6 +8,7 @@ import { act, StrictMode, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { accessibleName, visibleLabel } from "../../test/label-in-name.js";
 import { CollectionGate, CollectionSwitcher, CollectionSaveWarning, DeleteCollectionDialog, useCollectionUi, type CollectionSection, type DeleteCollectionOutcome } from "../collections.js";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -16,6 +17,15 @@ const A = "11111111-1111-4111-8111-111111111111";
 const B = "22222222-2222-4222-8222-222222222222";
 const C = "33333333-3333-4333-8333-333333333333";
 const app = { name: "TaskNotes" };
+
+it("Try again reopens the failed collection instead of repeating idempotent start", async () => {
+  const problem = describeError("unavailable")!;
+  const fixture = fakeMdbase({ kind: "problem", collectionId: A, problem }, { status: "blocked", selectedCollectionId: A });
+  await act(async () => root.render(<CollectionGate mdbase={fixture.entry} app={app} autoStart={false}>{() => null}</CollectionGate>));
+  await act(async () => button("Try again").click());
+  expect(fixture.mdbase.select).toHaveBeenCalledWith(A, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  expect(fixture.mdbase.start).not.toHaveBeenCalled();
+});
 
 function fakeMdbase(phase: MdbasePhase, extra: Partial<MdbaseSnapshot> = {}) {
   let value = {
@@ -77,9 +87,61 @@ const button = (name: string | RegExp) => {
   if (!found) throw new Error(`no button ${String(name)}`);
   return found;
 };
+const switcherTrigger = (collection: string) => {
+  const found = [...document.querySelectorAll<HTMLElement>(".mdbase-collections-trigger")].find((element) =>
+    element.querySelector(".mdbase-collections-trigger-name")?.textContent === collection);
+  if (!found) throw new Error(`no collection trigger for ${collection}`);
+  return found;
+};
 const key = (element: Element, value: string) => act(() => { element.dispatchEvent(new KeyboardEvent("keydown", { key: value, bubbles: true })); });
 
+it("replaces Add with one quota notice and clears it when collection count changes", async () => {
+  const { mdbase, entry, set } = fakeMdbase({ kind: "choosing" });
+  mdbase.addCollection.mockRejectedValue(Object.assign(new Error("quota"), { code: "account_collection_quota_exceeded" }));
+  await act(async () => root.render(<CollectionGate mdbase={entry} app={app}>{() => null}</CollectionGate>));
+  await act(async () => button("Add a collection…").click());
+  expect(() => button("Add a collection…")).toThrow();
+  expect(container.querySelectorAll(".mdbase-collections-notice")).toHaveLength(1);
+  const notice = container.querySelector(".mdbase-collections-notice")!;
+  expect(notice.closest(".mdbase-collections-actions")).not.toBeNull();
+  act(() => set({ collections: entry.getSnapshot().collections.slice(1) }));
+  expect(container.querySelector(".mdbase-collections-notice")).toBeNull();
+  expect(button("Add a collection…")).toBeDefined();
+});
+
+it("does not clear unrelated action errors when collection count changes", async () => {
+  const { mdbase, entry, set } = fakeMdbase({ kind: "choosing" });
+  mdbase.addCollection.mockRejectedValue(Object.assign(new Error("offline"), { code: "unavailable" }));
+  await act(async () => root.render(<CollectionGate mdbase={entry} app={app}>{() => null}</CollectionGate>));
+  await act(async () => button("Add a collection…").click());
+  const text = container.querySelector(".mdbase-collections-notice")!.textContent;
+  act(() => set({ collections: entry.getSnapshot().collections.slice(1) }));
+  expect(container.querySelector(".mdbase-collections-notice")?.textContent).toBe(text);
+});
+
+it("clears only the quota action error after the approved collection count changes", async () => {
+  const { mdbase, entry, set } = fakeMdbase({ kind: "choosing", lastApproval: null });
+  mdbase.addCollection.mockRejectedValue(Object.assign(new Error("quota"), { code: "account_collection_quota_exceeded" }));
+  let ui!: ReturnType<typeof useCollectionUi>;
+  function Host() { ui = useCollectionUi({ mdbase: entry, app }); return null; }
+  await act(async () => root.render(<Host />));
+  await act(async () => ui.actions.addCollection());
+  expect(ui.error?.key).toBe("account_collection_quota_exceeded");
+  act(() => set({ collections: [...entry.getSnapshot().collections] }));
+  expect(ui.error?.key).toBe("account_collection_quota_exceeded");
+  act(() => set({ collections: entry.getSnapshot().collections.slice(1) }));
+  expect(ui.error).toBeNull();
+});
+
 describe("opening presentation", () => {
+  it.each(["signed_out", "starting"] as const)("owns exactly one page landmark while %s", (kind) => {
+    const { entry } = fakeMdbase(kind === "signed_out" ? { kind, notice: null } : { kind });
+    render(<CollectionGate mdbase={entry} app={app} autoStart={false}>{() => null}</CollectionGate>);
+    expect(container.querySelectorAll("main")).toHaveLength(1);
+    expect(container.querySelector("main")).toBe(container.firstElementChild);
+    expect(container.querySelectorAll("main main")).toHaveLength(0);
+  });
+
   it.each(["page", "panel"] as const)("preserves programmatic focus on visible and hidden %s headings", (layout) => {
     const { entry, set } = fakeMdbase({ kind: "starting" }, { status: "starting", signIn: null });
     render(<CollectionGate mdbase={entry} app={app} layout={layout}>{() => null}</CollectionGate>);
@@ -167,7 +229,7 @@ describe("popup calls run inside the click", () => {
     let confirm!: (ok: boolean) => void;
     const onBeforeLeave = vi.fn(() => new Promise<boolean>((resolve) => { confirm = resolve; }));
     render(<CollectionSwitcher mdbase={second.entry} app={app} onBeforeLeave={onBeforeLeave} />);
-    act(() => button("Switch collection, current: Alpha").click());
+    act(() => switcherTrigger("Alpha").click());
     act(() => button(/Add a collection/).click());
     expect(onBeforeLeave).toHaveBeenCalledWith("add");
     expect(second.mdbase.addCollection).not.toHaveBeenCalled();
@@ -177,6 +239,26 @@ describe("popup calls run inside the click", () => {
       await Promise.resolve();
       expect(second.mdbase.addCollection).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+describe("collection trigger name", () => {
+  const ready = () => fakeMdbase({ kind: "ready", collectionId: A, collection: { collectionId: A, displayName: "Alpha", role: "owner" }, connection: {} as never, rechecking: false, problem: null, unavailableTypes: [] },
+    { status: "ready", selectedCollectionId: A });
+
+  it.each(["full", "compact"] as const)("contains the %s trigger's visible label", (variant) => {
+    render(<CollectionSwitcher mdbase={ready().entry} app={app} variant={variant} icon="mark" />);
+    const trigger = switcherTrigger("Alpha");
+
+    expect(visibleLabel(trigger)).toMatch(/^Alpha\b/);
+    expect(accessibleName(trigger)).toContain(visibleLabel(trigger));
+  });
+
+  it("names the icon-only trigger after the current collection", () => {
+    render(<CollectionSwitcher mdbase={ready().entry} app={app} variant="icon" />);
+
+    expect(visibleLabel(document.querySelector(".mdbase-collections-trigger")!)).toBe("");
+    expect(accessibleName(document.querySelector(".mdbase-collections-trigger")!)).toBe("Switch collection, current: Alpha");
   });
 });
 
@@ -263,13 +345,13 @@ describe("SDK storage and Private states", () => {
     const { mdbase, entry } = fakeMdbase({ kind: "ready", collectionId: A, collection: { collectionId: A, displayName: "Alpha", role: "owner" }, connection: {} as never, rechecking: false, problem: null, unavailableTypes: [] });
     const before = vi.fn(() => false);
     render(<CollectionSwitcher mdbase={entry} app={app} onBeforeLeave={before} />);
-    act(() => button("Switch collection, current: Alpha").click());
+    act(() => switcherTrigger("Alpha").click());
     act(() => button("Add a collection…").click());
     expect(before).toHaveBeenCalledWith("add");
     expect(mdbase.addCollection).not.toHaveBeenCalled();
     expect(mdbase.addPrivateCollection).not.toHaveBeenCalled();
     render(<CollectionSwitcher mdbase={entry} app={app} />);
-    act(() => button("Switch collection, current: Alpha").click());
+    act(() => switcherTrigger("Alpha").click());
     act(() => button("Add a collection…").click());
     expect(mdbase.addCollection).toHaveBeenCalledExactlyOnceWith({ signal: expect.any(AbortSignal) });
     expect(mdbase.addPrivateCollection).not.toHaveBeenCalled();
@@ -303,6 +385,18 @@ describe("SDK storage and Private states", () => {
 });
 
 describe("setup review", () => {
+  it.each(["page", "panel"] as const)("uses consecutive %s setup headings without repeating the lead", async (layout) => {
+    const { mdbase, entry } = fakeMdbase({ kind: "needs_setup", collectionId: A, collection: { collectionId: A, displayName: "Alpha", role: "owner" } } as MdbasePhase);
+    mdbase.setup.plan.mockResolvedValue({ status: "setup", canApply: true, digest: "d", summary: "One readable setup summary.",
+      changes: [{ kind: "create", target: "_types/task.md", message: "Add the task type." }],
+      conflicts: [{ target: "_types/note.md", message: "Review the note type." }], adoptable: {}, packs: [], staged: [], records: [] } as never);
+    await act(async () => root.render(<CollectionGate mdbase={entry} app={app} layout={layout}>{() => null}</CollectionGate>));
+    expect(container.querySelector(".mdbase-collections-lead")).toBeNull();
+    expect([...container.querySelectorAll(".mdbase-collections-setup-section > :first-child")].map(heading => heading.tagName))
+      .toEqual(layout === "page" ? ["H2", "H2"] : ["H3", "H3"]);
+    expect(container.querySelector(".mdbase-collections-setup-summary")?.textContent).toBe("One readable setup summary.");
+  });
+
   it("plans again by itself while setup is busy elsewhere, instead of stopping at Try again", async () => {
     vi.useFakeTimers();
     try {
@@ -319,6 +413,24 @@ describe("setup review", () => {
       expect(container.textContent).toContain("Add the task type.");
       expect(() => button("Try again")).toThrow();
     } finally { vi.useRealTimers(); }
+  });
+
+  it("plans again after a failed apply, so the next click never reuses the spent plan", async () => {
+    const { mdbase, entry } = fakeMdbase({ kind: "needs_setup", collectionId: A, collection: { collectionId: A, displayName: "Alpha", role: "owner" } } as MdbasePhase, { status: "setup_required", selectedCollectionId: A });
+    const plan = (digest: string) => ({ status: "setup", canApply: true, digest, summary: "This app will make 1 change to this collection.", changes: [{ kind: "create", target: "_types/task.md", message: "Add the task type." }],
+      conflicts: [], adoptable: {}, packs: [], staged: [], records: [] });
+    const first = plan("first"), second = plan("second");
+    mdbase.setup.plan.mockResolvedValueOnce(first as never).mockResolvedValueOnce(second as never);
+    mdbase.setup.apply.mockRejectedValueOnce(Object.assign(new Error("offline"), { code: "unavailable" })).mockResolvedValueOnce({ outcome: "applied" } as never);
+    render(<CollectionGate mdbase={entry} app={app}>{() => null}</CollectionGate>);
+    await act(async () => { for (let i = 0; i < 4; i++) await Promise.resolve(); });
+    await act(async () => { button("Set up").click(); for (let i = 0; i < 6; i++) await Promise.resolve(); });
+    expect(mdbase.setup.plan).toHaveBeenCalledTimes(2);
+    // The review and its notice stay on screen while the fresh plan replaces the spent one.
+    expect(container.querySelector(".mdbase-collections-spinner")).toBeNull();
+    expect(container.querySelector(".mdbase-collections-notice")).not.toBeNull();
+    await act(async () => { button("Set up").click(); await Promise.resolve(); });
+    expect(mdbase.setup.apply.mock.calls.map(([p]) => (p as { digest: string }).digest)).toEqual(["first", "second"]);
   });
 });
 
@@ -426,7 +538,7 @@ describe("switcher keyboard", () => {
     const { mdbase, entry } = fakeMdbase({ kind: "ready", collectionId: B, collection: { collectionId: B, displayName: "Beta", role: "editor" }, connection: {} as never, rechecking: false, problem: null, unavailableTypes: [] },
       { status: "ready", selectedCollectionId: B });
     render(<CollectionSwitcher mdbase={entry} app={app} />);
-    const trigger = button("Switch collection, current: Beta");
+    const trigger = switcherTrigger("Beta");
     expect(trigger.getAttribute("aria-haspopup")).toBe("dialog");
 
     act(() => trigger.click());
@@ -463,7 +575,7 @@ describe("controlled switcher", () => {
     const { mdbase, entry } = ready();
     const onOpenChange = vi.fn();
     render(<CollectionSwitcher mdbase={entry} app={app} open onOpenChange={onOpenChange} />);
-    const trigger = button("Switch collection, current: Beta");
+    const trigger = switcherTrigger("Beta");
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
     expect(document.getElementById(document.querySelector("[role=dialog]")!.getAttribute("aria-labelledby")!)?.textContent).toBe("Collections");
 
@@ -489,7 +601,7 @@ describe("controlled switcher", () => {
     const { entry } = ready();
     const onOpenChange = vi.fn();
     render(<CollectionSwitcher mdbase={entry} app={app} onOpenChange={onOpenChange} />);
-    const trigger = button("Switch collection, current: Beta");
+    const trigger = switcherTrigger("Beta");
     act(() => trigger.click());
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
     expect(onOpenChange).toHaveBeenLastCalledWith(true);
@@ -580,7 +692,7 @@ describe("Private collections", () => {
     const ready = { kind: "ready", collectionId: P, collection: collections[1], connection: {} as never, rechecking: false, problem: null, unavailableTypes: [] } as unknown as MdbasePhase;
     const { entry } = fakeMdbase(ready, { status: "ready", selectedCollectionId: P, collections } as unknown as Partial<MdbaseSnapshot>);
     render(<CollectionSwitcher mdbase={entry} app={app} />);
-    act(() => button("Switch collection, current: Home notes").click());
+    act(() => switcherTrigger("Home notes").click());
     const [privateRow, hostedRow] = [...document.querySelectorAll<HTMLElement>("[role=radio]")];
     // The word is text in the radio (its accessible name), not hidden and not colour alone.
     expect(privateRow!.querySelector(".mdbase-collections-row-name")?.textContent).toBe("Home notes Private");
@@ -607,7 +719,7 @@ describe("sign out", () => {
     await act(async () => { button("Sign out").click(); });
     const dialog = document.querySelector("dialog")!;
     expect(dialog.textContent).toContain("Changes are still saving");
-    act(() => button("Sign out anyway").click());
+    await act(async () => button("Sign out anyway").click());
     expect(mdbase.signOut).toHaveBeenLastCalledWith(expect.objectContaining({ discard: true }));
   });
 });
@@ -697,7 +809,7 @@ describe("app slots", () => {
       { status: "ready", selectedCollectionId: B });
     const onSelect = vi.fn();
     render(<CollectionSwitcher mdbase={entry} app={app} icon="mark" sections={[privateSection(onSelect)]} rowDetail={(row) => `Detail ${row.entry.collectionId.slice(0, 2)}`} />);
-    const trigger = button("Switch collection, current: Beta");
+    const trigger = switcherTrigger("Beta");
     expect(trigger.querySelector(".mdbase-collections-mark")?.textContent).toBe("B");
     act(() => trigger.click());
     expect(document.querySelector("[role=dialog]")?.textContent).toContain("Detail 22");
@@ -750,7 +862,7 @@ describe("section item actions", () => {
       { status: "ready", selectedCollectionId: B });
     const onDeleted = vi.fn();
     render(<CollectionSwitcher mdbase={entry} app={app} sections={[withActions(vi.fn(), onDeleted)]} />);
-    act(() => button("Switch collection, current: Beta").click());
+    act(() => switcherTrigger("Beta").click());
     const row = button(/Journal/);
     key(row, "ArrowRight");
     expect(document.activeElement).toBe(button("More for Journal"));
@@ -770,7 +882,7 @@ describe("section item actions", () => {
     expect(mdbase.deleteCollection).toHaveBeenCalledWith("p1", { confirmName: "Journal" });
     expect(onDeleted).toHaveBeenCalledWith("deleted");
     expect(document.querySelector("dialog")).toBeNull();
-    expect(document.activeElement).toBe(button("Switch collection, current: Beta"));
+    expect(document.activeElement).toBe(switcherTrigger("Beta"));
   });
 });
 

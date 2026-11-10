@@ -11,11 +11,11 @@ const mocks = vi.hoisted(() => ({
   members: vi.fn(),
 }));
 vi.mock("../../platform/request-authentication.js", () => ({ requireUser: mocks.requireUser }));
-vi.mock("../../collection-invitations.js", async importOriginal => ({
-  ...await importOriginal<typeof import("../../collection-invitations.js")>(),
+vi.mock("../collections/collection-invitations.js", async importOriginal => ({
+  ...await importOriginal<typeof import("../collections/collection-invitations.js")>(),
   listHostedCollectionMembers: mocks.members,
 }));
-vi.mock("../../collection-membership-lifecycle.js", () => ({
+vi.mock("../collections/collection-membership-lifecycle.js", () => ({
   revokeHostedCollectionMembership: mocks.revoke,
   changeHostedCollectionMembershipRole: mocks.change,
 }));

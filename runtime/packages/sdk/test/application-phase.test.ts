@@ -64,3 +64,21 @@ it("maps sign-in, approval, choosing and the second-tab case to phases with type
   expect(other).toMatchObject({kind:"problem",problem:{key:"open_in_another_tab"}});
   expect(other.kind==="problem"&&other.problem.action).not.toBe("sign_in");
 });
+
+it("the unsynced collection is its own phase: never ready, never listed, signing in shows over it",()=>{
+  const U="22222222-2222-4222-8222-222222222222";
+  const unsyncedConnection={id:U,isCurrent:()=>true} as unknown as MdbaseApplicationConnection;
+  const shown=(over:Partial<MdbaseApplicationSnapshot>)=>snap({collections:[],selectedCollectionId:U,unsynced:{collectionId:U,sessionStatus:"signed_out"},
+    selection:{state:"none",problem:null,usable:null,requested:{collectionId:null,source:"none",displayName:null,approved:false}},...over} as Partial<MdbaseApplicationSnapshot>);
+  const phase=applicationPhase(shown({}),{connection:unsyncedConnection});
+  expect(phase).toEqual({kind:"unsynced",collectionId:U,connection:unsyncedConnection,rechecking:false});
+  // No current connection yet, or still configuring: opening, not ready.
+  expect(applicationPhase(shown({}),{})).toMatchObject({kind:"opening",collectionId:U,displayName:null});
+  expect(applicationPhase(shown({status:"setup_required",readiness:readiness({checking:true,assessment:null})}),{connection:unsyncedConnection})).toMatchObject({kind:"opening"});
+  // Re-checks keep it; a settled setup failure or a refusal is a problem.
+  expect(applicationPhase(shown({status:"opening",readiness:readiness({checking:true,assessment:null})}),{connection:unsyncedConnection,previous:phase})).toMatchObject({kind:"unsynced",rechecking:true});
+  expect(applicationPhase(shown({status:"setup_required",readiness:readiness({assessment:{status:"setup_required",problem:null}})}),{connection:unsyncedConnection}).kind).toBe("problem");
+  expect(applicationPhase(shown({status:"blocked",problem:"open_in_another_tab"}),{connection:unsyncedConnection})).toMatchObject({kind:"problem",collectionId:U});
+  // Signing in from it shows the sign-in window, the work stays open behind it.
+  expect(applicationPhase(shown({status:"authorizing"}),{connection:unsyncedConnection})).toMatchObject({kind:"authorizing",purpose:"sign_in"});
+});

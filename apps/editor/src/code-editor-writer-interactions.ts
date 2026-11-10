@@ -1,16 +1,14 @@
 import type { Extension } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
 import { EditorView } from "@codemirror/view";
-import { resolveFileReference } from "./file-reference-resolution";
-import { resolveLinkSuggestion, type LinkSuggestion } from "./links";
+import { internalLink, type LinkTargets } from "./collection-links";
 import { markdownReferenceAt } from "./markdown-references";
-import type { CollectionFile } from "./model";
+import type { CollectionFile, LinkTarget } from "./model";
 import type { NotePreviewAnchor, NotePreviewSource } from "./NotePreview";
 
 export function writerInteractions(
-  suggestions: () => LinkSuggestion[],
+  linkTargets: () => LinkTargets | undefined,
   files: () => CollectionFile[],
-  currentPath: () => string | undefined,
   onOpenLink: () => ((path: string) => void) | undefined,
   onOpenFileLink: () => ((file: CollectionFile) => void) | undefined,
   onCreateLink: () => ((target: string, label: string | undefined, format: "wikilink" | "markdown") => void) | undefined,
@@ -18,6 +16,9 @@ export function writerInteractions(
   onDismissLinkPreview: () => (() => void) | undefined
 ): Extension {
   let hoveredPath: string | undefined;
+  // The link under the pointer, as written; a lookup that returns after the
+  // pointer has moved on shows nothing.
+  let hoveredRaw: string | undefined;
   const dismissPreview = (view: EditorView) => {
     if (!hoveredPath) return;
     hoveredPath = undefined;
@@ -57,46 +58,59 @@ export function writerInteractions(
         window.open(link.target, "_blank", "noopener,noreferrer");
         return true;
       }
-      if (!link.target || /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(link.target)) return false;
-      const path = resolveLinkSuggestion(link.target, suggestions(), currentPath(), link.format)?.path;
-      const file = resolveFileReference(link.target, link.format, files(), currentPath());
-      const openLink = onOpenLink();
-      const openFileLink = onOpenFileLink();
-      const createLink = onCreateLink();
-      if (!path && !file && !createLink) return false;
-      if (path && !openLink) return false;
-      if (file && !openFileLink) return false;
+      const targets = linkTargets();
+      if (!link.target || !internalLink(link.target) || !targets) return false;
+      const raw = view.state.sliceDoc(link.from, link.to);
       event.preventDefault();
       dismissPreview(view);
-      if (path) openLink?.(path);
-      else if (file) openFileLink?.(file);
-      else createLink?.(link.target, link.label, link.format);
+      const follow = (target: LinkTarget) => {
+        if (target.kind === "note") onOpenLink()?.(target.path);
+        else if (target.kind === "file") {
+          const file = files().find(candidate => candidate.path === target.path);
+          if (file) onOpenFileLink()?.(file);
+        } else if (target.kind === "missing") onCreateLink()?.(link.target, link.label, link.format);
+      };
+      const known = targets.get(raw);
+      if (known) follow(known);
+      // A failed lookup is shown on the link by the reference diagnostics.
+      else void targets.resolve(raw).then(follow, () => undefined);
       return true;
     },
     mousemove(event, view) {
       const position = view.posAtCoords({ x: event.clientX, y: event.clientY });
-      const path = position === null
-        ? undefined
-        : internalLinkPathAt(view.state.doc.toString(), position, suggestions(), currentPath());
-      if (!path) {
+      const link = position === null ? undefined : internalLinkAt(view.state.doc.toString(), position);
+      const targets = linkTargets();
+      hoveredRaw = link && targets ? link.raw : undefined;
+      if (!link || !targets) {
         dismissPreview(view);
         return false;
       }
-      if (hoveredPath === path) return false;
-      if (hoveredPath) onDismissLinkPreview()?.();
-      hoveredPath = path;
-      view.dom.classList.add("cm-hovering-link");
-      const coordinates = view.coordsAtPos(position ?? 0);
-      const anchor: NotePreviewAnchor = {
-        left: event.clientX,
-        right: event.clientX,
-        top: coordinates?.top ?? event.clientY,
-        bottom: coordinates?.bottom ?? event.clientY
+      const show = (target: LinkTarget | undefined) => {
+        if (hoveredRaw !== link.raw) return;
+        if (target?.kind !== "note") {
+          dismissPreview(view);
+          return;
+        }
+        if (hoveredPath === target.path) return;
+        if (hoveredPath) onDismissLinkPreview()?.();
+        hoveredPath = target.path;
+        view.dom.classList.add("cm-hovering-link");
+        const coordinates = view.coordsAtPos(position ?? 0);
+        const anchor: NotePreviewAnchor = {
+          left: event.clientX,
+          right: event.clientX,
+          top: coordinates?.top ?? event.clientY,
+          bottom: coordinates?.bottom ?? event.clientY
+        };
+        onPreviewLink()?.(target.path, anchor, "editor");
       };
-      onPreviewLink()?.(path, anchor, "editor");
+      const known = targets.get(link.raw);
+      if (known) show(known);
+      else void targets.resolve(link.raw).then(show, () => undefined);
       return false;
     },
     mouseleave(_event, view) {
+      hoveredRaw = undefined;
       dismissPreview(view);
       return false;
     }
@@ -122,13 +136,9 @@ function toggleTask(view: EditorView, target: HTMLElement, event: Event): boolea
   return true;
 }
 
-export function internalLinkPathAt(
-  doc: string,
-  position: number,
-  suggestions: LinkSuggestion[],
-  sourcePath?: string
-): string | undefined {
+/** The internal link at `position`, as written in the note: what the hover
+ * preview asks the collection about. */
+export function internalLinkAt(doc: string, position: number): { raw: string } | undefined {
   const link = markdownReferenceAt(doc, position, "link");
-  if (!link || /^https?:\/\//i.test(link.target)) return undefined;
-  return resolveLinkSuggestion(link.target, suggestions, sourcePath, link.format)?.path;
+  return link && internalLink(link.target) ? { raw: doc.slice(link.from, link.to) } : undefined;
 }

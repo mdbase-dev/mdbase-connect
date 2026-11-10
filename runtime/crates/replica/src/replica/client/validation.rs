@@ -1,6 +1,6 @@
 //! Current-record diagnostics from Core, using the ordinary authorized local view.
 use super::super::Replica;
-use crate::api::{ApiResult, ErrorCode, RecordValidation, SessionId, Target};
+use crate::api::{ApiResult, ErrorCode, RecordValidation, SessionId, Target, Validate};
 use crate::convert;
 use crate::layer::LayerView;
 use crate::plan::StoreView;
@@ -60,20 +60,22 @@ impl<S: Store> Replica<S> {
     pub(super) fn validate_current(
         &self,
         session: SessionId,
-        targets: Option<Vec<Target>>,
+        scope: Validate,
     ) -> ApiResult<Vec<RecordValidation>> {
         self.require(session, crate::policy::capability::READ)?;
-        if targets.as_ref().is_some_and(|v| v.len() > RECORDS) {
-            return Err(budget());
-        }
-        if targets.as_ref().is_some_and(|v| {
-            v.iter()
+        if let Validate::Targets(targets) = &scope {
+            if targets.len() > RECORDS {
+                return Err(budget());
+            }
+            if targets
+                .iter()
                 .any(|t| matches!(t, Target::Path(p) if p.is_empty() || p.len() > 4096))
-        }) {
-            return Err(ErrorCode::InvalidRequest.err_with_reason(
-                "validation_selection",
-                "Validation paths must be nonempty and at most 4096 UTF-8 bytes.",
-            ));
+            {
+                return Err(ErrorCode::InvalidRequest.err_with_reason(
+                    "validation_selection",
+                    "Validation paths must be nonempty and at most 4096 UTF-8 bytes.",
+                ));
+            }
         }
         if self.layer.touched_count() > RECORDS {
             return Err(budget());
@@ -133,8 +135,14 @@ impl<S: Store> Replica<S> {
             inventory: RefCell::new(None),
             failure: RefCell::new(None),
         };
-        let ids = match targets {
-            Some(targets) => {
+        let mut rows = Rows::default();
+        let mut page_full = false;
+        let check = |id: RecordId, rows: &mut Rows| -> ApiResult<()> {
+            let row = self.validation_row(&bounded, &view, &catalog, &clock, id)?;
+            rows.push(row)
+        };
+        match scope {
+            Validate::Targets(targets) => {
                 let mut ids = Vec::with_capacity(targets.len());
                 for target in &targets {
                     let id = self.resolve_target(&bounded, target);
@@ -146,66 +154,144 @@ impl<S: Store> Replica<S> {
                         ErrorCode::NotFound.err("No such validation record.")
                     })?));
                 }
-                ids
+                for id in ids {
+                    check(id, &mut rows)?;
+                }
             }
-            None => bounded.ids()?,
-        };
-        let mut rows = Vec::new();
-        let mut output = 9usize; // Conservative outer-array header allowance.
-        let mut nodes = 1usize;
-        let mut total_issues = 0usize;
-        for id in ids {
-            let record = bounded.record(&id);
-            if let Some(error) = view.error() {
-                return Err(store_err(error));
+            Validate::All => {
+                for id in bounded.ids()? {
+                    check(id, &mut rows)?;
+                }
             }
-            bounded.check()?;
-            let record =
-                record.ok_or_else(|| ErrorCode::NotFound.err("No such validation record."))?;
-            if record.id != id {
-                return Err(store_err(crate::store::StoreError::Corrupt(
-                    "validation record identity mismatch".into(),
-                )));
+            Validate::Page { after } => {
+                // A page ends where the budget would be exceeded: the row being
+                // checked is dropped whole and starts the next page.
+                let mut ids = bounded.page_ids(after.as_ref().map(convert::uuid));
+                while rows.len() < RECORDS {
+                    let mark = rows.mark();
+                    let checked = match ids.next(&bounded) {
+                        None => break,
+                        Some(Ok(id)) => check(id, &mut rows),
+                        Some(Err(e)) => Err(e),
+                    };
+                    match checked {
+                        Ok(()) => {}
+                        Err(e) if !rows.is_empty() && is_budget(&e) && view.error().is_none() => {
+                            rows.reset(mark);
+                            page_full = true;
+                            break;
+                        }
+                        Err(e) => return Err(e),
+                    }
+                }
             }
-            let mut issues = mdbn_core::validate::validate_record_at(
-                &catalog,
-                &record.path,
-                &record.source,
-                Some(&clock),
-            );
-            issues.extend(mdbn_core::validate::cross_record_issues(&bounded, id));
-            if let Some(error) = view.error() {
-                return Err(store_err(error));
-            }
-            bounded.check()?;
-            let issues =
-                mdbn_core::validate::apply_level(issues, catalog.settings().validation, true);
-            total_issues = total_issues.saturating_add(issues.len());
-            if total_issues > CALLS {
-                return Err(budget());
-            }
-            let row = RecordValidation {
-                id: convert::wuuid(&id),
-                path: record.path,
-                revision: mdbn_wire::hash::sha256(record.source.as_bytes()),
-                issues,
-            };
-            // Serialized output accounting, not a measured peak-heap claim.
-            let value = row.to_cbor();
-            measure_nodes(&value, &mut nodes)?;
-            output =
-                output.saturating_add(mdbn_wire::cbor::encode(&value).map_err(|_| budget())?.len());
-            if output > OUTPUT_BYTES {
-                return Err(budget());
-            }
-            rows.push(row);
         }
         if let Some(error) = view.error() {
             return Err(store_err(error));
         }
-        bounded.check()?;
+        if let Some(error) = bounded.failure.borrow_mut().take() {
+            return Err(error);
+        }
+        if !page_full {
+            bounded.check()?;
+        }
         self.require(session, crate::policy::capability::READ)?;
-        Ok(rows)
+        Ok(rows.rows)
+    }
+
+    /// One record's diagnostics, metered by `bounded`.
+    fn validation_row(
+        &self,
+        bounded: &ValidationView<'_, S>,
+        view: &StoreView<'_>,
+        catalog: &Catalog,
+        clock: &OpClock,
+        id: RecordId,
+    ) -> ApiResult<RecordValidation> {
+        let record = bounded.record(&id);
+        if let Some(error) = view.error() {
+            return Err(store_err(error));
+        }
+        bounded.check()?;
+        let record = record.ok_or_else(|| ErrorCode::NotFound.err("No such validation record."))?;
+        if record.id != id {
+            return Err(store_err(crate::store::StoreError::Corrupt(
+                "validation record identity mismatch".into(),
+            )));
+        }
+        let mut issues = mdbn_core::validate::validate_record_at(
+            catalog,
+            &record.path,
+            &record.source,
+            Some(clock),
+        );
+        issues.extend(mdbn_core::validate::cross_record_issues(bounded, id));
+        if let Some(error) = view.error() {
+            return Err(store_err(error));
+        }
+        bounded.check()?;
+        let issues = mdbn_core::validate::apply_level(issues, catalog.settings().validation, true);
+        Ok(RecordValidation {
+            id: convert::wuuid(&id),
+            path: record.path,
+            revision: mdbn_wire::hash::sha256(record.source.as_bytes()),
+            issues,
+        })
+    }
+}
+
+fn is_budget(e: &crate::api::ApiError) -> bool {
+    e.code() == Some(ErrorCode::TooLarge) && e.0.reason.as_deref() == Some("validation_budget")
+}
+
+/// Result rows with the output accounting: serialized size, CBOR nodes and
+/// issue count, not a measured peak-heap claim.
+struct Rows {
+    rows: Vec<RecordValidation>,
+    output: usize,
+    nodes: usize,
+    issues: usize,
+}
+
+impl Default for Rows {
+    fn default() -> Self {
+        Rows {
+            rows: Vec::new(),
+            output: 9, // Conservative outer-array header allowance.
+            nodes: 1,
+            issues: 0,
+        }
+    }
+}
+
+impl Rows {
+    fn push(&mut self, row: RecordValidation) -> ApiResult<()> {
+        self.issues = self.issues.saturating_add(row.issues.len());
+        if self.issues > CALLS {
+            return Err(budget());
+        }
+        let value = row.to_cbor();
+        measure_nodes(&value, &mut self.nodes)?;
+        self.output = self
+            .output
+            .saturating_add(mdbn_wire::cbor::encode(&value).map_err(|_| budget())?.len());
+        if self.output > OUTPUT_BYTES {
+            return Err(budget());
+        }
+        self.rows.push(row);
+        Ok(())
+    }
+    fn len(&self) -> usize {
+        self.rows.len()
+    }
+    fn is_empty(&self) -> bool {
+        self.rows.is_empty()
+    }
+    fn mark(&self) -> (usize, usize, usize) {
+        (self.output, self.nodes, self.issues)
+    }
+    fn reset(&mut self, (output, nodes, issues): (usize, usize, usize)) {
+        (self.output, self.nodes, self.issues) = (output, nodes, issues);
     }
 }
 
@@ -303,6 +389,92 @@ impl<S: Store> ValidationView<'_, S> {
         Ok(ids)
     }
 }
+/// Current record IDs after a cursor, in ID order: confirmed rows the local
+/// view leaves alone, merged with the records it changes or adds. Fetched a few
+/// rows at a time so a page reads little more than it checks.
+struct PageIds {
+    after: Option<RecordId>,
+    touched: Vec<RecordId>,
+    ready: std::collections::VecDeque<RecordId>,
+    done: bool,
+}
+
+const PAGE_FETCH: u32 = 32;
+
+impl<S: Store> ValidationView<'_, S> {
+    fn page_ids(&self, after: Option<RecordId>) -> PageIds {
+        PageIds {
+            after,
+            touched: self
+                .replica
+                .layer
+                .touched_ids()
+                .into_iter()
+                .filter(|id| after.is_none_or(|a| *id > a))
+                .collect(),
+            ready: Default::default(),
+            done: false,
+        }
+    }
+}
+
+impl PageIds {
+    fn next<S: Store>(&mut self, view: &ValidationView<'_, S>) -> Option<ApiResult<RecordId>> {
+        while self.ready.is_empty() && !self.done {
+            if let Err(e) = self.fill(view) {
+                self.done = true;
+                return Some(Err(e));
+            }
+        }
+        self.ready.pop_front().map(Ok)
+    }
+
+    fn fill<S: Store>(&mut self, view: &ValidationView<'_, S>) -> ApiResult<()> {
+        let page = view
+            .replica
+            .store
+            .records(Page {
+                after: self.after.as_ref().map(convert::wuuid),
+                limit: PAGE_FETCH,
+            })
+            .map_err(store_err)?;
+        if page.len() > PAGE_FETCH as usize {
+            return Err(budget());
+        }
+        let last = page.last().map(|r| convert::uuid(&r.id));
+        if let (Some(a), Some(l)) = (self.after, last)
+            && l <= a
+        {
+            return Err(ErrorCode::Internal.err("Validation inventory did not advance."));
+        }
+        self.done = page.len() < PAGE_FETCH as usize;
+        let mut ids = BTreeSet::new();
+        for row in page {
+            if !view.charge(1, row.doc.len()) {
+                return Err(budget());
+            }
+            let id = convert::uuid(&row.id);
+            if !view.replica.layer.touches(&id) {
+                ids.insert(id);
+            }
+        }
+        // Local changes up to this fetch's last confirmed row (all of the rest
+        // once the store has none left), when the local view holds a record.
+        let split = match (self.done, last) {
+            (false, Some(l)) => self.touched.partition_point(|id| *id <= l),
+            _ => self.touched.len(),
+        };
+        for id in self.touched.drain(..split) {
+            if view.base.record(&id).is_some() {
+                ids.insert(id);
+            }
+        }
+        self.after = last.or(self.after);
+        self.ready.extend(ids);
+        Ok(())
+    }
+}
+
 impl<S: Store> StateView for ValidationView<'_, S> {
     fn catalog(&self) -> Arc<Catalog> {
         self.base.catalog()

@@ -495,6 +495,7 @@ msgid "{itemLabel} suggestions"
 msgstr "{itemLabel} 建议"
 
 #: src/contract-catalog.ts
+#: src/gateway.ts
 msgid "{label} is not supported."
 msgstr "不支持 {label}。"
 
@@ -652,11 +653,6 @@ msgstr "{text} {0} 的上传"
 #: src/NoteList.tsx
 msgid "{title} note actions"
 msgstr "{title} 笔记操作"
-
-#. placeholder {0}: collectionFileFormat(file)
-#: src/NoteList.tsx
-msgid "{title}, {0} file"
-msgstr "{title}，{0} 文件"
 
 #: src/TypeBrowser.tsx
 msgid "{title}.md"
@@ -1598,6 +1594,10 @@ msgstr "命令 · 在文本外按 {0}"
 msgid "Common icons"
 msgstr "常用图标"
 
+#: src/NoteListViewOptions.tsx
+msgid "Compact"
+msgstr "紧凑"
+
 #: src/settings/SettingsView.tsx
 msgctxt "editor text size"
 msgid "Compact"
@@ -2130,6 +2130,7 @@ msgstr "放弃类型"
 msgid "Discard type changes?"
 msgstr "放弃类型更改？"
 
+#: src/NoteListViewOptions.tsx
 #: src/type-presentation.ts
 #: src/TypeBrowser.tsx
 msgid "Display"
@@ -2453,10 +2454,6 @@ msgstr "查找属性"
 #: src/editor-commands.ts
 msgid "Find in note"
 msgstr "在笔记中查找"
-
-#: src/WorkspaceChrome.tsx
-msgid "Find linked notes"
-msgstr "查找链接的笔记"
 
 #: src/CollectionRail.tsx
 msgid "Finding folders…"
@@ -2860,6 +2857,10 @@ msgstr "链接规则"
 #: src/YourPersonPanel.tsx
 msgid "Link this record to me"
 msgstr "将此记录关联到我"
+
+#: src/code-editor-reference-diagnostics.ts
+msgid "Link to {title}"
+msgstr "链接到 {title}"
 
 #: src/code-editor-completions.ts
 msgid "Link to note or file"
@@ -3334,6 +3335,10 @@ msgstr "下一条笔记"
 msgid "Next note in the list"
 msgstr "列表中的下一条笔记"
 
+#: src/NoteList.tsx
+msgid "No additional text"
+msgstr "无其他文本"
+
 #: src/TypeBrowser.tsx
 msgid "No app contracts are installed"
 msgstr "未安装应用契约"
@@ -3427,7 +3432,9 @@ msgid "No nested fields yet."
 msgstr "暂无嵌套字段。"
 
 #. placeholder {0}: reference.target
+#. placeholder {0}: this.target
 #: src/code-editor-reference-diagnostics.ts
+#: src/CodeEditor.tsx
 msgid "No note or file matches “{0}”."
 msgstr "没有与“{0}”匹配的笔记或文件。"
 
@@ -3901,6 +3908,7 @@ msgid "Pin"
 msgstr "固定"
 
 #: src/collection-browser.ts
+#: src/use-note-actions.ts
 msgid "Pinned"
 msgstr "已固定"
 
@@ -4376,6 +4384,7 @@ msgstr "继续重命名"
 
 #: src/code-editor-file-embeds.ts
 #: src/CollectionRail.tsx
+#: src/WorkspaceChrome.tsx
 #: src/YourPersonPanel.tsx
 msgid "Retry"
 msgstr "重试"
@@ -5802,6 +5811,10 @@ msgstr "未链接的提及（{0}）"
 #: src/editor-commands.ts
 msgid "Unpin"
 msgstr "取消固定"
+
+#: src/use-note-actions.ts
+msgid "Unpinned"
+msgstr "已取消置顶"
 
 #: src/App.tsx
 msgid "Unsaved draft found"

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { access, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
@@ -68,7 +68,7 @@ test("digest mismatch removes partial output and cannot become a staged artifact
     /signed digest/
   );
   await assert.rejects(access(destination));
-  await assert.rejects(access(`${destination}.part-${process.pid}`));
+  assert.deepEqual(await readdir(directory), []);
 });
 
 test("declared and streamed size mismatches fail closed", async () => {
@@ -129,6 +129,36 @@ test("signature downloads enforce size, TLS after redirects, and timeout", async
     ),
     /timed out/
   );
+});
+
+test("the overall check signal cancels signature and artifact bodies before their request timeout", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mdbase-update-download-"));
+  for (const kind of ["signature", "artifact"]) {
+    const controller = new AbortController();
+    const started = Promise.withResolvers();
+    const destination = join(directory, "cancelled.zip");
+    const transport = async (_url, { signal }) => {
+      const body = new ReadableStream({
+        start(stream) {
+          stream.enqueue(Buffer.from("partial"));
+          signal.addEventListener("abort", () => stream.error(signal.reason), { once: true });
+        }
+      });
+      const response = new Response(body);
+      Object.defineProperty(response, "url", { value: "https://downloads.example/update" });
+      started.resolve();
+      return response;
+    };
+    const pending = kind === "signature"
+      ? downloadBytes("https://downloads.example/bundle", 100, transport, 60_000, controller.signal)
+      : downloadArtifact(artifact(Buffer.from("partial archive")), destination, () => {}, transport, 60_000, controller.signal);
+    const rejected = assert.rejects(pending, /check deadline/);
+    await started.promise;
+    controller.abort(new Error("check deadline"));
+    await rejected;
+    await assert.rejects(readFile(destination), { code: "ENOENT" });
+    assert.deepEqual(await readdir(directory), []);
+  }
 });
 
 test("cached artifacts are rehashed rather than trusted by filename or length", async () => {

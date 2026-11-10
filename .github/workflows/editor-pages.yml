@@ -22,6 +22,7 @@ on:
       - "config/next-trust/**"
       - "scripts/continuous-sdk-release.mjs"
       - "scripts/lib/sdk-publication.mjs"
+      - "scripts/lib/managed-app-origins.mjs"
       - "tools/editor-native-publisher/**"
   workflow_dispatch:
     inputs:
@@ -61,6 +62,10 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      - name: Prefetch pinned Electron through authenticated release assets
+        uses: ./.github/actions/prefetch-electron
+        with:
+          token: ${{ github.token }}
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:packages
       - run: pnpm --filter mdbase-editor i18n:check
@@ -77,21 +82,24 @@ jobs:
         id: playwright-cache
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          key: playwright-webkit-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - name: "Cache marker: playwright hit"
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: echo 'Playwright cache hit.'
       - name: "Cache marker: playwright miss"
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: echo 'Playwright cache miss.'
-      - name: Install Chromium (cache miss)
+      # The mobile-webkit project checks the phone layout in Safari's engine.
+      # Its system libraries are not on the runner image, so even a cache hit
+      # installs them.
+      - name: Install Chromium and WebKit (cache miss)
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm exec playwright install --with-deps chromium webkit
         timeout-minutes: 30
-      - name: Install Chromium (cache hit)
+      - name: Install Chromium and WebKit (cache hit)
         if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: pnpm exec playwright install chromium
-        timeout-minutes: 5
+        run: pnpm exec playwright install chromium && pnpm exec playwright install --with-deps webkit
+        timeout-minutes: 15
       - run: pnpm --filter mdbase-editor test:e2e
       - run: pnpm --filter mdbase-editor build
         env:
@@ -190,13 +198,19 @@ jobs:
         with:
           node-version: 24
       - name: Data-only original intake before dependency execution
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/editor-build"
           node apps/editor/scripts/native/publisher.mjs guard > "$RUNNER_TEMP/editor-build/plan.json"
       - run: node apps/editor/scripts/native/install-inputs.mjs "$RUNNER_TEMP/editor-build/plan.json"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - run: pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile
       - name: ALL installed original members, then unprivileged build once
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: node apps/editor/scripts/native/build.mjs "$RUNNER_TEMP/editor-build"
       - run: node apps/editor/scripts/native/envelope.mjs "$RUNNER_TEMP/editor-build"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -269,7 +283,9 @@ jobs:
           node-version: 24
         timeout-minutes: 2
       - name: Workflow-owned guard; candidate is data only
-        timeout-minutes: 4
+        timeout-minutes: 7
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/editor-receipt" "$RUNNER_TEMP/editor-upload"
@@ -380,7 +396,7 @@ jobs:
           node apps/editor/scripts/native/tool.mjs "$RUNNER_TEMP/editor-smoke-tool" smoke
           module=$(cat "$RUNNER_TEMP/editor-smoke-tool")
           node "$(dirname "$module")/cli.js" install --with-deps chromium
-      - name: Fresh load, source entry asset, readiness and sign-in
+      - name: Fresh load, source entry asset, readiness and first screen
         timeout-minutes: 3
         run: node apps/editor/scripts/native/smoke.mjs "$RUNNER_TEMP/editor-smoke-tool" "$RUNNER_TEMP/editor-smoke.json"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

@@ -283,7 +283,7 @@ docker run --detach --name mdbase-connect-upgrade-candidate \
   --env PUBLIC_URL="$UPGRADE_SERVER_URL" \
   --env PORT="$UPGRADE_SERVER_PORT" \
   --env MDBASE_CONNECT_DEV_AUTH=1 \
-  --env MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS=1 \
+  --env MDBASE_NEW_ACCOUNT_BACKEND=legacy \
   "$CANDIDATE_IMAGE" >/dev/null
 if ! upgrade_wait_http \
     "$UPGRADE_SERVER_URL/ready" 'candidate server'; then
@@ -336,7 +336,7 @@ docker run --rm --interactive --network host \
   node --input-type=module <<'NODE'
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { deleteAccountLocally } from "/app/services/server/dist/account-management.js";
+import { deleteAccountLocally } from "/app/services/server/dist/features/account/account-management.js";
 import { createDatabase } from "/app/services/server/dist/db.js";
 
 const db = await createDatabase(process.env.DATABASE_URL);

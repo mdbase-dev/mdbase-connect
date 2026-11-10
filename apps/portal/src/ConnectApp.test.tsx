@@ -13,6 +13,8 @@ import { writeOverviewPreview } from "./overview-cache";
 let overview: ManagementOverview;
 
 beforeEach(() => {
+  vi.stubEnv("VITE_MDBASE_READER_URL", undefined);
+  vi.stubEnv("VITE_MDBASE_WRITER_URL", undefined);
   localStorage.clear();
   sessionStorage.clear();
   history.replaceState(null, "", "/?collection=collection");
@@ -34,9 +36,18 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe("ConnectApp", () => {
+  it.each([{ computerIds: [] }, { computerIds: ["computer"] }])("only describes synced computer copies when a computer is enrolled: $computerIds", async ({ computerIds }) => {
+    history.replaceState(null, "", "/storage?collection=native");
+    Object.assign(overview, { native_collections: [{ id: "native", display_name: "Cloud notes", sync: "cloud_copy", computer_ids: computerIds,
+      access: { relationship: "owner", role: "owner", can_manage_members: true } }] });
+    render(<ConnectApp />);
+    await screen.findByText("Collection copies");
+    expect(!!screen.queryByText("Copies sync between your computers. App access is managed separately.")).toBe(computerIds.length > 0);
+  });
   it("keeps an unchanged background load error mounted but announces a Retry result", async () => {
     vi.mocked(fetch).mockImplementation(async () => Response.json({ error: { message: "diagnostic" } }, { status: 503 }));
     render(<ConnectApp />);
@@ -239,7 +250,7 @@ describe("ConnectApp", () => {
     expect(change).not.toHaveBeenCalled();
   });
 
-  it("opens Hosted first-collection setup for a newly flipped next account without a computer", async () => {
+  it("opens first-collection setup for a newly flipped next account without a computer", async () => {
     history.replaceState(null, "", "/");
     overview.collections = [];
     overview.hosted_collections = [];
@@ -253,14 +264,14 @@ describe("ConnectApp", () => {
 
     expect(await screen.findByText("No collections")).toBeInTheDocument();
     expect(screen.getByText("Choose where your first collection lives.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Hosted by mdbase/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /New collection/ })).toBeEnabled();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     await waitFor(() => expect(location.pathname).toBe("/collections"));
 
-    await user.click(screen.getByRole("button", { name: /Hosted by mdbase/ }));
+    await user.click(screen.getByRole("button", { name: /New collection/ }));
     expect(screen.getByRole("textbox", { name: "Collection name" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create" })).toBeEnabled();
-    expect(screen.queryByText("Hosted creation is unavailable on this server.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Creating collections is unavailable on this server.")).not.toBeInTheDocument();
   });
 
   it.each([false, true])("offers one Add collection flow with a Native handoff when Hosted enabled=%s", async hosted => {
@@ -281,11 +292,12 @@ describe("ConnectApp", () => {
   it("keeps Add collection visible without inventing a Native device or Hosted authority", async () => {
     history.replaceState(null, "", "/collections");
     overview.hosted_collections_available = false;
+    overview.collection_creation_available = false;
     Object.assign(overview, { native_collection_creation_available: false });
     const user = userEvent.setup();
     render(<ConnectApp />);
     await user.click(await screen.findByRole("button", { name: "Add collection" }));
-    expect(screen.getByRole("button", { name: /Hosted by mdbase/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /New collection/ })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: /A folder on this computer/ }));
     expect(screen.getByRole("link", { name: "Open desktop app" })).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "Location" })).not.toBeInTheDocument();
@@ -314,14 +326,45 @@ describe("ConnectApp", () => {
     expect(screen.queryByText("Availability unknown")).not.toBeInTheDocument();
   });
 
-  it("lists apps for discovery before any access is approved", async () => {
+  it.each([
+    ["lab", "https://editor-lab.mdbase.dev", "https://lab.mdbase-reader.pages.dev", "https://lab.mdbase-writer.pages.dev", "https://lab.mdbase-journal-lab.pages.dev", "https://lab.tasknotes-app.pages.dev"],
+    ["staging", "https://editor-staging.mdbase.dev", "https://staging.mdbase-reader.pages.dev", "https://staging.mdbase-writer.pages.dev", "https://staging.mdbase-journal.pages.dev", "https://staging.tasknotes-app.pages.dev"],
+    ["production", "https://editor.mdbase.dev", "https://reader.mdbase.dev", "https://writer.mdbase.dev", "https://journal.mdbase.dev", "https://app.tasknotes.dev"],
+  ])("discovers all managed apps in %s before access is approved", async (_environment, editor, reader, writer, journal, tasknotes) => {
+    const fetchData = vi.mocked(fetch).getMockImplementation()!;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+      new URL(String(input)).pathname === "/v1/ui-configuration" ? Response.json({ editor_url: `${editor}/connect` }) : fetchData(input, init)));
+    vi.stubEnv("VITE_MDBASE_ENV", "production");
+    overview.grants = [];
+    history.replaceState(null, "", "/applications");
+    render(<ConnectApp />);
+    await screen.findByRole("link", { name: "Editor" });
+    for (const [name, href] of [["Editor", editor], ["Reader", reader], ["Writer", writer], ["Journal", journal], ["TaskNotes", tasknotes]]) {
+      expect(screen.getByRole("link", { name })).toHaveAttribute("href", href);
+    }
+    expect(screen.getByText("No apps with access")).toBeInTheDocument();
+  });
+
+  it("uses explicit app URLs for a custom deployment", async () => {
+    vi.stubEnv("VITE_MDBASE_READER_URL", "http://127.0.0.1:5321");
+    vi.stubEnv("VITE_MDBASE_WRITER_URL", "http://127.0.0.1:5320");
+    history.replaceState(null, "", "/applications");
+    render(<ConnectApp />);
+    await screen.findByRole("link", { name: "Editor" });
+    expect(screen.getByRole("link", { name: "Editor" })).toHaveAttribute("href", "https://editor.example.test");
+    expect(screen.getByRole("link", { name: "Reader" })).toHaveAttribute("href", "http://127.0.0.1:5321");
+    expect(screen.getByRole("link", { name: "Writer" })).toHaveAttribute("href", "http://127.0.0.1:5320");
+  });
+
+  it("does not guess production URLs for unconfigured custom apps", async () => {
     overview.grants = [];
     history.replaceState(null, "", "/applications");
     render(<ConnectApp />);
     await screen.findByRole("heading", { name: "Apps" });
     await screen.findByRole("link", { name: "Editor" });
-    for (const [name, href] of [["Editor", "https://editor.example.test"], ["Reader", "https://reader.mdbase.dev/"], ["Writer", "https://writer.mdbase.dev/"], ["Journal", "https://journal.mdbase.dev"], ["TaskNotes", "https://app.tasknotes.dev"]]) {
-      expect(screen.getByRole("link", { name })).toHaveAttribute("href", href);
+    expect(screen.getByRole("link", { name: "Editor" })).toHaveAttribute("href", "https://editor.example.test");
+    for (const name of ["Reader", "Writer", "Journal", "TaskNotes"]) {
+      expect(screen.queryByRole("link", { name })).not.toBeInTheDocument();
     }
     expect(screen.getByText("No apps with access")).toBeInTheDocument();
   });
@@ -334,7 +377,8 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
     await screen.findByRole("heading", { name: "Apps" });
     expect(screen.queryByRole("link", { name: "Editor" })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Reader" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Reader" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Writer" })).not.toBeInTheDocument();
   });
 
   it("shows owned cloud-copy and Private collections and the complete deletion count", async () => {
@@ -342,6 +386,7 @@ describe("ConnectApp", () => {
     account.backend = "next";
     account.deletion.owned_collections = 3;
     account.deletion.hosted_collections = 0;
+    overview.subscription!.limits.max_document_bytes = 1_048_576;
     account.storage.collections = [];
     overview.native_collections = [
       { id: "cloud", display_name: "Cloud notes", sync: "cloud_copy", access: { relationship: "owner", role: "owner", can_manage_members: true } },
@@ -362,7 +407,7 @@ describe("ConnectApp", () => {
     expect(collections.getByText("Beta")).toBeInTheDocument();
     expect(collections.getByText("Usage unavailable")).toBeInTheDocument();
     expect(collections.queryByText(/retained file storage/)).not.toBeInTheDocument();
-    expect(collections.getByText(/Documents up to/)).toBeInTheDocument();
+    expect(collections.getByText(/^Documents up to 1 MB ·/)).toBeInTheDocument();
     expect(screen.queryByText("0 hosted collections")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Delete account…" }));
     expect(screen.getByText("3 collections and their stored data")).toBeInTheDocument();
@@ -383,7 +428,7 @@ describe("ConnectApp", () => {
     const collections = within(heading.closest("section")!);
     expect(collections.getByText("5 MB of 1 GB")).toBeInTheDocument();
     expect(collections.getByRole("progressbar", { name: "Beta hosted storage" })).toHaveAttribute("aria-valuenow", String(5 * 1024 * 1024));
-    expect(collections.getByText("Includes recent version history.")).toBeInTheDocument();
+    expect(collections.getByText("Counts uploaded files. Notes don't use storage.")).toBeInTheDocument();
     expect(collections.queryByText(/Markdown ·/)).not.toBeInTheDocument();
   });
 
@@ -726,7 +771,7 @@ describe("ConnectApp", () => {
     await screen.findByRole("heading", { name: "Garden notes" });
     await user.click(screen.getByRole("link", { name: "Collections" }));
     await user.click(screen.getByRole("button", { name: "Add collection" }));
-    await user.click(screen.getByRole("button", { name: /Hosted by mdbase/ }));
+    await user.click(screen.getByRole("button", { name: /New collection/ }));
     await user.type(screen.getByRole("textbox", {name: "Collection name"}), "Created while loading");
     fireEvent(document, new Event("visibilitychange"));
     expect(read).toHaveBeenCalledTimes(2);
@@ -742,6 +787,137 @@ describe("ConnectApp", () => {
     render(<StrictMode><ConnectApp /></StrictMode>);
     expect(await screen.findByRole("heading", { name: "Garden notes" })).toBeInTheDocument();
     expect(vi.mocked(fetch).mock.calls.filter(([input]) => new URL(String(input)).pathname === "/v1/me")).toHaveLength(2);
+  });
+
+  describe("native storage refresh", () => {
+    const overviewReads = () => vi.mocked(fetch).mock.calls.map(([input]) => new URL(String(input)))
+      .filter(url => url.pathname === "/v1/me").map(url => url.search);
+    const settle = () => act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    const omitted = "?native_storage=omit";
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    });
+
+    it("reads storage on load, focus and visibility but leaves it out of the 15-second refresh", async () => {
+      render(<ConnectApp />);
+      await settle();
+      expect(overviewReads()).toEqual([""]);
+      await act(async () => { await vi.advanceTimersByTimeAsync(45_000); });
+      expect(overviewReads()).toEqual(["", omitted, omitted, omitted]);
+      fireEvent(window, new Event("focus"));
+      await settle();
+      expect(overviewReads().at(-1)).toBe("");
+      await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+      fireEvent(document, new Event("visibilitychange"));
+      await settle();
+      expect(overviewReads()).toEqual(["", omitted, omitted, omitted, "", omitted, omitted, ""]);
+    });
+
+    it("doesn't read storage again on focus within 30 seconds of the last read", async () => {
+      render(<ConnectApp />);
+      await settle();
+      fireEvent(window, new Event("focus"));
+      await settle();
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      fireEvent(document, new Event("visibilitychange"));
+      await settle();
+      expect(overviewReads()).toEqual(["", omitted, omitted, omitted]);
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      fireEvent(window, new Event("focus"));
+      await settle();
+      expect(overviewReads()).toEqual(["", omitted, omitted, omitted, omitted, ""]);
+    });
+
+    it("retries a failed storage read on the next 15-second refresh, and counts an unknown figure as read", async () => {
+      overview.subscription = { ...overview.subscription!, native_storage_bytes: null };
+      let failStorage = false;
+      const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+      vi.mocked(fetch).mockImplementation(async (input, init) => {
+        const url = new URL(String(input));
+        if (failStorage && url.pathname === "/v1/me" && url.search === "") return Response.json({ error: { message: "unavailable" } }, { status: 503 });
+        return originalFetch(input, init);
+      });
+      render(<ConnectApp />);
+      await settle();
+      await act(async () => { await vi.advanceTimersByTimeAsync(5 * 60_000 - 15_000); });
+      failStorage = true;
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      expect(overviewReads().slice(19)).toEqual([omitted, ""]);
+      failStorage = false;
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      expect(overviewReads().slice(19)).toEqual([omitted, "", "", omitted]);
+    });
+
+    it("includes storage in the background refresh at most every 5 minutes", async () => {
+      render(<ConnectApp />);
+      await settle();
+      await act(async () => { await vi.advanceTimersByTimeAsync(5 * 60_000 - 15_000); });
+      expect(overviewReads()).toEqual(["", ...Array<string>(19).fill(omitted)]);
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      expect(overviewReads().at(-1)).toBe("");
+      await act(async () => { await vi.advanceTimersByTimeAsync(5 * 60_000 - 15_000); });
+      expect(overviewReads().slice(21)).toEqual(Array<string>(19).fill(omitted));
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      expect(overviewReads().at(-1)).toBe("");
+    });
+
+    it("reads storage when the account page opens, even within 30 seconds of the last read", async () => {
+      render(<ConnectApp />);
+      await settle();
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      expect(overviewReads()).toEqual(["", omitted]);
+      fireEvent.click(screen.getByRole("link", { name: "Account" }));
+      await settle();
+      expect(overviewReads()).toEqual(["", omitted, ""]);
+    });
+
+    it("reads storage after an in-flight refresh that left it out", async () => {
+      render(<ConnectApp />);
+      await settle();
+      let finish!: () => void;
+      const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+      vi.mocked(fetch).mockImplementation(async (input, init) => {
+        if (new URL(String(input)).search === omitted) await new Promise<void>(resolve => { finish = resolve; });
+        return originalFetch(input, init);
+      });
+      await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+      fireEvent(window, new Event("focus"));
+      await settle();
+      expect(overviewReads()).toEqual(["", omitted]);
+      await act(async () => finish());
+      await settle();
+      expect(overviewReads()).toEqual(["", omitted, ""]);
+    });
+
+    it("keeps the last storage figure on the account page when a refresh leaves it out", async () => {
+      history.replaceState(null, "", "/account");
+      const account = accountFixture();
+      account.backend = "next";
+      account.storage.collections = [];
+      overview.native_collections = [
+        { id: "cloud", display_name: "Cloud notes", sync: "cloud_copy", access: { relationship: "owner", role: "owner", can_manage_members: true } }
+      ];
+      const withStorage = { ...overview, subscription: { ...overview.subscription!, native_storage_bytes: 5 * 1024 * 1024 } };
+      const withoutStorage: ManagementOverview = structuredClone(withStorage);
+      delete withoutStorage.subscription!.native_storage_bytes;
+      vi.mocked(fetch).mockImplementation(async (input) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/v1/account") return Response.json(account);
+        if (url.pathname === "/v1/account/sessions") return Response.json({ sessions: [] });
+        if (url.pathname === "/v1/me") return Response.json(url.search === omitted ? withoutStorage : withStorage);
+        return Response.json({});
+      });
+      render(<ConnectApp />);
+      await settle();
+      expect(overviewReads()).toEqual([""]);
+      expect(screen.getByText("5 MB of 1 GB")).toBeInTheDocument();
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      expect(overviewReads()).toEqual(["", omitted]);
+      expect(screen.getByText("5 MB of 1 GB")).toBeInTheDocument();
+      expect(screen.queryByText("Usage unavailable")).not.toBeInTheDocument();
+    });
   });
 
   it("pauses background refresh while the page is hidden and refreshes on return", async () => {
@@ -805,7 +981,7 @@ describe("ConnectApp", () => {
     const view = render(<ConnectApp />);
     try {
       await user.click(await screen.findByRole("button", { name: "Aggiungi raccolta" }));
-      await user.click(screen.getByRole("button", { name: /Ospitata da mdbase/ }));
+      await user.click(screen.getByRole("button", { name: /Nuova raccolta/ }));
       expect(screen.getByLabelText("Nome della raccolta")).toHaveValue("");
       await user.type(screen.getByLabelText("Nome della raccolta"), "La prima raccolta");
       await user.click(screen.getByRole("button", { name: "Crea" }));
@@ -814,7 +990,7 @@ describe("ConnectApp", () => {
         new URL(String(url)).pathname === "/v1/account/collections" && init?.method === "POST")!;
       expect(JSON.parse(String(request[1]!.body)).display_name).toBe("La prima raccolta");
       await user.click(screen.getByRole("button", { name: "Aggiungi raccolta" }));
-      await user.click(screen.getByRole("button", { name: /Ospitata da mdbase/ }));
+      await user.click(screen.getByRole("button", { name: /Nuova raccolta/ }));
       const name = screen.getByLabelText("Nome della raccolta");
       expect(name).toHaveValue("");
       await user.clear(name);
@@ -836,7 +1012,7 @@ describe("ConnectApp", () => {
     await screen.findByRole("heading", { name: "Garden notes" });
     await user.click(screen.getByRole("link", { name: "Collections" }));
     await user.click(await screen.findByRole("button", { name: "Add collection" }));
-    await user.click(screen.getByRole("button", { name: /Hosted by mdbase/ }));
+    await user.click(screen.getByRole("button", { name: /New collection/ }));
 
     const originalFetch = vi.mocked(fetch).getMockImplementation()!;
     vi.mocked(fetch).mockImplementation((input, init) => {
@@ -865,8 +1041,9 @@ describe("ConnectApp", () => {
     expect(screen.queryByRole("link", { name: "Open desktop app" })).not.toBeInTheDocument();
   });
 
-  it("restores an uncertain original creation after reload and has one Add action even without hosted availability",async()=>{
+  it("restores an uncertain original creation after reload and has one Add action even without creation availability",async()=>{
     overview.hosted_collections_available=false;
+    overview.collection_creation_available=false;
     const account=overview.user.id;
     localStorage.setItem(`mdbase.connect.collection-creation:${account}`,JSON.stringify({accountId:account,requestId:"11111111-1111-4111-a111-111111111111",displayName:"Uncertain name",timezone:"UTC"}));
     const user=userEvent.setup();render(<ConnectApp/>);
@@ -1466,6 +1643,7 @@ function overviewFixture(): ManagementOverview {
       reconciliation: { entitlement_revision: 1, provider_revision: 1 }
     },
     hosted_collections_available: true,
+    collection_creation_available: true,
     collection_sharing_available: true,
     authentication: { provider: "github", registration: "closed" },
     connectors: [{ id: "computer", name: "Home computer", last_seen_at: now, created_at: now }],

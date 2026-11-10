@@ -12,7 +12,7 @@ import {
 } from "./api";
 import { finishDeniedPairing, rememberCollection, installationAccountLabel, installationRefusal, message, NEW_COLLECTION, pairingInspectionPath } from "./portal-model";
 import { Loading, PageBrand } from "./portal-ui";
-import { CollectionPicker, CollectionIdentity, RequestShell, fileActionLabel } from "./authorization-review";
+import { CollectionPicker, CollectionIdentity, RequestShell, fileActionLabel, useRequestExpiry } from "./authorization-review";
 import { RequestIdentity, RequestOutcome } from "./authorization-view";
 import { watchPairingCollections, watchPairingPreparation } from "./pairing-progress";
 import { Checkbox, CheckboxGroup } from "@mdbase-dev/ui/checkbox";
@@ -29,7 +29,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   const [busy, setBusy] = useState(false);
   // The step to repeat after a retryable refusal; cancelled once a refusal no retry can fix.
   const [retry, setRetry] = useState<"approve" | null>(null);
-  const [outcome, setOutcome] = useState<"cancelled" | ReturnType<typeof installationRefusal> | null>(null);
+  const [outcome, setOutcome] = useState<"cancelled" | "expired" | ReturnType<typeof installationRefusal> | null>(null);
   const [collectionIds,setCollectionIds] = useState<string[]>([]);
   const [createCollections,setCreateCollections] = useState(false);
   const [allowReminders,setAllowReminders] = useState(false);
@@ -45,6 +45,8 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   const handBack = useRef(false);
   const approvalTarget = useRef<HTMLDivElement>(null);
   const inspectionPath = pairingInspectionPath(pairingId, location.search);
+
+  useRequestExpiry(pairing && !pairing.approved_at && !declined && !busy && !outcome ? pairing.expires_at : undefined, () => setOutcome("expired"));
 
   function applyPairing(value: DevicePairing, current: number) {
     if (current !== generation.current) return;
@@ -125,6 +127,10 @@ export function Pairing({ pairingId }: { pairingId: string }) {
 
   async function act(action: "approve" | "deny" | "remove-access") {
     if (dispatching.current || !pairing) return;
+    if (!pairing.approved_at && pairing.expires_at && Date.parse(pairing.expires_at) <= Date.now()) {
+      setOutcome("expired");
+      return;
+    }
     const current = generation.current;
     dispatching.current = true;
     if (action === "approve" || action === "deny") approvalTarget.current?.focus();
@@ -267,6 +273,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
       </RequestShell>
     );
   const installation = pairing.installation_device === true;
+  if (outcome === "expired") return <RequestShell><RequestOutcome status="expired" applicationName={pairing.connector_name} returnUrl="" standalone /></RequestShell>;
   const refusal = outcome && outcome !== "cancelled" ? outcome : pairing.account_upgrade
     ? installationRefusal({ code: "installation_legacy_backend", details: { upgrade: pairing.account_upgrade } }, pairing.connector_name)
     : null;
@@ -360,7 +367,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
             ) : (
               <>
                 <RequestIdentity request={{ application_name: pairing.connector_name, application_origin: pairing.app_origin,
-                  platform: pairing.app_platform, homepage: pairing.app_origin ?? "", expires_at: pairing.expires_at }} showClientKey={false} />
+                  homepage: pairing.app_origin ?? "", expires_at: pairing.expires_at }} showClientKey={false} />
                 {installationAccountLabel(pairing) ? (
                   <p className="installation-account-label"><Trans>Account: {literal(installationAccountLabel(pairing))}</Trans></p>
                 ) : (
@@ -373,7 +380,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     <CollectionPicker
                       label={t(i18n)`Open in ${pairing.connector_name}`}
                       collections={(pairing.collections ?? []).map(collection=>({id:collection.collection_id,name:collection.display_name,kind:collection.kind ?? "cloud_copy",
-                        location: collection.kind === "private" ? t(i18n)`Private collection — on your computers` : t(i18n)`Hosted by mdbase`,
+                        location: collection.kind === "private" ? t(i18n)`Private collection — on your computers` : t(i18n)({ message: "Cloud copy", context: "Collection storage mode" }),
                         hint:collection.role&&collection.role!=="owner"?t(i18n)`Shared with you`:undefined}))}
                       value={selectedCollectionId} onChoose={setSelectedCollectionId} disabled={busy}
                       onCreate={pairing.can_create_collection && !pairing.creation?.completed ? ()=>setSelectedCollectionId(NEW_COLLECTION) : undefined}
@@ -393,7 +400,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                         {(pairing.collections??[]).filter(c=>c.kind!=="private").map(collection=>(
                           <div className="collection-picker-option installation-additional-collection" key={collection.collection_id}>
                             <Checkbox checked={collection.collection_id===selectedCollectionId || collectionIds.includes(collection.collection_id)} disabled={collection.collection_id===selectedCollectionId || pairing.retained_collection_ids?.includes(collection.collection_id)} onChange={event=>setCollectionIds(ids=>event.target.checked?[...new Set([...ids,collection.collection_id])]:ids.filter(id=>id!==collection.collection_id))}>
-                              <CollectionIdentity name={collection.display_name} location={collection.kind === "private" ? t(i18n)`Private collection — on your computers` : t(i18n)`Hosted by mdbase`} kind={collection.kind ?? "cloud_copy"} />{pairing.retained_collection_ids?.includes(collection.collection_id) ? t(i18n)` (already allowed)` : ""}
+                              <CollectionIdentity name={collection.display_name} location={collection.kind === "private" ? t(i18n)`Private collection — on your computers` : t(i18n)({ message: "Cloud copy", context: "Collection storage mode" })} kind={collection.kind ?? "cloud_copy"} />{pairing.retained_collection_ids?.includes(collection.collection_id) ? t(i18n)` (already allowed)` : ""}
                             </Checkbox>
                             {pairing.scope_only && pairing.retained_collection_ids?.includes(collection.collection_id) && <button type="button" className="mdbase-button installation-account-action" onClick={()=>setRemovingId(collection.collection_id)}><Trans>Revoke access</Trans></button>}
                           </div>
@@ -418,7 +425,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     {details}
                     <footer className="approval-footer">
                       <div className="approval-receipt approval-target" id={`pairing-target-${pairingId}`} ref={approvalTarget} tabIndex={-1}>
-                        {selectedName && <div className="collection-identity-copy"><strong className="collection-name">{selectedName}</strong><small>{privateChoice ? t(i18n)`Private collection — on your computers` : t(i18n)`Hosted by mdbase`}</small></div>}
+                        {selectedName && <div className="collection-identity-copy"><strong className="collection-name">{selectedName}</strong><small>{privateChoice ? t(i18n)`Private collection — on your computers` : t(i18n)({ message: "Cloud copy", context: "Collection storage mode" })}</small></div>}
                         <p><Trans>This device can keep notes, files and account/member information offline. Downloaded copies cannot be erased.</Trans></p>
                         {createCollections && !privateChoice && <p><Trans>Allow {literal(pairing.connector_name)} to create new collections</Trans></p>}
                         {pairing.scope_only && <p><Trans>Already-allowed access stays in place. Revoke access separately if you no longer want it.</Trans></p>}

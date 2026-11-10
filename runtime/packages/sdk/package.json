@@ -42,6 +42,10 @@
       "types": "./dist/notifications.d.ts",
       "import": "./dist/notifications.js"
     },
+    "./manifest": {
+      "types": "./dist/manifest.d.ts",
+      "import": "./dist/manifest.js"
+    },
     "./app-grant": {
       "types": "./dist/app-grant/index.d.ts",
       "import": "./dist/app-grant/index.js"

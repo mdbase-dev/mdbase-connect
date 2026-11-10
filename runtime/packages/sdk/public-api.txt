@@ -206,6 +206,13 @@ MdbaseSetupResult -> MdbaseSetupResult@application/front-door.ts
 MdbaseSignInOpener -> MdbaseSignInOpener@application/entry.ts
 MdbaseSignOutOptions -> MdbaseSignOutOptions@application/entry.ts
 MdbaseSnapshot -> MdbaseSnapshot@application/front-door.ts
+MdbaseTransferItem -> MdbaseTransferItem@application/unsynced-transfer.ts
+MdbaseTransferMap -> MdbaseTransferMap@application/unsynced-transfer.ts
+MdbaseTransferOptions -> MdbaseTransferOptions@application/entry.ts
+MdbaseTransferPlan -> MdbaseTransferPlan@application/unsynced-transfer.ts
+MdbaseTransferPlanOptions -> MdbaseTransferPlanOptions@application/entry.ts
+MdbaseTransferProgress -> MdbaseTransferProgress@application/unsynced-transfer.ts
+MdbaseTransferResult -> MdbaseTransferResult@application/unsynced-transfer.ts
 MdbaseUnavailableType -> MdbaseUnavailableType@application/entry.ts
 MdbaseVersion -> MdbaseVersion@semver.ts
 MdbaseVersionRelation -> MdbaseVersionRelation@semver.ts
@@ -356,6 +363,7 @@ UploadSource -> UploadSource@files.ts
 Uuid -> Uuid@wire.ts
 uuidv7 -> uuidv7@values.ts
 ValidationIssue -> ValidationIssue@validation.ts
+ValidationLevel -> ValidationLevel@wire.ts
 Value -> Value@wire.ts
 valueEquals -> valueEquals@values.ts
 versionRelation -> versionRelation@semver.ts
@@ -608,6 +616,7 @@ UploadSource -> UploadSource@files.ts
 Uuid -> Uuid@wire.ts
 uuidv7 -> uuidv7@values.ts
 ValidationIssue -> ValidationIssue@validation.ts
+ValidationLevel -> ValidationLevel@wire.ts
 Value -> Value@wire.ts
 valueEquals -> valueEquals@values.ts
 ViewSourceCreateInput -> ViewSourceCreateInput@view-sources.ts
@@ -832,6 +841,13 @@ MdbaseSetupResult -> MdbaseSetupResult@application/front-door.ts
 MdbaseSignInOpener -> MdbaseSignInOpener@application/entry.ts
 MdbaseSignOutOptions -> MdbaseSignOutOptions@application/entry.ts
 MdbaseSnapshot -> MdbaseSnapshot@application/front-door.ts
+MdbaseTransferItem -> MdbaseTransferItem@application/unsynced-transfer.ts
+MdbaseTransferMap -> MdbaseTransferMap@application/unsynced-transfer.ts
+MdbaseTransferOptions -> MdbaseTransferOptions@application/entry.ts
+MdbaseTransferPlan -> MdbaseTransferPlan@application/unsynced-transfer.ts
+MdbaseTransferPlanOptions -> MdbaseTransferPlanOptions@application/entry.ts
+MdbaseTransferProgress -> MdbaseTransferProgress@application/unsynced-transfer.ts
+MdbaseTransferResult -> MdbaseTransferResult@application/unsynced-transfer.ts
 MdbaseUnavailableType -> MdbaseUnavailableType@application/entry.ts
 MdbaseVersion -> MdbaseVersion@semver.ts
 MdbaseVersionRelation -> MdbaseVersionRelation@semver.ts
@@ -982,6 +998,7 @@ UploadSource -> UploadSource@files.ts
 Uuid -> Uuid@wire.ts
 uuidv7 -> uuidv7@values.ts
 ValidationIssue -> ValidationIssue@validation.ts
+ValidationLevel -> ValidationLevel@wire.ts
 Value -> Value@wire.ts
 valueEquals -> valueEquals@values.ts
 versionRelation -> versionRelation@semver.ts
@@ -1313,6 +1330,17 @@ parseMdbaseNativeNotification -> parseMdbaseNativeNotification@notifications.ts
 parseMdbasePush -> parseMdbasePush@notifications.ts
 readMdbaseNotificationData -> readMdbaseNotificationData@notifications.ts
 showMdbaseNotification -> showMdbaseNotification@notifications.ts
+
+## entry ./manifest
+AppManifestValidationError (external)
+formatManifestValidationIssues (external)
+ManifestValidationIssue (external)
+ManifestValidationOptions (external)
+ManifestValidationResult (external)
+MDBASE_TIMER_FIRED_CONTRACT (external)
+parseAppManifest (external)
+validateAppManifest (external)
+ValidatedAppManifest (external)
 
 ## entry ./app-grant
 AppGrantCallbackPort -> AppGrantCallbackPort@app-grant/client.ts
@@ -1678,6 +1706,7 @@ problemCodeOf -> problemCodeOf@describe-error.ts
   export Op
   export op
   export SubmitParams
+  export ValidationLevel
   export submitParams
   export ConflictValue
   export conflictValue
@@ -1742,6 +1771,8 @@ problemCodeOf -> problemCodeOf@describe-error.ts
   export Backlink
   export BacklinksResult
   export backlinksResult
+  export ResolveLinksResult
+  export resolveLinksResult
   export ViewProperty
   export ViewDescriptor
   export ViewSource
@@ -2304,7 +2335,6 @@ AppDeviceRegistrationReceipt@app-host/wasm-runtime.ts
 
 AppEnvironmentSelection@app-host/app-environment.ts
   readonly allowLoopbackHttp: boolean
-  readonly allowNativeLoopbackHttp: boolean
   readonly appOrigin: string
   readonly assetSha256: string
   readonly cpOrigin: string
@@ -2344,6 +2374,7 @@ AppExports@app-host/wasm-runtime.ts
   rt_app_log_retire: () => void
   rt_app_observations: () => bigint
   rt_app_open: (p: number, n: number) => bigint
+  rt_app_open_local?: ((p: number, n: number) => bigint) | undefined
   rt_app_private_collection_pin: (p: number, n: number) => number
   rt_app_private_create_sign: (p: number, n: number) => bigint
   rt_app_private_device_enrol_sign: (p: number, n: number) => bigint
@@ -2419,8 +2450,6 @@ AppHttpLogTransport@app-host/http-log.ts
   static new (authority: AppLogHttpAuthority, options?: AppLogHttpOptions): AppHttpLogTransport
 
 AppIndexedDbDeviceKeyOptions@app-host/device-key-idb.ts
-  readonly allowLoopbackHttp?: boolean | undefined
-  readonly allowNativeLoopbackHttp?: boolean | undefined
   readonly mode: 'fresh' | 'existing'
   readonly origin: string
   readonly signal: AbortSignal
@@ -2440,16 +2469,12 @@ AppIndexedDbDeviceKeyProvider@app-host/device-key-provider.ts
   static open: (options: AppIndexedDbDeviceKeyProviderOptions) => Promise<AppIndexedDbDeviceKeyProvider>
 
 AppIndexedDbDeviceKeyProviderOptions@app-host/device-key-provider.ts
-  readonly allowLoopbackHttp?: boolean | undefined
-  readonly allowNativeLoopbackHttp?: boolean | undefined
   readonly mode: 'fresh' | 'existing'
   readonly origin: string
   readonly signal: AbortSignal
   readonly source: AppDeviceKeyCustodyPin
 
 AppIndexedDbNoiseOptions@app-host/noise-idb.ts
-  allowLoopbackHttp?: boolean | undefined
-  readonly allowNativeLoopbackHttp?: boolean | undefined
   mode: 'fresh' | 'existing'
   origin: string
   signal: AbortSignal
@@ -2523,7 +2548,6 @@ AppInstallationSignInError@app-host/installation-sign-in.ts
 
 AppInstallationSignInOptions@app-host/installation-sign-in.ts
   readonly allowLoopbackHttp?: boolean | undefined
-  readonly allowNativeLoopbackHttp?: boolean | undefined
   readonly appId: string
   readonly appName: string
   readonly cpOrigin: string
@@ -2573,7 +2597,6 @@ AppInstallationStore@app-host/installation-store.ts
 
 AppInstallationStoreOptions@app-host/installation-store.ts
   readonly allowLoopbackHttp?: boolean | undefined
-  readonly allowNativeLoopbackHttp?: boolean | undefined
   readonly appId: string
   readonly cpOrigin: string
   readonly locks: AppLockPort | undefined
@@ -2972,6 +2995,13 @@ AppTimersPort@timers.ts
   unregisterFcm: (options: TimerRequestOptions) => Promise<void>
   unregisterWebPush: (serviceWorker: ServiceWorkerRegistration | undefined, options: TimerRequestOptions) => Promise<void>
 
+AppUnsyncedBootstrap@app-host/wasm-runtime.ts
+  collection: string
+  deviceId: string
+  opened: 'fresh' | 'existing' | 'unclean'
+  replicaId: string
+  sqliteVersion: number
+
 AppVerifiedHandover@app-host/handover.ts
   readonly appliedThrough: number
   dispose: () => void
@@ -2998,6 +3028,7 @@ AppWasmRuntime@app-host/wasm-runtime.ts
   open: (_config: OpenConfig) => never
   openAppConsuming: (c: AppBootstrap) => void
   openDeviceConsuming: (c: AppDeviceBootstrap) => AppNoiseCustodyResult
+  openUnsyncedConsuming: (c: AppUnsyncedBootstrap) => void
   prepareCloudCopyCollection: (pin: AppCloudCopyCollectionPin) => void
   preparePrivateCollection: (pin: AppPrivateCollectionPin, opened: AppPrivateCollectionOpen) => void
   privateCollectionCurrent: (source?: AppPrivateCollectionPin) => boolean
@@ -3033,7 +3064,7 @@ AppWebCloudCopyHost@app-host/cloud-copy-host.ts
   adoptCloudCopy: (options: AppCloudCopyAdoptionOptions, sql: AppSqlLifetime) => void
   attachDataFacade: (channel: MessagePort) => ReturnType<typeof attachAppLocalFacade>['resourceSetup']
   attestInstallation: () => Promise<AppInstallationSignInView>
-  bootstrapCloudCopy: (options: { scope: Readonly<AppReplicaScope>; collectionCurrent(): boolean; purpose: 'create' | 'join'; outcomeMode: 'fresh' | 'existing'; signal: AbortSignal; reconcile?: 'explicit-unknown-outcome'; displayName?: string; fetch?: typeof fetch; allowLoopbackHttp?: boolean; allowNativeLoopbackHttp?: boolean; }) => Promise<AppCloudCopyBootstrapMetadata>
+  bootstrapCloudCopy: (options: { scope: Readonly<AppReplicaScope>; collectionCurrent(): boolean; purpose: 'create' | 'join'; outcomeMode: 'fresh' | 'existing'; signal: AbortSignal; reconcile?: 'explicit-unknown-outcome'; displayName?: string; fetch?: typeof fetch; allowLoopbackHttp?: boolean; }) => Promise<AppCloudCopyBootstrapMetadata>
   close: () => Promise<void>
   completeInstallationSignIn: () => Promise<AppDeviceRegistrationReceipt>
   detachDataFacade: (channel: MessagePort) => void
@@ -3054,12 +3085,11 @@ AppWebCloudCopyHost@app-host/cloud-copy-host.ts
   waitForVerifiedRead: (options: { signal: AbortSignal; timeoutMs?: number; onProgress?: (progress: import("./opening-progress.js").AppOpeningProgress) => void; cold?: boolean; }) => Promise<void>
   wakeCollectionLog: (options: { signal: AbortSignal; }) => Promise<void>
   static new (source: AppCloudCopyHostSession, installation: AppInstallationCustodyAuthority, originalRelease: AppCloudCopyHostRelease, origin: string, lifetime: AbortSignal): AppWebCloudCopyHost
-  static openInstallationDevice: (options: { signIn: AppProtectedInstallationSignIn; installation: AppInstallationCustodyAuthority; release: AppCloudCopyHostRelease; origin: string; signal: AbortSignal; loadRuntime(options: { signal: AbortSignal; }): Promise<Uint8Array>; allowLoopbackHttp?: boolean; allowNativeLoopbackHttp?: boolean; }) => Promise<AppWebCloudCopyHost>
-  static openOriginalDevice: (options: { session: AppCloudCopyHostSession; installation: AppInstallationCustodyAuthority; release: AppCloudCopyHostRelease; origin: string; mode: 'fresh' | 'existing'; signal: AbortSignal; loadRuntime(options: { signal: AbortSignal; }): Promise<Uint8Array>; fetch?: typeof fetch; allowLoopbackHttp?: boolean; allowNativeLoopbackHttp?: boolean; }) => Promise<AppWebCloudCopyHost>
+  static openInstallationDevice: (options: { signIn: AppProtectedInstallationSignIn; installation: AppInstallationCustodyAuthority; release: AppCloudCopyHostRelease; origin: string; signal: AbortSignal; loadRuntime(options: { signal: AbortSignal; }): Promise<Uint8Array>; allowLoopbackHttp?: boolean; }) => Promise<AppWebCloudCopyHost>
+  static openOriginalDevice: (options: { session: AppCloudCopyHostSession; installation: AppInstallationCustodyAuthority; release: AppCloudCopyHostRelease; origin: string; mode: 'fresh' | 'existing'; signal: AbortSignal; loadRuntime(options: { signal: AbortSignal; }): Promise<Uint8Array>; fetch?: typeof fetch; allowLoopbackHttp?: boolean; }) => Promise<AppWebCloudCopyHost>
 
 AppWebCollectionAdapterOptions@app-host/web-collection.ts
   readonly allowLoopbackHttp?: boolean | undefined
-  readonly allowNativeLoopbackHttp?: boolean | undefined
   readonly fetch?: { (input: RequestInfo | URL, init?: RequestInit): Promise<Response>; (input: string | URL | Request, init?: RequestInit): Promise<Response>; } | undefined
   handoff: (value: AppWebCollectionHandoff) => void
   readonly joinDatabaseName: string
@@ -3191,7 +3221,6 @@ AppWebSignInSession@app-host/web-sign-in-session.ts
 AppWebSignInSessionOptions@app-host/web-sign-in-session.ts
   <Connection>
   readonly allowLoopbackHttp?: boolean | undefined
-  readonly allowNativeLoopbackHttp?: boolean | undefined
   readonly appId: string
   readonly appName: string
   readonly autoSelect?: 'only' | 'never' | undefined
@@ -3230,6 +3259,8 @@ AppWebSignInSnapshot@app-host/web-sign-in-session.ts
   readonly status: 'starting' | 'closed' | 'opening' | 'setup_required' | 'ready' | 'signed_out' | 'authorizing' | 'blocked' | 'not_started' | 'unselected'
   readonly timing: Readonly<{ firstScreenMs: number | null; readyMs: number | null; }> | null
   readonly transport?: AppLogHealth | null | undefined
+  readonly unsynced?: Readonly<{ collectionId: string; sessionStatus: AppWebSignInSnapshot['status']; }> | null | undefined
+  readonly unsyncedWork?: Readonly<{ since: number; }> | null | undefined
 
 AppWebSignOutResult@app-host/web-sign-in-session.ts
   readonly grants?: 'erased' | 'incomplete' | undefined
@@ -3258,7 +3289,7 @@ ApplicationFixture@testing/application.ts
   readonly entry: MdbaseApplicationEntry
 
 ApplicationFixtureAction@testing/application.ts
-  = 'reauthorize' | 'approve' | 'assess' | 'start' | 'authorize' | 'refreshCollectionList' | 'select' | 'clearSelection' | 'chooseAnother' | 'forget' | 'deleteCollection' | 'requestAccess' | 'configure' | 'planSetup' | 'applySetup' | 'signOut' | 'close'
+  = 'reauthorize' | 'approve' | 'assess' | 'start' | 'authorize' | 'refreshCollectionList' | 'select' | 'clearSelection' | 'chooseAnother' | 'forget' | 'deleteCollection' | 'requestAccess' | 'configure' | 'planSetup' | 'applySetup' | 'signOut' | 'openUnsynced' | 'planUnsyncedTransfer' | 'transferUnsynced' | 'discardUnsynced' | 'close'
 
 ApplicationFixtureCall@testing/application.ts
   readonly action: ApplicationFixtureAction | 'setForeground'
@@ -3287,6 +3318,7 @@ ApplicationFixtureOptions@testing/application.ts
   readonly connections: readonly MdbaseApplicationConnection[]
   readonly declaration: MdbaseApplicationDeclaration
   readonly initialSnapshot: MdbaseApplicationSnapshot
+  readonly unsynced?: MdbaseApplicationConnection | undefined
 
 ApplicationJson@application/declaration.ts
   = string | number | boolean | readonly ApplicationJson[] | { readonly [key: string]: ApplicationJson; } | null
@@ -3301,6 +3333,7 @@ ApplicationStorageDeclaration@application/declaration.ts
   readonly applicationNamespace?: string | undefined
   readonly joinDatabaseName?: string | undefined
   readonly setupDatabaseName?: string | undefined
+  readonly unsyncedDatabaseName?: string | undefined
 
 AppliedPrefix@wire.ts
   appliedThrough: number
@@ -3902,7 +3935,7 @@ HoldResolution@wire.ts
   = 'delete' | 'keep_mine' | 'take_theirs' | 'use' | 'keep_both'
 
 INTERNAL_PROBLEM_CODES@describe-error.ts
-  : readonly ['duplicate_key', 'float', 'hash', 'indefinite', 'int', 'mixed_map_keys', 'non_canonical_head', 'simple', 'tag', 'too_deep', 'too_long', 'trailing_bytes', 'tstr', 'uint', 'unencodable', 'unexpected_end', 'unsorted_keys', 'utf8', 'uuid', 'value', 'unknown_method', 'unknown_variant', 'unsupported', 'storage', 'noise', 'declared_setup_codec', 'body', 'data_contract_ambiguous', 'data_contract_field_conflict', 'data_contract_field_unmapped', 'data_contract_not_found', 'data_contract_not_implemented', 'data_contract_promote_typed', 'digest_mismatch', 'invalid_type_definition', 'path_taken', 'revision', 'size_mismatch', 'transfer_expired', 'type_conflict', 'account_secret_length', 'access_invalid', 'access_no_collection', 'application_sign_in_opener', 'change_entity_unsupported', 'click_target_cross_origin', 'context_required', 'context_type_mismatch', 'cursor_expired', 'file_upload_identity_mismatch', 'invalid_autosave', 'invalid_binding', 'invalid_call', 'invalid_push_payload', 'invalid_sas', 'invalid_scope', 'invalid_timeout', 'invalid_timer_response', 'invalid_typing_response', 'invalid_validation_result', 'invalid_view', 'key_id_changed', 'query_cursor_required', 'read_many_bounds', 'read_many_identity_mismatch', 'read_many_selection', 'record_identity_mismatch', 'record_lease_policy', 'record_links_bounds', 'record_links_missing', 'record_links_response', 'record_links_unsupported', 'record_recovery_mismatch', 'record_session_budget', 'record_validation_stale', 'record_witness_required', 'strength', 'strict_mode', 'typing_bounds', 'unsupported_push_version', 'validation_bounds', 'validation_selection', 'application_registration_binding', 'view_not_found', 'view_source_changed', 'view_source_witness_required', 'bases_read_backpressure', 'contract_query_response', 'contract_query_version', 'contract_records_unsupported', 'describe_definitions_unsupported', 'prefix_response', 'type_pack_contract_setups_unsupported', 'type_packs_unsupported', 'resource_setup_unavailable', 'resource_setup_unsupported', 'timer_operation_recovery_unavailable', 'declared_setup_unsupported', 'setup_outcome_unknown', 'cleanup_failed', 'opfs_unavailable', 'probe_failed', 'sync_handle_unavailable', 'worker_required', 'shutdown_failed', 'authorization_binding', 'authorization_callback', 'authorization_cancelled', 'authorization_denied', 'authorization_signature', 'authorization_start', 'authorization_timed_out', 'client_key_required', 'collection_mismatch', 'control_error', 'control_unreachable', 'daemon_not_running', 'grant_invalid', 'grant_storage', 'key_storage', 'redirect_uri', 'relay_insecure', 'relay_unauthenticated', 'relay_unavailable', 'relay_url', 'route_mismatch', 'token_error', 'token_response', 'untrusted_identity']
+  : readonly ['duplicate_key', 'float', 'hash', 'indefinite', 'int', 'mixed_map_keys', 'non_canonical_head', 'simple', 'tag', 'too_deep', 'too_long', 'trailing_bytes', 'tstr', 'uint', 'unencodable', 'unexpected_end', 'unsorted_keys', 'utf8', 'uuid', 'value', 'unknown_method', 'unknown_variant', 'unsupported', 'storage', 'noise', 'declared_setup_codec', 'body', 'data_contract_ambiguous', 'data_contract_field_conflict', 'data_contract_field_unmapped', 'data_contract_not_found', 'data_contract_not_implemented', 'data_contract_promote_typed', 'digest_mismatch', 'invalid_type_definition', 'path_taken', 'revision', 'size_mismatch', 'transfer_expired', 'type_conflict', 'account_secret_length', 'access_invalid', 'access_no_collection', 'application_sign_in_opener', 'change_entity_unsupported', 'click_target_cross_origin', 'context_required', 'context_type_mismatch', 'cursor_expired', 'file_upload_identity_mismatch', 'invalid_autosave', 'invalid_binding', 'invalid_call', 'invalid_push_payload', 'invalid_sas', 'invalid_scope', 'invalid_timeout', 'invalid_timer_response', 'invalid_typing_response', 'invalid_validation_result', 'invalid_view', 'key_id_changed', 'query_cursor_required', 'read_many_bounds', 'read_many_identity_mismatch', 'read_many_selection', 'record_identity_mismatch', 'record_lease_policy', 'record_links_bounds', 'record_links_missing', 'record_links_response', 'record_links_unsupported', 'record_recovery_mismatch', 'record_session_budget', 'record_validation_stale', 'record_witness_required', 'strength', 'strict_mode', 'typing_bounds', 'unsupported_push_version', 'validation_bounds', 'validation_selection', 'unsynced_transfer_needs_collection', 'unsynced_transfer_plan_stale', 'application_registration_binding', 'view_not_found', 'view_source_changed', 'view_source_witness_required', 'bases_read_backpressure', 'backlinks_unsupported', 'resolve_links_unsupported', 'contract_query_response', 'contract_query_version', 'contract_records_unsupported', 'describe_definitions_unsupported', 'prefix_response', 'type_pack_contract_setups_unsupported', 'type_packs_unsupported', 'resource_setup_unavailable', 'resource_setup_unsupported', 'timer_operation_recovery_unavailable', 'declared_setup_unsupported', 'setup_outcome_unknown', 'cleanup_failed', 'opfs_unavailable', 'probe_failed', 'sync_handle_unavailable', 'worker_required', 'shutdown_failed', 'authorization_binding', 'authorization_callback', 'authorization_cancelled', 'authorization_denied', 'authorization_signature', 'authorization_start', 'authorization_timed_out', 'client_key_required', 'collection_mismatch', 'control_error', 'control_unreachable', 'daemon_not_running', 'grant_invalid', 'grant_storage', 'key_storage', 'redirect_uri', 'relay_insecure', 'relay_unauthenticated', 'relay_unavailable', 'relay_url', 'route_mismatch', 'token_error', 'token_response', 'untrusted_identity']
 
 IkInitiator@transport/noise.ts
   readMessage2: (msg: Uint8Array) => Promise<{ payload: Uint8Array; transport: NoiseTransport; }>
@@ -4015,6 +4048,7 @@ LegacyModelSetupIntent@app-host/collection-setup-types.ts
   readonly version: 1
 
 LinkResolution@wire.ts
+  candidates?: string[] | undefined
   kind: LinkTargetKind
   path?: string | undefined
   target?: string | undefined
@@ -4154,6 +4188,7 @@ Mdbase@application/front-door.ts
   signOut: (options?: MdbaseSignOutOptions) => Promise<MdbaseSnapshot>
   start: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
   subscribe: (listener: () => void) => () => void
+  readonly unsynced: { open(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>; planTransfer(options?: MdbaseTransferPlanOptions): Promise<MdbaseTransferPlan>; transfer(plan: MdbaseTransferPlan, options?: MdbaseTransferOptions): Promise<MdbaseTransferResult>; discard(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>; }
 
 MdbaseAccessRequest@application/file-access.ts
   readonly files: readonly FileAction[]
@@ -4197,8 +4232,11 @@ MdbaseApplication@application/entry.ts
   close: () => Promise<void>
   configure: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>
   deleteCollection: (collectionId: string, options: MdbaseCollectionDeleteOptions) => Promise<MdbaseApplicationSnapshot>
+  discardUnsynced?: ((options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>) | undefined
   forget: (collectionId: string, options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>
   getSnapshot: () => MdbaseApplicationSnapshot
+  openUnsynced?: ((options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>) | undefined
+  planUnsyncedTransfer?: ((options?: MdbaseTransferPlanOptions) => Promise<MdbaseTransferPlan>) | undefined
   reauthorize: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>
   refreshCollectionList?: ((options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>) | undefined
   requestAccess: (request: MdbaseAccessRequest, options: MdbaseAccessRequestOptions) => Promise<MdbaseAccessResult>
@@ -4208,6 +4246,7 @@ MdbaseApplication@application/entry.ts
   signOut?: ((options?: MdbaseSignOutOptions) => Promise<MdbaseApplicationSnapshot>) | undefined
   start: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>
   subscribe: (listener: () => void) => () => void
+  transferUnsynced?: ((plan: MdbaseTransferPlan, options?: MdbaseTransferOptions) => Promise<MdbaseTransferResult>) | undefined
 
 MdbaseApplicationAssessment@application/entry.ts
   readonly problem: MdbaseApplicationProblem | null
@@ -4296,6 +4335,8 @@ MdbaseApplicationSnapshot@application/entry.ts
   readonly sync?: StatusSummary | null | undefined
   readonly timing: Readonly<{ firstScreenMs: number | null; readyMs: number | null; }> | null
   readonly transport?: AppLogHealth | null | undefined
+  readonly unsynced?: Readonly<{ collectionId: string; sessionStatus: AppWebSignInSnapshot['status']; }> | null | undefined
+  readonly unsyncedWork?: Readonly<{ since: number; }> | null | undefined
   readonly writes?: WriteLedgerSnapshot | null | undefined
 
 MdbaseApplicationUnavailableError@application/entry.ts
@@ -4385,6 +4426,7 @@ MdbaseClient@client.ts
   reportFence: (open: FenceReportEntry[]) => Promise<void>
   resolveConflict: (entry: ConflictEntry, field: string, chosen: PlainValue, o?: WriteOptions) => Promise<Write>
   resolveHold: (id: Uuid, how: HoldResolution, use?: string) => Promise<Write>
+  resolveLinks: (from: string, links: readonly string[], o?: { signal?: AbortSignal; }) => Promise<ResolveLinksResult>
   readonly resources: { get: (path: string, signal?: AbortSignal) => Promise<ResourceView>; list: (o?: { folder?: string; text?: boolean; cursor?: string; limit?: number; signal?: AbortSignal; }) => Promise<import("src/wire").ListResourcesResult>; put: (path: string, doc: string, o?: WriteOptions & { baseRevision?: string; mustNotExist?: boolean; }) => Promise<Write>; delete: (path: string, o?: WriteOptions & { baseRevision?: string; }) => Promise<Write>; }
   save: (write: Write | Promise<Write>, o?: { readBack?: boolean; timeoutMs?: number; signal?: AbortSignal; }) => Promise<SaveResult>
   setTransportDeferred: (deferred: boolean) => void
@@ -4426,6 +4468,7 @@ MdbaseConnectOptions@application/entry.ts
   readonly privateCollections?: boolean | undefined
   readonly readiness?: { readonly typeIssues?: 'block' | 'degrade'; } | undefined
   readonly signIn?: MdbaseSignInOpener | undefined
+  readonly unsynced?: boolean | undefined
 
 MdbaseError@errors.ts
   cause?: unknown
@@ -4511,10 +4554,10 @@ MdbasePeopleClient@people.ts
   static new (client: PeopleRecords, authority: PeopleAuthority): MdbasePeopleClient
 
 MdbasePhase@application/phase.ts
-  = { readonly kind: 'starting'; } | { readonly kind: 'signed_out'; readonly notice: MdbaseProblem | null; } | { readonly kind: 'authorizing'; readonly purpose: 'sign_in' | 'add' | 'approve'; readonly collectionId: string | null; } | { readonly kind: 'choosing'; readonly lastApproval: MdbaseApprovalOutcome | null; } | { readonly kind: 'opening'; readonly collectionId: string; readonly displayName: string | null; readonly slow: boolean; readonly progress?: import("../app-host/opening-progress.js").AppOpeningProgress | null; } | { readonly kind: 'needs_approval'; readonly collectionId: string; readonly displayName: string | null; readonly declined: boolean; } | { readonly kind: 'needs_setup'; readonly collectionId: string; readonly collection: MdbaseCollectionSummary; } | { readonly kind: 'ready'; readonly collectionId: string; readonly collection: MdbaseCollectionSummary; readonly connection: MdbaseApplicationConnection; readonly rechecking: boolean; readonly problem: MdbaseProblem | null; readonly unavailableTypes: readonly MdbaseUnavailableType[]; } | { readonly kind: 'problem'; readonly collectionId: string | null; readonly problem: MdbaseProblem; } | { readonly kind: 'unavailable'; readonly problem: MdbaseProblem; } | { readonly kind: 'closed'; }
+  = { readonly kind: 'starting'; } | { readonly kind: 'signed_out'; readonly notice: MdbaseProblem | null; } | { readonly kind: 'authorizing'; readonly purpose: 'sign_in' | 'add' | 'approve'; readonly collectionId: string | null; } | { readonly kind: 'choosing'; readonly lastApproval: MdbaseApprovalOutcome | null; } | { readonly kind: 'opening'; readonly collectionId: string; readonly displayName: string | null; readonly slow: boolean; readonly progress?: import("../app-host/opening-progress.js").AppOpeningProgress | null; } | { readonly kind: 'needs_approval'; readonly collectionId: string; readonly displayName: string | null; readonly declined: boolean; } | { readonly kind: 'needs_setup'; readonly collectionId: string; readonly collection: MdbaseCollectionSummary; } | { readonly kind: 'ready'; readonly collectionId: string; readonly collection: MdbaseCollectionSummary; readonly connection: MdbaseApplicationConnection; readonly rechecking: boolean; readonly problem: MdbaseProblem | null; readonly unavailableTypes: readonly MdbaseUnavailableType[]; } | { readonly kind: 'unsynced'; readonly collectionId: string; readonly connection: MdbaseApplicationConnection; readonly rechecking: boolean; } | { readonly kind: 'problem'; readonly collectionId: string | null; readonly problem: MdbaseProblem; } | { readonly kind: 'unavailable'; readonly problem: MdbaseProblem; } | { readonly kind: 'closed'; }
 
 MdbasePhaseKind@application/phase.ts
-  = 'problem' | 'starting' | 'closed' | 'opening' | 'unavailable' | 'ready' | 'signed_out' | 'authorizing' | 'choosing' | 'needs_approval' | 'needs_setup'
+  = 'problem' | 'unsynced' | 'starting' | 'closed' | 'opening' | 'unavailable' | 'ready' | 'signed_out' | 'authorizing' | 'choosing' | 'needs_approval' | 'needs_setup'
 
 MdbasePrepareAuthorizationOptions@app-grant/client.ts
   readonly authorizationNonce?: string | undefined
@@ -4639,7 +4682,53 @@ MdbaseSnapshot@application/front-door.ts
   readonly sync: StatusSummary | null
   readonly timing: Readonly<{ firstScreenMs: number | null; readyMs: number | null; }> | null
   readonly transport?: AppLogHealth | null | undefined
+  readonly unsynced?: Readonly<{ collectionId: string; sessionStatus: AppWebSignInSnapshot['status']; }> | null | undefined
+  readonly unsyncedWork?: Readonly<{ since: number; }> | null | undefined
   readonly writes?: WriteLedgerSnapshot | null | undefined
+
+MdbaseTransferItem@application/unsynced-transfer.ts
+  readonly copyId?: string | undefined
+  readonly outcome: 'create' | 'changed' | 'present' | 'skipped'
+  readonly path?: string | undefined
+  readonly renamedFrom?: string | undefined
+  readonly sourceId: string
+  readonly sourcePath: string
+
+MdbaseTransferMap@application/unsynced-transfer.ts
+  = (record: RecordView) => CreateInput | null | Promise<CreateInput | null>
+
+MdbaseTransferOptions@application/entry.ts
+  readonly onProgress?: ((progress: MdbaseTransferProgress) => void) | undefined
+  readonly signal?: AbortSignal | undefined
+
+MdbaseTransferPlan@application/unsynced-transfer.ts
+  readonly addTypes: readonly string[]
+  readonly counts: Readonly<{ create: number; present: number; skipped: number; renamed: number; changed: number; }>
+  readonly destination: string
+  readonly items: readonly MdbaseTransferItem[]
+  readonly missingTypes: readonly string[]
+  readonly source: string
+
+MdbaseTransferPlanOptions@application/entry.ts
+  readonly addTypes?: boolean | undefined
+  readonly map?: MdbaseTransferMap | undefined
+  readonly signal?: AbortSignal | undefined
+
+MdbaseTransferProgress@application/unsynced-transfer.ts
+  readonly done: number
+  readonly total: number
+
+MdbaseTransferResult@application/unsynced-transfer.ts
+  readonly addedTypes: readonly string[]
+  readonly created: number
+  readonly destination: string
+  readonly failed: readonly Readonly<{ sourceId: string; code: string; }>[]
+  readonly failedTypes: readonly Readonly<{ name: string; code: string; }>[]
+  readonly mutations: readonly string[]
+  readonly present: number
+  readonly retired: boolean
+  readonly skipped: number
+  readonly source: string
 
 MdbaseUnavailableType@application/entry.ts
   readonly contract: { readonly id: string; readonly version: string; }
@@ -4716,6 +4805,7 @@ MemoryReplicaOptions@testing/memory-replica.ts
   collection?: string | undefined
   confirmDelayMs?: number | null | undefined
   contracts?: MemoryContract[] | undefined
+  features?: string[] | undefined
   fileFolders?: string[] | undefined
   grant?: string | undefined
   refuse?: w.Problem | undefined
@@ -5277,6 +5367,11 @@ RelayRoute@transport/relay.ts
 RequestHandler@session.ts
   = (params: CborValue) => Promise<CborValue> | CborValue
 
+ResolveLinksResult@wire.ts
+  asOf: number
+  complete: boolean
+  resolutions: LinkResolution[]
+
 ResolvedWebPushChannelOptions@timers.ts
   = WebPushChannelOptions & { serviceWorker: ServiceWorkerRegistration; }
 
@@ -5383,7 +5478,7 @@ SetupResult@private-account.ts
   recoveryKey: string
 
 Snapshot@application/phase.ts
-  = Pick<MdbaseApplicationSnapshot, 'status' | 'signIn' | 'collections' | 'selectedCollectionId' | 'problem' | 'readiness' | 'selection'> & Partial<Pick<MdbaseApplicationSnapshot, 'problemDetail' | 'removedScopeIds' | 'recoveryAccountLabel' | 'openingProgress'>>
+  = Pick<MdbaseApplicationSnapshot, 'status' | 'signIn' | 'collections' | 'selectedCollectionId' | 'problem' | 'readiness' | 'selection'> & Partial<Pick<MdbaseApplicationSnapshot, 'problemDetail' | 'removedScopeIds' | 'recoveryAccountLabel' | 'openingProgress' | 'unsynced'>>
 
 SqlBinding@app-host/wasm-runtime.ts
   exports: (() => AppSqlMemory) | null
@@ -5507,6 +5602,7 @@ SubmitParams@wire.ts
   mutationIds?: string[] | undefined
   ops: Op[]
   timezone?: string | undefined
+  validation?: ValidationLevel | undefined
   wait?: 'pending' | 'confirmed' | 'published' | undefined
 
 SyncMode@wire.ts
@@ -5587,6 +5683,7 @@ TestMdbase@testing/test-app.ts
   signOut: (options?: MdbaseSignOutOptions) => Promise<MdbaseSnapshot>
   start: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
   subscribe: (listener: () => void) => () => void
+  readonly unsynced: { open(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>; planTransfer(options?: MdbaseTransferPlanOptions): Promise<MdbaseTransferPlan>; transfer(plan: MdbaseTransferPlan, options?: MdbaseTransferOptions): Promise<MdbaseTransferResult>; discard(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>; }
 
 TextOrBlob@wire.ts
   = string | AttachmentHoldContent | BlobRef
@@ -5818,6 +5915,9 @@ ValidationIssue@validation.ts
   tier: 'request' | 'single_record' | 'cross_record'
   typeName?: string | undefined
 
+ValidationLevel@wire.ts
+  = 'error' | 'off' | 'warn'
+
 Value@wire.ts
   = string | number | bigint | boolean | import("src/cbor").CborMap | import("src/cbor").Float64 | Uint8Array<ArrayBufferLike> | CborValue[] | null
 
@@ -5874,6 +5974,7 @@ ViewSourceWriteOptions@view-sources.ts
   mutationId: string
   signal?: AbortSignal | undefined
   timezone?: string | undefined
+  validation?: ValidationLevel | undefined
   wait?: 'pending' | 'confirmed' | 'published' | undefined
 
 WasmRuntime@runtime/wasm.ts
@@ -5952,6 +6053,7 @@ WriteOptions@client.ts
   mutationId?: string | undefined
   signal?: AbortSignal | undefined
   timezone?: string | undefined
+  validation?: ValidationLevel | undefined
   wait?: 'pending' | 'confirmed' | 'published' | undefined
 
 accountKeyRewrapDigest@account-key.ts
@@ -6003,7 +6105,7 @@ approvalReadiness@private.ts
   : Codec<ApprovalReadiness>
 
 attachAppLocalFacade@app-host/local-facade.ts
-  : (runtime: Pick<AppWasmRuntime, 'connect'> & Partial<Pick<AppWasmRuntime, 'executeBases' | 'discoverBases' | 'setupResources' | 'resourceRejected'>>, channel: MessagePort, source: AppLocalScope, logWork?: () => void) => { close(): void; readonly resourceSetup: AppResourceSetupPort; }
+  : (runtime: Pick<AppWasmRuntime, 'connect'> & Partial<Pick<AppWasmRuntime, 'executeBases' | 'discoverBases' | 'setupResources' | 'resourceRejected'>>, channel: MessagePort, source: AppLocalScope, logWork?: (method: string) => void) => { close(): void; readonly resourceSetup: AppResourceSetupPort; }
 
 buildOfflineShell@offline-shell-build.ts
   : (options: OfflineShellBuildOptions) => Promise<OfflineShellManifest>
@@ -6357,7 +6459,7 @@ sealBundle@account-key.ts
   : (secret: Uint8Array, password: string, account: string, options?: SealOptions) => Promise<Bundle>
 
 selectAppEnvironment@app-host/app-environment.ts
-  : (input: { environment: 'lab' | 'staging' | 'production' | 'local'; appOrigin: string; platform?: 'native'; release: AppBundledReleaseTrust; }) => AppEnvironmentSelection
+  : (input: { environment: 'lab' | 'staging' | 'production' | 'local'; appOrigin: string; release: AppBundledReleaseTrust; }) => AppEnvironmentSelection
 
 serveNoise@testing/noise-server.ts
   : (carrier: MessageCarrier, backend: Connector, o: ServeNoiseOptions) => void

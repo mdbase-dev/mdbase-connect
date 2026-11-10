@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { mdbaseAppHref, mdbaseApps, withAppUrls } from "./apps.js";
+import { mdbaseAppHref, mdbaseApps, officialApps, withAppUrls } from "./apps.js";
 
 describe("mdbaseAppHref", () => {
   it("carries the collection and server to the other app", () => {
@@ -33,21 +33,30 @@ describe("mdbaseAppHref", () => {
 });
 
 describe("mdbaseApps", () => {
-  it("lists Editor first and points every app at production", () => {
+  it("lists Editor first without assuming a deployment environment", () => {
     expect(mdbaseApps.map((app) => app.id)).toEqual(["editor", "reader", "writer"]);
     for (const app of mdbaseApps) {
-      expect(new URL(app.url).hostname).toBe(`${app.id}.mdbase.dev`);
+      expect(app.url).toBe("");
     }
   });
 
-  it("substitutes only the URLs a build provides", () => {
+  it("offers only the URLs a build provides, without production fallbacks", () => {
     const apps = withAppUrls({ writer: "http://127.0.0.1:5320/", reader: undefined });
 
     expect(apps.map((app) => app.url)).toEqual([
-      "https://editor.mdbase.dev/",
-      "https://reader.mdbase.dev/",
       "http://127.0.0.1:5320/"
     ]);
-    expect(mdbaseApps[2]?.url).toBe("https://writer.mdbase.dev/");
+    expect(mdbaseApps[2]?.url).toBe("");
+    expect(withAppUrls({})).toEqual([]);
+    expect(withAppUrls({ editor: "https://editor.lab.example/", reader: "https://reader.lab.example/", writer: "https://writer.lab.example/" })
+      .map(app => app.url)).toEqual(["https://editor.lab.example/", "https://reader.lab.example/", "https://writer.lab.example/"]);
+  });
+});
+
+describe("officialApps", () => {
+  it("adds Journal and TaskNotes after the mdbase family, with URLs from the deployment", () => {
+    expect(officialApps.map((app) => app.id)).toEqual(["editor", "reader", "writer", "journal", "tasknotes"]);
+    expect(withAppUrls({ tasknotes: "https://tasks.lab.example/", editor: "https://editor.lab.example/" }, officialApps)
+      .map((app) => [app.id, app.url])).toEqual([["editor", "https://editor.lab.example/"], ["tasknotes", "https://tasks.lab.example/"]]);
   });
 });

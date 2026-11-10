@@ -310,6 +310,7 @@ fn main() {
                 dry_run: None,
                 include: None,
                 wait: None,
+                validation: None,
             },
         )
         .unwrap();

@@ -19,6 +19,61 @@ vi.mock("@tanstack/react-virtual", () => ({
 }));
 
 describe("NoteList search presentation", () => {
+  it("draws a declared type icon and keeps an aligned slot for notes without one", async () => {
+    const task: NoteSummary = { path: "tasks/write.md", frontmatter: {}, effectiveFrontmatter: {}, types: ["task"], body: "", file: {} };
+    const plain: NoteSummary = { path: "notes/plain.md", frontmatter: {}, effectiveFrontmatter: {}, types: [], body: "", file: {} };
+    const noop = () => {};
+    render(<NoteList
+      entries={[task, plain].map((note) => ({ kind: "note" as const, path: note.path, note }))}
+      noteCount={2} fileCount={0} statuses={new Map()}
+      types={[{ name: "task", schema: {}, extensions: {}, collection: { display: { icon: "check-circle" } } }]}
+      search="" searchQuery="" searchContexts={new Map()} sort={defaultNoteSort} sortFields={[]}
+      collectionName="Test" loading={false} structureLoading={false} filesLoading={false}
+      contentIndexing={false} contentLoaded={2}
+      onSearch={noop} onSort={noop} onClearScope={noop} onQuickOpen={noop}
+      onRetryStructure={noop} onRetryContent={noop} onRetryFiles={noop} onSelect={noop}
+      onSelectFile={noop} onCollections={noop}
+    />);
+    const [taskRow, plainRow] = screen.getAllByRole("option");
+    expect(await vi.waitFor(() => taskRow.querySelector(".note-type-icon .ph-check-circle") ?? Promise.reject(new Error("icon pending")))).toBeTruthy();
+    expect(plainRow.querySelector(".note-type-icon")).toBeEmptyDOMElement();
+  });
+
+  it("keeps undated rows aligned, names empty notes and types readably, and offers title-only rows", () => {
+    const undated: NoteSummary = { path: "Views/archive.md", frontmatter: {}, effectiveFrontmatter: {}, types: ["obsidian_base"], body: "", file: {} };
+    const unloaded: NoteSummary = { path: "Views/later.md", frontmatter: {}, effectiveFrontmatter: {}, types: [], file: { mtime: "2026-01-01T12:00:00Z" } };
+    const notes = [undated, unloaded];
+    const noop = () => {};
+    const onCompact = vi.fn();
+    const props = {
+      entries: notes.map((note) => ({ kind: "note" as const, path: note.path, note })),
+      noteCount: notes.length, fileCount: 0, types: [], statuses: new Map(),
+      search: "", searchQuery: "", searchContexts: new Map(), sort: defaultNoteSort, sortFields: [],
+      collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
+      contentIndexing: false, contentLoaded: 1,
+      onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,
+      onRetryStructure: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: noop,
+      onSelectFile: noop, onCollections: noop, onCompact
+    };
+    const view = render(<NoteList {...props} />);
+    const [archive, later] = screen.getAllByRole("option");
+    expect(archive.querySelector("time")).toBeNull();
+    expect(archive).toHaveTextContent("No additional text");
+    expect(archive.querySelector(".note-type-badge")).toHaveTextContent("Obsidian base");
+    expect(archive.querySelector(".note-type-badge")).toHaveAttribute("title", "Type: obsidian_base");
+    // A body still loading is not yet known to be empty.
+    expect(later).not.toHaveTextContent("No additional text");
+
+    fireEvent.click(screen.getByRole("button", { name: "View options" }));
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Compact" }));
+    expect(onCompact).toHaveBeenCalledWith(true);
+
+    view.rerender(<NoteList {...props} compact />);
+    const compactRow = screen.getAllByRole("option")[0];
+    expect(compactRow).toHaveTextContent(/^archive$/);
+    expect(compactRow.querySelector(".note-detail, .note-excerpt, .note-type-badge")).toBeNull();
+  });
+
   it("reveals the open note again on search return even when its identity has not changed", () => {
     const notes = Array.from({ length: 40 }, (_, index): NoteSummary => ({ path: `Notes/${index}.md`, frontmatter: {}, effectiveFrontmatter: {}, types: [], body: "", file: { mtime: "2026-01-01T12:00:00Z" } }));
     const noop = () => {};
@@ -121,6 +176,32 @@ describe("NoteList search presentation", () => {
     fireEvent.keyDown(screen.getByRole("listbox"), { key: "j" });
     expect(props.onSelect).toHaveBeenLastCalledWith(second.path, { keyboard: true });
     expect(props.onSelectFile).not.toHaveBeenCalled();
+  });
+
+  it("names note and file entries by the text they show", () => {
+    const note: NoteSummary = { path: "Notes/one.md", frontmatter: {}, effectiveFrontmatter: {}, types: [], body: "", file: { mtime: "2026-01-01T12:00:00Z" } };
+    const noop = () => {};
+    render(<NoteList
+      entries={[
+        { kind: "note" as const, path: note.path, note },
+        { kind: "file" as const, path: "Files/paper.pdf", file: { path: "Files/paper.pdf", name: "paper.pdf", folder: "Files", size: 1, mtime: "", mediaType: "application/pdf", mediaClass: "pdf" } }
+      ] as never}
+      noteCount={1} fileCount={1} types={[]} selectedPath={note.path} statuses={new Map()}
+      search="" searchQuery="" searchContexts={new Map()} sort={defaultNoteSort} sortFields={[]}
+      collectionName="Test" loading={false} structureLoading={false} filesLoading={false}
+      contentIndexing={false} contentLoaded={1}
+      onSearch={noop} onSort={noop} onClearScope={noop} onQuickOpen={noop}
+      onRetryStructure={noop} onRetryContent={noop} onRetryFiles={noop} onSelect={noop}
+      onSelectFile={noop} onCollections={noop}
+    />);
+    // WCAG 2.5.3 Label in Name: each entry's accessible name contains its visible text.
+    const visibleText = (node: Node): string => node.nodeType === Node.TEXT_NODE ? node.textContent ?? ""
+      : node instanceof Element && node.getAttribute("aria-hidden") === "true" ? "" : [...node.childNodes].map(visibleText).join("");
+    const options = screen.getAllByRole("option");
+    expect(options.map(visibleText)).toEqual([expect.stringMatching(/^one/), expect.stringMatching(/^paper\.pdf/)]);
+    for (const option of options) {
+      expect(option).toHaveAccessibleName(new RegExp(visibleText(option).replace(/\s+/g, " ").trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    }
   });
 
   it("keeps partial-load failures visible and retryable instead of claiming complete results", () => {

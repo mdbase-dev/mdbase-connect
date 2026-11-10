@@ -370,6 +370,28 @@ pub struct ListResources {
     pub limit: Option<u32>,
 }
 
+/// Selection for one backlinks page (replica-client-api.md §4.2).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Backlinks {
+    /// The linked-to record.
+    pub target: Target,
+    /// What to include in each referring record's view.
+    pub include: Include,
+    /// Maximum records (default 128, range 1–1000).
+    pub limit: Option<u32>,
+    /// Opaque session-bound continuation.
+    pub cursor: Option<String>,
+}
+
+/// Link occurrences to resolve where they are written (replica-client-api.md §4.3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolveLinks {
+    /// The collection path the links are written in; it need not exist.
+    pub from: String,
+    /// Occurrences exactly as written, 1–512, each at most 4096 bytes.
+    pub links: Vec<String>,
+}
+
 /// One exact tracked resource; invalid catalog definitions remain visible.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResourceListEntry {
@@ -441,6 +463,21 @@ pub struct Describe {
     pub issues: Vec<Issue>,
     /// Registered contracts, ordered by ID and exact version.
     pub contracts: Vec<ContractSummary>,
+}
+
+/// Which records `validate` checks.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Validate {
+    /// These records, in request order.
+    Targets(Vec<Target>),
+    /// Every current record in one bounded request.
+    All,
+    /// The next records after `after` (exclusive) in ID order, as many as the
+    /// request budget allows. Empty when none remain.
+    Page {
+        /// The last record ID of the previous page; `None` starts at the first.
+        after: Option<Uuid>,
+    },
 }
 
 /// Diagnostics of one actual current record, not an unsaved draft or write permit.
@@ -829,6 +866,20 @@ pub trait ClientApi {
         target: Target,
         include: Include,
     ) -> ApiResult<mdbn_wire::client::RecordView>;
+    /// Resolve link occurrences written in `from` against the local view,
+    /// with Core's parsing and resolution.
+    fn resolve_links(
+        &mut self,
+        session: SessionId,
+        request: ResolveLinks,
+    ) -> ApiResult<mdbn_wire::client::ResolveLinksResult>;
+    /// One page of the records whose links resolve to a record, from the
+    /// link index over the local view.
+    fn backlinks(
+        &mut self,
+        session: SessionId,
+        request: Backlinks,
+    ) -> ApiResult<mdbn_wire::client::BacklinksResult>;
     /// A query (spec 11 query object) over the local view.
     fn query(
         &mut self,
@@ -894,12 +945,9 @@ pub trait ClientApi {
         limit: Option<u32>,
         watch: bool,
     ) -> ApiResult<ChangesResult>;
-    /// Validate current records against the current catalog (all when `None`).
-    fn validate(
-        &mut self,
-        session: SessionId,
-        targets: Option<Vec<Target>>,
-    ) -> ApiResult<Vec<RecordValidation>>;
+    /// Validate current records against the current catalog.
+    fn validate(&mut self, session: SessionId, scope: Validate)
+    -> ApiResult<Vec<RecordValidation>>;
 
     // ---- writes (§5, §6) ----
 

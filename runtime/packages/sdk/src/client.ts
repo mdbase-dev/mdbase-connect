@@ -45,6 +45,8 @@ import {
 import {
   BacklinksResult,
   backlinksResult,
+  ResolveLinksResult,
+  resolveLinksResult,
   DescribeResult,
   describeResult,
   newTypeFile,
@@ -94,6 +96,7 @@ import {
   RecordView,
   submitParams,
   SubmitParams,
+  ValidationLevel,
   submitResult,
   syncStatus,
   SyncStatus,
@@ -225,6 +228,9 @@ function accountSecret(secret: Uint8Array): void {
   if (!(secret instanceof Uint8Array) || secret.length !== 32) throw mdbaseError("invalid_request", "the account secret is 32 bytes", "account_secret_length");
 }
 
+/** The `hello` feature that lets `validate` page through every record. */
+const VALIDATE_PAGE = "validate-page-v1";
+
 function params(entries: [number, CborValue | undefined][]): Map<number, CborValue> {
   const m = new Map<number, CborValue>();
   for (const [k, v] of entries) if (v !== undefined) m.set(k, v);
@@ -305,6 +311,13 @@ export interface WriteOptions {
   dryRun?: boolean;
   /** Hold for log confirmation, or final local file publication (not confirmation). */
   wait?: "pending" | "confirmed" | "published";
+  /**
+   * Validation level for this write's single-record checks (spec 04); default
+   * the collection's `settings.validation`. Only `error` refuses a write with
+   * `invalid_record`. A sync tool sends `warn`: files it carries are never
+   * rejected for validity. Older replicas ignore it and refuse at `error`.
+   */
+  validation?: ValidationLevel;
   signal?: AbortSignal;
 }
 
@@ -692,7 +705,7 @@ export class MdbaseClient {
       versions: API_VERSIONS,
       clientName: opts.app.name,
       clientVersion: opts.app.version,
-      features: [...new Set([...(opts.features ?? []), "declared-collection-setup-v1", "file-stream-failure-v1"])],
+      features: [...new Set([...(opts.features ?? []), "declared-collection-setup-v1", "file-stream-failure-v1", VALIDATE_PAGE])],
       ...(tz ? { timezone: tz } : {}),
     };
   }
@@ -1290,7 +1303,17 @@ export class MdbaseClient {
     return result;
   }
 
-  /** Records whose links resolve to `target` (index-backed, §4.2). */
+  /**
+   * One page of the records whose links resolve to `target`, from the
+   * replica's link index with Core resolution over the local view (pending
+   * changes included; the target's links to itself excluded). Referrers come
+   * in path order, each with its links to the target. Pass the returned
+   * `cursor` for the next page (`limit` 1–1000, default 128); a page may hold
+   * fewer than `limit`, and only an absent cursor ends the list. Any local
+   * change between pages refuses the continuation with `cursor_stale`: start
+   * again from the first page. A replica without the method refuses with
+   * `upgrade_required` / `backlinks_unsupported` (§4.2).
+   */
   backlinks(
     target: RecordRef,
     o: { include?: Include; limit?: number; cursor?: string; signal?: AbortSignal } = {},
@@ -1304,7 +1327,40 @@ export class MdbaseClient {
         [3, o.cursor],
       ]),
       { codec: backlinksResult, retry: true, ...(o.signal ? { signal: o.signal } : {}) },
-    );
+    ).catch((e: unknown) => {
+      if (isMdbaseError(e, "invalid_request") && e.reason === "unknown_method") {
+        throw mdbaseError("upgrade_required", "This collection's replica can't list backlinks yet.", "backlinks_unsupported");
+      }
+      throw e;
+    });
+  }
+
+  /**
+   * Resolve link occurrences written in the note at `from`, exactly as the
+   * replica resolves them for backlinks and rename: Core parsing and spec 08
+   * resolution over the local view, pending changes included. `from` need not
+   * exist yet (an unsaved draft). Each entry is one occurrence as written —
+   * `[[target]]`, `![[target#anchor|alias]]`, `[text](path)`, `![alt](path)` —
+   * and the result holds one resolution per entry, in order: a record or file
+   * with its ID and path, `ambiguous` with sorted candidate paths, or
+   * `not_found` / `invalid`. Titles and aliases are not link keys. 1–512
+   * entries of at most 4096 bytes each. A replica without the method refuses
+   * with `upgrade_required` / `resolve_links_unsupported` (§4.3).
+   */
+  resolveLinks(from: string, links: readonly string[], o: { signal?: AbortSignal } = {}): Promise<ResolveLinksResult> {
+    return this.call(
+      "resolve_links",
+      params([
+        [0, from],
+        [1, [...links]],
+      ]),
+      { codec: resolveLinksResult, retry: true, ...(o.signal ? { signal: o.signal } : {}) },
+    ).catch((e: unknown) => {
+      if (isMdbaseError(e, "invalid_request") && e.reason === "unknown_method") {
+        throw mdbaseError("upgrade_required", "This collection's replica can't resolve links yet.", "resolve_links_unsupported");
+      }
+      throw e;
+    });
   }
 
   /** Definitions: `mdbase.yaml`, type files, contract files (§4.1). */
@@ -1651,14 +1707,30 @@ export class MdbaseClient {
     return Object.freeze(watch) as ChangesWatch;
   }
 
+  /** Validate these records, or every record. Every record is validated a
+   * page at a time when the replica grants `validate-page-v1`; each page is an
+   * independent READ, so records changed meanwhile may be missed or repeated.
+   * Older replicas validate every record in one bounded request. */
   async validate(refs?: readonly RecordRef[], signal?: AbortSignal): Promise<RecordValidation[]> {
     signal?.throwIfAborted();
     const {targets,expected}=captureValidation(refs);
-    const result = await this.call("validate", params([[0, targets]]), {
+    const call = (p: Map<number, CborValue>) => this.call("validate", p, {
       codec: recordValidations, retry: true, ...(signal ? { signal } : {}),
     });
-    signal?.throwIfAborted();
-    return bindValidation(result,expected);
+    if (targets !== undefined || !this.hello.features.includes(VALIDATE_PAGE)) {
+      const result = await call(params([[0, targets]]));
+      signal?.throwIfAborted();
+      return bindValidation(result,expected);
+    }
+    const out: RecordValidation[] = [];
+    for (let after: string | undefined; ;) {
+      const page = await call(params([[1, new Map(after === undefined ? [] : [[0, uuidCodec.enc(after)]])]]));
+      signal?.throwIfAborted();
+      const last = page[page.length - 1];
+      if (last === undefined) return out;
+      out.push(...page);
+      after = last.id;
+    }
   }
 
   /** Independent native app-host Bases READ, exact original held session.
@@ -1722,6 +1794,7 @@ export class MdbaseClient {
     if (o.dryRun) p.dryRun = true;
     if (o.include) p.include = o.include;
     if (o.wait) p.wait = o.wait;
+    if (o.validation) p.validation = o.validation;
     // The ledger holds the intent before the replica can capture it.
     if (!o.dryRun) {
       this.startLedger();

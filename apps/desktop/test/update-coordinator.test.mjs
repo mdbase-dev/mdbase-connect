@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { once } from "node:events";
+import { createServer } from "node:net";
+import { setImmediate } from "node:timers/promises";
+import { Worker } from "node:worker_threads";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
@@ -54,12 +58,15 @@ function backend(overrides = {}) {
       events.push("find");
       return { manifest: signedManifest() };
     },
+    installsAutomatically(target) {
+      return target.mode === "automatic";
+    },
     async stageAutomatic(_manifest, _target, progress) {
       events.push("stage");
       progress(35);
       progress(90);
     },
-    installAutomatic() {
+    async installAutomatic() {
       events.push("install");
     },
     async openExternal(url) {
@@ -98,6 +105,34 @@ test("a verified automatic release downloads, becomes ready and installs the app
   assert.equal(saved.transaction, undefined);
 });
 
+test("a package target that this installation replaces itself is staged, not opened", async () => {
+  const { store } = await fixture();
+  const packageTarget = {
+    mode: "manual",
+    action_url: "https://example.com/release",
+    artifacts: [{
+      name: "update.deb",
+      url: "https://example.com/update.deb",
+      sigstore_url: "https://example.com/update.deb.sigstore.json",
+      sha256: "c".repeat(64),
+      size: 100,
+      kind: "deb"
+    }]
+  };
+  const runtime = backend({
+    async findLatest() {
+      runtime.events.push("find");
+      return { manifest: signedManifest(packageTarget) };
+    },
+    installsAutomatically: (target) => target.artifacts.some((artifact) => artifact.kind === "deb")
+  });
+  const coordinator = new UpdateCoordinator(store, runtime);
+  await coordinator.initialize();
+  assert.equal((await coordinator.check()).phase, "ready");
+  assert.equal((await coordinator.install()).phase, "installing");
+  assert.deepEqual(runtime.events, ["find", "stage", "install"]);
+});
+
 test("only one network check runs while a check is in flight", async () => {
   const { store } = await fixture();
   let release;
@@ -122,6 +157,139 @@ test("only one network check runs while a check is in flight", async () => {
   assert.equal(calls, 1);
 });
 
+test("a CONNECT blackhole during real Sigstore verification fails closed and permits recovery", { timeout: 20_000 }, async (context) => {
+  const directory = await mkdtemp(join(tmpdir(), "mdbase-update-blackhole-"));
+  const sockets = new Set();
+  let worker;
+  const proxy = createServer((socket) => {
+    sockets.add(socket);
+    socket.on("error", () => {});
+    socket.on("close", () => sockets.delete(socket));
+    socket.once("data", (bytes) => {
+      assert.match(bytes.toString(), /^CONNECT /);
+      socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+      proxy.emit("tunnel");
+    });
+  });
+  context.after(async () => {
+    await worker?.terminate();
+    for (const socket of sockets) socket.destroy();
+    await new Promise((resolve) => proxy.close(resolve));
+    await rm(directory, { recursive: true, force: true });
+  });
+  proxy.listen(0, "127.0.0.1");
+  await once(proxy, "listening");
+  const proxyUrl = `http://127.0.0.1:${proxy.address().port}`;
+  worker = new Worker(new URL("fixtures/update-check-blackhole.mjs", import.meta.url), {
+    workerData: { directory },
+    env: { ...process.env, HTTPS_PROXY: proxyUrl, https_proxy: proxyUrl, NO_PROXY: "", no_proxy: "" }
+  });
+  await Promise.race([
+    once(proxy, "tunnel"),
+    once(worker, "error").then(([error]) => { throw error; })
+  ]);
+  const expired = once(worker, "message");
+  worker.postMessage("expire");
+  const [result] = await expired;
+  assert.equal(result.status.phase, "failed");
+  assert.match(result.status.message, /^Could not verify updates: .*timed out/i);
+  assert.equal(result.status.can_install, false);
+  assert.equal(result.trustedVersion, undefined);
+  assert.equal(result.settled, true);
+  const recovered = once(worker, "message");
+  worker.postMessage("recover");
+  assert.equal((await recovered)[0].phase, "external");
+});
+
+for (const manual of [false, true]) {
+  test(`${manual ? "manual" : "automatic"} checks release their guard even when discovery ignores cancellation`, async (context) => {
+    const { store } = await fixture();
+    let finishDiscovery;
+    let checkSignal;
+    const runtime = backend({
+      findLatest(signal) {
+        checkSignal = signal;
+        return new Promise((resolve) => { finishDiscovery = resolve; });
+      }
+    });
+    const coordinator = new UpdateCoordinator(store, runtime);
+    await coordinator.initialize();
+    context.mock.timers.enable({ apis: ["setTimeout"] });
+    const pending = coordinator.check(manual);
+    await setImmediate();
+    context.mock.timers.tick(60_000);
+    await setImmediate();
+    assert.equal(coordinator.status().phase, "failed");
+    assert.equal((await pending).can_check, true);
+    assert.equal(checkSignal.aborted, true);
+    runtime.findLatest = async () => null;
+    assert.equal((await coordinator.check(true)).phase, "idle");
+    finishDiscovery({ manifest: signedManifest() });
+    await setImmediate();
+    assert.equal(coordinator.status().phase, "idle");
+    assert.deepEqual(runtime.events, []);
+    assert.equal((await store.load()).highest_trusted_version, undefined);
+  });
+}
+
+test("staging gets its own longer deadline and ignores expired progress and completion", async (context) => {
+  const { store } = await fixture();
+  let finishStaging;
+  let reportProgress;
+  const started = Promise.withResolvers();
+  const runtime = backend({
+    findLatest() {
+      return new Promise((resolve) => setTimeout(() => resolve({ manifest: signedManifest() }), 45_000));
+    },
+    stageAutomatic(_manifest, _target, progress) {
+      reportProgress = progress;
+      started.resolve();
+      return new Promise((resolve) => { finishStaging = resolve; });
+    }
+  });
+  const coordinator = new UpdateCoordinator(store, runtime);
+  await coordinator.initialize();
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const pending = coordinator.check();
+  await setImmediate();
+  context.mock.timers.tick(45_000);
+  await started.promise;
+  // Past the 60-second check deadline: a slow download is not a stalled check.
+  context.mock.timers.tick(15 * 60_000 - 1);
+  await setImmediate();
+  assert.equal(coordinator.status().phase, "downloading");
+  context.mock.timers.tick(1);
+  await setImmediate();
+  assert.equal(coordinator.status().phase, "failed");
+  await pending;
+  runtime.findLatest = async () => null;
+  assert.equal((await coordinator.check(true)).phase, "idle");
+  reportProgress(100);
+  finishStaging();
+  await setImmediate();
+  assert.equal(coordinator.status().phase, "idle");
+  await assert.rejects(coordinator.install(), /No update is ready/);
+});
+
+for (const operation of ["load", "update"]) {
+  test(`the overall deadline also covers a stalled state ${operation}`, async (context) => {
+    const { store } = await fixture();
+    const coordinator = new UpdateCoordinator(store, backend());
+    await coordinator.initialize();
+    const original = store[operation].bind(store);
+    store[operation] = () => new Promise(() => {});
+    context.mock.timers.enable({ apis: ["setTimeout"] });
+    const pending = coordinator.check();
+    await setImmediate();
+    context.mock.timers.tick(60_000);
+    await setImmediate();
+    assert.equal(coordinator.status().phase, "failed");
+    assert.equal((await pending).can_install, false);
+    store[operation] = original;
+    assert.equal((await coordinator.check(true)).phase, "ready");
+  });
+}
+
 test("Store and package-manager updates open the signed action target", async () => {
   const { store } = await fixture();
   const external = {
@@ -140,6 +308,99 @@ test("Store and package-manager updates open the signed action target", async ()
   assert.equal(status.phase, "external");
   await coordinator.install();
   assert.ok(runtime.events.includes("open:https://apps.microsoft.com/detail/example"));
+});
+
+test("a repeated manual check while an external update is available stays external", async () => {
+  const { store } = await fixture();
+  const external = {
+    mode: "manual",
+    action_url: "https://example.com/mdbase-connect.deb",
+    artifacts: [
+      {
+        name: "mdbase-connect.deb",
+        url: "https://example.com/mdbase-connect.deb",
+        sigstore_url: "https://example.com/mdbase-connect.deb.sigstore.json",
+        sha256: "c".repeat(64),
+        size: 100,
+        kind: "deb"
+      }
+    ]
+  };
+  let checks = 0;
+  let downloads = 0;
+  const runtime = backend({
+    async findLatest() {
+      checks += 1;
+      return { manifest: signedManifest(external) };
+    },
+    async openExternal() {
+      downloads += 1;
+    }
+  });
+  const coordinator = new UpdateCoordinator(store, runtime);
+  await coordinator.initialize();
+  const first = await coordinator.check(true);
+  assert.equal(first.phase, "external");
+  const second = await coordinator.check(true);
+  assert.equal(second.phase, "external");
+  assert.equal(second.target_version, first.target_version);
+  assert.equal(second.message, first.message);
+  assert.equal(second.can_check, true);
+  assert.equal(second.can_install, true);
+  assert.equal(checks, 2);
+  assert.equal(downloads, 0);
+  const installed = await coordinator.install();
+  assert.equal(installed.phase, "external");
+  assert.equal(downloads, 1);
+});
+
+test("two manual checks while external share the in-flight check", async () => {
+  const { store } = await fixture();
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  let calls = 0;
+  const external = {
+    mode: "store",
+    action_url: "https://apps.microsoft.com/detail/example",
+    artifacts: []
+  };
+  const coordinator = new UpdateCoordinator(store, backend({
+    async findLatest() {
+      calls += 1;
+      if (calls > 1) await gate;
+      return { manifest: signedManifest(external) };
+    }
+  }));
+  await coordinator.initialize();
+  assert.equal((await coordinator.check(true)).phase, "external");
+  const first = coordinator.check(true);
+  const second = coordinator.check(true);
+  assert.equal(first, second);
+  await setImmediate();
+  assert.equal(coordinator.status().phase, "checking");
+  assert.equal(coordinator.status().can_check, false);
+  assert.equal(coordinator.status().can_install, false);
+  assert.equal(calls, 2);
+  release();
+  assert.equal((await first).phase, "external");
+  assert.equal((await second).phase, "external");
+  assert.equal(calls, 2);
+});
+
+test("manual checks preserve a staged automatic update without downloading again", async () => {
+  const { store } = await fixture();
+  const runtime = backend();
+  const coordinator = new UpdateCoordinator(store, runtime);
+  await coordinator.initialize();
+  const staged = await coordinator.check();
+  assert.equal(staged.phase, "ready");
+  assert.deepEqual(await coordinator.check(true), staged);
+  assert.deepEqual(await coordinator.check(true), staged);
+  assert.deepEqual(runtime.events, ["find", "stage"]);
+  assert.equal((await coordinator.install()).phase, "installing");
+  assert.deepEqual(runtime.events, ["find", "stage", "install"]);
 });
 
 test("download and verification failures never enable installation", async () => {

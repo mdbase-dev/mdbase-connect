@@ -16,16 +16,19 @@ const unavailable = () => mdbaseError("unavailable", "SDK packaged application a
 /** Private SDK selector, not an application configuration callback. UI and
  * Worker use the same ESM artifact anchor. Selection performs no IO, storage,
  * Worker construction, dynamic imports or WASM initialization. */
-export function packagedApplicationAssets(environment:"lab"|"staging"|"production"|"local",appOrigin:string,platform?:"native"):PackagedApplicationNativeAssets {
+export function packagedApplicationAssets(environment:"lab"|"staging"|"production"|"local",appOrigin:string):PackagedApplicationNativeAssets {
   if(!applicationEnvironmentAllowed(environment))throw unavailable();
   const release=appReleaseTrust();
-  selectAppEnvironment({environment,appOrigin,platform,release});
+  selectAppEnvironment({environment,appOrigin,release});
   // Literal `new URL(<asset>, import.meta.url)` forms let a consumer bundler
   // (Vite/Rollup/webpack) emit and rewrite the native assets.
   let runtimeUrl:URL,sqliteUrl:URL;
   try {
+    // A development server names this module with a cache-busting query
+    // (Vite's `?v=`). The assets resolve beside it without that query, and their
+    // bytes are checked against the pins, so the query is not part of the anchor.
     const module=new URL(import.meta.url);
-    if(urlOrigin(module)!==appOrigin||module.username||module.password||module.search||module.hash)throw unavailable();
+    if(urlOrigin(module)!==appOrigin||module.username||module.password)throw unavailable();
     runtimeUrl=new URL("../native/runtime.wasm",import.meta.url);
     sqliteUrl=new URL("../native/sqlite3.wasm",import.meta.url);
     if(urlOrigin(runtimeUrl)!==appOrigin||urlOrigin(sqliteUrl)!==appOrigin)throw unavailable();

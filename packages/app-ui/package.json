@@ -40,9 +40,25 @@
       "types": "./dist/Checkbox.d.ts",
       "import": "./dist/Checkbox.js"
     },
+    "./comments": {
+      "types": "./dist/comments.d.ts",
+      "import": "./dist/comments.js"
+    },
+    "./comment-anchors": {
+      "types": "./dist/comment-anchors.d.ts",
+      "import": "./dist/comment-anchors.js"
+    },
+    "./comments-panel": {
+      "types": "./dist/CommentsPanel.d.ts",
+      "import": "./dist/CommentsPanel.js"
+    },
     "./codemirror": {
       "types": "./dist/codemirror.d.ts",
       "import": "./dist/codemirror.js"
+    },
+    "./live-preview": {
+      "types": "./dist/live-preview.d.ts",
+      "import": "./dist/live-preview.js"
     },
     "./collections": {
       "types": "./dist/collections.d.ts",
@@ -111,7 +127,9 @@
     "./brand.css": "./css/brand.css",
     "./collections.css": "./css/collections.css",
     "./controls.css": "./css/controls.css",
+    "./comments.css": "./css/comments.css",
     "./fonts.css": "./css/fonts.css",
+    "./live-preview.css": "./css/live-preview.css",
     "./feedback.css": "./css/feedback.css",
     "./motion.css": "./css/motion.css",
     "./palette.css": "./css/palette.css",
@@ -138,18 +156,26 @@
     "@fontsource/ibm-plex-sans": "^5.3.0"
   },
   "peerDependencies": {
-    "@codemirror/view": "^6.0.0",
+    "@codemirror/language": "^6.0.0",
+    "@codemirror/state": "^6.0.0",
+    "@codemirror/view": "^6.42.1",
+    "@lezer/common": "^1.0.0",
     "@lingui/core": "6.9.0",
     "@lingui/react": "6.9.0",
     "@mdbase-dev/i18n": "*",
     "@mdbase-dev/sdk": "*",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "@codemirror/commands": "^6.0.0"
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",
     "@babel/plugin-transform-react-jsx": "^7.29.7",
+    "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/state": "^6.7.5",
     "@codemirror/view": "^6.43.12",
+    "@lezer/common": "^1.5.2",
     "@lingui/babel-plugin-lingui-macro": "6.9.0",
     "@lingui/cli": "6.9.0",
     "@lingui/core": "6.9.0",
@@ -157,7 +183,7 @@
     "@lingui/react": "6.9.0",
     "@lingui/vite-plugin": "6.9.0",
     "@mdbase-dev/i18n": "workspace:*",
-    "@mdbase-dev/sdk": "file:vendor/sdk-0.0.0-bd131b16.tgz",
+    "@mdbase-dev/sdk": "0.1.0-beta.160",
     "@rolldown/plugin-babel": "^0.2.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
@@ -165,16 +191,29 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.11",
+    "@codemirror/commands": "^6.10.2"
   },
   "peerDependenciesMeta": {
+    "@codemirror/language": {
+      "optional": true
+    },
+    "@codemirror/state": {
+      "optional": true
+    },
     "@codemirror/view": {
+      "optional": true
+    },
+    "@lezer/common": {
       "optional": true
     },
     "@mdbase-dev/sdk": {
       "optional": true
     },
     "react-dom": {
+      "optional": true
+    },
+    "@codemirror/commands": {
       "optional": true
     }
   }

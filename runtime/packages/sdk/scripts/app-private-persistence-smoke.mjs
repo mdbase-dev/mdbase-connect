@@ -24,7 +24,7 @@ async function fixtureKey(mode) {
  }finally{db.close();}
 }
 self.onmessage=async e=>{let store;try{
- const p=source(),signal=AbortSignal.timeout(15000),options={source:p,origin:location.origin,allowLoopbackHttp:true,mode:e.data.mode,signal};
+ const p=source(),signal=AbortSignal.timeout(15000),options={source:p,origin:location.origin,mode:e.data.mode,signal};
  const key=await fixtureKey(e.data.mode);let exported=false;try{await crypto.subtle.exportKey("raw",key);exported=true;}catch{}check(!exported);
  const noise={privateEnrolPending:async()=>{throw Error("wrong fixture purpose");},privateEnrolAcknowledged:async()=>{throw Error("wrong fixture purpose");}};
  if(e.data.phase==="cas"){

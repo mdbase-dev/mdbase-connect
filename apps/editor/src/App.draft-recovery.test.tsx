@@ -35,6 +35,30 @@ it("offers unsent edits after a reload without writing them until the user resto
   expect(screen.getByRole("textbox", { name: "Note body" })).not.toHaveAttribute("readonly");
 });
 
+it("keeps Private collection text out of localStorage and erases older checkpoints", async () => {
+  const gateway = new DemoCollectionGateway(3);
+  const ready = gateway.sessionSnapshot.bind(gateway);
+  vi.spyOn(gateway, "sessionSnapshot").mockImplementation(() => {
+    const snapshot = ready();
+    if (snapshot.status !== "ready") return snapshot;
+    const connection = { ...snapshot.connection, private: true as const };
+    return { ...snapshot, connection, connections: [connection] };
+  });
+  const isDraft = (key: string) => key.startsWith("mdbase-editor:draft:v1:");
+  // An older build's checkpoint of this collection, before it was known to be Private.
+  const first = render(<App gateway={new DemoCollectionGateway(3)} />);
+  vi.spyOn(DemoCollectionGateway.prototype, "update").mockRejectedValue(new MdbaseConnectError(connectProblem("connector_offline", "Offline")));
+  fireEvent.change(await screen.findByRole("textbox", { name: "Note body" }), { target: { value: "Old plain checkpoint" } });
+  expect(Object.keys(localStorage).some(isDraft)).toBe(true);
+  first.unmount();
+  render(<App gateway={gateway} />);
+  await waitFor(() => expect(Object.keys(localStorage).filter(isDraft)).toEqual([]));
+  fireEvent.change(await screen.findByRole("textbox", { name: "Note body" }), { target: { value: "Private writing" } });
+  expect(Object.keys(localStorage).filter(isDraft)).toEqual([]);
+  expect(screen.queryByRole("button", { name: "Restore unsaved edits" })).toBeNull();
+  expect(screen.queryByText(/cannot be backed up/)).toBeNull();
+});
+
 it("discards a recovered copy without changing the authoritative record", async () => {
   const gateway = new DemoCollectionGateway(1);
   const first = render(<App gateway={gateway} />);

@@ -3,7 +3,7 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import type { DatabasePool } from "../../database-types.js";
-import type { RelayHub } from "../../relay.js";
+import type { RelayHub } from "../relay/relay.js";
 import { audit } from "../../platform/audit-events.js";
 import { apiError } from "../../platform/http-errors.js";
 import { requireInstallationDeviceConnector, requireSessionContext } from "../../platform/request-authentication.js";

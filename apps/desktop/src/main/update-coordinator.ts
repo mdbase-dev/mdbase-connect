@@ -12,8 +12,9 @@ import { UpdateStateStore } from "./update-state";
 
 /**
  * Updating the app through its existing release channel: the signed GitHub release
- * manifest (sigstore provenance), staged by Squirrel.Mac on macOS, opened in the
- * Microsoft Store or the package download elsewhere.
+ * manifest (sigstore provenance), staged by Squirrel.Mac on macOS or into a Linux
+ * app folder the user owns, opened in the Microsoft Store or the package download
+ * elsewhere.
  *
  * The app update is also the daemon update: the new app bundles its mdbase daemon and
  * installs it at the next launch (`next-daemon.ts`). Nothing here starts, stops or
@@ -53,17 +54,24 @@ export interface UpdateBackend {
   channel: UpdateChannel;
   platformKey: string;
   packaged: boolean;
-  findLatest(): Promise<{ manifest: UpdateManifest } | null>;
+  findLatest(signal: AbortSignal): Promise<{ manifest: UpdateManifest } | null>;
+  /** Whether this installation downloads and installs the target itself. */
+  installsAutomatically(target: UpdateTarget): boolean;
   stageAutomatic(
     manifest: UpdateManifest,
     target: UpdateTarget,
-    onProgress: (progress: number) => void
+    onProgress: (progress: number) => void,
+    signal: AbortSignal
   ): Promise<void>;
-  installAutomatic(): void;
+  installAutomatic(): Promise<void>;
   openExternal(url: string): Promise<void>;
 }
 
 const NEWEST = msg({ message: "This is the newest release on the selected channel.", context: "Desktop application" });
+const CHECK_TIMEOUT_MS = 60_000;
+// Finding and verifying a release is bounded tightly; downloading and staging a
+// full release on a slow link legitimately takes longer, so it gets its own deadline.
+const STAGE_TIMEOUT_MS = 15 * 60_000;
 type UpdateCopy = string | MessageDescriptor;
 type UpdateState = Omit<DesktopUpdateStatus, "message" | "daemon_notice"> & {
   message: UpdateCopy;
@@ -122,7 +130,15 @@ export class UpdateCoordinator {
     if (["ready", "installing"].includes(this.statusValue.phase) || !this.statusValue.can_check) {
       return Promise.resolve(this.status());
     }
-    this.operation = this.checkExclusive(manual).finally(() => {
+    const controller = new AbortController();
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const deadline = (ms: number, reason: string) => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => controller.abort(new Error(reason)), ms);
+    };
+    deadline(CHECK_TIMEOUT_MS, "Update check timed out after 60 seconds.");
+    this.operation = this.checkExclusive(manual, controller.signal, deadline).finally(() => {
+      clearTimeout(timeout);
       this.operation = null;
     });
     return this.operation;
@@ -130,7 +146,7 @@ export class UpdateCoordinator {
 
   async install(): Promise<DesktopUpdateStatus> {
     if (!this.candidate) throw new Error(t(i18n)({ message: "No update is ready to install.", context: "Desktop application" }));
-    if (this.candidate.target.mode !== "automatic") {
+    if (!this.backend.installsAutomatically(this.candidate.target)) {
       if (this.statusValue.phase !== "external" || !this.statusValue.can_install) {
         throw new Error(t(i18n)({ message: "The external update is not ready to open.", context: "Desktop application" }));
       }
@@ -147,7 +163,7 @@ export class UpdateCoordinator {
       can_install: false
     });
     try {
-      this.backend.installAutomatic();
+      await this.backend.installAutomatic();
     } catch (error) {
       this.candidate = null;
       this.setStatus({
@@ -162,7 +178,11 @@ export class UpdateCoordinator {
     return this.status();
   }
 
-  private async checkExclusive(manual: boolean): Promise<DesktopUpdateStatus> {
+  private async checkExclusive(
+    manual: boolean,
+    signal: AbortSignal,
+    deadline: (ms: number, reason: string) => void
+  ): Promise<DesktopUpdateStatus> {
     if (!this.backend.packaged) return this.status();
     this.setStatus({
       phase: "checking",
@@ -171,15 +191,16 @@ export class UpdateCoordinator {
       can_install: false
     });
     try {
-      const persisted = await this.store.load();
-      const release = await this.backend.findLatest();
+      const persisted = await this.duringCheck(this.store.load(), signal);
+      const release = await this.duringCheck(this.backend.findLatest(signal), signal);
       const checkedAt = new Date().toISOString();
-      await this.store.update((state) => {
+      await this.duringCheck(this.store.update((state) => {
+        signal.throwIfAborted();
         state.last_checked_at = checkedAt;
         if (release) {
           state.highest_trusted_version = maxVersion(state.highest_trusted_version, release.manifest.version);
         }
-      });
+      }), signal);
       this.candidate = null;
       if (!release) {
         this.setStatus({ phase: "idle", checked_at: checkedAt, message: NEWEST, can_check: true, can_install: false });
@@ -212,13 +233,16 @@ export class UpdateCoordinator {
           can_check: true,
           can_install: false
         });
-      } else if (decision.target.mode === "automatic") {
+      } else if (this.backend.installsAutomatically(decision.target)) {
         const required = decision.required ? { required: true as const } : {};
         const downloading = msg`Downloading verified version ${manifest.version}…`;
         this.setStatus({ phase: "downloading", ...found, progress: 0, message: downloading, can_check: false, can_install: false });
-        await this.backend.stageAutomatic(manifest, decision.target, (progress) => {
+        signal.throwIfAborted();
+        deadline(STAGE_TIMEOUT_MS, "Update download timed out after 15 minutes.");
+        await this.duringCheck(this.backend.stageAutomatic(manifest, decision.target, (progress) => {
+          if (signal.aborted) return;
           this.setStatus({ phase: "downloading", progress, message: downloading, can_check: false, can_install: false });
-        });
+        }, signal), signal);
         this.candidate = { manifest, target: decision.target };
         this.setStatus({
           phase: "ready",
@@ -258,6 +282,24 @@ export class UpdateCoordinator {
         can_install: false
       });
       return this.status();
+    }
+  }
+
+  private async duringCheck<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+    let onAbort: () => void = () => {};
+    try {
+      const result = await Promise.race([
+        operation,
+        new Promise<never>((_resolve, reject) => {
+          onAbort = () => reject(signal.reason);
+          if (signal.aborted) onAbort();
+          else signal.addEventListener("abort", onAbort, { once: true });
+        })
+      ]);
+      signal.throwIfAborted();
+      return result;
+    } finally {
+      signal.removeEventListener("abort", onAbort);
     }
   }
 

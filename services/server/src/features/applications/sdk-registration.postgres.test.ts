@@ -34,7 +34,8 @@ const origin = "http://127.0.0.1:48218";
 const storage = {
   applicationNamespace: "example-web",
   joinDatabaseName: "example.native-collection-join.v1",
-  setupDatabaseName: "example.native-model-setup.v1"
+  setupDatabaseName: "example.native-model-setup.v1",
+  unsyncedDatabaseName: "example.unsynced.v1"
 };
 
 function manifest(appId: string, redirects = [`${origin}/callback`]) {
@@ -62,7 +63,7 @@ describePg("SDK application registration against the register route", () => {
     url.searchParams.set("options", `-csearch_path=${schema}`);
     db = await createDatabase(url.toString());
     registerErrorHandler(app);
-    registerApplicationRoutes(app, { db, allowInsecureManifests: true });
+    registerApplicationRoutes(app, { db });
   }, 60_000);
   afterAll(async () => {
     await app.close(); await db?.end();
@@ -127,7 +128,8 @@ describePg("SDK application registration against the register route", () => {
     expect(rebindApplicationDeclaration(snapshot, registered).storage).toEqual({
       applicationNamespace: first.id,
       joinDatabaseName: `mdbase.${first.id}.native-collection-join.v1`,
-      setupDatabaseName: `mdbase.${first.id}.native-model-setup.v1`
+      setupDatabaseName: `mdbase.${first.id}.native-model-setup.v1`,
+      unsyncedDatabaseName: `mdbase.${first.id}.unsynced.v1`
     });
   });
 

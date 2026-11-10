@@ -440,12 +440,15 @@ export interface LinkResolution {
   kind: LinkTargetKind;
   target?: Uuid;
   path?: string;
+  /** Sorted candidate paths; present only when `kind` is `ambiguous`. */
+  candidates?: string[];
 }
 
 export const linkResolution = struct<LinkResolution>("link-resolution", [
   [0, "kind", enumOf<LinkTargetKind>("link-kind", ["record", "file", "ambiguous", "not_found", "invalid"])],
   [1, "target", uuid, "opt"],
   [2, "path", tstr, "opt"],
+  [3, "candidates", list(tstr, { nonEmpty: true }), "opt"],
 ]);
 
 /** An outgoing link or embed, resolved at the local view (§3.1). */
@@ -896,7 +899,12 @@ export interface SubmitParams {
   dryRun?: boolean;
   include?: Include;
   wait?: "pending" | "confirmed" | "published";
+  validation?: ValidationLevel;
 }
+
+/** Validation level (spec 04). */
+export type ValidationLevel = "off" | "warn" | "error";
+const validationLevel = enumOf<ValidationLevel>("level", ["off", "warn", "error"]);
 
 export const submitParams = struct<SubmitParams>("submit-params", [
   [0, "ops", list(op, { nonEmpty: true }), "req1"],
@@ -908,6 +916,7 @@ export const submitParams = struct<SubmitParams>("submit-params", [
   [6, "dryRun", bool, "opt"],
   [7, "include", include, "opt"],
   [8, "wait", enumOf("wait-for", ["pending", "confirmed", "published"] as const), "opt"],
+  [9, "validation", validationLevel, "opt"],
 ]);
 
 export type ConflictValue =
@@ -1395,7 +1404,7 @@ export interface Mutation {
   ops: Op[];
   onBehalf?: Uuid;
   conflictMode?: ConflictMode;
-  validatedAt?: "off" | "warn" | "error";
+  validatedAt?: ValidationLevel;
   room?: { stream: Uint8Array; state: Hash };
 }
 
@@ -1417,7 +1426,7 @@ export const mutation = struct<Mutation>("mutation", [
   [6, "ops", list(op, { nonEmpty: true }), "req1"],
   [7, "onBehalf", uuid, "opt"],
   [8, "conflictMode", conflictMode, "opt"],
-  [9, "validatedAt", enumOf("level", ["off", "warn", "error"] as const), "opt"],
+  [9, "validatedAt", validationLevel, "opt"],
   [
     10,
     "room",
@@ -1492,6 +1501,19 @@ export const backlinksResult = struct<BacklinksResult>("backlinks-result", [
   [1, "cursor", tstr, "opt"],
   [2, "complete", bool],
   [3, "asOf", uint],
+]);
+
+/** Links resolved where they are written (§4.3), one per requested link. */
+export interface ResolveLinksResult {
+  resolutions: LinkResolution[];
+  asOf: number;
+  complete: boolean;
+}
+
+export const resolveLinksResult = struct<ResolveLinksResult>("resolve-links-result", [
+  [0, "resolutions", list(linkResolution)],
+  [1, "asOf", uint],
+  [2, "complete", bool],
 ]);
 
 export interface ViewProperty {

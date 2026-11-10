@@ -75,15 +75,15 @@ test("actual cold alarm retires its open retry and reaches the idle cap across e
   const set = clock(ctx);
   for (const escrow of [false, true]) {
     const t = state(); let at = start; const delays = [];
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 8; i++) {
       set(at); t.fire();
       await actor(t, escrow).alarm(); // New object/custody RAM; same durable storage.
       delays.push((t.alarm() - at) / S);
-      assert.equal(t.data.get("service-idle-streak"), Math.min(i + 1, 5));
+      assert.equal(t.data.get("service-idle-streak"), Math.min(i + 1, 7));
       at = t.alarm();
     }
-    assert.deepEqual(delays, escrow ? [120, 240, 480, 600, 600, 600] : [60, 120, 240, 480, 600, 600]);
-    assert.equal(t.f.constructs, 6); assert.equal(t.f.mints.length, 6, "no credential survives eviction");
+    assert.deepEqual(delays, escrow ? [120, 240, 480, 960, 1920, 3600, 3600, 3600] : [60, 120, 240, 480, 960, 1920, 3600, 3600]);
+    assert.equal(t.f.constructs, 8); assert.equal(t.f.mints.length, 8, "no credential survives eviction");
     assert.deepEqual([...t.data.keys()].sort(), ["collection-mode-device", "service-collection", "service-idle-streak"]);
     assert.ok(!JSON.stringify([...t.data]).includes("synthetic-held-bearer"));
   }

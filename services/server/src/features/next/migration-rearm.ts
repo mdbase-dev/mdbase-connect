@@ -8,7 +8,7 @@
 // every member's Worker idle and every legacy source settled active.
 import { randomUUID } from "node:crypto";
 import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
-import type { HostedProviderClient } from "../../hosted-provider.js";
+import type { HostedProviderClient } from "../hosted/hosted-provider.js";
 import { audit } from "../../platform/audit-events.js";
 import { inTransaction } from "./bootstrap-common.js";
 import { RolloutRefused } from "./migration-archive-profile.js";

@@ -1283,7 +1283,9 @@ pub trait Store {
     /// removal), or the store's own bound. Durability stays prefix-ordered: a
     /// crash keeps every commit before some point and loses every one after.
     /// The replica opens a window only around commits that can be redone from
-    /// what is still on disk (ingest of files no client write depends on).
+    /// what is still on disk: ingest of files no client write depends on, and
+    /// derived-data rebuilds (query index backfill, reindex) whose completion
+    /// stamps are written last.
     /// Closing it is a barrier: everything committed before is durable when it
     /// returns `Ok`. Stores without such a mode keep every commit durable.
     fn defer_durability(&mut self, _on: bool) -> StoreResult<()> {
@@ -1448,7 +1450,10 @@ pub type MetaPut = (String, Option<Vec<u8>>);
 /// Version of replica-derived record metadata. Bump when `record_meta` changes
 /// incompatibly: open reuses the catalog reindex before replaying pending work.
 /// This is separate from backend schema/codec and query-projection versions.
-pub const DERIVED_DATA_VERSION: u64 = 1;
+///
+/// 2: unique index entries for every field a `unique` rule names, with
+/// canonical value keys.
+pub const DERIVED_DATA_VERSION: u64 = 2;
 
 /// Meta keys the replica uses. Stores treat values as opaque bytes.
 pub mod meta_keys {
@@ -1500,4 +1505,7 @@ pub mod meta_keys {
     /// The installed generation-0 `base`: what its payload names and where it
     /// sits, committed with the install. Log-derived; a rebuild re-creates it.
     pub const BASE: &str = "replica.base";
+    /// The catalog the records' index entries were derived under
+    /// (`plan::record_meta_stamp`). Device-local; a mismatch reindexes on open.
+    pub const RECORD_META: &str = "replica.record_meta";
 }

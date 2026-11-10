@@ -85,7 +85,14 @@
   align-items: center;
   padding: 0 18px;
   background: var(--white);
-  border-bottom: 1px solid var(--line);
+  /* The next group's heading slides over the stuck one rather than under it. */
+  z-index: 2;
+}
+
+/* The current group's heading stays in flow at the top while its rows scroll beneath it. */
+.note-group-header.sticky {
+  position: sticky;
+  z-index: 1;
 }
 
 .note-group-header span {
@@ -108,7 +115,6 @@
   justify-content: center;
   gap: 3px;
   padding: var(--space-2) var(--space-4) var(--space-2) 18px;
-  border-bottom: 1px solid var(--line);
   text-align: left;
   transition: background var(--motion-fast) var(--ease-standard);
 }
@@ -195,20 +201,64 @@
   font-size: var(--font-size-caption);
 }
 
-/* A type is a declared schema, not a location: set it apart from the folder in the meta line. */
+/* With type icons, every note row's text starts past one icon gutter, so the icon hangs beside the title. */
+.note-scroll.type-icons .note-row:not(.file-row) {
+  padding-left: calc(18px + 15px + var(--space-2));
+}
+
+.note-scroll.type-icons .note-title-line {
+  position: relative;
+}
+
+.note-type-icon {
+  position: absolute;
+  left: calc(-15px - var(--space-2));
+  width: 15px;
+  height: 15px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: var(--font-size-prose);
+}
+
+.note-row.selected .note-type-icon {
+  color: var(--ink);
+}
+
+.note-excerpt-empty {
+  color: var(--faint);
+}
+
+/* A type is a declared schema, not a location: a filled chip sets it apart from the folder in the meta line. */
 .note-type-badge {
   flex: 0 1 auto;
   min-width: 0;
-  max-width: 40%;
+  max-width: 50%;
   margin-left: auto;
-  padding: 0;
+  padding: 1px 6px;
   overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--line);
   color: var(--muted);
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-medium);
-  line-height: inherit;
+  font-size: var(--font-size-caption);
+  line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.note-row.selected .note-type-badge {
+  background: var(--line-strong);
+}
+
+.note-scroll.compact .note-row {
+  padding-block: 0;
+  gap: 0;
+}
+
+.note-scroll.compact .note-transition {
+  flex: 0 1 auto;
+  margin-left: auto;
+  font-size: var(--font-size-caption);
 }
 
 .note-title mark,

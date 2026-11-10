@@ -136,10 +136,7 @@ impl DoBackend {
         if Uuid::from_cbor(fields[0]).map_err(|_| invalid())? != REGISTRY {
             return Err(invalid());
         }
-        let _guard = self.lock.lock().await;
-        // No awaits below: generation/records/receipts share this synchronous
-        // actor boundary. Nonce consumption never advances floor revision.
-        if method == "registry_record_collection_deletion" {
+        let requested = if method == "registry_record_collection_deletion" {
             let requested = DeletionRecord {
                 collection: uuid(fields[1])?,
                 deletion_id: uuid(fields[2])?,
@@ -148,6 +145,28 @@ impl DoBackend {
             if requested.lifecycle_epoch == 0 {
                 return Err(invalid());
             }
+            Some(requested)
+        } else {
+            None
+        };
+        // A new floor first fences the collection actor's cached absence (see
+        // `deletion_floor::FloorCache`), outside the registry lock. The guard
+        // keeps the collection's lookups refused until the insert below.
+        let _fence = match requested {
+            Some(r) if self.deletion_floor_local(&r.collection)?.is_none() => {
+                self.refuse_collection_closing(&r.collection)?;
+                Some(
+                    self.fence_collection(&r.collection)
+                        .await
+                        .map_err(|_| unavailable())?,
+                )
+            }
+            _ => None,
+        };
+        let _guard = self.lock.lock().await;
+        // No awaits below: generation/records/receipts share this synchronous
+        // actor boundary. Nonce consumption never advances floor revision.
+        if let Some(requested) = requested {
             let current = self.deletion_floor_local(&requested.collection)?;
             let actual = current.unwrap_or(requested);
             if current.is_none() {

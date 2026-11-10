@@ -9,7 +9,7 @@ describe("Undo notifications", () => {
   it("announces deletion, offers a focusable Undo and expires after 30 seconds even across rerenders", () => {
     vi.useFakeTimers();
     const undo = vi.fn(), dismiss = vi.fn();
-    const items = () => buildToastItems({ recoveryMessage: "Deleted note.", recoveryBusy: false, onUndo: undo, hasPendingRename: false, onResumeRename: vi.fn() });
+    const items = () => buildToastItems({ recoveryId: "recovery", recoveryMessage: "Deleted note.", recoveryBusy: false, onUndo: undo, hasPendingRename: false, onResumeRename: vi.fn() });
     const view = render(<Toaster items={items()} onDismiss={dismiss} />);
     expect(screen.getByRole("status")).toHaveTextContent("Deleted note.");
     act(() => vi.advanceTimersByTime(15_000));

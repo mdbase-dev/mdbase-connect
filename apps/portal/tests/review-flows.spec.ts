@@ -13,7 +13,7 @@ test("W35 approved access names the next step without figurative copy", async ({
 test("W28 Retry keeps keyboard focus and ignores activation during a background refresh", async ({ page }) => {
   let requests = 0;
   let finish: (() => void) | undefined;
-  await page.route("**/v1/me", async route => {
+  await page.route(url => url.pathname === "/v1/me", async route => {
     if (++requests > 1) await new Promise<void>(resolve => { finish = resolve; });
     await route.fulfill({ status: 503, json: { error: { message: "Diagnostic" } } });
   });
@@ -39,7 +39,7 @@ test("W28 post-approval inspection redirects a 401 without replaying approval", 
   await page.getByRole("option").first().click();
   const original = page.url();
   let approvals = 0;
-  await page.route("**/v1/me", route => route.fulfill({ status: 401, json: { error: { message: "Sign in" } } }));
+  await page.route(url => url.pathname === "/v1/me", route => route.fulfill({ status: 401, json: { error: { message: "Sign in" } } }));
   await page.route(`**/v1/pairing-requests/${pairingId}**`, async route => {
     if (route.request().method() === "POST" && route.request().url().endsWith("/approve")) approvals++;
     if (route.request().method() === "GET" && approvals) return route.fulfill({ status: 401, json: { error: { message: "Sign in" } } });
@@ -287,7 +287,8 @@ for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as 
     await picker.focus();
     for (let step = 0; step < 45; step++) await page.keyboard.press("ArrowDown");
     await page.keyboard.press("Enter");
-    for (let step = 0; step < 4; step++) await page.keyboard.press("Tab");
+    // The list scrolls with the page, so it is not a tab stop of its own.
+    for (let step = 0; step < 3; step++) await page.keyboard.press("Tab");
     const details = page.locator("details").filter({ has: page.locator("summary", { hasText: "Details" }) });
     await expect(details.locator("summary")).toBeFocused();
     const height = await page.locator(".collection-picker-list").evaluate(element => element.getBoundingClientRect().height);
@@ -432,7 +433,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   for (const colorScheme of ["light", "dark"] as const) test(`W11 list slots and shell ${viewport.width} ${colorScheme}`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
     await page.emulateMedia({ colorScheme, reducedMotion: "no-preference" });
-    await page.route("**/v1/me", async route => {
+    await page.route(url => url.pathname === "/v1/me", async route => {
       const response = await route.fetch();
       const data = await response.json();
       data.connectors[0].compatibility = "upgrade_required";
@@ -535,7 +536,6 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await openScenario(page, "pairing-many");
       const picker = page.getByRole("combobox", { name: "Open in Reader" });
       await expect(page.getByText(/This request link expires .*Access you allow continues until you revoke it/)).toBeVisible();
-      expect(await page.locator(".collection-picker-list").evaluate(element => (element.getBoundingClientRect().height - 2) % 64)).toBe(0);
       for (const selected of [false, true]) {
         if (selected) {
           const longName = "Coastal restoration research archive with a very long selected collection name — field notebooks";
@@ -557,11 +557,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
           const option = document.getElementById(input.getAttribute("aria-activedescendant")!)!;
           const bounds = option.getBoundingClientRect();
           const footer = document.querySelector(".approval-footer")!.getBoundingClientRect();
-          const list = document.querySelector(".collection-picker-list")!.getBoundingClientRect();
-          return list.bottom <= footer.top && bounds.top >= list.top && bounds.bottom <= list.bottom
+          return bounds.top >= 0 && bounds.bottom <= footer.top
             && option.contains(document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2));
         })).toBe(true);
-        expect(await page.locator(".collection-picker-list").evaluate(element => element.scrollTop % 64)).toBe(0);
         expect(await page.getByRole("button", { name: "Cancel", exact: true }).evaluate(button => {
           const text = document.createRange();
           text.selectNodeContents(button);
@@ -675,7 +673,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await expect(page.locator('[data-command="computer:computer-0"]').getByRole("button", { name: "Actions for Studio MacBook", exact: true })).toBeFocused();
     await page.keyboard.press("c");
     await expect(page.getByRole("dialog", { name: "Add collection", exact: true })).toBeVisible();
-    await expect(page.getByRole("dialog").getByRole("button", { name: /^Hosted by mdbase/ })).toBeFocused();
+    await expect(page.getByRole("dialog").getByRole("button", { name: /^New collection/ })).toBeFocused();
     await page.keyboard.press("Escape");
   });
 
@@ -765,13 +763,13 @@ test("palette actions reuse row dialogs, including non-optimistic revoke and ses
     await palette.getByRole("combobox").fill(term);
     await palette.getByRole("option", { name, exact: true }).click();
   };
-  await run("rename shared", "Rename Shared research library Hosted by mdbase");
+  await run("rename shared", "Rename Shared research library Cloud copy");
   await expect(page.getByRole("dialog", { name: "Rename Shared research library", exact: true })).toBeVisible();
   const rename = page.getByRole("dialog").getByRole("textbox");
   await expect(rename).toBeFocused();
   expect(await rename.evaluate(element => (element as HTMLInputElement).selectionEnd! - (element as HTMLInputElement).selectionStart!)).toBe("Shared research library".length);
   await page.keyboard.press("Escape");
-  await run("delete shared", "Delete Shared research library Hosted by mdbase");
+  await run("delete shared", "Delete Shared research library Cloud copy");
   await expect(page.getByRole("dialog").getByRole("button", { name: "Delete permanently" })).toBeDisabled();
   await page.keyboard.press("Escape");
   let acknowledge!: () => void;
@@ -888,7 +886,7 @@ test("a first visit asks for sign-in without claiming the session expired", asyn
 
 test("an expired session says so and keeps the destination", async ({ page }) => {
   await openScenario(page, "account-sessions");
-  await page.route("**/v1/me", route => route.fulfill({ status: 401, json: { error: { code: "unauthenticated", message: "Sign in" } } }));
+  await page.route(url => url.pathname === "/v1/me", route => route.fulfill({ status: 401, json: { error: { code: "unauthenticated", message: "Sign in" } } }));
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect(page.getByRole("status").filter({ hasText: "Your session expired." })).toBeVisible();
   expect(new URL(new URL(page.url()).searchParams.get("return_to")!).pathname).toBe("/account");
@@ -976,7 +974,7 @@ test("collection filters appear at ten rows and explain no matches", async ({ pa
 
 test("hosted creation validates on blur without moving its action", async ({ page }, testInfo) => {
   await openScenario(page, "empty-account");
-  await page.getByRole("button", { name: /^Hosted by mdbase/ }).click();
+  await page.getByRole("button", { name: /^New collection/ }).click();
   const dialog = page.getByRole("dialog", { name: "Add collection" });
   const name = dialog.getByRole("textbox");
   const create = dialog.getByRole("button", { name: "Create", exact: true });

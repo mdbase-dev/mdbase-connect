@@ -234,7 +234,10 @@ fn derived_version_change_reuses_reindex_across_all_pages_then_stamps_and_skips_
 
 #[test]
 fn newer_or_malformed_derived_version_refuses_without_stamp_or_identity_write() {
-    for (suffix, marker) in [("newer", 2u64.to_be_bytes().to_vec()), ("bad", vec![1, 2])] {
+    for (suffix, marker) in [
+        ("newer", (DERIVED_DATA_VERSION + 1).to_be_bytes().to_vec()),
+        ("bad", vec![1, 2]),
+    ] {
         let path = scratch(&format!("schema-derived-{suffix}")).join("state.db");
         let idx = index(&path);
         let mut store = SqlStore::open(idx.clone()).unwrap();

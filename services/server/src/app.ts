@@ -9,21 +9,21 @@ import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
 import rawBody from "fastify-raw-body";
 import Fastify, { LogController } from "fastify";
-import { AuthenticationPolicyStore } from "./authentication-policy.js";
-import { ApplicationReconciliationWorker } from "./application-reconciliation.js";
+import { AuthenticationPolicyStore } from "./features/auth/authentication-policy.js";
+import { ApplicationReconciliationWorker } from "./features/applications/application-reconciliation.js";
 import type { DatabasePool } from "./db.js";
-import type { EmailTransport } from "./email.js";
-import { registerResendWebhookRoute } from "./email-provider-webhooks.js";
-import { renderScheduledEmail } from "./beta-welcome-email.js";
-import { ScheduledEmailWorker } from "./scheduled-email.js";
-import { UsageRetentionWorker } from "./usage-report.js";
-import type { GitHubAuthConfig } from "./github-auth.js";
-import type { GoogleAuthConfig } from "./google-auth.js";
-import { HostedAuthorityRegistry } from "./hosted.js";
-import { ProviderRevocationWorker } from "./hosted-capability-lifecycle.js";
-import { drainDeferredAccountDeletions } from "./account-management.js";
+import type { EmailTransport } from "./features/email/email.js";
+import { registerResendWebhookRoute } from "./features/email/email-provider-webhooks.js";
+import { renderScheduledEmail } from "./features/email/beta-welcome-email.js";
+import { ScheduledEmailWorker } from "./features/email/scheduled-email.js";
+import { UsageRetentionWorker } from "./features/usage/usage-report.js";
+import type { GitHubAuthConfig } from "./features/auth/github-auth.js";
+import type { GoogleAuthConfig } from "./features/auth/google-auth.js";
+import { HostedAuthorityRegistry } from "./features/hosted/hosted.js";
+import { ProviderRevocationWorker } from "./features/hosted/hosted-capability-lifecycle.js";
+import { drainDeferredAccountDeletions } from "./features/account/account-management.js";
 import { LogServiceClient } from "./features/next/log-service-client.js";
-import { ObjectGcWorker } from "./features/next/storage-usage.js";
+import { FileQuotaWorker, ObjectGcWorker } from "./features/next/storage-usage.js";
 import { PolicyEmitter } from "./features/next/policy-outbox.js";
 import { activatePendingServices } from "./features/next/service-activation.js";
 import { registerCloudCopyRoutes } from "./features/next/cloud-copy-bootstrap.js";
@@ -56,14 +56,14 @@ import { carryOverLegacyGrants } from "./features/next/legacy-grant-carry-over.j
 import { registerNextRolloutRoutes } from "./features/next/rollout-routes.js";
 import { registerNextRouteRoutes } from "./features/next/route-routes.js";
 import { registerClientKeyAttachRoute } from "./features/next/client-key-attach.js";
-import type { HostedProviderClient } from "./hosted-provider.js";
-import { NotificationService, type NotificationTransports } from "./notifications.js";
-import { RelayHub } from "./relay.js";
-import { LocalRelayBroker, type RelayBroker } from "./relay-broker.js";
+import type { HostedProviderClient } from "./features/hosted/hosted-provider.js";
+import { NotificationService, type NotificationTransports } from "./features/notifications/notifications.js";
+import { RelayHub } from "./features/relay/relay.js";
+import { LocalRelayBroker, type RelayBroker } from "./features/relay/relay-broker.js";
 import type {
   AuthenticationLegalDocuments,
   RegistrationMode
-} from "./runtime-config.js";
+} from "./platform/runtime-config.js";
 import { registerAccountOverviewRoute } from "./features/account/me-routes.js";
 import { registerAccountCollectionCreationRoutes } from "./features/account/collection-creation-routes.js";
 import { registerAccountManagementRoutes } from "./features/account/management-routes.js";
@@ -106,7 +106,7 @@ import { registerLifecycleDiagnosticRoute } from "./features/system/lifecycle-di
 import { registerErrorHandler } from "./platform/error-handler.js";
 import type { ClientUpdatePolicy } from "./features/next/cutover-problems.js";
 import { authorityUrl } from "./platform/authority-url.js";
-import { installationEnvironment } from "./local-deployment.js";
+import { installationEnvironment } from "./platform/local-deployment.js";
 import { apiError, RateLimitError } from "./platform/http-errors.js";
 import { sessionToken } from "./platform/session-cookies.js";
 import type { AccountBackend } from "./features/next/account-backend-flip.js";
@@ -141,7 +141,6 @@ interface BuildOptions {
   /** Validated by runtime configuration; loopback tests default to publicUrl. */
   identityIssuer?: string;
   portalDist?: string;
-  allowInsecureManifests?: boolean;
   trustProxy?: boolean;
   relayBroker?: RelayBroker;
   /** mdbase-next control plane; absent unless MDBASE_NEXT_CONTROL_PLANE=1. */
@@ -244,6 +243,21 @@ export async function buildApp(options: BuildOptions) {
         (error) => app.log.error({ err: error }, "object gc worker failed")
       )
     : undefined;
+  const fileQuotaMode = options.nextControlPlane?.fileQuota;
+  const fileQuota = fileQuotaMode
+    ? new FileQuotaWorker(
+        options.db,
+        new LogServiceClient(options.nextControlPlane!.logService),
+        fileQuotaMode,
+        (allocation) => {
+          // Uploads are refused once the files reach the plan.
+          if (allocation.headroomBytes === 0 && allocation.collections > 0) {
+            app.log.info({ ...allocation, mode: fileQuotaMode }, "account has no file storage left");
+          }
+        },
+        (error) => app.log.error({ err: error }, "file quota worker failed")
+      )
+    : undefined;
   if (options.hostedProvider && options.hostedReferenceAuthority) {
     throw new Error("Hosted provider and reference authority modes are mutually exclusive.");
   }
@@ -293,6 +307,11 @@ export async function buildApp(options: BuildOptions) {
         Date.now,
         serviceDeployments
           ? (collectionId) => activatePendingServices(options.db, serviceDeployments, undefined, collectionId, options.nextControlPlane!.logService.labPitr, options.nextControlPlane!.migrationRouting)
+          : undefined,
+        (sweep) => app.log.info(sweep, "mdbase-next policy verification sweep"),
+        fileQuotaMode === "enforce"
+          ? (collectionId) => void fileQuota!.allocateCollection(collectionId).catch((error: unknown) =>
+              app.log.error({ err: error, collectionId }, "file quota allocation failed"))
           : undefined
       )
     : undefined;
@@ -360,6 +379,7 @@ export async function buildApp(options: BuildOptions) {
     await scheduledEmails?.close();
     await usageRetention.close();
     await objectGc?.close();
+    await fileQuota?.close();
     await applicationReconciliation.close();
     await providerRevocations?.close();
     await authorityTransferRecovery?.close();
@@ -678,10 +698,7 @@ export async function buildApp(options: BuildOptions) {
     });
   }
   registerConnectorRelayRoute(app, { db: options.db, relay });
-  registerApplicationRoutes(app, {
-    db: options.db,
-    allowInsecureManifests: options.allowInsecureManifests
-  });
+  registerApplicationRoutes(app, { db: options.db });
   registerAccountOverviewRoute(app, {
     db: options.db,
     relay,
@@ -704,6 +721,7 @@ export async function buildApp(options: BuildOptions) {
     publicUrl,
     tailscaleAuth: options.tailscaleAuth,
     hostedCollections: options.hostedCollections,
+    nativeCollectionCreation: Boolean(options.nextControlPlane?.cloudCopyBootstrap),
     hostedProvider: options.hostedProvider,
     drainProviderRevocations: async () => {
       await providerRevocations?.drain();
@@ -738,6 +756,7 @@ export async function buildApp(options: BuildOptions) {
   scheduledEmails?.start();
   usageRetention.start();
   objectGc?.start();
+  fileQuota?.start();
 
   return { app, relay, timers };
 }

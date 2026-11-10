@@ -91,11 +91,22 @@ fn capture(row: &RecordRow, tag_steps_left: &mut u64) -> Option<Payload> {
 /// Invalidation is constant work and poisons the version until a full rebuild;
 /// ID coverage alone cannot certify retained rows after an unprojected write.
 pub(crate) fn invalidate() -> Vec<Stmt> {
-    vec![Stmt::new(
-        "UPDATE st_qraw_state SET ready=0,version=0 WHERE slot=0",
-        vec![],
-    )]
+    vec![
+        Stmt::new(
+            "UPDATE st_qraw_state SET ready=0,version=0 WHERE slot=0",
+            vec![],
+        ),
+        Stmt::new(UNSETTLE, vec![]),
+    ]
 }
+
+/// The `st_kv` key holding the generation whose last complete backfill pass
+/// left the projection settled (see `QueryProjectionState::settled`). Written
+/// only by a pass's final transaction while the version is current; any reset
+/// or invalidation removes it, so it never outlives the rows it describes.
+const SETTLED_KEY: &str = "qraw_settled";
+const UNSETTLE: &str = "DELETE FROM st_kv WHERE k='qraw_settled'";
+const SETTLE: &str = "INSERT OR REPLACE INTO st_kv(k,v) SELECT 'qraw_settled',generation FROM st_qraw_state WHERE slot=0 AND generation=? AND version=?";
 
 pub(crate) fn delete_row(id: &[u8], out: &mut Vec<Stmt>) {
     out.push(Stmt::new("DELETE FROM st_qraw WHERE id=?", vec![blob(id)]));
@@ -217,6 +228,7 @@ pub(crate) fn maintenance<I: IndexStorage>(
     let mut out = Vec::new();
     if reset {
         out.push(Stmt::new("DELETE FROM st_qraw", vec![]));
+        out.push(Stmt::new(UNSETTLE, vec![]));
         candidate::clear(&mut out);
         out.push(Stmt::new(
             "INSERT OR REPLACE INTO st_qraw_state(slot,generation,ready,version) VALUES(0,?,0,?)",
@@ -279,18 +291,39 @@ pub(crate) fn maintenance<I: IndexStorage>(
     }
     ids.extend(tx.records_del.iter().copied());
     if unavailable {
-        out.extend(invalidate());
+        // An unprojectable record (a document with a problem, over a size or
+        // tag budget) has no row, so coverage is incomplete: unready, and raw
+        // pages are not served. Its stale row is deleted above, so the version
+        // stays current; poisoning it would force a rebuild that can only reach
+        // this same state again.
+        out.push(Stmt::new(
+            "UPDATE st_qraw_state SET ready=0 WHERE slot=0",
+            vec![],
+        ));
     } else if update.publish_at.is_some() {
         if already_ready {
             for id in &ids {
                 out.push(Stmt::new(TOUCHED, vec![blob(&id.0), blob(&id.0)]));
             }
-        } else {
+        } else if reset || !ids.is_empty() || update.completes_backfill {
+            // Coverage compares the record and raw ID sets. Only a backfill
+            // pass changes them without checking (its pages do not publish),
+            // and its final transaction always checks, even when it carries
+            // no rows (a trailing empty page). Any other commit that neither
+            // resets nor touches a record cannot change them: skipping it keeps
+            // an unready (for example settled) projection from scanning the
+            // whole collection on every unrelated commit.
             out.push(Stmt::new(
                 COVERAGE,
                 vec![blob(&update.generation), SqlValue::Integer(VERSION)],
             ));
         }
+    }
+    if update.completes_backfill && update.publish_at.is_some() {
+        out.push(Stmt::new(
+            SETTLE,
+            vec![blob(&update.generation), SqlValue::Integer(VERSION)],
+        ));
     }
     Ok(out)
 }

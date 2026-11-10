@@ -77,8 +77,9 @@ export async function collectionDeletionCases({ base, token, transport, encode, 
   fail(await call('delete_log', request(), true), 'forbidden', 'principal');
   fail(await call('log_terminal_status', map([[0, c]]), true), 'forbidden', 'principal');
   await assertStatus(1);
-  // Fault the actual backend-owned producer response at DoTxn::commit, after
-  // quota metadata has been buffered. Every unknown must retain ALL SQL state.
+  // Fault the actual backend-owned floor read a writer makes before its lock
+  // (the seam fences the actor's cache first). An unknown answer refuses at
+  // DoTxn::commit, after quota metadata has been buffered, retaining ALL SQL state.
   const actorHex = c.toString('hex');
   const actor = `${actorHex.slice(0,8)}-${actorHex.slice(8,12)}-${actorHex.slice(12,16)}-${actorHex.slice(16,20)}-${actorHex.slice(20)}`;
   const inspect = async () => {
@@ -115,26 +116,34 @@ export async function collectionDeletionCases({ base, token, transport, encode, 
   console.log(`PASS: ${malformed.length} actual DoTxn nil producer unknown/malformed/non-BYOB/cap refusals preserve SQL/meta/quota`);
   // Find the exact work boundary without assuming authentication/projection sizes.
   // Only resource-restricting carry is varied; every call still uses genuine CP
-  // authentication and the actual nil authority. At most 27 bounded local probes.
+  // authentication and the actual nil authority. At most 27 bounded local probes
+  // per boundary: one with the actor's floor cache fenced (a real nil read), one
+  // warm (no nil read). The read's decode is charged to the shared budget.
   const maxWork = 64 * 1024 * 1024;
-  const probe = (remaining) => call('set_quota', quota, false, {
-    fault: 'actual', carryWork: maxWork - remaining, inspectResponse: true,
+  const probe = (remaining, fence) => call('set_quota', quota, false, {
+    fault: 'actual', carryWork: maxWork - remaining, inspectResponse: true, fence,
   });
-  let low = 1, high = maxWork;
-  for (let step = 0; step < 27 && low < high; step++) {
-    const middle = Math.floor((low + high) / 2);
-    const observed = await probe(middle);
-    if (observed.frame?.has(2)) high = middle; else low = middle + 1;
-    assert.deepEqual(await inspect(), beforeFaults, 'budget probe retains exact quota/meta');
+  async function boundary(fence) {
+    let low = 1, high = maxWork;
+    for (let step = 0; step < 27 && low < high; step++) {
+      const middle = Math.floor((low + high) / 2);
+      const observed = await probe(middle, fence);
+      if (observed.frame?.has(2)) high = middle; else low = middle + 1;
+      assert.deepEqual(await inspect(), beforeFaults, 'budget probe retains exact quota/meta');
+    }
+    assert.equal(low, high);
+    assert.ok(high > 1);
+    return high;
   }
-  assert.equal(low, high);
-  assert.ok(high > 1);
-  const exhausted = await probe(high - 1);
+  const cold = await boundary(true);
+  const warm = await boundary(false);
+  assert.ok(cold > warm, `the nil read's decode is charged to the shared budget (${cold} > ${warm})`);
+  const exhausted = await probe(cold - 1, true);
   assert.equal(exhausted.status, 200);
-  assert.equal(exhausted.calls, 1, 'shared refusal occurs at the real DoTxn floor reply');
-  fail(exhausted.frame, 'unavailable', 'collection_deletion_floor_unavailable');
+  assert.equal(exhausted.calls, 1, 'one real nil read, before the writer lock');
+  assert.ok(!exhausted.frame.has(2), 'one unit short of the boundary refuses');
   assert.deepEqual(await inspect(), beforeFaults, 'no quota/meta publication after floor budget refusal');
-  console.log('PASS: actual DoTxn floor decoder preserves forwarded shared work budget before SQL publication');
+  console.log('PASS: actual floor read decoder charges the forwarded shared work budget; no SQL publication on refusal');
   // An idle subscriber must learn about the floor without sending another call.
   const hex = c.toString('hex');
   const collection = `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;

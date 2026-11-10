@@ -126,6 +126,10 @@ fn create(n: u32, path: &str, doc: String) -> Op {
 }
 
 fn submit(node: &mut Node, ops: Vec<Op>) {
+    submit_at(node, ops, None);
+}
+
+fn submit_at(node: &mut Node, ops: Vec<Op>, validation: Option<mdbn_wire::intent::Level>) {
     let receipts = node
         .r
         .submit(
@@ -140,6 +144,7 @@ fn submit(node: &mut Node, ops: Vec<Op>) {
                 dry_run: None,
                 include: None,
                 wait: None,
+                validation,
             },
         )
         .expect("submit");
@@ -214,6 +219,7 @@ fn open_backfills_an_unready_index() {
                 replace_specs: Some(Vec::new()),
                 rows: Vec::new(),
                 publish_at: None,
+                completes_backfill: false,
             }),
             ..Tx::default()
         })
@@ -225,4 +231,134 @@ fn open_backfills_an_unready_index() {
     assert_eq!(state.generation, ready.generation);
     assert_eq!(state.fields, ready.fields);
     assert_eq!(state.head, head);
+}
+
+/// Rows the SQLite connection has changed since it opened: a full backfill
+/// rewrites every record's field and raw rows, a skipped one writes none.
+fn total_changes(index: &Rc<RefCell<SqliteIndex>>) -> i64 {
+    use mdbn_store_file::index::{Batch, BatchMode, IndexStorage, SqlValue, Stmt};
+    let results = index
+        .borrow_mut()
+        .run(&Batch {
+            mode: BatchMode::Autocommit,
+            stmts: vec![Stmt::new("SELECT total_changes()", vec![])],
+        })
+        .unwrap();
+    match results[0].values.as_slice() {
+        [SqlValue::Integer(n)] => *n,
+        other => panic!("total_changes: {other:?}"),
+    }
+}
+
+/// A record the raw projection cannot hold (over its source bound, or a
+/// document with a frontmatter problem from disk) has no raw row, so the raw
+/// projection can never be ready. One complete backfill pass settles it, and
+/// later opens skip the rebuild instead of redoing the whole collection on
+/// every open. It is still unready (raw pages are never served), and any
+/// reset clears the settled marker.
+#[test]
+fn an_unprojectable_record_settles_the_raw_projection_instead_of_rebuilding_on_every_open() {
+    use mdbn_replica::store::{Store as _, Tx};
+    use mdbn_replica::store_query::QueryIndexTx;
+    const TASKS: u32 = 150;
+    let svc = FakeLogService::new();
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("query_index_settled");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let index = Rc::new(RefCell::new(
+        SqliteIndex::open(dir.join("index.sqlite"), IndexDurability::Durable).unwrap(),
+    ));
+    let mut node = open(&svc, SqlStore::open(index.clone()).unwrap());
+    seed(&mut node, TASKS);
+    let bad = TASKS + 1;
+    // A file edited on disk with broken frontmatter: recorded, not refused.
+    submit_at(
+        &mut node,
+        vec![Op::Document(mdbn_wire::intent::Document {
+            id: id(bad),
+            base: None,
+            new: Some(mdbn_wire::intent::DocVersion {
+                path: "notes/bad.md".into(),
+                doc: Text::Inline("---\na: [\n---\nbody\n".into()),
+            }),
+            if_revision: None,
+        })],
+        Some(mdbn_wire::intent::Level::Off),
+    );
+    node.pump();
+    let store = node.r.into_store();
+    let raw = store.query_projection_state().unwrap().expect("raw");
+    assert!(!raw.ready && !raw.settled, "unready, no complete pass yet");
+
+    // The first open runs one complete pass, which settles the projection.
+    let before = total_changes(&index);
+    let node = open(&svc, store);
+    let rebuilt = total_changes(&index) - before;
+    assert!(rebuilt > i64::from(TASKS), "full pass: {rebuilt} rows");
+    let store = node.r.into_store();
+    let fields = store.query_index_state().unwrap().unwrap();
+    assert!(fields.ready);
+    let raw = store.query_projection_state().unwrap().unwrap();
+    assert!(!raw.ready, "never served while a record has no row");
+    assert!(raw.settled);
+
+    // Later opens do not rebuild.
+    let before = total_changes(&index);
+    let node = open(&svc, store);
+    let skipped = total_changes(&index) - before;
+    assert!(
+        skipped < i64::from(TASKS) / 10,
+        "settled open rewrote {skipped} rows"
+    );
+    let state = node.r.store().query_index_state().unwrap().unwrap();
+    assert_eq!(state, fields, "field index untouched and still ready");
+    let mut store = node.r.into_store();
+    let after = store.query_projection_state().unwrap().unwrap();
+    assert_eq!(after, raw, "still settled and still never served");
+
+    // A reset (a new generation) clears the marker with the rows it described.
+    store
+        .commit(Tx {
+            query_index: Some(QueryIndexTx {
+                generation: [9; 32],
+                replace_specs: Some(Vec::new()),
+                rows: Vec::new(),
+                publish_at: None,
+                completes_backfill: false,
+            }),
+            ..Tx::default()
+        })
+        .unwrap();
+    let raw = store.query_projection_state().unwrap().unwrap();
+    assert!(!raw.ready && !raw.settled);
+}
+
+/// A collection whose size is an exact multiple of the backfill page ends the
+/// pass on an empty page: that final, row-less transaction must still certify
+/// raw coverage, or the projection stays unready and rebuilds on every open.
+#[test]
+fn a_backfill_ending_on_an_empty_page_still_certifies_raw_coverage() {
+    use mdbn_replica::store::{Store as _, Tx};
+    use mdbn_replica::store_query::QueryIndexTx;
+    let svc = FakeLogService::new();
+    let mut node = open(&svc, store("query_index_backfill_exact_pages"));
+    seed(&mut node, 32);
+    let mut store = node.r.into_store();
+    store
+        .commit(Tx {
+            query_index: Some(QueryIndexTx {
+                generation: [9; 32],
+                replace_specs: Some(Vec::new()),
+                rows: Vec::new(),
+                publish_at: None,
+                completes_backfill: false,
+            }),
+            ..Tx::default()
+        })
+        .unwrap();
+    let node = open(&svc, store);
+    let store = node.r.store();
+    assert!(store.query_index_state().unwrap().unwrap().ready);
+    let raw = store.query_projection_state().unwrap().unwrap();
+    assert!(raw.ready, "raw coverage certified: {raw:?}");
 }

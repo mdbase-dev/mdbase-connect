@@ -1,4 +1,0 @@
-{
-  "reason": "The Portal command registry reuses the existing localized countLabel for app and computer sublabels instead of duplicating plural messages. One relative import; no new production file, package, dependency or protocol surface.",
-  "growth": { "relativeImports": 1 }
-}

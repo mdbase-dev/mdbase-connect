@@ -248,10 +248,12 @@ struct Mock {
     describe_empty: bool,
     query_calls: Vec<(Value, Include)>,
     resource_calls: Vec<ListResources>,
+    backlinks_calls: Vec<Backlinks>,
+    resolve_links_calls: Vec<ResolveLinks>,
     file_pending: bool,
     file_error: Option<ErrorCode>,
     validation_rows: Option<Vec<RecordValidation>>,
-    validation_calls: Vec<Option<Vec<Target>>>,
+    validation_calls: Vec<Validate>,
 }
 
 fn nyi<T>() -> ApiResult<T> {
@@ -416,6 +418,18 @@ impl ClientApi for Mock {
             Target::Path(_) => Err(ErrorCode::NotFound.err("no such record")),
         }
     }
+    fn backlinks(&mut self, _: SessionId, request: Backlinks) -> ApiResult<BacklinksResult> {
+        self.backlinks_calls.push(request);
+        nyi()
+    }
+    fn resolve_links(
+        &mut self,
+        _: SessionId,
+        request: ResolveLinks,
+    ) -> ApiResult<ResolveLinksResult> {
+        self.resolve_links_calls.push(request);
+        nyi()
+    }
     fn query(&mut self, _: SessionId, query: Value, include: Include) -> ApiResult<QueryResult> {
         self.query_calls.push((query, include));
         nyi()
@@ -449,12 +463,8 @@ impl ClientApi for Mock {
     ) -> ApiResult<ChangesResult> {
         nyi()
     }
-    fn validate(
-        &mut self,
-        _: SessionId,
-        targets: Option<Vec<Target>>,
-    ) -> ApiResult<Vec<RecordValidation>> {
-        self.validation_calls.push(targets);
+    fn validate(&mut self, _: SessionId, scope: Validate) -> ApiResult<Vec<RecordValidation>> {
+        self.validation_calls.push(scope);
         self.validation_rows
             .take()
             .ok_or_else(|| ErrorCode::Unavailable.err_with_reason("not_implemented", "mock"))
@@ -707,7 +717,7 @@ fn validation_frame_preserves_actual_witness_and_core_diagnostic_fields() {
     let frames = frames_out(&mut f);
     assert_eq!(
         api.validation_calls,
-        vec![Some(vec![
+        vec![Validate::Targets(vec![
             Target::Id(uuid(2)),
             Target::Path("tasks/a.md".into())
         ])]
@@ -741,6 +751,9 @@ fn validation_frame_refuses_malformed_and_overbound_targets_before_api_dispatch(
         smap(vec![(0, Cbor::Array(vec![uuid(2).to_cbor(); 1001]))]),
         smap(vec![(0, Cbor::Bool(true))]),
         smap(vec![(1, Cbor::Array(vec![]))]),
+        smap(vec![(2, Cbor::Null)]),
+        smap(vec![(1, smap(vec![(1, Cbor::Null)]))]),
+        smap(vec![(0, Cbor::Array(vec![])), (1, Cbor::Map(vec![]))]),
     ] {
         let (mut api, mut f, s) = open();
         f.on_frame(&mut api, s, &request(1, "validate", params));
@@ -752,11 +765,27 @@ fn validation_frame_refuses_malformed_and_overbound_targets_before_api_dispatch(
         let (mut api, mut f, s) = open();
         api.validation_rows = Some(vec![]);
         f.on_frame(&mut api, s, &request(1, "validate", params));
-        assert_eq!(api.validation_calls, vec![None]);
+        assert_eq!(api.validation_calls, vec![Validate::All]);
         assert_eq!(
             response(&frames_out(&mut f)[0]).result,
             Some(Cbor::Array(vec![]))
         );
+    }
+    for (params, after) in [
+        (smap(vec![(1, Cbor::Map(vec![]))]), None),
+        (
+            smap(vec![
+                (0, Cbor::Null),
+                (1, smap(vec![(0, uuid(2).to_cbor())])),
+            ]),
+            Some(uuid(2)),
+        ),
+    ] {
+        let (mut api, mut f, s) = open();
+        api.validation_rows = Some(vec![]);
+        f.on_frame(&mut api, s, &request(1, "validate", params));
+        assert_eq!(api.validation_calls, vec![Validate::Page { after }]);
+        assert!(response(&frames_out(&mut f)[0]).problem.is_none());
     }
 }
 
@@ -1168,6 +1197,7 @@ fn submit_params(m: Uuid, wait: Option<WaitFor>) -> Cbor {
         dry_run: None,
         include: None,
         wait,
+        validation: None,
     }
     .to_cbor()
 }
@@ -1857,4 +1887,134 @@ fn map_contract_write_decodes_the_selection_and_encodes_the_plan() {
         panic!()
     };
     assert!(promoted.contains(&(Cbor::Uint(1), Cbor::Text("acme.task@1.0.0+promote".into()))));
+}
+
+#[test]
+fn backlinks_frame_decodes_selection_and_refuses_bad_params_before_dispatch() {
+    let (mut api, mut f, s) = open();
+    let body = Include {
+        effective: None,
+        body: Some(true),
+        document: None,
+        diagnostics: None,
+    };
+    f.on_frame(
+        &mut api,
+        s,
+        &request(
+            1,
+            "backlinks",
+            smap(vec![
+                (0, Cbor::Text("notes/Target.md".into())),
+                (1, body.to_cbor()),
+                (2, Cbor::Uint(50)),
+                (3, Cbor::Text("b1.00000000000000000000000000000000".into())),
+            ]),
+        ),
+    );
+    frames_out(&mut f);
+    assert_eq!(
+        api.backlinks_calls,
+        vec![Backlinks {
+            target: Target::Path("notes/Target.md".into()),
+            include: body,
+            limit: Some(50),
+            cursor: Some("b1.00000000000000000000000000000000".into()),
+        }]
+    );
+    for (params, code, reason) in [
+        (
+            smap(vec![(0, Cbor::Text("a.md".into())), (4, Cbor::Uint(1))]),
+            "invalid_request",
+            Some("unknown_param"),
+        ),
+        (
+            smap(vec![(0, Cbor::Text("a.md".into())), (2, Cbor::Uint(0))]),
+            "invalid_request",
+            None,
+        ),
+        (
+            smap(vec![(0, Cbor::Text("a.md".into())), (2, Cbor::Uint(1001))]),
+            "too_large",
+            Some("backlinks_budget_exceeded"),
+        ),
+        (
+            smap(vec![(0, Cbor::Text("a.md".into())), (3, Cbor::Uint(1))]),
+            "invalid_request",
+            Some("invalid_backlinks_cursor"),
+        ),
+        (smap(vec![]), "invalid_request", None),
+    ] {
+        f.on_frame(&mut api, s, &request(2, "backlinks", params));
+        let out = frames_out(&mut f);
+        let problem = response(&out[0]).problem.as_ref().unwrap();
+        assert_eq!(problem.code, code);
+        assert_eq!(problem.reason.as_deref(), reason);
+    }
+    assert_eq!(api.backlinks_calls.len(), 1);
+}
+
+#[test]
+fn resolve_links_frame_decodes_links_and_refuses_bad_params_before_dispatch() {
+    let (mut api, mut f, s) = open();
+    let links = |raws: &[&str]| Cbor::Array(raws.iter().map(|r| Cbor::Text((*r).into())).collect());
+    f.on_frame(
+        &mut api,
+        s,
+        &request(
+            1,
+            "resolve_links",
+            smap(vec![
+                (0, Cbor::Text("notes/draft.md".into())),
+                (1, links(&["[[Target]]", "![a](../b.png)"])),
+            ]),
+        ),
+    );
+    frames_out(&mut f);
+    assert_eq!(
+        api.resolve_links_calls,
+        vec![ResolveLinks {
+            from: "notes/draft.md".into(),
+            links: vec!["[[Target]]".into(), "![a](../b.png)".into()],
+        }]
+    );
+    let from = || (0, Cbor::Text("a.md".into()));
+    let many = Cbor::Array(vec![Cbor::Text("[[x]]".into()); 513]);
+    let long = links(&[&"x".repeat(4097)]);
+    for (params, code, reason) in [
+        (
+            smap(vec![from(), (1, links(&["[[x]]"])), (2, Cbor::Uint(1))]),
+            "invalid_request",
+            Some("unknown_param"),
+        ),
+        (smap(vec![from(), (1, links(&[]))]), "invalid_request", None),
+        (
+            smap(vec![from(), (1, Cbor::Array(vec![Cbor::Uint(1)]))]),
+            "invalid_request",
+            None,
+        ),
+        (smap(vec![from()]), "invalid_request", None),
+        (
+            smap(vec![(0, Cbor::Uint(1)), (1, links(&["[[x]]"]))]),
+            "invalid_request",
+            None,
+        ),
+        (
+            smap(vec![from(), (1, many)]),
+            "too_large",
+            Some("resolve_links_budget_exceeded"),
+        ),
+        (
+            smap(vec![from(), (1, long)]),
+            "too_large",
+            Some("resolve_links_budget_exceeded"),
+        ),
+    ] {
+        f.on_frame(&mut api, s, &request(2, "resolve_links", params));
+        let out = frames_out(&mut f);
+        let problem = response(&out[0]).problem.as_ref().unwrap();
+        assert_eq!(problem.code, code);
+        assert_eq!(problem.reason.as_deref(), reason);
+    }
+    assert_eq!(api.resolve_links_calls.len(), 1);
 }

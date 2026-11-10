@@ -225,7 +225,7 @@ describe("mdbase editor", () => {
     expect(await screen.findByText(/Uploaded “cover\.png”/)).toBeInTheDocument();
     const files = await gateway.listFiles();
     expect(files.some((file) => file.path === "Notes/Attachments/cover.png" && file.mediaType === "image/png")).toBe(true);
-    expect(await screen.findByRole("option", { name: "cover.png, PNG file" })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /^cover\.png/ })).toBeInTheDocument();
   });
 
   it("does not reload the collection index after saving one note", async () => {
@@ -455,7 +455,7 @@ describe("mdbase editor", () => {
     await user.click(screen.getByText("The shape of useful tools", { selector: ".note-title" }));
     const backlinks = screen.getByRole("region", { name: "Linked from" });
     const linkedNotes = within(backlinks.querySelector<HTMLElement>(".backlink-list")!);
-    expect(linkedNotes.getAllByRole("button")).toHaveLength(1);
+    await waitFor(() => expect(linkedNotes.getAllByRole("button")).toHaveLength(1));
     await user.click(linkedNotes.getByRole("button", { name: /Garden notes 2/ }));
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
     expect(screen.getByRole("region", { name: "Linked from" })).toBeInTheDocument();
@@ -611,19 +611,28 @@ describe("mdbase editor", () => {
     expect(screen.getByText("1 found · relevance")).toBeInTheDocument();
   });
 
-  it("hydrates backlinks on demand and keeps a failed lookup actionable", async () => {
+  it("lists backlinks without loading note text and keeps failed lookups actionable", async () => {
     const gateway = new RetryingContentGateway();
     const user = userEvent.setup();
     render(<App gateway={gateway} />);
     await screen.findByText("3 notes · 2 files");
     await screen.findByRole("textbox", { name: "Note body" });
+    const region = screen.getByRole("region", { name: "Linked from" });
+    const linked = () => within(region.querySelector<HTMLElement>(".backlink-list")!).queryAllByRole("button");
+    await user.click(await within(region).findByRole("button", { name: "Retry backlinks" }));
+    expect(region).not.toHaveTextContent("The backlinks lookup failed.");
+    await waitFor(() => expect(linked()).toHaveLength(1));
+    expect(gateway.backlinksCalls).toBe(2);
     expect(gateway.hydrateCalls).toBe(0);
-    await user.click(screen.getByRole("button", { name: "Find linked notes" }));
-    const retry = await screen.findByRole("button", { name: "Retry backlinks" });
-    expect(screen.getByRole("region", { name: "Linked from" })).toHaveTextContent("The full-text index could not be read.");
+
+    // Unlinked mentions still read note text, on demand.
+    await user.click(within(region).getByText(/Unlinked mentions/));
+    const retry = await within(region).findByRole("button", { name: "Retry" });
+    expect(region).toHaveTextContent("The full-text index could not be read.");
     await user.click(retry);
-    await waitFor(() => expect(within(screen.getByRole("region", { name: "Linked from" })).getAllByRole("button")).toHaveLength(1));
+    await waitFor(() => expect(region).not.toHaveTextContent("The full-text index could not be read."));
     expect(gateway.hydrateCalls).toBe(2);
+    expect(linked()).toHaveLength(1);
   });
 
   it("keeps a failed full-text search actionable and retries it", async () => {
@@ -1363,6 +1372,11 @@ class DirectAccessGateway extends DemoCollectionGateway {
   checkCalls = 0;
   requestCalls = 0;
 
+  constructor() {
+    // The permission flow needs no large collection; 240 default notes timed out on macOS Intel.
+    super(12);
+  }
+
   protected override currentConnection(): ConnectionSummary | null {
     const connection = super.currentConnection();
     return connection ? {
@@ -1439,6 +1453,13 @@ class DemandContentGateway extends DemoCollectionGateway {
 class RetryingContentGateway extends DemoCollectionGateway {
   private fullNotes: NoteSummary[] = [];
   hydrateCalls = 0;
+  backlinksCalls = 0;
+
+  override async backlinks(path: string): Promise<string[]> {
+    this.backlinksCalls += 1;
+    if (this.backlinksCalls === 1) throw new Error("The backlinks lookup failed.");
+    return super.backlinks(path);
+  }
 
   constructor() {
     super(3);

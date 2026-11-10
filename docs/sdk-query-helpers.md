@@ -230,7 +230,5 @@ Three small modules replace repeated concepts at real boundaries: a shared
 cursor lease/size implementation for query and view iterators, one independent
 path-batch scheduler, and escaped authority predicate construction. The old
 adaptive continuation retry and duplicated paging-size utilities are deleted.
-The architecture inventory accounts for three production modules, eight imports
-and thirteen TypeScript declarations; the 1,000-line production ceiling and
-public API entry-point boundaries remain unchanged. No protocol operations,
+Public API entry-point boundaries remain unchanged. No protocol operations,
 capabilities, persisted state, cached payloads or local resolver are added.

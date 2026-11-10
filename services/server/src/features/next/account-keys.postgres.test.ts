@@ -1,5 +1,5 @@
 import { createHash, generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
-import { ensureDevelopmentEntitlement } from "../../entitlements.js";
+import { ensureDevelopmentEntitlement } from "../account/entitlements.js";
 import cookie from "@fastify/cookie";
 import Fastify from "fastify";
 import pg from "pg";

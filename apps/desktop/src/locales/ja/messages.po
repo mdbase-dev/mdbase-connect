@@ -25,15 +25,18 @@ msgstr " 古いフォルダー {0} は元の状態で残ります。"
 msgid ", and the files already in it become the first synced version"
 msgstr "、すでにあるファイルが最初の同期バージョンになります"
 
+#. placeholder {0}: pendingApps.length
+#: src/renderer/home-view.tsx
+msgid "{0, plural, one {# app is waiting for your approval.} other {# apps are waiting for your approval.}}"
+msgstr "{0, plural, other {# 件のアプリが承認を待っています。}}"
+
 #. placeholder {0}: collection.sync.pending
 #: src/renderer/daemon-view.mts
 msgid "{0, plural, one {# change to sync} other {# changes to sync}}"
 msgstr "{0, plural, other {同期する変更 # 件}}"
 
 #. placeholder {0}: app.grants.length
-#. placeholder {0}: collections.length
 #: src/renderer/access-view.tsx
-#: src/renderer/main.tsx
 msgid "{0, plural, one {# collection} other {# collections}}"
 msgstr "{0, plural, other {# 件のコレクション}}"
 
@@ -70,12 +73,12 @@ msgstr "{0} はこのコンピューター経由で {1} を利用できなくな
 msgid "{0} can now use {where}."
 msgstr "{0} は {where} を利用できるようになりました。"
 
-#. placeholder {0}: lastSyncTarget.name
+#. placeholder {0}: syncCollection.name
 #: src/renderer/collections-view.tsx
 msgid "{0} now syncs privately."
 msgstr "{0} のプライベート同期を開始しました。"
 
-#. placeholder {0}: lastSyncTarget.name
+#. placeholder {0}: syncCollection.name
 #: src/renderer/collections-view.tsx
 msgid "{0} now syncs."
 msgstr "{0} の同期を開始しました。"
@@ -136,10 +139,6 @@ msgstr "{app} は {collection} を利用できるようになりました"
 #: src/renderer/daemon-view.mts
 msgid "{app} lost access to {collection} in your account"
 msgstr "{app} はアカウント内の {collection} へのアクセスを失いました"
-
-#: src/renderer/main.tsx
-msgid "{attention, plural, one {# item needs you} other {# items need you}}"
-msgstr "{attention, plural, other {# 件の項目に対応が必要です}}"
 
 #: src/renderer/daemon-view.mts
 msgid "{collection} moved here from mdbase Connect (its files were not touched)"
@@ -206,10 +205,6 @@ msgstr "{safe} mdbase がサーバーに接続してアカウントのアップ�
 msgid "{safe} They will move automatically when your account is upgraded, shortly."
 msgstr "{safe} アカウントがまもなくアップグレードされると、自動的に移行します。"
 
-#: src/renderer/main.tsx
-msgid "{synced} synced"
-msgstr "{synced} 件を同期済み"
-
 #: src/renderer/takeover-state.mts
 msgid "{waiting, plural, one {“{name}” syncs again{location}. # edit made in “{name}” before the move is added once it has caught up.{after}{oldFolder}} other {“{name}” syncs again{location}. # edits made in “{name}” before the move are added once it has caught up.{after}{oldFolder}}}"
 msgstr "{waiting, plural, other {「{name}」の同期を再開しました{location}。移動前に「{name}」で行った編集 # 件は、同期が追いつくと追加されます。{after}{oldFolder}}}"
@@ -239,6 +234,10 @@ msgid "<0/>Allow hosted mirrors to stop until I join them again"
 msgstr "<0/>再度参加するまでホスト型ミラーを停止することを許可"
 
 #: src/renderer/collections-view.tsx
+msgid "<0/>Encrypt end to end so mdbase cannot read it"
+msgstr "<0/>エンドツーエンドで暗号化し、mdbase が読めないようにする"
+
+#: src/renderer/collections-view.tsx
 msgid "<0/>I have checked these files"
 msgstr "<0/>これらのファイルを確認しました"
 
@@ -259,6 +258,11 @@ msgstr "その場所には「{0}」というフォルダーがすでにありま
 #: src/renderer/device-requests.tsx
 msgid "a Private collection"
 msgstr "プライベートコレクション"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Access: {access}"
+msgstr "アクセス: {access}"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
@@ -293,21 +297,32 @@ msgstr "Markdown ノートのフォルダーを追加するか、新しいコレ
 msgid "Add existing"
 msgstr "既存のものを追加"
 
+#: src/renderer/home-view.tsx
 #: src/renderer/main.tsx
 msgid "Add existing folder"
 msgstr "既存のフォルダーを追加"
 
-#: src/renderer/main.tsx
+#: src/renderer/home-view.tsx
 msgid "Add your first collection"
 msgstr "最初のコレクションを追加"
 
-#: src/renderer/main.tsx
-msgid "All on this computer only"
-msgstr "すべてこのコンピューター上のみ"
+#: src/renderer/collections-view.tsx
+msgid "Advanced"
+msgstr "詳細設定"
 
 #: src/renderer/device-requests.tsx
 msgid "Allow"
 msgstr "許可"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Allow"
+msgstr "許可"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Allow {app} to use {collection} through this computer?"
+msgstr "{app} がこのコンピューターを通じて {collection} を使用することを許可しますか？"
 
 #: src/renderer/device-requests.tsx
 msgid "Allow only a computer you are setting up yourself."
@@ -321,6 +336,10 @@ msgstr "{who}を許可しています…"
 msgctxt "Local connection status"
 msgid "An app"
 msgstr "アプリ"
+
+#: src/renderer/home-view.tsx
+msgid "An app asks for access to a collection the first time you use it, and you choose what it can do."
+msgstr "アプリは初めて使うときにコレクションへのアクセスを求めます。何を許可するかはあなたが選べます。"
 
 #: src/renderer/daemon-view.mts
 msgid "Another app, such as Obsidian, is using this folder right now. mdbase opens it when that app lets go."
@@ -351,6 +370,11 @@ msgstr "アプリの承認"
 msgid "App key"
 msgstr "アプリのキー"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "App key: {key}"
+msgstr "アプリのキー: {key}"
+
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Appearance"
@@ -359,6 +383,11 @@ msgstr "外観"
 #: src/renderer/main.tsx
 msgid "Application"
 msgstr "アプリケーション"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Approve app access"
+msgstr "アプリのアクセスを承認"
 
 #: src/renderer/sign-in-panel.tsx
 msgid "Approve this computer in your browser. This window updates automatically."
@@ -383,9 +412,17 @@ msgstr "再開するまで、アプリは利用できません。"
 msgid "Apps keep working while the change finishes."
 msgstr "変更が完了する間もアプリは動作し続けます。"
 
+#: src/renderer/home-view.tsx
+msgid "Apps open in a window of their own in your default browser."
+msgstr "アプリは既定のブラウザーの専用ウィンドウで開きます。"
+
 #: src/renderer/access-view.tsx
 msgid "Apps that can use your collections through this computer."
 msgstr "このコンピューターを経由してコレクションを利用できるアプリです。"
+
+#: src/renderer/home-view.tsx
+msgid "Apps you approve appear here."
+msgstr "承認したアプリがここに表示されます。"
 
 #: src/renderer/access-view.tsx
 msgid "Apps you approve in mdbase appear here before they can connect."
@@ -395,13 +432,13 @@ msgstr "mdbase で承認したアプリは、接続可能になる前にここ�
 msgid "Apps you approve in mdbase reach your local collections through this computer."
 msgstr "mdbase で承認したアプリは、このコンピューターを経由してローカルコレクションにアクセスします。"
 
-#: src/renderer/main.tsx
-msgid "Apps you approve reach your collections through this computer"
-msgstr "承認したアプリは、このコンピューターを経由してコレクションにアクセスします"
-
 #: src/renderer/access-view.tsx
 msgid "Apps you used with mdbase Connect appear here once Private sync is on for the {movedWaiting, plural, one {collection} other {collections}} that moved to this computer. mdbase turns it on by itself; you don't need to approve those apps again."
 msgstr "このコンピューターに移動した {movedWaiting, plural, other {コレクション}} でプライベート同期が有効になると、mdbase Connect で使っていたアプリがここに表示されます。mdbase が自動で有効にするため、再承認は不要です。"
+
+#: src/renderer/collections-view.tsx
+msgid "Archive/Recordings"
+msgstr "アーカイブ/録音"
 
 #: src/renderer/main.tsx
 msgid "Ask before new apps connect"
@@ -412,9 +449,18 @@ msgstr "新しいアプリの接続前に確認"
 msgid "Asked {0}"
 msgstr "要求日時 {0}"
 
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Audio"
+msgstr "オーディオ"
+
 #: src/renderer/main.tsx
 msgid "Available in installed builds"
 msgstr "インストール済みビルドで利用可能"
+
+#: src/renderer/collections-view.tsx
+msgid "Back to collection"
+msgstr "コレクションに戻る"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
@@ -474,6 +520,11 @@ msgstr "更新を確認"
 msgid "Check that {0} shows the same key."
 msgstr "{0} に同じキーが表示されていることを確認してください。"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Check that the app's access request in your browser shows the same key."
+msgstr "ブラウザーに表示されているアプリのアクセス要求に同じキーが表示されていることを確認してください。"
+
 #: src/renderer/takeover-state.mts
 msgid "Check that the disk is not full, then try again. Nothing was changed."
 msgstr "ディスクの空き容量を確認してから再試行してください。何も変更されていません。"
@@ -514,7 +565,7 @@ msgctxt "Desktop application"
 msgid "Choose a collection folder"
 msgstr "コレクションのフォルダーを選択"
 
-#: src/renderer/main.tsx
+#: src/renderer/home-view.tsx
 msgid "Choose a folder of Markdown notes, or create a new one. It stays on this computer; your apps reach it through mdbase."
 msgstr "Markdown ノートのフォルダーを選ぶか、新しく作成してください。フォルダーはこのコンピューターに残り、アプリは mdbase 経由でアクセスします。"
 
@@ -551,6 +602,10 @@ msgctxt "Desktop application"
 msgid "Choose where to create the folder."
 msgstr "フォルダーを作成する場所を選んでください。"
 
+#: src/renderer/collections-view.tsx
+msgid "Choose which files this collection syncs, on every device. Notes always sync, and files that already synced stay where they are."
+msgstr "このコレクションがすべてのデバイスで同期するファイルを選択します。ノートは常に同期され、すでに同期されたファイルはそのまま残ります。"
+
 #: src/renderer/ui-components.tsx
 msgid "Clear filter"
 msgstr "フィルターをクリア"
@@ -563,10 +618,6 @@ msgstr "このフォルダーを編集中のアプリを閉じてから、「新
 msgctxt "Connect interface"
 msgid "Close navigation"
 msgstr "ナビゲーションを閉じる"
-
-#: src/renderer/collections-view.tsx
-msgid "Cloud copy"
-msgstr "クラウド上のコピー"
 
 #: src/renderer/daemon-view.mts
 msgid "Collection deleted"
@@ -581,6 +632,7 @@ msgctxt "Desktop application"
 msgid "Collection name must be between 1 and 100 characters."
 msgstr "コレクション名は 1～100 文字にしてください。"
 
+#: src/renderer/home-view.tsx
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
 msgctxt "Connect interface"
@@ -590,10 +642,6 @@ msgstr "コレクション"
 #: src/renderer/main.tsx
 msgid "Collections stay on this computer. Synced collections send changes to mdbase; private sync encrypts them so mdbase cannot read them. Your account only receives collection names and app-access details."
 msgstr "コレクションはこのコンピューターに残ります。同期するコレクションは変更を mdbase に送信します。プライベート同期では暗号化するため mdbase は内容を読めません。アカウントにはコレクション名とアプリアクセスの詳細のみが送られます。"
-
-#: src/renderer/main.tsx
-msgid "Collections, app access and sync status in one place."
-msgstr "コレクション、アプリアクセス、同期状態を一か所で管理します。"
 
 #: src/renderer/main.tsx
 msgid "Color theme"
@@ -678,9 +726,15 @@ msgctxt "Local connection status"
 msgid "create and edit records"
 msgstr "レコードを作成・編集する"
 
+#: src/renderer/home-view.tsx
 #: src/renderer/main.tsx
 msgid "Create collection"
 msgstr "コレクションを作成"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "create records and files"
+msgstr "レコードとファイルを作成する"
 
 #: src/renderer/main.tsx
 msgid "Create the folder in"
@@ -705,11 +759,21 @@ msgctxt "Local connection status"
 msgid "delete records"
 msgstr "レコードを削除する"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "delete records and files"
+msgstr "レコードとファイルを削除する"
+
 #: src/renderer/collections-view.tsx
 msgid "Deleted on another device"
 msgstr "別のデバイスで削除されました"
 
 #: src/renderer/device-requests.tsx
+msgid "Deny"
+msgstr "拒否"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
 msgid "Deny"
 msgstr "拒否"
 
@@ -756,6 +820,11 @@ msgstr "検証済みバージョン {0} をダウンロード中…"
 msgid "Each folder stays where it is. Sync is optional."
 msgstr "各フォルダーは元の場所に残ります。同期は任意です。"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "edit records and files"
+msgstr "レコードとファイルを編集する"
+
 #: src/renderer/collections-view.tsx
 msgid "Edited here before the move but never uploaded, and changed elsewhere since; the current version is in the folder"
 msgstr "移動前にこのコンピューターで編集されましたがアップロードされず、その後別の場所でも変更されました。現在のバージョンはフォルダー内にあります"
@@ -773,14 +842,19 @@ msgstr "ホスト型コレクションのアップロード待ちの編集を移
 msgid "Email support@mdbase.dev and include a diagnostics report. We'll finish your upgrade or move this computer back to mdbase Connect."
 msgstr "support@mdbase.dev に診断レポートを添えてメールしてください。アップグレードを完了するか、このコンピューターを mdbase Connect に戻します。"
 
-#: src/renderer/collections-view.tsx
-msgid "End-to-end encrypted: mdbase cannot read it. Web apps work only while one of your devices is online."
-msgstr "エンドツーエンドで暗号化され、mdbase は内容を読めません。Web アプリはデバイスのいずれかがオンラインの間だけ動作します。"
-
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "このコンピューターの名前を入力してください。"
+
+#. placeholder {0}: collection.name
+#: src/renderer/collections-view.tsx
+msgid "File sync settings for {0} were saved."
+msgstr "{0} のファイル同期設定を保存しました。"
+
+#: src/renderer/collections-view.tsx
+msgid "File types"
+msgstr "ファイルの種類"
 
 #: src/renderer/activity-view.tsx
 msgid "Filter activity"
@@ -807,6 +881,19 @@ msgstr "フォルダーの場所はアップロードされません。"
 msgid "Folders on this computer that your apps can use, and how each one syncs."
 msgstr "アプリが利用できるこのコンピューター上のフォルダーと、それぞれの同期方法です。"
 
+#: src/renderer/collections-view.tsx
+msgid "Folders to leave out"
+msgstr "除外するフォルダー"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Folders: {folders}"
+msgstr "フォルダー: {folders}"
+
+#: src/renderer/collections-view.tsx
+msgid "From the last sync attempt, not a current file check."
+msgstr "前回の同期試行の情報であり、現在のファイルの確認結果ではありません。"
+
 #: src/renderer/main.tsx
 msgid "Go to {label}"
 msgstr "{label} に移動"
@@ -816,6 +903,12 @@ msgstr "{label} に移動"
 msgid "Hide {0, plural, one {# file} other {# files}}"
 msgstr "{0, plural, other {# 件のファイルを非表示}}"
 
+#: src/renderer/main.tsx
+#: src/renderer/ui-components.tsx
+msgctxt "Connect interface"
+msgid "Home"
+msgstr "ホーム"
+
 #: src/renderer/takeover-state.mts
 msgid "hosted collections still have edits waiting to upload"
 msgstr "ホスト型コレクションにアップロード待ちの編集が残っています"
@@ -823,10 +916,6 @@ msgstr "ホスト型コレクションにアップロード待ちの編集が残
 #: src/renderer/main.tsx
 msgid "How new apps get access to your local collections."
 msgstr "新しいアプリにローカルコレクションへのアクセスを許可する方法です。"
-
-#: src/renderer/collections-view.tsx
-msgid "How should it sync?"
-msgstr "どのように同期しますか？"
 
 #: src/renderer/main.tsx
 msgid "How this computer appears in your mdbase account"
@@ -837,6 +926,11 @@ msgstr "mdbase アカウントに表示されるこのコンピューターの�
 #: src/renderer/access-view.tsx
 msgid "If you approve, {0} will be able to {1} in {where}, through this computer. You can revoke this at any time."
 msgstr "承認すると、{0} はこのコンピューター経由で {where} 内の {1} を実行できます。いつでも取り消せます。"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Images"
+msgstr "画像"
 
 #. placeholder {0}: status.target_version
 #. placeholder {0}: update.target_version
@@ -875,6 +969,11 @@ msgstr "このフォルダーの mdbase.yaml には、このコンピュータ�
 msgctxt "Local connection status"
 msgid "Joining this collection…"
 msgstr "このコレクションに参加中…"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "keep an offline copy"
+msgstr "オフラインのコピーを保持する"
 
 #: src/renderer/collections-view.tsx
 msgid "Keep both"
@@ -930,6 +1029,25 @@ msgid "Leave mdbase Connect's data in place and contact support with a diagnosti
 msgstr "mdbase Connect のデータをそのまま残し、診断レポートを添えてサポートに連絡してください。"
 
 #: src/renderer/collections-view.tsx
+msgid "Leave out files larger than"
+msgstr "次のサイズより大きいファイルを除外"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Let new apps use your local collections without asking you first?"
+msgstr "新しいアプリが事前の確認なしでローカルコレクションを使用できるようにしますか？"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Let Obsidian on this computer use {collection}?"
+msgstr "このコンピューターの Obsidian が {collection} を使用することを許可しますか？"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Link Obsidian"
+msgstr "Obsidian をリンク"
+
+#: src/renderer/collections-view.tsx
 msgid "Loading…"
 msgstr "読み込み中…"
 
@@ -937,13 +1055,37 @@ msgstr "読み込み中…"
 msgid "Looked like an accidental overwrite"
 msgstr "誤った上書きの可能性があります"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Make {collection} private?"
+msgstr "{collection} をプライベートにしますか？"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Make private"
+msgstr "プライベートにする"
+
 #: src/renderer/main.tsx
 msgid "Manage in mdbase"
 msgstr "mdbase で管理"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "manage saved views"
+msgstr "保存済みのビューを管理する"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "manage types and collection setup"
+msgstr "タイプとコレクションの設定を管理する"
+
 #: src/renderer/access-view.tsx
 msgid "Mark as seen"
 msgstr "確認済みにする"
+
+#: src/renderer/collections-view.tsx
+msgid "MB"
+msgstr "MB"
 
 #. placeholder {0}: bundled.version
 #. placeholder {1}: result.version
@@ -1042,8 +1184,8 @@ msgid "mdbase is not running on this computer. It restarts automatically; if thi
 msgstr "このコンピューターでは mdbase が動作していません。自動的に再起動します。状態が続く場合は mdbase connect を再起動してください。"
 
 #: src/renderer/collections-view.tsx
-msgid "mdbase keeps a copy, so web apps and agents can use it while your devices are off."
-msgstr "mdbase がコピーを保持するため、デバイスの電源が切れていても Web アプリやエージェントが利用できます。"
+msgid "mdbase keeps a cloud copy, so web apps and agents can use this collection while your devices are off."
+msgstr "mdbase がクラウド上にコピーを保持するため、デバイスの電源が切れていても Web アプリやエージェントがこのコレクションを使えます。"
 
 #: src/renderer/collections-view.tsx
 msgid "mdbase kept these files instead of overwriting them. Choose which version to keep."
@@ -1087,6 +1229,15 @@ msgctxt "Desktop application"
 msgid "mdbase starting"
 msgstr "mdbase を起動中"
 
+#: src/renderer/collections-view.tsx
+msgid "mdbase stores only encrypted changes. Web apps and agents can use this collection only while one of your devices with the desktop app is online."
+msgstr "mdbase は暗号化された変更だけを保存します。Web アプリやエージェントがこのコレクションを使えるのは、デスクトップアプリのあるデバイスのいずれかがオンラインのときだけです。"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off."
+msgstr "mdbase は既存の履歴を含むコレクションを読み取り、デバイスの電源がオフの間もアクセスを提供できるようになります。"
+
 #. placeholder {0}: reason.replaceAll("_", " ")
 #: src/renderer/takeover-state.mts
 msgid "mdbase will retry ({0})"
@@ -1117,6 +1268,10 @@ msgstr "移行を延期しました"
 #: src/renderer/takeover-state.mts
 msgid "Migration postponed: {0}"
 msgstr "移行を延期しました: {0}"
+
+#: src/renderer/home-view.tsx
+msgid "More apps from mdbase"
+msgstr "mdbase のその他のアプリ"
 
 #: src/renderer/takeover-panel.tsx
 #: src/renderer/takeover-state.mts
@@ -1172,6 +1327,10 @@ msgctxt "Connect interface"
 msgid "No apps connected"
 msgstr "接続済みアプリはありません"
 
+#: src/renderer/home-view.tsx
+msgid "No apps yet"
+msgstr "アプリはまだありません"
+
 #: src/renderer/collections-view.tsx
 msgctxt "Local collection management"
 msgid "No collections yet"
@@ -1201,10 +1360,6 @@ msgstr "待機中の項目はありません"
 msgid "Nothing is waiting."
 msgstr "待機中の項目はありません。"
 
-#: src/renderer/main.tsx
-msgid "Nothing waiting"
-msgstr "待機中の項目なし"
-
 #: src/renderer/takeover-state.mts
 msgid "Nothing was changed. Contact support with a diagnostics report."
 msgstr "何も変更されていません。診断レポートを添えてサポートに連絡してください。"
@@ -1232,13 +1387,28 @@ msgctxt "Local connection status"
 msgid "On this computer only"
 msgstr "このコンピューター上のみ"
 
+#: src/renderer/collections-view.tsx
+msgid "One folder per line, relative to the collection."
+msgstr "1 行に 1 フォルダー、コレクションからの相対パスで入力します。"
+
 #: src/renderer/device-requests.tsx
 msgid "Only allow if this matches the code on {who}"
 msgstr "このコードが{who}のコードと一致する場合のみ許可してください"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content."
+msgstr "切り替えが完了すると、新しい内容を読み取れるのはお使いのデバイスだけになります。古い内容は引き続き mdbase が読み取れる場合があります。"
+
+#: src/renderer/home-view.tsx
+msgid "Open"
+msgstr "開く"
+
+#. placeholder {0}: app.name
 #. placeholder {0}: status.target_version
 #. placeholder {0}: update.target_version
 #: src/main/main.ts
+#: src/renderer/home-view.tsx
 #: src/renderer/main.tsx
 msgid "Open {0}"
 msgstr "{0} を開く"
@@ -1270,6 +1440,10 @@ msgstr "使用したいアプリを開いて mdbase に接続してください�
 msgid "Open update"
 msgstr "更新を開く"
 
+#: src/renderer/main.tsx
+msgid "Open your apps and see the collections they use."
+msgstr "アプリを開き、各アプリが使うコレクションを確認できます。"
+
 #: src/renderer/sign-in-panel.tsx
 msgctxt "Connect interface"
 msgid "Opening browser…"
@@ -1279,11 +1453,10 @@ msgstr "ブラウザーを開いています…"
 msgid "Opening…"
 msgstr "開いています…"
 
-#: src/renderer/main.tsx
-#: src/renderer/ui-components.tsx
-msgctxt "Connect interface"
-msgid "Overview"
-msgstr "概要"
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Other files"
+msgstr "その他のファイル"
 
 #: src/renderer/collections-view.tsx
 msgctxt "Local collection management"
@@ -1293,6 +1466,11 @@ msgstr "一時停止"
 #: src/renderer/daemon-view.mts
 msgid "Paused"
 msgstr "一時停止中"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "PDFs"
+msgstr "PDF"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"
@@ -1306,10 +1484,6 @@ msgstr "比較用コードを準備しています…"
 #: src/renderer/main.tsx
 msgid "Previous version restored"
 msgstr "以前のバージョンを復元しました"
-
-#: src/renderer/collections-view.tsx
-msgid "Private"
-msgstr "プライベート"
 
 #: src/renderer/daemon-view.mts
 msgid "Private sync (end-to-end encrypted)"
@@ -1333,6 +1507,11 @@ msgstr "ファイルの読み取りと追加"
 msgctxt "Local connection status"
 msgid "read records"
 msgstr "レコードを読み取る"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "read records and files"
+msgstr "レコードとファイルを読み取る"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
@@ -1389,9 +1568,18 @@ msgctxt "Local collection management"
 msgid "Resume"
 msgstr "再開"
 
+#: src/renderer/collections-view.tsx
+#: src/renderer/daemon-view.mts
+msgid "Resume this collection to check its files before turning on sync."
+msgstr "同期を有効にする前に、このコレクションを再開してファイルを確認してください。"
+
 #: src/renderer/takeover-panel.tsx
 msgid "Returned to the old engine"
 msgstr "旧エンジンに戻しました"
+
+#: src/renderer/home-view.tsx
+msgid "Review"
+msgstr "確認"
 
 #. placeholder {0}: view.holds
 #: src/renderer/collections-view.tsx
@@ -1419,7 +1607,17 @@ msgctxt "Connect interface"
 msgid "Revoked"
 msgstr "取り消し済み"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "run scheduled background tasks"
+msgstr "スケジュールされたバックグラウンドタスクを実行する"
+
 #: src/renderer/main.tsx
+msgid "Save"
+msgstr "保存"
+
+#: src/renderer/collections-view.tsx
+msgctxt "File sync settings"
 msgid "Save"
 msgstr "保存"
 
@@ -1553,6 +1751,10 @@ msgstr "ログイン中"
 msgid "Signing out did not finish. Try signing out again."
 msgstr "サインアウトが完了しませんでした。もう一度サインアウトしてください。"
 
+#: src/renderer/collections-view.tsx
+msgid "Size limit in megabytes"
+msgstr "サイズ上限（メガバイト）"
+
 #: src/renderer/takeover-state.mts
 msgid "Some edits from before the move need your attention."
 msgstr "移行前の一部の編集に対応が必要です。"
@@ -1574,6 +1776,10 @@ msgctxt "Connect interface"
 msgid "Start at login"
 msgstr "ログイン時に起動"
 
+#: src/renderer/home-view.tsx
+msgid "Start with an app"
+msgstr "アプリから始める"
+
 #: src/renderer/takeover-state.mts
 msgid "Stay online until uploads finish, then try again."
 msgstr "アップロードが完了するまでオンラインのまま待ち、再試行してください。"
@@ -1588,10 +1794,6 @@ msgstr "{0} がこのコンピューター経由で {1} を利用するのを停
 msgid "Stopped"
 msgstr "停止しました"
 
-#: src/renderer/collections-view.tsx
-msgid "Sync"
-msgstr "同期"
-
 #. placeholder {0}: /[.!?]$/.test(sentence) ? sentence : `${sentence}.`
 #: src/renderer/view-model.ts
 msgid "Sync could not be turned on: {0} {unchanged}"
@@ -1602,6 +1804,10 @@ msgstr "同期を有効にできませんでした: {0} {unchanged}"
 msgid "sync problem: {0}"
 msgstr "同期の問題: {0}"
 
+#: src/renderer/view-model.ts
+msgid "Sync setup stopped, and the collection is paused. Close this window, then choose Resume before trying again. {unchanged}"
+msgstr "同期の設定が停止し、コレクションは一時停止しています。このウィンドウを閉じて「再開」を選択してから、もう一度お試しください。{unchanged}"
+
 #: src/renderer/daemon-view.mts
 msgid "Sync stopped"
 msgstr "同期は停止しました"
@@ -1610,6 +1816,10 @@ msgstr "同期は停止しました"
 msgctxt "Local connection status"
 msgid "Synced"
 msgstr "同期済み"
+
+#: src/renderer/collections-view.tsx
+msgid "Synced files"
+msgstr "同期するファイル"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1623,6 +1833,10 @@ msgstr "システム設定に従って外観を切り替えます"
 #: src/renderer/collections-view.tsx
 msgid "Take the other version"
 msgstr "もう一方のバージョンを使用"
+
+#: src/renderer/collections-view.tsx
+msgid "Technical details"
+msgstr "技術的な詳細"
 
 #: src/main/boot-gate.ts
 msgctxt "Desktop application"
@@ -1867,6 +2081,21 @@ msgstr "このバージョンの mdbase はサポート対象外です。バー�
 msgid "This version of mdbase is too old for the service. Update mdbase."
 msgstr "このバージョンの mdbase は古すぎるためサービスを利用できません。mdbase を更新してください。"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Turn off approval"
+msgstr "承認をオフにする"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Turn on Cloud copy"
+msgstr "クラウド上のコピーを有効にする"
+
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "Turn on Cloud copy for {collection}?"
+msgstr "{collection} のクラウド上のコピーを有効にしますか？"
+
 #: src/renderer/collections-view.tsx
 msgid "Turn on sync"
 msgstr "同期をオンにする"
@@ -1971,6 +2200,11 @@ msgstr "バージョン {0} はインストールの {1}% に段階的に配信�
 msgid "Version {0} is verified and ready to install."
 msgstr "バージョン {0} は検証済みで、インストールできます。"
 
+#: src/renderer/collections-view.tsx
+msgctxt "File types that sync"
+msgid "Video"
+msgstr "動画"
+
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"
 msgid "Waiting"
@@ -2019,6 +2253,11 @@ msgstr "オンにすると、mdbase で承認したアプリにも、このコ�
 msgid "When this folder moved to the new sync engine, mdbase kept another version of {0, plural, one {# file} other {# files}}. The folder has this computer's version; check it before sync starts from it."
 msgstr "このフォルダーを新しい同期エンジンに移動した際、mdbase は {0, plural, other {# 件のファイル}} の別のバージョンを保持しました。フォルダーにはこのコンピューターのバージョンがあります。ここから同期を始める前に確認してください。"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "whole collection"
+msgstr "コレクション全体"
+
 #: src/renderer/main.tsx
 msgid "Workouts"
 msgstr "ワークアウト"
@@ -2035,6 +2274,11 @@ msgstr "{collection} で {app} を拒否しました"
 msgid "You revoked {app} on {collection}"
 msgstr "{collection} で {app} のアクセスを取り消しました"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "You will still be notified."
+msgstr "引き続き通知は届きます。"
+
 #: src/renderer/takeover-state.mts
 msgid "Your account still uses mdbase Connect"
 msgstr "アカウントはまだ mdbase Connect を使用しています"
@@ -2042,6 +2286,14 @@ msgstr "アカウントはまだ mdbase Connect を使用しています"
 #: src/renderer/sign-in-panel.tsx
 msgid "Your application request will keep waiting. Sign in so you can choose a folder on this computer, then continue the same request."
 msgstr "アプリケーションの要求は待機したままです。ログインしてこのコンピューターのフォルダーを選び、同じ要求を続行してください。"
+
+#: src/renderer/home-view.tsx
+msgid "Your apps"
+msgstr "あなたのアプリ"
+
+#: src/renderer/home-view.tsx
+msgid "Your apps could not be listed. {failure}"
+msgstr "アプリを一覧表示できませんでした。{failure}"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"

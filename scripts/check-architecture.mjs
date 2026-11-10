@@ -1,22 +1,8 @@
 #!/usr/bin/env node
 
-import { checkArchitecture } from "./lib/architecture-check.mjs";
+import { evaluateArchitecture } from "./lib/architecture-check.mjs";
 
-import { architectureBase, checkArchitectureGrowth } from "./lib/architecture-growth.mjs";
-
-const root = process.cwd();
-const result = process.argv.includes("--absolute")
-  ? await checkArchitecture(root)
-  : await checkArchitectureGrowth(root, architectureBase(root));
-for (const failure of result.failures) console.error(`- ${failure}`);
-if (result.failures.length > 0) {
-  process.exitCode = 1;
-} else {
-  console.log(
-    `Architecture check passed: ${result.productionFileCount} production files, ` +
-    `${result.relativeImportCount} relative imports, ` +
-    `${result.workspacePackageCount} workspace packages; ` +
-    `${result.rustPublicDeclarationCount} Rust public declarations, ` +
-    `${result.typeScriptExportDeclarationCount} TypeScript export declarations.`
-  );
-}
+const failures = await evaluateArchitecture(process.cwd());
+for (const failure of failures) console.error(`- ${failure}`);
+if (failures.length > 0) process.exitCode = 1;
+else console.log("Architecture check passed.");

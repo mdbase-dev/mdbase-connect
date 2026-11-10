@@ -1,5 +1,5 @@
 use super::mutation_metrics::outcome_unknown;
-use super::mutation_receipt::StoredMutationReceipt;
+use super::mutation_receipt::{mutation_abandoned, AbandonedApplication, StoredMutationReceipt};
 use super::*;
 
 const MUTATION_LEASE_SECONDS: i64 = 30;
@@ -53,3 +53,4 @@ pub(super) enum HostedMutationClaim {
 include!("mutation_journal/provider_impl.rs");
 include!("mutation_journal/terminal_replay.rs");
 include!("mutation_journal/helpers.rs");
+include!("mutation_journal/abandon_sweep.rs");

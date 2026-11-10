@@ -1,0 +1,366 @@
+import { describe, expect, it } from "vitest";
+import type { CollectionOperation } from "@mdbase-dev/connect-protocol";
+import { operationsForApplicationCapabilities } from "@mdbase-dev/connect-protocol";
+import {
+  ownerAccess,
+  type CollectionAccessContext
+} from "../collections/collection-access.js";
+import { fileCapabilityPermittedByRequirements, planCollectionGrant, previewCollectionGrant } from "./grant-planner.js";
+import { signedFileRequestForRequirements } from "../applications/application-requirements.js";
+
+const owner = ownerAccess({
+  collectionId: "collection",
+  authorityKind: "hosted",
+  authorityRowId: "collection",
+  ownerUserId: "owner",
+  authorityEpoch: 3,
+  authorityState: "active",
+  displayName: "Tasks"
+}, "owner");
+
+describe("previewCollectionGrant", () => {
+  const capabilities = {
+    contract_version: 2 as const,
+    required: ["collection.read"] as const,
+    optional: ["records.edit", "records.delete", "definitions.manage"] as const
+  };
+  const readOperations = operationsForApplicationCapabilities({
+    contract_version: 2, required: ["collection.read"]
+  });
+  const viewer: CollectionAccessContext = {
+    ...owner,
+    relationship: "member",
+    role: "viewer",
+    operationCeiling: new Set(readOperations),
+    fileCeiling: { ...owner.fileCeiling, actions: ["list", "read"] }
+  };
+  const input = {
+    applicationOperationCeiling: operationsForApplicationCapabilities(capabilities),
+    requirements: {
+      contracts: [], access: "full_collection" as const, capabilities,
+      files: { required: ["list", "read"] as const, optional: ["add"] as const, scope: { kind: "collection" as const } }
+    },
+    access: viewer
+  };
+
+  it("offers a viewer only complete read capabilities and required file reads", () => {
+    const preview = previewCollectionGrant(input);
+    expect(preview).toEqual({ available: true, operations: readOperations, file_actions: ["list", "read"] });
+    if (!preview.available) throw new Error("Expected a viewer offer");
+    expect(planCollectionGrant({ ...input, requestedOperations: preview.operations, requestedFileActions: preview.file_actions }).replicaMode).toBe("read_only");
+  });
+
+  it("omits an optional group when a stored policy permits only part of it", () => {
+    const preview = previewCollectionGrant({ ...input, access: { ...viewer, operationCeiling: new Set([...readOperations, "update"]) } });
+    expect(preview).toEqual({ available: true, operations: readOperations, file_actions: ["list", "read"] });
+  });
+
+  it("marks required writes and required file writes unavailable to a viewer", () => {
+    for (const requirements of [
+      { ...input.requirements, capabilities: { contract_version: 2 as const, required: ["collection.read", "records.edit"] as const } },
+      { ...input.requirements, files: { ...input.requirements.files, required: ["list", "read", "add"] as const, optional: [] } }
+    ]) expect(previewCollectionGrant({ ...input, requirements }).available).toBe(false);
+    expect(previewCollectionGrant({ ...input, access: owner }).available).toBe(true);
+  });
+});
+
+describe("planCollectionGrant", () => {
+  it("plans every operation compiled for type-pack application sessions", () => {
+    const capabilities = {
+      contract_version: 2 as const,
+      required: ["definitions.manage"] as const
+    };
+    const operations = operationsForApplicationCapabilities(capabilities);
+    const result = planCollectionGrant({
+      requestedOperations: operations,
+      applicationOperationCeiling: operations,
+      requirements: {
+        contracts: [],
+        access: "full_collection",
+        capabilities
+      },
+      access: owner
+    });
+
+    expect(result).toEqual({
+      operations: ["create_type", "update_type", "assess_type_pack", "apply_type_pack"],
+      scope: { access: "full_collection", contracts: [] },
+      replicaMode: "read_write"
+    });
+  });
+
+  it("uses collection authority while retaining contracts as compatibility requirements", () => {
+    const capabilities = {
+      contract_version: 2 as const,
+      required: ["collection.read", "records.edit"] as const
+    };
+    const operations = operationsForApplicationCapabilities(capabilities);
+    const result = planCollectionGrant({
+      requestedOperations: operations,
+      applicationOperationCeiling: operations,
+      requirements: {
+        access: "full_collection",
+        capabilities,
+        contracts: [{
+          id: "example.tasks",
+          version: "1.0.0",
+          digest: `sha256:${"a".repeat(64)}`
+        }]
+      },
+      access: owner
+    });
+
+    expect(result).toEqual({
+      operations,
+      scope: { access: "full_collection", contracts: [] },
+      replicaMode: "read_write"
+    });
+  });
+
+  it("plans file-only access independently from collection record authority", () => {
+    const result = planCollectionGrant({
+      requestedOperations: [],
+      applicationOperationCeiling: [],
+      requirements: {
+        access: "full_collection",
+        contracts: [],
+        capabilities: { contract_version: 2, required: [] },
+        files: {
+          required: ["list", "read"],
+          optional: ["add"],
+          scope: { kind: "selected_folders", folders: ["Assets"] }
+        }
+      },
+      access: owner
+    });
+
+    expect(result).toEqual({
+      operations: [],
+      scope: { access: "full_collection", contracts: [] },
+      replicaMode: "read_write",
+      fileCapability: {
+        kind: "files",
+        protocol_version: 1,
+        actions: ["list", "read", "add"],
+        scope: { kind: "selected_folders", folders: ["Assets"] }
+      }
+    });
+  });
+
+  it("allows optional file actions to be denied without dropping required actions", () => {
+    const requirements = {
+      access: "full_collection" as const,
+      contracts: [],
+      capabilities: { contract_version: 2 as const, required: [] },
+      files: {
+        required: ["list", "read"] as const,
+        optional: ["add", "delete"] as const,
+        scope: { kind: "collection" as const }
+      }
+    };
+    const result = planCollectionGrant({
+      requestedOperations: [],
+      applicationOperationCeiling: [],
+      requestedFileActions: ["list", "read", "add"],
+      requirements,
+      access: owner
+    });
+    expect(result.fileCapability?.actions).toEqual(["list", "read", "add"]);
+    expect(() => planCollectionGrant({
+      requestedOperations: [],
+      applicationOperationCeiling: [],
+      requestedFileActions: ["list", "delete"],
+      requirements,
+      access: owner
+    })).toThrow("Required file actions");
+  });
+
+  it("rejects partial optional capability groups", () => {
+    const capabilities = {
+      contract_version: 2 as const,
+      required: ["collection.read"] as const,
+      optional: ["records.edit"] as const
+    };
+    const required = operationsForApplicationCapabilities(
+      capabilities,
+      { includeOptional: false }
+    );
+    expect(() => planCollectionGrant({
+      requestedOperations: [...required, "update"],
+      applicationOperationCeiling: [...required, "update", "rename"],
+      requirements: {
+        access: "full_collection",
+        contracts: [],
+        capabilities
+      },
+      access: owner
+    })).toThrow("complete groups");
+  });
+
+  it("rejects legacy contract-scoped authorization instead of widening it", () => {
+    expect(() => planCollectionGrant({
+      requestedOperations: ["read"],
+      applicationOperationCeiling: ["read"],
+      requirements: { contracts: [], access: "contract" },
+      access: owner
+    })).toThrow("not widened");
+  });
+
+  it("rejects omitted access instead of defaulting to collection authority", () => {
+    expect(() => planCollectionGrant({
+      requestedOperations: ["read"],
+      applicationOperationCeiling: ["read"],
+      requirements: { contracts: [] },
+      access: owner
+    })).toThrow("not widened");
+  });
+
+  it("rejects an operation the application did not request", () => {
+    expect(() => planCollectionGrant({
+      requestedOperations: ["delete"],
+      applicationOperationCeiling: ["read"],
+      requirements: { contracts: [], access: "full_collection" },
+      access: owner
+    })).toThrow("must be requested");
+  });
+
+  it("rejects an operation outside the approving user's ceiling", () => {
+    expect(() => planCollectionGrant({
+      requestedOperations: ["update"],
+      applicationOperationCeiling: ["update"],
+      requirements: { contracts: [], access: "full_collection" },
+      access: restricted(owner, ["read"])
+    })).toThrow("approving user");
+  });
+});
+
+function restricted(
+  source: CollectionAccessContext,
+  operations: CollectionOperation[]
+): CollectionAccessContext {
+  return {
+    ...source,
+    relationship: "member",
+    operationCeiling: new Set(operations)
+  };
+}
+
+describe("membership ceilings with v2 capabilities", () => {
+  const read = operationsForApplicationCapabilities({ contract_version: 2, required: ["collection.read"] });
+  const viewer: CollectionAccessContext = {
+    ...owner, relationship: "member", role: "viewer", operationCeiling: new Set([...read, "sync"]),
+    fileCeiling: { kind: "files", protocol_version: 1, actions: ["list", "read"], scope: { kind: "collection" } }
+  };
+  const requirements = {
+    access: "full_collection" as const, contracts: [],
+    capabilities: { contract_version: 2 as const, required: ["collection.read"] as const, optional: ["records.edit"] as const },
+    files: { required: ["list", "read"] as const, optional: ["add"] as const, scope: { kind: "collection" as const } }
+  };
+  const input = { requirements, access: viewer, requestedOperations: read,
+    applicationOperationCeiling: operationsForApplicationCapabilities(requirements.capabilities) };
+
+  it("permits read-only approval after complete optional write groups and file actions are denied", () => {
+    expect(planCollectionGrant({ ...input, requestedFileActions: ["list", "read"] }))
+      .toMatchObject({ replicaMode: "read_only", operations: read, fileCapability: { actions: ["list", "read"] } });
+  });
+  it("checks selected optional file writes against membership authority", () => {
+    expect(() => planCollectionGrant(input)).toThrow("file actions");
+    expect(() => planCollectionGrant({ ...input, requestedFileActions: ["list", "read", "add"] })).toThrow("file actions");
+  });
+  it("rejects required writes instead of silently dropping them", () => {
+    expect(() => planCollectionGrant({ ...input, requirements: { ...requirements,
+      files: { required: ["list", "read", "add"], scope: { kind: "collection" } } } })).toThrow("file actions");
+    expect(() => planCollectionGrant({ ...input, requestedFileActions: ["list", "read"], requirements: { ...requirements,
+      capabilities: { contract_version: 2, required: ["collection.read", "records.edit"] } } })).toThrow("complete groups");
+  });
+  it("does not widen a member's file or collection scope", () => {
+    expect(() => planCollectionGrant({ ...input, requestedFileActions: ["list", "read"], access: {
+      ...viewer, fileCeiling: { ...viewer.fileCeiling, scope: { kind: "selected_folders", folders: ["Assets"] } }
+    } })).toThrow("collection-wide file access");
+    expect(() => planCollectionGrant({ ...input, requestedFileActions: ["list", "read"], access: {
+      ...viewer, scopeCeiling: { access: "contract", contracts: [] }
+    } })).toThrow("full-collection access");
+  });
+});
+
+describe("signed optional file-action subsets (#1103)", () => {
+  const read = operationsForApplicationCapabilities({ contract_version: 2, required: ["collection.read"] });
+  const requirements = {
+    access: "full_collection" as const, contracts: [],
+    capabilities: { contract_version: 2 as const, required: ["collection.read"] as const, optional: ["records.create"] as const },
+    files: { required: ["list", "read"] as const, optional: ["add", "delete"] as const, scope: { kind: "collection" as const } }
+  };
+  const scope = { kind: "collection" as const };
+  const input = { requirements, access: owner, requestedOperations: read, applicationOperationCeiling: read,
+    applicationFileCeiling: ["list", "read"] as const };
+
+  it("expects exactly the declared-order selection the application signed", () => {
+    expect(signedFileRequestForRequirements(requirements, { actions: ["list", "read"], scope }))
+      .toEqual({ actions: ["list", "read"], scope });
+    expect(signedFileRequestForRequirements(requirements, { actions: ["list", "read", "delete"], scope }))
+      .toEqual({ actions: ["list", "read", "delete"], scope });
+    // Missing a required action, or no signed files: the full declaration, which the exact proof comparison refuses.
+    expect(signedFileRequestForRequirements(requirements, { actions: ["list"], scope }))
+      .toEqual({ actions: ["list", "read", "add", "delete"], scope });
+    expect(signedFileRequestForRequirements(requirements, undefined))
+      .toEqual({ actions: ["list", "read", "add", "delete"], scope });
+    // Undeclared or reordered actions never match the canonical selection.
+    expect(signedFileRequestForRequirements(requirements, { actions: ["list", "read", "move"], scope }))
+      .toEqual({ actions: ["list", "read"], scope });
+    expect(signedFileRequestForRequirements(requirements, { actions: ["read", "list"], scope }))
+      .toEqual({ actions: ["list", "read"], scope });
+  });
+
+  it("keeps the signed subset as the consent and approval ceiling", () => {
+    expect(previewCollectionGrant(input)).toEqual({ available: true, operations: read, file_actions: ["list", "read"] });
+    expect(planCollectionGrant(input)).toMatchObject({ replicaMode: "read_only", fileCapability: { actions: ["list", "read"] } });
+    expect(() => planCollectionGrant({ ...input, requestedFileActions: ["list", "read", "add"] }))
+      .toThrow("requested by the application");
+  });
+
+  it("treats an approved optional subset as permitted during reconciliation", () => {
+    const capability = (actions: ("list" | "read" | "add" | "delete" | "move")[]) =>
+      ({ kind: "files" as const, protocol_version: 1 as const, actions, scope });
+    expect(fileCapabilityPermittedByRequirements(requirements, capability(["list", "read"]))).toBe(true);
+    expect(fileCapabilityPermittedByRequirements(requirements, capability(["read", "list", "delete"]))).toBe(true);
+    expect(fileCapabilityPermittedByRequirements(requirements, capability(["list"]))).toBe(false);
+    expect(fileCapabilityPermittedByRequirements(requirements, capability(["list", "read", "move"]))).toBe(false);
+    expect(fileCapabilityPermittedByRequirements(requirements, null)).toBe(false);
+    expect(fileCapabilityPermittedByRequirements({ ...requirements, files: undefined }, null)).toBe(true);
+    expect(fileCapabilityPermittedByRequirements(requirements, {
+      ...capability(["list", "read"]), scope: { kind: "selected_folders", folders: ["Assets"] }
+    })).toBe(false);
+  });
+});
+
+describe("people permissions", () => {
+  const input = {
+    requestedOperations: [] as CollectionOperation[],
+    applicationOperationCeiling: [] as CollectionOperation[],
+    requirements: {
+      contracts: [], access: "full_collection" as const,
+      capabilities: { contract_version: 2 as const, required: [] },
+      files: { required: ["read"] as const, scope: { kind: "collection" as const } },
+      people: { version: 1 as const, required: ["identity" as const], optional: ["members" as const] }
+    },
+    access: owner
+  };
+
+  it("records required permissions and only the optional permissions the user chose", () => {
+    expect(planCollectionGrant(input).peoplePermissions).toEqual(["identity", "members"]);
+    expect(planCollectionGrant({ ...input, requestedPeoplePermissions: ["identity"] }).peoplePermissions).toEqual(["identity"]);
+    expect(() => planCollectionGrant({ ...input, requestedPeoplePermissions: ["members"] })).toThrow(/Required people/);
+    expect(() => planCollectionGrant({ ...input, requestedPeoplePermissions: ["identity", "email"] })).toThrow(/declared/);
+  });
+
+  it("omits people permissions when none were declared or approved", () => {
+    const { people: _people, ...requirements } = input.requirements;
+    expect(planCollectionGrant({ ...input, requirements })).not.toHaveProperty("peoplePermissions");
+    expect(() => planCollectionGrant({ ...input, requirements, requestedPeoplePermissions: ["identity"] })).toThrow(/declaration/);
+    expect(planCollectionGrant({
+      ...input,
+      requirements: { ...input.requirements, people: { version: 1, optional: ["identity", "members"] } },
+      requestedPeoplePermissions: []
+    })).not.toHaveProperty("peoplePermissions");
+  });
+});

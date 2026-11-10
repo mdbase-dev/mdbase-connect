@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import { ApplicationReconciliationWorker } from "../../application-reconciliation.js";
-import { RelayHub } from "../../relay.js";
+import { ApplicationReconciliationWorker } from "../applications/application-reconciliation.js";
+import { RelayHub } from "../relay/relay.js";
 import { readConnectLifecycleWork } from "./lifecycle-diagnostics.js";
 
 const TEST_URL_ENV = "MDBASE_CONNECT_TEST_DATABASE_URL";

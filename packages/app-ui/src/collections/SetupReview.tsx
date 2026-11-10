@@ -25,7 +25,7 @@ interface PlanRequest {
  * Reviewable setup: `setup.plan()` (read-only, so it starts at once), then
  * `setup.apply(plan)` only from the person's click. Never configures silently.
  */
-export function SetupReview({ ui }: { readonly ui: CollectionUi }): JSX.Element {
+export function SetupReview({ ui, layout = "panel" }: { readonly ui: CollectionUi; readonly layout?: "page" | "panel" }): JSX.Element {
   const { mdbase } = ui.options;
   const [state, setState] = useState<State>({ status: "planning", notice: null });
   const [request, setRequest] = useState<PlanRequest>({ options: {}, notice: null, quiet: false });
@@ -97,6 +97,9 @@ export function SetupReview({ ui }: { readonly ui: CollectionUi }): JSX.Element 
       applyingNow.current = false;
       const notice = actionNotice(describeError(cause));
       setState((current) => current.status === "ready" ? { ...current, notice } : current);
+      // A dispatched apply consumes its plan: clicking again with it can only be
+      // refused. Plan again quietly, keeping this review and notice on screen.
+      setRequest((current) => ({ ...current, quiet: true }));
     });
   };
 
@@ -119,6 +122,7 @@ export function SetupReview({ ui }: { readonly ui: CollectionUi }): JSX.Element 
   const nothing = plan.status === "current" || (plan.changes.length === 0 && plan.conflicts.length === 0);
   const adoptable = Object.keys(plan.adoptable).length > 0;
   const applicable = !refusal && plan.canApply;
+  const Heading = layout === "page" ? "h2" : "h3";
   // NoticeBlock shows a refusal's own control, except `set_up` (this is setup).
   const refusalActs = !!refusalNotice?.control && refusalNotice.control.kind !== "set_up";
   // Never leave the review without a way forward.
@@ -127,11 +131,11 @@ export function SetupReview({ ui }: { readonly ui: CollectionUi }): JSX.Element 
     {state.notice && <NoticeBlock notice={state.notice} ui={ui} variant="inline" />}
     {refusalNotice ? <NoticeBlock notice={refusalNotice} ui={ui} /> : <p className="mdbase-collections-setup-summary">{nothing ? ui.copy.setupNothing : plan.summary}</p>}
     {plan.changes.length > 0 && <section className="mdbase-collections-setup-section">
-      <h3>{ui.copy.setupChanges}</h3>
+      <Heading>{ui.copy.setupChanges}</Heading>
       <ul className="mdbase-collections-setup-list">{plan.changes.map((change) => <li key={`${change.kind}:${change.target}`}>{change.message}</li>)}</ul>
     </section>}
     {plan.conflicts.length > 0 && <section className="mdbase-collections-setup-section">
-      <h3>{ui.copy.setupConflicts}</h3>
+      <Heading>{ui.copy.setupConflicts}</Heading>
       <ul className="mdbase-collections-setup-list">{plan.conflicts.map((conflict) => <li key={conflict.target}>{conflict.message}</li>)}</ul>
     </section>}
     <div className="mdbase-collections-actions">

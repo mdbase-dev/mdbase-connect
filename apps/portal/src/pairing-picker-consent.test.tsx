@@ -41,13 +41,13 @@ describe("one explicit collection consent", () => {
     expect(receipt.queryByText("Allow Reader to create new collections")).not.toBeInTheDocument();
     expect(view.posts()).toEqual([]);
   });
-  it("describes native pairing as an unverified app running on this computer", async () => {
-    const f = await fixture({app_platform:"native",app_origin:"http://127.0.0.1:49152"});
+  it.each(["http://127.0.0.1:49152", "http://localhost:5173", "http://[::1]:5173"])("describes pairing from %s as an unverified app running on this computer", async app_origin => {
+    const f = await fixture({app_origin});
     expect(screen.getByRole("note")).toHaveTextContent("App identity unverified. This app calls itself Reader.");
     expect(f.posts()).toEqual([]);
   });
-  it.each(["https://remote.example.test", "http://localhost:49152", "http://[::1]:49152", undefined])("shows the actual pairing origin instead of native wording for %s", async app_origin => {
-    await fixture({app_platform:"native",app_origin});
+  it.each(["https://remote.example.test", "http://127.0.0.2:49152", undefined])("shows the actual pairing origin instead of local wording for %s", async app_origin => {
+    await fixture({app_origin});
     expect(screen.queryByText(/Requested by an app running on this computer/)).not.toBeInTheDocument();
     if (app_origin) expect(document.querySelector(".request-origin code")).toHaveTextContent(app_origin);
   });

@@ -4,7 +4,7 @@ import Fastify from "fastify";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import { ensureDevelopmentEntitlement } from "../../entitlements.js";
+import { ensureDevelopmentEntitlement } from "../account/entitlements.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
 import { tokenHash } from "../../security.js";
 import { inTransaction, lock } from "./bootstrap-common.js";

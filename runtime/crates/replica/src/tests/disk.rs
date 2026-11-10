@@ -28,7 +28,14 @@ use mdbn_wire::intent::{Create, FileInclusion, Op};
 // ---------------------------------------------------------------- a toy disk store
 
 #[derive(Default)]
-struct Disk {
+pub(super) struct Disk {
+    /// Keep every transaction handed to the store in `committed`.
+    pub(super) keep_committed: bool,
+    pub(super) committed: Vec<Tx>,
+    /// The row reads so far, by store method (the reads `fail_row_read` counts).
+    pub(super) row_reads: Vec<&'static str>,
+    /// Fail the row read this many reads from now.
+    pub(super) fail_row_read: Option<u64>,
     files: BTreeMap<String, String>,
     /// What the store last knew was at each path.
     known: BTreeMap<String, Hash>,
@@ -37,6 +44,9 @@ struct Disk {
     next: u64,
     /// Simulate a crash after the inner commit: drop this many publish batches.
     drop_publishes: u32,
+    /// Simulate a crash before a commit that queues a pending row: it fails and
+    /// nothing in it lands.
+    fail_pending_commits: bool,
     /// Publish later, like the WASM host queue: batches wait for `complete`.
     defer: bool,
     deferred: Vec<(PublishBatch, Vec<Publish>)>,
@@ -145,11 +155,30 @@ impl Disk {
     }
 }
 
-struct DiskStore {
-    inner: MemStore,
-    disk: Rc<RefCell<Disk>>,
+pub(super) struct DiskStore {
+    pub(super) inner: MemStore,
+    pub(super) disk: Rc<RefCell<Disk>>,
     /// Closing a deferred-durability window fails (an uncertain barrier).
-    barrier_fails: bool,
+    pub(super) barrier_fails: bool,
+}
+
+impl DiskStore {
+    /// Count one row read, failing the one `fail_row_read` selects.
+    fn row_read(&self, method: &'static str) -> StoreResult<()> {
+        let mut d = self.disk.borrow_mut();
+        d.row_reads.push(method);
+        match d.fail_row_read {
+            Some(0) => {
+                d.fail_row_read = None;
+                Err(StoreError::Io("injected row read fault".into()))
+            }
+            Some(n) => {
+                d.fail_row_read = Some(n - 1);
+                Ok(())
+            }
+            None => Ok(()),
+        }
+    }
 }
 
 impl Store for DiskStore {
@@ -164,9 +193,11 @@ impl Store for DiskStore {
         self.inner.head()
     }
     fn record(&self, id: &Uuid) -> StoreResult<Option<RecordRow>> {
+        self.row_read("record")?;
         self.inner.record(id)
     }
     fn record_at(&self, k: &str) -> StoreResult<Option<Uuid>> {
+        self.row_read("record_at")?;
         self.inner.record_at(k)
     }
     fn records(&self, p: Page) -> StoreResult<Vec<RecordRow>> {
@@ -179,9 +210,11 @@ impl Store for DiskStore {
         self.inner.record_count()
     }
     fn file(&self, id: &Uuid) -> StoreResult<Option<FileRow>> {
+        self.row_read("file")?;
         self.inner.file(id)
     }
     fn file_at(&self, k: &str) -> StoreResult<Option<Uuid>> {
+        self.row_read("file_at")?;
         self.inner.file_at(k)
     }
     fn files(&self, p: Page) -> StoreResult<Vec<FileRow>> {
@@ -194,6 +227,7 @@ impl Store for DiskStore {
         self.inner.resource(p)
     }
     fn resources(&self) -> StoreResult<Vec<(String, String)>> {
+        self.row_read("resources")?;
         self.inner.resources()
     }
     fn resource_paths_page(&self, p: ResourcePathPage<'_>) -> StoreResult<Vec<String>> {
@@ -290,6 +324,7 @@ impl Store for DiskStore {
         self.inner.settings()
     }
     fn tombstone(&self, id: &Uuid) -> StoreResult<Option<TombstoneRow>> {
+        self.row_read("tombstone")?;
         self.inner.tombstone(id)
     }
     fn tombstones_at(&self, k: &str) -> StoreResult<Vec<TombstoneRow>> {
@@ -331,6 +366,7 @@ impl Store for DiskStore {
         Ok(rows)
     }
     fn pending_get(&self, m: &Uuid) -> StoreResult<Option<PendingRow>> {
+        self.row_read("pending_get")?;
         self.inner.pending_get(m)
     }
     fn pending_count(&self) -> StoreResult<u64> {
@@ -340,6 +376,7 @@ impl Store for DiskStore {
         self.inner.local_receipt(m)
     }
     fn holds(&self) -> StoreResult<Vec<Hold>> {
+        self.row_read("holds")?;
         self.disk.borrow_mut().holds_reads += 1;
         self.inner.holds()
     }
@@ -375,6 +412,12 @@ impl Store for DiskStore {
         self.inner.defer_durability(on)
     }
     fn commit(&mut self, mut tx: Tx) -> StoreResult<CommitReport> {
+        if !tx.pending_put.is_empty() && self.disk.borrow().fail_pending_commits {
+            return Err(StoreError::Io("injected: crashed before the commit".into()));
+        }
+        if self.disk.borrow().keep_committed {
+            self.disk.borrow_mut().committed.push(tx.clone());
+        }
         let publish = std::mem::take(&mut tx.publish);
         let acks = tx.ack_observations.clone();
         self.inner.commit(tx)?;
@@ -658,7 +701,7 @@ impl Planner for TestPlanner {
     }
 }
 
-struct TestClock(Rc<Cell<u64>>);
+pub(super) struct TestClock(pub(super) Rc<Cell<u64>>);
 impl Clock for TestClock {
     fn now_ms(&self) -> u64 {
         self.0.get()
@@ -926,6 +969,7 @@ fn create(n: &mut Node, id: u8, path: &str, doc: &str) -> mdbn_wire::client::Rec
             dry_run: None,
             include: None,
             wait: None,
+            validation: None,
         },
     )
     .unwrap()
@@ -1043,7 +1087,10 @@ fn an_accepted_append_keeps_a_record_size_refusal() {
     use mdbn_wire::common::Value;
     let svc = FakeLogService::new();
     let mut a = node(&svc, 1);
-    let reason = Value::Map(vec![("reason".into(), Value::Text("record_too_large".into()))]);
+    let reason = Value::Map(vec![(
+        "reason".into(),
+        Value::Text("record_too_large".into()),
+    )]);
     a.r.incident(IncidentKind::QuotaExceeded, Some(reason));
     create(&mut a, 1, "fine.md", "fits");
     settle(&mut [&mut a]);
@@ -1094,6 +1141,9 @@ fn external_edits_sync() {
     let svc = FakeLogService::new();
     let mut a = node(&svc, 1);
     let mut b = node(&svc, 2);
+    // Opening may rebuild derived data in a window of its own, closed before
+    // the replica syncs; only ingest is measured.
+    let opened = [&a, &b].map(|n| n.r.store().inner.data().borrow().windows);
     create(&mut a, 1, "a.md", "one");
     settle(&mut [&mut a, &mut b]);
     b.disk.borrow_mut().user_write("a.md", Some("two"));
@@ -1109,8 +1159,8 @@ fn external_edits_sync() {
     settle(&mut [&mut a, &mut b]);
     assert!(a.file("new.md").is_none());
     // Synced ingest never defers durability: its entries leave the device.
-    for n in [&a, &b] {
-        assert_eq!(n.r.store().inner.data().borrow().windows, (0, 0));
+    for (n, opened) in [&a, &b].into_iter().zip(opened) {
+        assert_eq!(n.r.store().inner.data().borrow().windows, opened);
     }
 }
 
@@ -1331,6 +1381,7 @@ fn host_writes_recheck_current_role_and_leave_no_viewer_pending() {
         dry_run: None,
         include: None,
         wait: None,
+        validation: None,
     };
     let error = a.r.submit(a.s, request.clone()).unwrap_err();
     assert_eq!(error.problem().reason.as_deref(), Some("read_only"));
@@ -1812,6 +1863,115 @@ fn resolving_a_hold_dismisses_its_conflicts_everywhere() {
             );
         }
     }
+}
+
+/// Two replicas edit `a.md` concurrently; returns (loser, winner, loser's
+/// replica number, the loser's held bytes).
+fn held_conflict(svc: &FakeLogService) -> (Node, Node, u8, &'static str) {
+    let mut a = node(svc, 1);
+    let mut b = node(svc, 2);
+    create(&mut a, 1, "a.md", "base");
+    settle(&mut [&mut a, &mut b]);
+    a.disk.borrow_mut().user_write("a.md", Some("mine A"));
+    b.disk.borrow_mut().user_write("a.md", Some("mine B"));
+    a.step();
+    b.step();
+    settle(&mut [&mut a, &mut b]);
+    let mut out = if a.r.list_holds(a.s).unwrap().is_empty() {
+        (b, a, 2, "mine B")
+    } else {
+        (a, b, 1, "mine A")
+    };
+    assert_eq!(out.0.r.list_holds(out.0.s).unwrap().len(), 1);
+    assert_eq!(out.0.file("a.md").as_deref(), Some(out.3));
+    out
+}
+
+fn restart(svc: &FakeLogService, n: u8, node: Node) -> Node {
+    let Node { r, log, disk, .. } = node;
+    reopen(svc, n, r.into_store(), log, disk)
+}
+
+/// The hold is released only by the commit that queues the decision: a crash
+/// before that commit lands leaves the hold, and the user's bytes on disk.
+#[test]
+fn a_crash_before_the_resolution_commits_keeps_the_held_bytes() {
+    let svc = FakeLogService::new();
+    let (mut loser, mut winner, n, mine) = held_conflict(&svc);
+    let id = loser.r.list_holds(loser.s).unwrap()[0].id;
+    loser.disk.borrow_mut().fail_pending_commits = true;
+    assert!(
+        loser
+            .r
+            .resolve_hold(loser.s, id, HoldResolution::KeepMine)
+            .is_err(),
+        "the resolution's commit never landed"
+    );
+    loser.disk.borrow_mut().fail_pending_commits = false;
+    let mut loser = restart(&svc, n, loser);
+    settle(&mut [&mut loser, &mut winner]);
+    assert_eq!(
+        loser.file("a.md").as_deref(),
+        Some(mine),
+        "the user's bytes survive the restart"
+    );
+    let held = loser
+        .r
+        .list_holds(loser.s)
+        .unwrap()
+        .iter()
+        .any(|h| h.id == id);
+    assert!(
+        held || loser.r.sync_status().pending > 0,
+        "the decision is still open or queued"
+    );
+    // Deciding again after the restart publishes the user's version.
+    loser
+        .r
+        .resolve_hold(loser.s, id, HoldResolution::KeepMine)
+        .unwrap();
+    settle(&mut [&mut loser, &mut winner]);
+    assert_eq!(winner.file("a.md").as_deref(), Some(mine));
+    assert!(loser.r.list_holds(loser.s).unwrap().is_empty());
+}
+
+/// A refused resolution (keep both onto a taken name) commits nothing: the hold
+/// and the user's bytes stay, the caller gets the refusal, and a restart does
+/// not overwrite the file.
+#[test]
+fn a_refused_resolution_keeps_the_hold_and_the_bytes() {
+    use mdbn_wire::client::ReceiptState;
+    let svc = FakeLogService::new();
+    let (mut loser, mut winner, n, mine) = held_conflict(&svc);
+    loser.r.set_conflict_label("lab");
+    let held = loser.r.list_holds(loser.s).unwrap().remove(0);
+    // The winner already has a note where keep both would put the copy.
+    let date = crate::replica::utc_date(loser.clock.get() as i64);
+    create(
+        &mut winner,
+        9,
+        &format!("a (conflict lab {date}).md"),
+        "taken",
+    );
+    settle(&mut [&mut loser, &mut winner]);
+    let receipt = loser
+        .r
+        .resolve_hold(loser.s, held.id, HoldResolution::KeepBoth)
+        .unwrap();
+    assert_eq!(receipt.state, ReceiptState::Rejected);
+    assert!(receipt.problem.is_some(), "the refusal reaches the caller");
+    assert_eq!(loser.r.list_holds(loser.s).unwrap(), vec![held.clone()]);
+    assert_eq!(loser.file("a.md").as_deref(), Some(mine));
+    settle(&mut [&mut loser, &mut winner]);
+    assert_eq!(loser.file("a.md").as_deref(), Some(mine));
+    let mut loser = restart(&svc, n, loser);
+    settle(&mut [&mut loser, &mut winner]);
+    assert_eq!(
+        loser.file("a.md").as_deref(),
+        Some(mine),
+        "a restart keeps the user's bytes"
+    );
+    assert_eq!(loser.r.list_holds(loser.s).unwrap(), vec![held]);
 }
 
 #[test]
@@ -2467,6 +2627,7 @@ fn local_only_grants_come_from_the_host() {
                 dry_run: None,
                 include: None,
                 wait: None,
+                validation: None,
             },
         )
     };

@@ -7,6 +7,7 @@ import { publicationInventory, serializeInventory } from './publisher.mjs';
 const output=resolve(process.argv[2]);
 const plan=JSON.parse(await readFile(join(output,'plan.json'),'utf8'));
 await compareInstalled(process.cwd(),plan.sdkTrust.archives);
+delete process.env.GITHUB_TOKEN;
 const run=args=>execFileSync('pnpm',args,{stdio:'inherit',env:{...process.env,
   MDBASE_ENV:plan.target,VITE_MDBASE_ENV:plan.target,MDBASE_EDITOR_ORIGIN:plan.origin,
   MDBASE_EDITOR_BASE_PATH:'/',MDBASE_CONNECT_URL:plan.sdkTrust.release.cpOrigin,

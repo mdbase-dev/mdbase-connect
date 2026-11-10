@@ -23,6 +23,24 @@ impl CatalogPin {
 #[cfg(test)]
 #[path = "read_fence_pin_tests.rs"]
 mod discovery_pin_tests;
+/// Who this replica reads Bases for. Rechecked whole on every fence recheck.
+#[derive(PartialEq)]
+enum ReadAuthority {
+    /// A synced replica's current keyed policy device and its member role.
+    Keyed {
+        identity: SealerIdentity,
+        authority: Box<DeviceState>,
+        role: Role,
+    },
+    /// A local-only replica: the host's own collection on this device, with no
+    /// account, keys, policy devices or log to name. There is no remote
+    /// authority to be current with: the trusted host opened it as local-only,
+    /// so every write it holds was admitted on this device, and its only
+    /// readers are sessions of that same host. Session READ and unrestricted
+    /// scope are still required (`authorize_bases_read`), and the same
+    /// health/head/generation/catalogue fence applies.
+    Local,
+}
 pub(super) struct BasesReadFence {
     collection: Uuid,
     device: Uuid,
@@ -32,9 +50,7 @@ pub(super) struct BasesReadFence {
     repair_generation: u64,
     epoch: u64,
     ctl_chain: Hash,
-    identity: SealerIdentity,
-    authority: DeviceState,
-    role: Role,
+    authority: ReadAuthority,
     catalog: CatalogPin,
     revision: Hash,
 }
@@ -54,26 +70,26 @@ impl BasesReadFence {
 fn not_ready() -> crate::api::ApiError {
     ErrorCode::Unavailable.err_with_reason(
         "view_read_not_ready",
-        "Bases read requires healthy current keyed device state",
+        "Bases read requires healthy current replica state",
+    )
+}
+fn denied() -> crate::api::ApiError {
+    ErrorCode::Forbidden.err_with_reason(
+        "view_requires_keyed_device",
+        "Bases read requires a current keyed device",
     )
 }
 impl<S: Store> Replica<S> {
     pub(super) fn bases_read_catalog(&self) -> &Arc<Catalog> {
         self.layer.catalog_ref().unwrap_or(&self.catalog)
     }
-    fn bases_read_authority(&self) -> ApiResult<(SealerIdentity, DeviceState, Role)> {
-        let denied = || {
-            ErrorCode::Forbidden.err_with_reason(
-                "view_requires_keyed_device",
-                "Bases read requires a current keyed device",
-            )
-        };
+    fn bases_read_authority(&self) -> ApiResult<ReadAuthority> {
+        if self.local_only() {
+            return self.bases_local_read_authority();
+        }
         // Preserve the original admitted device subset; this change is about
         // local-view freshness, not extending grants or device authority.
-        if self.is_hosted()
-            || self.local_only()
-            || !self.policy.device_can_write(&self.cfg.device_id)
-        {
+        if self.is_hosted() || !self.policy.device_can_write(&self.cfg.device_id) {
             return Err(denied());
         }
         let device = self
@@ -114,7 +130,28 @@ impl<S: Store> Replica<S> {
         {
             return Err(not_ready());
         }
-        Ok((identity, device.clone(), role))
+        Ok(ReadAuthority::Keyed {
+            identity,
+            authority: Box::new(device.clone()),
+            role,
+        })
+    }
+    /// Local-only has no keyed state to check (see [`ReadAuthority::Local`]);
+    /// every other health gate of the keyed path still applies.
+    fn bases_local_read_authority(&self) -> ApiResult<ReadAuthority> {
+        if self.is_hosted() {
+            return Err(denied());
+        }
+        self.check_apply_health()?;
+        if self.serves_apps().is_err()
+            || self.regressed_at.is_some()
+            || self.stalled.is_some()
+            || self.repair.is_some()
+            || self.install.is_some()
+        {
+            return Err(not_ready());
+        }
+        Ok(ReadAuthority::Local)
     }
     fn bases_read_head(&self) -> ApiResult<Head> {
         let head = self.store.head().map_err(|_| not_ready())?;
@@ -124,7 +161,7 @@ impl<S: Store> Replica<S> {
         Ok(head)
     }
     pub(super) fn bases_read_capture_fence(&self) -> ApiResult<BasesReadFence> {
-        let (identity, authority, role) = self.bases_read_authority()?;
+        let authority = self.bases_read_authority()?;
         let head = self.bases_read_head()?;
         let mut hash = Sha256::new();
         hash.update(b"mdbase/v1/bases-local-read-revision");
@@ -141,15 +178,13 @@ impl<S: Store> Replica<S> {
             repair_generation: self.repair_generation,
             epoch: self.policy.epoch,
             ctl_chain: self.policy.ctl_chain,
-            identity,
             authority,
-            role,
             catalog: CatalogPin::Strong(self.bases_read_catalog().clone()),
             revision: B32(hash.finalize().into()),
         })
     }
     pub(super) fn recheck_bases_read_capture(&self, fence: &BasesReadFence) -> ApiResult<()> {
-        let (identity, authority, role) = self.bases_read_authority()?;
+        let authority = self.bases_read_authority()?;
         let head = self.bases_read_head()?;
         if fence.collection != self.cfg.collection
             || fence.device != self.cfg.device_id
@@ -159,9 +194,7 @@ impl<S: Store> Replica<S> {
             || fence.repair_generation != self.repair_generation
             || fence.epoch != self.policy.epoch
             || fence.ctl_chain != self.policy.ctl_chain
-            || fence.identity != identity
             || fence.authority != authority
-            || fence.role != role
             || !fence.catalog.matches(self.bases_read_catalog())
         {
             return Err(invalid());

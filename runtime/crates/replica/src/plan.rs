@@ -69,9 +69,54 @@ pub const LINK_PREFIX: &str = "l:";
 /// Prefix of a record's own target key in [`RecordMeta::links`].
 pub const TARGET_PREFIX: &str = "t:";
 
-/// The core's equality key for a value in a unique index.
+/// The core's equality key for a value in a unique index: JSON with map keys
+/// sorted, so values equal under spec 12A (maps in any key order, `1` and
+/// `1.0`) share a key.
 pub fn value_key(v: &CValue) -> String {
-    v.to_json()
+    fn canonical(v: &CValue) -> CValue {
+        match v {
+            CValue::Map(m) => {
+                let mut entries: Vec<_> = m.iter().collect();
+                entries.sort_by(|a, b| a.0.cmp(b.0));
+                CValue::Map(
+                    entries
+                        .into_iter()
+                        .map(|(k, v)| (k.to_owned(), canonical(v)))
+                        .collect(),
+                )
+            }
+            CValue::List(l) => CValue::List(l.iter().map(canonical).collect()),
+            v => v.clone(),
+        }
+    }
+    canonical(v).to_json()
+}
+
+/// Which catalog a store's record index entries were derived under: the exact
+/// resources it was compiled from. Open reindexes on a mismatch, which covers a
+/// crash between a catalog change and its reindex. Derivation changes bump
+/// [`crate::store::DERIVED_DATA_VERSION`] instead.
+pub fn record_meta_stamp(resources: &[(String, String)]) -> Vec<u8> {
+    let mut sorted: Vec<_> = resources.iter().collect();
+    sorted.sort();
+    let mut bytes = b"mdbase/v1/record-meta\0".to_vec();
+    for (path, doc) in sorted {
+        for part in [path, doc] {
+            bytes.extend_from_slice(&(part.len() as u64).to_be_bytes());
+            bytes.extend_from_slice(part.as_bytes());
+        }
+    }
+    mdbn_wire::hash::sha256(&bytes).0.to_vec()
+}
+
+/// The field references the catalog's `unique` rules name: what the store's
+/// unique index covers.
+fn unique_fields(catalog: &Catalog) -> std::collections::BTreeSet<&str> {
+    catalog
+        .types()
+        .iter()
+        .flat_map(|t| t.unique.iter().map(|r| r.field.as_str()))
+        .collect()
 }
 
 /// Derive a record's index entries through the core.
@@ -92,20 +137,13 @@ pub fn record_meta(catalog: &Catalog, path: &str, doc: &str) -> RecordMeta {
     );
     links.sort();
     links.dedup();
+    // Every record, whatever its types, holds index entries for every field a
+    // `unique` rule names: collection and path scopes compare across types.
     let mut unique = Vec::new();
-    for t in catalog.types() {
-        if !membership
-            .types
-            .iter()
-            .any(|m| m.eq_ignore_ascii_case(&t.name))
-        {
-            continue;
-        }
-        for rule in &t.unique {
-            for v in mdbn_core::types::select(fm, &rule.field) {
-                if !v.is_null() {
-                    unique.push((rule.field.clone(), value_key(v)));
-                }
+    for field in unique_fields(catalog) {
+        for v in mdbn_core::types::select(fm, field) {
+            if !v.is_null() {
+                unique.push((field.to_owned(), value_key(v)));
             }
         }
     }

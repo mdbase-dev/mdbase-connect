@@ -7,8 +7,8 @@ import { registerErrorHandler } from "../../platform/error-handler.js";
 import { tokenHash } from "../../security.js";
 import { localGrantFixture } from "./next-fixtures.test-helper.js";
 import { registerNextRouteRoutes } from "./route-routes.js";
-import { LocalRelayBroker } from "../../relay-broker.js";
-import { createHostedCollectionMembership } from "../../collection-policy.js";
+import { LocalRelayBroker } from "../relay/relay-broker.js";
+import { createHostedCollectionMembership } from "../collections/collection-policy.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";

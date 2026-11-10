@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "./test/locale";
+import { act, fireEvent, render, screen, waitFor, within } from "./test/locale";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
@@ -26,6 +26,33 @@ async function selectionAction(name: string) {
 }
 
 describe("bulk notes", () => {
+  it.each([false, true])("keeps a newer Pin Undo when a batch restore completes (partial failure: %s)", async (partialFailure) => {
+    const gateway = new DemoCollectionGateway(4);
+    render(<App gateway={gateway} />);
+    await selectPair();
+    await selectionAction("Delete");
+    const undo = await screen.findByRole("button", { name: "Undo" });
+    const restore = gateway.restore.bind(gateway);
+    let releaseRestore!: () => void;
+    const held = new Promise<void>((resolve) => { releaseRestore = resolve; });
+    const restoring = vi.spyOn(gateway, "restore").mockImplementation(async (document) => {
+      await held;
+      if (partialFailure && document.path === first) throw new Error("Temporarily offline");
+      return restore(document);
+    });
+    fireEvent.click(undo);
+    await waitFor(() => expect(restoring).toHaveBeenCalledOnce());
+    fireEvent.contextMenu(screen.getByRole("option", { name: /A quiet interface 3/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Pin" }));
+    await act(async () => releaseRestore());
+    await waitFor(() => expect(restoring).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled());
+    expect(screen.getByRole("button", { name: "Undo" }).closest('[role="status"]')).toHaveTextContent("Pinned");
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    fireEvent.contextMenu(screen.getByRole("option", { name: /A quiet interface 3/ }));
+    expect(screen.getByRole("menuitem", { name: "Pin" })).toBeInTheDocument();
+  });
+
   it("keeps the anchor open, exposes listbox selection, keyboard range/select all/clear and drag payload", async () => {
     render(<App gateway={new DemoCollectionGateway(5)} />);
     await selectPair();
@@ -165,17 +192,17 @@ describe("bulk notes", () => {
     await screen.findByRole("textbox", { name: "Note body" });
     fireEvent.contextMenu(screen.getByRole("option", { name: /Garden notes 2/ }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Pin" }));
-    expect(screen.getByText("Pinned")).toBeInTheDocument();
+    expect(screen.getByText("Pinned", { selector: ".note-group-header span" })).toBeInTheDocument();
     expect(screen.getAllByRole("option")[0]).toHaveTextContent("Garden notes 2");
     expect(loadPinnedNotes((await gateway.describe()).collectionId)).toEqual([second]);
     expect(write).not.toHaveBeenCalled();
     fireEvent.change(screen.getByRole("combobox", { name: "Search notes and files" }), { target: { value: "Garden" } });
-    await waitFor(() => expect(screen.queryByText("Pinned")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText("Pinned", { selector: ".note-group-header span" })).not.toBeInTheDocument());
     view.unmount();
     render(<App gateway={gateway} />);
-    await screen.findByText("Pinned");
+    await screen.findByText("Pinned", { selector: ".note-group-header span" });
     fireEvent.contextMenu(screen.getByRole("option", { name: /Garden notes 2/ }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Unpin" }));
-    expect(screen.queryByText("Pinned")).not.toBeInTheDocument();
+    expect(screen.queryByText("Pinned", { selector: ".note-group-header span" })).not.toBeInTheDocument();
   });
 });

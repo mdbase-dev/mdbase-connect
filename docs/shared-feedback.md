@@ -47,7 +47,7 @@ longer need it.
 
 - Required: UUID request ID, one of `problem | idea | appreciation`, a description
   of at most 5,000 characters, and bounded application information.
-- Application: one of the four fixed product names, a fixed view identifier,
+- Application: one of the five fixed product names (the four mdbase applications and TaskNotes), a fixed view identifier,
   validated revision or `null`, and production/staging/development/lab.
 - Optional: reply email, explicitly consented collection display name, problem
   diagnostics, and one included screenshot.
@@ -122,7 +122,7 @@ pnpm --filter mdbase-editor check:csp
 consent-only submission, modal closure before permission, cancellation/draft
 restoration, keyboard blackout pixels, final-only attachment, and reduced motion.
 Unit tests also cover late stream cleanup after unmount, idempotent retry IDs,
-verification token reset, diagnostic bounds, four products, three subjects,
+verification token reset, diagnostic bounds, five products, three subjects,
 malformed/private metadata, and legacy Worker submissions.
 
 For **real Chromium self-tab capture**, build the e2e demo and start a local

@@ -21,7 +21,6 @@ const { app } = await buildApp({
   devAuth: true,
   hostedCollections: true,
   hostedReferenceAuthority: true,
-  allowInsecureManifests: true,
   publicUrl: `http://127.0.0.1:${port}`
 });
 await app.listen({ host: "127.0.0.1", port });

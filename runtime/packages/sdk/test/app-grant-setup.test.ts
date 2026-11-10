@@ -44,14 +44,22 @@ describe("Private collection setup",()=>{
     expect(f.requests.filter(r=>r.get(1)==="assess")).toHaveLength(4);
     expect(f.state.attempt).toBeUndefined();expect(f.methods).not.toContain("submit");
   });
-  it("requires re-consent when another setup controller retires a review and the fresh digest differs",async()=>{
+  it("applies a retired review again when it shows the same changes, even though Native's digest differs",async()=>{
     const f=await nativeSetupFixture(JOURNAL),a=await f.setup.plan();
+    // Native's digest binds its head and review clock: a fresh review never matches it.
     f.state.digest=4;const other=privateCollectionSetup(f.input),b=await other.plan();
     expect(a.digest).not.toBe(b.digest);
+    expect(await f.setup.apply(a)).toBe("ready");
+    const applies=f.requests.filter(r=>r.get(1)==="apply");
+    expect(applies).toHaveLength(2);expect(applies[1]!.get(5)).toEqual(new Uint8Array(32).fill(4));
+    expect(f.state.attempt).toBeUndefined();
+  });
+  it("requires re-consent when a retired review comes back showing different changes",async()=>{
+    const f=await nativeSetupFixture(JOURNAL),a=await f.setup.plan();
+    f.state.digest=4;f.state.promoted=2;await privateCollectionSetup(f.input).plan();
     await expect(f.setup.apply(a)).rejects.toMatchObject({code:"conflict",reason:"setup_changed"});
     expect(f.state.installed).toBe(false);expect(f.state.attempt).toBeUndefined();
     expect(f.requests.filter(r=>r.get(1)==="apply")).toHaveLength(1);
-    expect((await f.setup.plan()).digest).toBe(b.digest);
   });
   it("re-plans at most once if another actor retires the replacement review too",async()=>{
     const f=await nativeSetupFixture(JOURNAL),a=await f.setup.plan();f.state.retireOnApply=2;
@@ -79,6 +87,26 @@ describe("Private collection setup",()=>{
     const f=await nativeSetupFixture(JOURNAL),plan=await f.setup.plan();f.state.stale=true;
     await expect(f.setup.apply(plan)).rejects.toMatchObject({code:"conflict",reason:"setup_changed",mutationId:expect.any(String)});
     expect(f.state.installed).toBe(false);expect(f.state.attempt).toBeUndefined();expect(f.methods).not.toContain("submit");
+  });
+  it("reviews again once and applies when Native's recheck refused a stale review that shows the same changes",async()=>{
+    const f=await nativeSetupFixture(JOURNAL),plan=await f.setup.plan();
+    f.state.stale="concurrent_modification";f.state.staleOnce=true;f.state.digest=5;
+    expect(await f.setup.apply(plan)).toBe("ready");
+    expect(f.requests.filter(r=>r.get(1)==="apply")).toHaveLength(2);
+    expect(f.state.attempt).toBeUndefined();
+  });
+  it("reviews again on the new session when the link reconnected after review, and applies the same changes",async()=>{
+    const f=await nativeSetupFixture(JOURNAL),plan=await f.setup.plan(),before=f.client.currentSession();
+    f.reconnect();await expect.poll(()=>{const s=f.client.currentSession();return !!s&&s!==before;}).toBe(true);
+    expect(await f.setup.apply(plan)).toBe("ready");
+    expect(f.requests.filter(r=>r.get(1)==="apply")).toHaveLength(1);
+    expect(f.state.attempt).toBeUndefined();
+  });
+  it("reports a refusal that persists after one fresh review as setup_changed, so the app reviews again",async()=>{
+    const f=await nativeSetupFixture(JOURNAL),plan=await f.setup.plan();f.state.stale="concurrent_modification";
+    await expect(f.setup.apply(plan)).rejects.toMatchObject({code:"conflict",reason:"setup_changed",mutationId:expect.any(String),cause:expect.objectContaining({reason:"concurrent_modification"})});
+    expect(f.state.installed).toBe(false);expect(f.state.attempt).toBeUndefined();
+    expect(f.requests.filter(r=>r.get(1)==="apply")).toHaveLength(2);
   });
   it.each(["conflict","not_found"] as const)("never replays after transport loss even when its code looks like a certified %s",async(dropCode)=>{
     const f=await nativeSetupFixture(JOURNAL,{dropApply:true,dropCode}),plan=await f.setup.plan();
@@ -126,6 +154,14 @@ describe("Private collection setup",()=>{
     await expect(f.setup.apply(await f.setup.plan())).rejects.toMatchObject({code:"outcome_unknown"});
     const mid=f.state.attempt;await expect(privateCollectionSetup(f.input).plan()).rejects.toMatchObject({code:"outcome_unknown",mutationId:mid});
     expect(f.state.attempt).toBe(mid);expect(f.requests.filter(r=>r.get(1)==="apply")).toHaveLength(1);
+  });
+  it("lists the setup record when Core plans only its own receipt, never claiming nothing changes", () => {
+    const plan = setupPlan({ status: "provision", assessmentDigest: `sha256:${"1".repeat(64)}`, review: { configuration: [], staged: [],
+      packs: [{ id: "org.example.tasks", version: "1.1.0", status: "current", installedVersion: "1.1.0", resources: [] }] } }, { canManage: true, canCreateRecords: true, records: [] });
+    expect(plan).toMatchObject({ status: "setup", canApply: true, summary: "This app will make 1 change to this collection." });
+    expect(plan.changes).toEqual([{ kind: "update", target: "Setup record", message: "Update this collection's record of this app's setup. Your notes and note types stay as they are." }]);
+    const current = setupPlan({ status: "current", assessmentDigest: `sha256:${"1".repeat(64)}`, review: { configuration: [], staged: [], packs: [] } }, { canManage: true, canCreateRecords: true, records: [] });
+    expect(current.changes).toEqual([]);
   });
   it("explains the purpose of setup without internal record names, paths or setting keys", () => {
     const resource = (target: string, kind: string) => ({ target, kind, mode: "managed" as const, action: "create" as const, installed: false });

@@ -10,7 +10,7 @@ import { registerApplicationManifest } from "../../manifest.js";
 import { certToJson, ed25519RawPublicKey } from "./policy-keys.js";
 import { certDigest, keyId } from "./policy-wire.js";
 import { localGrantFixture } from "./next-fixtures.test-helper.js";
-import { buildPolicySnapshot, type LeasePolicySnapshot } from "../../relay-policy.js";
+import { buildPolicySnapshot, type LeasePolicySnapshot } from "../relay/relay-policy.js";
 import { pkceChallenge } from "../../security.js";
 import { clientNoiseKeyMessage, copyClientNoiseKeyToGrant, storeRequestClientNoiseKey, verifiedClientNoiseKey, withClientFingerprint } from "./client-key.js";
 import { clientFingerprint } from "./devices.js";

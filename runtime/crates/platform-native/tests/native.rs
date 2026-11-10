@@ -1400,6 +1400,7 @@ mod tentative {
                     dry_run: None,
                     include: None,
                     wait: None,
+                    validation: None,
                 },
             )
             .unwrap()
@@ -1447,6 +1448,134 @@ mod tentative {
         )))
         .unwrap();
         assert_eq!(raw.meta(meta_keys::KEYRING).unwrap(), None);
+    }
+
+    /// The unsynced app composition: a local-only replica over the same
+    /// tentative store, with no log and fresh device keys on every open. Writes
+    /// commit locally, survive a reopen with different keys, and never queue a
+    /// log call or leave a pending row.
+    #[test]
+    fn unsynced_app_replica_commits_locally_and_reopens_with_fresh_keys() {
+        use mdbn_store_file::testing::replica as rp;
+        use mdbn_store_file::testing::wire;
+        use rp::api::{ClientApi, SessionAuth, SessionId};
+        use rp::log::EndpointId;
+        use rp::{DeviceSecrets, Host, Replica, ReplicaConfig, UtcOnly};
+        use wire::client::{HelloParams, SubmitParams, SyncMode};
+        use wire::common::{B16, Text, Version};
+        use wire::intent::{Create, Op};
+
+        let col = B16([8; 16]);
+        let dev = B16([102; 16]);
+        type App = Replica<TentativeStore<SqliteIndex>>;
+        let open = |path: &std::path::Path, seed: u8| -> (App, SessionId) {
+            let (sign, kem) = ([seed; 32], [seed.wrapping_add(1); 32]);
+            let cfg = ReplicaConfig {
+                collection: col,
+                device_id: dev,
+                replica_id: B16([1; 16]),
+                mode: SyncMode::LocalOnly,
+                log_endpoint: EndpointId(0),
+                verify: false,
+                runtime_version: "app-test".into(),
+                trusted_roots: vec![],
+                trusted_signers: vec![dev],
+                e2e: false,
+                user_enabled_cloud_copy: false,
+                chosen_state: None,
+                expected_genesis: None,
+                key_grants_only: false,
+                policy_pins: None,
+            };
+            cfg.validate_host_trust().unwrap();
+            let mut r = Replica::open(
+                cfg,
+                TentativeStore::open(disposable(path), SqlStoreLimits::MOBILE).unwrap(),
+                Box::new(rp::plan::CorePlanner),
+                Box::new(rp::seal::KeyringSealer::new(col, dev, &sign, &kem)),
+                Host {
+                    clock: Box::new(mdbn_core::host::FixedClock(1_700_000_000_000)),
+                    entropy: Box::new(rp::crypto::TestEntropy::new(seed)),
+                    zones: Box::new(UtcOnly),
+                },
+                DeviceSecrets {
+                    sign_sk: sign,
+                    kem_sk: kem,
+                },
+            )
+            .expect("open");
+            let (s, _) = r
+                .hello(
+                    SessionAuth::Host,
+                    HelloParams {
+                        versions: vec![Version { major: 1, minor: 0 }],
+                        client_name: "app".into(),
+                        client_version: "0".into(),
+                        features: None,
+                        timezone: None,
+                    },
+                )
+                .unwrap();
+            (r, s)
+        };
+        let create = |r: &mut App, s, id: u8, path: &str, doc: &str, m: u8| {
+            r.submit(
+                s,
+                SubmitParams {
+                    ops: vec![Op::Create(Create {
+                        id: B16([id; 16]),
+                        path: Some(path.into()),
+                        type_name: None,
+                        frontmatter: None,
+                        body: None,
+                        document: Some(Text::Inline(doc.into())),
+                    })],
+                    mutation_id: Some(B16([m; 16])),
+                    conflict_mode: None,
+                    timezone: None,
+                    allow_partial: None,
+                    mutation_ids: None,
+                    dry_run: None,
+                    include: None,
+                    wait: None,
+                    validation: None,
+                },
+            )
+            .unwrap()
+            .remove(0)
+        };
+        let settle = |r: &mut App| {
+            for _ in 0..5 {
+                r.tick();
+                assert!(
+                    rp::log::LogPort::take_log_calls(r).is_empty(),
+                    "an unsynced replica never calls a log"
+                );
+            }
+        };
+        let doc = |r: &App, id: u8| r.store().record(&B16([id; 16])).unwrap().map(|r| r.doc);
+
+        let dir = scratch("unsynced-app");
+        let path = dir.join("unsynced.db");
+        let (mut a, s) = open(&path, 0x41);
+        create(&mut a, s, 1, "first.md", "first", 0x11);
+        settle(&mut a);
+        assert_eq!(doc(&a, 1).as_deref(), Some("first"));
+        assert_eq!(a.store().pending_count().unwrap(), 0, "committed locally");
+        let status = a.status(s).unwrap();
+        assert_eq!(status.mode, SyncMode::LocalOnly);
+        assert_eq!((status.confirmed_through, status.pending), (0, 0));
+        assert!(a.store().fenced().is_none());
+        drop(a);
+
+        // A new module run: different ephemeral keys, the same store.
+        let (mut a, s) = open(&path, 0x51);
+        assert_eq!(doc(&a, 1).as_deref(), Some("first"));
+        create(&mut a, s, 2, "second.md", "second", 0x22);
+        settle(&mut a);
+        assert_eq!(doc(&a, 2).as_deref(), Some("second"));
+        assert_eq!(a.store().pending_count().unwrap(), 0);
+        assert_eq!(a.store().meta(meta_keys::KEYRING).unwrap(), None);
     }
 }
 

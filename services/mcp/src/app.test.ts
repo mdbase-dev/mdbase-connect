@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -69,7 +70,7 @@ describe("mdbase MCP gateway", () => {
     const keyStore = new PostgresGrantKeyStore(db, config.masterKey);
     const key = await keyStore.create("new-v2-key");
     await gateway.createAuthorizationRequest({
-      state: "new", codeChallenge: pkceChallenge("new-v2-verifier"),
+      authorizationId: randomUUID(), state: "new", codeChallenge: pkceChallenge("new-v2-verifier"),
       operations: [...operations], collectionId: null, grantKey: key
     });
     expect(upstream.authorizationProofs[0]!.binding.contracts).toMatchObject({ semantic_capabilities: 2 });
@@ -102,7 +103,7 @@ describe("mdbase MCP gateway", () => {
       requirements: { access: "full_collection", contracts: [] }
     }, `${config.publicUrl}/oauth/connect/callback`);
     await legacy.createAuthorizationRequest({
-      state: "retained", codeChallenge: pkceChallenge("retained-v1-verifier"), operations: ["query", "update"],
+      authorizationId: randomUUID(), state: "retained", codeChallenge: pkceChallenge("retained-v1-verifier"), operations: ["query", "update"],
       collectionId: null, grantKey: key
     });
     expect(upstream.authorizationProofs[0]!.binding.contracts).toMatchObject({ semantic_capabilities: 1 });
@@ -110,6 +111,7 @@ describe("mdbase MCP gateway", () => {
     const setId = "90000000-0000-4000-8000-000000000001";
     await db.query("INSERT INTO mcp_connection_sets (id) VALUES ($1)", [setId]);
     const connection = await legacy.exchangeAuthorization({
+      authorizationId: upstream.authorizationProofs[0]!.binding.authorization_id, manifestDigest: "a".repeat(64),
       code: "first-upstream-code", verifier: "verifier", applicationId,
       connectionSetId: setId, keyHandle: key.handle
     });
@@ -128,6 +130,150 @@ describe("mdbase MCP gateway", () => {
     expect(await keyStore.get(key.handle)).not.toBeNull();
     await app.close();
     await db.end();
+  });
+
+  it("completes native OAuth, preserves host state and PKCE, rejects replay, and refreshes the same grant", async () => {
+    const fixture = await nativeOAuth();
+    const { app, db, oauth, gateway, callback, clientId, verifier, upstream } = fixture;
+    try {
+      const response = await callback();
+      expect(response.statusCode).toBe(302);
+      const redirect = new URL(response.headers.location!);
+      expect(redirect.origin).toBe("https://client.example");
+      expect(redirect.searchParams.get("state")).toBe("host-state");
+      const exchange = (client = clientId, key = verifier) => app.inject({
+        method: "POST", url: "/oauth/token", payload: {
+          grant_type: "authorization_code", code: redirect.searchParams.get("code"),
+          client_id: client, redirect_uri: "https://client.example/callback", code_verifier: key
+        }
+      });
+      expect((await exchange("another-client")).statusCode).toBe(400);
+      expect((await exchange(clientId, "x".repeat(50))).statusCode).toBe(400);
+      const token = await exchange();
+      expect(token.statusCode).toBe(200);
+      expect((await exchange()).statusCode).toBe(400);
+      expect((await callback()).statusCode).toBe(400);
+      const context = await oauth.authenticate(token.json().access_token);
+      const [connection] = await gateway.listConnections(context!.connectionSetId);
+      expect(connection).toMatchObject({ collection_id: firstCollectionId, authority: "remote" });
+      const warning = vi.spyOn(app.log, "warn");
+      await db.query("UPDATE mcp_connections SET access_expires_at = now() - interval '1 second'");
+      await expect(gateway.operation(context!.connectionSetId, connection!.id, "query", {})).rejects.toMatchObject({
+        code: "no_device_registered", message: expect.stringContaining("turn on sync")
+      });
+      expect(upstream.refreshProofs).toHaveLength(1);
+      expect(upstream.localInputs).toEqual([]);
+      expect(upstream.hostedInputs).toEqual([]);
+      expect(upstream.operationAuthorizations).toEqual([]);
+      expect(warning).toHaveBeenCalledWith({ event: "mcp_native_routing_failed", reason: "no_device_registered" }, "Native MCP routing failed");
+    } finally { await app.close(); await db.end(); }
+  });
+
+  it("claims a native callback only once when duplicate callbacks race", async () => {
+    const fixture = await nativeOAuth();
+    try {
+      const responses = await Promise.all([fixture.callback(), fixture.callback()]);
+      expect(responses.map(response => response.statusCode).sort()).toEqual([302, 400]);
+      expect((await fixture.db.query("SELECT id FROM mcp_connections")).rows).toHaveLength(1);
+      expect((await fixture.db.query("SELECT id FROM mcp_authorization_codes")).rows).toHaveLength(1);
+      expect(fixture.upstream.fetch.mock.calls.filter(([url]) => String(url).endsWith("/oauth/token"))).toHaveLength(1);
+    } finally { await fixture.app.close(); await fixture.db.end(); }
+  });
+
+  it.each(["collection_id", "grant_id"])("binds native operations to the stored completion's %s", async field => {
+    const fixture = await nativeOAuth();
+    try {
+      expect((await fixture.callback()).statusCode).toBe(302);
+      const row = (await fixture.db.query("SELECT id, connection_set_id FROM mcp_connections")).rows[0];
+      await fixture.db.query(`UPDATE mcp_connections SET ${field} = $1`, [randomUUID()]);
+      const calls = fixture.upstream.fetch.mock.calls.length;
+      await expect(fixture.gateway.operation(row.connection_set_id, row.id, "query", {})).rejects.toMatchObject({ code: "grant_key_mismatch" });
+      expect(fixture.upstream.fetch.mock.calls).toHaveLength(calls);
+    } finally { await fixture.app.close(); await fixture.db.end(); }
+  });
+
+  it.each(["grant-key", "noise-key", "host-expired"])("rejects a native callback when %s is missing or inactive", async failure => {
+    const fixture = await nativeOAuth();
+    try {
+      if (failure === "host-expired") await fixture.db.query("UPDATE mcp_authorization_requests SET expires_at = now() - interval '1 second'");
+      else {
+        const pending = (await fixture.db.query("SELECT key_handle FROM mcp_upstream_authorizations")).rows[0];
+        await fixture.db.query("DELETE FROM mcp_grant_keys WHERE handle = $1", [
+          failure === "grant-key" ? pending.key_handle : `mcp-noise:${pending.key_handle}`
+        ]);
+      }
+      expect((await fixture.callback()).statusCode).toBe(failure === "host-expired" ? 400 : 500);
+      expect((await fixture.db.query("SELECT id FROM mcp_connections")).rows).toEqual([]);
+    } finally { await fixture.app.close(); await fixture.db.end(); }
+  });
+
+  it.each([
+    "authorization_request_id", "application_id", "application_declaration_id",
+    "application_manifest_digest", "application_installation_id", "application_origin",
+    "collection_id", "grant_id", "grant_signing_public_key", "client_noise_public_key"
+  ])("rejects a native completion with a mismatched %s before saving a connection", async field => {
+    const fixture = await nativeOAuth({ mutateToken: token => {
+      const completion = token.native_completion;
+      completion[field] = field.endsWith("public_key") ? "b".repeat(completion[field].length)
+        : field === "application_manifest_digest" ? "b".repeat(64)
+        : field === "application_origin" ? "https://other.example"
+        : field === "application_declaration_id" ? "dev.other.app" : randomUUID();
+    } });
+    try {
+      expect((await fixture.callback()).statusCode).toBe(500);
+      expect((await fixture.db.query("SELECT id FROM mcp_connections")).rows).toEqual([]);
+      expect((await fixture.db.query("SELECT id FROM mcp_authorization_codes")).rows).toEqual([]);
+    } finally { await fixture.app.close(); await fixture.db.end(); }
+  });
+
+  it.each(["state", "expired", "replayed-code"])("rejects a native callback with %s", async failure => {
+    const fixture = await nativeOAuth({ rejectCode: failure === "replayed-code" });
+    try {
+      if (failure === "expired") await fixture.db.query("UPDATE mcp_upstream_authorizations SET expires_at = now() - interval '1 second'");
+      const response = await fixture.callback(failure === "state" ? "wrong-state" : undefined);
+      expect(response.statusCode).toBe(failure === "replayed-code" ? 500 : 400);
+      expect((await fixture.db.query("SELECT id FROM mcp_connections")).rows).toEqual([]);
+      if (failure !== "replayed-code") expect(fixture.upstream.fetch.mock.calls.some(([url]) => String(url).endsWith("/oauth/token"))).toBe(false);
+    } finally { await fixture.app.close(); await fixture.db.end(); }
+  });
+
+  it.each(["stripped-legacy", "native-with-legacy-encryption", "native-with-legacy-authority", "wrong-origin"])("rejects %s instead of skipping legacy checks", async attack => {
+    const fixture = await nativeOAuth({ native: attack !== "stripped-legacy", mutateToken: token => {
+      if (attack === "stripped-legacy") { token.encryption = null; delete token.authority; }
+      if (attack === "native-with-legacy-encryption") token.encryption = {
+        protocol_version: 1, suite: "P256-HKDF-SHA256-AES256GCM", key_id: "legacy", scope_epoch: 1,
+        connector_id: randomUUID(), collection_id: token.collection_id,
+        application_agreement_public_key: "a".repeat(87), connector_agreement_public_key: "a".repeat(87)
+      };
+      if (attack === "native-with-legacy-authority") token.authority = {
+        operations_url: "https://legacy.example/operations", sync_url: "https://legacy.example/sync",
+        replica_id: randomUUID(), access_token: "legacy-token", proof_public_key: token.native_completion.grant_signing_public_key
+      };
+      if (attack === "wrong-origin") token.application_origin = "https://other.example";
+    } });
+    try {
+      expect((await fixture.callback()).statusCode).toBe(500);
+      expect((await fixture.db.query("SELECT id FROM mcp_connections")).rows).toEqual([]);
+    } finally { await fixture.app.close(); await fixture.db.end(); }
+  });
+
+  it.each(["removed", "changed", "legacy-upgrade"])("rejects a %s native completion on refresh", async attack => {
+    let refreshing = false;
+    const fixture = await nativeOAuth({ native: () => attack !== "legacy-upgrade" || refreshing, mutateToken: token => {
+      if (!refreshing) return;
+      if (attack === "removed") delete token.native_completion;
+      if (attack === "changed") token.native_completion.account_id = randomUUID();
+    } });
+    try {
+      expect((await fixture.callback()).statusCode).toBe(302);
+      const row = (await fixture.db.query("SELECT id, connection_set_id, credentials_ciphertext FROM mcp_connections")).rows[0];
+      refreshing = true;
+      await fixture.db.query("UPDATE mcp_connections SET access_expires_at = now() - interval '1 second'");
+      const run = vi.spyOn(fixture.gateway.next, "run");
+      await expect(fixture.gateway.operation(row.connection_set_id, row.id, "query", {})).rejects.toBeDefined();
+      expect(run).not.toHaveBeenCalled();
+      expect((await fixture.db.query("SELECT credentials_ciphertext FROM mcp_connections")).rows[0].credentials_ciphertext).toBe(row.credentials_ciphertext);
+    } finally { await fixture.app.close(); await fixture.db.end(); }
   });
 
   it("keeps malformed and oversized request bodies out of the server-error path", async () => {
@@ -525,8 +671,31 @@ function testConfig(): McpRuntimeConfig {
   };
 }
 
-async function fakeUpstream(realFetch: typeof fetch) {
+async function nativeOAuth(options: Parameters<typeof fakeUpstream>[1] = {}) {
+  const upstream = await fakeUpstream(globalThis.fetch, { native: true, ...options });
+  vi.stubGlobal("fetch", upstream.fetch);
+  const db = await createDatabase("memory");
+  const runtime = await buildApp({ db, config: testConfig() });
+  const client = await runtime.oauth.registerClient({ redirect_uris: ["https://client.example/callback"] });
+  const clientId = client.client_id as string;
+  const verifier = "host-pkce-verifier-that-is-long-enough-for-s256-0001";
+  await runtime.oauth.beginAuthorization({
+    response_type: "code", client_id: clientId, redirect_uri: "https://client.example/callback",
+    code_challenge: pkceChallenge(verifier), code_challenge_method: "S256", state: "host-state"
+  });
+  const callback = (state = upstream.authorizationProofs[0]!.binding.state!) => runtime.app.inject({
+    method: "GET", url: `/oauth/connect/callback?${new URLSearchParams({ state, code: "first-upstream-code" })}`
+  });
+  return { ...runtime, db, upstream, callback, clientId, verifier };
+}
+
+async function fakeUpstream(realFetch: typeof fetch, options: {
+  native?: boolean | (() => boolean);
+  mutateToken?: (token: any) => void;
+  rejectCode?: boolean;
+} = {}) {
   const applicationAgreementPublicKeys: string[] = [];
+  const noiseKeys: string[] = [];
   const applicationSigningPublicKeys: string[] = [];
   const authorizationProofs: Array<{
     binding: {
@@ -570,6 +739,7 @@ async function fakeUpstream(realFetch: typeof fetch) {
         body.get("application_authorization")!
       ) as typeof authorizationProofs[number];
       authorizationProofs.push(proof);
+      noiseKeys.push(JSON.parse(body.get("client_noise_key")!).public_key);
       applicationAgreementPublicKeys.push(proof.binding.grant_agreement_public_key);
       applicationSigningPublicKeys.push(proof.binding.grant_signing_public_key);
       return Response.json({
@@ -585,7 +755,8 @@ async function fakeUpstream(realFetch: typeof fetch) {
       const second = body.get("code") === "second-upstream-code"
         || body.get("refresh_token")?.startsWith("upstream-refresh-two") === true;
       if (refreshing) refreshProofs.push(proofHeaders(init));
-      return Response.json({
+      if (options.rejectCode) return Response.json({ error: { code: "invalid_grant" } }, { status: 400 });
+      const token: any = {
         access_token: second
           ? (refreshing ? "upstream-access-two-refreshed" : "upstream-access-two")
           : (refreshing ? "upstream-access-one-refreshed" : "upstream-access-one"),
@@ -617,7 +788,29 @@ async function fakeUpstream(realFetch: typeof fetch) {
           access_token: refreshing ? "hosted-access-two-refreshed" : "hosted-access-two",
           proof_public_key: applicationSigningPublicKeys[1]
         } } : {})
-      });
+      };
+      if (typeof options.native === "function" ? options.native() : options.native) {
+        const binding = authorizationProofs[0]!.binding;
+        token.encryption = null;
+        delete token.authority;
+        token.application_origin = "https://mcp.example";
+        token.native_completion = {
+          version: 1,
+          account_id: "40000000-0000-4000-8000-000000000001",
+          authorization_request_id: binding.authorization_id,
+          application_id: applicationId,
+          application_declaration_id: binding.application_declaration_id,
+          application_manifest_digest: binding.application_manifest_digest,
+          application_installation_id: binding.application_installation_id,
+          application_origin: "https://mcp.example",
+          collection_id: token.collection_id,
+          grant_id: token.grant_id,
+          grant_signing_public_key: binding.grant_signing_public_key,
+          client_noise_public_key: noiseKeys[0]
+        };
+      }
+      options.mutateToken?.(token);
+      return Response.json(token);
     }
     if (url.origin === "https://connect.example" && url.pathname.includes("/operations/")) {
       const headers = new Headers(init?.headers);
@@ -684,6 +877,10 @@ async function fakeUpstream(realFetch: typeof fetch) {
     }
     // A control plane without mdbase-next routing: tools stay on the legacy path.
     if (url.origin === "https://connect.example" && /^\/v1\/next\/collections\/[^/]+\/route$/u.test(url.pathname)) {
+      if (typeof options.native === "function" ? options.native() : options.native) return Response.json({
+        collection: firstCollectionId, grant: firstGrantId, targets: [],
+        availability: { state: "unavailable", reason: "no_device_registered" }
+      });
       return Response.json({ error: { code: "not_found", message: "Not found" } }, { status: 404 });
     }
     if (url.hostname === "127.0.0.1") return realFetch(input, init);

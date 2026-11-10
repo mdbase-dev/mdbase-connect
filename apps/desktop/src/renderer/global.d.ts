@@ -15,6 +15,13 @@ interface DaemonStatus {
   collections: DaemonCollection[];
 }
 
+/** Which files a collection syncs on every device (`mdbase sync files`). */
+interface SyncFiles {
+  include: Array<"image" | "audio" | "video" | "pdf" | "other">;
+  exclude: string[];
+  max_size?: number;
+}
+
 interface SyncCounters {
   confirmed_through: number;
   head_known: number;
@@ -76,6 +83,16 @@ interface AccessEntry {
   fingerprint?: string;
   /** The app's requested access could not be fetched from mdbase; it cannot be approved yet. */
   terms_unavailable?: boolean;
+}
+
+/** `account.applications`: an app approved anywhere in the account. */
+interface AccountApplication {
+  id: string;
+  name: string;
+  distribution: "web" | "portable";
+  homepage: string | null;
+  icon: string | null;
+  collections: Array<{ id: string; name: string }>;
 }
 
 /** `device.pending` entry: another computer asking to open a Private collection. */
@@ -161,11 +178,15 @@ interface Window {
     enableSync(collectionId: string, mode: "private" | "cloud-copy", acceptTakeoverHolds: boolean): Promise<unknown>;
     collectionModeStatus(collectionId: string): Promise<unknown>;
     changeCollectionMode(collectionId: string, targetMode: "private" | "cloud_copy", resume: boolean, cancel?: boolean): Promise<unknown>;
+    syncFiles(collectionId: string): Promise<SyncFiles>;
+    setSyncFiles(collectionId: string, files: SyncFiles): Promise<SyncFiles>;
     disableSync(collectionId: string): Promise<unknown>;
     listHolds(collectionId: string): Promise<HoldSummary[]>;
     resolveHold(collectionId: string, id: string, how: "keep_mine" | "take_theirs" | "keep_both" | "delete"): Promise<unknown>;
     openCollectionFolder(collectionId: string): Promise<void>;
     openEditor(collectionId: string): Promise<void>;
+    listApps(): Promise<{ applications: AccountApplication[] }>;
+    openApp(url: string): Promise<void>;
     getLaunchAtLogin(): Promise<StartupSetting>;
     setLaunchAtLogin(enabled: boolean): Promise<StartupSetting>;
     getCloudConfig(): Promise<CloudSetting>;

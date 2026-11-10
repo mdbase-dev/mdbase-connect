@@ -56,7 +56,8 @@ export async function buildApp(options: BuildOptions) {
     keyStore,
     config.connectUrl,
     manifest,
-    `${config.publicUrl}/oauth/connect/callback`
+    `${config.publicUrl}/oauth/connect/callback`,
+    fields => app.log.warn(fields, "Native MCP routing failed")
   );
   const oauth = new OAuthService(options.db, gateway, keyStore, config.publicUrl, config.resource);
   const resourceMetadataUrl = `${config.publicUrl}/.well-known/oauth-protected-resource/mcp`;

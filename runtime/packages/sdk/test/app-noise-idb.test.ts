@@ -11,7 +11,7 @@ function fixture() {
 afterEach(() => vi.unstubAllGlobals());
 describe("opaque IndexedDB Noise store entry boundary", () => {
   it.each(["https://foreign.test", "not-an-origin"])("denies unapproved or non-origin %s before IO", async value => {
-    const f = fixture(); await expect(AppIndexedDbNoiseProtectedStore.open({ ...f.options, origin: value, allowLoopbackHttp: true })).rejects.toThrow("app noise custody store unavailable"); expect(f.open).not.toHaveBeenCalled();
+    const f = fixture(); await expect(AppIndexedDbNoiseProtectedStore.open({ ...f.options, origin: value })).rejects.toThrow("app noise custody store unavailable"); expect(f.open).not.toHaveBeenCalled();
   });
   it.each(["installationId"] as const)("denies nil %s before IO", async key => {
     const f = fixture(); f.options.source[key] = "00000000-0000-0000-0000-000000000000"; await expect(AppIndexedDbNoiseProtectedStore.open(f.options)).rejects.toThrow("unavailable"); expect(f.open).not.toHaveBeenCalled();

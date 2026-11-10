@@ -4,6 +4,14 @@ import { loadPreferences, savePreferences, defaultPreferences } from "./preferen
 import { loadPinnedNotes, savePinnedNotes } from "./note-list-view";
 
 describe("editor command registry", () => {
+  it("puts live Undo and the actual action context ahead of recent global commands", () => {
+    const commands = buildEditorCommands(Object.fromEntries(Object.keys(commandDefinitions).map(id => [id, vi.fn()])));
+    commands.find(entry => entry.id === "rename")!.context = "Garden notes";
+    rememberCommand("new-note");
+    expect(filterCommands(commands, "").slice(0, 2).map(entry => entry.id)).toEqual(["undo", "rename"]);
+    expect(filterCommands(commands, "rename")[0].context).toBe("Garden notes");
+    expect(filterCommands([{ id: "pin", label: "Pin", run: vi.fn() }, { id: "unpin", label: "Unpin", context: "Garden notes", run: vi.fn() }], "pin")[0].id).toBe("pin");
+  });
   it("binds one canonical label and shortcut per supported action", () => {
     const handlers = Object.fromEntries(Object.keys(commandDefinitions).map((id) => [id, vi.fn()]));
     const commands = buildEditorCommands(handlers);

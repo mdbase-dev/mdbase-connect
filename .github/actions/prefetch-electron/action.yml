@@ -1,0 +1,26 @@
+name: Prefetch verified Electron
+description: Fill the pinned Electron cache through authenticated GitHub release assets
+inputs:
+  token:
+    description: Job token with contents read
+    required: true
+  root:
+    description: Connect checkout relative to the workspace
+    default: '.'
+runs:
+  using: composite
+  steps:
+    - id: plan
+      shell: bash
+      env:
+        CONNECT_ROOT: ${{ inputs.root }}
+      run: node "$GITHUB_ACTION_PATH/../../../scripts/ci/prefetch-release.mjs" electron-plan "$GITHUB_WORKSPACE/$CONNECT_ROOT"
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.plan.outputs.cache }}
+        key: electron-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.plan.outputs.version }}
+    - shell: bash
+      env:
+        CONNECT_ROOT: ${{ inputs.root }}
+        GITHUB_TOKEN: ${{ inputs.token }}
+      run: node "$GITHUB_ACTION_PATH/../../../scripts/ci/prefetch-release.mjs" electron-fetch "$GITHUB_WORKSPACE/$CONNECT_ROOT"

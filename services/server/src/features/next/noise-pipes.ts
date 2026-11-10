@@ -11,8 +11,8 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type { WebSocket } from "ws";
 import type { DatabasePool } from "../../database-types.js";
-import { pipeSubject, type RelayBroker, type RelayBrokerBinding } from "../../relay-broker.js";
-import { currentRelayGeneration } from "../../relay-compatibility.js";
+import { pipeSubject, type RelayBroker, type RelayBrokerBinding } from "../relay/relay-broker.js";
+import { currentRelayGeneration } from "../relay/relay-compatibility.js";
 import { tokenHash } from "../../security.js";
 import { nativeAdmission } from "./native-grant-target.js";
 

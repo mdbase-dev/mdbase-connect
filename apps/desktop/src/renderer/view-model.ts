@@ -24,6 +24,9 @@ export function message(error: unknown): string {
 export function syncEnableMessage(error: unknown): string {
   const detail = rawMessage(error);
   const unchanged = t(i18n)({ message: "The folder and its files are unchanged." });
+  if (/source_capture_incomplete|source capture did not complete/i.test(detail)) {
+    return t(i18n)`Sync setup stopped, and the collection is paused. Close this window, then choose Resume before trying again. ${unchanged}`;
+  }
   if (/no authenticated trust|trust_missing|cannot sync yet/i.test(detail)) {
     return t(i18n)`This version of mdbase can't turn on sync. Update mdbase, then try again. ${unchanged}`;
   }

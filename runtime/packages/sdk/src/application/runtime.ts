@@ -5,10 +5,11 @@ import type {compileApplicationManifest} from "./manifest.js";
 import type {MdbaseApplicationConnection,MdbaseApplicationProblem,MdbaseApplicationReadinessSnapshot,MdbaseApplicationRequestOptions,MdbaseApplicationSnapshot as PublicSnapshot,MdbaseSignOutOptions} from "./entry.js";
 import {pendingWrites,signOutPendingWritesError} from "./sign-out.js";
 import {ApplicationScope} from "./scope.js";
-import {applicationLoopbackAllowed} from "./local-build.js";
+import {ApplicationUiConnections} from "./ui-connections.js";
+import {serviceLoopbackAllowed} from "./local-build.js";
 import {consentedFileActions} from "./file-access.js";
 import type {MdbaseSetupPlan,MdbaseSetupPlanOptions} from "./setup.js";
-import {ApplicationWorkerClient} from "./worker-client.js";
+import {ApplicationWorkerClient,ApplicationWorkerReplyError} from "./worker-client.js";
 import {browserApplicationPortalHost,reserveApplicationPortal} from "./portal-reservation.js";
 
 /** Runtime view; the public entry adds its collection selection. */
@@ -40,17 +41,20 @@ const emptyReadiness=():MdbaseApplicationReadinessSnapshot=>{
  * class is installed on the public entry. Source tests alone are not acceptance. */
 export class ApplicationRuntime {
   private readonly lifetime=new AbortController();private readonly scope:ApplicationScope;
-  private readonly worker:ApplicationWorkerClient;private readonly cpOrigin:string;private readonly lab:boolean;
+  private readonly worker:ApplicationWorkerClient;private readonly cpOrigin:string;private readonly lab:boolean;private readonly appName:string;
+  /** Set while this tab attaches the unsynced collection as a transfer source:
+   * that request's ports go to the source, not the open collection. */
+  private sourceAdopt:((value:AppWebCollectionHandoff,caller:AbortSignal)=>Promise<void>)|null=null;
   private readonly listeners=new Set<()=>void>();private readonly unsubscribe:()=>void;
   private raw:AppWebSignInSnapshot=Object.freeze({status:"not_started",collections:Object.freeze([]),selectedCollectionId:null,signIn:null,problem:null,timing:null});
   private snapshot:MdbaseApplicationSnapshot=Object.freeze({...this.raw,readiness:emptyReadiness()});
   private pending:Promise<MdbaseApplicationSnapshot>|null=null;private closing:Promise<void>|null=null;private epoch=0;private loggedProblem:string|null=null;private assessing=false;private retiring=false;private closed=false;private stopped=false;private stopFailed=false;
   constructor(input:ApplicationRuntimeActivation){
-    this.cpOrigin=input.cpOrigin;this.lab=applicationLoopbackAllowed(input.declaration.environment);
+    this.cpOrigin=input.cpOrigin;this.appName=input.declaration.name;this.lab=serviceLoopbackAllowed(input.declaration.environment);
     this.scope=new ApplicationScope(input.compiledManifest,{name:input.declaration.name,version:"1"},this.lifetime.signal,input.typeIssues,id=>consentedFileActions(this.raw,id));
     this.worker=new ApplicationWorkerClient(input.port,input.binding,{
       snapshot:value=>{if(!this.closed){this.raw=value;this.followSession();this.publish();}},
-      handoff:(value,caller)=>{const epoch=this.epoch;return this.scope.adopt(value,caller,()=>!this.closed&&this.epoch===epoch).then(()=>{this.portsFailed=null;},error=>{this.portsFailed=value.scope.collection;throw error;});},
+      handoff:(value,caller)=>{if(this.sourceAdopt)return this.sourceAdopt(value,caller);const epoch=this.epoch;return this.scope.adopt(value,caller,()=>!this.closed&&this.epoch===epoch).then(()=>{this.portsFailed=null;},error=>{this.portsFailed=value.scope.collection;throw error;});},
       attached:value=>this.attached(value),
       releaseWorker:input.releaseWorker,
       ...(input.nativeAuthorization?{nativeAuthorization:input.nativeAuthorization}:{}),
@@ -183,6 +187,67 @@ export class ApplicationRuntime {
       // UI retirement above is not the native shutdown/SQL/lease certificate.
       return this.complete(await this.worker.request("select",id,caller),caller);
     },caller);
+  }
+  /** Open this app's unsynced collection in this tab (work before connecting).
+   * The Worker creates it on first use; the sign-in session is unchanged. */
+  openUnsynced(options:MdbaseApplicationRequestOptions={}):Promise<MdbaseApplicationSnapshot>{
+    const caller=this.signal(options);return this.action(async()=>{
+      const shown=this.raw.unsynced?.collectionId??null;
+      if(shown!==null&&this.raw.selectedCollectionId===shown&&(this.raw.status==="ready"||this.raw.status==="setup_required")&&this.scope.connection(shown)?.isCurrent()){
+        if(this.snapshot.status==="blocked")return this.complete(this.raw,caller);
+        return this.snapshot;
+      }
+      ++this.epoch;const retired=this.retireOwn();this.publish();await retired;
+      if(this.closed||caller.aborted)throw new ApplicationRuntimeError("application_fenced");
+      return this.complete(await this.worker.request("openUnsynced",null,caller),caller);
+    },caller);
+  }
+  /** After a complete transfer into this tab's open collection: keep the
+   * unsynced collection as a retired copy and start the next one empty. False
+   * while another tab still shows it (transfer again from there to finish). */
+  async retireUnsynced(source:string,destination:string,options:MdbaseApplicationRequestOptions={}):Promise<boolean>{
+    const caller=this.signal(options);let retired=true;
+    await this.queue(()=>this.action(async()=>{
+      try{return this.complete(await this.worker.request("retireUnsynced",[source,destination],caller),caller);}
+      catch(error){if(error instanceof ApplicationWorkerReplyError&&error.code==="application_worker_busy"){retired=false;return this.snapshot;}throw error;}
+    },caller));
+    return retired;
+  }
+  /** Erase the unsynced collection from this browser. A tab that showed it
+   * continues in a new, empty one. */
+  discardUnsynced(options:MdbaseApplicationRequestOptions={}):Promise<MdbaseApplicationSnapshot>{
+    const caller=this.signal(options);return this.action(async()=>{
+      const shown=this.raw.unsynced?.collectionId??null,showing=shown!==null&&this.raw.selectedCollectionId===shown;
+      if(showing){
+        ++this.epoch;const retired=this.retireOwn();this.publish();await retired;
+        if(this.closed||caller.aborted)throw new ApplicationRuntimeError("application_fenced");
+      }
+      try{return this.complete(await this.worker.request("discardUnsynced",null,caller),caller);}
+      catch(error){
+        // Refused (another tab still works in it): show it here again, then report the refusal.
+        if(showing&&error instanceof ApplicationWorkerReplyError&&error.code==="application_worker_busy"&&!this.closed&&!caller.aborted)
+          this.complete(await this.worker.request("openUnsynced",null,caller),caller);
+        throw error;
+      }
+    },caller);
+  }
+  /** Read the unsynced collection beside this tab's open one (an unsynced
+   * transfer's source). Its ports close when `work` settles. */
+  async withUnsyncedSource<T>(work:(source:MdbaseApplicationConnection,signal:AbortSignal)=>Promise<T>,options:MdbaseApplicationRequestOptions={}):Promise<T>{
+    const caller=this.signal(options),ui=new ApplicationUiConnections({name:this.appName,version:"1"},caller);
+    let adopted:Promise<MdbaseApplicationConnection>|null=null;
+    try{
+      await this.queue(()=>this.action(async()=>{
+        this.sourceAdopt=(value,signal)=>{adopted=ui.adopt(value,{caller:signal,isCurrent:()=>!this.closed&&!caller.aborted});return adopted.then(()=>{});};
+        try{await this.worker.request("attachUnsynced",null,caller);}finally{this.sourceAdopt=null;}
+        return this.snapshot;
+      },caller));
+      if(!adopted)throw new ApplicationRuntimeError("application_connection_unavailable");
+      return await work(await adopted,caller);
+    }finally{
+      await ui.close().catch(()=>{});
+      if(!this.closed){const signal=this.lifetime.signal;await this.queue(()=>this.action(async()=>{await this.worker.request("detachUnsynced",null,signal);return this.snapshot;},signal)).catch(()=>{});}
+    }
   }
   assess(options:MdbaseApplicationRequestOptions={}):Promise<MdbaseApplicationReadinessSnapshot>{
     const caller=this.signal(options);

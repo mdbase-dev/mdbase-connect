@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { FileAssetSnapshot, FileAssetStore } from "./file-asset-store";
 import { fileAssetKey } from "./file-reference-resolution";
+import type { LinkTargets } from "./collection-links";
 import type { CollectionFile } from "./model";
 import { useEmbeddedFileAssets, useFileAsset } from "./use-file-assets";
 
@@ -10,7 +11,7 @@ export function useFileWorkspace(
   store: FileAssetStore,
   files: readonly CollectionFile[],
   source: string,
-  sourcePath?: string,
+  linkTargets?: LinkTargets,
   visibleEmbedKeys?: ReadonlySet<string>
 ) {
   // A store belongs to one gateway scope. Never carry selection or a cached URL
@@ -31,14 +32,14 @@ export function useFileWorkspace(
   // neither an old ready payload nor an old error may flash for new metadata.
   const selectedFile = current && (fileAssetKey(current) === fileAssetKey(original!) ? original : current);
   const selectedAsset = useFileAsset(store, selectedFile);
-  const embeddedFiles = useEmbeddedFileAssets(store, source, files, sourcePath, visibleEmbedKeys);
+  const embeddedFiles = useEmbeddedFileAssets(store, source, files, linkTargets, visibleEmbedKeys);
   const candidate = preview?.store === store ? preview.asset : undefined;
   const listed = candidate && files.find((file) => file.fileId === candidate.file.fileId);
   const cached = candidate && store.get(candidate.file);
   const openAsset = candidate && listed && fileAssetKey(listed) === fileAssetKey(candidate.file)
     && cached?.status === "ready" && cached.url === candidate.url ? candidate : undefined;
 
-  useEffect(() => setPreview(undefined), [sourcePath]);
+  useEffect(() => setPreview(undefined), [linkTargets?.from]);
   useEffect(() => openAsset ? store.acquire(openAsset.file) : undefined, [openAsset, store]);
   useEffect(() => {
     if (preview && !openAsset) setPreview(undefined);

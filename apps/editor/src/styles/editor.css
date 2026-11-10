@@ -1,8 +1,7 @@
 .writing-surface, .new-note-composer {
   --writing-measure: 760px;
-  /* A fitting desktop column keeps its full measure as the inspector docks.
-     Gutters grow only once the pane is narrower than that measure. */
-  --writing-gutter: clamp(0px, calc((var(--writing-measure) - 100cqi) / 4), var(--space-6));
+  /* The minimum side margin; wider panes centre the measure beyond it. */
+  --writing-gutter: var(--space-6);
 }
 
 .writing-surface {
@@ -156,6 +155,24 @@
 .code-editor-writer .cm-rendered-link:hover {
   color: var(--accent);
   text-decoration-thickness: 2px;
+}
+
+.code-editor-writer .cm-rendered-link-missing {
+  color: var(--muted);
+  text-decoration-style: dashed;
+}
+
+/* Wrapped list items hang under their text, not under the marker. */
+.code-editor-writer .cm-line.cm-list-line {
+  padding-left: calc(6px + var(--list-indent));
+  text-indent: calc(-1 * var(--list-indent));
+}
+
+.code-editor-writer .cm-list-prefix {
+  display: inline-block;
+  min-width: var(--list-indent);
+  text-indent: 0;
+  white-space: pre;
 }
 
 .code-editor-writer .cm-task-checkbox {

@@ -1,7 +1,7 @@
 //! Native ClientApi + real Core planner/validator over MemStore. Not SQL, browser,
 //! app-intake, transport cancellation or operational qualification.
 use super::engine::{Node, node, settle};
-use crate::api::{ClientApi, ErrorCode, SessionId, Target};
+use crate::api::{ClientApi, ErrorCode, SessionId, Target, Validate};
 use crate::fake::FakeLogService;
 use crate::mem::MemStore;
 use crate::{Store, Tx};
@@ -50,6 +50,7 @@ fn narrow_schema(a: &mut Node) {
                 dry_run: None,
                 include: None,
                 wait: None,
+                validation: None,
             },
         )
         .unwrap();
@@ -92,7 +93,7 @@ fn validation_schema_diagnostics_bind_actual_pending_and_confirmed_document_with
     let rows =
         a.r.validate(
             a.s,
-            Some(vec![
+            Validate::Targets(vec![
                 target(10),
                 Target::Path(seen.path.clone()),
                 target(10),
@@ -124,7 +125,9 @@ fn validation_schema_diagnostics_bind_actual_pending_and_confirmed_document_with
     settle(&mut [&mut a]);
     let confirmed = actual(&mut a, 10);
     assert_eq!(
-        a.r.validate(a.s, Some(vec![target(10)])).unwrap()[0].revision,
+        a.r.validate(a.s, Validate::Targets(vec![target(10)]))
+            .unwrap()[0]
+            .revision,
         confirmed.revision
     );
     assert_eq!(seen.id, confirmed.id);
@@ -147,7 +150,9 @@ fn validation_off_still_reports_explicit_warnings_and_core_cross_record_links_an
         ReceiptState::Pending
     );
     narrow_schema(&mut a);
-    let rows = a.r.validate(a.s, Some(vec![target(10)])).unwrap();
+    let rows =
+        a.r.validate(a.s, Validate::Targets(vec![target(10)]))
+            .unwrap();
     let codes: Vec<_> = rows[0].issues.iter().map(|i| i.code.as_str()).collect();
     assert!(codes.contains(&"schema_type"), "{codes:?}");
     assert!(codes.contains(&"link_not_found"), "{codes:?}");
@@ -164,7 +169,7 @@ fn validation_off_still_reports_explicit_warnings_and_core_cross_record_links_an
             .iter()
             .any(|i| i.tier == mdbn_core::validate::Tier::CrossRecord)
     );
-    assert_eq!(a.r.validate(a.s, None).unwrap().len(), 2);
+    assert_eq!(a.r.validate(a.s, Validate::All).unwrap().len(), 2);
 }
 #[test]
 fn validation_error_level_retains_real_core_error_severity() {
@@ -175,7 +180,9 @@ fn validation_error_level_retains_real_core_error_severity() {
         ReceiptState::Pending
     );
     narrow_schema(&mut a);
-    let rows = a.r.validate(a.s, Some(vec![target(10)])).unwrap();
+    let rows =
+        a.r.validate(a.s, Validate::Targets(vec![target(10)]))
+            .unwrap();
     assert!(
         rows[0]
             .issues
@@ -193,27 +200,30 @@ fn validation_missing_or_closed_session_refuses_whole_batch_not_empty_success() 
         "---\ntitle: Good\ndone: true\n---\nGood\n",
     );
     assert!(
-        a.r.validate(a.s, Some(vec![target(10)])).unwrap()[0]
+        a.r.validate(a.s, Validate::Targets(vec![target(10)]))
+            .unwrap()[0]
             .issues
             .is_empty()
     );
     for missing in [target(99), Target::Path("missing.md".into())] {
         assert_eq!(
-            a.r.validate(a.s, Some(vec![target(10), missing]))
+            a.r.validate(a.s, Validate::Targets(vec![target(10), missing]))
                 .unwrap_err()
                 .code(),
             Some(ErrorCode::NotFound)
         );
     }
     assert_eq!(
-        a.r.validate(SessionId(999), Some(vec![]))
+        a.r.validate(SessionId(999), Validate::Targets(vec![]))
             .unwrap_err()
             .code(),
         Some(ErrorCode::Unauthenticated)
     );
     a.r.close(a.s);
     assert_eq!(
-        a.r.validate(a.s, Some(vec![])).unwrap_err().code(),
+        a.r.validate(a.s, Validate::Targets(vec![]))
+            .unwrap_err()
+            .code(),
         Some(ErrorCode::Unauthenticated)
     );
 }
@@ -221,21 +231,25 @@ fn validation_missing_or_closed_session_refuses_whole_batch_not_empty_success() 
 fn validation_bounded_targets_and_paths_refuse_before_any_diagnostics() {
     let (_, mut a) = configured("error", false);
     assert_eq!(
-        a.r.validate(a.s, Some(vec![target(10); 1001]))
+        a.r.validate(a.s, Validate::Targets(vec![target(10); 1001]))
             .unwrap_err()
             .code(),
         Some(ErrorCode::TooLarge)
     );
     for path in ["".to_owned(), "é".repeat(2049)] {
         assert_eq!(
-            a.r.validate(a.s, Some(vec![Target::Path(path)]))
+            a.r.validate(a.s, Validate::Targets(vec![Target::Path(path)]))
                 .unwrap_err()
                 .code(),
             Some(ErrorCode::InvalidRequest)
         );
     }
-    assert!(a.r.validate(a.s, Some(vec![])).unwrap().is_empty());
-    assert!(a.r.validate(a.s, None).unwrap().is_empty());
+    assert!(
+        a.r.validate(a.s, Validate::Targets(vec![]))
+            .unwrap()
+            .is_empty()
+    );
+    assert!(a.r.validate(a.s, Validate::All).unwrap().is_empty());
 }
 #[test]
 fn validation_rechecks_actual_grant_authorization_not_hello_snapshot() {
@@ -245,7 +259,9 @@ fn validation_rechecks_actual_grant_authorization_not_hello_snapshot() {
         client_pk: [88; 32],
     };
     assert_eq!(
-        a.r.validate(a.s, Some(vec![])).unwrap_err().code(),
+        a.r.validate(a.s, Validate::Targets(vec![]))
+            .unwrap_err()
+            .code(),
         Some(ErrorCode::Unauthenticated)
     );
 }
@@ -277,7 +293,9 @@ fn validation_oversized_real_core_diagnostics_refuse_instead_of_truncating() {
             ..Tx::default()
         })
         .unwrap();
-    let error = a.r.validate(a.s, Some(vec![target(10)])).unwrap_err();
+    let error =
+        a.r.validate(a.s, Validate::Targets(vec![target(10)]))
+            .unwrap_err();
     assert_eq!(error.code(), Some(ErrorCode::TooLarge));
     assert_eq!(error.0.reason.as_deref(), Some("validation_budget"));
 }
@@ -295,7 +313,7 @@ fn validation_invalid_catalog_is_not_a_false_clean_record() {
     let mut a = node(&service, 1, store);
     settle(&mut [&mut a]);
     assert_eq!(
-        a.r.validate(a.s, None).unwrap_err().code(),
+        a.r.validate(a.s, Validate::All).unwrap_err().code(),
         Some(ErrorCode::CollectionInvalid)
     );
 }
@@ -315,7 +333,7 @@ fn validation_document_and_collection_inventory_limits_refuse_whole_result() {
         })
         .unwrap();
     assert_eq!(
-        a.r.validate(a.s, Some(vec![target(10)]))
+        a.r.validate(a.s, Validate::Targets(vec![target(10)]))
             .unwrap_err()
             .code(),
         Some(ErrorCode::TooLarge)
@@ -336,13 +354,315 @@ fn validation_document_and_collection_inventory_limits_refuse_whole_result() {
         })
         .unwrap();
     assert_eq!(
-        a.r.validate(a.s, None).unwrap_err().code(),
+        a.r.validate(a.s, Validate::All).unwrap_err().code(),
         Some(ErrorCode::TooLarge)
     );
     // An explicit non-unique record does not implicitly sweep a large collection.
     assert!(
-        a.r.validate(a.s, Some(vec![target(10)])).unwrap()[0]
+        a.r.validate(a.s, Validate::Targets(vec![target(10)]))
+            .unwrap()[0]
             .issues
             .is_empty()
+    );
+}
+
+fn create_at(
+    a: &mut Node,
+    id: u8,
+    doc: &str,
+    validation: Option<mdbn_wire::intent::Level>,
+) -> mdbn_wire::client::Receipt {
+    let mut r =
+        a.r.submit(
+            a.s,
+            SubmitParams {
+                ops: vec![Op::Create(mdbn_wire::intent::Create {
+                    id: B16([id; 16]),
+                    path: Some(format!("tasks/{id}.md")),
+                    type_name: None,
+                    frontmatter: None,
+                    body: None,
+                    document: Some(Text::Inline(doc.into())),
+                })],
+                mutation_id: None,
+                conflict_mode: None,
+                timezone: None,
+                allow_partial: None,
+                mutation_ids: None,
+                dry_run: None,
+                include: None,
+                wait: None,
+                validation,
+            },
+        )
+        .unwrap();
+    r.remove(0)
+}
+const UNTITLED: &str = "---\ndone: true\n---\nNo title\n";
+
+// Spec 04: `settings.validation` decides whether a single-record issue rejects an
+// engine write; only `error` does.
+#[test]
+fn submit_follows_the_collection_validation_level() {
+    for (level, rejected) in [("off", false), ("warn", false), ("error", true)] {
+        let (_, mut a) = configured(level, false);
+        let receipt = create_at(&mut a, 20, UNTITLED, None);
+        if rejected {
+            assert_eq!(receipt.state, ReceiptState::Rejected, "{level}");
+            assert_eq!(receipt.problem.as_ref().unwrap().code, "invalid_record");
+            assert!(a.doc(20).is_none());
+        } else {
+            assert_eq!(
+                receipt.state,
+                ReceiptState::Pending,
+                "{level}: {:?}",
+                receipt.problem
+            );
+            settle(&mut [&mut a]);
+            assert_eq!(a.doc(20).as_deref(), Some(UNTITLED), "{level}");
+        }
+    }
+}
+
+// A sync tool carries files, which are never rejected for validity (spec 04), so
+// it asks for a lower level than the collection's; an editor may ask for a higher one.
+#[test]
+fn submit_validation_param_overrides_the_collection_level() {
+    use mdbn_wire::intent::Level;
+    let (_, mut a) = configured("error", false);
+    let receipt = create_at(&mut a, 21, UNTITLED, Some(Level::Warn));
+    assert_eq!(
+        receipt.state,
+        ReceiptState::Pending,
+        "{:?}",
+        receipt.problem
+    );
+    settle(&mut [&mut a]);
+    assert_eq!(a.doc(21).as_deref(), Some(UNTITLED));
+    let receipt = create_at(&mut a, 22, UNTITLED, Some(Level::Off));
+    assert_eq!(
+        receipt.state,
+        ReceiptState::Pending,
+        "{:?}",
+        receipt.problem
+    );
+
+    let (_, mut b) = configured("warn", false);
+    let receipt = create_at(&mut b, 23, UNTITLED, Some(Level::Error));
+    assert_eq!(receipt.state, ReceiptState::Rejected);
+    assert_eq!(receipt.problem.as_ref().unwrap().code, "invalid_record");
+}
+
+/// A task type with a collection-scoped `slug` rule, beside a note type
+/// without one.
+fn collection_unique() -> (FakeLogService, Node) {
+    let service = FakeLogService::new();
+    let mut store = MemStore::new();
+    let task = "---\nkind: mdbase.type\nname: Task\nmatch:\n  path_glob: 'tasks/**/*.md'\nschema:\n  dialect: json-schema-2020-12\n  value: {type: object}\ncollection:\n  unique:\n    - field: slug\n      enforce: report\n      scope: collection\n---\n";
+    let note = "---\nkind: mdbase.type\nname: Note\nmatch:\n  path_glob: 'notes/**/*.md'\nschema:\n  dialect: json-schema-2020-12\n  value: {type: object}\n---\n";
+    store
+        .commit(Tx {
+            resources_put: vec![
+                ("mdbase.yaml".into(), "spec_version: '0.3.0'\n".into()),
+                ("_types/task.md".into(), task.into()),
+                ("_types/note.md".into(), note.into()),
+            ],
+            ..Tx::default()
+        })
+        .unwrap();
+    let mut a = node(&service, 1, store);
+    a.r.planner = Box::new(crate::plan::CorePlanner);
+    settle(&mut [&mut a]);
+    assert!(a.r.catalog.is_valid(), "{:?}", a.r.catalog.issues());
+    (service, a)
+}
+
+#[test]
+fn validation_unique_candidates_follow_pending_path_policy_changes() {
+    use mdbn_core::ids::Uuid;
+    use mdbn_core::plan::Effect;
+    use mdbn_core::state::{MemState, Overlay, StateView};
+    use mdbn_core::value::Value;
+
+    let mut base = MemState::new();
+    base.insert_resource("mdbase.yaml", "spec_version: '0.3.0'\n");
+    let definition = "---\nkind: mdbase.type\nname: Task\nmatch: {path_glob: 'tasks/*.md'}\nschema:\n  dialect: json-schema-2020-12\n  value: {type: object, properties: {title: {type: string}}}\ncollection:\n  path: {pattern: 'tasks/{title}.md', fields: [title]}\n  unique: [{field: title, enforce: report}]\n---\n";
+    base.insert_resource("_types/task.md", definition);
+    let id = Uuid([10; 16]);
+    base.insert_record(id, "tasks/A Same.md", "body");
+    let changed = Effect::PutResource {
+        path: "_types/task.md".into(),
+        doc: definition.replace("tasks/{title}.md", "tasks/{prefix} {title}.md"),
+    };
+    let mut overlay = Overlay::new(&base);
+    overlay.apply_effect(&changed);
+    let mut layer = crate::layer::Layer::default();
+    layer.apply_effect(&base, &changed);
+    let local = crate::layer::LayerView {
+        base: &base,
+        layer: &layer,
+    };
+    assert!(
+        base.with_value("title", &Value::string("A Same"))
+            .contains(&id)
+    );
+    assert!(
+        !base
+            .with_value("title", &Value::string("Same"))
+            .contains(&id)
+    );
+    for view in [&overlay as &dyn StateView, &local] {
+        assert!(view.catalog().is_valid(), "{:?}", view.catalog().issues());
+        assert!(
+            view.with_value("title", &Value::string("Same"))
+                .contains(&id)
+        );
+    }
+}
+
+fn duplicates(a: &mut Node, n: u8) -> Vec<String> {
+    let rows =
+        a.r.validate(a.s, Validate::Targets(vec![target(n)]))
+            .unwrap();
+    rows[0]
+        .issues
+        .iter()
+        .filter(|i| i.code == "duplicate_value")
+        .map(|i| format!("{:?}", i.details))
+        .collect()
+}
+
+#[test]
+fn validation_collection_scope_finds_duplicates_held_by_other_types() {
+    let (_, mut a) = collection_unique();
+    a.create(10, "tasks/a.md", "---\nslug: x\n---\n");
+    a.create(11, "notes/n.md", "---\nslug: x\n---\n");
+    a.create(12, "tasks/b.md", "---\nslug: y\n---\n");
+    // Pending, then confirmed: the local view and the store index agree.
+    for _ in 0..2 {
+        let found = duplicates(&mut a, 10);
+        assert_eq!(found.len(), 1);
+        assert!(found[0].contains("notes/n.md"), "{found:?}");
+        assert!(duplicates(&mut a, 12).is_empty());
+        settle(&mut [&mut a]);
+    }
+}
+
+#[test]
+fn validation_unique_values_compare_maps_in_any_key_order() {
+    let (_, mut a) = collection_unique();
+    a.create(10, "tasks/a.md", "---\nslug: {a: 1, b: 2}\n---\n");
+    a.create(11, "tasks/b.md", "---\nslug: {b: 2.0, a: 1}\n---\n");
+    settle(&mut [&mut a]);
+    assert_eq!(duplicates(&mut a, 10).len(), 1);
+}
+
+#[test]
+fn validation_pages_cover_every_record_once_past_one_request() {
+    let (_, mut a) = collection_unique();
+    // Many links make each record costly, so the collection takes several pages.
+    let links: String = (0..40).map(|k| format!("[[missing-{k}]] ")).collect();
+    for n in 1..=200u8 {
+        let slug = if n == 7 || n == 150 {
+            "same".into()
+        } else {
+            format!("s{n}")
+        };
+        a.create(
+            n,
+            &format!("tasks/t{n}.md"),
+            &format!("---\nslug: {slug}\n---\n{links}\n"),
+        );
+        if n == 120 {
+            settle(&mut [&mut a]);
+        }
+    }
+    // 121..=200 are pending in the local view; 3 is deleted there.
+    let receipt =
+        a.r.submit(
+            a.s,
+            SubmitParams {
+                ops: vec![Op::Delete(mdbn_wire::intent::Delete {
+                    id: B16([3; 16]),
+                    base_revision: None,
+                    if_revision: None,
+                })],
+                mutation_id: None,
+                conflict_mode: None,
+                timezone: None,
+                allow_partial: None,
+                mutation_ids: None,
+                dry_run: None,
+                include: None,
+                wait: None,
+                validation: None,
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        receipt[0].state,
+        ReceiptState::Pending,
+        "{:?}",
+        receipt[0].problem
+    );
+    assert_eq!(
+        a.r.validate(a.s, Validate::All).unwrap_err().code(),
+        Some(ErrorCode::TooLarge)
+    );
+    let mut seen = Vec::new();
+    let mut pages = 0;
+    let mut after = None;
+    loop {
+        let rows = a.r.validate(a.s, Validate::Page { after }).unwrap();
+        let Some(last) = rows.last() else { break };
+        after = Some(last.id);
+        pages += 1;
+        for row in &rows {
+            let dup = row.issues.iter().any(|i| i.code == "duplicate_value");
+            let n = row.id.0[0];
+            assert_eq!(dup, n == 7 || n == 150, "{}", row.path);
+        }
+        seen.extend(rows.into_iter().map(|r| r.id.0[0]));
+    }
+    assert!(pages > 2, "{pages} pages");
+    let want: Vec<u8> = (1..=200).filter(|n| *n != 3).collect();
+    assert_eq!(seen, want);
+}
+
+#[test]
+fn validation_index_is_rederived_on_open_when_stale() {
+    let (service, mut a) = collection_unique();
+    a.create(10, "tasks/a.md", "---\nslug: x\n---\n");
+    settle(&mut [&mut a]);
+    let key = crate::plan::value_key(&mdbn_core::value::Value::Text("x".into()));
+    assert_eq!(a.r.store.unique_holders("slug", &key).unwrap().len(), 1);
+    // A store from before this derivation: no stamp, no entries.
+    let mut rows =
+        a.r.store
+            .records(crate::store::Page {
+                after: None,
+                limit: 10,
+            })
+            .unwrap();
+    for r in &mut rows {
+        r.meta.unique.clear();
+    }
+    a.r.store
+        .commit(Tx {
+            records_put: rows,
+            meta: vec![(crate::store::meta_keys::RECORD_META.into(), None)],
+            ..Tx::default()
+        })
+        .unwrap();
+    assert!(a.r.store.unique_holders("slug", &key).unwrap().is_empty());
+    let data = a.r.store.data();
+    drop(a);
+    let b = node(&service, 1, MemStore::shared(data));
+    assert_eq!(b.r.store.unique_holders("slug", &key).unwrap().len(), 1);
+    assert!(
+        b.r.store
+            .meta(crate::store::meta_keys::RECORD_META)
+            .unwrap()
+            .is_some()
     );
 }

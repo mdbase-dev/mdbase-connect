@@ -530,7 +530,7 @@ describe("owned cloud-copy outcome composition (IDB/native/CP stand-ins, actual 
         expect(c.pump.pump).toHaveBeenCalledTimes(3); expect(c.f.runtime.tick).toHaveBeenCalledTimes(3);
         const work = vi.fn(); c.host.onLogWork(work);
         c.host.attachDataFacade(c.channel);
-        const hint = c.attach.mock.calls.at(-1)![3]!; hint();
+        const hint = c.attach.mock.calls.at(-1)![3]!; hint("submit");
         expect(work).toHaveBeenCalledOnce();
         await c.host.close();
     });

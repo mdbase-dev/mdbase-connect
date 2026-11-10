@@ -3,7 +3,36 @@ import { expect, openScenario, test } from "./review/fixture";
 import { authentication, authorizationId, clock, pairingId } from "./review/scenarios.mjs";
 import { openSharedStyleFixture } from "../../../packages/app-ui/test/browser-styles";
 
-async function fillOnly(element: Locator) {
+for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as const) test.describe(`round 9 auth ${width} ${colorScheme}`, () => {
+  test.use({ viewport: { width, height: width === 390 ? 844 : 900 }, colorScheme });
+  test("email confirmation keeps the brand anchored and supports correcting the address", async ({ page }) => {
+    await page.route("**/v1/auth/password/signup/request", route => route.fulfill({ json: {} }));
+    await openScenario(page, "signup");
+    const brand = page.locator(".minimal-auth-page > :first-child");
+    const before = await brand.boundingBox();
+    await page.getByLabel("Email", { exact: true }).fill("typo@example.test");
+    await page.getByRole("button", { name: "Send verification link", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Check your email", exact: true })).toBeFocused();
+    await expect(page.getByText("typo@example.test", { exact: true })).toBeVisible();
+    const after = await brand.boundingBox();
+    expect(Math.abs(after!.y - before!.y)).toBeLessThanOrEqual(1);
+    const footerSizes = await page.locator(".minimal-auth-footer").evaluate(footer => ({
+      text: getComputedStyle(footer).fontSize,
+      controls: [...footer.querySelectorAll(".mdbase-select")].map(control => getComputedStyle(control).fontSize)
+    }));
+    expect(footerSizes.controls.length).toBeGreaterThan(0);
+    expect(footerSizes.controls.every(size => size === footerSizes.text)).toBe(true);
+    await page.getByRole("button", { name: "Use a different email", exact: true }).click();
+    await expect(page.getByLabel("Email", { exact: true })).toBeFocused();
+    await expect(page.getByLabel("Email", { exact: true })).toHaveValue("typo@example.test");
+  });
+  for (const scenario of ["onboarding-pending", "onboarding-failed", "pairing-fresh", "pairing-create-new"]) test(`heading receives focus on ${scenario}`, async ({ page }) => {
+    await openScenario(page, scenario);
+    await expect(page.locator("h1").first()).toBeFocused();
+  });
+});
+
+async function fillOnly(element: Locator, ring = false) {
   const appearance = await element.evaluate(element => {
     const style = getComputedStyle(element);
     const canvas = document.createElement("canvas").getContext("2d")!;
@@ -24,12 +53,16 @@ async function fillOnly(element: Locator) {
       const text = luminance(foreground);
       return (Math.max(text, background) + .05) / (Math.min(text, background) + .05);
     };
+    const ringColor = style.boxShadow.match(/^(?:inset )?(oklch\([^)]*\)|color\([^)]*\)|rgb\([^)]*\))/)?.[1];
+    const ringLuminance = ringColor ? luminance(ringColor) : background;
     return { border: style.borderLeftWidth, shadow: style.boxShadow, before: getComputedStyle(element, "::before").content,
+      ringContrast: Math.min((Math.max(ringLuminance, surrounding) + .05) / (Math.min(ringLuminance, surrounding) + .05), (Math.max(ringLuminance, background) + .05) / (Math.min(ringLuminance, background) + .05)),
       background: style.backgroundColor, fillContrast: (Math.max(background, surrounding) + .05) / (Math.min(background, surrounding) + .05),
       contrast: Math.min(contrast(style.color), ...[...element.querySelectorAll("strong, small, kbd, .mdbase-command-icon, .cm-completionLabel, .cm-completionDetail, .cm-completionMatchedText, .cm-completionIcon, .cm-diagnosticSource")].map(child => contrast(getComputedStyle(child).color))) };
   });
   expect(appearance.border).toBe("0px");
-  expect(appearance.shadow).toBe("none");
+  if (ring) expect(appearance.shadow).toMatch(/inset/);
+  else expect(appearance.shadow).toBe("none");
   expect(appearance.before).toBe("none");
   expect(appearance.background).not.toBe("rgba(0, 0, 0, 0)");
   expect(appearance.contrast).toBeGreaterThanOrEqual(4.5);
@@ -135,8 +168,15 @@ for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as 
       await expect(access).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
       await expect(results.locator('[aria-selected="true"]')).toHaveCount(1);
       await expect(input).toHaveAttribute("aria-activedescendant", await storage.getAttribute("id") as string);
-      const appearance = await fillOnly(storage);
-      expect(appearance.fillContrast).toBeGreaterThanOrEqual(2.9);
+      const appearance = await fillOnly(storage, true);
+      expect(appearance.fillContrast).toBeLessThan(2);
+      expect(appearance.ringContrast).toBeGreaterThanOrEqual(3);
+      const ring = await storage.evaluate(element => {
+        const style = getComputedStyle(element);
+        return { shadow: style.boxShadow, opacity: style.opacity };
+      });
+      expect(ring.shadow).toMatch(/0px 0px 0px 1px inset|inset 0px 0px 0px 1px/);
+      expect(ring.opacity).toBe("1");
       await page.keyboard.press("Enter");
       await expect(page).toHaveURL(/\/storage\?collection=/);
       await page.keyboard.press("Control+k");
@@ -176,7 +216,7 @@ for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as 
       await page.keyboard.press("Control+k");
       const palette = page.getByRole("dialog", { name: "Commands", exact: true });
       await page.keyboard.press("ArrowDown");
-      const paletteStyle = await fillOnly(palette.getByRole("option", { selected: true }));
+      const paletteStyle = await fillOnly(palette.getByRole("option", { selected: true }), true);
       await page.keyboard.press("Escape");
       await openScenario(page, "anonymous");
       const theme = page.getByRole("combobox", { name: "Color theme", exact: true });
@@ -279,7 +319,7 @@ for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as 
       await page.route("**/v1/grants/revoke-batch", async route => { await held; await route.continue(); });
       let readback!: () => void;
       const refreshed = new Promise<void>(resolve => { readback = resolve; });
-      await page.route("**/v1/me", async route => { await refreshed; await route.continue(); });
+      await page.route(url => url.pathname === "/v1/me", async route => { await refreshed; await route.continue(); });
       let metadata!: () => void;
       const configuration = new Promise<void>(resolve => { metadata = resolve; });
       await page.route("**/v1/ui-configuration", async route => { await configuration; await route.continue(); });
@@ -322,7 +362,7 @@ for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as 
       let release!: () => void;
       let requested = false;
       const readback = new Promise<void>(resolve => { release = resolve; });
-      await page.route("**/v1/me", async route => { requested = true; await readback; await route.continue(); });
+      await page.route(url => url.pathname === "/v1/me", async route => { requested = true; await readback; await route.continue(); });
       await page.route("**/v1/grants/revoke-batch", route => route.fulfill({ status: 500, json: { error: { message: "Revocation failed" } } }));
       try {
         await page.keyboard.press("Tab"); await page.keyboard.press("Enter");
@@ -377,6 +417,38 @@ for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as 
     });
   });
 }
+
+for (const colorScheme of ["light", "dark"] as const) test.describe(`forced-colors palette ${colorScheme}`, () => {
+  test.use({ colorScheme });
+  test("selection keeps a full-perimeter system-color outline as arrow keys move it", async ({ page }) => {
+    await page.emulateMedia({ forcedColors: "active" });
+    await openScenario(page, "typical-account");
+    expect(await page.evaluate(() => matchMedia("(forced-colors: active)").matches)).toBe(true);
+    await page.keyboard.press("Control+k");
+    const palette = page.getByRole("dialog", { name: "Commands", exact: true });
+    const first = palette.getByRole("option", { selected: true });
+    const firstId = await first.getAttribute("id");
+    const highlight = await page.evaluate(() => {
+      const probe = document.createElement("span");
+      probe.style.color = "Highlight";
+      document.body.append(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return color;
+    });
+    for (let step = 0; step < 2; step++) {
+      const selected = palette.getByRole("option", { selected: true });
+      await expect(selected).toHaveCSS("outline-style", "solid");
+      await expect(selected).toHaveCSS("outline-width", "1px");
+      await expect(selected).toHaveCSS("outline-color", highlight);
+      await expect(selected).toHaveCSS("outline-offset", "-1px");
+      if (step === 0) await page.keyboard.press("ArrowDown");
+    }
+    await expect(page.locator(`[id="${firstId}"]`)).toHaveAttribute("aria-selected", "false");
+    await expect(page.locator(`[id="${firstId}"]`)).toHaveCSS("outline-style", "none");
+    await expect(palette.getByRole("combobox")).toBeFocused();
+  });
+});
 
 for (const colorScheme of ["light", "dark"] as const) test.describe(`short viewport palette ${colorScheme}`, () => {
   test.use({ viewport: { width: 844, height: 390 }, colorScheme });
@@ -605,7 +677,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 844, height: 390 }
   test.use({ viewport });
   test("wraps a long collection label inside the viewport without moving its trigger", async ({ page }) => {
     const name = "Collection with a long name ".repeat(7).trim();
-    await page.route("**/v1/me", async route => {
+    await page.route(url => url.pathname === "/v1/me", async route => {
       const response = await route.fetch();
       const overview = await response.json();
       overview.collections[0].display_name = name;

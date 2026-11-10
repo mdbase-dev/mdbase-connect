@@ -1,4 +1,4 @@
-import { labLoopbackHttpOrigin } from "./local-build.js";
+import { loopbackHttpOrigin } from "./local-build.js";
 import type {AppWebSignInPortal} from "../app-host/web-sign-in-session.js";
 
 export class ApplicationPortalError extends Error {
@@ -30,7 +30,7 @@ export function reserveApplicationPortal(host:ApplicationPortalHost):AppWebSignI
   };
   check();
   let cp:URL;try{cp=new URL(origin);}catch{throw new ApplicationPortalError("application_popup_binding");}
-  const loopback=host.allowLoopbackHttp===true&&labLoopbackHttpOrigin(origin);
+  const loopback=host.allowLoopbackHttp===true&&loopbackHttpOrigin(origin);
   if(cp.origin!==origin||cp.username||cp.password||cp.search||cp.hash||cp.pathname!=="/"||(cp.protocol!=="https:"&&!loopback))throw new ApplicationPortalError("application_popup_binding");
   let window:ApplicationPopupWindow|null;
   try{window=open();}catch{throw new ApplicationPortalError("application_popup_unavailable");}

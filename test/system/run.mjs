@@ -2,7 +2,7 @@
 
 import { spawn } from "node:child_process";
 import { useRcargo } from "../../scripts/lib/rcargo.mjs";
-import { pulledBinaries, systemSuites, preparationSteps } from "./suites.mjs";
+import { preparationDirectories, preparationSteps, pulledBinaries, systemSuites } from "./suites.mjs";
 
 const requested = [];
 let prepare = true;
@@ -53,7 +53,8 @@ if (prepare) {
     const pulls = rcargo ? pulledBinaries[name] : undefined;
     await execute(
       pulls ? ["rcargo", ...pulls.flatMap((binary) => ["--pull", binary]), ...step.slice(1)] : step,
-      `prepare:${name}`
+      `prepare:${name}`,
+      preparationDirectories[name]
     );
   }
 }
@@ -79,11 +80,11 @@ function usage(error) {
   process.exit(error ? 2 : 0);
 }
 
-function execute([command, ...arguments_], label) {
+function execute([command, ...arguments_], label, directory = ".") {
   process.stdout.write(`\n== ${label}: ${command} ${arguments_.join(" ")}\n`);
   return new Promise((resolveRun, reject) => {
     const child = spawn(command, arguments_, {
-      cwd: new URL("../..", import.meta.url),
+      cwd: new URL(`../../${directory}/`, import.meta.url),
       env: process.env,
       stdio: "inherit"
     });

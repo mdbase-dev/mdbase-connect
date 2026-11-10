@@ -495,6 +495,7 @@ msgid "{itemLabel} suggestions"
 msgstr "{itemLabel} 제안"
 
 #: src/contract-catalog.ts
+#: src/gateway.ts
 msgid "{label} is not supported."
 msgstr "{label}은(는) 지원되지 않습니다."
 
@@ -652,11 +653,6 @@ msgstr "{text} 업로드 {0}"
 #: src/NoteList.tsx
 msgid "{title} note actions"
 msgstr "{title} 노트 작업"
-
-#. placeholder {0}: collectionFileFormat(file)
-#: src/NoteList.tsx
-msgid "{title}, {0} file"
-msgstr "{title}, 파일 {0}개"
 
 #: src/TypeBrowser.tsx
 msgid "{title}.md"
@@ -1598,6 +1594,10 @@ msgstr "명령 · 텍스트 밖에서 {0}"
 msgid "Common icons"
 msgstr "일반 아이콘"
 
+#: src/NoteListViewOptions.tsx
+msgid "Compact"
+msgstr "간단히"
+
 #: src/settings/SettingsView.tsx
 msgctxt "editor text size"
 msgid "Compact"
@@ -2130,6 +2130,7 @@ msgstr "유형 취소"
 msgid "Discard type changes?"
 msgstr "유형 변경사항을 취소할까요?"
 
+#: src/NoteListViewOptions.tsx
 #: src/type-presentation.ts
 #: src/TypeBrowser.tsx
 msgid "Display"
@@ -2453,10 +2454,6 @@ msgstr "속성 찾기"
 #: src/editor-commands.ts
 msgid "Find in note"
 msgstr "노트에서 찾기"
-
-#: src/WorkspaceChrome.tsx
-msgid "Find linked notes"
-msgstr "연결된 노트 찾기"
 
 #: src/CollectionRail.tsx
 msgid "Finding folders…"
@@ -2860,6 +2857,10 @@ msgstr "링크 규칙"
 #: src/YourPersonPanel.tsx
 msgid "Link this record to me"
 msgstr "이 레코드를 나에게 연결"
+
+#: src/code-editor-reference-diagnostics.ts
+msgid "Link to {title}"
+msgstr "{title}에 링크"
 
 #: src/code-editor-completions.ts
 msgid "Link to note or file"
@@ -3334,6 +3335,10 @@ msgstr "다음 노트"
 msgid "Next note in the list"
 msgstr "목록의 다음 노트"
 
+#: src/NoteList.tsx
+msgid "No additional text"
+msgstr "추가 텍스트 없음"
+
 #: src/TypeBrowser.tsx
 msgid "No app contracts are installed"
 msgstr "설치된 앱 계약이 없습니다"
@@ -3427,7 +3432,9 @@ msgid "No nested fields yet."
 msgstr "아직 중첩 필드가 없습니다."
 
 #. placeholder {0}: reference.target
+#. placeholder {0}: this.target
 #: src/code-editor-reference-diagnostics.ts
+#: src/CodeEditor.tsx
 msgid "No note or file matches “{0}”."
 msgstr "“{0}”과(와) 일치하는 노트나 파일이 없습니다."
 
@@ -3901,6 +3908,7 @@ msgid "Pin"
 msgstr "고정"
 
 #: src/collection-browser.ts
+#: src/use-note-actions.ts
 msgid "Pinned"
 msgstr "고정됨"
 
@@ -4376,6 +4384,7 @@ msgstr "이름 변경 재개"
 
 #: src/code-editor-file-embeds.ts
 #: src/CollectionRail.tsx
+#: src/WorkspaceChrome.tsx
 #: src/YourPersonPanel.tsx
 msgid "Retry"
 msgstr "다시 시도"
@@ -5802,6 +5811,10 @@ msgstr "연결되지 않은 언급 ({0})"
 #: src/editor-commands.ts
 msgid "Unpin"
 msgstr "고정 해제"
+
+#: src/use-note-actions.ts
+msgid "Unpinned"
+msgstr "고정 해제됨"
 
 #: src/App.tsx
 msgid "Unsaved draft found"

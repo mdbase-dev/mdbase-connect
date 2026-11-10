@@ -495,6 +495,7 @@ msgid "{itemLabel} suggestions"
 msgstr "{itemLabel} suggestions"
 
 #: src/contract-catalog.ts
+#: src/gateway.ts
 msgid "{label} is not supported."
 msgstr "{label} is not supported."
 
@@ -652,11 +653,6 @@ msgstr "{text} upload of {0}"
 #: src/NoteList.tsx
 msgid "{title} note actions"
 msgstr "{title} note actions"
-
-#. placeholder {0}: collectionFileFormat(file)
-#: src/NoteList.tsx
-msgid "{title}, {0} file"
-msgstr "{title}, {0} file"
 
 #: src/TypeBrowser.tsx
 msgid "{title}.md"
@@ -1598,6 +1594,10 @@ msgstr "Commands · {0} outside text"
 msgid "Common icons"
 msgstr "Common icons"
 
+#: src/NoteListViewOptions.tsx
+msgid "Compact"
+msgstr "Compact"
+
 #: src/settings/SettingsView.tsx
 msgctxt "editor text size"
 msgid "Compact"
@@ -2130,6 +2130,7 @@ msgstr "Discard type"
 msgid "Discard type changes?"
 msgstr "Discard type changes?"
 
+#: src/NoteListViewOptions.tsx
 #: src/type-presentation.ts
 #: src/TypeBrowser.tsx
 msgid "Display"
@@ -2453,10 +2454,6 @@ msgstr "Find a property"
 #: src/editor-commands.ts
 msgid "Find in note"
 msgstr "Find in note"
-
-#: src/WorkspaceChrome.tsx
-msgid "Find linked notes"
-msgstr "Find linked notes"
 
 #: src/CollectionRail.tsx
 msgid "Finding folders…"
@@ -2860,6 +2857,10 @@ msgstr "Link rules"
 #: src/YourPersonPanel.tsx
 msgid "Link this record to me"
 msgstr "Link this record to me"
+
+#: src/code-editor-reference-diagnostics.ts
+msgid "Link to {title}"
+msgstr "Link to {title}"
 
 #: src/code-editor-completions.ts
 msgid "Link to note or file"
@@ -3334,6 +3335,10 @@ msgstr "Next note"
 msgid "Next note in the list"
 msgstr "Next note in the list"
 
+#: src/NoteList.tsx
+msgid "No additional text"
+msgstr "No additional text"
+
 #: src/TypeBrowser.tsx
 msgid "No app contracts are installed"
 msgstr "No app contracts are installed"
@@ -3427,7 +3432,9 @@ msgid "No nested fields yet."
 msgstr "No nested fields yet."
 
 #. placeholder {0}: reference.target
+#. placeholder {0}: this.target
 #: src/code-editor-reference-diagnostics.ts
+#: src/CodeEditor.tsx
 msgid "No note or file matches “{0}”."
 msgstr "No note or file matches “{0}”."
 
@@ -3901,6 +3908,7 @@ msgid "Pin"
 msgstr "Pin"
 
 #: src/collection-browser.ts
+#: src/use-note-actions.ts
 msgid "Pinned"
 msgstr "Pinned"
 
@@ -4376,6 +4384,7 @@ msgstr "Resume rename"
 
 #: src/code-editor-file-embeds.ts
 #: src/CollectionRail.tsx
+#: src/WorkspaceChrome.tsx
 #: src/YourPersonPanel.tsx
 msgid "Retry"
 msgstr "Retry"
@@ -5802,6 +5811,10 @@ msgstr "Unlinked mentions ({0})"
 #: src/editor-commands.ts
 msgid "Unpin"
 msgstr "Unpin"
+
+#: src/use-note-actions.ts
+msgid "Unpinned"
+msgstr "Unpinned"
 
 #: src/App.tsx
 msgid "Unsaved draft found"

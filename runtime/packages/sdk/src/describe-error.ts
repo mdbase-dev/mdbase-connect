@@ -109,7 +109,7 @@ export type ProblemCode = typeof PROBLEM_CODES[number];
 
 const GENERIC: Entry = ["Something went wrong", "An unexpected problem occurred. Reload the app, and contact support if it keeps happening.", "reload", "error"];
 const BUSY: Entry = ["Another step hasn't finished", "The app couldn't finish this step yet. Try again, or reload if it keeps happening.", "retry", "warning", true];
-const OFFLINE: Entry = ["Can't connect right now", "mdbase couldn't be reached. Check your connection and try again.", "check_connection", "warning"];
+const UNAVAILABLE: Entry = ["Can't complete this request", "mdbase couldn't complete this request. Try again.", "retry", "warning"];
 const UPDATE: Entry = ["Update required", "Update mdbase on this computer, then reload the app to try again.", "update_app", "warning", false, "Update mdbase"];
 const CHOOSE: Entry = ["Choose a collection", "Pick the collection you want this app to use.", "choose_collection", "info"];
 const APPROVE: Entry = ["Approval needed", "This app needs your approval for extra access to your collection.", "approve", "info"];
@@ -142,7 +142,7 @@ const COPY = {
   read_only: ["View access only", "You have view access, so changes can't be saved. Ask the collection's owner for edit access.", "none", "warning"],
   forbidden: ["Access needed", "This app doesn't have permission to do that. Approve access to continue.", "approve", "warning"],
   collection_invalid: ["Your collection needs repair", "Something in this collection isn't valid. Contact support if this keeps happening.", "contact_support", "error"],
-  unavailable: OFFLINE,
+  unavailable: UNAVAILABLE,
   rate_limited: ["Too many requests", "Wait a moment, then try again.", "retry", "warning", true],
   quota_exceeded: ["Out of storage", "You've reached your storage limit. Free up space to keep saving.", "free_space", "error"],
   account_collection_quota_exceeded: ["Synced collection limit reached", ACCOUNT_COLLECTION_QUOTA_MESSAGE, "free_space", "error", false, "Manage collections"],
@@ -241,6 +241,7 @@ const ALIASES: Readonly<Record<string, ProblemCode>> = Object.assign(Object.crea
   declared_setup_unsupported: "update_required", resource_setup_unsupported: "update_required",
   type_packs_unsupported: "update_required", describe_definitions_unsupported: "update_required",
   contract_records_unsupported: "update_required", record_links_unsupported: "update_required",
+  backlinks_unsupported: "update_required", resolve_links_unsupported: "update_required",
   change_entity_unsupported: "update_required", timer_operation_recovery_unavailable: "update_required",
   contract_query_version: "update_required", unsupported_push_version: "update_required",
   // The SDK re-checks a concurrent change or an occupied step by itself.
@@ -311,11 +312,12 @@ export const INTERNAL_PROBLEM_CODES = [
   "record_lease_policy", "record_links_bounds", "record_links_missing", "record_links_response", "record_links_unsupported",
   "record_recovery_mismatch", "record_session_budget", "record_validation_stale", "record_witness_required", "strength",
   "strict_mode", "typing_bounds", "unsupported_push_version", "validation_bounds", "validation_selection",
+  "unsynced_transfer_needs_collection", "unsynced_transfer_plan_stale",
   // The build does not match the app's registration: apps describe this in
   // their own words (describeError gives the "unknown" key so their copy wins).
   "application_registration_binding",
   "view_not_found", "view_source_changed", "view_source_witness_required", "bases_read_backpressure",
-  "contract_query_response", "contract_query_version", "contract_records_unsupported", "describe_definitions_unsupported",
+  "backlinks_unsupported", "resolve_links_unsupported", "contract_query_response", "contract_query_version", "contract_records_unsupported", "describe_definitions_unsupported",
   "prefix_response", "type_pack_contract_setups_unsupported", "type_packs_unsupported", "resource_setup_unavailable",
   "resource_setup_unsupported", "timer_operation_recovery_unavailable", "declared_setup_unsupported", "setup_outcome_unknown",
   // Storage probe (describes as `unavailable`).

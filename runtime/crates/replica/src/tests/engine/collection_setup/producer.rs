@@ -307,3 +307,38 @@ fn producer_unknown_capture_fences_original_mid_without_resubmission() {
         );
     }
 }
+#[test]
+fn apply_reports_why_a_reviewed_setup_went_stale() {
+    let (_, mut a, source) = declared_node();
+    let client = client(&mut a);
+    let review = call(&mut a, client, "assess", vec![]).unwrap();
+    assert_eq!(get(&review, 1), Cbor::Text("review".into()));
+    // The grant lease renews after a gap between review and Continue.
+    source.borrow_mut().as_mut().unwrap().lease_generation += 1;
+    let refused = call(
+        &mut a,
+        client,
+        "apply",
+        vec![
+            (2, get(&review, 2)),
+            (3, Cbor::Bytes(vec![0x72; 16])),
+            (4, get(&review, 4)),
+            (5, get(&review, 5)),
+        ],
+    )
+    .unwrap_err();
+    assert_eq!(
+        refused.problem().code,
+        crate::api::ErrorCode::Conflict.as_str()
+    );
+    assert_eq!(
+        refused.problem().reason.as_deref(),
+        Some("concurrent_modification")
+    );
+    assert!(
+        a.r.store
+            .resource("mdbase.provisions.yaml")
+            .unwrap()
+            .is_none()
+    );
+}

@@ -6,16 +6,17 @@ import { t } from "@lingui/core/macro";
 import { commandDefinitions } from "./editor-commands";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyField, historyKeymap, indentLess, indentMore } from "@codemirror/commands";
-import { markdown, markdownKeymap, pasteURLAsLink } from "@codemirror/lang-markdown";
+import { markdown, markdownKeymap, markdownLanguage, pasteURLAsLink } from "@codemirror/lang-markdown";
 import {
   bracketMatching,
   defaultHighlightStyle,
   HighlightStyle,
   indentOnInput,
+  LanguageDescription,
   syntaxHighlighting,
   syntaxTree
 } from "@codemirror/language";
-import { lintGutter, linter, lintKeymap, type Diagnostic } from "@codemirror/lint";
+import { forEachDiagnostic, lintGutter, setDiagnosticsEffect, linter, lintKeymap, type Diagnostic } from "@codemirror/lint";
 import { closeSearchPanel, highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
 import { registerActiveEditor, unregisterActiveEditor } from "./code-editor-reveal";
 import { Compartment, EditorSelection, EditorState, Prec, StateEffect, StateField, Transaction, type Extension, type Range } from "@codemirror/state";
@@ -42,8 +43,9 @@ import { writerAutocomplete } from "./code-editor-completions";
 import { attachmentCapture, blockAttachmentInsertion, fileEmbedPresentation } from "./code-editor-file-embeds";
 import type { AttachmentUploader } from "./AttachmentUpload";
 import { noteEmbedPresentation } from "./code-editor-note-embeds";
-import { referenceDiagnostics } from "./code-editor-reference-diagnostics";
+import { MISSING_REFERENCE_CLASS, referenceDiagnostics } from "./code-editor-reference-diagnostics";
 import { writerInteractions } from "./code-editor-writer-interactions";
+import type { LinkTargets } from "./collection-links";
 import type { LinkSuggestion } from "./links";
 import { markdownReferences } from "./markdown-references";
 import type { ResolvedNoteEmbed } from "./note-embeds";
@@ -72,6 +74,8 @@ interface CodeEditorProps {
   className?: string;
   documentId?: string;
   currentPath?: string;
+  /** The collection's resolution of this note's links; without it, links are not checked. */
+  linkTargets?: LinkTargets;
   recentPaths?: string[];
   linkSuggestions?: LinkSuggestion[];
   linkTypes?: string[];
@@ -127,7 +131,7 @@ const remoteChangeLines = StateField.define<DecorationSet>({
   provide: (field) => EditorView.decorations.from(field)
 });
 
-export { internalLinkPathAt } from "./code-editor-writer-interactions";
+export { internalLinkAt } from "./code-editor-writer-interactions";
 export { linkCompletion, mentionScope } from "./code-editor-completions";
 
 export function CodeEditor({
@@ -146,6 +150,7 @@ export function CodeEditor({
   className = "",
   documentId,
   currentPath,
+  linkTargets,
   recentPaths = EMPTY_STRINGS,
   linkSuggestions = EMPTY_SUGGESTIONS,
   linkTypes = EMPTY_STRINGS,
@@ -200,6 +205,7 @@ export function CodeEditor({
   const linkTypesRef = useRef(linkTypes);
   const recentPathsRef = useRef(recentPaths);
   const currentPathRef = useRef(currentPath);
+  const linkTargetsRef = useRef(linkTargets);
   const onOpenLinkRef = useRef(onOpenLink);
   const onCreateLinkRef = useRef(onCreateLink);
   const onPreviewLinkRef = useRef(onPreviewLink);
@@ -227,6 +233,7 @@ export function CodeEditor({
   linkTypesRef.current = linkTypes;
   recentPathsRef.current = recentPaths;
   currentPathRef.current = currentPath;
+  linkTargetsRef.current = linkTargets;
   onOpenLinkRef.current = onOpenLink;
   onCreateLinkRef.current = onCreateLink;
   onPreviewLinkRef.current = onPreviewLink;
@@ -261,7 +268,7 @@ export function CodeEditor({
       syntaxHighlighting(mdbaseHighlightStyle),
       mdbasePopupTheme,
       variant === "writer" ? syntaxHighlighting(writerHighlightStyle) : [],
-      languageMode.current.of(language === "markdown" ? markdown() : []),
+      languageMode.current.of(language === "markdown" ? markdownSupport() : []),
       wrapping.current.of(lineWrapping ? EditorView.lineWrapping : []),
       typewriterMode.current.of([]),
       completions.current.of(variant === "writer" && language === "markdown" ? writerAutocomplete(
@@ -270,13 +277,13 @@ export function CodeEditor({
         () => currentPathRef.current,
         () => recentPathsRef.current,
         () => filesRef.current,
-        () => notesRef.current
+        () => notesRef.current,
+        () => linkTargetsRef.current
       ) : []),
       writerLint.current.of(variant === "writer" && language === "markdown" ? referenceDiagnostics(
+        () => linkTargetsRef.current,
         () => linkSuggestionsRef.current,
-        () => filesRef.current,
-        () => notesRef.current,
-        () => currentPathRef.current
+        () => notesRef.current
       ) : []),
       writerPresentation.current.of(variant === "writer" && quietMarkdown ? quietMarkdownPresentation : []),
       fileEmbeds.current.of(variant === "writer" && language === "markdown" ? fileEmbedPresentation(
@@ -290,9 +297,8 @@ export function CodeEditor({
         () => onVisibleNoteEmbedsRef.current
       ) : []),
       variant === "writer" ? writerInteractions(
-        () => linkSuggestionsRef.current,
+        () => linkTargetsRef.current,
         () => filesRef.current,
-        () => currentPathRef.current,
         () => onOpenLinkRef.current,
         () => onOpenFileLinkRef.current,
         () => onCreateLinkRef.current,
@@ -300,12 +306,7 @@ export function CodeEditor({
         () => onDismissLinkPreviewRef.current
       ) : [],
       interactionMode.current.of([EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)]),
-      editorAttributes.current.of(EditorView.contentAttributes.of({
-        "aria-label": label,
-        "aria-multiline": "true",
-        tabindex: "0",
-        spellcheck: variant === "writer" && language === "markdown" ? "true" : "false"
-      })),
+      editorAttributes.current.of(EditorView.contentAttributes.of(contentAttributes(label, variant, language))),
       placeholderMode.current.of(placeholder ? editorPlaceholder(placeholder) : []),
       phraseMode.current.of(EditorState.phrases.of(englishCodeMirrorPhrases)),
       EditorView.updateListener.of((update) => {
@@ -416,7 +417,8 @@ export function CodeEditor({
         () => currentPathRef.current,
         () => recentPathsRef.current,
         () => filesRef.current,
-        () => notesRef.current
+        () => notesRef.current,
+        () => linkTargetsRef.current
       ) : [])
     });
   }, [language, variant]);
@@ -426,13 +428,12 @@ export function CodeEditor({
     if (!view) return;
     view.dispatch({ effects: writerLint.current.reconfigure(
       variant === "writer" && language === "markdown" ? referenceDiagnostics(
+        () => linkTargetsRef.current,
         () => linkSuggestionsRef.current,
-        () => filesRef.current,
-        () => notesRef.current,
-        () => currentPathRef.current
+        () => notesRef.current
       ) : []
     ) });
-  }, [currentPath, files, language, linkSuggestions, notes, variant]);
+  }, [currentPath, language, linkSuggestions, linkTargets, notes, variant]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -484,12 +485,7 @@ export function CodeEditor({
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
-    view.dispatch({ effects: editorAttributes.current.reconfigure(EditorView.contentAttributes.of({
-      "aria-label": label,
-      "aria-multiline": "true",
-      tabindex: "0",
-      spellcheck: variant === "writer" && language === "markdown" ? "true" : "false"
-    })) });
+    view.dispatch({ effects: editorAttributes.current.reconfigure(EditorView.contentAttributes.of(contentAttributes(label, variant, language))) });
   }, [label, language, variant]);
 
   useEffect(() => {
@@ -502,7 +498,7 @@ export function CodeEditor({
     const view = viewRef.current;
     if (!view) return;
     if (language === "markdown") {
-      view.dispatch({ effects: languageMode.current.reconfigure(markdown()) });
+      view.dispatch({ effects: languageMode.current.reconfigure(markdownSupport()) });
       return;
     }
     if (language === "plain") {
@@ -628,6 +624,32 @@ export function markdownEdit(doc: string, from: number, to: number, format: Mark
   };
 }
 
+/** Prose gets the platform's spelling, autocorrect and sentence capitals
+ * (CodeMirror turns the last two off by default); source text gets none. */
+function contentAttributes(label: string, variant: EditorVariant, language: string): Record<string, string> {
+  const prose = variant === "writer" && language === "markdown";
+  return {
+    "aria-label": label,
+    "aria-multiline": "true",
+    tabindex: "0",
+    spellcheck: prose ? "true" : "false",
+    autocorrect: prose ? "on" : "off",
+    autocapitalize: prose ? "sentences" : "off"
+  };
+}
+
+/** GitHub-flavoured Markdown (tables, strikethrough, autolinks, task lists),
+ * matching the read-only renderer and the reference parser, with JSON and YAML
+ * highlighting inside fenced code. */
+function markdownSupport() {
+  return markdown({ base: markdownLanguage, codeLanguages: fencedCodeLanguages });
+}
+
+const fencedCodeLanguages = [
+  LanguageDescription.of({ name: "JSON", alias: ["json5", "jsonc"], extensions: ["json"], load: () => import("@codemirror/lang-json").then((module) => module.json()) }),
+  LanguageDescription.of({ name: "YAML", alias: ["yml"], extensions: ["yaml", "yml"], load: () => import("@codemirror/lang-yaml").then((module) => module.yaml()) })
+];
+
 const editorSetup = (variant: EditorVariant, hasFooter = false): Extension => [
   highlightSpecialChars(),
   search({ top: true }),
@@ -682,6 +704,7 @@ const mdbaseHighlightStyle = HighlightStyle.define([
   { tag: [tags.link, tags.url], color: "var(--syntax-link)", textDecoration: "underline" },
   { tag: [tags.heading, tags.strong], color: "var(--syntax-heading)", fontWeight: "700" },
   { tag: tags.emphasis, fontStyle: "italic" },
+  { tag: tags.strikethrough, textDecoration: "line-through" },
   { tag: tags.quote, color: "var(--muted)" },
   { tag: tags.monospace, fontFamily: "var(--mono)", fontSize: "0.9em" },
   { tag: tags.invalid, color: "var(--danger)" }
@@ -690,7 +713,9 @@ const mdbaseHighlightStyle = HighlightStyle.define([
 const writerHighlightStyle = HighlightStyle.define([
   { tag: tags.heading1, fontSize: "1.42em" },
   { tag: tags.heading2, fontSize: "1.24em" },
-  { tag: tags.heading3, fontSize: "1.1em" }
+  { tag: tags.heading3, fontSize: "1.1em" },
+  { tag: tags.heading4, fontSize: "1.04em" },
+  { tag: [tags.heading5, tags.heading6], color: "var(--muted)" }
 ]);
 
 function markdownFormatCommand(format: MarkdownFormat) {
@@ -720,7 +745,8 @@ const quietMarkdownPresentation = ViewPlugin.fromClass(class {
   }
 
   update(update: ViewUpdate) {
-    if (update.docChanged || update.selectionSet || update.viewportChanged || update.transactions.some((transaction) => transaction.reconfigured)) {
+    if (update.docChanged || update.selectionSet || update.viewportChanged
+      || update.transactions.some((transaction) => transaction.reconfigured || transaction.effects.some((effect) => effect.is(setDiagnosticsEffect)))) {
       this.decorations = markdownDecorations(update.view);
     }
   }
@@ -756,17 +782,18 @@ class TaskCheckboxWidget extends WidgetType {
 }
 
 class MarkdownLinkWidget extends WidgetType {
-  constructor(readonly from: number, readonly label: string, readonly target: string) {
+  constructor(readonly from: number, readonly label: string, readonly target: string, readonly missing: boolean) {
     super();
   }
 
   eq(other: MarkdownLinkWidget) {
-    return this.from === other.from && this.label === other.label && this.target === other.target;
+    return this.from === other.from && this.label === other.label && this.target === other.target && this.missing === other.missing;
   }
 
   toDOM() {
     const link = document.createElement("a");
-    link.className = "cm-rendered-link";
+    link.className = this.missing ? "cm-rendered-link cm-rendered-link-missing" : "cm-rendered-link";
+    if (this.missing) link.title = t`No note or file matches “${this.target}”.`;
     link.dataset.linkFrom = String(this.from);
     link.href = /^https?:\/\//i.test(this.target) ? this.target : "#";
     if (/^https?:\/\//i.test(this.target)) {
@@ -788,6 +815,9 @@ function markdownDecorations(view: EditorView): DecorationSet {
   const renderedLinks: Array<{ from: number; to: number }> = [];
   const source = view.state.doc.toString();
   const references = markdownReferences(source, syntaxTree(view.state));
+  // The reference linter already resolves every link; reuse its verdict.
+  const missing = new Set<number>();
+  forEachDiagnostic(view.state, (diagnostic, from) => { if (diagnostic.markClass === MISSING_REFERENCE_CLASS) missing.add(from); });
   for (const reference of references) {
     if (reference.kind !== "link") continue;
     if (!view.visibleRanges.some((visible) => reference.from <= visible.to && reference.to >= visible.from)) continue;
@@ -795,7 +825,7 @@ function markdownDecorations(view: EditorView): DecorationSet {
     const target = `${reference.target}${reference.anchor ? `#${reference.anchor}` : ""}`;
     renderedLinks.push({ from: reference.from, to: reference.to });
     ranges.push(Decoration.replace({
-      widget: new MarkdownLinkWidget(reference.from, reference.label ?? target, target)
+      widget: new MarkdownLinkWidget(reference.from, reference.label ?? target, target, missing.has(reference.from))
     }).range(reference.from, reference.to));
   }
 
@@ -805,6 +835,13 @@ function markdownDecorations(view: EditorView): DecorationSet {
     while (line.from <= visible.to) {
       if (!visibleLines.has(line.from)) {
         visibleLines.add(line.from);
+        const marker = /^\s*(?:[-+*]|\d+[.)])\s+(?:\[[ xX]\]\s+)?/.exec(line.text);
+        if (marker && view.lineWrapping) {
+          // The marker box is exactly as wide as the indent, so wrapped text lines up in any font.
+          const style = `--list-indent: ${marker[0].length}ch`;
+          ranges.push(Decoration.line({ class: "cm-list-line", attributes: { style } }).range(line.from));
+          ranges.push(Decoration.mark({ class: "cm-list-prefix" }).range(line.from, line.from + marker[0].length));
+        }
         const task = /^(\s*(?:[-+*]|\d+[.)])\s+)\[([ xX])\](?=\s|$)/.exec(line.text);
         if (task && !activeLines.has(line.from)) {
           const from = line.from + task[1].length;
@@ -835,7 +872,8 @@ const markdownMarkerNames = new Set([
   "CodeMark",
   "QuoteMark",
   "ListMark",
-  "LinkMark"
+  "LinkMark",
+  "StrikethroughMark"
 ]);
 
 function yamlLinter(view: EditorView): readonly Diagnostic[] {

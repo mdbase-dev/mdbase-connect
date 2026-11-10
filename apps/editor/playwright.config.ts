@@ -31,6 +31,18 @@ export default defineConfig({
     // shares the CPU with the measurement. Budgets are unchanged.
     { name: "performance", workers: 1, use: { ...devices["Desktop Chrome"] }, grep: /@performance/, dependencies: ["chromium", "portal"] },
     // Management lives on Portal; keep its migrated coverage in the existing CI browser gate.
+    // Phones run Safari's engine; keep a small smoke of the mobile layout on it.
+    // WebKit takes no Chromium flags, so the same no-egress rule is a proxy option.
+    {
+      name: "mobile-webkit",
+      testMatch: "embeds-mobile.spec.ts",
+      grep: /mobile workspace/,
+      use: {
+        ...devices["iPhone 15"],
+        launchOptions: {},
+        proxy: { server: "http://127.0.0.1:9", bypass: "127.0.0.1,localhost,[::1]" }
+      }
+    },
     { name: "portal", testDir: "../portal/tests", testIgnore: ["visual.spec.ts", "review-*.spec.ts", "interaction-budget.spec.ts"], use: { ...devices["Desktop Chrome"] } }
   ]
 });

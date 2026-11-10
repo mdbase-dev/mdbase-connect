@@ -23,12 +23,17 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
   collectionModeStatus: (collectionId: string) => ipcRenderer.invoke("connect:collections:mode-status", collectionId),
   changeCollectionMode: (collectionId: string, targetMode: "private" | "cloud_copy", resume: boolean, cancel = false) =>
     ipcRenderer.invoke("connect:collections:mode-change", { collectionId, targetMode, resume, cancel }),
+  syncFiles: (collectionId: string) => ipcRenderer.invoke("connect:collections:sync-files", collectionId),
+  setSyncFiles: (collectionId: string, files: { include: string[]; exclude: string[]; max_size?: number }) =>
+    ipcRenderer.invoke("connect:collections:sync-files-set", { collectionId, ...files }),
   disableSync: (collectionId: string) => ipcRenderer.invoke("connect:collections:sync-disable", collectionId),
   listHolds: (collectionId: string) => ipcRenderer.invoke("connect:collections:holds", collectionId),
   resolveHold: (collectionId: string, id: string, how: "keep_mine" | "take_theirs" | "keep_both" | "delete") =>
     ipcRenderer.invoke("connect:collections:resolve-hold", { collectionId, id, how }),
   openCollectionFolder: (collectionId: string) => ipcRenderer.invoke("connect:collections:open-folder", collectionId),
   openEditor: (collectionId: string) => ipcRenderer.invoke("connect:editor:open", collectionId),
+  listApps: () => ipcRenderer.invoke("connect:apps:list"),
+  openApp: (url: string) => ipcRenderer.invoke("connect:apps:open", url),
   getLaunchAtLogin: () => ipcRenderer.invoke("connect:startup:get"),
   setLaunchAtLogin: (enabled: boolean) => ipcRenderer.invoke("connect:startup:set", enabled),
   getCloudConfig: () => ipcRenderer.invoke("connect:cloud:get"),

@@ -18,6 +18,22 @@ async function show(canCreate=true, selected="", hint=selected, prepared=true) {
   return {...view,picker:await screen.findByRole("listbox",{name:"Open in Reader"}),input:screen.getByRole("combobox",{name:"Open in Reader"})};
 }
 describe("approval collection chooser",()=>{
+  it("expires an open decision at its deadline without offering consent or sending a mutation", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-07T00:00:00Z"));
+    vi.mocked(api).mockReset().mockResolvedValue({ pairing: { ...preparedPairing(), expires_at: "2026-11-07T00:00:02Z" } });
+    try {
+      render(<Pairing pairingId="pairing" />);
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(screen.getByRole("heading", { name: /^Reader$/ })).toHaveFocus();
+      expect(screen.getByRole("combobox", { name: "Open in Reader" })).toBeInTheDocument();
+      await act(() => vi.advanceTimersByTimeAsync(2_000));
+      expect(screen.getByText("This request has expired or was already answered.")).toBeInTheDocument();
+      expect(screen.queryByRole("combobox", { name: "Open in Reader" })).not.toBeInTheDocument();
+      expect(screen.queryByText(/expires.*ago/)).not.toBeInTheDocument();
+      expect(vi.mocked(api).mock.calls.some(([, options]) => options?.method === "POST")).toBe(false);
+    } finally { vi.useRealTimers(); }
+  });
   it("does not re-add revoked Work when approving Notes", async () => {
     let pairing = { ...preparedPairing(), retained_collection_ids: ["work"] };
     vi.mocked(api).mockReset().mockImplementation(async (path, options) => {

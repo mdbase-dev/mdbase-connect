@@ -16,7 +16,7 @@ import { createHash } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
-import { HostedProviderResponseError, HostedProviderUnavailableError, type HostedProviderClient } from "../../hosted-provider.js";
+import { HostedProviderResponseError, HostedProviderUnavailableError, type HostedProviderClient } from "../hosted/hosted-provider.js";
 import { audit } from "../../platform/audit-events.js";
 import { apiError } from "../../platform/http-errors.js";
 import { bearerToken } from "../../platform/request-authentication.js";

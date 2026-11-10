@@ -11,6 +11,9 @@ import type {AppFileAction} from "../app-host/installation-sign-in.js";
 import {APPLICATION_WORKER_PROTOCOL,ApplicationWorkerError,applicationWorkerBinding,applicationWorkerProblem,applicationWorkerRequest,
   type ApplicationWorkerEvent,type ApplicationWorkerProblem,type ApplicationWorkerRequest} from "./worker-protocol.js";
 import {webSignInProblem} from "../app-host/web-sign-in-problem.js";
+import {APP_UNSYNCED_RECOVERY_MS,appUnsyncedIdentity,appUnsyncedWork,discardAppUnsynced,eraseAppUnsyncedStorage,openAppUnsyncedCollection,pruneAppUnsyncedRetired,retireAppUnsynced,type AppUnsyncedConnection} from "../app-host/unsynced-collection.js";
+import type {AppWebNativeCollection} from "../app-host/web-collection.js";
+import type {AppWebSignInSnapshot} from "../app-host/web-sign-in-session.js";
 
 /** A failed operation's bounded reply code. Native app-host errors (setup journal,
  * cloud-copy create, join, HTTP log, replica owner) keep their typed code, e.g.
@@ -32,6 +35,11 @@ interface HostClient {
   selected:string|null;
   /** The connection generation whose ports this tab holds, its handoff and collection. */
   generation:string|null;handoff:AppWebCollectionHandoff|null;collection:string|null;
+  /** Ports to the unsynced collection held to read it while showing another
+   * collection (an unsynced transfer); null: none. */
+  source:AppWebCollectionHandoff|null;
+  /** The unsynced collection as this tab last attached it to read: what a retire checks nothing has changed since. */
+  sourceMark:Readonly<{generation:string;writes:number}>|null;
   readonly onMessage:(event:MessageEvent<unknown>)=>void;readonly onMessageError:()=>void;
 }
 type Queued={readonly client:HostClient;readonly request:ApplicationWorkerRequest;readonly job?:undefined}
@@ -65,26 +73,148 @@ export class ApplicationWorkerHost {
   /** The latest proxy portal's person-closed report (page `approvalClosed`). */
   private approval:{reported:boolean;readonly client:HostClient}|null=null;
   private unsubscribe:(()=>void)|null=null;
+  /** The app's unsynced collection (work before connecting): open while a tab
+   * shows it, beside the session's collections. Never listed or remembered. */
+  private readonly unsyncedOptions:ReturnType<typeof applicationWorkerSession>["unsynced"];private readonly unsyncedName:string;
+  private unsynced:AppUnsyncedConnection|null=null;private unsyncedProblem:string|null=null;
+  /** Whether the unsynced collection holds work, shown to every tab. */
+  private unsyncedWork:Readonly<{since:number}>|null=null;
   constructor(port:MessagePort,binding:string,declaration:Readonly<ApplicationDeclarationSnapshot>,packaged:PackagedApplicationNativeAssets,locks:AppLockPort|undefined,storageNamespace:string|null,fetcher?:typeof fetch){
     if(!applicationWorkerBinding(binding))throw new ApplicationWorkerError("application_worker_binding");
     const composed=applicationWorkerSession(declaration,packaged,{signal:this.lifetime.signal,locks,storageNamespace,
       openPortal:()=>this.portal(),handoff:value=>this.handoff(value),...(fetcher?{fetch:fetcher}:{})});
-    this.session=composed.session;
+    this.session=composed.session;this.unsyncedOptions=composed.unsynced;this.unsyncedName=composed.displayName;
     this.primary=this.client(port,binding,true);
     this.unsubscribe=this.session.subscribe(()=>{
       this.applyForeground();if(this.stopping)return;
       // Signed out: no tab shows a collection any more.
-      if(this.session.getSnapshot().status==="signed_out")for(const client of this.clients.values())this.leave(client);
+      // A tab showing the unsynced collection keeps it: it needs no sign-in.
+      if(this.session.getSnapshot().status==="signed_out")for(const client of this.clients.values())if(!this.showsUnsynced(client))this.leave(client);
       for(const client of [...this.clients.values()])this.post(client,[APPLICATION_WORKER_PROTOCOL,client.binding,"nativeSnapshot",0,this.view(client)]);
       this.reconcile();
     });
     this.post(this.primary,[APPLICATION_WORKER_PROTOCOL,binding,"nativeSnapshot",0,this.view(this.primary)]);
+    // Read without opening the collection or creating its database.
+    const name=this.unsyncedOptions?.databaseName;
+    if(name){
+      void appUnsyncedWork(name,this.lifetime.signal).then(found=>{if(found)this.noteUnsyncedWork(found);}).catch(()=>{});
+      // Retired copies past their recovery window. None of them is ever open.
+      const now=Date.now();
+      void pruneAppUnsyncedRetired(name,copy=>copy.retiredAt+APP_UNSYNCED_RECOVERY_MS<now,this.lifetime.signal);
+    }
+  }
+  private noteUnsyncedWork(found:Readonly<{since:number}>|null):void{
+    if(this.stopping||this.unsyncedWork?.since===found?.since)return;
+    this.unsyncedWork=found?Object.freeze({since:found.since}):null;
+    for(const client of [...this.clients.values()])this.post(client,[APPLICATION_WORKER_PROTOCOL,client.binding,"nativeSnapshot",0,this.view(client)]);
   }
   /** What one tab sees: the shared sign-in with its own collection. A tab that
    * did not start an approval in progress keeps showing its open collection. */
-  private view(client:HostClient){return this.session.viewFor(client.selected,{bystander:this.approval?.client!==client});}
+  private view(client:HostClient):AppWebSignInSnapshot{
+    const bystander=this.approval?.client!==client;
+    const work=this.unsyncedWork;
+    if(!this.showsUnsynced(client)){const view=this.session.viewFor(client.selected,{bystander});return work?Object.freeze({...view,unsyncedWork:work}):view;}
+    // The tab's open collection is the unsynced one; the sign-in session behind
+    // it keeps its own status (signing in shows over it).
+    const base=this.session.viewFor(null,{bystander}),open=this.unsynced?.isCurrent()===true;
+    const status=base.status==="authorizing"?base.status:open?this.unsynced!.state:this.unsyncedProblem?"blocked":"opening";
+    return Object.freeze({...base,status,selectedCollectionId:client.selected,problem:status==="blocked"?this.unsyncedProblem:base.status==="authorizing"?base.problem:null,
+      openingProgress:null,transport:null,live:null,unsynced:Object.freeze({collectionId:client.selected!,sessionStatus:base.status}),unsyncedWork:work});
+  }
+  private showsUnsynced(client:HostClient):boolean{return client.selected!==null&&client.selected===this.unsynced?.scope.collection;}
+  /** The open collection with this id: the unsynced one or the session's. */
+  private connectionOf(id:string):AppWebNativeCollection|null{return this.unsynced?.scope.collection===id?this.unsynced:this.session.connection(id);}
+  /** The unsynced collection, opening it (creating it on first use) if needed. */
+  private async ensureUnsynced():Promise<AppUnsyncedConnection>{
+    let connection=this.unsynced?.isCurrent()?this.unsynced:null;
+    if(!connection){
+      const previous=this.unsynced;this.unsynced=null;await previous?.close().catch(()=>{});
+      this.unsyncedProblem=null;
+      try{connection=await openAppUnsyncedCollection(this.unsyncedOptions,this.unsyncedName,this.lifetime.signal);}
+      catch(error){this.unsyncedProblem=applicationWorkerReplyProblem(error).code;throw error;}
+      if(this.stopping||this.lifetime.signal.aborted){await connection.close().catch(()=>{});throw new ApplicationWorkerError("application_worker_fenced");}
+      this.unsynced=connection;
+      const opened=connection;
+      opened.subscribe(()=>{if(this.stopping)return;const found=opened.work;if(found&&this.unsyncedWork?.since!==found.since){this.noteUnsyncedWork(found);return;}for(const other of [...this.clients.values()])if(this.showsUnsynced(other))this.post(other,[APPLICATION_WORKER_PROTOCOL,other.binding,"nativeSnapshot",0,this.view(other)]);});
+    }
+    return connection;
+  }
+  private async openUnsynced(client:HostClient,id:number):Promise<void>{
+    const connection=await this.ensureUnsynced();
+    const collection=connection.scope.collection;
+    if(client.selected!==collection){this.leave(client);client.selected=collection;}
+    if(client.generation===connection.generation)return;
+    const value=connection.attach();
+    if(!value)throw new ApplicationWorkerError("application_worker_unavailable");
+    client.generation=value.generation;client.handoff=value;client.collection=collection;
+    this.post(client,[APPLICATION_WORKER_PROTOCOL,client.binding,"handoff",id,value],[value.dataPort,value.controlPort]);
+  }
+  /** Read access to the unsynced collection for this tab, beside the
+   * collection it shows: the source of an unsynced transfer. One per tab. */
+  private async attachUnsynced(client:HostClient,id:number):Promise<void>{
+    if(client.source&&client.source.generation!==this.unsynced?.generation)this.releaseSource(client);
+    if(client.source)throw new ApplicationWorkerError("application_worker_busy");
+    const connection=await this.ensureUnsynced();
+    if(client.gone||this.stopping)throw new ApplicationWorkerError("application_worker_fenced");
+    const value=connection.attach();
+    if(!value)throw new ApplicationWorkerError("application_worker_unavailable");
+    client.source=value;client.sourceMark=Object.freeze({generation:connection.generation,writes:connection.writes});
+    this.post(client,[APPLICATION_WORKER_PROTOCOL,client.binding,"handoff",id,value],[value.dataPort,value.controlPort]);
+  }
+  /** Whether a tab other than `client` shows or reads the unsynced collection. */
+  private unsyncedHeldElsewhere(client:HostClient,collection:string):boolean{
+    for(const other of this.clients.values())if(other!==client&&!other.gone&&(other.selected===collection||other.source?.scope.collection===collection))return true;
+    return false;
+  }
+  /** Close the unsynced collection for good: this tab lets go of it first. */
+  private async closeUnsynced(client:HostClient):Promise<void>{
+    if(this.showsUnsynced(client))this.leave(client);
+    this.releaseSource(client);
+    const open=this.unsynced;this.unsynced=null;
+    await open?.close();
+  }
+  /** After a transfer into the collection this tab shows: the unsynced
+   * collection becomes a retired copy of the signed-in account, and the next
+   * open starts a new one. Busy while another tab still works in it. */
+  private async retireUnsynced(client:HostClient,source:string,destination:string):Promise<void>{
+    const name=this.unsyncedOptions?.databaseName,account=this.session.getSnapshot().signIn?.accountId;
+    if(!name||!account||client.selected!==destination||this.session.connection(destination)?.isCurrent()!==true)throw new ApplicationWorkerError("application_worker_unavailable");
+    if(this.unsyncedHeldElsewhere(client,source))throw new ApplicationWorkerError("application_worker_busy");
+    // Nothing may have been saved there since this tab last read it to check
+    // the transfer was complete (another tab can open, save and leave between).
+    const open=this.unsynced?.scope.collection===source?this.unsynced:null,mark=client.sourceMark;client.sourceMark=null;
+    if(!open||!mark||open.generation!==mark.generation||open.writes!==mark.writes)throw new ApplicationWorkerError("application_worker_busy");
+    await this.closeUnsynced(client);
+    // False: already retired or discarded (another tab finished first).
+    if(await retireAppUnsynced(name,source,destination,account,this.lifetime.signal))this.noteUnsyncedWork(null);
+  }
+  /** Discard the unsynced collection and erase it from this browser. A tab
+   * that showed it continues in a new, empty one. */
+  private async discardUnsynced(client:HostClient,id:number):Promise<void>{
+    const name=this.unsyncedOptions?.databaseName;
+    if(!name)throw new ApplicationWorkerError("application_worker_unavailable");
+    const current=await appUnsyncedIdentity(name,false,this.lifetime.signal);
+    const showing=this.showsUnsynced(client);
+    if(current){
+      if(this.unsyncedHeldElsewhere(client,current.collection)){
+        // The tab let go of its ports to discard: forget them so it can show the collection again.
+        if(showing)this.leave(client);
+        throw new ApplicationWorkerError("application_worker_busy");
+      }
+      if(this.unsynced?.scope.collection===current.collection)await this.closeUnsynced(client);else this.releaseSource(client);
+      const gone=await discardAppUnsynced(name,current.collection,this.lifetime.signal);
+      // Best effort: leftover pages are unreachable once the identity is gone.
+      if(gone)await eraseAppUnsyncedStorage(gone);
+    }
+    this.noteUnsyncedWork(null);
+    if(showing)await this.openUnsynced(client,id);
+  }
+  private releaseSource(client:HostClient):void{
+    const source=client.source;client.source=null;
+    if(source&&this.unsynced?.generation===source.generation)try{this.unsynced.detach(source);}catch{/* closed with the collection */}
+  }
   private client(port:MessagePort,binding:string,primary:boolean):HostClient {
-    const client:HostClient={port,binding,primary,lastId:0,foreground:primary,gone:false,selected:null,generation:null,handoff:null,collection:null,
+    const client:HostClient={port,binding,primary,lastId:0,foreground:primary,gone:false,selected:null,generation:null,handoff:null,collection:null,source:null,sourceMark:null,
       onMessage:event=>this.onMessage(client,event),onMessageError:()=>primary?this.failStop("application_worker_unavailable"):this.detach(client)};
     this.clients.set(binding,client);
     port.addEventListener("message",client.onMessage);port.addEventListener("messageerror",client.onMessageError);port.start();
@@ -104,7 +234,7 @@ export class ApplicationWorkerHost {
     client.gone=true;this.clients.delete(client.binding);
     if(this.nativeWait?.client===client){const slot=this.nativeWait;this.nativeWait=null;slot.reject(new ApplicationWorkerError("application_worker_fenced"));}
     for(let i=this.queue.length-1;i>=0;i--)if(this.queue[i]!.client===client)this.queue.splice(i,1);
-    this.leave(client);
+    this.leave(client);this.releaseSource(client);
     client.port.removeEventListener("message",client.onMessage);client.port.removeEventListener("messageerror",client.onMessageError);client.port.close();
     this.applyForeground();this.collect();
   }
@@ -114,7 +244,7 @@ export class ApplicationWorkerHost {
     const handoff=client.handoff,collection=client.collection;
     client.selected=null;client.handoff=null;client.generation=null;client.collection=null;
     if(!handoff||collection===null)return;
-    const connection=this.session.connection(collection);
+    const connection=this.connectionOf(collection);
     if(connection?.generation===handoff.generation)try{connection.detach?.(handoff);}catch{/* closed with the connection */}
   }
   /** Give every tab without ports for its open collection its own. */
@@ -122,7 +252,7 @@ export class ApplicationWorkerHost {
     if(this.stopping)return;
     for(const client of [...this.clients.values()]){
       if(client.gone||client.selected===null)continue;
-      const connection=this.session.connection(client.selected);
+      const connection=this.connectionOf(client.selected);
       if(!connection?.isCurrent()||typeof connection.attach!=="function"||client.generation===connection.generation)continue;
       const value=connection.attach();if(!value)continue;
       client.generation=connection.generation;client.handoff=value;client.collection=client.selected;
@@ -134,15 +264,27 @@ export class ApplicationWorkerHost {
   /** Close, in turn with requests, each held collection no tab shows. */
   private collect():void {
     if(this.stopping||this.collecting)return;
-    const shown=new Set<string>();for(const client of this.clients.values())if(!client.gone&&client.selected!==null)shown.add(client.selected);
-    if(!this.session.heldCollections().some(id=>!shown.has(id)))return;
+    const shown=this.shown();
+    const unsynced=this.unsynced!==null&&!shown.has(this.unsynced.scope.collection);
+    if(!unsynced&&!this.session.heldCollections().some(id=>!shown.has(id)))return;
     this.collecting=true;
     this.queue.push({client:null,request:null,job:async()=>{
       this.collecting=false;
-      const shown=new Set<string>();for(const client of this.clients.values())if(!client.gone&&client.selected!==null)shown.add(client.selected);
+      const shown=this.shown();
       for(const id of this.session.heldCollections())if(!shown.has(id))await this.session.releaseCollection(id);
+      const open=this.unsynced;
+      if(open&&!shown.has(open.scope.collection)){this.unsynced=null;await open.close();}
     }});
     this.pump();
+  }
+  /** Collections some tab shows, or reads as a transfer source. */
+  private shown():Set<string>{
+    const shown=new Set<string>();
+    for(const client of this.clients.values())if(!client.gone){
+      if(client.selected!==null)shown.add(client.selected);
+      if(client.source)shown.add(client.source.scope.collection);
+    }
+    return shown;
   }
   private post(client:HostClient,value:ApplicationWorkerEvent,transfer:Transferable[]=[]):void {
     if(client.gone)return;
@@ -326,9 +468,20 @@ export class ApplicationWorkerHost {
         break;
       }
       case "clearSelection":this.leave(client);this.collect();break;
+      case "openUnsynced":try{await this.openUnsynced(client,request[2]);}finally{this.collect();}break;
+      case "attachUnsynced":try{await this.attachUnsynced(client,request[2]);}finally{this.collect();}break;
+      case "detachUnsynced":this.releaseSource(client);this.collect();break;
+      case "retireUnsynced":{const [source,destination]=payload as readonly[string,string];try{await this.retireUnsynced(client,source,destination);}finally{this.collect();}break;}
+      case "discardUnsynced":try{await this.discardUnsynced(client,request[2]);}finally{this.collect();}break;
       case "forget":await this.session.forget(payload as string);break;
       case "refreshCollections":await this.session.refreshCollectionList();break;
-      case "signOut":await this.session.signOut();break;
+      case "signOut":{
+        // Retired copies belong to the account that brought them in.
+        const account=this.session.getSnapshot().signIn?.accountId,name=this.unsyncedOptions?.databaseName;
+        await this.session.signOut();
+        if(account&&name)await pruneAppUnsyncedRetired(name,copy=>copy.account===account,this.lifetime.signal);
+        break;
+      }
       case "deleteCollection":{const [id,name]=payload as readonly[string,string];await this.session.deleteCollection(id,name);break;}
       case "requestFileAccess":{const [id,actions,reason]=payload as readonly[string,readonly AppFileAction[],string];await this.session.requestFileAccess(id,actions,reason);break;}
       case "pollFileAccess":await this.session.pollFileAccess(payload as string);break;
@@ -342,7 +495,8 @@ export class ApplicationWorkerHost {
     if(this.stopping)return this.stopping;
     const pending=this.pending;this.queue.length=0;
     this.stopping=Promise.resolve().then(async()=>{
-      await this.session.close();await pending;
+      const unsynced=this.unsynced;this.unsynced=null;
+      await Promise.all([this.session.close(),unsynced?.close()]);await pending;
       this.unsubscribe?.();this.unsubscribe=null;
       if(detach)this.detachAll();
     });

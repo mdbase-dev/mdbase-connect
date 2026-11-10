@@ -3,34 +3,33 @@
  * Release manifest/tool/asset authentication must precede this selection. */
 import type { AppBundledReleaseTrust } from "./cloud-copy-bootstrap.js";
 import { isAppOrigin } from "./app-origin.js";
-import { applicationEnvironmentAllowed, applicationLoopbackAllowed, labLoopbackHttpOrigin, localApplicationEnvironment, localApplicationOrigin } from "../application/local-build.js";
+import { applicationEnvironmentAllowed, serviceLoopbackAllowed, loopbackHttpOrigin, localApplicationEnvironment, localApplicationOrigin } from "../application/local-build.js";
 export interface AppEnvironmentSelection {
   readonly environment: "lab" | "staging" | "production" | "local";
   readonly appOrigin: string;
   readonly cpOrigin: string;
   readonly logOrigin: string;
   readonly assetSha256: string;
+  /** mdbase's own origins (CP, log) may be loopback HTTP: LAB and local builds only. */
   readonly allowLoopbackHttp: boolean;
-  /** Native app-origin storage only; never CP/log HTTP or test trust. */
-  readonly allowNativeLoopbackHttp: boolean;
 }
 const selections = new WeakSet<object>();
 const invalid = () => new Error("app environment: explicit authenticated build context required");
 function origin(value: unknown, loopbackAllowed: boolean): string {
   if (typeof value !== "string" || !value.length) throw invalid();
   const u = new URL(value);
-  const loopback = loopbackAllowed && labLoopbackHttpOrigin(value);
+  const loopback = loopbackAllowed && loopbackHttpOrigin(value);
   if (u.origin !== value || u.username || u.password || (u.protocol !== "https:" && !loopback)) throw invalid();
   return value;
 }
 /** No environment or app-origin default. CP/log origins come only from the
  * preauthenticated build release, whose environment must match exactly.
- * LAB app loopback is explicit; production loopback requires a native manifest.
+ * A loopback app origin is an application under development (or a native one);
+ * it never relaxes HTTPS for the CP or log outside LAB.
  * Same-origin storage preservation is an app gate, not a runtime fallback. */
 export function selectAppEnvironment(input: {
   environment: "lab" | "staging" | "production" | "local";
   appOrigin: string;
-  platform?: "native";
   release: AppBundledReleaseTrust;
 }): AppEnvironmentSelection {
   const {environment, release} = input;
@@ -47,10 +46,9 @@ export function selectAppEnvironment(input: {
   const cpOrigin = origin(release.cpOrigin, local), logOrigin = origin(release.logOrigin, local);
   const appOrigin = input.appOrigin;
   if (local && ![cpOrigin, logOrigin, appOrigin].every(localApplicationOrigin)) throw invalid();
-  if (!isAppOrigin(appOrigin, applicationLoopbackAllowed(environment), input.platform)) throw invalid();
+  if (!isAppOrigin(appOrigin)) throw invalid();
   const selected = Object.freeze({environment, appOrigin, cpOrigin, logOrigin, assetSha256: release.assetSha256,
-    allowLoopbackHttp: applicationLoopbackAllowed(environment) && new URL(appOrigin).protocol === "http:",
-    allowNativeLoopbackHttp: input.platform === "native" && isAppOrigin(appOrigin, false, "native") && new URL(appOrigin).protocol === "http:"});
+    allowLoopbackHttp: serviceLoopbackAllowed(environment) && new URL(appOrigin).protocol === "http:"});
   selections.add(selected); return selected;
 }
 /** Only a previously validated immutable selection, not a copied/redirect object.

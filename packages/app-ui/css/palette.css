@@ -80,11 +80,18 @@
 }
 
 .mdbase-command-results > button[aria-selected="true"] {
-  color: var(--color-on-current);
-  background: var(--color-current);
+  color: var(--color-text);
+  background: light-dark(oklch(94% 0.001 286), oklch(29% 0.004 286));
+  outline: 1px solid light-dark(oklch(60% 0.004 286), oklch(63% 0.004 286));
+  outline-offset: -1px;
 }
 
-.mdbase-command-results > button[aria-selected="true"] :is(small, kbd, .mdbase-command-alternate, .mdbase-command-icon) { color: inherit; }
+@media (forced-colors: active) {
+  .mdbase-command-results > button[aria-selected="true"] {
+    outline: 1px solid Highlight;
+    outline-offset: -1px;
+  }
+}
 
 .mdbase-command-results .mdbase-command-copy {
   min-width: 0;

@@ -15,7 +15,7 @@ Connect uses one vocabulary from local iteration through release acceptance:
   test-only credential backend;
 - `pnpm test:integration` runs browser-storage and accessibility boundaries;
 - `pnpm test:system -- --list` shows the registered black-box suites;
-- `pnpm test:system -- --suite local,relay` selects system suites; and
+- `pnpm test:system -- --suite runtime-daemon,relay` selects system suites; and
 - `pnpm test:all` runs every local tier, including all system suites.
 
 The existing `e2e:*` commands remain focused aliases for individual registered
@@ -197,10 +197,7 @@ adjacent Connect checkout:
 import { startConnectTestEnvironment } from
   "../mdbase-connect/scripts/lib/connect-test-environment.mjs";
 
-const connect = await startConnectTestEnvironment({
-  // Accept a development manifest served by the application under test.
-  allowLocalApps: true
-});
+const connect = await startConnectTestEnvironment();
 try {
   // Start the application with connect.serverUrl, then drive its real
   // authorization and collection workflow.
@@ -219,7 +216,6 @@ A consumer that needs hosted collections can supply a disposable provider:
 
 ```js
 const connect = await startConnectTestEnvironment({
-  allowLocalApps: true,
   hostedProvider: {
     // Reachable from the Connect container.
     url: `http://host.docker.internal:${provider.port}`,

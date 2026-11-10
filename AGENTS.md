@@ -27,12 +27,13 @@ Before handing off a change, ask:
 Prefer strong invariants over defensive hedging, replacement over accumulation,
 explicit failure over silent recovery, and simplification over expansion.
 
-- Read `PRODUCT.md` for product intent and `DESIGN.md` for interface direction
-  before changing user-facing flows.
-
-- Keep mdbase collection semantics in `mdbase-rs`; do not duplicate them here.
-- During v0.3 development, the Rust workspace intentionally uses `../mdbase-rs`
-  as a path dependency.
+- mdbase collection semantics live in the runtime (`runtime/`, see
+  `runtime/AGENTS.md`), which implements the mdbase specification. Apps and
+  services ask it; they do not duplicate its semantics.
+- `mdbase-rs` is the deprecated legacy engine and is **not authoritative**. Do
+  not cite its code, docs or conformance corpora as mdbase behaviour. Only the
+  legacy Connect stack in root `crates/` still uses `../mdbase-rs` as a path
+  dependency, until that stack is retired.
 - Treat the local connector as the final authorization boundary. Every remote
   filesystem operation must be checked against its locally cached exact grant.
 - Never send local collection paths to the control plane or persist record
@@ -43,8 +44,9 @@ explicit failure over silent recovery, and simplification over expansion.
   the full node and Rust gates (including the architecture, feature and
   clippy checks), others run the fast node gates. It reports every failure at
   once; pass `--node --rust` for every gate, and `--browser` for the Chromium
-  suites. Also run `pnpm e2e` before handing off changes that affect the
-  request path. Where `rcargo` is on PATH, these commands and `pnpm test:fast`
+  suites. Also run `pnpm e2e` (the runtime daemon's request path against a
+  local control plane) before handing off changes that affect the request
+  path. Where `rcargo` is on PATH, these commands and `pnpm test:fast`
   compile on the build VM and `pnpm test:system` copies back only the binaries
   its suites run, so a worktree does not grow a full local `target/`.
 - Use `pnpm test:fast`, `pnpm test:integration`, and the narrowest registered
@@ -53,13 +55,10 @@ explicit failure over silent recovery, and simplification over expansion.
 - Add release notes as `changelog.d/<pr-or-slug>.md`, not shared
   `CHANGELOG.md` edits. Use one `## Breaking|Added|Changed|Fixed|Removed|Security`
   section and Markdown bullets; run `pnpm check:changelog`.
-- Architecture growth compares against the merge base. Reduce it or justify exact
-  maximum deltas in `architecture.d/<pr-or-slug>.json`; do not edit shared
-  package/public-surface counters in ordinary PRs. Hard architecture gates remain.
 - Regenerate public API/protocol inventories after resolving source conflicts;
   never hand-merge generated outputs. Keep the client README for onboarding;
   change-specific SDK/migration documentation belongs in fragments/topic pages.
 - Prepare betas with `pnpm version:set 0.1.0-beta.N` (supports `--dry-run`), which
-  updates release versions, assembles notes and refreshes architecture counters.
+  updates release versions and assembles notes.
   See `CONTRIBUTING.md` for formats, generator commands, and release-prep checks.
 - `MDBASE_CONNECT_DEV_AUTH=1` is for local development only.

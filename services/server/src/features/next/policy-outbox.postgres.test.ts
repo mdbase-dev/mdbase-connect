@@ -1,4 +1,4 @@
-import { ensureDevelopmentEntitlement } from "../../entitlements.js";
+import { ensureDevelopmentEntitlement } from "../account/entitlements.js";
 import { createHash, createPrivateKey, generateKeyPairSync, randomUUID, sign, verify, type KeyObject } from "node:crypto";
 import pg from "pg";
 import Fastify from "fastify";
@@ -823,71 +823,185 @@ describePostgres("mdbase-next policy outbox", () => {
     let elapsed = 0;
     const clock = vi.spyOn(performance, "now").mockImplementation(() => elapsed);
     const originalRead = client.controlItemAt.bind(client);
+    const delivered: boolean[] = [];
     const read = vi.spyOn(client, "controlItemAt").mockImplementation(async (id, seq) => {
-      // Even the first probe must see the fresh revoke already delivered.
-      expect(service.policyOps(collectionId, signer.cert.policyPublicKey).at(-1)).toEqual(["7"]);
+      delivered.push(JSON.stringify(service.policyOps(collectionId, signer.cert.policyPublicKey).at(-1)) === '["7"]');
       elapsed += 501;
       return originalRead(id, seq);
     });
     try {
       expect(await emitter.drain()).toBe(1);
-      // Do not start another probe after the 500 ms budget is exhausted.
-      expect(read).toHaveBeenCalledTimes(1);
+      // The delivery's own tip check, then one probe, which already sees the
+      // fresh revoke. No other probe starts after the 500 ms budget is exhausted.
+      expect(delivered).toEqual([false, true]);
       expect(service.policyOps(collectionId, signer.cert.policyPublicKey).at(-1)).toEqual(["7"]);
       expect((await isolated.db.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1 AND batch_id IS NULL", [collectionId])).rows).toEqual([]);
     } finally { read.mockRestore(); clock.mockRestore(); await emitter.close(); await isolated.close(); }
-  });
+  }, 60_000);
 
-  it.each([10, 25])("finishes a production-scale fixture sweep within the poll budget at %i ms per probe", async (probeMs) => {
+  it.each([10, 25])("checks recent tips within one sweep and keeps healthy history at one probe per poll at %i ms per probe", async (probeMs) => {
     const isolated = await withDatabase("verification_sweep");
     const owner = await newUser(isolated.db), ids = Array.from({ length: 1056 }, () => randomUUID());
+    const recent = new Set(ids.slice(0, 528));
     // Use the unmodified main schema and count real appended rows. The healthy
     // byte fixtures isolate scheduling, not signing or log transport validation.
     const item = Buffer.from("a0", "hex");
     await isolated.db.query(`INSERT INTO next_collections(collection_id, owner_user_id, runtime, sync, root_key_id)
       SELECT id, $2, 'next', 'cloud_copy', $3 FROM unnest($1::uuid[]) id`, [ids, owner, signer.cert.root]);
+    // Half the collections last changed policy 8 days ago: outside the tip window.
     await isolated.db.query(`INSERT INTO next_policy_batches(collection_id, seq, prev, item, issued_at, state, appended_at)
-      SELECT id, seq, $2, $3, 1, 'appended', now() FROM unnest($1::uuid[]) id CROSS JOIN generate_series(1,4) seq`,
-    [ids, Buffer.alloc(32), item]);
-    const totals = (await isolated.db.query<{ batches: number; collections: number }>(
-      "SELECT count(*)::int AS batches, count(DISTINCT collection_id)::int AS collections FROM next_policy_batches WHERE state='appended'"
-    )).rows[0]!;
-    expect(totals).toEqual({ batches: 4224, collections: 1056 });
-    let elapsed = 0, checked = 0;
+      SELECT id, seq, $2, $3, 1, 'appended', CASE WHEN id = ANY($4::uuid[]) THEN now() ELSE now() - interval '8 days' END
+      FROM unnest($1::uuid[]) id CROSS JOIN generate_series(1,2) seq`, [ids, Buffer.alloc(32), item, [...recent]]);
+    let elapsed = 0;
+    const reads: Array<[string, number]> = [];
     const clock = vi.spyOn(performance, "now").mockImplementation(() => elapsed);
-    const head = vi.spyOn(client, "head").mockImplementation(async () => {
-      elapsed += probeMs;
-      return { seq: 4, chain: Buffer.alloc(32) };
-    });
-    const read = vi.spyOn(client, "controlItemAt").mockImplementation(async () => { checked++; return item; });
-    const errors = vi.fn(), emitter = new PolicyEmitter(isolated.db, client, signer, errors, 2_000, () => 0);
-    // Each collection also needs one empty probe to finish its finite sweep.
+    const head = vi.spyOn(client, "head");
+    const read = vi.spyOn(client, "controlItemAt").mockImplementation(async (id, seq) => { elapsed += probeMs; reads.push([id, seq]); return item; });
+    const errors = vi.fn(), sweeps = vi.fn();
+    const emitter = new PolicyEmitter(isolated.db, client, signer, errors, 2_000, () => 0, undefined, sweeps);
     const probesPerPoll = Math.min(32, Math.ceil(500 / probeMs));
-    const polls = Math.ceil((totals.batches + totals.collections) / probesPerPoll);
     try {
-      for (let i = 0; i < polls; i++) {
-        const before = head.mock.calls.length;
+      // Each poll reserves its one history probe, so a tip backlog cannot
+      // starve history; the rest of the old per-poll budget goes to tips.
+      const tips: Array<[string, number]> = [], history: Array<[string, number]> = [];
+      let tipPolls = 0;
+      while (tips.length < recent.size) {
+        const before = reads.length;
         await emitter.drain();
-        expect(head.mock.calls.length - before).toBeLessThanOrEqual(probesPerPoll);
+        tipPolls += 1;
+        const poll = reads.slice(before);
+        expect(poll.length).toBeLessThanOrEqual(probesPerPoll);
+        history.push(poll[0]!);
+        tips.push(...poll.slice(1));
       }
-      expect(errors).not.toHaveBeenCalled();
-      expect(checked).toBe(totals.batches);
-      expect(head).toHaveBeenCalledTimes(totals.batches + totals.collections);
-      expect(polls).toBe(probeMs === 10 ? 165 : 264);
-      // No more probes until the next scheduled sweep; all cursors completed.
+      expect(sweeps).toHaveBeenCalledWith({ recentCollections: 528, tipProbes: 0, historyProbes: 0, tipBacklog: 0 });
+      expect(tips).toHaveLength(528);
+      expect(tips.every(([id, seq]) => recent.has(id) && seq === 2)).toBe(true);
+      expect(new Set(tips.map(([id]) => id)).size).toBe(528);
+      expect(tipPolls * 2).toBeLessThan(300); // All recent tips well inside one 5-minute sweep.
+      // Then exactly one healthy-history probe per poll, with no empty probes:
+      // 2,112 batches take about 70 minutes of 2 s polls, 30 batches per minute.
+      while (history.length < 2112) {
+        const before = reads.length;
+        await emitter.drain();
+        expect(reads.length - before).toBe(1);
+        history.push(reads.at(-1)!);
+      }
+      expect(new Set(history.map(([id, seq]) => `${id}/${seq}`)).size).toBe(2112);
+      const after = reads.length;
       await emitter.drain();
-      expect(head).toHaveBeenCalledTimes(totals.batches + totals.collections);
+      expect(reads.length).toBe(after); // Sweep complete; nothing until reseed.
+      expect(head).not.toHaveBeenCalled(); // Probes read exact positions only.
+      expect(errors).not.toHaveBeenCalled();
     } finally { read.mockRestore(); head.mockRestore(); clock.mockRestore(); await emitter.close(); await isolated.close(); }
-  }, 120_000);
+  }, 240_000);
 
-  it("recovers a late hint and delivers its pending revocation on the next poll ahead of healthy history", async () => {
+  it("reseeds recent tips every 5 minutes and history every 10 minutes", async () => {
+    const isolated = await withDatabase("verification_cadence");
+    const owner = await newUser(isolated.db), recentId = randomUUID(), oldId = randomUUID(), item = Buffer.from("a0", "hex");
+    await isolated.db.query(`INSERT INTO next_collections(collection_id, owner_user_id, runtime, sync, root_key_id)
+      SELECT id, $2, 'next', 'cloud_copy', $3 FROM unnest($1::uuid[]) id`, [[recentId, oldId], owner, signer.cert.root]);
+    await isolated.db.query(`INSERT INTO next_policy_batches(collection_id, seq, prev, item, issued_at, state, appended_at)
+      VALUES ($1, 1, $3, $4, 1, 'appended', now() - interval '6 days 23 hours'), ($2, 1, $3, $4, 1, 'appended', now() - interval '7 days 1 hour')`,
+    [recentId, oldId, Buffer.alloc(32), item]);
+    let now = 0;
+    const reads: string[] = [];
+    const read = vi.spyOn(client, "controlItemAt").mockImplementation(async id => { reads.push(id); return item; });
+    const sweeps = vi.fn(), emitter = new PolicyEmitter(isolated.db, client, signer, undefined, 2_000, () => now, undefined, sweeps);
+    const poll = async () => { reads.length = 0; await emitter.drain(); return [...reads].sort(); };
+    try {
+      // First poll: the recent tip, then this poll's single history probe.
+      const first = await poll(), second = await poll();
+      expect(first).toHaveLength(2);
+      expect(first).toContain(recentId);
+      expect(second).toHaveLength(1);
+      first.splice(first.indexOf(recentId), 1);
+      expect([...first, ...second].sort()).toEqual([recentId, oldId].sort());
+      now = 299_999;
+      expect(await poll()).toEqual([]);
+      now = 300_000;
+      expect(await poll()).toEqual([recentId]);
+      expect(sweeps).toHaveBeenLastCalledWith({ recentCollections: 1, tipProbes: 1, historyProbes: 2, tipBacklog: 0 });
+      now = 599_999;
+      expect(await poll()).toEqual([]);
+      now = 600_000;
+      expect((await poll()).length).toBe(2); // Tip plus the first reseeded history probe.
+    } finally { read.mockRestore(); await emitter.close(); await isolated.close(); }
+  }, 60_000);
+
+  it.each(["rolled back", "restored then appended at the same seq"] as const)(
+    "finds a %s newest batch on the next tip check, without a hint", async (mode) => {
+      const isolated = await withDatabase("tip_rollback");
+      const collectionId = randomUUID(), owner = await newUser(isolated.db);
+      await registerNextCollection(isolated.db, { collectionId, ownerUserId: owner, runtime: "next", sync: "cloud_copy", rootKeyId: signer.cert.root, ops: genesisOps(owner, signer.cert.root) });
+      let clock = Date.now(); // Also the signing time, inside the certificate window.
+      const emitter = new PolicyEmitter(isolated.db, client, signer, undefined, 2_000, () => clock);
+      try {
+        await emitter.drainCollection(collectionId);
+        await queueNextPolicy(isolated.db, collectionId, [{ op: "grant-revoke", grant: randomUUID() }]);
+        await emitter.drainCollection(collectionId);
+        await emitter.drain(); // Healthy: the tip and the first history probe pass.
+        await emitter.drain(); // The second history probe completes the sweep.
+        const read = vi.spyOn(client, "controlItemAt");
+        await emitter.drain();
+        expect(read).not.toHaveBeenCalled(); // Nothing queued until the next tip sweep.
+        const log = service.logs.get(collectionId.replaceAll("-", ""))!;
+        expect(log).toHaveLength(2);
+        // A log rollback loses the revoke. In the second case another control
+        // item then occupies seq 2, so the head is exactly where the CP expects it.
+        log.splice(1);
+        if (mode !== "rolled back") log.push(Buffer.from(log[0]!));
+        expect((await client.head(collectionId)).seq).toBe(mode === "rolled back" ? 1 : 2);
+        clock += 300_000; // The next tip sweep; history is not reseeded until 10 minutes.
+        await emitter.drain();
+        expect(read.mock.calls[0]).toEqual([collectionId, 2]);
+        read.mockRestore();
+        const lost = await isolated.db.query("SELECT seq FROM next_policy_batches WHERE collection_id = $1 AND lost_at IS NOT NULL", [collectionId]);
+        expect(lost.rows.map(row => Number(row.seq))).toEqual([2]);
+        // The reissued revoke is back in the log after the recovered drain.
+        expect(service.policyOps(collectionId, signer.cert.policyPublicKey).at(-1)).toEqual(["7"]);
+      } finally { await emitter.close(); await isolated.close(); }
+    }, 60_000);
+
+  it("does not let a fresh delivery hide a rolled back newest batch", async () => {
+    const isolated = await withDatabase("tip_masking");
+    const collectionId = randomUUID(), owner = await newUser(isolated.db);
+    await registerNextCollection(isolated.db, { collectionId, ownerUserId: owner, runtime: "next", sync: "cloud_copy", rootKeyId: signer.cert.root, ops: genesisOps(owner, signer.cert.root) });
+    const clock = Date.now(); // Never advanced: no tip sweep is due.
+    const emitter = new PolicyEmitter(isolated.db, client, signer, undefined, 2_000, () => clock);
+    try {
+      await emitter.drainCollection(collectionId);
+      await queueNextPolicy(isolated.db, collectionId, [{ op: "grant-revoke", grant: randomUUID() }]);
+      await emitter.drainCollection(collectionId);
+      await emitter.drain();
+      await emitter.drain(); // History complete; nothing else queued.
+      // The rollback loses the revoke. Appending the next batch at the rolled
+      // back head would make it the healthy newest batch, hiding the loss.
+      service.logs.get(collectionId.replaceAll("-", ""))!.splice(1);
+      await queueNextPolicy(isolated.db, collectionId, [{ op: "grant-revoke", grant: randomUUID() }]);
+      expect(await emitter.drain()).toBe(2); // Reissue first, then the fresh revoke, in this poll.
+      const lost = await isolated.db.query("SELECT seq FROM next_policy_batches WHERE collection_id = $1 AND lost_at IS NOT NULL", [collectionId]);
+      expect(lost.rows.map(row => Number(row.seq))).toEqual([2]);
+      expect(service.policyOps(collectionId, signer.cert.policyPublicKey).slice(1)).toEqual([["7"], ["7"]]);
+      // A direct postcommit wake is refused the same way, never appended at a lost head.
+      service.logs.get(collectionId.replaceAll("-", ""))!.splice(1);
+      await queueNextPolicy(isolated.db, collectionId, [{ op: "grant-revoke", grant: randomUUID() }]);
+      await expect(emitter.publishCommitted(collectionId)).rejects.toThrow(/deferred/);
+      expect(service.logs.get(collectionId.replaceAll("-", ""))!).toHaveLength(1);
+      expect(await emitter.drain()).toBe(3);
+      expect(service.policyOps(collectionId, signer.cert.policyPublicKey).slice(1)).toEqual([["7"], ["7"], ["7"]]);
+    } finally { await emitter.close(); await isolated.close(); }
+  }, 60_000);
+
+  it("recovers a late hint and delivers its pending revocation on the next poll ahead of recent tips and history", async () => {
     const isolated = await withDatabase("priority_recovery");
     const owner = await newUser(isolated.db), collectionId = randomUUID();
     const healthy = Array.from({ length: 1056 }, () => randomUUID()), item = Buffer.from("a0", "hex");
     await isolated.db.query(`INSERT INTO next_collections(collection_id, owner_user_id, runtime, sync, root_key_id)
       SELECT id, $2, 'next', 'cloud_copy', $3 FROM unnest($1::uuid[]) id`, [healthy, owner, signer.cert.root]);
-    await isolated.db.query(`INSERT INTO next_policy_batches(collection_id, seq, prev, item, issued_at, state)
-      SELECT id, 1, $2, $3, 1, 'appended' FROM unnest($1::uuid[]) id`, [healthy, Buffer.alloc(32), item]);
+    // Every healthy collection is recent, so its tip is queued ahead of history.
+    await isolated.db.query(`INSERT INTO next_policy_batches(collection_id, seq, prev, item, issued_at, state, appended_at)
+      SELECT id, seq, $2, $3, 1, 'appended', now() FROM unnest($1::uuid[]) id CROSS JOIN generate_series(1,2) seq`, [healthy, Buffer.alloc(32), item]);
     // The healthy history is seeded past any account's collection limit, so the
     // registered collection belongs to a second owner.
     const lateOwner = await newUser(isolated.db);
@@ -896,25 +1010,23 @@ describePostgres("mdbase-next policy outbox", () => {
     await emitter.drainCollection(collectionId);
     await queueNextPolicy(isolated.db, collectionId, [{ op: "member-remove", account: randomUUID() }]);
     await emitter.drainCollection(collectionId);
-    const originalHead = client.head.bind(client), originalRead = client.controlItemAt.bind(client);
+    const originalRead = client.controlItemAt.bind(client);
     const clock = vi.spyOn(performance, "now").mockReturnValue(0);
-    const head = vi.spyOn(client, "head").mockImplementation(async id =>
-      id === collectionId ? originalHead(id) : { seq: 1, chain: Buffer.alloc(32) });
     const read = vi.spyOn(client, "controlItemAt").mockImplementation(async (id, seq) =>
       id === collectionId ? originalRead(id, seq) : item);
     try {
-      await emitter.drain(); // Fill the rotation; only 32 of 1,056 healthy collections can be probed.
-      expect(head.mock.calls.filter(([id]) => id !== collectionId).length).toBeLessThanOrEqual(32);
+      await emitter.drain(); // Fill the rotation; only 32 of 1,057 recent tips can be probed.
+      expect(read.mock.calls.length).toBeLessThanOrEqual(32);
       service.logs.get(collectionId.replaceAll("-", ""))!.splice(1);
       await queueNextPolicy(isolated.db, collectionId, [{ op: "grant-revoke", grant: randomUUID() }]);
-      emitter.hintLostPolicy(collectionId); // Arrives behind the existing healthy cursors.
-      head.mockClear();
+      emitter.hintLostPolicy(collectionId); // Arrives behind the queued tips and history cursors.
+      read.mockClear();
       expect(await emitter.drain()).toBe(2); // Reissue first, then the fresh revoke, in this poll.
-      expect(head.mock.calls[0]).toEqual([collectionId]);
+      expect(read.mock.calls[0]?.[0]).toBe(collectionId);
       expect(service.policyOps(collectionId, signer.cert.policyPublicKey)).toEqual([["1", "4", "2", "2"], ["5"], ["7"]]);
       expect((await isolated.db.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1 AND batch_id IS NULL", [collectionId])).rows).toEqual([]);
-    } finally { read.mockRestore(); head.mockRestore(); clock.mockRestore(); await emitter.close(); await isolated.close(); }
-  });
+    } finally { read.mockRestore(); clock.mockRestore(); await emitter.close(); await isolated.close(); }
+  }, 60_000);
 
   it("advances bounded verification and rebuilds the complete ordered loss plan on a later page", async () => {
     const collectionId = await register(await newUser(database.db));
@@ -948,6 +1060,8 @@ describePostgres("mdbase-next policy outbox", () => {
     const collectionId = await register(await newUser(database.db));
     const emitter = new PolicyEmitter(database.db, client, signer);
     await emitter.drainCollection(collectionId);
+    await queueNextPolicy(database.db, collectionId, [{ op: "freeze", frozen: true }]);
+    await emitter.drainCollection(collectionId);
     const cursor = { after: "0" };
     await recoverLostPolicy(database.db, client, collectionId, cursor);
     expect(cursor.after).not.toBe("0");
@@ -955,9 +1069,10 @@ describePostgres("mdbase-next policy outbox", () => {
     await emitter.drainCollection(collectionId);
     const read = vi.spyOn(client, "controlItemAt");
     try {
+      // The sweep's last batch completes it; the batch appended since is not probed.
       await recoverLostPolicy(database.db, client, collectionId, cursor);
       expect(cursor.after).toBe("0");
-      expect(read).not.toHaveBeenCalled();
+      expect(read.mock.calls).toEqual([[collectionId, 2]]);
     } finally { read.mockRestore(); await emitter.close(); }
   });
 
@@ -1004,18 +1119,22 @@ describePostgres("mdbase-next policy outbox", () => {
     expect(parked.rows).toHaveLength(1);
   });
 
-  it("fences an open fresh sending batch prepared at the regressed head until recovery lands", async () => {
+  it("fences an open fresh sending batch whose head regressed until recovery lands", async () => {
     const collectionId = await register(await newUser(database.db));
     const emitter = new PolicyEmitter(database.db, client, signer);
     await emitter.drainCollection(collectionId);
     await queueNextPolicy(database.db, collectionId, [{ op: "grant-revoke", grant: randomUUID() }]);
     await emitter.drainCollection(collectionId);
-    service.logs.get(collectionId.replaceAll("-", ""))!.splice(1);
     await queueNextPolicy(database.db, collectionId, [{ op: "freeze", frozen: false }]);
     service.failNextAppend = true;
     await expect(emitter.drainCollection(collectionId)).rejects.toThrow(/append unavailable/);
     const sending = await database.db.query("SELECT 1 FROM next_policy_batches WHERE collection_id = $1 AND state = 'sending'", [collectionId]);
     expect(sending.rows).toHaveLength(1);
+    // The log rolls back after the batch was prepared at the healthy head.
+    service.logs.get(collectionId.replaceAll("-", ""))!.splice(1);
+    // Its retry is refused before the append, so the batch stays open for recovery.
+    expect(await emitter.drainCollection(collectionId)).toBe(0);
+    expect((await database.db.query("SELECT 1 FROM next_policy_batches WHERE collection_id = $1 AND state = 'sending'", [collectionId])).rows).toHaveLength(1);
     expect(await recoverLostPolicy(database.db, client, collectionId)).toBe(1);
     expect(await emitter.drainCollection(collectionId)).toBe(2);
     expect(service.policyOps(collectionId, signer.cert.policyPublicKey)).toEqual([["1", "4", "2", "2"], ["7"], ["11"]]);

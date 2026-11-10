@@ -10,7 +10,7 @@ export interface MdbaseApp {
   readonly id: MdbaseAppId;
   readonly name: string;
   readonly description: string;
-  /** Production origin. Lab and local builds substitute their own with `withAppUrls`. */
+  /** Deployment URL supplied by the consumer with `withAppUrls`. */
   readonly url: string;
 }
 
@@ -19,34 +19,55 @@ export const mdbaseApps: readonly MdbaseApp[] = [
     id: "editor",
     name: "Editor",
     get description() { return t({ message: "Browse and edit records" }); },
-    url: "https://editor.mdbase.dev/"
+    url: ""
   },
   {
     id: "reader",
     name: "Reader",
     get description() { return t({ message: "Read and annotate sources" }); },
-    url: "https://reader.mdbase.dev/"
+    url: ""
   },
   {
     id: "writer",
     name: "Writer",
     get description() { return t({ message: "Write manuscripts that cite your sources" }); },
-    url: "https://writer.mdbase.dev/"
+    url: ""
+  }
+];
+
+/** Every app mdbase makes: the family above plus apps with their own identity. */
+export interface OfficialApp extends Omit<MdbaseApp, "id"> {
+  readonly id: MdbaseAppId | "journal" | "tasknotes";
+}
+
+export const officialApps: readonly OfficialApp[] = [
+  ...mdbaseApps,
+  {
+    id: "journal",
+    name: "Journal",
+    get description() { return t({ message: "Keep a daily journal" }); },
+    url: ""
+  },
+  {
+    id: "tasknotes",
+    name: "TaskNotes",
+    get description() { return t({ message: "Plan tasks and projects" }); },
+    url: ""
   }
 ];
 
 /**
  * Replaces app URLs for a lab or local build, for example from
- * `import.meta.env.VITE_MDBASE_WRITER_URL`. Unset entries keep production.
+ * `import.meta.env.VITE_MDBASE_WRITER_URL`. Apps without a URL are omitted.
  */
-export function withAppUrls(
-  urls: Partial<Record<MdbaseAppId, string | undefined>>,
-  apps: readonly MdbaseApp[] = mdbaseApps
-): readonly MdbaseApp[] {
+export function withAppUrls<App extends OfficialApp = MdbaseApp>(
+  urls: Partial<Record<App["id"], string | undefined>>,
+  apps: readonly App[] = mdbaseApps as readonly OfficialApp[] as readonly App[]
+): readonly App[] {
   return apps.map((app) => {
-    const url = urls[app.id];
+    const url = urls[app.id as App["id"]];
     return url ? { ...app, url } : app;
-  });
+  }).filter((app) => app.url);
 }
 
 /**

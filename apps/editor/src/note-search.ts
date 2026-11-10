@@ -1,11 +1,13 @@
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import type { NoteSummary } from "./model";
+import { noteAliases } from "./links";
 import { basename, noteTags, noteTitle } from "./note";
 
 export interface NoteSearchEntry {
   note: NoteSummary;
   title: string;
   titleText: string;
+  aliases: string[];
   filename: string;
   path: string;
   metadata: string;
@@ -70,6 +72,7 @@ function buildNoteSearchEntry(note: NoteSummary, types: CollectionTypeDescriptor
     note,
     title: normalize(titleText),
     titleText,
+    aliases: noteAliases(note).map(normalize),
     filename: normalize(basename(note.path)),
     path: normalize(note.path),
     metadata: normalize(metadata.join("\n")),
@@ -83,10 +86,12 @@ export function searchNotes(index: NoteSearchEntry[], query: string, limit = Num
   return searchNoteResults(index, query, limit).map((result) => result.note);
 }
 
+/** `bonus` lowers a note's score (ranks it higher); Quick open uses it for recent notes. */
 export function searchNoteResults(
   index: NoteSearchEntry[],
   query: string,
-  limit = Number.POSITIVE_INFINITY
+  limit = Number.POSITIVE_INFINITY,
+  bonus?: (note: NoteSummary) => number
 ): NoteSearchResult[] {
   const tokens = normalize(query).split(/\s+/).filter(Boolean).map((text) => ({
     text,
@@ -105,7 +110,7 @@ export function searchNoteResults(
     });
   }
   return index
-    .map((entry, order) => ({ entry, order, score: noteScore(entry, tokens) }))
+    .map((entry, order) => ({ entry, order, score: noteScore(entry, tokens) - (bonus?.(entry.note) ?? 0) }))
     .filter((candidate) => Number.isFinite(candidate.score))
     .sort((left, right) => left.score - right.score || left.order - right.order)
     .slice(0, limit)
@@ -130,6 +135,7 @@ function noteScore(entry: NoteSearchEntry, tokens: SearchToken[]): number {
   for (const token of tokens) {
     let tokenScore = Math.min(
       fuzzyScore(entry.title, token),
+      aliasScore(entry, token),
       fuzzyScore(entry.filename, token) + 0.35,
       fuzzyScore(entry.path, token) + 0.75
     );
@@ -141,6 +147,13 @@ function noteScore(entry: NoteSearchEntry, tokens: SearchToken[]): number {
     score += tokenScore;
   }
   return score + Math.min(entry.path.length / 1_000, 0.25);
+}
+
+/** An alias is another name for the note, so it ranks just behind the title. */
+function aliasScore(entry: NoteSearchEntry, token: SearchToken): number {
+  let best = Number.POSITIVE_INFINITY;
+  for (const alias of entry.aliases) best = Math.min(best, fuzzyScore(alias, token) + 0.1);
+  return best;
 }
 
 function fuzzyScore(value: string, token: SearchToken): number {
@@ -185,7 +198,7 @@ function collectSearchValues(value: unknown, values: string[]) {
 }
 
 function highlightTokens(query: string): string[] {
-  return [...new Set(query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean))]
+  return [...new Set(normalize(query.trim()).split(/\s+/).filter(Boolean))]
     .sort((left, right) => right.length - left.length);
 }
 
@@ -194,14 +207,15 @@ export function searchTextRanges(text: string, query: string): SearchTextRange[]
 }
 
 function textRanges(text: string, tokens: string[]): SearchTextRange[] {
-  const haystack = text.toLocaleLowerCase();
+  const folded = foldWithOffsets(text);
   const ranges: SearchTextRange[] = [];
   for (const token of tokens) {
-    let from = haystack.indexOf(token);
-    while (from >= 0) {
-      const to = from + token.length;
+    let at = folded.text.indexOf(token);
+    while (at >= 0) {
+      // Report the original characters, so "cafe" highlights all of "Café".
+      const from = folded.start[at], to = folded.end[at + token.length - 1];
       if (!ranges.some((range) => from < range.to && to > range.from)) ranges.push({ from, to });
-      from = haystack.indexOf(token, Math.max(to, from + 1));
+      at = folded.text.indexOf(token, at + Math.max(token.length, 1));
     }
   }
   return ranges.sort((left, right) => left.from - right.from);
@@ -210,6 +224,7 @@ function textRanges(text: string, tokens: string[]): SearchTextRange[] {
 function bestSearchContext(entry: NoteSearchEntry, query: string[], tokens: SearchToken[]): NoteSearchContext {
   const fields = [
     { kind: "title" as const, score: combinedScore(entry.title, tokens, fuzzyScore) },
+    { kind: "alias" as const, score: Math.min(Number.POSITIVE_INFINITY, ...entry.aliases.map((alias) => combinedScore(alias, tokens, fuzzyScore) + 0.1)) },
     { kind: "filename" as const, score: combinedScore(entry.filename, tokens, fuzzyScore) + 0.35 },
     { kind: "path" as const, score: combinedScore(entry.path, tokens, fuzzyScore) + 0.75 },
     { kind: "metadata" as const, score: combinedScore(entry.metadata, tokens, substringScore) + 2 },
@@ -217,7 +232,7 @@ function bestSearchContext(entry: NoteSearchEntry, query: string[], tokens: Sear
   ].sort((left, right) => left.score - right.score);
   const best = fields.find((field) => Number.isFinite(field.score))?.kind;
   if (best === "body") return searchContext(entry.bodyText, query, "body", true);
-  if (best === "metadata") return searchContext(entry.metadataText, query, "metadata", true);
+  if (best === "metadata" || best === "alias") return searchContext(entry.metadataText, query, "metadata", true);
   if (best === "title" || best === "filename") return { kind: "title", text: "", ranges: [] };
   return searchContext(entry.note.path, query, "path");
 }
@@ -249,9 +264,10 @@ function searchContext(
 function searchExcerpt(value: string, query: string[], maximumLength = 104): string {
   const text = value.replace(/\s+/g, " ").trim();
   if (text.length <= maximumLength) return text;
-  const folded = text.toLocaleLowerCase();
-  const matches = query.map((token) => folded.indexOf(token))
-    .filter((index) => index >= 0);
+  const folded = foldWithOffsets(text);
+  const matches = query.map((token) => folded.text.indexOf(token))
+    .filter((index) => index >= 0)
+    .map((index) => folded.start[index]);
   const anchor = matches.length ? Math.min(...matches) : 0;
   let from = Math.max(0, anchor - Math.floor(maximumLength * 0.34));
   let to = Math.min(text.length, from + maximumLength);
@@ -290,8 +306,25 @@ function collectReadableMetadata(value: unknown, values: string[], key?: string)
   }
 }
 
+/** Case- and accent-insensitive form: "Café" and "cafe" both become "cafe". */
 function normalize(value: string): string {
-  return value.normalize("NFKD").toLocaleLowerCase();
+  return value.normalize("NFKD").replace(/\p{M}/gu, "").toLocaleLowerCase();
+}
+
+/** The normalized text, with the original range each of its UTF-16 units came from. */
+function foldWithOffsets(value: string): { text: string; start: number[]; end: number[] } {
+  let text = "", offset = 0;
+  const start: number[] = [], end: number[] = [];
+  for (const character of value) {
+    const folded = normalize(character);
+    for (let index = 0; index < folded.length; index += 1) {
+      start.push(offset);
+      end.push(offset + character.length);
+    }
+    text += folded;
+    offset += character.length;
+  }
+  return { text, start, end };
 }
 
 function escapeRegExp(value: string): string {

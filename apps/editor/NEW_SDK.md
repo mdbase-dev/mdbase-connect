@@ -30,6 +30,26 @@ publication is implied.
   Custom adapters and their fenced client lifetimes are isolated test seams,
   ignored outside test builds. Native owner-delete parity is not yet qualified.
 
+## Work before connecting
+
+`createEditorMdbase` passes `unsynced: true`, and the gate and switcher take
+`unsynced` (see `docs/architecture/work-before-connecting.md`). A signed-out
+start, or **Continue without connecting** on the signed-out screen, opens this
+browser's unsynced collection; the gate hands its connection to the editor as
+in phase `ready`, under the same native gateway. It is never listed in the
+switcher, and people cannot name it or make several.
+
+- The rail's status reads the shared "Saved only in this browser"
+  (`syncState() === "unsynced"`), never Connected, Saved or "waiting for sync":
+  local confirmation is final there.
+- Once something is saved, the gate's one quiet line above the editor repeats it
+  with **Connect to sync your work**. With a collection open, its banner offers
+  **Bring it in** (identity map, `addTypes: true`) or **Discard…** after the
+  person confirms. `.editor-collection-frame` stacks those lines above the
+  editor within the viewport.
+- Attach stays hidden: the unsynced grant has no file `add` action, and the
+  gateway already offers uploads only for an explicit `add`.
+
 ## Native gateway
 
 `NativeEditorGateway` implements the editor's existing `CollectionGateway` over

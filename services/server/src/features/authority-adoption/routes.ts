@@ -1,13 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { requireAccountNotMigrationFrozen, requireHostedCollectionNotMigrationFrozen } from "../next/migration-topology.js";
+import { requireLegacyHostedAccount } from "../hosted/service.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { DatabasePool } from "../../database-types.js";
-import { reconcileHostedAccount } from "../../entitlements.js";
+import { reconcileHostedAccount } from "../account/entitlements.js";
 import {
   HostedProviderResponseError,
   type HostedProviderClient
-} from "../../hosted-provider.js";
+} from "../hosted/hosted-provider.js";
 import { randomToken, tokenHash } from "../../security.js";
 import { audit } from "../../platform/audit-events.js";
 import { authorityImportCapability } from "../../platform/authority-url.js";
@@ -141,7 +142,7 @@ export function registerAuthorityAdoptionRoutes(
       const connection = await options.db.connect();
       try {
         await connection.query("BEGIN");
-        await requireAccountNotMigrationFrozen(connection, user.id);
+        await requireLegacyHostedAccount(connection, user.id);
         const locked = await connection.query<AuthorityAdoptionRow>(
           `${authorityAdoptionSelect()}
            WHERE adoption.id = $1 FOR UPDATE`,

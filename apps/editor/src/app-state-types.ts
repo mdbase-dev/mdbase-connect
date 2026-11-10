@@ -5,8 +5,9 @@ export type MobilePane = "collections" | "notes" | "editor";
 export type Surface = "notes" | "types" | "settings";
 export type ConnectionState = "connected" | "reconnecting" | "stopped";
 /** Whether changes reach the collection: "offline" while it can't be reached,
- * "saved_on_device" while changes are kept on this device until they sync. */
-export type EditorSyncState = "synced" | "offline" | "saved_on_device";
+ * "saved_on_device" while changes are kept on this device until they sync,
+ * "unsynced" in work before connecting, which is saved only in this browser. */
+export type EditorSyncState = "synced" | "offline" | "saved_on_device" | "unsynced";
 export type ContractCatalogLoadState =
   | { status: "idle" | "loading" }
   | { status: "ready"; catalog: ContractCatalog }

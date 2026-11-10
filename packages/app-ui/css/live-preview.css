@@ -1,0 +1,387 @@
+/*
+ * Live preview for mdbase Markdown editors (`@mdbase-dev/ui/live-preview`).
+ * Scope it under the editor's own class if an app mixes source and preview editors.
+ */
+
+.cm-lp-mark {
+  color: var(--color-text-faint);
+}
+
+/* Rendered text takes its colour from here, not from the syntax highlighting inside. */
+.cm-line .cm-lp-mark *,
+.cm-line .cm-lp-link *,
+.cm-line .cm-lp-escaped * {
+  color: inherit;
+}
+
+.cm-lp-strong {
+  font-weight: var(--font-weight-bold, 700);
+}
+
+.cm-lp-em {
+  font-style: italic;
+}
+
+.cm-lp-strike {
+  text-decoration: line-through;
+  text-decoration-color: var(--color-text-muted);
+}
+
+.cm-lp-code {
+  padding: 0.1em 0.28em;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-subtle);
+  font-family: var(--mono);
+  font-size: 0.88em;
+}
+
+.cm-lp-link {
+  color: var(--syntax-link, var(--color-accent));
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+  text-underline-offset: 0.18em;
+  cursor: pointer;
+}
+
+.cm-lp-link:hover {
+  text-decoration-color: currentColor;
+}
+
+.cm-lp-link-missing {
+  color: var(--color-text-muted);
+  text-decoration-style: dashed;
+}
+
+/* Headings. Their revealed marks sit in the margin, so the text never moves. */
+.cm-lp-heading {
+  position: relative;
+  color: var(--syntax-heading, var(--color-text));
+  font-weight: var(--font-weight-bold, 700);
+  line-height: 1.3;
+}
+
+.cm-lp-h1 { font-size: 1.6em; padding-top: 0.5em !important; padding-bottom: 0.1em !important; }
+.cm-lp-h2 { font-size: 1.32em; padding-top: 0.45em !important; padding-bottom: 0.05em !important; }
+.cm-lp-h3 { font-size: 1.14em; padding-top: 0.35em !important; }
+.cm-lp-h4 { font-size: 1em; padding-top: 0.25em !important; }
+.cm-lp-h5,
+.cm-lp-h6 { font-size: 0.92em; color: var(--color-text-muted); padding-top: 0.2em !important; }
+
+.cm-lp-outdent {
+  position: absolute;
+  right: 100%;
+  padding-right: 0.3em;
+  white-space: pre;
+  font-weight: var(--font-weight-regular, 400);
+}
+
+/* Quotes: a quiet fill, no edge stripe. */
+.cm-lp-quote {
+  position: relative;
+  color: var(--color-text-soft);
+  background: var(--color-surface-subtle);
+  padding-left: calc(var(--lp-line-padding, 6px) + 0.85em * var(--lp-quote-depth, 1)) !important;
+  padding-right: 0.85em !important;
+}
+
+.cm-lp-quote-first {
+  border-top-left-radius: var(--radius-md);
+  border-top-right-radius: var(--radius-md);
+  padding-top: 0.3em !important;
+}
+
+.cm-lp-quote-last {
+  border-bottom-left-radius: var(--radius-md);
+  border-bottom-right-radius: var(--radius-md);
+  padding-bottom: 0.3em !important;
+}
+
+/* A nested quote is a deeper fill inset by its parent's indent. */
+.cm-lp-quote-nested {
+  --lp-quote-tint: color-mix(in oklab, currentColor 6%, transparent);
+  background-image: linear-gradient(to right,
+    transparent calc(var(--lp-line-padding, 6px) + 0.4em), var(--lp-quote-tint) 0);
+}
+
+/* Deeper quotes add one more fill from their own indent. */
+.cm-lp-quote-deep {
+  background-image:
+    linear-gradient(to right,
+      transparent calc(var(--lp-line-padding, 6px) + 0.85em * (var(--lp-quote-depth) - 1) - 0.45em), var(--lp-quote-tint) 0),
+    linear-gradient(to right, transparent calc(var(--lp-line-padding, 6px) + 0.4em), var(--lp-quote-tint) 0);
+}
+
+.cm-lp-quote .cm-lp-outdent {
+  right: calc(100% - 0.85em * var(--lp-quote-depth, 1));
+}
+
+/* Phones have no margin to hang marks in, so revealed marks sit inline. */
+@media (max-width: 640px) {
+  .cm-lp-outdent,
+  .cm-lp-quote .cm-lp-outdent {
+    position: static;
+    padding-right: 0;
+  }
+}
+
+/* Lists hang wrapped lines under their text. */
+.cm-lp-list {
+  padding-left: calc(var(--lp-line-padding, 6px) + var(--lp-list-indent)) !important;
+  text-indent: calc(-1 * var(--lp-list-indent));
+}
+
+.cm-lp-list-continue {
+  padding-left: calc(var(--lp-line-padding, 6px) + var(--lp-list-indent)) !important;
+}
+
+.cm-lp-list-prefix {
+  display: inline-block;
+  box-sizing: border-box;
+  width: var(--lp-list-indent);
+  text-indent: 0;
+  white-space: pre;
+  vertical-align: top;
+}
+
+.cm-lp-bullet {
+  display: inline-block;
+  color: var(--color-text-muted);
+}
+
+.cm-lp-bullet::before { content: "•"; }
+.cm-lp-bullet-1::before { content: "◦"; }
+.cm-lp-bullet-2::before { content: "▪"; font-size: 0.8em; }
+
+.cm-lp-ordinal {
+  display: inline-block;
+  box-sizing: border-box;
+  padding-right: 1ch;
+  text-align: right;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.cm-lp-task {
+  margin: 0 2px 0 1px;
+  vertical-align: -2px;
+}
+
+.cm-lp-task-done {
+  color: var(--color-text-muted);
+}
+
+/* A thematic break is a rule across the line. */
+.cm-lp-rule {
+  position: relative;
+}
+
+.cm-lp-rule::after {
+  content: "";
+  position: absolute;
+  inset: 50% 0 auto;
+  border-top: 1px solid var(--color-border-strong);
+  pointer-events: none;
+}
+
+/* Tables are their own Markdown rows laid out as a grid: each line is a row and each cell's text a cell. */
+.cm-lp-table {
+  display: table;
+  width: max-content;
+  max-width: 100%;
+  margin: var(--space-2) 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: auto;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+}
+
+.cm-lp-table > .cm-line.cm-lp-tr {
+  display: table-row;
+  padding: 0;
+  background: none;
+}
+
+.cm-lp-table-frame {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding: var(--space-2) 0 var(--space-2) var(--lp-table-indent);
+}
+
+.cm-lp-table-frame > .cm-lp-table { margin: 0; }
+
+/* A table inside a quote continues the quote's fill. */
+.cm-lp-table-quote {
+  padding-inline: calc(var(--lp-line-padding, 6px) + 0.85em * var(--lp-quote-depth) + var(--lp-table-indent)) 0.85em;
+  background: var(--color-surface-subtle);
+}
+
+.cm-lp-table-quote-last {
+  border-bottom-left-radius: var(--radius-md);
+  border-bottom-right-radius: var(--radius-md);
+  padding-bottom: var(--space-3);
+}
+
+.cm-lp-table-quote .cm-lp-td { background: var(--color-surface); }
+.cm-lp-table-quote .cm-lp-th { background: var(--color-surface-subtle); }
+
+/* Hidden pipes leave empty placeholders behind; in a row they would become cells of their own. */
+.cm-lp-tr > :not(.cm-lp-td) { display: none; }
+/*
+ * The editor measures a caret beside an empty cell's widget on these buffers. Taken out of
+ * flow rather than hidden, they keep a box at the cell, so scrolling to that caret stays put.
+ */
+.cm-lp-tr > img.cm-widgetBuffer { display: inline; position: absolute; }
+
+.cm-lp-td {
+  display: table-cell;
+  min-width: 4em;
+  max-width: 28em;
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  border-inline-end: 1px solid var(--color-border);
+  vertical-align: top;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+  transition: background-color var(--motion-quick) var(--ease-standard);
+}
+
+/* Words wrap whole; only links, which have no natural breaks, may split anywhere. */
+.cm-lp-td .cm-lp-link { overflow-wrap: anywhere; }
+
+.cm-lp-td:first-child { border-inline-start: 1px solid var(--color-border); }
+.cm-lp-tr-header > .cm-lp-td { border-top: 1px solid var(--color-border); }
+.cm-lp-tr-header > .cm-lp-td:first-child { border-start-start-radius: var(--radius-md); }
+.cm-lp-tr-header > .cm-lp-td:last-child { border-start-end-radius: var(--radius-md); }
+.cm-lp-tr-last > .cm-lp-td:first-child { border-end-start-radius: var(--radius-md); }
+.cm-lp-tr-last > .cm-lp-td:last-child { border-end-end-radius: var(--radius-md); }
+
+/* An empty cell keeps its column and a caret-sized line. */
+.cm-lp-td:empty::before { content: "\200b"; }
+
+.cm-lp-th {
+  background: var(--color-surface-subtle);
+  color: var(--color-text);
+  font-weight: var(--font-weight-semibold);
+}
+
+.cm-lp-align-center { text-align: center; }
+.cm-lp-align-right { text-align: end; }
+
+/* The delimiter row is structure, not content: it takes no space. */
+.cm-lp-table > .cm-line.cm-lp-tr-delimiter { height: 0; font-size: 0; line-height: 0; }
+.cm-lp-tr-delimiter > br { display: none; }
+
+/* A block of cells is drawn as cells; the text selection running through it is not. */
+.cm-content .cm-lp-table.cm-lp-table-cells ::selection { background: transparent; }
+.cm-lp-tr > .cm-lp-td-selected { background: var(--color-accent-soft); }
+
+.cm-focused .cm-lp-td-active {
+  background: var(--color-accent-soft);
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
+
+/* Row and column grips sit on the table's edges; the add buttons run along its sides. */
+.cm-lp-table-controls {
+  position: absolute;
+  inset: 0 auto auto 0;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--motion-quick) var(--ease-standard);
+}
+
+.cm-lp-table-controls-visible { opacity: 1; }
+.cm-lp-table-controls-visible > button { pointer-events: auto; }
+
+.cm-lp-table-controls > button {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+  cursor: pointer;
+}
+
+.cm-lp-table-controls > button:hover {
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+  background: var(--color-surface-subtle);
+}
+
+.cm-lp-table-controls svg { width: 14px; height: 14px; fill: currentColor; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.cm-lp-table-grip svg { stroke: none; }
+.cm-lp-table-controls > .cm-lp-table-grip { cursor: grab; touch-action: none; }
+.cm-lp-table-dragging,
+.cm-lp-table-controls.cm-lp-table-dragging > .cm-lp-table-grip { cursor: grabbing; }
+
+/* While dragging, the moved row or column is tinted and a line marks where it lands. */
+.cm-lp-table-drag-source,
+.cm-lp-table-drop { position: absolute; pointer-events: none; }
+.cm-lp-table-drag-source { background: var(--color-accent-soft); opacity: 0.6; }
+.cm-lp-table-drop { border: 1px solid var(--color-accent); translate: -1px -1px; }
+.cm-lp-table-drag-source[hidden],
+.cm-lp-table-drop[hidden] { display: none; }
+
+.cm-lp-table-grip-column { width: 24px; height: 14px; translate: -50% -50%; }
+.cm-lp-table-grip-row { width: 14px; height: 24px; translate: -50% -50%; }
+
+.cm-lp-table-add {
+  opacity: 0;
+  transition: opacity var(--motion-quick) var(--ease-standard);
+}
+
+.cm-lp-table-add-row { height: 16px; translate: 0 4px; }
+.cm-lp-table-add-column { width: 16px; translate: 4px 0; }
+.cm-lp-table-controls > .cm-lp-table-add:hover,
+.cm-lp-table-controls > .cm-lp-table-add:focus-visible { opacity: 1; }
+
+.cm-lp-table-menu { z-index: 50; min-width: 12rem; box-shadow: var(--elevation-low); }
+.cm-lp-table-menu-separator { height: 1px; margin: 4px 2px; background: var(--color-border); }
+.cm-lp-table-menu [aria-checked="true"]::after { content: ""; width: 8px; height: 4px; margin-inline-start: auto; border-bottom: 1.5px solid currentColor; border-left: 1.5px solid currentColor; rotate: -45deg; translate: 0 -2px; }
+
+@media (pointer: coarse) {
+  .cm-lp-table-grip-column { width: 32px; height: 20px; }
+  .cm-lp-table-grip-row { width: 20px; height: 32px; }
+  .cm-lp-table-add { opacity: 1; }
+}
+
+/* Code blocks retain real editable lines, including nested syntax highlighting. */
+.cm-lp-code-block {
+  background: var(--color-surface-subtle);
+  font-family: var(--mono);
+  font-size: 0.88em;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  padding-left: 1em !important;
+  padding-right: 1em !important;
+}
+.cm-lp-code-first { border-radius: var(--radius-md) var(--radius-md) 0 0; padding-top: 0.5em !important; }
+.cm-lp-code-last { border-radius: 0 0 var(--radius-md) var(--radius-md); padding-bottom: 0.5em !important; }
+.cm-lp-code-first.cm-lp-code-last { border-radius: var(--radius-md); }
+.cm-lp-code-fence-end { line-height: 0; min-height: 0; }
+.cm-lp-code-header { display: inline-flex; width: 100%; vertical-align: middle; align-items: center; justify-content: space-between; gap: 1em; min-height: 28px; color: var(--color-text-muted); font-family: var(--sans); font-size: var(--font-size-caption); }
+.cm-lp-code-header button, .cm-lp-callout-header button { border: 0; border-radius: var(--radius-sm); background: transparent; color: inherit; cursor: pointer; min-width: 28px; min-height: 28px; font: inherit; }
+.cm-lp-code-header button:hover, .cm-lp-callout-header button:hover { background: var(--color-surface); color: var(--color-text); }
+.cm-lp-code-header button:focus-visible, .cm-lp-callout-header button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+
+.cm-lp-callout { background: var(--color-surface-subtle); padding-left: 1em !important; padding-right: 1em !important; }
+.cm-lp-callout-first { border-radius: var(--radius-md) var(--radius-md) 0 0; padding-top: 0.3em !important; font-weight: 600; }
+.cm-lp-callout-last { border-radius: 0 0 var(--radius-md) var(--radius-md); padding-bottom: 0.3em !important; }
+.cm-lp-callout-first.cm-lp-callout-last { border-radius: var(--radius-md); }
+.cm-lp-callout-note, .cm-lp-callout-info, .cm-lp-callout-question { background: color-mix(in srgb, var(--color-accent) 7%, var(--color-surface)); }
+.cm-lp-callout-tip, .cm-lp-callout-success, .cm-lp-callout-todo { background: color-mix(in srgb, var(--color-success) 8%, var(--color-surface)); }
+.cm-lp-callout-warning { background: color-mix(in srgb, var(--color-warning) 9%, var(--color-surface)); }
+.cm-lp-callout-danger { background: color-mix(in srgb, var(--color-danger) 8%, var(--color-surface)); }
+.cm-lp-callout-header { display: inline-flex; align-items: center; gap: 0.55em; width: 100%; }
+.cm-lp-callout-header button { margin-left: auto; }
+.cm-lp-callout-icon { width: 1em; text-align: center; color: var(--color-text-soft); }
+.cm-lp-footnote-ref { font-size: 0.75em; vertical-align: super; color: var(--color-text-soft); }
+.cm-lp-footnote-definition { color: var(--color-text-muted); font-size: 0.9em; }
+.cm-lp-footnote-ref, .cm-lp-footnote-ref * { color: var(--color-text-soft) !important; text-decoration: none !important; }
+.cm-lp-footnote-definition span { color: inherit !important; text-decoration: none !important; }

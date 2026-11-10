@@ -1,18 +1,19 @@
-import { autoUpdater, shell } from "electron";
+import { app, autoUpdater, shell } from "electron";
 import { createReadStream } from "node:fs";
 import { chmod, mkdir, rm, stat } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { join } from "node:path";
+import { stageDebApp, swapStagedApp, userOwnedAppDirectory } from "./linux-update";
 import { findLatestRelease, verifyArtifactBundle } from "./release-source";
 import type { UpdateBackend } from "./update-coordinator";
 import {
   channelForVersion,
+  type UpdateArtifact,
   type UpdateManifest,
   type UpdateTarget
 } from "./update-policy";
 import { artifactMatches, downloadArtifact, downloadBytes } from "./update-download";
 
-const AUTO_UPDATER_TIMEOUT_MS = 180_000;
 const MAX_BUNDLE_BYTES = 4 * 1024 * 1024;
 
 export interface ElectronUpdateBackendOptions {
@@ -21,6 +22,7 @@ export interface ElectronUpdateBackendOptions {
   platform: NodeJS.Platform;
   arch: string;
   userDataDirectory: string;
+  executablePath: string;
 }
 
 /** The app's release channel; see update-coordinator.ts. */
@@ -30,6 +32,8 @@ export class ElectronUpdateBackend implements UpdateBackend {
   readonly platformKey: string;
   readonly packaged: boolean;
   private readonly options: ElectronUpdateBackendOptions;
+  /** A Linux app unpacked into a folder the user owns, which replaces itself. */
+  private readonly linuxAppDirectory: string | null;
 
   constructor(options: ElectronUpdateBackendOptions) {
     this.options = options;
@@ -37,52 +41,94 @@ export class ElectronUpdateBackend implements UpdateBackend {
     this.channel = channelForVersion(options.currentVersion);
     this.platformKey = `${options.platform}-${options.arch}`;
     this.packaged = options.packaged;
+    this.linuxAppDirectory = options.platform === "linux" && options.packaged
+      ? userOwnedAppDirectory(options.executablePath, process.getuid!())
+      : null;
   }
 
-  async findLatest(): Promise<{ manifest: UpdateManifest } | null> {
+  installsAutomatically(target: UpdateTarget): boolean {
+    return target.mode === "automatic" ||
+      (this.linuxAppDirectory !== null && target.artifacts.some((artifact) => artifact.kind === "deb"));
+  }
+
+  async findLatest(signal: AbortSignal): Promise<{ manifest: UpdateManifest } | null> {
     return findLatestRelease({
       channel: this.channel,
-      trustCacheDirectory: join(this.options.userDataDirectory, "updates", "sigstore")
+      trustCacheDirectory: join(this.options.userDataDirectory, "updates", "sigstore"),
+      signal
     });
   }
 
   async stageAutomatic(
     manifest: UpdateManifest,
     target: UpdateTarget,
-    onProgress: (progress: number) => void
+    onProgress: (progress: number) => void,
+    signal: AbortSignal
   ): Promise<void> {
+    if (this.linuxAppDirectory && target.mode !== "automatic") {
+      const artifact = target.artifacts.find((candidate) => candidate.kind === "deb");
+      if (!artifact) throw new Error("The Linux update does not contain a Debian package.");
+      const deb = await this.downloadVerified(manifest, artifact, (progress) => onProgress(Math.min(80, progress * 0.8)), signal);
+      onProgress(85);
+      await stageDebApp(deb, this.linuxAppDirectory, signal);
+      await rm(deb, { force: true });
+      onProgress(100);
+      return;
+    }
     if (this.options.platform !== "darwin" || target.mode !== "automatic") {
       throw new Error("Automatic installation is only enabled for signed macOS releases.");
     }
     const artifact = target.artifacts.find((candidate) => candidate.kind === "zip");
     if (!artifact) throw new Error("The macOS update does not contain a ZIP artifact.");
+    const archive = await this.downloadVerified(manifest, artifact, (progress) => onProgress(Math.min(90, progress * 0.9)), signal);
+    onProgress(94);
+    await stageMacUpdate(archive, manifest, onProgress, signal);
+  }
+
+  /** Downloads an artifact to the private cache and checks its digest and Sigstore bundle. */
+  private async downloadVerified(
+    manifest: UpdateManifest,
+    artifact: UpdateArtifact,
+    onProgress: (progress: number) => void,
+    signal: AbortSignal
+  ): Promise<string> {
     const directory = join(this.options.userDataDirectory, "updates", "downloads", manifest.version);
     await mkdir(directory, { recursive: true, mode: 0o700 });
     await chmod(directory, 0o700).catch(() => undefined);
+    signal.throwIfAborted();
     const archive = join(directory, artifact.name);
-    const bundleBytes = await downloadBytes(artifact.sigstore_url, MAX_BUNDLE_BYTES);
+    const bundleBytes = await downloadBytes(artifact.sigstore_url, MAX_BUNDLE_BYTES, fetch, undefined, signal);
     const cached = await artifactMatches(archive, artifact);
+    signal.throwIfAborted();
     if (!cached) {
       await rm(archive, { force: true });
-      await downloadArtifact(artifact, archive, (progress) => onProgress(Math.min(90, progress * 0.9)));
+      await downloadArtifact(artifact, archive, onProgress, fetch, undefined, signal);
     } else {
-      onProgress(90);
+      onProgress(100);
     }
     await verifyArtifactBundle({
       bundleBytes,
       artifactPath: archive,
       tag: manifest.tag,
-      trustCacheDirectory: join(this.options.userDataDirectory, "updates", "sigstore")
+      trustCacheDirectory: join(this.options.userDataDirectory, "updates", "sigstore"),
+      signal
     }).catch(async (error) => {
-      await rm(archive, { force: true });
+      if (!signal.aborted) await rm(archive, { force: true });
       throw error;
     });
-    onProgress(94);
-    await stageMacUpdate(archive, manifest, onProgress);
+    signal.throwIfAborted();
+    return archive;
   }
 
-  installAutomatic(): void {
-    autoUpdater.quitAndInstall();
+  async installAutomatic(): Promise<void> {
+    if (!this.linuxAppDirectory) {
+      autoUpdater.quitAndInstall();
+      return;
+    }
+    await swapStagedApp(this.linuxAppDirectory);
+    // The same path now holds the new app. A window was asked for, so not --hidden.
+    app.relaunch({ args: process.argv.slice(1).filter((argument) => argument !== "--hidden") });
+    app.quit();
   }
 
   async openExternal(url: string): Promise<void> {
@@ -93,7 +139,8 @@ export class ElectronUpdateBackend implements UpdateBackend {
 async function stageMacUpdate(
   archive: string,
   manifest: UpdateManifest,
-  onProgress: (progress: number) => void
+  onProgress: (progress: number) => void,
+  signal: AbortSignal
 ): Promise<void> {
   const server = await localUpdateServer(archive, manifest);
   const address = server.address();
@@ -103,17 +150,15 @@ async function stageMacUpdate(
   }
   const feedUrl = `http://127.0.0.1:${address.port}/feed`;
   try {
+    signal.throwIfAborted();
     autoUpdater.setFeedURL({ url: feedUrl, serverType: "json" });
     await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(
-        () => finish(new Error("The platform updater did not stage the release in time.")),
-        AUTO_UPDATER_TIMEOUT_MS
-      );
       const onDownloaded = () => finish();
       const onUnavailable = () => finish(new Error("The platform updater rejected the newer release."));
       const onError = (error: Error) => finish(error);
+      const onAbort = () => finish(signal.reason);
       const finish = (error?: Error) => {
-        clearTimeout(timeout);
+        signal.removeEventListener("abort", onAbort);
         autoUpdater.removeListener("update-downloaded", onDownloaded);
         autoUpdater.removeListener("update-not-available", onUnavailable);
         autoUpdater.removeListener("error", onError);
@@ -122,6 +167,7 @@ async function stageMacUpdate(
       autoUpdater.once("update-downloaded", onDownloaded);
       autoUpdater.once("update-not-available", onUnavailable);
       autoUpdater.once("error", onError);
+      signal.addEventListener("abort", onAbort, { once: true });
       try {
         autoUpdater.checkForUpdates();
       } catch (error) {
@@ -130,6 +176,7 @@ async function stageMacUpdate(
     });
     onProgress(100);
   } finally {
+    server.closeAllConnections();
     await closeServer(server);
   }
 }

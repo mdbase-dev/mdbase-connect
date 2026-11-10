@@ -113,11 +113,13 @@ ${publish}
 
 test("desktop changes include bundled clients and native inputs, not unrelated server or documentation edits", () => {
   for (const path of ["apps/desktop/src/main/main.ts", "apps/editor/src/main.ts", "packages/client/src/index.ts",
-    "runtime/crates/daemon/src/main.rs", "runtime/Cargo.lock", "pnpm-lock.yaml", "deploy/docker/mdbase-rs-revision"]) {
+    "runtime/crates/daemon/src/main.rs", "runtime/Cargo.lock", "pnpm-lock.yaml"]) {
     assert.equal(desktopChanged([path]), true, path);
   }
   for (const path of ["services/server/src/main.ts", "docs/releasing.md", "apps/desktop/README.md",
-    "apps/desktop/test/update-policy.test.mjs", ".github/workflows/desktop-release.yml"]) assert.equal(desktopChanged([path]), false, path);
+    "apps/desktop/test/update-policy.test.mjs", ".github/workflows/desktop-release.yml",
+    // The desktop bundles mdbn-daemon from runtime/; the legacy root crates are not inputs.
+    "Cargo.toml", "Cargo.lock", "crates/connect-cli/src/main.rs", "deploy/docker/mdbase-rs-revision"]) assert.equal(desktopChanged([path]), false, path);
 });
 
 test("server-only version prep does not create a desktop release", () => {
@@ -157,7 +159,8 @@ test("automatic desktop jobs preserve tag-bound signing, full CI, e2e and notari
   assert.match(workflow, /rollout=100\n/);
   assert.doesNotMatch(workflow, /production_verified_commit|UPDATE_ROLLOUT_PERCENTAGE/);
   for (const gate of ["verify-qualified-commit", "scripts/continuous-desktop-release.mjs compatible", "pnpm test:accessibility",
-    "pnpm --filter @mdbase/connect-desktop test", "cosign sign-blob", "cosign verify-blob", "xcrun stapler validate"]) assert(workflow.includes(gate), gate);
+    "pnpm --filter @mdbase/connect-desktop test", "cosign sign-blob", "cosign verify-blob", "scripts/ci/stapler-validate-macos.sh"]) assert(workflow.includes(gate), gate);
+  assert.match(readFileSync("scripts/ci/stapler-validate-macos.sh", "utf8"), /xcrun stapler validate "\$1"/);
   assert.match(workflow, /minimum=.*config\/desktop-update-minimum\.json/);
   assert.match(workflow, /--blocked-versions "\$\{UPDATE_BLOCKED_VERSIONS:-\}"/);
   assert.match(workflow, /needs: \[build, headless-package-smoke, cross-platform-release-tests, windows-package-smoke\]/);

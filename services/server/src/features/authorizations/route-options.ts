@@ -1,6 +1,6 @@
 import type { DatabasePool } from "../../db.js";
-import type { HostedProviderClient } from "../../hosted-provider.js";
-import type { RelayHub } from "../../relay.js";
+import type { HostedProviderClient } from "../hosted/hosted-provider.js";
+import type { RelayHub } from "../relay/relay.js";
 import type { PolicyEmitter } from "../next/policy-outbox.js";
 
 export interface AuthorizationRouteOptions {
@@ -9,6 +9,8 @@ export interface AuthorizationRouteOptions {
   publicUrl: string;
   tailscaleAuth?: boolean;
   hostedCollections?: boolean;
+  /** next: native cloud-copy creation is wired (`collection_creation_available`). */
+  nativeCollectionCreation?: boolean;
   hostedProvider?: HostedProviderClient;
   drainProviderRevocations(): Promise<void>;
   /** mdbase-next: verify and store an app's attested Noise key (`client_noise_key`). */

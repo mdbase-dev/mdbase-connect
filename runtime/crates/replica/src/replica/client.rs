@@ -1,10 +1,12 @@
 //! The in-process client API (`replica-client-api.md`), implemented on [`Replica`].
 
+mod backlinks;
 mod contract_query;
 mod contract_records;
 mod describe;
 pub(crate) mod pending;
 mod projected_query;
+mod resolve_links;
 mod resources;
 mod type_packs;
 mod validation;
@@ -755,6 +757,7 @@ const GRANTABLE_FEATURES: &[&str] = &[
     "presence",
     super::attachment_runtime::ATTACHMENT_V1_FEATURE,
     super::client_files::FILE_STREAM_FAILURE_FEATURE,
+    "validate-page-v1",
 ];
 
 impl<S: Store> Replica<S> {
@@ -962,6 +965,22 @@ impl<S: Store> ClientApi for Replica<S> {
         self.query_keyset(session, &query, &include)
     }
 
+    fn backlinks(
+        &mut self,
+        session: SessionId,
+        request: crate::api::Backlinks,
+    ) -> ApiResult<mdbn_wire::client::BacklinksResult> {
+        self.backlinks_page(session, request)
+    }
+
+    fn resolve_links(
+        &mut self,
+        session: SessionId,
+        request: crate::api::ResolveLinks,
+    ) -> ApiResult<mdbn_wire::client::ResolveLinksResult> {
+        self.resolve_links_now(session, request)
+    }
+
     fn query_contract(
         &mut self,
         session: SessionId,
@@ -1025,9 +1044,9 @@ impl<S: Store> ClientApi for Replica<S> {
     fn validate(
         &mut self,
         session: SessionId,
-        targets: Option<Vec<Target>>,
+        scope: crate::api::Validate,
     ) -> ApiResult<Vec<crate::api::RecordValidation>> {
-        self.validate_current(session, targets)
+        self.validate_current(session, scope)
     }
 
     fn submit(&mut self, session: SessionId, params: SubmitParams) -> ApiResult<Vec<Receipt>> {

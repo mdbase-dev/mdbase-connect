@@ -51,7 +51,9 @@ export function useCollectionWatch(input: {
     const statusChanged = input.index.subscribe(publishStatus);
     publishStatus();
     const changed = input.index.subscribeChanges(change => {
-      if (isFileChange(change)) { reconcileFileChange(change, input.files, input.assets); files = true; }
+      // put/removed carry the file and are applied in place; only a bare
+      // file.changed needs the inventory re-listed.
+      if (isFileChange(change)) { reconcileFileChange(change, input.files, input.assets); if (change.kind === "file.changed") files = true; }
       else if (change.kind === "record.renamed") { paths.set(change.from, undefined); paths.set(change.to, change.revision); }
       else if (change.kind === "record.created" || change.kind === "record.updated") paths.set(change.path, change.revision);
       else if (change.kind === "record.deleted") paths.set(change.path, undefined);

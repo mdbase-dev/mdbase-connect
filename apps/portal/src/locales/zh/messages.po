@@ -403,8 +403,8 @@ msgid "a new collection"
 msgstr "新集合"
 
 #: src/authorization-view.tsx
-msgid "A new collection stored by mdbase, available from any computer."
-msgstr "由 mdbase 存储的新集合，可从任何电脑访问。"
+msgid "A new collection with a cloud copy, available from any device."
+msgstr "带云端副本的新集合，可在任意设备上使用。"
 
 #: src/AccountManagement.tsx
 msgid "A new one-use sharing code is ready."
@@ -486,6 +486,10 @@ msgstr "账户"
 msgctxt "Connect interface"
 msgid "Account"
 msgstr "账户"
+
+#: src/auth-view.tsx
+msgid "Account creation is paused"
+msgstr "账户创建已暂停"
 
 #: src/AccountManagement.tsx
 msgid "Account deletion is temporarily unavailable while we complete a service correction."
@@ -947,8 +951,8 @@ msgid "Choose a field"
 msgstr "选择字段"
 
 #: src/ConnectApp.tsx
-msgid "Choose a Markdown folder in the desktop app. Your files stay here."
-msgstr "在桌面应用中选择 Markdown 文件夹。文件仍保留在此电脑上。"
+msgid "Choose a Markdown folder in the desktop app. It syncs from there."
+msgstr "在桌面应用中选择一个 Markdown 文件夹，它将从那里同步。"
 
 #. placeholder {0}: unmapped.label
 #: src/authorization-review.tsx
@@ -1011,6 +1015,13 @@ msgstr "已关闭注册"
 #: src/compatibility.ts
 msgid "Cloud collection required"
 msgstr "需要云端集合"
+
+#: src/authority-workflows.tsx
+#: src/authorization-view.tsx
+#: src/ConnectApp.tsx
+msgctxt "Collection storage mode"
+msgid "Cloud copy"
+msgstr "云端副本"
 
 #: src/AccountManagement.tsx
 msgctxt "Connect interface"
@@ -1210,6 +1221,10 @@ msgctxt "Account sign-in"
 msgid "Couldn’t connect"
 msgstr "无法连接"
 
+#: src/AccountManagement.tsx
+msgid "Counts uploaded files. Notes don't use storage."
+msgstr "统计已上传的文件。笔记不占用存储空间。"
+
 #. placeholder {0}: literal(selected?.display_name ?? t(i18n)({ message: "this collection", context: "Application access approval" }))
 #. placeholder {1}: existingOperations.size > 0 ? t(i18n)({ message: " Permissions this app does not already have are marked New." }) : ""
 #: src/authorization-view.tsx
@@ -1222,8 +1237,8 @@ msgid "Create"
 msgstr "创建"
 
 #: src/authorization-view.tsx
-msgid "Create a hosted collection"
-msgstr "创建托管集合"
+msgid "Create a collection"
+msgstr "创建集合"
 
 #: src/authority-workflows.tsx
 msgid "Create a hosted collection before approving this folder."
@@ -1260,10 +1275,6 @@ msgctxt "Application access approval"
 msgid "Create collection"
 msgstr "创建集合"
 
-#: src/authorization-view.tsx
-msgid "Create hosted collection"
-msgstr "创建托管集合"
-
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Create invitation"
@@ -1297,13 +1308,17 @@ msgid "Created, but this browser could not clear its request. Retrying will use 
 msgstr "已创建，但此浏览器无法清除其请求。重试将使用同一个集合。"
 
 #: src/authorization-view.tsx
-msgid "Creates a plain mdbase collection hosted by mdbase. App access is still approved separately."
-msgstr "创建由 mdbase 托管的普通 mdbase 集合。应用访问权限仍需另行批准。"
+msgid "Creates a plain mdbase collection with a cloud copy. App access is still approved separately."
+msgstr "创建一个带云端副本的普通 mdbase 集合。应用访问仍需单独批准。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Creating account…"
 msgstr "正在创建账户…"
+
+#: src/ConnectApp.tsx
+msgid "Creating collections is unavailable on this server."
+msgstr "此服务器无法创建集合。"
 
 #: src/onboarding-view.tsx
 msgid "Creating your first collection"
@@ -1732,25 +1747,9 @@ msgstr "Google 登录未正确加载。"
 msgid "Help {applicationName} understand {0}"
 msgstr "帮助 {applicationName} 理解 {0}"
 
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Hosted"
-msgstr "已托管"
-
 #: src/AccountManagement.tsx
 msgid "Hosted access was removed immediately. Hosted data deletion continues automatically in the background. Any local collection and mirror files remain on your computers."
 msgstr "托管访问权限已立即移除。托管数据会继续在后台自动删除。电脑上的所有本地集合及镜像文件都会保留。"
-
-#: src/authority-workflows.tsx
-#: src/authorization-view.tsx
-#: src/ConnectApp.tsx
-msgid "Hosted by mdbase"
-msgstr "由 mdbase 托管"
-
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "Hosted by mdbase"
-msgstr "由 mdbase 托管"
 
 #: src/authority-workflows.tsx
 msgid "Hosted collection"
@@ -1760,10 +1759,6 @@ msgstr "托管集合"
 msgctxt "Collection connection"
 msgid "Hosted collection"
 msgstr "托管集合"
-
-#: src/ConnectApp.tsx
-msgid "Hosted creation is unavailable on this server."
-msgstr "此服务器不支持创建托管集合。"
 
 #: src/authority-workflows.tsx
 msgid "Hosted service"
@@ -1808,10 +1803,6 @@ msgstr "无法获取身份信息"
 msgid "If an mdbase Connect account uses that address, its one-time reset link is on the way."
 msgstr "如果有 mdbase Connect 账户使用此地址，重置密码的一次性链接正在发送。"
 
-#: src/auth-view.tsx
-msgid "If that address can be used, its one-time verification link is on the way."
-msgstr "如果此地址可用，验证用的一次性链接正在发送。"
-
 #: src/ConnectPrimitives.tsx
 msgid "If the desktop app did not open, <0>install the latest release</0> and try again."
 msgstr "如果桌面应用未打开，请<0>安装最新版本</0>后重试。"
@@ -1824,6 +1815,10 @@ msgstr "如果桌面应用未打开，请<0>安装当前版本的 Connect</0>，
 #: src/authorization-view.tsx
 msgid "If the value is already present, mdbase leaves the collection unchanged. Conflicting settings stop setup without overwriting policy."
 msgstr "如果该值已存在，mdbase 不会更改集合。设置冲突会中止配置，而不会覆盖策略。"
+
+#: src/auth-view.tsx
+msgid "If this address can be used, we’ve sent a one-time link to it."
+msgstr "如果此地址可用，我们已向其发送一次性链接。"
 
 #: src/authority-workflows.tsx
 msgid "If verification fails or this request expires, hosted writes resume."
@@ -1841,10 +1836,6 @@ msgstr "包含的存储空间"
 #: src/AccountManagement.tsx
 msgid "Includes collections that have left sync and retained data from deleted collections."
 msgstr "包括已停止同步的集合，以及已删除集合的保留数据。"
-
-#: src/AccountManagement.tsx
-msgid "Includes recent version history."
-msgstr "包含近期版本历史记录。"
 
 #. placeholder {0}: connector.minimum_connector_version ? t(i18n)`version ${connector.minimum_connector_version} or later` : t(i18n)({ message: "the latest release", context: "Connect interface" })
 #: src/ConnectApp.tsx
@@ -1915,10 +1906,6 @@ msgstr "保留离线副本"
 #: src/authority-workflows.tsx
 msgid "Keep it hosted"
 msgstr "保留托管状态"
-
-#: src/ConnectApp.tsx
-msgid "Keep the main copy in mdbase, with optional synced folders."
-msgstr "将主副本保存在 mdbase 中，并可选择同步文件夹。"
 
 #: src/authorization-review.tsx
 msgid "Keep your current records and explain which fields mean the same thing."
@@ -2202,6 +2189,11 @@ msgstr "所有安装中的新访问将停止。已下载的副本无法远程删
 msgid "New access will stop. Copies already downloaded by the app cannot be removed remotely."
 msgstr "新访问将停止。应用已下载的副本无法远程删除。"
 
+#: src/authorization-view.tsx
+#: src/ConnectApp.tsx
+msgid "New collection"
+msgstr "新集合"
+
 #: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 msgid "New collection name"
@@ -2360,8 +2352,8 @@ msgid "Open {0}"
 msgstr "打开 {0}"
 
 #: src/ConnectApp.tsx
-msgid "Open a collection in the editor or manage where its main copy lives."
-msgstr "在编辑器中打开集合，或管理其主副本的存储位置。"
+msgid "Open a collection in the editor or manage how it syncs."
+msgstr "在编辑器中打开集合，或管理其同步方式。"
 
 #: src/ApplicationAccess.tsx
 msgid "Open an app, then choose which collections it can access."
@@ -3219,6 +3211,14 @@ msgstr "mdbase出现了问题。请重试。"
 msgid "Start signup again"
 msgstr "重新开始注册"
 
+#: src/ConnectApp.tsx
+msgid "Starts with a cloud copy"
+msgstr "从云端副本开始"
+
+#: src/ConnectApp.tsx
+msgid "Starts with a cloud copy, so apps can use it from any device. Add it to a computer later."
+msgstr "从云端副本开始，应用可在任意设备上使用。之后可添加到电脑。"
+
 #: src/auth-view.tsx
 msgid "Stop receiving the kind of email this link came in. Messages about your account are still sent."
 msgstr "停止接收此链接对应类别的电子邮件。与你账户有关的消息仍会发送。"
@@ -3308,6 +3308,10 @@ msgstr "应用会显示访问权限未获批准。"
 msgid "The app’s {0} value."
 msgstr "应用的 {0} 值。"
 
+#: src/ConnectApp.tsx
+msgid "The cloud copy is available to the editor."
+msgstr "编辑器可以使用云端副本。"
+
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "The collection"
@@ -3347,10 +3351,6 @@ msgctxt "Connect interface"
 msgid "the hosted authority"
 msgstr "托管数据源"
 
-#: src/ConnectApp.tsx
-msgid "The hosted collection is available to the editor."
-msgstr "托管集合可供编辑器使用。"
-
 #: src/LanguageSetting.tsx
 msgid "The language could not be loaded or saved. Try choosing it again."
 msgstr "无法加载或保存语言设置。请重新选择。"
@@ -3373,8 +3373,8 @@ msgid "The link is invalid, expired, already used, or password sign-in is tempor
 msgstr "链接无效、已过期或已使用，也可能是密码登录暂不可用。"
 
 #: src/ConnectApp.tsx
-msgid "The main copy has moved away from hosted storage."
-msgstr "主副本已从托管存储空间迁出。"
+msgid "The main copy has moved to a computer."
+msgstr "主副本已移至一台电脑。"
 
 #: src/authority-workflows.tsx
 msgid "The main copy stayed hosted."
@@ -3697,6 +3697,10 @@ msgstr "用量暂不可用"
 msgctxt "Account management"
 msgid "Usage unavailable"
 msgstr "用量不可用"
+
+#: src/auth-view.tsx
+msgid "Use a different email"
+msgstr "使用其他电子邮件地址"
 
 #: src/authorization-view.tsx
 msgid "Use a folder on this computer"

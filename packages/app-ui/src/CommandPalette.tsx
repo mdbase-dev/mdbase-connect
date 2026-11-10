@@ -3,7 +3,7 @@ import { useLocaleRevision } from "./i18n.js";
 import { Dialog } from "./Dialog.js";
 import { shortcutLabel } from "./shortcuts.js";
 export { isApplePlatform, shortcutLabel } from "./shortcuts.js";
-import { Fragment, useEffect, useLayoutEffect, useId, useMemo, useRef, useState, type JSX, type KeyboardEvent, type RefObject, type ReactNode } from "react";
+import { Fragment, useLayoutEffect, useId, useMemo, useRef, useState, type JSX, type KeyboardEvent, type RefObject, type ReactNode } from "react";
 
 export interface Command {
   readonly id: string;
@@ -99,14 +99,16 @@ function OpenCommandPalette({ open, commands, onClose, label, placeholder, showA
 }): JSX.Element {
   useLocaleRevision();
   const [query, setQuery] = useState(initialQuery);
-  const [active, setActive] = useState(0);
+  const [selected, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
   const matches = useMemo(() => getResults ? contextualCommands(getResults(query)) : matchingCommands(commands, query, showAll), [commands, query, showAll, getResults]);
+  // Live command updates can shrink the list under the selection.
+  const active = Math.min(selected, Math.max(0, matches.length - 1));
   useLayoutEffect(() => {
     resultsRef.current!.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   }, [active, matches]);
-  useEffect(() => { if (open) { setQuery(initialQuery); setActive(0); } }, [open, initialQuery]);
+  useLayoutEffect(() => { if (open) { setQuery(initialQuery); setActive(0); } }, [open, initialQuery]);
   const run = (command: Command, alternate = false): void => {
     inputRef.current?.closest("dialog")?.close();
     returnFocusRef?.current?.focus({ preventScroll: true });
@@ -141,7 +143,7 @@ function OpenCommandPalette({ open, commands, onClose, label, placeholder, showA
       <div ref={resultsRef} id={`${hintId}-results`} className="mdbase-command-results" role="listbox" aria-label={t({ message: "Results" })} aria-describedby={hintId}>
         {matches.length > 0
           ? matches.map((command, index) => <Fragment key={command.id}>
-            {command.group !== matches[index - 1]?.group
+            {command.group !== matches[index - 1]?.group || command.context !== matches[index - 1]?.context
               ? <div className="mdbase-command-group" role="presentation">{command.context ?? (groupLabel ? groupLabel(command.group) : command.group)}</div>
               : null}
             <CommandRow id={`${hintId}-${command.id}`} command={command} query={query} active={index === active} onActivate={() => setActive(index)} onRun={run} />
@@ -150,7 +152,7 @@ function OpenCommandPalette({ open, commands, onClose, label, placeholder, showA
       </div>
       <footer className="mdbase-command-footer" id={hintId}>
         <span><kbd>↑</kbd><kbd>↓</kbd>  {t({ message: "to move" })}</span>
-        <span><kbd>↵</kbd>  {t({ message: "to open" })}</span>
+        <span><kbd>↵</kbd>  {t({ message: "to run" })}</span>
         {matches[active]?.alternate
           ? <span><kbd>{shortcutLabel("shift")}</kbd><kbd>↵</kbd> {matches[active].alternate.label.toLocaleLowerCase()}</span>
           : null}

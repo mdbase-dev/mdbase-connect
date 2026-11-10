@@ -119,6 +119,14 @@ export async function rollback(previous,options,{source,sleep=ms=>new Promise(re
   await sleep(15000);
  }
 }
+// Name the fixed refusal, or only the error type for transport and API failures:
+// never a message that could carry a payload, URL or credential.
+function recoveryFailure(error) {
+ const message=String(error?.message??'');
+ if(message.startsWith('Editor recovery refusal: '))return 'Editor recovery operation failed: '+message.slice(25);
+ const name=/^[A-Za-z]{1,40}$/.test(error?.name??'')?error.name:'unknown';
+ return `Editor recovery operation failed: transport or runtime error (${name})`;
+}
 if(process.argv[1]===fileURLToPath(import.meta.url)) {
  const [command,directory]=process.argv.slice(2),json=async name=>JSON.parse(await readFile(`${directory}/${name}.json`,'utf8'));
  const options={accountId:process.env.CLOUDFLARE_ACCOUNT_ID,apiToken:process.env.CLOUDFLARE_API_TOKEN};
@@ -132,5 +140,5 @@ if(process.argv[1]===fileURLToPath(import.meta.url)) {
    console.error(report.ok?'Production publication failed or incomplete; previous deployment active and fully verified':report.refused?'Production publication failed or incomplete; a different deployment is active, so nothing was restored':'Production publication failed or incomplete; rollback did not succeed');
    process.exitCode=1;
   }else throw Error('Unknown recovery command');
- }catch{console.error('Editor recovery operation failed');process.exitCode=1;}
+ }catch(error){console.error(recoveryFailure(error));process.exitCode=1;}
 }

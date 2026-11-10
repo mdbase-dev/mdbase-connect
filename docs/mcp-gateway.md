@@ -105,7 +105,6 @@ fetch the other's development manifest:
 
 ```bash
 MDBASE_CONNECT_DEV_AUTH=1 \
-MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS=1 \
 DATABASE_URL=memory \
 PUBLIC_URL=http://127.0.0.1:8787 \
 pnpm --filter @mdbase/connect-server dev

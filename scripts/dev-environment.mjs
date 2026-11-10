@@ -22,7 +22,6 @@ const environment = await createConnectEnvironment({
   build: true,
   disposable: false,
   randomizeCredentials: false,
-  allowLocalApps: true,
   environment: {
     PUBLIC_URL: origins.publicUrl,
     MDBASE_CONNECT_ENVIRONMENT: "local",

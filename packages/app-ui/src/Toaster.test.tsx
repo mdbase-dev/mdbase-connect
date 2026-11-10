@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import "../test/dialog.js";
 import { act, StrictMode, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";

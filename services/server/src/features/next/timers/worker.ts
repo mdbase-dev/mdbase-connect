@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { DatabasePool, DatabaseQueryable } from "../../../database-types.js";
-import { insertNotificationSignal } from "../../../notifications.js";
+import { insertNotificationSignal } from "../../notifications/notifications.js";
 import {
   dataPermitted,
   grantMayFire,

@@ -10,6 +10,10 @@ Read `README.md` (crate map, checks) first. These rules apply to every change.
   passes ~10 GB.
 - Work in your own worktree on your own branch. Don't touch other worktrees, and
   don't edit `main` in the primary checkout.
+- `mdbase-rs` (`../mdbase-rs`, used by the root legacy crates) is the deprecated
+  legacy engine. It is not a specification and not an authority for anything here;
+  never cite its docs, conformance corpora or behaviour. The spec, this workspace's
+  Core and `docs/spec-notes.md` are the authorities.
 - The rc.5 spec draft is local only. Read it in place and **never push it**.
   Vendor its fixtures with `scripts/sync-spec-fixtures.sh`.
 

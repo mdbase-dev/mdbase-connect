@@ -7,18 +7,21 @@ import { applicationDeclaration } from "../../../../../runtime/packages/sdk/src/
 import { resolveApplicationRegistration } from "../../../../../runtime/packages/sdk/src/application/registration.js";
 import { registerApplicationRoutes } from "../applications/routes.js";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import { deleteAccountLocally } from "../../account-management.js";
-import { createExternalSession } from "../../external-auth.js";
+import { deleteAccountLocally } from "../account/account-management.js";
+import { createExternalSession } from "../auth/external-auth.js";
 import { capabilityOperationsForContractVersion, MDBASE_TIMER_FIRED_CONTRACT } from "@mdbase-dev/connect-protocol";
 import { createTestApplicationIdentity, testApplicationAuthorization } from "../../application-authorization.test-helper.js";
 import { clientNoiseKeyMessage, storeRequestClientNoiseKey, verifiedClientNoiseKey } from "../next/client-key.js";
 import { approveNativeAuthorization } from "../authorizations/native-approval-service.js";
-import { fileRequestForRequirements } from "../../application-requirements.js";
+import { fileRequestForRequirements } from "../applications/application-requirements.js";
 import { acceptCohortArchive, addToCohort, cohortArchiveBinding, createCohort, flipAccountBackend, flipEvidenceDigest, releaseCohort, setCohortFrozen, setPaused, startAccountMigration } from "../next/migration-rollout.js";
 import { ZERO_HOSTED_ARCHIVE_SCHEMA } from "../next/migration-archive-profile.js";
 import { randomToken, tokenHash } from "../../security.js";
-import { pruneUsageHistory } from "../../usage-report.js";
+import { pruneUsageHistory } from "../usage/usage-report.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
+import { AuthenticationPolicyStore } from "../auth/authentication-policy.js";
+import { RelayHub } from "../relay/relay.js";
+import { registerAccountOverviewRoute } from "../account/me-routes.js";
 import { connectorFromRequest, requireInstallationDeviceConnector } from "../../platform/request-authentication.js";
 import { clientFingerprint, deviceRegistrationDigest } from "../next/devices.js";
 import { certToJson, ed25519RawPublicKey, type NextControlPlaneConfig } from "../next/policy-keys.js";
@@ -38,8 +41,8 @@ import { recordCollectionCutover } from "../next/migration-rollout.js";
 import { desiredTimer } from "../next/timers/model.js";
 import { TimerWorker, notificationsConsumer, timerEventId } from "../next/timers/worker.js";
 import { PushTargetSealer } from "../next/push-target-seal.js";
-import { buildPolicySnapshot, type LeasePolicySnapshot } from "../../relay-policy.js";
-import { NotificationService, type NotificationTransports } from "../../notifications.js";
+import { buildPolicySnapshot, type LeasePolicySnapshot } from "../relay/relay-policy.js";
+import { NotificationService, type NotificationTransports } from "../notifications/notifications.js";
 import { registerNotificationRoutes } from "../notifications/routes.js";
 
 vi.mock("../../../../../runtime/packages/sdk/src/application/packaged-trust.js", () => ({
@@ -78,7 +81,8 @@ describePg("installation device sign-in on daemon pairing", () => {
     db = await createDatabase(url.toString());
     await app.register(cookie);
     registerErrorHandler(app);
-    registerApplicationRoutes(app,{db,allowInsecureManifests:true});
+    registerApplicationRoutes(app,{db});
+    registerAccountOverviewRoute(app,{db,relay:new RelayHub(db),publicUrl:"https://connect.test",authenticationPolicy:new AuthenticationPolicyStore(db,"open")});
     registerConnectorPairingRoutes(app, { db, publicUrl: "https://connect.test", installationDevices: true, installationEnvironment: "lab", relay:{pushPolicy:async(connector)=>{
       const snapshot=await buildPolicySnapshot(db,connector,55_000,undefined,()=>true,"lease_v1",true,true,true) as LeasePolicySnapshot;
       nativePushes.push({connector,grants:snapshot.grants.map(g=>String(g.id))});
@@ -699,12 +703,68 @@ describePg("installation device sign-in on daemon pairing", () => {
     await expect(db.query("UPDATE installation_native_authorizations SET authorization_request_id=$2 WHERE pairing_id=$1",[p.input.installation.request_id,second.id])).rejects.toMatchObject({code:"P0001"});
     expect((await db.query("SELECT grant_id FROM authorization_requests WHERE id=$1",[second.id])).rows[0].grant_id).toBeNull();
   });
-  it("requires the original chooser: ordinary Native approve cannot bypass a linked cancelled parent",async()=>{
+  it("requires the original chooser: ordinary Native approve cannot bypass a linked live parent",async()=>{
+    const p=await privatePrepared(), collection=await scopeCollection(p.owner.user,p.owner.user,"private"), n=await nativeCompanion(p);
+    expect((await n.attach()).statusCode).toBe(200);
+    await expect(approveNativeAuthorization(db,{requestId:n.id,userId:p.owner.user,collectionId:collection,sync:"private",operations:n.operations})).rejects.toThrow("original app collection chooser");
+    expect((await db.query("SELECT grant_id FROM authorization_requests WHERE id=$1",[n.id])).rows[0].grant_id).toBeNull();
+  });
+  async function companionState(id:string) {
+    return (await db.query("SELECT completed_at IS NOT NULL AS completed,denied_at IS NOT NULL AS denied,grant_id FROM authorization_requests WHERE id=$1",[id])).rows[0];
+  }
+  async function closureAudits(id:string) {
+    return (await db.query("SELECT metadata FROM audit_events WHERE event_type='authorization.denied' AND subject_id=$1",[id])).rows.map(row=>row.metadata);
+  }
+  async function pendingInPortal(owner:Awaited<ReturnType<typeof account>>) {
+    const me=await app.inject({method:"GET",url:"/v1/me",headers:owner.headers});
+    expect(me.statusCode,me.body).toBe(200);
+    return me.json().pending_authorizations.map((pending:{id:string})=>pending.id);
+  }
+  it("closes the unused Native companion when the original chooser approves a cloud copy",async()=>{
+    const p=await privatePrepared(), hosted=await scopeCollection(p.owner.user), n=await nativeCompanion(p), other=await nativeCompanion(p);
+    await scopeCollection(p.owner.user,p.owner.user,"private");
+    expect((await n.attach()).statusCode).toBe(200);
+    expect((await approveDevice(p.flow,p.owner,undefined,{collection_ids:[hosted],create_collections:false,selected_collection_id:hosted})).statusCode).toBe(200);
+    expect(await companionState(n.id)).toEqual({completed:true,denied:true,grant_id:null});
+    expect(await closureAudits(n.id)).toEqual([{source:"installation_pairing",pairing_id:p.input.installation.request_id,reason:"superseded_by_installation_approval"}]);
+    // The original association is not replaced by a later companion.
+    expect((await other.attach()).statusCode).toBe(409);
+    expect((await p.flow.exchange()).json()).toMatchObject({status:"paired",collection_ids:[hosted],selected_collection_id:hosted});
+    expect((await db.query("SELECT authorization_request_id FROM installation_native_authorizations WHERE pairing_id=$1",[p.input.installation.request_id])).rows).toEqual([{authorization_request_id:n.id}]);
+    expect(await pendingInPortal(p.owner)).not.toContain(n.id);
+  });
+  it("closes the unused Native companion when a cloud-copy recovery is approved",async()=>{
+    const owner=await account(), target=await scopeCollection(owner.user);
+    const p=await prepared("app-runtime",false,owner,undefined,await nativeApp(),target), n=await nativeCompanion(p);
+    expect((await n.attach()).statusCode).toBe(200);
+    expect((await approveDevice(p.flow,owner,undefined,{collection_ids:[target],create_collections:false,selected_collection_id:target})).statusCode).toBe(200);
+    expect((await p.flow.exchange()).json()).toMatchObject({status:"paired",recovery_collection_id:target,collection_ids:[target],selected_collection_id:target});
+    expect(await companionState(n.id)).toEqual({completed:true,denied:true,grant_id:null});
+  });
+  it("closes the unused Native companion when the original pairing is denied",async()=>{
     const p=await privatePrepared(), collection=await scopeCollection(p.owner.user,p.owner.user,"private"), n=await nativeCompanion(p);
     expect((await n.attach()).statusCode).toBe(200);
     expect((await app.inject({method:"POST",url:`${p.flow.base}/deny`,headers:p.owner.headers})).statusCode).toBe(200);
-    await expect(approveNativeAuthorization(db,{requestId:n.id,userId:p.owner.user,collectionId:collection,sync:"private",operations:n.operations})).rejects.toThrow("original app collection chooser");
-    expect((await db.query("SELECT grant_id FROM authorization_requests WHERE id=$1",[n.id])).rows[0].grant_id).toBeNull();
+    expect(await companionState(n.id)).toEqual({completed:true,denied:true,grant_id:null});
+    expect(await closureAudits(n.id)).toEqual([{source:"installation_pairing",pairing_id:p.input.installation.request_id,reason:"installation_pairing_denied"}]);
+    expect(await approveNativeAuthorization(db,{requestId:n.id,userId:p.owner.user,collectionId:collection,sync:"private",operations:n.operations})).toBe(false);
+  });
+  it("leaves an approved Native companion's grant untouched when its pairing is later denied",async()=>{
+    const p=await privatePrepared(), collection=await scopeCollection(p.owner.user,p.owner.user,"private"), n=await nativeCompanion(p);
+    expect((await n.attach()).statusCode).toBe(200);
+    expect((await approvePrivate(p,collection)).statusCode).toBe(200);
+    expect((await app.inject({method:"POST",url:`${p.flow.base}/deny`,headers:p.owner.headers})).statusCode).toBe(200);
+    const state=await companionState(n.id);
+    expect(state).toMatchObject({completed:true,denied:false});expect(state.grant_id).not.toBeNull();
+    expect(await closureAudits(n.id)).toEqual([]);
+  });
+  it("lists ordinary pending app requests in the portal but not linked Native companions",async()=>{
+    const p=await privatePrepared(), linked=await nativeCompanion(p), ordinary=await nativeCompanion(p,{user:p.owner.user});
+    expect((await linked.attach()).statusCode).toBe(200);
+    expect(await companionState(linked.id)).toEqual({completed:false,denied:false,grant_id:null});
+    const pending=await pendingInPortal(p.owner);
+    expect(pending).toContain(ordinary.id);
+    expect(pending).not.toContain(linked.id);
   });
   it("rolls back Native grant and choice if account-only installation approval fails",async()=>{
     const p=await privatePrepared(), collection=await scopeCollection(p.owner.user,p.owner.user,"private"), n=await nativeCompanion(p);

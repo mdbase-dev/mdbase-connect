@@ -226,6 +226,7 @@ impl Target for Collection {
             dry_run: None,
             include: None,
             wait: Some(WaitFor::Confirmed),
+            validation: None,
         };
         let result = self
             .call("submit", submit.to_cbor())

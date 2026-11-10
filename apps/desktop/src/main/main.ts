@@ -18,6 +18,7 @@ import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { hostname } from "node:os";
+import { launchUrl, linuxDefaultBrowser, openApp, startDetached, type DefaultBrowser } from "./app-launcher";
 import { checkApprovalUrl } from "./approval-url";
 import { BootGate } from "./boot-gate";
 import { DaemonCli, previousRuntimeBinary, type DaemonProfile } from "./daemon-cli";
@@ -32,6 +33,7 @@ import { createTrayImage } from "./tray-image";
 import { ElectronUpdateBackend } from "./electron-update-backend";
 import { ensureNextDaemon, nextDaemonRunner } from "./next-daemon";
 import { UpdateCoordinator } from "./update-coordinator";
+import { updateActions } from "./update-actions";
 import { removeOldRuntimeCopies, UpdateStateStore } from "./update-state";
 
 guardDesktopProcessOutput();
@@ -130,6 +132,22 @@ async function openSignInPage(uri: unknown): Promise<string> {
   const href = checkApprovalUrl(uri, approvalPolicy(await account()));
   await shell.openExternal(href);
   return href;
+}
+
+async function defaultBrowser(): Promise<DefaultBrowser | null> {
+  if (process.platform === "linux") return linuxDefaultBrowser();
+  const info = await app.getApplicationInfoForProtocol("https://");
+  return { name: info.name, path: info.path };
+}
+
+/** An app in its own browser window where the default browser supports it. */
+function openAppWindow(url: string): Promise<void> {
+  return openApp(url, {
+    platform: process.platform,
+    defaultBrowser,
+    start: startDetached,
+    openExternal: (href) => shell.openExternal(href)
+  });
 }
 
 function daemonSession(): DaemonSession {
@@ -366,7 +384,30 @@ function registerIpc(): void {
     trustedIpc(event);
     const value = asObject(input, "Invalid mode input.");
     if ((value.targetMode !== "private" && value.targetMode !== "cloud_copy") || typeof value.resume !== "boolean" || (value.cancel !== undefined && typeof value.cancel !== "boolean")) throw new Error("Invalid mode input.");
-    return bootGate.request(() => daemonCli().run(["sync", "mode", collectionIdOf(value.collectionId), value.targetMode === "private" ? "private" : "cloud-copy", ...(value.resume ? ["--resume"] : []), ...(value.cancel ? ["--cancel"] : [])], 120_000));
+    // Outlasts the CLI's own bound: the on-screen confirmation, then the switch's requests.
+    return bootGate.request(() => daemonCli().run(["sync", "mode", collectionIdOf(value.collectionId), value.targetMode === "private" ? "private" : "cloud-copy", ...(value.resume ? ["--resume"] : []), ...(value.cancel ? ["--cancel"] : [])], 300_000));
+  });
+  ipcMain.handle("connect:collections:sync-files", async (event, collectionId: unknown) => {
+    trustedIpc(event);
+    return requestReadyAgent("sync.files", { collection: collectionIdOf(collectionId) }, 15_000);
+  });
+  // Privileged (it changes what every device syncs): through the CLI.
+  ipcMain.handle("connect:collections:sync-files-set", async (event, input: unknown) => {
+    trustedIpc(event);
+    const value = asObject(input, "Invalid file settings.");
+    const include = value.include;
+    const exclude = value.exclude;
+    const maxSize = value.max_size;
+    if (!Array.isArray(include) || !include.every((c) => typeof c === "string" && FILE_CLASSES.has(c))
+      || !Array.isArray(exclude) || !exclude.every((f) => typeof f === "string" && f.trim() !== "")
+      || (maxSize !== undefined && (!Number.isSafeInteger(maxSize) || (maxSize as number) <= 0))) {
+      throw new Error("Invalid file settings.");
+    }
+    return bootGate.request(() => daemonCli().run([
+      "sync", "files", collectionIdOf(value.collectionId), "--set", `--types=${include.join(",")}`,
+      ...exclude.map((folder) => `--exclude=${folder}`),
+      ...(maxSize === undefined ? [] : [`--max-size=${maxSize}`])
+    ], 120_000));
   });
   ipcMain.handle("connect:collections:sync-disable", async (event, collectionId: unknown) => {
     trustedIpc(event);
@@ -391,7 +432,15 @@ function registerIpc(): void {
   });
   ipcMain.handle("connect:editor:open", async (event, collectionId: unknown) => {
     trustedIpc(event);
-    return shell.openExternal(buildEditorUrl(collectionId));
+    return openAppWindow(buildEditorUrl(collectionId));
+  });
+  ipcMain.handle("connect:apps:list", async (event) => {
+    trustedIpc(event);
+    return requestReadyAgent("account.applications", {}, 20_000);
+  });
+  ipcMain.handle("connect:apps:open", async (event, url: unknown) => {
+    trustedIpc(event);
+    return openAppWindow(launchUrl(url, !app.isPackaged));
   });
   ipcMain.handle("connect:startup:get", async (event) => {
     trustedIpc(event);
@@ -508,6 +557,8 @@ function registerIpc(): void {
     ));
   });
 }
+
+const FILE_CLASSES = new Set(["image", "audio", "video", "pdf", "other"]);
 
 function collectionIdOf(value: unknown): string {
   if (typeof value !== "string" || !/^[0-9a-f-]{32,36}$/iu.test(value)) throw new Error("Invalid collection ID.");
@@ -672,21 +723,22 @@ function createTray(): void {
 function refreshTrayMenu(): void {
   if (!tray) return;
   const update = updater?.status();
-  const updateReady = update?.can_install === true;
+  const actions = updateActions(update ?? { can_check: false, can_install: false });
+  const installLabel = update?.phase === "ready"
+    ? t(i18n)`Install ${update.target_version}`
+    : update?.target_version ? t(i18n)`Open ${update.target_version}` : t(i18n)`Open update`;
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: t(i18n)({ message: "Show mdbase connect", context: "Desktop application" }), click: () => mainWindow?.show() },
       { type: "separator" },
       { label: startupFailed ? t(i18n)`mdbase needs attention` : healthLabel(session?.current ?? { phase: "starting" }), enabled: false },
-      {
-        label: updateReady
-          ? update?.phase === "ready"
-            ? t(i18n)`Install ${update.target_version}`
-            : update?.target_version ? t(i18n)`Open ${update.target_version}` : t(i18n)`Open update`
+      ...actions.map((option) => ({
+        label: option.action === "install"
+          ? installLabel
           : t(i18n)({ message: "Check for updates", context: "Desktop application" }),
-        enabled: update?.can_check === true || updateReady,
+        enabled: option.enabled,
         click: () => {
-          if (updateReady) {
+          if (option.action === "install") {
             void bootGate.install(() => updater.install()).catch((error) => {
               dialog.showErrorBox(
                 t(i18n)({ message: "mdbase connect could not install the update", context: "Desktop application" }),
@@ -698,7 +750,7 @@ function refreshTrayMenu(): void {
               .catch((error) => dialog.showErrorBox(t(i18n)({ message: "Could not check for updates", context: "Desktop application" }), String(error)));
           }
         }
-      },
+      })),
       { type: "separator" },
       {
         label: t(i18n)({ message: "Quit mdbase connect", context: "Desktop application" }),
@@ -729,7 +781,8 @@ app.whenReady().then(async () => {
     packaged: app.isPackaged,
     platform: process.platform,
     arch: process.arch,
-    userDataDirectory: app.getPath("userData")
+    userDataDirectory: app.getPath("userData"),
+    executablePath: process.execPath
   }));
   updater.subscribe((status) => {
     mainWindow?.webContents.send("connect:update-status", status);

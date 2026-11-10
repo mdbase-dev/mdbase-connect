@@ -307,6 +307,24 @@
   gap: 8px;
 }
 
+/* Work before connecting: where it is kept, and the way to connect it. One
+   quiet line above the app, never a modal or a nag. */
+.mdbase-collections-unsynced {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--_border);
+  background: var(--_surface);
+}
+
+.mdbase-collections-unsynced-status {
+  margin: 0;
+  color: var(--_text-soft);
+}
+
 /* Collections are a list, not buttons among actions. */
 .mdbase-collections-section {
   display: grid;
@@ -615,7 +633,7 @@
   gap: 4px;
 }
 
-.mdbase-collections-setup-section h3 {
+.mdbase-collections-setup-section :is(h2, h3) {
   margin: 0;
   color: var(--_text-soft);
   font-size: var(--_font-size-caption);

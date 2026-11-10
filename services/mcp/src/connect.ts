@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import {
   applicationInstallationId,
   decryptRelayResponse,
@@ -45,6 +46,21 @@ const grantEncryptionSchema = z.object({
   connector_agreement_public_key: z.string().min(80)
 }).strict();
 
+const nativeCompletionSchema = z.object({
+  version: z.literal(1),
+  account_id: z.uuid(),
+  authorization_request_id: z.uuid(),
+  application_id: z.uuid(),
+  application_declaration_id: z.string().min(1),
+  application_manifest_digest: z.string().regex(/^[0-9a-f]{64}$/u),
+  application_installation_id: z.uuid(),
+  application_origin: z.url(),
+  collection_id: z.uuid(),
+  grant_id: z.uuid(),
+  grant_signing_public_key: z.string().min(80).max(200),
+  client_noise_public_key: z.string().regex(/^[A-Za-z0-9_-]{43}$/u)
+}).strict();
+
 const tokenResponseSchema = z.object({
   access_token: z.string().min(1),
   refresh_token: z.string().min(1),
@@ -59,6 +75,8 @@ const tokenResponseSchema = z.object({
   }),
   grant_id: z.uuid(),
   encryption: grantEncryptionSchema.nullable(),
+  application_origin: z.url().optional(),
+  native_completion: nativeCompletionSchema.optional(),
   authority: z.object({
     operations_url: z.url(),
     sync_url: z.url(),
@@ -73,6 +91,7 @@ type ConnectTokenResponse = z.infer<typeof tokenResponseSchema>;
 interface StoredCredentials {
   accessToken: string;
   refreshToken: string;
+  nativeCompletion?: z.infer<typeof nativeCompletionSchema>;
   authority?: {
     operationsUrl: string;
     replicaId: string;
@@ -118,7 +137,8 @@ export class ConnectGateway {
     private readonly keyStore: GrantKeyStore,
     readonly connectUrl: string,
     private readonly manifest: MdbaseAppManifest | LegacyMdbaseAppManifest,
-    readonly callbackUrl: string
+    readonly callbackUrl: string,
+    private readonly warn: (fields: { event: string; reason: string }) => void = fields => console.warn(fields)
   ) {
     this.applicationOrigin = new URL(callbackUrl).origin;
     this.noise = new NoiseKeyStore(db, secrets);
@@ -147,6 +167,7 @@ export class ConnectGateway {
   }
 
   async createAuthorizationRequest(input: {
+    authorizationId: string;
     state: string;
     codeChallenge: string;
     operations: CollectionOperation[];
@@ -160,7 +181,7 @@ export class ConnectGateway {
       ? ("actions" in files ? files : scopedFileRequest(files, input.operations))
       : undefined;
     const issuedAt = new Date();
-    const authorizationId = randomUUID();
+    const authorizationId = input.authorizationId;
     // mdbase-next: register this connection's Noise key with the grant at consent.
     const clientNoiseKey = await clientNoiseKeyField(input.grantKey, authorizationId, await this.noise.create(input.grantKey.handle));
     const proof = await signApplicationAuthorization({
@@ -213,6 +234,8 @@ export class ConnectGateway {
   }
 
   async exchangeAuthorization(input: {
+    authorizationId: string;
+    manifestDigest: string;
     code: string;
     verifier: string;
     applicationId: string;
@@ -233,7 +256,7 @@ export class ConnectGateway {
     const raw = await response.json().catch(() => null);
     if (!response.ok) throw upstreamError(raw, "Connect authorization could not be completed.");
     const token = tokenResponseSchema.parse(raw);
-    await this.assertTokenBinding(token, input.keyHandle, input.applicationId);
+    await this.assertTokenBinding(token, input.keyHandle, input.applicationId, input);
     const connection = await this.saveConnection(input.connectionSetId, input.applicationId, input.keyHandle, token);
     return summary(connection);
   }
@@ -279,17 +302,30 @@ export class ConnectGateway {
         );
       }
       try {
+        const credentials = this.credentials(connection);
+        const completion = credentials.nativeCompletion;
+        if (completion) {
+          if (credentials.authority || connection.encryption) throw new GatewayOperationError("authorization_changed", "Native access cannot use legacy credentials.");
+          await this.assertNativeBinding(nativeCompletionSchema.parse(completion), connection.key_handle,
+            connection.upstream_client_id, connection.collection_id, connection.grant_id);
+        }
         const next = await this.next.run(
-          connection, this.credentials(connection).accessToken, operation,
+          { ...connection, ...(completion ? { native: { collection: completion.collection_id, authorizationGrant: completion.grant_id } } : {}) }, credentials.accessToken, operation,
           (input ?? {}) as Record<string, unknown>, requestId, options.signal
         );
         if (next !== LEGACY) return next as Result;
+        if (completion) throw new GatewayOperationError("control_error", "Native collection routing is unavailable. Try again shortly.");
         await this.requireQueryOutput(connection, operation, input, options.signal);
         const attempt = await this.sendOperation<Result>(connection, operation, input, requestId, options.signal);
         if (attempt.status === 401 && !force) continue;
         return await this.operationResult<Result>(connection, attempt, requestId);
       } catch (error) {
         if (!force && error instanceof GatewayOperationError && error.code === "authority_authentication_expired") continue;
+        if (this.credentials(connection).nativeCompletion) {
+          const reason = error instanceof GatewayOperationError && ["no_device_registered", "device_offline", "sync_required", "access_removed", "desktop_update_required", "old_connector_running", "collection_not_yet_migrated"].includes(error.code)
+            ? error.code : "native_route_failed";
+          this.warn({ event: "mcp_native_routing_failed", reason });
+        }
         // The legacy authority retired this collection for mdbase-next; this
         // connection's grant predates the move and must be approved again.
         if (error instanceof GatewayOperationError && error.details?.reason === "moved_to_next_runtime") throw GatewayOperationError.reconnectRequired(connection);
@@ -499,7 +535,14 @@ export class ConnectGateway {
       if (token.collection_id !== connection.collection_id || token.grant_id !== connection.grant_id) {
         throw new GatewayOperationError("authorization_changed", "Connect returned a different collection grant.");
       }
-      await this.assertTokenBinding(token, connection.key_handle, connection.upstream_client_id);
+      if (credentials.nativeCompletion && !isDeepStrictEqual(credentials.nativeCompletion, token.native_completion)) {
+        throw new GatewayOperationError("authorization_changed", "Connect returned a different native authorization.");
+      }
+      await this.assertTokenBinding(token, connection.key_handle, connection.upstream_client_id,
+        credentials.nativeCompletion ? {
+          authorizationId: credentials.nativeCompletion.authorization_request_id,
+          manifestDigest: credentials.nativeCompletion.application_manifest_digest
+        } : undefined);
       const updated = await client.query<ConnectionRow>(
         `UPDATE mcp_connections
          SET display_name = $2, operations = $3::jsonb, scope = $4::jsonb,
@@ -562,8 +605,22 @@ export class ConnectGateway {
   private async assertTokenBinding(
     token: ConnectTokenResponse,
     keyHandle: string | null,
-    applicationId: string
+    applicationId: string,
+    expectedNative?: { authorizationId: string; manifestDigest: string }
   ): Promise<void> {
+    if (token.native_completion) {
+      const completion = token.native_completion;
+      if (
+        !expectedNative || token.authority || token.encryption
+        || completion.authorization_request_id !== expectedNative.authorizationId
+        || completion.application_manifest_digest !== expectedNative.manifestDigest
+        || token.application_origin !== this.applicationOrigin
+      ) {
+        throw new GatewayOperationError("grant_key_mismatch", "Connect returned a native grant for a different authorization.");
+      }
+      await this.assertNativeBinding(completion, keyHandle, applicationId, token.collection_id, token.grant_id);
+      return;
+    }
     if (token.authority) {
       const key = keyHandle ? await this.keyStore.get(keyHandle) : null;
       if (
@@ -658,6 +715,22 @@ export class ConnectGateway {
   private credentials(connection: ConnectionRow): StoredCredentials {
     return JSON.parse(this.secrets.decrypt(connection.credentials_ciphertext)) as StoredCredentials;
   }
+
+  private async assertNativeBinding(completion: z.infer<typeof nativeCompletionSchema>, keyHandle: string | null, applicationId: string, collectionId: string, grantId: string): Promise<void> {
+    const key = keyHandle ? await this.keyStore.get(keyHandle) : null;
+    const noise = keyHandle ? await this.noise.get(keyHandle) : null;
+    const installation = await this.applicationIdentity(applicationId);
+    if (!key || !noise
+      || completion.application_id !== applicationId
+      || completion.application_declaration_id !== this.manifest.id
+      || completion.application_installation_id !== await applicationInstallationId(installation)
+      || completion.application_origin !== this.applicationOrigin
+      || completion.collection_id !== collectionId || completion.grant_id !== grantId
+      || completion.grant_signing_public_key !== key.signingPublicKey
+      || completion.client_noise_public_key !== Buffer.from(noise.publicKey).toString("base64url")) {
+      throw new GatewayOperationError("grant_key_mismatch", "Connect returned a native grant for a different authorization.");
+    }
+  }
 }
 
 
@@ -665,6 +738,7 @@ function credentialsFromToken(token: ConnectTokenResponse): StoredCredentials {
   return {
     accessToken: token.access_token,
     refreshToken: token.refresh_token,
+    ...(token.native_completion ? { nativeCompletion: token.native_completion } : {}),
     ...(token.authority ? {
       authority: {
         operationsUrl: token.authority.operations_url,

@@ -20,6 +20,13 @@ fn fixture() -> serde_json::Value {
 fn configured() -> (FakeLogService, Node, String) {
     let (svc, mut a) = collection_setup::keyed_node();
     a.r.planner = Box::new(crate::plan::CorePlanner);
+    a.r.submit(a.s, submission(setup_ops())).unwrap();
+    settle(&mut [&mut a]);
+    assert_eq!(a.r.catalog.implementations().len(), 1);
+    (svc, a, fixture()["source"].as_str().unwrap().into())
+}
+/// The resolved Base contract/type resources of the checked-in fixture.
+fn setup_ops() -> Vec<Op> {
     let fixture = fixture();
     let mut ops = vec![Op::ResourcePut(mdbn_wire::intent::ResourcePut {
         path: "mdbase.yaml".into(),
@@ -35,24 +42,21 @@ fn configured() -> (FakeLogService, Node, String) {
             must_not_exist: None,
         }));
     }
-    a.r.submit(
-        a.s,
-        SubmitParams {
-            ops,
-            mutation_id: None,
-            conflict_mode: None,
-            timezone: None,
-            allow_partial: None,
-            mutation_ids: None,
-            dry_run: None,
-            include: None,
-            wait: None,
-        },
-    )
-    .unwrap();
-    settle(&mut [&mut a]);
-    assert_eq!(a.r.catalog.implementations().len(), 1);
-    (svc, a, fixture["source"].as_str().unwrap().into())
+    ops
+}
+fn submission(ops: Vec<Op>) -> SubmitParams {
+    SubmitParams {
+        ops,
+        mutation_id: None,
+        conflict_mode: None,
+        timezone: None,
+        allow_partial: None,
+        mutation_ids: None,
+        dry_run: None,
+        include: None,
+        wait: None,
+        validation: None,
+    }
 }
 #[test]
 fn signed_device_discovers_original_tasknotes_base_from_complete_confirmed_replica() {

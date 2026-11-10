@@ -7,6 +7,8 @@
     "node": ">=24 <25"
   },
   "scripts": {
+    "check:release-downloads": "node scripts/check-release-downloads.mjs",
+    "test:release-downloads": "node --test scripts/check-release-downloads.test.mjs scripts/lib/prefetch-release.test.mjs apps/editor/scripts/native/authentication.test.mjs",
     "portal:review": "node apps/portal/tests/review/server.mjs",
     "test:portal-review": "playwright test --config apps/portal/playwright.config.ts",
     "build": "pnpm i18n:check && pnpm -r build",
@@ -47,7 +49,8 @@
     "dev:desktop:fresh": "node scripts/isolated-desktop.mjs --fresh",
     "deploy:dev": "node scripts/deploy-editor-dev.mjs",
     "deploy:lab": "node scripts/deploy-lab-local.mjs",
-    "e2e": "node test/system/run.mjs --suite local",
+    "e2e": "node test/system/run.mjs --suite runtime-daemon",
+    "e2e:legacy": "node test/system/run.mjs --suite legacy-local",
     "e2e:container": "node test/system/run.mjs --suite container",
     "e2e:relay": "node test/system/run.mjs --suite relay",
     "e2e:sync": "node test/system/run.mjs --suite sync",
@@ -64,7 +67,6 @@
     "check:mirror:mobile": "pnpm --filter @mdbase-dev/connect-sync check:mobile",
     "package:audit": "pnpm build && node scripts/package-audit.mjs",
     "package:consumer": "node scripts/pack-consumer-sdk.mjs",
-    "check:consumer-artifacts": "node scripts/check-consumer-artifacts.mjs",
     "profile:connect": "cargo run --release -p mdbase-cli -- profile connect",
     "profile:file-io": "cargo test --locked --release -p mdbase-connect-core benchmark_file_io -- --ignored --nocapture --test-threads=1 && pnpm --filter '@mdbase-dev/connect-sync...' build && node scripts/profile-file-mirror.mjs",
     "profile:finalizer": "cargo test --locked --release -p mdbase-connect-core benchmark_finalizer_ -- --ignored --nocapture --test-threads=1",

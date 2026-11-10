@@ -32,11 +32,16 @@ async function measureSurface(surface: Locator) {
   });
 }
 
-function expectPlainFill(measurement: Awaited<ReturnType<typeof measureSurface>>, padding: string) {
+// The shared palette marks its selected row with a neutral fill and an even 1px inset ring (@mdbase-dev/ui #1237).
+// A ring is allowed there; an edge stripe or offset shadow is not.
+const EVEN_INSET_RING = /^\S.* 0px 0px 0px 1px inset$/;
+
+function expectPlainFill(measurement: Awaited<ReturnType<typeof measureSurface>>, padding: string, { ring = false } = {}) {
   expect.soft(measurement.left).toBe("0px");
   expect.soft(measurement.right).toBe("0px");
   expect.soft(measurement.padding).toBe(padding);
-  expect.soft(measurement.shadow).toBe("none");
+  if (ring) expect.soft(measurement.shadow).toMatch(EVEN_INSET_RING);
+  else expect.soft(measurement.shadow).toBe("none");
   expect.soft(measurement.image).toBe("none");
   expect.soft(measurement.background).not.toBe("rgba(0, 0, 0, 0)");
   expect.soft(measurement.pseudo).toEqual(["none", "none"]);
@@ -94,25 +99,27 @@ for (const theme of ["light", "dark"] as const) {
       await page.goto("?demo=12");
       await expect(page.locator(".title-input")).toBeVisible();
       if (width === 390) await page.getByRole("button", { name: "Back to notes", exact: true }).click();
+      // The demo's Note type declares an icon, so every note row starts its text past the 15px icon gutter (18 + 15 + 8).
       const note = await measureSurface(page.locator(".note-row.selected"));
-      expectPlainFill(note, "18px");
-      await expect(page.locator(".note-row:not(.selected)").first()).toHaveCSS("padding-left", "18px");
+      expectPlainFill(note, "41px");
+      await expect(page.locator(".note-row:not(.selected)").first()).toHaveCSS("padding-left", "41px");
       await expect(page.locator(".note-row:not(.selected)").first()).toHaveCSS("border-left-width", "0px");
-      await expect(page.locator(".note-row.selected")).toHaveCSS("border-bottom-width", "1px");
+      // Rows are separated by space and fills, not rules.
+      await expect(page.locator(".note-row.selected")).toHaveCSS("border-bottom-width", "0px");
       await page.screenshot({ path: testInfo.outputPath("note-fill.png") });
       await page.keyboard.press("Control+k");
       const input = page.getByRole("combobox", { name: "Find a note or action" });
       await expect(input).toBeFocused();
       const selected = page.locator('.mdbase-command-results > button[aria-selected="true"]');
       const palette = await measureSurface(selected);
-      expectPlainFill(palette, "10px");
+      expectPlainFill(palette, "10px", { ring: true });
       const nextId = await page.locator('.mdbase-command-results > button[aria-selected="false"]').first().getAttribute("id");
       const next = page.locator(`[id="${nextId}"]`);
       const before = await next.locator(".mdbase-command-copy").evaluate(element => element.getBoundingClientRect().left);
       await page.keyboard.press("ArrowDown");
       await expect(next).toHaveAttribute("aria-selected", "true");
       expect(await next.locator(".mdbase-command-copy").evaluate(element => element.getBoundingClientRect().left)).toBe(before);
-      expectPlainFill(await measureSurface(next), "10px");
+      expectPlainFill(await measureSurface(next), "10px", { ring: true });
       await testInfo.attach("fill-measurements", { contentType: "application/json", body: JSON.stringify({ theme, width, note, palette }) });
       await page.screenshot({ path: testInfo.outputPath("palette-fill.png") });
     });

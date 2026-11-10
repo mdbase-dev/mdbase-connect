@@ -1,5 +1,5 @@
 import { StatusGlyph } from "@mdbase/connect-ui/status-glyph";
-import { isNativeLoopbackOrigin } from "@mdbase-dev/connect-protocol/manifest";
+import { isLoopbackHttpOrigin } from "@mdbase-dev/connect-protocol/manifest";
 import { t, plural } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
@@ -12,10 +12,10 @@ import {
   type ApplicationFileAction,
   type AvailableCollection,
   type ContractSetupChoice as ContractSetupRequestChoice,
-  type HostedCollection,
   type PendingAuthorization,
   type UnavailableConnector
 } from "./api";
+import { finishCollectionCreation, keepCollectionCreation, readCollectionCreation, type CollectionCreationIntent } from "./collection-creation-intent";
 import { collectionCompatibility, lostCollectionNotice } from "./compatibility";
 import {
   authorizationCapabilityGroups,
@@ -46,6 +46,7 @@ import {
   CollectionIdentity,
   CollectionPicker,
   GrantMoment,
+  useRequestExpiry,
   type ContractSetupChoice
 } from "./authorization-review";
 import {
@@ -134,7 +135,7 @@ export function Authorization({ requestId }: { requestId: string }) {
   const [request, setRequest] = useState<{
     authorization: PendingAuthorization;
     collections: AvailableCollection[];
-    hosted_collections_available?: boolean;
+    collection_creation_available?: boolean;
     unavailable_connectors: UnavailableConnector[];
   } | null>(null);
   const [status, setStatus] = useState<RequestStatus>("pending");
@@ -148,6 +149,8 @@ export function Authorization({ requestId }: { requestId: string }) {
   const returning = useRef(false);
   const loaded = useRef(false);
 
+  useRequestExpiry(status === "pending" ? request?.authorization.expires_at : undefined, () => setStatus(current => current === "pending" ? "expired" : current));
+
   useEffect(() => {
     let active = true;
     async function refreshCollections() {
@@ -155,7 +158,7 @@ export function Authorization({ requestId }: { requestId: string }) {
         const next = await api<{
           authorization: PendingAuthorization;
           collections: AvailableCollection[];
-          hosted_collections_available?: boolean;
+          collection_creation_available?: boolean;
           unavailable_connectors: UnavailableConnector[];
         }>(`/v1/authorization-requests/${requestId}`);
         if (active) {
@@ -195,14 +198,12 @@ export function Authorization({ requestId }: { requestId: string }) {
         }>(`/v1/authorization-requests/${requestId}/status`);
         if (returning.current) return;
         if (decisionError && value.status === "setting_up") return;
-        setStatus(current => current === "setting_up" && value.status === "pending" ? current : value.status);
+        setStatus(current => (current === "setting_up" || current === "expired") && value.status === "pending" ? current : value.status);
         if (value.redirect_uri) {
           returning.current = true;
           setReturnUrl(value.redirect_uri);
         }
       } catch (reason) {
-        // The status route answers 404 only for an expired or unknown request.
-        // Other polling failures are transient and keep the pending decision.
         if (reason instanceof ApiError && reason.status === 404 && !returning.current) setStatus("expired");
       }
     }
@@ -244,7 +245,7 @@ export function Authorization({ requestId }: { requestId: string }) {
           {(decisionError || error) && <div className="mdbase-message is-error" role="alert">{decisionError || error}</div>}
           <ApprovalForm
             request={authorization}
-            canCreateHosted={request.hosted_collections_available !== false}
+            canCreateCollection={request.collection_creation_available === true}
             collections={request.collections}
             unavailableConnectors={request.unavailable_connectors}
             onContinueInDesktop={() => continueInDesktop(true)}
@@ -353,22 +354,25 @@ function appOriginKind(origin: string | undefined | null): string | null {
   return null;
 }
 
-export function RequestIdentity({ request, showClientKey = true }: { request: Pick<PendingAuthorization, "application_name" | "homepage"> & Partial<Pick<PendingAuthorization, "distribution" | "platform" | "application_origin" | "icon" | "project_url" | "user_code" | "client_fingerprint" | "expires_at">>; showClientKey?: boolean }) {
+export function RequestIdentity({ request, showClientKey = true }: { request: Pick<PendingAuthorization, "application_name" | "homepage"> & Partial<Pick<PendingAuthorization, "distribution" | "application_origin" | "icon" | "project_url" | "user_code" | "client_fingerprint" | "expires_at">>; showClientKey?: boolean }) {
   useLocaleRevision();
   const [failedIcon, setFailedIcon] = useState<string | null>(null);
-  const portable = request.distribution === "portable", native = request.platform === "native" && isNativeLoopbackOrigin(request.application_origin);
+  // A loopback HTTP origin is a program on this computer (a native app, or a web
+  // app under development). Its manifest names no verified publisher, so its
+  // name and icon are never shown as branding.
+  const portable = request.distribution === "portable", local = isLoopbackHttpOrigin(request.application_origin);
   const originKind = appOriginKind(request.application_origin);
   return (
     <header className="request-identity">
-      <span className="request-identity-mark" aria-hidden="true">{!native && request.icon && request.icon !== failedIcon
+      <span className="request-identity-mark" aria-hidden="true">{!local && request.icon && request.icon !== failedIcon
         ? <img src={request.icon} alt="" referrerPolicy="no-referrer" onError={() => setFailedIcon(request.icon ?? null)} />
-        : native ? null : initials(request.application_name)}</span>
+        : local ? null : initials(request.application_name)}</span>
       <div>
-        <h1>{native ? t(i18n)`Connect an app` : request.application_name}</h1>
-        <p className="request-origin">{native ? t(i18n)`an app running on this computer` : portable
+        <h1>{local ? t(i18n)`Connect an app` : request.application_name}</h1>
+        <p className="request-origin">{local ? t(i18n)`an app running on this computer` : portable
           ? <>{t(i18n)({ message: "App using a device code" })}{request.project_url && <> · <code>{host(request.project_url)}</code></>}</>
           : request.application_origin?.trim() ? <><code>{request.application_origin}</code>{originKind && ` · ${originKind}`}</> : null}</p>
-        {native
+        {local
           ? <p className="request-guidance" role="note"><Trans>App identity unverified. This app calls itself {literal(request.application_name)}. Continue only if you started this connection intentionally.</Trans></p>
           : portable
           ? <p className="request-guidance portable-authorization-warning" role="note"><Trans><strong>App origin unverified.</strong> Continue only if you started this connection intentionally{request.user_code ? <Trans> and it shows <code>{request.user_code}</code></Trans> : null}.{request.project_url ? <Trans> {literal(host(request.project_url))} does not verify its origin.</Trans> : null}</Trans></p>
@@ -378,7 +382,7 @@ export function RequestIdentity({ request, showClientKey = true }: { request: Pi
         {showClientKey && request.client_fingerprint
           ? <p className="request-fingerprint"><Trans>App key <code>{request.client_fingerprint}</code>. Your computer will show this key when you approve the app.</Trans></p>
           : null}
-        {request.expires_at && <p className="request-expiry"><Trans>This request link expires {relativeTime(request.expires_at)}.</Trans>{!portable && <> <Trans>Access you allow continues until you revoke it.</Trans></>}</p>}
+        {request.expires_at && Date.parse(request.expires_at) > Date.now() && <p className="request-expiry"><Trans>This request link expires {relativeTime(request.expires_at)}.</Trans>{!portable && <> <Trans>Access you allow continues until you revoke it.</Trans></>}</p>}
       </div>
     </header>
   );
@@ -418,7 +422,7 @@ export function ApprovalForm(props: React.ComponentProps<typeof SupportedApprova
 function SupportedApprovalForm({
   request,
   collections,
-  canCreateHosted,
+  canCreateCollection,
   unavailableConnectors = [],
   onContinueInDesktop,
   onDecision,
@@ -428,7 +432,7 @@ function SupportedApprovalForm({
 }: {
   request: PendingAuthorization;
   collections: AvailableCollection[];
-  canCreateHosted: boolean;
+  canCreateCollection: boolean;
   unavailableConnectors?: UnavailableConnector[];
   onContinueInDesktop?(): void;
   onDecision(decision: "approved" | "denied", collection?: AvailableCollection): void | Promise<void>;
@@ -508,15 +512,15 @@ function SupportedApprovalForm({
   );
   const [submitting, setSubmitting] = useState<"approved" | "denied" | "creating" | null>(null);
   useLayoutEffect(() => { if (submitting) reviewHeading.current?.focus(); }, [submitting]);
-  const [creatingHosted, setCreatingHosted] = useState(false);
+  const [creatingCollection, setCreatingCollection] = useState(false);
   const [showAlternateCollections, setShowAlternateCollections] = useState(false);
   const [collectionName, setCollectionName] = useState("");
   const [error, setError] = useState("");
   const [lostCollection, setLostCollection] = useState("");
   const collectionChoicesRef = useRef<HTMLDivElement>(null);
-  const createHostedTriggerRef = useRef<HTMLButtonElement>(null);
+  const createTriggerRef = useRef<HTMLButtonElement>(null);
   const focusCollectionOnReturn = useRef(false);
-  const focusHostedTriggerOnCancel = useRef(false);
+  const focusCreateTriggerOnCancel = useRef(false);
   const lastSelected = useRef<AvailableCollection | undefined>(undefined);
   const selected = compatible.find((choice) => choice.collection.id === collectionId)?.collection;
   const selectedName = selected?.display_name ?? t(i18n)`this collection`;
@@ -635,11 +639,11 @@ function SupportedApprovalForm({
   }, [reviewing]);
 
   useEffect(() => {
-    if (!creatingHosted && focusHostedTriggerOnCancel.current) {
-      focusHostedTriggerOnCancel.current = false;
-      createHostedTriggerRef.current?.focus();
+    if (!creatingCollection && focusCreateTriggerOnCancel.current) {
+      focusCreateTriggerOnCancel.current = false;
+      createTriggerRef.current?.focus();
     }
-  }, [creatingHosted]);
+  }, [creatingCollection]);
 
   useEffect(() => {
     setSetupChoices(Object.fromEntries(setupContracts.map((contract) => [
@@ -725,36 +729,31 @@ function SupportedApprovalForm({
     }
   }
 
-  async function createHostedCollection(event: React.FormEvent) {
+  async function createCollection(event: React.FormEvent) {
     event.preventDefault();
     const displayName = collectionName.trim();
     if (!displayName) return;
     setSubmitting("creating");
     setError("");
     try {
-      const created = await api<{ collection: HostedCollection }>("/v1/hosted/collections", {
+      const { user } = await api<{ user: { id: string } }>("/v1/me");
+      // Add collection's retry-safe intent: a lost response retries the original request.
+      const original: CollectionCreationIntent = readCollectionCreation(user.id)
+        ?? { accountId: user.id, requestId: crypto.randomUUID(), displayName, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone };
+      keepCollectionCreation(original);
+      const { collection: created } = await api<{ collection: { id: string; display_name: string } }>("/v1/account/collections", {
         method: "POST",
-        body: JSON.stringify({
-          display_name: displayName,
-          template: "mdbase",
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
-        })
+        body: JSON.stringify({ account_id: original.accountId, request_id: original.requestId, display_name: original.displayName, timezone: original.timezone })
       });
-      const collection: AvailableCollection = {
-        id: created.collection.id,
-        display_name: created.collection.display_name,
-        connector_name: t(i18n)`Hosted by mdbase`,
-        spec_version: created.collection.spec_version ?? "0.3.0",
-        contracts: [],
-        types: [],
-        kind: "hosted"
-      };
+      finishCollectionCreation(original);
+      const collection: AvailableCollection = { ...created, connector_name: t(i18n)({ message: "Cloud copy", context: "Collection storage mode" }),
+        spec_version: "0.3.0", contracts: [], types: [], kind: request.account_backend === "next" ? "cloud_copy" : "hosted" };
       setCreatedCollections((current) => [...current, collection]);
       onCollectionCreated(collection);
       chooseCollection(collection.id);
       setReviewing(true);
       setCollectionName("");
-      setCreatingHosted(false);
+      setCreatingCollection(false);
     } catch (creationError) {
       setError(message(creationError));
     } finally {
@@ -799,10 +798,10 @@ function SupportedApprovalForm({
           {(unavailable.length > 0
             || unavailableConnectors.length > 0
             || (request.requirements.collection_kind !== "hosted" && !request.collection_id)
-            || (canCreateHosted && !request.collection_id)) && <details className="mdbase-disclosure alternate-collection-options"
-              open={compatible.length === 0 || creatingHosted || showAlternateCollections}
+            || (canCreateCollection && !request.collection_id)) && <details className="mdbase-disclosure alternate-collection-options"
+              open={compatible.length === 0 || creatingCollection || showAlternateCollections}
               onToggle={(event) => {
-                if (compatible.length > 0 && !creatingHosted) {
+                if (compatible.length > 0 && !creatingCollection) {
                   setShowAlternateCollections(event.currentTarget.open);
                 }
               }}
@@ -831,11 +830,11 @@ function SupportedApprovalForm({
                     onClick={onContinueInDesktop}
                   ><Trans>Use a local folder</Trans></a>
                 </div>}
-              {canCreateHosted && !request.collection_id && (creatingHosted ? (
+              {canCreateCollection && !request.collection_id && (creatingCollection ? (
                 <form
                   className="authorization-collection-create"
-                  id={`create-hosted-${request.id}`}
-                  onSubmit={(event) => void createHostedCollection(event)}
+                  id={`create-collection-${request.id}`}
+                  onSubmit={(event) => void createCollection(event)}
                 >
                   <label>
                     <span><Trans>New collection name</Trans></span>
@@ -848,15 +847,15 @@ function SupportedApprovalForm({
                       onChange={(event) => setCollectionName(event.target.value)}
                     />
                   </label>
-                  <small><Trans>Creates a plain mdbase collection hosted by mdbase. App access is still approved separately.</Trans></small>
+                  <small><Trans>Creates a plain mdbase collection with a cloud copy. App access is still approved separately.</Trans></small>
                   <div>
                     <button
                       className="mdbase-button is-tertiary"
                       type="button"
                       disabled={submitting !== null}
                       onClick={() => {
-                        focusHostedTriggerOnCancel.current = true;
-                        setCreatingHosted(false);
+                        focusCreateTriggerOnCancel.current = true;
+                        setCreatingCollection(false);
                         setCollectionName("");
                         setError("");
                       }}
@@ -869,20 +868,20 @@ function SupportedApprovalForm({
               ) : (
                 <div className="alternate-collection-row">
                   <div>
-                    <strong><Trans>Create a hosted collection</Trans></strong>
-                    <small><Trans>A new collection stored by mdbase, available from any computer.</Trans></small>
+                    <strong><Trans>Create a collection</Trans></strong>
+                    <small><Trans>A new collection with a cloud copy, available from any device.</Trans></small>
                   </div>
                   <button
                     className="mdbase-button"
                     type="button"
-                    ref={createHostedTriggerRef}
-                    aria-controls={`create-hosted-${request.id}`}
+                    ref={createTriggerRef}
+                    aria-controls={`create-collection-${request.id}`}
                     disabled={submitting !== null}
                     onClick={() => {
-                      setCreatingHosted(true);
+                      setCreatingCollection(true);
                       setError("");
                     }}
-                  ><Trans>Create hosted collection</Trans></button>
+                  ><Trans>New collection</Trans></button>
                 </div>
               ))}
             </div>

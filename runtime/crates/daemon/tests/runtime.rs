@@ -101,6 +101,7 @@ async fn local_only_write_is_confirmed_once_published() {
         dry_run: None,
         include: None,
         wait: Some(WaitFor::Confirmed),
+        validation: None,
     };
     assert!(rt.frame(session, req(1, "submit", submit.to_cbor())));
     let receipt = tokio::time::timeout(Duration::from_secs(20), async {
@@ -316,6 +317,7 @@ async fn freeze_fences_writers_before_taking_the_inventory() {
             dry_run: None,
             include: None,
             wait: None,
+            validation: None,
         }
         .to_cbor()
     };

@@ -1014,3 +1014,119 @@ async fn a_saved_policy_cursor_from_an_old_connector_does_not_stop_the_relay() {
     assert!(saved.feed_cursor.is_none());
     assert!(saved.leases.is_empty(), "old grants are not served");
 }
+
+/// `account.applications` forwards the account's approved apps over an
+/// unprivileged connection, reads with the connector credential, refuses a
+/// malformed reply whole, and records nothing in activity.
+#[tokio::test]
+async fn account_applications_lists_the_accounts_apps_without_side_effects() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let dir = crate::testutil::TestDir::new("account-applications");
+    let d = daemon(&dir);
+    let call = || async {
+        d.handle_and_note(
+            &Request {
+                v: PROTOCOL,
+                id: 1,
+                method: Method::ACCOUNT_APPLICATIONS.into(),
+                params: json!({}),
+            },
+            &mut ConnAuth::default(),
+        )
+        .await
+    };
+    let e = call().await.unwrap_err();
+    assert_eq!(
+        (e.code.as_str(), e.reason.as_deref()),
+        ("unauthenticated", Some("not_signed_in"))
+    );
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    crate::cloud::CloudConfig {
+        schema_version: 1,
+        account_epoch: 1,
+        connector_id: Some("connector".into()),
+        server_url: format!("http://{}", listener.local_addr().unwrap()),
+        ..Default::default()
+    }
+    .save(&d.profile.cloud_file())
+    .unwrap();
+    d.secrets
+        .set(crate::cloud::CONNECTOR_TOKEN, b"con_apps_fixture")
+        .unwrap();
+    let listed = json!({"applications":[
+        {"id":"app-1","name":"TaskNotes","distribution":"web",
+         "homepage":"https://app.example/","icon":"https://app.example/icon.png",
+         "collections":[{"id":"col-1","name":"Notes"}],"future_field":true},
+        {"id":"app-2","name":"Editor","distribution":"portable",
+         "homepage":null,"icon":null,"collections":[]}
+    ]});
+    let replies = [
+        (200, listed.clone()),
+        (401, json!({"error":{"code":"unauthenticated"}})),
+        (
+            200,
+            json!({"applications":[{"id":"app-1","name":"","distribution":"web",
+                "homepage":null,"icon":null,"collections":[]}]}),
+        ),
+        (
+            200,
+            json!({"applications":[{"id":"app-1","name":"A","distribution":"native",
+                "homepage":null,"icon":null,"collections":[]}]}),
+        ),
+        (404, json!({"error":{"code":"not_found"}})),
+    ];
+    let fixture = tokio::spawn(async move {
+        let mut requests = Vec::new();
+        for (status, body) in replies {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0; 4096];
+            while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+                let n = socket.read(&mut buffer).await.unwrap();
+                assert!(n > 0);
+                request.extend_from_slice(&buffer[..n]);
+            }
+            requests.push(String::from_utf8_lossy(&request).to_ascii_lowercase());
+            let body = body.to_string();
+            socket
+                .write_all(
+                    format!(
+                        "HTTP/1.1 {status} Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+        }
+        requests
+    });
+
+    let mut expected = listed;
+    expected["applications"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("future_field");
+    assert_eq!(call().await.unwrap(), expected);
+    for (code, reason) in [
+        ("unauthenticated", "authentication_required"),
+        ("unavailable", "account_unreachable"),
+        ("unavailable", "account_unreachable"),
+        ("unavailable", "account_unreachable"),
+    ] {
+        let e = call().await.unwrap_err();
+        assert_eq!((e.code.as_str(), e.reason.as_deref()), (code, Some(reason)));
+    }
+    for request in fixture.await.unwrap() {
+        assert!(
+            request.starts_with("get /v1/connectors/self/applications "),
+            "{request}"
+        );
+        assert!(
+            request.contains("authorization: bearer con_apps_fixture"),
+            "{request}"
+        );
+    }
+    assert!(d.activity.list(10).is_empty());
+}

@@ -95,6 +95,7 @@ fn create_records<S: Store>(app: &mut Replica<S>, svc: &r::fake::FakeLogService)
                 dry_run: None,
                 include: None,
                 wait: None,
+                validation: None,
             },
         )
         .unwrap();

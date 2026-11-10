@@ -39,6 +39,7 @@ import type {
   FileListRequest,
   FileReadRequest,
   FileUploadRequest,
+  LinkTarget,
   MutationOperationOptions,
   NoteDocument,
   NoteObservation,
@@ -66,6 +67,11 @@ const INSTALLED_BY = "dev.mdbase.editor";
 /** Reviewed plans kept for apply, newest last. */
 const PLAN_MEMORY = 8;
 const RECEIPT_TIMEOUT_MS = 30_000;
+/** Referring records per backlinks page; record views carry no body. */
+const BACKLINKS_PAGE = 500;
+const BACKLINKS_ATTEMPTS = 3;
+/** Links per resolve_links request (the replica's bound). */
+const RESOLVE_LINKS_BATCH = 512;
 
 /** Production scopes belong to the SDK, for both cloud copies and Private
  * collections. Isolated tests may supply their own fenced scope actions. */
@@ -169,11 +175,14 @@ export class NativeEditorGateway implements CollectionGateway {
 
   /** The SDK's own sync state: its write ledger keeps changes on this device
    * while the collection can't be reached; the application's sync summary (or,
-   * for a Private collection, the client's link) reports being offline. */
+   * for a Private collection, the client's link) reports being offline. The
+   * app's unsynced collection (work before connecting) never syncs: a local
+   * confirmation is final, and it is saved only in this browser. */
   syncState(): EditorSyncState {
     if (!this.current()) return "synced";
-    if (this.client.ledger.getSnapshot().saveState === "saved_on_device") return "saved_on_device";
     const phase = this.application.getSnapshot?.().phase;
+    if (phase?.kind === "unsynced" && phase.collectionId === this.connection.id) return "unsynced";
+    if (this.client.ledger.getSnapshot().saveState === "saved_on_device") return "saved_on_device";
     const sync = phase?.kind === "ready" && phase.collectionId === this.connection.id ? this.application.getSnapshot?.().sync : null;
     return sync?.kind === "offline" || this.client.status.connection === "offline" || this.client.link !== "open" ? "offline" : "synced";
   }
@@ -277,6 +286,48 @@ export class NativeEditorGateway implements CollectionGateway {
   observe(): NoteObservation {
     this.check();
     return new NativeNoteObservation(this.client, () => this.current());
+  }
+
+  /** Every page of one backlinks answer. A local change between pages ends
+   * that answer (`cursor_stale`); the contract says to start again, which is
+   * bounded here so a constantly changing collection still fails visibly. */
+  async backlinks(path: string, options: { signal?: AbortSignal } = {}): Promise<string[]> {
+    const signal = this.signal(options.signal);
+    for (let attempt = 1; ; attempt++) {
+      const paths: string[] = [];
+      let cursor: string | undefined;
+      try {
+        do {
+          const page = await this.client.backlinks({ path }, { limit: BACKLINKS_PAGE, signal, ...(cursor ? { cursor } : {}) });
+          this.check();
+          for (const backlink of page.backlinks) paths.push(backlink.record.path);
+          cursor = page.cursor;
+        } while (cursor);
+        return paths;
+      } catch (error) {
+        if (attempt < BACKLINKS_ATTEMPTS && isMdbaseError(error, "invalid_request") && error.reason === "cursor_stale") continue;
+        throw error;
+      }
+    }
+  }
+
+  async resolveLinks(from: string, links: readonly string[], options: { signal?: AbortSignal } = {}): Promise<LinkTarget[]> {
+    const signal = this.signal(options.signal);
+    const targets: LinkTarget[] = [];
+    for (let start = 0; start < links.length; start += RESOLVE_LINKS_BATCH) {
+      const page = await this.client.resolveLinks(from, links.slice(start, start + RESOLVE_LINKS_BATCH), { signal });
+      this.check();
+      for (const resolution of page.resolutions) {
+        switch (resolution.kind) {
+          case "record": targets.push({ kind: "note", path: resolution.path! }); break;
+          case "file": targets.push({ kind: "file", path: resolution.path! }); break;
+          case "ambiguous": targets.push({ kind: "ambiguous", candidates: resolution.candidates ?? [] }); break;
+          case "not_found": targets.push({ kind: "missing" }); break;
+          case "invalid": targets.push({ kind: "invalid" }); break;
+        }
+      }
+    }
+    return targets;
   }
 
   async mostRecentNote(): Promise<string | undefined> {
@@ -529,6 +580,7 @@ export class NativeEditorGateway implements CollectionGateway {
   private summary(): ConnectionSummary {
     const missing = this.missingCapabilities();
     return { collectionId: this.connection.id, role: this.role(), displayName: this.connection.displayName, operations: this.operations(), fileActions: this.fileActions(),
+      ...(this.entry()?.kind === "private" ? { private: true as const } : {}),
       ...(missing.length ? { missingCapabilities: missing } : {}) };
   }
 
@@ -560,7 +612,11 @@ export class NativeEditorGateway implements CollectionGateway {
   }
 
   private membershipRole() {
-    return this.application.getSnapshot?.().collections.find((entry) => entry.collectionId === this.connection.id)?.role;
+    return this.entry()?.role;
+  }
+
+  private entry() {
+    return this.application.getSnapshot?.().collections.find((entry) => entry.collectionId === this.connection.id);
   }
 
   private async checkWritable(): Promise<void> {

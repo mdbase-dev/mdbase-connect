@@ -206,8 +206,10 @@ impl Fixture {
                 .await
                 .unwrap();
             let mut state = tx.load().await.unwrap().unwrap();
+            // Every object here is a blob part, so all used bytes are file bytes.
             state.meta.used_bytes = used;
-            state.meta.quotas.storage_bytes = quota;
+            state.meta.file_bytes = Some(used);
+            state.meta.file_quota = quota;
             tx.write(Write::PutMeta(state.meta));
             tx.commit().await.unwrap();
         });

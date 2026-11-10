@@ -55,7 +55,10 @@ policy validity to hide the old producer behavior.
 Native HTTP proofs bind collection, request, direction, stage, actual epoch,
 prefix and preflight membership. Native mode mutation requires the existing
 privileged owner control connection. The CLI exposes `sync mode` (including
-`--resume` and pre-publication `--cancel`) and `sync mode-status`; management SDK
+`--resume` and pre-publication `--cancel`) and `sync mode-status`. `sync mode` refuses
+(`mode_switch_unavailable`) before confirmation when the executor route is absent,
+and `--resume` without a retained request on this device fails
+(`mode_nothing_to_resume`); `sync mode-status` returns the server's status as-is. Management SDK
 methods submit/cancel owner intent or read status only, never produce native proofs. Desktop IPC/preload bindings are
 present. Desktop Details and portal Storage & sync share an inline mode control,
 including pending/retry state and missing-device diagnostics. It stays hidden

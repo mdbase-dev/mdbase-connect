@@ -14,6 +14,7 @@ export const localSteps = [
   { tier: "node", command: "pnpm install --frozen-lockfile" },
   { tier: "node", command: "pnpm check:vendored-sdk" },
   { tier: "node", command: "pnpm version:check" },
+  { tier: "node", command: "pnpm check:release-downloads && pnpm test:release-downloads" },
   { tier: "node", command: "pnpm check:release-readiness" },
   { tier: "node", command: "pnpm check:release-components" },
   { tier: "node", command: "pnpm audit:dependencies" },
@@ -58,6 +59,7 @@ export function selectSteps(requestedTiers, native) {
  * first command line. Each needs a reason a reviewer can check.
  */
 export const ciOnlySteps = [
+  { prefix: "node scripts/ci/prefetch-worker-tools.mjs", reason: "authenticated binary bootstrap for worker-build; local LAB uses the ops front door" },
   { prefix: "if [[ \"$GITHUB_EVENT_NAME\" == pull_request ]]", reason: "merge-queue qualification reuse" },
   { prefix: "echo \"revision=$(tr -d", reason: "exports the mdbase-rs pin for checkout; local builds use the sibling ../mdbase-rs" },
   { prefix: "pnpm check:mdbase-rs-pin", reason: "merge queue only; a PR may pin an engine commit that is not on mdbase-rs main yet" },
@@ -68,6 +70,7 @@ export const ciOnlySteps = [
   { prefix: "worker-build --release --locked", reason: "separate wasm32 DO workspace; build with rcargo and package locally before running the harness" },
   { prefix: "cargo build --locked -p mdbn-log-conformance --bin logsvc-bench", reason: "separate runtime workspace; build and pull with rcargo for the DO harness" },
   { prefix: "cargo test --locked -p mdbn-log-conformance --test conformance postgres_backend", reason: "requires disposable Postgres and MDBN_REQUIRE_REAL_BACKENDS=1; run a freshly pulled test binary locally" },
+  { prefix: "cargo test --locked --workspace --test mutation_abandon", reason: "ignored hosted-provider tests need disposable Postgres; run freshly pulled test binaries locally with --ignored and the destructive-test approvals" },
   { prefix: "node tests/runtime.mjs", reason: "requires the built DO Worker and LOGSVC_BENCH; runs isolated local Wrangler with MDBN_REQUIRE_REAL_BACKENDS=1" },
   { prefix: "npm ci", reason: "installs pinned dependencies for the portable testbed or local DO harness" },
   { prefix: "cargo build --locked -p mdbase-connect-testbed-adapter", reason: "prebuilds the testbed executable outside its response deadline; local workspace tests compile its harness" },

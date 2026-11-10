@@ -44,6 +44,20 @@ it('refuses any direct protocol bytes that differ from the SDK authenticated bun
  assert.throws(()=>assertProtocolArchive(pin,bytes,Buffer.from('different archive')),/byte-identical/);
  assert.throws(()=>assertProtocolArchive({...pin,bundledDependencies:pin.bundledDependencies.map(d=>({...d,sha256:'0'.repeat(64)}))},bytes,protocol),/metadata mismatch/);
 });
+it('scopes the read-only job token to SDK intake rather than dependency installation',async()=>{
+ const {jobs,permissions}=parse(await readFile(root+'.github/workflows/editor-pages.yml','utf8'));
+ assert.equal(permissions.contents,'read');
+ assert.equal(jobs['native-build'].env.GITHUB_TOKEN,undefined);
+ assert.equal(jobs['native-build'].permissions,undefined);
+ for(const command of ['publisher.mjs guard','install-inputs.mjs','build.mjs']) {
+  const step=jobs['native-build'].steps.find(step=>step.run?.includes('native/'+command));
+  assert.equal(step.env.GITHUB_TOKEN,'${{ github.token }}');
+ }
+ const install=jobs['native-build'].steps.find(step=>step.run?.startsWith('pnpm install'));
+ assert.equal(install.env?.GITHUB_TOKEN,undefined);
+ const guard=jobs['native-deploy'].steps.find(step=>step.run?.includes('publisher.mjs guard'));
+ assert.ok(guard['timeout-minutes']*60000>5*30000+5000+20000+60000+120000);
+});
 it('protected jobs only execute workflow-owned helpers, with ancestry checks before candidate data and upload',async()=>{
  const {jobs}=parse(await readFile(root+'.github/workflows/editor-pages.yml','utf8'));
  for(const name of ['native-inputs','native-deploy','production-recovery']) {
@@ -94,7 +108,7 @@ for(const kind of ['publisher','smoke']) it(`accepts the committed ${kind} lock 
   }}),/install reached/,name);
  }finally{await rm(base,{recursive:true,force:true});}
 });
-function browserDouble({pageError=false,fence=false,csp=false,entrySource=source,missingSignIn=false}={}) {
+function browserDouble({pageError=false,fence=false,csp=false,entrySource=source,missingSignIn=false,unsynced=false,bodyText=''}={}) {
  const listeners={},events=[];
  const page={on:(event,fn)=>{listeners[event]=fn;},
   goto:async(url,options)=>{
@@ -104,23 +118,35 @@ function browserDouble({pageError=false,fence=false,csp=false,entrySource=source
    if(csp)listeners.console({text:()=>"Loading https://static.cloudflareinsights.com/beacon.min.js violates Content Security Policy"});
    return {status:()=>200};
   },
-  locator:selector=>selector==='body'?{innerText:async()=>''}:{evaluateAll:async()=>[`https://editor.mdbase.dev/assets/index-a1-${entrySource.slice(0,12)}.js`,'https://static.cloudflareinsights.com/beacon.min.js/v1']},
-  getByRole:(role,options)=>{assert.equal(role,'button');assert.equal(options.name,'Sign in');return {waitFor:async()=>{if(missingSignIn)throw Error('not visible');}};}
+  locator:selector=>selector==='body'?{innerText:async()=>bodyText}:{evaluateAll:async()=>[`https://editor.mdbase.dev/assets/index-a1-${entrySource.slice(0,12)}.js`,'https://static.cloudflareinsights.com/beacon.min.js/v1']},
+  getByRole:(role,options)=>{
+   const first={button:'Sign in',status:'Saved only in this browser'};
+   assert.equal(options.name,first[role]);assert.equal(options.exact,true);
+   const shown=role==='status'?unsynced:!unsynced;
+   const locator={isVisible:async()=>shown,first:()=>locator,
+    or:other=>{const either={first:()=>either,waitFor:async()=>{if(missingSignIn)throw Object.assign(Error('Timeout 60000ms exceeded: private page text'),{name:'TimeoutError'});}};return either;}};
+   return locator;
+  }
  };
  const context={newPage:async()=>page,newCDPSession:async()=>({send:async(method,args)=>{events.push(method);if(method.endsWith('setCacheDisabled'))assert.equal(args.cacheDisabled,true);}}),
   request:{get:async()=>({ok:()=>true,body:async()=>Buffer.from('entry')})}};
  return {events,chromium:{launch:async()=>({newContext:async options=>{assert.equal(options.serviceWorkers,'block');assert.match(options.extraHTTPHeaders['Cache-Control'],/no-store/);return context;},close:async()=>events.push('closed')})}};
 }
-it('smoke checks a fresh source-bound entry and sign-in, ignores beacon CSP console noise, but refuses page errors and fences',async()=>{
+it('smoke checks a fresh source-bound entry and first screen, ignores beacon CSP console noise, but refuses page errors and fences',async()=>{
  const good=browserDouble({csp:true});
- assert.equal((await smoke(good.chromium,source)).ok,true);
+ assert.deepEqual(await smoke(good.chromium,source),{ok:true,source:source.slice(0,12),signIn:true,unsynced:false,cacheDisabled:true});
+ assert.deepEqual(await smoke(browserDouble({unsynced:true}).chromium,source),{ok:true,source:source.slice(0,12),signIn:false,unsynced:true,cacheDisabled:true});
  assert.ok(good.events.includes('Network.setCacheDisabled'));assert.ok(good.events.includes('closed'));
  assert.throws(()=>assertEntryAsset('https://editor.mdbase.dev/assets/index-other.js',source),/source-mismatch/);
  assert.doesNotThrow(()=>assertEntryAsset(`https://editor-staging.mdbase.dev/assets/index-x-${source.slice(0,12)}.js`,source,'staging'));
  assert.throws(()=>assertEntryAsset(`https://editor.mdbase.dev/assets/index-x-${source.slice(0,12)}.js`,source,'staging'),/source-mismatch/);
  assert.throws(()=>assertEntryAsset(`https://editor.mdbase.dev/assets/index-x-${source.slice(0,12)}.js`,source,'lab'),/invalid-source/);
- for(const options of [{pageError:true},{fence:true},{missingSignIn:true},{entrySource:'1'.repeat(40)}]) {
+ for(const options of [{pageError:true},{fence:true},{missingSignIn:true},{bodyText:"Can't continue"},{entrySource:'1'.repeat(40)}]) {
   const bad=browserDouble(options);
   await assert.rejects(smoke(bad.chromium,source));assert.ok(bad.events.includes('closed'));
  }
+ await assert.rejects(smoke(browserDouble({missingSignIn:true}).chromium,source),{message:'first-screen-timeout'});
+ await assert.rejects(smoke(browserDouble({unsynced:true,bodyText:"Can't continue"}).chromium,source),{message:'first-screen-blocked'});
+ await assert.rejects(smoke(browserDouble({fence:true}).chromium,source),{message:'readiness-fenced'});
+ await assert.rejects(smoke({launch:async()=>{throw Error('Executable missing at /private/path');}},source),{message:'launch-error'});
 });

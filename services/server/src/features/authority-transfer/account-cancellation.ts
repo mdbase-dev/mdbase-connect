@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { DatabasePool } from "../../database-types.js";
-import type { HostedProviderClient } from "../../hosted-provider.js";
+import type { HostedProviderClient } from "../hosted/hosted-provider.js";
 import type { ConnectorIdentity } from "../../platform/request-authentication.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 import { audit } from "../../platform/audit-events.js";

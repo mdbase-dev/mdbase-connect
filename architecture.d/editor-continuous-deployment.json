@@ -1,9 +1,0 @@
-{
-  "reason": "Keep credential-free SDK authentication, staging install derivation, Pages recovery, nonpublishing build rehearsal and unprivileged production browser smoke as explicit publisher boundaries. They replace duplicated native approval packets and obsolete ref checks; exported helpers support ancestry, bundled-protocol, certificate-policy, transport-double recovery and fresh-browser tests without executing candidate repository code.",
-  "growth": {
-    "productionFiles": 5,
-    "apps/editor": 5,
-    "relativeImports": 5,
-    "typeScriptExportDeclarations": 14
-  }
-}

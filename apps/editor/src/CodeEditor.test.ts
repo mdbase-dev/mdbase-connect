@@ -1,8 +1,8 @@
-import { CompletionContext } from "@codemirror/autocomplete";
+import { CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import { EditorState } from "@codemirror/state";
 import { describe, expect, it } from "vitest";
 import {
-  internalLinkPathAt,
+  internalLinkAt,
   lineSeparatorFor,
   linkCompletion,
   markdownEdit,
@@ -12,6 +12,7 @@ import {
 } from "./CodeEditor";
 import type { LinkSuggestion } from "./links";
 import type { CollectionFile, NoteSummary } from "./model";
+import { linkTargets } from "./test/link-targets";
 
 describe("mdbase mention scope", () => {
   const types = ["note", "person", "reading-item"];
@@ -170,7 +171,7 @@ describe("object link completion", () => {
     ]);
   });
 
-  it("completes heading and block anchors after a note target", () => {
+  it("completes heading and block anchors of the note the collection resolves", async () => {
     const notes = [{
       path: "People/ada.md",
       frontmatter: {},
@@ -179,35 +180,34 @@ describe("object link completion", () => {
       file: {},
       body: "# Ada Lovelace\n\n## Work\n\nAnalytical engine. ^engine"
     }] as NoteSummary[];
-    expect(complete("![[People/ada#", [], notes)?.options).toMatchObject([
+    const targets = linkTargets("Notes/today.md", { "[[People/ada]]": { kind: "note", path: "People/ada.md" } });
+    expect((await resolveCompletion("![[People/ada#", notes, targets))?.options).toMatchObject([
       { label: "Ada Lovelace", detail: "Section in note", apply: "Ada Lovelace]]" },
       { label: "Work", detail: "Section in note", apply: "Work]]" },
       { label: "^engine", detail: "Block · Analytical engine.", apply: "^engine]]" }
     ]);
   });
 
-  function complete(doc: string, files: CollectionFile[] = [], notes: NoteSummary[] = []) {
+  /** Completions that need no answer from the collection arrive at once. */
+  function complete(doc: string, files: CollectionFile[] = []) {
     const state = EditorState.create({ doc });
-    return linkCompletion(new CompletionContext(state, doc.length, false), suggestions, types, undefined, [], files, notes);
+    return linkCompletion(new CompletionContext(state, doc.length, false), suggestions, types, undefined, [], files) as CompletionResult | null;
+  }
+
+  function resolveCompletion(doc: string, notes: NoteSummary[], targets: ReturnType<typeof linkTargets>) {
+    const state = EditorState.create({ doc });
+    return linkCompletion(new CompletionContext(state, doc.length, false), suggestions, types, undefined, [], [], notes, targets);
   }
 });
 
 describe("internal link previews", () => {
-  const suggestions: LinkSuggestion[] = [
-    { path: "People/ada.md", title: "Ada Lovelace", aliases: ["Ada"], types: ["person"] },
-    { path: "Projects/Engine.md", title: "Analytical Engine", types: ["project"] }
-  ];
-
-  it("resolves wiki and Markdown links while ignoring external URLs", () => {
-    const wiki = "See [[People/ada|Ada]].";
+  it("asks the collection about the link as written, never an external URL", () => {
+    const wiki = "See [[Ada]].";
     const markdown = "Read [the engine](Projects/Engine.md).";
     const external = "Visit [mdbase](https://mdbase.dev).";
-
-    expect(internalLinkPathAt(wiki, wiki.indexOf("Ada"), suggestions, "Notes/Today.md"))
-      .toBe("People/ada.md");
-    expect(internalLinkPathAt(markdown, markdown.indexOf("engine"), suggestions, "Notes/Today.md"))
-      .toBe("Projects/Engine.md");
-    expect(internalLinkPathAt(external, external.indexOf("mdbase"), suggestions, "Notes/Today.md"))
-      .toBeUndefined();
+    expect(internalLinkAt(wiki, wiki.indexOf("Ada"))).toEqual({ raw: "[[Ada]]" });
+    expect(internalLinkAt(markdown, markdown.indexOf("engine"))).toEqual({ raw: "[the engine](Projects/Engine.md)" });
+    expect(internalLinkAt(external, external.indexOf("mdbase"))).toBeUndefined();
+    expect(internalLinkAt(wiki, 0)).toBeUndefined();
   });
 });

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import "../test/dialog.js";
+import { readFileSync } from "node:fs";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -21,11 +22,54 @@ it("puts all contextual actions first without duplicates, including ranked resul
 
 const headings = (markup: string) => [...markup.matchAll(/class="mdbase-command-group" role="presentation">(.*?)<\/div>/g)].map((match) => match[1]);
 
+it("keeps an Undo target distinct from the current note's contextual actions", () => {
+  const commands = [
+    { ...command("undo", "commands"), context: "Deleted note" },
+    { ...command("rename", "commands"), context: "Current note" }
+  ];
+  act(() => root.render(createElement(CommandPalette, { open: true, commands: [], getResults: () => commands, onClose: () => {} })));
+  expect(headings(document.querySelector("dialog")!.outerHTML)).toEqual(["Deleted note", "Current note"]);
+});
+
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
 const host = document.body.appendChild(document.createElement("div"));
 const root = createRoot(host);
 afterEach(() => act(() => root.render(null)));
+
+it("resets query and selection in the layout phase, before an exit can be reopened and painted", () => {
+  const source = readFileSync("src/CommandPalette.tsx", "utf8");
+  expect(source).toMatch(/useLayoutEffect\(\(\) => \{ if \(open\) \{ setQuery\(initialQuery\); setActive\(0\); \} \}, \[open, initialQuery\]\)/);
+});
+
+it("resets a retained palette to the new initial query and first result on reopening", () => {
+  const animation = vi.spyOn(HTMLElement.prototype, "getAnimations").mockReturnValue([{ finished: new Promise<void>(() => {}) }] as Animation[]);
+  const commands = [command("alpha", "app"), command("beta", "app")];
+  const draw = (open: boolean, initialQuery: string) => createElement(CommandPalette, { open, initialQuery, commands, onClose: () => {} });
+  act(() => root.render(draw(true, "")));
+  const input = document.querySelector<HTMLInputElement>('[role="combobox"]')!;
+  act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true })));
+  act(() => root.render(draw(false, "")));
+  act(() => root.render(draw(true, "alpha")));
+  expect(document.querySelector('[role="combobox"]')).toBe(input);
+  expect(input.value).toBe("alpha");
+  expect(document.querySelector('[aria-selected="true"]')?.textContent).toContain("alpha");
+  animation.mockRestore();
+});
+
+it("keeps a result selected when live updates shrink the list", () => {
+  const run = vi.fn();
+  const three = [command("a", "app"), command("b", "app"), { ...command("c", "app"), run }];
+  act(() => root.render(createElement(CommandPalette, { open: true, commands: three, onClose: () => {} })));
+  const input = document.querySelector<HTMLInputElement>('[role="combobox"]')!;
+  act(() => { input.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true })); });
+  const two = [command("a", "app"), { ...command("b", "app"), run }];
+  act(() => root.render(createElement(CommandPalette, { open: true, commands: two, onClose: () => {} })));
+  expect(document.querySelector('[aria-selected="true"]')?.textContent).toContain("b");
+  expect(input.getAttribute("aria-activedescendant")).toMatch(/-b$/);
+  act(() => { input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); });
+  expect(run).toHaveBeenCalledOnce();
+});
 
 it("presents sequential shortcuts without turning them into chords", () => {
   expect(shortcutLabel("g c")).toBe("G C");
@@ -49,6 +93,12 @@ describe("CommandPalette group labels", () => {
     })));
     return document.querySelector("dialog")?.outerHTML ?? "";
   };
+
+  it("describes Enter as running an action, not opening it", () => {
+    render({ commands: [command("delete", "actions", "Delete note")] });
+    expect(document.querySelector(".mdbase-command-footer")?.textContent).toContain("to run");
+    expect(document.querySelector(".mdbase-command-footer")?.textContent).not.toContain("to open");
+  });
 
   it("highlights literal label matches without replacing adapter content", () => {
     render({ commands: [command("field", "collections", "Field [notes] archive")], initialQuery: "field [notes]" });

@@ -213,11 +213,11 @@ exports[`describes collection availability and access in plain, specific copy 1`
     "title": "A record type isn't available",
   },
   "unavailable": {
-    "action": "check_connection",
+    "action": "retry",
     "actionLabel": "Try again",
     "key": "unavailable",
-    "message": "mdbase couldn't be reached. Check your connection and try again.",
-    "title": "Can't connect right now",
+    "message": "mdbase couldn't complete this request. Try again.",
+    "title": "Can't complete this request",
   },
   "update_required": {
     "action": "update_app",

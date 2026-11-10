@@ -8,7 +8,7 @@ function submission(overrides: Record<string, unknown> = {}) { return { schema_v
 function request(value: unknown) { return new Request("https://feedback.example/v1/feedback", { method: "POST", headers: { origin: "https://reader.example", "content-type": "application/json" }, body: JSON.stringify(value) }); }
 
 describe("shared feedback schema v2", () => {
-  it.each(["mdbase reader", "mdbase writer", "mdbase editor", "mdbase connect"])("routes %s privately with explicit application metadata", async (product) => {
+  it.each(["mdbase reader", "mdbase writer", "mdbase editor", "mdbase connect", "tasknotes"])("routes %s privately with explicit application metadata", async (product) => {
     const provider = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json({ id: "mail" }));
     const response = await createFeedbackWorker(provider).fetch(request(submission({ application: { ...application, product }, diagnostics, context: { collection_name: "Chosen collection" } })), env);
     expect(response.status).toBe(202);

@@ -696,13 +696,13 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
           }, {
             id: "55555555-5555-4555-8555-555555555555",
             kind: "hosted",
-            connector_name: "Hosted by mdbase",
+            connector_name: "Cloud copy",
             display_name: "Shared notes",
             spec_version: "0.3.0",
             contracts: [],
             types: []
           }],
-          hosted_collections_available: true,
+          collection_creation_available: true,
           unavailable_connectors: []
         }
       });
@@ -763,7 +763,7 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
     false,
     "portal authorization: browser review remains available"
   );
-  const createHosted = page.getByRole("button", { name: "Create hosted collection" });
+  const createHosted = page.getByRole("button", { name: "New collection" });
   await createHosted.click();
   assert.equal(await page.getByLabel("New collection name").evaluate((element) => document.activeElement === element), true, "portal authorization: hosted collection form receives focus");
   await page.getByRole("button", { name: "Cancel" }).click();
@@ -965,7 +965,7 @@ async function auditDesktopRoutes() {
     window.mdbaseConnect = {
       getLocale: async () => "en",
       setLocale: async () => {},
-      status: async () => ({ target: "isolated_profile", state_dir: "/home/example/.mdbase", account: { signed_in: true, online: true }, collections: [collection] }),
+      status: async () => ({ target: "isolated_profile", state_dir: "/home/example/.mdbase", account: { signed_in: true, online: true, environment: "production" }, collections: [collection] }),
       updateStatus: async () => updateStatus,
       checkForUpdates: async () => updateStatus,
       installUpdate: async () => updateStatus,
@@ -986,14 +986,17 @@ async function auditDesktopRoutes() {
       chooseCreateFolder: async () => "/home/example/new",
       createCollection: async () => { throw new Error("This folder already has a collection. Choose another folder."); },
       openCollectionFolder: async () => undefined,
+      listApps: async () => ({ applications: [] }),
+      openApp: async () => undefined,
       onNavigate: () => () => undefined,
       onUpdateStatus: () => () => undefined
     };
   });
   await page.goto(servers[1].origin);
-  await page.getByRole("heading", { name: "Overview", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "Home", exact: true }).waitFor();
   await page.getByText("Connected securely", { exact: true }).first().waitFor();
-  await auditPage(page, "desktop overview", { keyboard: true });
+  await page.getByRole("button", { name: "Open Reader" }).waitFor();
+  await auditPage(page, "desktop home", { keyboard: true });
 
   const nav = (name) => page.locator(".product-sidebar-link").filter({ hasText: name });
   for (const route of [

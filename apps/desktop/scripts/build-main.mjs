@@ -6,8 +6,9 @@ import { rm } from "node:fs/promises";
 await rm("dist/main", { recursive: true, force: true });
 await build({
   entryPoints: [
-    "src/main/main.ts",
+    "src/main/entry.ts",
     "src/main/i18n.ts",
+    "src/main/app-launcher.ts",
     "src/main/approval-url.ts",
     "src/main/ipc-trust.ts",
     "src/main/preload.ts",
@@ -15,8 +16,10 @@ await build({
     "src/main/deep-link.ts",
     "src/main/editor-url.ts",
     "src/main/electron-update-backend.ts",
+    "src/main/linux-update.ts",
     "src/main/process-output.ts",
     "src/main/release-source.ts",
+    "src/main/update-actions.ts",
     "src/main/update-coordinator.ts",
     "src/main/update-download.ts",
     "src/main/update-policy.ts",

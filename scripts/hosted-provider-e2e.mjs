@@ -138,7 +138,7 @@ const {
 } = await import("../packages/client/dist/crypto-entry.js");
 const { buildApp } = await import("../services/server/dist/app.js");
 const { createDatabase } = await import("../services/server/dist/db.js");
-const { HostedProviderClient } = await import("../services/server/dist/hosted-provider.js");
+const { HostedProviderClient } = await import("../services/server/dist/features/hosted/hosted-provider.js");
 
 try {
   phase("starting disposable PostgreSQL 18");
@@ -1702,8 +1702,7 @@ schema:
     publicUrl: controlUrl,
     editorOrigin: localEditor.origin,
     managementOrigins: [localEditor.origin],
-    portalDist: join(repoRoot, "apps", "portal", "dist"),
-    allowInsecureManifests: true
+    portalDist: join(repoRoot, "apps", "portal", "dist")
   }));
   await controlApp.listen({ host: "127.0.0.1", port: controlPort });
   const login = await rawRequest(controlUrl, "/v1/dev/session", {
@@ -4385,6 +4384,14 @@ async function countMarkdownFiles(root) {
   return count;
 }
 
+// This suite's applications run on loopback origins, which the approval screen
+// presents as an unverified app on this computer, never under the manifest's name.
+async function expectLocalApplicationIdentity(page, name) {
+  await expect(page.getByRole("heading", { name: "Connect an app", level: 1, exact: true })).toBeVisible();
+  await expect(page.getByText("an app running on this computer", { exact: true })).toBeVisible();
+  await expect(page.getByText(`This app calls itself ${name}.`)).toBeVisible();
+}
+
 async function authorizeHostedApplication(authorizationUrl, cookie, collectionId, redirectUri) {
   const browser = await chromium.launch({ headless: true });
   try {
@@ -4398,7 +4405,7 @@ async function authorizeHostedApplication(authorizationUrl, cookie, collectionId
     }]);
     const page = await context.newPage();
     await page.goto(authorizationUrl);
-    await expect(page.getByRole("heading", { name: "Hosted SDK E2E", level: 1, exact: true })).toBeVisible();
+    await expectLocalApplicationIdentity(page, "Hosted SDK E2E");
     await page.locator(".approval-form").waitFor();
     const collection = page.getByRole("option", {
       name: "Hosted writing", exact: true
@@ -4407,10 +4414,10 @@ async function authorizeHostedApplication(authorizationUrl, cookie, collectionId
     if (await collection.isVisible()) {
       await page.getByText("Add or connect another collection", { exact: true }).click();
       await expect(collection).toHaveAttribute("data-value", collectionId);
-      await expect(collection).toHaveAccessibleDescription(/Hosted by mdbase/);
+      await expect(collection).toHaveAccessibleDescription(/Cloud copy/);
       await collection.click();
       await expect(collection).toHaveAttribute("aria-selected", "true");
-      await expect(page.getByRole("button", { name: "Create hosted collection" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "New collection" })).toBeVisible();
       await page.getByRole("button", { name: "Review access" }).click();
     }
     await expect(page.locator(".selected-collection-summary")).toContainText("Hosted writing");
@@ -4443,16 +4450,16 @@ async function authorizeHostedApplicationByCreating(authorizationUrl, cookie, re
     }]);
     const page = await context.newPage();
     await page.goto(authorizationUrl);
-    await expect(page.getByRole("heading", { name: "Workout Inline E2E", level: 1, exact: true })).toBeVisible();
+    await expectLocalApplicationIdentity(page, "Workout Inline E2E");
     await expect(page.getByText("No compatible collection is ready.")).toBeVisible();
     await expect(page.getByRole("combobox", { name: "Choose a collection", exact: true })).toHaveCount(0);
-    await page.getByRole("button", { name: "Create hosted collection" }).click();
+    await page.getByRole("button", { name: "New collection" }).click();
     await page.getByLabel("New collection name").fill("Workout records");
     await page.getByRole("button", { name: "Create collection" }).click();
     const collection = page.locator(".selected-collection-summary");
     await expect(page.getByRole("button", { name: "Review access", exact: true })).toHaveCount(0);
     await expect(collection).toContainText("Workout records");
-    await expect(collection).toContainText("Hosted by mdbase");
+    await expect(collection).toContainText("Cloud copy");
     await expect(collection.getByRole("button", { name: "Change" })).toBeVisible();
     await expect(page.getByText(
       "Workout Inline E2E needs a record type"

@@ -10,10 +10,16 @@ import {
   NotebookIcon as Notebook,
   SidebarSimpleIcon as PanelLeftClose
 } from "./icons";
-import { Wordmark } from "@mdbase-dev/ui/brand";
+import { AppSwitcher } from "@mdbase-dev/ui/app-switcher";
 import { useFeedback } from "@mdbase-dev/ui/feedback";
 import "@mdbase-dev/ui/feedback.css";
+import { managedAppOrigins } from "../../../scripts/lib/managed-app-origins.mjs";
+import { editorEnvironment } from "./environment";
 import { RailDropTarget, type RailDropActions } from "./RailDropTarget";
+
+/** The app menu opens the other mdbase apps deployed for this build's environment. */
+const { editorOrigin, readerOrigin, writerOrigin } = managedAppOrigins[editorEnvironment];
+const appUrls = { editor: editorOrigin, reader: readerOrigin, writer: writerOrigin };
 
 export type EditorRailSurface = "notes" | "types" | "settings";
 
@@ -56,7 +62,7 @@ export function EditorRail({
 } & RailDropActions) {
   useLingui();
   return <aside className="collection-rail" aria-label={t`Collection navigation`}>
-    <div className="rail-header"><div className="rail-collection-heading"><Wordmark app="editor" />{switcher ?? <span className="rail-current-collection"><span>{collectionName}</span></span>}</div>{onCollapse && <RailCollapseButton onClick={onCollapse} />}</div>
+    <div className="rail-header"><div className="rail-collection-heading"><AppSwitcher current="editor" urls={appUrls} />{switcher ?? <span className="rail-current-collection"><span>{collectionName}</span></span>}</div>{onCollapse && <RailCollapseButton onClick={onCollapse} />}</div>
     <nav>
       {mobileReturn && <a className="mobile-editor-return" href={mobileReturn.href} onClick={mobileReturn.onClick}><span><ArrowLeft aria-hidden="true" />{mobileReturn.label}</span></a>}
       <div className="rail-scroll">

@@ -63,6 +63,7 @@ import { locationHint, namedStub } from "./do-location.ts";
 import { fetchAttachment } from "./object-reads.js";
 import { deploymentObjectOrigins, type ObjectOriginPolicy } from "./object-origins.ts";
 import { grantRecipients, hasGrantAppend, wakeCollectionTag, wakeLog } from "./wake-observe.ts";
+import { INSTALL_RETRY_MAX_STEPS, INSTALL_WAKE_MS, installRetryMs } from "./install-retry.ts";
 import { PIN_RESET_KEY, PinParked, isPinMismatch, pinLog, pinsDigest } from "./pin-reset.ts";
 import { labRawError, readyDiagnostic, type ReadyDiagnostic, type ReadyTrace } from "./ready-diagnostic.ts";
 import { LiveAdmission, type AdmissionContext } from "./admission/live-admission.ts";
@@ -82,24 +83,22 @@ const openRetryMs = (failures: number) =>
 /** The escrow learns of new enrolments at least this often (no push from the log). */
 const ESCROW_POLL_MS = 60_000;
 /** Idle back-off: each sync that learns nothing new doubles the polling interval
- * (hosted 30 s, escrow 60 s) up to this cap. Every idle actor polled the log, and
- * minted a log token, every 30-60 s; with hundreds of collections that held the
- * control plane busy. Any activity resets to the base interval: a client request
+ * (hosted 30 s, escrow 60 s) up to this cap of an hour. Every idle actor polled the
+ * log, and minted a log token, every 30-60 s; with hundreds of collections that held
+ * the control plane busy. Any activity resets to the base interval: a client request
  * or open client socket, a CP activation, a local write, or a sync that moved
  * anything but head checks (a new remote head means reads). The log has no push
- * to hosted actors, so there is no notification to reset on. */
-const IDLE_POLL_CAP_MS = 10 * 60_000;
+ * to hosted actors, so there is no notification to reset on. Erasure does not wait
+ * for this poll: deleting a collection or account, or switching it to Private,
+ * wakes the copy through a CP activation; the poll is only the backstop. */
+const IDLE_POLL_CAP_MS = 60 * 60_000;
 const IDLE_STREAK_KEY = "service-idle-streak";
 const IDLE_SAME_LOOK_MS = 5_000;
 /** Doublings that reach the cap from the smaller (hosted) base. */
-const IDLE_MAX_STREAK = 5;
+const IDLE_MAX_STREAK = 7;
 export const idlePollMs = (base: number, streak: number) =>
   Math.min(IDLE_POLL_CAP_MS, base * 2 ** Math.min(Math.max(0, Math.floor(streak)), IDLE_MAX_STREAK));
-/** Next wake while a snapshot install runs. An install lives in engine memory and
- * starts over from its first chunk after an eviction, and one wake moves at most 64
- * chunks, so a longer gap made any install too big for one wake rewrite the same
- * rows forever. Well under the time an idle object survives. */
-export const INSTALL_WAKE_MS = 1_000;
+const INSTALL_RETRY_KEY = "service-install-retry";
 /** Largest client frame accepted. */
 const MAX_FRAME_BYTES = 1 << 20;
 
@@ -133,6 +132,8 @@ function pitrConfigured(env: Env): boolean {
   return p.PITR_BINDING !== undefined || p.PITR_MINIMUM_EPOCH !== undefined
     || p.PITR_ESCROW_SERVICE_TOKEN !== undefined || p.PITR_PHASE !== undefined;
 }
+
+const unconfiguredCustody = (error: unknown): boolean => error instanceof Error && error.message === "custody_not_configured";
 
 /** A lasting custody verdict on an activation: an answer the CP records, not a 5xx. */
 function verdictAnswer(error: unknown): Response {
@@ -173,6 +174,8 @@ export class HostedCollection extends DurableObject<Env> {
   private lastRefresh = 0;
   /** Consecutive syncs that learned nothing new (persisted: survives eviction). */
   private idleStreak: number | null = null;
+  /** Set while this actor has seen a running install. */
+  private installRetry: { failures: number; done: number } | null = null;
   /** Activity since the last sync's back-off decision. */
   private activitySeen = false;
   /** When the last back-off decision was made (RAM). */
@@ -844,7 +847,7 @@ export class HostedCollection extends DurableObject<Env> {
       }
       return engine;
     })().catch(async (error: unknown) => {
-      if (isPermanentCustodyRefusal(error)) { await this.retireForVerdict(); throw error; }
+      if (this.lastingRefusal(error)) { await this.retireForVerdict(error); throw error; }
       try { await this.ctx.storage.put(OPEN_FAILURES_KEY, openFailures + 1); } catch { /* the retry alarm is already set */ }
       throw error;
     }).finally(() => {
@@ -887,14 +890,22 @@ export class HostedCollection extends DurableObject<Env> {
     throw new PinParked();
   }
 
+  /** A refusal no timer can change. An escrow deployment without custody is one.
+   * A hosted one is misconfigured, so its objects keep retrying until it is fixed. */
+  private lastingRefusal(error: unknown): boolean {
+    return isPermanentCustodyRefusal(error) || (this.escrow && unconfiguredCustody(error));
+  }
+
   /** Custody gave a lasting verdict (the KMS does not serve the collection, or the
    * CP holds no current service device: deleted / left sync). Stop being a
    * background actor for it: drop the live engine and its sessions, drop the
    * rebuildable `st_*` cache (the migration ledger stays), forget the open
    * backoff and cancel the alarm, so no timer wakes this collection again. Only a
    * new CP activation or app connection re-evaluates custody; a transient
-   * refusal never reaches here and keeps its backed-off retry alarm. */
-  private async retireForVerdict(): Promise<void> {
+   * refusal never reaches here and keeps its backed-off retry alarm. An escrow
+   * without custody keeps its `st_*` tables: that refusal is this deployment's
+   * setting, not a verdict on the collection. */
+  private async retireForVerdict(error?: unknown): Promise<void> {
     if (this.engine) {
       this.releaseAttachment(this.engine);
       this.engineReset("custody_verdict");
@@ -904,7 +915,7 @@ export class HostedCollection extends DurableObject<Env> {
       for (const r of this.readers.values()) r.wipe();
       this.readers.clear();
     }
-    runIndex(this.ctx.storage, RESET);
+    if (!unconfiguredCustody(error)) runIndex(this.ctx.storage, RESET);
     await this.ctx.storage.delete(OPEN_FAILURES_KEY);
     await this.ctx.storage.deleteAlarm();
     if (this.env.LAB === "1") {
@@ -980,6 +991,30 @@ export class HostedCollection extends DurableObject<Env> {
     return idlePollMs(base, next);
   }
 
+  /** Delay to the next wake of a running install; null when none is running. */
+  private async installWake(install: { done: number; total: number } | null, failed: boolean, current: () => boolean): Promise<number | null> {
+    let prior = this.installRetry;
+    if (!install) {
+      this.installRetry = null;
+      if (prior?.failures && current()) try { await this.ctx.storage.delete(INSTALL_RETRY_KEY); } catch { /* Clears at the next pass. */ }
+      return null;
+    }
+    if (!prior) {
+      let stored: { failures?: unknown; done?: unknown } | undefined;
+      try { stored = await this.ctx.storage.get<{ failures: number; done: number }>(INSTALL_RETRY_KEY); } catch { /* Start over. */ }
+      const { failures, done } = stored ?? {};
+      prior = Number.isSafeInteger(failures) && Number.isSafeInteger(done) ? { failures: failures as number, done: done as number } : { failures: 0, done: 0 };
+    }
+    const passed = install.done > prior.done;
+    const failures = failed ? Math.min((passed ? 0 : prior.failures) + 1, INSTALL_RETRY_MAX_STEPS + 1) : passed ? 0 : prior.failures;
+    const next = { failures, done: failures ? Math.max(prior.done, failed ? install.done : 0) : 0 };
+    this.installRetry = next;
+    if ((next.failures !== prior.failures || next.done !== prior.done) && current()) {
+      try { await (next.failures ? this.ctx.storage.put(INSTALL_RETRY_KEY, next) : this.ctx.storage.delete(INSTALL_RETRY_KEY)); } catch { /* RAM still backs off this wake. */ }
+    }
+    return failed ? installRetryMs(failures) : INSTALL_WAKE_MS;
+  }
+
   /** LAB diagnosis only: each transient custody refusal a fetch retried. */
   private custodyRetryOptions(fetch: "open_sealer" | "log_token") {
     return this.env.LAB === "1" ? { onRetry: (facts: { attempt: number; code: string; call: string | null; name: string | null; message: string | null }) =>
@@ -1034,7 +1069,13 @@ export class HostedCollection extends DurableObject<Env> {
     // unchanged native rebuild can discount successful reads; writes, partial
     // rebuilds, failures and actual new log progress still reset the streak.
     const replayOnly = report.reads > 0 && report.work === report.reads && report.failed === 0 && !progressed && engine.serving();
-    const active = this.activitySeen || (!report.quiet && !replayOnly) || progressed || delivered > 0 || this.clientOpen();
+    // LAB only (cost): answered log calls that moved nothing are not activity. An
+    // upload the log answers with an error (quota) or a stalled replica's reads
+    // repeat on every wake and would otherwise hold the actor at the base poll
+    // forever. Transport failures still retry at the base rate.
+    const lab = this.env.LAB === "1";
+    const pumped = lab ? report.failed > 0 : !report.quiet && !replayOnly;
+    const active = this.activitySeen || pumped || progressed || delivered > 0 || this.clientOpen();
     this.activitySeen = false;
     const pollMs = await this.idlePoll(active, current);
     if (!current()) return;
@@ -1044,10 +1085,16 @@ export class HostedCollection extends DurableObject<Env> {
     if (install) try { console.info(JSON.stringify({ event: "hosted_install_progress", role: this.escrow ? "escrow" : "hosted", ...install })); } catch { /* Logging is not authority. */ }
     // No count of the collection's text, and no identifiers.
     if (engine.snapshotDeclined()) try { console.info(JSON.stringify({ event: "hosted_snapshot_declined", role: this.escrow ? "escrow" : "hosted" })); } catch { /* Logging is not authority. */ }
-    const poll = Date.now() + (install ? INSTALL_WAKE_MS : pollMs);
+    const installMs = await this.installWake(install, report.failed > 0, current);
+    if (!current()) return;
+    const poll = Date.now() + (installMs ?? pollMs);
+    // LAB only (cost): an idle replica that is not serving (apply-stalled) waits
+    // for the idle poll, not its in-memory stall probe, which restarts at 1 s
+    // after every eviction and so never backs off.
+    const probe = lab && !active && installMs == null && !engine.serving() ? null : next;
     // Preserve earlier deadlines; inhibited or stale storage continuations must
     // not schedule another wake. This local fence is not deletion currentness.
-    const at = Math.min(next ?? poll, poll);
+    const at = Math.min(probe ?? poll, poll);
     await this.alarms.schedule(at, current);
     return at;
   }
@@ -1203,7 +1250,7 @@ export class HostedCollection extends DurableObject<Env> {
       if (collection && UUID.test(collection)) {
         // A permanent verdict already retired the actor (no alarm left); return
         // normally so the platform does not retry the alarm either.
-        try { await this.ready(collection); } catch (error) { if (error instanceof PinParked || isPermanentCustodyRefusal(error)) return; throw error; }
+        try { await this.ready(collection); } catch (error) { if (error instanceof PinParked || this.lastingRefusal(error)) return; throw error; }
       }
     }
     if (!await this.alarms.allowed() || !this.engine || !this.collection) return;
@@ -1216,8 +1263,8 @@ export class HostedCollection extends DurableObject<Env> {
     try { await this.sync(engine); }
     catch (error) {
       // A warm engine learns of deletion through its next log token.
-      if (!isPermanentCustodyRefusal(error)) throw error;
-      await this.retireForVerdict();
+      if (!this.lastingRefusal(error)) throw error;
+      await this.retireForVerdict(error);
       return;
     }
     await this.migrationWake();
@@ -1444,7 +1491,7 @@ export class HostedCollection extends DurableObject<Env> {
         // A lasting verdict (deleted, left sync, not this deployment's) is an
         // answer, not a failure: ready() already retired the actor. The CP keeps
         // the batch pending and retries on its own backoff.
-        if (isPermanentCustodyRefusal(error)) return verdictAnswer(error);
+        if (this.lastingRefusal(error)) return verdictAnswer(error);
         throw error;
       }
       const generation = this.logGen;
@@ -1454,8 +1501,8 @@ export class HostedCollection extends DurableObject<Env> {
         // A warm engine learns of the verdict through its fresh log token (the
         // activation dropped the held one): retire as the alarm path does, and
         // give the CP the same definite answer as a cold open.
-        if (!isPermanentCustodyRefusal(error)) throw error;
-        await this.retireForVerdict();
+        if (!this.lastingRefusal(error)) throw error;
+        await this.retireForVerdict(error);
         return verdictAnswer(error);
       }
       if (tag && this.engine === engine && this.logGen === generation) wakeLog(tag, this.escrow ? "escrow" : "hosted", "activation_complete");

@@ -93,8 +93,8 @@ and **negotiated**. A failed hello or an unavailable current session is an error
 not a negative feature result. Absence of an unrequested marker says nothing about
 support. Do not use a prior session's hello to certify a new session.
 
-The current Replica producer's marker list is `presence` and `attachment-v1`
-(bare codec support), plus qualified `attachment-v1.read` and
+The current Replica producer's marker list is `presence`, `validate-page-v1`
+(`validate` pages, §4) and `attachment-v1` (bare codec support), plus qualified `attachment-v1.read` and
 `attachment-v1.materialize` directions when that replica admits them.
 `attachment-v1.write` is not granted by this producer. Directions are not implied
 by the bare codec marker. This source list is not a qualification of a deployed
@@ -177,10 +177,12 @@ All of these require `collection.read`.
 | `new_type_file` | `{0: tstr source}` (exactly one field) | `{0: tstr name, 1: path}`: where a type file created from `source` goes in the local view, `<types_folder>/<name>.md`, for a `resource_put` with `mustNotExist` (`definitions.manage`). Core derives it: `invalid_record`/`invalid_type_definition` (with the issue) for a missing or unusable name, `conflict`/`type_conflict` (details: existing path) when the name exists under any casing, `conflict`/`path_taken` (details: revision) for an occupied path. The definition is validated when written. READ required |
 | `list_resources` | `list-resources-params` below | `list-resources-result`; unrestricted collection READ required |
 | `query` | `{0: query, ? 1: include}` | `query-result` |
+| `backlinks` | `{0: uuid / path, ? 1: include, ? 2: 1..1000 limit, ? 3: tstr cursor}` | `backlinks-result` (§4.2): the records whose links resolve to the target, one page at a time |
+| `resolve_links` | `{0: path from, 1: [1*512 tstr] links}` | `resolve-links-result` (§4.3): where each link, written in `from`, resolves in the local view |
 | `subscribe` | `{0: query, ? 1: include}` | `{0: sub ID}`, then `query-update` pushes |
 | `unsubscribe` | `{0: sub ID}` | — |
 | `changes` | `{0: cursor?, ? 1: limit, ? 2: watch: bool}` | `{0: [change], 1: cursor, 2: reset: bool}`, then `changes` pushes if `watch` |
-| `validate` | `{? 0: [uuid / path] / null}` | `[validation-record]`, bounded current-record diagnostics below |
+| `validate` | `{? 0: [uuid / path] / null, ? 1: {? 0: uuid after}}` | `[validation-record]`, bounded current-record diagnostics below; key 1 pages every record (`validate-page-v1`) |
 | `list_files`, `get_file`, `read_file` | §10 | §10 |
 
 Spec 12 saved views (`mdbase.view` records) are not replica methods: the SDK's
@@ -211,9 +213,24 @@ nonempty and at most 4096 UTF-8 bytes; each examined document is at most 1 MiB.
 The producer meters at most 4096 record/index work units and 8 MiB of examined
 source/overlay data. The encoded result is at most 1 MiB, 4096 issues, 65536 CBOR
 nodes and depth 32. Absent/null targets request all current records, enumerated
-in bounded pages of 128 with a 1000-record ceiling. Cross-record uniqueness checks
-also need that bounded collection inventory, even for an explicit target.
+in bounded pages of 128 with a 1000-record ceiling.
 Exhaustion returns `too_large` / `validation_budget`, not truncated diagnostics.
+
+A page (key 1, only with absent/null targets) instead checks the current records
+after `after` (exclusive; absent: from the first) in record-ID order, and stops
+before the record that would exhaust the same budget: that record is not
+returned partially and starts the next page. A page has at least one record
+while any remain, and at most 1000; an empty result means none remain. Continue
+with `after` set to the last returned ID. Each page is an independent read, not
+a snapshot. A record that alone exhausts the budget refuses its page with
+`too_large` / `validation_budget`. Producers that grant the `validate-page-v1`
+hello feature accept pages; older ones refuse key 1 as `invalid_request`.
+
+Uniqueness checks find the other holders of a value through the store's unique
+index, which covers, for every record whatever its types, each field a `unique`
+rule names; the rule's scope and spec 12A equality are then checked on each
+candidate. A store rederives these entries on open when they were derived by an
+older index version or under other resources.
 These are selection/read/serialization bounds, not a peak-heap, kernel CPU,
 existing Store allocation or downstream UI qualification certificate.
 
@@ -298,7 +315,7 @@ query-result = {
   ? 6: [* issue],        ; query diagnostics
   ? 7: view-ref,         ; resolved execute_view source
   ? 8: [* query-group],  ; complete filtered groups/summaries BEFORE pagination
-  ? 9: bool,             ; has_more: flat matches AFTER the requested window
+  ? 9: bool,             ; has_more: flat matches AFTER the returned records
 }
 view-ref = { 0: path, 1: tstr }   ; path, named view
 query-group = {
@@ -348,7 +365,12 @@ with an empty values map; an empty grouped match set has no groups. `complete`
 continues to describe install/local-view completeness, not exact total coverage.
 
 All modes use one request-wide hydration budget of at most 1000 records AND 1 MiB
-source, including paging, retries and restarts. Group/summary/CEL allocations need
+source, including paging, retries and restarts. A keyset page that would exceed
+it ends at the last record that fits and returns `has_more: true` with a cursor,
+so `limit` is a maximum: fewer records than `limit` never means the end, only an
+absent cursor does. A first record that alone exceeds the budget, and windows
+answered without a cursor (pending edits merged into the window), still refuse
+`too_large / query_budget_exceeded`. Group/summary/CEL allocations need
 separate real bounds. An exact indexed aggregate is permitted only with qualified
 Core parity and current catalogue/generation/head coverage. Unsupported semantics
 or insufficient whole-query budget fail explicitly; no full-row fallback, page
@@ -380,6 +402,100 @@ a fresh cursor, never an error. The app re-reads what it caches. That replaces
 **While installing** (`snapshot.md` §8), queries answer over installed rows with
 `complete: false`, and point reads fetch the record's bucket first. That replaces
 `file_index_warming`.
+
+### 4.2 Backlinks
+
+`backlinks` answers "which records link to this one" from the replica's link
+index, so an app never has to load and parse every record to show a backlinks
+panel. Each referring record is resolved with Core's spec 08 rules over the
+local view (pending changes included), the same resolution that rename uses to
+rewrite links, and only links that actually resolve to the target are returned.
+
+- **Target.** A record by ID or path in the local view; `not_found` otherwise.
+  The target's links to itself are not backlinks and are never returned.
+- **Order.** Referring records in bytewise path order. A record's links are in
+  position order: frontmatter link fields, then the body, embeds included.
+- **Pages.** `limit` (default 128, at most 1000) caps the records per page. A page
+  also ends early at the last record whose source fits the 1 MiB per-page
+  hydration budget, so fewer records than `limit` never means the end; only an
+  absent cursor does. A first record that alone exceeds the budget refuses with
+  `too_large` / `backlinks_budget_exceeded`.
+- **Continuations** are opaque, replica-local and resident, sharing the query
+  cursor pool and its per-session bounds (§4). A continuation binds the session,
+  grant, target, include and limit, and the head, local view version and Store
+  generation it was issued at. Any local change in between refuses the next page
+  with `invalid_request` / `cursor_stale`; callers restart from the first page and
+  never combine pages from different views. Expiry is `cursor_expired`; a
+  malformed continuation or one issued for another selection is
+  `invalid_backlinks_cursor`.
+- **`complete`** has the `query-result` meaning: false while a snapshot install is
+  in progress (`snapshot.md` §8), when the answer covers installed rows only.
+- READ is required. Records are not folder-scoped, so every referring record the
+  local view holds is visible to a READ session.
+
+A replica without this method answers `invalid_request` / `unknown_method`; the
+SDK reports that as `upgrade_required` / `backlinks_unsupported`.
+
+```cddl
+backlinks-result = {
+  0: [* backlink],
+  ? 1: tstr,             ; cursor for the next page
+  2: bool,               ; complete: false while a snapshot install is in progress
+  3: uint,               ; as_of: local view version
+}
+backlink = {
+  0: record-view,        ; the referring record
+  1: [+ link-view],      ; its links that resolve to the target
+}
+link-view = {
+  0: tstr,               ; raw: the occurrence exactly as written
+  1: bool,               ; embed
+  2: link-resolution,
+  ? 3: tstr,             ; field: the frontmatter field holding it (absent: the body)
+}
+link-resolution = {
+  0: &( record: 0, file: 1, ambiguous: 2, not_found: 3, invalid: 4 ),
+  ? 1: uuid,             ; target: the resolved record or file
+  ? 2: path,             ; its path
+  ? 3: [+ path],         ; candidates: sorted candidate paths (ambiguous only)
+}
+```
+
+### 4.3 Resolve links
+
+`resolve_links` resolves link occurrences written in the record at `from`
+against the local view (pending changes included), with the same Core spec 08
+parsing and resolution that `backlinks`, rename and the link index use. It lets
+an app follow, preview and diagnose the links in a note being edited, including
+an unsaved draft, without a second resolver of its own.
+
+- **`from`** is the collection path the links are written in. It need not name a
+  record or an existing folder (a draft not yet created), but it must be a valid
+  relative collection path; otherwise `invalid_request`.
+- **`links`** are occurrences exactly as written: `[[target]]`, `![[target|alias]]`,
+  `[text](destination)` or `![alt](destination)`, with an optional `#anchor`. Each
+  must parse as exactly one link spanning the whole entry; anything else (plain
+  text, two links, an external URI) resolves as `invalid`. An entry is not
+  rewritten or normalized.
+- **Bounds.** At least one and at most 512 entries, each at most 4096 bytes; more
+  refuses with `too_large` / `resolve_links_budget_exceeded`.
+- **Result.** One `link-resolution` per entry, in request order. A record or file
+  carries its ID and path; `ambiguous` carries the sorted candidate paths;
+  `not_found` and `invalid` carry neither. Titles and aliases are not link keys
+  (spec 08), so a link that names only a title resolves as `not_found`.
+- **`complete`** has the `query-result` meaning (§4.2).
+- READ is required.
+
+A replica without this method answers `invalid_request` / `unknown_method`; the
+SDK reports that as `upgrade_required` / `resolve_links_unsupported`.
+
+```cddl
+resolve-links-result = {
+  0: [* link-resolution], ; one per requested link, in request order
+  1: uint,                ; as_of: local view version
+  2: bool,                ; complete: false while a snapshot install is in progress
+}
+```
 
 ### 4.1 Describe
 
@@ -510,6 +626,7 @@ submit-params = {
   ? 6: bool,             ; dry_run: plan at the local view, capture nothing
   ? 7: include,          ; what to return in the optimistic record views
   ? 8: &( pending: 0, confirmed: 1, published: 2 ),   ; wait: return now (default), after confirmation, or after local file publication
+  ? 9: level,            ; validation: single-record check level for this write (default: the collection's settings.validation)
 }
 submit-result = [+ receipt]     ; one per mutation (several when allow_partial)
 ```
@@ -522,7 +639,10 @@ submit-result = [+ receipt]     ; one per mutation (several when allow_partial)
 
    Clients never set those fields.
 2. **Optimistic plan.** The replica plans the mutation at its local view, applying the
-   submit-time checks (`intent.md` §6).
+   submit-time checks (`intent.md` §6) at the write's `validation` level, or else the
+   collection's `settings.validation`. Only `error` rejects a single-record issue.
+   A sync tool sends `warn`: spec 04 never rejects files it carries for validity. The
+   level is recorded as the mutation's `validated_at`.
    - **Rejection** returns a receipt in state `rejected` immediately.
    - **Acceptance** queues the mutation, applies it to the local view, and returns a
      receipt in state `pending` with the **optimistic results**: the affected records

@@ -322,16 +322,12 @@ textarea.mdbase-field {
   cursor: pointer;
 }
 
+/* Pointer and keyboard share one highlight; hovering moves focus, so only one row is ever marked. */
 .mdbase-menu-item:hover:not(:disabled, [aria-disabled="true"]),
 .mdbase-menu .mdbase-menu-item:focus-visible {
+  outline: 0;
   color: var(--color-text);
-  background: var(--color-surface-subtle);
-}
-
-/* One focus mark inside the row, instead of an outline around it. */
-.mdbase-menu .mdbase-menu-item:focus-visible {
-  outline: var(--focus-ring);
-  outline-offset: -1px;
+  background: var(--color-accent-soft);
 }
 
 .mdbase-menu-item:disabled {
@@ -431,6 +427,30 @@ textarea.mdbase-field {
   height: 22px;
   flex: 0 0 auto;
   margin-inline: 3px;
+}
+
+/* The app menu's last line: the new-tab note, and a quiet link to the SDK guide. */
+.mdbase-app-menu-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2px 12px;
+}
+
+.mdbase-app-menu-build {
+  margin: -2px -6px;
+  padding: 2px 6px;
+  border-radius: var(--control-radius);
+  color: var(--color-text-soft);
+  text-decoration: none;
+}
+
+.mdbase-app-menu-build:hover,
+.mdbase-menu .mdbase-app-menu-build:focus-visible {
+  outline: 0;
+  color: var(--color-text);
+  background: var(--color-accent-soft);
 }
 
 .mdbase-app-menu-external {

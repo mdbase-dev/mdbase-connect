@@ -429,11 +429,19 @@ pub fn winclusion(f: &ci::FileInclusion) -> wi::FileInclusion {
     }
 }
 
-fn level(l: wi::Level) -> ci::Level {
+pub(crate) fn level(l: wi::Level) -> ci::Level {
     match l {
         wi::Level::Off => ci::Level::Off,
         wi::Level::Warn => ci::Level::Warn,
         wi::Level::Error => ci::Level::Error,
+    }
+}
+
+pub(crate) fn wire_level(l: ci::Level) -> wi::Level {
+    match l {
+        ci::Level::Off => wi::Level::Off,
+        ci::Level::Warn => wi::Level::Warn,
+        ci::Level::Error => wi::Level::Error,
     }
 }
 

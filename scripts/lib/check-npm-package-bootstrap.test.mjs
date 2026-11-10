@@ -23,14 +23,14 @@ test("reports every public package absent from the registry", async () => {
     fetchImpl: async (url) => {
       requested.push(url);
       return {
-        ok: !url.includes("connect-testing"),
-        status: url.includes("connect-testing") ? 404 : 200,
+        ok: !url.includes("connect-dev"),
+        status: url.includes("connect-dev") ? 404 : 200,
       };
     },
   });
 
-  assert.deepEqual(missing, ["@mdbase-dev/connect-testing"]);
-  assert.equal(requested.length, 9);
+  assert.deepEqual(missing, ["@mdbase-dev/connect-dev"]);
+  assert.equal(requested.length, 5);
   assert.ok(requested.some((url) => url.endsWith("%40mdbase-dev%2Fi18n")));
 });
 

@@ -43,7 +43,7 @@ export class ApplicationBrowserSelection {
     let base:URL,fallback:URL;
     try{base=new URL(origin);fallback=new URL(options.fallbackPath??"/",base);}catch{throw new ApplicationSelectionError("application_selection_binding");}
     const parameter=options.parameter??"collection";
-    if(!isAppOrigin(origin,true)||urlOrigin(base)!==origin||urlOrigin(fallback)!==origin||fallback.username||fallback.password||fallback.search||fallback.hash||
+    if(!isAppOrigin(origin)||urlOrigin(base)!==origin||urlOrigin(fallback)!==origin||fallback.username||fallback.password||fallback.search||fallback.hash||
       typeof parameter!=="string"||! /^[a-z][a-zA-Z0-9_.-]{0,63}$/.test(parameter)||["code","state","error","error_description"].includes(parameter))throw new ApplicationSelectionError("application_selection_binding");
     this.origin=origin;this.parameter=parameter;this.fallback=fallback.href;this.port=port;
   }

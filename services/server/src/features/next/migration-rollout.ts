@@ -21,7 +21,7 @@
 // - A deleted account is terminal: its rows cascade away and
 //   every route answers not found; nothing restores it.
 // - Routes accept only the dedicated migration token; every change is audited.
-import { localBuild } from "../../local-deployment.js";
+import { localBuild } from "../../platform/local-deployment.js";
 import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -30,7 +30,7 @@ import { audit } from "../../platform/audit-events.js";
 import { apiError } from "../../platform/http-errors.js";
 import { bearerToken } from "../../platform/request-authentication.js";
 import { safeEqual } from "../../security.js";
-import { drainDeferredAccountDeletions } from "../../account-management.js";
+import { drainDeferredAccountDeletions } from "../account/account-management.js";
 import { migrationServiceRateLimit } from "./migration-rate-limit.js";
 import { captureProjection } from "./migration-capture.js";
 import { requireScopedArchiveCoverage } from "./migration-scoped-archive.js";
@@ -40,8 +40,8 @@ import { completeMigrationBatch, releaseDeferredDeletions } from "./migration-to
 import { CURRENT_ATTEMPT } from "./migration-managed-ledger.js";
 import { flipEvidenceDigest, recordAccountFlip } from "./account-backend-flip.js";
 import { HostedProviderResponseError, HostedProviderUnavailableError, type HostedProviderClient,
-  type LegacyMigrationDrain } from "../../hosted-provider.js";
-import type { LegacyMigrationSource } from "../../hosted-provider-legacy-migration.js";
+  type LegacyMigrationDrain } from "../hosted/hosted-provider.js";
+import type { LegacyMigrationSource } from "../hosted/hosted-provider-legacy-migration.js";
 import { readFencedTimerSource, TimerImportRefused, timerFlipRefusal, type TimerSourceProvider } from "./timers/hosted-import.js";
 
 const BACKUP_ACCEPT_BODY_LIMIT = 1024 * 1024;

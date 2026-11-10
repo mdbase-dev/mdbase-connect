@@ -178,7 +178,7 @@ The selected hosted storage and bounded-query boundary is documented in
 [Hosted queryable execution](./architecture/hosted-queryable-execution.md). It is
 under implementation and is not yet production-enabled.
 
-- `mdbase-rs` owns collection loading, validation, querying, mutation,
+- `mdbase-rs` (deprecated legacy engine, not authoritative) owns collection loading, validation, querying, mutation,
   revisions, and normalized filesystem events.
 - `connect-agent` owns collection registration, local policy enforcement, the
   local change journal, local runtime authority, activity, browser loopback

@@ -56,6 +56,23 @@ impl ApiError {
         Self::new(StatusCode::TOO_MANY_REQUESTS, code, message)
     }
 
+    /// The refusal for an account quota the usage trigger raised as `code`.
+    pub(crate) fn account_quota(code: &str) -> Option<Self> {
+        let message = match code {
+            "account_collection_quota_exceeded" => {
+                "The account has reached its hosted collection limit."
+            }
+            "account_storage_quota_exceeded" => {
+                "The change would exceed the account's hosted storage limit."
+            }
+            "account_retained_storage_quota_exceeded" => {
+                "The change would exceed the account's retained file storage limit."
+            }
+            _ => return None,
+        };
+        Some(Self::quota(code, message))
+    }
+
     pub fn internal(message: impl Into<String>) -> Self {
         Self::new(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -127,25 +144,11 @@ impl From<sqlx::Error> for ApiError {
             )
             .with_details(json!({ "timeout_class": timeout_class }));
         }
-        if let Some(database) = error.as_database_error() {
-            let quota = match database.message() {
-                "account_collection_quota_exceeded" => Some((
-                    "account_collection_quota_exceeded",
-                    "The account has reached its hosted collection limit.",
-                )),
-                "account_storage_quota_exceeded" => Some((
-                    "account_storage_quota_exceeded",
-                    "The change would exceed the account's hosted storage limit.",
-                )),
-                "account_retained_storage_quota_exceeded" => Some((
-                    "account_retained_storage_quota_exceeded",
-                    "The change would exceed the account's retained file storage limit.",
-                )),
-                _ => None,
-            };
-            if let Some((code, message)) = quota {
-                return Self::quota(code, message);
-            }
+        if let Some(quota) = error
+            .as_database_error()
+            .and_then(|database| Self::account_quota(database.message()))
+        {
+            return quota;
         }
         tracing::error!(error = ?error, "hosted provider database error");
         Self::internal("The hosted provider could not access its authoritative store.")

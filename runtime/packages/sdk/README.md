@@ -29,6 +29,7 @@ The SDK implements transport, session and typed client-API boundaries.
 | `src/records.ts`, `src/records/` | Shared record editor leases, bounded drafts and exact receipt recovery |
 | `src/timers.ts` | Opaque control-plane timers and push channel registration (`connection.timers`) |
 | `src/notifications.ts` (`@mdbase-dev/sdk/notifications`) | The push delivery envelope (`docs/contracts/push-envelope.md`) and service-worker helpers |
+| `src/manifest.ts` (`@mdbase-dev/sdk/manifest`) | Build-time `mdbase-app.json` validation (`validateAppManifest`, `parseAppManifest`, `formatManifestValidationIssues`) and `MDBASE_TIMER_FIRED_CONTRACT`, using the validator Connect runs. For build scripts and tests; never needed at runtime |
 | `src/describe-error.ts` (`@mdbase-dev/sdk/describe`) | `describeError()`: plain-language title, message and suggested action for any SDK error, sign-in/open problem (including `collection_migrating`, `account_suspended`, `update_required`) or readiness facet |
 | `src/collection-availability.ts` | `CollectionAvailability` (`available`, `opening`, `unavailable` + reason): Private collections served by one of the account's computers, and listed cloud copies (`AppInstallationCollection.availability`, absent meaning available) |
 | `src/app-grant/` (`@mdbase-dev/sdk/app-grant`) | `MdbaseAppGrants`: grants for Private collections (OAuth PKCE + an attested client Noise key), listing with availability, bounded waits, relay connector |
@@ -382,9 +383,31 @@ trust handoff for that exact environment; changing an app build variable cannot
 retarget a LAB archive. Staging packaging pins Connect to
 `https://connect-staging.mdbase.dev`, production to `https://connect.mdbase.dev`.
 CP/log origins and release trust still come only from the verified build context;
-missing, expired or crossed trust refuses without a fallback. Staging and
-production do not permit HTTP loopback app origins. Isolated `local` builds remain
-separate and refuse all managed environments.
+missing, expired or crossed trust refuses without a fallback. Isolated `local`
+builds remain separate and refuse all managed environments.
+
+### Developing on localhost
+
+In every managed environment the app's own `origin` may be a loopback HTTP
+origin (`http://localhost:<port>`, `http://127.0.0.1:<port>` or
+`http://[::1]:<port>`), so an app is developed against production with the
+published package:
+
+```ts
+createMdbase({ id, name, origin: "http://localhost:5173", environment: "production", manifest: devManifest });
+```
+
+The manifest's `homepage` and `redirect_uris` use that same origin. Connect
+registers it as its own application, apart from the one published at the HTTPS
+origin: approvals and device storage belong to the exact origin and are not
+shared between the two. The approval screen calls it "an app running on this
+computer" and says its identity is unverified, as it does for a native app.
+Connect's own origins (control plane, log) stay HTTPS outside LAB; no other
+plain-HTTP app origin is accepted.
+
+`vite dev` and `vite build` both work with Vite's default configuration: the
+SDK's worker and WebAssembly files are served from `node_modules` in
+development and emitted as assets in a build.
 
 The app manifest must declare the installation origin under
 `installation_origins.staging` for staging pairing, just as for other environments.

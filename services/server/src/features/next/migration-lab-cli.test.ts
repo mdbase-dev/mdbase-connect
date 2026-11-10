@@ -8,7 +8,7 @@ const effects = vi.hoisted(() => ({
   providerConfig: vi.fn()
 }));
 vi.mock("../../db.js", () => ({ createDatabase: effects.createDatabase, openDatabase: effects.openDatabase }));
-vi.mock("../../runtime-config.js", () => ({ hostedProviderConfigFromEnv: effects.providerConfig }));
+vi.mock("../../platform/runtime-config.js", () => ({ hostedProviderConfigFromEnv: effects.providerConfig }));
 vi.mock("./migration-lab.js", () => ({
   postgresLabConnect: effects.connect, labWorkerClient: effects.worker, labRun: effects.run,
   resumeLab: effects.resume, routeBack: effects.routeBack, labStatus: effects.status

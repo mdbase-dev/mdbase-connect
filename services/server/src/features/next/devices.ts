@@ -13,8 +13,8 @@ import {
 } from "@mdbase-dev/connect-protocol";
 import { exactNextPermissionCapabilities } from "@mdbase-dev/connect-protocol/next-authorization";
 import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
-import type { RelayBrokerReply } from "../../relay-broker.js";
-import { ConnectorOperationError } from "../../relay-errors.js";
+import type { RelayBrokerReply } from "../relay/relay-broker.js";
+import { ConnectorOperationError } from "../relay/relay-errors.js";
 import { NOISE_PIPE_CAPABILITY, type NoisePipes } from "./noise-pipes.js";
 import { ed25519PublicKeyObject } from "./policy-keys.js";
 import { domainHash, uuidBytes } from "./policy-wire.js";

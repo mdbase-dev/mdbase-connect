@@ -3,6 +3,7 @@ import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { lazy, Suspense, useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import type { FileAssetSnapshot } from "./file-asset-store";
+import type { LinkTargets } from "./collection-links";
 import type { LinkSuggestion } from "./links";
 import type { CollectionFile, NoteSummary } from "./model";
 import type { ResolvedNoteEmbed } from "./note-embeds";
@@ -21,6 +22,7 @@ interface MarkdownNoteEditorProps {
   preferences: EditorPreferences;
   documentId?: string;
   currentPath: string;
+  linkTargets?: LinkTargets;
   recentPaths: string[];
   linkSuggestions: LinkSuggestion[];
   linkTypes: string[];
@@ -79,7 +81,7 @@ function NoteHeader({ title, readOnly, provenance, onTitleChange, onTitleVisibil
   </>;
 }
 
-export function MarkdownNoteEditor({ editorKey, draft, preferences, documentId, currentPath, recentPaths,
+export function MarkdownNoteEditor({ editorKey, draft, preferences, documentId, currentPath, linkTargets, recentPaths,
   linkSuggestions, linkTypes, embeddedFiles, embeddedNotes, files, notes, insertion, onUploadAttachment, remoteApplyToken, onTitleChange, onTitleVisibilityChange, onBodyChange,
   onOpenLink, onCreateLink, onPreviewLink, onDismissLinkPreview, onOpenFile, onOpenFileLink,
   onVisibleFileEmbeds, onVisibleNoteEmbeds, footer, autoFocus = true, readOnly = false, provenance }: MarkdownNoteEditorProps) {
@@ -90,7 +92,7 @@ export function MarkdownNoteEditor({ editorKey, draft, preferences, documentId, 
       <CodeEditor key={editorKey} value={draft.body} onChange={onBodyChange} label={t`Note body`} language="markdown" readOnly={readOnly}
         variant="writer" placeholder={t`Start writing`} vimEnabled={preferences.vim} lineWrapping={preferences.lineWrapping}
         typewriter={preferences.focusMode && preferences.typewriterScrolling} quietMarkdown={preferences.quietMarkdown} autoFocus={autoFocus} className="body-editor" documentId={documentId}
-        currentPath={currentPath} recentPaths={recentPaths} linkSuggestions={linkSuggestions} linkTypes={linkTypes}
+        currentPath={currentPath} linkTargets={linkTargets} recentPaths={recentPaths} linkSuggestions={linkSuggestions} linkTypes={linkTypes}
         onOpenLink={onOpenLink} onCreateLink={onCreateLink} onPreviewLink={onPreviewLink}
         onDismissLinkPreview={onDismissLinkPreview} embeddedFiles={embeddedFiles} embeddedNotes={embeddedNotes}
         onOpenFile={onOpenFile} files={files} notes={notes} onOpenFileLink={onOpenFileLink}

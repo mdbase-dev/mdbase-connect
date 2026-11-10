@@ -10,13 +10,14 @@ describe("layout preferences", () => {
     expect(loadLayoutPreferences()).toEqual(defaultLayoutPreferences);
   });
 
-  it("persists widths and independent collapse state", () => {
+  it("persists widths, independent collapse state and list density", () => {
     saveLayoutPreferences({
       collectionWidth: 212,
       listWidth: 388,
       inspectorWidth: 420,
       collectionCollapsed: true,
-      listCollapsed: false
+      listCollapsed: false,
+      compactList: true
     });
 
     expect(loadLayoutPreferences()).toEqual({
@@ -24,7 +25,8 @@ describe("layout preferences", () => {
       listWidth: 388,
       inspectorWidth: 420,
       collectionCollapsed: true,
-      listCollapsed: false
+      listCollapsed: false,
+      compactList: true
     });
   });
 
@@ -34,7 +36,8 @@ describe("layout preferences", () => {
       listWidth: 900,
       inspectorWidth: 900,
       collectionCollapsed: "yes",
-      listCollapsed: true
+      listCollapsed: true,
+      compactList: "yes"
     }));
 
     expect(loadLayoutPreferences()).toEqual({
@@ -42,7 +45,8 @@ describe("layout preferences", () => {
       listWidth: 520,
       inspectorWidth: 560,
       collectionCollapsed: false,
-      listCollapsed: true
+      listCollapsed: true,
+      compactList: false
     });
   });
 });

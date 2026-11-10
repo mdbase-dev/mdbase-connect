@@ -495,6 +495,7 @@ msgid "{itemLabel} suggestions"
 msgstr "Sugestões para {itemLabel}"
 
 #: src/contract-catalog.ts
+#: src/gateway.ts
 msgid "{label} is not supported."
 msgstr "{label} não é compatível."
 
@@ -652,11 +653,6 @@ msgstr "Envio de {text} de {0}"
 #: src/NoteList.tsx
 msgid "{title} note actions"
 msgstr "Ações da nota {title}"
-
-#. placeholder {0}: collectionFileFormat(file)
-#: src/NoteList.tsx
-msgid "{title}, {0} file"
-msgstr "{title}, {0} arquivo"
 
 #: src/TypeBrowser.tsx
 msgid "{title}.md"
@@ -1598,6 +1594,10 @@ msgstr "Comandos · {0} fora do texto"
 msgid "Common icons"
 msgstr "Ícones comuns"
 
+#: src/NoteListViewOptions.tsx
+msgid "Compact"
+msgstr "Compacto"
+
 #: src/settings/SettingsView.tsx
 msgctxt "editor text size"
 msgid "Compact"
@@ -2130,6 +2130,7 @@ msgstr "Descartar tipo"
 msgid "Discard type changes?"
 msgstr "Descartar alterações do tipo?"
 
+#: src/NoteListViewOptions.tsx
 #: src/type-presentation.ts
 #: src/TypeBrowser.tsx
 msgid "Display"
@@ -2453,10 +2454,6 @@ msgstr "Encontrar propriedade"
 #: src/editor-commands.ts
 msgid "Find in note"
 msgstr "Encontrar na nota"
-
-#: src/WorkspaceChrome.tsx
-msgid "Find linked notes"
-msgstr "Encontrar notas vinculadas"
 
 #: src/CollectionRail.tsx
 msgid "Finding folders…"
@@ -2860,6 +2857,10 @@ msgstr "Regras de links"
 #: src/YourPersonPanel.tsx
 msgid "Link this record to me"
 msgstr "Vincular este registro a mim"
+
+#: src/code-editor-reference-diagnostics.ts
+msgid "Link to {title}"
+msgstr "Vincular a {title}"
 
 #: src/code-editor-completions.ts
 msgid "Link to note or file"
@@ -3334,6 +3335,10 @@ msgstr "Próxima nota"
 msgid "Next note in the list"
 msgstr "Próxima nota na lista"
 
+#: src/NoteList.tsx
+msgid "No additional text"
+msgstr "Sem texto adicional"
+
 #: src/TypeBrowser.tsx
 msgid "No app contracts are installed"
 msgstr "Nenhum contrato de app instalado"
@@ -3427,7 +3432,9 @@ msgid "No nested fields yet."
 msgstr "Ainda não há campos aninhados."
 
 #. placeholder {0}: reference.target
+#. placeholder {0}: this.target
 #: src/code-editor-reference-diagnostics.ts
+#: src/CodeEditor.tsx
 msgid "No note or file matches “{0}”."
 msgstr "Nenhuma nota ou arquivo corresponde a “{0}”."
 
@@ -3901,6 +3908,7 @@ msgid "Pin"
 msgstr "Fixar"
 
 #: src/collection-browser.ts
+#: src/use-note-actions.ts
 msgid "Pinned"
 msgstr "Fixado"
 
@@ -4376,6 +4384,7 @@ msgstr "Retomar renomeação"
 
 #: src/code-editor-file-embeds.ts
 #: src/CollectionRail.tsx
+#: src/WorkspaceChrome.tsx
 #: src/YourPersonPanel.tsx
 msgid "Retry"
 msgstr "Tentar novamente"
@@ -5802,6 +5811,10 @@ msgstr "Menções sem vínculo ({0})"
 #: src/editor-commands.ts
 msgid "Unpin"
 msgstr "Desafixar"
+
+#: src/use-note-actions.ts
+msgid "Unpinned"
+msgstr "Desafixado"
 
 #: src/App.tsx
 msgid "Unsaved draft found"

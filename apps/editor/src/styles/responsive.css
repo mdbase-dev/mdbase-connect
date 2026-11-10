@@ -102,6 +102,11 @@
   }
 }
 
+/* viewport-fit=cover: keep content clear of a notch or home indicator at any
+ * width, including a phone in landscape. The insets are 0 elsewhere. */
+.note-scroll { padding-bottom: env(safe-area-inset-bottom); }
+.app-shell { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+
 @media (max-width: 1120px) {
   .app-shell,
   .app-shell.inspector-visible {
@@ -265,9 +270,6 @@
   }
 
   .app-shell:has(.new-note-composer) .mdbase-toaster { bottom: calc(100px + env(safe-area-inset-bottom)); }
-
-  .note-scroll { padding-bottom: env(safe-area-inset-bottom); }
-  .app-shell { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
 
   .note-title-field {
     min-height: 45px;
@@ -810,3 +812,21 @@
   }
 }
 
+
+/* iOS zooms the page into any focused field under 16px; touch devices get at
+ * least the root size so search, Quick open and forms never zoom. */
+@media (pointer: coarse) {
+  input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"]),
+  textarea,
+  select {
+    font-size: max(1rem, var(--font-size-ui)) !important;
+  }
+}
+
+/* A held note row opens its menu, not the system text callout. */
+@media (pointer: coarse) {
+  .note-row-context {
+    -webkit-touch-callout: none;
+    user-select: none;
+  }
+}

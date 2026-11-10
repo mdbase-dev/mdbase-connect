@@ -108,8 +108,12 @@ test("native selection retains explicit dispatch checks and includes Rust input 
     assert.doesNotMatch(block, /always\(\)/);
     assert.match(block, /needs.select-tests.result == 'success'/);
   }
-  for (const path of ["Cargo.toml", "Cargo.lock", "crates/**", "deploy/docker/mdbase-rs-revision", "scripts/ci/desktop-test-plan.mjs"]) {
-    assert.ok(desktop.includes(`- "${path}"`));
+  for (const path of ["runtime/**", "scripts/ci/desktop-test-plan.mjs"]) {
+    assert.ok(desktop.includes(`- "${path}"`), path);
+  }
+  // The desktop bundles mdbn-daemon from runtime/; the legacy root crates are not inputs.
+  for (const path of ["Cargo.toml", "Cargo.lock", "crates/**", "rust-toolchain*", "deploy/docker/mdbase-rs-revision"]) {
+    assert.ok(!desktop.includes(`- "${path}"`), path);
   }
 });
 
@@ -121,6 +125,9 @@ test("same-configuration Rust checks run once and remain required for qualificat
     assert.ok(rust.includes(command), command);
     assert.ok(!shards.includes(command), command);
   }
+  // The ignored PostgreSQL provider tests run in the same required job.
+  assert.match(rust, /image: postgres:18-alpine/);
+  assert.match(rust, /--test mutation_abandon --test lifecycle_diagnostics --test sync_stored_errors\s+--test file_control_stored_errors --test file_upload_retries\s+-- --ignored/);
   for (const block of [rust, shards]) {
     assert.ok(block.includes("cp deploy/docker/Cargo.lock.hosted-provider Cargo.lock"));
     assert.ok(block.includes("cargo build --locked --workspace"));

@@ -7,6 +7,10 @@ msgstr ""
 "X-Generator: @lingui/cli\n"
 "Language: de\n"
 
+#: src/CommentsPanel.tsx
+msgid "(a point in the text)"
+msgstr "(eine Stelle im Text)"
+
 #: src/AppSwitcher.tsx
 msgid "(opens in a new tab)"
 msgstr "(öffnet sich in einem neuen Tab)"
@@ -15,6 +19,11 @@ msgstr "(öffnet sich in einem neuen Tab)"
 #: src/text-diff.ts
 msgid "{0, plural, one {# more changed line} other {# more changed lines}}"
 msgstr "{0, plural, one {# weitere geänderte Zeile} other {# weitere geänderte Zeilen}}"
+
+#. placeholder {0}: info.replies
+#: src/comment-anchors.ts
+msgid "{0, plural, one {# reply} other {# replies}}"
+msgstr "{0, plural, one {# Antwort} other {# Antworten}}"
 
 #. placeholder {0}: signIn.accountLogin
 #: src/collections/model.ts
@@ -56,9 +65,21 @@ msgstr "{app} zeigt die Sammlung auf diesem Gerät nicht mehr an. In der Sammlun
 msgid "{count, plural, one {# mark applied.} other {# marks applied.}}"
 msgstr "{count, plural, one {# Markierung gesetzt.} other {# Markierungen gesetzt.}}"
 
+#: src/CommentsPanel.tsx
+msgid "{count, plural, one {# open comment} other {# open comments}}"
+msgstr "{count, plural, one {# offener Kommentar} other {# offene Kommentare}}"
+
 #: src/Feedback.tsx
 msgid "A problem occurred. You can use Send feedback to report it."
 msgstr "Ein Problem ist aufgetreten. Sie können es über „Feedback senden“ melden."
+
+#: src/CommentsPanel.tsx
+msgid "Accept"
+msgstr "Annehmen"
+
+#: src/CommentsPanel.tsx
+msgid "Accepted"
+msgstr "Angenommen"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -80,6 +101,31 @@ msgctxt "Collection access interface"
 msgid "Add a Private collection"
 msgstr "Private Sammlung hinzufügen"
 
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Add column"
+msgstr "Spalte hinzufügen"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Add row"
+msgstr "Zeile hinzufügen"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Align center"
+msgstr "Zentriert ausrichten"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Align left"
+msgstr "Links ausrichten"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Align right"
+msgstr "Rechts ausrichten"
+
 #: src/FeedbackMarkup.tsx
 msgid "Apply changes"
 msgstr "Änderungen übernehmen"
@@ -93,6 +139,14 @@ msgstr "Aktualisierungen der Sammlung werden angewendet…"
 msgid "Applying…"
 msgstr "Wird übernommen…"
 
+#: src/CommentsPanel.tsx
+msgid "as {signer}"
+msgstr "als {signer}"
+
+#: src/CommentsPanel.tsx
+msgid "At the cursor"
+msgstr "An der Cursorposition"
+
 #: src/Feedback.tsx
 msgid "Attach screenshot"
 msgstr "Screenshot anhängen"
@@ -105,6 +159,21 @@ msgstr "Zurück zu Ihrer Arbeit"
 msgid "Blackout"
 msgstr "Schwärzen"
 
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Bring it in"
+msgstr "Übernehmen"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Bring your work into {collection}?"
+msgstr "Ihre Arbeit in {collection} übernehmen?"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Bringing in…"
+msgstr "Wird übernommen…"
+
 #: src/apps.ts
 msgid "Browse and edit records"
 msgstr "Datensätze durchsuchen und bearbeiten"
@@ -112,6 +181,14 @@ msgstr "Datensätze durchsuchen und bearbeiten"
 #: src/Feedback.tsx
 msgid "Browser, OS, viewport and recent error codes. No note contents, paths or credentials."
 msgstr "Browser, Betriebssystem, Anzeigebereich und die letzten Fehlercodes. Keine Notizinhalte, Pfade oder Zugangsdaten."
+
+#: src/AppSwitcher.tsx
+msgid "Build your own"
+msgstr "Eigene App entwickeln"
+
+#: src/CommentsPanel.tsx
+msgid "by {resolver}"
+msgstr "von {resolver}"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -133,6 +210,7 @@ msgctxt "Collection access interface"
 msgid "Can't open {collection}"
 msgstr "{collection} kann nicht geöffnet werden"
 
+#: src/CommentsPanel.tsx
 #: src/ConfirmDialog.tsx
 #: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
@@ -195,6 +273,11 @@ msgctxt "Collection access interface"
 msgid "Choose or create a collection there."
 msgstr "Wählen oder erstellen Sie dort eine Sammlung."
 
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Clear cells"
+msgstr "Zellen leeren"
+
 #: src/Dialog.tsx
 msgid "Close"
 msgstr "Schließen"
@@ -208,6 +291,10 @@ msgstr "Schließen"
 msgctxt "Collection storage mode"
 msgid "Cloud copy"
 msgstr "Cloud-Kopie"
+
+#: src/live-preview/blocks.ts
+msgid "Collapse callout"
+msgstr "Hinweis einklappen"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -229,9 +316,32 @@ msgctxt "Color theme"
 msgid "Color theme"
 msgstr "Farbschema"
 
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Column options"
+msgstr "Spaltenoptionen"
+
 #: src/CommandPalette.tsx
 msgid "Commands"
 msgstr "Befehle"
+
+#: src/comment-anchors.ts
+#: src/CommentsPanel.tsx
+msgid "Comment"
+msgstr "Kommentar"
+
+#: src/CommentsPanel.tsx
+msgid "Comments"
+msgstr "Kommentare"
+
+#: src/CommentsPanel.tsx
+msgid "Comments could not be loaded: {problem}"
+msgstr "Kommentare konnten nicht geladen werden: {problem}"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Connect to sync your work"
+msgstr "Verbinden, um Ihre Arbeit zu synchronisieren"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -264,14 +374,59 @@ msgctxt "Collection storage mode"
 msgid "Continue on this device"
 msgstr "Auf diesem Gerät fortfahren"
 
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Continue without connecting"
+msgstr "Ohne Verbindung fortfahren"
+
+#: src/live-preview/blocks.ts
+msgid "Copied"
+msgstr "Kopiert"
+
+#: src/live-preview/blocks.ts
+msgid "Copy"
+msgstr "Kopieren"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Copy cells"
+msgstr "Zellen kopieren"
+
+#: src/live-preview/blocks.ts
+msgid "Copy code"
+msgstr "Code kopieren"
+
+#: src/live-preview/blocks.ts
+msgid "Copy failed"
+msgstr "Kopieren fehlgeschlagen"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Copy table"
+msgstr "Tabelle kopieren"
+
 #: src/AppSwitcher.tsx
 msgid "Current"
 msgstr "Aktuell"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Cut cells"
+msgstr "Zellen ausschneiden"
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Danger"
+msgstr "Gefahr"
 
 #: src/ThemeSelect.tsx
 msgctxt "Color theme"
 msgid "Dark"
 msgstr "Dunkel"
+
+#: src/CommentsPanel.tsx
+msgid "Delete “{exact}”"
+msgstr "„{exact}“ löschen"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -288,6 +443,26 @@ msgctxt "Collection access interface"
 msgid "Delete collection…"
 msgstr "Sammlung löschen…"
 
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Delete column"
+msgstr "Spalte löschen"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Delete columns"
+msgstr "Spalten löschen"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Delete row"
+msgstr "Zeile löschen"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Delete rows"
+msgstr "Zeilen löschen"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Deleting…"
@@ -296,6 +471,26 @@ msgstr "Wird gelöscht…"
 #: src/screens.tsx
 msgid "Details"
 msgstr "Details"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discard"
+msgstr "Verwerfen"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discard work that isn't in a collection?"
+msgstr "Arbeit verwerfen, die in keiner Sammlung ist?"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discard…"
+msgstr "Verwerfen…"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discarding…"
+msgstr "Wird verworfen…"
 
 #: src/Toaster.tsx
 msgid "Dismiss"
@@ -317,6 +512,15 @@ msgstr "Esc"
 msgctxt "Collection access interface"
 msgid "Everyone, including you, loses access to it on every device and app right away. This can't be undone."
 msgstr "Alle, auch Sie, verlieren sofort auf allen Geräten und in allen Apps den Zugriff auf die Sammlung. Dies kann nicht rückgängig gemacht werden."
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Example"
+msgstr "Beispiel"
+
+#: src/live-preview/blocks.ts
+msgid "Expand callout"
+msgstr "Hinweis ausklappen"
 
 #: src/feedback-data.ts
 msgid "Feedback could not be sent. Check your connection and try again."
@@ -385,6 +589,44 @@ msgstr "Screenshot mitsenden"
 msgid "Include technical diagnostics"
 msgstr "Technische Diagnosedaten mitsenden"
 
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Info"
+msgstr "Information"
+
+#: src/CommentsPanel.tsx
+msgid "Insert “{replacement}”"
+msgstr "„{replacement}“ einfügen"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Insert column left"
+msgstr "Spalte links einfügen"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Insert column right"
+msgstr "Spalte rechts einfügen"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Insert row above"
+msgstr "Zeile oberhalb einfügen"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Insert row below"
+msgstr "Zeile unterhalb einfügen"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "It's erased from {app} on this device. This can't be undone."
+msgstr "Sie wird auf diesem Gerät aus {app} gelöscht. Dies kann nicht rückgängig gemacht werden."
+
+#: src/apps.ts
+msgid "Keep a daily journal"
+msgstr "Ein tägliches Journal führen"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Kept on your computers, not stored by mdbase"
@@ -394,6 +636,10 @@ msgstr "Bleibt auf Ihren Computern, wird nicht von mdbase gespeichert"
 msgctxt "Color theme"
 msgid "Light"
 msgstr "Hell"
+
+#: src/CommentsPanel.tsx
+msgid "Loading comments…"
+msgstr "Kommentare werden geladen …"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -405,10 +651,22 @@ msgctxt "Collection storage mode"
 msgid "Make private"
 msgstr "Privat machen"
 
+#: src/CommentsPanel.tsx
+msgid "Make this edit"
+msgstr "Diese Änderung vornehmen"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Manage access"
 msgstr "Zugriff verwalten"
+
+#: src/live-preview/inline.ts
+msgid "Mark task complete"
+msgstr "Aufgabe abschließen"
+
+#: src/live-preview/inline.ts
+msgid "Mark task incomplete"
+msgstr "Aufgabe als unvollständig markieren"
 
 #: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
@@ -418,10 +676,6 @@ msgstr "Screenshot markieren"
 #: src/Feedback.tsx
 msgid "Markup discarded. Screenshot excluded."
 msgstr "Markierungen verworfen. Der Screenshot wird nicht mitgesendet."
-
-#: src/AppSwitcher.tsx
-msgid "mdbase {current}: open this collection in another app"
-msgstr "mdbase {current}: diese Sammlung in einer anderen App öffnen"
 
 #: src/AppSwitcher.tsx
 msgid "mdbase apps"
@@ -441,6 +695,26 @@ msgctxt "Collection access interface"
 msgid "More for {collection}"
 msgstr "Weitere Aktionen für {collection}"
 
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Move column left"
+msgstr "Spalte nach links verschieben"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Move column right"
+msgstr "Spalte nach rechts verschieben"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Move row down"
+msgstr "Zeile nach unten verschieben"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Move row up"
+msgstr "Zeile nach oben verschieben"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Needs a decision"
@@ -449,6 +723,10 @@ msgstr "Entscheidung erforderlich"
 #: src/SaveNotice.tsx
 msgid "Needs attention"
 msgstr "Aufmerksamkeit erforderlich"
+
+#: src/CommentsPanel.tsx
+msgid "New comment"
+msgstr "Neuer Kommentar"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -460,9 +738,22 @@ msgctxt "Collection access interface"
 msgid "No collections match “{query}”."
 msgstr "Keine Sammlungen für „{query}“ gefunden."
 
+#: src/live-preview/inline.ts
+msgid "No note or file matches “{target}”."
+msgstr "Keine Notiz oder Datei passt zu „{target}“."
+
+#: src/CommentsPanel.tsx
+msgid "No open comments"
+msgstr "Keine offenen Kommentare"
+
 #: src/Feedback.tsx
 msgid "No screenshot taken. You can still send feedback."
 msgstr "Kein Screenshot aufgenommen. Sie können trotzdem Feedback senden."
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Note"
+msgstr "Notiz"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -473,10 +764,27 @@ msgstr "An Ihrer Sammlung ändert sich nichts."
 msgid "Nothing matches"
 msgstr "Keine Treffer"
 
+#: src/CommentsPanel.tsx
+msgid "Nothing resolved yet."
+msgstr "Noch nichts erledigt."
+
+#: src/CommentsPanel.tsx
+msgid "On the whole note"
+msgstr "Zur gesamten Notiz"
+
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content."
 msgstr "Nach Abschluss der Umstellung können nur Ihre Geräte neue Inhalte lesen. mdbase kann ältere Inhalte möglicherweise weiterhin lesen."
+
+#: src/CommentsPanel.tsx
+msgctxt "Comment status"
+msgid "Open"
+msgstr "Offen"
+
+#: src/CommentsPanel.tsx
+msgid "Open file"
+msgstr "Datei öffnen"
 
 #: src/AppSwitcher.tsx
 msgid "Open in another mdbase app"
@@ -539,6 +847,10 @@ msgctxt "Collection access interface"
 msgid "Owner"
 msgstr "Besitzer"
 
+#: src/apps.ts
+msgid "Plan tasks and projects"
+msgstr "Aufgaben und Projekte planen"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Preparing secure access…"
@@ -563,6 +875,16 @@ msgstr "Privat"
 msgid "Private feedback to the mdbase team."
 msgstr "Privates Feedback an das mdbase-Team."
 
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Question"
+msgstr "Frage"
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Quote"
+msgstr "Zitat"
+
 #: src/apps.ts
 msgid "Read and annotate sources"
 msgstr "Quellen lesen und annotieren"
@@ -571,6 +893,14 @@ msgstr "Quellen lesen und annotieren"
 msgctxt "Collection storage mode"
 msgid "Refresh status"
 msgstr "Status aktualisieren"
+
+#: src/CommentsPanel.tsx
+msgid "Reject"
+msgstr "Ablehnen"
+
+#: src/CommentsPanel.tsx
+msgid "Rejected"
+msgstr "Abgelehnt"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -601,9 +931,21 @@ msgctxt "Collection access interface"
 msgid "Remove from this list"
 msgstr "Aus dieser Liste entfernen"
 
+#: src/CommentsPanel.tsx
+msgid "Reopen"
+msgstr "Wieder öffnen"
+
+#: src/CommentsPanel.tsx
+msgid "Replace “{exact}” with “{replacement}”"
+msgstr "„{exact}“ durch „{replacement}“ ersetzen"
+
 #: src/Feedback.tsx
 msgid "Replies aren’t guaranteed. Not for security reports or urgent support."
 msgstr "Antworten sind nicht garantiert. Nicht für Sicherheitsmeldungen oder dringende Supportanfragen."
+
+#: src/CommentsPanel.tsx
+msgid "Reply"
+msgstr "Antworten"
 
 #: src/Feedback.tsx
 msgid "Reply email"
@@ -618,6 +960,19 @@ msgstr "Problem melden"
 msgctxt "Screenshot annotations"
 msgid "Reset"
 msgstr "Zurücksetzen"
+
+#: src/CommentsPanel.tsx
+msgid "Resolve"
+msgstr "Erledigen"
+
+#: src/CommentsPanel.tsx
+msgid "Resolved"
+msgstr "Erledigt"
+
+#: src/CommentsPanel.tsx
+msgctxt "Comment status"
+msgid "Resolved"
+msgstr "Erledigt"
 
 #: src/CommandPalette.tsx
 msgid "Results"
@@ -645,9 +1000,24 @@ msgstr "Prüfen Sie dort den Zugriff auf {collection}."
 msgid "Review for private information before sending."
 msgstr "Prüfen Sie den Screenshot vor dem Senden auf private Informationen."
 
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Row options"
+msgstr "Zeilenoptionen"
+
 #: src/SaveNotice.tsx
 msgid "Saved"
 msgstr "Gespeichert"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Saved only in this browser"
+msgstr "Nur in diesem Browser gespeichert"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Saved only on this device"
+msgstr "Nur auf diesem Gerät gespeichert"
 
 #: src/SaveNotice.tsx
 msgid "Saving"
@@ -720,6 +1090,14 @@ msgstr "Wird eingerichtet…"
 msgid "Share something you like"
 msgstr "Teilen, was Ihnen gefällt"
 
+#: src/CommentsPanel.tsx
+msgid "Show"
+msgstr "Anzeigen"
+
+#: src/CommentsPanel.tsx
+msgid "Show in the note"
+msgstr "In der Notiz anzeigen"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Sign in"
@@ -757,6 +1135,36 @@ msgstr "Abmeldung läuft…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "Some items changed after they were brought in. Their newer versions are added beside them."
+msgstr "Einige Einträge wurden nach der Übernahme geändert. Ihre neueren Versionen werden daneben hinzugefügt."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Some items get a new name because their names are already taken."
+msgstr "Einige Einträge erhalten einen neuen Namen, weil ihre Namen bereits vergeben sind."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Some items use types this collection doesn't have. They're brought in as they are."
+msgstr "Einige Einträge verwenden Typen, die diese Sammlung nicht hat. Sie werden unverändert übernommen."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Some of your work couldn't be brought in. Try again."
+msgstr "Ein Teil Ihrer Arbeit konnte nicht übernommen werden. Versuchen Sie es erneut."
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Sort ascending"
+msgstr "Aufsteigend sortieren"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Sort descending"
+msgstr "Absteigend sortieren"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "Starting {app}…"
 msgstr "{app} wird gestartet…"
 
@@ -765,9 +1173,22 @@ msgctxt "Collection storage mode"
 msgid "Storage mode"
 msgstr "Speichermodus"
 
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Success"
+msgstr "Erfolg"
+
 #: src/feedback-data.ts
 msgid "Suggest an improvement"
 msgstr "Verbesserung vorschlagen"
+
+#: src/comment-anchors.ts
+msgid "Suggested edit"
+msgstr "Änderungsvorschlag"
+
+#: src/comment-anchors.ts
+msgid "Suggested insertion"
+msgstr "Vorgeschlagene Einfügung"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -783,6 +1204,11 @@ msgstr "Ihre Sammlung wird synchronisiert…"
 msgctxt "Color theme"
 msgid "System"
 msgstr "System"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Table options"
+msgstr "Tabellenoptionen"
 
 #: src/Feedback.tsx
 msgid "Taking screenshot…"
@@ -840,10 +1266,23 @@ msgstr "Der Screenshot enthält kein gültiges PNG- oder JPEG-Bild."
 msgid "The screenshot is larger than 3 MB. Choose a smaller image."
 msgstr "Der Screenshot ist größer als 3 MB. Wählen Sie ein kleineres Bild aus."
 
+#: src/CommentsPanel.tsx
+msgid "The suggested text is no longer there"
+msgstr "Der vorgeschlagene Text ist nicht mehr vorhanden"
+
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "The switch to Private didn’t finish. Revoke the device that started it. Your other owner devices will then replace the collection key."
 msgstr "Die Umstellung auf Privat wurde nicht abgeschlossen. Widerrufe das Gerät, das sie gestartet hat. Deine anderen Eigentümergeräte ersetzen dann den Sammlungsschlüssel."
+
+#: src/CommentsPanel.tsx
+msgid "The text it was on has changed"
+msgstr "Der kommentierte Text hat sich geändert"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "These types are added: {types}."
+msgstr "Diese Typen werden hinzugefügt: {types}."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -860,6 +1299,15 @@ msgctxt "Collection access interface"
 msgid "This is taking longer than usual."
 msgstr "Das dauert länger als üblich."
 
+#: src/CommentsPanel.tsx
+msgid "This passage is no longer in the text"
+msgstr "Diese Passage steht nicht mehr im Text"
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Tip"
+msgstr "Tipp"
+
 #: src/CommandPalette.tsx
 msgid "to close"
 msgstr "zum Schließen"
@@ -869,9 +1317,15 @@ msgid "to move"
 msgstr "zum Navigieren"
 
 #: src/CommandPalette.tsx
-msgid "to open"
-msgstr "zum Öffnen"
+msgid "to run"
+msgstr "ausführen"
 
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Todo"
+msgstr "Aufgabe"
+
+#: src/CommentsPanel.tsx
 #: src/screens.tsx
 msgid "Try again"
 msgstr "Erneut versuchen"
@@ -904,6 +1358,10 @@ msgstr "Rückgängig"
 msgid "Unsaved"
 msgstr "Nicht gespeichert"
 
+#: src/CommentsPanel.tsx
+msgid "Unsigned"
+msgstr "Nicht signiert"
+
 #: src/FeedbackMarkup.tsx
 msgid "Up to 100 marks can be applied. Undo or reset to make another mark."
 msgstr "Es sind höchstens 100 Markierungen möglich. Machen Sie eine rückgängig oder setzen Sie alle zurück, um eine weitere zu setzen."
@@ -935,6 +1393,11 @@ msgstr "Warten auf die Aktualisierung der Geräte."
 msgctxt "Collection storage mode"
 msgid "Waiting for older device connections to expire. Cloud copy remains on until the switch finishes."
 msgstr "Warten auf den Ablauf älterer Geräteverbindungen. Die Cloud-Kopie bleibt bis zum Abschluss der Umstellung aktiviert."
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Warning"
+msgstr "Warnung"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
@@ -970,6 +1433,14 @@ msgstr "Was sollte verbessert werden?"
 msgid "What’s working well for you?"
 msgstr "Was funktioniert für Sie gut?"
 
+#: src/CommentsPanel.tsx
+msgid "Withdraw"
+msgstr "Zurückziehen"
+
+#: src/CommentsPanel.tsx
+msgid "Withdrawn."
+msgstr "Zurückgezogen."
+
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "Working…"
@@ -978,6 +1449,11 @@ msgstr "Wird bearbeitet…"
 #: src/apps.ts
 msgid "Write manuscripts that cite your sources"
 msgstr "Manuskripte schreiben, die Ihre Quellen zitieren"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "You have work that isn't in {collection} yet."
+msgstr "Sie haben Arbeit, die noch nicht in {collection} ist."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -997,3 +1473,13 @@ msgstr "Ihre Sammlungen"
 #: src/Feedback.tsx
 msgid "Your message, any reply email and included screenshot, plus these app and build details."
 msgstr "Ihre Nachricht, eine etwaige E-Mail-Adresse für Antworten und ein beigefügter Screenshot sowie diese Angaben zu App und Build."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Your work is now in {collection}."
+msgstr "Ihre Arbeit ist jetzt in {collection}."
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Your work is now in {collection}. If it's still open in another tab, close it there, then bring it in again."
+msgstr "Ihre Arbeit ist jetzt in {collection}. Wenn sie noch in einem anderen Tab geöffnet ist, schließen Sie sie dort und übernehmen Sie sie dann erneut."

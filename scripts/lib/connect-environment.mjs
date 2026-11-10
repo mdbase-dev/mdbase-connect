@@ -69,9 +69,6 @@ export async function createConnectEnvironment(options = {}) {
       ? { MDBASE_CONNECT_SERVER_IMAGE: options.serverImage }
       : {}),
     ...(options.natsImage ? { MDBASE_CONNECT_NATS_IMAGE: options.natsImage } : {}),
-    ...(options.allowLocalApps
-      ? { MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS: "1" }
-      : {}),
     ...(options.editorOrigin
       ? {
           MDBASE_EDITOR_ORIGIN: options.editorOrigin,

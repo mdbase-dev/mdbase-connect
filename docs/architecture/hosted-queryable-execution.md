@@ -1,15 +1,14 @@
 # Hosted queryable execution
 
+> **Legacy, not authoritative.** This describes the legacy Connect stack and its
+> deprecated `mdbase-rs` engine. It does not define current mdbase semantics, which
+> live in the runtime ([`runtime/`](../../runtime/README.md), with spec interpretations in
+> `runtime/docs/spec-notes.md`).
+
 Status: selected architecture; implementation in progress; not production-enabled
 
 Governing decision:
 [ADR 0011](../decisions/0011-server-trusted-queryable-hosted-execution.md)
-
-Additive schema and rollout state:
-[Hosted semantic projection migration](./hosted-projection-migration.md)
-
-Isolated consumer validation:
-[Hosted Candidate B consumer staging missions](./hosted-consumer-staging-missions.md)
 
 ## Authority boundary
 

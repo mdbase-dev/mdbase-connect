@@ -52,15 +52,19 @@ export function SaveIndicator({ state, activity, detail, identity, savedOnDevice
   const tone: SaveTone = attention ? "attention" : state === "recovery" ? "pending" : "saving";
   return <div className="save-indicator"><SaveNotice tone={tone} label={label} />{state === "error" && onRetry && <button className="cancel-operation mdbase-button is-secondary" onClick={onRetry}><Trans>Retry save</Trans></button>}{onCancel && <button className="cancel-operation mdbase-button is-secondary" onClick={onCancel}><Trans>Cancel</Trans></button>}</div>;
 }
-export function BacklinksPanel({ notes, types, loading, error, onFind, onRetry, onOpen, mentions = [], onLinkMention, linking }: {
+export function BacklinksPanel({ notes, types, loading, error, onRetry, onOpen, mentions = [], mentionsLoading, mentionsError, onFindMentions, onRetryMentions, onLinkMention, linking }: {
   notes: NoteSummary[];
   types: CollectionTypeDescriptor[];
   loading: boolean;
   error?: string;
   onRetry?: () => void;
-  onFind?: () => void;
   onOpen: (path: string) => void;
   mentions?: UnlinkedMention[];
+  /** Unlinked mentions read note text, which loads on demand. */
+  mentionsLoading?: boolean;
+  mentionsError?: string;
+  onFindMentions?: () => void;
+  onRetryMentions?: () => void;
   onLinkMention?: (mention: UnlinkedMention) => void;
   linking?: boolean;
 }) {
@@ -70,19 +74,18 @@ export function BacklinksPanel({ notes, types, loading, error, onFind, onRetry, 
   const visibleMentions = showAll ? mentions : mentions.slice(0, 5);
   return <section id="linked-from" tabIndex={-1} className="linked-from" aria-label={t`Linked from`} aria-busy={loading}>
     <h2><Trans>Linked from</Trans></h2>
-    {onFind && <button onClick={onFind}><Trans>Find linked notes</Trans></button>}
     {error && <p role="alert">{error} {onRetry && <button onClick={onRetry}><Trans>Retry backlinks</Trans></button>}</p>}
     <div className="backlink-list">
       {notes.map((note) => <button key={note.path} onClick={() => onOpen(note.path)}>
         <Link2 aria-hidden="true" />
         <span><strong>{noteTitle(note, types)}</strong><small>{note.path}</small></span>
       </button>)}
-      {!notes.length && !onFind && <p className="quiet-empty">{error ? t`References could not finish loading.` : loading ? t`Reading collection links…` : t`No notes link here yet.`}</p>}
+      {!notes.length && <p className="quiet-empty">{error ? t`References could not finish loading.` : loading ? t`Reading collection links…` : t`No notes link here yet.`}</p>}
     </div>
     <details className="unlinked-mentions settings-details" onToggle={(event) => {
       const open = event.currentTarget.open;
       setExpanded(open);
-      if (open) onFind?.();
+      if (open) onFindMentions?.();
       else setShowAll(false);
     }}>
       <summary><span><Trans>Unlinked mentions ({mentions.length})</Trans></span><ChevronRight aria-hidden="true" /></summary>
@@ -92,7 +95,8 @@ export function BacklinksPanel({ notes, types, loading, error, onFind, onRetry, 
           {onLinkMention && <button className="mdbase-button is-tertiary" aria-label={t`Link mention in ${noteTitle(mention.note, types)}`} disabled={linking} onClick={() => onLinkMention(mention)}><Trans>Link</Trans></button>}
         </div>)}
         {mentions.length > 5 && <button className="mdbase-button is-tertiary" onClick={() => setShowAll((current) => !current)}>{showAll ? t`Show fewer` : t`Show all ${mentions.length}`}</button>}
-        {!mentions.length && <p className="quiet-empty">{loading ? t`Reading collection text…` : onFind ? t`Open to find mentions.` : t`No unlinked mentions.`}</p>}
+        {mentionsError && <p role="alert">{mentionsError} {onRetryMentions && <button onClick={onRetryMentions}><Trans>Retry</Trans></button>}</p>}
+        {!mentions.length && !mentionsError && <p className="quiet-empty">{mentionsLoading ? t`Reading collection text…` : onFindMentions ? t`Open to find mentions.` : t`No unlinked mentions.`}</p>}
       </>}
     </details>
   </section>;

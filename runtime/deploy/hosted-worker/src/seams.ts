@@ -75,7 +75,8 @@ export interface Admission {
 }
 
 /** No custody configured for this deployment (the managed escrow has none). Not an
- * outage, so never retried: a transient code held each escrow wake 45 s. */
+ * outage, so never retried: a transient code held each escrow wake 45 s. An escrow
+ * treats it as a lasting refusal (`HostedCollection.lastingRefusal`). */
 export const DENY_CUSTODY: Custody = {
   openSealer: async () => {
     throw new Error("custody_not_configured");

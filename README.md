@@ -28,8 +28,7 @@ application-specific database.
 - Use your collections from MCP clients such as Claude and ChatGPT.
 - Mirror a hosted collection to a local folder for Markdown-based tools and
   backups.
-- Use the native `mdbase` CLI directly with an explicitly authorized hosted
-  collection without creating a filesystem mirror.
+- Read, query and write your collections from the `mdbase` command line.
 
 ## How it works
 
@@ -52,18 +51,6 @@ using file-based tools alongside connected applications.
 
 Applications use the same approval model for local and hosted collections, so
 moving where a collection lives does not give an application broader access.
-
-The CLI follows that boundary too. Account login can list and administer hosted
-collections, while record operations require a separate collection grant:
-
-```bash
-mdbase connect hosted authorize <collection-id> --read-only
-mdbase --collection <collection-id> query --types task
-```
-
-Omit `--read-only` to request the full canonical operation set, or pass an exact
-comma-separated set with `--operations`. The approval opens in the browser and
-can be revoked with `mdbase connect hosted disconnect <collection-id>`.
 
 ## Getting started during the beta
 
@@ -97,6 +84,10 @@ expose the others.
 
 See the [MCP gateway guide](docs/mcp-gateway.md) for supported tools and the
 gateway's trust boundary.
+
+The mdbase plugin package bundles this endpoint with collection skills for
+ChatGPT and Codex. For local testing and directory submission, see
+[ChatGPT and Codex plugin](docs/chatgpt-plugin.md).
 
 ## Release notes
 
@@ -157,28 +148,24 @@ suspected vulnerabilities.
 
 ## Command line
 
-The desktop app includes the unified `mdbase` CLI and background daemon. The
-same native executable is also published as a standalone headless archive for
-Linux, macOS, and Windows. Direct collection commands are top-level; identity,
-authorization, mirroring, and daemon administration live under
-`mdbase connect`.
+The desktop app includes the `mdbase` CLI and background daemon. The same
+native executable is also published as a standalone headless archive for
+Linux, macOS, and Windows.
 
 ```bash
-mdbase --root /path/to/notes query --types task
-mdbase connect collection list
-mdbase connect hosted list
-mdbase connect hosted authorize <collection-id> --read-only
-mdbase --collection <collection-id> query --types task
-mdbase connect mirror add <collection-id> /path/to/mirror
-mdbase connect mirror plan <replica-id> --json
-mdbase connect mirror sync <replica-id> --plan sha256:<fingerprint>
-mdbase connect status
+mdbase status
+mdbase collection add /path/to/notes
+mdbase query --types task --where 'status == "open"'
+mdbase read tasks/review.md
+mdbase update tasks/review.md --fields '{"status": "done"}'
+mdbase validate -c notes
 ```
 
-Human-readable output is the default. Connect administration commands support
-`--json` for automation. See the [unified CLI guide](docs/unified-cli.md) for
-the full command model and the [headless installation guide](docs/headless.md)
-for verified standalone installation and service operation.
+Record commands work on the folder you are in, another with `-C PATH`, or a
+registered collection with `-c`; they go through the daemon when it serves the
+folder. Output is human-readable; `--json` prints machine-readable results. Run `mdbase --help` for the full list, and see the [headless
+installation guide](docs/headless.md) for verified standalone installation,
+service operation and record commands.
 
 ## Self-hosting
 
@@ -197,8 +184,8 @@ SDK, managed-service control plane and relay, hosted collection provider, MCP
 gateway, and shared protocols. These products release independently even
 though they share one workspace and lockfile.
 
-See [Contributing](CONTRIBUTING.md) for change fragments, architecture-growth
-review, generated-file rebases, and automated beta version preparation.
+See [Contributing](CONTRIBUTING.md) for change fragments, the architecture
+check, generated-file rebases, and automated beta version preparation.
 
 Development requires a Rust toolchain, Node.js 24 LTS, and pnpm 11.15.1.
 
@@ -218,11 +205,13 @@ is verification plumbing only and is never published as a Connect API.
 See the [CI flake policy](docs/ci-flakes.md) for bounded, recorded per-test
 retries and the retry-free nightly stress workflow.
 
-The end-to-end suites cover local authorization, the encrypted relay, hosted
-replication, and the production hosted provider:
+The end-to-end suites cover the runtime daemon's request path, the legacy
+connector's local authorization, the encrypted relay, hosted replication, and
+the production hosted provider:
 
 ```bash
 pnpm e2e
+pnpm e2e:legacy
 pnpm e2e:relay
 pnpm e2e:sync
 pnpm e2e:provider

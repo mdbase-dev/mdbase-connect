@@ -317,7 +317,10 @@
   font-weight: var(--font-weight-bold);
 }
 
+/* Lays rows out like the menu itself, so field rows span the full width and share its highlight. */
 .view-options-fields {
+  display: flex;
+  flex-direction: column;
   max-height: 180px;
   overflow-y: auto;
 }

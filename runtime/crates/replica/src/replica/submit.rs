@@ -276,6 +276,12 @@ impl<S: Store> Replica<S> {
             document: None,
             diagnostics: None,
         });
+        // Single-record checks follow the write's level, else the collection's
+        // (spec 04): only `error` rejects. A sync tool sends `warn` or `off`,
+        // because files it carries are never rejected for validity.
+        let level = p
+            .validation
+            .unwrap_or_else(|| convert::wire_level(self.catalog.settings().validation));
         let mut out = Vec::new();
         for (ops, id) in groups {
             // A partial group's known zero-effect refusal must not hide earlier
@@ -295,6 +301,7 @@ impl<S: Store> Replica<S> {
                 &tz,
                 p.dry_run == Some(true),
                 &include,
+                level,
             ) {
                 Ok(receipt) => out.push(receipt),
                 Err(error)
@@ -354,6 +361,7 @@ impl<S: Store> Replica<S> {
         tz: &str,
         dry_run: bool,
         include: &Include,
+        level: Level,
     ) -> ApiResult<Receipt> {
         if let Some(id) = id {
             self.hosted_owner_check(&id, grant)?;
@@ -392,7 +400,7 @@ impl<S: Store> Replica<S> {
             ops,
             on_behalf: grant,
             conflict_mode,
-            validated_at: Some(Level::Error),
+            validated_at: Some(level),
             room: None,
         };
         let planned = {
@@ -408,7 +416,7 @@ impl<S: Store> Replica<S> {
                 &lv,
                 &PlanOptions {
                     stage: Stage::Submit {
-                        level: mdbn_core::intent::Level::Error,
+                        level: convert::level(level),
                     },
                 },
             );

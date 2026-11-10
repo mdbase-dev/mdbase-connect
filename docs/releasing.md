@@ -16,10 +16,10 @@ commit and never build from a tag, release branch, or Render.
 
 Use a clean release-prep branch and run `pnpm version:set 0.1.0-beta.N --dry-run`,
 then the same command without `--dry-run`. This updates the release cohort's 19
-version files, assembles `changelog.d` into a versioned changelog section, refreshes
-architecture counters, and consumes changelog/growth fragments. It performs no
-Git or deployment actions. See [Contributing](../CONTRIBUTING.md) for formats and
-conflict-resolution guidance. Do not hand-edit beta versions or shared counters.
+version files, assembles `changelog.d` into a versioned changelog section, and consumes the
+changelog fragments. It performs no Git or deployment actions. See
+[Contributing](../CONTRIBUTING.md) for formats and conflict-resolution guidance.
+Do not hand-edit beta versions.
 
 ## Local package verification
 
@@ -32,7 +32,7 @@ pnpm check:release-readiness
 pnpm audit:dependencies
 pnpm check:changelog
 pnpm check:generated
-pnpm check:architecture --absolute
+pnpm check:architecture
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
@@ -43,6 +43,7 @@ pnpm package:audit
 pnpm test:browser-storage
 pnpm test:accessibility
 pnpm e2e
+pnpm e2e:legacy
 pnpm e2e:container
 pnpm e2e:relay
 pnpm e2e:sync

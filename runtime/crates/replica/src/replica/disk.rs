@@ -1318,7 +1318,19 @@ impl<S: Store> Replica<S> {
         tokens: Vec<ObservationId>,
         session: Option<SessionId>,
     ) -> Result<Receipt, StoreError> {
-        self.queue_mutation_inner(m, tokens, session, false)
+        self.queue_mutation_inner(m, tokens, session, false, Vec::new())
+    }
+
+    /// Queue a hold's resolution and delete the hold in the SAME commit as its
+    /// pending row, so neither a crash nor a refusal can leave the user's bytes
+    /// unprotected: a refused resolution commits nothing and the hold stays.
+    pub(crate) fn queue_hold_resolution(
+        &mut self,
+        m: Mutation,
+        session: SessionId,
+        hold: B16,
+    ) -> Result<Receipt, StoreError> {
+        self.queue_mutation_inner(m, Vec::new(), Some(session), false, vec![hold])
     }
 
     fn queue_resource_observations(
@@ -1326,7 +1338,7 @@ impl<S: Store> Replica<S> {
         m: Mutation,
         tokens: Vec<ObservationId>,
     ) -> Result<Receipt, StoreError> {
-        self.queue_mutation_inner(m, tokens, None, true)
+        self.queue_mutation_inner(m, tokens, None, true, Vec::new())
     }
 
     fn queue_mutation_inner(
@@ -1335,6 +1347,7 @@ impl<S: Store> Replica<S> {
         tokens: Vec<ObservationId>,
         session: Option<SessionId>,
         retain_on_refusal: bool,
+        holds_del: Vec<B16>,
     ) -> Result<Receipt, StoreError> {
         if let Err(e) = self.check_new_record_sources(&m.ops) {
             self.record_admission_incident(e);
@@ -1467,6 +1480,7 @@ impl<S: Store> Replica<S> {
                 refs: Vec::new(),
             }],
             ack_observations: tokens,
+            holds_del,
             meta: vec![(meta_keys::COUNTERS.into(), i64_meta(self.clock_floor))],
             ..Tx::default()
         })?;
@@ -1734,17 +1748,6 @@ impl<S: Store> Replica<S> {
         };
         // The disk shows mine; publish the outcome from there.
         let current = self.local_view_doc(&DiskKey::Record(id));
-        let release = |r: &mut Self| -> ApiResult<()> {
-            r.store
-                .commit(Tx {
-                    holds_del: vec![id],
-                    ..Tx::default()
-                })
-                .map_err(store_err)?;
-            r.status_dirty = true;
-            r.push_holds();
-            Ok(())
-        };
         let disk_shown = Some(Shown {
             path: hold.path.clone(),
             rev: rev(&mine),
@@ -1787,7 +1790,15 @@ impl<S: Store> Replica<S> {
         };
         let mut ops = match how {
             HoldResolution::TakeTheirs if dismiss.is_empty() => {
-                release(self)?;
+                // Nothing to submit: releasing the hold is the whole decision.
+                self.store
+                    .commit(Tx {
+                        holds_del: vec![id],
+                        ..Tx::default()
+                    })
+                    .map_err(store_err)?;
+                self.status_dirty = true;
+                self.push_holds();
                 self.before.insert(DiskKey::Record(id), disk_shown);
                 self.materialize().map_err(store_err)?;
                 return Ok(Receipt {
@@ -1832,12 +1843,20 @@ impl<S: Store> Replica<S> {
             }
         };
         ops.extend(dismiss);
-        release(self)?;
+        // The hold is released only by the commit that queues the accepted
+        // resolution. A crash before it, or a refusal, leaves the hold (and so
+        // the user's bytes on disk) exactly as it was.
         self.before.insert(DiskKey::Record(id), disk_shown);
         let m = self.capture(ops, Source::Api);
         let r = self
-            .queue_mutation(m, Vec::new(), Some(session))
+            .queue_hold_resolution(m, session, id)
             .map_err(store_err)?;
+        if r.state == ReceiptState::Rejected {
+            self.before.remove(&DiskKey::Record(id));
+        } else {
+            self.status_dirty = true;
+            self.push_holds();
+        }
         self.materialize().map_err(store_err)?;
         self.pump();
         Ok(r)
@@ -1865,6 +1884,7 @@ impl<S: Store> Replica<S> {
                 rev,
             });
         let keep_both = matches!(&how, HoldResolution::KeepBoth);
+        let submitted = !matches!(&how, HoldResolution::TakeTheirs);
         let receipt = match how {
             HoldResolution::TakeTheirs => Receipt {
                 relocated_from: None,
@@ -1969,6 +1989,7 @@ impl<S: Store> Replica<S> {
                             dry_run: Some(true),
                             include: None,
                             wait: None,
+                            validation: None,
                         },
                     )?
                     .pop()
@@ -1978,9 +1999,10 @@ impl<S: Store> Replica<S> {
                 if preview.state == ReceiptState::Rejected {
                     return Ok(preview);
                 }
+                // The hold is released in the same commit as the queued submission.
                 let mutation = self.capture(vec![op], Source::Api);
                 let receipt = self
-                    .queue_mutation(mutation, Vec::new(), Some(session))
+                    .queue_hold_resolution(mutation, session, hold.id)
                     .map_err(store_err)?;
                 if receipt.state == ReceiptState::Rejected {
                     return Ok(receipt);
@@ -1992,12 +2014,15 @@ impl<S: Store> Replica<S> {
                     .err("choose keep mine, keep both for a note, or take theirs to discard it"));
             }
         };
-        self.store
-            .commit(Tx {
-                holds_del: vec![hold.id],
-                ..Tx::default()
-            })
-            .map_err(store_err)?;
+        if !submitted {
+            // Discarding submits nothing: releasing the hold is the decision.
+            self.store
+                .commit(Tx {
+                    holds_del: vec![hold.id],
+                    ..Tx::default()
+                })
+                .map_err(store_err)?;
+        }
         self.before.insert(key, shown);
         self.materialize().map_err(store_err)?;
         self.status_dirty = true;

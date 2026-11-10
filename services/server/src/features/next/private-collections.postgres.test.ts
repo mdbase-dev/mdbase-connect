@@ -1,11 +1,11 @@
-import { ensureDevelopmentEntitlement } from "../../entitlements.js";
+import { ensureDevelopmentEntitlement } from "../account/entitlements.js";
 import { generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
 import { capabilityOperations } from "@mdbase-dev/connect-protocol";
 import { nativeReadApp } from "./test/native-grant.js";
 import { buildApp } from "../../app.js";
 import { provisionNewAccountBackend } from "./account-backend-flip.js";
 import { registerAuthorizationRoutes } from "../authorizations/routes.js";
-import type { RelayHub } from "../../relay.js";
+import type { RelayHub } from "../relay/relay.js";
 import cookie from "@fastify/cookie";
 import Fastify from "fastify";
 import pg from "pg";
@@ -47,6 +47,10 @@ describe("private bootstrap configuration", () => {
     expect(parseNextControlPlaneEnv(base)?.objectGc).toBeUndefined();
     expect(parseNextControlPlaneEnv({ ...base, MDBASE_NEXT_OBJECT_GC: "1" })?.objectGc).toBe(true);
     expect(() => parseNextControlPlaneEnv({ ...base, MDBASE_NEXT_OBJECT_GC: "yes" })).toThrow(/0 or 1/);
+    expect(parseNextControlPlaneEnv(base)?.fileQuota).toBeUndefined();
+    expect(parseNextControlPlaneEnv({ ...base, MDBASE_NEXT_FILE_QUOTA: "report" })?.fileQuota).toBe("report");
+    expect(parseNextControlPlaneEnv({ ...base, MDBASE_NEXT_FILE_QUOTA: "enforce" })?.fileQuota).toBe("enforce");
+    expect(() => parseNextControlPlaneEnv({ ...base, MDBASE_NEXT_FILE_QUOTA: "1" })).toThrow(/report or enforce/);
   });
 });
 
@@ -258,7 +262,7 @@ describePg("private collections", () => {
     await db.query("UPDATE next_collections SET left_sync_at=now() WHERE collection_id=$1",[left]);
     await ensureDevelopmentEntitlement(db,owner);
     await db.query("UPDATE users SET account_backend='next' WHERE id=$1",[owner]);
-    const status=vi.spyOn(LogServiceClient.prototype,"storageStatus").mockImplementation(async id=>({usedBytes:id===collection?1000:24,quotaBytes:1<<30}));
+    const status=vi.spyOn(LogServiceClient.prototype,"storageStatus").mockImplementation(async id=>({usedBytes:1<<20,quotaBytes:1<<30,fileBytes:id===collection?1000:24}));
     const {app:portal}=await buildApp({db,devAuth:true,publicUrl:"http://connect.test",nextControlPlane:configuration()});
     try {
       const session=await portal.inject({method:"POST",url:"/v1/dev/session",payload:{name:"Owner",email:`${owner}@example.test`}});
@@ -273,6 +277,28 @@ describePg("private collections", () => {
       expect(await stored()).toBe(1024);
       status.mockRejectedValue(new Error("unavailable"));
       expect(await stored()).toBeNull();
+    } finally { status.mockRestore(); await portal.close(); }
+  });
+  it("omits native storage from /v1/me without asking any log when the read asks to, and refuses other values",async()=>{
+    const who=await identity(),owner=who.connector.user_id;await created(who);await created(who);
+    await ensureDevelopmentEntitlement(db,owner);
+    await db.query("UPDATE users SET account_backend='next' WHERE id=$1",[owner]);
+    const status=vi.spyOn(LogServiceClient.prototype,"storageStatus").mockResolvedValue({usedBytes:1<<20,quotaBytes:1<<30,fileBytes:512});
+    const {app:portal}=await buildApp({db,devAuth:true,publicUrl:"http://connect.test",nextControlPlane:configuration()});
+    try {
+      const session=await portal.inject({method:"POST",url:"/v1/dev/session",payload:{name:"Owner",email:`${owner}@example.test`}});
+      expect(session.statusCode,session.body).toBe(200);
+      const raw=session.headers["set-cookie"]!;
+      const headers={cookie:(Array.isArray(raw)?raw[0]!:raw).split(";")[0]!};
+      const omitted=await portal.inject({url:"/v1/me?native_storage=omit",headers});
+      expect(omitted.statusCode,omitted.body).toBe(200);
+      expect(omitted.json().subscription).not.toHaveProperty("native_storage_bytes");
+      expect(omitted.json().subscription.limits).toBeDefined();
+      expect(status).not.toHaveBeenCalled();
+      const full=await portal.inject({url:"/v1/me",headers});
+      expect(full.json().subscription.native_storage_bytes).toBe(1024);
+      expect(status).toHaveBeenCalledTimes(2);
+      expect((await portal.inject({url:"/v1/me?native_storage=skip",headers})).statusCode).toBe(400);
     } finally { status.mockRestore(); await portal.close(); }
   });
   it("projects only exact appended own computer enrollments, never pending, other-account, changed-key or revoked devices",async()=>{

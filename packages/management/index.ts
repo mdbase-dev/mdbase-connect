@@ -202,7 +202,7 @@ export interface ManagementOverview {
       live_storage_bytes: number;
       retained_file_bytes: number;
     };
-    /** Bytes the log service stores for this account's native collections, history included; null when unknown. */
+    /** Uploaded file bytes across this account's native collections; notes and history don't count. Null when unknown; absent when the read omitted it. */
     native_storage_bytes?: number | null;
     reconciliation: null | {
       entitlement_revision: number;
@@ -332,8 +332,9 @@ export class ConnectManagementClient {
     this.baseUrl = normalized.href;
   }
 
-  overview(options?: ManagementRequestOptions): Promise<ManagementOverview> {
-    return this.request("/v1/me", {}, options);
+  /** `nativeStorage: false` skips the native storage figure, which asks every held collection's log. */
+  overview(options?: ManagementRequestOptions & { nativeStorage?: boolean }): Promise<ManagementOverview> {
+    return this.request(options?.nativeStorage === false ? "/v1/me?native_storage=omit" : "/v1/me", {}, options);
   }
 
   collectionModeStatus(collectionId: string, options?: ManagementRequestOptions): Promise<CollectionModeStatus> {
@@ -433,20 +434,6 @@ export class ConnectManagementClient {
     return this.request("/v1/account/collections", {
       method: "POST",
       body: JSON.stringify({account_id:input.accountId, request_id:input.requestId, display_name:input.displayName, timezone:input.timezone})
-    }, options);
-  }
-
-  createHostedCollection(
-    input: { displayName: string; timezone: string },
-    options?: ManagementRequestOptions
-  ): Promise<void> {
-    return this.request("/v1/hosted/collections", {
-      method: "POST",
-      body: JSON.stringify({
-        display_name: input.displayName,
-        template: "mdbase",
-        timezone: input.timezone
-      })
     }, options);
   }
 

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import type { LinkTargets } from "./collection-links";
 import { FileAssetStore, type FileAssetSnapshot } from "./file-asset-store";
 import { fileAssetKey, isInlinePreviewable } from "./file-reference-resolution";
 import type { FileReference } from "./file-references";
@@ -11,6 +12,7 @@ export interface ResolvedFileReference extends Omit<FileReference, "file"> {
 
 const EMPTY_REFERENCES: Array<FileReference & { file: CollectionFile }> = [];
 const EMPTY_FILES: readonly CollectionFile[] = [];
+const NO_TARGETS = { subscribe: () => () => undefined, getVersion: () => 0 };
 
 export function useFileAssetStore(gateway: CollectionGateway): FileAssetStore {
   const store = useMemo(() => new FileAssetStore(gateway), [gateway]);
@@ -31,33 +33,38 @@ export function useEmbeddedFileAssets(
   store: FileAssetStore,
   source: string,
   files: readonly CollectionFile[],
-  sourcePath?: string,
+  linkTargets: LinkTargets | undefined,
   visibleKeys?: ReadonlySet<string>
 ): ResolvedFileReference[] {
   const version = useSyncExternalStore(store.subscribe, store.getVersion, store.getVersion);
+  const targets = linkTargets ?? NO_TARGETS;
+  const targetsVersion = useSyncExternalStore(targets.subscribe, targets.getVersion, targets.getVersion);
   const [parsed, setParsed] = useState<{
     source: string;
     files: readonly CollectionFile[];
-    sourcePath?: string;
+    from?: string;
     references: Array<FileReference & { file: CollectionFile }>;
   }>(() => ({ source: "", files: EMPTY_FILES, references: EMPTY_REFERENCES }));
-  const references = parsed.source === source && parsed.files === files && parsed.sourcePath === sourcePath
+  // A renewed LinkTargets for the same note keeps its embeds until re-parsed.
+  const references = parsed.source === source && parsed.files === files && parsed.from === linkTargets?.from
     ? parsed.references
     : EMPTY_REFERENCES;
   useEffect(() => {
     let active = true;
     void import("./file-references").then(({ fileReferences }) => {
       if (!active) return;
+      const all = fileReferences(source, files, linkTargets);
+      // A failed lookup leaves the embed unrendered, as the diagnostics explain.
+      linkTargets?.resolveAll(all.map((reference) => reference.raw)).catch(() => undefined);
       setParsed({
         source,
         files,
-        sourcePath,
-        references: fileReferences(source, files, sourcePath)
-          .filter((reference): reference is FileReference & { file: CollectionFile } => Boolean(reference.file))
+        from: linkTargets?.from,
+        references: all.filter((reference): reference is FileReference & { file: CollectionFile } => Boolean(reference.file))
       });
     });
     return () => { active = false; };
-  }, [files, source, sourcePath]);
+  }, [files, source, linkTargets, targetsVersion]);
   const acquired = references.filter(({ file }) => (
     isInlinePreviewable(file) && (!visibleKeys || visibleKeys.has(fileAssetKey(file)))
   ));

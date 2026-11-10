@@ -121,7 +121,7 @@ export function useAttachmentUpload(input: {
           }
         });
         if (!input.scope.isCurrent(token)) return;
-        references.push(attachmentReference(uploaded));
+        references.push(attachmentReference(uploaded, session.document.path));
         reportProgress((index + 1) / files.length);
       } catch (error) {
         if (!input.scope.isCurrent(token)) return;
@@ -158,7 +158,7 @@ export function useAttachmentUpload(input: {
         if (input.activeSession() !== session || session.deleted) {
           throw new Error(t`The file was uploaded, but the note changed before its link could be inserted.`);
         }
-        return { reference: attachmentReference(file) };
+        return { reference: attachmentReference(file, session.document.path) };
       } catch (error) {
         // Like menu uploads, a failed attachment must not block collection switching.
         // Publication/errors still belong to this widget, outside the scope's drain.
@@ -278,12 +278,22 @@ function normalizedFilePath(path: string): string {
   return path.normalize("NFC").toLocaleLowerCase();
 }
 
-function attachmentReference(file: CollectionFile): string {
+/** A link to `file` from the note at `notePath`. A Markdown link's path is
+ * read from the note's folder; a wikilink path is read from the collection root. */
+function attachmentReference(file: CollectionFile, notePath: string): string {
   const label = file.path.slice(file.path.lastIndexOf("/") + 1).replace(/[\]\\]/gu, "-");
   const mediaType = file.mediaType?.toLocaleLowerCase() ?? "";
-  if (mediaType.startsWith("image/")) return `![${label}](<${file.path}>)`;
   if (mediaType === "application/pdf" || mediaType.startsWith("audio/") || mediaType.startsWith("video/")) return `![[${file.path}]]`;
-  return `[${label}](<${file.path}>)`;
+  const link = `[${label}](<${pathFromNote(notePath, file.path)}>)`;
+  return mediaType.startsWith("image/") ? `!${link}` : link;
+}
+
+function pathFromNote(notePath: string, path: string): string {
+  const from = notePath.split("/").slice(0, -1);
+  const to = path.split("/");
+  let shared = 0;
+  while (shared < from.length && shared < to.length - 1 && from[shared] === to[shared]) shared += 1;
+  return [...from.slice(shared).map(() => ".."), ...to.slice(shared)].join("/");
 }
 
 function attachmentProgressLabel(upload: AttachmentUploadState): string {

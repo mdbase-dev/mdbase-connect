@@ -61,6 +61,7 @@ import "@mdbase-dev/ui/feedback.css";
 import { Select } from "@mdbase-dev/ui/select";
 import { literal } from "./literal";
 import { usePortalCommands, type ConnectView } from "./portal-commands";
+import { NativeStorageReads, useOverviewRefresh } from "./overview-refresh";
 
 type MemberRole = "viewer" | "editor";
 
@@ -109,7 +110,8 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
   const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
   const busyRef = useRef(new Set<string>());
   const refreshGenerationRef = useRef(0);
-  const refreshInFlightRef = useRef<{ promise: Promise<void>; signal?: AbortSignal } | null>(null);
+  const refreshInFlightRef = useRef<{ promise: Promise<void>; signal?: AbortSignal; nativeStorage: boolean } | null>(null);
+  const nativeStorageRef = useRef(new NativeStorageReads());
   const mutationRevisionRef = useRef(0);
   const optimisticRef = useRef(new Map<string, OptimisticAction>());
   const actionVersionsRef = useRef(new Map<string, number>());
@@ -129,10 +131,14 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
     return () => lifecycle.abort(t(i18n)({ message: "Connect management closed" }));
   }, []);
 
-  const refresh = useCallback((signal = lifecycleRef.current?.signal, animate = false): Promise<void> => {
+  const refresh = useCallback((signal = lifecycleRef.current?.signal, animate = false, storageAgeMs?: number): Promise<void> => {
     if (accountDeleted || signal?.aborted) return Promise.resolve();
+    const nativeStorage = nativeStorageRef.current.due(storageAgeMs);
     const pending = refreshInFlightRef.current;
-    if (pending && !pending.signal?.aborted) return pending.promise;
+    if (pending && !pending.signal?.aborted) {
+      if (pending.nativeStorage || !nativeStorage) return pending.promise;
+      return pending.promise.then(() => refresh(signal, animate, storageAgeMs));
+    }
     setRefreshing(true);
     const generation = ++refreshGenerationRef.current;
     const mutationRevision = mutationRevisionRef.current;
@@ -146,7 +152,8 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
       setRefreshError(errorMessage(reason));
     };
     const request = (async () => {
-      const next = await management.overview({ signal });
+      const next = await management.overview({ signal, nativeStorage });
+      nativeStorageRef.current.received(next, nativeStorage);
       if (signal?.aborted || lifecycleRef.current?.signal.aborted || generation !== refreshGenerationRef.current || mutationRevision !== mutationRevisionRef.current) return;
       writeOverviewPreview(next); setPreview(readOverviewPreview());
       hadSession.current = true;
@@ -166,7 +173,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
         }
       }).catch(failed);
     })().catch(failed);
-    refreshInFlightRef.current = { promise: request, signal };
+    refreshInFlightRef.current = { promise: request, signal, nativeStorage };
     const settled = () => {
       if (refreshInFlightRef.current?.promise === request) {
         refreshInFlightRef.current = null;
@@ -177,24 +184,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
     return request;
   }, [accountDeleted]);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    void refresh(controller.signal);
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") void refresh(controller.signal);
-    };
-    const timer = window.setInterval(refreshWhenVisible, 15_000);
-    document.addEventListener("visibilitychange", refreshWhenVisible);
-    window.addEventListener("focus", refreshWhenVisible);
-    window.addEventListener("online", refreshWhenVisible);
-    return () => {
-      controller.abort();
-      document.removeEventListener("visibilitychange", refreshWhenVisible);
-      window.removeEventListener("focus", refreshWhenVisible);
-      window.removeEventListener("online", refreshWhenVisible);
-      window.clearInterval(timer);
-    };
-  }, [refresh]);
+  useOverviewRefresh(refresh, view === "account");
 
   useEffect(() => {
     const update = () => setView(viewFromPath());
@@ -592,7 +582,7 @@ function Storage({ error, collection, busy, perform, editorOrigin }: {
     return <Page title={t(i18n)({ message: "Storage", context: "Connect interface" })} intro={collection.name}>
       <p>{collection.detail}</p>
       <CollectionModeControl key={collection.id} collectionId={collection.id} load={() => takeModePrefetch(management, collection.id) ?? management.collectionModeStatus(collection.id)} change={(targetMode, requestId) => management.requestCollectionMode(collection.id, {targetMode, requestId})} cancel={(_target, requestId) => management.cancelCollectionMode(collection.id, requestId)} />
-      <section><SectionTitle title={t(i18n)({ message: "Sync", context: "Connect interface" })} /><div className="connect-row"><div><strong><Trans>Collection copies</Trans></strong><small><Trans>Copies sync between your computers. App access is managed separately.</Trans></small></div></div></section>
+      <section><SectionTitle title={t(i18n)({ message: "Sync", context: "Connect interface" })} /><div className="connect-row"><div><strong><Trans>Collection copies</Trans></strong>{!!collection.source.computer_ids?.length && <small><Trans>Copies sync between your computers. App access is managed separately.</Trans></small>}</div></div></section>
     </Page>;
   }
   if (collection.kind === "hosted") {
@@ -632,18 +622,17 @@ function Collections({ error, data, busy, perform, navigate, editorOrigin }: {
   const [creationError, setCreationError] = useState<string | null>(null);
   const [location, setLocation] = useState("");
   const [query, setQuery] = useState("");
-  const hostedEnabled = data.hosted_collections_available === true;
-  const hosted = location === "hosted";
+  const cloud = location === "cloud";
   const rows = collectionRows(data);
   const initialIds = useRef(new Set(rows.map(collection => collection.id)));
   const terms = query.trim().toLocaleLowerCase(i18n.locale).split(/\s+/u).filter(Boolean);
   const visible = rows.filter(collection => terms.every(term => `${collection.name} ${collection.detail}`.toLocaleLowerCase(i18n.locale).includes(term)));
-  const canCreate = data.collection_creation_available ?? data.hosted_collections_available !== false;
+  const canCreate = data.collection_creation_available === true;
   function choose(location = "") {
     const pending = readCollectionCreation(data.user.id);
     setIntent(pending);
     setName(pending?.displayName ?? "");
-    setLocation(pending ? "hosted" : location);
+    setLocation(pending ? "cloud" : location);
     setCreationError(null);
     setCreating(true);
   }
@@ -654,7 +643,7 @@ function Collections({ error, data, busy, perform, navigate, editorOrigin }: {
   }
   async function create(event: FormEvent) {
     event.preventDefault();
-    if (!hosted || !hostedEnabled || !canCreate || busy.has("create-collection") || !validateName()) return;
+    if (!cloud || !canCreate || busy.has("create-collection") || !validateName()) return;
     let original: CollectionCreationIntent;
     try {
       original = readCollectionCreation(data.user.id) ?? {accountId:data.user.id, requestId:crypto.randomUUID(), displayName:name.trim(), timezone:Intl.DateTimeFormat().resolvedOptions().timeZone};
@@ -673,10 +662,10 @@ function Collections({ error, data, busy, perform, navigate, editorOrigin }: {
     }
   }
   const choices = <div className="connect-location-choices">
-    <button data-command={!rows.length && hostedEnabled && canCreate ? "create" : undefined} data-autofocus={hostedEnabled && canCreate || undefined} className="connect-location-choice" disabled={!hostedEnabled || !canCreate} onClick={() => choose("hosted")}><Cloud aria-hidden="true" /><span><strong><Trans>Hosted by mdbase</Trans></strong><small><Trans>Keep the main copy in mdbase, with optional synced folders.</Trans></small></span></button>
-    <button data-command={!rows.length && (!hostedEnabled || !canCreate) ? "create" : undefined} data-autofocus={!hostedEnabled || !canCreate || undefined} className="connect-location-choice" onClick={() => choose("native")}><Computer aria-hidden="true" /><span><strong><Trans>A folder on this computer</Trans></strong><small><Trans>Choose a Markdown folder in the desktop app. Your files stay here.</Trans></small></span></button>
+    <button data-command={!rows.length && canCreate ? "create" : undefined} data-autofocus={canCreate || undefined} className="connect-location-choice" disabled={!canCreate} onClick={() => choose("cloud")}><Cloud aria-hidden="true" /><span><strong><Trans>New collection</Trans></strong><small><Trans>Starts with a cloud copy, so apps can use it from any device. Add it to a computer later.</Trans></small></span></button>
+    <button data-command={!rows.length && !canCreate ? "create" : undefined} data-autofocus={!canCreate || undefined} className="connect-location-choice" onClick={() => choose("native")}><Computer aria-hidden="true" /><span><strong><Trans>A folder on this computer</Trans></strong><small><Trans>Choose a Markdown folder in the desktop app. It syncs from there.</Trans></small></span></button>
   </div>;
-  return <Page title={t(i18n)({ message: "Collections", context: "Connect interface" })} intro={rows.length ? t(i18n)({ message: "Open a collection in the editor or manage where its main copy lives." }) : undefined} action={rows.length > 0 && <button data-command="create" className="mdbase-button is-secondary" onClick={() => choose()}><Plus aria-hidden="true" /><Trans>Add collection</Trans></button>}>
+  return <Page title={t(i18n)({ message: "Collections", context: "Connect interface" })} intro={rows.length ? t(i18n)({ message: "Open a collection in the editor or manage how it syncs." }) : undefined} action={rows.length > 0 && <button data-command="create" className="mdbase-button is-secondary" onClick={() => choose()}><Plus aria-hidden="true" /><Trans>Add collection</Trans></button>}>
     <section className="connect-collections-list" aria-label={t(i18n)({ message: "Collections", context: "Connect interface" })}>
       {rows.length >= 10 && <ListFilter label={t(i18n)`Filter collections`} value={query} onChange={setQuery} />}
       {visible.map(collection => <CollectionSummary error={error} key={collection.id} className={initialIds.current.has(collection.id) ? "" : "is-new"} collection={collection} navigate={navigate} editorOrigin={editorOrigin} busy={busy} perform={perform} />)}
@@ -685,13 +674,13 @@ function Collections({ error, data, busy, perform, navigate, editorOrigin }: {
     </section>
     <Dialog open={creating} title={t(i18n)({ message: "Add collection", context: "Connect interface" })} closeDisabled={busy.has("create-collection")} onClose={() => setCreating(false)}>
       {!location && choices}
-      {hosted && <form className="connect-edit-form" noValidate onSubmit={event => void create(event)}>
-        <p className="connect-muted"><Trans>Hosted by mdbase</Trans></p>
+      {cloud && <form className="connect-edit-form" noValidate onSubmit={event => void create(event)}>
+        <p className="connect-muted"><Trans>Starts with a cloud copy</Trans></p>
         <label><span><Trans>Collection name</Trans></span><input className="mdbase-field" autoFocus maxLength={200} value={name} disabled={intent !== null || busy.has("create-collection")} aria-invalid={Boolean(creationError)} aria-describedby="collection-create-error" onBlur={validateName} onChange={event => setName(event.target.value)} /></label>
         <p className="connect-field-error" role={creationError ? "alert" : undefined} id="collection-create-error">{creationError}</p>
-        {(!hostedEnabled || !canCreate) && <p><Trans>Hosted creation is unavailable on this server.</Trans></p>}
+        {!canCreate && <p><Trans>Creating collections is unavailable on this server.</Trans></p>}
         {intent && <p role="status"><Trans>Your original request is kept. Retry it to avoid creating another collection.</Trans></p>}
-        <footer className="mdbase-dialog-actions"><button className="mdbase-button is-tertiary" type="button" disabled={busy.has("create-collection")} onClick={() => setCreating(false)}><Trans>Cancel</Trans></button><button className="mdbase-button is-primary" disabled={!hostedEnabled || !canCreate || busy.has("create-collection")}>{busy.has("create-collection") ? t(i18n)({ message: "Creating…", context: "Connect interface" }) : intent ? t(i18n)({ message: "Retry creation", context: "Connect interface" }) : t(i18n)({ message: "Create", context: "Connect interface" })}</button></footer>
+        <footer className="mdbase-dialog-actions"><button className="mdbase-button is-tertiary" type="button" disabled={busy.has("create-collection")} onClick={() => setCreating(false)}><Trans>Cancel</Trans></button><button className="mdbase-button is-primary" disabled={!canCreate || busy.has("create-collection")}>{busy.has("create-collection") ? t(i18n)({ message: "Creating…", context: "Connect interface" }) : intent ? t(i18n)({ message: "Retry creation", context: "Connect interface" }) : t(i18n)({ message: "Create", context: "Connect interface" })}</button></footer>
       </form>}
       {location === "native" && <div className="connect-edit-form"><p><Trans>Choose or create a folder in the desktop app. Collection files stay on this computer.</Trans></p><DesktopLink href="mdbase-connect://open"><Trans>Open desktop app</Trans></DesktopLink></div>}
     </Dialog>
@@ -783,8 +772,8 @@ function collectionRows(data: ManagementOverview): CollectionRow[] {
   const hosted = data.hosted_collections.map((collection) => ({
     id: collection.authority_state === "transferred" && collection.transferred_collection_id ? collection.transferred_collection_id : collection.id,
     name: collection.display_name,
-    detail: collection.authority_state === "active" ? t(i18n)({ message: "Hosted by mdbase", context: "Connect interface" }) : t(i18n)({ message: "Main copy moved to a computer" }),
-    status: collection.authority_state === "active" ? t(i18n)({ message: "Hosted", context: "Connect interface" }) : t(i18n)({ message: "Moved", context: "Connect interface" }),
+    detail: collection.authority_state === "active" ? t(i18n)({ message: "Cloud copy", context: "Collection storage mode" }) : t(i18n)({ message: "Main copy moved to a computer" }),
+    status: collection.authority_state === "active" ? "" : t(i18n)({ message: "Moved", context: "Connect interface" }),
     available: collection.authority_state === "active",
     glyph: "idle" as StatusGlyphState,
     kind: "hosted" as const,
@@ -862,8 +851,8 @@ function connectionDescription(collection: CollectionRow): string {
   if (collection.kind === "native") return t(i18n)({ message: "Management access does not give apps access to collection content. Each app needs its own collection approval." });
   if (collection.kind === "hosted") {
     return collection.available
-      ? t(i18n)({ message: "The hosted collection is available to the editor." })
-      : t(i18n)({ message: "The main copy has moved away from hosted storage." });
+      ? t(i18n)({ message: "The cloud copy is available to the editor." })
+      : t(i18n)({ message: "The main copy has moved to a computer." });
   }
   if (collection.paused) return t(i18n)({ message: "Access to this collection is paused on its computer." });
   if (collection.upgradeRequired) {

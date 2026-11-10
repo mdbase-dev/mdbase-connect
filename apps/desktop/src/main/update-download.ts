@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { rename, rm, stat } from "node:fs/promises";
 import { Transform } from "node:stream";
@@ -12,10 +12,12 @@ export async function downloadBytes(
   url: string,
   maximum: number,
   fetchImpl: typeof fetch = fetch,
-  timeoutMs = DEFAULT_DOWNLOAD_TIMEOUT_MS
+  timeoutMs = DEFAULT_DOWNLOAD_TIMEOUT_MS,
+  signal?: AbortSignal
 ): Promise<Buffer> {
-  const response = await secureFetch(url, fetchImpl, timeoutMs);
+  const response = await secureFetch(url, fetchImpl, timeoutMs, signal);
   try {
+    signal?.throwIfAborted();
     const declared = contentLength(response);
     if (declared !== null && declared > maximum) {
       throw new Error("Update signature is too large.");
@@ -40,11 +42,13 @@ export async function downloadArtifact(
   destination: string,
   onProgress: (progress: number) => void,
   fetchImpl: typeof fetch = fetch,
-  timeoutMs = DEFAULT_DOWNLOAD_TIMEOUT_MS
+  timeoutMs = DEFAULT_DOWNLOAD_TIMEOUT_MS,
+  signal?: AbortSignal
 ): Promise<void> {
-  const response = await secureFetch(artifact.url, fetchImpl, timeoutMs);
-  const temporary = `${destination}.part-${process.pid}`;
+  const response = await secureFetch(artifact.url, fetchImpl, timeoutMs, signal);
+  const temporary = `${destination}.part-${process.pid}-${randomUUID()}`;
   try {
+    signal?.throwIfAborted();
     const declared = contentLength(response);
     if (declared !== null && declared !== artifact.size) {
       throw new Error("Update artifact size does not match the signed manifest.");
@@ -52,6 +56,7 @@ export async function downloadArtifact(
     if (!response.body) throw new Error("Update artifact is empty.");
     await rm(destination, { force: true });
     await rm(temporary, { force: true });
+    signal?.throwIfAborted();
     const hash = createHash("sha256");
     let received = 0;
     const inspect = new Transform({
@@ -71,6 +76,7 @@ export async function downloadArtifact(
       inspect,
       createWriteStream(temporary, { flags: "wx", mode: 0o600 })
     );
+    signal?.throwIfAborted();
     if (received !== artifact.size || hash.digest("hex") !== artifact.sha256) {
       throw new Error("Update artifact does not match its signed digest.");
     }
@@ -98,7 +104,8 @@ export async function artifactMatches(path: string, artifact: UpdateArtifact): P
 async function secureFetch(
   url: string,
   fetchImpl: typeof fetch,
-  timeoutMs: number
+  timeoutMs: number,
+  signal?: AbortSignal
 ): Promise<Response> {
   if (!url.startsWith("https://")) throw new Error("Update downloads must use HTTPS.");
   const controller = new AbortController();
@@ -106,7 +113,7 @@ async function secureFetch(
   const response = await fetchImpl(url, {
     headers: { "user-agent": "mdbase-connect-updater" },
     redirect: "follow",
-    signal: controller.signal
+    signal: signal ? AbortSignal.any([controller.signal, signal]) : controller.signal
   }).catch((error) => {
     clearTimeout(timeout);
     throw error;

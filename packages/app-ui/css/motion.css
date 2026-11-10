@@ -21,6 +21,14 @@
   transition: opacity var(--motion-enter) var(--ease-out), transform var(--motion-enter) var(--ease-out);
 }
 .mdbase-overlay::backdrop { opacity: 1; transition: opacity var(--motion-enter) var(--ease-out); }
+.mdbase-dialog.mdbase-overlay {
+  transition-property: opacity, transform, display, overlay;
+  transition-behavior: normal, normal, allow-discrete, allow-discrete;
+}
+.mdbase-dialog.mdbase-overlay::backdrop {
+  transition-property: opacity, display, overlay;
+  transition-behavior: normal, allow-discrete, allow-discrete;
+}
 .mdbase-overlay[data-open="false"]::backdrop { opacity: 0; transition-duration: var(--motion-exit); transition-timing-function: var(--ease-exit); }
 .mdbase-overlay[data-open="false"] {
   opacity: 0;

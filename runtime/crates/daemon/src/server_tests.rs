@@ -6,13 +6,17 @@ mod conflict_tests;
 #[cfg(unix)]
 #[path = "server_mirror_join_tests.rs"]
 mod mirror_join_tests;
+use super::doctor::loopback_check;
+use super::enable_sync::{adopt_holds_refusal, sync_e2e};
+use super::holds::hold_summary;
+use super::legacy_takeover::HostTarget;
 use super::*;
 
 #[cfg(unix)]
 #[path = "server_grant_session_tests.rs"]
 mod grant_sessions;
 use crate::access::{AccessState, FeedCursor};
-use crate::confirm::{Answer, Confirmer};
+use crate::confirm::{Answer, Confirmer, Prompt};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -303,9 +307,9 @@ struct Suspended {
     message: std::sync::Mutex<String>,
 }
 impl Confirmer for Suspended {
-    fn ask<'a>(&'a self, _: &'a str, message: &'a str) -> crate::session::BoxFuture<'a, Answer> {
+    fn ask<'a>(&'a self, prompt: &'a Prompt) -> crate::session::BoxFuture<'a, Answer> {
         Box::pin(async move {
-            *self.message.lock().unwrap() = message.into();
+            *self.message.lock().unwrap() = prompt.message();
             self.shown.notify_one();
             self.answer.notified().await;
             Answer::Yes
@@ -1882,4 +1886,19 @@ fn doctor_does_not_fail_a_taken_over_folder_registered_again_as_another_collecti
         "{}",
         check.detail
     );
+}
+
+/// Turning sync on makes a cloud copy by default, a folder with files included.
+/// Only a collection taken over from today's connector stays Private, and an
+/// interrupted adopt keeps the mode it started with.
+#[test]
+fn sync_defaults_to_a_cloud_copy() {
+    assert!(!sync_e2e(None, None, false).unwrap());
+    assert!(sync_e2e(None, None, true).unwrap());
+    assert!(sync_e2e(None, Some(SyncMode::SyncedE2e), false).unwrap());
+    assert!(!sync_e2e(None, Some(SyncMode::Synced), true).unwrap());
+    assert!(sync_e2e(Some(true), None, false).unwrap());
+    assert!(!sync_e2e(Some(false), None, true).unwrap());
+    let changed = sync_e2e(Some(true), Some(SyncMode::Synced), false).unwrap_err();
+    assert_eq!(changed.reason.as_deref(), Some("adopt_in_progress"));
 }

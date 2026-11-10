@@ -7,6 +7,10 @@ msgstr ""
 "X-Generator: @lingui/cli\n"
 "Language: zh\n"
 
+#: src/CommentsPanel.tsx
+msgid "(a point in the text)"
+msgstr "(文中的一处)"
+
 #: src/AppSwitcher.tsx
 msgid "(opens in a new tab)"
 msgstr "（在新标签页中打开）"
@@ -15,6 +19,11 @@ msgstr "（在新标签页中打开）"
 #: src/text-diff.ts
 msgid "{0, plural, one {# more changed line} other {# more changed lines}}"
 msgstr "{0, plural, other {还有 # 行更改}}"
+
+#. placeholder {0}: info.replies
+#: src/comment-anchors.ts
+msgid "{0, plural, one {# reply} other {# replies}}"
+msgstr "{0, plural, other {# 条回复}}"
 
 #. placeholder {0}: signIn.accountLogin
 #: src/collections/model.ts
@@ -56,9 +65,21 @@ msgstr "{app} 将不再在此设备上显示该集合。集合内容不会被删
 msgid "{count, plural, one {# mark applied.} other {# marks applied.}}"
 msgstr "{count, plural, other {已应用 # 处标记。}}"
 
+#: src/CommentsPanel.tsx
+msgid "{count, plural, one {# open comment} other {# open comments}}"
+msgstr "{count, plural, other {# 条未解决的评论}}"
+
 #: src/Feedback.tsx
 msgid "A problem occurred. You can use Send feedback to report it."
 msgstr "发生了问题。你可以通过“发送反馈”进行报告。"
+
+#: src/CommentsPanel.tsx
+msgid "Accept"
+msgstr "接受"
+
+#: src/CommentsPanel.tsx
+msgid "Accepted"
+msgstr "已接受"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -80,6 +101,31 @@ msgctxt "Collection access interface"
 msgid "Add a Private collection"
 msgstr "添加私有集合"
 
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Add column"
+msgstr "添加列"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Add row"
+msgstr "添加行"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Align center"
+msgstr "居中对齐"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Align left"
+msgstr "左对齐"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Align right"
+msgstr "右对齐"
+
 #: src/FeedbackMarkup.tsx
 msgid "Apply changes"
 msgstr "应用更改"
@@ -93,6 +139,14 @@ msgstr "正在应用集合更新…"
 msgid "Applying…"
 msgstr "正在应用…"
 
+#: src/CommentsPanel.tsx
+msgid "as {signer}"
+msgstr "以 {signer} 的身份"
+
+#: src/CommentsPanel.tsx
+msgid "At the cursor"
+msgstr "在光标处"
+
 #: src/Feedback.tsx
 msgid "Attach screenshot"
 msgstr "附加屏幕截图"
@@ -105,6 +159,21 @@ msgstr "返回工作"
 msgid "Blackout"
 msgstr "遮盖"
 
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Bring it in"
+msgstr "导入"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Bring your work into {collection}?"
+msgstr "要将你的工作导入 {collection} 吗？"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Bringing in…"
+msgstr "正在导入…"
+
 #: src/apps.ts
 msgid "Browse and edit records"
 msgstr "浏览和编辑记录"
@@ -112,6 +181,14 @@ msgstr "浏览和编辑记录"
 #: src/Feedback.tsx
 msgid "Browser, OS, viewport and recent error codes. No note contents, paths or credentials."
 msgstr "浏览器、操作系统、视口和近期错误代码。不包含笔记内容、路径或凭据。"
+
+#: src/AppSwitcher.tsx
+msgid "Build your own"
+msgstr "构建自己的应用"
+
+#: src/CommentsPanel.tsx
+msgid "by {resolver}"
+msgstr "由 {resolver}"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -133,6 +210,7 @@ msgctxt "Collection access interface"
 msgid "Can't open {collection}"
 msgstr "无法打开 {collection}"
 
+#: src/CommentsPanel.tsx
 #: src/ConfirmDialog.tsx
 #: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
@@ -195,6 +273,11 @@ msgctxt "Collection access interface"
 msgid "Choose or create a collection there."
 msgstr "在那里选择或创建集合。"
 
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Clear cells"
+msgstr "清空单元格"
+
 #: src/Dialog.tsx
 msgid "Close"
 msgstr "关闭"
@@ -208,6 +291,10 @@ msgstr "关闭"
 msgctxt "Collection storage mode"
 msgid "Cloud copy"
 msgstr "云端副本"
+
+#: src/live-preview/blocks.ts
+msgid "Collapse callout"
+msgstr "折叠提示框"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -229,9 +316,32 @@ msgctxt "Color theme"
 msgid "Color theme"
 msgstr "颜色主题"
 
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Column options"
+msgstr "列选项"
+
 #: src/CommandPalette.tsx
 msgid "Commands"
 msgstr "命令"
+
+#: src/comment-anchors.ts
+#: src/CommentsPanel.tsx
+msgid "Comment"
+msgstr "评论"
+
+#: src/CommentsPanel.tsx
+msgid "Comments"
+msgstr "评论"
+
+#: src/CommentsPanel.tsx
+msgid "Comments could not be loaded: {problem}"
+msgstr "无法加载评论：{problem}"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Connect to sync your work"
+msgstr "连接以同步你的工作"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -264,14 +374,59 @@ msgctxt "Collection storage mode"
 msgid "Continue on this device"
 msgstr "在此设备上继续"
 
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Continue without connecting"
+msgstr "不连接，继续使用"
+
+#: src/live-preview/blocks.ts
+msgid "Copied"
+msgstr "已复制"
+
+#: src/live-preview/blocks.ts
+msgid "Copy"
+msgstr "复制"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Copy cells"
+msgstr "复制单元格"
+
+#: src/live-preview/blocks.ts
+msgid "Copy code"
+msgstr "复制代码"
+
+#: src/live-preview/blocks.ts
+msgid "Copy failed"
+msgstr "复制失败"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Copy table"
+msgstr "复制表格"
+
 #: src/AppSwitcher.tsx
 msgid "Current"
 msgstr "当前"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Cut cells"
+msgstr "剪切单元格"
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Danger"
+msgstr "危险"
 
 #: src/ThemeSelect.tsx
 msgctxt "Color theme"
 msgid "Dark"
 msgstr "深色"
+
+#: src/CommentsPanel.tsx
+msgid "Delete “{exact}”"
+msgstr "删除“{exact}”"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -288,6 +443,26 @@ msgctxt "Collection access interface"
 msgid "Delete collection…"
 msgstr "删除集合…"
 
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Delete column"
+msgstr "删除列"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Delete columns"
+msgstr "删除列"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Delete row"
+msgstr "删除行"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Delete rows"
+msgstr "删除行"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Deleting…"
@@ -296,6 +471,26 @@ msgstr "正在删除…"
 #: src/screens.tsx
 msgid "Details"
 msgstr "详情"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discard"
+msgstr "丢弃"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discard work that isn't in a collection?"
+msgstr "要丢弃不在任何集合中的工作吗？"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discard…"
+msgstr "丢弃…"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Discarding…"
+msgstr "正在丢弃…"
 
 #: src/Toaster.tsx
 msgid "Dismiss"
@@ -317,6 +512,15 @@ msgstr "Esc"
 msgctxt "Collection access interface"
 msgid "Everyone, including you, loses access to it on every device and app right away. This can't be undone."
 msgstr "你和其他所有人都将立即无法在任何设备或应用中访问此集合。此操作无法撤销。"
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Example"
+msgstr "示例"
+
+#: src/live-preview/blocks.ts
+msgid "Expand callout"
+msgstr "展开提示框"
 
 #: src/feedback-data.ts
 msgid "Feedback could not be sent. Check your connection and try again."
@@ -385,6 +589,44 @@ msgstr "包含屏幕截图"
 msgid "Include technical diagnostics"
 msgstr "包含技术诊断信息"
 
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Info"
+msgstr "信息"
+
+#: src/CommentsPanel.tsx
+msgid "Insert “{replacement}”"
+msgstr "插入“{replacement}”"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Insert column left"
+msgstr "在左侧插入列"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Insert column right"
+msgstr "在右侧插入列"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Insert row above"
+msgstr "在上方插入行"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Insert row below"
+msgstr "在下方插入行"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "It's erased from {app} on this device. This can't be undone."
+msgstr "它将从此设备上的 {app} 中清除。此操作无法撤销。"
+
+#: src/apps.ts
+msgid "Keep a daily journal"
+msgstr "坚持每日日记"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Kept on your computers, not stored by mdbase"
@@ -394,6 +636,10 @@ msgstr "保存在你的电脑上，不由 mdbase 存储"
 msgctxt "Color theme"
 msgid "Light"
 msgstr "浅色"
+
+#: src/CommentsPanel.tsx
+msgid "Loading comments…"
+msgstr "正在加载评论…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -405,10 +651,22 @@ msgctxt "Collection storage mode"
 msgid "Make private"
 msgstr "设为私有"
 
+#: src/CommentsPanel.tsx
+msgid "Make this edit"
+msgstr "应用此修改"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Manage access"
 msgstr "管理访问权限"
+
+#: src/live-preview/inline.ts
+msgid "Mark task complete"
+msgstr "将任务标记为已完成"
+
+#: src/live-preview/inline.ts
+msgid "Mark task incomplete"
+msgstr "将任务标记为未完成"
 
 #: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
@@ -418,10 +676,6 @@ msgstr "标记屏幕截图"
 #: src/Feedback.tsx
 msgid "Markup discarded. Screenshot excluded."
 msgstr "已丢弃标记，未包含屏幕截图。"
-
-#: src/AppSwitcher.tsx
-msgid "mdbase {current}: open this collection in another app"
-msgstr "mdbase {current}：在其他应用中打开此集合"
 
 #: src/AppSwitcher.tsx
 msgid "mdbase apps"
@@ -441,6 +695,26 @@ msgctxt "Collection access interface"
 msgid "More for {collection}"
 msgstr "{collection} 的更多内容"
 
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Move column left"
+msgstr "向左移动列"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Move column right"
+msgstr "向右移动列"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Move row down"
+msgstr "向下移动行"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Move row up"
+msgstr "向上移动行"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Needs a decision"
@@ -449,6 +723,10 @@ msgstr "需要决定"
 #: src/SaveNotice.tsx
 msgid "Needs attention"
 msgstr "需要处理"
+
+#: src/CommentsPanel.tsx
+msgid "New comment"
+msgstr "新评论"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -460,9 +738,22 @@ msgctxt "Collection access interface"
 msgid "No collections match “{query}”."
 msgstr "没有匹配“{query}”的集合。"
 
+#: src/live-preview/inline.ts
+msgid "No note or file matches “{target}”."
+msgstr "没有与“{target}”匹配的笔记或文件。"
+
+#: src/CommentsPanel.tsx
+msgid "No open comments"
+msgstr "没有未解决的评论"
+
 #: src/Feedback.tsx
 msgid "No screenshot taken. You can still send feedback."
 msgstr "未截取屏幕截图。你仍可以发送反馈。"
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Note"
+msgstr "备注"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -473,10 +764,27 @@ msgstr "集合中的内容不会发生变化。"
 msgid "Nothing matches"
 msgstr "没有匹配项"
 
+#: src/CommentsPanel.tsx
+msgid "Nothing resolved yet."
+msgstr "尚无已解决的评论。"
+
+#: src/CommentsPanel.tsx
+msgid "On the whole note"
+msgstr "针对整篇笔记"
+
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content."
 msgstr "切换完成后，只有你的设备能够读取新内容。mdbase 可能仍能读取旧内容。"
+
+#: src/CommentsPanel.tsx
+msgctxt "Comment status"
+msgid "Open"
+msgstr "未解决"
+
+#: src/CommentsPanel.tsx
+msgid "Open file"
+msgstr "打开文件"
 
 #: src/AppSwitcher.tsx
 msgid "Open in another mdbase app"
@@ -539,6 +847,10 @@ msgctxt "Collection access interface"
 msgid "Owner"
 msgstr "所有者"
 
+#: src/apps.ts
+msgid "Plan tasks and projects"
+msgstr "规划任务和项目"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Preparing secure access…"
@@ -563,6 +875,16 @@ msgstr "私有"
 msgid "Private feedback to the mdbase team."
 msgstr "发送给 mdbase 团队的私密反馈。"
 
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Question"
+msgstr "问题"
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Quote"
+msgstr "引用"
+
 #: src/apps.ts
 msgid "Read and annotate sources"
 msgstr "阅读和注释来源"
@@ -571,6 +893,14 @@ msgstr "阅读和注释来源"
 msgctxt "Collection storage mode"
 msgid "Refresh status"
 msgstr "刷新状态"
+
+#: src/CommentsPanel.tsx
+msgid "Reject"
+msgstr "拒绝"
+
+#: src/CommentsPanel.tsx
+msgid "Rejected"
+msgstr "已拒绝"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -601,9 +931,21 @@ msgctxt "Collection access interface"
 msgid "Remove from this list"
 msgstr "从此列表中移除"
 
+#: src/CommentsPanel.tsx
+msgid "Reopen"
+msgstr "重新打开"
+
+#: src/CommentsPanel.tsx
+msgid "Replace “{exact}” with “{replacement}”"
+msgstr "将“{exact}”替换为“{replacement}”"
+
 #: src/Feedback.tsx
 msgid "Replies aren’t guaranteed. Not for security reports or urgent support."
 msgstr "我们无法保证会回复。请勿用于安全问题报告或紧急支持。"
+
+#: src/CommentsPanel.tsx
+msgid "Reply"
+msgstr "回复"
 
 #: src/Feedback.tsx
 msgid "Reply email"
@@ -618,6 +960,19 @@ msgstr "报告问题"
 msgctxt "Screenshot annotations"
 msgid "Reset"
 msgstr "重置"
+
+#: src/CommentsPanel.tsx
+msgid "Resolve"
+msgstr "解决"
+
+#: src/CommentsPanel.tsx
+msgid "Resolved"
+msgstr "已解决"
+
+#: src/CommentsPanel.tsx
+msgctxt "Comment status"
+msgid "Resolved"
+msgstr "已解决"
 
 #: src/CommandPalette.tsx
 msgid "Results"
@@ -645,9 +1000,24 @@ msgstr "在那里查看对 {collection} 的访问权限。"
 msgid "Review for private information before sending."
 msgstr "发送前请检查是否包含私人信息。"
 
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Row options"
+msgstr "行选项"
+
 #: src/SaveNotice.tsx
 msgid "Saved"
 msgstr "已保存"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Saved only in this browser"
+msgstr "仅保存在此浏览器中"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Saved only on this device"
+msgstr "仅保存在此设备上"
 
 #: src/SaveNotice.tsx
 msgid "Saving"
@@ -720,6 +1090,14 @@ msgstr "正在设置…"
 msgid "Share something you like"
 msgstr "分享你喜欢的内容"
 
+#: src/CommentsPanel.tsx
+msgid "Show"
+msgstr "显示"
+
+#: src/CommentsPanel.tsx
+msgid "Show in the note"
+msgstr "在笔记中显示"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Sign in"
@@ -757,6 +1135,36 @@ msgstr "正在退出登录…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "Some items changed after they were brought in. Their newer versions are added beside them."
+msgstr "部分项目在导入后有所更改。它们的较新版本会添加在原项目旁边。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Some items get a new name because their names are already taken."
+msgstr "部分项目的名称已被占用，因此会获得新名称。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Some items use types this collection doesn't have. They're brought in as they are."
+msgstr "部分项目使用了此集合没有的类型。它们将按原样导入。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Some of your work couldn't be brought in. Try again."
+msgstr "部分工作未能导入。请重试。"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Sort ascending"
+msgstr "升序排序"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Sort descending"
+msgstr "降序排序"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
 msgid "Starting {app}…"
 msgstr "正在启动 {app}…"
 
@@ -765,9 +1173,22 @@ msgctxt "Collection storage mode"
 msgid "Storage mode"
 msgstr "存储模式"
 
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Success"
+msgstr "成功"
+
 #: src/feedback-data.ts
 msgid "Suggest an improvement"
 msgstr "提出改进建议"
+
+#: src/comment-anchors.ts
+msgid "Suggested edit"
+msgstr "修改建议"
+
+#: src/comment-anchors.ts
+msgid "Suggested insertion"
+msgstr "建议插入的内容"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -783,6 +1204,11 @@ msgstr "正在同步你的集合…"
 msgctxt "Color theme"
 msgid "System"
 msgstr "系统"
+
+#: src/live-preview/table-controls.ts
+msgctxt "table"
+msgid "Table options"
+msgstr "表格选项"
 
 #: src/Feedback.tsx
 msgid "Taking screenshot…"
@@ -840,10 +1266,23 @@ msgstr "屏幕截图不是有效的 PNG 或 JPEG 图片。"
 msgid "The screenshot is larger than 3 MB. Choose a smaller image."
 msgstr "屏幕截图大于 3 MB。请选择较小的图片。"
 
+#: src/CommentsPanel.tsx
+msgid "The suggested text is no longer there"
+msgstr "建议的文本已不存在"
+
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "The switch to Private didn’t finish. Revoke the device that started it. Your other owner devices will then replace the collection key."
 msgstr "切换到私有模式未完成。请撤销发起切换的设备。之后你的其他所有者设备会替换集合密钥。"
+
+#: src/CommentsPanel.tsx
+msgid "The text it was on has changed"
+msgstr "所针对的文本已更改"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "These types are added: {types}."
+msgstr "将添加以下类型：{types}。"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -860,6 +1299,15 @@ msgctxt "Collection access interface"
 msgid "This is taking longer than usual."
 msgstr "这比平时花费的时间更长。"
 
+#: src/CommentsPanel.tsx
+msgid "This passage is no longer in the text"
+msgstr "这段文字已不在正文中"
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Tip"
+msgstr "提示"
+
 #: src/CommandPalette.tsx
 msgid "to close"
 msgstr "关闭"
@@ -869,9 +1317,15 @@ msgid "to move"
 msgstr "移动"
 
 #: src/CommandPalette.tsx
-msgid "to open"
-msgstr "打开"
+msgid "to run"
+msgstr "执行"
 
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Todo"
+msgstr "待办"
+
+#: src/CommentsPanel.tsx
 #: src/screens.tsx
 msgid "Try again"
 msgstr "重试"
@@ -904,6 +1358,10 @@ msgstr "撤销"
 msgid "Unsaved"
 msgstr "未保存"
 
+#: src/CommentsPanel.tsx
+msgid "Unsigned"
+msgstr "未署名"
+
 #: src/FeedbackMarkup.tsx
 msgid "Up to 100 marks can be applied. Undo or reset to make another mark."
 msgstr "最多可以添加 100 处标记。撤销或重置后可继续添加。"
@@ -935,6 +1393,11 @@ msgstr "正在等待设备更新。"
 msgctxt "Collection storage mode"
 msgid "Waiting for older device connections to expire. Cloud copy remains on until the switch finishes."
 msgstr "正在等待旧设备连接过期。切换完成之前，云端副本将保持启用。"
+
+#: src/live-preview/blocks.ts
+msgctxt "callout type"
+msgid "Warning"
+msgstr "警告"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
@@ -970,6 +1433,14 @@ msgstr "你希望改进什么？"
 msgid "What’s working well for you?"
 msgstr "哪些方面对你很有帮助？"
 
+#: src/CommentsPanel.tsx
+msgid "Withdraw"
+msgstr "撤回"
+
+#: src/CommentsPanel.tsx
+msgid "Withdrawn."
+msgstr "已撤回。"
+
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
 msgid "Working…"
@@ -978,6 +1449,11 @@ msgstr "正在处理…"
 #: src/apps.ts
 msgid "Write manuscripts that cite your sources"
 msgstr "撰写引用来源的手稿"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "You have work that isn't in {collection} yet."
+msgstr "你有尚未放入 {collection} 的工作。"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -997,3 +1473,13 @@ msgstr "你的集合"
 #: src/Feedback.tsx
 msgid "Your message, any reply email and included screenshot, plus these app and build details."
 msgstr "你的消息、回复邮箱、附加的屏幕截图，以及这些应用和构建信息。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Your work is now in {collection}."
+msgstr "你的工作现已在 {collection} 中。"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Your work is now in {collection}. If it's still open in another tab, close it there, then bring it in again."
+msgstr "你的工作现已在 {collection} 中。如果它仍在其他标签页中打开，请先在那里关闭，然后再次导入。"

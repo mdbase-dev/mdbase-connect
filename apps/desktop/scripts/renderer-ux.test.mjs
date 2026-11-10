@@ -32,30 +32,36 @@ after(async () => {
 
 // Lean UX checks for the daemon-backed renderer, on a mocked preload API. Pure
 // presentation (wording, grouping) is covered by test/daemon-view.test.mjs.
-async function desktop({ signedIn = true, collections = [], access = [], devices = [], activity = [] } = {}) {
+const unavailableUpdate = { phase: "unavailable", current_version: "test", channel: "beta", message: "Development build", can_check: false, can_install: false };
+
+async function desktop({ signedIn = true, collections = [], access = [], devices = [], activity = [], apps = [], updateStatus = unavailableUpdate } = {}) {
   const page = await browser.newPage({ viewport: { width: 1060, height: 720 } });
   await page.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.clock.install();
-  await page.addInitScript(({ signedIn, collections, access, devices, activity }) => {
+  await page.addInitScript(({ signedIn, collections, access, devices, activity, apps, updateStatus }) => {
     const calls = [];
     const record = (name) => async (...args) => { calls.push([name, ...args]); return null; };
     const fixture = {
-      calls, collections, access, devices, activity, requireApproval: false,
+      calls, collections, access, devices, activity, apps, updateStatus, requireApproval: false,
       account: { configured: signedIn, serverUrl: signedIn ? "https://connect.example.test" : null, online: signedIn, pairing: null, lastError: null },
-      status: () => ({ target: "isolated_profile", state_dir: "/disposable", account: { signed_in: fixture.account.configured, online: fixture.account.configured }, collections: fixture.collections })
+      status: () => ({ target: "isolated_profile", state_dir: "/disposable", account: { signed_in: fixture.account.configured, online: fixture.account.configured, environment: "production" }, collections: fixture.collections })
     };
     window.fixture = fixture;
     window.mdbaseConnect = {
       getLocale: async () => localStorage.getItem("fixture:locale") ?? "en",
       setLocale: async (locale) => { calls.push(["setLocale", locale]); localStorage.setItem("fixture:locale", locale); },
       status: async () => fixture.status(),
-      updateStatus: async () => ({ phase: "unavailable", current_version: "test", channel: "beta", message: "Development build", can_check: false, can_install: false }),
+      updateStatus: async () => fixture.updateStatus,
+      checkForUpdates: async () => { calls.push(["checkForUpdates"]); return fixture.updateStatus; },
+      installUpdate: async () => { calls.push(["installUpdate"]); return fixture.updateStatus; },
       migrationStatus: async () => fixture.migration ?? { record: null, running: false },
       listCollections: async () => fixture.collections,
       getCloudConfig: async () => ({ ...fixture.account }),
       listAccess: async () => fixture.access,
+      listApps: async () => ({ applications: fixture.apps }),
+      openApp: record("openApp"),
       getSettings: async () => ({ require_grant_approval: fixture.requireApproval }),
       getLaunchAtLogin: async () => ({ enabled: false, available: false }),
       addCollection: record("addCollection"),
@@ -71,6 +77,8 @@ async function desktop({ signedIn = true, collections = [], access = [], devices
         return null;
       },
       removeCollection: record("removeCollection"),
+      syncFiles: async () => fixture.syncFiles ?? { include: ["image", "audio", "video", "pdf", "other"], exclude: [] },
+      setSyncFiles: async (id, files) => { calls.push(["setSyncFiles", id, files]); fixture.syncFiles = files; return files; },
       listHolds: async () => fixture.holds ?? [],
       resolveHold: async (id, hold, how) => { calls.push(["resolveHold", id, hold, how]); fixture.holds = (fixture.holds ?? []).filter((h) => h.id !== hold);
         const held = fixture.migration?.holds?.[id];
@@ -95,7 +103,7 @@ async function desktop({ signedIn = true, collections = [], access = [], devices
       reopenSignIn: async () => {},
       onNavigate: () => () => {}, onUpdateStatus: () => () => {}
     };
-  }, { signedIn, collections, access, devices, activity });
+  }, { signedIn, collections, access, devices, activity, apps, updateStatus });
   await page.goto(origin);
   await page.getByText(signedIn ? "Connected securely" : "Not signed in", { exact: true }).first().waitFor().catch(error => { throw new Error(`${error.message}\nRenderer errors: ${errors.join("; ")}`); });
   const calls = (name) => page.evaluate((name) => window.fixture.calls.filter((call) => call[0] === name).map((call) => call.slice(1)), name);
@@ -124,6 +132,57 @@ test("renderer loads real locale chunks and restores the preload language prefer
 
 const nav = (page, name) => page.locator(".product-sidebar-link").filter({ hasText: name });
 
+for (const phase of ["external", "ready"]) {
+  test(`a ${phase} update keeps Check for updates next to its install action in Settings`, async () => {
+    const { page, errors, calls } = await desktop({
+      updateStatus: {
+        phase,
+        current_version: "0.1.0-beta.8",
+        channel: "beta",
+        target_version: "0.1.0-beta.9",
+        checked_at: "2026-11-09T00:00:00.000Z",
+        message: phase === "external" ? "Version 0.1.0-beta.9 is available through the signed package channel." : "Version 0.1.0-beta.9 is verified and ready to install.",
+        can_check: true,
+        can_install: true
+      }
+    });
+    const dialogs = [];
+    page.on("dialog", (dialog) => { dialogs.push(dialog.type()); void dialog.dismiss(); });
+    try {
+      await nav(page, "Settings").click();
+      await page.getByRole("heading", { name: "Settings", exact: true }).waitFor();
+      const install = page.getByRole("button", { name: `${phase === "external" ? "Open" : "Install"} 0.1.0-beta.9`, exact: true });
+      const check = page.getByRole("button", { name: "Check for updates", exact: true });
+      await install.waitFor();
+      await check.waitFor();
+      assert.equal(await install.isEnabled(), true);
+      assert.equal(await check.isEnabled(), true);
+      await page.setViewportSize({ width: 820, height: 720 });
+      const bounds = await page.locator(".setting-row").filter({ has: check }).evaluate((row) => {
+        const version = document.createRange();
+        version.selectNodeContents(row.querySelector("strong"));
+        return { versionRight: version.getBoundingClientRect().right, actionsLeft: row.querySelector(".update-actions").getBoundingClientRect().left };
+      });
+      assert.ok(bounds.versionRight <= bounds.actionsLeft, `version overlaps update actions: ${JSON.stringify(bounds)}`);
+      await check.click();
+      await page.waitForFunction(() => window.fixture.calls.some((call) => call[0] === "checkForUpdates"));
+      await page.waitForFunction(() => !document.querySelector(".update-actions button:disabled"));
+      assert.equal((await calls("checkForUpdates")).length, 1);
+      await check.click();
+      await page.waitForFunction(() => window.fixture.calls.filter((call) => call[0] === "checkForUpdates").length === 2 && !document.querySelector(".update-actions button:disabled"));
+      assert.equal(await install.count(), 1);
+      assert.equal(await check.count(), 1);
+      assert.deepEqual(await calls("installUpdate"), []);
+      await install.click();
+      await page.waitForFunction(() => window.fixture.calls.some((call) => call[0] === "installUpdate"));
+      assert.equal((await calls("installUpdate")).length, 1);
+      assert.equal(await page.getByRole("alert").count(), 0);
+      assert.deepEqual(dialogs, []);
+      assert.deepEqual(errors, []);
+    } finally { await page.close(); }
+  });
+}
+
 async function collectionAction(page, name, card = page.locator(".collection-card")) {
   await card.getByRole("button", { name: /^Actions for / }).click();
   await page.getByRole("menuitem", { name, exact: true }).click();
@@ -139,12 +198,18 @@ const collection = (overrides = {}) => ({
 });
 
 for (const theme of ["light", "dark"]) {
-  test(`desktop parity: overview links, collection search and overflow in ${theme}`, async () => {
-    const { page, errors, calls } = await desktop({ collections: [collection(), collection({ id: "c-work", name: "Work" })] });
+  test(`desktop parity: home apps, collection search and overflow in ${theme}`, async () => {
+    const { page, errors, calls } = await desktop({
+      collections: [collection(), collection({ id: "c-work", name: "Work" })],
+      apps: [
+        { id: "editor", name: "Editor", distribution: "web", homepage: "https://editor.mdbase.dev/", icon: "https://editor.mdbase.dev/icon.svg", collections: [{ id: "c-notes", name: "Notes" }] },
+        { id: "board", name: "Board", distribution: "web", homepage: "https://board.example/", icon: "https://board.example/icon.png", collections: [] }
+      ]
+    });
     try {
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
-      const current = nav(page, "Overview");
+      const current = nav(page, "Home");
       for (let attempt = 0; attempt < 40 && !await current.evaluate(element => element === document.activeElement); attempt++) await page.keyboard.press("Tab");
       assert.equal(await current.evaluate(element => element === document.activeElement), true);
       const selection = await current.evaluate(element => {
@@ -157,12 +222,22 @@ for (const theme of ["light", "dark"]) {
       assert.equal(selection.before, "none");
       assert.notEqual(selection.background, "rgba(0, 0, 0, 0)");
       assert.equal(selection.outline, "solid");
-      assert.equal(await page.getByRole("heading", { name: "Overview", exact: true }).count(), 1);
-      assert.equal(await page.locator(".overview-row").count(), 3);
-      assert.equal(await page.locator(".overview-row button").count(), 0);
-      await screenshot(page, `parity-overview-${theme}`);
-      await page.getByRole("link", { name: /^Apps / }).click();
-      await page.getByRole("heading", { name: "Apps", exact: true }).waitFor();
+      assert.equal(await page.getByRole("heading", { name: "Home", exact: true }).count(), 1);
+      const yours = page.getByRole("region", { name: "Your apps" });
+      await yours.getByText("Editor", { exact: true }).waitFor();
+      // Official apps draw their bundled mark; others load their manifest icon and fall back to a letter when it fails.
+      assert.equal(await yours.locator(".app-tile").filter({ hasText: "Editor" }).locator(".app-mark.is-bundled svg").count(), 1);
+      await yours.locator(".app-tile").filter({ hasText: "Board" }).locator(".app-mark[data-tone]").filter({ hasText: "B" }).waitFor();
+      assert.equal(await page.locator("img.app-mark").count(), 0);
+      assert.deepEqual(await page.getByRole("region", { name: "More apps from mdbase" }).locator(".app-tile strong").allTextContents(),
+        ["Reader", "Writer", "Journal", "TaskNotes"]);
+      assert.equal(await page.getByRole("link", { name: /^Notes .*Editor$/ }).count(), 1);
+      await screenshot(page, `parity-home-${theme}`);
+      await yours.getByRole("button", { name: "Open Editor" }).click();
+      await page.waitForFunction(() => window.fixture.calls.some(call => call[0] === "openApp"));
+      assert.deepEqual(await calls("openApp"), [["https://editor.mdbase.dev/"]]);
+      await page.getByRole("link", { name: /^Work / }).click();
+      await page.getByRole("heading", { name: "Collections", exact: true }).waitFor();
       for (const name of ["Collections", "Apps", "Activity", "Settings"]) {
         await nav(page, name).click();
         await page.getByRole("heading", { name, exact: true }).waitFor();
@@ -353,6 +428,14 @@ test("shared keyboard shortcuts navigate, filter and move list focus without app
     await page.keyboard.press("j");
     assert.equal(await page.locator(".collection-card").nth(1).evaluate(element => element === document.activeElement), true);
     await page.keyboard.press("k");
+    await page.keyboard.press("Control+k");
+    const palette = page.getByRole("dialog", { name: "Commands", exact: true });
+    await palette.waitFor();
+    assert.equal(await palette.locator(".mdbase-command-group").first().innerText(), "Notes 00");
+    assert.match(await palette.getByRole("option").first().innerText(), /Notes 00/);
+    await page.keyboard.press("Escape");
+    await palette.waitFor({ state: "hidden" });
+    assert.equal(await page.locator(".collection-card").nth(0).evaluate(element => element === document.activeElement), true);
     await page.keyboard.press("Enter");
     await page.getByRole("menu", { name: "Notes 00" }).waitFor();
     assert.equal(await page.getByRole("menuitem", { name: "Open folder", exact: true }).evaluate(element => element === document.activeElement), true);
@@ -406,6 +489,25 @@ test("shared keyboard shortcuts navigate, filter and move list focus without app
 
 for (const theme of ["light", "dark"]) {
   for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    test(`round 9 focused collection leads and opens from its palette group ${viewport.width} ${theme}`, async () => {
+      const { page, errors, calls } = await desktop({ collections: [collection({ id: "first", name: "First notes" }), collection({ id: "second", name: "Second notes" })] });
+      try {
+        await page.setViewportSize(viewport);
+        await page.emulateMedia({ colorScheme: theme });
+        await page.keyboard.press("g"); await page.keyboard.press("c");
+        await page.getByRole("heading", { name: "Collections", exact: true }).waitFor();
+        await page.keyboard.press("j"); await page.keyboard.press("j");
+        await page.keyboard.press("Control+k");
+        const palette = page.getByRole("dialog", { name: "Commands", exact: true });
+        await palette.waitFor();
+        assert.equal(await palette.locator(".mdbase-command-group").first().innerText(), "Second notes");
+        assert.match(await palette.getByRole("option").first().innerText(), /Second notes/);
+        await page.keyboard.press("Enter");
+        await palette.waitFor({ state: "hidden" });
+        assert.deepEqual(await calls("openCollectionFolder"), [["second"]]);
+        assert.deepEqual(errors, []);
+      } finally { await page.close(); }
+    });
     test(`W19 palette reviews pending approvals at ${viewport.width} in ${theme}`, async () => {
       const { page, errors, calls } = await desktop({
         collections: [collection()],
@@ -486,14 +588,13 @@ for (const theme of ["light", "dark"]) {
         }));
         assert.notEqual(surfaces.sidebar, surfaces.canvas);
         assert.equal(surfaces.border, "1px");
-        for (const [label, heading] of [[/^Collections 1 collection/, "Collections"], [/^Apps 1 item needs you/, "Apps"]]) {
-          const link = page.getByRole("link", { name: label });
-          await link.focus();
+        for (const [control, heading] of [[page.getByRole("link", { name: /^Notes / }), "Collections"], [page.getByRole("button", { name: "Review", exact: true }), "Apps"]]) {
+          await control.focus();
           await page.keyboard.press("Enter");
           await page.getByRole("heading", { name: heading, exact: true }).waitFor();
-          await nav(page, "Overview").click();
+          await nav(page, "Home").click();
         }
-        await screenshot(page, `finish-overview-${viewport.width}-${theme}`);
+        await screenshot(page, `finish-home-${viewport.width}-${theme}`);
         for (const route of ["Collections", "Apps"]) {
           await nav(page, route).click();
           const prompt = page.locator(".approval-prompt");
@@ -618,7 +719,7 @@ test("create needs a name and a location, and sends both", async () => {
   } finally { await page.close(); }
 });
 
-test("turning on sync defaults to private and removal is confirmed; long paths stay inside the minimum window", async () => {
+test("turning on sync offers private only as an advanced choice and removal is confirmed; long paths stay inside the minimum window", async () => {
   const { page, errors, calls } = await desktop({ collections: [collection()] });
   try {
     await page.setViewportSize({ width: 820, height: 580 });
@@ -630,7 +731,11 @@ test("turning on sync defaults to private and removal is confirmed; long paths s
     assert.equal(await page.locator(".content").evaluate((element) => element.scrollWidth > element.clientWidth), false);
     await collectionAction(page, "Turn on sync", card);
     const dialog = page.getByRole("dialog");
-    assert.equal(await dialog.getByRole("radio", { name: /Private/ }).isChecked(), true);
+    const encrypt = dialog.getByRole("checkbox", { name: "Encrypt end to end so mdbase cannot read it" });
+    assert.equal(await encrypt.isVisible(), false, "private sync is behind Advanced");
+    await dialog.getByText("Advanced", { exact: true }).click();
+    assert.equal(await encrypt.isChecked(), false, "a cloud copy is the default");
+    await encrypt.check();
     await dialog.getByRole("button", { name: "Turn on sync" }).click();
     await page.getByText("Notes now syncs privately.", { exact: true }).waitFor();
     assert.deepEqual(await calls("enableSync"), [["c-notes", "private", false]]);
@@ -639,6 +744,41 @@ test("turning on sync defaults to private and removal is confirmed; long paths s
     await confirmation.getByText(/^Remove Notes from mdbase/).waitFor();
     await confirmation.getByRole("button", { name: "Cancel" }).click();
     assert.deepEqual(await calls("removeCollection"), [], "cancelling the confirmation keeps the collection");
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("synced collections choose which files sync; local-only ones do not offer it", async () => {
+  const { page, errors, calls } = await desktop({ collections: [collection({ mode: "synced" }), collection({ id: "c-local", name: "Local", root: "/disposable/Local" })] });
+  try {
+    await page.evaluate(() => { window.fixture.syncFiles = { include: ["image", "pdf", "other"], exclude: ["Archive"], max_size: 50_000_000 }; });
+    await nav(page, "Collections").click();
+    const local = page.locator(".collection-card").filter({ hasText: "Local" });
+    await local.getByRole("button", { name: /^Actions for / }).click();
+    assert.equal(await page.getByRole("menuitem", { name: "Synced files", exact: true }).count(), 0);
+    await page.keyboard.press("Escape");
+    const card = page.locator(".collection-card").filter({ hasText: "Notes" });
+    await collectionAction(page, "Synced files", card);
+    const panel = card.locator(".sync-files");
+    const video = panel.getByRole("checkbox", { name: "Video", exact: true });
+    await video.waitFor();
+    assert.equal(await video.isChecked(), false);
+    assert.equal(await panel.getByRole("checkbox", { name: "Images", exact: true }).isChecked(), true);
+    assert.equal(await panel.getByRole("textbox").inputValue(), "Archive");
+    const size = panel.getByRole("spinbutton", { name: "Size limit in megabytes" });
+    assert.equal(await size.inputValue(), "50");
+    await screenshot(page, "synced-files");
+    assert.equal(await panel.getByRole("button", { name: "Save" }).isDisabled(), false);
+    await video.check();
+    await panel.getByRole("checkbox", { name: "PDFs", exact: true }).uncheck();
+    await panel.getByRole("textbox").fill("Archive\n  Recordings/Raw \n\n");
+    await size.fill("");
+    assert.equal(await panel.getByRole("button", { name: "Save" }).isDisabled(), true, "an empty size limit cannot be saved");
+    await panel.getByRole("checkbox", { name: "Leave out files larger than" }).uncheck();
+    await panel.getByRole("button", { name: "Save" }).click();
+    await page.getByText("File sync settings for Notes were saved.", { exact: true }).waitFor();
+    assert.deepEqual(await calls("setSyncFiles"), [["c-notes", { include: ["image", "video", "other"], exclude: ["Archive", "Recordings/Raw"] }]]);
+    assert.equal(await panel.count(), 0);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
@@ -659,9 +799,106 @@ test("a failed turn-on of sync is explained inside the dialog, which stays open 
     assert.match(await alert.innerText(), /^This version of mdbase can't turn on sync\. Update mdbase, then try again\. The folder and its files are unchanged\.$/);
     assert.equal(await dialog.isVisible(), true);
     await dialog.getByRole("button", { name: "Turn on sync" }).click();
-    await page.getByText("Notes now syncs privately.", { exact: true }).waitFor();
+    await page.getByText("Notes now syncs.", { exact: true }).waitFor();
     await dialog.waitFor({ state: "detached" });
     assert.equal((await calls("enableSync")).length, 2);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+for (const theme of ["light", "dark"]) {
+  test(`paused source recovery is visible and historical details stay collapsed in ${theme}`, async () => {
+    const { page, errors, calls } = await desktop({ collections: [collection({ state: "paused", notices: [
+      { code: "resource_ingest_deferred", path: "mdbase.yaml", message: "Awaiting resource ingestion at the last failure." },
+      { code: "resource_ingest_deferred", path: "_types/note.md", message: "Awaiting resource ingestion at the last failure." },
+      { code: "resource_ingest_paths_omitted", message: "2 more paths were omitted." },
+      { code: "sync_unreachable", message: "The sync service is unavailable." }
+    ] })] });
+    try {
+      await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
+      await page.setViewportSize({ width: 430, height: 760 });
+      await page.clock.runFor(500);
+      await page.keyboard.press("g"); await page.keyboard.press("c");
+      const card = page.locator(".collection-card");
+      const resume = card.getByRole("button", { name: "Resume", exact: true });
+      await resume.waitFor();
+      await page.clock.runFor(500);
+      assert.equal(await resume.isEnabled(), true);
+      assert.equal(await card.getByText("Resume this collection to check its files before turning on sync.").isVisible(), true);
+      assert.equal(await card.getByText("The sync service is unavailable.").isVisible(), true);
+      assert.equal(await card.getByText("Awaiting resource ingestion at the last failure.").first().isVisible(), false);
+      assert.deepEqual(await calls("setCollectionEnabled"), []);
+      assert.deepEqual(await calls("enableSync"), []);
+      await screenshot(page, `paused-source-${theme}`);
+      await card.getByText("Technical details", { exact: true }).click();
+      await page.clock.runFor(500);
+      await card.getByText("From the last sync attempt, not a current file check.").waitFor();
+      assert.equal(await card.locator(".collection-history li").count(), 3);
+      assert.equal(await card.locator(".collection-history code").first().innerText(), "mdbase.yaml");
+      const widths = await card.evaluate(element => ({ scroll: element.scrollWidth, client: element.clientWidth }));
+      assert.ok(widths.scroll <= widths.client + 1, JSON.stringify(widths));
+      await screenshot(page, `paused-source-details-${theme}`);
+      await card.getByRole("button", { name: /^Actions for / }).click();
+      await page.getByRole("menuitem", { name: "Details", exact: true }).waitFor();
+      assert.equal(await page.getByRole("menuitem", { name: "Resume", exact: true }).count(), 0);
+      await page.keyboard.press("Escape");
+      await page.evaluate(() => {
+        window.mdbaseConnect.setCollectionEnabled = async (...args) => {
+          window.fixture.calls.push(["setCollectionEnabled", ...args]);
+          window.fixture.collections[0].state = "ready";
+        };
+      });
+      await resume.click();
+      await resume.waitFor({ state: "detached" });
+      assert.deepEqual(await calls("setCollectionEnabled"), [["c-notes", true]]);
+      assert.deepEqual(await calls("enableSync"), []);
+      assert.deepEqual(await calls("removeCollection"), []);
+      await collectionAction(page, "Turn on sync", card);
+      await page.getByRole("dialog").getByRole("button", { name: "Turn on sync", exact: true }).waitFor();
+      assert.deepEqual(errors, []);
+    } finally { await page.close(); }
+  });
+}
+
+test("a refused source capture returns to the retained collection instead of offering another sync attempt", async () => {
+  const { page, errors, calls } = await desktop({ collections: [collection()] });
+  try {
+    await nav(page, "Collections").click();
+    await collectionAction(page, "Turn on sync");
+    const dialog = page.getByRole("dialog");
+    await page.evaluate(() => {
+      window.mdbaseConnect.enableSync = async (...args) => {
+        window.fixture.calls.push(["enableSync", ...args]);
+        window.fixture.collections[0].state = "paused";
+        throw new Error("Source capture did not complete; the original collection remains paused. Resolve the incident or original pending outcome before resuming.");
+      };
+    });
+    await dialog.getByRole("button", { name: "Turn on sync", exact: true }).click();
+    await dialog.getByRole("button", { name: "Back to collection", exact: true }).waitFor();
+    assert.match(await dialog.getByRole("alert").innerText(), /^Sync setup stopped, and the collection is paused\./);
+    assert.equal(await dialog.getByRole("button", { name: "Turn on sync", exact: true }).count(), 0);
+    assert.equal(await dialog.getByText("Advanced", { exact: true }).count(), 0);
+    assert.deepEqual(await calls("setCollectionEnabled"), []);
+    await page.waitForFunction(() => !document.querySelector('[role="dialog"] button.mdbase-button.is-primary')?.disabled);
+    await screenshot(page, "source-capture-stopped");
+    await dialog.getByRole("button", { name: "Back to collection", exact: true }).click();
+    await dialog.waitFor({ state: "detached" });
+    const resume = page.locator(".collection-card").getByRole("button", { name: "Resume", exact: true });
+    await page.evaluate(() => {
+      window.mdbaseConnect.setCollectionEnabled = (...args) => {
+        window.fixture.calls.push(["setCollectionEnabled", ...args]);
+        return new Promise((_resolve, reject) => { window.fixture.rejectResume = () => reject(new Error("The original pending change still needs attention.")); });
+      };
+    });
+    await resume.click();
+    assert.equal(await resume.isDisabled(), true);
+    assert.equal((await calls("enableSync")).length, 1);
+    await page.evaluate(() => window.fixture.rejectResume());
+    await page.getByRole("alert").filter({ hasText: "The original pending change still needs attention." }).waitFor();
+    assert.equal(await resume.isEnabled(), true);
+    assert.deepEqual(await calls("setCollectionEnabled"), [["c-notes", true]]);
+    assert.equal((await calls("enableSync")).length, 1);
+    assert.deepEqual(await calls("removeCollection"), []);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
@@ -684,8 +921,8 @@ test("turning on sync for a taken-over folder shows the files held at takeover a
     assert.equal(await confirm.isDisabled(), true, "held files must be checked first");
     await dialog.getByRole("checkbox", { name: "I have checked these files" }).check();
     await confirm.click();
-    await page.getByText("Notes now syncs privately.", { exact: true }).waitFor();
-    assert.deepEqual(await calls("enableSync"), [["c-notes", "private", true]]);
+    await page.getByText("Notes now syncs.", { exact: true }).waitFor();
+    assert.deepEqual(await calls("enableSync"), [["c-notes", "cloud-copy", true]]);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
@@ -707,14 +944,14 @@ test("files held at the takeover are resolved one by one before sync turns on", 
     await dialog.getByText("Inbox/plan.md", { exact: true }).waitFor();
     const confirm = dialog.getByRole("button", { name: "Turn on sync" });
     assert.equal(await confirm.isDisabled(), true, "held files are resolved first");
-    assert.equal(await dialog.getByRole("checkbox").count(), 0, "no blanket acceptance when each file can be resolved");
+    assert.equal(await dialog.getByRole("checkbox", { name: "I have checked these files" }).count(), 0, "no blanket acceptance when each file can be resolved");
     await dialog.getByRole("button", { name: "Keep both" }).click();
     await dialog.getByText("Inbox/plan.md", { exact: true }).waitFor({ state: "detached" });
     assert.equal(await confirm.isDisabled(), false);
     await confirm.click();
-    await page.getByText("Notes now syncs privately.", { exact: true }).waitFor();
+    await page.getByText("Notes now syncs.", { exact: true }).waitFor();
     assert.deepEqual(await calls("resolveHold"), [["c-notes", "takeover:1", "keep_both"]]);
-    assert.deepEqual(await calls("enableSync"), [["c-notes", "private", false]]);
+    assert.deepEqual(await calls("enableSync"), [["c-notes", "cloud-copy", false]]);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });

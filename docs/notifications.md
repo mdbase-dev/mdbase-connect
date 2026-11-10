@@ -117,7 +117,7 @@ The `notification-timer` implementation uses the independently versioned
 binary release must not invalidate a scheduled timer. Exact event-contract,
 collection, grant and criterion checks remain unchanged. An incompatible
 adapter change requires an explicit persisted-timer transition; do not bump
-this version with the release train or accept arbitrary historical sources.
+this version with a release or accept arbitrary historical sources.
 
 Hosted migration `0043_notification_timer_source_identity.sql` and the local
 connector's idempotent SQLite data migration correct only Connect-owned timer
@@ -292,25 +292,22 @@ connection ID and notification wake-up hint only:
 ```
 
 Verify the signature over the exact raw request body before parsing or
-enqueueing work:
+enqueueing work. Each delivery carries `mdbase-webhook-id`,
+`mdbase-webhook-timestamp` (Unix seconds), `mdbase-webhook-key-id` and
+`mdbase-webhook-signature: v1=<base64url>`. The signature is Ed25519 over the
+UTF-8 bytes of `<id>.<timestamp>.<raw body>`, made with the key whose `kid`
+matches `mdbase-webhook-key-id`. Reject the delivery if the timestamp is more
+than five minutes from your clock or if the body's `delivery_id` differs from
+the signed header, then claim the delivery before doing work:
 
 ```ts
-import { verifyNotificationWebhook } from "@mdbase-dev/connect-webhooks";
-
-const event = verifyNotificationWebhook({
-  body: rawRequestBody,
-  headers: request.headers,
-  keys: cachedConnectSigningKeys
-});
-
 if (await deliveries.claim(event.delivery_id)) {
   await sendThroughYourInfrastructure(event.connection_id, event.notification);
 }
 ```
 
 Fetch and cache keys from
-`GET /v1/notifications/webhook-signing-keys`. The SDK checks Ed25519
-signatures, the signed delivery ID, and a five-minute replay window. Persist
+`GET /v1/notifications/webhook-signing-keys` (Ed25519 JWKs). Persist
 `delivery_id` before doing work: Connect treats any 2xx response as success and
 otherwise retries with leases and exponential backoff. A `Retry-After` header
 is respected for retryable responses.

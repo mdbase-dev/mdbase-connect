@@ -1,12 +1,13 @@
 /** Compose consent, never the two transports' credentials or content scopes. */
 import type { ApplicationAuthorizationProof } from "@mdbase-dev/connect-protocol";
 import type { DatabaseConnection, DatabaseQueryable } from "../../database-types.js";
-import { listNativeCollectionsVisibleToUser } from "../../collection-catalog.js";
+import { listNativeCollectionsVisibleToUser } from "../collections/collection-catalog.js";
 import { approveNativeAuthorizationInTransaction, resolveNativeCollectionAccess } from "../authorizations/native-approval-service.js";
 import { applicationOriginForRedirect } from "../authorizations/redirects.js";
 import { requiresHostedCollection } from "../grants/policy.js";
 import { findInstallationApplication } from "../applications/store.js";
 import { InstallationPairingError } from "./installation-pairing-error.js";
+import { audit } from "../../platform/audit-events.js";
 
 interface Pairing {
   id: string; user_id: string | null; app_id: string; app_origin: string; challenge: Buffer;
@@ -90,4 +91,18 @@ export async function approveInstallationNativeChoice(db: DatabaseConnection, pa
     grant_id=(SELECT grant_id FROM authorization_requests WHERE id=$3),approved_at=now() WHERE pairing_id=$1`,
     [pairing.id,collection,link.authorization_request_id]);
   return {fresh:true,authorization_request_id:link.authorization_request_id};
+}
+
+/** A pairing that ends without the Private choice (cloud-copy approval or
+ * cancellation) closes its unused Native companion in the same transaction.
+ * Only the original chooser could complete it, so it would otherwise stay
+ * pending in the portal until it expired. The SDK cancels its Native port when
+ * the pairing finishes without a Native selection, so nothing observes the denial. */
+export async function closeUnusedNativeAuthorization(db: DatabaseQueryable, pairingId: string, user: string,
+  reason: "superseded_by_installation_approval" | "installation_pairing_denied") {
+  const closed=(await db.query<{id:string}>(`UPDATE authorization_requests ar SET completed_at=now(),denied_at=now()
+    FROM installation_native_authorizations na
+    WHERE na.pairing_id=$1 AND ar.id=na.authorization_request_id AND ar.completed_at IS NULL AND ar.grant_id IS NULL
+    RETURNING ar.id`,[pairingId])).rows[0];
+  if (closed) await audit(db,user,"authorization.denied",closed.id,{source:"installation_pairing",pairing_id:pairingId,reason});
 }

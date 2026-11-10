@@ -1,8 +1,8 @@
 # Record editing session
 
-Status: **golden path** on branch `record-session`. `connection.records` and
-`MdbaseRecordSession` are root exports of `@mdbase-dev/connect`; custom
-transports (`MdbaseRecordSessionAdapter`) are in `/advanced`. Not released.
+`connection.records` and `MdbaseRecordSession` are root exports of
+`@mdbase-dev/connect`; custom transports (`MdbaseRecordSessionAdapter`) are in
+`/advanced`.
 
 The SDK's single operations (read, revision-checked update, outcome-unknown
 recovery through `PendingMutationStore`, watch) stop short of "a record I have

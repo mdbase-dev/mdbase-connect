@@ -1,7 +1,7 @@
 import { constants, closeSync, lstatSync, openSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { LabOutcome } from "./migration-lab.js";
-import { rehearsalDiagnostics } from "../../local-deployment.js";
+import { rehearsalDiagnostics } from "../../platform/local-deployment.js";
 
 /** Raw LAB diagnostics (Worker or target) belong only in the explicit private file. */
 export function captureLabWorkerError(event: Record<string, unknown>, environment: string | undefined, path: string | undefined): Record<string, unknown> {

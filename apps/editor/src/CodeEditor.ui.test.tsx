@@ -4,6 +4,7 @@ import { Compartment } from "@codemirror/state";
 import { CodeEditor } from "./CodeEditor";
 import type { ResolvedFileReference } from "./use-file-assets";
 import type { ResolvedNoteEmbed } from "./note-embeds";
+import { linkTargets } from "./test/link-targets";
 
 vi.mock("./inline-pdf-viewer", () => ({
   mountInlinePdfViewer: vi.fn(() => ({ unmount: vi.fn() }))
@@ -76,6 +77,31 @@ describe("rendered Markdown links", () => {
     />);
 
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+});
+
+describe("writer presentation", () => {
+  it("gives prose the platform's autocorrect and sentence capitals", () => {
+    render(<CodeEditor value="Prose" label="Note body" language="markdown" variant="writer" />);
+    const body = screen.getByRole("textbox", { name: "Note body" });
+    expect(body).toHaveAttribute("autocorrect", "on");
+    expect(body).toHaveAttribute("autocapitalize", "sentences");
+    expect(body).toHaveAttribute("spellcheck", "true");
+  });
+
+  it("parses GitHub-flavoured strikethrough and quiets its markers", () => {
+    const { container } = render(<CodeEditor value={"Start.\nThis is ~~gone~~ now."} label="Note body" language="markdown" variant="writer" quietMarkdown />);
+    expect([...container.querySelectorAll(".cm-markdown-mark")].map((mark) => mark.textContent)).toEqual(["~~", "~~"]);
+  });
+
+  it("shows a link to a missing note differently from a working one", async () => {
+    render(<CodeEditor value={"Start.\nSee [[Known]] and [[Missing]]."} label="Note body" language="markdown" variant="writer" quietMarkdown
+      linkSuggestions={[{ path: "Known.md", title: "Known" }]}
+      linkTargets={linkTargets("Today.md", { "[[Known]]": { kind: "note", path: "Known.md" } })} />);
+    const missing = await screen.findByRole("link", { name: "Missing" });
+    await vi.waitFor(() => expect(missing.ownerDocument.querySelector(".cm-rendered-link-missing")).not.toBeNull(), { timeout: 3_000 });
+    expect(screen.getByRole("link", { name: "Missing" })).toHaveClass("cm-rendered-link-missing");
+    expect(screen.getByRole("link", { name: "Known" })).not.toHaveClass("cm-rendered-link-missing");
   });
 });
 
@@ -202,17 +228,19 @@ describe("PDF links and embeds", () => {
       language="markdown"
       variant="writer"
       files={[pdfReference.asset.file]}
+      linkTargets={linkTargets("Today.md", { "[[Documents/paper.pdf]]": { kind: "file", path: "Documents/paper.pdf" } })}
       onOpenFileLink={openFile}
     />);
 
     fireEvent.click(await screen.findByRole("link", { name: "Documents/paper.pdf" }));
-    expect(openFile).toHaveBeenCalledWith(pdfReference.asset.file);
+    await vi.waitFor(() => expect(openFile).toHaveBeenCalledWith(pdfReference.asset.file));
   });
 });
 
 const pdfReference: ResolvedFileReference = {
   from: 8,
   to: 32,
+  raw: "![[Documents/paper.pdf]]",
   target: "Documents/paper.pdf",
   format: "wikilink",
   block: true,

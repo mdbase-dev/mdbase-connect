@@ -5,6 +5,11 @@ import { MdbaseError } from "../src/errors.js";
 import { ACCOUNT_COLLECTION_QUOTA_MESSAGE } from "../src/collection-quota-copy.generated.js";
 
 describe("describeError", () => {
+  it("does not diagnose a network outage for a generic failure after a successful response", () => {
+    expect(describeError({ code: "unavailable", status: 200 })).toMatchObject({
+      title: "Can't complete this request", message: "mdbase couldn't complete this request. Try again.", action: "retry"
+    });
+  });
   it("describes unfinished consent neutrally without blaming mdbase", () => {
     for (const input of [{ reason: "refused" }, { problem: "refused" }]) {
       expect(describeError(input)).toMatchObject({ title: "Sign-in wasn't finished", message: "Access wasn't approved. Sign in again when you're ready.", severity: "info", action: "sign_in" });
@@ -95,7 +100,7 @@ describe("describeError", () => {
 
   it.each([
     "declared_setup_unsupported", "resource_setup_unsupported", "type_packs_unsupported",
-    "describe_definitions_unsupported", "contract_records_unsupported", "record_links_unsupported",
+    "describe_definitions_unsupported", "contract_records_unsupported", "record_links_unsupported", "backlinks_unsupported", "resolve_links_unsupported",
     "change_entity_unsupported", "timer_operation_recovery_unavailable", "contract_query_version",
     "unsupported_push_version",
   ])("describes compatibility detail %s as an actionable update, including Private collection problems", (code) => {

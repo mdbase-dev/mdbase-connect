@@ -3,14 +3,14 @@ import { buildApp } from "./app.js";
 import { PushTargetSealer } from "./features/next/push-target-seal.js";
 import { createDatabase, openDatabase } from "./db.js";
 import { assertControlPlaneMigrationsCurrent } from "./migrations.js";
-import { runtimeConfigFromEnv } from "./runtime-config.js";
-import { HostedProviderClient } from "./hosted-provider.js";
-import { createRelayBroker } from "./relay-broker.js";
-import { WebPushTransport } from "./web-push.js";
-import { FcmTransport } from "./fcm.js";
+import { runtimeConfigFromEnv } from "./platform/runtime-config.js";
+import { HostedProviderClient } from "./features/hosted/hosted-provider.js";
+import { createRelayBroker } from "./features/relay/relay-broker.js";
+import { WebPushTransport } from "./features/notifications/web-push.js";
+import { FcmTransport } from "./features/notifications/fcm.js";
 import { retireLegacyContractScopedGrants } from "./legacy-backfills.js";
-import { SignedWebhookTransport } from "./webhook.js";
-import { ResendEmailTransport } from "./email.js";
+import { SignedWebhookTransport } from "./features/notifications/webhook.js";
+import { ResendEmailTransport } from "./features/email/email.js";
 
 const port = Number(process.env.PORT ?? 8787);
 const runtime = runtimeConfigFromEnv(process.env);
@@ -66,7 +66,6 @@ const { app } = await buildApp({
     ? new HostedProviderClient(runtime.hostedProvider)
     : undefined,
   trustProxy: runtime.trustProxy,
-  allowInsecureManifests: process.env.MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS === "1",
   relayBroker,
   nextControlPlane: runtime.nextControlPlane ?? undefined,
   notifications: runtime.vapid || runtime.fcm || runtime.webhookSigning

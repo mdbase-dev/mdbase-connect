@@ -13,7 +13,6 @@ const SRC = new URL("../src/", import.meta.url).pathname;
 const UNSERVED: Record<string, string> = {
   report_witnesses: "proposed; best effort, an unknown_method answer is ignored",
   describe_typing: "not in the native frame dispatch",
-  backlinks: "not in the native frame dispatch",
   account_key_setup: "not in the native frame dispatch",
   account_key_status: "not in the native frame dispatch",
   account_key_unlock: "not in the native frame dispatch",

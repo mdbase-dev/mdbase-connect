@@ -1,7 +1,7 @@
 import { isNativeLoopbackOrigin } from "@mdbase-dev/connect-protocol/manifest";
 import { randomUUID } from "node:crypto";
-import { previewCollectionGrant } from "../../grant-planner.js";
-import { queueHostedGrantRevocation } from "../../hosted-capability-lifecycle.js";
+import { previewCollectionGrant } from "../grants/grant-planner.js";
+import { queueHostedGrantRevocation } from "../hosted/hosted-capability-lifecycle.js";
 import type {
   ApplicationNotifications,
   ApplicationProvisions,
@@ -11,36 +11,37 @@ import type {
   GrantEncryption,
   GrantScope
 } from "@mdbase-dev/connect-protocol";
-import { assertFreshApplicationAuthorization, requirementContractVersion, signedFileRequestForRequirements, type ApplicationRequirements } from "../../application-requirements.js";
+import { assertFreshApplicationAuthorization, requirementContractVersion, signedFileRequestForRequirements, type ApplicationRequirements } from "../applications/application-requirements.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { parseApplicationAuthorization, verifyApplicationAuthorization } from "../../application-authorization.js";
-import { isCanonicalCollectionGrantScope } from "../../application-grant-scope.js";
+import { isCanonicalCollectionGrantScope } from "../grants/application-grant-scope.js";
 import {
   accessView,
   COLLECTION_OPERATIONS,
   requireCollectionAction,
   resolveHostedCollectionAccess,
   resolveLocalCollectionAccess
-} from "../../collection-access.js";
+} from "../collections/collection-access.js";
 import {
+  accountCollectionCreation,
   listHostedCollectionsVisibleToUser,
   listNativeCollectionsVisibleToUser,
   resolveHostedCollection
-} from "../../collection-catalog.js";
+} from "../collections/collection-catalog.js";
 import {
   contractRequirements,
   effectiveHostedContractDescriptors
-} from "../../hosted.js";
-import type { HostedProviderClient } from "../../hosted-provider.js";
-import { hostedReplicaCollectionOperations } from "../../hosted-replica-policy.js";
+} from "../hosted/hosted.js";
+import type { HostedProviderClient } from "../hosted/hosted-provider.js";
+import { hostedReplicaCollectionOperations } from "../hosted/hosted-replica-policy.js";
 import {
   canonicalUserCode,
   randomToken,
   randomUserCode,
   tokenHash
 } from "../../security.js";
-import { contractSetupChoiceSchema } from "../../protocol-schemas.js";
+import { contractSetupChoiceSchema } from "../../platform/protocol-schemas.js";
 import { audit } from "../../platform/audit-events.js";
 import { apiError, RequestValidationError } from "../../platform/http-errors.js";
 import {
@@ -744,7 +745,7 @@ export function registerAuthorizationRoutes(
         display_name: collection.locator.displayName,
         template: collection.template,
         kind: "hosted" as const,
-        connector_name: "Hosted by mdbase",
+        connector_name: "Cloud copy",
         spec_version: "0.3.0",
         contracts: contractRequirements(contracts),
         types,
@@ -800,7 +801,7 @@ export function registerAuthorizationRoutes(
         platform: pending.platform === "native" && isNativeLoopbackOrigin(applicationOrigin) ? "native" : undefined,
         existing_access: existingAccess
       },
-      hosted_collections_available: options.hostedCollections === true,
+      collection_creation_available: (await accountCollectionCreation(options.db, user.id, options)).available,
       unavailable_connectors: local.unavailable_connectors,
       collections: hostedRequired
         ? availableCollections.filter((collection) => collection.kind === "hosted" || collection.kind === "cloud_copy")

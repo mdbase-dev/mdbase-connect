@@ -41,8 +41,8 @@ import {
   type ContractCatalogPack
 } from "./contract-catalog";
 import type { NoteSummary, TypeDocument } from "./model";
+import { collectionDisplayField } from "./field-reference";
 import {
-  collectionTypeIcon,
   isPhosphorIconName,
   normalizePhosphorIconName,
   PHOSPHOR_ICON_NAMES,
@@ -144,8 +144,8 @@ export function TypeList({ types, selectedName, packsSelected = false, leadingAc
     </nav>
     <div className={`type-list${!visible.length ? " empty" : ""}`} role="listbox" aria-label={t`Collection types`}>
       {visible.map((type) => <button key={type.name} role="option" aria-selected={selectedName === type.name} className={`type-row${selectedName === type.name ? " selected" : ""}`} onClick={() => onSelect(type.name)}>
-        <span className="type-row-icon">{isPhosphorIconName(collectionTypeIcon(type))
-          ? <PhosphorIcon name={collectionTypeIcon(type)} aria-hidden="true" />
+        <span className="type-row-icon">{isPhosphorIconName(collectionDisplayField(type, "icon"))
+          ? <PhosphorIcon name={collectionDisplayField(type, "icon")} aria-hidden="true" />
           : <FileCode2 aria-hidden="true" />}</span>
         <span className="type-row-copy"><strong>{type.name}</strong><small>{type.description || t`${propertyCount(type)} schema properties`}</small></span>
       </button>)}
@@ -284,7 +284,7 @@ export function TypeInspector({ readOnly = false, type, availableTypes = [], con
     </header>
     <section className="type-heading">
       <div className="type-heading-title">
-        {!creating && isPhosphorIconName(collectionTypeIcon(type)) && <PhosphorIcon name={collectionTypeIcon(type)} aria-hidden="true" />}
+        {!creating && isPhosphorIconName(collectionDisplayField(type, "icon")) && <PhosphorIcon name={collectionDisplayField(type, "icon")} aria-hidden="true" />}
         <h1>{name}</h1>
       </div>
       {creating ? <p><Trans>Give the type a name, then add the fields its notes need.</Trans></p> : type!.description && <p>{type!.description}</p>}
@@ -381,7 +381,7 @@ function VisualTypeEditor({ definition, source, impact, typeNames, contracts, ty
     <section className="visual-type-section visual-type-basics">
       <div className="visual-section-heading"><div><h3><Trans>Identity</Trans></h3><p><Trans>The stable name used by records and connected apps.</Trans></p></div></div>
       <div className="visual-type-basics-fields">
-        <label><span><Trans>Name</Trans></span><input value={definition.name} onChange={(event) => onChange((source) => updateTypeIdentity(source, "name", event.target.value))} spellCheck="false" /></label>
+        <label><span><Trans>Name</Trans></span><input value={definition.name} onChange={(event) => onChange((source) => updateTypeIdentity(source, "name", event.target.value))} spellCheck="false" autoCapitalize="none" autoCorrect="off" /></label>
         <label><span><Trans>Description</Trans></span><input value={definition.description} onChange={(event) => onChange((source) => updateTypeIdentity(source, "description", event.target.value))} /></label>
       </div>
     </section>
@@ -1660,7 +1660,7 @@ function VisualFieldRow({ field, source, depth, typeKey = false, activeField, on
       <button className="field-disclosure" aria-label={expanded ? t`Collapse ${fieldLabel} field` : t`Expand ${fieldLabel} field`} aria-expanded={expanded} onClick={() => onActivate(expanded ? undefined : fieldLabel)}>
         {expanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
       </button>
-      <label className={`visual-field-name${typeKey ? " type-key" : ""}`}><span className="sr-only"><Trans>Field name</Trans></span><input aria-label={t`${fieldLabel} field name`} type="text" defaultValue={field.name} readOnly={typeKey} aria-describedby={typeKey ? `type-key-note-${fieldLabel}` : undefined} onBlur={(event) => { if (!typeKey) onChange((current) => renameTypeField(current, field.path, event.target.value)); }} spellCheck="false" />{typeKey && <small id={`type-key-note-${fieldLabel}`} title={t`Notes use this field to declare their type. Edit it in YAML if you need to change it.`}><Trans>Type key</Trans></small>}</label>
+      <label className={`visual-field-name${typeKey ? " type-key" : ""}`}><span className="sr-only"><Trans>Field name</Trans></span><input aria-label={t`${fieldLabel} field name`} type="text" defaultValue={field.name} readOnly={typeKey} aria-describedby={typeKey ? `type-key-note-${fieldLabel}` : undefined} onBlur={(event) => { if (!typeKey) onChange((current) => renameTypeField(current, field.path, event.target.value)); }} spellCheck="false" autoCapitalize="none" autoCorrect="off" />{typeKey && <small id={`type-key-note-${fieldLabel}`} title={t`Notes use this field to declare their type. Edit it in YAML if you need to change it.`}><Trans>Type key</Trans></small>}</label>
       <label className="visual-field-kind"><span className="sr-only">{t`${fieldLabel} field type`}</span><Select aria-label={t`${fieldLabel} field type`} value={field.kind} disabled={typeKey} options={kindOptions(field.kind)} onChange={chooseKind} /></label>
       <label className="visual-field-required"><input className="mdbase-checkbox" type="checkbox" checked={field.required} onChange={(event) => onChange((current) => setTypeFieldRequired(current, field.path, event.target.checked))} /><span><Trans>Required</Trans></span></label>
       <div className="type-field-actions">{!typeKey && <div className="note-actions"><button {...menu.triggerProps} className="icon-button" aria-label={t`${fieldLabel} field options`}><MoreHorizontal aria-hidden="true" /></button><Menu open={menu.open} id={menu.id} label={t`${fieldLabel} field options`} triggerRef={menu.trigger} onClose={menu.close}><button role="menuitem" className="mdbase-menu-item is-danger" onClick={() => { menu.close(true); onChange((current) => removeTypeField(current, field.path)); }}><Trash2 aria-hidden="true" />{t`Remove ${fieldLabel} field`}</button></Menu></div>}</div>

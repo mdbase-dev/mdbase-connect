@@ -236,6 +236,6 @@ export function Wordmark({ app, motion, signal, progress }: {
       progress={progress}
       className="wordmark-mark"
     />
-    <span className="wordmark-label"><span>mdbase</span><strong>{app}</strong></span>
+    <span className="wordmark-label"><span>mdbase</span>{" "}<strong>{app}</strong></span>
   </span>;
 }

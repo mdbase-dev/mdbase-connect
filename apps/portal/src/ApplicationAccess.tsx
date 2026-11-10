@@ -1,4 +1,5 @@
-import { withAppUrls } from "@mdbase-dev/ui/apps";
+import { officialApps, withAppUrls } from "@mdbase-dev/ui/apps";
+import { managedAppOrigins } from "../../../scripts/lib/managed-app-origins.mjs";
 import { formatters } from "@mdbase-dev/i18n";
 import { countLabel } from "./count-label";
 import { t, plural } from "@lingui/core/macro";
@@ -77,6 +78,7 @@ export function AppAccess({ error, groups, client, busy, perform, collectionName
 }) {
   useLocaleRevision();
   const [query, setQuery] = useState("");
+  const deployment = Object.values(managedAppOrigins).find(environment => environment.editorOrigin === editorOrigin);
   const visible = groups.filter(group => group.applicationName.toLocaleLowerCase(i18n.locale).includes(query.trim().toLocaleLowerCase(i18n.locale)));
   return <Page title={collectionName ? t(i18n)({ message: "Access", context: "Connect interface" }) : t(i18n)({ message: "Apps", context: "Connect interface" })} intro={collectionName ? t(i18n)`Review the access each app has to ${collectionName}.` : t(i18n)({ message: "Apps connected to your account. Your browser sign-in is never shared with them." })}>
     <section>{collectionName && <SectionTitle title={t(i18n)({ message: "Apps", context: "Connect interface" })} count={groups.length} />}
@@ -112,9 +114,13 @@ export function AppAccess({ error, groups, client, busy, perform, collectionName
     {!collectionName && <section>
       <SectionTitle title={t(i18n)`Explore apps`} note={t(i18n)({ message: "Open an app, then choose which collections it can access." })} />
       <div className="connect-row-actions">
-        {withAppUrls({ editor: editorOrigin }).filter(app => app.id !== "editor" || editorOrigin).map(app => <a key={app.id} href={app.url}>{app.name}</a>)}
-        <a href="https://journal.mdbase.dev">Journal</a>
-        <a href="https://app.tasknotes.dev">TaskNotes</a>
+        {withAppUrls({
+          editor: editorOrigin,
+          reader: import.meta.env.VITE_MDBASE_READER_URL ?? deployment?.readerOrigin,
+          writer: import.meta.env.VITE_MDBASE_WRITER_URL ?? deployment?.writerOrigin,
+          journal: deployment?.journalOrigin,
+          tasknotes: deployment?.tasknotesOrigin,
+        }, officialApps).map(app => <a key={app.id} href={app.url}>{app.name}</a>)}
       </div>
     </section>}
     {children}

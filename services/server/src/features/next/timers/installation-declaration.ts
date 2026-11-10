@@ -2,7 +2,7 @@ import { capabilityOperations, capabilityOperationsForContractVersion, MDBASE_TI
   type ApplicationNotifications } from "@mdbase-dev/connect-protocol";
 import type { RegisteredApplication } from "../../applications/store.js";
 import { canonicalJson, canonicalSha256 } from "../../../canonical-json.js";
-import { installationEnvironment, type InstallationEnvironment } from "../../../local-deployment.js";
+import { installationEnvironment, type InstallationEnvironment } from "../../../platform/local-deployment.js";
 
 /** Public manifest metadata, NOT consent, a credential or a usable timer grant. */
 export interface InstallationTimerDeclaration {

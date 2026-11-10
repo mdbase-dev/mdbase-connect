@@ -46,6 +46,7 @@ describe("collection rail regions", () => {
     const user = userEvent.setup();
     const { onTypes, onSettings } = renderRail();
     const order = [
+      screen.getByRole("button", { name: /mdbase editor/ }),
       screen.getByRole("button", { name: "Shared switcher" }),
       screen.getByRole("button", { name: "All notes, 300 total" }),
       screen.getByRole("button", { name: "Notes folder" }),
@@ -57,12 +58,23 @@ describe("collection rail regions", () => {
       await user.tab();
       expect(target).toHaveFocus();
     }
-    expect(order[5]).toHaveFocus();
+    expect(order[6]).toHaveFocus();
     await user.keyboard("{Enter}");
     expect(onSettings).toHaveBeenCalledOnce();
     await user.tab({ shift: true });
     await user.keyboard("{Enter}");
     expect(onTypes).toHaveBeenCalledOnce();
+  });
+
+  it("opens the other mdbase apps of this build's environment from the wordmark", async () => {
+    const user = userEvent.setup();
+    renderRail();
+    await user.click(screen.getByRole("button", { name: /mdbase editor/ }));
+    const menu = screen.getByRole("menu", { name: "mdbase apps" });
+    // A test build is a development build, which belongs to LAB.
+    expect(within(menu).getByRole("menuitem", { name: /Reader/ })).toHaveAttribute("href", "https://lab.mdbase-reader.pages.dev/");
+    expect(within(menu).getByRole("menuitem", { name: /Writer/ })).toHaveAttribute("href", "https://lab.mdbase-writer.pages.dev/");
+    expect(within(menu).getByRole("menuitem", { name: /Editor/ })).toHaveAttribute("aria-current", "page");
   });
 
   it("ends the fixed tools group with the feedback entry when feedback is available", async () => {

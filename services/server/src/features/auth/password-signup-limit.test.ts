@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { buildApp } from "../../app.js";
-import { AuthenticationPolicyStore } from "../../authentication-policy.js";
+import { AuthenticationPolicyStore } from "./authentication-policy.js";
 import { createDatabase } from "../../db.js";
-import { runtimeConfigFromEnv } from "../../runtime-config.js";
+import { runtimeConfigFromEnv } from "../../platform/runtime-config.js";
 import { parsePasswordSignupIpMaxAttempts, passwordSignupIpRule } from "./password-signup-limit.js";
 
 const setting = "MDBASE_CONNECT_PASSWORD_SIGNUP_IP_MAX_ATTEMPTS";
-const startupEnv = { MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET: "x".repeat(32) };
+const startupEnv = { MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET: "x".repeat(32), MDBASE_NEW_ACCOUNT_BACKEND: "legacy" };
 
 describe("password signup IP rule", () => {
   it.each([{ environment: "production", maximum: undefined, allowed: 10 }, { environment: "staging", maximum: 12, allowed: 12 }, { environment: "lab", maximum: 12, allowed: 12 }])("shares the actual preview/signup HTTP budget in $environment", async ({ environment, maximum, allowed }) => {

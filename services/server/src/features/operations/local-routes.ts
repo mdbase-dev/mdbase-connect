@@ -14,15 +14,15 @@ import { z } from "zod";
 import {
   COLLECTION_OPERATIONS,
   localCollectionUnavailableError
-} from "../../collection-access.js";
+} from "../collections/collection-access.js";
 import type { DatabasePool } from "../../database-types.js";
 import {
   ConnectorOperationError,
   type RelayHub,
   RelayUnavailableError
-} from "../../relay.js";
+} from "../relay/relay.js";
 import { tokenHash } from "../../security.js";
-import { recordProtocolUsage } from "../../protocol-telemetry.js";
+import { recordProtocolUsage } from "../usage/protocol-telemetry.js";
 import {
   apiError,
   insufficientAccessError

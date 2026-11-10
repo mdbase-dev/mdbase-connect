@@ -23,6 +23,14 @@ import type { ApplicationFileAction, PendingAuthorization } from "./api";
 import { HIGHER_IMPACT_FILE_ACTIONS, HIGHER_IMPACT_PEOPLE_PERMISSIONS, type AuthorizationCapabilityGroup } from "./authorization-capabilities";
 import { Select } from "@mdbase-dev/ui/select";
 
+export function useRequestExpiry(expiresAt: string | undefined, onExpire: () => void) {
+  useEffect(() => {
+    if (!expiresAt) return;
+    const timer = window.setTimeout(onExpire, Math.max(0, Date.parse(expiresAt) - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [expiresAt, onExpire]);
+}
+
 type FileRequirements = NonNullable<PendingAuthorization["requirements"]["files"]>;
 
 interface CollectionChoice { id: string; name: string; hint?: string; location: string; kind?: "local" | "hosted" | "private" | "cloud_copy" }
@@ -114,17 +122,16 @@ type PeopleRequirement = import("@mdbase-dev/connect-protocol").ApplicationPeopl
 export function RequestShell({ children, busy = false }: { children: React.ReactNode; busy?: boolean }) {
   const shell = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
+    if (document.activeElement !== document.body) return;
+    const heading = shell.current?.querySelector<HTMLElement>("h1");
+    if (heading) { heading.tabIndex = -1; heading.focus(); }
+  });
+  useLayoutEffect(() => {
     const panel = shell.current!.querySelector<HTMLElement>(".authorization-panel")!;
     const resize = () => {
       const footer = panel.querySelector(".approval-footer");
       const height = footer?.getBoundingClientRect().height ?? 0;
       document.documentElement.style.setProperty("--approval-footer-space", `${height + 16}px`);
-      const scrollport = panel.querySelector<HTMLElement>(".collection-picker-list");
-      if (scrollport) {
-        const available = window.innerHeight - (scrollport.getBoundingClientRect().top + window.scrollY) - height - 16;
-        const rows = Math.max(1, Math.floor((available - 2) / 64));
-        scrollport.style.setProperty("--collection-picker-space", `${rows * 64 + 2}px`);
-      }
       panel.querySelector<HTMLElement>(".installation-details[open]:focus-within")?.scrollIntoView({ block: "nearest" });
     };
     const observer = new ResizeObserver(resize);

@@ -224,10 +224,6 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 20
-    env:
-      # PR merge commits and merge groups both compare against their exact base;
-      # committed per-change declarations compose across every PR in a group.
-      ARCHITECTURE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -240,6 +236,10 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      - name: Prefetch pinned Electron through authenticated release assets
+        uses: ./.github/actions/prefetch-electron
+        with:
+          token: ${{ github.token }}
       - run: pnpm install --frozen-lockfile
       - run: pnpm check:vendored-sdk
       - run: pnpm version:check
@@ -248,6 +248,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: pnpm check:mdbase-rs-pin
+      - run: pnpm check:release-downloads && pnpm test:release-downloads
       - run: pnpm check:release-readiness
       - run: pnpm check:release-components
       - run: pnpm audit:dependencies
@@ -303,7 +304,7 @@ jobs:
         env:
           MDBASE_CONNECT_TEST_DATABASE_URL: postgres://mdbase:mdbase-next-test@127.0.0.1:5432/mdbase_next_test
           MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL: I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS
-        run: pnpm --filter @mdbase/connect-server exec vitest run src/features/next src/features/account/collection-creation.postgres.test.ts src/features/connectors/installation-pairing.postgres.test.ts src/features/applications/sdk-registration.postgres.test.ts src/collection-membership-policy.postgres.test.ts
+        run: pnpm --filter @mdbase/connect-server exec vitest run src/features/next src/features/account/collection-creation.postgres.test.ts src/features/connectors/installation-pairing.postgres.test.ts src/features/applications/sdk-registration.postgres.test.ts src/features/collections/collection-membership-policy.postgres.test.ts
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -450,12 +451,19 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      - name: Prefetch pinned Electron through authenticated release assets
+        uses: ./.github/actions/prefetch-electron
+        with:
+          token: ${{ github.token }}
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @mdbase-dev/connect-protocol build
       # --current-upgrade builds the release hosted-provider image. Reuse the
       # Cargo cache mounts publish-images.yml saves from main; restore only.
       - id: buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        env:
+          GITHUB_TOKEN: token ${{ github.token }}
+
       - name: Restore hosted-provider Cargo cache mounts
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -547,6 +555,11 @@ jobs:
           node-version: 24
       - run: rustup toolchain install 1.94.0 --profile minimal --target wasm32-unknown-unknown
       - run: cargo install worker-build --version 0.8.7 --locked
+      - name: Prefetch worker-build release tools through authenticated assets
+        working-directory: ${{ github.workspace }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/ci/prefetch-worker-tools.mjs .
       - run: worker-build --release --locked
       - run: cargo build --locked -p mdbn-log-conformance --bin logsvc-bench
         working-directory: runtime
@@ -562,6 +575,21 @@ jobs:
     if: needs.classify.outputs.run_full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Disposable database for the ignored PostgreSQL provider tests below.
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: mdbase_provider_test
+          POSTGRES_USER: mdbase
+          POSTGRES_PASSWORD: hosted-provider-rust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mdbase -d mdbase_provider_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
     defaults:
       run:
         working-directory: mdbase-connect
@@ -601,6 +629,19 @@ jobs:
         env:
           MDBASE_CONNECT_ENV: test
           MDBASE_CONNECT_SECRET_BACKEND: insecure-test-file
+      # The workspace run above skips ignored tests. These need PostgreSQL;
+      # --workspace reuses that run's build.
+      - name: Hosted provider PostgreSQL tests (ignored)
+        run: >-
+          cargo test --locked --workspace
+          --test mutation_abandon --test lifecycle_diagnostics --test sync_stored_errors
+          --test file_control_stored_errors --test file_upload_retries
+          -- --ignored --test-threads=1
+        env:
+          MDBASE_APPROVE_DESTRUCTIVE_HOSTED_TESTS: operation_dispatch_uuid_schema_v1
+          MDBASE_PROJECTION_DATABASE_URL: postgres://mdbase:hosted-provider-rust@127.0.0.1:5432/mdbase_provider_test
+          MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL: I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS
+          MDBASE_CONNECT_PROVIDER_DIAGNOSTICS_TEST_DATABASE_URL: postgres://mdbase:hosted-provider-rust@127.0.0.1:5432/mdbase_provider_test
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -657,7 +698,7 @@ jobs:
       matrix:
         include:
           - shard: local-relay
-            suites: local,relay
+            suites: legacy-local,relay
             browser: true
             timeout: 55
           - shard: sync
@@ -721,6 +762,11 @@ jobs:
           # Every shard builds the hosted-provider-rust configuration.
           shared-key: hosted-provider-${{ steps.mdbase_revision.outputs.revision }}
           save-if: false
+      - name: Prefetch pinned Electron through authenticated release assets
+        uses: ./mdbase-connect/.github/actions/prefetch-electron
+        with:
+          token: ${{ github.token }}
+          root: mdbase-connect
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       # The hosted-provider-rust job checks this exact lockfile/SDK/toolchain

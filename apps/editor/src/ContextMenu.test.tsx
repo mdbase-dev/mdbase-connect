@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "./test/locale";
+import { act, fireEvent, render, screen, waitFor } from "./test/locale";
 import { describe, expect, it, vi } from "vitest";
 import { ContextMenu } from "./ContextMenu";
 
@@ -35,5 +35,29 @@ describe("ContextMenu", () => {
     expect(unavailable).not.toHaveBeenCalled();
     fireEvent.keyDown(menu, { key: "Escape" });
     await waitFor(() => expect(row).toHaveFocus());
+  });
+  it("opens on a touch long-press without opening the row, and ignores scrolls and mouse holds", () => {
+    vi.useFakeTimers();
+    const open = vi.fn();
+    render(<ContextMenu label="Note actions" showTrigger={false} items={[
+      { label: "Copy path", icon: null, onSelect: vi.fn() }
+    ]}><button onClick={open}>Note row</button></ContextMenu>);
+    const row = screen.getByRole("button", { name: "Note row" });
+    fireEvent.pointerDown(row, { pointerType: "mouse", clientX: 10, clientY: 10 });
+    act(() => { vi.advanceTimersByTime(600); });
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    fireEvent.pointerDown(row, { pointerType: "touch", clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(row, { pointerType: "touch", clientX: 10, clientY: 40 });
+    act(() => { vi.advanceTimersByTime(600); });
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    fireEvent.pointerDown(row, { pointerType: "touch", clientX: 30, clientY: 50 });
+    act(() => { vi.advanceTimersByTime(600); });
+    expect(screen.getByRole("menu", { name: "Note actions" })).toHaveStyle({ left: "30px", top: "50px" });
+    fireEvent.pointerUp(row, { pointerType: "touch" });
+    fireEvent.click(row);
+    expect(open).not.toHaveBeenCalled();
+    fireEvent.click(row);
+    expect(open).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
   });
 });

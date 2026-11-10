@@ -1,6 +1,6 @@
 import Fastify from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
-import { HostedProviderResponseError } from "../hosted-provider.js";
+import { HostedProviderResponseError } from "../features/hosted/hosted-provider.js";
 import { registerErrorHandler } from "./error-handler.js";
 
 const applications = [] as Array<ReturnType<typeof Fastify>>;

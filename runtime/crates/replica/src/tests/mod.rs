@@ -1,8 +1,11 @@
 //! Engine tests that use the test-only sealer.
 
+mod apply_results;
+mod apply_void_inventory;
 mod attachment_apply;
 mod attachment_ingest;
 mod attachment_upload;
+mod backlinks;
 mod base;
 mod describe;
 mod disk;
@@ -18,6 +21,7 @@ mod pending_inventory;
 mod projected_budget;
 mod query_cursor;
 mod record_capture_time;
+mod resolve_links;
 mod resource_list;
 mod resources;
 mod snapshot_attachments;

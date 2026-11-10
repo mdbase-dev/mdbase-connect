@@ -7,6 +7,9 @@ import { MdbaseAppMark, Wordmark, type MdbaseMarkMotion } from "./brand.js";
 import { useMdbaseMarkActivity } from "./mark-activity.js";
 import { Menu } from "./Menu.js";
 
+/** Where the menu's "Build your own" link goes: the same SDK guide in every environment. */
+const sdkDocumentationUrl = "https://mdbase.dev/sdk/";
+
 /**
  * The product wordmark as a menu for opening the current collection in the other mdbase apps.
  * Each opens in a new tab so the current app stays where it is.
@@ -34,7 +37,6 @@ export function AppSwitcher({ current, urls = {}, motion }: {
       ref={triggerRef}
       type="button"
       className="mdbase-app-switcher"
-      aria-label={t`mdbase ${current}: open this collection in another app`}
       aria-haspopup="menu"
       aria-expanded={open}
       aria-controls={open ? menuId : undefined}
@@ -70,7 +72,13 @@ function AppMenu({ apps, current, onClose }: {
     <div className="mdbase-menu-list">
       {apps.map((app) => <AppItem key={app.id} app={app} current={app.id === current} onOpen={() => onClose(false)} />)}
     </div>
-    <p className="mdbase-menu-note">{t({ message: "Opens in a new tab" })}</p>
+    <div className="mdbase-menu-note mdbase-app-menu-footer">
+      <span>{t({ message: "Opens in a new tab" })}</span>
+      <a className="mdbase-app-menu-build" role="menuitem" href={sdkDocumentationUrl} target="_blank" rel="noopener" onClick={() => onClose(false)}>
+        {t({ message: "Build your own" })}
+        <span className="mdbase-visually-hidden">  {t({ message: "(opens in a new tab)" })}</span>
+      </a>
+    </div>
   </>;
 }
 

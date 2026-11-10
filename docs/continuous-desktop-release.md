@@ -54,7 +54,10 @@ An unfulfilled automatic tag is an ambiguous or failed attempt, not permission
 to skip to another version. The line stops until a release agent inspects its
 exact run. No side-effecting operation is retried automatically, with one
 exception: the macOS jobs package again, at most three times in all, when Apple's
-stapling service fails, because nothing has been uploaded at that point. The
+stapling service fails or the packaged app fails its signature check, because
+nothing has been uploaded at that point. The check itself still has to pass.
+Ticket validation asks Apple again, at most five times, when the lookup itself
+fails with exit 68; it changes nothing, and a missing ticket stops at once. The
 coordinator and tag workers share one non-cancelling live concurrency group.
 
 Tags cannot be moved, and a tag worker runs the code at its tag, so a failed

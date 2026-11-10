@@ -938,6 +938,37 @@ change = {
 }
 
 ; from docs/contracts/replica-client-api.md
+backlinks-result = {
+  0: [* backlink],
+  ? 1: tstr,             ; cursor for the next page
+  2: bool,               ; complete: false while a snapshot install is in progress
+  3: uint,               ; as_of: local view version
+}
+backlink = {
+  0: record-view,        ; the referring record
+  1: [+ link-view],      ; its links that resolve to the target
+}
+link-view = {
+  0: tstr,               ; raw: the occurrence exactly as written
+  1: bool,               ; embed
+  2: link-resolution,
+  ? 3: tstr,             ; field: the frontmatter field holding it (absent: the body)
+}
+link-resolution = {
+  0: &( record: 0, file: 1, ambiguous: 2, not_found: 3, invalid: 4 ),
+  ? 1: uuid,             ; target: the resolved record or file
+  ? 2: path,             ; its path
+  ? 3: [+ path],         ; candidates: sorted candidate paths (ambiguous only)
+}
+
+; from docs/contracts/replica-client-api.md
+resolve-links-result = {
+  0: [* link-resolution], ; one per requested link, in request order
+  1: uint,                ; as_of: local view version
+  2: bool,                ; complete: false while a snapshot install is in progress
+}
+
+; from docs/contracts/replica-client-api.md
 ; ---- describe (replica-client-api.md §4.1) ----
 describe-result = {
   0: tstr,                   ; spec_version the collection declares
@@ -1001,6 +1032,7 @@ submit-params = {
   ? 6: bool,             ; dry_run: plan at the local view, capture nothing
   ? 7: include,          ; what to return in the optimistic record views
   ? 8: &( pending: 0, confirmed: 1, published: 2 ),   ; wait: return now (default), after confirmation, or after local file publication
+  ? 9: level,            ; validation: single-record check level for this write (default: the collection's settings.validation)
 }
 submit-result = [+ receipt]     ; one per mutation (several when allow_partial)
 

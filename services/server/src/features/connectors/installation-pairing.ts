@@ -1,4 +1,4 @@
-import { isNativeLoopbackOrigin } from "@mdbase-dev/connect-protocol/manifest";
+import { isLoopbackHttpOrigin, isNativeLoopbackOrigin } from "@mdbase-dev/connect-protocol/manifest";
 /** Installation devices extend daemon pairing, never application OAuth grants.
  * Public account selection precedes key custody; attestation precedes explicit
  * device approval. Original request/tuple and outcome are immutable. */
@@ -6,7 +6,7 @@ import { createHmac, randomBytes, randomUUID, verify } from "node:crypto";
 import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import { tokenHash, randomToken } from "../../security.js";
 import { audit } from "../../platform/audit-events.js";
-import { installationEnvironment } from "../../local-deployment.js";
+import { installationEnvironment } from "../../platform/local-deployment.js";
 import {
   clientFingerprint,
   deviceRegistrationDigest,
@@ -25,7 +25,7 @@ export { InstallationPairingError } from "./installation-pairing-error.js";
 import { CutoverProblemError } from "../next/cutover-problems.js";
 import { accountUpgradeRolledBack } from "../next/migration-rollback-state.js";
 import { unmigratedLocalCollection } from "../next/native-grant-target.js";
-import { attachNativeAuthorization, approveInstallationNativeChoice, privateInstallationChoices } from "./installation-native-authorization.js";
+import { attachNativeAuthorization, approveInstallationNativeChoice, closeUnusedNativeAuthorization, privateInstallationChoices } from "./installation-native-authorization.js";
 function fail(code: string, status = 409): never {
   throw new InstallationPairingError(
     status,
@@ -60,7 +60,11 @@ export async function installationApp(db: DatabaseQueryable, environment: string
     return declared.origin !== "null" && declared.origin === origin;
   });
   const nativeOrigin = declaration && "platform" in declaration && declaration.platform === "native" && kind === "app-runtime" && isNativeLoopbackOrigin(origin);
-  if (["staging", "production"].includes(environment) && origin.startsWith("http:") && !nativeOrigin) return fail("installation_app_not_allowed", 403);
+  // An application under development runs in a browser on the loopback origin
+  // its own manifest declares. No other plain-HTTP origin pairs in staging or
+  // production, including a loopback origin that is only listed for the environment.
+  const developmentOrigin = declaredOrigin && kind === "app-runtime" && isLoopbackHttpOrigin(origin);
+  if (["staging", "production"].includes(environment) && origin.startsWith("http:") && !nativeOrigin && !developmentOrigin) return fail("installation_app_not_allowed", 403);
   if (!declaredOrigin && !allowed.includes(origin) && !nativeOrigin) return fail("installation_app_not_allowed", 403);
   if (!app.name || !app.family_identity) throw new Error("Invalid registered installation identity.");
   const timerDeclaration = installationTimerDeclaration(app, { environment: environment as InstallationTimerBinding["environment"], app_origin: origin, kind }, environment);
@@ -654,6 +658,7 @@ export async function approveInstallationPairing(
         "UPDATE pairing_requests SET approved_at=now(),expires_at=GREATEST(expires_at,now()+interval '10 minutes') WHERE id=$1",
         [id],
       );
+      await closeUnusedNativeAuthorization(c, id, user, "superseded_by_installation_approval");
       if (r.scope_only && consent.timer_consent !== undefined) {
         await requireInstallationScope(c,{id:r.connector_id,user_id:user,installation_device_id:r.device_id});
         // The credential already exists: make withdrawal/new consent effective
@@ -719,6 +724,7 @@ export async function denyInstallationPairing(
     // An approved file-access decision is already recorded; deny cannot undo it.
     if (r.file_access_collection_id && r.approved_at) fail("installation_approval_already_recorded");
     await c.query("UPDATE pairing_requests SET revoked_at=now() WHERE id=$1", [id]);
+    await closeUnusedNativeAuthorization(c, id, user, "installation_pairing_denied");
     await c.query(`UPDATE next_background_grants SET revoked_at=clock_timestamp()
       WHERE principal_kind='installation' AND approval_request_id=$1 AND revoked_at IS NULL`, [id]);
     return { ok: true };

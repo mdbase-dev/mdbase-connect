@@ -133,6 +133,14 @@ export interface AppWebSignInSnapshot {
   readonly approval?: Readonly<{outcome: "closed" | "cancelled"}> | null;
   /** Set by signOut (UX-011); cleared when the session starts again. */
   readonly signOutResult?: AppWebSignOutResult | null;
+  /** Present while this tab shows the app's unsynced collection (work before
+   * connecting): `selectedCollectionId` is its id and `status` its state.
+   * `sessionStatus` is the sign-in session's own status behind it. */
+  readonly unsynced?: Readonly<{collectionId: string; sessionStatus: AppWebSignInSnapshot["status"]}> | null;
+  /** Set once the app's unsynced collection holds work (something was saved
+   * there), in every tab, whichever collection it shows: the app may offer to
+   * connect it. `since` is when the first change was saved. */
+  readonly unsyncedWork?: Readonly<{since: number}> | null;
   /** Click-to-native/session screen, not a browser paint measurement. */
   readonly timing: Readonly<{firstScreenMs: number | null; readyMs: number | null}> | null;
 }
@@ -224,7 +232,7 @@ export class AppWebSignInSession<Connection> {
   constructor(options: AppWebSignInSessionOptions<Connection>) {
     this.options = Object.freeze({...options});
     // Validate the authenticated environment before touching storage or HTTP.
-    this.environment = selectAppEnvironment({environment: options.environment, appOrigin: options.origin, platform: options.allowNativeLoopbackHttp ? "native" : undefined, release: options.release});
+    this.environment = selectAppEnvironment({environment: options.environment, appOrigin: options.origin, release: options.release});
     options.signal.addEventListener("abort", this.onAbort, {once: true});
     this.lifetime.signal.addEventListener("abort", this.abortCollections, {once: true});
   }
@@ -351,10 +359,10 @@ export class AppWebSignInSession<Connection> {
    * sign-in gesture; a pending ledger keeps its SAME request for authorize(). */
   start(): Promise<AppWebSignInSnapshot> {
     return this.operation(async () => {
-      if (this.flow) return this.getSnapshot();
+      if (this.flow && this.base.status !== "blocked") return this.getSnapshot();
       this.publish({status: "starting", problem: null, signOutResult: null});
       const p = this.options;
-      this.flow = await AppProtectedInstallationSignIn.open({...p, mode: p.storeMode ?? "open", signal: this.flowLifetime.signal,
+      this.flow ??= await AppProtectedInstallationSignIn.open({...p, mode: p.storeMode ?? "open", signal: this.flowLifetime.signal,
         environmentSelection: this.environment});
       this.check();
       // Local ledger only: the pairing request is created by the sign-in
@@ -615,7 +623,7 @@ export class AppWebSignInSession<Connection> {
       this.host = await AppWebCloudCopyHost.openInstallationDevice({signIn: this.flow!, installation: this.installation,
         release: this.options.release, origin: this.options.origin, signal: this.lifetime.signal,
         loadRuntime: this.options.loadRuntime,
-        allowLoopbackHttp: this.environment.allowLoopbackHttp, allowNativeLoopbackHttp: this.environment.allowNativeLoopbackHttp}); this.check();
+        allowLoopbackHttp: this.environment.allowLoopbackHttp}); this.check();
       this.acknowledged = this.flow!.view().state === "paired";
     } else if (!this.acknowledged && this.flow!.view().state === "paired") {
       await this.host.completeInstallationSignIn(); this.check(); this.acknowledged = true;

@@ -1,6 +1,6 @@
 /** Fixed-purpose PUBLIC bootstrap outcome custody, not account/password/secret
  * custody. Unexported until persistent-platform/restart qualification completes. */
-import { labLoopbackHttpOrigin } from "../application/local-build.js";
+import { loopbackHttpOrigin } from "../application/local-build.js";
 import { decode, encode, type CborValue } from "../cbor.js";
 import { uuidToBytes } from "../codec.js";
 import { collectionDisplayName } from "./collection-display-name.js";
@@ -40,7 +40,7 @@ export class AppWebPrivateBootstrapPersistence implements AppPrivateBootstrapPer
       const ids = [this.pins.accountId, this.pins.connectorId, this.pins.deviceId, this.pins.installationId, this.pins.collection].map(uuidToBytes);
       if (ids.some(b => b.every(v => v === 0)) || !["create", "enrol"].includes(this.pins.purpose)) throw bad();
       for (const raw of [source.cpOrigin, source.logOrigin]) {
-        const u = new URL(raw), loopback = options.allowLoopbackHttp === true && labLoopbackHttpOrigin(raw);
+        const u = new URL(raw), loopback = options.allowLoopbackHttp === true && loopbackHttpOrigin(raw);
         if ((!loopback && u.protocol !== "https:") || u.origin !== raw || u.username || u.password) throw bad();
       }
       if (!(source.rootPublicKey instanceof Uint8Array) || source.rootPublicKey.length !== 32 || source.rootPublicKey.every(v => v === 0)) throw bad();

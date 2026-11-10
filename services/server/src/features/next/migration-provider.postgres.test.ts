@@ -3,7 +3,7 @@ import Fastify from "fastify";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import { HostedProviderResponseError, type LegacyMigrationDrain, type LegacyMigrationFence, type LegacyNotificationWatermark } from "../../hosted-provider.js";
+import { HostedProviderResponseError, type LegacyMigrationDrain, type LegacyMigrationFence, type LegacyNotificationWatermark } from "../hosted/hosted-provider.js";
 import { registerMigrationProviderRoutes } from "./migration-provider.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;

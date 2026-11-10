@@ -65,13 +65,12 @@ export async function destinationAuxDenialCases({ base, token, transport, encode
       map([[0,c],[1,stage === 'finish' ? pages.at(-1) : pages[0]]]);
     const request = await signed(method,params);
     const pending = fetch(`${base}/__test/floor-actor`,{method:'POST',body:JSON.stringify({actor,
-      url:`https://do/v1/rpc?c=${actor}`,headers:request.headers,body:request.body.toString('base64'),fault:'pause',
-      // Import's first floor read precedes begin(Write); its second is after
-      // buffering final Live under the writer lock (service.rs import).
-      pauseAt:stage === 'live' ? 2 : 1}),
+      url:`https://do/v1/rpc?c=${actor}`,headers:request.headers,body:request.body.toString('base64'),fault:'pause'}),
       signal:AbortSignal.timeout(15000)}).then(async r => {
+      // One nil read: it fills the actor's floor cache before the writer lock,
+      // and the commit (and final Live) refuse from that cached answer.
       assert.equal(r.status,200); const observed=await r.json(); assert.equal(observed.status,200);
-      assert.equal(observed.calls,stage === 'live' ? 2 : 1); return decode(Buffer.from(observed.response));
+      assert.equal(observed.calls,1); return decode(Buffer.from(observed.response));
     });
     pending.catch(() => {});
     try {
@@ -80,7 +79,7 @@ export async function destinationAuxDenialCases({ base, token, transport, encode
         if ((await harness('floor-pause-state')).paused) { reached=true; break; }
         await delay(10);
       }
-      assert.ok(reached,`${stage}: actual producer holds lock across real nil await`);
+      assert.ok(reached,`${stage}: actual producer paused at its real nil read`);
       assert.deepEqual(await harness('destination-state'),before);
       const deletion=sha(Buffer.concat([c,Buffer.from(`denial-${stage}`)])).subarray(0,16);
       const closing=ok(await call('collection_destination_close',map([[0,c],[1,1],[2,deletion],[3,(1n<<64n)-1n]])));
@@ -100,5 +99,5 @@ export async function destinationAuxDenialCases({ base, token, transport, encode
     assert.equal(retry.get(3)?.get(1),'collection_destination_closing');
     assert.deepEqual(await harness('destination-state'),after,`${stage}: old backup/cut never replaces target denial`);
   }
-  console.log('PASS: four actual writer-held nil-await races for valid aux begin/page/token finish/final Live, unchanged complete target SQL state, target denial preserved across restart/retry');
+  console.log('PASS: four actual paused-nil-read races for valid aux begin/page/token finish/final Live, unchanged complete target SQL state, target denial preserved across restart/retry');
 }

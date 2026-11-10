@@ -2,9 +2,10 @@ import { execFileSync } from "node:child_process";
 import { readProductionRelease } from "../verify-client-publication.mjs";
 
 export const repository = "mdbase-dev/mdbase-connect";
-export const git = (...args) => execFileSync("git", args, { encoding: "utf8" }).trim();
+// Caught command failures must not echo raw stderr before a bounded diagnostic.
+export const git = (...args) => execFileSync("git", args, { encoding: "utf8", stdio: "pipe" }).trim();
 // The paginated release list has outgrown Node's default 1 MiB output buffer.
-export const gh = (...args) => execFileSync("gh", args, { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 }).trim();
+export const gh = (...args) => execFileSync("gh", args, { encoding: "utf8", stdio: "pipe", maxBuffer: 256 * 1024 * 1024 }).trim();
 export const api = (path) => JSON.parse(gh("api", `repos/${repository}/${path}`));
 export const pages = (path) => JSON.parse(gh("api", "--paginate", "--slurp", `repos/${repository}/${path}`)).flat();
 
@@ -28,7 +29,7 @@ export function requireRunning(value) {
 
 export function contractSensitive(path) {
   if (/(?:^|\/)(?:test|tests|__tests__|examples)\//.test(path) || /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path)) return false;
-  if (/^(?:docs|changelog\.d|architecture\.d)\//.test(path) || /(?:^|\/)(?:README|CHANGELOG|DESIGN)\.md$/.test(path)) return false;
+  if (/^(?:docs|changelog\.d)\//.test(path) || /(?:^|\/)(?:README|CHANGELOG|DESIGN)\.md$/.test(path)) return false;
   if (/^(?:apps\/(?:desktop|editor|portal)|packages\/(?:app-ui|connect-ui|ui))\//.test(path)
       && /\.(?:css|scss|png|jpe?g|webp|gif|ico|icns|svg|woff2?|ttf)$/.test(path)) return false;
   if (/^(?:apps\/(?:desktop|editor|portal)\/src\/i18n|packages\/i18n\/src\/locales)\//.test(path)
@@ -107,10 +108,10 @@ export async function checkoutProductionCommit(env = process.env, {
   throw new Error("No green main commit is contained by both production services.");
 }
 
-export function requireGreenMain(commit) {
+export function requireGreenMain(commit, env = process.env) {
   if (!/^[a-f0-9]{40}$/.test(commit ?? "")) throw new Error("Expected a full main commit.");
   // Windows cannot spawn an extensionless script directly.
-  execFileSync("bash", ["scripts/ci/verify-qualified-commit", commit], { stdio: "inherit" });
+  execFileSync("bash", ["scripts/ci/verify-qualified-commit", commit], { stdio: "inherit", env });
 }
 
 export function remoteTagCommit(tag) {

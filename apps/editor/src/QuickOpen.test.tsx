@@ -9,6 +9,19 @@ function QuickOpen({ initialCommandMode, onClose, ...options }: Parameters<typeo
 }
 
 describe("keyboard discovery", () => {
+  it("carries the actual action context into shared palette results", () => {
+    const results = quickOpenResults({ index: [], recentPaths: [], types: [], onSelect: vi.fn(), commands: [
+      { id: "rename", label: "Rename", context: "Garden notes", run: vi.fn() }
+    ] }, ">");
+    expect(results[0]).toMatchObject({ id: "rename", context: "Garden notes" });
+  });
+  it("keeps explicit search relevance ahead of contextual fuzzy matches", () => {
+    const results = quickOpenResults({ index: [], recentPaths: [], types: [], onSelect: vi.fn(), commands: [
+      { id: "pin", label: "Pin", run: vi.fn() }, { id: "unpin", label: "Unpin", context: "Garden notes", run: vi.fn() }
+    ] }, ">pin");
+    expect(results[0].id).toBe("pin");
+    for (const result of results) expect(result).not.toHaveProperty("context", expect.anything());
+  });
   it("uses shared navigation-key labels in shortcut help", () => {
     render(<ShortcutHelp canRename onClose={() => {}} />);
     const help = screen.getByRole("dialog", { name: "Shortcuts" });
