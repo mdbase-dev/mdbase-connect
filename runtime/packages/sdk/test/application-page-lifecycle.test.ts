@@ -203,3 +203,28 @@ describe("application entry starting with work before connecting",()=>{
     expect(app.getSnapshot().phase?.kind).toBe("signed_out");expect(kinds.filter(kind=>kind==="starting").length).toBeGreaterThan(0);
   });
 });
+
+describe("application entry starting signed in with a remembered collection",()=>{
+  it("goes from starting to opening without showing the chooser, and times the open",async()=>{
+    const A="11111111-1111-4111-8111-111111111111",C="33333333-3333-4333-8333-333333333333";
+    const signIn={requestId:C,installationId:C,deviceId:C,appId:C,kind:"app-runtime",verificationUri:"https://cp.test/pair/x",state:"paired",accountId:C,
+      collectionSelection:null,collectionIds:[A],createCollections:false,requestedCreateCollections:false};
+    const paired={...unselected,signIn,collections:[{collectionId:A,displayName:"Notes",role:"owner"}]};
+    vi.stubGlobal("localStorage",{getItem:(key:string)=>key.endsWith(".selected-collection.v1")?A:null,setItem(){},removeItem(){}});
+    const measures:string[]=[];const measure=performance.measure.bind(performance);
+    vi.spyOn(performance,"measure").mockImplementation(((name:string,options?:PerformanceMeasureOptions)=>{measures.push(name);return measure(name,options);}) as typeof performance.measure);
+    const app=new MdbaseConnect(declaration).application();
+    const kinds:Array<string|undefined>=[];app.subscribe(()=>{kinds.push(app.getSnapshot().phase?.kind);});
+    FakeWorker.replies=false;const starting=app.start();
+    await vi.waitFor(()=>expect(FakeWorker.all[0]?.requests).toHaveLength(1));
+    const worker=FakeWorker.all[0]!;worker.reply(worker.requests[0]![2] as number,paired);await starting;
+    // The remembered collection is opened next: the Worker is asked to select it.
+    await vi.waitFor(()=>expect(actions(worker)).toEqual(["start","select"]));
+    expect(worker.requests[1]![4]).toBe(A);
+    expect(kinds).not.toContain("choosing");expect(app.getSnapshot().phase).toMatchObject({kind:"opening",collectionId:A});
+    // Startup timing is still running: the chooser did not end it.
+    expect(measures).toContain("mdbase:startup:starting");expect(measures).not.toContain("mdbase:startup:choosing");
+    vi.restoreAllMocks();
+  });
+});
+

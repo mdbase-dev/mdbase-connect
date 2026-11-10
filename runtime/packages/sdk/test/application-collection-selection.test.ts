@@ -167,4 +167,95 @@ describe("SDK collection selection: requested URL collection vs usable collectio
     selection.resync();await settle();
     expect(session.opened).toEqual([A,A]);expect(selection.getSnapshot()).toMatchObject({state:"usable",usable:{collectionId:A}});selection.close();
   });
+
+  it("holds the start until the remembered collection is decided, so no chooser shows before it opens",async()=>{
+    const session=signInSession({collections:[A,B]});
+    const {selection}=setup(`${origin}/`,session,{read:()=>B,write:()=>{}});
+    // Settled session, nothing requested yet: the remembered collection has not been looked up.
+    expect(selection.getSnapshot().state).toBe("none");expect(selection.startPending()).toBe(true);
+    let seen=0;selection.subscribe(()=>{seen++;});
+    await settle();
+    expect(selection.startPending()).toBe(false);expect(session.opened).toEqual([B]);expect(seen).toBeGreaterThan(0);selection.close();
+  });
+
+  it("releases the start hold with a new snapshot when nothing is remembered",async()=>{
+    const session=signInSession({collections:[A,B]});
+    const {selection}=setup(`${origin}/`,session);
+    const before=selection.getSnapshot();let seen=0;selection.subscribe(()=>{seen++;});
+    expect(selection.startPending()).toBe(true);
+    await settle();
+    // Same content, new identity: observers must re-read startPending().
+    expect(selection.startPending()).toBe(false);expect(seen).toBe(1);
+    expect(selection.getSnapshot()).toEqual(before);expect(selection.getSnapshot()).not.toBe(before);
+    expect(session.opened).toEqual([]);selection.close();
+  });
+
+  it("shows the chooser while a remembered Private collection may still be loading",async()=>{
+    const session=signInSession({collections:[A]});let listing=true;
+    const web=browser(`${origin}/`),selection=new ApplicationCollectionSelection({browser:new ApplicationBrowserSelection(origin,{},web.port),session:{...session.port,listing:()=>listing},memory:{read:()=>B,write:()=>{}}});
+    selection.start();await settle();
+    expect(selection.startPending()).toBe(false);expect(session.opened).toEqual([]);
+    listing=false;session.grant([B]);await settle();
+    expect(session.opened).toEqual([B]);selection.close();
+  });
+
+  it("reopens once after the session clears a failed open by re-reading the approved list",async()=>{
+    const session=signInSession({collections:[A,B]});session.failing.add(A);
+    const {selection}=setup(`${origin}/?collection=${A}`,session);await settle();
+    expect(session.opened).toEqual([A]);expect(selection.getSnapshot().state).toBe("blocked");
+    // Later snapshots of the same failure never reopen it.
+    session.publish({problem:"open_failed"});await settle();expect(session.opened).toEqual([A]);
+    // Shown again or back online: the session re-reads the list and clears the failure.
+    session.publish({status:"unselected",problem:null});await settle();
+    expect(session.opened).toEqual([A,A]);expect(selection.getSnapshot()).toMatchObject({state:"usable",usable:{collectionId:A}});
+    // Once it has opened, the old failure is spent: a later drop to unselected is not reopened.
+    session.publish({status:"unselected",problem:null});await settle();expect(session.opened).toEqual([A,A]);selection.close();
+  });
+
+  it("reopens when the session clears the failure before the selection has looked at it",async()=>{
+    // The re-read was queued behind the open: `blocked`, the rejection and the
+    // cleared snapshot all arrive before the selection's next turn.
+    const session=signInSession({collections:[A,B]});session.failing.add(A);
+    const open=session.port.open;
+    const port:ApplicationSelectionSession={...session.port,open:async(id,options)=>{try{await open(id,options);}catch(error){session.publish({status:"unselected",problem:null});throw error;}}};
+    const web=browser(`${origin}/?collection=${A}`),selection=new ApplicationCollectionSelection({browser:new ApplicationBrowserSelection(origin,{},web.port),session:port});
+    selection.start();await settle();
+    expect(session.opened).toEqual([A,A]);expect(selection.getSnapshot()).toMatchObject({state:"usable",usable:{collectionId:A}});selection.close();
+  });
+
+  it("reopens once after a retryable failure, which reads unselected with its problem set, is cleared",async()=>{
+    const session=signInSession({collections:[A,B]});let retryable=true;
+    const open=session.port.open;
+    const port:ApplicationSelectionSession={...session.port,open:async(id,options)=>{
+      if(!retryable)return open(id,options);
+      retryable=false;session.opened.push(id);session.publish({status:"opening",selectedCollectionId:id});await Promise.resolve();
+      session.publish({status:"unselected",problem:"unavailable"});throw new Error("unavailable");
+    }};
+    const web=browser(`${origin}/?collection=${A}`),selection=new ApplicationCollectionSelection({browser:new ApplicationBrowserSelection(origin,{},web.port),session:port});
+    selection.start();await settle();
+    expect(session.opened).toEqual([A]);
+    session.publish({status:"unselected",problem:null});await settle();
+    expect(session.opened).toEqual([A,A]);expect(selection.getSnapshot()).toMatchObject({state:"usable",usable:{collectionId:A}});selection.close();
+  });
+
+  it("an attempt that ends without a failure is not reopened because of an earlier one's problem",async()=>{
+    const session=signInSession({collections:[A,B]});
+    session.publish({status:"unselected",problem:"unavailable"});
+    // The open ends quietly (cancelled) while the earlier problem is still showing.
+    const port:ApplicationSelectionSession={...session.port,open:async id=>{session.opened.push(id);await Promise.resolve();throw new Error("aborted");}};
+    const web=browser(`${origin}/?collection=${A}`),selection=new ApplicationCollectionSelection({browser:new ApplicationBrowserSelection(origin,{},web.port),session:port});
+    selection.start();await settle();
+    expect(session.opened).toEqual([A]);
+    session.publish({status:"unselected",problem:null});await settle();
+    expect(session.opened).toEqual([A]);selection.close();
+  });
+
+  it("a re-read that leaves the failure in place, or drops the approval, does not reopen",async()=>{
+    const session=signInSession({collections:[A,B]});session.failing.add(A);
+    const {selection}=setup(`${origin}/?collection=${A}`,session);await settle();
+    expect(session.opened).toEqual([A]);
+    session.publish({status:"unselected",problem:"unavailable"});await settle();expect(session.opened).toEqual([A]);
+    session.publish({status:"unselected",problem:null,collections:session.snapshot().collections.filter(c=>c.collectionId!==A)});await settle();
+    expect(session.opened).toEqual([A]);expect(selection.getSnapshot().state).toBe("approval_required");selection.close();
+  });
 });

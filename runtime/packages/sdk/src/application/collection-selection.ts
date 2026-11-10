@@ -87,6 +87,12 @@ export class ApplicationCollectionSelection {
   private key="";
   private startTarget:ApplicationSelectionSnapshot|null=null;
   private startApplied=false;
+  /** Still deciding the start request, with nothing left to wait for but this object. */
+  private startHeld=true;
+  /** The request whose open the session reported as failed (blocked). */
+  private failed:string|null=null;
+  /** The session snapshot when the current attempt began. */
+  private before:AppWebSignInSnapshot|null=null;
   /** Last request auto-opened (null = auto-cleared); undefined = none yet. */
   private attempted:string|null|undefined=undefined;
   private lastRequested:string|null=null;
@@ -101,8 +107,12 @@ export class ApplicationCollectionSelection {
   constructor(options:ApplicationCollectionSelectionOptions){
     this.browser=options.browser;this.session=options.session;this.memory=options.memory??null;
     this.preferredId=options.preferredId??null;this.schedule=options.schedule??(task=>{setTimeout(task,0);});
-    this.value=this.derive();this.key=JSON.stringify(this.value);
+    this.value=this.derive();this.key=this.keyOf(this.value);
   }
+  /** True until the start request (URL, or the remembered collection) has been
+   * decided: a settled session with nothing requested is not yet a chooser. */
+  startPending():boolean{return this.startHeld;}
+  private keyOf(value:ApplicationCollectionSelectionSnapshot):string{return JSON.stringify(value)+(this.startHeld?"|start":"");}
   getSnapshot():ApplicationCollectionSelectionSnapshot{return this.value;}
   subscribe(listener:()=>void):()=>void{this.check();this.listeners.add(listener);return()=>{this.listeners.delete(listener);};}
   start():ApplicationCollectionSelectionSnapshot {
@@ -179,7 +189,7 @@ export class ApplicationCollectionSelection {
    * failure in the same session. */
   resync():void {
     if(this.closed)return;
-    this.attempted=undefined;this.approval=null;this.changed();
+    this.attempted=undefined;this.failed=null;this.approval=null;this.changed();
   }
   close():void {
     if(this.closed)return;this.closed=true;
@@ -198,8 +208,17 @@ export class ApplicationCollectionSelection {
   };
   private refresh():void {
     const id=this.requested().requestedCollectionId;
-    if(id!==this.lastRequested){this.lastRequested=id;this.attempted=undefined;if(this.declined!==id)this.declined=null;}
-    const next=this.derive(),key=JSON.stringify(next);
+    if(id!==this.lastRequested){this.lastRequested=id;this.attempted=undefined;this.failed=null;if(this.declined!==id)this.declined=null;}
+    // Noted on every snapshot, not only when reconcile runs: the session can
+    // publish a failed open and clear it again (a re-read queued behind the
+    // open) before the next reconcile, and the cleared one alone looks like an
+    // open still under way. A retryable failure reads `unselected` with its
+    // problem set rather than `blocked`.
+    if(id!==null&&this.attempted===id){
+      const s=this.session.getSnapshot();
+      if(s!==this.before&&(s.status==="blocked"?s.selectedCollectionId===id:s.status==="unselected"&&s.problem!==null))this.failed=id;
+    }
+    const next=this.derive(),key=this.keyOf(next);
     if(next.state==="usable")this.remember(next.usable!.collectionId);
     if(key===this.key)return;
     this.key=key;this.value=Object.freeze(next);
@@ -230,7 +249,8 @@ export class ApplicationCollectionSelection {
   }
   private async whenIdle(work:()=>Promise<void>):Promise<void>{while(this.opening)await this.opening;this.check();await work();}
   private run(id:string|null,options:ApplicationSelectionRequestOptions={},explicit=false):Promise<void> {
-    this.attempted=id;
+    // What the session showed before this attempt is not its outcome.
+    this.attempted=id;this.failed=null;this.before=this.session.getSnapshot();
     const request=options.signal?{signal:options.signal}:{};
     const raw=Promise.resolve().then(()=>id===null?this.session.clear(request):this.session.open(id,request));
     // Failures surface through the session snapshot (blocked + typed problem);
@@ -261,17 +281,26 @@ export class ApplicationCollectionSelection {
       if(this.browser.getSnapshot().source==="none"){
         let storedId:string|null=null;try{storedId=this.memory?.read()??null;}catch{/* optional hint */}
         // A remembered collection not listed yet may be a Private one still loading.
-        if(storedId!==null&&!approved(s,storedId)&&this.session.listing?.())return;
+        // That wait has no bound of its own: show the chooser meanwhile.
+        if(storedId!==null&&!approved(s,storedId)&&this.session.listing?.()){this.startHeld=false;this.refresh();return;}
         this.startApplied=true;
         const target=applicationStartTarget(this.browser.getSnapshot(),{storedId,preferredId:this.preferredId,collections:s.collections});
-        if(target.requestedCollectionId!==null&&!target.problem){this.browser.select(target.requestedCollectionId,{history:"replace"});this.startTarget=target;this.refresh();}
+        if(target.requestedCollectionId!==null&&!target.problem){this.browser.select(target.requestedCollectionId,{history:"replace"});this.startTarget=target;}
       }else this.startApplied=true;
+      this.startHeld=false;this.refresh(); // observers read startPending() with the snapshot
     }
     const r=this.requested(),id=r.requestedCollectionId;
     if(r.problem)return;
     if(id===null){if(this.attempted!==null&&s.selectedCollectionId!==null&&(isOpen(s)||isLocked(s)))void this.run(null);return;}
-    if(s.selectedCollectionId===id&&(isOpen(s)||isLocked(s)||s.status==="opening")){this.attempted=id;return;}
-    if(!approved(s,id)||this.attempted===id)return;
+    if(s.selectedCollectionId===id&&(isOpen(s)||isLocked(s)||s.status==="opening")){this.attempted=id;this.failed=null;return;}
+    if(s.selectedCollectionId===id&&s.status==="blocked"){this.failed=id;return;}
+    if(!approved(s,id))return;
+    // The session cleared the failed open by itself: it re-read the approved
+    // list when the app was shown again or came back online, and the request is
+    // still approved. Nothing else would open it, so open it once more. This is
+    // one attempt per re-read, not a retry loop.
+    if(this.attempted===id&&(this.failed!==id||s.status!=="unselected"||s.problem!==null))return;
+    this.failed=null;
     void this.run(id);
   }
   private finishApproval(s:AppWebSignInSnapshot):void {
