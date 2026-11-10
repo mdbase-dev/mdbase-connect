@@ -22,11 +22,13 @@ export class ApplicationStartupTiming {
   private measure(stage:string,start:number,end:number):void{
     try{this.clock?.measure(`${PREFIX}${stage}`,{start,end});}catch{/* diagnostics only */}
   }
-  /** One awaited startup step (registration, the session's start, ...). */
+  /** One awaited startup step (registration, the session's start, ...). A step
+   * begun during startup is measured even when the phase that ends startup is
+   * seen first: opening work before connecting settles after its phase shows. */
   async time<T>(stage:"capabilities"|"registration"|"election"|"session"|"unsynced",operation:()=>Promise<T>):Promise<T>{
     if(this.done)return operation();
     const start=this.clock!.now();
-    try{return await operation();}finally{if(!this.done)this.measure(stage,start,this.clock!.now());}
+    try{return await operation();}finally{this.measure(stage,start,this.clock!.now());}
   }
   /** The phase the application shows now: one measure per phase passed
    * through (`opening:<progress>` while a collection opens), then `total`. */

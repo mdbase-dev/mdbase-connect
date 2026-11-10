@@ -19,8 +19,10 @@ it("measures each step and phase once, with fixed names, until a collection is u
   timing.observe({kind:"starting"});
   c.advance(10);timing.observe(opening());
   c.advance(30);timing.observe(opening("checking_setup"));
-  c.advance(40);timing.observe(usable);
-  // Nothing after the first usable phase: later openings are not startup.
+  // A step still running when the usable phase shows is measured when it settles.
+  const unsynced=timing.time("unsynced",async()=>{c.advance(40);timing.observe(usable);c.advance(2);});
+  await unsynced;
+  // Nothing begun after the first usable phase: later openings are not startup.
   c.advance(50);timing.observe(opening());await timing.time("session",async()=>{c.advance(1);});
   expect(c.measures).toEqual([
     ["mdbase:startup:registration",5,25],
@@ -28,6 +30,7 @@ it("measures each step and phase once, with fixed names, until a collection is u
     ["mdbase:startup:opening",35,65],
     ["mdbase:startup:opening:checking_setup",65,105],
     ["mdbase:startup:total",0,105],
+    ["mdbase:startup:unsynced",65,107],
   ]);
 });
 
