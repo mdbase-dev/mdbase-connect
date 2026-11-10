@@ -4384,6 +4384,14 @@ async function countMarkdownFiles(root) {
   return count;
 }
 
+// This suite's applications run on loopback origins, which the approval screen
+// presents as an unverified app on this computer, never under the manifest's name.
+async function expectLocalApplicationIdentity(page, name) {
+  await expect(page.getByRole("heading", { name: "Connect an app", level: 1, exact: true })).toBeVisible();
+  await expect(page.getByText("an app running on this computer", { exact: true })).toBeVisible();
+  await expect(page.getByText(`This app calls itself ${name}.`)).toBeVisible();
+}
+
 async function authorizeHostedApplication(authorizationUrl, cookie, collectionId, redirectUri) {
   const browser = await chromium.launch({ headless: true });
   try {
@@ -4397,7 +4405,7 @@ async function authorizeHostedApplication(authorizationUrl, cookie, collectionId
     }]);
     const page = await context.newPage();
     await page.goto(authorizationUrl);
-    await expect(page.getByRole("heading", { name: "Hosted SDK E2E", level: 1, exact: true })).toBeVisible();
+    await expectLocalApplicationIdentity(page, "Hosted SDK E2E");
     await page.locator(".approval-form").waitFor();
     const collection = page.getByRole("option", {
       name: "Hosted writing", exact: true
@@ -4442,7 +4450,7 @@ async function authorizeHostedApplicationByCreating(authorizationUrl, cookie, re
     }]);
     const page = await context.newPage();
     await page.goto(authorizationUrl);
-    await expect(page.getByRole("heading", { name: "Workout Inline E2E", level: 1, exact: true })).toBeVisible();
+    await expectLocalApplicationIdentity(page, "Workout Inline E2E");
     await expect(page.getByText("No compatible collection is ready.")).toBeVisible();
     await expect(page.getByRole("combobox", { name: "Choose a collection", exact: true })).toHaveCount(0);
     await page.getByRole("button", { name: "New collection" }).click();
