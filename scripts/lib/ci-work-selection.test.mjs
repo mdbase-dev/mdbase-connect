@@ -108,8 +108,12 @@ test("native selection retains explicit dispatch checks and includes Rust input 
     assert.doesNotMatch(block, /always\(\)/);
     assert.match(block, /needs.select-tests.result == 'success'/);
   }
-  for (const path of ["Cargo.toml", "Cargo.lock", "crates/**", "deploy/docker/mdbase-rs-revision", "scripts/ci/desktop-test-plan.mjs"]) {
-    assert.ok(desktop.includes(`- "${path}"`));
+  for (const path of ["runtime/**", "scripts/ci/desktop-test-plan.mjs"]) {
+    assert.ok(desktop.includes(`- "${path}"`), path);
+  }
+  // The desktop bundles mdbn-daemon from runtime/; the legacy root crates are not inputs.
+  for (const path of ["Cargo.toml", "Cargo.lock", "crates/**", "rust-toolchain*", "deploy/docker/mdbase-rs-revision"]) {
+    assert.ok(!desktop.includes(`- "${path}"`), path);
   }
 });
 

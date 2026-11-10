@@ -2,9 +2,10 @@ import { execFileSync } from "node:child_process";
 import { readProductionRelease } from "../verify-client-publication.mjs";
 
 export const repository = "mdbase-dev/mdbase-connect";
-export const git = (...args) => execFileSync("git", args, { encoding: "utf8" }).trim();
+// Caught command failures must not echo raw stderr before a bounded diagnostic.
+export const git = (...args) => execFileSync("git", args, { encoding: "utf8", stdio: "pipe" }).trim();
 // The paginated release list has outgrown Node's default 1 MiB output buffer.
-export const gh = (...args) => execFileSync("gh", args, { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 }).trim();
+export const gh = (...args) => execFileSync("gh", args, { encoding: "utf8", stdio: "pipe", maxBuffer: 256 * 1024 * 1024 }).trim();
 export const api = (path) => JSON.parse(gh("api", `repos/${repository}/${path}`));
 export const pages = (path) => JSON.parse(gh("api", "--paginate", "--slurp", `repos/${repository}/${path}`)).flat();
 

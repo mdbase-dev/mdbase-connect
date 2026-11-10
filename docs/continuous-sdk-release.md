@@ -19,8 +19,13 @@ Each package is compared with **its own highest published npm version**, not a
 dist-tag, server release or global release counter. The planner verifies the
 baseline npm Sigstore/SLSA provenance, publisher workflow, fixed repository,
 full source commit and SHA-512 subject against npm's SRI. Unknown/unbootstrapped
-packages, unavailable provenance, non-ancestor source and registry errors fail
-closed. It never guesses a baseline from a mutable pointer or version string.
+packages, unavailable provenance and registry errors fail closed. If the verified
+baseline is ahead of the checked-out source, the whole package line stands down
+successfully until production catches up; dependency expansion cannot republish
+older source. If neither commit contains the other, planning fails with
+`publication-baseline-diverged`. An ancestry invocation failure (rather than
+Git's status 1 for non-ancestry) fails with `publication-ancestry-unavailable`.
+It never guesses a baseline from a mutable pointer or version string.
 
 Changes to a package's shipped inputs select it. Version-only release-prep
 edits and tests do not. Shared workspace dependency/build inputs select all
@@ -87,6 +92,13 @@ packs its artifacts with provenance naming it. Otherwise the plan reports no cha
 run ends successfully without publishing; a later run on a production-contained
 main publishes the change.
 
+Each package has a log line and Actions summary naming the selected production
+commit, original run commit, verified baseline version/commit and decision.
+Pending changes name the commit production must contain and the next eligible
+run after Server CD promotion as the release trigger. Exact run qualification
+and fresh production compatibility still apply; promotion alone does not bypass
+either gate. Planner diagnostics use fixed reasons rather than command stderr.
+
 Runtime CI now qualifies every main push, including documentation-only
 successors, so a newer main commit cannot strand an otherwise changed SDK
 waiting for a qualification that will never be scheduled. Its PR path filter
@@ -108,21 +120,26 @@ No equality between unrelated package/server
 version numbers is required. Readiness/compatibility and workflow-active state
 are rechecked immediately before every npm publication.
 
-Workspace planning runs this same `verifyCompatibility` proof before packing,
-for **every** public workspace package, including `@mdbase-dev/connect`, protocol,
+Nonempty workspace planning runs this same `verifyCompatibility` proof before
+packing, for **every** public workspace package, including `@mdbase-dev/connect`, protocol,
 devkit and webhooks. There are no server-independent
 exemptions: i18n, UI and newly added public packages are gated too. The existing
 fail-closed contract-path classification is shared unchanged with the source SDK.
 
 The workspace `npm-release-plan.json` records `compatibility.status` as `passed`
 with the exact Connect/MCP and provider commit evidence, or `blocked` with the
-verifier's error. The Actions job summary also shows the result. A manual
-`dry_run: true` reports incompatibility or unavailable proof without failing the
+fixed reason `production-compatibility-unproven`. The Actions job summary also
+shows the result. A manual `dry_run: true` reports incompatibility or unavailable proof without failing the
 plan, so operators can still inspect and pack the proposed versions. A live
 plan fails before packing if this proof is blocked. The protected publisher
 still obtains fresh production proof immediately before **each** npm publish;
 a passed plan is not reusable publication authority. Source-SDK build
 qualification and both publishers' stop switches remain unchanged.
+
+Empty plans do not run compatibility or prior-publication reconciliation: they
+cannot enter build/pack/publish jobs. Nonempty live plans still require both,
+and an unreconciled prior attempt fails with
+`publication-prior-attempt-unreconciled`.
 
 This conservatively waits for production on shared SDK/runtime or otherwise
 unclassified changes; it does not assert semantic compatibility from green CI

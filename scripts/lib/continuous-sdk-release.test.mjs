@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, wr
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { awaitMainCi, awaitPublicationCi, contentChanged, dependentPackages, failedPublisherRuns, inputChanged, packageInputs, publicationBaseline, publicationCommit, publicationState, provenanceSource, qualifyWorkspace } from "../continuous-sdk-release.mjs";
+import { awaitMainCi, awaitPublicationCi, baselineHistory, contentChanged, dependentPackages, failedPublisherRuns, inputChanged, packageInputs, publicationBaseline, publicationCommit, publicationState, provenanceSource, qualifyWorkspace } from "../continuous-sdk-release.mjs";
 import { publicPackages } from "../public-packages.mjs";
 
 const name = "@mdbase-dev/sdk";
@@ -111,10 +111,10 @@ test("every workspace package, including UI, locales and unknown packages, requi
         calls++;
         throw new Error(error);
       });
-      if (live === "true") await assert.rejects(result, /server-facing contract/);
-      else assert.deepEqual(await result, { status: "blocked", error });
+      if (live === "true") await assert.rejects(result, /production-compatibility-unproven/);
+      else assert.deepEqual(await result, { status: "blocked", error: "production-compatibility-unproven" });
       assert.equal(calls, 1, item.name);
-      assert.deepEqual(JSON.parse(readFileSync(planFile, "utf8")), { ...record, compatibility: { status: "blocked", error } });
+      assert.deepEqual(JSON.parse(readFileSync(planFile, "utf8")), { ...record, compatibility: { status: "blocked", error: "production-compatibility-unproven" } });
     }
   }
   assert.match(readFileSync(summary, "utf8"), /Workspace production compatibility: blocked/);
@@ -134,8 +134,8 @@ test("workspace plans retain exact successful proof and fail closed on unavailab
     assert.deepEqual(JSON.parse(readFileSync(planFile, "utf8")).compatibility, { status: "passed", evidence });
     for (const message of ["Canonical production Connect is not ready.", "fetch failed", "Invalid release tag object.", "ancestry status 128"]) {
       const result = qualifyWorkspace(planFile, env, async () => { throw new Error(message); });
-      if (live === "true") await assert.rejects(result, { message });
-      else assert.deepEqual(await result, { status: "blocked", error: message });
+      if (live === "true") await assert.rejects(result, { message: "production-compatibility-unproven" });
+      else assert.deepEqual(await result, { status: "blocked", error: "production-compatibility-unproven" });
     }
   }
   for (const change of [{ GITHUB_SHA: "b".repeat(40) }, { LIVE_PUBLICATION: undefined }, { LIVE_PUBLICATION: "False" }]) {
@@ -191,8 +191,13 @@ else await publishWorkspace(process.env.PLAN_FILE, process.env.ARCHIVE_DIRECTORY
             TEST_COMMAND: command, PLAN_FILE: planFile, ARCHIVE_DIRECTORY: directory, BLOCKED_COMMIT: blocked,
             CONTRACT_PATH: path, NPM_MARKER: marker, GITHUB_STEP_SUMMARY: "" } });
         assert.equal(result.status, live === "true" ? 1 : 0, result.stderr);
-        assert.match(result.stdout + result.stderr, /Production does not contain this client's server-facing contract/);
-        assert((result.stdout + result.stderr).includes(path));
+        if (command === "plan") {
+          assert.match(result.stdout + result.stderr, /production-compatibility-unproven/);
+          assert(!(result.stdout + result.stderr).includes(path), "planner diagnostics are fixed text");
+        } else {
+          assert.match(result.stdout + result.stderr, /Production does not contain this client's server-facing contract/);
+          assert((result.stdout + result.stderr).includes(path));
+        }
         assert.equal(existsSync(marker), false, "incompatible source must never reach npm");
         if (command === "plan") assert.equal(JSON.parse(readFileSync(planFile, "utf8")).compatibility.status, "blocked");
       }
@@ -228,8 +233,8 @@ test("workspace packing preserves qualified files, changes only metadata, and pi
 
 test("all SDK consumers pin the selected source", () => {
   const source = readFileSync(new URL("../continuous-sdk-release.mjs", import.meta.url), "utf8");
-  assert.match(source, /const production = await checkoutProductionCommit\(env, \{ qualify: commit => requireGreenMain\(commit, quiet\) \}\)/);
-  assert.match(source, /git\("checkout", "--detach", commit\);\n  if \(current\) requireGreenMain\(commit, env\);/);
+  assert.match(source, /const production = await selectProduction\(env, \{ qualify: commit => qualify\(commit, quiet\) \}\)/);
+  assert.match(source, /git\("checkout", "--detach", commit\);\n  if \(current\) qualify\(commit, env\);/);
   assert.match(source, /env = \{ \.\.\.env, GITHUB_SHA: commit \}/);
   assert.match(source, /commit=\$\{commit\}/);
   for (const [name, jobs] of [["publish-npm", ["pack", "publish"]], ["publish-sdk-npm", ["build", "publish", "publish-internal"]]]) {
@@ -340,7 +345,7 @@ test("npm provenance gets the selected source SHA, not Actions' newer workflow S
 
 test("automatic publishers keep isolated OIDC, source qualification and explicit dry-run dispatches", () => {
   const publisher = readFileSync(new URL("../continuous-sdk-release.mjs", import.meta.url), "utf8");
-  assert.match(publisher, /if \(kind === "workspace"\) result.compatibility = await qualifyWorkspace\(output, env\)/);
+  assert.match(publisher, /if \(selected.length && kind === "workspace"\) result.compatibility = await qualifyWorkspace\(output, env, verify\)/);
   assert.match(publisher, /qualifyWorkspace\(planFile, env = process.env, verify = verifyCompatibility\)/);
   assert.match(publisher, /for \(const item of record.packages\) \{\s+await compatible\(env\)/);
   for (const name of ["publish-npm", "publish-sdk-npm"]) {
@@ -386,5 +391,160 @@ test("a run queued behind the same commit's publication stands down; other outco
   for (const status of [401, 403, 429, 500, 503]) {
     registry(status);
     await assert.rejects(publicationState(name, version, env, proving(commit)), new RegExp(`HTTP ${status} requires owner review`));
+  }
+});
+
+function plannerFixture(context) {
+  const directory = mkdtempSync(join(tmpdir(), "publication-history-"));
+  context.after(() => rmSync(directory, { recursive: true, force: true }));
+  const git = (...args) => execFileSync("git", args, { cwd: directory, encoding: "utf8", stdio: "pipe" }).trim();
+  git("init", "-b", "main");
+  git("config", "user.email", "test@example.invalid");
+  git("config", "user.name", "Publication test");
+  const directories = ["packages/protocol", "packages/client", "packages/devkit", "packages/app-ui", "packages/i18n", "runtime/packages/sdk"];
+  for (const path of ["package.json", ...directories.map(directory => `${directory}/package.json`)]) {
+    mkdirSync(join(directory, path, ".."), { recursive: true });
+    const manifest = JSON.parse(readFileSync(new URL(`../../${path}`, import.meta.url), "utf8"));
+    writeFileSync(join(directory, path), JSON.stringify(manifest));
+  }
+  const save = () => { git("add", "."); git("commit", "-qm", "fixture"); return git("rev-parse", "HEAD"); };
+  const base = save();
+  // Shared inputs exercise every workspace package and source-SDK dependency.
+  writeFileSync(join(directory, "pnpm-lock.yaml"), "production\n");
+  const production = save();
+  writeFileSync(join(directory, "pnpm-lock.yaml"), "future\n");
+  const future = save();
+  writeFileSync(join(directory, "README.md"), "off-axis successor\n");
+  const successor = save();
+  git("checkout", "-qb", "diverged", base);
+  writeFileSync(join(directory, "peer.txt"), "diverged\n");
+  const diverged = save();
+  const program = new URL("../continuous-sdk-release.mjs", import.meta.url).href;
+  const execute = ({ kind, baselineCommit = production, run = production, selected = production, ci = true, compatibility = true, live = "true", aheadUi = false, priorFailure = false }) => {
+    git("checkout", "--detach", run);
+    const summary = join(directory, "summary.md");
+    const output = join(directory, "outputs");
+    const planFile = join(directory, "plan.json");
+    for (const file of [summary, output, planFile]) rmSync(file, { force: true });
+    const script = `import { plan } from ${JSON.stringify(program)};
+const selected = ${JSON.stringify(selected)};
+await plan(${JSON.stringify(kind)}, ${JSON.stringify(planFile)}, process.env, {
+  selectProduction: async () => {
+    const { execFileSync } = await import('node:child_process');
+    execFileSync('git', ['checkout', '--detach', selected], { stdio: 'pipe' });
+    return selected;
+  },
+  qualify: sha => { if (sha !== process.env.GITHUB_SHA && sha !== selected) throw new Error('wrong qualification'); },
+  readPublished: async item => ({ version: ${JSON.stringify(version)}, versions: [${JSON.stringify(version)}],
+    commit: ${JSON.stringify(aheadUi)} && item.name === '@mdbase-dev/ui' ? ${JSON.stringify(future)} : ${JSON.stringify(baselineCommit)} }),
+  waitForCi: async () => ${JSON.stringify(ci)},
+  checkAttempts: () => { if (${JSON.stringify(priorFailure)}) throw new Error('RAW-PRIOR-ATTEMPT-STDERR'); },
+  verify: async () => {
+    if (!${JSON.stringify(compatibility)}) throw new Error('RAW-COMPATIBILITY-STDERR');
+    return { candidate: process.env.GITHUB_SHA };
+  }
+});`;
+    const result = spawnSync(process.execPath, ["--input-type=module", "-e", script], { cwd: directory, encoding: "utf8",
+      env: { ...process.env, GITHUB_REPOSITORY: "mdbase-dev/mdbase-connect", GITHUB_REF: "refs/heads/main",
+        GITHUB_SHA: run, LIVE_PUBLICATION: live, SDK_RELEASE_STOPPED: "false", GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary } });
+    return { ...result, summary: existsSync(summary) ? readFileSync(summary, "utf8") : "",
+      output: existsSync(output) ? readFileSync(output, "utf8") : "",
+      plan: existsSync(planFile) ? JSON.parse(readFileSync(planFile, "utf8")) : undefined };
+  };
+  return { execute, base, production, future, successor, diverged };
+}
+
+for (const kind of ["source", "workspace"]) {
+  test(`${kind} planner handles ahead, divergent and pending histories with bounded per-package summaries`, async context => {
+    const { execute, base, production, future, successor, diverged } = plannerFixture(context);
+    const names = kind === "source" ? [name] : (await publicPackages()).map(item => item.name);
+    const check = (result, decision, run = production) => {
+      for (const item of names) {
+        assert(result.summary.includes(`${item}: selected production ${production}; run ${run}; published baseline ${version} at `), result.summary);
+      }
+      assert.match(result.summary, decision);
+      assert(result.stdout.includes(result.summary.split("\n").find(line => line.startsWith("- @")).slice(2)), "same diagnostic appears in log and summary");
+      assert.doesNotMatch(result.stdout + result.stderr + result.summary, /RAW-|Command failed/);
+    };
+    for (const run of [production, future]) {
+      const ahead = execute({ kind, baselineCommit: future, run, compatibility: false, priorFailure: true });
+      assert.equal(ahead.status, 0, ahead.stderr);
+      assert.deepEqual(ahead.plan.packages, []);
+      assert.equal(ahead.plan.compatibility, undefined);
+      assert.match(ahead.output, /changed=false\npublish=false/);
+      check(ahead, new RegExp(`waiting for production to reach commit ${future}`), run);
+      if (run === future) assert(ahead.summary.includes(`Server CD promotes a commit containing ${future}`));
+    }
+    const divergence = execute({ kind, baselineCommit: diverged });
+    assert.equal(divergence.status, 1);
+    assert.equal(divergence.plan, undefined);
+    assert.equal(divergence.output, "");
+    check(divergence, /blocked: publication-baseline-diverged/);
+
+    const invalid = execute({ kind, baselineCommit: "0".repeat(40) });
+    assert.equal(invalid.status, 1);
+    check(invalid, /blocked: publication-ancestry-unavailable/);
+    assert.doesNotMatch(invalid.stdout + invalid.stderr, /fatal:/, "real Git stderr must stay captured");
+
+    const pending = execute({ kind, baselineCommit: base, run: future, compatibility: false, priorFailure: true });
+    assert.equal(pending.status, 0, pending.stderr);
+    assert.deepEqual(pending.plan.packages, []);
+    check(pending, new RegExp(`Server CD promotes a commit containing ${future}`), future);
+
+    const empty = execute({ kind, compatibility: false, priorFailure: true });
+    assert.equal(empty.status, 0, empty.stderr);
+    check(empty, /nothing to publish/);
+    assert.match(empty.output, /changed=false\npublish=false/);
+
+    const publishing = execute({ kind, baselineCommit: base });
+    assert.equal(publishing.status, 0, publishing.stderr);
+    assert.deepEqual(publishing.plan.packages.map(item => item.name), names);
+    check(publishing, /publishing 0\.1\.0-beta\./);
+    assert.match(publishing.output, /changed=true\npublish=true/);
+
+    const caughtUp = execute({ kind, baselineCommit: production, selected: future, run: future });
+    assert.equal(caughtUp.status, 0, caughtUp.stderr);
+    assert.equal(caughtUp.plan.commit, future);
+    assert.deepEqual(caughtUp.plan.packages.map(item => item.name), names, "promotion releases the previously pending inputs");
+    assert.match(caughtUp.output, /changed=true\npublish=true/);
+
+    const equivalent = execute({ kind, baselineCommit: production, selected: future, run: successor });
+    assert.equal(equivalent.status, 0, equivalent.stderr);
+    assert.equal(equivalent.plan.commit, successor, "equivalent inputs still publish only with this run's provenance SHA");
+    assert.deepEqual(equivalent.plan.packages.map(item => item.name), names);
+    assert.match(equivalent.output, /changed=true\npublish=true/);
+
+    const ci = execute({ kind, baselineCommit: base, selected: future, run: successor, ci: false, compatibility: false });
+    assert.equal(ci.status, 0, ci.stderr);
+    assert(ci.summary.includes(`waiting for successful qualification of commit ${successor}`));
+    assert.match(ci.output, /changed=false\npublish=false/);
+
+    const prior = execute({ kind, baselineCommit: base, priorFailure: true });
+    assert.equal(prior.status, 1);
+    check(prior, /blocked: publication-prior-attempt-unreconciled/);
+
+    if (kind === "workspace") {
+      const mixed = execute({ kind, baselineCommit: base, aheadUi: true, compatibility: false, priorFailure: true });
+      assert.equal(mixed.status, 0, mixed.stderr);
+      assert.deepEqual(mixed.plan.packages, [], "dependency expansion must never repack source behind a baseline");
+      check(mixed, new RegExp(`waiting for production to reach commit ${future}`));
+      for (const live of ["true", "false"]) {
+        const blocked = execute({ kind, baselineCommit: base, compatibility: false, live });
+        assert.equal(blocked.status, live === "true" ? 1 : 0, blocked.stderr);
+        check(blocked, /blocked: production-compatibility-unproven/);
+        assert.equal(blocked.plan.compatibility.status, "blocked");
+      }
+    }
+  });
+}
+
+test("ancestry invocation failures are named and never interpreted as an ahead baseline", () => {
+  for (const failAt of [1, 2]) {
+    let calls = 0;
+    assert.throws(() => baselineHistory("a".repeat(40), "b".repeat(40), () => {
+      calls++;
+      throw Object.assign(new Error("RAW-GIT-STDERR"), { status: calls === failAt ? 128 : 1 });
+    }), { message: "publication-ancestry-unavailable" });
+    assert.equal(calls, failAt);
   }
 });

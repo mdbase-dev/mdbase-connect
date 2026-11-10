@@ -2,16 +2,6 @@ name: Windows daemon lifecycle
 
 on:
   workflow_call:
-  push:
-    branches: [investigate/428-windows-startup, fix/428-windows-lifecycle-contract]
-    paths:
-      - .github/workflows/windows-daemon-lifecycle.yml
-      - scripts/diagnostics/windows-428.ps1
-      - scripts/diagnostics/windows-cli-lifecycle.mjs
-      - scripts/diagnostics/windows-service-probe/**
-      - crates/connect-cli/src/service.rs
-      - crates/connect-cli/src/service/**
-      - crates/connect-cli/Cargo.toml
 
 permissions:
   contents: read
