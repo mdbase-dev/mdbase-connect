@@ -1,21 +1,21 @@
 import { randomUUID } from "node:crypto";
-import type { DatabaseConnection, DatabasePool } from "./db.js";
+import type { DatabaseConnection, DatabasePool } from "../../db.js";
 import {
   effectiveEntitlement,
   FREE_ENTITLEMENT_PROFILE,
   grantOperatorEntitlement,
   reconcileHostedAccountCollections
-} from "./features/account/entitlements.js";
+} from "../account/entitlements.js";
 import {
   HostedProviderResponseError,
   type HostedAccountUsage,
   type HostedProviderClient
-} from "./hosted-provider.js";
-import { quarantineMissingHostedCollectionOnTransaction } from "./hosted-capability-lifecycle.js";
+} from "../../hosted-provider.js";
+import { quarantineMissingHostedCollectionOnTransaction } from "../../hosted-capability-lifecycle.js";
 import {
   InstanceAdminConflictError,
   type OperatorMutation
-} from "./instance-admin.js";
+} from "../../instance-admin.js";
 
 export async function inspectAccountEntitlements(
   db: DatabasePool,

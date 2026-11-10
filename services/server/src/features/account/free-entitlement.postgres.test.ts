@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { backfillFreeEntitlement } from "../../auth-admin-entitlements.js";
+import { backfillFreeEntitlement } from "../instance-admin/auth-admin-entitlements.js";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { effectiveEntitlement, grantOperatorEntitlement } from "./entitlements.js";
 

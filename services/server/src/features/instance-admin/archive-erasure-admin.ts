@@ -1,9 +1,9 @@
-import type { DatabasePool } from "./database-types.js";
-import { drainDeferredAccountDeletions } from "./features/account/account-management.js";
-import { ProviderRevocationWorker } from "./hosted-capability-lifecycle.js";
-import type { HostedProviderClient } from "./hosted-provider.js";
-import type { OperatorMutation } from "./instance-admin.js";
-import { audit } from "./platform/audit-events.js";
+import type { DatabasePool } from "../../database-types.js";
+import { drainDeferredAccountDeletions } from "../account/account-management.js";
+import { ProviderRevocationWorker } from "../../hosted-capability-lifecycle.js";
+import type { HostedProviderClient } from "../../hosted-provider.js";
+import type { OperatorMutation } from "../../instance-admin.js";
+import { audit } from "../../platform/audit-events.js";
 
 interface QueueObservation {
   revision: string;

@@ -1,15 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { usage } from "./auth-admin-usage.js";
+import { usage } from "./features/instance-admin/auth-admin-usage.js";
 import { migrationExecutableSha256, repairAuthorityImportSources } from "./migrations.js";
 import type { DatabasePool } from "./db.js";
-import { compatibilityReport } from "./auth-admin-compatibility.js";
+import { compatibilityReport } from "./features/instance-admin/auth-admin-compatibility.js";
 import { usageReport } from "./usage-report.js";
-import { drainArchiveErasures } from "./archive-erasure-admin.js";
+import { drainArchiveErasures } from "./features/instance-admin/archive-erasure-admin.js";
 import {
   backfillFreeEntitlement,
   inspectAccountEntitlements,
   reconcileActiveHostedEntitlements
-} from "./auth-admin-entitlements.js";
+} from "./features/instance-admin/auth-admin-entitlements.js";
 import {
   AuthenticationPolicyStore,
   type AuthenticationSettings

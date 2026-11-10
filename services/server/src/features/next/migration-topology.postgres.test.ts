@@ -15,7 +15,7 @@ import { audit } from "../../platform/audit-events.js";
 import { ProviderRevocationWorker, quarantineMissingHostedCollection, quarantineMissingHostedCollectionOnTransaction } from "../../hosted-capability-lifecycle.js";
 import { HostedProviderClient, HostedProviderResponseError, HostedProviderUnavailableError } from "../../hosted-provider.js";
 import { materializePublicSignupEntitlement, reconcileHostedAccountCollections } from "../account/entitlements.js";
-import { reconcileActiveHostedEntitlements } from "../../auth-admin-entitlements.js";
+import { reconcileActiveHostedEntitlements } from "../instance-admin/auth-admin-entitlements.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
