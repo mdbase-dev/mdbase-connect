@@ -1,9 +1,9 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { capabilityOperationsForContractVersion } from "@mdbase-dev/connect-protocol";
-import { approveHostedAuthorization } from "./features/authorizations/hosted-approval-service.js";
-import { HostedProviderClient } from "./hosted-provider.js";
-import type { DatabasePool } from "./db.js";
-import type { CollectionAccessContext } from "./collection-access.js";
+import { approveHostedAuthorization } from "./hosted-approval-service.js";
+import { HostedProviderClient } from "../../hosted-provider.js";
+import type { DatabasePool } from "../../db.js";
+import type { CollectionAccessContext } from "../../collection-access.js";
 
 afterEach(() => vi.restoreAllMocks());
 it("v2-enabled approval refuses a prelude provider before any setup, replica or approval effect", async () => {

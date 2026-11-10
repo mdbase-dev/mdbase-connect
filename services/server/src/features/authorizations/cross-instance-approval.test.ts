@@ -7,12 +7,12 @@ import {
   capabilityOperationsForContractVersion, CONNECT_CONTRACT_SUPPORT,
   CONTROL_PROTOCOL_VERSION, RELAY_CAPABILITIES, type GrantPolicy
 } from "@mdbase-dev/connect-protocol";
-import { buildApp } from "./app.js";
-import { createDatabase } from "./db.js";
-import { LocalRelayBroker, RelayBrokerUnavailableError } from "./relay-broker.js";
-import { registerApplicationManifest } from "./manifest.js";
-import { createTestApplicationIdentity, testApplicationAuthorization } from "./application-authorization.test-helper.js";
-import { pkceChallenge, tokenHash } from "./security.js";
+import { buildApp } from "../../app.js";
+import { createDatabase } from "../../db.js";
+import { LocalRelayBroker, RelayBrokerUnavailableError } from "../../relay-broker.js";
+import { registerApplicationManifest } from "../../manifest.js";
+import { createTestApplicationIdentity, testApplicationAuthorization } from "../../application-authorization.test-helper.js";
+import { pkceChallenge, tokenHash } from "../../security.js";
 
 // Two independent hubs share only the database and broker. Only the connector
 // is simulated: authentication, consent, routing and publication are real.
