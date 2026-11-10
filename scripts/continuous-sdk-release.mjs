@@ -188,6 +188,14 @@ export function listReservations(kind, commit, runGit = git) {
     reserved: reserved.sort((left, right) => above(left.slice(1), right.slice(1)) ? -1 : 1) };
 }
 
+// A tag run executes the publisher workflow committed at the tag. Transition
+// guard: until production contains tag publication, a reservation would only
+// yield a run that skips every job. Remove once production contains it.
+export function tagPublisher(kind, commit, runGit = git) {
+  return runGit("show", `${commit}:.github/workflows/${publisherFile(kind)}`)
+    .includes("github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v0.1.0-beta.')");
+}
+
 // One read: the coordinator reserves only commits whose exact Runtime CI passed.
 export function runtimeQualified(commit, readApi = api) {
   return readApi(`actions/workflows/runtime-ci.yml/runs?head_sha=${commit}&branch=main&per_page=100`).workflow_runs
@@ -243,7 +251,7 @@ function checkPriorAttempts(kind, env) {
 // publication of that tag's own commit at the tag's version.
 export async function plan(kind, output, env = process.env, {
   selectProduction = checkoutProductionCommit, qualify = requireGreenMain, readPublished = published,
-  reservation = readReservation, reservations = listReservations, runtimeCi = runtimeQualified,
+  reservation = readReservation, reservations = listReservations, runtimeCi = runtimeQualified, publisherAt = tagPublisher,
   checkAttempts = checkPriorAttempts, verify = verifyCompatibility
 } = {}) {
   assert(["source", "workspace"].includes(kind));
@@ -287,8 +295,9 @@ export async function plan(kind, output, env = process.env, {
   // production catches up, retaining the existing highest-version baselines.
   const ahead = inventory.find(item => item.history === "ahead");
   let chosen = ahead ? [] : dependentPackages(inventory, changed);
-  const waitingForRuntime = !tag && kind === "source" && chosen.length > 0 && !runtimeCi(commit);
-  if (waitingForRuntime) chosen = [];
+  const predatesTags = !tag && chosen.length > 0 && !publisherAt(kind, commit);
+  const waitingForRuntime = !tag && !predatesTags && kind === "source" && chosen.length > 0 && !runtimeCi(commit);
+  if (predatesTags || waitingForRuntime) chosen = [];
   // One version per tag: every package a tag publishes carries the tag's version,
   // above every version any of these packages has published.
   const lineVersions = inventory.flatMap(item => [...item.baseline.versions, item.manifest.version]);
@@ -320,6 +329,7 @@ export async function plan(kind, output, env = process.env, {
   summarize(item => {
     if (blocked || result.compatibility?.status === "blocked") return `blocked: ${blocked ?? "production-compatibility-unproven"}`;
     if (ahead) return `nothing to publish; waiting for production to reach commit ${ahead.baseline.commit}`;
+    if (predatesTags) return `nothing to publish; waiting for production to contain tag publication (${commit} predates it)`;
     if (waitingForRuntime) return `nothing to publish; waiting for successful Runtime CI of commit ${commit}`;
     if (!selected.some(value => value.name === item.name)) return "nothing to publish";
     if (tag) return `publishing ${version} from ${commit}${live ? "" : " (dry run)"}`;

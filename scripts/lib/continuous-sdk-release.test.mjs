@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, wr
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { baselineHistory, contentChanged, dependentPackages, failedPublisherRuns, inputChanged, listReservations, packageInputs, publicationBaseline, publicationState, publicationTag, provenanceSource, qualifyWorkspace, readReservation, reserve, runtimeQualified } from "../continuous-sdk-release.mjs";
+import { baselineHistory, contentChanged, dependentPackages, failedPublisherRuns, inputChanged, listReservations, packageInputs, publicationBaseline, publicationState, publicationTag, provenanceSource, qualifyWorkspace, readReservation, reserve, runtimeQualified, tagPublisher } from "../continuous-sdk-release.mjs";
 import { publicPackages } from "../public-packages.mjs";
 
 const name = "@mdbase-dev/sdk";
@@ -152,6 +152,18 @@ test("reservations are read from protected annotated tags and allocation sees ev
   assert.deepEqual(found.reserved, ["v0.1.0-beta.172", "v0.1.0-beta.170"], "highest first; other lines, commits and mismatched peels excluded");
   assert.deepEqual(found.versions.sort(), ["0.1.0-beta.160", "0.1.0-beta.161", "0.1.0-beta.170", "0.1.0-beta.171", "0.1.0-beta.172", "0.1.0-beta.173"]);
   assert.deepEqual(listReservations("source", second, runGit).reserved, ["v0.1.0-beta.171"]);
+});
+
+test("tag publication starts once the production commit's own publisher accepts tag runs", () => {
+  const show = text => (...args) => {
+    assert.deepEqual(args, ["show", `${commit}:.github/workflows/publish-sdk-npm.yml`]);
+    return text;
+  };
+  assert.equal(tagPublisher("source", commit, show("    if: github.ref == 'refs/heads/main'\n")), false);
+  for (const name of ["publish-npm", "publish-sdk-npm"]) {
+    const current = readFileSync(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), "utf8");
+    assert.equal(tagPublisher(name === "publish-npm" ? "workspace" : "source", commit, () => current), true, name);
+  }
 });
 
 test("the coordinator reserves only commits whose exact Runtime CI passed", () => {
@@ -479,7 +491,7 @@ function plannerFixture(context) {
   // tag: plan as the publisher dispatched on that reservation; otherwise as the
   // main coordinator whose own (main tip) commit is run.
   const execute = ({ kind, baselineCommit = production, run = production, selected = production, tag, published = [version],
-    tags = ["0.1.0-beta.161"], reserved = [], runtime = true, reservation = true, compatibility = true, live = "true", aheadUi = false, priorFailure = false }) => {
+    tags = ["0.1.0-beta.161"], reserved = [], runtime = true, tagReady = true, reservation = true, compatibility = true, live = "true", aheadUi = false, priorFailure = false }) => {
     git("checkout", "--detach", run);
     const summary = join(directory, "summary.md");
     const output = join(directory, "outputs");
@@ -504,6 +516,7 @@ await plan(${JSON.stringify(kind)}, ${JSON.stringify(planFile)}, process.env, {
     return { versions: ${JSON.stringify(tags)}, reserved: ${JSON.stringify(reserved)} };
   },
   runtimeCi: sha => { if (sha !== selected) throw new Error('wrong runtime commit'); return ${JSON.stringify(runtime)}; },
+  publisherAt: (kind, sha) => { if (sha !== selected) throw new Error('wrong publisher commit'); return ${JSON.stringify(tagReady)}; },
   checkAttempts: () => { if (${JSON.stringify(priorFailure)}) throw new Error('RAW-PRIOR-ATTEMPT-STDERR'); },
   verify: async () => {
     if (!${JSON.stringify(compatibility)}) throw new Error('RAW-COMPATIBILITY-STDERR');
@@ -605,6 +618,12 @@ for (const kind of ["source", "workspace"]) {
     } else {
       assert.equal(runtime.plan.packages.length, names.length, "workspace packages do not need Runtime CI");
     }
+
+    const predates = execute({ kind, baselineCommit: base, run: successor, tagReady: false, compatibility: false, priorFailure: true });
+    assert.equal(predates.status, 0, predates.stderr);
+    assert.deepEqual(predates.plan.packages, []);
+    assert.equal(predates.plan.reservation, undefined, "never reserve a tag whose publisher would skip every job");
+    check(predates, new RegExp(`waiting for production to contain tag publication \\(${production} predates it\\)`));
 
     if (kind === "workspace") {
       const mixed = execute({ kind, baselineCommit: base, aheadUi: true, run: successor, compatibility: false, priorFailure: true });

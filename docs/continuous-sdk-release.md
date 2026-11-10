@@ -97,7 +97,9 @@ commit's exact Runtime CI has passed. A green badge alone, PR,
 documentation-only successor or stale qualification cannot substitute.
 Missing/unreadable evidence fails closed. However far main has moved, the
 coordinator plans the production commit itself; it never waits for production
-to reach main's tip.
+to reach main's tip. A tag run executes the workflow committed at its tag, so
+until production contains tag publication the coordinator reserves nothing and
+reports `waiting for production to contain tag publication`.
 
 A tag run qualifies its own commit again: the exact Server CI artifact (which
 names the workspace tarballs it packs) and, for the SDK build, exact Runtime CI.
