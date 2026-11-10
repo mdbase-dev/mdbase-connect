@@ -81,6 +81,10 @@ fn valid_path(p: &str) -> bool {
     mdbn_core::paths::check_path(p).is_ok()
 }
 
+/// What a phase of apply returns: its result for the next phase, or the outcome
+/// that ends the entry here. A store error ends it with nothing committed.
+type Phase<T> = Result<ControlFlow<Outcome, T>, StoreError>;
+
 /// The transaction an entry's effects build, with the path keys they free and
 /// take (to check collisions after all effects).
 struct EffectStage {
@@ -1114,181 +1118,24 @@ impl<S: Store> Replica<S> {
         writer: Option<Uuid>,
         refs: Option<&[mdbn_wire::common::Hash]>,
     ) -> Result<Outcome, StoreError> {
-        if payload.mutation.on_behalf.is_some() {
-            for op in &payload.mutation.ops {
-                let id = match op {
-                    rt::Op::Legacy(Op::FileDelete(f)) => Some(f.id),
-                    rt::Op::Legacy(Op::FileMove(f)) => Some(f.id),
-                    rt::Op::Legacy(Op::FilePut(f)) => Some(f.id),
-                    rt::Op::FileAttach(f) => Some(f.id),
-                    _ => None,
-                };
-                if let Some(id) = id && self.store.file(&id)?.is_some_and(|f| {
-                    f.kind == mdbn_wire::unindexed_markdown::FileKindV1::UnindexedOversizedMarkdown
-                }) {
-                    return Ok(Outcome::Stall(
-                        IncidentKind::UpgradeRequired,
-                        "delegated native file mediation is not supported".into(),
-                    ));
-                }
-            }
+        if let ControlFlow::Break(outcome) = self.delegation_guard(&payload)? {
+            return Ok(outcome);
         }
         // V7: results are structurally valid.
-        let resolved =
-            zeroize::Zeroizing::new(match self.reverse_text_check(head, &payload, refs) {
-                super::unindexed_reverse_text::Check::Legacy => {
-                    let Ok(texts) = self.resolve_texts(&payload.texts) else {
-                        return self.commit_payload_void(head, &payload, "V7: text table");
-                    };
-                    texts
-                }
-                super::unindexed_reverse_text::Check::Ready(texts) => texts,
-                super::unindexed_reverse_text::Check::Pending => return Ok(Outcome::SourcePending),
-                super::unindexed_reverse_text::Check::InvalidShape => {
-                    return self.commit_payload_void(
-                        head,
-                        &payload,
-                        "V7: reverse text descriptor or refs",
-                    );
-                }
-                super::unindexed_reverse_text::Check::InvalidUtf8 => {
-                    return self.commit_unindexed_invalid_utf8(head, &payload, writer, changed);
-                }
-                super::unindexed_reverse_text::Check::Failed(
-                    crate::attachments::StreamError::NoKey,
-                ) => {
-                    return Ok(Outcome::Stall(
-                        IncidentKind::WaitingForKey,
-                        "reverse text key unavailable".into(),
-                    ));
-                }
-                super::unindexed_reverse_text::Check::Failed(e) => {
-                    self.incident(
-                        IncidentKind::Integrity,
-                        Some(Value::Text(format!("reverse text source: {e:?}"))),
-                    );
-                    self.reverse_text_retry(head);
-                    return Ok(Outcome::SourcePending);
-                }
-            });
+        let resolved = match self.resolve_text_table(head, &payload, changed, writer, refs)? {
+            ControlFlow::Continue(resolved) => resolved,
+            ControlFlow::Break(outcome) => return Ok(outcome),
+        };
         let texts = payload.texts.clone().unwrap_or_default();
         let t = text_resolver(&texts, &resolved);
-        let effects: Vec<rt::Effect> = match payload
-            .effects
-            .iter()
-            .map(|e| match e {
-                rt::Effect::Legacy(e) => convert::resolve_effect(e, &t).map(rt::Effect::Legacy),
-                rt::Effect::PutAttachmentFile(a) => Ok(rt::Effect::PutAttachmentFile(a.clone())),
-                rt::Effect::PutUnindexedMarkdown(f) => {
-                    Ok(rt::Effect::PutUnindexedMarkdown(f.clone()))
-                }
-                rt::Effect::ReindexUnindexedMarkdown(r) => {
-                    Ok(rt::Effect::ReindexUnindexedMarkdown(
-                        mdbn_wire::unindexed_markdown::ReindexUnindexedMarkdown {
-                            id: r.id,
-                            path: r.path.clone(),
-                            doc: Text::Inline(t(&r.doc)?),
-                        },
-                    ))
-                }
-                rt::Effect::ReindexOrdinaryFile(r) => Ok(rt::Effect::ReindexOrdinaryFile(
-                    mdbn_wire::ordinary_file_promotion::ReindexOrdinaryFile {
-                        id: r.id,
-                        path: r.path.clone(),
-                        doc: Text::Inline(t(&r.doc)?),
-                    },
-                )),
-            })
-            .collect::<CResult<Vec<_>>>()
-        {
-            Ok(e) => e,
-            Err(_) => return self.commit_payload_void(head, &payload, "V7: effect texts"),
+        let (effects, conflicts) = match self.resolve_result_texts(head, &payload, &t)? {
+            ControlFlow::Continue(resolved) => resolved,
+            ControlFlow::Break(outcome) => return Ok(outcome),
         };
-        let conflicts = match payload
-            .conflicts
-            .iter()
-            .flatten()
-            .map(|c| resolve_runtime_conflict(c, &t))
-            .collect::<CResult<Vec<_>>>()
-        {
-            Ok(c) => c,
-            Err(_) => return self.commit_payload_void(head, &payload, "V7: conflict texts"),
+        let (mutation, native) = match self.check_structure(head, &payload, &conflicts, &t)? {
+            ControlFlow::Continue(checked) => checked,
+            ControlFlow::Break(outcome) => return Ok(outcome),
         };
-        let conflict_blob_ok = conflicts.iter().all(|c| {
-            [Some(&c.kept), Some(&c.lost), c.base.as_ref()]
-                .into_iter()
-                .flatten()
-                .all(|v| match v {
-                    rt::ConflictValue::Legacy(mdbn_wire::entry::ConflictValue::Blob(b)) => {
-                        blob_ref_in_bounds(b)
-                    }
-                    rt::ConflictValue::Attachment(a) => self.attachment_in_bounds(a),
-                    rt::ConflictValue::UnindexedMarkdown(f) => {
-                        self.unindexed_content_in_bounds(&f.content)
-                    }
-                    rt::ConflictValue::Legacy(_) => true,
-                })
-        });
-        if !conflict_blob_ok {
-            return self.commit_payload_void(
-                head,
-                &payload,
-                "V7: blob part size or count out of range",
-            );
-        }
-        if (payload.status == Status::Conflicted) == conflicts.is_empty() {
-            return self.commit_payload_void(
-                head,
-                &payload,
-                "V7: status inconsistent with conflicts",
-            );
-        }
-        if payload.mutation.ops.len() > 1000 {
-            return self.commit_payload_void(head, &payload, "V7: too many operations");
-        }
-        if payload.mutation.source == mdbn_wire::intent::Source::External
-            && payload.mutation.ops.iter().any(|o| {
-                !matches!(
-                    o,
-                    rt::Op::Legacy(
-                        Op::Document(_) | Op::FilePut(_) | Op::FileDelete(_) | Op::FileMove(_)
-                    ) | rt::Op::FileAttach(_)
-                        | rt::Op::UnindexedMarkdownPut(_)
-                        | rt::Op::RecordToUnindexedMarkdown(_)
-                        | rt::Op::UnindexedMarkdownToRecord(_)
-                )
-            })
-        {
-            return self.commit_payload_void(
-                head,
-                &payload,
-                "V7: external source on an api-only operation",
-            );
-        }
-        let mutation = match convert::runtime_mutation(&payload.mutation, &t) {
-            Ok(m) => m,
-            Err(_) => return self.commit_payload_void(head, &payload, "V7: mutation texts"),
-        };
-
-        let native = super::unindexed_apply::contains_native(&payload);
-        if native && mdbn_core::plan::check_request(&mutation).is_err() {
-            return self.commit_payload_void(head, &payload, "V7: invalid request");
-        }
-        // T6b always verifies full kind/path/prior CAS, even for our own entry or
-        // when optional legacy result checking is disabled.
-        if native
-            && payload.mutation.ops.iter().any(|op| match op {
-                rt::Op::UnindexedMarkdownPut(f) => {
-                    !self.unindexed_content_in_bounds(&f.payload.content)
-                }
-                rt::Op::RecordToUnindexedMarkdown(f) => {
-                    !self.unindexed_content_in_bounds(&f.payload.content)
-                }
-                _ => false,
-            })
-        {
-            return self.commit_payload_void(head, &payload, "V7: unindexed source descriptor");
-        }
         // Build the transaction, checking V7 against current state as we go.
         let instant = payload.mutation.clock.instant;
         let EffectStage {
@@ -1634,6 +1481,240 @@ impl<S: Store> Replica<S> {
             self.hosted_resolve(&receipt);
         }
         Ok(Outcome::Applied)
+    }
+
+    /// A delegated file operation on a native unindexed file is not mediated by
+    /// this build: stall before anything else is read.
+    fn delegation_guard(&self, payload: &rt::EntryPayload) -> Phase<()> {
+        if payload.mutation.on_behalf.is_some() {
+            for op in &payload.mutation.ops {
+                let id = match op {
+                    rt::Op::Legacy(Op::FileDelete(f)) => Some(f.id),
+                    rt::Op::Legacy(Op::FileMove(f)) => Some(f.id),
+                    rt::Op::Legacy(Op::FilePut(f)) => Some(f.id),
+                    rt::Op::FileAttach(f) => Some(f.id),
+                    _ => None,
+                };
+                if let Some(id) = id && self.store.file(&id)?.is_some_and(|f| {
+                    f.kind == mdbn_wire::unindexed_markdown::FileKindV1::UnindexedOversizedMarkdown
+                }) {
+                    return Ok(ControlFlow::Break(Outcome::Stall(
+                        IncidentKind::UpgradeRequired,
+                        "delegated native file mediation is not supported".into(),
+                    )));
+                }
+            }
+        }
+        Ok(ControlFlow::Continue(()))
+    }
+
+    /// The entry's text table, resolved against the state at p − 1 (or from the
+    /// reverse text source of a native entry).
+    fn resolve_text_table(
+        &mut self,
+        head: Head,
+        payload: &rt::EntryPayload,
+        changed: &mut BTreeSet<String>,
+        writer: Option<Uuid>,
+        refs: Option<&[mdbn_wire::common::Hash]>,
+    ) -> Phase<zeroize::Zeroizing<Vec<Option<String>>>> {
+        Ok(ControlFlow::Continue(zeroize::Zeroizing::new(
+            match self.reverse_text_check(head, payload, refs) {
+                super::unindexed_reverse_text::Check::Legacy => {
+                    let Ok(texts) = self.resolve_texts(&payload.texts) else {
+                        return self
+                            .commit_payload_void(head, payload, "V7: text table")
+                            .map(ControlFlow::Break);
+                    };
+                    texts
+                }
+                super::unindexed_reverse_text::Check::Ready(texts) => texts,
+                super::unindexed_reverse_text::Check::Pending => {
+                    return Ok(ControlFlow::Break(Outcome::SourcePending));
+                }
+                super::unindexed_reverse_text::Check::InvalidShape => {
+                    return self
+                        .commit_payload_void(head, payload, "V7: reverse text descriptor or refs")
+                        .map(ControlFlow::Break);
+                }
+                super::unindexed_reverse_text::Check::InvalidUtf8 => {
+                    return self
+                        .commit_unindexed_invalid_utf8(head, payload, writer, changed)
+                        .map(ControlFlow::Break);
+                }
+                super::unindexed_reverse_text::Check::Failed(
+                    crate::attachments::StreamError::NoKey,
+                ) => {
+                    return Ok(ControlFlow::Break(Outcome::Stall(
+                        IncidentKind::WaitingForKey,
+                        "reverse text key unavailable".into(),
+                    )));
+                }
+                super::unindexed_reverse_text::Check::Failed(e) => {
+                    self.incident(
+                        IncidentKind::Integrity,
+                        Some(Value::Text(format!("reverse text source: {e:?}"))),
+                    );
+                    self.reverse_text_retry(head);
+                    return Ok(ControlFlow::Break(Outcome::SourcePending));
+                }
+            },
+        )))
+    }
+
+    /// The entry's effects and conflicts with every text resolved.
+    fn resolve_result_texts(
+        &mut self,
+        head: Head,
+        payload: &rt::EntryPayload,
+        t: &impl Fn(&Text) -> CResult<String>,
+    ) -> Phase<(Vec<rt::Effect>, Vec<rt::Conflict>)> {
+        let effects: Vec<rt::Effect> = match payload
+            .effects
+            .iter()
+            .map(|e| match e {
+                rt::Effect::Legacy(e) => convert::resolve_effect(e, &t).map(rt::Effect::Legacy),
+                rt::Effect::PutAttachmentFile(a) => Ok(rt::Effect::PutAttachmentFile(a.clone())),
+                rt::Effect::PutUnindexedMarkdown(f) => {
+                    Ok(rt::Effect::PutUnindexedMarkdown(f.clone()))
+                }
+                rt::Effect::ReindexUnindexedMarkdown(r) => {
+                    Ok(rt::Effect::ReindexUnindexedMarkdown(
+                        mdbn_wire::unindexed_markdown::ReindexUnindexedMarkdown {
+                            id: r.id,
+                            path: r.path.clone(),
+                            doc: Text::Inline(t(&r.doc)?),
+                        },
+                    ))
+                }
+                rt::Effect::ReindexOrdinaryFile(r) => Ok(rt::Effect::ReindexOrdinaryFile(
+                    mdbn_wire::ordinary_file_promotion::ReindexOrdinaryFile {
+                        id: r.id,
+                        path: r.path.clone(),
+                        doc: Text::Inline(t(&r.doc)?),
+                    },
+                )),
+            })
+            .collect::<CResult<Vec<_>>>()
+        {
+            Ok(e) => e,
+            Err(_) => {
+                return self
+                    .commit_payload_void(head, payload, "V7: effect texts")
+                    .map(ControlFlow::Break);
+            }
+        };
+        let conflicts = match payload
+            .conflicts
+            .iter()
+            .flatten()
+            .map(|c| resolve_runtime_conflict(c, &t))
+            .collect::<CResult<Vec<_>>>()
+        {
+            Ok(c) => c,
+            Err(_) => {
+                return self
+                    .commit_payload_void(head, payload, "V7: conflict texts")
+                    .map(ControlFlow::Break);
+            }
+        };
+        Ok(ControlFlow::Continue((effects, conflicts)))
+    }
+
+    /// The V7 checks that need no state: bounds, status, operation count, source,
+    /// and the request itself. Yields the resolved mutation and whether the entry
+    /// carries a native operation.
+    fn check_structure(
+        &mut self,
+        head: Head,
+        payload: &rt::EntryPayload,
+        conflicts: &[rt::Conflict],
+        t: &impl Fn(&Text) -> CResult<String>,
+    ) -> Phase<(mdbn_core::intent::Mutation, bool)> {
+        let conflict_blob_ok = conflicts.iter().all(|c| {
+            [Some(&c.kept), Some(&c.lost), c.base.as_ref()]
+                .into_iter()
+                .flatten()
+                .all(|v| match v {
+                    rt::ConflictValue::Legacy(mdbn_wire::entry::ConflictValue::Blob(b)) => {
+                        blob_ref_in_bounds(b)
+                    }
+                    rt::ConflictValue::Attachment(a) => self.attachment_in_bounds(a),
+                    rt::ConflictValue::UnindexedMarkdown(f) => {
+                        self.unindexed_content_in_bounds(&f.content)
+                    }
+                    rt::ConflictValue::Legacy(_) => true,
+                })
+        });
+        if !conflict_blob_ok {
+            return self
+                .commit_payload_void(head, payload, "V7: blob part size or count out of range")
+                .map(ControlFlow::Break);
+        }
+        if (payload.status == Status::Conflicted) == conflicts.is_empty() {
+            return self
+                .commit_payload_void(head, payload, "V7: status inconsistent with conflicts")
+                .map(ControlFlow::Break);
+        }
+        if payload.mutation.ops.len() > 1000 {
+            return self
+                .commit_payload_void(head, payload, "V7: too many operations")
+                .map(ControlFlow::Break);
+        }
+        if payload.mutation.source == mdbn_wire::intent::Source::External
+            && payload.mutation.ops.iter().any(|o| {
+                !matches!(
+                    o,
+                    rt::Op::Legacy(
+                        Op::Document(_) | Op::FilePut(_) | Op::FileDelete(_) | Op::FileMove(_)
+                    ) | rt::Op::FileAttach(_)
+                        | rt::Op::UnindexedMarkdownPut(_)
+                        | rt::Op::RecordToUnindexedMarkdown(_)
+                        | rt::Op::UnindexedMarkdownToRecord(_)
+                )
+            })
+        {
+            return self
+                .commit_payload_void(
+                    head,
+                    payload,
+                    "V7: external source on an api-only operation",
+                )
+                .map(ControlFlow::Break);
+        }
+        let mutation = match convert::runtime_mutation(&payload.mutation, &t) {
+            Ok(m) => m,
+            Err(_) => {
+                return self
+                    .commit_payload_void(head, payload, "V7: mutation texts")
+                    .map(ControlFlow::Break);
+            }
+        };
+
+        let native = super::unindexed_apply::contains_native(payload);
+        if native && mdbn_core::plan::check_request(&mutation).is_err() {
+            return self
+                .commit_payload_void(head, payload, "V7: invalid request")
+                .map(ControlFlow::Break);
+        }
+        // T6b always verifies full kind/path/prior CAS, even for our own entry or
+        // when optional legacy result checking is disabled.
+        if native
+            && payload.mutation.ops.iter().any(|op| match op {
+                rt::Op::UnindexedMarkdownPut(f) => {
+                    !self.unindexed_content_in_bounds(&f.payload.content)
+                }
+                rt::Op::RecordToUnindexedMarkdown(f) => {
+                    !self.unindexed_content_in_bounds(&f.payload.content)
+                }
+                _ => false,
+            })
+        {
+            return self
+                .commit_payload_void(head, payload, "V7: unindexed source descriptor")
+                .map(ControlFlow::Break);
+        }
+        Ok(ControlFlow::Continue((mutation, native)))
     }
 
     /// Build the transaction from the effects, checking V7 against current state
