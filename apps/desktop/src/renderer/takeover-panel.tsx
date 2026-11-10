@@ -3,6 +3,7 @@ import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import React, { useCallback, useEffect, useState } from "react";
 import { presentTakeover, type TakeoverStatus } from "./takeover-state.mjs";
+import { pollWhileVisible } from "./visible-poll.mjs";
 import { message } from "./view-model";
 
 const IDLE_POLL_MS = 10_000;
@@ -34,11 +35,7 @@ export function TakeoverPanel({ names }: { names: Record<string, string> }) {
   }, []);
 
   const running = starting || status?.running === true;
-  useEffect(() => {
-    void load();
-    const timer = window.setInterval(() => void load(), running ? RUNNING_POLL_MS : IDLE_POLL_MS);
-    return () => window.clearInterval(timer);
-  }, [load, running]);
+  useEffect(() => pollWhileVisible(() => void load(), running ? RUNNING_POLL_MS : IDLE_POLL_MS), [load, running]);
 
   const view = presentTakeover(status, names, running);
   // A refused move must stay on screen even when the daemon's status alone

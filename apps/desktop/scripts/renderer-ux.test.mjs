@@ -46,9 +46,19 @@ async function desktop({ signedIn = true, collections = [], access = [], devices
     const fixture = {
       calls, collections, access, devices, activity, apps, updateStatus, requireApproval: false,
       account: { configured: signedIn, serverUrl: signedIn ? "https://connect.example.test" : null, online: signedIn, pairing: null, lastError: null },
-      status: () => ({ target: "isolated_profile", state_dir: "/disposable", account: { signed_in: fixture.account.configured, online: fixture.account.configured, environment: "production" }, collections: fixture.collections })
+      status: () => ({ target: "isolated_profile", state_dir: "/disposable", account: {
+        signed_in: fixture.account.configured, online: fixture.account.online, environment: "production",
+        pairing: fixture.account.pairing ?? undefined, last_error: fixture.account.lastError ?? undefined,
+        server: fixture.account.serverUrl ?? undefined, computer_name: fixture.account.computerName ?? undefined
+      }, collections: fixture.collections }),
+      counts: {}
     };
     window.fixture = fixture;
+    // Electron reports a window hidden to the tray as a hidden page.
+    let visibility = "visible";
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => visibility });
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => visibility !== "visible" });
+    fixture.setVisibility = (next) => { visibility = next; document.dispatchEvent(new Event("visibilitychange")); };
     window.mdbaseConnect = {
       getLocale: async () => localStorage.getItem("fixture:locale") ?? "en",
       setLocale: async (locale) => { calls.push(["setLocale", locale]); localStorage.setItem("fixture:locale", locale); },
@@ -58,7 +68,6 @@ async function desktop({ signedIn = true, collections = [], access = [], devices
       installUpdate: async () => { calls.push(["installUpdate"]); return fixture.updateStatus; },
       migrationStatus: async () => fixture.migration ?? { record: null, running: false },
       listCollections: async () => fixture.collections,
-      getCloudConfig: async () => ({ ...fixture.account }),
       listAccess: async () => fixture.access,
       listApps: async () => ({ applications: fixture.apps }),
       openApp: record("openApp"),
@@ -103,6 +112,9 @@ async function desktop({ signedIn = true, collections = [], access = [], devices
       reopenSignIn: async () => {},
       onNavigate: () => () => {}, onUpdateStatus: () => () => {}
     };
+    for (const [name, method] of Object.entries(window.mdbaseConnect)) {
+      window.mdbaseConnect[name] = (...args) => { fixture.counts[name] = (fixture.counts[name] ?? 0) + 1; return method(...args); };
+    }
   }, { signedIn, collections, access, devices, activity, apps, updateStatus });
   await page.goto(origin);
   await page.getByText(signedIn ? "Connected securely" : "Not signed in", { exact: true }).first().waitFor().catch(error => { throw new Error(`${error.message}\nRenderer errors: ${errors.join("; ")}`); });
@@ -554,6 +566,27 @@ for (const theme of ["light", "dark"]) {
     });
   }
 }
+
+test("a window hidden to the tray makes no daemon calls; showing it refreshes once and polling resumes", async () => {
+  const { page, errors } = await desktop({ collections: [collection()] });
+  const counts = () => page.evaluate(() => ({ ...window.fixture.counts }));
+  const polled = ["status", "listCollections", "listAccess", "getSettings", "getLaunchAtLogin", "listActivity", "listPendingDevices", "migrationStatus", "listApps"];
+  try {
+    await page.clock.runFor(5_000);
+    await page.evaluate(() => window.fixture.setVisibility("hidden"));
+    const hidden = await counts();
+    // 24 refresh intervals, 12 move-status intervals and 2 app-list intervals.
+    await page.clock.runFor(120_000);
+    assert.deepEqual(await counts(), hidden);
+    await page.evaluate(() => window.fixture.setVisibility("visible"));
+    const shown = await counts();
+    for (const name of polled) assert.equal(shown[name] - hidden[name], 1, `${name} once on showing`);
+    await page.clock.runFor(5_000);
+    const resumed = await counts();
+    for (const name of ["status", "listCollections", "listPendingDevices"]) assert.equal(resumed[name] - shown[name], 1, `${name} resumed`);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
 
 test("the mark builds only during sign-in and reduced motion stays static", async () => {
   const { page, errors } = await desktop({ signedIn: false });

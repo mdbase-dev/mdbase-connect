@@ -38,6 +38,31 @@ export function accountProblemText(reason: string | null | undefined): string | 
   }
 }
 
+export interface CloudSetting {
+  /** Signed in to an mdbase account. */
+  configured: boolean;
+  serverUrl: string | null;
+  online: boolean;
+  /** A sign-in waiting for browser approval: the page to open. */
+  pairing: string | null;
+  lastError: string | null;
+  /** This computer's name in the account. */
+  computerName: string | null;
+}
+
+/** The account part of the daemon's `status`, as sign-in and Settings show it. */
+export function cloudSetting(status: { account: StatusLike["account"] & { server?: string; computer_name?: string } }): CloudSetting {
+  const account = status.account;
+  return {
+    configured: account.signed_in,
+    serverUrl: account.server ?? null,
+    online: account.online,
+    pairing: account.pairing ?? null,
+    lastError: account.last_error ?? null,
+    computerName: account.computer_name ?? null
+  };
+}
+
 export function presentConnection(status: StatusLike | null, checked: boolean): ConnectionPresentation {
   if (!status) {
     return checked
