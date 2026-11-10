@@ -59,13 +59,15 @@ describe("SDK-private bundled asset intake (transport integrity, not release aut
   it.each(["https://foreign.test/runtime.wasm","http://app.test/runtime.wasm"])("refuses unbound source URL %s before fetch",async changed=>{
     const fetcher=vi.fn(),a=await asset();expect(()=>applicationAssetLoader({...a,url:changed},{origin,environment:"production",fetch:fetcher})).toThrow("application asset");expect(fetcher).not.toHaveBeenCalled();
   });
-  it("staging assets reject HTTP loopback before fetch",async()=>{
+  it.each(["staging","production"] as const)("%s assets load from a loopback development origin, no other HTTP origin",async environment=>{
     const a=await asset(),fetcher=vi.fn();
     for(const app of ["http://127.0.0.1:32111","http://localhost:32111","http://[::1]:32111"])
-      expect(()=>applicationAssetLoader({...a,url:app+"/runtime.wasm"},{origin:app,environment:"staging",fetch:fetcher})).toThrow("application asset");
+      expect(()=>applicationAssetLoader({...a,url:app+"/runtime.wasm"},{origin:app,environment,fetch:fetcher})).not.toThrow();
+    for(const app of ["http://app.test","http://192.168.0.1:32111"])
+      expect(()=>applicationAssetLoader({...a,url:app+"/runtime.wasm"},{origin:app,environment,fetch:fetcher})).toThrow("application asset");
     expect(fetcher).not.toHaveBeenCalled();
   });
-  it("lab HTTP remains explicit loopback-only",async()=>{
+  it("lab HTTP is loopback-only too",async()=>{
     const a=await asset();expect(()=>applicationAssetLoader({...a,url:"http://127.0.0.1:32111/runtime.wasm"},{origin:"http://127.0.0.1:32111",environment:"lab"})).not.toThrow();
     expect(()=>applicationAssetLoader({...a,url:"http://app.test/runtime.wasm"},{origin:"http://app.test",environment:"lab"})).toThrow("application asset");
   });

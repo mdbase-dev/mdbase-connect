@@ -12,7 +12,6 @@ import {
     type MdbaseApplicationDeclaration,
 } from "./declaration.js";
 import { appReleaseTrust } from "./packaged-trust.js";
-import { applicationLoopbackAllowed } from "./local-build.js";
 import {
     REGISTRATION_REFUSAL_MAX_BYTES,
     registrationRefusal,
@@ -154,7 +153,6 @@ export async function resolveApplicationRegistration(
         environment = selectAppEnvironment({
             environment: declaration.environment,
             appOrigin: declaration.origin,
-            platform: declaration.manifest.platform === "native" ? "native" : undefined,
             release: appReleaseTrust(),
         });
     } catch {
@@ -167,7 +165,7 @@ export async function resolveApplicationRegistration(
     }
     try {
         manifest = parseVersionedAppManifest(plainApplicationManifest(declaration), {
-            allowLocal: applicationLoopbackAllowed(declaration.environment),
+            allowLocal: true,
         }).manifest;
     } catch {
         throw binding();
@@ -347,7 +345,7 @@ export async function resolveApplicationRegistration(
         let returned: typeof manifest;
         try {
             returned = parseVersionedAppManifest(app.application_declaration, {
-                allowLocal: applicationLoopbackAllowed(declaration.environment),
+                allowLocal: true,
             }).manifest;
         } catch {
             throw badReply();

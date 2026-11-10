@@ -14,7 +14,8 @@ For a declared native application, production accepts canonical origins
 exception applies to SDK origin checks, manifest homepage/redirect validation,
 and app-runtime installation admission. `localhost`, subdomains, other IPs,
 IPv6, credentials, and opaque/custom origins receive no native exception.
-Existing LAB/local development behavior stays separate. An origin and port are
+A web declaration may since use any loopback HTTP origin it declares as its
+homepage; see [local app development](local-app-development.md). An origin and port are
 still bound exactly to the installation, storage, pairing and resulting grant;
 the platform declaration does not make credentials portable between origins.
 Redirects stay exact manifest entries (including path/query/port); any port may
@@ -28,8 +29,9 @@ control-plane application-origin admission. Allowed methods/headers, bearer
 authentication, nonce signatures and replay checks continue to apply.
 No deployment/configuration change is part of this work.
 
-Native consent is shown only when the recorded request origin is loopback;
-otherwise web consent shows the requesting origin. Native consent says **"an
+This consent is shown whenever the recorded request origin is loopback HTTP,
+for native and web declarations alike; otherwise web consent shows the
+requesting origin. Native consent says **"an
 app running on this computer"** and explicitly says its identity is unverified.
 Do not display a manifest-supplied icon or present the application
 name/homepage as verified branding. The user must have started the connection

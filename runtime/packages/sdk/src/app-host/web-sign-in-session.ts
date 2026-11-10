@@ -232,7 +232,7 @@ export class AppWebSignInSession<Connection> {
   constructor(options: AppWebSignInSessionOptions<Connection>) {
     this.options = Object.freeze({...options});
     // Validate the authenticated environment before touching storage or HTTP.
-    this.environment = selectAppEnvironment({environment: options.environment, appOrigin: options.origin, platform: options.allowNativeLoopbackHttp ? "native" : undefined, release: options.release});
+    this.environment = selectAppEnvironment({environment: options.environment, appOrigin: options.origin, release: options.release});
     options.signal.addEventListener("abort", this.onAbort, {once: true});
     this.lifetime.signal.addEventListener("abort", this.abortCollections, {once: true});
   }
@@ -623,7 +623,7 @@ export class AppWebSignInSession<Connection> {
       this.host = await AppWebCloudCopyHost.openInstallationDevice({signIn: this.flow!, installation: this.installation,
         release: this.options.release, origin: this.options.origin, signal: this.lifetime.signal,
         loadRuntime: this.options.loadRuntime,
-        allowLoopbackHttp: this.environment.allowLoopbackHttp, allowNativeLoopbackHttp: this.environment.allowNativeLoopbackHttp}); this.check();
+        allowLoopbackHttp: this.environment.allowLoopbackHttp}); this.check();
       this.acknowledged = this.flow!.view().state === "paired";
     } else if (!this.acknowledged && this.flow!.view().state === "paired") {
       await this.host.completeInstallationSignIn(); this.check(); this.acknowledged = true;

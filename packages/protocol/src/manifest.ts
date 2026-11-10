@@ -879,6 +879,18 @@ function isNativeLoopbackUrl(value: string): boolean {
   return isNativeLoopbackOrigin(origin);
 }
 
+/** An exact loopback HTTP web origin (`localhost`, `127.0.0.1` or `[::1]`, any
+ * port): where an application runs while it is being developed. A remote page
+ * cannot give itself this origin, but any program on the computer can serve it,
+ * so it identifies no publisher. */
+export function isLoopbackHttpOrigin(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" && isLoopback(url.hostname) && url.origin === value;
+  } catch { return false; }
+}
+
 function secureOrAllowedLocal(url: URL, allowLocal: boolean): boolean {
   return url.protocol === "https:"
     || (allowLocal && url.protocol === "http:" && isLoopback(url.hostname));

@@ -6,7 +6,7 @@ import {declaredReturnUrl} from "./return-url.js";
 import {resolveApplicationRegistration} from "./registration.js";
 import {packagedApplicationAssets} from "./packaged-assets.js";
 import {appReleaseTrust} from "./packaged-trust.js";
-import {applicationLoopbackAllowed} from "./local-build.js";
+import {serviceLoopbackAllowed} from "./local-build.js";
 import {selectAppEnvironment} from "../app-host/app-environment.js";
 import type {ApplicationRuntime,MdbaseApplicationSnapshot as RuntimeSnapshot} from "./runtime.js";
 import {ApplicationBrowserSelection,ApplicationSelectionError,browserApplicationSelectionPort} from "./browser-selection.js";
@@ -281,14 +281,14 @@ function unavailableApplication():MdbaseApplication{
   return Object.freeze({getSnapshot:()=>snapshot,subscribe:()=>()=>{},start:refuse,authorize:refuse,select:refuse,approve:refuse,reauthorize:refuse,refreshCollectionList:refuse,requestAccess:refuse,chooseAnother:refuse,
     assess:refuse,configure:refuse,setup:Object.freeze({plan:refuse,apply:refuse}),clearSelection:refuse,forget:refuse,deleteCollection:refuse,setForeground(){throw unavailable();},close:refuse,signOut:refuse});
 }
-const browserHost=(origin:string)=>typeof Worker==="function"&&typeof MessageChannel==="function"&&currentAppOrigin()!==null&&isAppOrigin(origin,true);
+const browserHost=(origin:string)=>typeof Worker==="function"&&typeof MessageChannel==="function"&&currentAppOrigin()!==null&&isAppOrigin(origin);
 function signInOpener(value:MdbaseSignInOpener|undefined,declaration:ApplicationDeclarationSnapshot):MdbaseSignInOpener|null{
   if(value===undefined)return null;
   const fail=():never=>{throw mdbaseError("invalid_request","Invalid sign-in opener","application_sign_in_opener");};
   if(!value||typeof value!=="object"||typeof value.open!=="function"||(value.close!==undefined&&typeof value.close!=="function"))return fail();
   const returnUrl=value.returnUrl;
   if(returnUrl!==undefined){
-    if(!declaredReturnUrl(returnUrl,declaration.manifest,applicationLoopbackAllowed(declaration.environment)))fail();
+    if(!declaredReturnUrl(returnUrl,declaration.manifest))fail();
   }
   const open=value.open.bind(value),close=value.close?.bind(value);
   return Object.freeze({open,...(close?{close}:{}),...(returnUrl!==undefined?{returnUrl}:{})});
@@ -626,7 +626,7 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
     });
   }
   private check():void{if(this.closed||this.hidden||this.lifetime.signal.aborted)throw mdbaseError("cancelled","Application entry fenced","application_entry_fenced");}
-  private environment(){return selectAppEnvironment({environment:this.declaration.environment,appOrigin:this.declaration.origin,platform:this.declaration.manifest.platform === "native" ? "native" : undefined,release:appReleaseTrust()});}
+  private environment(){return selectAppEnvironment({environment:this.declaration.environment,appOrigin:this.declaration.origin,release:appReleaseTrust()});}
   private initialize():Promise<ApplicationRuntime>{
     if(this.initialization)return this.initialization;
     const incarnation=this.incarnation;
@@ -637,7 +637,7 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
       if(typeof import.meta.url!=="string")throw unavailable();
       const moduleUrl=new URL(import.meta.url);
       if(urlOrigin(moduleUrl)!==this.declaration.origin||currentAppOrigin()!==this.declaration.origin)throw mdbaseError("unavailable","Application module binding unavailable","application_worker_module_binding");
-      const environment=this.environment();packagedApplicationAssets(this.declaration.environment,this.declaration.origin,this.declaration.manifest.platform === "native" ? "native" : undefined);
+      const environment=this.environment();packagedApplicationAssets(this.declaration.environment,this.declaration.origin);
       // A browser below the SDK's feature floor fails here, once, with a typed
       // problem — before any registration, Worker, key or storage allocation.
       const capabilities=await probeBrowserCapabilities();this.check();
@@ -700,7 +700,7 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
   /** Reserve the SDK popup synchronously in the user gesture, before any await. */
   private reservePortal(options:{readonly signal?:AbortSignal}){
     this.check();const environment=this.environment(),signal=options.signal?AbortSignal.any([this.lifetime.signal,options.signal]):this.lifetime.signal;
-    const lab=applicationLoopbackAllowed(this.declaration.environment),current=()=>!this.closed;
+    const lab=serviceLoopbackAllowed(this.declaration.environment),current=()=>!this.closed;
     const host:ApplicationPortalHost=this.signIn?openerApplicationPortalHost(environment.cpOrigin,signal,current,this.signIn,lab):browserApplicationPortalHost(environment.cpOrigin,signal,current,lab);
     return {portal:reserveApplicationPortal(host),signal};
   }

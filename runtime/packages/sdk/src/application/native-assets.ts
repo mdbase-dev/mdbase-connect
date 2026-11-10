@@ -29,9 +29,8 @@ export function applicationNativeAssets(
     assetSha256:released.assetSha256,source:Object.freeze({...released.source}),
     trustedRoots:Object.freeze(released.trustedRoots.map(root=>new Uint8Array(root))),policyPins:new Uint8Array(released.policyPins),
   });
-  const platform=declaration.manifest.platform === "native" ? "native" as const : undefined;
-  const environment=selectAppEnvironment({environment:declaration.environment,appOrigin:declaration.origin,platform,release});
-  const host={origin:declaration.origin,platform,environment:declaration.environment,...(fetcher?{fetch:fetcher}:{})};
+  const environment=selectAppEnvironment({environment:declaration.environment,appOrigin:declaration.origin,release});
+  const host={origin:declaration.origin,environment:declaration.environment,...(fetcher?{fetch:fetcher}:{})};
   const loadRuntime=applicationAssetLoader(packaged.runtime,host),loadSqlite=applicationAssetLoader(packaged.sqlite,host);
   const initialize=packaged.initializeSqlite;
   if(typeof initialize!=="function"||typeof handoff!=="function")throw new Error("SDK packaged native application assets unavailable");
@@ -41,7 +40,7 @@ export function applicationNativeAssets(
     joinDatabaseName:declaration.storage.joinDatabaseName,
     setupJournal:Object.freeze({databaseName:declaration.storage.setupDatabaseName,applicationNamespace:declaration.storage.applicationNamespace,
       appOrigin:declaration.origin,cpOrigin:environment.cpOrigin}),
-    sql,handoff,...(fetcher?{fetch:fetcher}:{}),allowLoopbackHttp:environment.allowLoopbackHttp,allowNativeLoopbackHttp:environment.allowNativeLoopbackHttp,
+    sql,handoff,...(fetcher?{fetch:fetcher}:{}),allowLoopbackHttp:environment.allowLoopbackHttp,
   });
   // The unsynced collection: the same runtime and SQL, no sign-in or log. Its
   // setup journal is its own: sign-out erases the signed-in one, and the

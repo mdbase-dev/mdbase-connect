@@ -1,7 +1,7 @@
 /** Internal pre-account sign-in ledger. Nonextractable origin AES handle + bounded
  * encrypted operation in ONE strict IDB commit. Not an account KEK, generic KV,
  * OS keychain, XSS boundary or physical durability/collection Saved guarantee. */
-import { labLoopbackHttpOrigin } from "../application/local-build.js";
+import { loopbackHttpOrigin } from "../application/local-build.js";
 import { currentAppOrigin, isAppOrigin } from "./app-origin.js";
 import { acquireAppSignInLease, isAppInstallationId, isInstallationOwner, AppReplicaOwnerError, type AppLockPort, type AppReplicaLease } from "./owner.js";
 const STORE = "installation-sign-in", KEY = "original", MAX = 128 * 1024; // bounded original + additive consent receipts (<=1000 IDs each)
@@ -41,8 +41,6 @@ export interface AppInstallationStoreOptions {
   readonly signal: AbortSignal;
   readonly locks: AppLockPort | undefined;
   readonly allowLoopbackHttp?: boolean;
-  /** Native IPv4 app origin only; does not relax the CP origin. */
-  readonly allowNativeLoopbackHttp?: boolean;
 }
 /** Deliberately NOT exported from the package entrypoint. Only the fixed sign-in
  * lifecycle uses its bounded ciphertext CAS; no secrets/handle loan API. */
@@ -59,12 +57,12 @@ export class AppInstallationStore {
   }
   static async open(options: AppInstallationStoreOptions, initial: () => Uint8Array): Promise<{store: AppInstallationStore; plaintext: Uint8Array}> {
     // Snapshot before any ownership/platform wait. No account ID is invented.
-    const p = Object.freeze({ origin: options.origin, cpOrigin: options.cpOrigin, appId: options.appId, ...(options.owner === undefined ? {} : {owner: options.owner}), ...(options.storageNamespace === undefined ? {} : {storageNamespace: options.storageNamespace}), mode: options.mode, signal: options.signal, locks: options.locks, allowLoopbackHttp: options.allowLoopbackHttp === true, allowNativeLoopbackHttp: options.allowNativeLoopbackHttp === true });
+    const p = Object.freeze({ origin: options.origin, cpOrigin: options.cpOrigin, appId: options.appId, ...(options.owner === undefined ? {} : {owner: options.owner}), ...(options.storageNamespace === undefined ? {} : {storageNamespace: options.storageNamespace}), mode: options.mode, signal: options.signal, locks: options.locks, allowLoopbackHttp: options.allowLoopbackHttp === true });
     let out: AppInstallationStore | null = null, plain: Uint8Array | null = null, fresh: Stored | null = null;
     try {
-      if (!isAppOrigin(p.origin, p.allowLoopbackHttp === true, p.allowNativeLoopbackHttp ? "native" : undefined)) throw fail();
+      if (!isAppOrigin(p.origin)) throw fail();
       {
-        const origin = p.cpOrigin, u = new URL(origin), loopback = p.allowLoopbackHttp && labLoopbackHttpOrigin(origin);
+        const origin = p.cpOrigin, u = new URL(origin), loopback = p.allowLoopbackHttp && loopbackHttpOrigin(origin);
         if (u.origin !== origin || u.username || u.password || (u.protocol !== "https:" && !loopback)) throw fail();
       }
       if (p.owner !== undefined && !isInstallationOwner(p.owner)) throw fail();

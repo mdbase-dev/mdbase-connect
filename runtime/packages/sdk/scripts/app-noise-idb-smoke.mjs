@@ -28,7 +28,7 @@ async function hostFixtureKey(mode){
   }finally{db.close();}
 }
 self.onmessage=async e=>{let store,outcomeStore,rt;try{
-  const signal=AbortSignal.timeout(15000),p=pin(),options={source:p,origin:location.origin,allowLoopbackHttp:true,mode:e.data.mode,signal};
+  const signal=AbortSignal.timeout(15000),p=pin(),options={source:p,origin:location.origin,mode:e.data.mode,signal};
   if(e.data.case==="atomic"){
     const q=pin("99999999-9999-9999-9999-999999999999"),opts={...options,source:q,mode:"fresh"};const a=await AppIndexedDbNoiseProtectedStore.open(opts),b=await AppIndexedDbNoiseProtectedStore.open(opts);
     try{const x=Uint8Array.of(7),y=Uint8Array.of(8),results=await Promise.all([a.compareAndSet(ns(q),null,x,{signal}),b.compareAndSet(ns(q),null,y,{signal})]);check(results.filter(Boolean).length===1);check(x[0]===7&&y[0]===8);const kept=await a.read(ns(q),{signal});check(kept.length===1&&kept[0]===(results[0]?7:8));
@@ -58,7 +58,7 @@ let exported=false;try{await crypto.subtle.exportKey("raw",key);exported=true;}c
     if(e.data.privateOutcome){
       const session={...target,accountId:"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",cpOrigin:"https://cp.example",logOrigin:"https://log.example",rootPublicKey:new Uint8Array(32).fill(9),connectorBearer:async()=>{throw Error("known outcome must not request bearer");}};
       const marker=rt.privateEnrolMarker(),receipt=rt.registeredDeviceReceipt();
-      outcomeStore=await AppIndexedDbPrivateBootstrapStore.open({source:session,origin:location.origin,allowLoopbackHttp:true,mode:e.data.privateOutcome==="commit"?"fresh":"existing",signal});
+      outcomeStore=await AppIndexedDbPrivateBootstrapStore.open({source:session,origin:location.origin,mode:e.data.privateOutcome==="commit"?"fresh":"existing",signal});
       let dropCompletion=false,dropAck=e.data.privateOutcome==="ack";
       const outcomeIO={read:o=>outcomeStore.read(o),compareAndSet:async(expected,value,o)=>{const saved=await outcomeStore.compareAndSet(expected,value,o);if(dropCompletion)throw Error("committed completion response lost");return saved;}};
       const noiseIO={privateEnrolPending:(m,o)=>vault.privateEnrolPending(m,o),privateEnrolAcknowledged:async(m,o)=>{await vault.privateEnrolAcknowledged(m,o);if(dropAck)throw Error("committed ACK response lost");}};

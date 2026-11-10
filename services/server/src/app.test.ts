@@ -844,8 +844,7 @@ describe("mdbase connect server", () => {
     const { app } = await buildApp({
       db,
       devAuth: true,
-      publicUrl: "http://connect.test",
-      allowInsecureManifests: true
+      publicUrl: "http://connect.test"
     });
     resources.push(() => app.close());
 
@@ -2703,8 +2702,7 @@ describe("mdbase connect server", () => {
       devAuth: true,
       hostedCollections: true,
       hostedProvider,
-      publicUrl: "http://connect.test",
-      allowInsecureManifests: true
+      publicUrl: "http://connect.test"
     });
     resources.push(() => app.close());
     // Settle the seeded installation application's startup scan before arranging
@@ -2809,8 +2807,7 @@ describe("mdbase connect server", () => {
       devAuth: true,
       hostedCollections: true,
       hostedProvider,
-      publicUrl: "http://connect.test",
-      allowInsecureManifests: true
+      publicUrl: "http://connect.test"
     });
     resources.push(() => app.close());
 
@@ -3101,8 +3098,7 @@ describe("mdbase connect server", () => {
       devAuth: true,
       hostedCollections: true,
       hostedProvider,
-      publicUrl: "http://connect.test",
-      allowInsecureManifests: true
+      publicUrl: "http://connect.test"
     });
     resources.push(() => app.close());
     const session = await app.inject({

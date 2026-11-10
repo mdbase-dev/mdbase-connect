@@ -6,7 +6,7 @@ import type {MdbaseApplicationConnection,MdbaseApplicationProblem,MdbaseApplicat
 import {pendingWrites,signOutPendingWritesError} from "./sign-out.js";
 import {ApplicationScope} from "./scope.js";
 import {ApplicationUiConnections} from "./ui-connections.js";
-import {applicationLoopbackAllowed} from "./local-build.js";
+import {serviceLoopbackAllowed} from "./local-build.js";
 import {consentedFileActions} from "./file-access.js";
 import type {MdbaseSetupPlan,MdbaseSetupPlanOptions} from "./setup.js";
 import {ApplicationWorkerClient,ApplicationWorkerReplyError} from "./worker-client.js";
@@ -50,7 +50,7 @@ export class ApplicationRuntime {
   private snapshot:MdbaseApplicationSnapshot=Object.freeze({...this.raw,readiness:emptyReadiness()});
   private pending:Promise<MdbaseApplicationSnapshot>|null=null;private closing:Promise<void>|null=null;private epoch=0;private loggedProblem:string|null=null;private assessing=false;private retiring=false;private closed=false;private stopped=false;private stopFailed=false;
   constructor(input:ApplicationRuntimeActivation){
-    this.cpOrigin=input.cpOrigin;this.appName=input.declaration.name;this.lab=applicationLoopbackAllowed(input.declaration.environment);
+    this.cpOrigin=input.cpOrigin;this.appName=input.declaration.name;this.lab=serviceLoopbackAllowed(input.declaration.environment);
     this.scope=new ApplicationScope(input.compiledManifest,{name:input.declaration.name,version:"1"},this.lifetime.signal,input.typeIssues,id=>consentedFileActions(this.raw,id));
     this.worker=new ApplicationWorkerClient(input.port,input.binding,{
       snapshot:value=>{if(!this.closed){this.raw=value;this.followSession();this.publish();}},

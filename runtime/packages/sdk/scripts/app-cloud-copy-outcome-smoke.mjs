@@ -31,8 +31,8 @@ self.onmessage=async({data})=>{try{
  if(data.op==="stop"){current=false;ctrl?.abort();vault?.close();store?.close();provider?.close();self.postMessage({id:data.id,stopped:true});return;}
  check(data.op==="init"&&!initialized&&data.owned===true);initialized=true;current=true;ctrl=new AbortController();const signal=ctrl.signal;
  const p={accountId:data.scope.account,installationId:data.scope.installation,connectorId:"66666666-6666-6666-6666-666666666666",deviceId:"44444444-4444-4444-4444-444444444444",collection:data.scope.collection,purpose:"create",assetSha256:"aa".repeat(32),cpOrigin:"https://cp.example.test",logOrigin:"https://log.example.test",isCurrent:()=>current,installationOwned:()=>current};
- provider=await AppIndexedDbDeviceKeyProvider.open({source:p,origin:location.origin,mode:data.providerMode??data.mode,signal,allowLoopbackHttp:true});const key=provider.deviceCustodyKek({signal});check(!key.extractable);
- const opts={source:p,origin:location.origin,mode:data.mode,signal,allowLoopbackHttp:true};
+ provider=await AppIndexedDbDeviceKeyProvider.open({source:p,origin:location.origin,mode:data.providerMode??data.mode,signal});const key=provider.deviceCustodyKek({signal});check(!key.extractable);
+ const opts={source:p,origin:location.origin,mode:data.mode,signal};
  if(data.case==="missing"){let refused=false;try{store=await AppIndexedDbCloudCopyOutcomeStore.open(opts);}catch{refused=true;}check(refused);self.postMessage({id:data.id,missingExistingRefused:true});return;}
  const receipt={connectorId:p.connectorId,deviceId:p.deviceId,installationId:p.installationId,signPublicKey:new Uint8Array(32).fill(1),kemPublicKey:new Uint8Array(32).fill(2),noisePublicKey:new Uint8Array(32).fill(3)};
  store=await AppIndexedDbCloudCopyOutcomeStore.open(opts);

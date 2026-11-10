@@ -1,5 +1,5 @@
 /** Fixed, pinned CP people GETs. No record payload, path, key, or issuer inference. */
-import { labLoopbackHttpOrigin } from "../application/local-build.js";
+import { loopbackHttpOrigin } from "../application/local-build.js";
 import { uuidToBytes } from "../codec.js";
 import { mdbaseError, MdbaseError } from "../errors.js";
 import type { PeopleAuthority, PeopleRequestOptions } from "../people.js";
@@ -31,7 +31,7 @@ export class AppCpPeopleAuthority implements PeopleAuthority {
     this.rawOrigin = session.cpOrigin;
     const url = new URL(this.rawOrigin);
     if (url.username || url.password || url.pathname !== "/" || url.search || url.hash ||
-        (url.protocol !== "https:" && !(options.allowLoopbackHttp === true && labLoopbackHttpOrigin(session.cpOrigin))))
+        (url.protocol !== "https:" && !(options.allowLoopbackHttp === true && loopbackHttpOrigin(session.cpOrigin))))
       throw mdbaseError("invalid_request", "invalid people CP origin", "people_binding");
     this.cpOrigin = url.origin;
     this.collection = session.collection; this.connector = session.connectorId; this.device = session.deviceId; this.ep = endpoint(session.endpoint);

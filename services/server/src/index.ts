@@ -66,7 +66,6 @@ const { app } = await buildApp({
     ? new HostedProviderClient(runtime.hostedProvider)
     : undefined,
   trustProxy: runtime.trustProxy,
-  allowInsecureManifests: process.env.MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS === "1",
   relayBroker,
   nextControlPlane: runtime.nextControlPlane ?? undefined,
   notifications: runtime.vapid || runtime.fcm || runtime.webhookSigning

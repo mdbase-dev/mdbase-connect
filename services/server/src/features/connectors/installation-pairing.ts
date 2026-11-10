@@ -1,4 +1,4 @@
-import { isNativeLoopbackOrigin } from "@mdbase-dev/connect-protocol/manifest";
+import { isLoopbackHttpOrigin, isNativeLoopbackOrigin } from "@mdbase-dev/connect-protocol/manifest";
 /** Installation devices extend daemon pairing, never application OAuth grants.
  * Public account selection precedes key custody; attestation precedes explicit
  * device approval. Original request/tuple and outcome are immutable. */
@@ -60,7 +60,11 @@ export async function installationApp(db: DatabaseQueryable, environment: string
     return declared.origin !== "null" && declared.origin === origin;
   });
   const nativeOrigin = declaration && "platform" in declaration && declaration.platform === "native" && kind === "app-runtime" && isNativeLoopbackOrigin(origin);
-  if (["staging", "production"].includes(environment) && origin.startsWith("http:") && !nativeOrigin) return fail("installation_app_not_allowed", 403);
+  // An application under development runs in a browser on the loopback origin
+  // its own manifest declares. No other plain-HTTP origin pairs in staging or
+  // production, including a loopback origin that is only listed for the environment.
+  const developmentOrigin = declaredOrigin && kind === "app-runtime" && isLoopbackHttpOrigin(origin);
+  if (["staging", "production"].includes(environment) && origin.startsWith("http:") && !nativeOrigin && !developmentOrigin) return fail("installation_app_not_allowed", 403);
   if (!declaredOrigin && !allowed.includes(origin) && !nativeOrigin) return fail("installation_app_not_allowed", 403);
   if (!app.name || !app.family_identity) throw new Error("Invalid registered installation identity.");
   const timerDeclaration = installationTimerDeclaration(app, { environment: environment as InstallationTimerBinding["environment"], app_origin: origin, kind }, environment);

@@ -63,7 +63,7 @@ describePg("SDK application registration against the register route", () => {
     url.searchParams.set("options", `-csearch_path=${schema}`);
     db = await createDatabase(url.toString());
     registerErrorHandler(app);
-    registerApplicationRoutes(app, { db, allowInsecureManifests: true });
+    registerApplicationRoutes(app, { db });
   }, 60_000);
   afterAll(async () => {
     await app.close(); await db?.end();

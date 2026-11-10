@@ -41,7 +41,7 @@ it.each(cases)("$environment compiledLocal=$compiledLocal: $origin", async ({ co
   });
   // Load one graph at a time: concurrent reset/mock imports can observe an
   // in-flight unmocked dependency before Vitest installs its compiled module.
-  const { labLoopbackHttpOrigin, localApplicationHttpOrigin } = await import("../src/local-build.js");
+  const { loopbackHttpOrigin, localApplicationHttpOrigin } = await import("../src/local-build.js");
   const { AppProtectedInstallationSignIn } = await import("../src/app-host/installation-sign-in.js");
   const { AppCollectionSetupJournal } = await import("../src/app-host/collection-setup-journal.js");
   const { controlRouteResolver } = await import("../src/transport/control-route.js");
@@ -49,7 +49,7 @@ it.each(cases)("$environment compiledLocal=$compiledLocal: $origin", async ({ co
   const accepted = origin.startsWith("https:") || (compiledLocal && localAccepted);
   expect(localApplicationHttpOrigin(origin)).toBe(compiledLocal && origin.startsWith("http:") && localAccepted);
   // A local build narrows the LAB flag to its own exact local origins.
-  expect(labLoopbackHttpOrigin(origin)).toBe(compiledLocal ? origin.startsWith("http:") && localAccepted : labAccepted);
+  expect(loopbackHttpOrigin(origin)).toBe(compiledLocal ? origin.startsWith("http:") && localAccepted : labAccepted);
   // Only URL admission is under test; this selected-scope stub is NOT custody,
   // consent, collection readiness or an end-to-end sign-in fixture.
   const flow = { confirmedSelection: () => ({}), state: { environment } } as unknown as typeof AppProtectedInstallationSignIn.prototype;

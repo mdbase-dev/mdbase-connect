@@ -1,6 +1,6 @@
 /** First-party protected device registration ONLY. No collection bootstrap,
  * private-enrol/create/SAS/Noise handshake, retry or provider activation. */
-import { labLoopbackHttpOrigin } from "../application/local-build.js";
+import { loopbackHttpOrigin } from "../application/local-build.js";
 import { uuidToBytes } from "../codec.js";
 import type { AppDeviceIdentityPin, AppDeviceRegistrationReceipt, AppNoiseCustodyResult, AppWasmRuntime } from "./wasm-runtime.js";
 
@@ -39,7 +39,7 @@ export class AppCpDeviceRegistration {
       for (const id of [this.scope.connectorId,this.scope.deviceId,this.scope.installationId]) if (uuidToBytes(id).every(b=>b===0)) throw fail("binding");
       if (session.kind!=="mobile" && session.kind!=="app-runtime") throw fail("binding");
       this.rawOrigin=session.cpOrigin;const u=new URL(this.rawOrigin);
-      if (u.username || u.password || u.pathname!=="/" || u.search || u.hash || (u.protocol!=="https:" && !(options.allowLoopbackHttp===true && labLoopbackHttpOrigin(this.rawOrigin)))) throw fail("binding");
+      if (u.username || u.password || u.pathname!=="/" || u.search || u.hash || (u.protocol!=="https:" && !(options.allowLoopbackHttp===true && loopbackHttpOrigin(this.rawOrigin)))) throw fail("binding");
       this.origin=u.origin;this.now=options.now??Date.now;this.fetchImpl=options.fetch??globalThis.fetch;
       if (!(custody.envelope instanceof Uint8Array) || !custody.envelope.length || custody.envelope.length>1024) throw fail("binding");
       if (!runtime.deviceCustodyCurrent(session,custody)) throw fail("binding");
