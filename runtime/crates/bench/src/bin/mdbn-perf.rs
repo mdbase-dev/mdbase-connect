@@ -261,7 +261,8 @@ fn gate_run(o: &Opts, cal: f64) -> Gate {
             .collect(),
         ratios: small
             .into_iter()
-            .map(|(k, ms)| (k, round(ms / cal, 4)))
+            // Six places: the fastest scenarios are a few 1e-4 of the calibration.
+            .map(|(k, ms)| (k, round(ms / cal, 6)))
             .collect(),
     }
 }
@@ -376,7 +377,7 @@ fn gate(o: &Opts, cal: f64, meta: serde_json::Value) {
         let verdict = if c.fails(&run) { "FAIL" } else { "ok" };
         match c.got(&run) {
             Some(got) => eprintln!(
-                "  {verdict:<4} {:<6} {:<32} {got:>10.4} baseline {:>10.4} limit {:>10.4}{}",
+                "  {verdict:<4} {:<6} {:<32} {got:>12.6} baseline {:>12.6} limit {:>12.6}{}",
                 c.kind.label(),
                 c.name,
                 c.want,
