@@ -11,10 +11,14 @@
 //! and the void counter, an apply advances the head only, and a stall or a
 //! pending source read leaves the head where it was.
 //!
+//! Four void sites cannot be reached from a payload: the checks before the
+//! effects loop resolve every text, so the loop's "unresolved" exits never fire.
+//! The `LOOP_ONLY` ladders drive the loop directly, with texts left unresolved,
+//! to pin those exits and where they sit among the checks around them.
+//!
 //! `every_void_site_is_inventoried` pins the complete set of persisted void
-//! reasons in `replica/apply.rs` from source, and requires each one to be
-//! either driven by a ladder here or listed in `SOURCE_ONLY` with the reason it
-//! cannot be reached from a payload.
+//! reasons in `replica/apply.rs` from source, and requires a ladder here to
+//! drive each one.
 use super::{
     engine::{COL, Node},
     unindexed_async::{apply_body_with_refs, contents, node, payload, planned, retain, step},
@@ -42,22 +46,24 @@ use mdbn_wire::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
-const APPLIED: &str = "applied";
+pub(super) const APPLIED: &str = "applied";
 const PENDING: &str = "source pending";
+/// The effects loop alone ran to its end: nothing is committed yet.
+const STAGED: &str = "staged";
 
 /// A stored unindexed holder that legacy and ordinary effects must not convert.
-const UNINDEXED: B16 = B16([40; 16]);
+pub(super) const UNINDEXED: B16 = B16([40; 16]);
 /// A stored record holding `taken.md`.
-const HOLDER: B16 = B16([41; 16]);
+pub(super) const HOLDER: B16 = B16([41; 16]);
 /// The record the legacy base payload creates.
-const RECORD: B16 = B16([61; 16]);
+pub(super) const RECORD: B16 = B16([61; 16]);
 /// The native unindexed file of `unindexed_async::payload`.
-const NATIVE: B16 = B16([52; 16]);
+pub(super) const NATIVE: B16 = B16([52; 16]);
 
-struct Case {
-    payload: rt::EntryPayload,
-    refs: Vec<Hash>,
-    objects: BTreeMap<Hash, Vec<u8>>,
+pub(super) struct Case {
+    pub(super) payload: rt::EntryPayload,
+    pub(super) refs: Vec<Hash>,
+    pub(super) objects: BTreeMap<Hash, Vec<u8>>,
 }
 
 type Step = (&'static str, fn(&mut Node, &mut Case));
@@ -69,6 +75,8 @@ struct Ladder {
     steps: &'static [Step],
     /// The outcome once every violation is removed.
     last: &'static str,
+    /// How the case reaches the checks: [`outcome`] or [`loop_outcome`].
+    drive: fn(&mut Node, &Case) -> String,
 }
 
 impl Ladder {
@@ -87,7 +95,7 @@ impl Ladder {
             for (_, violate) in &self.steps[i..] {
                 violate(&mut n, &mut c);
             }
-            got.push(outcome(&mut n, &c));
+            got.push((self.drive)(&mut n, &c));
         }
         assert_eq!(got, self.expected(), "ladder {}", self.name);
     }
@@ -104,7 +112,23 @@ fn outcome(n: &mut Node, c: &Case) -> String {
     describe(n, o, before, head, voids)
 }
 
-fn describe(
+/// Drive the effects loop alone on the payload's effects as written (their
+/// texts unresolved), check the exit kind against the store, and name it.
+fn loop_outcome(n: &mut Node, c: &Case) -> String {
+    let before = n.r.store.head().unwrap();
+    let voids = n.r.policy.voids;
+    let head = retain(n);
+    match n.r.test_stage_unresolved_effects(head, &c.payload).unwrap() {
+        Some(o) => describe(n, o, before, head, voids),
+        None => {
+            assert_eq!(n.r.store.head().unwrap(), before, "staging commits nothing");
+            assert_eq!(n.r.policy.voids, voids);
+            STAGED.into()
+        }
+    }
+}
+
+pub(super) fn describe(
     n: &Node,
     o: Outcome,
     before: crate::store::Head,
@@ -135,7 +159,7 @@ fn describe(
     }
 }
 
-fn file_row(id: B16, path: &str, kind: FileKindV1, content: FileContent) -> FileRow {
+pub(super) fn file_row(id: B16, path: &str, kind: FileKindV1, content: FileContent) -> FileRow {
     FileRow {
         id,
         path: path.into(),
@@ -150,7 +174,7 @@ fn file_row(id: B16, path: &str, kind: FileKindV1, content: FileContent) -> File
     }
 }
 
-fn record_row(id: B16, path: &str, doc: &str) -> RecordRow {
+pub(super) fn record_row(id: B16, path: &str, doc: &str) -> RecordRow {
     RecordRow {
         id,
         path: path.into(),
@@ -164,7 +188,7 @@ fn record_row(id: B16, path: &str, doc: &str) -> RecordRow {
     }
 }
 
-fn seed(n: &mut Node, files: Vec<FileRow>, records: Vec<RecordRow>) {
+pub(super) fn seed(n: &mut Node, files: Vec<FileRow>, records: Vec<RecordRow>) {
     n.r.store
         .commit(Tx {
             files_put: files,
@@ -174,7 +198,7 @@ fn seed(n: &mut Node, files: Vec<FileRow>, records: Vec<RecordRow>) {
         .unwrap();
 }
 
-fn put_record(id: u8, path: &str) -> rt::Effect {
+pub(super) fn put_record(id: u8, path: &str) -> rt::Effect {
     rt::Effect::Legacy(Effect::PutRecord(PutRecord {
         id: B16([id; 16]),
         path: path.into(),
@@ -182,7 +206,7 @@ fn put_record(id: u8, path: &str) -> rt::Effect {
     }))
 }
 
-fn blob_ref(part_size: u64) -> BlobRef {
+pub(super) fn blob_ref(part_size: u64) -> BlobRef {
     BlobRef {
         plain_hash: mdbn_wire::hash::sha256(b"x"),
         size: 1,
@@ -194,7 +218,7 @@ fn blob_ref(part_size: u64) -> BlobRef {
 
 /// A record create whose effects are not re-planned (its origin is this
 /// replica), so it reaches every structural check and commits.
-fn legacy_setup(n: &mut Node) -> Case {
+pub(super) fn legacy_setup(n: &mut Node) -> Case {
     let (unindexed, _) = contents(n, &vec![b'u'; 1_048_577], false);
     seed(
         n,
@@ -338,6 +362,7 @@ const STRUCTURAL: Ladder = Ladder {
         }),
     ],
     last: APPLIED,
+    drive: outcome,
 };
 
 const RECORD_EFFECT: Ladder = Ladder {
@@ -353,14 +378,17 @@ const RECORD_EFFECT: Ladder = Ladder {
                 record_effect(c, 0).id = UNINDEXED;
             },
         ),
+        // The collider goes first, so the effect under test meets a taken path
+        // while its own earlier violations are still present.
         ("V7: two records share a path", |_, c| {
-            c.payload.effects.push(put_record(65, "a.md"));
+            c.payload.effects.insert(0, put_record(65, "a.md"));
         }),
     ],
     last: APPLIED,
+    drive: outcome,
 };
 
-fn file_setup(n: &mut Node) -> Case {
+pub(super) fn file_setup(n: &mut Node) -> Case {
     let mut c = legacy_setup(n);
     let (FileContent::Blob(blob), _) = contents(n, b"file", false) else {
         unreachable!()
@@ -398,9 +426,10 @@ const FILE_EFFECT: Ladder = Ladder {
         }),
     ],
     last: APPLIED,
+    drive: outcome,
 };
 
-fn attachment_setup(n: &mut Node) -> Case {
+pub(super) fn attachment_setup(n: &mut Node) -> Case {
     let mut c = legacy_setup(n);
     let (FileContent::AttachmentV1(content), _) = contents(n, b"picture", true) else {
         unreachable!()
@@ -447,10 +476,11 @@ const ATTACHMENT_EFFECT: Ladder = Ladder {
         }),
     ],
     last: APPLIED,
+    drive: outcome,
 };
 
 /// A planned native unindexed create whose source bytes are served on request.
-fn native_setup(n: &mut Node) -> Case {
+pub(super) fn native_setup(n: &mut Node) -> Case {
     let (content, objects) = contents(n, &vec![b'x'; 1_048_577], true);
     let p = planned(n, payload(content));
     Case {
@@ -507,16 +537,15 @@ const NATIVE_EFFECT: Ladder = Ladder {
                 vec![],
             );
         }),
-        ("V7: unindexed prior CAS", |_, c| {
-            let expected = native_op(c).payload.clone();
-            native_op(c).expected = Some(expected);
+        // Content that differs from the holder seeded by the step above, so the
+        // CAS is violated whether or not that holder is present.
+        ("V7: unindexed prior CAS", |n, c| {
+            let (content, _) = contents(n, &vec![b'y'; 1_048_577], true);
+            native_op(c).expected = Some(UnindexedMarkdownPayloadV1 { content });
         }),
+        // The collider goes first, as in the record ladder.
         ("V7: two entries share a path", |_, c| {
-            let mut second = native_effect(c).clone();
-            second.id = B16([66; 16]);
-            c.payload
-                .effects
-                .push(rt::Effect::PutUnindexedMarkdown(second));
+            c.payload.effects.insert(0, put_record(66, "huge.md"));
         }),
         ("V7: path already taken", |n, _| {
             seed(n, vec![], vec![record_row(B16([67; 16]), "huge.md", "x\n")]);
@@ -532,10 +561,11 @@ const NATIVE_EFFECT: Ladder = Ladder {
         ),
     ],
     last: APPLIED,
+    drive: outcome,
 };
 
 /// A planned unindexed → record reindex with an inline source.
-fn reindex_setup(n: &mut Node) -> Case {
+pub(super) fn reindex_setup(n: &mut Node) -> Case {
     let (prior, objects) = contents(n, &vec![b'x'; 1_048_577], false);
     seed(
         n,
@@ -592,10 +622,11 @@ const REINDEX_EFFECT: Ladder = Ladder {
         }),
     ],
     last: APPLIED,
+    drive: outcome,
 };
 
 /// A ordinary file → record promotion whose source matches the holder.
-fn promotion_setup(n: &mut Node) -> Case {
+pub(super) fn promotion_setup(n: &mut Node) -> Case {
     let doc = "promoted\n";
     let (prior, objects) = contents(n, doc.as_bytes(), false);
     seed(
@@ -652,6 +683,7 @@ const PROMOTION_EFFECT: Ladder = Ladder {
         }),
     ],
     last: APPLIED,
+    drive: outcome,
 };
 
 /// Single-check arms: removes of unknown entities, resource paths, and the
@@ -696,6 +728,104 @@ const REMOVES_AND_RESOURCES: Ladder = Ladder {
         }),
     ],
     last: APPLIED,
+    drive: outcome,
+};
+
+/// The record arm's unresolved-text exit, ahead of its path check.
+const LOOP_ONLY_RECORD: Ladder = Ladder {
+    name: "unresolved record text",
+    setup: legacy_setup,
+    steps: &[
+        ("V7: unresolved text", |_, c| {
+            record_effect(c, 0).doc = Text::Index(0);
+        }),
+        ("V7: invalid path", |_, c| {
+            record_effect(c, 0).path = "../a.md".into();
+        }),
+    ],
+    last: STAGED,
+    drive: loop_outcome,
+};
+
+fn resource_setup(n: &mut Node) -> Case {
+    let mut c = legacy_setup(n);
+    c.payload.effects = vec![rt::Effect::Legacy(Effect::PutResource(PutResource {
+        path: "_types/t.md".into(),
+        doc: Text::Inline("x".into()),
+    }))];
+    c
+}
+
+fn resource_effect(c: &mut Case) -> &mut PutResource {
+    let rt::Effect::Legacy(Effect::PutResource(r)) = &mut c.payload.effects[0] else {
+        panic!("expected a resource effect")
+    };
+    r
+}
+
+/// The resource arm's unresolved-text exit, ahead of its path check.
+const LOOP_ONLY_RESOURCE: Ladder = Ladder {
+    name: "unresolved resource text",
+    setup: resource_setup,
+    steps: &[
+        ("V7: unresolved text", |_, c| {
+            resource_effect(c).doc = Text::Index(0);
+        }),
+        ("V7: invalid path", |_, c| {
+            resource_effect(c).path = "../t.md".into();
+        }),
+    ],
+    last: STAGED,
+    drive: loop_outcome,
+};
+
+/// The reindex arm's unresolved-source exit, between its CAS and its source
+/// and path check.
+const LOOP_ONLY_REINDEX: Ladder = Ladder {
+    name: "unresolved reindex source",
+    setup: reindex_setup,
+    steps: &[
+        ("V7: reindex requires unindexed holder", |_, c| {
+            reindex_effect(c).id = B16([68; 16]);
+        }),
+        ("V7: reindex prior CAS", |_, c| {
+            let rt::Op::UnindexedMarkdownToRecord(op) = &mut c.payload.mutation.ops[0] else {
+                panic!("expected the reindex op")
+            };
+            op.prior.content = FileContent::Blob(blob_ref(crate::replica::apply::MIN_PART));
+        }),
+        ("V7: unresolved reindex source", |_, c| {
+            reindex_effect(c).doc = Text::Index(0);
+        }),
+        ("V7: reindex source or path", |_, c| {
+            reindex_effect(c).path = "../huge.md".into();
+        }),
+    ],
+    last: STAGED,
+    drive: loop_outcome,
+};
+
+/// The promotion arm's unresolved-source exit, after its holder check and CAS.
+/// (Its identity check reads the resolved source, so it cannot come first.)
+const LOOP_ONLY_PROMOTION: Ladder = Ladder {
+    name: "unresolved ordinary source",
+    setup: promotion_setup,
+    steps: &[
+        ("V7: promotion requires exact ordinary holder", |_, c| {
+            promotion_effect(c).path = "other.md".into();
+        }),
+        ("V7: promotion prior CAS", |_, c| {
+            let rt::Op::OrdinaryFileToRecord(op) = &mut c.payload.mutation.ops[0] else {
+                panic!("expected the promotion op")
+            };
+            op.prior = FileContent::Blob(blob_ref(crate::replica::apply::MIN_PART));
+        }),
+        ("V7: unresolved ordinary source", |_, c| {
+            promotion_effect(c).doc = Text::Index(0);
+        }),
+    ],
+    last: STAGED,
+    drive: loop_outcome,
 };
 
 const LADDERS: &[Ladder] = &[
@@ -707,6 +837,10 @@ const LADDERS: &[Ladder] = &[
     REINDEX_EFFECT,
     PROMOTION_EFFECT,
     REMOVES_AND_RESOURCES,
+    LOOP_ONLY_RECORD,
+    LOOP_ONLY_RESOURCE,
+    LOOP_ONLY_REINDEX,
+    LOOP_ONLY_PROMOTION,
 ];
 
 #[test]
@@ -740,6 +874,79 @@ fn promotion_effect_checks_fire_in_order() {
 #[test]
 fn remove_and_resource_checks_fire_in_order() {
     REMOVES_AND_RESOURCES.run();
+}
+#[test]
+fn unresolved_text_exits_fire_in_order() {
+    LOOP_ONLY_RECORD.run();
+    LOOP_ONLY_RESOURCE.run();
+    LOOP_ONLY_REINDEX.run();
+    LOOP_ONLY_PROMOTION.run();
+}
+
+/// What the native put's prior check compares, one condition at a time on the
+/// effects loop alone: the op's expected content against the file as this
+/// entry has staged it so far, no record under the id, and the file's path
+/// unless the entry is a resurrection.
+#[test]
+fn native_prior_check_conditions() {
+    type Arrange = fn(&mut Node, &mut Case);
+    fn held(n: &mut Node, c: &mut Case) {
+        let content = native_effect(c).payload.content.clone();
+        seed(
+            n,
+            vec![file_row(
+                NATIVE,
+                "elsewhere.md",
+                FileKindV1::UnindexedOversizedMarkdown,
+                content.clone(),
+            )],
+            vec![],
+        );
+        native_op(c).expected = Some(UnindexedMarkdownPayloadV1 { content });
+    }
+    let cases: [(&str, Arrange, &str); 6] = [
+        ("a new file", |_, _| {}, STAGED),
+        (
+            "a record holds the id",
+            |n, _| seed(n, vec![], vec![record_row(NATIVE, "note.md", "note\n")]),
+            "V7: unindexed prior CAS",
+        ),
+        (
+            "the file is held at another path",
+            held,
+            "V7: unindexed prior CAS",
+        ),
+        (
+            "the file is held at another path, in a resurrection",
+            |n, c| {
+                held(n, c);
+                c.payload.resurrect = Some(1);
+            },
+            STAGED,
+        ),
+        (
+            "the file is held at the op's path",
+            |n, c| {
+                held(n, c);
+                native_op(c).path = "elsewhere.md".into();
+            },
+            STAGED,
+        ),
+        (
+            "a second put of the file this entry already staged",
+            |_, c| {
+                let again = c.payload.effects[0].clone();
+                c.payload.effects.push(again);
+            },
+            "V7: unindexed prior CAS",
+        ),
+    ];
+    for (name, arrange, want) in cases {
+        let mut n = node();
+        let mut c = native_setup(&mut n);
+        arrange(&mut n, &mut c);
+        assert_eq!(loop_outcome(&mut n, &c), want, "{name}");
+    }
 }
 
 /// Source-read outcomes: the reverse-text hydration and the native source
@@ -855,22 +1062,6 @@ fn without_epoch_one_key(a: &mut Node) {
     a.r.policy.epoch = 2;
 }
 
-/// Persisted void reasons that no payload can reach, and why.
-const SOURCE_ONLY: &[(&str, &str)] = &[
-    (
-        "V7: unresolved text",
-        "effect texts are resolved to Text::Inline before the effects loop",
-    ),
-    (
-        "V7: unresolved reindex source",
-        "reindex sources are resolved to Text::Inline before the effects loop",
-    ),
-    (
-        "V7: unresolved ordinary source",
-        "promotion sources are resolved to Text::Inline before the effects loop",
-    ),
-];
-
 /// Every `commit_payload_void` site in `replica/apply.rs`, with its count.
 const VOID_SITES: &[(&str, usize)] = &[
     ("V7: attachment descriptor out of range", 1),
@@ -934,18 +1125,12 @@ fn every_void_site_is_inventoried() {
         .map(|(r, n)| (r.to_string(), *n))
         .collect();
     assert_eq!(void_sites_in_source(), expected);
-    // Each site is driven by a ladder or explained as unreachable, not both.
+    // A ladder drives every site.
     let driven: BTreeSet<&str> = LADDERS
         .iter()
         .flat_map(Ladder::expected)
         .filter(|r| r.starts_with("V7: "))
         .collect();
-    let unreachable: BTreeSet<&str> = SOURCE_ONLY.iter().map(|(r, _)| *r).collect();
-    assert!(
-        driven.is_disjoint(&unreachable),
-        "{driven:?} {unreachable:?}"
-    );
-    let covered: BTreeSet<&str> = driven.union(&unreachable).copied().collect();
     let sites: BTreeSet<&str> = VOID_SITES.iter().map(|(r, _)| *r).collect();
-    assert_eq!(covered, sites);
+    assert_eq!(driven, sites);
 }

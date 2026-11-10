@@ -28,7 +28,14 @@ use mdbn_wire::intent::{Create, FileInclusion, Op};
 // ---------------------------------------------------------------- a toy disk store
 
 #[derive(Default)]
-struct Disk {
+pub(super) struct Disk {
+    /// Keep every transaction handed to the store in `committed`.
+    pub(super) keep_committed: bool,
+    pub(super) committed: Vec<Tx>,
+    /// The row reads so far, by store method (the reads `fail_row_read` counts).
+    pub(super) row_reads: Vec<&'static str>,
+    /// Fail the row read this many reads from now.
+    pub(super) fail_row_read: Option<u64>,
     files: BTreeMap<String, String>,
     /// What the store last knew was at each path.
     known: BTreeMap<String, Hash>,
@@ -148,11 +155,30 @@ impl Disk {
     }
 }
 
-struct DiskStore {
-    inner: MemStore,
-    disk: Rc<RefCell<Disk>>,
+pub(super) struct DiskStore {
+    pub(super) inner: MemStore,
+    pub(super) disk: Rc<RefCell<Disk>>,
     /// Closing a deferred-durability window fails (an uncertain barrier).
-    barrier_fails: bool,
+    pub(super) barrier_fails: bool,
+}
+
+impl DiskStore {
+    /// Count one row read, failing the one `fail_row_read` selects.
+    fn row_read(&self, method: &'static str) -> StoreResult<()> {
+        let mut d = self.disk.borrow_mut();
+        d.row_reads.push(method);
+        match d.fail_row_read {
+            Some(0) => {
+                d.fail_row_read = None;
+                Err(StoreError::Io("injected row read fault".into()))
+            }
+            Some(n) => {
+                d.fail_row_read = Some(n - 1);
+                Ok(())
+            }
+            None => Ok(()),
+        }
+    }
 }
 
 impl Store for DiskStore {
@@ -167,9 +193,11 @@ impl Store for DiskStore {
         self.inner.head()
     }
     fn record(&self, id: &Uuid) -> StoreResult<Option<RecordRow>> {
+        self.row_read("record")?;
         self.inner.record(id)
     }
     fn record_at(&self, k: &str) -> StoreResult<Option<Uuid>> {
+        self.row_read("record_at")?;
         self.inner.record_at(k)
     }
     fn records(&self, p: Page) -> StoreResult<Vec<RecordRow>> {
@@ -182,9 +210,11 @@ impl Store for DiskStore {
         self.inner.record_count()
     }
     fn file(&self, id: &Uuid) -> StoreResult<Option<FileRow>> {
+        self.row_read("file")?;
         self.inner.file(id)
     }
     fn file_at(&self, k: &str) -> StoreResult<Option<Uuid>> {
+        self.row_read("file_at")?;
         self.inner.file_at(k)
     }
     fn files(&self, p: Page) -> StoreResult<Vec<FileRow>> {
@@ -197,6 +227,7 @@ impl Store for DiskStore {
         self.inner.resource(p)
     }
     fn resources(&self) -> StoreResult<Vec<(String, String)>> {
+        self.row_read("resources")?;
         self.inner.resources()
     }
     fn resource_paths_page(&self, p: ResourcePathPage<'_>) -> StoreResult<Vec<String>> {
@@ -293,6 +324,7 @@ impl Store for DiskStore {
         self.inner.settings()
     }
     fn tombstone(&self, id: &Uuid) -> StoreResult<Option<TombstoneRow>> {
+        self.row_read("tombstone")?;
         self.inner.tombstone(id)
     }
     fn tombstones_at(&self, k: &str) -> StoreResult<Vec<TombstoneRow>> {
@@ -334,6 +366,7 @@ impl Store for DiskStore {
         Ok(rows)
     }
     fn pending_get(&self, m: &Uuid) -> StoreResult<Option<PendingRow>> {
+        self.row_read("pending_get")?;
         self.inner.pending_get(m)
     }
     fn pending_count(&self) -> StoreResult<u64> {
@@ -343,6 +376,7 @@ impl Store for DiskStore {
         self.inner.local_receipt(m)
     }
     fn holds(&self) -> StoreResult<Vec<Hold>> {
+        self.row_read("holds")?;
         self.disk.borrow_mut().holds_reads += 1;
         self.inner.holds()
     }
@@ -380,6 +414,9 @@ impl Store for DiskStore {
     fn commit(&mut self, mut tx: Tx) -> StoreResult<CommitReport> {
         if !tx.pending_put.is_empty() && self.disk.borrow().fail_pending_commits {
             return Err(StoreError::Io("injected: crashed before the commit".into()));
+        }
+        if self.disk.borrow().keep_committed {
+            self.disk.borrow_mut().committed.push(tx.clone());
         }
         let publish = std::mem::take(&mut tx.publish);
         let acks = tx.ack_observations.clone();
@@ -664,7 +701,7 @@ impl Planner for TestPlanner {
     }
 }
 
-struct TestClock(Rc<Cell<u64>>);
+pub(super) struct TestClock(pub(super) Rc<Cell<u64>>);
 impl Clock for TestClock {
     fn now_ms(&self) -> u64 {
         self.0.get()

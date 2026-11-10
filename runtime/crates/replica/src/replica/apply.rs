@@ -2450,6 +2450,26 @@ fn is_unknown_deep(e: &SchemaError) -> bool {
 fn _unused(_: B16) {}
 
 #[cfg(test)]
+impl<S: Store> Replica<S> {
+    /// The effects loop on `payload.effects` exactly as given, texts unresolved,
+    /// which `apply_payload_ready` never passes it. `None` when every effect
+    /// staged.
+    pub(crate) fn test_stage_unresolved_effects(
+        &mut self,
+        head: Head,
+        payload: &rt::EntryPayload,
+    ) -> Result<Option<Outcome>, StoreError> {
+        let instant = payload.mutation.clock.instant;
+        Ok(
+            match self.stage_effects(head.seq, head, payload, &payload.effects, instant)? {
+                ControlFlow::Break(outcome) => Some(outcome),
+                ControlFlow::Continue(_) => None,
+            },
+        )
+    }
+}
+
+#[cfg(test)]
 mod bounds_tests {
     use super::*;
     use mdbn_wire::common::B32;
