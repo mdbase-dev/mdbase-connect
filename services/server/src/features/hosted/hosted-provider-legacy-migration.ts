@@ -2,7 +2,7 @@
 // retention after a committed cutover, and native rollback. The transport stays
 // in HostedProviderClient; this module only shapes and checks each exchange.
 import { z } from "zod";
-import { readBoundedJson } from "./platform/bounded-json.js";
+import { readBoundedJson } from "../../platform/bounded-json.js";
 import { HostedProviderResponseError, migrationUuid, legacyMigrationDrainSchema, migrationFenceSchema,
   legacyMigrationRollbackEnvelopeSchema, legacyMigrationRollbackReceiptSchema, legacyNotificationWatermarkSchema,
   migrationRetainedSchema, type LegacyMigrationDrain, type LegacyMigrationFence, type LegacyMigrationRollbackEnvelope,

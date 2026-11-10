@@ -31,7 +31,7 @@ import {
   HostedProviderClient,
   HostedProviderUnavailableError,
   HostedProviderResponseError
-} from "./hosted-provider.js";
+} from "./features/hosted/hosted-provider.js";
 import { authorityProofMessage } from "./authority-proof.js";
 import { pkceChallenge, tokenHash } from "./security.js";
 import {

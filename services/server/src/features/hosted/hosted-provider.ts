@@ -1,5 +1,5 @@
 import { APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY } from "@mdbase-dev/connect-protocol";
-import type { ApplicationRequirements } from "./features/applications/application-requirements.js";
+import type { ApplicationRequirements } from "../applications/application-requirements.js";
 import type {
   ApplicationAuthorizationProof,
   ApplicationProvisions,
@@ -17,8 +17,8 @@ import {
   type ConnectContractSupport
 } from "@mdbase-dev/connect-protocol";
 import { hostedReplicaCollectionOperations } from "./hosted-replica-policy.js";
-import { safeEqual } from "./security.js";
-import { collectionContractDescriptorSchema } from "./platform/protocol-schemas.js";
+import { safeEqual } from "../../security.js";
+import { collectionContractDescriptorSchema } from "../../platform/protocol-schemas.js";
 import { z } from "zod";
 import { asProviderError, readResponse, HostedProviderResponseError, HostedProviderUnavailableError,
   type LegacyMigrationDrain, type LegacyMigrationFence, type LegacyMigrationRollbackEnvelope,

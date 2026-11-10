@@ -4,7 +4,7 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { HostedProviderResponseError, type HostedProviderClient, type LegacyMigrationRollbackReceipt,
-  type LegacyMigrationRollbackRequest } from "../../hosted-provider.js";
+  type LegacyMigrationRollbackRequest } from "../hosted/hosted-provider.js";
 import { registerMigrationReplicaRoutes } from "./migration-replicas.js";
 import { PolicyEmitter, registerNextCollection } from "./policy-outbox.js";
 import { LogServiceClient, LogServiceError } from "./log-service-client.js";

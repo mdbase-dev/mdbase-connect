@@ -8,7 +8,7 @@ import { reconcileHostedAccount } from "../account/entitlements.js";
 import {
   HostedProviderResponseError,
   type HostedProviderClient
-} from "../../hosted-provider.js";
+} from "../hosted/hosted-provider.js";
 import { randomToken, tokenHash } from "../../security.js";
 import { audit } from "../../platform/audit-events.js";
 import { authorityImportCapability } from "../../platform/authority-url.js";

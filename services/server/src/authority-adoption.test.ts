@@ -6,7 +6,7 @@ import {
   HostedProviderResponseError,
   HostedProviderUnavailableError,
   type HostedProviderClient
-} from "./hosted-provider.js";
+} from "./features/hosted/hosted-provider.js";
 
 const resources: Array<() => Promise<void>> = [];
 const TASKS_CONTRACT = {

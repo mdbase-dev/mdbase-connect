@@ -31,8 +31,8 @@ import {
   hostedContractDescriptors,
   type HostedAuthorityRegistry,
   type HostedTemplate
-} from "../../hosted.js";
-import type { HostedProviderClient } from "../../hosted-provider.js";
+} from "./hosted.js";
+import type { HostedProviderClient } from "./hosted-provider.js";
 import { reconcileHostedAccount } from "../account/entitlements.js";
 import {
   hostedGrantRevocationStatus,
@@ -41,10 +41,10 @@ import {
   queueHostedGrantRevocation,
   queueHostedReplicaRevocation,
   type HostedRevocationStatus
-} from "../../hosted-capability-lifecycle.js";
+} from "./hosted-capability-lifecycle.js";
 import {
   hostedReplicaCollectionOperations
-} from "../../hosted-replica-policy.js";
+} from "./hosted-replica-policy.js";
 import { tokenHash } from "../../security.js";
 import { audit } from "../../platform/audit-events.js";
 import { RequestValidationError, apiError } from "../../platform/http-errors.js";

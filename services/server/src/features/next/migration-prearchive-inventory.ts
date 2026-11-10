@@ -1,7 +1,7 @@
 // Complete inventory DATA only. A digest, including one computed by this helper,
 // is never source/fence/admission authority: the CP must independently reread it.
 import { createHash } from "node:crypto";
-import { migrationUuid } from "../../hosted-provider-replies.js";
+import { migrationUuid } from "../hosted/hosted-provider-replies.js";
 import { archiveBindingSchema, millisecondTime, migrationMembershipDigest, RolloutRefused, type ArchiveBinding } from "./migration-archive-profile.js";
 
 export interface PrearchiveCapture {

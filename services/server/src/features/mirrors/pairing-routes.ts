@@ -1,13 +1,13 @@
 import { listHostedCollectionsVisibleToUser } from "../collections/collection-catalog.js";
 import { resolveHostedCollectionAccess } from "../collections/collection-access.js";
-import { approveMirrorPairing, assertMirrorAccess, lockHostedMirrorAccess, insertHostedMirror, lockMirrorForRenewal } from "../../hosted-mirror-policy.js";
+import { approveMirrorPairing, assertMirrorAccess, lockHostedMirrorAccess, insertHostedMirror, lockMirrorForRenewal } from "../hosted/hosted-mirror-policy.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { SyncError } from "@mdbase-dev/connect-sync";
 import type { DatabasePool } from "../../database-types.js";
-import type { HostedAuthorityRegistry } from "../../hosted.js";
-import type { HostedProviderClient } from "../../hosted-provider.js";
+import type { HostedAuthorityRegistry } from "../hosted/hosted.js";
+import type { HostedProviderClient } from "../hosted/hosted-provider.js";
 import { randomToken, tokenHash } from "../../security.js";
 import { audit } from "../../platform/audit-events.js";
 import { authorityUrl } from "../../platform/authority-url.js";

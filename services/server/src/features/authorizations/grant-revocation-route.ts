@@ -5,8 +5,8 @@ import type { DatabasePool } from "../../db.js";
 import {
   hostedGrantRevocationStatus,
   queueHostedGrantRevocation
-} from "../../hosted-capability-lifecycle.js";
-import type { HostedProviderClient } from "../../hosted-provider.js";
+} from "../hosted/hosted-capability-lifecycle.js";
+import type { HostedProviderClient } from "../hosted/hosted-provider.js";
 import { audit } from "../../platform/audit-events.js";
 import { apiError } from "../../platform/http-errors.js";
 import { requireUser } from "../../platform/request-authentication.js";

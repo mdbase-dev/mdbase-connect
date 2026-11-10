@@ -3,8 +3,8 @@ import type {
   GrantPolicy,
   GrantScope
 } from "@mdbase-dev/connect-protocol";
-import type { DatabaseConnection } from "./db.js";
-import { declarationIdFromFamilyIdentity } from "./features/applications/identity.js";
+import type { DatabaseConnection } from "../../db.js";
+import { declarationIdFromFamilyIdentity } from "../applications/identity.js";
 
 interface RetainedReplicaPolicySource {
   id: string;

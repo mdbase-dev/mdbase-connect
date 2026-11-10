@@ -3,7 +3,7 @@ import pg from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { runAuthAdminCommand } from "../../auth-admin.js";
-import type { HostedProviderClient } from "../../hosted-provider.js";
+import type { HostedProviderClient } from "../hosted/hosted-provider.js";
 import { addToCohort, createCohort, setCohortFrozen } from "../next/migration-rollout.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;

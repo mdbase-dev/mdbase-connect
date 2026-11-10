@@ -1,18 +1,18 @@
 import { SyncError } from "@mdbase-dev/connect-sync";
-import { isCanonicalCollectionGrantScope } from "./features/grants/application-grant-scope.js";
+import { isCanonicalCollectionGrantScope } from "../grants/application-grant-scope.js";
 import {
   CollectionAccessDeniedError,
   requireCollectionAction,
   resolveHostedCollectionAccess,
   type CollectionAccessContext
-} from "./features/collections/collection-access.js";
-import { membershipPolicyPreset } from "./features/collections/collection-policy.js";
+} from "../collections/collection-access.js";
+import { membershipPolicyPreset } from "../collections/collection-policy.js";
 import {
   membershipBindingForAccess,
   matchesMembershipBinding,
   type StoredCollectionMembershipBinding
-} from "./features/collections/collection-membership-binding.js";
-import type { DatabaseQueryable } from "./db.js";
+} from "../collections/collection-membership-binding.js";
+import type { DatabaseQueryable } from "../../db.js";
 
 /** Mirrors expose a whole collection. A partial policy cannot be represented by
  * the mirror protocol and must never be widened into a read/write mode. */

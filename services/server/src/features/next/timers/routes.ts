@@ -5,7 +5,7 @@ import { canonicalJson } from "../../../canonical-json.js";
 import { lookupTimerReceipt, recordTimerReconcile } from "./receipts.js";
 import { z } from "zod";
 import type { DatabasePool, DatabaseQueryable } from "../../../database-types.js";
-import type { HostedProviderClient } from "../../../hosted-provider.js";
+import type { HostedProviderClient } from "../../hosted/hosted-provider.js";
 import { activeGrantForToken } from "../../notifications/notifications.js";
 import { apiError } from "../../../platform/http-errors.js";
 import { bearerToken } from "../../../platform/request-authentication.js";

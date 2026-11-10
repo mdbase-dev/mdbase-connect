@@ -15,7 +15,7 @@ import { GoogleIdentityError } from "../features/auth/google-auth.js";
 import {
   HostedProviderResponseError,
   HostedProviderUnavailableError
-} from "../hosted-provider.js";
+} from "../features/hosted/hosted-provider.js";
 import { ApplicationManifestError } from "../manifest.js";
 import {
   ApplicationAuthorizationError,

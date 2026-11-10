@@ -10,7 +10,7 @@ import { finishAuthorityImportAbort } from "./features/authority-transfer/lifecy
 import { buildApp } from "./app.js";
 import { audit } from "./platform/audit-events.js";
 import { tokenHash } from "./security.js";
-import type { HostedProviderClient } from "./hosted-provider.js";
+import type { HostedProviderClient } from "./features/hosted/hosted-provider.js";
 import { recoverAccountImportCancellation } from "./features/authority-transfer/account-cancellation.js";
 import { addToCohort, createCohort, setCohortFrozen } from "./features/next/migration-rollout.js";
 

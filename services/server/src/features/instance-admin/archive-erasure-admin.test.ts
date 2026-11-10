@@ -1,12 +1,12 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { DatabasePool } from "../../database-types.js";
-import type { HostedProviderClient } from "../../hosted-provider.js";
+import type { HostedProviderClient } from "../hosted/hosted-provider.js";
 import { drainArchiveErasures } from "./archive-erasure-admin.js";
 import { runAuthAdminCommand } from "../../auth-admin.js";
 
 const jobs = vi.hoisted(() => ({ accounts: vi.fn(), provider: vi.fn() }));
 vi.mock("../account/account-management.js", async original => ({ ...await original<object>(), drainDeferredAccountDeletions: jobs.accounts }));
-vi.mock("../../hosted-capability-lifecycle.js", async original => ({ ...await original<object>(), ProviderRevocationWorker: class { drain = jobs.provider; } }));
+vi.mock("../hosted/hosted-capability-lifecycle.js", async original => ({ ...await original<object>(), ProviderRevocationWorker: class { drain = jobs.provider; } }));
 const sha = "a".repeat(40), operation = "12345678-1234-1234-1234-123456789abc";
 const input = () => ({ cohort: "test-archive", expectedRevision: sha, operationId: operation, actor: "synthetic", reason: "fixture" });
 const empty = () => ({ revision: "7", unfrozen: true, accounts_empty: true, collections_empty: true, revocations_empty: true });

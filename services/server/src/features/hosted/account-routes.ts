@@ -1,12 +1,12 @@
 import { SyncError } from "@mdbase-dev/connect-sync";
-import { insertHostedMirror, lockHostedMirrorAccess, lockMirrorForRenewal } from "../../hosted-mirror-policy.js";
+import { insertHostedMirror, lockHostedMirrorAccess, lockMirrorForRenewal } from "./hosted-mirror-policy.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { resolveHostedCollectionAccess } from "../collections/collection-access.js";
 import {
   type HostedAuthorityRegistry
-} from "../../hosted.js";
+} from "./hosted.js";
 import { randomToken, tokenHash } from "../../security.js";
 import { audit } from "../../platform/audit-events.js";
 import { authorityUrl } from "../../platform/authority-url.js";

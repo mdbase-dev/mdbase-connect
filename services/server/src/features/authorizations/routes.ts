@@ -1,7 +1,7 @@
 import { isNativeLoopbackOrigin } from "@mdbase-dev/connect-protocol/manifest";
 import { randomUUID } from "node:crypto";
 import { previewCollectionGrant } from "../grants/grant-planner.js";
-import { queueHostedGrantRevocation } from "../../hosted-capability-lifecycle.js";
+import { queueHostedGrantRevocation } from "../hosted/hosted-capability-lifecycle.js";
 import type {
   ApplicationNotifications,
   ApplicationProvisions,
@@ -32,9 +32,9 @@ import {
 import {
   contractRequirements,
   effectiveHostedContractDescriptors
-} from "../../hosted.js";
-import type { HostedProviderClient } from "../../hosted-provider.js";
-import { hostedReplicaCollectionOperations } from "../../hosted-replica-policy.js";
+} from "../hosted/hosted.js";
+import type { HostedProviderClient } from "../hosted/hosted-provider.js";
+import { hostedReplicaCollectionOperations } from "../hosted/hosted-replica-policy.js";
 import {
   canonicalUserCode,
   randomToken,

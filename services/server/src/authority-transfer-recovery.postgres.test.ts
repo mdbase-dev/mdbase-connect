@@ -3,7 +3,7 @@ import pg from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createDatabase, type DatabasePool } from "./db.js";
 import { buildApp } from "./app.js";
-import { HostedProviderResponseError, type HostedProviderClient } from "./hosted-provider.js";
+import { HostedProviderResponseError, type HostedProviderClient } from "./features/hosted/hosted-provider.js";
 import { recoverExpiredAuthorityTransfers } from "./features/authority-transfer/lifecycle.js";
 import { addToCohort, createCohort, setCohortFrozen } from "./features/next/migration-rollout.js";
 

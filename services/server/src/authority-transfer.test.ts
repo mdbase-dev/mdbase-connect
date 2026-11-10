@@ -6,7 +6,7 @@ import {
   HostedProviderResponseError,
   HostedProviderUnavailableError,
   type HostedProviderClient
-} from "./hosted-provider.js";
+} from "./features/hosted/hosted-provider.js";
 import { tokenHash } from "./security.js";
 import { recoverExpiredAuthorityTransfers } from "./features/authority-transfer/lifecycle.js";
 

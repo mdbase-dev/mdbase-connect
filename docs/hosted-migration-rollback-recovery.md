@@ -93,8 +93,8 @@ fallback is a rollback strategy.
 Files:
 - `services/server/src/features/next/migration-replicas.ts`: mapped physical
   owner qualification, immutable original intent and mapping correlation.
-- `services/server/src/hosted-provider-legacy-migration.ts`,
-  `hosted-provider-replies.ts`, `hosted-provider.ts`: explicit v2 transport DTO;
+- `services/server/src/features/hosted/hosted-provider-legacy-migration.ts`,
+  `features/hosted/hosted-provider-replies.ts`, `features/hosted/hosted-provider.ts`: explicit v2 transport DTO;
   preserve the original receipt unchanged.
 - `crates/connect-hosted-provider/src/http/legacy_migration.rs` and
   `provider/collections/legacy_migration.rs`: v2 request and owner comparison;

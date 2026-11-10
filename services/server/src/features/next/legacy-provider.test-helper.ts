@@ -4,8 +4,8 @@
 import { randomUUID } from "node:crypto";
 import { createHash } from "node:crypto";
 import type { DatabaseQueryable } from "../../database-types.js";
-import { HostedProviderResponseError, type LegacyMigrationDrain } from "../../hosted-provider.js";
-import type { LegacyNotificationWatermark } from "../../hosted-provider-replies.js";
+import { HostedProviderResponseError, type LegacyMigrationDrain } from "../hosted/hosted-provider.js";
+import type { LegacyNotificationWatermark } from "../hosted/hosted-provider-replies.js";
 import { audit } from "../../platform/audit-events.js";
 import type { LegacyRetentionProvider, TimerFlipGate } from "./migration-rollout.js";
 import { TIMER_IMPORT_EVENT, type TimerSourceProvider } from "./timers/hosted-import.js";

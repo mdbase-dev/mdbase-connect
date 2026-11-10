@@ -1,6 +1,6 @@
 import type { GitHubAuthConfig } from "../features/auth/github-auth.js";
 import type { GoogleAuthConfig } from "../features/auth/google-auth.js";
-import type { HostedProviderConfig } from "../hosted-provider.js";
+import type { HostedProviderConfig } from "../features/hosted/hosted-provider.js";
 import type { RelayBrokerConfig } from "../features/relay/relay-broker.js";
 import type { VapidConfig } from "../features/notifications/web-push.js";
 import type { WebhookSigningConfig } from "../features/notifications/webhook.js";

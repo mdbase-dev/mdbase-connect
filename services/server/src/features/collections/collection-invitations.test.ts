@@ -14,8 +14,8 @@ import { revokeHostedCollectionMembership } from "./collection-membership-lifecy
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { effectiveEntitlement } from "../account/entitlements.js";
 import { tokenHash } from "../../security.js";
-import { ProviderRevocationWorker } from "../../hosted-capability-lifecycle.js";
-import type { HostedProviderClient } from "../../hosted-provider.js";
+import { ProviderRevocationWorker } from "../hosted/hosted-capability-lifecycle.js";
+import type { HostedProviderClient } from "../hosted/hosted-provider.js";
 
 let database: DatabasePool | undefined;
 afterEach(async () => database?.end());

@@ -40,8 +40,8 @@ import { completeMigrationBatch, releaseDeferredDeletions } from "./migration-to
 import { CURRENT_ATTEMPT } from "./migration-managed-ledger.js";
 import { flipEvidenceDigest, recordAccountFlip } from "./account-backend-flip.js";
 import { HostedProviderResponseError, HostedProviderUnavailableError, type HostedProviderClient,
-  type LegacyMigrationDrain } from "../../hosted-provider.js";
-import type { LegacyMigrationSource } from "../../hosted-provider-legacy-migration.js";
+  type LegacyMigrationDrain } from "../hosted/hosted-provider.js";
+import type { LegacyMigrationSource } from "../hosted/hosted-provider-legacy-migration.js";
 import { readFencedTimerSource, TimerImportRefused, timerFlipRefusal, type TimerSourceProvider } from "./timers/hosted-import.js";
 
 const BACKUP_ACCEPT_BODY_LIMIT = 1024 * 1024;

@@ -16,7 +16,7 @@ import {
   type HostedAccountLimits,
   type HostedAccountUsage,
   type HostedProviderClient
-} from "../../hosted-provider.js";
+} from "../hosted/hosted-provider.js";
 
 const resources: Array<() => Promise<void>> = [];
 

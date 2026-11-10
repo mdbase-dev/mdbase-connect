@@ -138,7 +138,7 @@ const {
 } = await import("../packages/client/dist/crypto-entry.js");
 const { buildApp } = await import("../services/server/dist/app.js");
 const { createDatabase } = await import("../services/server/dist/db.js");
-const { HostedProviderClient } = await import("../services/server/dist/hosted-provider.js");
+const { HostedProviderClient } = await import("../services/server/dist/features/hosted/hosted-provider.js");
 
 try {
   phase("starting disposable PostgreSQL 18");

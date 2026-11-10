@@ -15,7 +15,7 @@ import { tokenHash } from "../../security.js";
 import { acceptCohortArchive, addToCohort, cohortArchiveBinding, createCohort, flipAccountBackend, flipEvidenceDigest, releaseCohort, setCohortFrozen, setPaused, startAccountMigration } from "../next/migration-rollout.js";
 import { ZERO_HOSTED_ARCHIVE_SCHEMA } from "../next/migration-archive-profile.js";
 import { buildApp } from "../../app.js";
-import type { HostedProviderClient } from "../../hosted-provider.js";
+import type { HostedProviderClient } from "../hosted/hosted-provider.js";
 import { LogServiceClient } from "../next/log-service-client.js";
 import { PolicyEmitter, registerNextCollection } from "../next/policy-outbox.js";
 import { ed25519RawPublicKey } from "../next/policy-keys.js";

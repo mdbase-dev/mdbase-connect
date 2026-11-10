@@ -13,7 +13,7 @@ import {
 import {
   HostedProviderResponseError,
   type HostedProviderClient
-} from "../../hosted-provider.js";
+} from "../hosted/hosted-provider.js";
 import type { RelayHub } from "../relay/relay.js";
 import {
   reconcileApplicationGrants,

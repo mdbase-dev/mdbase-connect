@@ -4,7 +4,7 @@ import type {
   DatabasePool,
   DatabaseQueryable
 } from "../../database-types.js";
-import { queueAccountProviderCleanup } from "../../hosted-capability-lifecycle.js";
+import { queueAccountProviderCleanup } from "../hosted/hosted-capability-lifecycle.js";
 import { recordCollectionDeletionIntent } from "../next/collection-deletion.js";
 import { completeMigrationBatch } from "../next/migration-topology.js";
 import { queueNextPolicy } from "../next/policy-outbox.js";

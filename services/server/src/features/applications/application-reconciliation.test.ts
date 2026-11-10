@@ -5,7 +5,7 @@ import {
   MalformedPersistedApplicationAuthorizationError
 } from "../../application-authorization.js";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import { HostedProviderUnavailableError } from "../../hosted-provider.js";
+import { HostedProviderUnavailableError } from "../hosted/hosted-provider.js";
 import type { RelayHub } from "../relay/relay.js";
 import {
   ApplicationReconciliationWorker,

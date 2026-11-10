@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import type { HostedProviderClient } from "../../hosted-provider.js";
-import { ProviderRevocationWorker } from "../../hosted-capability-lifecycle.js";
+import type { HostedProviderClient } from "../hosted/hosted-provider.js";
+import { ProviderRevocationWorker } from "../hosted/hosted-capability-lifecycle.js";
 import {
   changeHostedCollectionMembershipRole,
   revokeHostedCollectionMembership

@@ -15,7 +15,7 @@ import {
 import type {
   HostedCollectionUsage,
   HostedProviderClient
-} from "../../hosted-provider.js";
+} from "../hosted/hosted-provider.js";
 import {
   PasswordAccountService,
   PasswordAuthenticationUnavailableError

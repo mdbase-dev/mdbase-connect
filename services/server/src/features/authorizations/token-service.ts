@@ -16,7 +16,7 @@ import {
   matchesMembershipBinding,
   membershipBindingForAccess
 } from "../collections/collection-membership-binding.js";
-import type { HostedProviderClient } from "../../hosted-provider.js";
+import type { HostedProviderClient } from "../hosted/hosted-provider.js";
 import { randomToken, tokenHash } from "../../security.js";
 import { authorityUrl } from "../../platform/authority-url.js";
 import { RequestValidationError } from "../../platform/http-errors.js";

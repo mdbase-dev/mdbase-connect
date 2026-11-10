@@ -7,11 +7,11 @@ import type { CollectionContractDescriptor } from "@mdbase-dev/connect-protocol"
 import { z } from "zod";
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 import { reconcileHostedAccount } from "../account/entitlements.js";
-import type { HostedAuthorityRegistry } from "../../hosted.js";
+import type { HostedAuthorityRegistry } from "../hosted/hosted.js";
 import {
   HostedProviderResponseError,
   type HostedProviderClient
-} from "../../hosted-provider.js";
+} from "../hosted/hosted-provider.js";
 import type { RelayHub } from "../relay/relay.js";
 import { randomToken } from "../../security.js";
 import { audit } from "../../platform/audit-events.js";

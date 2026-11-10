@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createDatabase, type DatabasePool } from "./db.js";
+import { createDatabase, type DatabasePool } from "../../db.js";
 import { HostedProviderResponseError } from "./hosted-provider.js";
-import { retireLegacyContractScopedGrants } from "./legacy-backfills.js";
-import { RelayHub } from "./features/relay/relay.js";
-import { registerGrantRevocationRoute } from "./features/authorizations/grant-revocation-route.js";
+import { retireLegacyContractScopedGrants } from "../../legacy-backfills.js";
+import { RelayHub } from "../relay/relay.js";
+import { registerGrantRevocationRoute } from "../authorizations/grant-revocation-route.js";
 import {
   hostedGrantRevocationStatus,
   hostedReplicaRevocationStatus,

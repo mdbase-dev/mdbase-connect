@@ -17,12 +17,12 @@ import { parsePersistedApplicationAuthorization } from "../../application-author
 import {
   quarantineMissingHostedCollection,
   queueHostedGrantRevocation
-} from "../../hosted-capability-lifecycle.js";
-import { contractRequirements, effectiveHostedContractDescriptors } from "../../hosted.js";
+} from "../hosted/hosted-capability-lifecycle.js";
+import { contractRequirements, effectiveHostedContractDescriptors } from "../hosted/hosted.js";
 import {
   HostedProviderClient,
   HostedProviderResponseError
-} from "../../hosted-provider.js";
+} from "../hosted/hosted-provider.js";
 import { fileCapabilityPermittedByRequirements } from "./grant-planner.js";
 import { RelayHub } from "../relay/relay.js";
 import { audit } from "../../platform/audit-events.js";

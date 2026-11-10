@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { COLLECTION_OPERATIONS } from "@mdbase-dev/connect-protocol";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import type { HostedProviderClient } from "../../hosted-provider.js";
+import type { HostedProviderClient } from "../hosted/hosted-provider.js";
 import { issueApplicationTokens } from "../authorizations/token-service.js";
 import {
   createHostedCollectionMembership,

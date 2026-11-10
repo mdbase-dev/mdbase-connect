@@ -12,12 +12,12 @@ import {
   matchesMembershipBinding,
   membershipBindingForAccess
 } from "../collections/collection-membership-binding.js";
-import { contractRequirements } from "../../hosted.js";
-import { HostedProviderClient } from "../../hosted-provider.js";
+import { contractRequirements } from "../hosted/hosted.js";
+import { HostedProviderClient } from "../hosted/hosted-provider.js";
 import {
   hostedReplicaCollectionOperations,
   retainedReplicaPolicy
-} from "../../hosted-replica-policy.js";
+} from "../hosted/hosted-replica-policy.js";
 import { planFreshNextGrant } from "../next/fresh-authorization.js";
 import { randomToken } from "../../security.js";
 import { audit } from "../../platform/audit-events.js";

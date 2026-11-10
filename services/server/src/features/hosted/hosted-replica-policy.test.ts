@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { operationsForApplicationCapabilities } from "@mdbase-dev/connect-protocol";
 import { describe, expect, it, vi } from "vitest";
-import { testApplicationAuthorization } from "./application-authorization.test-helper.js";
-import { pkceChallenge } from "./security.js";
-import { registerApplicationManifest } from "./manifest.js";
+import { testApplicationAuthorization } from "../../application-authorization.test-helper.js";
+import { pkceChallenge } from "../../security.js";
+import { registerApplicationManifest } from "../../manifest.js";
 import { hostedReplicaCollectionOperations, retainedReplicaPolicy } from "./hosted-replica-policy.js";
 
 describe("hosted replica policy", () => {

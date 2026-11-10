@@ -14,7 +14,7 @@ import {
   createHostedCollectionInvitation,
   acceptHostedCollectionInvitation
 } from "./collection-invitations.js";
-import type { HostedProviderClient } from "../../hosted-provider.js";
+import type { HostedProviderClient } from "../hosted/hosted-provider.js";
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => {
   while (cleanup.length) await cleanup.pop()!();

@@ -4,8 +4,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../../app.js";
 import { scheduleStarterCollection } from "../onboarding/account-onboarding.js";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import type { HostedProviderClient } from "../../hosted-provider.js";
-import { HostedAuthorityRegistry } from "../../hosted.js";
+import type { HostedProviderClient } from "../hosted/hosted-provider.js";
+import { HostedAuthorityRegistry } from "../hosted/hosted.js";
 import { addToCohort, createCohort, setCohortFrozen } from "./migration-rollout.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;

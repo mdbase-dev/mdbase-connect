@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
 import { renameHostedCollectionForUser } from "../hosted/service.js";
-import type { HostedProviderClient } from "../../hosted-provider.js";
+import type { HostedProviderClient } from "../hosted/hosted-provider.js";
 import { tokenHash } from "../../security.js";
 import { inTransaction } from "./bootstrap-common.js";
 import type { CollectionDeletionFact } from "./collection-deletion.js";

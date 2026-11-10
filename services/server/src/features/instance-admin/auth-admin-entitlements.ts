@@ -10,8 +10,8 @@ import {
   HostedProviderResponseError,
   type HostedAccountUsage,
   type HostedProviderClient
-} from "../../hosted-provider.js";
-import { quarantineMissingHostedCollectionOnTransaction } from "../../hosted-capability-lifecycle.js";
+} from "../hosted/hosted-provider.js";
+import { quarantineMissingHostedCollectionOnTransaction } from "../hosted/hosted-capability-lifecycle.js";
 import {
   InstanceAdminConflictError,
   type OperatorMutation

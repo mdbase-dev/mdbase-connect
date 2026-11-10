@@ -12,10 +12,10 @@ import {
   revokeHostedCollectionMembership,
   changeHostedCollectionMembershipRole
 } from "./collection-membership-lifecycle.js";
-import { lockHostedMirrorAccess, insertHostedMirror } from "../../hosted-mirror-policy.js";
+import { lockHostedMirrorAccess, insertHostedMirror } from "../hosted/hosted-mirror-policy.js";
 import { deleteAccountLocally } from "../account/account-management.js";
-import { ProviderRevocationWorker } from "../../hosted-capability-lifecycle.js";
-import type { HostedProviderClient } from "../../hosted-provider.js";
+import { ProviderRevocationWorker } from "../hosted/hosted-capability-lifecycle.js";
+import type { HostedProviderClient } from "../hosted/hosted-provider.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved =

@@ -5,7 +5,7 @@ import { buildApp } from "../../app.js";
 import { createDatabase } from "../../db.js";
 import { hashPassword } from "../auth/password.js";
 import { randomToken, tokenHash } from "../../security.js";
-import { HostedProviderClient } from "../../hosted-provider.js";
+import { HostedProviderClient } from "../hosted/hosted-provider.js";
 
 const resources: Array<() => Promise<void>> = [];
 const origin = "https://connect.example";

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { HostedProviderClient } from "./hosted-provider.js";
+import { HostedProviderClient } from "./features/hosted/hosted-provider.js";
 import { AuthorityTransferRecoveryWorker } from "./features/authority-transfer/recovery-worker.js";
 
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });

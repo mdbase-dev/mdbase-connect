@@ -5,7 +5,7 @@ import {
   ApplicationAuthorizationError,
   MalformedPersistedApplicationAuthorizationError
 } from "../../application-authorization.js";
-import { HostedProviderResponseError, HostedProviderUnavailableError, type HostedProviderClient } from "../../hosted-provider.js";
+import { HostedProviderResponseError, HostedProviderUnavailableError, type HostedProviderClient } from "../hosted/hosted-provider.js";
 import { RelayUnavailableError } from "../relay/relay-errors.js";
 import type { RelayHub } from "../relay/relay.js";
 import { reconcileApplicationGrants } from "../grants/service.js";

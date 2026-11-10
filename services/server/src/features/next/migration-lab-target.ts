@@ -2,7 +2,7 @@
 // No new bootstrap, custody exemption, target selector, serving or H1 authority.
 import { z } from "zod";
 import { localBuild, localDeployment, rehearsalDiagnostics } from "../../platform/local-deployment.js";
-import { migrationUuid } from "../../hosted-provider-replies.js";
+import { migrationUuid } from "../hosted/hosted-provider-replies.js";
 import { RolloutRefused } from "./migration-rollout.js";
 
 // Only finite labels/paths are retained, never URLs, credentials, body values or

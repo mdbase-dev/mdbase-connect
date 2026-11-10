@@ -6,7 +6,7 @@ import {
   type HostedAccountLimits,
   type HostedAccountUsage,
   type HostedProviderClient
-} from "../../hosted-provider.js";
+} from "../hosted/hosted-provider.js";
 
 export const BETA_ENTITLEMENT_PROFILE = "beta_v1";
 export const OPEN_BETA_ENTITLEMENT_PROFILE = "open_beta_v1";

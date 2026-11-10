@@ -27,7 +27,7 @@ const suites = [
   ["packages/client", ["src/base64.test.ts", "src/crypto.test.ts", "src/request-coordinator.test.ts", "src/application-session-startup.test.ts", "src/startup-timing.test.ts", "src/grant-key-leases.test.ts"]],
   ["apps/editor", ["src/CodeEditor.focus.test.tsx", "src/use-session-lifecycle.test.tsx", "src/use-type-definition-lifecycle.test.tsx"]],
   ["packages/sync", ["src/mirror.fault-injection.test.ts", "src/promotion.fault-injection.test.ts", "src/mirror-materializer.test.ts"]],
-  ["services/server", ["src/hosted-capability-lifecycle.test.ts", "src/features/collections/collection-membership-lifecycle.test.ts", "src/features/relay/relay-timeout.test.ts", "src/features/relay/relay-broker.test.ts", "src/features/notifications/notifications.test.ts"]]
+  ["services/server", ["src/features/hosted/hosted-capability-lifecycle.test.ts", "src/features/collections/collection-membership-lifecycle.test.ts", "src/features/relay/relay-timeout.test.ts", "src/features/relay/relay-broker.test.ts", "src/features/notifications/notifications.test.ts"]]
 ];
 for (let iteration = 1; iteration <= iterations; iteration++) {
   for (const [directory, files] of suites) {

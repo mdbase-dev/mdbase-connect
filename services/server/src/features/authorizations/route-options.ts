@@ -1,5 +1,5 @@
 import type { DatabasePool } from "../../db.js";
-import type { HostedProviderClient } from "../../hosted-provider.js";
+import type { HostedProviderClient } from "../hosted/hosted-provider.js";
 import type { RelayHub } from "../relay/relay.js";
 import type { PolicyEmitter } from "../next/policy-outbox.js";
 

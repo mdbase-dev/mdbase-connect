@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { DatabasePool } from "../../database-types.js";
-import type { HostedProviderClient } from "../../hosted-provider.js";
+import type { HostedProviderClient } from "../hosted/hosted-provider.js";
 import { apiError } from "../../platform/http-errors.js";
 import { bearerToken } from "../../platform/request-authentication.js";
 

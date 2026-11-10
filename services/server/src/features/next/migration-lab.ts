@@ -23,7 +23,7 @@
 import { z } from "zod";
 import { localBuild, localDeployment, rehearsalDiagnostics } from "../../platform/local-deployment.js";
 import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
-import type { HostedProviderClient } from "../../hosted-provider.js";
+import type { HostedProviderClient } from "../hosted/hosted-provider.js";
 import { audit } from "../../platform/audit-events.js";
 import { flipEvidenceDigest } from "./account-backend-flip.js";
 import { inTransaction } from "./bootstrap-common.js";

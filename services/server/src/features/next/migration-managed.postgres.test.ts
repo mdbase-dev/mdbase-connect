@@ -8,8 +8,8 @@ import pg from "pg";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createDatabase, openDatabase, type DatabasePool } from "../../db.js";
-import { HostedProviderResponseError } from "../../hosted-provider.js";
-import type { LegacyMigrationRollbackReceipt, LegacyNotificationWatermark } from "../../hosted-provider-replies.js";
+import { HostedProviderResponseError } from "../hosted/hosted-provider.js";
+import type { LegacyMigrationRollbackReceipt, LegacyNotificationWatermark } from "../hosted/hosted-provider-replies.js";
 import { fakeLegacyProvider } from "./legacy-provider.test-helper.js";
 import { labRun, labStatus, postgresLabConnect, resumeLab, routeBack, PAUSE_REASON, STEP,
   type LabWorker, type WorkerReply, type WorkerStatus } from "./migration-lab.js";

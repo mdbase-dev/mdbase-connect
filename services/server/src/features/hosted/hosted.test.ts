@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { parse } from "yaml";
-import { createDatabase, type DatabasePool } from "./db.js";
+import { createDatabase, type DatabasePool } from "../../db.js";
 import {
   hostedContracts,
   HostedAuthorityRegistry,

@@ -6,7 +6,7 @@ import pg from "pg";
 import {afterAll,beforeAll,describe,expect,it,vi} from "vitest";
 import {createDatabase,openDatabase,type DatabasePool} from "../../db.js";
 import {assertControlPlaneMigrationsCurrent,runControlPlaneMigrations} from "../../migrations.js";
-import type {HostedAuthorityRegistry} from "../../hosted.js";
+import type {HostedAuthorityRegistry} from "../hosted/hosted.js";
 import {createAccountCollection} from "./collection-creation.js";
 const testUrl=process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved=process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL==="I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";

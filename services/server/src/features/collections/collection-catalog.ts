@@ -1,6 +1,6 @@
 import type { CollectionContractDescriptor } from "@mdbase-dev/connect-protocol";
 import type { DatabaseQueryable } from "../../db.js";
-import type { HostedTemplate } from "../../hosted.js";
+import type { HostedTemplate } from "../hosted/hosted.js";
 import { decodeStoredMembershipPolicy, resolveActiveMembershipPolicy, type CollectionRole } from "./collection-policy.js";
 import { projectNextMigrationFreeze, type NextMigrationFreezeRow } from "../next/migration-topology.js";
 import { RequestValidationError } from "../../platform/http-errors.js";

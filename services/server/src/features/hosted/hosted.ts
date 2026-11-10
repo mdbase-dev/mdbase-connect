@@ -15,9 +15,9 @@ import {
   authorityManifestDigest
 } from "@mdbase-dev/connect-sync/mirror";
 import { createHash } from "node:crypto";
-import type { DatabasePool } from "./db.js";
-import { requireHostedCollectionNotMigrationFrozen } from "./features/next/migration-topology.js";
-import { RequestValidationError } from "./platform/http-errors.js";
+import type { DatabasePool } from "../../db.js";
+import { requireHostedCollectionNotMigrationFrozen } from "../next/migration-topology.js";
+import { RequestValidationError } from "../../platform/http-errors.js";
 
 interface CachedAuthority {
   authority: MemoryAuthority;

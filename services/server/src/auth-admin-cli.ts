@@ -9,7 +9,7 @@ import { NatsRelayBroker, type RelayBroker } from "./features/relay/relay-broker
 import {
   HostedProviderClient,
   HostedProviderResponseError
-} from "./hosted-provider.js";
+} from "./features/hosted/hosted-provider.js";
 import {
   hostedProviderConfigFromEnv,
   type RegistrationMode

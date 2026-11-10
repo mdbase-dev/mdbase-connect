@@ -17,7 +17,7 @@ import {
 import { PasswordAccountService } from "./features/auth/password-auth.js";
 import { normalizeEmailAddress } from "./features/auth/email-identity.js";
 import type { RegistrationMode } from "./platform/runtime-config.js";
-import type { HostedProviderClient } from "./hosted-provider.js";
+import type { HostedProviderClient } from "./features/hosted/hosted-provider.js";
 import {
   grantOperatorEntitlement,
   reconcileHostedAccountCollections
