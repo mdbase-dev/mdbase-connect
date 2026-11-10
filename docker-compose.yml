@@ -183,6 +183,8 @@ services:
       MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS: ${MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS:-0}
       MDBASE_CONNECT_RELAY_NATS_URL: nats://relay-broker:4222
       MDBASE_CONNECT_RELAY_NATS_TOKEN: ${MDBASE_CONNECT_RELAY_NATS_TOKEN:-replace-this-relay-token-with-at-least-32-characters}
+      # This stack runs no next control plane, so it creates legacy accounts.
+      MDBASE_NEW_ACCOUNT_BACKEND: ${MDBASE_NEW_ACCOUNT_BACKEND:-legacy}
     ports:
       - "127.0.0.1:${MDBASE_CONNECT_BIND_PORT:-8787}:8787"
     extra_hosts:

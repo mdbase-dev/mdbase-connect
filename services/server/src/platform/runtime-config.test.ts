@@ -1,10 +1,17 @@
-import { generateKeyPairSync } from "node:crypto";
+import { generateKeyPairSync, sign, type KeyObject } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   hostedProviderConfigFromEnv,
   runtimeConfigFromEnv,
   validateRuntimeConfig
 } from "./runtime-config.js";
+import { certToJson, ed25519RawPublicKey } from "../features/next/policy-keys.js";
+import { certDigest, keyId } from "../features/next/policy-wire.js";
+
+/** These cases exercise other settings, so they select legacy accounts, which need no next control plane. */
+function legacyConfigFromEnv(env: NodeJS.ProcessEnv) {
+  return runtimeConfigFromEnv({ MDBASE_NEW_ACCOUNT_BACKEND: "legacy", ...env });
+}
 
 function config(overrides: Partial<Parameters<typeof validateRuntimeConfig>[0]> = {}) {
   return {
@@ -45,7 +52,7 @@ describe("public runtime configuration", () => {
     expect(() => validateRuntimeConfig(config({ environment: "Production!" }))).toThrow(
       /MDBASE_CONNECT_ENVIRONMENT/
     );
-    expect(runtimeConfigFromEnv({
+    expect(legacyConfigFromEnv({
       PUBLIC_URL: "http://localhost:8787",
       MDBASE_CONNECT_DEV_AUTH: "1",
       MDBASE_CONNECT_ENVIRONMENT: "local"
@@ -53,16 +60,16 @@ describe("public runtime configuration", () => {
   });
 
   it("parses the account-deletion hold fail closed", () => {
-    expect(runtimeConfigFromEnv({
+    expect(legacyConfigFromEnv({
       PUBLIC_URL: "http://localhost:8787",
       MDBASE_CONNECT_DEV_AUTH: "1",
       MDBASE_CONNECT_ACCOUNT_DELETION: "disabled"
     }).accountDeletionEnabled).toBe(false);
-    expect(runtimeConfigFromEnv({
+    expect(legacyConfigFromEnv({
       PUBLIC_URL: "http://localhost:8787",
       MDBASE_CONNECT_DEV_AUTH: "1"
     }).accountDeletionEnabled).toBe(true);
-    expect(() => runtimeConfigFromEnv({
+    expect(() => legacyConfigFromEnv({
       PUBLIC_URL: "http://localhost:8787",
       MDBASE_CONNECT_DEV_AUTH: "1",
       MDBASE_CONNECT_ACCOUNT_DELETION: "maybe"
@@ -71,24 +78,39 @@ describe("public runtime configuration", () => {
 
   it("leaves the minimum client version unset until release configures it", () => {
     const base = { PUBLIC_URL: "http://localhost:8787", MDBASE_CONNECT_DEV_AUTH: "1" };
-    expect(runtimeConfigFromEnv(base).clientUpdate).toEqual({
+    expect(legacyConfigFromEnv(base).clientUpdate).toEqual({
       updateUrl: "https://mdbase.dev/downloads",
       minimumClientVersion: null
     });
-    expect(runtimeConfigFromEnv({ ...base, MDBASE_CONNECT_MINIMUM_CLIENT_VERSION: "2.0.0" })
+    expect(legacyConfigFromEnv({ ...base, MDBASE_CONNECT_MINIMUM_CLIENT_VERSION: "2.0.0" })
       .clientUpdate?.minimumClientVersion).toBe("2.0.0");
-    expect(() => runtimeConfigFromEnv({ ...base, MDBASE_CONNECT_MINIMUM_CLIENT_VERSION: "soon" }))
+    expect(() => legacyConfigFromEnv({ ...base, MDBASE_CONNECT_MINIMUM_CLIENT_VERSION: "soon" }))
       .toThrow(/MDBASE_CONNECT_MINIMUM_CLIENT_VERSION/);
-    expect(() => runtimeConfigFromEnv({ ...base, MDBASE_CONNECT_CLIENT_UPDATE_URL: "http://example.test" }))
+    expect(() => legacyConfigFromEnv({ ...base, MDBASE_CONNECT_CLIENT_UPDATE_URL: "http://example.test" }))
       .toThrow(/MDBASE_CONNECT_CLIENT_UPDATE_URL/);
   });
 
-  it("creates legacy accounts until the cutover configures next", () => {
+  it("creates next accounts by default and refuses next without the next control plane", () => {
     const base = { PUBLIC_URL: "http://localhost:8787", MDBASE_CONNECT_DEV_AUTH: "1" };
-    expect(runtimeConfigFromEnv(base).newAccountBackend).toBe("legacy");
-    expect(runtimeConfigFromEnv({ ...base, MDBASE_NEW_ACCOUNT_BACKEND: "next" }).newAccountBackend).toBe("next");
-    expect(() => runtimeConfigFromEnv({ ...base, MDBASE_NEW_ACCOUNT_BACKEND: "NEXT" }))
-      .toThrow(/MDBASE_NEW_ACCOUNT_BACKEND/);
+    const pem = (key: KeyObject) => key.export({ format: "pem", type: "pkcs8" }).toString();
+    const root = generateKeyPairSync("ed25519").privateKey, policy = generateKeyPairSync("ed25519").privateKey;
+    const cert = { policyPublicKey: ed25519RawPublicKey(policy), root: keyId(ed25519RawPublicKey(root)),
+      notBefore: Date.now() - 60_000, notAfter: Date.now() + 30 * 86_400_000 };
+    const nextControlPlane = {
+      MDBASE_NEXT_CONTROL_PLANE: "1", MDBASE_NEXT_ROOT_PUBLIC_KEY: Buffer.from(ed25519RawPublicKey(root)).toString("hex"),
+      MDBASE_NEXT_POLICY_SIGNING_KEY: pem(policy),
+      MDBASE_NEXT_POLICY_KEY_CERT: JSON.stringify(certToJson({ ...cert, signature: sign(null, certDigest(cert), root) })),
+      MDBASE_NEXT_LOG_SERVICE_URL: "https://log.example", MDBASE_NEXT_LOG_TOKEN_SIGNING_KEY: pem(policy),
+      MDBASE_NEXT_LOG_TRANSPORT_KEY: pem(generateKeyPairSync("ed25519").privateKey)
+    };
+    for (const value of [undefined, "", " ", "next"]) {
+      expect(runtimeConfigFromEnv({ ...base, ...nextControlPlane, MDBASE_NEW_ACCOUNT_BACKEND: value }).newAccountBackend).toBe("next");
+      expect(() => runtimeConfigFromEnv({ ...base, MDBASE_NEW_ACCOUNT_BACKEND: value }))
+        .toThrow(/MDBASE_NEW_ACCOUNT_BACKEND=next \(the default\) requires MDBASE_NEXT_CONTROL_PLANE=1/);
+    }
+    expect(runtimeConfigFromEnv({ ...base, MDBASE_NEW_ACCOUNT_BACKEND: "legacy" }).newAccountBackend).toBe("legacy");
+    expect(() => runtimeConfigFromEnv({ ...base, ...nextControlPlane, MDBASE_NEW_ACCOUNT_BACKEND: "NEXT" }))
+      .toThrow(/MDBASE_NEW_ACCOUNT_BACKEND must be legacy or next/);
   });
 
   it("allows explicit loopback development authentication", () => {
@@ -149,19 +171,19 @@ describe("public runtime configuration", () => {
   });
 
   it("rejects partial GitHub configuration, invalid IDs, and conflicting authentication modes", () => {
-    expect(() => runtimeConfigFromEnv({
+    expect(() => legacyConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
       MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
       MDBASE_CONNECT_GITHUB_CLIENT_ID: "client-id"
     })).toThrow(/client secret/);
-    expect(() => runtimeConfigFromEnv({
+    expect(() => legacyConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
       MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
       MDBASE_CONNECT_GITHUB_CLIENT_ID: "client-id",
       MDBASE_CONNECT_GITHUB_CLIENT_SECRET: "client-secret",
       MDBASE_CONNECT_ALLOWED_GITHUB_USER_IDS: "not-a-number"
     })).toThrow(/numeric IDs/);
-    expect(() => runtimeConfigFromEnv({
+    expect(() => legacyConfigFromEnv({
       PUBLIC_URL: "http://localhost:8787",
       MDBASE_CONNECT_DEV_AUTH: "1",
       MDBASE_CONNECT_TAILSCALE_AUTH: "1"
@@ -185,7 +207,7 @@ describe("public runtime configuration", () => {
     expect(value.githubAuth).not.toBeNull();
     expect(value.googleAuth).not.toBeNull();
 
-    const open = runtimeConfigFromEnv({
+    const open = legacyConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
       MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
       MDBASE_CONNECT_GOOGLE_CLIENT_ID: "google-client.apps.googleusercontent.com",
@@ -194,14 +216,14 @@ describe("public runtime configuration", () => {
     expect(open.registration).toBe("open");
     expect(open.googleAuth?.clientId).toContain("apps.googleusercontent.com");
 
-    const closedBootstrap = runtimeConfigFromEnv({
+    const closedBootstrap = legacyConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
       MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
       MDBASE_CONNECT_GOOGLE_CLIENT_ID: "google-client.apps.googleusercontent.com"
     });
     expect(closedBootstrap.registration).toBe("closed");
     expect(closedBootstrap.googleAuth?.allowedSubjects.size).toBe(0);
-    expect(() => runtimeConfigFromEnv({
+    expect(() => legacyConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
       MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
       MDBASE_CONNECT_GOOGLE_CLIENT_ID: "google-client.apps.googleusercontent.com",
@@ -210,7 +232,7 @@ describe("public runtime configuration", () => {
   });
 
   it("accepts invite-only registration without opening external providers", () => {
-    const value = runtimeConfigFromEnv({
+    const value = legacyConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
       MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
       MDBASE_CONNECT_GOOGLE_CLIENT_ID: "google-client.apps.googleusercontent.com",
@@ -220,7 +242,7 @@ describe("public runtime configuration", () => {
     expect(value.registration).toBe("invite");
     expect(value.googleAuth?.allowedSubjects).toEqual(new Set(["109876543210"]));
 
-    expect(() => runtimeConfigFromEnv({
+    expect(() => legacyConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
       MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
       MDBASE_CONNECT_GOOGLE_CLIENT_ID: "google-client.apps.googleusercontent.com",
@@ -229,13 +251,13 @@ describe("public runtime configuration", () => {
   });
 
   it("validates the shared authentication rate-limit digest secret", () => {
-    const value = runtimeConfigFromEnv({
+    const value = legacyConfigFromEnv({
       PUBLIC_URL: "http://localhost:8787",
       MDBASE_CONNECT_DEV_AUTH: "1",
       MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET: "x".repeat(32)
     });
     expect(value.authRateLimitSecret).toBe("x".repeat(32));
-    expect(() => runtimeConfigFromEnv({
+    expect(() => legacyConfigFromEnv({
       PUBLIC_URL: "http://localhost:8787",
       MDBASE_CONNECT_DEV_AUTH: "1",
       MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET: "too-short"
@@ -243,14 +265,14 @@ describe("public runtime configuration", () => {
   });
 
   it("accepts only a canonical origin for the retired beta request response", () => {
-    const value = runtimeConfigFromEnv({
+    const value = legacyConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
       MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
       MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET: "x".repeat(32),
       MDBASE_CONNECT_BETA_ACCESS_ORIGIN: "https://mdbase.dev/"
     });
     expect(value.betaAccessOrigin).toBe("https://mdbase.dev");
-    expect(() => runtimeConfigFromEnv({
+    expect(() => legacyConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
       MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
       MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET: "x".repeat(32),
@@ -259,7 +281,7 @@ describe("public runtime configuration", () => {
   });
 
   it("normalizes the explicit editor management origins", () => {
-    const value = runtimeConfigFromEnv({
+    const value = legacyConfigFromEnv({
       PUBLIC_URL: "http://localhost:8787",
       MDBASE_CONNECT_DEV_AUTH: "1",
       MDBASE_CONNECT_MANAGEMENT_ORIGINS: "http://localhost:4173/, http://127.0.0.1:4173"
@@ -269,7 +291,7 @@ describe("public runtime configuration", () => {
       "http://127.0.0.1:4173"
     ]);
     expect(value.editorOrigin).toBe("http://localhost:4173");
-    expect(() => runtimeConfigFromEnv({
+    expect(() => legacyConfigFromEnv({
       PUBLIC_URL: "http://localhost:8787",
       MDBASE_CONNECT_DEV_AUTH: "1",
       MDBASE_CONNECT_MANAGEMENT_ORIGINS: "https://editor.example/connect"
@@ -277,7 +299,7 @@ describe("public runtime configuration", () => {
   });
 
   it("supports password-only authentication infrastructure and validates legal document URLs", () => {
-    const value = runtimeConfigFromEnv({
+    const value = legacyConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
       MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
       MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET: "x".repeat(32),
@@ -291,13 +313,13 @@ describe("public runtime configuration", () => {
     expect(value.githubAuth).toBeNull();
     expect(value.googleAuth).toBeNull();
 
-    expect(() => runtimeConfigFromEnv({
+    expect(() => legacyConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
       MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
       MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET: "x".repeat(32),
       MDBASE_CONNECT_TERMS_URL: "https://mdbase.dev/terms/"
     })).toThrow(/configured together/);
-    expect(() => runtimeConfigFromEnv({
+    expect(() => legacyConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
       MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
       MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET: "x".repeat(32),
@@ -307,7 +329,7 @@ describe("public runtime configuration", () => {
   });
 
   it("loads transactional email only when the provider key and sender are complete", () => {
-    const value = runtimeConfigFromEnv({
+    const value = legacyConfigFromEnv({
       PUBLIC_URL: "http://localhost:8787",
       MDBASE_CONNECT_DEV_AUTH: "1",
       MDBASE_CONNECT_RESEND_API_KEY: "re_test",
@@ -317,12 +339,12 @@ describe("public runtime configuration", () => {
       apiKey: "re_test",
       from: "mdbase connect <connect@example.com>"
     });
-    expect(() => runtimeConfigFromEnv({
+    expect(() => legacyConfigFromEnv({
       PUBLIC_URL: "http://localhost:8787",
       MDBASE_CONNECT_DEV_AUTH: "1",
       MDBASE_CONNECT_RESEND_API_KEY: "re_test"
     })).toThrow(/configured together/);
-    expect(() => runtimeConfigFromEnv({
+    expect(() => legacyConfigFromEnv({
       PUBLIC_URL: "http://localhost:8787",
       MDBASE_CONNECT_DEV_AUTH: "1",
       MDBASE_CONNECT_RESEND_API_KEY: "re_test",
@@ -367,7 +389,7 @@ describe("public runtime configuration", () => {
       hostedProvider: { url: "https://provider.example", internalToken: "short" }
     }))).toThrow(/32 characters/);
 
-    const value = runtimeConfigFromEnv({
+    const value = legacyConfigFromEnv({
       PUBLIC_URL: "http://localhost:8787",
       MDBASE_CONNECT_DEV_AUTH: "1",
       MDBASE_CONNECT_HOSTED_COLLECTIONS: "1",
@@ -376,7 +398,7 @@ describe("public runtime configuration", () => {
     });
     expect(value.hostedProvider?.url).toBe("http://127.0.0.1:8790");
 
-    const dockerDevelopment = runtimeConfigFromEnv({
+    const dockerDevelopment = legacyConfigFromEnv({
       PUBLIC_URL: "http://localhost:8787",
       MDBASE_CONNECT_DEV_AUTH: "1",
       MDBASE_CONNECT_HOSTED_COLLECTIONS: "1",
@@ -389,7 +411,7 @@ describe("public runtime configuration", () => {
       url: "http://host.docker.internal:8790",
       publicUrl: "http://127.0.0.1:8790"
     });
-    expect(() => runtimeConfigFromEnv({
+    expect(() => legacyConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
       MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
       MDBASE_CONNECT_TAILSCALE_AUTH: "1",
@@ -401,14 +423,14 @@ describe("public runtime configuration", () => {
   });
 
   it("allows the reference hosted authority only in loopback development", () => {
-    const value = runtimeConfigFromEnv({
+    const value = legacyConfigFromEnv({
       PUBLIC_URL: "http://localhost:8787",
       MDBASE_CONNECT_DEV_AUTH: "1",
       MDBASE_CONNECT_HOSTED_COLLECTIONS: "1",
       MDBASE_CONNECT_HOSTED_REFERENCE_AUTHORITY: "1"
     });
     expect(value.hostedReferenceAuthority).toBe(true);
-    expect(() => runtimeConfigFromEnv({
+    expect(() => legacyConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
       MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
       MDBASE_CONNECT_TAILSCALE_AUTH: "1",
@@ -431,7 +453,7 @@ describe("public runtime configuration", () => {
   });
 
   it("validates an optional private NATS relay transport", () => {
-    const value = runtimeConfigFromEnv({
+    const value = legacyConfigFromEnv({
       PUBLIC_URL: "http://localhost:8787",
       MDBASE_CONNECT_DEV_AUTH: "1",
       MDBASE_CONNECT_RELAY_NATS_URL: "nats://relay-a:4222,nats://relay-b:4222",
@@ -442,7 +464,7 @@ describe("public runtime configuration", () => {
       "nats://relay-b:4222"
     ]);
 
-    const renderHost = runtimeConfigFromEnv({
+    const renderHost = legacyConfigFromEnv({
       PUBLIC_URL: "http://localhost:8787",
       MDBASE_CONNECT_DEV_AUTH: "1",
       MDBASE_CONNECT_RELAY_NATS_URL: "mdbase-connect-relay-broker",
@@ -452,18 +474,18 @@ describe("public runtime configuration", () => {
       "nats://mdbase-connect-relay-broker:4222"
     ]);
 
-    expect(() => runtimeConfigFromEnv({
+    expect(() => legacyConfigFromEnv({
       PUBLIC_URL: "http://localhost:8787",
       MDBASE_CONNECT_DEV_AUTH: "1",
       MDBASE_CONNECT_RELAY_NATS_URL: "nats://relay:4222"
     })).toThrow(/configured together/);
-    expect(() => runtimeConfigFromEnv({
+    expect(() => legacyConfigFromEnv({
       PUBLIC_URL: "http://localhost:8787",
       MDBASE_CONNECT_DEV_AUTH: "1",
       MDBASE_CONNECT_RELAY_NATS_URL: "https://relay.example:4222",
       MDBASE_CONNECT_RELAY_NATS_TOKEN: "x".repeat(40)
     })).toThrow(/nats:\/\//);
-    expect(() => runtimeConfigFromEnv({
+    expect(() => legacyConfigFromEnv({
       PUBLIC_URL: "http://localhost:8787",
       MDBASE_CONNECT_DEV_AUTH: "1",
       MDBASE_CONNECT_RELAY_NATS_URL: "nats://relay:4222",
@@ -479,7 +501,7 @@ describe("public runtime configuration", () => {
       alg: "EdDSA",
       use: "sig"
     };
-    const value = runtimeConfigFromEnv({
+    const value = legacyConfigFromEnv({
       PUBLIC_URL: "http://localhost:8787",
       MDBASE_CONNECT_DEV_AUTH: "1",
       MDBASE_CONNECT_FCM_ENABLED: "1",
@@ -502,7 +524,7 @@ describe("public runtime configuration", () => {
 
 it("requires explicit opt-in for new hosted sharing", () => {
   const local = { PUBLIC_URL: "http://localhost:8787", MDBASE_CONNECT_DEV_AUTH: "1" };
-  expect(runtimeConfigFromEnv(local).hostedSharing).toBe(false);
-  expect(runtimeConfigFromEnv({ ...local, MDBASE_CONNECT_HOSTED_SHARING_ENABLED: "0" }).hostedSharing).toBe(false);
-  expect(runtimeConfigFromEnv({ ...local, MDBASE_CONNECT_HOSTED_SHARING_ENABLED: "1" }).hostedSharing).toBe(true);
+  expect(legacyConfigFromEnv(local).hostedSharing).toBe(false);
+  expect(legacyConfigFromEnv({ ...local, MDBASE_CONNECT_HOSTED_SHARING_ENABLED: "0" }).hostedSharing).toBe(false);
+  expect(legacyConfigFromEnv({ ...local, MDBASE_CONNECT_HOSTED_SHARING_ENABLED: "1" }).hostedSharing).toBe(true);
 });

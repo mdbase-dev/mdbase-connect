@@ -73,7 +73,8 @@ server_retained_v2_run() (
     start_server() {
       docker run --detach --name "$server" --network host --env DATABASE_URL \
         --env PUBLIC_URL="$UPGRADE_SERVER_URL" --env PORT="$UPGRADE_SERVER_PORT" \
-        --env MDBASE_CONNECT_DEV_AUTH=1 --env MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS=1 "$1" >/dev/null
+        --env MDBASE_CONNECT_DEV_AUTH=1 --env MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS=1 \
+        --env MDBASE_NEW_ACCOUNT_BACKEND=legacy "$1" >/dev/null
       upgrade_wait_http "$UPGRADE_SERVER_URL/ready" 'server rollback fixture'
     }
     stop_server() {
