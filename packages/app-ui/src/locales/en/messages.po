@@ -182,6 +182,10 @@ msgstr "Browse and edit records"
 msgid "Browser, OS, viewport and recent error codes. No note contents, paths or credentials."
 msgstr "Browser, OS, viewport and recent error codes. No note contents, paths or credentials."
 
+#: src/AppSwitcher.tsx
+msgid "Build your own"
+msgstr "Build your own"
+
 #: src/CommentsPanel.tsx
 msgid "by {resolver}"
 msgstr "by {resolver}"

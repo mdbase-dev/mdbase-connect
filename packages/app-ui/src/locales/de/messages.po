@@ -182,6 +182,10 @@ msgstr "Datensätze durchsuchen und bearbeiten"
 msgid "Browser, OS, viewport and recent error codes. No note contents, paths or credentials."
 msgstr "Browser, Betriebssystem, Anzeigebereich und die letzten Fehlercodes. Keine Notizinhalte, Pfade oder Zugangsdaten."
 
+#: src/AppSwitcher.tsx
+msgid "Build your own"
+msgstr "Eigene App entwickeln"
+
 #: src/CommentsPanel.tsx
 msgid "by {resolver}"
 msgstr "von {resolver}"
