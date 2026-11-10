@@ -156,11 +156,16 @@ describe("mdbase MCP gateway", () => {
       const context = await oauth.authenticate(token.json().access_token);
       const [connection] = await gateway.listConnections(context!.connectionSetId);
       expect(connection).toMatchObject({ collection_id: firstCollectionId, authority: "remote" });
-      const run = vi.spyOn(gateway.next, "run").mockResolvedValue({ valid: true });
+      const warning = vi.spyOn(app.log, "warn");
       await db.query("UPDATE mcp_connections SET access_expires_at = now() - interval '1 second'");
-      await expect(gateway.operation(context!.connectionSetId, connection!.id, "query", {})).resolves.toEqual({ valid: true });
+      await expect(gateway.operation(context!.connectionSetId, connection!.id, "query", {})).rejects.toMatchObject({
+        code: "no_device_registered", message: expect.stringContaining("turn on sync")
+      });
       expect(upstream.refreshProofs).toHaveLength(1);
-      expect(run).toHaveBeenCalledOnce();
+      expect(upstream.localInputs).toEqual([]);
+      expect(upstream.hostedInputs).toEqual([]);
+      expect(upstream.operationAuthorizations).toEqual([]);
+      expect(warning).toHaveBeenCalledWith({ event: "mcp_native_routing_failed", reason: "no_device_registered" }, "Native MCP routing failed");
     } finally { await app.close(); await db.end(); }
   });
 
@@ -172,6 +177,18 @@ describe("mdbase MCP gateway", () => {
       expect((await fixture.db.query("SELECT id FROM mcp_connections")).rows).toHaveLength(1);
       expect((await fixture.db.query("SELECT id FROM mcp_authorization_codes")).rows).toHaveLength(1);
       expect(fixture.upstream.fetch.mock.calls.filter(([url]) => String(url).endsWith("/oauth/token"))).toHaveLength(1);
+    } finally { await fixture.app.close(); await fixture.db.end(); }
+  });
+
+  it.each(["collection_id", "grant_id"])("binds native operations to the stored completion's %s", async field => {
+    const fixture = await nativeOAuth();
+    try {
+      expect((await fixture.callback()).statusCode).toBe(302);
+      const row = (await fixture.db.query("SELECT id, connection_set_id FROM mcp_connections")).rows[0];
+      await fixture.db.query(`UPDATE mcp_connections SET ${field} = $1`, [randomUUID()]);
+      const calls = fixture.upstream.fetch.mock.calls.length;
+      await expect(fixture.gateway.operation(row.connection_set_id, row.id, "query", {})).rejects.toMatchObject({ code: "grant_key_mismatch" });
+      expect(fixture.upstream.fetch.mock.calls).toHaveLength(calls);
     } finally { await fixture.app.close(); await fixture.db.end(); }
   });
 
@@ -860,6 +877,10 @@ async function fakeUpstream(realFetch: typeof fetch, options: {
     }
     // A control plane without mdbase-next routing: tools stay on the legacy path.
     if (url.origin === "https://connect.example" && /^\/v1\/next\/collections\/[^/]+\/route$/u.test(url.pathname)) {
+      if (typeof options.native === "function" ? options.native() : options.native) return Response.json({
+        collection: firstCollectionId, grant: firstGrantId, targets: [],
+        availability: { state: "unavailable", reason: "no_device_registered" }
+      });
       return Response.json({ error: { code: "not_found", message: "Not found" } }, { status: 404 });
     }
     if (url.hostname === "127.0.0.1") return realFetch(input, init);

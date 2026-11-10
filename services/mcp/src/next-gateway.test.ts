@@ -11,11 +11,11 @@ const connection: NextConnection = {
 };
 const grantId = "4c18af2e-b04a-4b77-b83e-493c3695962e", authorizationId = "0b8f6a7e-3c1d-4e2f-9a0b-1c2d3e4f5a6b";
 
-async function fixture(routes: Array<{ status: number; body: unknown }>, attachStatus = 200) {
+async function fixture(routes: Array<{ status: number; body: unknown }>, attachStatus = 200, hasNoise = false) {
   const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
   const grantKey = { handle: "gk-1", signingPrivateKey: pair.privateKey, signingPublicKey: "" } as GrantKeyRecord;
   const verifier = createPublicKey({ key: await crypto.subtle.exportKey("jwk", pair.publicKey) as never, format: "jwk" });
-  let stored: KeyPair | null = null;
+  let stored: KeyPair | null = hasNoise ? keyPairFromSecret(new Uint8Array(32).fill(7)) : null;
   const noise = {
     get: async () => stored,
     create: async () => (stored = keyPairFromSecret(new Uint8Array(32).fill(7)))
@@ -28,7 +28,7 @@ async function fixture(routes: Array<{ status: number; body: unknown }>, attachS
     return new Response(JSON.stringify(next.body), { status: next.status });
   });
   const client = { query: vi.fn(async () => ({ records: [], complete: true, asOf: 1 })), close: vi.fn() } as unknown as MdbaseClient;
-  const open = vi.fn(async () => client);
+  const open = vi.fn<NonNullable<ConstructorParameters<typeof NextGateway>[0]["open"]>>(async () => client);
   const gateway = new NextGateway({ keyStore: { get: async () => grantKey } as unknown as GrantKeyStore, noise, version: "test", fetch: fetch as typeof globalThis.fetch, open });
   return { gateway, calls, open, verifier, noiseKey: () => stored };
 }
@@ -37,6 +37,58 @@ const keyRequired = { status: 409, body: { error: { code: "client_key_required",
 const routed = { status: 200, body: { collection: "col-1", grant: "log-grant", targets: [{ kind: "hosted" }] } };
 
 describe("NextGateway", () => {
+  const native = { ...connection, native: { collection: "col-1", authorizationGrant: grantId } };
+
+  it.each(["no_device_registered", "device_offline", "sync_required", "access_removed"])("preserves native availability %s without legacy fallback", async reason => {
+    const setup = await fixture([{ status: 200, body: { collection: "col-1", grant: grantId, targets: [], availability: { state: "unavailable", reason } } }]);
+    await expect(setup.gateway.run(native, "access", "query", {}, "req-1")).rejects.toMatchObject({ code: reason });
+    expect(setup.open).not.toHaveBeenCalled();
+    expect(setup.calls).toHaveLength(1);
+  });
+
+  it.each([404, 405])("does not downgrade native routes on HTTP %s", async status => {
+    const setup = await fixture([{ status, body: {} }]);
+    await expect(setup.gateway.run(native, "access", "query", {}, "req-1")).rejects.toMatchObject({ code: "control_error" });
+    expect(setup.open).not.toHaveBeenCalled();
+  });
+
+  it("ignores cached legacy routing for a native connection", async () => {
+    const setup = await fixture([{ status: 404, body: {} }, { status: 200, body: { collection: "col-1", grant: grantId, targets: [] } }]);
+    expect(await setup.gateway.run(connection, "access", "query", {}, "req-1")).toBe(LEGACY);
+    await expect(setup.gateway.run(native, "access", "query", {}, "req-2")).rejects.toMatchObject({ code: "no_device_registered" });
+    expect(setup.calls).toHaveLength(2);
+  });
+
+  it.each([
+    { collection: "other", grant: grantId },
+    { collection: "col-1", grant: "other" },
+    { collection: "col-1", grant: "log-grant", authorization_grant: "other" }
+  ])("rejects mismatched native routing bindings %j", async binding => {
+    const setup = await fixture([{ status: 200, body: { ...binding, targets: [{ kind: "hosted" }] } }]);
+    await expect(setup.gateway.run(native, "access", "query", {}, "req-1")).rejects.toMatchObject({ code: "authorization_changed" });
+    expect(setup.open).not.toHaveBeenCalled();
+  });
+
+  it("opens a native target with its distinct log grant, not its OAuth grant", async () => {
+    const ready = await fixture([{ status: 200, body: { ...routed.body, authorization_grant: grantId } }], 200, true);
+    await expect(ready.gateway.run(native, "access", "query", {}, "req-1")).resolves.toEqual({ results: [], meta: { has_more: false } });
+    expect(ready.open).toHaveBeenLastCalledWith(expect.objectContaining({ grant: "log-grant" }));
+    ready.gateway.close();
+  });
+
+  it.each([
+    { collection: "col-1", grant: grantId, targets: [], availability: { state: "unavailable", reason: "device_offline" }, code: "device_offline" },
+    { collection: "other", grant: grantId, targets: [{ kind: "hosted" }], code: "authorization_changed" },
+    { collection: "col-1", grant: "different-log-grant", authorization_grant: grantId, targets: [{ kind: "hosted" }], code: "authorization_changed" }
+  ])("revalidates native discovery when opening the network session: $code", async response => {
+    const setup = await fixture([
+      { status: 200, body: { ...routed.body, grant: grantId } }, { status: 200, body: response }
+    ], 200, true);
+    await setup.gateway.run(native, "access", "query", {}, "req-1");
+    await expect(setup.open.mock.calls[0]![0].resolveRoute!()).rejects.toMatchObject({ code: response.code });
+    setup.gateway.close();
+  });
+
   it("attaches a Noise key signed by the grant key when the route asks for one, then opens the session", async () => {
     const f = await fixture([keyRequired, routed]);
     expect(await f.gateway.run(connection, "access", "query", {}, "req-1")).toEqual({ results: [], meta: { has_more: false } });
