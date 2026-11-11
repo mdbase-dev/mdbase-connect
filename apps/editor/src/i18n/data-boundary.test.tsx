@@ -1,11 +1,9 @@
-import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { i18n } from "@lingui/core";
-import { LocaleProvider } from "@mdbase-dev/i18n/react";
 import type { CollectionContractDescriptor } from "@mdbase-dev/connect";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { createEditorLocaleRuntime } from "./runtime";
-import { NewNoteComposer } from "../NewNoteComposer";
-import { persistedBody, titlePatch } from "../note";
+import { newNoteForm, newNotePath, occupiedPaths, titledPath } from "../new-note";
+import { persistedBody, titlePatch, untitledPath } from "../note";
 import { createTypeSourceFromContract } from "../type-contracts";
 import { NEW_TYPE_SOURCE } from "../type-presentation";
 import { readVisualType } from "../type-schema";
@@ -26,7 +24,7 @@ describe("translated display copy stays out of editor data", () => {
     try {
       await runtime.selectLocale(locale);
       expect(persistedBody("", "Body", { kind: "heading" })).toBe("# Untitled\n\nBody");
-      expect(titlePatch(" ", { kind: "frontmatter", field: "/profile/name" }, { profile: { keep: true } }))
+      expect(titlePatch(" ", { kind: "frontmatter", field: "/profile/name" }, { profile: { keep: true, name: "Ada" } }))
         .toEqual({ profile: { keep: true, name: "Untitled" } });
       expect(persistedBody("Senza titolo, ma mio", "Body", { kind: "heading" }))
         .toBe("# Senza titolo, ma mio\n\nBody");
@@ -36,26 +34,17 @@ describe("translated display copy stays out of editor data", () => {
     }
   });
 
-  it("keeps the default filename stable when its folder is edited before the title", async () => {
+  it("keeps the placeholder file name stable in every language", async () => {
     const runtime = createRuntime();
     await runtime.initialize();
-    await runtime.selectLocale("it");
-    const onCreate = vi.fn(async () => undefined);
-    const view = render(<LocaleProvider runtime={runtime} onError={(error) => { throw error; }}>
-      <NewNoteComposer types={[]} onCreate={onCreate} onCancel={() => undefined} />
-    </LocaleProvider>);
     try {
-      const title = view.container.querySelector<HTMLInputElement>(".new-note-title input")!;
-      expect(title.placeholder).not.toBe("Untitled");
-      const path = view.container.querySelector<HTMLInputElement>(".new-note-path input")!;
-      fireEvent.change(path, { target: { value: `Inbox/${path.value}` } });
-      fireEvent.change(title, { target: { value: "Il mio titolo" } });
-      fireEvent.submit(view.container.querySelector("form")!);
-      await waitFor(() => expect(onCreate).toHaveBeenCalledOnce());
-      expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ title: "Il mio titolo", path: "Inbox/Untitled.md" }));
+      await runtime.selectLocale("it");
+      const path = newNotePath({ title: "", folder: "Inbox" }, newNoteForm(undefined, []), occupiedPaths([]));
+      expect(path).toBe("Inbox/Untitled.md");
+      expect(untitledPath(path)).toBe(true);
+      expect(titledPath(path, "Il mio titolo", occupiedPaths([path]))).toBe("Inbox/Il mio titolo.md");
     } finally {
-      view.unmount();
-      await act(() => runtime.selectLocale("en"));
+      await runtime.selectLocale("en");
     }
   });
 

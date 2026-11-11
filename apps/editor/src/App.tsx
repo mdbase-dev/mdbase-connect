@@ -63,7 +63,7 @@ import {
   type ContractCatalogPack
 } from "./contract-catalog";
 import { reviewCatalogPackInstallation } from "./catalog-pack-installation";
-import { isMobileHistoryState, type AppPhase, type ConnectionState, type ContractCatalogLoadState, type CreationContext, type MobileHistoryState, type MobilePane, type Surface } from "./app-state-types";
+import { isMobileHistoryState, type AppPhase, type ConnectionState, type ContractCatalogLoadState, type MobileHistoryState, type MobilePane, type Surface } from "./app-state-types";
 import { editorPermissions, gatewayError, missingCoreCapabilities, missingTypeCapabilities } from "./gateway";
 import { CollectionMutationScope, StaleCollectionOperationError, type CollectionScopeToken } from "./collection-mutation-scope";
 import { useTypeDefinitionLifecycle } from "./use-type-definition-lifecycle";
@@ -85,10 +85,10 @@ import type {
   CollectionFile,
   CollectionSessionSnapshot,
   ConnectionSummary,
-  CreateNoteInput,
   NoteDocument
 } from "./model";
 import {
+  createdBody,
   editableNote,
   noteHeadings,
   noteWordCount,
@@ -97,6 +97,7 @@ import {
   noteNeedsBodyTitle,
   summaryFromDocument,
   tags as collectionTags,
+  typeDisplayName,
   types as collectionTypes
 } from "./note";
 import { pendingNoteRequestId, pendingNoteToasts, recoverPendingNoteOperation, type RenamePlan } from "./pending-note-mutation";
@@ -114,7 +115,22 @@ import { filterLabel, filterScopeLabel, loadPinnedNotes, savePinnedNotes, noteVi
 import { defaultNoteSort, loadNoteSort, resolveNoteSort, saveNoteSort, sortableFields, type NoteSortPreference } from "./note-sort";
 import { isObject } from "./field-reference";
 import { NoteList } from "./NoteList";
-import { NewNoteComposer } from "./NewNoteComposer";
+import {
+  beginNewNote,
+  changedNewNote,
+  newNoteBlocker,
+  newNoteContext,
+  newNoteEditorKey,
+  newNoteForm,
+  newNoteInput,
+  newNotePath,
+  newNoteStarted,
+  occupiedPaths,
+  titledPath,
+  type NewNote,
+  type NewNoteContext
+} from "./new-note";
+import { StructuredPropertiesEditor } from "./StructuredPropertiesEditor";
 import { noteRowStatus } from "./note-mutation-presentation";
 import {
   NotePreviewCard,
@@ -241,15 +257,21 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const [noteTitleVisible, setNoteTitleVisible] = useState(true);
   const [pendingNotePath, setPendingNotePath] = useState<string>();
   const [noteOpenFailure, setNoteOpenFailure] = useState<{ path: string; options: NoteNavigationOptions; message: string }>();
-  const [creationMode, setCreationMode] = useState<"note" | "folder">();
+  /** Notes not written yet: the one open in the editor, and any left before they could be saved. */
+  const newNoteState = useRef<{ notes: NewNote[]; open?: string }>({ notes: [] });
+  const [newNotes, setNewNotes] = useState(newNoteState.current);
+  /** A new note's create: in flight, or refused and waiting for a retry. */
+  const newNoteWrites = useRef(new Map<string, "saving" | "failed">());
+  const openNew = newNotes.notes.find((note) => note.id === newNotes.open);
+  /** The saved note in the editor; a new note has no record yet. */
+  const notePath = openNew ? undefined : document?.path;
+  const noteBody = openNew ? openNew.body : draft?.body ?? "";
   const [arrivingNotePath, setArrivingNotePath] = useState<string>();
   useEffect(() => {
     if (!arrivingNotePath) return;
     const timer = setTimeout(() => setArrivingNotePath(undefined), 900);
     return () => clearTimeout(timer);
   }, [arrivingNotePath]);
-  const [creationContext, setCreationContext] = useState<CreationContext>({});
-  const [creationDirty, setCreationDirty] = useState(false);
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
   const [noteFilter, setNoteFilter] = useState<NoteFilter>();
@@ -277,7 +299,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const [renamePlan, setRenamePlan] = useState<RenamePlan>();
   const [quickOpen, setQuickOpen] = useState(false);
   const [peekPath, setPeekPath] = useState<string>();
-  const [quickOpenCommandMode, setQuickOpenCommandMode] = useState(false);
+  const [paletteMode, setPaletteMode] = useState<"notes" | "commands" | "new-note">("notes");
   const [editorAutoFocus, setEditorAutoFocus] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const shortcutPrefix = useRef(0);
@@ -291,7 +313,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const [resizingPane, setResizingPane] = useState<"collection" | "list" | "inspector">();
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const { files: visibleFileEmbedKeys, notes: visibleNoteEmbedKeys,
-    updateFiles: updateVisibleFileEmbeds, updateNotes: updateVisibleNoteEmbeds } = useVisibleEmbedKeys(document?.path);
+    updateFiles: updateVisibleFileEmbeds, updateNotes: updateVisibleNoteEmbeds } = useVisibleEmbedKeys(notePath);
   const [, setSessionTick] = useState(0);
   const documentGeneration = useRef(0);
   const navigationGeneration = useRef(0);
@@ -345,11 +367,11 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }, [loadTypeSource, phase, selectedTypeName, surface, typeCreating, typeDocument, typeError, typeLoading, typeWorkspace]);
 
   const notePreviewController = useNotePreview(gateway, allNotes, typeDescriptors);
-  const linkTargets = useLinkTargets(gateway, document?.path, collectionRevision, fileInventory.files);
+  const linkTargets = useLinkTargets(gateway, notePath, collectionRevision, fileInventory.files);
   const fileWorkspace = useFileWorkspace(
     fileAssetStore,
     fileInventory.files,
-    draft?.body ?? "",
+    noteBody,
     linkTargets,
     visibleFileEmbedKeys
   );
@@ -465,6 +487,18 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     setNoteHistoryState(next);
   }, []);
 
+  const publishNewNotes = useCallback((next: { notes: NewNote[]; open?: string }) => {
+    newNoteState.current = next;
+    setNewNotes(next);
+  }, []);
+
+  /** Puts the open new note away: dropped if nothing was written in it, kept as a draft otherwise. */
+  const closeNewNote = useCallback(() => {
+    const { notes, open } = newNoteState.current;
+    if (!open) return;
+    publishNewNotes({ notes: notes.filter((note) => note.id !== open || newNoteStarted(note) || newNoteWrites.current.has(note.id)) });
+  }, [publishNewNotes]);
+
   const recordNoteNavigation = useCallback((path: string) => {
     const current = noteHistory.current;
     if (current.paths[current.index] === path) return;
@@ -537,8 +571,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     touchSession(session);
   }, [touchSession, updateNoteSummary, reportError]);
 
-  const createSession = useCallback((next: NoteDocument) => {
-    const session = new NoteSession(next, () => typeDescriptorsRef.current, sessionRecords(mutationScope.current.token()));
+  const createSession = useCallback((next: NoteDocument, editorSessionKey?: string) => {
+    const session = new NoteSession(next, () => typeDescriptorsRef.current, sessionRecords(mutationScope.current.token()), editorSessionKey);
     noteSessions.current.set(next.path, session);
     let previous = session.record.snapshot;
     const collection = mutationScope.current.token().collectionId!;
@@ -584,13 +618,12 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     setNoteLoading(false);
     setPendingNotePath(undefined);
     setNoteOpenFailure(undefined);
-    setCreationMode(undefined);
-    setCreationContext({});
+    closeNewNote();
     setEditingPath(false);
     setNotice(session.error);
     localStorage.setItem(`mdbase-editor:last-note:${mutationScope.current.token().collectionId}`, session.document.path);
     setRecentPaths((current) => rememberRecentPath(current, session.document.path));
-  }, []);
+  }, [closeNewNote]);
 
   const adoptDocument = useCallback((next: NoteDocument) => {
     activateSession(createSession(next));
@@ -627,10 +660,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       && generation === documentGeneration.current && navigation === navigationGeneration.current;
     const cached = noteSessions.current.get(path);
     if (cached?.deleted) return false;
-    setCreationMode(undefined);
+    closeNewNote();
     setSelectedCollectionFile(undefined);
     setPendingFilePath(undefined);
-    setCreationContext({});
     setNotice(undefined);
     setNoteOpenFailure(undefined);
     setPropertiesError(undefined);
@@ -675,6 +707,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }, [
     activateSession,
     adoptDocument,
+    closeNewNote,
     gateway,
     mobileLayout,
     recordNoteNavigation,
@@ -766,6 +799,17 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     void session.record.save();
   }, []);
 
+  /** An edit in the editor: to the open new note, or to the active note's session. Routed when it happens, not when it rendered. */
+  function editNote(change: Partial<Pick<Draft, "title" | "body">>) {
+    const open = newNoteState.current.open;
+    if (!open) changeActiveDraft((current) => ({ ...current, ...change }));
+    else if (!mutationScope.current.isFrozen && canCreateNotes) {
+      editNewNote(open, change);
+      // Writing in the body is what first saves a note; a refused create waits for a deliberate retry.
+      if (change.body !== undefined && !newNoteWrites.current.has(open)) void writeNewNote(open);
+    }
+  }
+
   function changeActiveDraft(change: (current: Draft) => Draft) {
     if (mutationScope.current.isFrozen || !canEditNotes) return;
     const session = noteSessions.current.active;
@@ -798,49 +842,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
 
   function navigateToNote(path: string, options: NoteNavigationOptions = {}) {
     setEditorAutoFocus(!options.keepList && (!matchMedia("(pointer: coarse)").matches || Boolean(globalThis.document.querySelector(".app-shell[data-keyboard]"))));
-    if (creationMode && creationDirty) {
-      setConfirmation({
-        title: creationMode === "folder" ? t`Discard this folder?` : t`Discard this note?`,
-        body: <p>{creationMode === "folder" ? <Trans>The unfinished folder hasn’t been created.</Trans> : <Trans>The unfinished note hasn’t been created.</Trans>}</p>,
-        confirmLabel: creationMode === "folder" ? t`Discard folder` : t`Discard note`,
-        tone: "danger",
-        onConfirm: () => finishNavigateToNote(path, options)
-      });
-      return;
-    }
-    finishNavigateToNote(path, options);
-  }
-
-  function navigateToFile(file: CollectionFile) {
-    if (creationMode && creationDirty) {
-      setConfirmation({
-        title: creationMode === "folder" ? t`Discard this folder?` : t`Discard this note?`,
-        body: <p>{creationMode === "folder" ? <Trans>The unfinished folder hasn’t been created.</Trans> : <Trans>The unfinished note hasn’t been created.</Trans>}</p>,
-        confirmLabel: creationMode === "folder" ? t`Discard folder` : t`Discard note`,
-        tone: "danger",
-        onConfirm: () => finishNavigateToFile(file)
-      });
-      return;
-    }
-    finishNavigateToFile(file);
-  }
-
-  function finishNavigateToFile(file: CollectionFile) {
-    navigationGeneration.current += 1;
-    setNoteLoading(false);
-    setNoteOpenFailure(undefined);
-    saveCurrentInBackground();
-    endCreation();
-    closeSidePanels();
-    setSelectedCollectionFile(file);
-    setPendingFilePath(file.path);
-    setPendingNotePath(undefined);
-    setMobilePane("editor");
-    setNotice(undefined);
-  }
-
-  function finishNavigateToNote(path: string, options: NoteNavigationOptions = {}) {
-    setCreationDirty(false);
+    closeNewNote();
     const generation = ++navigationGeneration.current;
     setNoteOpenFailure(undefined);
     if (path === noteSessions.current.active?.document.path && !noteLoading && !selectedCollectionFile) {
@@ -860,6 +862,20 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     });
   }
 
+  function navigateToFile(file: CollectionFile) {
+    navigationGeneration.current += 1;
+    setNoteLoading(false);
+    setNoteOpenFailure(undefined);
+    saveCurrentInBackground();
+    closeNewNote();
+    closeSidePanels();
+    setSelectedCollectionFile(file);
+    setPendingFilePath(file.path);
+    setPendingNotePath(undefined);
+    setMobilePane("editor");
+    setNotice(undefined);
+  }
+
   function navigateNoteHistory(direction: -1 | 1) {
     const targetIndex = noteHistory.current.index + direction;
     const path = noteHistory.current.paths[targetIndex];
@@ -870,6 +886,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
       if ([...noteSessions.current.values()].some((session) => !session.deleted && sessionDirty(session))
+          || newNoteState.current.notes.some(newNoteStarted)
           || typeCreating
           || Boolean(typeDocument && typeSource !== typeDocument.document)) {
         event.preventDefault();
@@ -878,6 +895,13 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     window.addEventListener("beforeunload", beforeUnload);
     return () => window.removeEventListener("beforeunload", beforeUnload);
   }, [typeCreating, typeDocument, typeSource]);
+
+  // A note left with something in it is written as soon as it can be; a refused create waits for a retry.
+  useEffect(() => {
+    for (const note of newNotes.notes) {
+      if (note.id !== newNotes.open && !newNoteWrites.current.has(note.id)) void writeNewNote(note.id);
+    }
+  }, [newNotes]);
 
   const searchIndex = useMemo(() => searchIndexCache.current.build(allNotes, typeDescriptors), [allNotes, typeDescriptors, i18n.locale]);
   const searchedResults = useMemo(() => {
@@ -911,7 +935,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     return pins.size ? [...browserEntries.filter((entry) => entry.kind === "note" && pins.has(entry.path)), ...browserEntries.filter((entry) => entry.kind !== "note" || !pins.has(entry.path))] : browserEntries;
   }, [browserEntries, deferredSearch, noteFilter, pinnedPaths]);
   const visibleNotePaths = useMemo(() => new Set(visibleBrowserEntries.filter((entry) => entry.kind === "note").map((entry) => entry.path)), [visibleBrowserEntries, i18n.locale]);
-  const listSelection = useMemo(() => selectedCollectionFile || creationMode ? { paths: [] } : selection ? { ...selection, paths: selection.paths.filter((path) => visibleNotePaths.has(path)) } : { paths: selectedPath && visibleNotePaths.has(selectedPath) ? [selectedPath] : [], anchor: selectedPath, focus: selectedPath }, [creationMode, selectedCollectionFile, selectedPath, selection, visibleNotePaths, i18n.locale]);
+  const listSelection = useMemo(() => selectedCollectionFile || openNew ? { paths: [] } : selection ? { ...selection, paths: selection.paths.filter((path) => visibleNotePaths.has(path)) } : { paths: selectedPath && visibleNotePaths.has(selectedPath) ? [selectedPath] : [], anchor: selectedPath, focus: selectedPath }, [openNew, selectedCollectionFile, selectedPath, selection, visibleNotePaths, i18n.locale]);
   const selectionFields = useMemo(() => {
     const paths = new Set(listSelection.paths);
     return bulkFields(allNotes.filter((note) => paths.has(note.path)), typeDescriptors);
@@ -921,23 +945,23 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const embeddedNotes = useEmbeddedNoteReferences(
     gateway,
     { collectionId: workspaceCollectionId.current, epoch: collectionEpoch.current },
-    draft?.body ?? "",
+    noteBody,
     allNotes,
     linkTargets,
     visibleNoteEmbedKeys
   );
-  const backlinks = useBacklinks(gateway, document?.path, collectionRevision, allNotes, typeDescriptors);
+  const backlinks = useBacklinks(gateway, notePath, collectionRevision, allNotes, typeDescriptors);
+  const takenPaths = useMemo(() => occupiedPaths([...allNotes.map((note) => note.path), ...fileInventory.files.map((file) => file.path)]), [allNotes, fileInventory.files]);
   const mentions = useMemo(() => document ? unlinkedMentions(searchIndex, document.path, draft?.title ?? noteTitle(document, typeDescriptors)) : [], [searchIndex, document, draft?.title, typeDescriptors, i18n.locale]);
   const noteComments = useNoteComments({ gateway, description, notes: allNotes, path: document?.path, draft, indexController, surface: {
     panelOpen: inspector === "comments", openPanel: () => showInspector("comments"),
-    canWrite: canCreateNotes && !noteReadOnly && surface === "notes" && !creationMode && !selectedCollectionFile,
+    canWrite: canCreateNotes && !noteReadOnly && surface === "notes" && !openNew && !selectedCollectionFile,
     selection: () => activeEditorSelection(noteSessions.current.active?.editorSessionKey),
     applyBody: (body) => changeActiveDraft((current) => ({ ...current, body }))
   } });
-  const focusMode = preferences.focusMode && surface === "notes" && Boolean(document) && !creationMode && !selectedCollectionFile;
+  const focusMode = preferences.focusMode && surface === "notes" && Boolean(document || openNew) && !selectedCollectionFile;
 
   function closeSidePanels() { setInspector(undefined); setMentionsOpen(false); }
-  function endCreation() { setCreationMode(undefined); setCreationContext({}); setCreationDirty(false); }
   function endRename() { setRenamePlan(undefined); clearRenameRequest(); }
   /** Shows an inspector panel beside the note; `toggle` closes the one already showing. */
   function showInspector(kind: "properties" | "comments", toggle = false) {
@@ -1058,7 +1082,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     setSelectedCollectionFile(undefined);
     setPendingFilePath(undefined);
     setOpenFileAsset(undefined);
-    endCreation();
+    newNoteWrites.current.clear();
+    publishNewNotes({ notes: [] });
     closeSidePanels();
     setEditingPath(false);
     setPathDraft("");
@@ -1094,18 +1119,21 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     } catch (error) { setNotice(gatewayError(error)); }
   }
 
-  /** The shared switcher asks before leaving: unsaved type or creation drafts are
-   * confirmed, and switching drains saves and mutations first. Adding a collection
+  /** The shared switcher asks before leaving: unsaved type drafts and new notes that
+   * could not be saved are confirmed, and switching drains saves and mutations first. Adding a collection
    * resolves inside the click so its Connect window keeps the gesture. */
   function beforeCollectionLeave(intent: LeaveIntent): boolean | Promise<boolean> {
     const drain = intent === "switch" || intent === "choose_another";
-    if (!typeDraftDirty() && !creationDirty) return drain ? drainBeforeLeave() : true;
+    // Leaving writes a new note like any other way out of it; a create on its way is drained with the other writes.
+    for (const note of newNoteState.current.notes) void writeNewNote(note.id);
+    const unsavedNewNote = newNoteState.current.notes.some((note) => newNoteStarted(note) && newNoteWrites.current.get(note.id) !== "saving");
+    if (!typeDraftDirty() && !unsavedNewNote) return drain ? drainBeforeLeave() : true;
     const copy = intent === "add"
       ? { title: t`Connect another collection?`, body: t`Unsaved type or creation changes will be discarded when the new collection opens. Note and property changes will finish saving first.`, confirmLabel: t`Continue` }
       : intent === "sign_out"
         ? { title: t`Sign out?`, body: t`Unsaved type or creation changes will be discarded.`, confirmLabel: t`Sign out` }
-        : { title: t`Switch collections?`, body: creationDirty
-          ? t`The unfinished note or folder will be discarded. Saved note and property changes will finish first.`
+        : { title: t`Switch collections?`, body: unsavedNewNote
+          ? t`The note that hasn’t been saved will be discarded. Saved note and property changes will finish first.`
           : t`Unsaved type definition changes will be discarded. Saved note and property changes will finish first.`, confirmLabel: t`Switch collection` };
     return new Promise<boolean>((resolve) => setConfirmation({
       title: copy.title,
@@ -1131,51 +1159,172 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     }
   }
 
+  /** New note, with its type chosen first. A collection without types has nothing to choose. */
+  function chooseNewNoteType() {
+    if (!typeDescriptors.length) { openNewNote(); return; }
+    if (!canCreateNotes) { setNotice(t`This application does not have permission to make that change.`); return; }
+    setShortcutsOpen(false);
+    setPaletteMode("new-note");
+    setQuickOpen(true);
+  }
+
+  function openNewNoteInFolder(folder: string) {
+    openNewNote(newNoteContext({ kind: "folder", value: folder }, typeDescriptors));
+  }
+
   function openCollectionSwitcher() {
     if (layout.collectionCollapsed) setLayout((current) => ({ ...current, collectionCollapsed: false }));
     requestAnimationFrame(() => window.document.querySelector<HTMLButtonElement>(".collection-rail .mdbase-collections-trigger")?.click());
   }
 
-  function beginCreation(mode: "note" | "folder", context: CreationContext = {}) {
+  /** Opens a new note in the editor. Nothing is written until it has something to keep. */
+  function openNewNote(context: NewNoteContext = newNoteContext(noteFilter, typeDescriptors)) {
     if (!canCreateNotes) { setNotice(t`This application does not have permission to make that change.`); return; }
-    navigationGeneration.current += 1;
-    setNoteLoading(false);
-    setNoteOpenFailure(undefined);
-    setPendingNotePath(undefined);
-    setNotice(undefined);
-    saveCurrentInBackground();
-    setSurface("notes");
-    closeSidePanels();
-    endRename();
-    setCreationDirty(false);
-    setCreationContext(context);
-    setCreationMode(mode);
+    if (mutationScope.current.isFrozen) return;
+    // The list stays where the note will appear: on its folder when that exists, and never on a type it is not.
+    const listed = noteFilter?.kind === "folder" ? noteFilter.value : undefined;
+    if (context.folder !== undefined && context.folder !== listed) {
+      if (allNotes.some((note) => note.path.startsWith(`${context.folder}/`))) setNoteFilter({ kind: "folder", value: context.folder });
+      // A folder with nothing in it yet has no list of its own; one above it will show the note.
+      else if (listed === undefined || !context.folder.startsWith(`${listed}/`)) setNoteFilter(undefined);
+    } else if (noteFilter?.kind === "type" && noteFilter.value !== context.type) setNoteFilter(undefined);
+    setSearch("");
+    showNewNote(beginNewNote(context, typeDescriptors));
+  }
+
+  /** The type picker's choice: the list's folder or tag still applies, the type is the one chosen. */
+  function openNewNoteOfType(type?: string) {
+    const { type: _suggested, ...context } = newNoteContext(noteFilter, typeDescriptors);
+    openNewNote(type ? { ...context, type } : context);
+  }
+
+  /** Shows a new note, or one left as a draft, in the editor. */
+  function showNewNote(note: NewNote) {
+    if (newNoteState.current.open !== note.id) {
+      closeNewNote();
+      navigationGeneration.current += 1;
+      setNoteLoading(false);
+      setNoteOpenFailure(undefined);
+      setPendingNotePath(undefined);
+      setSelectedCollectionFile(undefined);
+      setPendingFilePath(undefined);
+      setNotice(undefined);
+      saveCurrentInBackground();
+      setSurface("notes");
+      closeSidePanels();
+      setOutlineOpen(false);
+      endRename();
+      const held = newNoteState.current.notes;
+      publishNewNotes({ notes: held.includes(note) ? held : [...held, note], open: note.id });
+      // A note that already has its title starts in the body.
+      setEditorAutoFocus(Boolean(note.title.trim()));
+    }
     setMobilePane("editor");
+    // One that arrives with its title, from a search that found nothing, is written at once.
+    if (!newNoteWrites.current.has(note.id)) void writeNewNote(note.id);
   }
 
-  function beginCreate() {
-    const context = noteFilter?.kind === "folder"
-      ? { folder: noteFilter.value }
-      : noteFilter?.kind === "tag"
-        ? { tag: noteFilter.value }
-        : noteFilter?.kind === "type"
-          ? { type: noteFilter.value }
-          : {};
-    beginCreation("note", context);
+  function editNewNote(id: string, change: Partial<NewNote>) {
+    const state = newNoteState.current;
+    const note = state.notes.find((candidate) => candidate.id === id);
+    const next = note && changedNewNote(note, change);
+    if (next && next !== note) publishNewNotes({ ...state, notes: state.notes.map((candidate) => candidate === note ? next : candidate) });
   }
 
-  function beginFolderCreate() {
-    beginCreation("folder", noteFilter?.kind === "folder" ? { folder: noteFilter.value } : {});
+  function discardNewNote(id: string) {
+    const note = newNoteState.current.notes.find((candidate) => candidate.id === id);
+    if (!note) return;
+    const discard = () => {
+      const { notes, open } = newNoteState.current;
+      newNoteWrites.current.delete(id);
+      publishNewNotes({ notes: notes.filter((candidate) => candidate.id !== id), ...(open && open !== id ? { open } : {}) });
+      if (open === id) focusNoteList();
+    };
+    if (!newNoteStarted(note)) { discard(); return; }
+    setConfirmation({
+      title: t`Discard this note?`,
+      body: <p><Trans>The unfinished note hasn’t been created.</Trans></p>,
+      confirmLabel: t`Discard note`,
+      tone: "danger",
+      onConfirm: discard
+    });
   }
 
-  function beginNoteInFolder(folder: string) {
-    setNoteFilter({ kind: "folder", value: folder });
-    beginCreation("note", { folder });
+  /**
+   * Writes a new note once it has something to keep and its type's required
+   * fields are filled. Until the create answers, the note stays a new note and
+   * keeps taking edits; they follow the create as an ordinary save.
+   */
+  async function writeNewNote(id: string) {
+    if (mutationScope.current.isFrozen || !canCreateNotes || newNoteWrites.current.get(id) === "saving") return;
+    const find = () => newNoteState.current.notes.find((note) => note.id === id);
+    let sent = find();
+    if (!sent) return;
+    const form = newNoteForm(sent.type, typeDescriptorsRef.current);
+    if (!newNoteStarted(sent) || newNoteBlocker(sent, form)) return;
+    const token = mutationScope.current.token();
+    const occupied = new Set(takenPaths);
+    let input = newNoteInput(sent, form, occupied);
+    newNoteWrites.current.set(id, "saving");
+    setSessionTick((value) => value + 1);
+    try {
+      let created: NoteDocument;
+      for (let attempt = 1; ; attempt += 1) {
+        try {
+          created = await mutationScope.current.register(token, gateway.create(input));
+          break;
+        } catch (error) {
+          if (!mutationScope.current.isCurrent(token)) return;
+          // The index can trail the collection: a file name it took for free may be in use.
+          const holder = attempt < 5 ? await gateway.read(input.path).catch(() => undefined) : undefined;
+          if (!mutationScope.current.isCurrent(token)) return;
+          if (!holder) throw error;
+          updateNoteSummary(holder);
+          occupied.add(input.path.toLocaleLowerCase());
+          sent = find() ?? sent;
+          input = newNoteInput(sent, form, occupied);
+        }
+      }
+      if (!mutationScope.current.isCurrent(token)) return;
+      newNoteWrites.current.delete(id);
+      indexController.create(summaryFromDocument(created));
+      setArrivingNotePath(created.path);
+      const session = createSession(created, newNoteEditorKey(sent));
+      const latest = find();
+      if (latest && latest !== sent) {
+        const next = newNoteInput(latest, form, occupied);
+        session.record.setBody(createdBody(next));
+        const patch = frontmatterPatch(input.properties, next.properties);
+        if (Object.keys(patch).length) session.record.patchFrontmatter(patch);
+        session.reproject();
+      }
+      const { notes, open } = newNoteState.current;
+      publishNewNotes({ notes: notes.filter((note) => note.id !== id), ...(open && open !== id ? { open } : {}) });
+      if (open !== id) return;
+      // The editor the note was written in carries on as the saved note's editor.
+      documentGeneration.current += 1;
+      setPropertiesError(undefined);
+      activateSession(session);
+      recordNoteNavigation(created.path);
+      // A title given while the create was on its way names the file once the title is left.
+      if (globalThis.document.activeElement?.id !== "note-title") nameUntitledNote();
+    } catch (error) {
+      if (!mutationScope.current.isCurrent(token)) return;
+      newNoteWrites.current.set(id, "failed");
+      reportError({ code: "save_failed" });
+      setNotice(t`Couldn’t create “${input.path}”. ${gatewayError(error)}`);
+    } finally {
+      if (newNoteWrites.current.get(id) === "saving") newNoteWrites.current.delete(id);
+      setSessionTick((value) => value + 1);
+    }
   }
 
-  function beginSubfolder(parent: string) {
-    setNoteFilter({ kind: "folder", value: parent });
-    beginCreation("folder", { folder: parent });
+  /** A note still on its placeholder file name takes its name from the first title it is given. */
+  function nameUntitledNote() {
+    const session = noteSessions.current.active;
+    if (!session || session.deleted || mutationScope.current.isFrozen || !canRenameNotes) return;
+    const path = titledPath(session.document.path, session.draft.title, takenPaths);
+    if (path) void requestRename(path, false);
   }
 
   function copyFacet(value: string, label: string) {
@@ -1184,30 +1333,10 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       .catch(() => setNotice(t`Couldn’t copy ${label}.`));
   }
 
-  async function createNote(input: CreateNoteInput) {
-    if (mutationScope.current.isFrozen || !canCreateNotes) return;
-    const token = mutationScope.current.token();
-    const created = await mutationScope.current.register(token, gateway.create(input));
-    if (!mutationScope.current.isCurrent(token)) return;
-    indexController.create(summaryFromDocument(created));
-    setArrivingNotePath(created.path);
-    setSearch("");
-    setNoteFilter(undefined);
-    documentGeneration.current += 1;
-    setNotice(undefined);
-    setPropertiesError(undefined);
-    closeSidePanels();
-    setCreationDirty(false);
-    setCreationContext({});
-    setMobilePane("editor");
-    setEditorAutoFocus(true);
-    adoptDocument(created);
-    recordNoteNavigation(created.path);
-  }
-
   function createLinkedNote(target: string, label: string | undefined, format: "wikilink" | "markdown") {
     if (mutationScope.current.isFrozen || !canCreateNotes) return;
-    const sourcePath = noteSessions.current.active?.document.path;
+    const open = newNoteState.current.notes.find((note) => note.id === newNoteState.current.open);
+    const sourcePath = open ? newNotePath(open, newNoteForm(open.type, typeDescriptors), takenPaths) : noteSessions.current.active?.document.path;
     const linked = unresolvedNoteTarget(target, label, sourcePath, format);
     if (!linked) {
       setNotice(t`That link does not point to a Markdown note that can be created.`);
@@ -1370,6 +1499,10 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       return next;
     });
   }
+  function discardNewNoteItem(id: string, disabled: boolean): ActionMenuItem {
+    return { label: t`Discard note`, icon: <Trash2 aria-hidden="true" />, onSelect: () => discardNewNote(id), disabled, tone: "danger", separatorBefore: true };
+  }
+
   function noteActions(path: string, renameLabel?: string): ActionMenuItem[] {
     return [
       menuCommand("rename", <Pencil aria-hidden="true" />, () => void renameNote(path), mutationsFrozen || !canRenameNotes, renameLabel),
@@ -1511,27 +1644,12 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
 
   function selectSurface(next: Surface) {
     setPeekPath(undefined);
-    if (creationMode && creationDirty) {
-      setConfirmation({
-        title: creationMode === "folder" ? t`Discard this folder?` : t`Discard this note?`,
-        body: <p>{creationMode === "folder" ? <Trans>The unfinished folder hasn’t been created.</Trans> : <Trans>The unfinished note hasn’t been created.</Trans>}</p>,
-        confirmLabel: creationMode === "folder" ? t`Discard folder` : t`Discard note`,
-        tone: "danger",
-        onConfirm: () => finishSelectSurface(next)
-      });
-      return;
-    }
-    finishSelectSurface(next);
-  }
-
-  function finishSelectSurface(next: Surface) {
     navigationGeneration.current += 1;
     setNoteLoading(false);
     setNoteOpenFailure(undefined);
     setPendingNotePath(undefined);
     saveCurrentInBackground();
     setSurface(next);
-    endCreation();
     closeSidePanels();
     endRename();
     if (next === "notes") focusNoteList();
@@ -1543,26 +1661,6 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         void loadTypeSource(name);
       }
     }
-  }
-
-  function cancelCreation(hasDraft: boolean) {
-    if (!hasDraft) {
-      finishCancelCreation();
-      return;
-    }
-    const folder = creationMode === "folder";
-    setConfirmation({
-      title: folder ? t`Discard this folder?` : t`Discard this note?`,
-      body: <p><Trans>The details you entered haven’t been created yet.</Trans></p>,
-      confirmLabel: folder ? t`Discard folder` : t`Discard note`,
-      tone: "danger",
-      onConfirm: finishCancelCreation
-    });
-  }
-
-  function finishCancelCreation() {
-    endCreation();
-    focusNoteList();
   }
 
   function focusNoteList() {
@@ -1627,7 +1725,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       if (matchesCommandShortcut("quick-open", event) || matchesCommandShortcut("command-palette", event) && (!typing || event.shiftKey)) {
         event.preventDefault();
         setShortcutsOpen(false);
-        setQuickOpenCommandMode(matchesCommandShortcut("command-palette", event));
+        setPaletteMode(matchesCommandShortcut("command-palette", event) ? "commands" : "notes");
         setQuickOpen(true);
         return;
       }
@@ -1639,14 +1737,25 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       }
       if (quickOpen || shortcutsOpen) return;
       if (phase !== "ready") return;
-      if (!typing && surface === "notes" && !creationMode && liveUndo && !liveUndo.busy
+      if (!typing && surface === "notes" && liveUndo && !liveUndo.busy
           && event.target instanceof Element && event.target.closest(".note-scroll")
           && matchesCommandShortcut("undo", event)) {
         event.preventDefault();
         liveUndo.onAction();
         return;
       }
-      if (event.key === "Escape" && !preferences.vim && !focusMode && !creationMode
+      // Escape puts away a new note nothing was written in, from its title or its body.
+      if (event.key === "Escape" && openNew && !newNoteStarted(openNew) && surface === "notes"
+          && event.target instanceof Element && event.target.closest(".editor-pane")
+          && !event.target.closest('[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]')
+          && !globalThis.document.querySelector(".cm-panels, .cm-tooltip")
+          && !(preferences.vim && event.target.closest(".cm-content"))) {
+        event.preventDefault();
+        closeNewNote();
+        focusNoteList();
+        return;
+      }
+      if (event.key === "Escape" && !preferences.vim && !focusMode
           && event.target instanceof Element && event.target.closest(".code-editor-writer .cm-content")
           && !event.target.closest('[role="dialog"], [role="alertdialog"], [role="menu"]')
           && !globalThis.document.querySelector(".cm-panels, .cm-tooltip")) {
@@ -1669,21 +1778,23 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         setPreferences((current) => ({ ...current, focusMode: false }));
         return;
       }
-      if (matchesCommandShortcut("focus", event) && surface === "notes" && document && !creationMode && !selectedCollectionFile) {
+      if (matchesCommandShortcut("focus", event) && surface === "notes" && (document || openNew) && !selectedCollectionFile) {
         event.preventDefault();
         toggleFocus();
         return;
       }
-      if (matchesCommandShortcut("rename", event) && (!typing || event.key === "F2") && (selectedPath || selectedCollectionFile) && surface === "notes" && !creationMode
+      if (matchesCommandShortcut("rename", event) && (!typing || event.key === "F2") && (selectedPath || selectedCollectionFile) && surface === "notes" && !openNew
           && !(event.target instanceof Element && event.target.closest('#note-path, [role="dialog"], [role="alertdialog"], [role="menu"]'))) {
         event.preventDefault();
         if (selectedCollectionFile) setNotice(t`Files can’t be renamed in the Editor.`, "info");
         else void renameNote(selectedPath!);
         return;
       }
-      if (matchesCommandShortcut("new-note", event) && (!typing || modifier) && !(event.target instanceof Element && event.target.closest('[role="dialog"], [role="alertdialog"], [role="menu"]'))) {
+      const pickType = matchesCommandShortcut("new-note-of-type", event);
+      if ((matchesCommandShortcut("new-note", event) || pickType) && (!typing || modifier) && !(event.target instanceof Element && event.target.closest('[role="dialog"], [role="alertdialog"], [role="menu"]'))) {
         event.preventDefault();
-        beginCreate();
+        if (pickType) chooseNewNoteType();
+        else openNewNote();
         return;
       }
       if (matchesCommandShortcut("toggle-list", event)) {
@@ -1692,12 +1803,12 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         return;
       }
       if ((matchesCommandShortcut("history-back", event) || matchesCommandShortcut("history-forward", event))
-          && surface === "notes" && !creationMode) {
+          && surface === "notes") {
         event.preventDefault();
         navigateNoteHistory(event.key === "ArrowLeft" ? -1 : 1);
         return;
       }
-      if ((matchesCommandShortcut("next-note", event) || matchesCommandShortcut("previous-note", event)) && surface === "notes" && !creationMode) {
+      if ((matchesCommandShortcut("next-note", event) || matchesCommandShortcut("previous-note", event)) && surface === "notes") {
         event.preventDefault();
         const selectedIndex = visibleBrowserEntries.findIndex((entry) => entry.kind === "note"
           ? !selectedCollectionFile && entry.path === selectedPath
@@ -1720,7 +1831,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [canRenameNotes, creationDirty, creationMode, document, focusMode, mobileLayout, mutationsFrozen, noteFilter, noteLoading, openNote, phase, preferences.vim, quickOpen, recoveryAction, recoveryBusy, selectedCollectionFile, selectedPath, shortcutsOpen, surface, visibleBrowserEntries]);
+  }, [canCreateNotes, canRenameNotes, description, document, focusMode, newNotes, takenPaths, mobileLayout, mutationsFrozen, noteFilter, noteLoading, openNote, phase, preferences.vim, quickOpen, recoveryAction, recoveryBusy, selectedCollectionFile, selectedPath, shortcutsOpen, surface, visibleBrowserEntries]);
   const wordCount = useMemo(() => noteWordCount(draft?.body ?? ""), [draft?.body, i18n.locale]);
   const usable = phase === "ready" && Boolean(description);
   // First usable render: only now may the offline shell install and precache.
@@ -1767,7 +1878,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const preferredCollectionTrack = focusMode || layout.collectionCollapsed ? 0 : layout.collectionWidth;
   const preferredListTrack = hasListPane && !focusMode && !layout.listCollapsed ? layout.listWidth : 0;
   const editorMinimum = viewportWidth <= 1120 ? 320 : 380;
-  const inspectorVisible = Boolean(inspector) && !focusMode;
+  const inspectorVisible = Boolean(inspector) && !focusMode && !openNew;
   const inspectorResizeMax = Math.max(INSPECTOR_WIDTH.min, Math.min(
     INSPECTOR_WIDTH.max,
     viewportWidth > 1120
@@ -1793,10 +1904,15 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const activeRemoteDraft = activeRemoteDocument ? editableNote(activeRemoteDocument, typeDescriptors) : undefined;
   const activePendingRename = pendingRenameRecovery?.plan.session === noteSessions.current.active ? pendingRenameRecovery : undefined;
   const multipleSelected = surface === "notes" && listSelection.paths.length > 1;
+  const newNoteTypes = [
+    { id: "new-note:", name: t`General note`, type: undefined, detail: t`No type` },
+    ...description.types.map((type) => ({ id: `new-note:${type.name}`, name: typeDisplayName(type.name), type: type.name, detail: type.description }))
+  ];
   const attachFileAction = attachmentMenuItem(attachments, canAttachFiles, () => void authorizeCollection("selected").catch((error) => setNotice(gatewayError(error))));
   const quickOpenCommands = buildEditorCommands({
-    "new-note": canCreateNotes && !mutationsFrozen ? beginCreate : undefined,
-    "new-note-in-folder": canCreateNotes && !mutationsFrozen ? () => beginNoteInFolder(document?.path.split("/").slice(0, -1).join("/") ?? (noteFilter?.kind === "folder" ? noteFilter.value : "")) : undefined,
+    "new-note": canCreateNotes && !mutationsFrozen ? () => openNewNote() : undefined,
+    "new-note-of-type": canCreateNotes && !mutationsFrozen && description.types.length > 0 ? chooseNewNoteType : undefined,
+    "new-note-in-folder": canCreateNotes && !mutationsFrozen ? () => openNewNoteInFolder(notePath?.split("/").slice(0, -1).join("/") ?? (noteFilter?.kind === "folder" ? noteFilter.value : "")) : undefined,
     "toggle-list": () => setLayout((current) => ({ ...current, listCollapsed: !current.listCollapsed })),
     shortcuts: () => setShortcutsOpen(true),
     vim: () => setPreferences((current) => ({ ...current, vim: !current.vim })),
@@ -1814,7 +1930,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       "set-property": canEditNotes && selectionFields.some((field) => field.shared) ? () => openBulkProperty("property") : undefined
     } : {}),
     ...(multipleSelected ? { "clear-selection": () => { setSelection({ ...listSelection, paths: [] }); setBulkPropertyKind(undefined); } } : {}),
-    ...(document && draft && surface === "notes" && !creationMode && !selectedCollectionFile ? {
+    ...(document && draft && surface === "notes" && !openNew && !selectedCollectionFile ? {
       rename: canRenameNotes && !mutationsFrozen ? () => void renameNote(document.path) : undefined,
       move: canRenameNotes && !mutationsFrozen && !multipleSelected ? () => setMovePaths([document.path]) : undefined,
       duplicate: canCreateNotes && !mutationsFrozen ? () => void duplicateNote(document.path) : undefined,
@@ -1831,10 +1947,12 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       backlinks: () => { window.document.getElementById("linked-from")?.focus(); },
       "check-note": !mutationsFrozen ? () => void validateNote() : undefined
     } : {})
-  }, { focus: focusMode ? t`Exit focus mode` : t`Focus mode`, "attach-file": attachFileAction.label }).concat(noteViewCommands(chooseNoteSort, setNoteFilter, () => { setSearch(""); setNoteFilter(undefined); }, tagFacets, typeFacets, noteSortFields));
+  }, { focus: focusMode ? t`Exit focus mode` : t`Focus mode`, "attach-file": attachFileAction.label }).concat(canCreateNotes && !mutationsFrozen ? newNoteTypes.slice(1).map(({ id, name, type, detail }) => ({
+    id, label: t`New ${name}`, hint: detail, run: () => openNewNoteOfType(type)
+  })) : [], noteViewCommands(chooseNoteSort, setNoteFilter, () => { setSearch(""); setNoteFilter(undefined); }, tagFacets, typeFacets, noteSortFields));
   const activeToasts = buildToastItems({ notice, recoveryId: recoveryToastId, recoveryMessage, recoveryPending: recoveryAction?.kind === "delete" && recoveryAction.pending, recoveryBusy, onUndo: () => void undoRecovery(), hasPendingRename: Boolean(activePendingRename), onResumeRename: () => { if (activePendingRename) void performRename(activePendingRename.plan, activePendingRename.updateRefs, activePendingRename.requestId); } });
   const liveUndo = activeToasts.find(toast => toast.id === recoveryToastId)?.action;
-  const commandContext = multipleSelected ? t`Selected notes` : document ? noteTitle(document, typeDescriptors) : undefined;
+  const commandContext = multipleSelected ? t`Selected notes` : document && !openNew ? noteTitle(document, typeDescriptors) : undefined;
   const noteCommandIds = new Set(["rename", "move", "duplicate", "delete", "copy-link", "copy-path", "attach-file", "pin", "unpin", "focus", "properties", "comments", "comment", "outline", "backlinks", "check-note", "move-selected", "delete-selected", "add-tag", "remove-tag", "set-property", "clear-selection"]);
   for (const entry of quickOpenCommands) if (noteCommandIds.has(entry.id)) entry.context = commandContext;
   if (liveUndo && !liveUndo.busy) quickOpenCommands.unshift({ ...command("undo", liveUndo.onAction, liveUndo.label), context: recoveryAction?.kind === "pin" ? recoveryAction.path : recoveryAction?.kind === "delete" ? noteTitle(recoveryAction.document, typeDescriptors) : recoveryMessage });
@@ -1855,7 +1973,13 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     title?.closest(".cm-scroller")?.scrollTo({ top: 0 });
     title?.focus({ preventScroll: true });
   };
-  const notePathControl = document && (editingPath ? <form onSubmit={(event) => { event.preventDefault(); void requestRename(); }} onKeyDown={(event) => {
+  const openNewForm = openNew && newNoteForm(openNew.type, typeDescriptors);
+  const openNewWrite = openNew && newNoteWrites.current.get(openNew.id);
+  /** What the editor pane shows: the open new note, or the active saved note. */
+  const editing = openNew && openNewForm
+    ? { key: newNoteEditorKey(openNew), path: newNotePath(openNew, openNewForm, takenPaths), title: openNew.title, body: openNew.body }
+    : document && draft ? { key: noteSessions.current.active?.editorSessionKey ?? document.path, path: document.path, title: draft.title, body: draft.body } : undefined;
+  const notePathControl = openNew ? <p className={mobileLayout ? "mobile-note-path" : "note-path-pending"} title={editing!.path}><PathLabel path={editing!.path} /></p> : document && (editingPath ? <form onSubmit={(event) => { event.preventDefault(); void requestRename(); }} onKeyDown={(event) => {
     if (event.key !== "Escape" || event.nativeEvent.isComposing) return;
     event.preventDefault();
     setEditingPath(false);
@@ -1866,7 +1990,11 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     <input id="note-path" className="path-input" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} onBlur={() => void requestRename()} disabled={mutationsFrozen || !canRenameNotes} spellCheck="false" autoCapitalize="none" autoCorrect="off" autoFocus />
   </form> : mobileLayout ? <p className="mobile-note-path" title={document.path}><PathLabel path={document.path} /></p>
     : <button className="path-button" disabled={!canRenameNotes || mutationsFrozen} onClick={() => setEditingPath(true)} title={t`Rename Markdown path`} aria-label={document.path}><PathLabel path={document.path} /><Pencil aria-hidden="true" /></button>);
-  const noteSaveIndicator = <><CollectionSaveWarning /><SaveIndicator
+  // A new note says why it is not in the collection yet: nothing to keep, a required field, or a create that was refused.
+  const noteSaveIndicator = openNew && openNewForm ? openNewWrite
+    ? <SaveIndicator identity={editing!.key} state={openNewWrite === "failed" ? "error" : "saving"} onRetry={() => void writeNewNote(openNew.id)} />
+    : <span className="note-unsaved" role="status">{newNoteBlocker(openNew, openNewForm) ?? t`Not saved yet`}</span>
+    : <><CollectionSaveWarning /><SaveIndicator
     identity={noteSessions.current.active?.editorSessionKey ?? document?.path}
     onRetry={canEditNotes ? () => { void noteSessions.current.active?.record.save(); } : undefined}
     state={pendingNoteMutations.length > 0 ? "recovery" : saveState}
@@ -1900,9 +2028,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       foldersLoading={foldersLoading || fileInventory.loading}
       surface={surface}
       onFilter={(filter) => { setNoteFilter(filter); selectSurface("notes"); }}
-      onCreateFolder={canCreateNotes ? beginFolderCreate : undefined}
-      onCreateNoteInFolder={canCreateNotes ? beginNoteInFolder : undefined}
-      onCreateSubfolder={canCreateNotes ? beginSubfolder : undefined}
+      onCreateNoteInFolder={canCreateNotes && !mutationsFrozen ? openNewNoteInFolder : undefined}
       onPlanFolderChange={canRenameNotes && !mutationsFrozen ? planFolderChange : undefined}
       onChangeFolder={canRenameNotes && !mutationsFrozen ? changeFolder : undefined}
       onMoveNotes={canRenameNotes && !mutationsFrozen ? (paths, folder) => void onMoveNotes(paths, folder) : undefined}
@@ -1948,7 +2074,13 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         contentError={contentError}
         total={noteFilter ? undefined : collectionTotal}
         contentTotal={collectionTotal}
-        selectedPath={selectedCollectionFile || creationMode ? undefined : selectedPath}
+        selectedPath={selectedCollectionFile || openNew ? undefined : selectedPath}
+        drafts={newNotes.notes.map((note) => {
+          const write = newNoteWrites.current.get(note.id);
+          return { id: note.id, title: note.title.trim(), selected: note.id === newNotes.open,
+            status: write === "saving" ? t`Saving…` : write === "failed" ? t`Needs attention` : t`Not saved yet` };
+        })}
+        onOpenDraft={(id) => { const note = newNotes.notes.find((candidate) => candidate.id === id); if (note) showNewNote(note); }}
         selectedFilePath={selectedCollectionFile?.path}
         pendingPath={pendingNotePath}
         pendingFilePath={pendingFilePath}
@@ -1966,7 +2098,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         compact={layout.compactList}
         onCompact={(compactList) => setLayout((current) => ({ ...current, compactList }))}
         onClearScope={() => setNoteFilter(undefined)}
-        onQuickOpen={() => { setQuickOpenCommandMode(true); setQuickOpen(true); }}
+        onQuickOpen={() => { setPaletteMode("commands"); setQuickOpen(true); }}
         onRetryStructure={() => void loadIndex().catch(() => undefined)}
         onRetryContent={() => void loadContentIndex()}
         onRetryFiles={() => void fileController.reload().catch(() => undefined)}
@@ -1990,7 +2122,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           <NotePeekBody path={peekNote.path} source={peekPath === document?.path ? draft?.body : peekNote.body} title={peekTitle} gateway={gateway} />
         </> : undefined}
         onDelete={(path) => { if (peekPath) { closePeek(); focusNoteList(); } if (listSelection.paths.length > 1 && listSelection.paths.includes(path)) void deleteSelectedNotes(listSelection.paths); else void requestDelete(path); }}
-        onCreate={canCreateNotes ? beginCreate : undefined}
+        onCreate={canCreateNotes ? () => openNewNote() : undefined}
+        onCreateOfType={canCreateNotes && description.types.length > 0 ? chooseNewNoteType : undefined}
         onCollections={() => returnToMobilePane("collections")}
         leadingActions={layout.collectionCollapsed && <PaneControl pane="collections" label={t`Show collections sidebar`} visibility="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
         trailingActions={<PaneControl pane="list" label={t`Hide notes sidebar`} visibility="hide" onClick={() => setLayout((current) => ({ ...current, listCollapsed: true }))} />}
@@ -2001,23 +2134,10 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         leadingActions={editorLeadingActions}
         onBack={() => returnToMobilePane("notes")}
         onRetry={() => void fileAssetStore.retry(selectedCollectionFile)}
-      /></Suspense> : creationMode ? <NewNoteComposer
-        types={description.types}
-        defaultFolder={creationContext.folder}
-        defaultTag={creationContext.tag}
-        defaultType={creationContext.type}
-        initialTitle={creationContext.title}
-        purpose={creationMode}
-        preferences={preferences}
-        recordPaths={allNotes.map((note) => note.path)}
-        leadingActions={editorLeadingActions}
-        onCreate={createNote}
-        onCancel={cancelCreation}
-        onDraftChange={setCreationDirty}
-      /> : <main className="editor-pane" aria-label={t`Note editor`} data-save-state={saveState}>
-        {noteLoading && !document ? <NoteSkeleton leadingActions={editorLeadingActions} /> : document && draft ? <>
+      /></Suspense> : <main className="editor-pane" aria-label={t`Note editor`} data-save-state={openNew ? "saved" : saveState}>
+        {noteLoading && !editing ? <NoteSkeleton leadingActions={editorLeadingActions} /> : editing ? <>
           <header className="editor-bar mdbase-settle-host">
-            <button className="mobile-back icon-button" aria-label={t`Back to notes`} onClick={() => returnToMobilePane("notes")}><ArrowLeft aria-hidden="true" /></button>
+            <button className="mobile-back icon-button" aria-label={t`Back to notes`} onClick={() => { closeNewNote(); returnToMobilePane("notes"); }}><ArrowLeft aria-hidden="true" /></button>
             {editorLeadingActions}
             <div className="note-history" role="group" aria-label={t`Note history`}>
               <button
@@ -2035,24 +2155,29 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
                 onClick={() => navigateNoteHistory(1)}
               ><ArrowRight aria-hidden="true" /></button>
             </div>
-            <button className={`note-bar-title${noteTitleVisible ? "" : " is-shown"}`} title={t`Go to note title`} onClick={revealNoteTitle}>{draft.title || t`Untitled`}</button>
+            <button className={`note-bar-title${noteTitleVisible ? "" : " is-shown"}`} title={t`Go to note title`} onClick={revealNoteTitle}>{editing.title || t`Untitled`}</button>
             {!mobileLayout && <div className="path-wrap">{notePathControl}</div>}
             {!mobileLayout && noteLoading && <span role="status" className="note-opening-status" title={pendingNotePath}><Trans>Opening “{pendingNotePath}”…</Trans></span>}
-            {!mobileLayout && !canEditNotes && <span className="connect-muted"><Trans>Read only</Trans></span>}
+            {!mobileLayout && !openNew && !canEditNotes && <span className="connect-muted"><Trans>Read only</Trans></span>}
             {!mobileLayout && noteSaveIndicator}
             {mobileLayout && shownConnection !== "connected" && <div className="mobile-connection">
               <ConnectionStatus state={shownConnection} issue={connectionIssue} onReconnect={() => void refreshAfterConnectionGap()} />
             </div>}
-            {!mobileLayout && <button className={`icon-button${inspector === "properties" ? " active" : ""}`} aria-label={t`Note properties`} aria-keyshortcuts="Enter Space" aria-pressed={inspector === "properties"} onClick={() => showInspector("properties", true)}><Info aria-hidden="true" /></button>}
-            {!mobileLayout && noteComments.available && <button className={`icon-button comments-toggle${inspector === "comments" ? " active" : ""}`} aria-label={t`Comments`} aria-keyshortcuts="Enter Space" aria-pressed={inspector === "comments"} onClick={() => showInspector("comments", true)}><ChatText aria-hidden="true" />{noteComments.openCount > 0 && <span className="comments-toggle-count">{noteComments.openCount}</span>}</button>}
+            {!mobileLayout && !openNew && <button className={`icon-button${inspector === "properties" ? " active" : ""}`} aria-label={t`Note properties`} aria-keyshortcuts="Enter Space" aria-pressed={inspector === "properties"} onClick={() => showInspector("properties", true)}><Info aria-hidden="true" /></button>}
+            {!mobileLayout && !openNew && noteComments.available && <button className={`icon-button comments-toggle${inspector === "comments" ? " active" : ""}`} aria-label={t`Comments`} aria-keyshortcuts="Enter Space" aria-pressed={inspector === "comments"} onClick={() => showInspector("comments", true)}><ChatText aria-hidden="true" />{noteComments.openCount > 0 && <span className="comments-toggle-count">{noteComments.openCount}</span>}</button>}
             {focusMode && <button className="mdbase-button is-tertiary focus-exit" onClick={toggleFocus}><Trans>Exit focus mode</Trans></button>}
-            {mobileLayout && canCreateNotes && <button className="icon-button" aria-label={t`New note`} aria-keyshortcuts="C Control+Shift+N Meta+Shift+N" disabled={mutationsFrozen} onClick={() => beginCreate()}><FilePlus2 aria-hidden="true" /></button>}
+            {mobileLayout && canCreateNotes && <button className="icon-button" aria-label={t`New note`} aria-keyshortcuts="C Control+Shift+N Meta+Shift+N" disabled={mutationsFrozen} onClick={() => openNewNote()}><FilePlus2 aria-hidden="true" /></button>}
             <div className="note-actions">
               <button {...noteMenu.triggerProps} className="icon-button" aria-label={t`More note actions`} aria-keyshortcuts="Enter Space ArrowDown ArrowUp"><MoreHorizontal aria-hidden="true" /></button>
               <Menu open={noteMenu.open} id={noteMenu.id} label={t`More note actions`} triggerRef={noteMenu.trigger} onClose={noteMenu.close}>
-              {[
-              ...(mobileLayout ? [menuCommand("quick-open", <Search aria-hidden="true" />, () => { setQuickOpenCommandMode(false); setQuickOpen(true); })] : []),
-              ...noteActions(document.path, mobileLayout ? t`Rename path` : undefined),
+              {(openNew ? [
+              ...(mobileLayout ? [menuCommand("quick-open", <Search aria-hidden="true" />, () => { setPaletteMode("notes"); setQuickOpen(true); })] : []),
+              menuCommand("focus", <ListBullets aria-hidden="true" />, toggleFocus, false, focusMode ? t`Exit focus mode` : undefined),
+              menuCommand("shortcuts", <Keyboard aria-hidden="true" />, () => setShortcutsOpen(true)),
+              discardNewNoteItem(openNew.id, openNewWrite === "saving")
+              ] : [
+              ...(mobileLayout ? [menuCommand("quick-open", <Search aria-hidden="true" />, () => { setPaletteMode("notes"); setQuickOpen(true); })] : []),
+              ...noteActions(editing.path, mobileLayout ? t`Rename path` : undefined),
               { ...menuCommand("outline", <ListBullets aria-hidden="true" />, () => setOutlineOpen(true)), separatorBefore: true },
               menuCommand("backlinks", <Link2 aria-hidden="true" />, () => { window.document.getElementById("linked-from")?.focus(); }),
               menuCommand("focus", <ListBullets aria-hidden="true" />, toggleFocus, false, focusMode ? t`Exit focus mode` : undefined),
@@ -2061,7 +2186,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
               { ...attachFileAction, separatorBefore: true },
               { ...menuCommand("shortcuts", <Keyboard aria-hidden="true" />, () => setShortcutsOpen(true)), separatorBefore: true },
               menuCommand("check-note", <Check aria-hidden="true" />, () => void validateNote(), mutationsFrozen)
-              ].map(item => <Fragment key={item.label}>
+              ]).map(item => <Fragment key={item.label}>
                 {item.separatorBefore && <div role="separator" className="action-menu-separator" />}
                 <button role="menuitem" className={`mdbase-menu-item${item.tone === "danger" ? " is-danger" : ""}`} disabled={item.disabled} title={item.title} onClick={() => { noteMenu.close(true); item.onSelect(); }}>{item.icon}{item.label}</button>
               </Fragment>)}
@@ -2069,8 +2194,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             </div>
           </header>
           {connectionSummary?.role === "viewer" && <p role="status"><Trans>You have view access, so changes can't be saved.</Trans></p>}
-          {noteSessions.current.active?.recoveryError && <p role="alert">{noteSessions.current.active.recoveryError}</p>}
-          {noteSessions.current.active?.recoveryDraft && <section className="conflict-resolver" role="status" aria-label={t`Unsaved draft found`}>
+          {!openNew && noteSessions.current.active?.recoveryError && <p role="alert">{noteSessions.current.active.recoveryError}</p>}
+          {!openNew && noteSessions.current.active?.recoveryDraft && <section className="conflict-resolver" role="status" aria-label={t`Unsaved draft found`}>
             <strong><Trans>Unsaved edits from an earlier session are available.</Trans></strong>
             <p><Trans>Editing is paused until you restore or discard these edits. They stay in this browser for up to seven days, or until saved or discarded. Restoring does not overwrite a newer version without review.</Trans></p>
             <details><summary><Trans>Review recovered text</Trans></summary><pre>{noteSessions.current.active.recoveryDraft.body}</pre>
@@ -2098,34 +2223,44 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             }}><Trans>Discard recovered edits</Trans></button>
           </section>}
           <AttachmentTransfer controller={attachments} />
-          {activeRemoteDraft && <ConflictResolver local={draft} remote={activeRemoteDraft} onUseRemote={useRemoteVersion} onKeepLocal={keepLocalVersion} />}
-          {renamePlan && renamePlan.session === noteSessions.current.active && <div className="rename-confirm" role="alert">
+          {!openNew && draft && activeRemoteDraft && <ConflictResolver local={draft} remote={activeRemoteDraft} onUseRemote={useRemoteVersion} onKeepLocal={keepLocalVersion} />}
+          {!openNew && renamePlan && renamePlan.session === noteSessions.current.active && <div className="rename-confirm" role="alert">
             <div><strong><Trans>Rename this note?</Trans></strong><span>{plural(renamePlan.affectedPaths.length, { one: "# note contains links that will change.", other: "# notes contain links that will change." })}{renamePlan.warnings.length > 0 ? plural(renamePlan.warnings.length, { one: ` # link needs attention and won’t be changed automatically.`, other: ` # links need attention and won’t be changed automatically.` }) : ""}</span></div>
             <button onClick={cancelRename}><Trans>Cancel</Trans></button>
             <button className="primary-confirm-action mdbase-button is-primary" onClick={() => void performRename(renamePlan, true)}><Trans>Rename and update links</Trans></button>
           </div>}
-          <MarkdownNoteEditor footer={<BacklinksPanel key={document.path} mentions={mentions} onLinkMention={canEditNotes && !mutationsFrozen ? (mention) => void linkUnlinkedMention(mention) : undefined} linking={linkingMention} notes={backlinks.notes} types={typeDescriptors} loading={backlinks.loading} error={backlinks.error} onRetry={backlinks.retry} mentionsLoading={contentIndexing} mentionsError={contentError} onFindMentions={!contentComplete && !contentIndexing && !contentError ? () => setMentionsOpen(true) : undefined} onRetryMentions={() => void loadContentIndex()} onOpen={navigateToNote} />} editorKey={noteSessions.current.active?.editorSessionKey ?? document.path}
-            draft={draft} preferences={preferences} documentId={noteSessions.current.active?.editorSessionKey} readOnly={noteReadOnly}
+          {/* A new note and the saved note it becomes share this editor: same place, same key, so the caret stays where it is. */}
+          <MarkdownNoteEditor footer={<BacklinksPanel key={editing.path} mentions={openNew ? [] : mentions} onLinkMention={!openNew && canEditNotes && !mutationsFrozen ? (mention) => void linkUnlinkedMention(mention) : undefined} linking={linkingMention} notes={backlinks.notes} types={typeDescriptors} loading={backlinks.loading} error={backlinks.error} onRetry={backlinks.retry} mentionsLoading={contentIndexing} mentionsError={contentError} onFindMentions={!openNew && !contentComplete && !contentIndexing && !contentError ? () => setMentionsOpen(true) : undefined} onRetryMentions={() => void loadContentIndex()} onOpen={navigateToNote} />} editorKey={editing.key}
+            draft={editing} preferences={preferences} documentId={editing.key} readOnly={openNew ? mutationsFrozen || !canCreateNotes : noteReadOnly}
             provenance={mobileLayout ? <>
               {notePathControl}
-              {!canEditNotes && <span className="connect-muted"><Trans>Read only</Trans></span>}
+              {!openNew && !canEditNotes && <span className="connect-muted"><Trans>Read only</Trans></span>}
               {noteSaveIndicator}
               {noteLoading && <span role="status" className="note-opening-status"><Trans>Opening “{pendingNotePath}”…</Trans></span>}
             </> : undefined}
+            titlePlaceholder={openNewForm?.titleLabel} focusTitle={openNew && !editorAutoFocus ? openNew.id : undefined}
+            titleProperties={openNew && openNewForm && openNewForm.required.length > 0 ? <section aria-label={t`Required properties`}>
+              <StructuredPropertiesEditor value={openNew.properties} contract={{ properties: openNewForm.properties, required: openNewForm.required }}
+                propertyNames={openNewForm.required} recordPaths={allNotes.map((note) => note.path)} initializeRequired allowAdd={false} allowCustom={false} emptyMessage=""
+                readOnly={mutationsFrozen}
+                onChange={(properties) => editNewNote(openNew.id, { properties })}
+                onValidityChange={(propertiesValid) => editNewNote(openNew.id, { propertiesValid })} />
+            </section> : undefined}
+            onTitleCommit={openNew ? () => void writeNewNote(openNew.id) : nameUntitledNote}
             remoteApplyToken={remoteApplyToken} autoFocus={editorAutoFocus}
-            currentPath={document.path} linkTargets={linkTargets} recentPaths={recentPaths} linkSuggestions={linkOptions} linkTypes={linkTypeNames}
+            currentPath={editing.path} linkTargets={linkTargets} recentPaths={recentPaths} linkSuggestions={linkOptions} linkTypes={linkTypeNames}
             embeddedFiles={embeddedFiles} embeddedNotes={embeddedNotes} files={fileInventory.files} notes={allNotes}
-            onUploadAttachment={canAttachFiles && !attachments.disabled ? attachments.uploadReference : undefined}
-            insertion={attachments.insertion} onTitleVisibilityChange={setNoteTitleVisible} onTitleChange={(title) => changeActiveDraft((current) => ({ ...current, title }))}
-            onBodyChange={(body) => changeActiveDraft((current) => ({ ...current, body }))} onOpenLink={navigateToNote}
+            onUploadAttachment={!openNew && canAttachFiles && !attachments.disabled ? attachments.uploadReference : undefined}
+            insertion={openNew ? undefined : attachments.insertion} onTitleVisibilityChange={setNoteTitleVisible} onTitleChange={(title) => editNote({ title })}
+            onBodyChange={(body) => editNote({ body })} onOpenLink={navigateToNote}
             onCreateLink={createLinkedNote} onPreviewLink={notePreviewController.request}
             onDismissLinkPreview={notePreviewController.dismiss} onOpenFile={setOpenFileAsset} onOpenFileLink={navigateToFile}
-            onVisibleFileEmbeds={updateVisibleFileEmbeds} onVisibleNoteEmbeds={updateVisibleNoteEmbeds} {...noteComments.editor} />
-          {outlineOpen && <OutlinePanel headings={noteHeadings(draft.body)} onClose={() => setOutlineOpen(false)} onReveal={(line) => revealMarkdownLine(noteSessions.current.active?.editorSessionKey ?? document.path, line)} />}
+            onVisibleFileEmbeds={updateVisibleFileEmbeds} onVisibleNoteEmbeds={updateVisibleNoteEmbeds} {...(openNew ? {} : noteComments.editor)} />
+          {outlineOpen && <OutlinePanel headings={noteHeadings(editing.body)} onClose={() => setOutlineOpen(false)} onReveal={(line) => revealMarkdownLine(editing.key, line)} />}
         </> : <EmptyEditor
           leadingActions={editorLeadingActions}
           notice={noteOpenFailure?.message ?? (activeRemoteDocument ? undefined : notice?.message)}
-          onCreate={canCreateNotes ? beginCreate : undefined}
+          onCreate={canCreateNotes ? () => openNewNote() : undefined}
           onRetry={() => noteOpenFailure ? navigateToNote(noteOpenFailure.path, noteOpenFailure.options) : void start()}
         />}
       </main>}
@@ -2247,14 +2382,21 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         onDragChange={(dragging) => setResizingPane(dragging ? "inspector" : undefined)}
       />}
     </aside>}
-    <CommandPalette open={quickOpen} commands={[]} initialQuery={quickOpenCommandMode ? ">" : ""}
+    {paletteMode === "new-note" ? <CommandPalette open={quickOpen} commands={[]} key="new-note"
+      label={t`New note`} inputLabel={t`Choose a type for the new note`} placeholder={t`Choose a type`}
+      getResults={(query) => {
+        const wanted = query.trim().toLocaleLowerCase();
+        return newNoteTypes
+          .filter(({ name, type }) => !wanted || name.toLocaleLowerCase().includes(wanted) || type?.toLocaleLowerCase().includes(wanted))
+          .map(({ id, name, type, detail }) => ({ id, label: name, detail, group: t`New note`, run: () => openNewNoteOfType(type) }));
+      }} onClose={() => setQuickOpen(false)} /> : <CommandPalette open={quickOpen} commands={[]} key={paletteMode} initialQuery={paletteMode === "commands" ? ">" : ""}
       label={t`Quick open`} inputLabel={t`Find a note or action`} placeholder={t`Find a note by title or path, or type > for actions`}
       getResults={query => quickOpenResults({ index: searchIndex,
         recentPaths, types: typeDescriptors, commands: quickOpenCommands,
-        onCreate: canCreateNotes && !mutationsFrozen ? title => { beginCreate(); setCreationContext(current => ({ ...current, title })); } : undefined,
+        onCreate: canCreateNotes && !mutationsFrozen ? title => openNewNote({ ...newNoteContext(noteFilter, typeDescriptors), title }) : undefined,
         onSelect: path => { setSearch(""); setNoteFilter(undefined); setSurface("notes"); navigateToNote(path); }
-      }, query)} onClose={() => setQuickOpen(false)} />
-    {shortcutsOpen && <ShortcutHelp canRename={canRenameNotes && !mutationsFrozen && Boolean(selectedPath) && !selectedCollectionFile && !creationMode} onClose={() => setShortcutsOpen(false)} />}
+      }, query)} onClose={() => setQuickOpen(false)} />}
+    {shortcutsOpen && <ShortcutHelp canRename={canRenameNotes && !mutationsFrozen && Boolean(selectedPath) && !selectedCollectionFile && !openNew} onClose={() => setShortcutsOpen(false)} />}
     {movePaths && <MoveNoteDialog paths={movePaths} folders={[...new Set([...allNotes.map((note) => note.path), ...fileInventory.files.map((file) => file.path)].flatMap((path) => { const parts = path.split("/"); return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/")); }))].sort()} onMove={onMoveNotes} onClose={() => setMovePaths(undefined)} />}
     {confirmationDialog}
     {openFileAsset && <Suspense fallback={null}><FileViewer asset={openFileAsset} onClose={() => setOpenFileAsset(undefined)} /></Suspense>}

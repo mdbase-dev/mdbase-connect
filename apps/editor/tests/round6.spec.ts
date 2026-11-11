@@ -104,11 +104,12 @@ for (const theme of ["light", "dark"] as const) for (const reducedMotion of ["no
       await dialog.screenshot({ path: testInfo.outputPath("shortcuts.png") });
       await page.keyboard.press("Escape");
       await page.keyboard.press("c");
-      const composer = page.locator(".new-note-composer");
-      const captureTitle = composer.getByRole("textbox", { name: "Title", exact: true });
-      await expect(captureTitle).toBeVisible();
-      expect(Math.abs((await captureTitle.boundingBox())!.x - noteX)).toBeLessThanOrEqual(1);
-      await composer.screenshot({ path: testInfo.outputPath("composer.png") });
+      await expect(page.locator(".note-unsaved")).toBeVisible();
+      const newTitle = page.getByRole("textbox", { name: "Note title", exact: true });
+      await expect(newTitle).toHaveValue("");
+      await expect(newTitle).toBeFocused();
+      expect(Math.abs((await newTitle.boundingBox())!.x - noteX)).toBeLessThanOrEqual(1);
+      await page.locator(".editor-pane").screenshot({ path: testInfo.outputPath("new-note.png") });
     });
   });
 }

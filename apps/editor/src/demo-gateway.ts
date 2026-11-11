@@ -13,7 +13,7 @@ import type {
   TypePackProvision
 } from "@mdbase-dev/connect";
 import { parse } from "yaml";
-import { persistedBody } from "./note";
+import { createdBody } from "./note";
 import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
 import { composeRecordSource, parseRecordSource } from "./record-source";
 import type {
@@ -267,9 +267,7 @@ export class DemoCollectionGateway implements CollectionGateway {
     note.frontmatter = { ...input.properties, ...(input.type ? { type: input.type } : {}) };
     note.effectiveFrontmatter = structuredClone(note.frontmatter);
     note.types = input.type ? [input.type] : [];
-    note.body = input.titleField
-      ? input.body
-      : persistedBody(input.title, input.body, { kind: "heading" });
+    note.body = createdBody(input);
     note.document = composeRecordSource(note.frontmatter, note.body ?? "");
     note.file = {
       ...note.file!,

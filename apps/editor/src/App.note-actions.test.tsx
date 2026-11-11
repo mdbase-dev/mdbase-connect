@@ -223,16 +223,18 @@ describe("Note actions", () => {
     expect(list.scrollTop).toBe(76);
   });
 
-  it("uses the existing note composer with the empty quick-open search as its title", async () => {
+  it("creates the note a quick-open search did not find, under the name searched for", async () => {
     const user = userEvent.setup();
-    render(<App gateway={new DemoCollectionGateway(4)} />);
+    const gateway = new DemoCollectionGateway(4);
+    render(<App gateway={gateway} />);
     await screen.findByRole("textbox", { name: "Note body" });
     await user.keyboard("{Control>}p{/Control}");
     const input = await screen.findByRole("combobox", { name: "Find a note or action" });
     await user.type(input, "A newly imagined note");
     await user.keyboard("{Enter}");
-    expect(await screen.findByDisplayValue("A newly imagined note")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Create note/ })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "A newly imagined note.md" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("A newly imagined note");
+    expect((await gateway.read("A newly imagined note.md")).body).toBe("# A newly imagined note\n");
   });
 
   it("keeps the mobile rename-path action independent of its translated label", async () => {

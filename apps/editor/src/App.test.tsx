@@ -5,7 +5,6 @@ import { describe, expect, it, vi } from "vitest";
 import { MdbaseConnectError, normalizeCollectionChange, type CollectionChange, type DirectAccessStatus, type WatchStatus } from "@mdbase-dev/connect";
 import { connectProblem } from "@mdbase-dev/connect-testing";
 import { App } from "./App";
-import type { LeaveIntent } from "@mdbase-dev/ui/collections";
 import { DemoCollectionGateway } from "./demo-gateway";
 import type {
   CollectionGateway,
@@ -18,7 +17,6 @@ import type {
   NoteIndexResult,
   NoteSummary
 } from "./model";
-import { chooseOption } from "./test/select";
 
 vi.mock("./CodeEditor", () => ({
   CodeEditor: ({ header, value, onChange, label, readOnly, footer }: { header?: ReactNode; value: string; onChange?: (value: string) => void; label: string; readOnly?: boolean; footer?: ReactNode }) =>
@@ -282,68 +280,7 @@ describe("mdbase editor", () => {
     expect((body as HTMLTextAreaElement).value).toContain("A local sentence.");
   });
 
-  it("creates a note and exposes collection-wide navigation", async () => {
-    const gateway = new DemoCollectionGateway(4);
-    const user = userEvent.setup();
-    render(<App gateway={gateway} />);
-
-    await within(await screen.findByRole("region", { name: "Notes and files" })).findByRole("heading", { name: "All notes" });
-    await screen.findByRole("textbox", { name: "Note body" });
-    await user.click(screen.getByRole("button", { name: "New note" }));
-    const title = await screen.findByRole("textbox", { name: "Title" });
-    await user.type(title, "A useful note");
-    expect(screen.getByLabelText("Suggested path")).toHaveTextContent("A useful note.md");
-    await chooseOption(user, screen.getByRole("combobox", { name: "Type" }), "note");
-    expect(screen.getByLabelText("Suggested path")).toHaveTextContent("Notes/A useful note.md");
-    await user.type(screen.getByRole("textbox", { name: "Note body" }), "The opening paragraph is already here.");
-    await user.click(screen.getByRole("button", { name: "Create note" }));
-    expect(await screen.findByDisplayValue("A useful note")).toBeInTheDocument();
-    await waitFor(async () => expect((await gateway.list()).notes.length).toBe(5));
-    const created = await gateway.read("Notes/A useful note.md");
-    expect(created.frontmatter.title).toBe("A useful note");
-    expect(created.body).toBe("The opening paragraph is already here.");
-  });
-
-  it("the shared switcher asks before an unfinished note is discarded, and drains before switching", async () => {
-    const gateway = new DemoCollectionGateway(2);
-    const user = userEvent.setup();
-    let beforeLeave: ((intent: LeaveIntent) => boolean | Promise<boolean>) | undefined;
-    render(<App gateway={gateway} collectionSwitcher={(onBeforeLeave) => { beforeLeave = onBeforeLeave; return <span>Shared switcher</span>; }} />);
-    await within(await screen.findByRole("region", { name: "Notes and files" })).findByRole("heading", { name: "All notes" });
-    expect(within(screen.getByRole("complementary", { name: "Collection navigation" })).getByText("Shared switcher")).toBeInTheDocument();
-    await expect(Promise.resolve(beforeLeave?.("switch"))).resolves.toBe(true);
-    await user.click(screen.getByRole("button", { name: "New note" }));
-    await user.type(await screen.findByRole("textbox", { name: "Title" }), "Half written");
-    let leaving!: Promise<boolean>;
-    act(() => { leaving = Promise.resolve(beforeLeave?.("switch") ?? true); });
-    const dialog = await screen.findByRole("alertdialog", { name: "Switch collections?" });
-    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    await expect(leaving).resolves.toBe(false);
-    expect(screen.getByRole("textbox", { name: "Title" })).toHaveValue("Half written");
-    act(() => { leaving = Promise.resolve(beforeLeave?.("switch") ?? true); });
-    await user.click(within(await screen.findByRole("alertdialog", { name: "Switch collections?" })).getByRole("button", { name: "Switch collection" }));
-    await expect(leaving).resolves.toBe(true);
-  });
-
-  it("creates untyped notes at the collection root", async () => {
-    const gateway = new DemoCollectionGateway(2);
-    const user = userEvent.setup();
-    render(<App gateway={gateway} />);
-
-    await within(await screen.findByRole("region", { name: "Notes and files" })).findByRole("heading", { name: "All notes" });
-    await user.click(screen.getByRole("button", { name: "New note" }));
-    await user.type(await screen.findByRole("textbox", { name: "Title" }), "Root note");
-    expect(screen.getByLabelText("Suggested path")).toHaveTextContent("Root note.md");
-    await user.type(screen.getByRole("textbox", { name: "Note body" }), "Captured before creation.");
-    await user.click(screen.getByRole("button", { name: "Create note" }));
-
-    expect(await screen.findByDisplayValue("Root note")).toBeInTheDocument();
-    const created = await gateway.read("Root note.md");
-    expect(created.types).toEqual([]);
-    expect(created.body).toBe("# Root note\n\nCaptured before creation.");
-  });
-
-  it("creates a new folder with its first note", async () => {
+  it("names a new folder in the rail and opens its first note", async () => {
     const gateway = new DemoCollectionGateway(2);
     const user = userEvent.setup();
     render(<App gateway={gateway} />);
@@ -351,13 +288,22 @@ describe("mdbase editor", () => {
     await within(await screen.findByRole("region", { name: "Notes and files" })).findByRole("heading", { name: "All notes" });
     const folderNavigation = screen.getByRole("group", { name: "Folders" });
     await user.click(within(folderNavigation).getByRole("button", { name: "New folder" }));
+    await user.keyboard("{Escape}");
+    expect(within(folderNavigation).queryByRole("textbox")).not.toBeInTheDocument();
 
-    await user.type(screen.getByRole("textbox", { name: "Folder name" }), "Research");
-    await user.type(screen.getByRole("textbox", { name: "First note" }), "Reading list");
-    expect(screen.getByText("Research/Reading list.md")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Create folder" }));
+    await user.click(within(folderNavigation).getByRole("button", { name: "New folder" }));
+    const name = within(folderNavigation).getByRole("textbox", { name: "Name of the new folder" });
+    expect(name).toHaveFocus();
+    expect(name).toHaveAccessibleDescription("Opens a new note in the folder.");
+    await user.type(name, "Research{Enter}");
+    expect(within(folderNavigation).queryByRole("textbox")).not.toBeInTheDocument();
 
-    expect(await screen.findByRole("textbox", { name: "Note title" })).toHaveValue("Reading list");
+    const title = screen.getByRole("textbox", { name: "Note title" });
+    await waitFor(() => expect(title).toHaveFocus());
+    expect(document.querySelector(".note-path-pending")).toHaveAttribute("title", "Research/Untitled.md");
+    await user.type(title, "Reading list");
+    await user.tab();
+    expect(await screen.findByRole("button", { name: "Research/Reading list.md" })).toBeInTheDocument();
     expect(await gateway.read("Research/Reading list.md")).toBeDefined();
     expect(within(folderNavigation).getByRole("button", { name: /^Show notes in Research,/ })).toBeInTheDocument();
   });
@@ -403,11 +349,11 @@ describe("mdbase editor", () => {
     expect(within(menu).getByRole("menuitem", { name: "Copy path" })).toBeInTheDocument();
     await user.click(within(menu).getByRole("menuitem", { name: "New subfolder" }));
 
-    await user.type(await screen.findByRole("textbox", { name: "Folder name" }), "Roadmap");
-    await user.type(screen.getByRole("textbox", { name: "First note" }), "Index");
-    expect(screen.getByText("Projects/Roadmap/Index.md")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Create folder" }));
-    expect(await gateway.read("Projects/Roadmap/Index.md")).toBeDefined();
+    await user.type(await within(folders).findByRole("textbox", { name: "Name of the new folder in Projects" }), "Roadmap{Enter}");
+    await waitFor(() => expect(document.querySelector(".note-path-pending")).toHaveAttribute("title", "Projects/Roadmap/Untitled.md"));
+    await user.type(screen.getByRole("textbox", { name: "Note title" }), "Index");
+    await user.tab();
+    await waitFor(async () => expect(await gateway.read("Projects/Roadmap/Index.md")).toBeDefined());
   });
 
   it("seeds new notes from the active search filter", async () => {
@@ -418,12 +364,15 @@ describe("mdbase editor", () => {
     await user.type(search, "#ideas{Enter}");
     expect(screen.getByRole("heading", { name: "#ideas" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "New note" }));
-    await user.type(await screen.findByRole("textbox", { name: "Title" }), "Tagged from filter");
-    await user.click(screen.getByRole("button", { name: "Create note" }));
-    expect((await gateway.read("Tagged from filter.md")).frontmatter.tags).toEqual(["ideas"]);
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue(""));
+    await user.type(screen.getByRole("textbox", { name: "Note title" }), "Tagged from filter");
+    await user.tab();
+    await waitFor(async () => expect((await gateway.read("Tagged from filter.md")).frontmatter.tags).toEqual(["ideas"]));
     await user.type(screen.getByRole("combobox", { name: "Search notes and files" }), "type:note{Enter}");
     await user.click(screen.getByRole("button", { name: "New note" }));
-    expect(screen.getByRole("combobox", { name: "Type" })).toHaveAttribute("data-value", "note");
+    // The type the list is filtered to is the new note's type, and its folder is where the note goes.
+    await waitFor(() => expect(document.querySelector(".note-path-pending")).toHaveAttribute("title", "Notes/Untitled.md"));
+    expect(screen.getByRole("textbox", { name: "Note title" })).toHaveAttribute("placeholder", "Title");
   });
 
   it("filters collection folders and facets and follows backlinks", async () => {
@@ -660,10 +609,11 @@ describe("mdbase editor", () => {
     const listCalls = gateway.listCalls;
     const readCalls = gateway.readCalls;
     await user.click(screen.getByRole("button", { name: "New note" }));
-    await user.type(await screen.findByRole("textbox", { name: "Title" }), "Fast note");
-    await user.click(screen.getByRole("button", { name: "Create note" }));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue(""));
+    await user.type(screen.getByRole("textbox", { name: "Note title" }), "Fast note");
+    await user.tab();
 
-    expect(await screen.findByDisplayValue("Fast note")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Fast note.md" })).toBeInTheDocument();
     expect(gateway.createCalls).toBe(1);
     await new Promise((resolve) => setTimeout(resolve, 250));
     expect(gateway.listCalls).toBe(listCalls);

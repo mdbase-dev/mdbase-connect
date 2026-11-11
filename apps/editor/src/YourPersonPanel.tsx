@@ -4,9 +4,10 @@ import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { literal } from "./i18n/literal";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { MdbaseConnectError, type CollectionDescription, type JsonObject, type PeopleDirectory, type PersonResolution, type TypePackAssessment, type TypePackProvision } from "@mdbase-dev/connect";
+import { MdbaseConnectError, type CollectionDescription, type CollectionTypeDescriptor, type JsonObject, type PeopleDirectory, type PersonResolution, type TypePackAssessment, type TypePackProvision } from "@mdbase-dev/connect";
 import type { CollectionGateway, CreateNoteInput } from "./model";
-import { NewNoteComposer } from "./NewNoteComposer";
+import { beginNewNote, changedNewNote, newNoteBlocker, newNoteForm, newNoteInput, occupiedPaths } from "./new-note";
+import { StructuredPropertiesEditor } from "./StructuredPropertiesEditor";
 import { claimedByAnotherAccount, contactCandidates, contactPersonPatch, identityPatch, newPersonProperties, personImplementations, writablePersonImplementation, type ContactCandidate } from "./person-records";
 
 import { loadPersonSetup, outdatedPersonStarter, requireGuidedPersonSetup } from "./person-setup";
@@ -249,10 +250,51 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
         </section>}
       </>}
       {implementations.length > 0 && !creating && (canCreate || (canEdit && implementations.length > 1)) && <div className="setting-row person-choice"><div><h3>{canCreate ? t`New person record` : t`Person type`}</h3><p>{canCreate ? t`Create a note for yourself, starting from your account name.` : t`The type used when linking a record to you.`}</p></div><div className="setting-controls">{implementations.length > 1 && <Select aria-label={t`Person type`} value={implementation?.typeName ?? ""} options={implementations.map((item) => ({ value: item.typeName, label: item.typeName }))} onChange={(next) => { setTypeName(next); setConversion(undefined); }} />}{canCreate && <button className="settings-secondary-action mdbase-button" type="button" onClick={() => setCreating(true)}><Trans>Create my person record</Trans></button>}</div></div>}
-      {creating && implementation && identity && <NewNoteComposer key={implementation.typeName} types={description.types.filter((type) => type.name === implementation.typeName)} defaultType={implementation.typeName} initialTitle={identity.name} initialProperties={properties} recordPaths={records.map((record) => record.path)} onCreate={create} onCancel={() => setCreating(false)} />}
+      {creating && implementation && identity && <PersonRecordForm key={implementation.typeName} types={description.types} typeName={implementation.typeName} name={identity.name} properties={properties} recordPaths={records.map((record) => record.path)} onCreate={create} onCancel={() => setCreating(false)} />}
       <details className="settings-details"><summary><span><Trans>About existing contacts</Trans></span><ChevronRight aria-hidden="true" /></summary><p className="settings-note"><Trans>You can link an existing person directly, or review converting a single contact without changing the rest of your address book. Advanced Person mappings are available in Types; required fields there affect every record of that type.</Trans></p></details>
     </>}
   </section>;
+}
+
+/** A person record is made on purpose, from Settings: its name, then whatever its type requires. */
+function PersonRecordForm({ types, typeName, name, properties, recordPaths, onCreate, onCancel }: {
+  types: CollectionTypeDescriptor[];
+  typeName: string;
+  name: string;
+  properties: JsonObject;
+  recordPaths: string[];
+  onCreate: (input: CreateNoteInput) => Promise<void>;
+  onCancel: () => void;
+}) {
+  useLingui();
+  const form = useMemo(() => newNoteForm(typeName, types), [typeName, types, i18n.locale]);
+  const [note, setNote] = useState(() => beginNewNote({ type: typeName, title: name, properties }, types));
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string>();
+  const blocker = newNoteBlocker(note, form);
+  const label = form.titleLabel ?? t`Name`;
+  return <form className="settings-review person-record-form" aria-label={t`New person record`} onSubmit={(event) => {
+    event.preventDefault();
+    if (blocker || creating) return;
+    setCreating(true);
+    setError(undefined);
+    onCreate(newNoteInput(note, form, occupiedPaths(recordPaths)))
+      .catch((reason: unknown) => { setCreating(false); setError(reason instanceof Error ? reason.message : String(reason)); });
+  }}>
+    <div className="property-row">
+      <div className="property-row-label"><label htmlFor="person-record-name">{label}</label></div>
+      <input id="person-record-name" value={note.title} autoFocus onChange={(event) => setNote((current) => changedNewNote(current, { title: event.target.value }))} />
+    </div>
+    {form.required.length > 0 && <StructuredPropertiesEditor value={note.properties} contract={{ properties: form.properties, required: form.required }}
+      propertyNames={form.required} recordPaths={recordPaths} initializeRequired allowAdd={false} allowCustom={false} emptyMessage=""
+      onChange={(next) => setNote((current) => changedNewNote(current, { properties: next }))}
+      onValidityChange={(propertiesValid) => setNote((current) => changedNewNote(current, { propertiesValid }))} />}
+    {error ? <p className="settings-alert" role="alert">{error}</p> : blocker && note.title.trim() && <p>{blocker}</p>}
+    <div className="settings-review-actions">
+      <button className="settings-secondary-action mdbase-button" type="submit" disabled={creating || Boolean(blocker) || !note.title.trim()}>{creating ? t`Creating` : t`Create my person record`}</button>
+      <button className="settings-quiet-action mdbase-button is-tertiary" type="button" disabled={creating} onClick={onCancel}><Trans>Cancel</Trans></button>
+    </div>
+  </form>;
 }
 
 function ResolutionProblem({ resolution }: { resolution: PersonResolution }) {

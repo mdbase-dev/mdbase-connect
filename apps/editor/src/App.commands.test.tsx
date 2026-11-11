@@ -192,7 +192,7 @@ describe("workspace commands", () => {
     const input = within(dialog).getByRole("combobox");
     fireEvent.change(input, { target: { value: ">new note in current folder" } });
     fireEvent.keyDown(input, { key: "Enter" });
-    await waitFor(() => expect(screen.getByRole("textbox", { name: "Title" })).toHaveValue(""));
-    expect(screen.getByLabelText("Suggested path")).toHaveTextContent("Notes/");
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue(""));
+    expect(document.querySelector(".note-path-pending")).toHaveAttribute("title", "Notes/Untitled.md");
   });
 });

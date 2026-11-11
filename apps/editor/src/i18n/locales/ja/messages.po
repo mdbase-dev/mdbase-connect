@@ -36,14 +36,6 @@ msgstr " 移動がまだ適用中の可能性があります。再試行する�
 msgid ", {0} of {1} required"
 msgstr "、必須項目 {1} 件中 {0} 件"
 
-#: src/NewNoteComposer.tsx
-msgid ".md"
-msgstr ".md"
-
-#: src/NewNoteComposer.tsx
-msgid "‹title›"
-msgstr "‹タイトル›"
-
 #. placeholder {0}: session.draft.title || session.document.path
 #: src/App.tsx
 msgid "“{0}” changed elsewhere. Your edits are still here."
@@ -188,11 +180,6 @@ msgstr "{0} {1} の型フィールド"
 #: src/TypeBrowser.tsx
 msgid "{0} added"
 msgstr "{0}を追加しました"
-
-#. placeholder {0}: optional.length
-#: src/NewNoteComposer.tsx
-msgid "{0} available"
-msgstr "利用可能：{0} 件"
 
 #. placeholder {0}: progress.completedUnits
 #: src/App.tsx
@@ -499,6 +486,10 @@ msgstr "{itemLabel}のフィールド型"
 msgid "{itemLabel} suggestions"
 msgstr "{itemLabel}の候補"
 
+#: src/new-note.ts
+msgid "{label} is needed to save this note."
+msgstr "このノートを保存するには「{label}」が必要です。"
+
 #: src/contract-catalog.ts
 #: src/gateway.ts
 msgid "{label} is not supported."
@@ -645,10 +636,6 @@ msgstr "{references, plural, other {#件のノート内のリンクも更新し�
 #: src/TypeBrowser.tsx
 msgid "{requiredMapped}/{0} required · {mappedCount}/{1} total"
 msgstr "必須 {0} 件中 {requiredMapped} 件 · 全 {1} 件中 {mappedCount} 件"
-
-#: src/NewNoteComposer.tsx
-msgid "{selectedOptional} set"
-msgstr "設定済み {selectedOptional} 件"
 
 #. placeholder {0}: this.job.file.name
 #: src/code-editor-file-embeds.ts
@@ -818,11 +805,6 @@ msgstr "追加"
 #: src/TypeBrowser.tsx
 msgid "Add {0}"
 msgstr "{0}を追加"
-
-#. placeholder {0}: primaryLabel.toLocaleLowerCase()
-#: src/NewNoteComposer.tsx
-msgid "Add a {0} to create the note."
-msgstr "ノートを作成するには{0}を追加してください。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add a custom property…"
@@ -1250,25 +1232,17 @@ msgstr "このコレクションを開けません"
 #: src/BulkNoteProperties.tsx
 #: src/FolderChangeDialog.tsx
 #: src/MoveNoteDialog.tsx
-#: src/NewNoteComposer.tsx
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
+#: src/YourPersonPanel.tsx
 msgid "Cancel"
 msgstr "キャンセル"
 
 #: src/YourPersonPanel.tsx
 msgid "Cancel conversion"
 msgstr "変換をキャンセル"
-
-#: src/NewNoteComposer.tsx
-msgid "Cancel new folder"
-msgstr "新しいフォルダーの作成をキャンセル"
-
-#: src/NewNoteComposer.tsx
-msgid "Cancel new note"
-msgstr "新しいノートの作成をキャンセル"
 
 #: src/TypeBrowser.tsx
 msgid "Catalog"
@@ -1401,6 +1375,14 @@ msgstr "レコードを選択…"
 #: src/person-records.ts
 msgid "Choose a target type that implements both Person and Contact so existing contact semantics are retained."
 msgstr "既存の連絡先の意味を維持するため、Person と Contact の両方を実装する対象の型を選択してください。"
+
+#: src/App.tsx
+msgid "Choose a type"
+msgstr "型を選択"
+
+#: src/App.tsx
+msgid "Choose a type for the new note"
+msgstr "新しいノートの型を選択"
 
 #: src/TypeBrowser.tsx
 msgid "Choose an icon"
@@ -1829,6 +1811,7 @@ msgstr "{label}をコピーできませんでした。"
 msgid "Couldn’t copy the path. Clipboard access is unavailable."
 msgstr "パスをコピーできませんでした。クリップボードを利用できません。"
 
+#. placeholder {0}: input.path
 #. placeholder {0}: linked.path
 #. placeholder {1}: gatewayError(error)
 #: src/App.tsx
@@ -1921,31 +1904,14 @@ msgstr "アカウント名を使って自分のノートを作成します。"
 msgid "Create fields that already match an installed contract. You can rename and remap them later."
 msgstr "インストール済みの契約にすでに一致するフィールドを作成します。名前と対応付けは後で変更できます。"
 
-#: src/NewNoteComposer.tsx
-msgid "Create folder"
-msgstr "フォルダーを作成"
-
-#: src/NewNoteComposer.tsx
-msgid "Create it with a first note. Empty folders aren’t stored."
-msgstr "最初のノートとともに作成します。空のフォルダーは保存されません。"
-
 #: src/YourPersonPanel.tsx
 msgid "Create my person record"
 msgstr "自分の人物レコードを作成"
-
-#: src/editor-commands.ts
-#: src/NewNoteComposer.tsx
-msgid "Create note"
-msgstr "ノートを作成"
 
 #. placeholder {0}: query.trim()
 #: src/QuickOpen.tsx
 msgid "Create note ‘{0}’"
 msgstr "ノート「{0}」を作成"
-
-#: src/NewNoteComposer.tsx
-msgid "Create note (Ctrl or Command + Enter)"
-msgstr "ノートを作成（Ctrl または Command + Enter）"
 
 #: src/ConnectionScreens.tsx
 msgid "create notes"
@@ -1972,13 +1938,9 @@ msgstr "型「{0}」を作成しました。"
 msgid "Creates a ready-to-use {primaryTypeLabel} type with standard fields and an editable contract mapping. Existing files will not be overwritten; installation stops if any target conflicts."
 msgstr "標準フィールドと編集可能な契約の対応付けを備えた、すぐ使える{primaryTypeLabel}型を作成します。既存のファイルは上書きされません。対象のいずれかが競合する場合、インストールは中止されます。"
 
-#: src/NewNoteComposer.tsx
+#: src/YourPersonPanel.tsx
 msgid "Creating"
 msgstr "作成中"
-
-#: src/NewNoteComposer.tsx
-msgid "Creating folder"
-msgstr "フォルダーを作成中"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Custom"
@@ -2123,20 +2085,12 @@ msgid "Discard changes"
 msgstr "変更を破棄"
 
 #: src/App.tsx
-msgid "Discard folder"
-msgstr "フォルダーを破棄"
-
-#: src/App.tsx
 msgid "Discard note"
 msgstr "ノートを破棄"
 
 #: src/App.tsx
 msgid "Discard recovered edits"
 msgstr "復元した編集を破棄"
-
-#: src/App.tsx
-msgid "Discard this folder?"
-msgstr "このフォルダーを破棄しますか？"
 
 #: src/App.tsx
 msgid "Discard this note?"
@@ -2201,14 +2155,6 @@ msgstr "複製"
 msgid "Duplicated note."
 msgstr "ノートを複製しました。"
 
-#: src/NewNoteComposer.tsx
-msgid "e.g. Reading list"
-msgstr "例：読書リスト"
-
-#: src/NewNoteComposer.tsx
-msgid "e.g. Research"
-msgstr "例：調査"
-
 #: src/TypeBrowser.tsx
 msgid "Each choice includes its portable contract and an editable local mapping."
 msgstr "各選択肢には移植可能な契約と、編集可能なローカルの対応付けが含まれます。"
@@ -2228,10 +2174,6 @@ msgstr "ノートを編集・移動"
 #: src/PropertiesPanel.tsx
 msgid "Edit as source"
 msgstr "ソースとして編集"
-
-#: src/NewNoteComposer.tsx
-msgid "Edit file path"
-msgstr "ファイルパスを編集"
 
 #: src/ConnectionScreens.tsx
 msgid "edit notes"
@@ -2435,10 +2377,6 @@ msgstr "削除されたフィールド"
 msgid "File · {0}"
 msgstr "ファイル · {0}"
 
-#: src/NewNoteComposer.tsx
-msgid "File path"
-msgstr "ファイルパス"
-
 #: src/FileViewer.tsx
 msgid "File viewer, {filename}"
 msgstr "ファイルビューアー、{filename}"
@@ -2447,7 +2385,7 @@ msgstr "ファイルビューアー、{filename}"
 msgid "Files can’t be renamed in the Editor."
 msgstr "エディターではファイル名を変更できません。"
 
-#: src/NewNoteComposer.tsx
+#: src/new-note.ts
 msgid "Fill in the required properties."
 msgstr "必須のプロパティを入力してください。"
 
@@ -2488,10 +2426,6 @@ msgstr "フォルダーを検索中…"
 msgid "Finish adding {0}"
 msgstr "{0}の追加を完了"
 
-#: src/NewNoteComposer.tsx
-msgid "First note"
-msgstr "最初のノート"
-
 #: src/PropertiesPanel.tsx
 msgid "Fix invalid fields to continue saving"
 msgstr "無効なフィールドを修正してから保存してください"
@@ -2500,7 +2434,7 @@ msgstr "無効なフィールドを修正してから保存してください"
 msgid "Fix mapping"
 msgstr "対応付けを修正"
 
-#: src/NewNoteComposer.tsx
+#: src/new-note.ts
 msgid "Fix the highlighted property values."
 msgstr "強調表示されたプロパティ値を修正してください。"
 
@@ -2543,8 +2477,8 @@ msgstr "フォルダーの変更に確認が必要です"
 msgid "Folder changes were applied, but refreshing the index failed. {0}"
 msgstr "フォルダーの変更は適用されましたが、索引の更新に失敗しました。{0}"
 
+#: src/CollectionRail.tsx
 #: src/FolderChangeDialog.tsx
-#: src/NewNoteComposer.tsx
 msgid "Folder name"
 msgstr "フォルダー名"
 
@@ -2622,6 +2556,10 @@ msgstr "今後のファイルパスが変わる可能性があります"
 msgid "Gains"
 msgstr "新たに該当"
 
+#: src/App.tsx
+msgid "General note"
+msgstr "一般的なノート"
+
 #: src/TypeBrowser.tsx
 msgid "Generated path ownership"
 msgstr "生成されるパスの管理"
@@ -2698,10 +2636,6 @@ msgstr "影響範囲は現在索引に登録されているノートに基づき
 #: src/editor-commands.ts
 msgid "in the list"
 msgstr "リスト内"
-
-#: src/editor-commands.ts
-msgid "in the note composer"
-msgstr "ノート作成画面で"
 
 #: src/type-contracts.ts
 msgid "Incompatible"
@@ -3275,6 +3209,7 @@ msgstr "移動中…"
 
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
+#: src/YourPersonPanel.tsx
 msgid "Name"
 msgstr "名前"
 
@@ -3287,14 +3222,20 @@ msgstr "名前"
 msgid "Name field"
 msgstr "名前フィールド"
 
-#: src/NewNoteComposer.tsx
-msgid "Name the folder to create it."
-msgstr "フォルダーを作成するには名前を付けてください。"
+#: src/CollectionRail.tsx
+msgid "Name of the new folder"
+msgstr "新しいフォルダーの名前"
+
+#. placeholder {0}: naming.parent
+#: src/CollectionRail.tsx
+msgid "Name of the new folder in {0}"
+msgstr "{0} 内の新しいフォルダーの名前"
 
 #: src/QuickOpen.tsx
 msgid "Navigate"
 msgstr "移動"
 
+#: src/App.tsx
 #: src/note-mutation-presentation.ts
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
@@ -3313,15 +3254,17 @@ msgstr "入れ子のフィールド"
 msgid "nested required fields"
 msgstr "入れ子の必須フィールド"
 
+#: src/App.tsx
+msgid "New {name}"
+msgstr "新しい{name}"
+
 #: src/CollectionRail.tsx
-#: src/NewNoteComposer.tsx
 msgid "New folder"
 msgstr "新しいフォルダー"
 
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/LoadingScreens.tsx
-#: src/NewNoteComposer.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
 msgid "New note"
@@ -3334,6 +3277,11 @@ msgstr "ここに新しいノートを作成"
 #: src/editor-commands.ts
 msgid "New note in current folder"
 msgstr "現在のフォルダーに新しいノートを作成"
+
+#: src/editor-commands.ts
+#: src/NoteList.tsx
+msgid "New note of type…"
+msgstr "型を選んで新しいノート…"
 
 #: src/YourPersonPanel.tsx
 msgid "New person record"
@@ -3474,10 +3422,6 @@ msgstr "ここへのリンクがあるノートはまだありません。"
 msgid "No notes or files found."
 msgstr "ノートやファイルが見つかりませんでした。"
 
-#: src/NewNoteComposer.tsx
-msgid "No optional properties selected."
-msgstr "任意のプロパティは選択されていません。"
-
 #: src/TypeBrowser.tsx
 msgid "No properties are marked as links."
 msgstr "リンクとして指定されたプロパティはありません。"
@@ -3490,6 +3434,7 @@ msgstr "プロパティはまだありません。"
 msgid "No text preview."
 msgstr "テキストのプレビューはありません。"
 
+#: src/App.tsx
 #: src/PropertiesPanel.tsx
 msgid "No type"
 msgstr "型なし"
@@ -3532,6 +3477,10 @@ msgstr "公開されていません"
 msgid "Not now"
 msgstr "後で"
 
+#: src/App.tsx
+msgid "Not saved yet"
+msgstr "未保存"
+
 #: src/QuickOpen.tsx
 msgid "Note"
 msgstr "ノート"
@@ -3541,7 +3490,6 @@ msgid "Note actions, in the list"
 msgstr "一覧内のノート操作"
 
 #: src/MarkdownNoteEditor.tsx
-#: src/NewNoteComposer.tsx
 msgid "Note body"
 msgstr "ノート本文"
 
@@ -3621,6 +3569,10 @@ msgstr "サブフォルダー内のノートも移動します。これらのノ
 #: src/read-only-markdown.tsx
 msgid "Notes larger than 1 MiB are read-only at launch."
 msgstr "1 MiB を超えるノートは、起動時に読み取り専用です。"
+
+#: src/NoteList.tsx
+msgid "Notes not saved yet"
+msgstr "未保存のノート"
 
 #: src/TypeBrowser.tsx
 msgid "Notes use this field to declare their type. Edit it in YAML if you need to change it."
@@ -3790,6 +3742,15 @@ msgstr "テキストのプレビューを開いています…"
 msgid "Opening transcluded note…"
 msgstr "埋め込まれたノートを開いています…"
 
+#. placeholder {0}: naming.parent
+#: src/CollectionRail.tsx
+msgid "Opens a new note in {0}/…"
+msgstr "{0}/… に新しいノートを開きます"
+
+#: src/CollectionRail.tsx
+msgid "Opens a new note in the folder."
+msgstr "フォルダーに新しいノートを開きます。"
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Operations"
@@ -3843,7 +3804,6 @@ msgstr "packs[{index}].resource_countには正の整数を指定してくださ�
 msgid "Partly installed"
 msgstr "一部インストール済み"
 
-#: src/NewNoteComposer.tsx
 #: src/note-sort.ts
 #: src/TypeBrowser.tsx
 msgid "Path"
@@ -4036,7 +3996,6 @@ msgstr "プロジェクション"
 msgid "Projects/**/*.md"
 msgstr "Projects/**/*.md"
 
-#: src/NewNoteComposer.tsx
 #: src/PropertiesPanel.tsx
 msgid "Properties"
 msgstr "プロパティ"
@@ -4358,7 +4317,7 @@ msgstr "必須フィールドの対応付け済み"
 msgid "Required match field"
 msgstr "照合に必須のフィールド"
 
-#: src/NewNoteComposer.tsx
+#: src/App.tsx
 msgid "Required properties"
 msgstr "必須プロパティ"
 
@@ -4580,6 +4539,7 @@ msgstr "保存すると一致するすべてのノートに影響します"
 msgid "Saving affects every note of type <0>{0}</0>"
 msgstr "保存すると<0>{0}</0>型のすべてのノートに影響します"
 
+#: src/App.tsx
 #: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
@@ -4827,7 +4787,6 @@ msgid "Start with app compatibility"
 msgstr "アプリとの互換性から始める"
 
 #: src/MarkdownNoteEditor.tsx
-#: src/NewNoteComposer.tsx
 msgid "Start writing"
 msgstr "入力を開始"
 
@@ -4850,10 +4809,6 @@ msgstr "構造化フロントマターの条件"
 #: src/TypeBrowser.tsx
 msgid "Suggested from field names and shapes only. Confirm that the meanings agree."
 msgstr "フィールド名と構造のみから推奨しています。意味が一致するか確認してください。"
-
-#: src/NewNoteComposer.tsx
-msgid "Suggested path"
-msgstr "候補パス"
 
 #: src/App.tsx
 #: src/editor-commands.ts
@@ -5156,10 +5111,6 @@ msgstr "確認中に定義が変更されました。"
 msgid "The destination folder “{to}” already exists. Choose another name or move its notes individually; folders are not merged automatically."
 msgstr "移動先のフォルダー「{to}」はすでに存在します。別の名前を選ぶか、ノートを個別に移動してください。フォルダーは自動的には統合されません。"
 
-#: src/App.tsx
-msgid "The details you entered haven’t been created yet."
-msgstr "入力した詳細はまだ作成されていません。"
-
 #: src/YourPersonPanel.tsx
 msgid "The Editor can link a person record only to an identity you let it read. Approve the Editor again for this collection and allow “See your account identity and display name”."
 msgstr "エディターが人物レコードをリンクするには、閲覧を許可された識別情報が必要です。このコレクションでエディターを再度承認し、「アカウントの識別情報と表示名を閲覧」を許可してください。"
@@ -5254,10 +5205,6 @@ msgstr "新しい型定義はまだ保存されていません。"
 msgid "The note change was rejected."
 msgstr "ノートの変更は拒否されました。"
 
-#: src/NewNoteComposer.tsx
-msgid "The note could not be created."
-msgstr "ノートを作成できませんでした。"
-
 #: src/AttachmentUpload.tsx
 #: src/code-editor-file-embeds.ts
 msgid "The note is no longer editable."
@@ -5270,6 +5217,10 @@ msgstr "ノートのメタデータが変わりましたが、タイトルと本
 #: src/App.tsx
 msgid "The note or attachment index is refreshing. Wait for it to finish, then review the folder change again."
 msgstr "ノートまたは添付ファイルの索引を更新中です。完了を待ってからフォルダーの変更を再確認してください。"
+
+#: src/App.tsx
+msgid "The note that hasn’t been saved will be discarded. Saved note and property changes will finish first."
+msgstr "まだ保存されていないノートは破棄されます。保存済みのノートとプロパティの変更は先に完了します。"
 
 #: src/next-editor-records.ts
 msgid "The original complete note source is unavailable."
@@ -5428,16 +5379,8 @@ msgid "The type-pack resource count does not match the catalog."
 msgstr "型パックのリソース数がカタログと一致しません。"
 
 #: src/App.tsx
-msgid "The unfinished folder hasn’t been created."
-msgstr "作成途中のフォルダーはまだ作成されていません。"
-
-#: src/App.tsx
 msgid "The unfinished note hasn’t been created."
 msgstr "作成途中のノートはまだ作成されていません。"
-
-#: src/App.tsx
-msgid "The unfinished note or folder will be discarded. Saved note and property changes will finish first."
-msgstr "作成途中のノートまたはフォルダーは破棄されます。保存済みのノートとプロパティの変更は先に完了します。"
 
 #: src/TypeBrowser.tsx
 msgid "The YAML source could not be read."
@@ -5676,7 +5619,6 @@ msgstr "この型は保存後に変更されました。再び編集する前に
 msgid "This value does not match the required format."
 msgstr "この値は必須の形式に一致しません。"
 
-#: src/NewNoteComposer.tsx
 #: src/note-sort.ts
 msgid "Title"
 msgstr "タイトル"
@@ -5688,10 +5630,6 @@ msgstr "タイトルの昇順"
 #: src/ConflictResolver.tsx
 msgid "Title differences"
 msgstr "タイトルの差分"
-
-#: src/NewNoteComposer.tsx
-msgid "Title the first note to create the folder."
-msgstr "フォルダーを作成するには、最初のノートにタイトルを付けてください。"
 
 #: src/collection-browser.ts
 msgid "Today"
@@ -5735,10 +5673,6 @@ msgstr "真"
 #: src/WorkspaceChrome.tsx
 msgid "Try again"
 msgstr "再試行"
-
-#: src/NewNoteComposer.tsx
-msgid "Type"
-msgstr "型"
 
 #. placeholder {0}: filter.value
 #: src/note-list-view.ts
@@ -5904,8 +5838,8 @@ msgstr "署名なし"
 #: src/App.tsx
 #: src/ConflictResolver.tsx
 #: src/MarkdownNoteEditor.tsx
-#: src/NewNoteComposer.tsx
 #: src/note.ts
+#: src/NoteList.tsx
 msgid "Untitled"
 msgstr "無題"
 
@@ -5977,10 +5911,6 @@ msgstr "空の要素、.、.. を含まないコレクション内の相対フ�
 #: src/use-note-actions.ts
 msgid "Use a collection-relative path ending in .md."
 msgstr "末尾が .md のコレクション内の相対パスを使用してください。"
-
-#: src/NewNoteComposer.tsx
-msgid "Use a Markdown file path ending in .md."
-msgstr "末尾が .md の Markdown ファイルパスを使用してください。"
 
 #: src/TypeBrowser.tsx
 msgid "Use contract"

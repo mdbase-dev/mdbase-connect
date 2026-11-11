@@ -45,7 +45,7 @@ export function editableNote(
     return {
       title: typeof value === "string" && value.trim()
         ? value.trim()
-        : markdownHeading(body) ?? basename(note.path),
+        : markdownHeading(body) ?? (untitledPath(note.path) ? "" : basename(note.path)),
       body,
       source: { kind: "frontmatter", field }
     };
@@ -57,8 +57,19 @@ export function editableNote(
     return { title: heading[1].trim(), body: content, source: { kind: "heading" } };
   }
 
-  const title = unnamedRecordTitle(note.path, body);
+  // A note still on its placeholder file name has no title yet: the field stays empty.
+  const title = untitledPath(note.path) ? "" : unnamedRecordTitle(note.path, body);
   return { title, body, source: { kind: "path", title } };
+}
+
+/** Whether the file still carries the placeholder name a note gets before it has a title. */
+export function untitledPath(path: string): boolean {
+  return /^Untitled(?: \(\d+\))?\.md$/i.test(path.split("/").at(-1) ?? "");
+}
+
+/** The Markdown a new note is written with: a title heading unless the type names a title field or there is no title yet. */
+export function createdBody(input: { title: string; body: string; titleField?: string }): string {
+  return input.titleField || !input.title.trim() ? input.body : persistedBody(input.title, input.body, { kind: "heading" });
 }
 
 export function persistedBody(title: string, body: string, source: TitleSource): string {
@@ -71,9 +82,10 @@ export function persistedBody(title: string, body: string, source: TitleSource):
 }
 
 export function titlePatch(title: string, source: TitleSource, frontmatter: JsonObject = {}): JsonObject {
-  return source.kind === "frontmatter"
-    ? fieldReferencePatch(frontmatter, source.field, title.trim() || "Untitled")
-    : {};
+  if (source.kind !== "frontmatter") return {};
+  // An untitled note with no name yet stays that way; only clearing a name that was set writes the placeholder.
+  if (!title.trim() && readFieldReference(frontmatter, source.field) === undefined) return {};
+  return fieldReferencePatch(frontmatter, source.field, title.trim() || "Untitled");
 }
 
 export function noteTitle(

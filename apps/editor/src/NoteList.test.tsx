@@ -178,6 +178,45 @@ describe("NoteList search presentation", () => {
     expect(props.onSelectFile).not.toHaveBeenCalled();
   });
 
+  it("lists notes that are not saved yet above the collection's notes, and offers a type for a new one", () => {
+    const note: NoteSummary = { path: "Notes/one.md", frontmatter: {}, effectiveFrontmatter: {}, types: [], body: "", file: { mtime: "2026-01-01T12:00:00Z" } };
+    const noop = () => {};
+    const openDraft = vi.fn(), create = vi.fn(), createOfType = vi.fn();
+    const list = (drafts: Array<{ id: string; title: string; selected: boolean; status: string }>) => <NoteList
+      entries={[{ kind: "note" as const, path: note.path, note }] as never}
+      noteCount={1} fileCount={0} types={[]} selectedPath={undefined} statuses={new Map()}
+      search="" searchQuery="" searchContexts={new Map()} sort={defaultNoteSort} sortFields={[]}
+      collectionName="Test" loading={false} structureLoading={false} filesLoading={false}
+      contentIndexing={false} contentLoaded={1}
+      onSearch={noop} onSort={noop} onClearScope={noop} onQuickOpen={noop}
+      onRetryStructure={noop} onRetryContent={noop} onRetryFiles={noop} onSelect={noop}
+      onSelectFile={noop} onCollections={noop}
+      drafts={drafts} onOpenDraft={openDraft} onCreate={create} onCreateOfType={createOfType}
+    />;
+    const view = render(list([
+      { id: "a", title: "", selected: true, status: "Not saved yet" },
+      { id: "b", title: "Planning", selected: false, status: "Needs attention" }
+    ]));
+    const drafts = screen.getByRole("group", { name: "Notes not saved yet" });
+    const [untitled, planning] = Array.from(drafts.querySelectorAll("button"));
+    expect(untitled).toHaveTextContent("Untitled");
+    expect(untitled).toHaveTextContent("Not saved yet");
+    expect(untitled).toHaveAttribute("aria-current", "true");
+    expect(planning).toHaveTextContent("Planning");
+    expect(planning).toHaveTextContent("Needs attention");
+    expect(planning).not.toHaveAttribute("aria-current");
+    fireEvent.click(planning);
+    expect(openDraft).toHaveBeenCalledWith("b");
+
+    fireEvent.click(screen.getByRole("button", { name: "New note" }));
+    fireEvent.click(screen.getByRole("button", { name: "New note of type…" }));
+    expect(create).toHaveBeenCalledOnce();
+    expect(createOfType).toHaveBeenCalledOnce();
+
+    view.rerender(list([]));
+    expect(screen.queryByRole("group", { name: "Notes not saved yet" })).not.toBeInTheDocument();
+  });
+
   it("names note and file entries by the text they show", () => {
     const note: NoteSummary = { path: "Notes/one.md", frontmatter: {}, effectiveFrontmatter: {}, types: [], body: "", file: { mtime: "2026-01-01T12:00:00Z" } };
     const noop = () => {};

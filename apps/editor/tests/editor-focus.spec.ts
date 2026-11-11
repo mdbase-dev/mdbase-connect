@@ -66,7 +66,7 @@ test("the new-note title accepts typing while the CodeEditor chunk is delayed", 
     const title = "Cold editor jkjk probe";
     await page.keyboard.press("c");
     await page.keyboard.type(title, { delay: 40 });
-    const input = page.getByRole("textbox", { name: "Title", exact: true });
+    const input = page.getByRole("textbox", { name: "Note title", exact: true });
     await expect(input).toHaveValue(title);
     await expect(input).toBeFocused();
     expect(await list.evaluate(element => element.scrollTop)).toBe(before);
@@ -76,8 +76,10 @@ test("the new-note title accepts typing while the CodeEditor chunk is delayed", 
     await expect(input).toBeFocused();
     await page.keyboard.type(" saved", { delay: 40 });
     await expect(input).toHaveValue(`${title} saved`);
-    await page.keyboard.press("Control+Enter");
-    await expect(page.getByRole("textbox", { name: "Note title", exact: true })).toHaveValue(`${title} saved`);
+    await page.keyboard.press("Enter");
+    await expect(input).toHaveValue(`${title} saved`);
+    await expect(page.getByRole("button", { name: `${title} saved.md`, exact: true })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Note body", exact: true })).toBeFocused();
   } finally {
     releaseChunk();
   }

@@ -92,9 +92,10 @@ for (const width of [1440, 390]) {
         await input.fill("A brand new W4 note");
         await expect(page.getByRole("option", { name: "Create note ‘A brand new W4 note’", exact: true })).toBeVisible();
         await input.press("Enter");
-        await expect(page.locator(".new-note-title input")).toHaveValue("A brand new W4 note");
-        await page.getByRole("button", { name: "Create note", exact: false }).click();
+        // The note searched for is written under that name at once, ready for its body.
         await expect(page.getByRole("textbox", { name: "Note title", exact: true })).toHaveValue("A brand new W4 note");
+        await expect(page.locator('.path-button[aria-label="A brand new W4 note.md"], .mobile-note-path[title="A brand new W4 note.md"]')).toBeVisible();
+        await expect(page.locator(".note-unsaved")).toHaveCount(0);
       });
 
       test("keeps type review concrete, backlinks touch-sized, and unknown location unchanged", async ({ page }, testInfo) => {

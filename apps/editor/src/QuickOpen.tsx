@@ -30,7 +30,9 @@ export function quickOpenResults({ index, recentPaths, types, commands, onSelect
       run: () => onSelect(result.note.path)
     };
   });
-  if (!commandMode && commandQuery && !results.length && onCreate) entries.push({ id: "create-note", label: t`Create note ‘${query.trim()}’`, group: t`Notes`, run: () => onCreate(commandQuery) });
+  // A search can always become a note, unless a note already has exactly that title.
+  const titled = commandQuery.toLocaleLowerCase();
+  if (!commandMode && commandQuery && onCreate && !entries.some((entry) => entry.label.toLocaleLowerCase() === titled)) entries.push({ id: "create-note", label: t`Create note ‘${query.trim()}’`, group: t`Notes`, run: () => onCreate(commandQuery) });
   if (commandMode || !commandQuery || !results.length) entries.push(...filterCommands(commands, commandQuery).map(command => ({
     id: command.id, label: command.label, detail: command.hint, group: t`Actions`, shortcut: command.shortcut, context: commandQuery ? undefined : command.context,
     content: <><strong><SearchMatchText text={command.label} ranges={searchTextRanges(command.label, commandQuery)} /></strong>

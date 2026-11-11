@@ -24,7 +24,7 @@ let editorSessionSequence = 0;
  * its Markdown into the editor's title/body draft and back.
  */
 export class NoteSession {
-  readonly editorSessionKey = `note-editor-${++editorSessionSequence}`;
+  readonly editorSessionKey: string;
   readonly record: MdbaseRecordSession<NoteDocument>;
   draft: Draft;
   activity?: NoteActivity;
@@ -40,8 +40,11 @@ export class NoteSession {
   constructor(
     document: NoteDocument,
     private readonly types: () => CollectionTypeDescriptor[],
-    adapter: MdbaseRecordSessionAdapter<NoteDocument>
+    adapter: MdbaseRecordSessionAdapter<NoteDocument>,
+    /** A new note keeps the editor it was written in; every other session gets its own. */
+    editorSessionKey = `note-editor-${++editorSessionSequence}`
   ) {
+    this.editorSessionKey = editorSessionKey;
     this.record = new MdbaseRecordSession(document, adapter, { autosave: { idleMs: AUTOSAVE_IDLE_MS } });
     this.draft = editableNote(document, types());
   }

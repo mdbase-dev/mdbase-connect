@@ -19,7 +19,6 @@ vi.mock("./person-setup", async (original) => ({
   ...await original<typeof import("./person-setup")>(),
   loadPersonSetup: vi.fn(async () => bundled as TypePackProvision)
 }));
-vi.mock("./NewNoteComposer", () => ({ NewNoteComposer: () => <div role="region" aria-label="Create person form" /> }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 const empty = { collectionId: "fixture", types: [], contracts: [] } as unknown as CollectionDescription;
 const ready = { ...empty, types: [{ name: "person", schema: {} }], contracts: [{ id: "mdbase.person", version: "2.0.0", implementations: [{ typeName: "person", fields: { name: "name", identities: "identities" } }] }] } as unknown as CollectionDescription;
@@ -67,7 +66,7 @@ it("reviews exact files without writing, then opens creation after explicit appr
   expect(screen.getByText("mdbase.lock.yaml")).toBeInTheDocument();
   expect(f.gateway.applyTypePack).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Add definitions and continue" }));
-  await screen.findByRole("region", { name: "Create person form" });
+  await screen.findByRole("form", { name: "New person record" });
   expect(f.gateway.applyTypePack).toHaveBeenCalledExactlyOnceWith(bundled, f.review);
   expect(f.gateway.create).not.toHaveBeenCalled();
 });
@@ -117,7 +116,7 @@ it("still opens creation when a watch observes the approved write before apply r
   const f = fixture(); f.gateway.applyTypePack.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
   await review(); fireEvent.click(screen.getByRole("button", { name: "Add definitions and continue" }));
   f.view.rerender(f.panel(ready)); resolve({});
-  await screen.findByRole("region", { name: "Create person form" });
+  await screen.findByRole("form", { name: "New person record" });
 });
 it("keeps an existing contact selected after setup instead of opening duplicate creation", async () => {
   const f = fixture();
@@ -132,7 +131,7 @@ it("keeps an existing contact selected after setup instead of opening duplicate 
   await review(); fireEvent.click(screen.getByRole("button", { name: "Add definitions and continue" }));
   await waitFor(() => expect(f.refresh).toHaveBeenCalled());
   expect(await screen.findByRole("combobox", { name: "Existing person or contact" })).toHaveAttribute("data-value", "contact.md");
-  expect(screen.queryByRole("region", { name: "Create person form" })).toBeNull();
+  expect(screen.queryByRole("form", { name: "New person record" })).toBeNull();
   expect(f.gateway.create).not.toHaveBeenCalled();
 });
 it("will not overwrite an existing Person seed or adopt different unmanaged bytes", () => {
@@ -189,7 +188,7 @@ it("offers the Person v1 starter, which implements mdbase.person 1.0.0, the same
   expect(region).toHaveTextContent("upgrade: _types/person.md");
   expect(region).toHaveTextContent("preserve: _types/contact.md");
   fireEvent.click(screen.getByRole("button", { name: "Update definitions and continue" }));
-  await screen.findByRole("region", { name: "Create person form" });
+  await screen.findByRole("form", { name: "New person record" });
   expect(f.gateway.applyTypePack).toHaveBeenCalledExactlyOnceWith(bundled, f.review);
 });
 it("reports a Person type the engine keeps without a known starter, instead of offering it again", async () => {
@@ -214,7 +213,7 @@ it("reviews an earlier Person starter as an upgrade that keeps collection edits"
   expect(region).toHaveTextContent("upgrade: _types/person.md");
   expect(f.gateway.applyTypePack).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Update definitions and continue" }));
-  await screen.findByRole("region", { name: "Create person form" });
+  await screen.findByRole("form", { name: "New person record" });
   expect(f.gateway.applyTypePack).toHaveBeenCalledExactlyOnceWith(bundled, f.review);
   expect(screen.queryByRole("heading", { name: "Person type update available" })).toBeNull();
 });

@@ -12,8 +12,9 @@ for (const width of [1440, 390]) for (const theme of ["light", "dark"] as const)
       if (width === 390) {
         await expect(page.locator(".editor-bar").getByRole("button", { name: "New note", exact: true })).toBeVisible();
         await page.locator(".editor-bar").getByRole("button", { name: "New note", exact: true }).click();
-        await expect(page.locator(".new-note-composer")).toBeVisible();
-        await page.getByRole("button", { name: "Cancel", exact: true }).click();
+        await expect(page.locator(".note-unsaved")).toBeVisible();
+        await page.getByRole("button", { name: "Back to notes", exact: true }).click();
+        await expect(page.locator(".note-unsaved")).toHaveCount(0);
       }
       const list = page.locator(".note-scroll");
       await list.focus();
@@ -32,8 +33,9 @@ for (const width of [1440, 390]) for (const theme of ["light", "dark"] as const)
       await page.keyboard.press("g"); await page.keyboard.press("n");
       await expect(list).toBeVisible();
       await list.focus(); await page.keyboard.press("c");
-      await expect(page.locator(".new-note-composer")).toBeVisible();
-      await page.getByRole("button", { name: "Cancel", exact: true }).click();
+      await expect(page.locator(".note-unsaved")).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(page.locator(".note-unsaved")).toHaveCount(0);
       await expect(list).toBeVisible();
       await list.focus();
       await page.keyboard.press("x");

@@ -175,8 +175,7 @@
 }
 
 .property-row > input,
-.property-row .schema-value > input,
-.new-note-fields input:not([type="checkbox"]) {
+.property-row .schema-value > input {
   width: 100%;
   min-height: 34px;
   padding: 6px var(--space-2);
@@ -188,8 +187,7 @@
 }
 
 .property-row > input:focus,
-.property-row .schema-value > input:focus,
-.new-note-fields input:focus {
+.property-row .schema-value > input:focus {
   border-color: var(--line-strong);
   background: var(--white);
 }
@@ -714,13 +712,6 @@ label.schema-value {
 .custom-property > div button {
   min-height: 30px;
   padding: 0 var(--space-2);
-  font-size: var(--font-size-ui);
-}
-
-.new-note-fields label > span {
-  display: block;
-  margin-bottom: 5px;
-  color: var(--faint);
   font-size: var(--font-size-ui);
 }
 
