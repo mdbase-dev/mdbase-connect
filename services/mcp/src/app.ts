@@ -59,7 +59,12 @@ export async function buildApp(options: BuildOptions) {
     `${config.publicUrl}/oauth/connect/callback`,
     fields => app.log.warn(fields, "Native MCP routing failed")
   );
-  const oauth = new OAuthService(options.db, gateway, keyStore, config.publicUrl, config.resource);
+  const oauth = new OAuthService(options.db, gateway, keyStore, config.masterKey, config.publicUrl, config.resource);
+  const pruning = setInterval(() => {
+    oauth.pruneExpiredState().catch((error) => app.log.error({ err: error }, "MCP OAuth state pruning failed"));
+  }, 5 * 60_000);
+  pruning.unref();
+  app.addHook("onClose", async () => clearInterval(pruning));
   const resourceMetadataUrl = `${config.publicUrl}/.well-known/oauth-protected-resource/mcp`;
 
   await app.register(formbody);
@@ -79,7 +84,7 @@ export async function buildApp(options: BuildOptions) {
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof OAuthError) {
-      return reply.code(400).send({ error: error.code, error_description: error.message });
+      return reply.code(error.status).send({ error: error.code, error_description: error.message });
     }
     if (error instanceof ZodError) {
       return reply.code(400).send({
@@ -143,12 +148,16 @@ export async function buildApp(options: BuildOptions) {
     token_endpoint_auth_methods_supported: ["none"]
   }));
 
-  app.post("/oauth/register", async (request, reply) => {
+  // Both endpoints are open to unauthenticated callers and create state, so
+  // they get a tighter per-client limit than the rest of the gateway.
+  const openOAuthLimit = { rateLimit: { max: 30, timeWindow: "1 minute" } };
+
+  app.post("/oauth/register", { bodyLimit: 16 * 1024, config: openOAuthLimit }, async (request, reply) => {
     const client = await oauth.registerClient(request.body);
     return reply.code(201).send(client);
   });
 
-  app.get("/oauth/authorize", async (request, reply) => {
+  app.get("/oauth/authorize", { config: openOAuthLimit }, async (request, reply) => {
     const redirect = await oauth.beginAuthorization(request.query);
     return reply.redirect(redirect);
   });

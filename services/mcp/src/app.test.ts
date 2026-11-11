@@ -5,7 +5,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { applicationOperationSelectionIsAtomic } from "@mdbase-dev/connect-protocol";
 import { parseVersionedAppManifest } from "@mdbase-dev/connect-protocol/manifest";
 import { projectNextAuthorizationGroups } from "@mdbase-dev/connect-protocol/next-authorization";
-import { READ_OPERATIONS, WRITE_OPERATIONS } from "./oauth.js";
+import { MAX_PENDING_AUTHORIZATIONS, READ_OPERATIONS, WRITE_OPERATIONS } from "./oauth.js";
 import { ConnectGateway } from "./connect.js";
 import { PostgresGrantKeyStore } from "./key-store.js";
 import { buildApp } from "./app.js";
@@ -403,19 +403,6 @@ describe("mdbase MCP gateway", () => {
       }).toString()
     });
     expect(refreshed.statusCode).toBe(200);
-    const reusedRefresh = await app.inject({
-      method: "POST",
-      url: "/oauth/token",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      payload: new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: originalRefreshToken,
-        client_id: clientId,
-        resource: "https://mcp.example/mcp"
-      }).toString()
-    });
-    expect(reusedRefresh.statusCode).toBe(400);
-    expect(reusedRefresh.json().error).toBe("invalid_grant");
     const accessToken = refreshed.json().access_token as string;
     const context = await oauth.authenticate(accessToken);
     expect(context).not.toBeNull();
@@ -656,6 +643,148 @@ describe("mdbase MCP gateway", () => {
     await client.close();
     await app.close();
     await db.end();
+  });
+});
+
+describe("open OAuth endpoints", () => {
+  const authorizeQuery = (clientId: string) => new URLSearchParams({
+    response_type: "code", client_id: clientId, redirect_uri: "https://client.example/callback",
+    code_challenge: pkceChallenge("host-pkce-verifier-that-is-long-enough-for-s256-0002"), code_challenge_method: "S256"
+  });
+
+  it("limits registration and authorization per client address", async () => {
+    const db = await createDatabase("memory");
+    const { app } = await buildApp({ db, config: testConfig() });
+    try {
+      const register = () => app.inject({ method: "POST", url: "/oauth/register", payload: { redirect_uris: ["https://client.example/callback"] } });
+      for (let attempt = 0; attempt < 30; attempt += 1) expect((await register()).statusCode).toBe(201);
+      expect((await register()).statusCode).toBe(429);
+      const authorize = () => app.inject({ method: "GET", url: `/oauth/authorize?${authorizeQuery("unregistered")}` });
+      for (let attempt = 0; attempt < 30; attempt += 1) expect((await authorize()).statusCode).toBe(400);
+      expect((await authorize()).statusCode).toBe(429);
+      const oversized = await app.inject({ method: "POST", url: "/oauth/register", remoteAddress: "192.0.2.1", payload: {
+        redirect_uris: ["https://client.example/callback"], client_uri: `https://client.example/${"x".repeat(16 * 1024)}`
+      } });
+      expect(oversized.statusCode).toBe(413);
+      expect((await db.query("SELECT id FROM mcp_clients")).rows).toHaveLength(30);
+    } finally { await app.close(); await db.end(); }
+  });
+
+  it("refuses new authorizations while too many are pending, before contacting Connect", async () => {
+    const upstream = await fakeUpstream(globalThis.fetch, { native: true });
+    vi.stubGlobal("fetch", upstream.fetch);
+    const db = await createDatabase("memory");
+    const { app, oauth } = await buildApp({ db, config: testConfig() });
+    try {
+      const { client_id: clientId } = await oauth.registerClient({ redirect_uris: ["https://client.example/callback"] }) as { client_id: string };
+      const setId = randomUUID();
+      await db.query("INSERT INTO mcp_connection_sets (id) VALUES ($1)", [setId]);
+      const expires = new Date(Date.now() + 10 * 60_000);
+      const rows = Array.from({ length: MAX_PENDING_AUTHORIZATIONS }, (_, index) =>
+        `('${randomUUID()}', $1, $2, 'https://client.example/callback', 'challenge-${index}', 'https://mcp.example/mcp', '["mdbase:read"]'::jsonb, $3)`);
+      await db.query(
+        `INSERT INTO mcp_authorization_requests
+           (id, client_id, connection_set_id, redirect_uri, code_challenge, resource, scopes, expires_at)
+         VALUES ${rows.join(", ")}`,
+        [clientId, setId, expires]
+      );
+      const refused = await app.inject({ method: "GET", url: `/oauth/authorize?${authorizeQuery(clientId)}` });
+      expect(refused.statusCode).toBe(503);
+      expect(refused.json()).toMatchObject({ error: "temporarily_unavailable" });
+      expect(upstream.fetch).not.toHaveBeenCalled();
+
+      await db.query("UPDATE mcp_authorization_requests SET completed_at = now() WHERE code_challenge = 'challenge-0'");
+      expect((await app.inject({ method: "GET", url: `/oauth/authorize?${authorizeQuery(clientId)}` })).statusCode).toBe(302);
+    } finally { await app.close(); await db.end(); }
+  });
+
+  it("removes expired authorizations and never-used registrations but keeps live connections", async () => {
+    const fixture = await nativeOAuth();
+    const { app, db, oauth, gateway } = fixture;
+    try {
+      const callback = new URL((await fixture.callback()).headers.location!);
+      const token = await oauth.exchangeToken({
+        grant_type: "authorization_code", code: callback.searchParams.get("code"), client_id: fixture.clientId,
+        redirect_uri: "https://client.example/callback", code_verifier: fixture.verifier
+      });
+      const [connection] = (await db.query<{ key_handle: string; connection_set_id: string }>("SELECT key_handle, connection_set_id FROM mcp_connections")).rows;
+      await oauth.beginAuthorization(Object.fromEntries(authorizeQuery(fixture.clientId)));
+      const unused = await oauth.registerClient({ redirect_uris: ["https://other.example/callback"] });
+      const authorizationKeys = "SELECT handle FROM mcp_grant_keys WHERE handle LIKE 'mcp:%' OR handle LIKE 'mcp-noise:%'";
+      expect((await db.query(authorizationKeys)).rows).toHaveLength(4);
+
+      await oauth.pruneExpiredState(Date.now() + 8 * 24 * 60 * 60_000);
+
+      const remaining = async (table: string, column = "id") =>
+        (await db.query(`SELECT ${column} AS value FROM ${table}`)).rows.map(row => row.value).sort();
+      expect(await remaining("mcp_connection_sets")).toEqual([connection!.connection_set_id]);
+      expect(await remaining("mcp_authorization_requests")).toEqual([]);
+      expect(await remaining("mcp_upstream_authorizations")).toEqual([]);
+      expect(await remaining("mcp_clients")).toEqual([fixture.clientId]);
+      expect(await remaining("mcp_clients")).not.toContain(unused.client_id);
+      expect((await db.query(authorizationKeys)).rows.map(row => row.handle).sort()).toEqual(
+        [connection!.key_handle, `mcp-noise:${connection!.key_handle}`].sort()
+      );
+      expect(await remaining("mcp_grant_keys", "handle")).toContainEqual(expect.stringMatching(/^mcp-application-identity:/));
+      const context = await oauth.authenticate(token.access_token as string);
+      expect(await gateway.listConnections(context!.connectionSetId)).toHaveLength(1);
+    } finally { await app.close(); await db.end(); }
+  });
+});
+
+describe("upstream PKCE verifier", () => {
+  it("is stored encrypted and still completes the Connect exchange", async () => {
+    const fixture = await nativeOAuth();
+    try {
+      const challenge = fixture.upstream.authorizationProofs[0]!.binding.code_challenge;
+      const [stored] = (await fixture.db.query<{ code_verifier: string }>("SELECT code_verifier FROM mcp_upstream_authorizations")).rows;
+      expect(pkceChallenge(stored!.code_verifier)).not.toBe(challenge);
+
+      expect((await fixture.callback()).statusCode).toBe(302);
+      const exchange = fixture.upstream.fetch.mock.calls.find(([url]) => String(url) === "https://connect.example/oauth/token");
+      expect(pkceChallenge(new URLSearchParams(String(exchange![1]!.body)).get("code_verifier")!)).toBe(challenge);
+    } finally { await fixture.app.close(); await fixture.db.end(); }
+  });
+});
+
+describe("refresh token rotation", () => {
+  it("revokes every token from the authorization when a rotated refresh token returns after the race window", async () => {
+    const fixture = await nativeOAuth();
+    const { app, db, oauth } = fixture;
+    try {
+      const callback = new URL((await fixture.callback()).headers.location!);
+      const token = (body: Record<string, unknown>) => app.inject({ method: "POST", url: "/oauth/token", payload: body });
+      const refresh = (refreshToken: unknown, clientId = fixture.clientId) =>
+        token({ grant_type: "refresh_token", refresh_token: refreshToken, client_id: clientId });
+      const first = (await token({
+        grant_type: "authorization_code", code: callback.searchParams.get("code"), client_id: fixture.clientId,
+        redirect_uri: "https://client.example/callback", code_verifier: fixture.verifier
+      })).json();
+      expect((await refresh(first.refresh_token, "another-client")).statusCode).toBe(400);
+      const second = await refresh(first.refresh_token);
+      expect(second.statusCode).toBe(200);
+      const third = await refresh(second.json().refresh_token);
+      expect(third.statusCode).toBe(200);
+      expect(await oauth.authenticate(third.json().access_token)).not.toBeNull();
+
+      // A second request with a token rotated moments ago is a client racing
+      // itself: refused, and the tokens the first request received still work.
+      const raced = await refresh(first.refresh_token);
+      expect(raced.statusCode).toBe(400);
+      expect(raced.json()).toMatchObject({ error: "invalid_grant" });
+      expect(await oauth.authenticate(third.json().access_token)).not.toBeNull();
+
+      await db.query("UPDATE mcp_refresh_tokens SET used_at = $1 WHERE used_at IS NOT NULL", [new Date(Date.now() - 60_000)]);
+      const reused = await refresh(first.refresh_token);
+      expect(reused.statusCode).toBe(400);
+      expect(reused.json()).toMatchObject({ error: "invalid_grant" });
+      expect(await oauth.authenticate(third.json().access_token)).toBeNull();
+      expect(await oauth.authenticate(first.access_token)).toBeNull();
+      expect((await refresh(third.json().refresh_token)).statusCode).toBe(400);
+      for (const table of ["mcp_refresh_tokens", "mcp_access_tokens"]) {
+        expect((await db.query(`SELECT id FROM ${table} WHERE revoked_at IS NULL`)).rows).toEqual([]);
+      }
+    } finally { await app.close(); await db.end(); }
   });
 });
 
