@@ -220,7 +220,8 @@ function registerWriteTools(server: McpServer, context: McpAuthContext, gateway:
       if_revision: revision.optional(),
       mutation_id: z.uuid().optional()
     },
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+    // The old path stops resolving and update_refs rewrites links in other records.
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
   }, ({ connection_id, mutation_id, ...input }, { signal }) => mutationOperationTool(
     gateway, oauth, context, connection_id, "rename", input, mutation_id, signal
   ));

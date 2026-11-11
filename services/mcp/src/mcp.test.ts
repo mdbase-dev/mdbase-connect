@@ -59,8 +59,8 @@ describe("MCP server metadata", () => {
       validate_collection: read,
       read_type: read,
       create_record: additive,
-      // A rename refuses a taken target path, so it loses nothing.
-      rename_record: additive,
+      // A rename removes the old path and can rewrite links in other records.
+      rename_record: overwrites,
       create_type: additive,
       update_record: overwrites,
       update_type: overwrites,
