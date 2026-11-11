@@ -246,7 +246,7 @@ describe("mdbase MCP gateway", () => {
         application_agreement_public_key: "a".repeat(87), connector_agreement_public_key: "a".repeat(87)
       };
       if (attack === "native-with-legacy-authority") token.authority = {
-        operations_url: "https://legacy.example/operations", sync_url: "https://legacy.example/sync",
+        operations_url: "https://legacy.example/operations", sync_url: "https://legacy.example/sync", files_url: "https://legacy.example/files",
         replica_id: randomUUID(), access_token: "legacy-token", proof_public_key: token.native_completion.grant_signing_public_key
       };
       if (attack === "wrong-origin") token.application_origin = "https://other.example";
@@ -913,6 +913,7 @@ async function fakeUpstream(realFetch: typeof fetch, options: {
         ...(second ? { authority: {
           operations_url: `https://sync.example/v1/authorities/${secondCollectionId}/operations`,
           sync_url: `https://sync.example/v1/authorities/${secondCollectionId}/sync`,
+          files_url: `https://sync.example/v1/authorities/${secondCollectionId}/files`,
           replica_id: "40000000-0000-4000-8000-000000000002",
           access_token: refreshing ? "hosted-access-two-refreshed" : "hosted-access-two",
           proof_public_key: applicationSigningPublicKeys[1]

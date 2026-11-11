@@ -1,10 +1,10 @@
+import { validAuthorityTokenResponse } from "@mdbase-dev/connect-protocol";
 import { validateGrantEncryption } from "./crypto.js";
 import { connectError } from "./errors.js";
 import type { StoredToken } from "./internal-types.js";
 import {
   isCanonicalGrantScope,
   parseGrantScope,
-  validAuthorityTokenResponse,
   validFileCapability
 } from "./runtime-utils.js";
 

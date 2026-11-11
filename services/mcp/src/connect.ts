@@ -24,7 +24,8 @@ import {
   type GrantScope,
   type MdbaseOperationRequest,
   type MdbaseAppManifest,
-  type LegacyMdbaseAppManifest
+  type LegacyMdbaseAppManifest,
+  validAuthorityTokenResponse
 } from "@mdbase-dev/connect-protocol";
 import { NEXT_CAPABILITY_FILE_ACTIONS } from "@mdbase-dev/connect-protocol/next-authorization";
 import { z } from "zod";
@@ -80,6 +81,7 @@ const tokenResponseSchema = z.object({
   authority: z.object({
     operations_url: z.url(),
     sync_url: z.url(),
+    files_url: z.url(),
     replica_id: z.uuid(),
     access_token: z.string().min(1),
     proof_public_key: z.string().min(80).max(200)
@@ -622,6 +624,12 @@ export class ConnectGateway {
       return;
     }
     if (token.authority) {
+      if (!validAuthorityTokenResponse(token.authority, token.collection_id)) {
+        throw new GatewayOperationError(
+          "invalid_operation_response",
+          "Connect returned a remote authority capability for another service or collection."
+        );
+      }
       const key = keyHandle ? await this.keyStore.get(keyHandle) : null;
       if (
         !key

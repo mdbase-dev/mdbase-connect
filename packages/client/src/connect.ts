@@ -8,7 +8,8 @@ import {
   authorizationContractRequirements,
   DEFAULT_LOOPBACK_PORT,
   GRANT_ENCRYPTION_PROTOCOL_VERSION,
-  RELAY_ENCRYPTION_SUITE
+  RELAY_ENCRYPTION_SUITE,
+  validAuthorityTokenResponse
 } from "@mdbase-dev/connect-protocol";
 import {
   authorizationOperations,
@@ -86,8 +87,7 @@ import {
   oauthErrorCode,
   parseDeviceAuthorization,
   parseStored,
-  stripTrailingSlash,
-  validAuthorityTokenResponse
+  stripTrailingSlash
 } from "./runtime-utils.js";
 import { storedTokenFromResponse } from "./token-response.js";
 import { deleteUnusedGrantKey, planRetiredGrantKeys, storedTokenKeyHandles } from "./retired-grant-keys.js";
