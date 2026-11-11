@@ -82,6 +82,7 @@ import {
   createPkce,
   defaultStorage,
   decodeJsonResponse,
+  isConnectPage,
   isOpaquePortableManifest,
   resolveManifestSource,
   oauthErrorCode,
@@ -393,7 +394,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
         );
       }
       if (
-        typeof body.authorization_uri !== "string"
+        !isConnectPage(body.authorization_uri, this.serverUrl, "/oauth/authorize")
         || body.authorization_id !== authorizationId
         || !Number.isInteger(body.expires_in)
         || body.expires_in <= 0
@@ -540,7 +541,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     }
     let authorization: MdbaseDeviceAuthorization;
     try {
-      authorization = parseDeviceAuthorization(body);
+      authorization = parseDeviceAuthorization(body, this.serverUrl);
     } catch (error) {
       popup?.close();
       await this.keyStore.delete(keyHandle);

@@ -240,12 +240,26 @@ export function validStoredEncryption(
   }
 }
 
-export function parseDeviceAuthorization(body: any): MdbaseDeviceAuthorization {
+/**
+ * Whether a server-supplied page is the Connect page the client expects to
+ * open: on the configured server's origin, at exactly that path.
+ */
+export function isConnectPage(value: unknown, serverUrl: string, pathname: string): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    const url = new URL(value);
+    return url.origin === new URL(serverUrl).origin && url.pathname === pathname;
+  } catch {
+    return false;
+  }
+}
+
+export function parseDeviceAuthorization(body: any, serverUrl: string): MdbaseDeviceAuthorization {
   if (
     typeof body?.device_code !== "string"
     || typeof body?.user_code !== "string"
-    || typeof body?.verification_uri !== "string"
-    || typeof body?.verification_uri_complete !== "string"
+    || !isConnectPage(body?.verification_uri, serverUrl, "/device")
+    || !isConnectPage(body?.verification_uri_complete, serverUrl, "/device")
     || !Number.isFinite(body?.expires_in)
     || !Number.isFinite(body?.interval)
   ) {

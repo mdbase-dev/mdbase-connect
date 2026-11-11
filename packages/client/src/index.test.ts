@@ -3289,6 +3289,83 @@ describe("authorization renewal", () => {
     });
   });
 
+  it.each([
+    ["a script URL", "javascript:alert(1)//https://connect.example/oauth/authorize"],
+    ["another origin", "https://connect.example.attacker.test/oauth/authorize?request_id=x"],
+    ["another path", "https://connect.example/logout?request_id=x"]
+  ])("does not open an authorization page at %s", async (_name, authorizationUri) => {
+    const popup = { closed: false, location: { href: "" }, close: vi.fn(() => { popup.closed = true; }) };
+    vi.stubGlobal("window", { open: vi.fn(() => popup) });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      if (String(request).endsWith("/health")) return jsonResponse({ capabilities: ["application-authorization-v2-issuance"] });
+      if (String(request).endsWith("/v1/apps/register")) return jsonResponse({ application: registeredRequest(init) });
+      const proof = JSON.parse(new URLSearchParams(String(init?.body)).get("application_authorization")!);
+      return jsonResponse({ authorization_id: proof.binding.authorization_id, authorization_uri: authorizationUri, expires_in: 600 });
+    });
+    const navigate = vi.fn();
+    const manager = new MdbaseConnect({
+      serverUrl: "https://connect.example",
+      manifest: {
+        manifest_version: 1,
+        id: "dev.tasks",
+        name: "Tasks",
+        homepage: "https://tasks.example/",
+        redirect_uris: ["https://tasks.example/callback"],
+        requirements: READ_REQUIREMENTS
+      },
+      redirectUri: "https://tasks.example/callback",
+      storage: new MemoryStorage(),
+      keyStore: new MemoryGrantKeyStore(),
+      identityStore: new MemoryApplicationIdentityStore(),
+      relayEncryption: "disabled",
+      navigate
+    });
+
+    for (const presentation of ["redirect", "popup"] as const) {
+      await expect(manager.authorize({ presentation })).resolves.toMatchObject({
+        ok: false,
+        problem: { code: "invalid_device_authorization_response" }
+      });
+    }
+    expect(navigate).not.toHaveBeenCalled();
+    expect(popup.location.href).toBe("");
+  });
+
+  it.each([
+    ["verification_uri", "https://connect.example.attacker.test/device"],
+    ["verification_uri_complete", "javascript:alert(1)//https://connect.example/device"],
+    ["verification_uri_complete", "https://connect.example/pair/ABCD-EFGH"]
+  ])("does not show a device verification %s at %s", async (field, uri) => {
+    const opened = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      if (String(request).endsWith("/health")) return jsonResponse({ capabilities: ["application-authorization-v2-issuance"] });
+      if (String(request).endsWith("/v1/apps/register")) return jsonResponse({ application: registeredRequest(init) });
+      return jsonResponse({
+        device_code: "device-secret",
+        user_code: "ABCD-EFGH",
+        verification_uri: "https://connect.example/device",
+        verification_uri_complete: "https://connect.example/device?user_code=ABCD-EFGH",
+        [field]: uri,
+        expires_in: 600,
+        interval: 1
+      });
+    });
+    const onDeviceCode = vi.fn();
+    const connect = new MdbaseConnect({
+      serverUrl: "https://connect.example",
+      manifest: portableManifest(),
+      storage: new MemoryStorage(),
+      keyStore: new MemoryGrantKeyStore()
+    });
+
+    await expect(connect.authorize({ openVerification: opened, onDeviceCode })).resolves.toMatchObject({
+      ok: false,
+      problem: { code: "invalid_device_authorization_response" }
+    });
+    expect(onDeviceCode).not.toHaveBeenCalled();
+    expect(opened).not.toHaveBeenCalled();
+  });
+
   it("keeps a web application loaded while popup authorization completes", async () => {
     const storage = new MemoryStorage();
     const popup = {
