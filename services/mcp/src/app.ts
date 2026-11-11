@@ -59,7 +59,7 @@ export async function buildApp(options: BuildOptions) {
     `${config.publicUrl}/oauth/connect/callback`,
     fields => app.log.warn(fields, "Native MCP routing failed")
   );
-  const oauth = new OAuthService(options.db, gateway, keyStore, config.publicUrl, config.resource);
+  const oauth = new OAuthService(options.db, gateway, keyStore, config.masterKey, config.publicUrl, config.resource);
   const pruning = setInterval(() => {
     oauth.pruneExpiredState().catch((error) => app.log.error({ err: error }, "MCP OAuth state pruning failed"));
   }, 5 * 60_000);

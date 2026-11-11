@@ -732,6 +732,21 @@ describe("open OAuth endpoints", () => {
   });
 });
 
+describe("upstream PKCE verifier", () => {
+  it("is stored encrypted and still completes the Connect exchange", async () => {
+    const fixture = await nativeOAuth();
+    try {
+      const challenge = fixture.upstream.authorizationProofs[0]!.binding.code_challenge;
+      const [stored] = (await fixture.db.query<{ code_verifier: string }>("SELECT code_verifier FROM mcp_upstream_authorizations")).rows;
+      expect(pkceChallenge(stored!.code_verifier)).not.toBe(challenge);
+
+      expect((await fixture.callback()).statusCode).toBe(302);
+      const exchange = fixture.upstream.fetch.mock.calls.find(([url]) => String(url) === "https://connect.example/oauth/token");
+      expect(pkceChallenge(new URLSearchParams(String(exchange![1]!.body)).get("code_verifier")!)).toBe(challenge);
+    } finally { await fixture.app.close(); await fixture.db.end(); }
+  });
+});
+
 describe("refresh token rotation", () => {
   it("revokes every token from the authorization when a rotated refresh token is used again", async () => {
     const fixture = await nativeOAuth();

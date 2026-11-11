@@ -4,7 +4,7 @@ import type { DatabasePool, DatabaseQueryable } from "./db.js";
 import { ConnectGateway } from "./connect.js";
 import type { GrantKeyStore } from "@mdbase-dev/connect/crypto";
 import { capabilityOperations, type CollectionOperation } from "@mdbase-dev/connect-protocol";
-import { pkceChallenge, randomToken, safeEqual, tokenHash } from "./security.js";
+import { pkceChallenge, randomToken, safeEqual, tokenHash, type SecretBox } from "./security.js";
 
 export const MCP_SCOPES = ["mdbase:read", "mdbase:write"] as const;
 export type McpScope = typeof MCP_SCOPES[number];
@@ -71,6 +71,7 @@ export class OAuthService {
     private readonly db: DatabasePool,
     private readonly gateway: ConnectGateway,
     private readonly keyStore: GrantKeyStore,
+    private readonly secrets: SecretBox,
     private readonly publicUrl: string,
     readonly resource: string
   ) {}
@@ -225,6 +226,7 @@ export class OAuthService {
       }
       return { kind: "additional", error: "Collection access was not approved." };
     }
+    const verifier = this.secrets.decrypt(pending.code_verifier);
     // Claim once before exchanging the upstream code or persisting a connection.
     // Concurrent/replayed callbacks must never attach a second grant to this request.
     const claimed = await this.db.query(
@@ -243,7 +245,7 @@ export class OAuthService {
       authorizationId: pending.id,
       manifestDigest: application.manifestDigest,
       code: input.code,
-      verifier: pending.code_verifier,
+      verifier,
       applicationId: application.id,
       connectionSetId: pending.connection_set_id,
       keyHandle: pending.key_handle
@@ -490,7 +492,7 @@ export class OAuthService {
           authorizationRequestId,
           connectionSetId,
           JSON.stringify(scopes),
-          verifier,
+          this.secrets.encrypt(verifier),
           keyHandle,
           new Date(Date.now() + AUTHORIZATION_LIFETIME_MS)
         ]
