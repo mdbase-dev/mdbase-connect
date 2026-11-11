@@ -554,11 +554,13 @@ export class InstanceAdminService {
     connection: DatabaseConnection,
     userId: string
   ) {
+    // Replicas on the account's own collections, and those it holds on other
+    // accounts' collections.
     const replicas = await connection.query<{ id: string }>(
       `SELECT r.id
        FROM hosted_replicas r
        JOIN hosted_collections c ON c.id = r.collection_id
-       WHERE c.user_id = $1 AND r.revoked_at IS NULL`,
+       WHERE (c.user_id = $1 OR r.authorized_user_id = $1) AND r.revoked_at IS NULL`,
       [userId]
     );
     const authorityImports = await connection.query<{ id: string }>(
@@ -646,7 +648,7 @@ export class InstanceAdminService {
     await connection.query(
       `UPDATE hosted_replicas SET revoked_at = COALESCE(revoked_at, now()),
          token_hash = NULL
-       WHERE collection_id IN (
+       WHERE authorized_user_id = $1 OR collection_id IN (
          SELECT id FROM hosted_collections WHERE user_id = $1
        )`,
       [userId]
