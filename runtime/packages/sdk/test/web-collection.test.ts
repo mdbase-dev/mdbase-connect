@@ -226,6 +226,21 @@ describe("a replica that synced before opens from this device", () => {
     expect(f.host.startCollectionLog).toHaveBeenCalledOnce();
     expect(f.host.waitForVerifiedRead).toHaveBeenLastCalledWith({signal: expect.any(AbortSignal), cold: false, onProgress: expect.any(Function)});
   });
+  it("a replica that lost its storage since it synced catches up from the log like a first open", async () => {
+    await syncedBefore();
+    const f = fixture(); Object.assign(f.host, {holdsLog: vi.fn(() => false)});
+    await f.open();
+    expect(f.trace).toEqual(["join", "sql", "log", "read", "facade", "handoff"]);
+    expect(f.host.waitForVerifiedRead).toHaveBeenCalledOnce();
+    expect(f.host.waitForVerifiedRead).toHaveBeenCalledWith({signal: expect.any(AbortSignal), cold: true, onProgress: expect.any(Function)});
+  });
+  it("an emptied replica does not open while the log cannot be reached", async () => {
+    await syncedBefore();
+    const f = fixture(), error = new AppCpAuthorityError("unavailable"); Object.assign(f.host, {holdsLog: vi.fn(() => false)});
+    f.host.startCollectionLog.mockRejectedValue(error);
+    await expect(f.open()).rejects.toBe(error);
+    expect(f.host.waitForVerifiedRead).not.toHaveBeenCalled(); expect(f.trace).not.toContain("handoff");
+  });
   it("the ordinary path still fails the open when the log is refused", async () => {
     await syncedBefore();
     const f = fixture(), error = new AppCpAuthorityError("unavailable", appServerProblem(403, {error: {code: "invalid_proof"}}));

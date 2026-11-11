@@ -287,6 +287,10 @@ app shows first is therefore the collection as of this device's last sync, and
 it updates when the first turn lands. Saved views read in that window as well:
 the replica serves them while it re-derives its keys from the log.
 
+The ledger and the replica are stored separately. A replica that holds nothing
+from the log (`holdsLog()` is false: its storage was lost after that sync) is
+not opened this way. It binds the log first and catches up like a first open.
+
 A bind that fails is sorted once:
 
 - offline, unreachable, 5xx and 429 leave the collection open with `health`

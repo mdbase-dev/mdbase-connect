@@ -930,6 +930,18 @@ export class AppWebCloudCopyHost {
             return "unavailable";
         }
     }
+    /** Whether the replica on this device holds anything from the log. Every
+     * log starts with the entries that admitted this device, so a replica
+     * that knows no head is empty (its storage was lost), not up to date. */
+    holdsLog(): boolean {
+        try {
+            if (!this.native) return false;
+            const status = this.native.observations().status;
+            return status.mode === "local_only" || status.headKnown > 0;
+        } catch {
+            return false;
+        }
+    }
     /** Diagnostics while waiting for a key (native sync status), else null. */
     keyWaitDetail(): Record<string, string | number> | null {
         try {
@@ -1038,7 +1050,7 @@ export class AppWebCloudCopyHost {
         /** Answer from the replica as it is on this device: the log is not
          * driven, whether or not it is bound yet. Fails where a read would
          * need the log; the caller then takes the ordinary path. Not for a
-         * cold replica. */
+         * cold replica: one that holds nothing from the log is refused. */
         local?: boolean;
     }): Promise<void> {
         const { timeoutMs = 15000, cold = false, local = false } = options;
@@ -1056,6 +1068,8 @@ export class AppWebCloudCopyHost {
             (cold && (local || !this.pump))
         )
             throw fail("binding");
+        // An empty replica would answer a read with no records at all.
+        if (local && !this.holdsLog()) return Promise.reject(fail("unavailable"));
         if (this.readWork)
             return this.readWork.then(() => {
                 this.checkCollection(signal);
