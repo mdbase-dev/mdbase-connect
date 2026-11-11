@@ -87,8 +87,11 @@ export interface RelayBroker {
 }
 
 export class RelayBrokerUnavailableError extends Error {
-  constructor(message = "The relay broker is unavailable.", options?: ErrorOptions) {
+  readonly ownerUnavailable: boolean;
+
+  constructor(message = "The relay broker is unavailable.", options?: ErrorOptions & { ownerUnavailable?: boolean }) {
     super(message, options);
+    this.ownerUnavailable = options?.ownerUnavailable === true;
   }
 }
 
@@ -130,7 +133,7 @@ export class LocalRelayBroker implements RelayBroker {
   ): Promise<RelayBrokerReply> {
     this.assertOpen();
     const binding = this.bindings.get(deliverySubject(connectorId, generation));
-    if (!binding) throw new RelayBrokerUnavailableError("No relay owns the current connector session.");
+    if (!binding) throw new RelayBrokerUnavailableError("No relay owns the current connector session.", { ownerUnavailable: true });
     return withLocalTimeout(binding.handle(command), timeoutMs);
   }
 
@@ -142,7 +145,7 @@ export class LocalRelayBroker implements RelayBroker {
   ): Promise<RelayBrokerBinaryReply> {
     this.assertOpen();
     const binding = this.bindings.get(deliverySubject(connectorId, generation));
-    if (!binding) throw new RelayBrokerUnavailableError("No relay owns the current connector session.");
+    if (!binding) throw new RelayBrokerUnavailableError("No relay owns the current connector session.", { ownerUnavailable: true });
     return withLocalTimeout(binding.handleBinary(frame), timeoutMs);
   }
 
@@ -191,7 +194,7 @@ export class LocalRelayBroker implements RelayBroker {
 function withLocalTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new RelayBrokerUnavailableError(
-      "The relay broker request timed out."
+      "The relay broker request timed out.", { ownerUnavailable: true }
     )), timeoutMs);
     void operation.then(
       (value) => {
@@ -305,7 +308,7 @@ export class NatsRelayBroker implements RelayBroker {
       if (error instanceof RelayBrokerUnavailableError) throw error;
       if (isMissingRelayError(error)) {
         throw new RelayBrokerUnavailableError("No relay owns the current connector session.", {
-          cause: error
+          cause: error, ownerUnavailable: true
         });
       }
       throw new RelayBrokerUnavailableError("The relay broker request failed.", { cause: error });
@@ -331,7 +334,7 @@ export class NatsRelayBroker implements RelayBroker {
       if (error instanceof RelayBrokerUnavailableError) throw error;
       if (isMissingRelayError(error)) {
         throw new RelayBrokerUnavailableError("No relay owns the current connector session.", {
-          cause: error
+          cause: error, ownerUnavailable: true
         });
       }
       throw new RelayBrokerUnavailableError("The relay broker file request failed.", {

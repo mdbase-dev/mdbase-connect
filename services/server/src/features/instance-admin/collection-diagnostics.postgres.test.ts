@@ -99,10 +99,22 @@ describePostgres("read-only collection diagnostics", () => {
     expect(report.account_registrations[0]!.last_seen_at).not.toBeNull();
   });
 
-  it.each([false, "unsupported"])("rejects non-online presence %s", async value => {
+  it("reports confirmed false presence as offline", async () => {
+    const state = await fixture();
+    const request = vi.fn().mockResolvedValue({ version: 1, ok: true, value: false });
+    expect((await diagnose(state.user, [], { request })).collections[0]).toMatchObject({ availability: { reason: "device_offline" }, devices: [{ presence: "responded", serving: false }] });
+  });
+
+  it.each([undefined, null, "unsupported", 0, { online: true }])("refuses malformed successful presence %j", async value => {
     const state = await fixture();
     const request = vi.fn().mockResolvedValue({ version: 1, ok: true, value });
-    expect((await diagnose(state.user, [], { request })).collections[0]).toMatchObject({ availability: { reason: "device_offline" }, devices: [{ presence: "responded", serving: false }] });
+    await expect(diagnose(state.user, [], { request })).rejects.toThrow("Relay presence probe failed internally; no availability report was produced.");
+  });
+
+  it.each(["The relay broker is disconnected.", "The relay broker returned an invalid response.", "The relay broker request failed."])("refuses broker failure: %s", async message => {
+    const state = await fixture();
+    const request = vi.fn().mockRejectedValue(new RelayBrokerUnavailableError(message));
+    await expect(diagnose(state.user, [], { request })).rejects.toThrow("Relay presence probe failed internally; no availability report was produced.");
   });
 
   it("keeps the old-running and desktop-update reasons identical to routing", async () => {
@@ -110,7 +122,7 @@ describePostgres("read-only collection diagnostics", () => {
     const request = vi.fn().mockResolvedValue({ version: 1, ok: true, value: true, detail: { old_connector_running: true } });
     expect((await diagnose(state.user, [], { request })).collections[0]!.availability.reason).toBe("old_connector_running");
     await db.query("UPDATE connectors SET incompatibility_code = 'fixture-old', last_incompatible_at = now(), minimum_connector_version = '0.1.0', connector_update_url = 'https://example.test/update' WHERE id = $1", [state.connector]);
-    request.mockRejectedValue(new RelayBrokerUnavailableError());
+    request.mockRejectedValue(new RelayBrokerUnavailableError("No relay owns the current connector session.", { ownerUnavailable: true }));
     expect((await diagnose(state.user, [], { request })).collections[0]!.availability.reason).toBe("desktop_update_required");
   });
 

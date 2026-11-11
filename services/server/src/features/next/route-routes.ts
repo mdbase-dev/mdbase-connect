@@ -46,17 +46,19 @@ export async function deviceCandidates(broker: Pick<RelayBroker, "request">, dev
   const candidates = await Promise.all(devices.map(async (target) => {
     let online = false;
     let oldConnectorRunning = false;
-    let presenceStatus: Candidate["presence"] = "unreachable";
+    let presenceStatus: Candidate["presence"] = "failed";
     try {
       // Ask the actual owner, not this HTTP instance's local socket map or a
       // recent policy ACK. No daemon operation, policy push, or pipe is opened.
       const presence = await broker.request(target.connector_id, String(target.relay_generation),
         { version: 1, kind: "device_presence", message: { device_id: target.device_id } }, 1_000);
       online = presence.ok && presence.value === true;
-      presenceStatus = presence.ok ? "responded" : presence.error.kind === "unavailable" ? "unreachable" : "failed";
+      presenceStatus = presence.ok ? typeof presence.value === "boolean" ? "responded" : "failed"
+        : presence.error.kind === "unavailable" ? "unreachable" : "failed";
       oldConnectorRunning = online && presence.ok && presence.detail?.old_connector_running === true;
     } catch (error) {
       if (!(error instanceof RelayBrokerUnavailableError)) throw error;
+      presenceStatus = error.ownerUnavailable ? "unreachable" : "failed";
     }
     const value: RouteTarget = { kind: target.kind, device: target.device_id, noise_pk: target.noise_pk.toString("hex"), url, online, relay_collection: target.local_id };
     return { value, serving: online && !oldConnectorRunning, oldConnectorRunning, updateRequired: !online && target.update_required, lastActive: target.last_active_ms ?? Number.NEGATIVE_INFINITY, presence: presenceStatus };
