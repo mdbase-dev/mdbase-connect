@@ -16,6 +16,7 @@ use std::os::fd::OwnedFd;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use mdbn_store_file::platform::{
     Capabilities, CaseSensitivity, DirEntry, Durability, EventFidelity, FileId, FileKind, FileMeta,
@@ -41,6 +42,29 @@ use crate::native::kind_of;
 pub(crate) struct Root {
     fd: OwnedFd,
     path: PathBuf,
+    counts: Counts,
+}
+
+/// Path-resolution syscalls issued under the root since it was opened.
+#[derive(Default)]
+struct Counts {
+    dir_opens: AtomicU64,
+    stats: AtomicU64,
+    file_opens: AtomicU64,
+}
+
+/// What resolving collection paths has cost since the root was opened:
+/// content-free counts, so the per-file cost of a scan is a number a test can
+/// hold rather than a timing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Syscalls {
+    /// Directories opened: one per path component, plus the root, per
+    /// operation that resolves a path.
+    pub dir_opens: u64,
+    /// `fstatat` calls on a name in an open directory.
+    pub stats: u64,
+    /// Files opened (reads, writes and range reads).
+    pub file_opens: u64,
 }
 
 const DIR: OFlags = OFlags::RDONLY
@@ -66,7 +90,32 @@ impl Root {
         Ok(Root {
             fd,
             path: path.to_path_buf(),
+            counts: Counts::default(),
         })
+    }
+
+    pub(crate) fn syscalls(&self) -> Syscalls {
+        Syscalls {
+            dir_opens: self.counts.dir_opens.load(Ordering::Relaxed),
+            stats: self.counts.stats.load(Ordering::Relaxed),
+            file_opens: self.counts.file_opens.load(Ordering::Relaxed),
+        }
+    }
+
+    /// Open the directory `name` in `at`, never through a symlink.
+    fn open_dir(&self, at: &OwnedFd, name: &str) -> rustix::io::Result<OwnedFd> {
+        self.counts.dir_opens.fetch_add(1, Ordering::Relaxed);
+        openat(at, name, DIR, Mode::empty())
+    }
+
+    /// What `name` in the open directory `dir` is, never what a link points at.
+    fn stat_in(
+        &self,
+        dir: &OwnedFd,
+        name: impl rustix::path::Arg,
+    ) -> rustix::io::Result<rustix::fs::Stat> {
+        self.counts.stats.fetch_add(1, Ordering::Relaxed);
+        statat(dir, name, AtFlags::SYMLINK_NOFOLLOW)
     }
 
     /// The path, for the path-based macOS metadata calls.
@@ -77,16 +126,16 @@ impl Root {
 
     /// The directory `segs` under the root. `create`: make missing components.
     fn dir(&self, segs: &[&str], create: bool) -> io::Result<OwnedFd> {
-        let mut cur = openat(&self.fd, ".", DIR, Mode::empty())?;
+        let mut cur = self.open_dir(&self.fd, ".")?;
         for s in segs {
-            cur = match openat(&cur, *s, DIR, Mode::empty()) {
+            cur = match self.open_dir(&cur, s) {
                 Ok(fd) => fd,
                 Err(Errno::NOENT) if create => {
                     match mkdirat(&cur, *s, Mode::from_raw_mode(0o777)) {
                         Ok(()) | Err(Errno::EXIST) => {}
                         Err(e) => return Err(e.into()),
                     }
-                    openat(&cur, *s, DIR, Mode::empty())?
+                    self.open_dir(&cur, s)?
                 }
                 Err(e) => return Err(e.into()),
             };
@@ -108,6 +157,7 @@ impl Root {
     /// Open a file under the root without following a symlink in any component.
     fn open_file(&self, p: &RelPath, flags: OFlags) -> io::Result<fs::File> {
         let at = self.at(p, false)?;
+        self.counts.file_opens.fetch_add(1, Ordering::Relaxed);
         let fd = openat(
             &at.dir,
             at.name.as_str(),
@@ -183,7 +233,7 @@ fn meta_of(st: &rustix::fs::Stat) -> FileMeta {
 pub(crate) fn stat_at(root: &Root, p: &RelPath) -> io::Result<FileMeta> {
     let segs = segs(p)?;
     let Some((name, parents)) = segs.split_last() else {
-        return file_meta(&fs::File::from(openat(&root.fd, ".", DIR, Mode::empty())?));
+        return file_meta(&fs::File::from(root.open_dir(&root.fd, ".")?));
     };
     let dir = match root.dir(parents, false) {
         Ok(d) => d,
@@ -198,7 +248,7 @@ pub(crate) fn stat_at(root: &Root, p: &RelPath) -> io::Result<FileMeta> {
         }
         Err(e) => return Err(e),
     };
-    Ok(meta_of(&statat(&dir, *name, AtFlags::SYMLINK_NOFOLLOW)?))
+    Ok(meta_of(&root.stat_in(&dir, *name)?))
 }
 
 /// Open `p` for reading: never through a symlink, never blocking on a FIFO.
@@ -218,6 +268,14 @@ pub(crate) fn open_append(root: &Root, p: &RelPath) -> io::Result<fs::File> {
 }
 
 /// The entries of directory `p`. Symlinks are listed as [`FileKind::Symlink`].
+///
+/// A regular file's metadata is taken here, with `fstatat` on its name in the
+/// directory this call opened: the no-follow lookup [`stat_at`] ends with,
+/// through a handle reached by the same no-follow walk from the root. Only
+/// metadata comes through that handle; content is always read by a fresh
+/// walk. A name that cannot be read this way (it vanished since it was
+/// listed, or any other failure) is listed without metadata and the caller's
+/// own [`stat_at`] reports what is there.
 pub(crate) fn list(root: &Root, p: &RelPath) -> io::Result<Vec<DirEntry>> {
     let dir = root.dir(&segs(p)?, false)?;
     let mut out = Vec::new();
@@ -227,11 +285,16 @@ pub(crate) fn list(root: &Root, p: &RelPath) -> io::Result<Vec<DirEntry>> {
         if raw == b"." || raw == b".." {
             continue;
         }
-        let ft = match e.file_type() {
-            rustix::fs::FileType::Unknown => rustix::fs::FileType::from_raw_mode(
-                statat(&dir, e.file_name(), AtFlags::SYMLINK_NOFOLLOW)?.st_mode as _,
-            ),
-            t => t,
+        // A file system that does not report types is asked per entry.
+        let (ft, typed) = match e.file_type() {
+            rustix::fs::FileType::Unknown => {
+                let st = root.stat_in(&dir, e.file_name())?;
+                (
+                    rustix::fs::FileType::from_raw_mode(st.st_mode as _),
+                    Some(st),
+                )
+            }
+            t => (t, None),
         };
         let kind = match ft {
             rustix::fs::FileType::RegularFile => FileKind::File,
@@ -239,17 +302,24 @@ pub(crate) fn list(root: &Root, p: &RelPath) -> io::Result<Vec<DirEntry>> {
             rustix::fs::FileType::Symlink => FileKind::Symlink,
             _ => FileKind::Other,
         };
-        match std::ffi::OsStr::from_bytes(raw).to_str() {
-            Some(n) => out.push(DirEntry {
-                name: n.to_string(),
-                kind,
-            }),
+        let Some(name) = std::ffi::OsStr::from_bytes(raw).to_str() else {
             // Display only: an invalid name never becomes a filesystem path.
-            None => out.push(DirEntry {
+            out.push(DirEntry {
                 name: String::from_utf8_lossy(raw).into_owned(),
                 kind: FileKind::InvalidName,
-            }),
-        }
+                meta: None,
+            });
+            continue;
+        };
+        let meta = (kind == FileKind::File)
+            .then(|| typed.or_else(|| root.stat_in(&dir, e.file_name()).ok()))
+            .flatten()
+            .map(|st| meta_of(&st));
+        out.push(DirEntry {
+            name: name.to_string(),
+            kind,
+            meta,
+        });
     }
     Ok(out)
 }

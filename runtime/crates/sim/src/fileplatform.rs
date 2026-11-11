@@ -157,6 +157,7 @@ impl FilePlatform for SimFilePlatform {
                         } else {
                             FileKind::File
                         },
+                        meta: None,
                     })
                     .collect()
             });

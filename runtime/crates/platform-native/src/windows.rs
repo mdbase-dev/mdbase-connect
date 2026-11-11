@@ -207,10 +207,16 @@ pub(crate) fn list(root: &Root, p: &RelPath) -> io::Result<Vec<DirEntry>> {
             kind_of(m.file_type())
         };
         match e.file_name().into_string() {
-            Ok(name) => out.push(DirEntry { name, kind }),
+            // The file ID needs a handle per file: the store stats each entry.
+            Ok(name) => out.push(DirEntry {
+                name,
+                kind,
+                meta: None,
+            }),
             Err(os) => out.push(DirEntry {
                 name: os.to_string_lossy().into_owned(),
                 kind: mdbn_store_file::platform::FileKind::InvalidName,
+                meta: None,
             }),
         }
     }

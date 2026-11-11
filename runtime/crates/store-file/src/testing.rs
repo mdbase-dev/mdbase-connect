@@ -480,6 +480,9 @@ pub struct MemPlatform {
     pub retained_nosync: Cell<bool>,
     /// Fixture-only release-policy recommendation.
     pub release: Cell<crate::ReleasePolicy>,
+    /// Fixture-only: listings carry each file's metadata ([`DirEntry::meta`]),
+    /// as the native Linux and macOS platform's do.
+    pub listed_meta: Cell<bool>,
     caps: Capabilities,
 }
 
@@ -490,6 +493,7 @@ impl MemPlatform {
             fs: MemFs::new(case),
             retained_nosync: Cell::new(false),
             release: Cell::new(crate::ReleasePolicy::AfterRetention),
+            listed_meta: Cell::new(false),
             caps: caps_for(replace, case),
         }
     }
@@ -634,11 +638,12 @@ impl FilePlatform for MemPlatform {
                 (!rest.is_empty() && !rest.contains('/')).then(|| rest.to_string())
             };
             let mut out = Vec::new();
-            for (k, (disp, _)) in &st.files {
+            for (k, (disp, ino)) in &st.files {
                 if child(k).is_some() {
                     out.push(DirEntry {
                         name: disp.rsplit('/').next().unwrap_or(disp).to_string(),
                         kind: FileKind::File,
+                        meta: self.listed_meta.get().then(|| self.fs.meta_of(&st, *ino)),
                     });
                 }
             }
@@ -647,6 +652,7 @@ impl FilePlatform for MemPlatform {
                     out.push(DirEntry {
                         name,
                         kind: FileKind::Dir,
+                        meta: None,
                     });
                 }
             }
