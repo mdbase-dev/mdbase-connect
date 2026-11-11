@@ -3177,6 +3177,7 @@ AppWebCloudCopyHost@app-host/cloud-copy-host.ts
   completeInstallationSignIn: () => Promise<AppDeviceRegistrationReceipt>
   detachDataFacade: (channel: MessagePort) => void
   driveCollection: (options: { signal: AbortSignal; }) => Promise<void>
+  holdsLog: () => boolean
   initialSync: () => AppInitialSyncWait | null
   keyringSettled: () => 'pending' | 'failed' | 'settled'
   keyWaitDetail: () => Record<string, string | number> | null
