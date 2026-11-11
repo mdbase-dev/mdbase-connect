@@ -376,7 +376,12 @@ impl<S: Store> Replica<S> {
         };
         let resp = match reply {
             Ok(r) => r,
-            Err(_) => {
+            Err(e) => {
+                // The service does not have an object of this snapshot, and
+                // asking again gets the same answer: the snapshot is refused.
+                if let Some(object) = state.object().filter(|_| e.object_missing()) {
+                    return self.install_fail(&format!("the service does not have {object}"));
+                }
                 // Transient: keep everything staged and retry this step on the next
                 // tick. An install is never left half-applied.
                 self.install = Some(state);

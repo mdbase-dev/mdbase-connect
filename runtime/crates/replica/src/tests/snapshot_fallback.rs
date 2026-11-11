@@ -4,7 +4,7 @@
 //! not rebuilt on every tick (§5.3).
 
 use mdbn_wire::client::IncidentKind;
-use mdbn_wire::common::B16;
+use mdbn_wire::common::{B16, B32};
 use mdbn_wire::policy::Role;
 
 use super::engine::{COL, Node, node, settle};
@@ -13,7 +13,7 @@ use super::snapshot_trust::{
 };
 use crate::Store;
 use crate::fake::FakeLogService;
-use crate::log::{LogError, LogErrorCode};
+use crate::log::{LogClient, LogError, LogErrorCode, LogPort};
 use crate::mem::MemStore;
 use crate::store::{RecordMeta, RecordRow, Tx, bucket16, meta_keys};
 
@@ -237,6 +237,146 @@ fn a_single_refused_snapshot_is_an_incident() {
         settle(&mut [&mut c]);
     }
     assert_eq!(svc.object_gets(&COL).len(), fetched);
+}
+
+/// `a` builds a snapshot, writes five more notes and builds a second one; the
+/// log is retained from the first. Returns `a` and the objects only the second
+/// snapshot has, without its manifest.
+fn two_snapshots(svc: &FakeLogService) -> (Node, Vec<B32>) {
+    let mut a = node(svc, 1, MemStore::new());
+    thirty_notes(&mut a);
+    settle(&mut [&mut a]);
+    a.r.build_snapshot_now().unwrap();
+    settle(&mut [&mut a]);
+    let older = a.r.head().seq;
+    let before: Vec<B32> = svc.objects(&COL).into_iter().map(|(h, _)| h).collect();
+    for i in 30..35u8 {
+        a.create(i, &format!("n{i}.md"), &format!("doc {i}"));
+    }
+    settle(&mut [&mut a]);
+    a.r.build_snapshot_now().unwrap();
+    settle(&mut [&mut a]);
+    let ptrs = pointers(svc);
+    assert_eq!(ptrs.len(), 2);
+    let own = svc
+        .objects(&COL)
+        .into_iter()
+        .map(|(h, _)| h)
+        .filter(|h| !before.contains(h) && *h != ptrs[0].manifest)
+        .collect();
+    svc.compact(&COL, older);
+    (a, own)
+}
+
+/// The service does not have the newest snapshot's manifest. It answers
+/// `not_found`, and will again: the joiner installs the older snapshot.
+#[test]
+fn install_falls_back_to_the_older_snapshot_when_the_service_lacks_the_newest_manifest() {
+    let svc = FakeLogService::new();
+    let (a, _) = two_snapshots(&svc);
+    svc.forget_object(&COL, &pointers(&svc)[0].manifest);
+
+    let mut c = node(&svc, 3, MemStore::new());
+    settle(&mut [&mut c]);
+    assert_eq!(c.r.sync_status().incidents, vec![]);
+    assert_eq!(c.r.stats.snapshots_installed, 1);
+    assert_eq!(c.r.stats.snapshot_fallbacks, 1);
+    assert_eq!(c.r.head(), a.r.head(), "the tail after it is replayed");
+    assert_eq!(docs(&c), docs(&a));
+}
+
+/// The service does not have one chunk of the newest snapshot. The joiner
+/// installs the older snapshot.
+#[test]
+fn install_falls_back_to_the_older_snapshot_when_the_service_lacks_a_chunk_of_the_newest() {
+    let svc = FakeLogService::new();
+    let (a, own) = two_snapshots(&svc);
+    let chunk = *own
+        .last()
+        .expect("the newest snapshot has chunks of its own");
+    svc.forget_object(&COL, &chunk);
+
+    let mut c = node(&svc, 3, MemStore::new());
+    settle(&mut [&mut c]);
+    assert!(svc.object_gets(&COL).contains(&chunk), "it was asked for");
+    assert_eq!(c.r.sync_status().incidents, vec![]);
+    assert_eq!(c.r.stats.snapshots_installed, 1);
+    assert_eq!(c.r.stats.snapshot_fallbacks, 1);
+    assert_eq!(c.r.head(), a.r.head());
+    assert_eq!(docs(&c), docs(&a));
+}
+
+/// A single retained snapshot with a chunk the service does not have: an
+/// incident that says so, and the snapshot is not fetched again.
+#[test]
+fn a_single_snapshot_with_a_missing_chunk_is_an_incident() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1, MemStore::new());
+    thirty_notes(&mut a);
+    settle(&mut [&mut a]);
+    let before: Vec<B32> = svc.objects(&COL).into_iter().map(|(h, _)| h).collect();
+    a.r.build_snapshot_now().unwrap();
+    settle(&mut [&mut a]);
+    let manifest = pointers(&svc)[0].manifest;
+    let chunk = svc
+        .objects(&COL)
+        .into_iter()
+        .map(|(h, _)| h)
+        .find(|h| !before.contains(h) && *h != manifest)
+        .unwrap();
+    svc.forget_object(&COL, &chunk);
+    svc.compact(&COL, a.r.head().seq);
+
+    let mut c = node(&svc, 3, MemStore::new());
+    settle(&mut [&mut c]);
+    assert_eq!(c.r.stats.snapshots_installed, 0);
+    assert_eq!(c.r.head().seq, 0);
+    assert_eq!(
+        detail(&c, IncidentKind::Integrity),
+        "snapshot install: the service does not have a chunk"
+    );
+    let fetched = svc.object_gets(&COL).len();
+    for _ in 0..5 {
+        settle(&mut [&mut c]);
+    }
+    assert_eq!(svc.object_gets(&COL).len(), fetched);
+}
+
+/// A service that cannot answer now is asked again: the install goes on.
+#[test]
+fn an_unavailable_service_does_not_refuse_the_snapshot() {
+    let svc = FakeLogService::new();
+    let (a, _) = two_snapshots(&svc);
+    let mut c = node(&svc, 3, MemStore::new());
+    let mut faults = vec![
+        LogError::NoResponse,
+        LogError::Offline,
+        LogError::code(LogErrorCode::Unavailable),
+        LogError::code(LogErrorCode::RateLimited),
+        LogError::code(LogErrorCode::Unauthenticated),
+    ];
+    // One request of the install is answered with each, in turn.
+    for _ in 0..100 {
+        for push in c.log.poll_pushes() {
+            c.r.on_log_push(push);
+        }
+        for call in c.r.take_log_calls() {
+            let reply = if c.r.installing()
+                && let Some(e) = faults.pop()
+            {
+                Err(e)
+            } else {
+                c.log.call(call.request)
+            };
+            c.r.on_log_reply(call.id, reply);
+        }
+        c.r.tick();
+    }
+    assert_eq!(faults, vec![]);
+    assert_eq!(c.r.sync_status().incidents, vec![]);
+    assert_eq!(c.r.stats.snapshots_installed, 1);
+    assert_eq!(c.r.stats.snapshot_fallbacks, 0);
+    assert_eq!(c.r.head(), a.r.head());
 }
 
 // ------------------------------------------------------------ semantics ratchet

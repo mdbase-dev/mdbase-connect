@@ -3,7 +3,7 @@ use super::{
     unindexed_snapshot::{build, receiver, reply_install, snapshot_uploads},
 };
 use crate::{
-    log::{LogPort, LogRequest, LogResponse},
+    log::{LogError, LogErrorCode, LogPort, LogRequest, LogResponse},
     replica::append::Inflight,
     store::{RecordRow, Store, Tx},
 };
@@ -203,6 +203,48 @@ fn record_source_corruption_and_authenticated_invalid_utf8_keep_old_prefix() {
         assert!(b.r.store.record(&B16([71; 16])).unwrap().is_none());
         assert!(b.r.store.file(&B16([61; 16])).unwrap().is_none());
     }
+}
+fn reach_text(b: &mut Node, objects: &Objects) -> crate::log::LogCall {
+    for _ in 0..64 {
+        for c in b.r.take_log_calls() {
+            if matches!(b.r.inflight.get(&c.id), Some(Inflight::InstallText)) {
+                return c;
+            }
+            reply_install(b, c, objects, false);
+        }
+        b.r.retry_install();
+    }
+    panic!("no record source read")
+}
+/// A record source object the service cannot serve now is asked for again;
+/// one it does not have refuses the snapshot.
+#[test]
+fn a_record_source_object_the_service_lacks_refuses_the_snapshot() {
+    let (a, m, h, objects) = fixture("doc", b"doc");
+    let mut b = start(&a, &m, h, &objects);
+    let old = b.r.store.head().unwrap();
+    let c = reach_text(&mut b, &objects);
+    b.r.inflight.remove(&c.id).unwrap();
+    b.r.on_snapshot_text_reply(c.id, Err(LogError::code(LogErrorCode::Unavailable)));
+    b.r.retry_install();
+    assert!(b.r.installing(), "asked again later");
+    b.clock.set(b.clock.get() + 60_000);
+    let c = reach_text(&mut b, &objects);
+    b.r.inflight.remove(&c.id).unwrap();
+    b.r.on_snapshot_text_reply(c.id, Err(LogError::code(LogErrorCode::NotFound)));
+    b.r.retry_install();
+    assert!(!b.r.installing());
+    assert_eq!(b.r.stats.snapshots_installed, 0);
+    assert_eq!(b.r.store.head().unwrap(), old);
+    assert!(b.r.store.record(&B16([71; 16])).unwrap().is_none());
+    assert!(b.r.sync_status().incidents.iter().any(|i| {
+        i.kind == mdbn_wire::client::IncidentKind::Integrity
+            && i.details
+                == Some(mdbn_wire::common::Value::Text(
+                    "snapshot install: record source: Corrupt(\"the service does not have a source object\")"
+                        .into(),
+                ))
+    }));
 }
 #[test]
 fn record_source_old_generation_callback_cannot_authorize_swap() {
