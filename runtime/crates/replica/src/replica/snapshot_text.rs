@@ -124,7 +124,7 @@ impl<S: Store> Replica<S> {
                 let ok = crate::crypto::blob::validate_blob_ref(&row.blob).is_ok()
                     && row.blob.size <= 1048576
                     && row.blob.id_epoch >= 1
-                    && row.blob.id_epoch <= self.install_epoch;
+                    && row.blob.id_epoch <= self.install_rows.epoch;
                 if !ok {
                     self.install_text_sources.error =
                         Some(StreamError::Corrupt("snapshot text descriptor bounds"));

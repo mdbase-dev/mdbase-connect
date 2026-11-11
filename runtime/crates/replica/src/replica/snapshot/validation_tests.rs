@@ -186,7 +186,7 @@ fn deliver_chunk(r: &mut Replica<crate::mem::MemStore>, chunk: &ChunkPayload) {
 
 #[test]
 fn snapshot_validation_cross_chunk_refusal_clears_staging_and_preserves_prior_state() {
-    use super::upgrade_tests::{assert_prior, manifest, replica};
+    use super::upgrade_tests::{assert_prior, replica};
     // Exercise row admission at the already-verified manifest boundary, not a
     // signature/admission proof. Both orders span each live/native/tomb family.
     for first in 0..6 {
@@ -195,13 +195,9 @@ fn snapshot_validation_cross_chunk_refusal_clears_staging_and_preserves_prior_st
             // Local row-validation model: both current-policy and manifest
             // epoch bounds are1. This is NOT authenticated policy/admission.
             r.policy.epoch = 1;
-            r.install_epoch = 1;
-            r.install_chunk(
-                &manifest(),
-                &entity_chunk(first, B16([1; 16]), "first.md"),
-                true,
-            )
-            .unwrap();
+            r.install_rows.epoch = 1;
+            r.install_chunk(&entity_chunk(first, B16([1; 16]), "first.md"))
+                .unwrap();
             let expected_inventory = match first {
                 0 => (2, 0, 0, 0),
                 1 | 2 => (1, 1, 0, 0),
@@ -227,7 +223,7 @@ fn snapshot_validation_cross_chunk_refusal_clears_staging_and_preserves_prior_st
 
 #[test]
 fn snapshot_validation_alias_rejection_is_atomic_but_legacy_names_can_stage() {
-    use super::upgrade_tests::{assert_prior, manifest, replica};
+    use super::upgrade_tests::{assert_prior, replica};
     for path in ["../old.md", "/old.md", "a//old.md"] {
         let mut r = replica();
         let chunk = ChunkPayload {
@@ -259,11 +255,11 @@ fn snapshot_validation_alias_rejection_is_atomic_but_legacy_names_can_stage() {
                 .to_cbor(),
             ],
         };
-        r.install_chunk(&manifest(), &chunk, true).unwrap();
+        r.install_chunk(&chunk).unwrap();
         assert_eq!(r.store.staged_inventory(), Some((1, 0, 0, 1)));
         assert!(r.store.aliases().unwrap().is_empty(), "not yet confirmed");
         assert_eq!(
-            r.install_index.aliases[&mdbn_core::paths::path_key(path)].0,
+            r.install_rows.index.aliases[&mdbn_core::paths::path_key(path)].0,
             path
         );
         // Inspect the fake's staged alias by swapping in this isolated positive

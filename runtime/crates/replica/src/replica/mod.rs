@@ -545,11 +545,9 @@ pub struct Replica<S: Store> {
     /// reopen instead of refetching it on every read.
     pub(crate) base_install_failed: Option<u64>,
     pub(crate) install_progress: (u64, u64),
-    pub(crate) install_mseq: BTreeMap<B16, u64>,
-    /// Record capture times from the index section, keyed like `install_mseq`.
-    pub(crate) install_mtime: BTreeMap<B16, i64>,
     pub(crate) install_staged: crate::store::Tx,
-    pub(crate) install_index: snapshot::DigestIndex,
+    /// The chunk decoding of the snapshot being installed.
+    pub(crate) install_rows: snapshot::ChunkRows,
     /// The refs set of the snapshot being installed: the manifest's direct refs,
     /// then the complete set (direct refs plus every ref-index member) once its
     /// ref-index objects verified (T7b).
@@ -561,14 +559,10 @@ pub struct Replica<S: Store> {
     pub(crate) install_native_roots: unindexed_inventory::Roots,
     pub(crate) install_native_auth: unindexed_snapshot::Auth,
     pub(crate) install_text_sources: snapshot_text::Sources,
-    pub(crate) install_resources: Vec<(String, String)>,
     pub(crate) install_retry: bool,
     /// [`Replica::enforce_shipped_install_gate`].
     pub(crate) shipped_install_gate: bool,
-    /// The key epoch at the installing snapshot's position.
-    pub(crate) install_epoch: u64,
     pub(crate) endorse: Option<snapshot::Endorse>,
-    pub(crate) verified_chunks: std::collections::BTreeSet<mdbn_wire::common::B32>,
     pub(crate) install_points: Vec<snapshot::ControlPoint>,
     /// Entries between snapshots this replica builds (`snapshot.md` §5.3).
     pub snapshot_every: u64,
@@ -810,6 +804,7 @@ impl<S: Store> Replica<S> {
             grant_approval_queue: Default::default(),
             grant_approval_failures: BTreeMap::new(),
             endpoint: cfg.log_endpoint,
+            install_rows: snapshot::ChunkRows::new(cfg.collection, 0),
             cfg,
             store,
             planner,
@@ -892,22 +887,16 @@ impl<S: Store> Replica<S> {
             id_hints: BTreeMap::new(),
             base_install_failed: None,
             install_progress: (0, 0),
-            install_mseq: BTreeMap::new(),
-            install_mtime: BTreeMap::new(),
             install_staged: crate::store::Tx::default(),
-            install_index: Default::default(),
             install_refs: None,
             #[cfg(test)]
             installed_refs: None,
             install_native_roots: Default::default(),
             install_native_auth: Default::default(),
             install_text_sources: Default::default(),
-            install_resources: Vec::new(),
             install_retry: false,
             shipped_install_gate: false,
-            install_epoch: 0,
             endorse: None,
-            verified_chunks: Default::default(),
             install_points: Vec::new(),
             snapshot_every: snapshot::SNAPSHOT_EVERY,
             snapshot_record_bytes: u64::MAX,
