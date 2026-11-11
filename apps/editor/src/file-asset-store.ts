@@ -37,6 +37,23 @@ export function isReadOnlyMarkdownFile(file: Pick<CollectionFile, "contentProfil
     || file.contentProfile === "unindexed_markdown_attachment_v1";
 }
 
+// Media types browsers render inertly, so "Open original" may show them at the
+// application origin.
+const INLINE_MEDIA_TYPE = /^(?:image\/(?:png|jpeg|gif|webp|avif|bmp)|audio\/[a-z0-9.+-]+|video\/[a-z0-9.+-]+|application\/pdf)$/;
+
+/** The type a file's verified original is published under, and whether "Open
+ * original" may navigate to it. Uploaders choose media types, so only inert
+ * types open at the application origin: Markdown opens as plain text, SVG
+ * keeps its type for `<img>` previews but is downloaded, and every other file
+ * is published as an opaque download. */
+export function originalPresentation(file: Pick<CollectionFile, "contentProfile" | "mediaType">): { type: string; inline: boolean } {
+  if (isReadOnlyMarkdownFile(file)) return { type: "text/plain;charset=utf-8", inline: true };
+  const type = file.mediaType?.split(";", 1)[0].trim().toLowerCase() ?? "";
+  if (INLINE_MEDIA_TYPE.test(type)) return { type, inline: true };
+  if (type === "image/svg+xml") return { type, inline: false };
+  return { type: "application/octet-stream", inline: false };
+}
+
 /** Bounded, revision-aware cache for browser-previewable collection files. */
 export class FileAssetStore {
   private readonly entries = new Map<string, AssetEntry>();
@@ -172,17 +189,15 @@ export class FileAssetStore {
         // readFile's Blob is the whole verified download, never provisional
         // stream bytes. Decode fatally before publishing either text or URL.
         let sourceText: string | undefined;
-        let original = blob;
         if (isReadOnlyMarkdownFile(entry.file)) {
           const bytes = await blob.arrayBuffer();
           if (!this.ownsRequest(entry, controller)) return;
           sourceText = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
-          // Preserve original bytes, not a reserialization of the preview.
-          // Never open attacker-selected HTML MIME at the application's origin.
-          original = new Blob([blob], { type: "text/plain;charset=utf-8" });
         }
         if (!this.ownsRequest(entry, controller)) return;
-        entry.url = URL.createObjectURL(original);
+        // Publish the original bytes, not a reserialization of the preview, under
+        // the type chosen for them, never the declared or sniffed one.
+        entry.url = URL.createObjectURL(new Blob([blob], { type: originalPresentation(entry.file).type }));
         entry.sourceText = sourceText;
         entry.status = "ready";
         entry.lastUsed = ++this.usage;
