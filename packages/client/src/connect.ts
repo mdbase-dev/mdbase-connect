@@ -42,7 +42,8 @@ import type { MdbaseConnectionInfo, MdbaseDeviceAuthorization } from "./connecti
 import {
   assertFreshV2AuthorizationSupport,
   authorizationAbort,
-  declarationIdFromFamilyIdentity
+  declarationIdFromFamilyIdentity,
+  registeredApplication
 } from "./connect-authorization-helpers.js";
 import {
   IndexedDbGrantKeyStore,
@@ -171,10 +172,11 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
 
   private async registerWithinBudget(signal: AbortSignal): Promise<Application> {
     if (this.application) return this.application;
+    const manifest = await this.manifestDeclaration({ signal, timeoutMs: null });
     const response = await connectFetch(`${this.serverUrl}/v1/apps/register`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ manifest: await this.manifestDeclaration({ signal, timeoutMs: null }) }),
+      body: JSON.stringify({ manifest }),
       signal
     }, "temporarily_unavailable", "Application registration is temporarily unavailable.");
     const body = await decodeJsonResponse(
@@ -183,8 +185,8 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       "Connect returned an invalid application registration response."
     );
     if (!response.ok) throw apiError(body, "discovery_failed", "Application discovery failed.", response.status);
-    this.application = body.application;
-    return this.application!;
+    this.application = await registeredApplication(manifest, body.application);
+    return this.application;
   }
 
   manifestDeclaration(options: ConnectRequestOptions = {}): Promise<MdbaseAppManifest> {

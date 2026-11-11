@@ -31,6 +31,7 @@ export {
   authorizationFiles,
   validateAuthorizationSelection,
   declaredOperations,
+  normalizeApplicationManifest,
   retainedCapabilities,
   DEFAULT_OPERATIONS,
   type MdbaseApplicationManifest,

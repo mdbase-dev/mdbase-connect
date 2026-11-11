@@ -14,6 +14,7 @@ export type {
   LegacyMdbasePortableAppManifest,
   LegacyMdbaseAppManifest
 } from "./index.js";
+import { normalizeApplicationManifest } from "./application-contract.js";
 import { RECORD_EXTENSIONS_CONFIGURATION_PATH } from "./collection-setup.js";
 import {
   isNativeRedirectUri,
@@ -161,7 +162,7 @@ export function parseAppManifest(
 ): ValidatedAppManifest {
   const result = validateAppManifest(value, options);
   if (!result.valid) throw new AppManifestValidationError(result.issues);
-  return normalizeManifest(value as MdbaseAppManifest) as ValidatedAppManifest;
+  return normalizeApplicationManifest(value as MdbaseAppManifest) as ValidatedAppManifest;
 }
 
 /** Validate and clone without changing capability IDs, file aliases, or version. */
@@ -172,25 +173,8 @@ export function parseVersionedAppManifest(
   const result = validateVersionedAppManifest(value, options);
   if (!result.valid) throw new AppManifestValidationError(result.issues);
   return declaredContractVersion(value) === 1
-    ? { contractVersion: 1, manifest: normalizeManifest(value as LegacyMdbaseAppManifest) }
-    : { contractVersion: 2, manifest: normalizeManifest(value as MdbaseAppManifest) as ValidatedAppManifest };
-}
-
-function normalizeManifest<T extends MdbaseAppManifest | LegacyMdbaseAppManifest>(value: T) {
-  const manifest = structuredClone(value);
-  return {
-    ...manifest,
-    requirements: {
-      configuration: [],
-      ...manifest.requirements
-    },
-    provisions: {
-      type_packs: [],
-      configuration: [],
-      ...manifest.provisions
-    },
-    notifications: manifest.notifications ?? { criteria: [] }
-  };
+    ? { contractVersion: 1, manifest: normalizeApplicationManifest(value as LegacyMdbaseAppManifest) }
+    : { contractVersion: 2, manifest: normalizeApplicationManifest(value as MdbaseAppManifest) as ValidatedAppManifest };
 }
 
 export function formatManifestValidationIssues(

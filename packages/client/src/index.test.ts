@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   MdbaseBrowserSelection,
@@ -36,8 +37,11 @@ import type {
 import {
   AUTHORITY_PROOF_HEADERS,
   isConnectProblem,
-  normalizeConnectProblem
+  normalizeApplicationManifest,
+  normalizeConnectProblem,
+  type MdbaseApplicationManifest
 } from "@mdbase-dev/connect-protocol";
+import { canonicalJson } from "./operation-helpers.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -49,23 +53,32 @@ const TEST_COLLECTION_ID = "00000000-0000-0000-0000-000000000002";
 const TEST_APPLICATION_ID = "00000000-0000-0000-0000-000000000001";
 const TEST_MANIFEST_DIGEST = "0".repeat(64);
 
-function registeredApplication(
-  overrides: Record<string, unknown> = {}
-): Record<string, unknown> {
+const READ_REQUIREMENTS = {
+  contracts: [],
+  access: "full_collection",
+  capabilities: { contract_version: 2, required: ["collection.read"] }
+} as const satisfies MdbaseAppManifest["requirements"];
+
+/** What Connect registers for a declaration: its ID, identity and digest. */
+function registrationOf(manifest: MdbaseApplicationManifest): Record<string, unknown> {
+  const declaration = normalizeApplicationManifest(manifest);
   return {
-  id: TEST_APPLICATION_ID,
-  family_identity: "bundle:dev.mdbase.test",
-  manifest_digest: TEST_MANIFEST_DIGEST,
-    name: "Tasks",
-    homepage: "https://tasks.example/",
-    requirements: {
-      contracts: [],
-      access: "full_collection",
-      capabilities: { contract_version: 2, required: ["collection.read"] }
-    },
-    ...overrides
+    id: TEST_APPLICATION_ID,
+    family_identity: `bundle:${declaration.id}`,
+    manifest_digest: createHash("sha256").update(canonicalJson(declaration)).digest("hex"),
+    name: declaration.name,
+    distribution: declaration.distribution ?? "web",
+    requirements: declaration.requirements,
+    provisions: declaration.provisions,
+    notifications: declaration.notifications
   };
 }
+
+/** The registration for the declaration a register request posted. */
+function registeredRequest(init: RequestInit | undefined): Record<string, unknown> {
+  return registrationOf(JSON.parse(String(init?.body)).manifest);
+}
+
 const WORK_ITEM_CONTRACT = {
   contract_type: "record",
   id: "example.work-item",
@@ -1006,11 +1019,7 @@ describe("provider-neutral collection client", () => {
       redirect_uris: ["https://tasks.example/auth/mdbase/callback"]
     };
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({
-      application: {
-        id: "00000000-0000-0000-0000-000000000001",
-        name: "Tasks",
-        homepage: "https://tasks.example/"
-      }
+      application: registrationOf(manifest)
     }));
     const connect = new MdbaseConnect({
       serverUrl: "https://connect.example",
@@ -1044,11 +1053,7 @@ describe("provider-neutral collection client", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(jsonResponse(manifest))
       .mockResolvedValueOnce(jsonResponse({
-        application: {
-          id: "00000000-0000-0000-0000-000000000001",
-          name: "Tasks",
-          homepage: "https://tasks.example/"
-        }
+        application: registrationOf(manifest as MdbaseAppManifest)
       }));
     const connect = new MdbaseConnect({
       serverUrl: "https://connect.example",
@@ -1057,11 +1062,96 @@ describe("provider-neutral collection client", () => {
       storage: new MemoryStorage()
     });
 
-    await connect.register();
+    expect(await connect.register()).toMatchObject({ ok: true });
     expect(fetchMock.mock.calls.map(([request]) => String(request))).toEqual([
       manifestUrl,
       "https://connect.example/v1/apps/register"
     ]);
+  });
+
+  it("signs the bundled declaration's ceiling, not the registration's requirements", async () => {
+    const manifest: MdbaseAppManifest = {
+      manifest_version: 1,
+      id: "dev.mdbase.tasks",
+      name: "Tasks",
+      homepage: "https://tasks.example/",
+      redirect_uris: ["https://tasks.example/callback"],
+      requirements: READ_REQUIREMENTS
+    };
+    let proof: any;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      const url = String(request);
+      if (url.endsWith("/health")) return jsonResponse({ capabilities: ["application-authorization-v2-issuance"] });
+      if (url.endsWith("/v1/apps/register")) {
+        return jsonResponse({ application: {
+          ...registeredRequest(init),
+          requirements: {
+            ...READ_REQUIREMENTS,
+            capabilities: { contract_version: 2, required: ["collection.read", "records.delete"] },
+            files: { required: ["read", "delete"], scope: { kind: "collection" } }
+          }
+        } });
+      }
+      proof = JSON.parse(new URLSearchParams(String(init?.body)).get("application_authorization")!);
+      return jsonResponse({
+        authorization_id: proof.binding.authorization_id,
+        authorization_uri: `https://connect.example/oauth/authorize?request_id=${proof.binding.authorization_id}`,
+        expires_in: 600
+      });
+    });
+    const manager = new MdbaseConnect({
+      serverUrl: "https://connect.example",
+      manifest,
+      redirectUri: "https://tasks.example/callback",
+      storage: new MemoryStorage(),
+      keyStore: new MemoryGrantKeyStore(),
+      identityStore: new MemoryApplicationIdentityStore(),
+      relayEncryption: "disabled",
+      navigate: vi.fn()
+    });
+
+    expect(await manager.authorize()).toMatchObject({ ok: true, value: { kind: "redirecting" } });
+    expect(proof.binding.requested_operations).not.toContain("delete");
+    expect(proof.binding.requested_files).toBeUndefined();
+    expect(proof.binding.application_manifest_digest).toBe(registrationOf(manifest).manifest_digest);
+  });
+
+  it.each([
+    ["digest", { manifest_digest: "0".repeat(64) }],
+    ["family identity", { family_identity: "bundle:dev.mdbase.other" }]
+  ])("refuses a registration with another declaration %s before signing", async (_name, override) => {
+    const manifest: MdbaseAppManifest = {
+      manifest_version: 1,
+      id: "dev.mdbase.tasks",
+      name: "Tasks",
+      homepage: "https://tasks.example/",
+      redirect_uris: ["https://tasks.example/callback"],
+      requirements: READ_REQUIREMENTS
+    };
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_request, init) =>
+      jsonResponse({ application: { ...registeredRequest(init), ...override } }));
+    const navigate = vi.fn();
+    const manager = new MdbaseConnect({
+      serverUrl: "https://connect.example",
+      manifest,
+      redirectUri: "https://tasks.example/callback",
+      storage: new MemoryStorage(),
+      keyStore: new MemoryGrantKeyStore(),
+      identityStore: new MemoryApplicationIdentityStore(),
+      relayEncryption: "disabled",
+      navigate
+    });
+
+    expect(await manager.register()).toMatchObject({
+      ok: false,
+      problem: { code: "invalid_operation_response" }
+    });
+    expect(await manager.authorize()).toMatchObject({
+      ok: false,
+      problem: { code: "invalid_operation_response" }
+    });
+    expect(fetchMock.mock.calls.every(([request]) => String(request).endsWith("/v1/apps/register"))).toBe(true);
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   it("keeps opaque portable credentials in memory by default", () => {
@@ -1094,11 +1184,7 @@ describe("provider-neutral collection client", () => {
       const url = String(request);
       if (url.endsWith("/v1/apps/register")) {
         return jsonResponse({
-          application: registeredApplication({
-            name: "Portable notes",
-            distribution: "portable",
-            project_url: "https://apps.example/portable"
-          })
+          application: registeredRequest(init)
         });
       }
       if (url.endsWith("/oauth/device_authorization")) {
@@ -1206,23 +1292,7 @@ describe("provider-neutral collection client", () => {
       const url = String(request);
       if (url.endsWith("/v1/apps/register")) {
         return jsonResponse({
-          application: registeredApplication({
-            name: "Portable hosted notes",
-            distribution: "portable",
-            requirements: {
-              contracts: [],
-              access: "full_collection",
-              collection_kind: "hosted",
-              capabilities: {
-                contract_version: 2,
-                required: ["collection.read"]
-              },
-              files: {
-                required: ["list", "read"],
-                scope: { kind: "collection" }
-              }
-            }
-          })
+          application: registeredRequest(init)
         });
       }
       if (url.endsWith("/oauth/device_authorization")) {
@@ -1285,8 +1355,7 @@ describe("provider-neutral collection client", () => {
       manifest: {
         ...portableManifest(),
         requirements: {
-          contracts: [],
-          access: "full_collection",
+          ...READ_REQUIREMENTS,
           collection_kind: "hosted",
           files: {
             required: ["list", "read"],
@@ -1336,10 +1405,7 @@ describe("provider-neutral collection client", () => {
     const keyStore = new MemoryGrantKeyStore();
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(jsonResponse({
-        application: registeredApplication({
-          name: "Portable notes",
-          distribution: "portable"
-        })
+        application: registrationOf(portableManifest())
       }))
       .mockResolvedValueOnce(jsonResponse({ capabilities: ["application-authorization-v2-issuance"] }))
       .mockResolvedValueOnce(jsonResponse({
@@ -1379,10 +1445,7 @@ describe("provider-neutral collection client", () => {
       const url = String(request);
       if (url.endsWith("/v1/apps/register")) {
         return jsonResponse({
-          application: registeredApplication({
-            name: "Portable notes",
-            distribution: "portable"
-          })
+          application: registeredRequest(init)
         });
       }
       if (url.endsWith("/oauth/device_authorization")) {
@@ -1453,10 +1516,7 @@ describe("provider-neutral collection client", () => {
       const url = String(request);
       if (url.endsWith("/v1/apps/register")) {
         return jsonResponse({
-          application: registeredApplication({
-            name: "Portable notes",
-            distribution: "portable"
-          })
+          application: registeredRequest(init)
         });
       }
       if (url.endsWith("/oauth/device_authorization")) {
@@ -1823,8 +1883,10 @@ describe("mobile notifications", () => {
     redirect_uris: [
       "https://tasks.example/callback",
       "dev.mdbase.tasks://auth/mdbase/callback"
-    ]
-  };
+    ],
+    requirements: READ_REQUIREMENTS,
+    notifications: { criteria: [{ id: "task.ready" }, { id: "task.overdue" }] }
+  } as MdbaseAppManifest;
   const manifestSource = `bundle:${manifest.id}`;
   const tokenKey = storedTokenKey(serverUrl, manifestSource, TEST_COLLECTION_ID);
 
@@ -1856,16 +1918,7 @@ describe("mobile notifications", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
       const url = String(request);
       if (url.endsWith("/v1/apps/register")) {
-        return jsonResponse({
-          application: {
-            id: "00000000-0000-0000-0000-000000000001",
-            name: "Worklog",
-            homepage: "https://tasks.example",
-            notifications: {
-              criteria: [{ id: "task.ready" }, { id: "task.overdue" }]
-            }
-          }
-        });
+        return jsonResponse({ application: registrationOf(manifest) });
       }
       if (url.endsWith("/v1/notifications/vapid-public-key")) {
         return jsonResponse({ public_key: "AQID" });
@@ -1928,12 +1981,7 @@ describe("mobile notifications", () => {
     }));
     const getSubscription = vi.fn();
     vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({
-      application: {
-        id: "00000000-0000-0000-0000-000000000001",
-        name: "Worklog",
-        homepage: "https://tasks.example",
-        notifications: { criteria: [{ id: "task.ready" }] }
-      }
+      application: registrationOf(manifest)
     }));
     const manager = new MdbaseConnect({
       serverUrl,
@@ -1989,6 +2037,13 @@ describe("mobile notifications", () => {
   });
 
   it("registers an FCM installation without accepting a client-selected project", async () => {
+    const fcmManifest = {
+      ...manifest,
+      notifications: {
+        native_delivery: { mode: "managed_fcm", firebase_project_id: "tasks-production" },
+        criteria: [{ id: "task.ready" }]
+      }
+    } as MdbaseAppManifest;
     const storage = new MemoryStorage();
     storage.setItem(tokenKey, JSON.stringify({
       version: 1,
@@ -2004,20 +2059,7 @@ describe("mobile notifications", () => {
       async (request, init) => {
         const url = String(request);
         if (url.endsWith("/v1/apps/register")) {
-          return jsonResponse({
-            application: {
-              id: "00000000-0000-0000-0000-000000000001",
-              name: "Worklog",
-              homepage: "https://tasks.example",
-              notifications: {
-                native_delivery: {
-                  mode: "managed_fcm",
-                  firebase_project_id: "tasks-production"
-                },
-                criteria: [{ id: "task.ready" }]
-              }
-            }
-          });
+          return jsonResponse({ application: registrationOf(fcmManifest) });
         }
         if (
           url.endsWith("/v1/notifications/channels")
@@ -2034,7 +2076,7 @@ describe("mobile notifications", () => {
     );
     const manager = new MdbaseConnect({
       serverUrl,
-      manifest,
+      manifest: fcmManifest,
       redirectUri: "dev.worklog.app://auth/mdbase/callback",
       storage,
       relayEncryption: "disabled"
@@ -3194,7 +3236,7 @@ describe("authorization renewal", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
       if (String(request).endsWith("/health")) return jsonResponse({ capabilities: ["application-authorization-v2-issuance"] });
       if (String(request).endsWith("/v1/apps/register")) {
-        return jsonResponse({ application: registeredApplication() });
+        return jsonResponse({ application: registeredRequest(init) });
       }
       authorizationForm = new URLSearchParams(String(init?.body));
       const proof = JSON.parse(authorizationForm.get("application_authorization")!);
@@ -3212,7 +3254,8 @@ describe("authorization renewal", () => {
         id: "dev.tasks",
         name: "Tasks",
         homepage: "https://tasks.example/",
-        redirect_uris: ["https://tasks.example/callback"]
+        redirect_uris: ["https://tasks.example/callback"],
+        requirements: READ_REQUIREMENTS
       },
       redirectUri: "https://tasks.example/callback",
       storage,
@@ -3262,7 +3305,7 @@ describe("authorization renewal", () => {
       if (String(request).endsWith("/health")) return jsonResponse({ capabilities: ["application-authorization-v2-issuance"] });
       const url = String(request);
       if (url.endsWith("/v1/apps/register")) {
-        return jsonResponse({ application: registeredApplication() });
+        return jsonResponse({ application: registeredRequest(init) });
       }
       if (url.endsWith("/oauth/authorization_request")) {
         const form = new URLSearchParams(String(init?.body));
@@ -3293,7 +3336,8 @@ describe("authorization renewal", () => {
         id: "dev.tasks",
         name: "Tasks",
         homepage: "https://tasks.example/",
-        redirect_uris: ["https://tasks.example/callback"]
+        redirect_uris: ["https://tasks.example/callback"],
+        requirements: READ_REQUIREMENTS
       },
       redirectUri: "https://tasks.example/callback",
       storage,
@@ -3335,7 +3379,7 @@ describe("authorization renewal", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
       if (String(request).endsWith("/health")) return jsonResponse({ capabilities: ["application-authorization-v2-issuance"] });
       if (String(request).endsWith("/v1/apps/register")) {
-        return jsonResponse({ application: registeredApplication() });
+        return jsonResponse({ application: registeredRequest(init) });
       }
       const form = new URLSearchParams(String(init?.body));
       const proof = JSON.parse(form.get("application_authorization")!);
@@ -3352,7 +3396,8 @@ describe("authorization renewal", () => {
         id: "dev.tasks",
         name: "Tasks",
         homepage: "https://tasks.example/",
-        redirect_uris: ["https://tasks.example/callback"]
+        redirect_uris: ["https://tasks.example/callback"],
+        requirements: READ_REQUIREMENTS
       },
       redirectUri: "https://tasks.example/callback",
       storage: new MemoryStorage(),
@@ -3390,17 +3435,7 @@ describe("authorization renewal", () => {
       if (String(request).endsWith("/health")) return jsonResponse({ capabilities: ["application-authorization-v2-issuance"] });
       if (String(request).endsWith("/v1/apps/register")) {
         return jsonResponse({
-          application: registeredApplication({
-            requirements: {
-              contracts: [],
-              access: "full_collection",
-              capabilities: {
-                contract_version: 2,
-                required: ["collection.read"],
-                optional: ["records.create"]
-              }
-            }
-          })
+          application: registeredRequest(init)
         });
       }
       const form = new URLSearchParams(String(init?.body));
@@ -3419,7 +3454,8 @@ describe("authorization renewal", () => {
         id: "dev.tasks",
         name: "Tasks",
         homepage: "https://tasks.example/",
-        redirect_uris: ["https://tasks.example/callback"]
+        redirect_uris: ["https://tasks.example/callback"],
+        requirements: { ...READ_REQUIREMENTS, capabilities: { ...READ_REQUIREMENTS.capabilities, optional: ["records.create"] } }
       },
       redirectUri: "https://tasks.example/callback",
       storage,
@@ -3449,10 +3485,10 @@ describe("authorization renewal", () => {
   it("returns a typed problem when persistent application identity is unavailable", async () => {
     const keyStore = new MemoryGrantKeyStore();
     const deleteKey = vi.spyOn(keyStore, "delete");
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (request) => jsonResponse(
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => jsonResponse(
       String(request).endsWith("/health")
         ? { capabilities: ["application-authorization-v2-issuance"] }
-        : { application: registeredApplication() }
+        : { application: registeredRequest(init) }
     ));
     const manager = new MdbaseConnect({
       serverUrl: "https://connect.example",
@@ -3461,7 +3497,8 @@ describe("authorization renewal", () => {
         id: "dev.tasks",
         name: "Tasks",
         homepage: "https://tasks.example/",
-        redirect_uris: ["https://tasks.example/callback"]
+        redirect_uris: ["https://tasks.example/callback"],
+        requirements: READ_REQUIREMENTS
       },
       redirectUri: "https://tasks.example/callback",
       storage: new MemoryStorage(),
@@ -3620,22 +3657,11 @@ describe("authorization renewal", () => {
             id: "dev.worklog.app",
             name: "Worklog",
             homepage: "https://tasks.example",
-            redirect_uris: ["dev.worklog.app://auth/mdbase/callback"]
+            redirect_uris: ["dev.worklog.app://auth/mdbase/callback"],
+            requirements: { ...READ_REQUIREMENTS, capabilities: { ...READ_REQUIREMENTS.capabilities, optional: ["records.create", "records.edit"] } }
           });
       if (String(request).endsWith("/v1/apps/register")) return jsonResponse({
-            application: registeredApplication({
-              name: "Worklog",
-              homepage: "https://tasks.example",
-              requirements: {
-                contracts: [],
-                access: "full_collection",
-                capabilities: {
-                  contract_version: 2,
-                  required: ["collection.read"],
-                  optional: ["records.create", "records.edit"]
-                }
-              }
-            })
+            application: registeredRequest(init)
           });
       authorizationForm = new URLSearchParams(String(init?.body));
       const proof = JSON.parse(authorizationForm.get("application_authorization")!);
@@ -3734,13 +3760,11 @@ describe("authorization renewal", () => {
             id: "dev.worklog.app",
             name: "Worklog",
             homepage: "https://tasks.example",
-            redirect_uris: ["dev.worklog.app://auth/mdbase/callback"]
+            redirect_uris: ["dev.worklog.app://auth/mdbase/callback"],
+            requirements: READ_REQUIREMENTS
           });
       if (String(request).endsWith("/v1/apps/register")) return jsonResponse({
-            application: registeredApplication({
-              name: "Worklog",
-              homepage: "https://tasks.example"
-            })
+            application: registeredRequest(init)
           });
       authorizationForm = new URLSearchParams(String(init?.body));
       const proof = JSON.parse(authorizationForm.get("application_authorization")!);
@@ -6140,10 +6164,7 @@ function portableManifest(): MdbaseAppManifest {
     id: "dev.mdbase.portable-notes",
     name: "Portable notes",
     project_url: "https://apps.example/portable",
-    requirements: {
-      contracts: [],
-      access: "full_collection"
-    }
+    requirements: READ_REQUIREMENTS
   };
 }
 

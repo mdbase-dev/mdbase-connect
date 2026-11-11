@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApplicationAuthorizationProof, CollectionOperation, LegacyMdbaseAppManifest, MdbaseAppManifest as V2Manifest } from "@mdbase-dev/connect-protocol";
 import { MdbaseConnect, MdbaseMemorySelection, type MdbaseAppManifest } from "./index.js";
@@ -6,7 +7,8 @@ import { MemoryStorage } from "./runtime-utils.js";
 import { MemoryGrantKeyStore } from "./crypto.js";
 import { MemoryApplicationIdentityStore } from "./application-identity.js";
 import { effectiveCapabilities } from "./capabilities.js";
-import { authorizationFiles, authorizationOperations, MdbaseConnectError as ProtocolError } from "@mdbase-dev/connect-protocol";
+import { authorizationFiles, authorizationOperations, MdbaseConnectError as ProtocolError, normalizeApplicationManifest } from "@mdbase-dev/connect-protocol";
+import { canonicalJson } from "./operation-helpers.js";
 import { MdbaseConnectError as ClientError, connectError } from "./errors.js";
 
 it("shared compiler retains the exact client error constructor and original issue details", () => {
@@ -63,10 +65,11 @@ function fixture(declaration: MdbaseAppManifest = manifest(1), operations: Colle
     scope: { contracts: [], access: "full_collection" }, expiresAt: Date.now() + 60_000, savedAt: Date.now()
   }));
   storage.setItem(`mdbase-connect:${prefix}:connections`, JSON.stringify({ version: 1, collectionIds: [collectionId] }));
+  const digest = createHash("sha256").update(canonicalJson(normalizeApplicationManifest(declaration))).digest("hex");
   const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
     if (String(request).endsWith("/health")) return Response.json({ capabilities: ["application-authorization-v2-issuance"] });
     if (String(request).endsWith("/v1/apps/register")) return Response.json({ application: {
-      id: applicationId, family_identity: `bundle:${declaration.id}`, manifest_digest: "a".repeat(64),
+      id: applicationId, family_identity: `bundle:${declaration.id}`, manifest_digest: digest,
       name: declaration.name, requirements: declaration.requirements, distribution: declaration.distribution
     } });
     const form = new URLSearchParams(String(init?.body));
@@ -86,7 +89,7 @@ function fixture(declaration: MdbaseAppManifest = manifest(1), operations: Colle
     serverUrl, manifest: declaration, redirectUri: "https://bridge.example/callback",
     storage, keyStore, identityStore, navigate, relayEncryption: declaration.distribution === "portable" ? "required" : "disabled"
   });
-  return { manager, storage, keyStore, proofs, navigate, fetch };
+  return { manager, storage, keyStore, proofs, navigate, fetch, digest };
 }
 
 afterEach(() => { vi.restoreAllMocks(); });
@@ -110,7 +113,7 @@ describe("SDK authorization semantic bridge", () => {
     const test = fixture();
     expect(await test.manager().authorize({ operations: ["update", "query", "update"] })).toMatchObject({ ok: true });
     expect(test.proofs[0].binding).toMatchObject({
-      application_manifest_digest: "a".repeat(64),
+      application_manifest_digest: test.digest,
       requested_operations: ["update", "query"],
       requested_files: { actions: ["read", "replace"], scope: { kind: "collection" } },
       contracts: { semantic_capabilities: 1, durable_mutation: 1 }
@@ -225,7 +228,7 @@ describe("SDK authorization semantic bridge", () => {
     expect(test.proofs[0].binding.contracts).toMatchObject({ semantic_capabilities: 1, operation_transport_recovery: [2] });
     test.manager().connection(collectionId);
     expect(test.storage.getItem(pendingKey)).toBe(pending);
-    expect(test.proofs[0].binding.application_manifest_digest).toBe("a".repeat(64));
+    expect(test.proofs[0].binding.application_manifest_digest).toBe(test.digest);
   });
 
   it("restores legacy file and notification readiness without assigning those aliases to v2", () => {
