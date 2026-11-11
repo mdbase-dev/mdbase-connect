@@ -610,6 +610,10 @@ async function auditPortalManagement() {
     await route.fulfill({ json: {} });
   });
   await page.goto(servers[0].origin);
+  await page.getByRole("heading", { name: "Home", level: 1, exact: true }).waitFor();
+  await auditPage(page, "portal management home", { keyboard: true });
+
+  await page.goto(`${servers[0].origin}/?collection=22222222-2222-4222-8222-222222222222`);
   await page.getByRole("heading", { name: "Accessibility collection" }).waitFor();
   await auditPage(page, "portal management workspace", { keyboard: true });
 
