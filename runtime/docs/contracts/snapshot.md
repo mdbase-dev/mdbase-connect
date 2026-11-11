@@ -612,6 +612,12 @@ the index.
    mismatch, for one, means the service withheld or altered control items. A snapshot
    refused only for needing a newer build (an unknown `fmt` or codec, or a newer
    semantics major) is `upgrade_required`.
+
+   **A missing object.** When the service answers `not_found` for an object of the
+   snapshot (its manifest, a ref-index object, a chunk, or a source object its refs
+   name), the answer will not change, and the snapshot is refused as above. A fetch
+   that gets no answer, or `unavailable`, `rate_limited` or `unauthenticated`, is
+   repeated; it refuses nothing.
 3. **Resources.** The catalog is now known.
 4. **Index.** All buckets, in order. The replica can now:
    - list every path;

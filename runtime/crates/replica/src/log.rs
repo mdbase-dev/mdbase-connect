@@ -304,6 +304,19 @@ pub enum LogError {
 }
 
 impl LogError {
+    /// The service answered that it does not have the object asked for. Unlike
+    /// no answer, or an answer to ask again later, the same request gets the
+    /// same answer.
+    pub(crate) fn object_missing(&self) -> bool {
+        matches!(
+            self,
+            LogError::Service {
+                code: LogErrorCode::NotFound,
+                ..
+            }
+        )
+    }
+
     /// A service error with just a code.
     pub fn code(code: LogErrorCode) -> LogError {
         LogError::Service {

@@ -214,6 +214,22 @@ pub(crate) enum Install {
     },
 }
 
+impl Install {
+    /// The object of the snapshot this step is fetching, if it is fetching one.
+    pub(crate) fn object(&self) -> Option<&'static str> {
+        match self {
+            Install::Manifest(_) => Some("the manifest"),
+            Install::RefIndices { .. } => Some("a ref index"),
+            Install::Chunks { .. } => Some("a chunk"),
+            Install::Control
+            | Install::Pointer
+            | Install::Chain(..)
+            | Install::Reset(_)
+            | Install::Sources(_) => None,
+        }
+    }
+}
+
 /// An endorsement in progress: the manifest, then every chunk it references.
 #[derive(Debug, Clone)]
 pub(crate) enum Endorse {
