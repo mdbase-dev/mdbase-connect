@@ -152,10 +152,24 @@ export function signInUrl(currentLocation: ReturnLocation = location): string {
   return `${login.pathname}${login.search}`;
 }
 
+// Portal fragments carry one-time secrets (account invitation, verification,
+// reset, unsubscribe and reauthentication tokens) that must never reach a
+// server-visible URL. `return_to` is a query value, so sign-in keeps only the
+// fragment keys listed here. A collection invitation is listed because the
+// invitee accepts it after signing in or signing up.
+const signInFragmentKeys = new Set(["collection-invitation"]);
+
+function signInReturnTarget(currentHref: string): string {
+  const target = new URL(currentHref);
+  const fragment = new URLSearchParams(target.hash.slice(1));
+  target.hash = new URLSearchParams([...fragment].filter(([key]) => signInFragmentKeys.has(key))).toString();
+  return target.href;
+}
+
 export function signInRedirectUrl(baseUrl: string, hadSession: boolean, currentHref: string = location.href): string {
   const login = new URL("/login", baseUrl);
   if (hadSession) login.searchParams.set("reason", "session-expired");
-  login.searchParams.set("return_to", currentHref);
+  login.searchParams.set("return_to", signInReturnTarget(currentHref));
   return login.href;
 }
 export type PortalBootstrapSecrets = Readonly<{

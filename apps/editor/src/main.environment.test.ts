@@ -110,6 +110,20 @@ describe("editor chunk preload", () => {
     expect(appChunk).not.toHaveBeenCalled();
     expect(codeEditorChunk).not.toHaveBeenCalled();
   });
+  it.each([
+    ["/connect/account?collection=c#k=v", "https://connect.mdbase.dev/account?collection=c#k=v"],
+    ["/connect", "https://connect.mdbase.dev/"],
+    ["/connect//other.example/x?server=https%3A%2F%2Fconnect.mdbase.dev", "https://connect.mdbase.dev//other.example/x"],
+    ["/connect///other.example", "https://connect.mdbase.dev///other.example"],
+    ["/connect/account?server=https%3A%2F%2Fother.example&collection=c", "https://connect.mdbase.dev/account?collection=c"],
+    ["/connect?server=http%3A%2F%2Fother.example", "https://connect.mdbase.dev/"],
+  ])("forwards the retired %s link to the same path on the Connect portal", async (path, target) => {
+    vi.stubEnv("VITE_MDBASE_ENV", "production");
+    const replace = vi.fn();
+    vi.stubGlobal("location", Object.assign(new URL(path, "https://editor.mdbase.dev"), { replace }));
+    await import("./main");
+    expect(replace).toHaveBeenCalledExactlyOnceWith(target);
+  });
   // Vitest fails the run on an unhandled rejection, so this load failing
   // unobserved would fail here.
   it("leaves a failed chunk load to the boundary that renders it, without an unhandled rejection", async () => {

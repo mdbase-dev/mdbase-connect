@@ -273,6 +273,27 @@ describe("FileAssetStore", () => {
     }
   );
 
+  it.each([
+    ["image/png", "image/png"],
+    ["IMAGE/JPEG; q=1", "image/jpeg"],
+    ["audio/mpeg", "audio/mpeg"],
+    ["video/mp4", "video/mp4"],
+    ["application/pdf", "application/pdf"],
+    ["image/svg+xml", "image/svg+xml"],
+    ["text/html", "application/octet-stream"],
+    ["application/xhtml+xml", "application/octet-stream"],
+    ["text/plain; charset=utf-8", "text/plain"],
+    ["application/json", "application/octet-stream"],
+    [undefined, "application/octet-stream"]
+  ])("publishes a file declared as %s under %s, whatever the source blob's type", async (mediaType, published) => {
+    const blob = new Blob(["<html>bytes</html>"], { type: "text/html" });
+    const store = new FileAssetStore({ readFile: vi.fn().mockResolvedValue(blob) });
+    await store.load({ ...file("upload.bin", "r1", blob.size), ...(mediaType === undefined ? {} : { mediaType }) });
+    const original = vi.mocked(URL.createObjectURL).mock.calls[0][0] as Blob;
+    expect(original.type).toBe(published);
+    expect(new Uint8Array(await original.arrayBuffer())).toEqual(new Uint8Array(await blob.arrayBuffer()));
+  });
+
   it.each(["resolve", "reject"] as const)("fences a late Markdown decode %s after release and same-key replacement", async outcome => {
     let resolve!: (buffer: ArrayBuffer) => void;
     let reject!: (reason: Error) => void;

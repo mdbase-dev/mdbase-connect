@@ -27,7 +27,7 @@ import { offlineShell } from "./offline-shell";
 import { LocaleProvider } from "@mdbase-dev/i18n/react";
 import { editorLocaleRuntime } from "./i18n/runtime";
 import { EditorEntryPage } from "./ConnectionScreens";
-import { editorPortalUrl } from "./connect-endpoint";
+import { configuredConnectServerUrl, editorPortalUrl } from "./connect-endpoint";
 import { editorEnvironment as environment } from "./environment";
 import { OpeningScreen } from "./LoadingScreens";
 
@@ -38,11 +38,15 @@ function reportLocaleLoadError(error: unknown) {
 const EditorApp = lazy(() => import("./App").then((module) => ({ default: module.App })));
 // The Connect console is retired from the Editor: accounts, access and collection
 // management live on the Connect portal. Keep old /connect bookmarks working by
-// forwarding them there, and never mount management (or an SDK owner) here.
+// forwarding them to this build's portal, and never mount management (or an SDK
+// owner) here. A `?server=` value never chooses the destination, and the
+// remainder is assigned as a path, never resolved as a URL reference, so the
+// target always stays on the configured portal origin.
 const portalUrl = editorPortalUrl();
-const managementTarget = portalUrl && (location.pathname === "/connect" || location.pathname.startsWith("/connect/"))
-  ? new URL(location.pathname.slice("/connect".length) || "/", portalUrl) : null;
+const managementTarget = location.pathname === "/connect" || location.pathname.startsWith("/connect/")
+  ? new URL(configuredConnectServerUrl) : null;
 if (managementTarget) {
+  managementTarget.pathname = location.pathname.slice("/connect".length) || "/";
   managementTarget.search = location.search;
   managementTarget.searchParams.delete("server");
   managementTarget.hash = location.hash;

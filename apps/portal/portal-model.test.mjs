@@ -18,6 +18,19 @@ test("sign-in distinguishes a first visit from a previously authenticated sessio
   }
 });
 
+test("sign-in return target keeps no fragment secret except the collection invitation", () => {
+  const returnTo = (href) => new URL(signInRedirectUrl("https://connect.example.test", true, href)).searchParams.get("return_to");
+  assert.equal(
+    returnTo("https://connect.example.test/account?collection=c#delete_token=act_secret"),
+    "https://connect.example.test/account?collection=c"
+  );
+  assert.equal(
+    returnTo("https://connect.example.test/?collection=c#delete_token=act_secret&collection-invitation=cinv_shared&reset=r"),
+    "https://connect.example.test/?collection=c#collection-invitation=cinv_shared"
+  );
+  assert.equal(returnTo("https://connect.example.test/collections#section"), "https://connect.example.test/collections");
+});
+
 test("installation account label uses canonical identity, freezes confirmation and never invents email", () => {
   assert.equal(installationAccountLabel({signed_in_account_email:"owner@example.test",signed_in_account_provider:"github",signed_in_account_login:"login"}),"owner@example.test");
   assert.equal(installationAccountLabel({signed_in_account_email:null,signed_in_account_provider:"github",signed_in_account_login:"login"}),"GitHub account @login");

@@ -4,7 +4,7 @@ import { useLingui } from "@lingui/react";
 import type { ReactNode } from "react";
 import { Dialog } from "@mdbase-dev/ui/dialog";
 import { ArrowLeftIcon as ArrowLeft, FileIcon as File, XIcon as X } from "./icons";
-import { isReadOnlyMarkdownFile, type FileAssetSnapshot } from "./file-asset-store";
+import { isReadOnlyMarkdownFile, originalPresentation, type FileAssetSnapshot } from "./file-asset-store";
 import { ReadOnlyMarkdown } from "./read-only-markdown";
 import type { CollectionFile } from "./model";
 import { collectionFileTitle, formatFileSize } from "./collection-browser";
@@ -26,7 +26,7 @@ export function FileWorkspace({ file, asset, leadingActions, onBack, onRetry }: 
       {leadingActions}
       <div className="path-wrap file-workspace-path"><span>{file.path}</span></div>
       <span className="file-workspace-size">{formatFileSize(file.size)}</span>
-      {asset.status === "ready" && <a className="file-open-original" href={asset.url} target="_blank" rel="noreferrer"><Trans>Open original</Trans></a>}
+      {asset.status === "ready" && <OpenOriginal className="file-open-original" asset={asset} />}
     </header>
     <div className={`file-workspace-content file-viewer-${isReadOnlyMarkdownFile(file) ? "markdown" : file.mediaClass}`}>
       {asset.status === "ready" ? <FileContent asset={asset} />
@@ -45,9 +45,16 @@ export function FileViewer({ asset, onClose }: {
   if (!asset) return null;
   const filename = collectionFileTitle(asset.file);
   return <Dialog open className="file-viewer" title={t`Preview ${filename}`} onClose={onClose}>
-    <header><div><strong>{filename}</strong><span>{asset.file.path}</span></div><a href={asset.url} target="_blank" rel="noreferrer"><Trans>Open original</Trans></a><button className="icon-button" aria-label={t`Close file preview`} onClick={onClose} data-autofocus><X aria-hidden="true" /></button></header>
+    <header><div><strong>{filename}</strong><span>{asset.file.path}</span></div><OpenOriginal asset={asset} /><button className="icon-button" aria-label={t`Close file preview`} onClick={onClose} data-autofocus><X aria-hidden="true" /></button></header>
     <div className={`file-viewer-content file-viewer-${isReadOnlyMarkdownFile(asset.file) ? "markdown" : asset.file.mediaClass}`}><FileContent asset={asset} /></div>
   </Dialog>;
+}
+
+/** Only inert originals open in a new tab; every other file is downloaded. */
+function OpenOriginal({ asset, className }: { asset: Extract<FileAssetSnapshot, { status: "ready" }>; className?: string }) {
+  return originalPresentation(asset.file).inline
+    ? <a className={className} href={asset.url} target="_blank" rel="noreferrer"><Trans>Open original</Trans></a>
+    : <a className={className} href={asset.url} download={collectionFileTitle(asset.file)}><Trans>Open original</Trans></a>;
 }
 
 function FileContent({ asset }: { asset: Extract<FileAssetSnapshot, { status: "ready" }> }) {
