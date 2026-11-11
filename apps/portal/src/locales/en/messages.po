@@ -555,6 +555,7 @@ msgid "Add a new {0} type"
 msgstr "Add a new {0} type"
 
 #: src/ConnectApp.tsx
+#: src/HomePage.tsx
 #: src/portal-commands.ts
 msgid "Add collection"
 msgstr "Add collection"
@@ -580,6 +581,10 @@ msgstr "Add new records to this collection."
 #: src/authorization-view.tsx
 msgid "Add or connect another collection"
 msgstr "Add or connect another collection"
+
+#: src/HomePage.tsx
+msgid "Add your first collection"
+msgstr "Add your first collection"
 
 #: src/authority-workflows.tsx
 msgid "Additional collection access"
@@ -688,6 +693,10 @@ msgstr "Already-allowed access stays in place. Revoke access separately if you n
 msgid "Always on"
 msgstr "Always on"
 
+#: src/HomePage.tsx
+msgid "An app asks for access to a collection the first time you use it, and you choose what it can do."
+msgstr "An app asks for access to a collection the first time you use it, and you choose what it can do."
+
 #: src/authorization-view.tsx
 msgid "an app running on this computer"
 msgstr "an app running on this computer"
@@ -782,6 +791,10 @@ msgstr "Apps will lose access through this computer. Your local files will not b
 msgctxt "Connect interface"
 msgid "Apps with access to the entire collection"
 msgstr "Apps with access to the entire collection"
+
+#: src/HomePage.tsx
+msgid "Apps you approve appear here."
+msgstr "Apps you approve appear here."
 
 #: src/AccountManagement.tsx
 msgid "Authentication"
@@ -994,6 +1007,7 @@ msgid "Choose the folder in mdbase Connect."
 msgstr "Choose the folder in mdbase Connect."
 
 #: src/ConnectApp.tsx
+#: src/HomePage.tsx
 msgid "Choose where your first collection lives."
 msgstr "Choose where your first collection lives."
 
@@ -1078,6 +1092,7 @@ msgstr "Collection permissions"
 
 #: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
+#: src/HomePage.tsx
 msgctxt "Connect interface"
 msgid "Collections"
 msgstr "Collections"
@@ -1751,6 +1766,12 @@ msgstr "Google sign-in did not load correctly."
 msgid "Help {applicationName} understand {0}"
 msgstr "Help {applicationName} understand {0}"
 
+#: src/ConnectApp.tsx
+#: src/HomePage.tsx
+msgctxt "Connect interface"
+msgid "Home"
+msgstr "Home"
+
 #: src/AccountManagement.tsx
 msgid "Hosted access was removed immediately. Hosted data deletion continues automatically in the background. Any local collection and mirror files remain on your computers."
 msgstr "Hosted access was removed immediately. Hosted data deletion continues automatically in the background. Any local collection and mirror files remain on your computers."
@@ -2113,6 +2134,10 @@ msgctxt "Connect interface"
 msgid "More access required"
 msgstr "More access required"
 
+#: src/HomePage.tsx
+msgid "More apps from mdbase"
+msgstr "More apps from mdbase"
+
 #: src/AccountManagement.tsx
 msgid "More regular updates about new features and improvements."
 msgstr "More regular updates about new features and improvements."
@@ -2259,6 +2284,10 @@ msgstr "No apps match"
 msgid "No apps with access"
 msgstr "No apps with access"
 
+#: src/HomePage.tsx
+msgid "No apps yet"
+msgstr "No apps yet"
+
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "No collection access"
@@ -2371,8 +2400,14 @@ msgstr "Only {0}. Hidden folders are always excluded."
 msgid "Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active."
 msgstr "Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active."
 
+#: src/HomePage.tsx
+msgid "Open"
+msgstr "Open"
+
+#. placeholder {0}: app.name
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
+#: src/HomePage.tsx
 msgid "Open {0}"
 msgstr "Open {0}"
 
@@ -3240,6 +3275,10 @@ msgstr "Something went wrong on mdbase. Try again."
 msgid "Start signup again"
 msgstr "Start signup again"
 
+#: src/HomePage.tsx
+msgid "Start with an app"
+msgstr "Start with an app"
+
 #: src/ConnectApp.tsx
 msgid "Starts with a cloud copy"
 msgstr "Starts with a cloud copy"
@@ -3911,6 +3950,10 @@ msgstr "Your account has reached its synced collection limit. Open an existing c
 #: src/onboarding-view.tsx
 msgid "Your account is ready. Create a collection now, or continue without one."
 msgstr "Your account is ready. Create a collection now, or continue without one."
+
+#: src/HomePage.tsx
+msgid "Your apps"
+msgstr "Your apps"
 
 #: src/AccountManagement.tsx
 msgid "Your change was saved, but account details could not refresh. Reload to check the latest details."

@@ -291,7 +291,7 @@ test("discovers registry-only native collections and reuses the normal invitatio
   await expect(page.getByRole("button", { name: "Delete", exact: true })).toHaveCount(0);
 });
 
-test("uses a collection chooser when direct entry is ambiguous", async ({ page }) => {
+test("uses a collection chooser when a collection link is ambiguous", async ({ page }) => {
   await page.unroute(`${portalOrigin}/v1/**`);
   const ambiguousOverview = {
     ...overview,
@@ -307,7 +307,7 @@ test("uses a collection chooser when direct entry is ambiguous", async ({ page }
     await route.fulfill({ json: pathname === "/v1/account/sessions" ? { sessions: [] } : ambiguousOverview });
   });
 
-  await page.goto(`${portalOrigin}/`);
+  await page.goto(`${portalOrigin}/?collection=missing`);
 
   await expect(page).toHaveURL(/\/collections/);
   await expect(page.getByRole("heading", { name: "Collections", exact: true })).toBeVisible();

@@ -1,7 +1,7 @@
 import { t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { InfoIcon as Info } from "@phosphor-icons/react/Info";
 import { ManagementApiError } from "@mdbase/connect-management";
 import { collectionQuotaMessage } from "./collection-quota-copy.generated";
@@ -76,7 +76,9 @@ export function ConnectPage({ title, intro, status, action, reading = false, chi
   </div>;
 }
 
-export function ConnectSectionTitle({ title, note, count, action }: {
+export function ConnectSectionTitle({ id, title, note, count, action }: {
+  /** Names the heading, for a section labelled by it. */
+  id?: string;
   title: string;
   note?: string;
   count?: number;
@@ -84,7 +86,7 @@ export function ConnectSectionTitle({ title, note, count, action }: {
 }) {
   useLocaleRevision();
   return <header className="connect-section-title">
-    <div><h2>{title}</h2>{count !== undefined && <span>{i18n.number(count)}</span>}</div>
+    <div><h2 id={id}>{title}</h2>{count !== undefined && <span>{i18n.number(count)}</span>}</div>
     {note && <p>{note}</p>}
     {action}
   </header>;
@@ -142,4 +144,32 @@ export function errorMessage(value: unknown): string {
   return /failed to fetch|networkerror|network request failed/i.test(detail)
     ? t(i18n)({ message: "mdbase Connect could not be reached. Check your connection and try again." })
     : detail;
+}
+
+/** A portal page; Home and a collection's overview share `/`. */
+export type ConnectView = "home" | "overview" | "storage" | "access" | "collections" | "applications" | "computers" | "account" | "feedback";
+
+export function RouteLink({ view, collectionId, navigate, children, className = "", ariaCurrent, prefetch }: {
+  view: ConnectView;
+  collectionId?: string;
+  navigate(view: ConnectView, collectionId?: string): void;
+  children: ReactNode;
+  className?: string;
+  ariaCurrent?: "page";
+  prefetch?(): void;
+}) {
+  useLocaleRevision();
+  function activate(event: MouseEvent<HTMLAnchorElement>) {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    navigate(view, collectionId);
+  }
+  return <a className={className} href={connectViewUrl(view, collectionId)} aria-current={ariaCurrent} onClick={activate} onMouseEnter={prefetch} onFocus={prefetch}>{children}</a>;
+}
+
+/** Home and a collection's overview share `/`; the overview names its collection. */
+function connectViewUrl(view: ConnectView, collectionId?: string): string {
+  const url = new URL(view === "overview" || view === "home" ? "/" : `/${view}`, location.origin);
+  if (collectionId && view !== "home") url.searchParams.set("collection", collectionId);
+  return `${url.pathname}${url.search}`;
 }

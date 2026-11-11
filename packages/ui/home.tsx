@@ -1,4 +1,8 @@
-/** What Home shows: the apps approved in this account, and the official apps not yet used. */
+/** What Home shows, on the desktop and on the web: the apps approved in this account, and the official apps not yet used. */
+import { officialApps, withAppUrls, type OfficialApp } from "@mdbase-dev/ui/apps";
+import { MdbaseMark } from "@mdbase-dev/ui/brand";
+import { i18n, useLocaleRevision } from "@mdbase-dev/ui/i18n";
+import { useState, type JSX, type ReactNode } from "react";
 
 export interface LaunchableApp {
   key: string;
@@ -20,6 +24,7 @@ interface OfficialAppLike {
   description: string;
 }
 
+/** An app approved in the account, as the server's account application listing reports it. */
 interface ApprovedAppLike {
   id: string;
   name: string;
@@ -27,6 +32,27 @@ interface ApprovedAppLike {
   homepage: string | null;
   icon: string | null;
   collections: Array<{ id: string; name: string }>;
+}
+
+/** One managed environment's app origins, as `scripts/lib/managed-app-origins.mjs` lists them. */
+interface ManagedAppOrigins {
+  editorOrigin: string;
+  readerOrigin: string;
+  writerOrigin: string;
+  journalOrigin: string;
+  tasknotesOrigin: string;
+}
+
+/** The official apps of a managed environment; none for an unknown or custom server. */
+export function officialAppsAt(origins: ManagedAppOrigins | undefined): readonly OfficialApp[] {
+  if (!origins) return [];
+  return withAppUrls({
+    editor: origins.editorOrigin,
+    reader: origins.readerOrigin,
+    writer: origins.writerOrigin,
+    journal: origins.journalOrigin,
+    tasknotes: origins.tasknotesOrigin
+  }, officialApps);
 }
 
 function webOrigin(value: string | null): string | null {
@@ -82,4 +108,28 @@ export function letterMark(name: string): { letter: string; tone: number } {
   let hash = 0;
   for (const char of name) hash = (hash * 31 + char.codePointAt(0)!) >>> 0;
   return { letter: [...name.trim()][0]?.toLocaleUpperCase() ?? "?", tone: hash % 5 };
+}
+
+/** One app on Home: its mark, its collections (or what it does) and the caller's way to open it. */
+export function AppTile({ app, children }: { app: LaunchableApp; children?: ReactNode }): JSX.Element {
+  useLocaleRevision();
+  const [iconFailed, setIconFailed] = useState(false);
+  const mark = letterMark(app.name);
+  const detail = app.collections.length > 0
+    ? new Intl.ListFormat(i18n.locale, { type: "conjunction" }).format(app.collections.map(collection => collection.name))
+    : app.description;
+  return (
+    <li className="app-tile">
+      {app.official === "editor" || app.official === "reader" || app.official === "writer"
+        ? <span className="app-mark is-bundled" aria-hidden="true"><MdbaseMark app={app.official === "editor" ? undefined : app.official} /></span>
+        : app.icon && !iconFailed
+          ? <img className="app-mark is-icon" src={app.icon} alt="" referrerPolicy="no-referrer" onError={() => setIconFailed(true)} />
+          : <span className="app-mark" data-tone={mark.tone} aria-hidden="true">{mark.letter}</span>}
+      <span className="app-tile-text">
+        <strong>{app.name}</strong>
+        {detail && <small>{detail}</small>}
+      </span>
+      {children}
+    </li>
+  );
 }

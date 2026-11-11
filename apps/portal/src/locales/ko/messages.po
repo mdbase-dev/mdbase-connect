@@ -555,6 +555,7 @@ msgid "Add a new {0} type"
 msgstr "새 {0} 유형 추가"
 
 #: src/ConnectApp.tsx
+#: src/HomePage.tsx
 #: src/portal-commands.ts
 msgid "Add collection"
 msgstr "컬렉션 추가"
@@ -580,6 +581,10 @@ msgstr "이 컬렉션에 새 레코드를 추가합니다."
 #: src/authorization-view.tsx
 msgid "Add or connect another collection"
 msgstr "다른 컬렉션 추가 또는 연결"
+
+#: src/HomePage.tsx
+msgid "Add your first collection"
+msgstr "첫 컬렉션 추가"
 
 #: src/authority-workflows.tsx
 msgid "Additional collection access"
@@ -688,6 +693,10 @@ msgstr "이미 허용된 접근 권한은 유지됩니다. 더 이상 원하지 
 msgid "Always on"
 msgstr "항상 켜짐"
 
+#: src/HomePage.tsx
+msgid "An app asks for access to a collection the first time you use it, and you choose what it can do."
+msgstr "앱은 처음 사용할 때 컬렉션 접근을 요청하며, 무엇을 허용할지는 직접 선택합니다."
+
 #: src/authorization-view.tsx
 msgid "an app running on this computer"
 msgstr "이 컴퓨터에서 실행 중인 앱"
@@ -782,6 +791,10 @@ msgstr "앱이 이 컴퓨터를 통해 접근할 수 없게 됩니다. 로컬 �
 msgctxt "Connect interface"
 msgid "Apps with access to the entire collection"
 msgstr "컬렉션 전체에 접근할 수 있는 앱"
+
+#: src/HomePage.tsx
+msgid "Apps you approve appear here."
+msgstr "승인한 앱이 여기에 표시됩니다."
 
 #: src/AccountManagement.tsx
 msgid "Authentication"
@@ -994,6 +1007,7 @@ msgid "Choose the folder in mdbase Connect."
 msgstr "mdbase Connect에서 폴더를 선택하세요."
 
 #: src/ConnectApp.tsx
+#: src/HomePage.tsx
 msgid "Choose where your first collection lives."
 msgstr "첫 컬렉션을 저장할 위치를 선택하세요."
 
@@ -1078,6 +1092,7 @@ msgstr "컬렉션 권한"
 
 #: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
+#: src/HomePage.tsx
 msgctxt "Connect interface"
 msgid "Collections"
 msgstr "컬렉션"
@@ -1751,6 +1766,12 @@ msgstr "Google 로그인이 올바르게 로드되지 않았습니다."
 msgid "Help {applicationName} understand {0}"
 msgstr "{applicationName}이(가) {0}을(를) 이해하도록 돕기"
 
+#: src/ConnectApp.tsx
+#: src/HomePage.tsx
+msgctxt "Connect interface"
+msgid "Home"
+msgstr "홈"
+
 #: src/AccountManagement.tsx
 msgid "Hosted access was removed immediately. Hosted data deletion continues automatically in the background. Any local collection and mirror files remain on your computers."
 msgstr "호스팅 액세스 권한은 즉시 제거되었습니다. 호스팅 데이터 삭제는 백그라운드에서 자동으로 계속됩니다. 로컬 컬렉션과 미러 파일은 컴퓨터에 남습니다."
@@ -2113,6 +2134,10 @@ msgctxt "Connect interface"
 msgid "More access required"
 msgstr "추가 액세스 필요"
 
+#: src/HomePage.tsx
+msgid "More apps from mdbase"
+msgstr "mdbase의 다른 앱"
+
 #: src/AccountManagement.tsx
 msgid "More regular updates about new features and improvements."
 msgstr "새 기능과 개선 사항에 관한 정기 소식을 더 자주 받습니다."
@@ -2259,6 +2284,10 @@ msgstr "일치하는 앱 없음"
 msgid "No apps with access"
 msgstr "접근 권한이 있는 앱 없음"
 
+#: src/HomePage.tsx
+msgid "No apps yet"
+msgstr "아직 앱 없음"
+
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "No collection access"
@@ -2371,8 +2400,14 @@ msgstr "{0}만. 숨겨진 폴더는 항상 제외됩니다."
 msgid "Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active."
 msgstr "이 유형 정의만 변경됩니다. 기존 레코드는 그대로 유지됩니다. 액세스가 활성화되기 전에 설정을 검증합니다."
 
+#: src/HomePage.tsx
+msgid "Open"
+msgstr "열기"
+
+#. placeholder {0}: app.name
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
+#: src/HomePage.tsx
 msgid "Open {0}"
 msgstr "{0} 열기"
 
@@ -3240,6 +3275,10 @@ msgstr "mdbase에서 문제가 발생했습니다. 다시 시도하세요."
 msgid "Start signup again"
 msgstr "가입 다시 시작"
 
+#: src/HomePage.tsx
+msgid "Start with an app"
+msgstr "앱으로 시작하기"
+
 #: src/ConnectApp.tsx
 msgid "Starts with a cloud copy"
 msgstr "클라우드 사본으로 시작합니다"
@@ -3911,6 +3950,10 @@ msgstr "계정의 동기화된 컬렉션 수가 한도에 도달했습니다. �
 #: src/onboarding-view.tsx
 msgid "Your account is ready. Create a collection now, or continue without one."
 msgstr "계정이 준비되었습니다. 지금 컬렉션을 만들거나 만들지 않고 계속하세요."
+
+#: src/HomePage.tsx
+msgid "Your apps"
+msgstr "내 앱"
 
 #: src/AccountManagement.tsx
 msgid "Your change was saved, but account details could not refresh. Reload to check the latest details."

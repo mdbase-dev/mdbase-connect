@@ -555,6 +555,7 @@ msgid "Add a new {0} type"
 msgstr "新しい {0} 型を追加"
 
 #: src/ConnectApp.tsx
+#: src/HomePage.tsx
 #: src/portal-commands.ts
 msgid "Add collection"
 msgstr "コレクションを追加"
@@ -580,6 +581,10 @@ msgstr "このコレクションに新しいレコードを追加します。"
 #: src/authorization-view.tsx
 msgid "Add or connect another collection"
 msgstr "別のコレクションを追加または接続"
+
+#: src/HomePage.tsx
+msgid "Add your first collection"
+msgstr "最初のコレクションを追加"
 
 #: src/authority-workflows.tsx
 msgid "Additional collection access"
@@ -688,6 +693,10 @@ msgstr "許可済みのアクセスはそのまま維持されます。不要に
 msgid "Always on"
 msgstr "常にオン"
 
+#: src/HomePage.tsx
+msgid "An app asks for access to a collection the first time you use it, and you choose what it can do."
+msgstr "アプリは初めて使うときにコレクションへのアクセスを求めます。何を許可するかはあなたが選べます。"
+
 #: src/authorization-view.tsx
 msgid "an app running on this computer"
 msgstr "このコンピューターで実行中のアプリ"
@@ -782,6 +791,10 @@ msgstr "アプリはこのコンピューター経由でアクセスできなく
 msgctxt "Connect interface"
 msgid "Apps with access to the entire collection"
 msgstr "コレクション全体にアクセスできるアプリ"
+
+#: src/HomePage.tsx
+msgid "Apps you approve appear here."
+msgstr "承認したアプリがここに表示されます。"
 
 #: src/AccountManagement.tsx
 msgid "Authentication"
@@ -994,6 +1007,7 @@ msgid "Choose the folder in mdbase Connect."
 msgstr "mdbase Connect でフォルダーを選んでください。"
 
 #: src/ConnectApp.tsx
+#: src/HomePage.tsx
 msgid "Choose where your first collection lives."
 msgstr "最初のコレクションの保存場所を選択してください。"
 
@@ -1078,6 +1092,7 @@ msgstr "コレクションの権限"
 
 #: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
+#: src/HomePage.tsx
 msgctxt "Connect interface"
 msgid "Collections"
 msgstr "コレクション"
@@ -1751,6 +1766,12 @@ msgstr "Google ログインが正しく読み込まれませんでした。"
 msgid "Help {applicationName} understand {0}"
 msgstr "{applicationName} が {0} を理解できるようにする"
 
+#: src/ConnectApp.tsx
+#: src/HomePage.tsx
+msgctxt "Connect interface"
+msgid "Home"
+msgstr "ホーム"
+
 #: src/AccountManagement.tsx
 msgid "Hosted access was removed immediately. Hosted data deletion continues automatically in the background. Any local collection and mirror files remain on your computers."
 msgstr "ホスト型のアクセスは直ちに削除されました。ホスト型データの削除はバックグラウンドで自動的に続きます。ローカルコレクションとミラーファイルはコンピューター上に残ります。"
@@ -2113,6 +2134,10 @@ msgctxt "Connect interface"
 msgid "More access required"
 msgstr "追加のアクセス権が必要です"
 
+#: src/HomePage.tsx
+msgid "More apps from mdbase"
+msgstr "mdbase のその他のアプリ"
+
 #: src/AccountManagement.tsx
 msgid "More regular updates about new features and improvements."
 msgstr "新機能や改善についての定期的なお知らせを増やします。"
@@ -2259,6 +2284,10 @@ msgstr "一致するアプリはありません"
 msgid "No apps with access"
 msgstr "アクセス可能なアプリはありません"
 
+#: src/HomePage.tsx
+msgid "No apps yet"
+msgstr "アプリはまだありません"
+
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "No collection access"
@@ -2371,8 +2400,14 @@ msgstr "{0} のみ。隠しフォルダーは常に除外されます。"
 msgid "Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active."
 msgstr "変更されるのはこの型定義だけです。既存のレコードはそのまま残ります。アクセスが有効になる前に設定が検証されます。"
 
+#: src/HomePage.tsx
+msgid "Open"
+msgstr "開く"
+
+#. placeholder {0}: app.name
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
+#: src/HomePage.tsx
 msgid "Open {0}"
 msgstr "{0} を開く"
 
@@ -3240,6 +3275,10 @@ msgstr "mdbaseで問題が発生しました。もう一度お試しください
 msgid "Start signup again"
 msgstr "新規登録をやり直す"
 
+#: src/HomePage.tsx
+msgid "Start with an app"
+msgstr "アプリから始める"
+
 #: src/ConnectApp.tsx
 msgid "Starts with a cloud copy"
 msgstr "クラウド上のコピーから始まります"
@@ -3911,6 +3950,10 @@ msgstr "アカウントの同期済みコレクション数が上限に達しま
 #: src/onboarding-view.tsx
 msgid "Your account is ready. Create a collection now, or continue without one."
 msgstr "アカウントの準備ができました。今すぐコレクションを作成するか、作成せずに続行できます。"
+
+#: src/HomePage.tsx
+msgid "Your apps"
+msgstr "あなたのアプリ"
 
 #: src/AccountManagement.tsx
 msgid "Your change was saved, but account details could not refresh. Reload to check the latest details."

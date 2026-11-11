@@ -38,7 +38,7 @@ for (const colorScheme of ["light", "dark"] as const) {
         const path = new URL(route.request().url()).pathname;
         return route.fulfill({ json: path === "/v1/account" ? account : path === "/v1/account/sessions" ? { sessions: [] } : path === "/v1/ui-configuration" ? { editor_url: "https://editor.mdbase.dev" } : overview });
       });
-      for (const path of ["/collections", "/?collection=cloud", "/storage?collection=cloud", "/storage?collection=private", "/access?collection=cloud", "/applications", "/computers", "/account"]) {
+      for (const path of ["/", "/collections", "/?collection=cloud", "/storage?collection=cloud", "/storage?collection=private", "/access?collection=cloud", "/applications", "/computers", "/account"]) {
         await page.goto(`${authPortal}${path}`);
         await expect(page.locator(".connect-page > header h1")).toBeVisible();
         if (path === "/collections" && width === 375) await expect(page.getByRole("link", { name: /^Open in editor:/ }).filter({ visible: true })).toHaveCount(0);
