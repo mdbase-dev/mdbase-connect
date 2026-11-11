@@ -379,8 +379,11 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
       await host.openCollectionSql({signal: life.signal, replicaId: receipt.deviceId, endpoint: 0, openSql: openLedgerSql}); check();
       // A replica that completed a sync before answers from this device: its
       // token request starts now and the open does not wait for it. A Private
-      // device settles its key over the log first, so it keeps the wait.
-      const localFirst = !isPrivate && await ledger.syncedBefore({signal: life.signal}); check();
+      // device settles its key over the log first, so it keeps the wait. A
+      // replica whose storage was lost since that sync holds nothing: it
+      // catches up from the log like a first open, however long that takes.
+      let holdsLog = true; try { holdsLog = host.holdsLog?.() ?? true; } catch { holdsLog = false; }
+      const localFirst = !isPrivate && holdsLog && await ledger.syncedBefore({signal: life.signal}); check();
       const connectLog = async () => {
       report("connecting_log");
       const retryUntil = Date.now() + INITIAL_LOG_RETRY_MS;

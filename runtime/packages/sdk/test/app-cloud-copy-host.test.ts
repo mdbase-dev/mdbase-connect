@@ -543,6 +543,18 @@ describe("owned cloud-copy outcome composition (IDB/native/CP stand-ins, actual 
         expect(c.pump.pump).not.toHaveBeenCalled();
         await c.host.close();
     });
+    it("a local verified read refuses a replica that holds nothing from the log", async () => {
+        const c = await readableFixture(), observation = c.f.runtime.observations();
+        expect(c.host.holdsLog()).toBe(true);
+        c.f.runtime.observations.mockImplementation(() => ({...observation, status: {...observation.status, confirmedThrough: 0, headKnown: 0}}));
+        expect(c.host.holdsLog()).toBe(false);
+        await expect(c.host.waitForVerifiedRead({signal: c.options.signal, local: true})).rejects.toMatchObject({reason: "unavailable"});
+        expect(c.reader.query).not.toHaveBeenCalled(); expect(c.pump.pump).not.toHaveBeenCalled();
+        // A collection that never syncs has no log to hold.
+        c.f.runtime.observations.mockImplementation(() => ({...observation, status: {...observation.status, mode: "local_only", confirmedThrough: 0, headKnown: 0}}));
+        expect(c.host.holdsLog()).toBe(true);
+        await c.host.close();
+    });
     it("says whether a replica opened before its log has its keys back", async () => {
         const c = await readableFixture(), status = c.f.runtime.observations().status;
         const observed = (o: {requiresReopen?: boolean; keyringRebuildFailed?: boolean; keyringRebuilding?: boolean}) =>
