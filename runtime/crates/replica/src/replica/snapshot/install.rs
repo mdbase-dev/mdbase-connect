@@ -2,6 +2,39 @@
 
 use super::*;
 
+/// A manifest's chunks in the order they are decoded: resources before the
+/// records indexed under them, and the index before the rows it positions.
+pub(super) fn chunk_queue(manifest: &ManifestPayload) -> Vec<(SectionKind, ChunkRef)> {
+    let mut queue = Vec::new();
+    for want in [
+        SectionKind::Legacy(L::Resources),
+        SectionKind::Legacy(L::Settings),
+        SectionKind::Legacy(L::Index),
+        SectionKind::Legacy(L::Records),
+        SectionKind::Legacy(L::Files),
+        SectionKind::AttachmentFiles,
+        SectionKind::UnindexedMarkdownFiles,
+        SectionKind::Legacy(L::Tombstones),
+        SectionKind::AttachmentTombstones,
+        SectionKind::UnindexedMarkdownTombstones,
+        SectionKind::Legacy(L::Aliases),
+        SectionKind::Legacy(L::Conflicts),
+        SectionKind::Legacy(L::Receipts),
+    ] {
+        for s in manifest.sections.iter().filter(|s| s.kind == want) {
+            queue.extend(s.chunks.iter().map(|c| (want, c.clone())));
+        }
+    }
+    queue
+}
+
+/// Why a fetched chunk object is not the chunk its reference names.
+pub(super) enum ChunkError {
+    /// It is that chunk, in a payload this build cannot decode.
+    NewerCodec,
+    Bad(&'static str),
+}
+
 impl<S: Store> Replica<S> {
     // ------------------------------------------------------------ install
 
@@ -125,9 +158,15 @@ impl<S: Store> Replica<S> {
             .map(|c| &c.policy)
     }
 
-    /// The manifest's signer was an active, keyed device at its position, the
-    /// signature verifies over the received bytes, and its control chain is the one
-    /// this replica computed from the control items.
+    /// The manifest's signer had write authority in `at`, the policy state at the
+    /// manifest's position (the rule for the signer of an `entry` or a `base`:
+    /// a keyed device of an editor or owner, or the hosted replica in a cloud
+    /// copy), the signature verifies over the received bytes, and its control
+    /// chain is the one this replica computed from the control items.
+    ///
+    /// A snapshot replaces the log before it, so only a device that could have
+    /// written that log may author one: a read-only member's device holds the key
+    /// and could otherwise seal and sign any state.
     pub(crate) fn verify_manifest(
         &self,
         raw: &[u8],
@@ -139,8 +178,8 @@ impl<S: Store> Replica<S> {
         let d = at
             .devices
             .get(&signer)
-            .filter(|d| d.active && d.keyed)
-            .ok_or("manifest signer was not an active, keyed device at its position")?;
+            .filter(|_| at.device_can_write(&signer))
+            .ok_or("manifest signer had no write authority at its position")?;
         let digest =
             crate::crypto::raw::signed_digest_from_bytes(raw).map_err(|_| "manifest digest")?;
         let sig = item.sig.ok_or("manifest is not signed")?;
@@ -151,6 +190,41 @@ impl<S: Store> Replica<S> {
             return Err("manifest control chain differs from the control items read");
         }
         Ok(())
+    }
+
+    /// A fetched chunk object, checked against its reference and opened: its
+    /// address, its plaintext's hash and size, and the section it says it is of.
+    pub(super) fn open_chunk(
+        &self,
+        bytes: &[u8],
+        kind: SectionKind,
+        cref: &ChunkRef,
+    ) -> Result<ChunkPayload, ChunkError> {
+        if mdbn_wire::hash::sha256(bytes) != cref.address {
+            return Err(ChunkError::Bad("chunk address mismatch"));
+        }
+        let plain = Item::from_bytes(bytes)
+            .ok()
+            .and_then(|i| self.sealer.open(&i, bytes).ok())
+            .ok_or(ChunkError::Bad("chunk does not open"))?;
+        if mdbn_wire::hash::sha256(&plain) != cref.plain_hash
+            || plain.len() as u64 != cref.plain_size
+        {
+            return Err(ChunkError::Bad(
+                "chunk plaintext differs from its reference",
+            ));
+        }
+        let chunk = ChunkPayload::from_bytes(&plain).map_err(|e| {
+            if e.is_unknown() {
+                ChunkError::NewerCodec
+            } else {
+                ChunkError::Bad("chunk does not decode")
+            }
+        })?;
+        if chunk.section != kind {
+            return Err(ChunkError::Bad("chunk section differs"));
+        }
+        Ok(chunk)
     }
 
     /// Whether this replica can install (and endorse) a snapshot: its store
@@ -214,10 +288,7 @@ impl<S: Store> Replica<S> {
         self.install_native_roots = Default::default();
         self.install_native_auth = Default::default();
         self.install_text_sources = Default::default();
-        self.install_mseq.clear();
-        self.install_mtime.clear();
-        self.install_index = DigestIndex::default();
-        self.install_resources.clear();
+        self.install_rows.clear();
         if self.store.stages() {
             // Put/Swap must never consume leftovers from another install.
             // Commit is atomic and durable under the Store contract. If it fails,
@@ -245,26 +316,7 @@ impl<S: Store> Replica<S> {
             );
             return;
         }
-        let mut queue = Vec::new();
-        for want in [
-            SectionKind::Legacy(L::Resources),
-            SectionKind::Legacy(L::Settings),
-            SectionKind::Legacy(L::Index),
-            SectionKind::Legacy(L::Records),
-            SectionKind::Legacy(L::Files),
-            SectionKind::AttachmentFiles,
-            SectionKind::UnindexedMarkdownFiles,
-            SectionKind::Legacy(L::Tombstones),
-            SectionKind::AttachmentTombstones,
-            SectionKind::UnindexedMarkdownTombstones,
-            SectionKind::Legacy(L::Aliases),
-            SectionKind::Legacy(L::Conflicts),
-            SectionKind::Legacy(L::Receipts),
-        ] {
-            for s in manifest.sections.iter().filter(|s| s.kind == want) {
-                queue.extend(s.chunks.iter().map(|c| (want, c.clone())));
-            }
-        }
+        let queue = chunk_queue(&manifest);
         self.install_progress = (0, queue.len() as u64);
         self.install = Some(Install::Chunks {
             manifest,
@@ -391,7 +443,10 @@ impl<S: Store> Replica<S> {
                     .then(|| item.refs.clone().unwrap_or_default().into_iter().collect());
                 // The key epoch in force at the snapshot's position bounds the
                 // attachment descriptors its rows may carry (V7).
-                self.install_epoch = self.policy_at(m.seq).map_or(0, |p| p.epoch);
+                self.install_rows = ChunkRows::new(
+                    self.cfg.collection,
+                    self.policy_at(m.seq).map_or(0, |p| p.epoch),
+                );
                 if self.install_base.is_none() && self.head.seq > 0 && m.seq <= self.head.seq {
                     return self.install_fail("snapshot is not ahead of this replica's head");
                 }
@@ -426,33 +481,16 @@ impl<S: Store> Replica<S> {
                 let Some((kind, cref)) = queue.get(next).cloned() else {
                     return self.install_fail("chunk out of order");
                 };
-                if mdbn_wire::hash::sha256(&bytes) != cref.address {
-                    return self.install_fail("chunk address mismatch");
-                }
-                let plain = Item::from_bytes(&bytes)
-                    .ok()
-                    .and_then(|i| self.sealer.open(&i, &bytes).ok());
-                let Some(plain) = plain else {
-                    return self.install_fail("chunk does not open");
-                };
-                if mdbn_wire::hash::sha256(&plain) != cref.plain_hash
-                    || plain.len() as u64 != cref.plain_size
-                {
-                    return self.install_fail("chunk plaintext differs from its reference");
-                }
-                let chunk = match ChunkPayload::from_bytes(&plain) {
+                let chunk = match self.open_chunk(&bytes, kind, &cref) {
                     Ok(chunk) => chunk,
-                    Err(e) if e.is_unknown() => {
+                    Err(ChunkError::NewerCodec) => {
                         return self.install_fail_as(
                             IncidentKind::UpgradeRequired,
                             "chunk payload requires a newer codec",
                         );
                     }
-                    Err(_) => return self.install_fail("chunk does not decode"),
+                    Err(ChunkError::Bad(why)) => return self.install_fail(why),
                 };
-                if chunk.section != kind {
-                    return self.install_fail("chunk section differs");
-                }
                 let extended = matches!(
                     chunk.section,
                     SectionKind::UnindexedMarkdownFiles | SectionKind::UnindexedMarkdownTombstones
@@ -468,7 +506,7 @@ impl<S: Store> Replica<S> {
                         "unindexed_markdown_snapshot_not_yet",
                     );
                 }
-                if let Err(e) = self.install_chunk(&manifest, &chunk, native) {
+                if let Err(e) = self.install_chunk(&chunk) {
                     return self.install_fail(&e);
                 }
                 self.install_progress.0 += 1;
@@ -593,14 +631,11 @@ impl<S: Store> Replica<S> {
             }
         };
         // Finish only after complete source authentication and the exact digest.
-        self.install_mseq.clear();
-        self.install_mtime.clear();
-        self.install_resources.clear();
-        let index = std::mem::take(&mut self.install_index);
-        if index.digest() != manifest.state_digest {
+        let digest = self.install_rows.index.digest();
+        self.install_rows.clear();
+        if digest != manifest.state_digest {
             return self.install_fail("state digest mismatch");
         }
-        drop(index);
         let mut staged = std::mem::take(&mut self.install_staged);
         let base = self.install_base.clone();
         let head = match &base {

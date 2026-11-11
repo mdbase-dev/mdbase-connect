@@ -34,6 +34,11 @@ impl<S: Store> Replica<S> {
         if self.build.is_some() || self.install.is_some() || self.head.seq == 0 {
             return Ok(());
         }
+        // Only a device with write authority authors a snapshot: no replica
+        // installs or endorses another's ([`Self::verify_manifest`]).
+        if !self.policy.device_can_write(&self.cfg.device_id) {
+            return Ok(());
+        }
         let Some(epoch) = self.sealer.current_epoch() else {
             return Ok(());
         };

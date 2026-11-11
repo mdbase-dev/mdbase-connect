@@ -1,6 +1,39 @@
-//! Validating and staging one snapshot chunk's rows.
+//! Decoding and validating one snapshot chunk's rows, and staging them.
+//!
+//! [`ChunkRows`] is the only reader of chunk rows: an install stages what it
+//! decodes, and an endorsement compares what it decodes with this replica's own
+//! rows (`endorse.rs`).
 
 use super::*;
+
+/// What decoding a snapshot's chunks carries from one chunk to the next, in the
+/// order of [`chunk_queue`]: the index rows' positions and capture times, the
+/// resources (records are indexed under their catalog), and the row index the
+/// state digest is computed from, which refuses duplicate IDs and path keys.
+#[derive(Debug, Clone)]
+pub(crate) struct ChunkRows {
+    /// The collection the snapshot is of.
+    collection: mdbn_wire::common::Uuid,
+    /// The key epoch in force at the snapshot's position: it bounds the content
+    /// descriptors its rows may carry (V7).
+    pub(in crate::replica) epoch: u64,
+    /// Positions of the last change, from the index section.
+    pub(super) mseq: BTreeMap<mdbn_wire::common::Uuid, u64>,
+    /// Record capture times from the index section, keyed like `mseq`.
+    pub(super) mtime: BTreeMap<mdbn_wire::common::Uuid, i64>,
+    pub(super) resources: Vec<(String, String)>,
+    pub(super) index: DigestIndex,
+}
+
+/// One chunk's rows as an install writes them, and what an install must fetch
+/// and authenticate before it may swap them in.
+pub(super) struct Decoded {
+    pub(super) rows: Tx,
+    /// Records whose text is in a blob: the row exists once that text is read.
+    pub(super) text_sources: Vec<snapshot_text::Row>,
+    /// Native contents, whose sources are authenticated.
+    pub(super) native: Vec<FileContent>,
+}
 
 /// Append one chunk's confirmed-state rows to the rows staged in memory (stores
 /// without a staging area).
@@ -33,67 +66,85 @@ pub(super) fn alias_path_ok(path: &str) -> bool {
             .all(|part| !part.is_empty() && part != "." && part != "..")
 }
 
-impl<S: Store> Replica<S> {
-    fn native_snapshot_content_ok(&self, c: &FileContent) -> Result<(), String> {
-        let epoch = match c {
-            FileContent::Blob(b) => b.id_epoch,
-            FileContent::AttachmentV1(a) => a.reference.key_epoch,
-            _ => return Err("unknown native source".into()),
-        };
-        if epoch >= 1 && epoch <= self.install_epoch && self.unindexed_content_in_bounds(c) {
+fn record_row(
+    catalog: &mdbn_core::types::Catalog,
+    id: mdbn_wire::common::Uuid,
+    path: String,
+    modified_seq: u64,
+    mtime: Option<i64>,
+    doc: String,
+) -> RecordRow {
+    RecordRow {
+        id,
+        path_key: mdbn_core::paths::path_key(&path),
+        revision: mdbn_wire::hash::sha256(doc.as_bytes()),
+        modified_seq,
+        mtime,
+        bucket: bucket16(&id),
+        meta: record_meta(catalog, &path, &doc),
+        path,
+        doc,
+    }
+}
+
+impl ChunkRows {
+    pub(crate) fn new(collection: mdbn_wire::common::Uuid, epoch: u64) -> ChunkRows {
+        ChunkRows {
+            collection,
+            epoch,
+            mseq: BTreeMap::new(),
+            mtime: BTreeMap::new(),
+            resources: Vec::new(),
+            index: DigestIndex::default(),
+        }
+    }
+
+    /// Forget every chunk decoded so far.
+    pub(super) fn clear(&mut self) {
+        *self = ChunkRows::new(self.collection, self.epoch);
+    }
+
+    fn catalog(&self) -> mdbn_core::types::Catalog {
+        mdbn_core::types::Catalog::load(
+            self.resources.iter().map(|(p, d)| (p.as_str(), d.as_str())),
+        )
+    }
+
+    fn native_content_ok(&self, c: &FileContent) -> Result<(), String> {
+        if !matches!(c, FileContent::Blob(_) | FileContent::AttachmentV1(_)) {
+            return Err("unknown native source".into());
+        }
+        if crate::replica::apply::unindexed_content_in_bounds(c, &self.collection, self.epoch) {
             Ok(())
         } else {
             Err("native snapshot descriptor bounds".into())
         }
     }
-    pub(in crate::replica) fn stage_snapshot_text(
+
+    /// The row of a record whose text arrived apart from its chunk (a blob-backed
+    /// document, once read), indexed like any other.
+    pub(super) fn text_row(
         &mut self,
         id: mdbn_wire::common::Uuid,
         path: String,
         modified_seq: u64,
         mtime: Option<i64>,
         doc: &str,
-    ) -> Result<(), String> {
-        let catalog = mdbn_core::types::Catalog::load(
-            self.install_resources
-                .iter()
-                .map(|(p, d)| (p.as_str(), d.as_str())),
-        );
-        let r = RecordRow {
+    ) -> Result<RecordRow, String> {
+        let r = record_row(
+            &self.catalog(),
             id,
-            path_key: mdbn_core::paths::path_key(&path),
-            revision: mdbn_wire::hash::sha256(doc.as_bytes()),
+            path,
             modified_seq,
             mtime,
-            bucket: bucket16(&id),
-            meta: record_meta(&catalog, &path, doc),
-            path,
-            doc: doc.to_owned(),
-        };
-        self.install_index.record(&r)?;
-        let mut tx = Tx {
-            records_put: vec![r],
-            ..Tx::default()
-        };
-        if self.store.stages() {
-            tx.stage = crate::store::Stage::Put;
-            if let Err(e) = self.store.commit(tx) {
-                if !matches!(e, StoreError::CommitAborted(_)) {
-                    self.committed_read_fault();
-                }
-                return Err(format!("record source staging: {e}"));
-            }
-        } else {
-            extend_rows(&mut self.install_staged, tx);
-        }
-        Ok(())
+            doc.to_owned(),
+        );
+        self.index.record(&r)?;
+        Ok(r)
     }
-    pub(super) fn install_chunk(
-        &mut self,
-        _m: &ManifestPayload,
-        chunk: &ChunkPayload,
-        native: bool,
-    ) -> Result<(), String> {
+
+    /// Validate one chunk's rows and turn them into the rows an install writes.
+    pub(super) fn decode(&mut self, chunk: &ChunkPayload) -> Result<Decoded, String> {
         // Rows are validated exactly as a log entry's effects would be (V7): a
         // snapshot can never carry what an entry could not.
         let path_ok = |p: &str| -> Result<(), String> {
@@ -113,21 +164,18 @@ impl<S: Store> Replica<S> {
         // collection, an epoch the policy had reached at the snapshot's position,
         // and a size within the cap. The manifest itself is authenticated when
         // the content is fetched or its inventory is read.
-        let epoch_at = self.install_epoch;
-        let collection = self.cfg.collection;
+        let epoch_at = self.epoch;
+        let collection = self.collection;
         let att_ok = |a: &AttachmentContentV1| -> Result<(), String> {
-            let ok = a.reference.collection == collection
-                && a.reference.key_epoch >= 1
-                && a.reference.key_epoch <= epoch_at
-                && a.total_plain_bytes
-                    <= crate::crypto::chunked_blob::AttachmentLimits::default().max_file_bytes;
-            if ok {
+            if crate::replica::apply::attachment_in_bounds(a, &collection, epoch_at) {
                 Ok(())
             } else {
                 Err("row attachment descriptor out of bounds".into())
             }
         };
         let mut tx = Tx::default();
+        let mut text_sources = Vec::new();
+        let mut native = Vec::new();
         let bad = |e: mdbn_wire::schema::SchemaError| format!("row: {e}");
         match chunk.section {
             SectionKind::Legacy(L::Resources) => {
@@ -137,8 +185,8 @@ impl<S: Store> Replica<S> {
                     };
                     path_ok(&r.path)?;
                     text_ok(&d)?;
-                    self.install_index.resource(&r.path, &d);
-                    self.install_resources.push((r.path.clone(), d.clone()));
+                    self.index.resource(&r.path, &d);
+                    self.resources.push((r.path.clone(), d.clone()));
                     tx.resources_put.push((r.path, d));
                 }
             }
@@ -149,38 +197,31 @@ impl<S: Store> Replica<S> {
                     .into_iter()
                     .next()
                 {
-                    self.install_index.settings = Some(s.clone());
+                    self.index.settings = Some(s.clone());
                     tx.settings = Some(s);
                 }
             }
             SectionKind::Legacy(L::Records) => {
                 // Resources are staged first; records are indexed under that catalog.
-                let catalog = mdbn_core::types::Catalog::load(
-                    self.install_resources
-                        .iter()
-                        .map(|(p, d)| (p.as_str(), d.as_str())),
-                );
+                let catalog = self.catalog();
                 for r in chunk.rows_as::<WRecordRow>().map_err(bad)? {
                     path_ok(&r.path)?;
                     let doc = match r.doc {
                         TextOrBlob::Text(doc) => doc,
-                        TextOrBlob::Blob(blob) if native => {
+                        TextOrBlob::Blob(blob) => {
                             blob_ok(&blob)?;
                             if blob.size > 1048576 || blob.id_epoch < 1 || blob.id_epoch > epoch_at
                             {
                                 return Err("record snapshot source bounds".into());
                             }
-                            self.install_text_sources.add(super::snapshot_text::Row {
+                            text_sources.push(snapshot_text::Row {
                                 id: r.id,
                                 path: r.path,
                                 blob,
-                                modified_seq: self.install_mseq.get(&r.id).copied().unwrap_or(0),
-                                mtime: self.install_mtime.get(&r.id).copied(),
+                                modified_seq: self.mseq.get(&r.id).copied().unwrap_or(0),
+                                mtime: self.mtime.get(&r.id).copied(),
                             });
                             continue;
-                        }
-                        TextOrBlob::Blob(_) => {
-                            return Err("blob-backed records are not supported yet".into());
                         }
                         TextOrBlob::Attachment(_) => {
                             return Err(
@@ -189,17 +230,14 @@ impl<S: Store> Replica<S> {
                         }
                     };
                     text_ok(&doc)?;
-                    tx.records_put.push(RecordRow {
-                        id: r.id,
-                        path_key: mdbn_core::paths::path_key(&r.path),
-                        revision: mdbn_wire::hash::sha256(doc.as_bytes()),
-                        modified_seq: self.install_mseq.get(&r.id).copied().unwrap_or(0),
-                        mtime: self.install_mtime.get(&r.id).copied(),
-                        bucket: bucket16(&r.id),
-                        meta: record_meta(&catalog, &r.path, &doc),
-                        path: r.path,
+                    tx.records_put.push(record_row(
+                        &catalog,
+                        r.id,
+                        r.path,
+                        self.mseq.get(&r.id).copied().unwrap_or(0),
+                        self.mtime.get(&r.id).copied(),
                         doc,
-                    });
+                    ));
                 }
             }
             SectionKind::Legacy(L::Files) => {
@@ -210,7 +248,7 @@ impl<S: Store> Replica<S> {
                         id: f.id,
                         path_key: mdbn_core::paths::path_key(&f.path),
                         media: mdbn_wire::intent::MediaClass::of(&f.path),
-                        modified_seq: self.install_mseq.get(&f.id).copied().unwrap_or(0),
+                        modified_seq: self.mseq.get(&f.id).copied().unwrap_or(0),
                         bucket: bucket16(&f.id),
                         local: FileLocal::Remote,
                         kind: mdbn_wire::unindexed_markdown::FileKindV1::Ordinary,
@@ -277,10 +315,8 @@ impl<S: Store> Replica<S> {
                             }
                             rt::ConflictValue::Attachment(a) => att_ok(a)?,
                             rt::ConflictValue::UnindexedMarkdown(p) => {
-                                self.native_snapshot_content_ok(&p.content)?;
-                                self.install_native_roots
-                                    .add(&p.content)
-                                    .map_err(|e| e.to_string())?;
+                                self.native_content_ok(&p.content)?;
+                                native.push(p.content.clone());
                             }
                             rt::ConflictValue::Legacy(_) => {}
                         }
@@ -300,7 +336,7 @@ impl<S: Store> Replica<S> {
                         id: f.id,
                         path_key: mdbn_core::paths::path_key(&f.path),
                         media: mdbn_wire::intent::MediaClass::of(&f.path),
-                        modified_seq: self.install_mseq.get(&f.id).copied().unwrap_or(0),
+                        modified_seq: self.mseq.get(&f.id).copied().unwrap_or(0),
                         bucket: bucket16(&f.id),
                         // Nothing is on this device yet: the installed row is
                         // fetched and placed by the attachment reconcile.
@@ -333,16 +369,14 @@ impl<S: Store> Replica<S> {
                     .map_err(bad)?
                 {
                     path_ok(&f.path)?;
-                    self.native_snapshot_content_ok(&f.payload.content)?;
-                    self.install_native_roots
-                        .add(&f.payload.content)
-                        .map_err(|e| e.to_string())?;
+                    self.native_content_ok(&f.payload.content)?;
+                    native.push(f.payload.content.clone());
                     tx.files_put.push(FileRow {
                         id: f.id,
                         path_key: mdbn_core::paths::path_key(&f.path),
                         path: f.path,
                         media: f.media,
-                        modified_seq: self.install_mseq.get(&f.id).copied().unwrap_or(0),
+                        modified_seq: self.mseq.get(&f.id).copied().unwrap_or(0),
                         bucket: bucket16(&f.id),
                         local: FileLocal::Remote,
                         kind: mdbn_wire::unindexed_markdown::FileKindV1::UnindexedOversizedMarkdown,
@@ -357,10 +391,8 @@ impl<S: Store> Replica<S> {
                     .map_err(bad)?
                 {
                     path_ok(&t.path)?;
-                    self.native_snapshot_content_ok(&t.payload.content)?;
-                    self.install_native_roots
-                        .add(&t.payload.content)
-                        .map_err(|e| e.to_string())?;
+                    self.native_content_ok(&t.payload.content)?;
+                    native.push(t.payload.content.clone());
                     tx.tombstones_put.push(TombstoneRow {
                         id: t.id,
                         kind: EntityKind::File,
@@ -383,42 +415,85 @@ impl<S: Store> Replica<S> {
             }
             SectionKind::Legacy(L::Index) => {
                 for r in chunk.rows_as::<IndexRow>().map_err(bad)? {
-                    self.install_mseq.insert(r.id, r.modified_seq);
+                    self.mseq.insert(r.id, r.modified_seq);
                     if let Some(mtime) = r.mtime {
-                        self.install_mtime.insert(r.id, mtime);
+                        self.mtime.insert(r.id, mtime);
                     }
                 }
             }
         }
-        // Index the rows (state digest, duplicate IDs and path keys), then stage
-        // them: in the store's staging area when it has one, so memory holds one
-        // chunk plus the index.
+        // Index the rows: the state digest, duplicate IDs and path keys.
         for r in &tx.records_put {
-            self.install_index.record(r)?;
+            self.index.record(r)?;
         }
         for f in &tx.files_put {
-            self.install_index.file(f)?;
+            self.index.file(f)?;
         }
         for t in &tx.tombstones_put {
-            self.install_index.tombstone(t)?;
+            self.index.tombstone(t)?;
         }
         for a in &tx.aliases_put {
-            self.install_index.alias(a);
+            self.index.alias(a);
         }
         for c in &tx.conflicts_put {
-            self.install_index.conflict(c);
+            self.index.conflict(c);
         }
+        Ok(Decoded {
+            rows: tx,
+            text_sources,
+            native,
+        })
+    }
+}
+
+impl<S: Store> Replica<S> {
+    /// Stage rows: in the store's staging area when it has one, so memory holds
+    /// one chunk plus the index.
+    fn stage_rows(&mut self, mut tx: Tx, what: &str) -> Result<(), String> {
         if self.store.stages() {
             tx.stage = crate::store::Stage::Put;
             if let Err(e) = self.store.commit(tx) {
                 if !matches!(e, StoreError::CommitAborted(_)) {
                     self.committed_read_fault();
                 }
-                return Err(format!("staging: {e}"));
+                return Err(format!("{what}: {e}"));
             }
         } else {
             extend_rows(&mut self.install_staged, tx);
         }
         Ok(())
+    }
+
+    pub(in crate::replica) fn stage_snapshot_text(
+        &mut self,
+        id: mdbn_wire::common::Uuid,
+        path: String,
+        modified_seq: u64,
+        mtime: Option<i64>,
+        doc: &str,
+    ) -> Result<(), String> {
+        let r = self
+            .install_rows
+            .text_row(id, path, modified_seq, mtime, doc)?;
+        self.stage_rows(
+            Tx {
+                records_put: vec![r],
+                ..Tx::default()
+            },
+            "record source staging",
+        )
+    }
+
+    pub(super) fn install_chunk(&mut self, chunk: &ChunkPayload) -> Result<(), String> {
+        let d = self.install_rows.decode(chunk)?;
+        for row in d.text_sources {
+            self.install_text_sources.add(row);
+        }
+        for c in &d.native {
+            self.install_native_roots
+                .add(c)
+                .map_err(|e| e.to_string())?;
+        }
+        self.stage_rows(d.rows, "staging")
     }
 }

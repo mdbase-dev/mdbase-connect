@@ -2,22 +2,8 @@
 
 use super::*;
 
-/// Every record in ID order, paged through the store.
-pub(super) fn all_records(s: &dyn Store) -> Result<Vec<RecordRow>, StoreError> {
-    let mut out = Vec::new();
-    let mut after = None;
-    loop {
-        let p = s.records(Page { after, limit: 1024 })?;
-        let Some(l) = p.last() else {
-            break;
-        };
-        after = Some(l.id);
-        out.extend(p);
-    }
-    Ok(out)
-}
-
-/// [`all_records`], or `None` as soon as the text passes `limit`.
+/// Every record in ID order, paged through the store, or `None` as soon as the
+/// text passes `limit`.
 pub(super) fn records_within(
     s: &dyn Store,
     limit: u64,

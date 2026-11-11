@@ -8,7 +8,22 @@ use super::*;
 /// the order of §4: lists of row arrays, and the inclusion map for `settings` (the
 /// default inclusion when none was set).
 pub fn state_digest(s: &dyn Store) -> Result<Hash, StoreError> {
-    Ok(DigestIndex::of(s)?.digest())
+    let mut x = DigestIndex::default();
+    x.store_records(s, u64::MAX)?;
+    x.store_rest(s)?;
+    Ok(x.digest())
+}
+
+/// [`state_digest`], or `None` when the record text passes `limit`: the bound a
+/// snapshot build has ([`Replica::snapshot_record_bytes`]), for a replica that
+/// reads its whole state to check someone else's snapshot.
+pub(super) fn state_digest_within(s: &dyn Store, limit: u64) -> Result<Option<Hash>, StoreError> {
+    let mut x = DigestIndex::default();
+    if !x.store_records(s, limit)? {
+        return Ok(None);
+    }
+    x.store_rest(s)?;
+    Ok(Some(x.digest()))
 }
 
 /// What the state digest covers, row by row, without documents. A snapshot install
@@ -36,29 +51,46 @@ pub(crate) struct DigestIndex {
 }
 
 impl DigestIndex {
-    /// The index of a store's confirmed state.
-    fn of(s: &dyn Store) -> Result<DigestIndex, StoreError> {
-        let mut x = DigestIndex::default();
-        for (p, d) in s.resources()? {
-            x.resource(&p, &d);
+    /// Index a store's records, a page at a time, so their documents are never
+    /// all in memory. `false` as soon as their text passes `limit`.
+    fn store_records(&mut self, s: &dyn Store, limit: u64) -> Result<bool, StoreError> {
+        let mut after = None;
+        let mut bytes = 0u64;
+        loop {
+            let p = s.records(Page { after, limit: 1024 })?;
+            let Some(l) = p.last() else {
+                return Ok(true);
+            };
+            after = Some(l.id);
+            bytes += p.iter().map(|r| r.doc.len() as u64).sum::<u64>();
+            if bytes > limit {
+                return Ok(false);
+            }
+            for r in &p {
+                self.record(r).map_err(StoreError::Corrupt)?;
+            }
         }
-        for r in all_records(s)? {
-            x.record(&r).map_err(StoreError::Corrupt)?;
+    }
+
+    /// Index the rest of a store's confirmed state.
+    fn store_rest(&mut self, s: &dyn Store) -> Result<(), StoreError> {
+        for (p, d) in s.resources()? {
+            self.resource(&p, &d);
         }
         for f in all_files(s)? {
-            x.file(&f).map_err(StoreError::Corrupt)?;
+            self.file(&f).map_err(StoreError::Corrupt)?;
         }
         for t in all_tombstones(s)? {
-            x.tombstone(&t).map_err(StoreError::Corrupt)?;
+            self.tombstone(&t).map_err(StoreError::Corrupt)?;
         }
-        x.settings = s.settings()?;
+        self.settings = s.settings()?;
         for a in s.aliases()? {
-            x.alias(&a);
+            self.alias(&a);
         }
         for c in s.conflicts(None)? {
-            x.conflict(&c);
+            self.conflict(&c);
         }
-        Ok(x)
+        Ok(())
     }
 
     pub(super) fn resource(&mut self, path: &str, doc: &str) {
