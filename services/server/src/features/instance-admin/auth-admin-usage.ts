@@ -19,6 +19,7 @@ export function usage(): string {
     "  auth-admin entitlements reconcile (--user <uuid|email> | --all enabled | --active-hosted enabled) --operation-id <uuid> --actor <id> --reason <text>",
     "  auth-admin users list [--status active|suspended] [--limit <n>] [--cursor <cursor>]",
     "  auth-admin users show --user <uuid|email>",
+    "  auth-admin collections diagnose --user <uuid|email> [--collection <uuid>] [--limit <1-25>] [--cursor <uuid>]",
     "  auth-admin users suspend --user <uuid|email> --operation-id <uuid> --actor <id> --reason <text>",
     "  auth-admin users restore --user <uuid|email> --operation-id <uuid> --actor <id> --reason <text>",
     "  auth-admin users revoke-sessions --user <uuid|email> --operation-id <uuid> --actor <id> --reason <text>",

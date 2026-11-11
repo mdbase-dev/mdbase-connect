@@ -39,25 +39,29 @@ const unavailableRoute = (collection: string, row: { grant_id: string; authoriza
   ({ ...routeGrant(collection, row), targets: [] as RouteTarget[], availability: { state: "unavailable", reason } satisfies RouteAvailability });
 
 type RouteDevice = { device_id: string; kind: RegisteredDeviceKind; noise_pk: Buffer; connector_id: string; relay_generation: string; last_active_ms: number | null; update_required: boolean; local_id: string };
-type Candidate = { value: RouteTarget; serving: boolean; oldConnectorRunning: boolean; updateRequired: boolean; lastActive: number };
+type Candidate = { value: RouteTarget; serving: boolean; oldConnectorRunning: boolean; updateRequired: boolean; lastActive: number; presence: "responded" | "unreachable" | "failed" };
 
 /** Presence of each device from the relay owner, sorted serving first. */
-async function deviceCandidates(broker: Pick<RelayBroker, "request">, devices: readonly RouteDevice[], url: string): Promise<Candidate[]> {
+export async function deviceCandidates(broker: Pick<RelayBroker, "request">, devices: readonly RouteDevice[], url: string): Promise<Candidate[]> {
   const candidates = await Promise.all(devices.map(async (target) => {
     let online = false;
     let oldConnectorRunning = false;
+    let presenceStatus: Candidate["presence"] = "failed";
     try {
       // Ask the actual owner, not this HTTP instance's local socket map or a
       // recent policy ACK. No daemon operation, policy push, or pipe is opened.
       const presence = await broker.request(target.connector_id, String(target.relay_generation),
         { version: 1, kind: "device_presence", message: { device_id: target.device_id } }, 1_000);
       online = presence.ok && presence.value === true;
+      presenceStatus = presence.ok ? typeof presence.value === "boolean" ? "responded" : "failed"
+        : presence.error.kind === "unavailable" ? "unreachable" : "failed";
       oldConnectorRunning = online && presence.ok && presence.detail?.old_connector_running === true;
     } catch (error) {
       if (!(error instanceof RelayBrokerUnavailableError)) throw error;
+      presenceStatus = error.ownerUnavailable ? "unreachable" : "failed";
     }
     const value: RouteTarget = { kind: target.kind, device: target.device_id, noise_pk: target.noise_pk.toString("hex"), url, online, relay_collection: target.local_id };
-    return { value, serving: online && !oldConnectorRunning, oldConnectorRunning, updateRequired: !online && target.update_required, lastActive: target.last_active_ms ?? Number.NEGATIVE_INFINITY };
+    return { value, serving: online && !oldConnectorRunning, oldConnectorRunning, updateRequired: !online && target.update_required, lastActive: target.last_active_ms ?? Number.NEGATIVE_INFINITY, presence: presenceStatus };
   }));
   // Serving first, then online, then desktop/CLI daemons before other kinds, then
   // latest activity. UUID is the stable final tie-breaker. Current local authority
@@ -71,7 +75,7 @@ async function deviceCandidates(broker: Pick<RelayBroker, "request">, devices: r
 }
 
 /** Why the app can or cannot open the collection through these devices now. */
-function deviceAvailability(candidates: readonly Candidate[]): RouteAvailability {
+export function deviceAvailability(candidates: readonly Candidate[]): RouteAvailability {
   if (candidates.length === 0) return { state: "unavailable", reason: "no_device_registered" };
   // Presence first: with no computer online the app must say so, not ask the
   // user to approve on a computer that is not there.
