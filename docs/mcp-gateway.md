@@ -67,10 +67,11 @@ When the MCP OAuth grant includes `mdbase:write`, the gateway also advertises:
 - `create_type` and `update_type`.
 
 Every tool sets `readOnlyHint`, `destructiveHint` and `openWorldHint`
-explicitly. `update_record`, `update_type` and `delete_record` are destructive
-because they overwrite or remove existing data, so hosts that honour the hint
-ask before running them. `rename_record` is not: it refuses a target path that
-is already taken, so it loses nothing. A host may use the gateway without the
+explicitly. `update_record`, `update_type`, `delete_record` and `rename_record`
+are destructive because they overwrite, remove or move existing data, so hosts
+that honour the hint ask before running them. A rename refuses a target path
+that is already taken, but the old path stops resolving and `update_refs`
+rewrites links in other records. A host may use the gateway without the
 plugin skills, so the server also sends MCP `instructions` and tool
 descriptions that carry the same rules: start with `list_connections`, use
 `add_connection` for an unlisted collection, use collection-relative paths only,
