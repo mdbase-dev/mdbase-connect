@@ -20,8 +20,7 @@
 //! in the installed receipts resolve as confirmed in the append loop.
 //!
 //! Open items: manifest signature verification and the control-chain commitment
-//! need policy wiring; the semantics ratchet at `seq` is not in the manifest; the
-//! build holds one snapshot's chunks in memory.
+//! need policy wiring; the build holds one snapshot's chunks in memory.
 
 use std::collections::BTreeMap;
 
@@ -121,8 +120,66 @@ pub(crate) struct Build {
     pub(crate) uploads: std::collections::VecDeque<Upload>,
     /// Uploads sent and not yet answered.
     pub(crate) outstanding: usize,
-    pub(crate) failed: bool,
+    /// The worst answer to an upload so far; the build ends when the uploads
+    /// in flight have answered.
+    pub(crate) failed: Option<BuildFailure>,
     pub(crate) payload: ManifestPayload,
+}
+
+/// Why a build's upload or registration did not produce a snapshot. Ordered:
+/// a refusal outranks an unanswered request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum BuildFailure {
+    /// No answer, no route, or the service asked for a retry.
+    Unanswered {
+        /// The service's retry hint, 0 without one.
+        retry_after_ms: u64,
+    },
+    /// The service answered and will answer the same at this head.
+    Refused,
+}
+
+impl BuildFailure {
+    /// Classify a reply that is not the success the request expects.
+    pub(crate) fn of(reply: &crate::log::LogReply) -> BuildFailure {
+        use crate::log::{LogError, LogErrorCode};
+        match reply {
+            Err(LogError::NoResponse | LogError::Offline) => {
+                BuildFailure::Unanswered { retry_after_ms: 0 }
+            }
+            Err(LogError::Service {
+                code:
+                    LogErrorCode::Unavailable
+                    | LogErrorCode::RateLimited
+                    | LogErrorCode::Unauthenticated,
+                retry_after_ms,
+                ..
+            }) => BuildFailure::Unanswered {
+                retry_after_ms: retry_after_ms.unwrap_or(0),
+            },
+            _ => BuildFailure::Refused,
+        }
+    }
+}
+
+/// The periodic build's wait after an unanswered upload: doubled each time
+/// from the append retry interval, ended by any answer from the service.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct BuildRetry {
+    /// No periodic build before this time, ms.
+    pub(crate) at: i64,
+    pub(crate) wait_ms: u64,
+}
+
+/// The retained pointers `get_snapshot` gave an install (`snapshot.md` §8).
+#[derive(Debug, Clone)]
+pub(crate) struct Offer {
+    /// The newest pointer's manifest.
+    pub(crate) newest: B32,
+    /// The older retained pointer, until the install falls back to it.
+    pub(crate) older: Option<SnapshotPointer>,
+    /// Why the newest was refused, once the install has fallen back.
+    pub(crate) refused: Option<(IncidentKind, String)>,
 }
 
 /// An install in flight.

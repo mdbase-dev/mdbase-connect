@@ -445,6 +445,7 @@ mod tests {
             file_count: 0,
             previous: None,
             control_chain: a(3),
+            sem_ratchet: None,
         }
     }
 

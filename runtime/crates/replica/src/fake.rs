@@ -110,6 +110,7 @@ impl FakeLogService {
             service: self.clone(),
             client: st,
             faults: Faults::default(),
+            snapshot_puts: 0,
         }
     }
 
@@ -622,6 +623,10 @@ pub struct Faults {
     /// Fault (lost objects): the next this-many appends are refused
     /// `refs_missing`, without being performed.
     pub refs_missing_appends: u32,
+    /// Every `put_object` fails with this error, without being performed.
+    pub put_object_error: Option<LogError>,
+    /// Every `put_snapshot` fails with this error, without being performed.
+    pub put_snapshot_error: Option<LogError>,
 }
 
 /// One device's client of a [`FakeLogService`].
@@ -631,6 +636,9 @@ pub struct FakeLog {
     client: Rc<RefCell<ClientState>>,
     /// Fault injection.
     pub faults: Faults,
+    /// Snapshot objects (chunks, ref indices, manifests) this client asked to
+    /// upload, whether or not the request reached the service.
+    pub snapshot_puts: u32,
 }
 
 impl FakeLog {
@@ -642,6 +650,18 @@ impl FakeLog {
 
 impl LogClient for FakeLog {
     fn call(&mut self, request: LogRequest) -> LogReply {
+        if let LogRequest::PutObject { kind, .. } = &request {
+            self.snapshot_puts += u32::from(matches!(
+                kind,
+                ItemKind::Manifest | ItemKind::Chunk | ItemKind::RefIndex
+            ));
+            if let Some(e) = &self.faults.put_object_error {
+                return Err(e.clone());
+            }
+        }
+        if let (LogRequest::PutSnapshot(_), Some(e)) = (&request, &self.faults.put_snapshot_error) {
+            return Err(e.clone());
+        }
         if self.faults.offline {
             return Err(LogError::Offline);
         }
