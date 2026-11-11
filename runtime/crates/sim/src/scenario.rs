@@ -50,6 +50,10 @@ pub const NAMES: &[&str] = &[
     "stall-upgrade-required",
     "control-commit-fault",
     "control-commit-fault-crash",
+    // Catch-up in deferred-durability windows against per-item commits; the
+    // crash matrix (`catchup-window-crash-<point>`) is driven by its test.
+    "catchup-per-item",
+    "catchup-window",
     // Untrusted-party oracle self-tests: only tap-sealed is clean.
     "tap-sealed",
     "tap-plain",
@@ -187,6 +191,7 @@ pub const SWEEP: &[&str] = &[
 /// Is `name` a scenario (listed, or a parseable parameterised name)?
 pub fn known(name: &str) -> bool {
     NAMES.contains(&name)
+        || scenarios::catchup_window::Mode::parse(name).is_some()
         || scenarios::race::Race::parse(name).is_some()
         || scenarios::tapcheck::Variant::parse(name).is_some()
 }
@@ -239,6 +244,9 @@ pub fn run_seed(name: &str, seed: u64, opts: &Opts) -> Option<Report> {
         "stall-upgrade-required" => scenarios::stall::run_upgrade_required(&mut w),
         "control-commit-fault" => scenarios::control_commit::run(&mut w, true, false),
         "control-commit-fault-crash" => scenarios::control_commit::run(&mut w, true, true),
+        n if n.starts_with("catchup-") => {
+            scenarios::catchup_window::run(&mut w, scenarios::catchup_window::Mode::parse(n)?)
+        }
         n if n.starts_with("tap-") => {
             scenarios::tapcheck::run(&mut w, scenarios::tapcheck::Variant::parse(n)?)
         }

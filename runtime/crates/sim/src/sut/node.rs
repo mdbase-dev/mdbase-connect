@@ -5,7 +5,11 @@
 //! model (so editors, stalls and crashes reach it). The index (`MemStore`) and
 //! the file store's own rows (`MemDiskDb`) survive process crashes and power
 //! loss: they model `IndexStorage` at `synchronous=FULL` until a `Kv`-backed
-//! store exists. Files on disk get the full power-loss model.
+//! store exists. The exception is a deferred-durability window
+//! (`Store::defer_durability`): a process that dies with one open loses every
+//! commit made in it, as the native index does (one outer transaction), and
+//! the next incarnation opens on the state the window started from. Files on
+//! disk get the full power-loss model.
 //!
 //! An in-process client (the host app's session) generates work during chaos:
 //! creates, updates (`status` patch, `tags` add with a fresh token) and renames.
@@ -30,7 +34,7 @@ use mdbn_wire::client::{HelloParams, ReceiptState, SubmitParams, SyncMode};
 use mdbn_wire::common::{B16, DataMap, Text, Uuid, Value, Version};
 use mdbn_wire::intent::{Create, Op, Rename, Update};
 
-use super::fault_store::{CommitFault, FaultStore};
+use super::fault_store::{CommitFault, CrashPlan, FaultStore};
 use super::planner::{SimDoc, SimPlanner};
 use super::real_log::{RpcStep, decode_push, response_frame};
 use super::real_log_net::{CallerHello, WireEvent};
@@ -51,6 +55,12 @@ const TICK: u64 = 1;
 const WORK: u64 = 2;
 const OBSERVE: u64 = 3;
 const RECONNECT: u64 = 4;
+/// Timer tag: this node's client submits one write now (scenario-driven work).
+pub const WRITE_ONCE: u64 = 5;
+
+/// The index and the file store's rows as they were when the open
+/// deferred-durability window started.
+type WindowStart = (MemData, Vec<mdbn_store_file::diskdb::Row>);
 
 struct MachineClock(MachineRef);
 
@@ -101,6 +111,12 @@ pub struct Node {
     store_data: Rc<RefCell<MemData>>,
     disk_db: MemDiskDb,
     commit_fault: Rc<RefCell<CommitFault>>,
+    /// What a crash inside the open deferred-durability window falls back to.
+    window_start: Rc<RefCell<Option<WindowStart>>>,
+    /// Scenario hook: crash at one numbered point.
+    crash_plan: Option<Rc<RefCell<CrashPlan>>>,
+    /// Scenario hook: the store declines deferred-durability windows.
+    per_item_commits: bool,
     incarnation: u64,
     /// Mutation → tokens it carries, until its receipt resolves.
     outstanding: BTreeMap<Uuid, Vec<String>>,
@@ -147,6 +163,9 @@ impl Node {
             store_data: Rc::new(RefCell::new(MemData::default())),
             disk_db: MemDiskDb::default(),
             commit_fault: Rc::new(RefCell::new(CommitFault::default())),
+            window_start: Rc::new(RefCell::new(None)),
+            crash_plan: None,
+            per_item_commits: false,
             incarnation: 0,
             outstanding: BTreeMap::new(),
             next_id: 1,
@@ -166,6 +185,74 @@ impl Node {
     pub fn with_real_transport(mut self, hello: CallerHello) -> Self {
         self.real = Some(RealWire::new(hello));
         self
+    }
+
+    /// Crash this node's process at the point `plan` names: a store commit, an
+    /// edge of a deferred-durability window, or outputs leaving the process.
+    pub fn with_crash_plan(mut self, plan: Rc<RefCell<CrashPlan>>) -> Self {
+        self.crash_plan = Some(plan);
+        self
+    }
+
+    /// The store declines deferred-durability windows (every commit durable
+    /// on its own), as a host without them does.
+    pub fn with_per_item_commits(mut self, per_item: bool) -> Self {
+        self.per_item_commits = per_item;
+        self
+    }
+
+    /// The index contents, shared across this node's incarnations.
+    pub fn store_data(&self) -> Rc<RefCell<MemData>> {
+        self.store_data.clone()
+    }
+
+    /// The previous incarnation died with a deferred-durability window open:
+    /// its commits never became durable. Open on the state the window started
+    /// from.
+    fn lose_open_window(&mut self, w: &mut World) {
+        let start = self.window_start.borrow_mut().take();
+        if !self.store_data.borrow().deferred {
+            return;
+        }
+        let Some((data, rows)) = start else {
+            w.shared.violate(
+                Kind::Bug,
+                format!(
+                    "{}: a window is open that the store never opened",
+                    self.name
+                ),
+            );
+            return;
+        };
+        *self.store_data.borrow_mut() = data;
+        let kept: BTreeSet<_> = rows.iter().map(|(k, key, _)| (*k, key.clone())).collect();
+        let mut changes: Vec<mdbn_store_file::diskdb::Change> = Vec::new();
+        use mdbn_store_file::diskdb::DiskDb;
+        for (k, key, _) in self.disk_db.load().unwrap_or_default() {
+            if !kept.contains(&(k, key.clone())) {
+                changes.push((k, key, None));
+            }
+        }
+        changes.extend(rows.into_iter().map(|(k, key, v)| (k, key, Some(v))));
+        if let Err(e) = self.disk_db.apply(changes) {
+            w.shared
+                .violate(Kind::Bug, format!("{}: window rollback: {e:?}", self.name));
+        }
+        w.shared.count("sim.windows_lost", 1);
+        w.log(&self.name, "commits of the open window are lost");
+    }
+
+    /// Outputs (log calls, client pushes) have left the process: a crash here
+    /// cannot take them back.
+    fn outputs_left(&mut self, w: &mut World) {
+        let crash = self
+            .crash_plan
+            .as_ref()
+            .is_some_and(|plan| plan.borrow_mut().hit("outputs left", false));
+        if crash {
+            self.die(w, "crash plan: after outputs left");
+            w.crashed_in_call(self.me);
+        }
     }
 
     /// Counters of the real transport, if this node has one.
@@ -225,6 +312,7 @@ impl Node {
     }
 
     fn open(&mut self, w: &mut World) {
+        self.lose_open_window(w);
         self.incarnation += 1;
         let m = w.machines[self.machine].clone();
         let proc = Proc::new(&m, &format!("{}#{}", self.name, self.incarnation), true);
@@ -251,8 +339,22 @@ impl Node {
             }
         };
         let crash_proc = proc.clone();
-        let store = FaultStore::new(store, self.commit_fault.clone())
-            .with_gap_hook(move || crash_proc.crash());
+        let (data, rows, start) = (
+            self.store_data.clone(),
+            self.disk_db.clone(),
+            self.window_start.clone(),
+        );
+        let mut store = FaultStore::new(store, self.commit_fault.clone())
+            .with_gap_hook(move || crash_proc.crash())
+            .with_window_snapshot(move || {
+                use mdbn_store_file::diskdb::DiskDb;
+                *start.borrow_mut() =
+                    Some((data.borrow().clone(), rows.load().unwrap_or_default()));
+            })
+            .per_item(self.per_item_commits);
+        if let Some(plan) = &self.crash_plan {
+            store = store.with_crash_plan(plan.clone(), proc.clone());
+        }
         let host = Host {
             clock: Box::new(MachineClock(m.clone())),
             entropy: Box::new(SeededTestEntropy::from_world(
@@ -618,6 +720,7 @@ impl Node {
         }
         let calls = rep.take_log_calls();
         let pushes = rep.take_pushes();
+        let left = !calls.is_empty() || !pushes.is_empty();
         let mut offline = Vec::new();
         for c in calls {
             if !self.connected && !self.cfg.reconnect_storm {
@@ -640,9 +743,11 @@ impl Node {
                 rep.on_log_reply(id, Err(LogError::Offline));
             }
             // Replies may queue more calls; ship them on the next pass.
-            return self.after_pushes(w, pushes);
         }
         self.after_pushes(w, pushes);
+        if left {
+            self.outputs_left(w);
+        }
     }
 
     fn after_pushes(&mut self, w: &mut World, pushes: Vec<(SessionId, Push)>) {
@@ -924,6 +1029,10 @@ impl Actor for Node {
                 } else {
                     self.working = false;
                 }
+            }
+            Ev::Timer(WRITE_ONCE) => {
+                self.work(w);
+                self.after(w);
             }
             Ev::Timer(RECONNECT) if self.real.is_some() => {
                 if self.rep.is_none()

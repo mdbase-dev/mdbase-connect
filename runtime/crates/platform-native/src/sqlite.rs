@@ -595,6 +595,9 @@ impl IndexStorage for SqliteIndex {
             return Ok(false);
         }
         if on == self.deferred {
+            // A connection lost to an uncertain failure took any window it
+            // held with it: never report that window as closed.
+            self.conn()?;
             return Ok(true);
         }
         let r = if on {
@@ -894,6 +897,22 @@ mod tests {
                 SqlValue::Integer(600 * 8192),
             ]
         );
+    }
+    #[test]
+    fn a_window_lost_with_its_connection_is_not_reported_closed() {
+        let p = path("window-lost");
+        let mut i = SqliteIndex::open(&p, IndexDurability::Durable).unwrap();
+        i.run(&batch("CREATE TABLE t(k INTEGER)")).unwrap();
+        assert!(i.defer_sync(true).unwrap());
+        i.run(&batch("INSERT INTO t VALUES(1)")).unwrap();
+        // A batch that ends the outer transaction itself: outcome unknown.
+        assert!(i.run(&batch("COMMIT")).is_err());
+        assert!(i.conn.is_none() && !i.deferred, "fenced until a fresh open");
+        assert!(
+            i.defer_sync(false).is_err(),
+            "the closer learns its window did not commit"
+        );
+        assert!(i.defer_sync(true).is_err());
     }
     #[test]
     fn ordered_index_checkpoint_barrier_failures_poison_without_early_recycle() {

@@ -2,6 +2,12 @@
 //!
 //! A control-bearing transaction fails before reaching the underlying Store.
 //! All other operations, including optional retention/disk methods, delegate.
+//!
+//! Deferred-durability windows ([`Store::defer_durability`]) are forwarded, so
+//! the replica runs its windows here as it does on the native index. The node
+//! models what a crash does to one: commits since the window opened are lost
+//! (see [`FaultStore::with_window_snapshot`]). A [`CrashPlan`] can stop the
+//! process at each commit and at each edge of a window.
 
 use std::cell::RefCell;
 use std::ops::{Deref, Range};
@@ -32,11 +38,57 @@ pub struct CommitFault {
     pub gap_crashes: u64,
 }
 
+/// A scripted process crash at one numbered point of a run.
+///
+/// The points are the places where a crash leaves a different durable state or
+/// a different set of outputs behind: before and after each store commit, the
+/// edges of a deferred-durability window, each file-system call that changes
+/// the folder, and each batch of outputs leaving the process. A first run
+/// counts them; later runs crash at one each.
+#[derive(Debug, Default)]
+pub struct CrashPlan {
+    /// Points count (and the crash can happen) only while armed.
+    pub armed: bool,
+    /// Crash at this point of the armed phase (1-based).
+    pub at: Option<u64>,
+    /// Points passed while armed.
+    pub seen: u64,
+    /// Points passed while armed, by kind.
+    pub kinds: std::collections::BTreeMap<&'static str, u64>,
+    /// The kind of point the crash happened at.
+    pub crashed_at: Option<&'static str>,
+    /// A deferred-durability window was open at the crash.
+    pub crashed_in_window: bool,
+}
+
+impl CrashPlan {
+    /// Pass a point; true if the process crashes here.
+    pub fn hit(&mut self, kind: &'static str, in_window: bool) -> bool {
+        if !self.armed {
+            return false;
+        }
+        self.seen += 1;
+        *self.kinds.entry(kind).or_default() += 1;
+        if self.at == Some(self.seen) {
+            self.at = None;
+            self.crashed_at = Some(kind);
+            self.crashed_in_window = in_window;
+            return true;
+        }
+        false
+    }
+}
+
 /// Simulator-owned Store decorator. No failure changes any underlying state.
 pub struct FaultStore<S> {
     inner: S,
     fault: Rc<RefCell<CommitFault>>,
     gap_hook: Option<Box<dyn Fn()>>,
+    /// Called right before a deferred-durability window opens.
+    window_snapshot: Option<Box<dyn Fn()>>,
+    /// Decline windows: every commit is durable on its own.
+    per_item: bool,
+    crash: Option<(Rc<RefCell<CrashPlan>>, crate::platform::Proc)>,
 }
 
 impl<S> FaultStore<S> {
@@ -46,13 +98,62 @@ impl<S> FaultStore<S> {
             inner,
             fault,
             gap_hook: None,
+            window_snapshot: None,
+            per_item: false,
+            crash: None,
         }
+    }
+
+    /// Call `snapshot` right before a deferred-durability window opens: the
+    /// state a crash inside that window falls back to.
+    pub fn with_window_snapshot(mut self, snapshot: impl Fn() + 'static) -> Self {
+        self.window_snapshot = Some(Box::new(snapshot));
+        self
+    }
+
+    /// Decline deferred-durability windows, as a host without them does:
+    /// every commit is durable on its own.
+    pub fn per_item(mut self, per_item: bool) -> Self {
+        self.per_item = per_item;
+        self
+    }
+
+    /// Crash `proc` at the point `plan` names. A crashed process commits
+    /// nothing further.
+    pub fn with_crash_plan(
+        mut self,
+        plan: Rc<RefCell<CrashPlan>>,
+        proc: crate::platform::Proc,
+    ) -> Self {
+        self.crash = Some((plan, proc));
+        self
     }
 
     /// Process-crash hook at the committed-head/control-state durability gap.
     pub fn with_gap_hook(mut self, hook: impl Fn() + 'static) -> Self {
         self.gap_hook = Some(Box::new(hook));
         self
+    }
+}
+
+impl<S: Store> FaultStore<S> {
+    /// Pass a crash point. `Err` once the process has crashed, here or earlier.
+    fn point(&self, kind: &'static str) -> StoreResult<()> {
+        let Some((plan, proc)) = &self.crash else {
+            return Ok(());
+        };
+        let dead = || StoreError::Io("process crashed".into());
+        if proc.crashed.get() {
+            return Err(dead());
+        }
+        if plan
+            .borrow_mut()
+            .hit(kind, self.inner.durability_deferred())
+        {
+            proc.crash();
+            return Err(dead());
+        }
+        Ok(())
     }
 }
 
@@ -129,7 +230,33 @@ impl<S: Store> Store for FaultStore<S> {
         self.inner.observe(paths)
     }
 
+    fn durability_deferred(&self) -> bool {
+        self.inner.durability_deferred()
+    }
+
+    fn defer_durability(&mut self, on: bool) -> StoreResult<()> {
+        if self.per_item {
+            return Ok(());
+        }
+        if on == self.inner.durability_deferred() {
+            return self.inner.defer_durability(on);
+        }
+        if on {
+            if let Some(snapshot) = &self.window_snapshot {
+                snapshot();
+            }
+            self.inner.defer_durability(true)?;
+            self.point("window opened")
+        } else {
+            // Everything in the window is applied; none of it is durable yet.
+            self.point("window closing")?;
+            self.inner.defer_durability(false)?;
+            self.point("window closed")
+        }
+    }
+
     fn commit(&mut self, tx: Tx) -> StoreResult<CommitReport> {
+        self.point("commit")?;
         let mut fault = self.fault.borrow_mut();
         // Control read-ahead can checkpoint policy without advancing the
         // applied head. Fault that transaction too, not only ordinary apply.
@@ -157,6 +284,8 @@ impl<S: Store> Store for FaultStore<S> {
         drop(fault);
         let result = self.inner.commit(tx);
         if result.is_ok() {
+            // The commit landed; the process may die before it learns so.
+            self.point("committed")?;
             let mut fault = self.fault.borrow_mut();
             if let Some(expected) = fault.expected_control {
                 match (self.inner.head(), self.inner.meta(meta_keys::POLICY)) {

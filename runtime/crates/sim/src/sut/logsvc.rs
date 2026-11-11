@@ -38,6 +38,9 @@ pub struct LogService {
     pub adversary: Adversary,
     /// What the adversary did, for the oracles.
     pub attacks: Attacks,
+    /// Serve at most this many items per read (a small page, so a short log
+    /// still takes several reads to catch up on).
+    pub read_page: Option<u64>,
 }
 
 /// A log service that lies (`sealed-envelope.md` §1 threat model).
@@ -70,6 +73,7 @@ impl LogService {
             collections,
             adversary: Adversary::default(),
             attacks: Attacks::default(),
+            read_page: None,
         }
     }
 
@@ -174,6 +178,10 @@ impl Actor for LogService {
                     .or_insert_with(|| (svc.client(r.device), from, epoch));
                 entry.1 = from;
                 entry.2 = epoch;
+                let mut request = r.req.clone();
+                if let (Some(page), LogRequest::Read(read)) = (self.read_page, &mut request) {
+                    read.limit = read.limit.min(page);
+                }
                 let reply = match self.lie(w, &r.req) {
                     Some(lie) => lie,
                     None => self
@@ -181,7 +189,7 @@ impl Actor for LogService {
                         .get_mut(&r.device)
                         .expect("just inserted")
                         .0
-                        .call(r.req.clone()),
+                        .call(request),
                 };
                 let reply = self.tamper(reply, &r.req);
                 if let Err(e) = &reply {

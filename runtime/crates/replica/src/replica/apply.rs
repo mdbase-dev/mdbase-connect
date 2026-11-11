@@ -6,6 +6,12 @@
 //!
 //! Each item is committed on its own, atomically with the head. That keeps the
 //! state at `p − 1` readable from the store for verification and void checks.
+//!
+//! Durability is per call of [`Replica::apply_items`], not per item: the
+//! entries of one call (a read page, a push, this device's own appended batch)
+//! commit inside one deferred-durability window ([`Store::defer_durability`]),
+//! closed before the call does or returns anything else. See
+//! `Replica::open_apply_window`.
 
 use std::collections::BTreeSet;
 use std::ops::ControlFlow;
@@ -145,6 +151,14 @@ impl<S: Store> Replica<S> {
             });
             let result = self.apply_one(it.seq, &it.item, &mut changed);
             self.retaining = None;
+            // Only an applied or void entry leaves the window open for the next
+            // item. Every way of stopping here (a failed commit, a stall, a
+            // lost tail) is handled over durable state, or not at all.
+            if !matches!(result, Ok(Outcome::Applied | Outcome::Void(_)))
+                && self.close_apply_window().is_err()
+            {
+                break;
+            }
             let outcome = match result {
                 Ok(o) => o,
                 Err(e) => {
@@ -220,7 +234,10 @@ impl<S: Store> Replica<S> {
                 break;
             }
         }
-        if !any {
+        // The barrier. Everything below, and everything the caller and the
+        // host do after this call (notify, publish to the folder, append, read
+        // on), acts on applied items that are durable.
+        if self.close_apply_window().is_err() || !any {
             return;
         }
         if self.head.seq >= self.head_known {
@@ -256,6 +273,42 @@ impl<S: Store> Replica<S> {
                 Some(Value::Text(format!("store: {e}"))),
             );
         }
+    }
+
+    /// Open the deferred-durability window of the call's entries, if the store
+    /// has such a mode (the native index; every other store keeps each commit
+    /// durable and this does nothing).
+    ///
+    /// Inside it an applied entry is atomic and ordered but not yet durable, so
+    /// a crash takes back a suffix of the call's entries. That is safe because
+    /// nothing outside the store can have seen them:
+    ///
+    /// - the store closes the window itself before any outside effect (a file
+    ///   written, moved or removed, an attachment staged, a keychain entry);
+    /// - everything this replica emits (log calls, pushes, receipts) is queued
+    ///   in memory and taken by the host only after the call returns, and the
+    ///   call closes the window first (`apply_items`), fencing the instance and
+    ///   dropping those outputs if the barrier's outcome is unknown;
+    /// - what a crash loses is re-read from the log at the durable head and
+    ///   applied again to the same result, own pending mutations included
+    ///   (their rows and receipts roll back with the head).
+    ///
+    /// Only entries are inside one. A control item (policy, rekey, key grant,
+    /// grant approval) or a base closes the window first and commits durably on
+    /// its own, as before: authorization and key state never run ahead of what
+    /// is durable.
+    fn open_apply_window(&mut self) -> Result<(), StoreError> {
+        self.store.defer_durability(true)
+    }
+
+    /// Close the window, if one is open: a barrier. On `Ok` every item applied
+    /// so far is durable. A failed barrier leaves their durability unknown:
+    /// the instance is fenced until reopen, as after any commit whose outcome
+    /// is unknown, and nothing queued from them is delivered.
+    fn close_apply_window(&mut self) -> Result<(), StoreError> {
+        self.store.defer_durability(false).inspect_err(|_| {
+            self.terminal_store_fault("apply_window_barrier_failed");
+        })
     }
 
     /// A `base` item (`snapshot.md` §7): check it, then install its generation 0.
@@ -915,6 +968,11 @@ impl<S: Store> Replica<S> {
             seq: p,
             chain: mdbn_wire::hash::chain_hash(&bytes.0),
         };
+        if item.kind == ItemKind::Entry {
+            self.open_apply_window()?;
+        } else {
+            self.close_apply_window()?;
+        }
         if item.kind.is_control() && p <= self.policy.seq {
             self.original_history.invalidate();
             // Applied while installing a snapshot: only the head advances here.
