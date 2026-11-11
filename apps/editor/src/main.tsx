@@ -39,10 +39,13 @@ const EditorApp = lazy(() => import("./App").then((module) => ({ default: module
 // The Connect console is retired from the Editor: accounts, access and collection
 // management live on the Connect portal. Keep old /connect bookmarks working by
 // forwarding them there, and never mount management (or an SDK owner) here.
+// The remainder is assigned as a path, never resolved as a URL reference, so
+// the target always stays on the portal origin.
 const portalUrl = editorPortalUrl();
 const managementTarget = portalUrl && (location.pathname === "/connect" || location.pathname.startsWith("/connect/"))
-  ? new URL(location.pathname.slice("/connect".length) || "/", portalUrl) : null;
+  ? new URL(portalUrl) : null;
 if (managementTarget) {
+  managementTarget.pathname = location.pathname.slice("/connect".length) || "/";
   managementTarget.search = location.search;
   managementTarget.searchParams.delete("server");
   managementTarget.hash = location.hash;
