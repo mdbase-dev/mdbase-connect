@@ -176,6 +176,9 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
             .any(|o| o.known_after.as_ref().map(|k| k.rev) == rev && o.evidence.is_none())
     }
 
+    /// Compare what `path` holds with what the store knows and report a
+    /// difference. `listed`: what this pass's walk already has for it, in
+    /// place of a `stat` (the walk lists only supported names).
     pub(super) async fn check_path(
         &mut self,
         path: &str,
@@ -183,15 +186,22 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
         changes: &mut Vec<Change>,
         out: &mut Vec<Observation>,
         quiet_recheck: bool,
+        listed: Option<FileMeta>,
     ) -> StoreResult<()> {
         let rp = Self::rel(path)?;
-        let stat = self.observe_io(|| self.p.stat(&rp)).await?;
-        if stat.is_ok()
-            && let Some(reason) = Self::unsupported_name(path)
-        {
-            self.stats.unsupported_paths.insert(path.into(), reason);
-            return Ok(());
-        }
+        let stat = match listed {
+            Some(meta) => Ok(meta),
+            None => {
+                let stat = self.observe_io(|| self.p.stat(&rp)).await?;
+                if stat.is_ok()
+                    && let Some(reason) = Self::unsupported_name(path)
+                {
+                    self.stats.unsupported_paths.insert(path.into(), reason);
+                    return Ok(());
+                }
+                stat
+            }
+        };
         let meta = match stat {
             Ok(m) if m.kind == FileKind::File => Some(m),
             Ok(m) => {

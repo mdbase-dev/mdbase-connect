@@ -119,6 +119,12 @@ impl NativePlatform {
         self.diagnostics
     }
 
+    /// Path-resolution syscalls issued under the root since it was opened.
+    #[cfg(unix)]
+    pub fn syscalls(&self) -> crate::unix::Syscalls {
+        self.dir.syscalls()
+    }
+
     /// The collection root.
     pub fn root(&self) -> &Path {
         &self.root
