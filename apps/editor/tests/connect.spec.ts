@@ -1,13 +1,13 @@
 import { expect, test } from "@playwright/test";
 
-test("old /connect bookmarks forward to Connect without mounting management or authorizing content", async ({ page }) => {
+test("old /connect bookmarks forward to the configured Connect portal without mounting management or authorizing content", async ({ page }) => {
   const requests: string[] = [];
   page.on("request", request => { if (new URL(request.url()).pathname.startsWith("/v1/")) requests.push(new URL(request.url()).pathname); });
-  await page.route("http://connect.test/**", route => route.fulfill({ contentType: "text/html", body: "<h1>Canonical Connect portal</h1>" }));
+  await page.route("https://connect.mdbase.dev/**", route => route.fulfill({ contentType: "text/html", body: "<h1>Canonical Connect portal</h1>" }));
   await page.goto("connect/account?server=http%3A%2F%2Fconnect.test&collection=collection&linked=github#delete_token=act_fixture");
   await expect(page.getByRole("heading", { name: "Canonical Connect portal" })).toBeVisible();
   const target = new URL(page.url());
-  expect(target.origin).toBe("http://connect.test");
+  expect(target.origin).toBe("https://connect.mdbase.dev");
   expect(target.pathname).toBe("/account");
   expect(target.searchParams.get("collection")).toBe("collection");
   expect(target.searchParams.get("linked")).toBe("github");
@@ -18,7 +18,7 @@ test("old /connect bookmarks forward to Connect without mounting management or a
 });
 
 // The Editor's own /connect console is retired; every old console link forwards
-// to the same path on the canonical Connect portal instead.
+// to the same path on this build's Connect portal, whatever `server` it names.
 const retiredLinks = [
   ["connect?server=http%3A%2F%2Fconnect.test&collection=collection", "/"],
   ["connect/storage?server=http%3A%2F%2Fconnect.test&collection=collection", "/storage"],
@@ -28,11 +28,11 @@ const retiredLinks = [
 
 for (const [link, pathname] of retiredLinks) {
   test(`forwards the retired console link /${link.split("?")[0]} to Connect`, async ({ page }) => {
-    await page.route("http://connect.test/**", route => route.fulfill({ contentType: "text/html", body: "<h1>Canonical Connect portal</h1>" }));
+    await page.route("https://connect.mdbase.dev/**", route => route.fulfill({ contentType: "text/html", body: "<h1>Canonical Connect portal</h1>" }));
     await page.goto(link);
     await expect(page.getByRole("heading", { name: "Canonical Connect portal" })).toBeVisible();
     const target = new URL(page.url());
-    expect(target.origin).toBe("http://connect.test");
+    expect(target.origin).toBe("https://connect.mdbase.dev");
     expect(target.pathname).toBe(pathname);
     await expect(page.getByRole("complementary", { name: "mdbase Connect navigation" })).toHaveCount(0);
   });
