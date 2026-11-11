@@ -242,16 +242,15 @@ export function registerNoisePipeClientRoute(
   options: { db: DatabasePool; broker: RelayBroker; limits?: NoisePipeLimits }
 ): void {
   const limits = options.limits ?? DEFAULT_NOISE_PIPE_LIMITS;
+  const revalidations = new Map<string, { pipes: Set<(reason: string, deviceReason: string) => void>; timer: NodeJS.Timeout }>();
   app.get("/v1/next/relay/client", { websocket: true }, (socket) => {
     let pipeId: string | undefined;
     let inbound: RelayBrokerBinding | undefined;
     let opened = false;
     let published = false;
     let terminal = false;
-    let credential: { token: string; collection: string; grant: string; device: string; connector: string } | undefined;
-    let revalidation: NodeJS.Timeout | undefined;
+    let stopRevalidation: (() => void) | undefined;
     let openTimer: NodeJS.Timeout | undefined;
-    let verifying = false;
     const authTimer = setTimeout(() => closeWith("unauthenticated"), limits.authTimeoutMs);
     // Terminal cleanup runs on every denial and close, even before the close event.
     // Async admission must never allocate timers/subscriptions after this boundary.
@@ -259,10 +258,9 @@ export function registerNoisePipeClientRoute(
       if (terminal) return;
       terminal = true;
       opened = false;
-      credential = undefined;
       clearTimeout(authTimer);
       clearTimeout(openTimer);
-      clearInterval(revalidation);
+      stopRevalidation?.();
       const binding = inbound;
       inbound = undefined;
       void binding?.close();
@@ -278,18 +276,6 @@ export function registerNoisePipeClientRoute(
       finish();
       return false;
     };
-    const startRevalidation = () => {
-      if (!alive()) return;
-      revalidation = setInterval(() => {
-        if (terminal || !credential || verifying) return;
-        verifying = true;
-        const current = credential;
-        void admission(current.token, current.collection, current.grant, current.device).then((connector) => {
-          if (!terminal && connector !== current.connector) finish("grant_inactive", "grant_revoked");
-        }, () => finish("connector_offline", "authorization_unavailable")).finally(() => { verifying = false; });
-      }, limits.revalidateMs);
-      revalidation.unref();
-    };
     socket.once("close", () => finish());
     socket.on("message", (raw: Buffer, isBinary: boolean) => {
       if (!alive()) return;
@@ -302,31 +288,6 @@ export function registerNoisePipeClientRoute(
       pipeId = randomUUID();
       void admit(raw.toString("utf8"), pipeId).catch(() => closeWith("connector_offline"));
     });
-
-    /** The connector to open the pipe on, or null to refuse. */
-    async function admission(token: string, collection: string, grant: string, device: string): Promise<string | null> {
-      const legacy = await options.db.query<{ connector_id: string }>(
-        `SELECT col.connector_id
-         FROM access_tokens tok
-         JOIN grants g ON g.id = tok.grant_id
-         JOIN users u ON u.id = g.user_id
-         JOIN collections col ON col.id = g.collection_id
-         JOIN next_grant_client_keys k ON k.grant_id = g.id
-         LEFT JOIN next_collections nc ON nc.collection_id = col.local_id
-         LEFT JOIN next_grant_bindings binding ON binding.grant_id = g.id
-         WHERE tok.token_hash = $1 AND tok.expires_at > now() AND tok.revoked_at IS NULL
-           AND COALESCE(binding.log_grant_id, g.id)::text = $3
-           AND (nc.runtime IS DISTINCT FROM 'next' OR binding.active = true)
-           AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL
-           AND u.suspended_at IS NULL
-           AND col.local_id = $2 AND col.enabled = true
-           AND col.present = true AND col.authority_state = 'active'`,
-        [tokenHash(token), collection, grant]
-      );
-      if (legacy.rows[0]) return legacy.rows[0].connector_id;
-      // A Private native collection: only a current serving device of the granting account.
-      return nativeAdmission(options.db, tokenHash(token), collection, grant, device);
-    }
 
     async function admit(text: string, id: string): Promise<void> {
       let auth: { type?: unknown; access_token?: unknown; collection?: unknown; grant?: unknown; device?: unknown; device_noise_pk?: unknown };
@@ -342,7 +303,6 @@ export function registerNoisePipeClientRoute(
       const connectorId = await admission(auth.access_token, auth.collection, auth.grant, auth.device);
       if (!alive()) return;
       if (!connectorId) return closeWith("grant_inactive");
-      credential = { token: auth.access_token, collection: auth.collection, grant: auth.grant, device: auth.device, connector: connectorId };
       const generation = await currentRelayGeneration(options.db, connectorId);
       if (!alive()) return;
       if (!generation) return closeWith("connector_offline");
@@ -375,7 +335,64 @@ export function registerNoisePipeClientRoute(
         await options.broker.publishPipe(pipeSubject(id, "device"), closeFrame("client_closed")).catch(() => undefined);
         return;
       }
-      startRevalidation();
+      stopRevalidation = revalidate(auth.access_token, auth.collection, auth.grant, auth.device, connectorId, finish);
     }
   });
+
+  /** The connector to open the pipe on, or null to refuse. */
+  async function admission(token: string, collection: string, grant: string, device: string): Promise<string | null> {
+    const legacy = await options.db.query<{ connector_id: string }>(
+      `SELECT col.connector_id
+       FROM access_tokens tok
+       JOIN grants g ON g.id = tok.grant_id
+       JOIN users u ON u.id = g.user_id
+       JOIN collections col ON col.id = g.collection_id
+       JOIN next_grant_client_keys k ON k.grant_id = g.id
+       LEFT JOIN next_collections nc ON nc.collection_id = col.local_id
+       LEFT JOIN next_grant_bindings binding ON binding.grant_id = g.id
+       WHERE tok.token_hash = $1 AND tok.expires_at > now() AND tok.revoked_at IS NULL
+         AND COALESCE(binding.log_grant_id, g.id)::text = $3
+         AND (nc.runtime IS DISTINCT FROM 'next' OR binding.active = true)
+         AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL
+         AND u.suspended_at IS NULL
+         AND col.local_id = $2 AND col.enabled = true
+         AND col.present = true AND col.authority_state = 'active'`,
+      [tokenHash(token), collection, grant]
+    );
+    if (legacy.rows[0]) return legacy.rows[0].connector_id;
+    // A Private native collection: only a current serving device of the granting account.
+    return nativeAdmission(options.db, tokenHash(token), collection, grant, device);
+  }
+
+  /** One fresh check per group per tick; no admission result is retained. */
+  function revalidate(token: string, collection: string, grant: string, device: string, connector: string, finish: (reason: string, deviceReason: string) => void): () => void {
+    const key = JSON.stringify([tokenHash(token), collection, grant, device, connector]);
+    let group = revalidations.get(key);
+    if (!group) {
+      const pipes = new Set<typeof finish>();
+      let verifying = false;
+      const timer = setInterval(() => {
+        if (verifying) return;
+        verifying = true;
+        void admission(token, collection, grant, device).then((current) => {
+          if (current !== connector) for (const close of pipes) close("grant_inactive", "grant_revoked");
+        }, () => {
+          for (const close of pipes) close("connector_offline", "authorization_unavailable");
+        }).finally(() => { verifying = false; });
+      }, limits.revalidateMs);
+      timer.unref();
+      group = { pipes, timer };
+      revalidations.set(key, group);
+    }
+    // Joining never postpones the next check; opening admission is always separate.
+    const { pipes, timer } = group;
+    pipes.add(finish);
+    return () => {
+      pipes.delete(finish);
+      if (pipes.size === 0) {
+        clearInterval(timer);
+        revalidations.delete(key);
+      }
+    };
+  }
 }
