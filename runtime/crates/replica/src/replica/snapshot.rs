@@ -75,8 +75,10 @@ use install_chunk::alias_path_ok;
 use rows::*;
 
 pub use blocked::{MAX_REQUEST_NODES, SnapshotBlocked, snapshot_refs_fit};
-pub(crate) use digest::DigestIndex;
 pub use digest::state_digest;
+use digest::{DigestIndex, state_digest_within};
+use install::{ChunkError, chunk_queue};
+pub(crate) use install_chunk::ChunkRows;
 
 /// Target plaintext per records chunk.
 pub(super) const TARGET_CHUNK: u64 = 512 << 10;
@@ -155,15 +157,20 @@ pub(crate) enum Install {
     },
 }
 
-/// An endorsement in progress: the manifest, then every chunk not
-/// verified before.
+/// An endorsement in progress: the manifest, then every chunk it references.
 #[derive(Debug, Clone)]
 pub(crate) enum Endorse {
     Manifest(SnapshotPointer),
     Chunks {
         p: SnapshotPointer,
-        queue: Vec<ChunkRef>,
+        /// The manifest's state digest, which the decoded rows must hash to.
+        state_digest: Hash,
+        queue: Vec<(SectionKind, ChunkRef)>,
         next: usize,
+        /// The decoding of the chunks read so far.
+        rows: Box<ChunkRows>,
+        /// Mutations whose receipts the chunks read so far hold.
+        receipts: std::collections::BTreeSet<mdbn_wire::common::Uuid>,
     },
 }
 

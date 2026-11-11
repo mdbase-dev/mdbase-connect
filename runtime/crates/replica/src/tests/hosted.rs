@@ -729,6 +729,42 @@ fn snapshot_rebuild_without_retained_entry_is_outcome_unknown() {
     }
 }
 
+/// The hosted replica writes content in a cloud copy, so it has the write
+/// authority a snapshot's author needs (`snapshot.md` §5.3): it builds one, and a
+/// replica behind retention installs it.
+#[test]
+fn hosted_snapshot_is_built_and_installed_in_a_cloud_copy() {
+    let svc = world();
+    let mut h = open(&svc, MemStore::new());
+    h.pump();
+    let s1 = h.session(G1);
+    let t =
+        h.r.submit_logged(s1, create(1, "a.md", Some(mid(0x81))))
+            .unwrap();
+    h.pump();
+    assert_eq!(h.ack(t).state, ReceiptState::Confirmed);
+    assert!(h.r.policy.device_can_write(&HOSTED_DEV));
+    h.r.build_snapshot_now().unwrap();
+    h.pump();
+    assert_eq!(h.r.stats.snapshots_built, 1);
+    let pointers = match svc
+        .client(OWNER_DEV)
+        .call(LogRequest::GetSnapshot { collection: COL })
+    {
+        Ok(crate::log::LogResponse::GetSnapshot(v)) => v,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(pointers[0].author, HOSTED_DEV);
+    let records = h.r.confirmed_records().unwrap();
+    svc.compact(&COL, h.r.head().seq);
+    drop(h);
+
+    let mut h = open(&svc, MemStore::new());
+    h.pump();
+    assert_eq!(h.r.stats.snapshots_installed, 1);
+    assert_eq!(h.r.confirmed_records().unwrap(), records);
+}
+
 #[test]
 fn open_hosted_refuses_a_store_with_durable_pending_rows() {
     let svc = world();

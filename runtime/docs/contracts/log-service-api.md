@@ -434,6 +434,10 @@ endorse-snapshot-result = { 0: bool }    ; endorsed
   - the manifest and every ref exist;
   - the principal is an active device.
 
+  The service does not check that the device may write content. Replicas check the
+  manifest's signer against the policy at `seq` (`snapshot.md` §8 step 2) and neither
+  install nor endorse a snapshot from a device without write authority.
+
   The service cannot read the manifest. It records the pointer and the refs.
 - **Ref-index expansion.** Each ref of kind `ref-index` (`sealed-envelope.md` §4.3)
   is read and expanded in the same request, and the stored refs are the direct refs

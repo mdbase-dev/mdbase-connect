@@ -2721,16 +2721,7 @@ impl<S: Store> Replica<S> {
         &self,
         c: &mdbn_wire::attachment::FileContent,
     ) -> bool {
-        let size = c.size();
-        size > mdbn_wire::unindexed_markdown::RECORD_SOURCE_CAP_BYTES
-            && size <= crate::crypto::chunked_blob::AttachmentLimits::default().max_file_bytes
-            && match c {
-                mdbn_wire::attachment::FileContent::Blob(b) => {
-                    blob_ref_in_bounds(b) && b.id_epoch >= 1 && b.id_epoch <= self.policy.epoch
-                }
-                mdbn_wire::attachment::FileContent::AttachmentV1(a) => self.attachment_in_bounds(a),
-                _ => false,
-            }
+        unindexed_content_in_bounds(c, &self.cfg.collection, self.policy.epoch)
     }
     /// V7 for a signed attachment descriptor (`intent.md` §3.9): it names this
     /// collection, an epoch the policy has reached, and a size within the cap.
@@ -2739,12 +2730,43 @@ impl<S: Store> Replica<S> {
         &self,
         a: &mdbn_wire::attachment::AttachmentContentV1,
     ) -> bool {
-        a.reference.collection == self.cfg.collection
-            && a.reference.key_epoch >= 1
-            && a.reference.key_epoch <= self.policy.epoch
-            && a.total_plain_bytes
-                <= crate::crypto::chunked_blob::AttachmentLimits::default().max_file_bytes
+        attachment_in_bounds(a, &self.cfg.collection, self.policy.epoch)
     }
+}
+
+/// [`Replica::unindexed_content_in_bounds`] for `collection`, with `epoch` the
+/// latest key epoch the policy had reached.
+pub(crate) fn unindexed_content_in_bounds(
+    c: &mdbn_wire::attachment::FileContent,
+    collection: &Uuid,
+    epoch: u64,
+) -> bool {
+    let size = c.size();
+    size > mdbn_wire::unindexed_markdown::RECORD_SOURCE_CAP_BYTES
+        && size <= crate::crypto::chunked_blob::AttachmentLimits::default().max_file_bytes
+        && match c {
+            mdbn_wire::attachment::FileContent::Blob(b) => {
+                blob_ref_in_bounds(b) && b.id_epoch >= 1 && b.id_epoch <= epoch
+            }
+            mdbn_wire::attachment::FileContent::AttachmentV1(a) => {
+                attachment_in_bounds(a, collection, epoch)
+            }
+            _ => false,
+        }
+}
+
+/// [`Replica::attachment_in_bounds`] for `collection`, with `epoch` the latest
+/// key epoch the policy had reached.
+pub(crate) fn attachment_in_bounds(
+    a: &mdbn_wire::attachment::AttachmentContentV1,
+    collection: &Uuid,
+    epoch: u64,
+) -> bool {
+    a.reference.collection == *collection
+        && a.reference.key_epoch >= 1
+        && a.reference.key_epoch <= epoch
+        && a.total_plain_bytes
+            <= crate::crypto::chunked_blob::AttachmentLimits::default().max_file_bytes
 }
 
 pub(crate) fn blob_ref_in_bounds(b: &mdbn_wire::intent::BlobRef) -> bool {

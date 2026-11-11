@@ -361,22 +361,71 @@ of a bogus snapshot would lose data. So a snapshot only becomes a compaction poi
 once it is **endorsed**.
 
 A replica endorses a snapshot when it has itself applied the log through `seq`, its
-own state digest and `ctl(seq)` equal the manifest's, and the manifest's signature and
-chain check out. It also fetches every chunk the manifest references that the previous
-endorsed manifest did not. It checks that each one opens, matches its `plain_hash`, and
-holds rows equal to its own state. A digest alone does not prove that the chunks are
-installable. It then calls `endorse_snapshot` (`log-service-api.md` §7). The
-endorsement must come from a **device other than the builder**.
+own state digest and `ctl(seq)` equal the manifest's, and the manifest passes the
+install's check of its signer, signature and chain (§8 step 2), under the policy at
+`seq`. An endorsed snapshot is one an install accepts and that equals the endorser's
+state, so the endorser also reads the chunks:
+
+- It fetches **every** chunk the manifest references, one at a time. A chunk it
+  checked for an earlier manifest is fetched again: its rows equalled the state then,
+  not the state now.
+- Each chunk must open and match its reference (`address`, `plain_hash`,
+  `plain_size`, section), and its rows must pass the install's validation (§8 step 5).
+  Install and endorsement share one decoder.
+- Every row the install would write must equal the endorser's own row, field by
+  field:
+
+  | Row | Compared |
+  |---|---|
+  | resource | path, document |
+  | settings | the inclusion (the default when the endorser has none set) |
+  | record | ID, path, document, revision, and the index row's `modified_seq` and `mtime` |
+  | file | ID, path, kind, content descriptor, media class, the index row's `modified_seq`, and `mtime` where the section carries it (attachment files) |
+  | tombstone | ID, kind, path, last content, `seq`, `time` |
+  | alias | path, record |
+  | conflict | mutation, `seq`, the conflict |
+  | receipt | mutation, `seq`, `time` |
+
+  Not compared, because the install does not read them from the snapshot: a record's
+  derived index entries (computed from the resources, the path and the document),
+  where a file's bytes are on the device, and the capture time of an unindexed
+  Markdown file. The sealed bytes, the addresses of chunks and the split of rows into
+  chunks are the builder's and are never compared.
+- The decoded rows must hash to the manifest's `state_digest`, and the receipts must
+  number the endorser's own. With the digest equal to the endorser's, nothing of its
+  state is missing from the chunks.
+
+A digest alone does not prove that the chunks are installable or equal: it leaves out
+the documents' text (a revision is only its hash), the positions and capture times in
+the index rows, and the receipts.
+
+The endorser does not endorse, and reports nothing, when it cannot make the
+comparison: its head has moved past `seq`, a chunk needs a newer codec, a record's
+text is in a blob (§3; no builder writes that form today, and comparing it means
+fetching and authenticating the blob as an install does), or its record text passes
+the bound a build has (§5.3).
+
+It then calls `endorse_snapshot` (`log-service-api.md` §7). The endorsement must come
+from a **device other than the builder**.
 
 A collection with a single keyed device can never get one. Its latest snapshot older
 than 30 days counts as endorsed instead.
 
-A replica whose digest differs reports an incident and does not endorse. The hosted
-replica endorses routinely.
+A replica whose digest or rows differ, or that finds a manifest or chunk an install
+would refuse, reports an incident and does not endorse. The hosted replica endorses
+routinely.
 
 ### 5.3 When snapshots are written
 
-Any keyed replica may build one when all of these hold:
+A snapshot replaces the log before it, so only a device that could have written that
+log may author one. A replica builds one when its device has **write authority**: the
+rule for the signer of an `entry` or a `base` (`policy.md` §6.2), that is, an active,
+keyed device whose account has role ≥ editor, or the hosted replica in a cloud copy.
+A read-only member's device is keyed too. It never builds one, and no replica
+installs or endorses a snapshot it signed (§8 step 2). The log service does not make
+this check: it registers a pointer from any active device (`log-service-api.md` §7).
+
+Such a replica may build one when all of these hold:
 - at least 10,000 entries or 64 MiB of items have been appended since the latest
   snapshot;
 - at least one hour has passed since the latest snapshot;
@@ -479,7 +528,7 @@ segment's part addresses are listed in the item's `refs`, so the service retains
 like the manifest.
 
 **Validity** of a `base` at `p`:
-- the signer is a keyed device;
+- the signer is a keyed device with write authority (`policy.md` §6.2);
 - **no `entry` or `base` item precedes it** (a log may hold rekey and policy items
   before it);
 - the manifest is in `refs`.
@@ -512,8 +561,8 @@ the index.
    - this device's `key_grant` or `rekey` wrap;
    - then every older epoch, through the key history.
 2. **The pointer.** `get_snapshot`, then fetch and open the manifest. Check:
-   - the signature, and that the signer was keyed and not revoked at `seq`, using the
-     policy from step 1;
+   - the signature, and that the signer had write authority at `seq` (§5.3), using
+     the policy from step 1 as it stood at `seq`, not as it stands now;
    - that `chain` equals the `prev` of the item at `seq + 1`, or the head's chain hash
      if no item follows yet.
 
@@ -576,7 +625,7 @@ ctl(p) = ctl(p − 1)                                               otherwise
 - Endorsers check `control_chain` against their own value too (§5.2).
 
 Withholding from a `kinds = control` read is then detected at install, provided at
-least one honest keyed device built or endorsed the snapshot.
+least one honest device with write authority built or endorsed the snapshot.
 
 ## 9. Join from existing files
 

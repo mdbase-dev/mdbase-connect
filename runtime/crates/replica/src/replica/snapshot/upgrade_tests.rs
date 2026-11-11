@@ -91,8 +91,9 @@ pub(super) fn replica() -> Replica<MemStore> {
         .unwrap();
     assert_eq!(r.store.staged_rows(), 1);
     r.install_staged.records_put.push(row(STAGED, "staged.md"));
-    r.install_mseq.insert(STAGED, 42);
-    r.install_resources
+    r.install_rows.mseq.insert(STAGED, 42);
+    r.install_rows
+        .resources
         .push(("mdbase.yaml".into(), "staged resource".into()));
     r
 }
@@ -179,8 +180,8 @@ pub(super) fn assert_prior(r: &Replica<MemStore>, kind: IncidentKind, cleaned: b
     if cleaned {
         assert_eq!(r.store.staged_rows(), 0);
         assert!(r.install_staged.records_put.is_empty());
-        assert!(r.install_mseq.is_empty());
-        assert!(r.install_resources.is_empty());
+        assert!(r.install_rows.mseq.is_empty());
+        assert!(r.install_rows.resources.is_empty());
     }
 }
 #[test]
