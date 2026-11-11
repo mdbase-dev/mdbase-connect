@@ -135,6 +135,8 @@ export async function reconcileApplicationGrants(
     connector_id: string | null;
     hosted_collection_id: string | null;
     hosted_replica_id: string | null;
+    next_collection_id: string | null;
+    next_collection_sync: string | null;
     operations: string[];
     local_contracts: CollectionContractDescriptor[] | null;
     spec_version: string | null;
@@ -146,6 +148,7 @@ export async function reconcileApplicationGrants(
     file_capability: FileCapability | null;
   }>(
     `SELECT g.id, g.user_id, col.connector_id, g.hosted_collection_id, g.hosted_replica_id,
+            g.next_collection_id, g.next_collection_sync,
             g.operations, col.contracts AS local_contracts, col.spec_version,
             hosted.contracts AS hosted_contracts, hosted.template,
             replica.allowed_types, g.scope, g.notification_criteria,
@@ -235,12 +238,18 @@ export async function reconcileApplicationGrants(
       application.requirements,
       grant.file_capability
     );
+    // A synced collection has no row in collections or hosted_collections: its
+    // contracts and format live in its own log and were checked at approval.
+    // Only the declaration's own limits can be rechecked for it here.
+    const synced = grant.next_collection_id !== null;
     const collectionKindCompatible = !requiresHostedCollection(application.requirements)
-      || grant.template !== null;
+      || grant.template !== null
+      || grant.next_collection_sync === "cloud_copy";
     const collectionCompatible = application.requirements.access === "full_collection"
       && collectionKindCompatible
-      && contractsSatisfy(availableContracts, requiredContracts)
-      && (grant.template !== null
+      && (synced || contractsSatisfy(availableContracts, requiredContracts))
+      && (synced
+        || grant.template !== null
         || (grant.spec_version !== null
           && collectionSupportsOperations(grant.spec_version, grant.operations)))
       && operationsAllowedByRequirements(grant.operations, application.requirements);
