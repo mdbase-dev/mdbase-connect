@@ -9,6 +9,15 @@ import { pkceChallenge, randomToken, safeEqual, tokenHash } from "./security.js"
 export const MCP_SCOPES = ["mdbase:read", "mdbase:write"] as const;
 export type McpScope = typeof MCP_SCOPES[number];
 
+const AUTHORIZATION_LIFETIME_MS = 10 * 60_000;
+// Registration and authorization are open by specification, so the state they
+// create is bounded here: authorizations in progress are capped, expired ones
+// are removed shortly after expiry, and registrations that never received a
+// token are removed once a returning client is unlikely to reuse them.
+export const MAX_PENDING_AUTHORIZATIONS = 1_000;
+const EXPIRED_AUTHORIZATION_RETENTION_MS = 10 * 60_000;
+const UNUSED_CLIENT_RETENTION_MS = 7 * 24 * 60 * 60_000;
+
 // Used only for new, explicitly approved connections; stored token ceilings remain exact.
 // Existing stored grants retain their original operation arrays without conversion.
 export const READ_OPERATIONS = capabilityOperations("collection.read");
@@ -114,6 +123,14 @@ export class OAuthService {
     }
     const resource = canonicalResource(query.resource ?? this.resource, this.resource);
     const scopes = parseScopes(query.scope);
+    const pending = await this.db.query<{ count: number }>(
+      `SELECT count(*)::int AS count FROM mcp_authorization_requests
+       WHERE completed_at IS NULL AND denied_at IS NULL AND expires_at > $1`,
+      [new Date()]
+    );
+    if (pending.rows[0]!.count >= MAX_PENDING_AUTHORIZATIONS) {
+      throw new OAuthError("temporarily_unavailable", "Too many sign-ins are in progress. Try again in a few minutes.", 503);
+    }
     const setId = randomUUID();
     const requestId = randomUUID();
     await this.db.query("INSERT INTO mcp_connection_sets (id) VALUES ($1)", [setId]);
@@ -131,10 +148,46 @@ export class OAuthService {
         query.code_challenge,
         resource,
         JSON.stringify(scopes),
-        new Date(Date.now() + 10 * 60_000)
+        new Date(Date.now() + AUTHORIZATION_LIFETIME_MS)
       ]
     );
     return this.beginUpstream("initial", setId, scopes, requestId, null);
+  }
+
+  /** Removes authorization state that can no longer complete and registrations that never received a token. */
+  async pruneExpiredState(now = Date.now()): Promise<void> {
+    const expired = new Date(now - EXPIRED_AUTHORIZATION_RETENTION_MS);
+    // A connection set gains a connection before any code or token is issued for
+    // it, so a set without one belongs only to the expired request.
+    await this.db.query(
+      `DELETE FROM mcp_connection_sets
+       WHERE id IN (SELECT connection_set_id FROM mcp_authorization_requests WHERE expires_at < $1)
+         AND id NOT IN (SELECT connection_set_id FROM mcp_connections)`,
+      [expired]
+    );
+    await this.db.query("DELETE FROM mcp_authorization_requests WHERE expires_at < $1", [expired]);
+    await this.db.query("DELETE FROM mcp_upstream_authorizations WHERE expires_at < $1", [expired]);
+    // Every token issue writes a refresh token, so a client without one never completed authorization.
+    await this.db.query(
+      `DELETE FROM mcp_clients
+       WHERE created_at < $1
+         AND id NOT IN (SELECT client_id FROM mcp_authorization_requests)
+         AND id NOT IN (SELECT client_id FROM mcp_refresh_tokens)`,
+      [new Date(now - UNUSED_CLIENT_RETENTION_MS)]
+    );
+    // Per-authorization grant keys (`mcp:`) and their Noise keys live only while
+    // a pending authorization or a connection refers to them.
+    await this.db.query(
+      `DELETE FROM mcp_grant_keys
+       WHERE created_at < $1
+         AND (handle LIKE 'mcp:%' OR handle LIKE 'mcp-noise:mcp:%')
+         AND handle NOT IN (
+           SELECT key_handle FROM mcp_connections WHERE key_handle IS NOT NULL
+           UNION SELECT 'mcp-noise:' || key_handle FROM mcp_connections WHERE key_handle IS NOT NULL
+           UNION SELECT key_handle FROM mcp_upstream_authorizations
+           UNION SELECT 'mcp-noise:' || key_handle FROM mcp_upstream_authorizations)`,
+      [expired]
+    );
   }
 
   async completeUpstream(input: { state?: string; code?: string; error?: string }): Promise<{
@@ -413,7 +466,7 @@ export class OAuthService {
           JSON.stringify(scopes),
           verifier,
           keyHandle,
-          new Date(Date.now() + 10 * 60_000)
+          new Date(Date.now() + AUTHORIZATION_LIFETIME_MS)
         ]
       );
       return authorizationUri;
@@ -493,7 +546,7 @@ export class OAuthService {
 }
 
 export class OAuthError extends Error {
-  constructor(public readonly code: string, message: string) {
+  constructor(public readonly code: string, message: string, public readonly status: 400 | 503 = 400) {
     super(message);
   }
 }
