@@ -36,14 +36,6 @@ msgstr " Lo spostamento potrebbe essere ancora in corso; recupera l'operazione i
 msgid ", {0} of {1} required"
 msgstr ", {0} su {1} obbligatori"
 
-#: src/NewNoteComposer.tsx
-msgid ".md"
-msgstr ".md"
-
-#: src/NewNoteComposer.tsx
-msgid "‹title›"
-msgstr "‹titolo›"
-
 #. placeholder {0}: session.draft.title || session.document.path
 #: src/App.tsx
 msgid "“{0}” changed elsewhere. Your edits are still here."
@@ -188,11 +180,6 @@ msgstr "Campo del tipo {0} {1}"
 #: src/TypeBrowser.tsx
 msgid "{0} added"
 msgstr "{0} aggiunto"
-
-#. placeholder {0}: optional.length
-#: src/NewNoteComposer.tsx
-msgid "{0} available"
-msgstr "{0} disponibile"
 
 #. placeholder {0}: progress.completedUnits
 #: src/App.tsx
@@ -499,6 +486,10 @@ msgstr "Tipo di campo {itemLabel}"
 msgid "{itemLabel} suggestions"
 msgstr "{itemLabel} suggerimenti"
 
+#: src/new-note.ts
+msgid "{label} is needed to save this note."
+msgstr "Compila «{label}» per salvare questa nota."
+
 #: src/contract-catalog.ts
 #: src/gateway.ts
 msgid "{label} is not supported."
@@ -645,10 +636,6 @@ msgstr "{references, plural, one {Aggiornati anche i collegamenti in # nota.} ot
 #: src/TypeBrowser.tsx
 msgid "{requiredMapped}/{0} required · {mappedCount}/{1} total"
 msgstr "{requiredMapped}/{0} obbligatori · {mappedCount}/{1} totali"
-
-#: src/NewNoteComposer.tsx
-msgid "{selectedOptional} set"
-msgstr "{selectedOptional} impostati"
 
 #. placeholder {0}: this.job.file.name
 #: src/code-editor-file-embeds.ts
@@ -818,11 +805,6 @@ msgstr "Aggiungi"
 #: src/TypeBrowser.tsx
 msgid "Add {0}"
 msgstr "Aggiungi {0}"
-
-#. placeholder {0}: primaryLabel.toLocaleLowerCase()
-#: src/NewNoteComposer.tsx
-msgid "Add a {0} to create the note."
-msgstr "Aggiungi un {0} per creare la nota."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add a custom property…"
@@ -1250,25 +1232,17 @@ msgstr "Impossibile aprire questa raccolta"
 #: src/BulkNoteProperties.tsx
 #: src/FolderChangeDialog.tsx
 #: src/MoveNoteDialog.tsx
-#: src/NewNoteComposer.tsx
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
+#: src/YourPersonPanel.tsx
 msgid "Cancel"
 msgstr "Annulla"
 
 #: src/YourPersonPanel.tsx
 msgid "Cancel conversion"
 msgstr "Annulla la conversione"
-
-#: src/NewNoteComposer.tsx
-msgid "Cancel new folder"
-msgstr "Annulla la nuova cartella"
-
-#: src/NewNoteComposer.tsx
-msgid "Cancel new note"
-msgstr "Annulla la nuova nota"
 
 #: src/TypeBrowser.tsx
 msgid "Catalog"
@@ -1401,6 +1375,14 @@ msgstr "Scegli un record..."
 #: src/person-records.ts
 msgid "Choose a target type that implements both Person and Contact so existing contact semantics are retained."
 msgstr "Scegli un tipo di destinazione che implementi sia Persona sia Contatto, così da conservare le informazioni di contatto esistenti."
+
+#: src/App.tsx
+msgid "Choose a type"
+msgstr "Scegli un tipo"
+
+#: src/App.tsx
+msgid "Choose a type for the new note"
+msgstr "Scegli un tipo per la nuova nota"
 
 #: src/TypeBrowser.tsx
 msgid "Choose an icon"
@@ -1829,6 +1811,7 @@ msgstr "Impossibile copiare {label}."
 msgid "Couldn’t copy the path. Clipboard access is unavailable."
 msgstr "Impossibile copiare il percorso. L'accesso agli appunti non è disponibile."
 
+#. placeholder {0}: input.path
 #. placeholder {0}: linked.path
 #. placeholder {1}: gatewayError(error)
 #: src/App.tsx
@@ -1921,31 +1904,14 @@ msgstr "Crea una nota personale a partire dal nome dell'account."
 msgid "Create fields that already match an installed contract. You can rename and remap them later."
 msgstr "Crea campi già compatibili con un contratto installato. In seguito sarà possibile rinominarli e rimapparli."
 
-#: src/NewNoteComposer.tsx
-msgid "Create folder"
-msgstr "Crea cartella"
-
-#: src/NewNoteComposer.tsx
-msgid "Create it with a first note. Empty folders aren’t stored."
-msgstr "Crea la cartella con una prima nota. Le cartelle vuote non vengono archiviate."
-
 #: src/YourPersonPanel.tsx
 msgid "Create my person record"
 msgstr "Crea il mio record personale"
-
-#: src/editor-commands.ts
-#: src/NewNoteComposer.tsx
-msgid "Create note"
-msgstr "Crea nota"
 
 #. placeholder {0}: query.trim()
 #: src/QuickOpen.tsx
 msgid "Create note ‘{0}’"
 msgstr "Crea nota ‘{0}’"
-
-#: src/NewNoteComposer.tsx
-msgid "Create note (Ctrl or Command + Enter)"
-msgstr "Crea nota (Ctrl o Command + Enter)"
 
 #: src/ConnectionScreens.tsx
 msgid "create notes"
@@ -1972,13 +1938,9 @@ msgstr "Creato il tipo «{0}»."
 msgid "Creates a ready-to-use {primaryTypeLabel} type with standard fields and an editable contract mapping. Existing files will not be overwritten; installation stops if any target conflicts."
 msgstr "Crea un tipo {primaryTypeLabel} pronto all'uso con campi standard e una mappatura del contratto modificabile. I file esistenti non verranno sovrascritti; l'installazione si interrompe in caso di conflitto di destinazioni."
 
-#: src/NewNoteComposer.tsx
+#: src/YourPersonPanel.tsx
 msgid "Creating"
 msgstr "Creazione"
-
-#: src/NewNoteComposer.tsx
-msgid "Creating folder"
-msgstr "Creazione cartella"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Custom"
@@ -2123,20 +2085,12 @@ msgid "Discard changes"
 msgstr "Scarta le modifiche"
 
 #: src/App.tsx
-msgid "Discard folder"
-msgstr "Scarta la cartella"
-
-#: src/App.tsx
 msgid "Discard note"
 msgstr "Scarta nota"
 
 #: src/App.tsx
 msgid "Discard recovered edits"
 msgstr "Scarta le modifiche recuperate"
-
-#: src/App.tsx
-msgid "Discard this folder?"
-msgstr "Eliminare questa cartella?"
 
 #: src/App.tsx
 msgid "Discard this note?"
@@ -2201,14 +2155,6 @@ msgstr "Duplica"
 msgid "Duplicated note."
 msgstr "Nota duplicata."
 
-#: src/NewNoteComposer.tsx
-msgid "e.g. Reading list"
-msgstr "ad es. Elenco di lettura"
-
-#: src/NewNoteComposer.tsx
-msgid "e.g. Research"
-msgstr "ad es. Ricerca"
-
 #: src/TypeBrowser.tsx
 msgid "Each choice includes its portable contract and an editable local mapping."
 msgstr "Ogni scelta include il suo contratto portatile e una mappatura locale modificabile."
@@ -2228,10 +2174,6 @@ msgstr "modificare e spostare le note"
 #: src/PropertiesPanel.tsx
 msgid "Edit as source"
 msgstr "Modifica come sorgente"
-
-#: src/NewNoteComposer.tsx
-msgid "Edit file path"
-msgstr "Modifica il percorso del file"
 
 #: src/ConnectionScreens.tsx
 msgid "edit notes"
@@ -2435,10 +2377,6 @@ msgstr "Campi rimossi"
 msgid "File · {0}"
 msgstr "File · {0}"
 
-#: src/NewNoteComposer.tsx
-msgid "File path"
-msgstr "Percorso del file"
-
 #: src/FileViewer.tsx
 msgid "File viewer, {filename}"
 msgstr "Visualizzatore di file, {filename}"
@@ -2447,7 +2385,7 @@ msgstr "Visualizzatore di file, {filename}"
 msgid "Files can’t be renamed in the Editor."
 msgstr "Non è possibile rinominare i file nell’Editor."
 
-#: src/NewNoteComposer.tsx
+#: src/new-note.ts
 msgid "Fill in the required properties."
 msgstr "Compila le proprietà richieste."
 
@@ -2488,10 +2426,6 @@ msgstr "Ricerca delle cartelle..."
 msgid "Finish adding {0}"
 msgstr "Completa l'aggiunta di {0}"
 
-#: src/NewNoteComposer.tsx
-msgid "First note"
-msgstr "Prima nota"
-
 #: src/PropertiesPanel.tsx
 msgid "Fix invalid fields to continue saving"
 msgstr "Correggi i campi non validi per continuare a salvare"
@@ -2500,7 +2434,7 @@ msgstr "Correggi i campi non validi per continuare a salvare"
 msgid "Fix mapping"
 msgstr "Correggi la mappatura"
 
-#: src/NewNoteComposer.tsx
+#: src/new-note.ts
 msgid "Fix the highlighted property values."
 msgstr "Correggi i valori delle proprietà evidenziati."
 
@@ -2543,8 +2477,8 @@ msgstr "Il cambio di cartella richiede attenzione"
 msgid "Folder changes were applied, but refreshing the index failed. {0}"
 msgstr "Sono state applicate le modifiche alla cartella, ma l'aggiornamento dell'indice non è riuscito. {0}"
 
+#: src/CollectionRail.tsx
 #: src/FolderChangeDialog.tsx
-#: src/NewNoteComposer.tsx
 msgid "Folder name"
 msgstr "Nome della cartella"
 
@@ -2622,6 +2556,10 @@ msgstr "I futuri percorsi dei file potrebbero cambiare"
 msgid "Gains"
 msgstr "Acquisizioni"
 
+#: src/App.tsx
+msgid "General note"
+msgstr "Nota generica"
+
 #: src/TypeBrowser.tsx
 msgid "Generated path ownership"
 msgstr "Proprietà del percorso generato"
@@ -2698,10 +2636,6 @@ msgstr "L'impatto si basa sulle note attualmente indicizzate. La raccolta conval
 #: src/editor-commands.ts
 msgid "in the list"
 msgstr "nell'elenco"
-
-#: src/editor-commands.ts
-msgid "in the note composer"
-msgstr "nel modulo della nota"
 
 #: src/type-contracts.ts
 msgid "Incompatible"
@@ -3275,6 +3209,7 @@ msgstr "Spostamento…"
 
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
+#: src/YourPersonPanel.tsx
 msgid "Name"
 msgstr "Nome"
 
@@ -3287,14 +3222,20 @@ msgstr "Nome"
 msgid "Name field"
 msgstr "Campo nome"
 
-#: src/NewNoteComposer.tsx
-msgid "Name the folder to create it."
-msgstr "Assegna un nome alla cartella per crearla."
+#: src/CollectionRail.tsx
+msgid "Name of the new folder"
+msgstr "Nome della nuova cartella"
+
+#. placeholder {0}: naming.parent
+#: src/CollectionRail.tsx
+msgid "Name of the new folder in {0}"
+msgstr "Nome della nuova cartella in {0}"
 
 #: src/QuickOpen.tsx
 msgid "Navigate"
 msgstr "Navigazione"
 
+#: src/App.tsx
 #: src/note-mutation-presentation.ts
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
@@ -3313,15 +3254,17 @@ msgstr "Campi nidificati"
 msgid "nested required fields"
 msgstr "campi obbligatori nidificati"
 
+#: src/App.tsx
+msgid "New {name}"
+msgstr "Nuova nota di tipo {name}"
+
 #: src/CollectionRail.tsx
-#: src/NewNoteComposer.tsx
 msgid "New folder"
 msgstr "Nuova cartella"
 
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/LoadingScreens.tsx
-#: src/NewNoteComposer.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
 msgid "New note"
@@ -3334,6 +3277,11 @@ msgstr "Nuova nota qui"
 #: src/editor-commands.ts
 msgid "New note in current folder"
 msgstr "Nuova nota nella cartella corrente"
+
+#: src/editor-commands.ts
+#: src/NoteList.tsx
+msgid "New note of type…"
+msgstr "Nuova nota di tipo…"
 
 #: src/YourPersonPanel.tsx
 msgid "New person record"
@@ -3474,10 +3422,6 @@ msgstr "Nessuna nota è ancora collegata qui."
 msgid "No notes or files found."
 msgstr "Nessuna nota o file trovato."
 
-#: src/NewNoteComposer.tsx
-msgid "No optional properties selected."
-msgstr "Nessuna proprietà opzionale selezionata."
-
 #: src/TypeBrowser.tsx
 msgid "No properties are marked as links."
 msgstr "Nessuna proprietà è contrassegnata come collegamento."
@@ -3490,6 +3434,7 @@ msgstr "Nessuna proprietà ancora."
 msgid "No text preview."
 msgstr "Nessuna anteprima del testo."
 
+#: src/App.tsx
 #: src/PropertiesPanel.tsx
 msgid "No type"
 msgstr "Nessun tipo"
@@ -3532,6 +3477,10 @@ msgstr "Non esposto"
 msgid "Not now"
 msgstr "Non adesso"
 
+#: src/App.tsx
+msgid "Not saved yet"
+msgstr "Non ancora salvata"
+
 #: src/QuickOpen.tsx
 msgid "Note"
 msgstr "Nota"
@@ -3541,7 +3490,6 @@ msgid "Note actions, in the list"
 msgstr "Azioni della nota nell'elenco"
 
 #: src/MarkdownNoteEditor.tsx
-#: src/NewNoteComposer.tsx
 msgid "Note body"
 msgstr "Corpo della nota"
 
@@ -3621,6 +3569,10 @@ msgstr "Anche le note nelle sottocartelle vengono spostate. I collegamenti a que
 #: src/read-only-markdown.tsx
 msgid "Notes larger than 1 MiB are read-only at launch."
 msgstr "Le note più grandi di 1 MiB sono di sola lettura all'avvio."
+
+#: src/NoteList.tsx
+msgid "Notes not saved yet"
+msgstr "Note non ancora salvate"
 
 #: src/TypeBrowser.tsx
 msgid "Notes use this field to declare their type. Edit it in YAML if you need to change it."
@@ -3790,6 +3742,15 @@ msgstr "Apertura dell'anteprima del testo..."
 msgid "Opening transcluded note…"
 msgstr "Apertura della nota trasclusa…"
 
+#. placeholder {0}: naming.parent
+#: src/CollectionRail.tsx
+msgid "Opens a new note in {0}/…"
+msgstr "Apre una nuova nota in {0}/…"
+
+#: src/CollectionRail.tsx
+msgid "Opens a new note in the folder."
+msgstr "Apre una nuova nota nella cartella."
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Operations"
@@ -3843,7 +3804,6 @@ msgstr "packs[{index}].resource_count deve essere un numero intero positivo."
 msgid "Partly installed"
 msgstr "Parzialmente installato"
 
-#: src/NewNoteComposer.tsx
 #: src/note-sort.ts
 #: src/TypeBrowser.tsx
 msgid "Path"
@@ -4036,7 +3996,6 @@ msgstr "Proiezioni"
 msgid "Projects/**/*.md"
 msgstr "Projects/**/*.md"
 
-#: src/NewNoteComposer.tsx
 #: src/PropertiesPanel.tsx
 msgid "Properties"
 msgstr "Proprietà"
@@ -4358,7 +4317,7 @@ msgstr "Campi obbligatori coperti"
 msgid "Required match field"
 msgstr "Campo di confronto obbligatorio"
 
-#: src/NewNoteComposer.tsx
+#: src/App.tsx
 msgid "Required properties"
 msgstr "Proprietà richieste"
 
@@ -4580,6 +4539,7 @@ msgstr "Il salvataggio influisce su ogni nota corrispondente"
 msgid "Saving affects every note of type <0>{0}</0>"
 msgstr "Il salvataggio influisce su ogni nota di tipo <0>{0}</0>"
 
+#: src/App.tsx
 #: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
@@ -4827,7 +4787,6 @@ msgid "Start with app compatibility"
 msgstr "Inizia con la compatibilità delle app"
 
 #: src/MarkdownNoteEditor.tsx
-#: src/NewNoteComposer.tsx
 msgid "Start writing"
 msgstr "Inizia a scrivere"
 
@@ -4850,10 +4809,6 @@ msgstr "Condizioni strutturate del frontmatter"
 #: src/TypeBrowser.tsx
 msgid "Suggested from field names and shapes only. Confirm that the meanings agree."
 msgstr "Suggerimento basato solo sui nomi e sulla struttura dei campi. Verifica che il significato corrisponda."
-
-#: src/NewNoteComposer.tsx
-msgid "Suggested path"
-msgstr "Percorso suggerito"
 
 #: src/App.tsx
 #: src/editor-commands.ts
@@ -5156,10 +5111,6 @@ msgstr "Le definizioni sono cambiate durante la revisione."
 msgid "The destination folder “{to}” already exists. Choose another name or move its notes individually; folders are not merged automatically."
 msgstr "La cartella di destinazione \"{to}\" esiste già. Scegli un altro nome o sposta le sue note individualmente; le cartelle non vengono unite automaticamente."
 
-#: src/App.tsx
-msgid "The details you entered haven’t been created yet."
-msgstr "I dettagli inseriti non sono ancora stati creati."
-
 #: src/YourPersonPanel.tsx
 msgid "The Editor can link a person record only to an identity you let it read. Approve the Editor again for this collection and allow “See your account identity and display name”."
 msgstr "L'editor può collegare un record di persona solo a un'identità a cui ha accesso. Autorizza nuovamente l'editor per questa raccolta e consenti «Visualizza l'identità e il nome visualizzato dell'account»."
@@ -5254,10 +5205,6 @@ msgstr "La nuova definizione di tipo non è stata salvata."
 msgid "The note change was rejected."
 msgstr "La modifica della nota è stata respinta."
 
-#: src/NewNoteComposer.tsx
-msgid "The note could not be created."
-msgstr "Impossibile creare la nota."
-
 #: src/AttachmentUpload.tsx
 #: src/code-editor-file-embeds.ts
 msgid "The note is no longer editable."
@@ -5270,6 +5217,10 @@ msgstr "I metadati della nota sono cambiati, ma il titolo e il corpo corrispondo
 #: src/App.tsx
 msgid "The note or attachment index is refreshing. Wait for it to finish, then review the folder change again."
 msgstr "L'indice della nota o degli allegati è in fase di aggiornamento. Attendi il completamento, quindi rivedi nuovamente la modifica della cartella."
+
+#: src/App.tsx
+msgid "The note that hasn’t been saved will be discarded. Saved note and property changes will finish first."
+msgstr "La nota non ancora salvata verrà scartata. Le modifiche alle note e alle proprietà salvate verranno completate per prime."
 
 #: src/next-editor-records.ts
 msgid "The original complete note source is unavailable."
@@ -5428,16 +5379,8 @@ msgid "The type-pack resource count does not match the catalog."
 msgstr "Il numero di risorse del pacchetto di tipi non corrisponde al catalogo."
 
 #: src/App.tsx
-msgid "The unfinished folder hasn’t been created."
-msgstr "La cartella non completata non è stata creata."
-
-#: src/App.tsx
 msgid "The unfinished note hasn’t been created."
 msgstr "La nota incompleta non è stata creata."
-
-#: src/App.tsx
-msgid "The unfinished note or folder will be discarded. Saved note and property changes will finish first."
-msgstr "La nota o la cartella non completata verranno scartate. Le modifiche alle note e alle proprietà salvate verranno completate per prime."
 
 #: src/TypeBrowser.tsx
 msgid "The YAML source could not be read."
@@ -5676,7 +5619,6 @@ msgstr "Questo tipo è cambiato dopo essere stato salvato. Ricaricarlo prima di 
 msgid "This value does not match the required format."
 msgstr "Questo valore non corrisponde al formato richiesto."
 
-#: src/NewNoteComposer.tsx
 #: src/note-sort.ts
 msgid "Title"
 msgstr "Titolo"
@@ -5688,10 +5630,6 @@ msgstr "Titolo dalla A alla Z"
 #: src/ConflictResolver.tsx
 msgid "Title differences"
 msgstr "Differenze di titolo"
-
-#: src/NewNoteComposer.tsx
-msgid "Title the first note to create the folder."
-msgstr "Intitolare la prima nota per creare la cartella."
 
 #: src/collection-browser.ts
 msgid "Today"
@@ -5735,10 +5673,6 @@ msgstr "Vero"
 #: src/WorkspaceChrome.tsx
 msgid "Try again"
 msgstr "Riprova"
-
-#: src/NewNoteComposer.tsx
-msgid "Type"
-msgstr "Tipo"
 
 #. placeholder {0}: filter.value
 #: src/note-list-view.ts
@@ -5904,8 +5838,8 @@ msgstr "Non firmato"
 #: src/App.tsx
 #: src/ConflictResolver.tsx
 #: src/MarkdownNoteEditor.tsx
-#: src/NewNoteComposer.tsx
 #: src/note.ts
+#: src/NoteList.tsx
 msgid "Untitled"
 msgstr "Senza titolo"
 
@@ -5977,10 +5911,6 @@ msgstr "Usa un percorso di cartella relativo alla raccolta, senza segmenti vuoti
 #: src/use-note-actions.ts
 msgid "Use a collection-relative path ending in .md."
 msgstr "Utilizza un percorso relativo alla raccolta che termina con .md."
-
-#: src/NewNoteComposer.tsx
-msgid "Use a Markdown file path ending in .md."
-msgstr "Utilizza un percorso file Markdown che termina con .md."
 
 #: src/TypeBrowser.tsx
 msgid "Use contract"

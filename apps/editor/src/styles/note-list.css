@@ -1,5 +1,33 @@
 .note-list-pane {
-  grid-template-rows: auto auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
+}
+
+/* New notes that are not in the collection yet sit above the list they will join. */
+.note-drafts {
+  border-top: 1px solid var(--line);
+}
+
+.note-draft {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: var(--space-2) var(--space-4) var(--space-2) 18px;
+  text-align: left;
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+
+.note-draft:hover {
+  background: var(--hover);
+}
+
+.note-draft.selected {
+  background: var(--selected);
+  color: var(--ink);
+}
+
+.note-title-empty {
+  color: var(--faint);
 }
 
 .note-scroll {

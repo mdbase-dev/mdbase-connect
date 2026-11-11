@@ -334,16 +334,11 @@ test("transcludes Markdown notes and opens the source note", async ({ page }) =>
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
 });
 
-test("uses one fixed-choice control across settings, note creation, and type editing", async ({ page }) => {
+test("uses one fixed-choice control across settings and type editing", async ({ page }) => {
   await page.goto("?demo=12");
 
   await page.getByRole("button", { name: "Settings" }).click();
   await expectSharedSelectControls(page.locator(".settings-view"));
-
-  await page.getByRole("button", { name: /^All notes, / }).click();
-  await page.getByRole("button", { name: "New note" }).click();
-  await expectSharedSelectControls(page.locator(".new-note-composer"));
-  await page.locator(".new-note-actions").getByRole("button", { name: "Cancel" }).click();
 
   await page.getByRole("button", { name: "Types (1)" }).click();
   await page.getByRole("option", { name: /note/ }).click();
@@ -783,37 +778,90 @@ for (const trigger of ["@", "[["] as const) {
   });
 }
 
-test("creates a note only after the creation form is complete", async ({ page }) => {
+test("writes a new note when its title is finished, in the editor it was started in", async ({ page }) => {
   await page.goto("?demo=4");
   await expect(page.locator(".list-header p")).toContainText("4 notes");
-  await page.getByRole("button", { name: "New note" }).click();
+  await page.getByRole("button", { name: "New note", exact: true }).click();
 
-  const create = page.getByRole("button", { name: "Create note" });
-  await expect(create).toBeDisabled();
-  await page.getByRole("textbox", { name: "Title" }).fill("A useful note");
-  await expect(page.getByLabel("Suggested path")).toHaveText("A useful note.md");
-  await chooseOption(page.getByRole("combobox", { name: "Type" }), "note");
-  await expect(page.getByLabel("Suggested path")).toHaveText("Notes/A useful note.md");
-  await page.locator(".new-note-properties > summary").click();
-  await page.getByRole("button", { name: "Add property" }).click();
-  await page.locator(".new-note-properties .property-options button").filter({ hasText: "tags" }).click();
-  await page.getByRole("button", { name: "Add tag" }).click();
-  await page.getByLabel("tags value item 1").fill("captured");
-  await page.getByRole("textbox", { name: "Note body" }).fill("The opening paragraph is already here.");
-  await expect(create).toBeEnabled();
+  const title = page.getByRole("textbox", { name: "Note title" });
+  const pending = page.locator(".note-path-pending");
+  const unsaved = page.getByRole("group", { name: "Notes not saved yet" });
+  await expect(title).toBeFocused();
+  await expect(title).toHaveValue("");
+  await expect(pending).toHaveAttribute("title", "Untitled.md");
+  await expect(page.locator(".note-unsaved")).toHaveText("Not saved yet");
+  await expect(unsaved.getByRole("button")).toHaveText(/Untitled/);
+  await expect(page.getByRole("button", { name: "Create note" })).toHaveCount(0);
+  await page.keyboard.type("A useful note");
+  await expect(pending).toHaveAttribute("title", "A useful note.md");
+  await expect(page.locator(".list-header p")).toContainText("4 notes");
+
   const createStarted = Date.now();
-  await create.click();
-
-  await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("A useful note");
-  const createReadyMs = Date.now() - createStarted;
-  expect(createReadyMs).toBeLessThan(500);
+  await page.keyboard.press("Enter");
   const body = page.getByRole("textbox", { name: "Note body" });
-  await expect(body).toContainText("The opening paragraph is already here.");
   await expect(body).toBeFocused();
-  await page.getByRole("button", { name: "Note properties" }).click();
-  await expect(page.getByLabel("tags value item 1")).toHaveValue("captured");
+  await expect(page.getByRole("button", { name: "A useful note.md" })).toBeVisible();
+  expect(Date.now() - createStarted).toBeLessThan(500);
+  await expect(unsaved).toBeHidden();
   await expect(page.locator(".list-header p")).toContainText("5 notes");
-  await expect(page.getByRole("button", { name: "Notes/A useful note.md" })).toBeVisible();
+
+  await page.keyboard.type("The opening paragraph is already here.");
+  await expect(body).toContainText("The opening paragraph is already here.");
+  await expect(title).toHaveValue("A useful note");
+  await expect(page.getByRole("main", { name: "Note editor" })).toHaveAttribute("data-save-state", "saved", { timeout: 2_000 });
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+});
+
+test("writes a note started in its body as Untitled, and names the file from its first title", async ({ page }) => {
+  await page.goto("?demo=4");
+  await expect(page.locator(".list-header p")).toContainText("4 notes");
+  await page.locator(".note-scroll").focus();
+  await page.keyboard.press("c");
+  await expect(page.getByRole("textbox", { name: "Note title" })).toBeFocused();
+  const body = page.getByRole("textbox", { name: "Note body" });
+  await body.click();
+  await page.keyboard.type("Captured before it had a name.");
+  await expect(page.getByRole("button", { name: "Untitled.md" })).toBeVisible();
+  await expect(body).toContainText("Captured before it had a name.");
+  await expect(body).toBeFocused();
+
+  const title = page.getByRole("textbox", { name: "Note title" });
+  await title.click();
+  await page.keyboard.type("Named later");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("button", { name: "Named later.md" })).toBeVisible();
+  await expect(body).toBeFocused();
+  await expect(body).toContainText("Captured before it had a name.");
+  await title.fill("Named later on");
+  await body.click();
+  await expect(page.getByRole("main", { name: "Note editor" })).toHaveAttribute("data-save-state", "saved", { timeout: 2_000 });
+  await expect(page.getByRole("button", { name: "Named later.md" })).toBeVisible();
+  await expect(page.locator(".list-header p")).toContainText("5 notes");
+});
+
+test("starts a note of a chosen type from the picker", async ({ page }) => {
+  await page.goto("?demo=4");
+  await expect(page.getByRole("textbox", { name: "Note title" })).toBeVisible();
+  const picker = page.getByRole("dialog", { name: "New note" });
+  await page.getByRole("button", { name: "New note of type…" }).click();
+  await expect(picker.getByRole("option")).toHaveCount(2);
+  await expect(picker.getByRole("option").first()).toContainText("General note");
+  await page.keyboard.press("Escape");
+  await expect(picker).toHaveCount(0);
+
+  await page.locator(".note-scroll").focus();
+  await page.keyboard.press("Shift+C");
+  await picker.getByRole("option").filter({ hasText: "A general note with optional tags." }).click();
+  const title = page.getByRole("textbox", { name: "Note title" });
+  await expect(title).toBeFocused();
+  await expect(title).toHaveAttribute("placeholder", "Title");
+  await expect(page.locator(".note-path-pending")).toHaveAttribute("title", "Notes/Untitled.md");
+  await page.keyboard.type("A typed note");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("button", { name: "Notes/A typed note.md" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Note body" })).toBeFocused();
+  await page.getByRole("button", { name: "Note properties" }).click();
+  await expect(page.getByRole("complementary", { name: "Note properties" }).getByRole("textbox", { name: "title value" })).toHaveValue("A typed note");
 });
 
 test("quick-opens notes with fuzzy keyboard search", async ({ page }) => {
@@ -884,19 +932,28 @@ test("sorts notes and clears the active scope from view options", async ({ page 
   await expect(page.locator(".note-row")).toHaveCount(6);
 });
 
-test("creates a folder with its first note", async ({ page }) => {
+test("names a new folder in the rail and opens its first note", async ({ page }) => {
   await page.goto("?demo=4");
   const folders = page.getByRole("group", { name: "Folders" });
   await folders.getByRole("button", { name: "New folder" }).click();
 
-  const create = page.getByRole("button", { name: "Create folder" });
-  await expect(create).toBeDisabled();
-  await page.getByRole("textbox", { name: "Folder name" }).fill("Research");
-  await page.getByRole("textbox", { name: "First note" }).fill("Reading list");
-  await expect(page.getByText("Research/Reading list.md")).toBeVisible();
-  await create.click();
+  const name = folders.getByRole("textbox", { name: "Name of the new folder" });
+  await expect(name).toBeFocused();
+  await expect(folders.getByText("Opens a new note in the folder.")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(name).toHaveCount(0);
+  await folders.getByRole("button", { name: "New folder" }).click();
+  await name.fill("Research");
+  await name.press("Enter");
 
-  await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Reading list");
+  const title = page.getByRole("textbox", { name: "Note title" });
+  await expect(title).toBeFocused();
+  await expect(page.locator(".note-path-pending")).toHaveAttribute("title", "Research/Untitled.md");
+  await expect(folders.getByRole("button", { name: /^Show notes in Research,/ })).toHaveCount(0);
+  await page.keyboard.type("Reading list");
+  await page.keyboard.press("Enter");
+
+  await expect(page.getByRole("button", { name: "Research/Reading list.md" })).toBeVisible();
   await expect(folders.getByRole("button", { name: /^Show notes in Research,/ })).toBeVisible();
 });
 
@@ -910,27 +967,28 @@ test("creates and edits a contact through its declared display field", async ({ 
   await expect(page.getByRole("button", { name: "Types (2)" })).toBeVisible();
 
   await page.getByRole("button", { name: /^All notes, / }).click();
-  await page.getByRole("button", { name: "New note" }).click();
-  await chooseOption(page.getByRole("combobox", { name: "Type" }), "contact");
-  await expect(page.getByRole("textbox", { name: "Name" })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Title" })).toHaveCount(0);
-  await page.getByRole("textbox", { name: "Name" }).fill("Ada Lovelace");
-  await page.getByText("Properties", { selector: "summary > span" }).click();
-  await expect(page.getByRole("combobox", { name: "kind value" })).toHaveAttribute("data-value", 'string:"individual"');
-  await page.getByRole("button", { name: "Add property" }).click();
-  await page.getByRole("button", { name: /email/i }).click();
-  await page.getByRole("textbox", { name: "email value" }).fill("ada@example.com");
-  expect((await new AxeBuilder({ page }).include(".new-note-composer").analyze()).violations).toEqual([]);
-  await page.getByRole("button", { name: "Create note" }).click();
-
+  await page.getByRole("button", { name: "New note of type…" }).click();
+  await page.getByRole("dialog", { name: "New note" }).getByRole("option", { name: /Contact/ }).click();
   const title = page.getByRole("textbox", { name: "Note title" });
-  await expect(title).toHaveValue("Ada Lovelace");
+  await expect(title).toBeFocused();
+  await expect(title).toHaveAttribute("placeholder", "Name");
+  // A contact is not written without its name, whatever else it holds.
+  await page.getByRole("textbox", { name: "Note body" }).click();
+  await page.keyboard.type("Met at the conference.");
+  await expect(page.locator(".note-unsaved")).toHaveText("Name is needed to save this note.");
+  expect((await new AxeBuilder({ page }).include(".editor-pane").analyze()).violations).toEqual([]);
+  await title.click();
+  await page.keyboard.type("Ada Lovelace");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("button", { name: /Ada Lovelace\.md$/ })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Note body" })).toContainText("Met at the conference.");
+
   await title.fill("Augusta Ada King");
   await expect(page.getByRole("main", { name: "Note editor" })).toHaveAttribute("data-save-state", "saved");
   await page.getByRole("button", { name: "Note properties" }).click();
   const panel = page.getByRole("complementary", { name: "Note properties" });
   await expect(panel.getByRole("textbox", { name: "name value" })).toHaveValue("Augusta Ada King");
-  await expect(panel.getByRole("textbox", { name: "email value" })).toHaveValue("ada@example.com");
+  await expect(panel.getByRole("combobox", { name: "kind value" })).toHaveAttribute("data-value", 'string:"individual"');
 });
 
 test("inspects type definitions and persists editor settings", async ({ page }) => {
@@ -1031,9 +1089,12 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
   await expect(page.getByRole("button", { name: "Review changes" })).toBeVisible();
 
   await page.getByRole("button", { name: /^All notes, / }).click();
-  await page.getByRole("button", { name: "New note" }).click();
-  await chooseOption(page.getByRole("combobox", { name: "Type" }), "contact");
-  await page.getByText("Properties", { exact: true }).click();
+  await page.getByRole("button", { name: "New note of type…" }).click();
+  await page.getByRole("dialog", { name: "New note" }).getByRole("option", { name: /Contact/ }).click();
+  await page.keyboard.type("Grace Hopper");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("button", { name: /Grace Hopper\.md$/ })).toBeVisible();
+  await page.getByRole("button", { name: "Note properties" }).click();
   await page.getByRole("button", { name: "Add property" }).click();
   await page.getByRole("searchbox", { name: "Find a property" }).fill("organizations");
   await page.locator(".property-options button").filter({ hasText: "organizations" }).click();
@@ -1041,8 +1102,6 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
   await expect(organizations.getByText("No entries yet.")).toBeVisible();
   await expect(organizations.getByRole("button", { name: "Add entry" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "organizations JSON value" })).toHaveCount(0);
-  await page.locator(".new-note-actions").getByRole("button", { name: "Cancel" }).click();
-  await page.getByRole("alertdialog", { name: "Discard this note?" }).getByRole("button", { name: "Discard note" }).click();
 
   await page.getByRole("button", { name: "Settings" }).click();
   const vim = page.getByRole("switch", { name: "Vim key bindings" });
@@ -1554,23 +1613,46 @@ test("maps browser history to the mobile pane stack", async ({ page }) => {
   await expect(page.getByRole("complementary", { name: "Collection navigation" })).toBeVisible();
 });
 
-test("protects an unfinished note draft with a modal confirmation", async ({ page }) => {
+test("keeps a note that can't be saved yet as a draft, and discards it only on request", async ({ page }) => {
   await page.goto("?demo=40");
-  await page.getByRole("button", { name: "New note" }).click();
-  await page.getByRole("textbox", { name: "Title" }).fill("A draft worth keeping");
-  await page.locator(".new-note-actions").getByRole("button", { name: "Cancel" }).click();
+  await page.getByRole("button", { name: "Types (1)" }).click();
+  await page.getByRole("button", { name: "Add a type" }).click();
+  await page.getByRole("button", { name: "Add Contact" }).first().click();
+  await page.getByRole("alert").filter({ hasText: "Add Contact?" }).getByRole("button", { name: "Add Contact" }).click();
+  await expect(page.getByRole("button", { name: "Types (2)" })).toBeVisible();
+  await page.getByRole("button", { name: /^All notes, / }).click();
 
+  await page.getByRole("button", { name: "New note of type…" }).click();
+  await page.getByRole("dialog", { name: "New note" }).getByRole("option", { name: /Contact/ }).click();
+  const body = page.getByRole("textbox", { name: "Note body" });
+  await body.click();
+  await page.keyboard.type("A draft worth keeping");
+  await expect(page.locator(".note-unsaved")).toHaveText("Name is needed to save this note.");
+
+  // Leaving it asks nothing: it waits in the list until it can be saved.
+  await page.getByRole("option", { name: /Garden notes 2/ }).click();
+  await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  const draft = page.getByRole("group", { name: "Notes not saved yet" }).getByRole("button");
+  await expect(draft).toHaveText(/Untitled\s*Not saved yet/);
+  await draft.click();
+  await expect(body).toContainText("A draft worth keeping");
+
+  await page.getByRole("button", { name: "More note actions" }).click();
+  await page.getByRole("menuitem", { name: "Discard note" }).click();
   const confirmation = page.getByRole("alertdialog", { name: "Discard this note?" });
   await expect(confirmation).toBeVisible();
   expect(await confirmation.evaluate(element => element.matches(":modal"))).toBe(true);
-  await page.getByRole("textbox", { name: "Title", includeHidden: true, exact: true }).evaluate(element => (element as HTMLElement).focus());
+  await page.getByRole("textbox", { name: "Note title", includeHidden: true, exact: true }).evaluate(element => (element as HTMLElement).focus());
   await expect(confirmation.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
   await confirmation.getByRole("button", { name: "Cancel" }).click();
-  await expect(page.getByRole("textbox", { name: "Title" })).toHaveValue("A draft worth keeping");
+  await expect(body).toContainText("A draft worth keeping");
 
-  await page.locator(".new-note-actions").getByRole("button", { name: "Cancel" }).click();
+  await page.getByRole("button", { name: "More note actions" }).click();
+  await page.getByRole("menuitem", { name: "Discard note" }).click();
   await confirmation.getByRole("button", { name: "Discard note" }).click();
-  await expect(page.getByRole("main", { name: "Create note" })).not.toBeVisible();
+  await expect(page.getByRole("group", { name: "Notes not saved yet" })).toBeHidden();
+  await expect(page.locator(".note-unsaved")).toHaveCount(0);
 });
 
 test("keeps every editor action reachable at the minimum mobile width", async ({ page }) => {
@@ -1722,10 +1804,12 @@ test("has no automatically detectable accessibility violations across editor sur
   }
   await page.setViewportSize({ width: 1280, height: 900 });
 
-  await page.getByRole("button", { name: "New note" }).click();
-  await expect(page.getByRole("main", { name: "Create note" })).toBeVisible();
+  await page.getByRole("button", { name: "New note", exact: true }).click();
+  await expect(page.locator(".note-unsaved")).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Note title" })).toBeFocused();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
-  await page.locator(".new-note-actions").getByRole("button", { name: "Cancel" }).click();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".note-unsaved")).toHaveCount(0);
 
   await page.getByRole("button", { name: "Types (1)" }).click();
   await expect(page.getByRole("textbox", { name: "Name", exact: true })).toHaveValue("note");

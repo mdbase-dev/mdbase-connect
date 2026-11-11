@@ -64,9 +64,12 @@ for (const width of [360, 390, 430]) {
     await page.getByRole("button", { name: "Close properties" }).click();
 
     await page.locator(".editor-bar").getByRole("button", { name: "New note", exact: true }).click();
-    await expect(page.getByRole("textbox", { name: "Title", exact: true })).toBeVisible();
-    await fitsViewport(page, ".new-note-composer");
-    await page.locator(".new-note-actions").getByRole("button", { name: "Cancel" }).click();
+    await expect(page.locator(".note-unsaved")).toHaveText("Not saved yet");
+    await expect(page.getByRole("textbox", { name: "Note title", exact: true })).toHaveValue("");
+    await expect(page.locator(".mobile-note-path")).toHaveText("Untitled.md");
+    await fitsViewport(page, ".writing-surface");
+    await page.getByRole("button", { name: "Back to notes", exact: true }).click();
+    await expect(page.locator(".note-unsaved")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "New note", exact: true })).toHaveText("New note");
     await fitsViewport(page, ".note-list-pane");
     await page.getByRole("button", { name: "Collections", exact: true }).click();

@@ -15,30 +15,24 @@ for (const colorScheme of ["light", "dark"] as const) test(`shortcut help column
   expect(await help.locator(".shortcut-groups").evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
 });
 
-test("first C captures every key while a cold composer chunk is delayed", async ({ page }, testInfo) => {
+test("first C captures every key in the new note's title", async ({ page }, testInfo) => {
   await page.goto("?demo=300");
   await expect(page.locator(".title-input")).toBeVisible();
   const list = page.getByRole("listbox", { name: "Collection notes and files" });
   await expect(list).toBeFocused();
   const before = await list.evaluate(element => ({ cursor: element.getAttribute("aria-activedescendant"), scroll: element.scrollTop }));
-  const delayedChunks: string[] = [];
-  await page.route(/\/assets\/(NewNoteComposer|SelectionControls|StructuredPropertiesEditor)-.*\.js$/, async route => {
-    delayedChunks.push(route.request().url());
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    await route.continue();
-  });
   const title = "Round seven jkjk probe";
   const started = Date.now();
   await page.keyboard.press("c");
   await page.keyboard.type(title, { delay: 40 });
-  const input = page.getByRole("textbox", { name: "Title", exact: true });
-  const captured = await input.count() ? await input.inputValue() : null;
+  const input = page.getByRole("textbox", { name: "Note title", exact: true });
+  const captured = await input.inputValue();
   const after = await list.evaluate(element => ({ cursor: element.getAttribute("aria-activedescendant"), scroll: element.scrollTop }));
-  await testInfo.attach("typing-measurement", { contentType: "application/json", body: JSON.stringify({ elapsedMs: Date.now() - started, typed: title.length, captured, delayedChunks, before, after }) });
+  await testInfo.attach("typing-measurement", { contentType: "application/json", body: JSON.stringify({ elapsedMs: Date.now() - started, typed: title.length, captured, before, after }) });
   expect(captured).toBe(title);
   expect(after.scroll).toBe(before.scroll);
   await expect(input).toBeFocused();
-  await page.keyboard.press("Control+Enter");
+  await page.keyboard.press("Enter");
   await expect(page.locator(".title-input")).toHaveValue(title);
   await expect(page.getByRole("button", { name: `${title}.md`, exact: true })).toBeVisible();
 });
@@ -112,10 +106,10 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     await expect(page.locator(".title-input")).toBeVisible();
     await expect(page.locator(".note-scroll")).toBeFocused();
     await page.keyboard.press("c");
-    await expect(page.getByRole("textbox", { name: "Title", exact: true })).toBeFocused();
+    await expect(page.getByRole("textbox", { name: "Note title", exact: true })).toBeFocused();
     const title = "Arrival probe";
     await page.keyboard.type(title, { delay: 40 });
-    await page.keyboard.press("Control+Enter");
+    await page.keyboard.press("Enter");
     const row = page.getByRole("option", { name: /^Arrival probe/ });
     await expect(row).toBeVisible();
     const animation = await row.evaluate(element => ({ name: getComputedStyle(element).animationName, duration: getComputedStyle(element).animationDuration }));

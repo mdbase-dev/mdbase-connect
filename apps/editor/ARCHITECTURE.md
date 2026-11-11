@@ -147,9 +147,13 @@ outside it:
   inverse operations for one Undo and preserve partial failures for retry.
   Property Undo checks the written revision, not a freshly fetched revision, so
   it cannot overwrite later changes;
-- `TypeBrowser.tsx`, `PropertiesPanel.tsx`, and `NewNoteComposer.tsx` own their
-  feature workspaces. `type-presentation.ts` supplies the initial Type draft and
-  readable field-kind labels without moving UI copy into schema mutation policy;
+- `TypeBrowser.tsx` and `PropertiesPanel.tsx` own their feature workspaces.
+  `type-presentation.ts` supplies the initial Type draft and readable
+  field-kind labels without moving UI copy into schema mutation policy;
+- a new note has no workspace of its own: it opens in the ordinary note editor.
+  `new-note.ts` is the pure model of a note that is not written yet (where it
+  starts, what its type requires, the path it will take); App holds the unsaved
+  notes and writes each one once, after which it is an ordinary note session;
 - `Brand.tsx` and the dialog/menu components are reusable presentation.
 
 Heavy editor and type workspaces are lazy-loaded. The metadata-icon glyph CSS

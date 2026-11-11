@@ -141,8 +141,7 @@
   .type-list-pane,
   .editor-pane,
   .type-inspector,
-  .settings-view,
-  .new-note-composer {
+  .settings-view {
     position: absolute;
     inset: 0;
     display: none;
@@ -152,7 +151,6 @@
   .pane-collections .collection-rail,
   .surface-notes.pane-notes .note-list-pane,
   .surface-notes.pane-editor .editor-pane,
-  .surface-notes.pane-editor .new-note-composer,
   .surface-types.pane-notes .type-list-pane,
   .surface-types.pane-editor .type-inspector,
   .surface-settings.pane-editor .settings-view {
@@ -161,8 +159,7 @@
 
   .surface-notes.pane-notes .note-list-pane,
   .surface-types.pane-notes .type-list-pane,
-  .surface-types.pane-editor .type-inspector,
-  .surface-notes.pane-editor .new-note-composer {
+  .surface-types.pane-editor .type-inspector {
     display: grid;
   }
 
@@ -268,8 +265,6 @@
     font-size: var(--font-size-ui);
     font-weight: var(--font-weight-medium);
   }
-
-  .app-shell:has(.new-note-composer) .mdbase-toaster { bottom: calc(100px + env(safe-area-inset-bottom)); }
 
   .note-title-field {
     min-height: 45px;
@@ -654,28 +649,6 @@
     min-width: 0;
   }
 
-  .new-note-composer > form {
-    padding: var(--space-8) 0 0;
-  }
-
-  .new-note-actions {
-    padding-bottom: max(20px, env(safe-area-inset-bottom));
-  }
-
-  .new-note-title input {
-    font-size: var(--font-size-heading);
-  }
-
-  .new-note-fields {
-    grid-template-columns: 1fr;
-    margin-top: 28px;
-  }
-
-  .new-note-fields label:nth-child(n + 1),
-  .new-note-path {
-    grid-column: 1;
-  }
-
   .schema-map-entry {
     grid-template-columns: minmax(0, 1fr) 44px;
   }
@@ -690,25 +663,6 @@
     grid-row: 1;
   }
 
-  .new-note-path {
-    padding-top: 0;
-  }
-
-  .new-note-body-editor {
-    height: 42vh;
-    min-height: 230px;
-    margin-top: 28px;
-  }
-
-  .new-note-actions {
-    flex-wrap: wrap;
-  }
-
-  .new-note-actions > span {
-    flex-basis: 100%;
-    margin-bottom: var(--space-1);
-  }
-
   .search-field { min-height: 44px; }
   .search-field input { min-height: 44px; }
   .search-field button { min-width: 44px; min-height: 44px; }
@@ -721,15 +675,16 @@
   .settings-document summary,
   .type-inspector button:not(.mdbase-switch),
   .type-inspector summary,
-  .new-note-composer button:not(.mdbase-switch),
-  .new-note-composer summary { min-height: 44px; }
+  .note-heading-properties button:not(.mdbase-switch),
+  .person-record-form button:not(.mdbase-switch) { min-height: 44px; }
   .properties-panel input:not([type="checkbox"]), .properties-panel textarea,
   .settings-document input:not([type="checkbox"]),
   .type-inspector input:not([type="checkbox"]),
-  .new-note-composer input:not([type="checkbox"]) { min-height: 44px; }
+  .note-heading-properties input:not([type="checkbox"]),
+  .person-record-form input:not([type="checkbox"]) { min-height: 44px; }
   .properties-panel .mdbase-select, .type-inspector .mdbase-select,
-  .settings-document .mdbase-select, .new-note-composer .mdbase-select { min-width: 44px; min-height: 44px; }
-  .properties-panel .inline-remove-button, .new-note-composer .inline-remove-button { width: 44px; }
+  .settings-document .mdbase-select, .note-heading-properties .mdbase-select { min-width: 44px; min-height: 44px; }
+  .properties-panel .inline-remove-button, .note-heading-properties .inline-remove-button { width: 44px; }
   .properties-panel .property-row { padding-right: 44px; }
   .property-string-list > div { grid-template-columns: minmax(0, 1fr) 44px; }
   .schema-array-item { grid-template-columns: 18px minmax(0, 1fr) 44px; }

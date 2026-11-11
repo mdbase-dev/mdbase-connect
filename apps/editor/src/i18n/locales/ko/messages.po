@@ -36,14 +36,6 @@ msgstr " 이동이 아직 적용 중일 수 있습니다. 다시 시도하기 �
 msgid ", {0} of {1} required"
 msgstr ", 필수 {1}개 중 {0}개"
 
-#: src/NewNoteComposer.tsx
-msgid ".md"
-msgstr ".md"
-
-#: src/NewNoteComposer.tsx
-msgid "‹title›"
-msgstr "‹제목›"
-
 #. placeholder {0}: session.draft.title || session.document.path
 #: src/App.tsx
 msgid "“{0}” changed elsewhere. Your edits are still here."
@@ -188,11 +180,6 @@ msgstr "{0} {1} 유형 필드"
 #: src/TypeBrowser.tsx
 msgid "{0} added"
 msgstr "{0} 추가됨"
-
-#. placeholder {0}: optional.length
-#: src/NewNoteComposer.tsx
-msgid "{0} available"
-msgstr "{0} 사용 가능"
 
 #. placeholder {0}: progress.completedUnits
 #: src/App.tsx
@@ -499,6 +486,10 @@ msgstr "{itemLabel} 필드 유형"
 msgid "{itemLabel} suggestions"
 msgstr "{itemLabel} 제안"
 
+#: src/new-note.ts
+msgid "{label} is needed to save this note."
+msgstr "이 노트를 저장하려면 ‘{label}’ 항목이 필요합니다."
+
 #: src/contract-catalog.ts
 #: src/gateway.ts
 msgid "{label} is not supported."
@@ -645,10 +636,6 @@ msgstr "{references, plural, other {노트 #개의 링크도 업데이트했습�
 #: src/TypeBrowser.tsx
 msgid "{requiredMapped}/{0} required · {mappedCount}/{1} total"
 msgstr "필수 {requiredMapped}/{0}개 · 전체 {mappedCount}/{1}개"
-
-#: src/NewNoteComposer.tsx
-msgid "{selectedOptional} set"
-msgstr "{selectedOptional}개 설정됨"
 
 #. placeholder {0}: this.job.file.name
 #: src/code-editor-file-embeds.ts
@@ -818,11 +805,6 @@ msgstr "추가"
 #: src/TypeBrowser.tsx
 msgid "Add {0}"
 msgstr "{0} 추가"
-
-#. placeholder {0}: primaryLabel.toLocaleLowerCase()
-#: src/NewNoteComposer.tsx
-msgid "Add a {0} to create the note."
-msgstr "노트를 만들려면 {0}을(를) 추가하세요."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add a custom property…"
@@ -1250,25 +1232,17 @@ msgstr "이 컬렉션을 열 수 없습니다"
 #: src/BulkNoteProperties.tsx
 #: src/FolderChangeDialog.tsx
 #: src/MoveNoteDialog.tsx
-#: src/NewNoteComposer.tsx
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
+#: src/YourPersonPanel.tsx
 msgid "Cancel"
 msgstr "취소"
 
 #: src/YourPersonPanel.tsx
 msgid "Cancel conversion"
 msgstr "변환 취소"
-
-#: src/NewNoteComposer.tsx
-msgid "Cancel new folder"
-msgstr "새 폴더 취소"
-
-#: src/NewNoteComposer.tsx
-msgid "Cancel new note"
-msgstr "새 노트 취소"
 
 #: src/TypeBrowser.tsx
 msgid "Catalog"
@@ -1401,6 +1375,14 @@ msgstr "레코드 선택…"
 #: src/person-records.ts
 msgid "Choose a target type that implements both Person and Contact so existing contact semantics are retained."
 msgstr "기존 연락처 의미를 유지하려면 Person과 Contact를 모두 구현하는 대상 유형을 선택하세요."
+
+#: src/App.tsx
+msgid "Choose a type"
+msgstr "유형 선택"
+
+#: src/App.tsx
+msgid "Choose a type for the new note"
+msgstr "새 노트의 유형 선택"
 
 #: src/TypeBrowser.tsx
 msgid "Choose an icon"
@@ -1829,6 +1811,7 @@ msgstr "{label}을(를) 복사하지 못했습니다."
 msgid "Couldn’t copy the path. Clipboard access is unavailable."
 msgstr "경로를 복사하지 못했습니다. 클립보드에 접근할 수 없습니다."
 
+#. placeholder {0}: input.path
 #. placeholder {0}: linked.path
 #. placeholder {1}: gatewayError(error)
 #: src/App.tsx
@@ -1921,31 +1904,14 @@ msgstr "계정 이름으로 시작해 나를 나타내는 노트를 만드세요
 msgid "Create fields that already match an installed contract. You can rename and remap them later."
 msgstr "설치된 계약과 일치하는 필드를 만듭니다. 나중에 이름을 바꾸고 다시 매핑할 수 있습니다."
 
-#: src/NewNoteComposer.tsx
-msgid "Create folder"
-msgstr "폴더 만들기"
-
-#: src/NewNoteComposer.tsx
-msgid "Create it with a first note. Empty folders aren’t stored."
-msgstr "첫 노트를 만들어 폴더를 만드세요. 빈 폴더는 저장되지 않습니다."
-
 #: src/YourPersonPanel.tsx
 msgid "Create my person record"
 msgstr "내 사람 레코드 만들기"
-
-#: src/editor-commands.ts
-#: src/NewNoteComposer.tsx
-msgid "Create note"
-msgstr "노트 만들기"
 
 #. placeholder {0}: query.trim()
 #: src/QuickOpen.tsx
 msgid "Create note ‘{0}’"
 msgstr "노트 ‘{0}’ 만들기"
-
-#: src/NewNoteComposer.tsx
-msgid "Create note (Ctrl or Command + Enter)"
-msgstr "노트 만들기 (Ctrl 또는 Command + Enter)"
 
 #: src/ConnectionScreens.tsx
 msgid "create notes"
@@ -1972,13 +1938,9 @@ msgstr "유형 “{0}”을(를) 만들었습니다."
 msgid "Creates a ready-to-use {primaryTypeLabel} type with standard fields and an editable contract mapping. Existing files will not be overwritten; installation stops if any target conflicts."
 msgstr "표준 필드와 편집 가능한 계약 매핑이 포함된 바로 사용할 수 있는 {primaryTypeLabel} 유형을 만듭니다. 기존 파일은 덮어쓰지 않으며 대상이 충돌하면 설치를 중단합니다."
 
-#: src/NewNoteComposer.tsx
+#: src/YourPersonPanel.tsx
 msgid "Creating"
 msgstr "만드는 중"
-
-#: src/NewNoteComposer.tsx
-msgid "Creating folder"
-msgstr "폴더 만드는 중"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Custom"
@@ -2123,20 +2085,12 @@ msgid "Discard changes"
 msgstr "변경사항 취소"
 
 #: src/App.tsx
-msgid "Discard folder"
-msgstr "폴더 취소"
-
-#: src/App.tsx
 msgid "Discard note"
 msgstr "노트 취소"
 
 #: src/App.tsx
 msgid "Discard recovered edits"
 msgstr "복구된 편집 내용 취소"
-
-#: src/App.tsx
-msgid "Discard this folder?"
-msgstr "이 폴더를 취소할까요?"
 
 #: src/App.tsx
 msgid "Discard this note?"
@@ -2201,14 +2155,6 @@ msgstr "복제"
 msgid "Duplicated note."
 msgstr "노트를 복제했습니다."
 
-#: src/NewNoteComposer.tsx
-msgid "e.g. Reading list"
-msgstr "예: 읽기 목록"
-
-#: src/NewNoteComposer.tsx
-msgid "e.g. Research"
-msgstr "예: 조사"
-
 #: src/TypeBrowser.tsx
 msgid "Each choice includes its portable contract and an editable local mapping."
 msgstr "각 선택 항목에는 이식 가능한 계약과 편집 가능한 로컬 매핑이 포함됩니다."
@@ -2228,10 +2174,6 @@ msgstr "노트 편집 및 이동"
 #: src/PropertiesPanel.tsx
 msgid "Edit as source"
 msgstr "원본으로 편집"
-
-#: src/NewNoteComposer.tsx
-msgid "Edit file path"
-msgstr "파일 경로 편집"
 
 #: src/ConnectionScreens.tsx
 msgid "edit notes"
@@ -2435,10 +2377,6 @@ msgstr "필드 제거됨"
 msgid "File · {0}"
 msgstr "파일 · {0}"
 
-#: src/NewNoteComposer.tsx
-msgid "File path"
-msgstr "파일 경로"
-
 #: src/FileViewer.tsx
 msgid "File viewer, {filename}"
 msgstr "파일 뷰어, {filename}"
@@ -2447,7 +2385,7 @@ msgstr "파일 뷰어, {filename}"
 msgid "Files can’t be renamed in the Editor."
 msgstr "편집기에서는 파일 이름을 바꿀 수 없습니다."
 
-#: src/NewNoteComposer.tsx
+#: src/new-note.ts
 msgid "Fill in the required properties."
 msgstr "필수 속성을 입력하세요."
 
@@ -2488,10 +2426,6 @@ msgstr "폴더 찾는 중…"
 msgid "Finish adding {0}"
 msgstr "{0} 추가 완료"
 
-#: src/NewNoteComposer.tsx
-msgid "First note"
-msgstr "첫 노트"
-
 #: src/PropertiesPanel.tsx
 msgid "Fix invalid fields to continue saving"
 msgstr "저장을 계속하려면 잘못된 필드를 수정하세요."
@@ -2500,7 +2434,7 @@ msgstr "저장을 계속하려면 잘못된 필드를 수정하세요."
 msgid "Fix mapping"
 msgstr "매핑 수정"
 
-#: src/NewNoteComposer.tsx
+#: src/new-note.ts
 msgid "Fix the highlighted property values."
 msgstr "강조 표시된 속성 값을 수정하세요."
 
@@ -2543,8 +2477,8 @@ msgstr "폴더 변경 확인 필요"
 msgid "Folder changes were applied, but refreshing the index failed. {0}"
 msgstr "폴더 변경사항을 적용했지만 색인을 새로고침하지 못했습니다. {0}"
 
+#: src/CollectionRail.tsx
 #: src/FolderChangeDialog.tsx
-#: src/NewNoteComposer.tsx
 msgid "Folder name"
 msgstr "폴더 이름"
 
@@ -2622,6 +2556,10 @@ msgstr "향후 파일 경로가 변경될 수 있음"
 msgid "Gains"
 msgstr "얻음"
 
+#: src/App.tsx
+msgid "General note"
+msgstr "일반 노트"
+
 #: src/TypeBrowser.tsx
 msgid "Generated path ownership"
 msgstr "생성된 경로 소유권"
@@ -2698,10 +2636,6 @@ msgstr "영향은 현재 색인된 노트를 기준으로 합니다. 확인을 �
 #: src/editor-commands.ts
 msgid "in the list"
 msgstr "목록에"
-
-#: src/editor-commands.ts
-msgid "in the note composer"
-msgstr "노트 작성 화면에서"
 
 #: src/type-contracts.ts
 msgid "Incompatible"
@@ -3275,6 +3209,7 @@ msgstr "이동 중…"
 
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
+#: src/YourPersonPanel.tsx
 msgid "Name"
 msgstr "이름"
 
@@ -3287,14 +3222,20 @@ msgstr "이름"
 msgid "Name field"
 msgstr "이름 필드"
 
-#: src/NewNoteComposer.tsx
-msgid "Name the folder to create it."
-msgstr "폴더를 만들 이름을 입력하세요."
+#: src/CollectionRail.tsx
+msgid "Name of the new folder"
+msgstr "새 폴더 이름"
+
+#. placeholder {0}: naming.parent
+#: src/CollectionRail.tsx
+msgid "Name of the new folder in {0}"
+msgstr "{0} 안의 새 폴더 이름"
 
 #: src/QuickOpen.tsx
 msgid "Navigate"
 msgstr "탐색"
 
+#: src/App.tsx
 #: src/note-mutation-presentation.ts
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
@@ -3313,15 +3254,17 @@ msgstr "중첩 필드"
 msgid "nested required fields"
 msgstr "중첩 필수 필드"
 
+#: src/App.tsx
+msgid "New {name}"
+msgstr "새 {name}"
+
 #: src/CollectionRail.tsx
-#: src/NewNoteComposer.tsx
 msgid "New folder"
 msgstr "새 폴더"
 
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/LoadingScreens.tsx
-#: src/NewNoteComposer.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
 msgid "New note"
@@ -3334,6 +3277,11 @@ msgstr "여기에 새 노트"
 #: src/editor-commands.ts
 msgid "New note in current folder"
 msgstr "현재 폴더에 새 노트"
+
+#: src/editor-commands.ts
+#: src/NoteList.tsx
+msgid "New note of type…"
+msgstr "유형을 선택해 새 노트…"
 
 #: src/YourPersonPanel.tsx
 msgid "New person record"
@@ -3474,10 +3422,6 @@ msgstr "아직 이곳을 가리키는 노트가 없습니다."
 msgid "No notes or files found."
 msgstr "노트나 파일을 찾을 수 없습니다."
 
-#: src/NewNoteComposer.tsx
-msgid "No optional properties selected."
-msgstr "선택된 선택 속성이 없습니다."
-
 #: src/TypeBrowser.tsx
 msgid "No properties are marked as links."
 msgstr "링크로 표시된 속성이 없습니다."
@@ -3490,6 +3434,7 @@ msgstr "아직 속성이 없습니다."
 msgid "No text preview."
 msgstr "텍스트 미리보기가 없습니다."
 
+#: src/App.tsx
 #: src/PropertiesPanel.tsx
 msgid "No type"
 msgstr "유형 없음"
@@ -3532,6 +3477,10 @@ msgstr "노출되지 않음"
 msgid "Not now"
 msgstr "나중에"
 
+#: src/App.tsx
+msgid "Not saved yet"
+msgstr "아직 저장되지 않음"
+
 #: src/QuickOpen.tsx
 msgid "Note"
 msgstr "노트"
@@ -3541,7 +3490,6 @@ msgid "Note actions, in the list"
 msgstr "목록의 노트 작업"
 
 #: src/MarkdownNoteEditor.tsx
-#: src/NewNoteComposer.tsx
 msgid "Note body"
 msgstr "노트 본문"
 
@@ -3621,6 +3569,10 @@ msgstr "하위 폴더의 노트도 이동합니다. 이 노트로 연결되는 �
 #: src/read-only-markdown.tsx
 msgid "Notes larger than 1 MiB are read-only at launch."
 msgstr "1MiB를 초과하는 노트는 시작 시 읽기 전용입니다."
+
+#: src/NoteList.tsx
+msgid "Notes not saved yet"
+msgstr "아직 저장되지 않은 노트"
 
 #: src/TypeBrowser.tsx
 msgid "Notes use this field to declare their type. Edit it in YAML if you need to change it."
@@ -3790,6 +3742,15 @@ msgstr "텍스트 미리보기 여는 중…"
 msgid "Opening transcluded note…"
 msgstr "삽입된 노트 여는 중…"
 
+#. placeholder {0}: naming.parent
+#: src/CollectionRail.tsx
+msgid "Opens a new note in {0}/…"
+msgstr "{0}/…에 새 노트를 엽니다"
+
+#: src/CollectionRail.tsx
+msgid "Opens a new note in the folder."
+msgstr "폴더에 새 노트를 엽니다."
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Operations"
@@ -3843,7 +3804,6 @@ msgstr "packs[{index}].resource_count는 양의 정수여야 합니다."
 msgid "Partly installed"
 msgstr "일부 설치됨"
 
-#: src/NewNoteComposer.tsx
 #: src/note-sort.ts
 #: src/TypeBrowser.tsx
 msgid "Path"
@@ -4036,7 +3996,6 @@ msgstr "프로젝션"
 msgid "Projects/**/*.md"
 msgstr "Projects/**/*.md"
 
-#: src/NewNoteComposer.tsx
 #: src/PropertiesPanel.tsx
 msgid "Properties"
 msgstr "속성"
@@ -4358,7 +4317,7 @@ msgstr "필수 필드 충족"
 msgid "Required match field"
 msgstr "필수 일치 필드"
 
-#: src/NewNoteComposer.tsx
+#: src/App.tsx
 msgid "Required properties"
 msgstr "필수 속성"
 
@@ -4580,6 +4539,7 @@ msgstr "저장하면 일치하는 모든 노트에 영향을 줍니다."
 msgid "Saving affects every note of type <0>{0}</0>"
 msgstr "저장하면 <0>{0}</0> 유형의 모든 노트에 영향을 줍니다"
 
+#: src/App.tsx
 #: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
@@ -4827,7 +4787,6 @@ msgid "Start with app compatibility"
 msgstr "앱 호환성으로 시작"
 
 #: src/MarkdownNoteEditor.tsx
-#: src/NewNoteComposer.tsx
 msgid "Start writing"
 msgstr "작성 시작"
 
@@ -4850,10 +4809,6 @@ msgstr "구조화된 프런트매터 조건"
 #: src/TypeBrowser.tsx
 msgid "Suggested from field names and shapes only. Confirm that the meanings agree."
 msgstr "필드 이름과 형태만 바탕으로 제안되었습니다. 의미가 맞는지 확인하세요."
-
-#: src/NewNoteComposer.tsx
-msgid "Suggested path"
-msgstr "제안된 경로"
 
 #: src/App.tsx
 #: src/editor-commands.ts
@@ -5156,10 +5111,6 @@ msgstr "검토하는 동안 정의가 변경되었습니다."
 msgid "The destination folder “{to}” already exists. Choose another name or move its notes individually; folders are not merged automatically."
 msgstr "대상 폴더 “{to}”이(가) 이미 있습니다. 다른 이름을 선택하거나 노트를 하나씩 이동하세요. 폴더는 자동으로 병합되지 않습니다."
 
-#: src/App.tsx
-msgid "The details you entered haven’t been created yet."
-msgstr "입력한 세부 정보는 아직 만들어지지 않았습니다."
-
 #: src/YourPersonPanel.tsx
 msgid "The Editor can link a person record only to an identity you let it read. Approve the Editor again for this collection and allow “See your account identity and display name”."
 msgstr "편집기는 읽도록 허용한 ID에만 사람 레코드를 연결할 수 있습니다. 이 컬렉션에 대해 편집기를 다시 승인하고 “계정 ID 및 표시 이름 보기”를 허용하세요."
@@ -5254,10 +5205,6 @@ msgstr "새 유형 정의가 저장되지 않았습니다."
 msgid "The note change was rejected."
 msgstr "노트 변경이 거부되었습니다."
 
-#: src/NewNoteComposer.tsx
-msgid "The note could not be created."
-msgstr "노트를 만들지 못했습니다."
-
 #: src/AttachmentUpload.tsx
 #: src/code-editor-file-embeds.ts
 msgid "The note is no longer editable."
@@ -5270,6 +5217,10 @@ msgstr "노트 메타데이터는 변경되었지만 제목과 본문은 편집 
 #: src/App.tsx
 msgid "The note or attachment index is refreshing. Wait for it to finish, then review the folder change again."
 msgstr "노트 또는 첨부 파일 색인을 새로고침 중입니다. 완료될 때까지 기다린 후 폴더 변경사항을 다시 검토하세요."
+
+#: src/App.tsx
+msgid "The note that hasn’t been saved will be discarded. Saved note and property changes will finish first."
+msgstr "아직 저장되지 않은 노트는 버려집니다. 저장된 노트 및 속성 변경은 먼저 완료됩니다."
 
 #: src/next-editor-records.ts
 msgid "The original complete note source is unavailable."
@@ -5428,16 +5379,8 @@ msgid "The type-pack resource count does not match the catalog."
 msgstr "유형 팩 리소스 수가 카탈로그와 일치하지 않습니다."
 
 #: src/App.tsx
-msgid "The unfinished folder hasn’t been created."
-msgstr "미완성 폴더는 생성되지 않았습니다."
-
-#: src/App.tsx
 msgid "The unfinished note hasn’t been created."
 msgstr "미완성 노트는 생성되지 않았습니다."
-
-#: src/App.tsx
-msgid "The unfinished note or folder will be discarded. Saved note and property changes will finish first."
-msgstr "미완성 노트나 폴더를 취소합니다. 저장된 노트 및 속성 변경은 먼저 완료됩니다."
 
 #: src/TypeBrowser.tsx
 msgid "The YAML source could not be read."
@@ -5676,7 +5619,6 @@ msgstr "저장한 후 유형이 변경되었습니다. 다시 편집하기 전�
 msgid "This value does not match the required format."
 msgstr "이 값은 필수 형식과 일치하지 않습니다."
 
-#: src/NewNoteComposer.tsx
 #: src/note-sort.ts
 msgid "Title"
 msgstr "제목"
@@ -5688,10 +5630,6 @@ msgstr "제목 오름차순"
 #: src/ConflictResolver.tsx
 msgid "Title differences"
 msgstr "제목 차이"
-
-#: src/NewNoteComposer.tsx
-msgid "Title the first note to create the folder."
-msgstr "폴더를 만들려면 첫 노트의 제목을 입력하세요."
 
 #: src/collection-browser.ts
 msgid "Today"
@@ -5735,10 +5673,6 @@ msgstr "참"
 #: src/WorkspaceChrome.tsx
 msgid "Try again"
 msgstr "다시 시도"
-
-#: src/NewNoteComposer.tsx
-msgid "Type"
-msgstr "유형"
 
 #. placeholder {0}: filter.value
 #: src/note-list-view.ts
@@ -5904,8 +5838,8 @@ msgstr "서명 없음"
 #: src/App.tsx
 #: src/ConflictResolver.tsx
 #: src/MarkdownNoteEditor.tsx
-#: src/NewNoteComposer.tsx
 #: src/note.ts
+#: src/NoteList.tsx
 msgid "Untitled"
 msgstr "제목 없음"
 
@@ -5977,10 +5911,6 @@ msgstr "비어 있는 세그먼트나 . 또는 .. 세그먼트가 없는 컬렉�
 #: src/use-note-actions.ts
 msgid "Use a collection-relative path ending in .md."
 msgstr ".md로 끝나는 컬렉션 기준 경로를 사용하세요."
-
-#: src/NewNoteComposer.tsx
-msgid "Use a Markdown file path ending in .md."
-msgstr ".md로 끝나는 Markdown 파일 경로를 사용하세요."
 
 #: src/TypeBrowser.tsx
 msgid "Use contract"

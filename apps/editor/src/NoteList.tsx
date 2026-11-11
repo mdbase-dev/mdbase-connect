@@ -7,7 +7,7 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { useOverlay } from "@mdbase-dev/ui/overlay";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
-import { FilePlusIcon as FilePlus2, SidebarSimpleIcon as PanelLeft } from "./icons";
+import { CaretDownIcon as CaretDown, FilePlusIcon as FilePlus2, SidebarSimpleIcon as PanelLeft } from "./icons";
 import { ContextMenu, type ActionMenuItem } from "./ContextMenu";
 import { NoteSearchField } from "./NoteSearchField";
 import type { CollectionFile } from "./model";
@@ -26,7 +26,7 @@ const listNavigationKeys: Record<string, true> = { ArrowDown: true, ArrowUp: tru
 
 import { matchesCommandShortcut } from "./editor-commands";
 
-export function NoteList({ entries, selection, onSelection, selectionBar, pinnedPaths = [], noteCount, fileCount, types, selectedPath, selectedFilePath, pendingPath, pendingFilePath, statuses, arrivingPath, search, searchQuery, searchContexts, sort, sortFields, scopeLabel, collectionName, loading, structureLoading, structureError, filesLoading, fileError, contentIndexing, contentLoaded, contentError, total, contentTotal, leadingActions, trailingActions, onSearch, onSort, onClearScope, onQuickOpen, onRetryStructure, onRetryContent, onRetryFiles, onSelect, onSelectFile, filter, tags = [], filterTypes = [], onFilter, noteActions, onRename, onDelete, onPeek, peek, peekTitle, onClosePeek, onCreate, onCollections, compact = false, onCompact }: {
+export function NoteList({ entries, selection, onSelection, selectionBar, pinnedPaths = [], noteCount, fileCount, types, selectedPath, selectedFilePath, pendingPath, pendingFilePath, statuses, arrivingPath, search, searchQuery, searchContexts, sort, sortFields, scopeLabel, collectionName, loading, structureLoading, structureError, filesLoading, fileError, contentIndexing, contentLoaded, contentError, total, contentTotal, leadingActions, trailingActions, onSearch, onSort, onClearScope, onQuickOpen, onRetryStructure, onRetryContent, onRetryFiles, onSelect, onSelectFile, filter, tags = [], filterTypes = [], onFilter, noteActions, onRename, onDelete, onPeek, peek, peekTitle, onClosePeek, onCreate, onCreateOfType, drafts = [], onOpenDraft, onCollections, compact = false, onCompact }: {
   entries: CollectionBrowserEntry[];
   selection?: NoteSelection;
   onSelection?: (selection: NoteSelection) => void;
@@ -81,6 +81,11 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
   peekTitle?: string;
   onClosePeek?: () => void;
   onCreate?: () => void;
+  /** New note with its type chosen first; offered when the collection has types. */
+  onCreateOfType?: () => void;
+  /** New notes that are not in the collection yet: untouched, waiting on a required field, or being written. */
+  drafts?: { id: string; title: string; status: string; selected: boolean }[];
+  onOpenDraft?: (id: string) => void;
   onCollections: () => void;
   /** Title-only rows. */
   compact?: boolean;
@@ -253,7 +258,7 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
   };
 
   return <section className="note-list-pane" aria-label={t`Notes and files`}>
-    <header className="list-header"><button className="mobile-collections icon-button" aria-label={t`Collections`} onClick={onCollections}><PanelLeft aria-hidden="true" /></button>{leadingActions}<div><h1>{collectionName}</h1><p aria-live="polite">{browserCountLabel(noteCount, fileCount, entries.length, loading, structureLoading, filesLoading, contentIndexing, contentLoaded, total, contentTotal, Boolean(search.trim()), sort, Boolean(structureError || (search.trim() && contentError)))}{structureError && <button className="list-retry" title={structureError} onClick={onRetryStructure}><Trans>Retry notes</Trans></button>}{contentError && <button className="list-retry" title={contentError} onClick={onRetryContent}><Trans>Retry search</Trans></button>}{fileError && <button className="list-retry" title={fileError} onClick={onRetryFiles}><Trans>Retry files</Trans></button>}</p></div>{trailingActions}{onCreate && <button className="icon-button new-note" aria-label={t`New note`} aria-keyshortcuts="C Control+Shift+N Meta+Shift+N" onClick={onCreate}><FilePlus2 aria-hidden="true" /><span className="mobile-label"><Trans>New note</Trans></span></button>}</header>
+    <header className="list-header"><button className="mobile-collections icon-button" aria-label={t`Collections`} onClick={onCollections}><PanelLeft aria-hidden="true" /></button>{leadingActions}<div><h1>{collectionName}</h1><p aria-live="polite">{browserCountLabel(noteCount, fileCount, entries.length, loading, structureLoading, filesLoading, contentIndexing, contentLoaded, total, contentTotal, Boolean(search.trim()), sort, Boolean(structureError || (search.trim() && contentError)))}{structureError && <button className="list-retry" title={structureError} onClick={onRetryStructure}><Trans>Retry notes</Trans></button>}{contentError && <button className="list-retry" title={contentError} onClick={onRetryContent}><Trans>Retry search</Trans></button>}{fileError && <button className="list-retry" title={fileError} onClick={onRetryFiles}><Trans>Retry files</Trans></button>}</p></div>{trailingActions}{onCreate && <button className="icon-button new-note" aria-label={t`New note`} aria-keyshortcuts="C Control+Shift+N Meta+Shift+N" onClick={onCreate}><FilePlus2 aria-hidden="true" /><span className="mobile-label"><Trans>New note</Trans></span></button>}{onCreateOfType && <button className="icon-button new-note-type" aria-label={t`New note of type…`} title={t`New note of type…`} aria-keyshortcuts="Shift+C" aria-haspopup="dialog" onClick={onCreateOfType}><CaretDown aria-hidden="true" /></button>}</header>
     <div className="note-list-controls">
       <NoteSearchField search={search} filter={filter} tags={tags} types={filterTypes} onSearch={onSearch} onFilter={onFilter ?? onClearScope} onQuickOpen={onQuickOpen} onResults={(first) => {
         if (first && entries[0]) {
@@ -274,6 +279,11 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
       <NoteListViewOptions sort={sort} fields={sortFields} scopeLabel={filter ? undefined : scopeLabel} compact={compact} onSort={onSort} onClearScope={onClearScope} onCompact={onCompact} />
     </div>
     <div className="note-selection-slot">{selectionBar}</div>
+    <div className="note-drafts" role="group" aria-label={t`Notes not saved yet`} hidden={!drafts.length}>{drafts.map((draft) => <button key={draft.id}
+      className={`note-draft${draft.selected ? " selected" : ""}`} aria-current={draft.selected ? "true" : undefined} onClick={() => onOpenDraft?.(draft.id)}>
+      <span className={`note-title${draft.title ? "" : " note-title-empty"}`}>{draft.title || t`Untitled`}</span>
+      <span className="note-transition">{draft.status}</span>
+    </button>)}</div>
     <div className={`note-scroll${compact ? " compact" : ""}${typeIcons ? " type-icons" : ""}`} ref={scrollRef} role="listbox" aria-multiselectable="true" aria-label={t`Collection notes and files`} aria-busy={structureLoading || filesLoading} tabIndex={entries.length ? 0 : undefined} aria-activedescendant={selectedItemId} onKeyDown={handleListKeyDown}>
       {entries.length ? <div className="virtual-list" style={{ height: virtualizer.getTotalSize() }}>{virtualizer.getVirtualItems().map((virtualRow) => {
         const item = listItems[virtualRow.index];

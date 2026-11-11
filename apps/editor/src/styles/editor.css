@@ -1,4 +1,4 @@
-.writing-surface, .new-note-composer {
+.writing-surface {
   --writing-measure: 760px;
   /* The minimum side margin; wider panes centre the measure beyond it. */
   --writing-gutter: var(--space-6);
@@ -76,6 +76,20 @@
 
 .title-input::placeholder {
   color: var(--color-placeholder);
+}
+
+/* What a new note's type requires, under its title and on the same measure. */
+.note-heading-properties {
+  width: min(
+    var(--writing-measure),
+    calc(100% - var(--writing-gutter) - var(--writing-gutter))
+  );
+  margin: 0 auto var(--space-6);
+  border-top: 1px solid var(--line);
+}
+
+.note-heading-properties .property-row {
+  padding-right: 0;
 }
 
 .body-editor {

@@ -152,6 +152,41 @@
 .rail-filter-items { display: grid; }
 .collection-rail nav .rail-new-folder { color: var(--muted); }
 
+/* Naming a folder happens where the folder will appear. */
+.rail-folder-name {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 2px var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  color: var(--muted);
+}
+
+.rail-folder-name > svg {
+  width: 16px;
+  height: 16px;
+}
+
+.rail-folder-name input {
+  min-width: 0;
+  min-height: 28px;
+  padding: 3px var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  outline: 0;
+  background: var(--white);
+  color: var(--ink);
+  font-size: var(--font-size-ui);
+}
+
+.rail-folder-name p {
+  grid-column: 2;
+  margin: 0;
+  color: var(--faint);
+  font-size: var(--font-size-caption);
+  line-height: 1.4;
+}
+
 .folder-tree ul { margin: 0; padding: 0; list-style: none; }
 .folder-tree ul ul { padding-left: var(--space-3); }
 

@@ -174,16 +174,15 @@ test.describe("responsive themed view readiness", () => {
       await page.keyboard.press("Escape");
 
       await page.getByRole("button", { name: "New note", exact: true }).click();
-      const composer = page.getByRole("main", { name: "Create note" });
-      await expect(composer).toBeVisible();
-      await composer.getByRole("textbox", { name: "Title", exact: true }).fill("A quieter way to work");
-      await composer.getByRole("textbox", { name: "Note body", exact: true }).fill("A fresh note begins with a little space.");
-      await expect(composer.getByRole("button", { name: "Create note", exact: true })).toBeEnabled();
-      await checkView("Composer");
-      // Do not leave an unsaved draft before navigating to the local auth portal.
-      await composer.getByRole("textbox", { name: "Title", exact: true }).fill("");
-      await composer.getByRole("textbox", { name: "Note body", exact: true }).fill("");
-      await composer.getByRole("button", { name: "Cancel", exact: true }).click();
+      const newTitle = page.getByRole("textbox", { name: "Note title", exact: true });
+      await expect(newTitle).toBeFocused();
+      await expect(page.locator(".note-unsaved")).toHaveText("Not saved yet");
+      await newTitle.fill("A quieter way to work");
+      await checkView("New note");
+      // Do not leave an unsaved note before navigating to the local auth portal.
+      await newTitle.fill("");
+      await page.keyboard.press("Escape");
+      await expect(page.locator(".note-unsaved")).toHaveCount(0);
 
       await installAuthRoutes(page, authPortal);
       await page.goto(`${authPortal}/login`);

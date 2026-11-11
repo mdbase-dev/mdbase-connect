@@ -27,9 +27,3 @@ export function isMobileHistoryState(value: unknown): value is MobileHistoryStat
     && (state.surface === "notes" || state.surface === "types" || state.surface === "settings");
 }
 
-export interface CreationContext {
-  title?: string;
-  folder?: string;
-  tag?: string;
-  type?: string;
-}

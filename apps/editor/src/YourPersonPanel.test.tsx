@@ -1,5 +1,5 @@
 import userEvent from "@testing-library/user-event";
-import { cleanup, fireEvent, render, screen, waitFor } from "./test/locale";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "./test/locale";
 import { afterEach, expect, it, vi } from "vitest";
 import { MdbaseConnectError, type CollectionDescription } from "@mdbase-dev/connect";
 import type { CollectionGateway, NoteSummary } from "./model";
@@ -7,9 +7,6 @@ import { YourPersonPanel } from "./YourPersonPanel";
 import { peopleGateway } from "./test/people-gateway";
 import { chooseOption } from "./test/select";
 
-vi.mock("./NewNoteComposer", () => ({ NewNoteComposer: (props: { initialTitle: string; initialProperties: object; defaultType: string; onCreate(input: unknown): Promise<void> }) =>
-  <button type="button" onClick={() => void props.onCreate({ title: props.initialTitle, properties: props.initialProperties, type: props.defaultType, path: "contacts/new.md", body: "" })}>Create fixture person</button>
-}));
 afterEach(cleanup);
 const identity = { issuer: "https://connect.example", subject: "account", name: "Account name" };
 const implementation = { typeName: "contact", typeVersion: 1, digest: "digest", fields: { name: "/profile/name", identities: "/profile/accounts" } };
@@ -40,9 +37,12 @@ it("prefills normal record creation with the account name and portable identity"
   await screen.findByRole("button", { name: "Create my person record" });
   expect(screen.queryByRole("combobox", { name: "Person type" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Create my person record" }));
-  fireEvent.click(screen.getByRole("button", { name: "Create fixture person" }));
+  const form = screen.getByRole("form", { name: "New person record" });
+  expect(within(form).getByRole("textbox", { name: "Name" })).toHaveValue("Account name");
+  fireEvent.click(within(form).getByRole("button", { name: "Create my person record" }));
   await waitFor(() => expect(f.gateway.create).toHaveBeenCalledWith(expect.objectContaining({
-    title: "Account name", type: "contact", properties: { profile: { name: "Account name", accounts: [{ issuer: identity.issuer, subject: identity.subject }] } }
+    title: "Account name", path: "Account name.md", body: "", type: "contact",
+    properties: { profile: { name: "Account name", accounts: [{ issuer: identity.issuer, subject: identity.subject }] } }
   })));
 });
 it("only shows a type choice when the collection has multiple compatible types", async () => {
@@ -54,7 +54,7 @@ it("only shows a type choice when the collection has multiple compatible types",
   render(<YourPersonPanel gateway={f.gateway as unknown as CollectionGateway} description={multiple} canCreate canEdit />);
   await chooseOption(userEvent.setup(), await screen.findByRole("combobox", { name: "Person type" }), "person");
   fireEvent.click(screen.getByRole("button", { name: "Create my person record" }));
-  fireEvent.click(screen.getByRole("button", { name: "Create fixture person" }));
+  fireEvent.click(within(screen.getByRole("form", { name: "New person record" })).getByRole("button", { name: "Create my person record" }));
   await waitFor(() => expect(f.gateway.create).toHaveBeenCalledWith(expect.objectContaining({ type: "person" })));
 });
 it("requires explicit review before converting a Contact-only note, preserving its local fields", async () => {

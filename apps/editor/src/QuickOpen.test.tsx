@@ -58,6 +58,24 @@ describe("keyboard discovery", () => {
     expect(screen.queryByRole("option")).not.toBeInTheDocument();
   });
 
+  it("offers creation after the notes a search finds, unless one already has that title", () => {
+    const create = vi.fn();
+    const index = buildNoteSearchIndex(["Garden", "Garden notes"].map(title => ({
+      path: `${title}.md`, frontmatter: {}, effectiveFrontmatter: {}, types: [], body: title,
+      file: { path: `${title}.md`, name: `${title}.md`, folder: "", size: title.length, mtime: "" }
+    })));
+    render(<QuickOpen index={index} recentPaths={[]} types={[]} commands={[]} onSelect={() => {}} onCreate={create} onClose={() => {}} />);
+    const input = screen.getByRole("combobox");
+    fireEvent.change(input, { target: { value: "Garden n" } });
+    const options = screen.getAllByRole("option");
+    expect(options.at(-1)).toHaveAccessibleName("Create note ‘Garden n’");
+    expect(options[0]).toHaveAttribute("aria-selected", "true");
+    expect(options[0]).toHaveTextContent("Garden notes");
+    fireEvent.change(input, { target: { value: "garden" } });
+    expect(screen.getAllByRole("option").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("option", { name: /^Create note/ })).not.toBeInTheDocument();
+  });
+
   it("does not offer creation without create permission", () => {
     render(<QuickOpen index={[]} recentPaths={[]} types={[]} commands={[]} onSelect={() => {}} onClose={() => {}} />);
     fireEvent.change(screen.getByRole("combobox"), { target: { value: "New idea" } });

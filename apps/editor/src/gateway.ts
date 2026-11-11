@@ -23,7 +23,7 @@ import {
   applyConnectServerOverride,
   connectServerUrl
 } from "./connect-endpoint";
-import { persistedBody } from "./note";
+import { createdBody } from "./note";
 import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
 import type {
   CollectionGateway,
@@ -235,9 +235,7 @@ export class ConnectCollectionGateway implements CollectionGateway {
       path: input.path,
       ...(input.type ? { type: input.type } : {}),
       frontmatter: input.properties,
-      body: input.titleField
-        ? input.body
-        : persistedBody(input.title, input.body, { kind: "heading" }),
+      body: createdBody(input),
       includeDocument: true
     }));
   }

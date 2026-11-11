@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import {
+  createdBody,
   editableNote,
   folderTree,
   noteExcerpt,
@@ -10,6 +11,8 @@ import {
   noteNeedsBodyTitle,
   noteWordCount,
   persistedBody,
+  untitledPath,
+  titlePatch,
   safeRenamePath,
   tags,
   types
@@ -39,6 +42,30 @@ describe("note editing", () => {
     expect(editable.title).toBe("20261012150909");
     expect(persistedBody(editable.title, "Editor wrote this body", editable.source)).toBe("Editor wrote this body");
     expect(persistedBody("Named", "Editor wrote this body", editable.source)).toBe("# Named\n\nEditor wrote this body");
+  });
+
+  it("leaves the title empty while a note is on its placeholder file name", () => {
+    expect(untitledPath("Untitled.md")).toBe(true);
+    expect(untitledPath("Journal/untitled (12).md")).toBe(true);
+    expect(untitledPath("Journal/Untitled thoughts.md")).toBe(false);
+    expect(untitledPath("Untitled (2)/Plan.md")).toBe(false);
+
+    const untitled = editableNote({ ...document({}, "Body before a title"), path: "Journal/Untitled (2).md" });
+    expect(untitled).toEqual({ title: "", body: "Body before a title", source: { kind: "path", title: "" } });
+    expect(persistedBody("", "More body", untitled.source)).toBe("More body");
+    expect(persistedBody("Named", "More body", untitled.source)).toBe("# Named\n\nMore body");
+
+    const typed = editableNote({ ...document({}, "Body", ["note"]), path: "Untitled.md" }, [titleType]);
+    expect(typed).toEqual({ title: "", body: "Body", source: { kind: "frontmatter", field: "title" } });
+    expect(titlePatch("", typed.source, {})).toEqual({});
+    expect(titlePatch("Named", typed.source, {})).toEqual({ title: "Named" });
+    expect(titlePatch("", typed.source, { title: "Named" })).toEqual({ title: "Untitled" });
+  });
+
+  it("writes a new note with a title heading only when it has a title and no title field", () => {
+    expect(createdBody({ title: "Trip ideas", body: "Pack light." })).toBe("# Trip ideas\n\nPack light.");
+    expect(createdBody({ title: " ", body: "Pack light." })).toBe("Pack light.");
+    expect(createdBody({ title: "Ada", body: "Met in May.", titleField: "name" })).toBe("Met in May.");
   });
 
   it("names opaque UUID files from readable prose without writing the stand-in back", () => {

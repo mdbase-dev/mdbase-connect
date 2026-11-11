@@ -3,7 +3,7 @@ import { isMdbaseError, MdbaseError, revisionOf, toPlain, type MdbaseClient, typ
 import type { JsonObject } from "@mdbase-dev/connect";
 import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
 import type { CreateNoteInput, NoteDocument } from "./model";
-import { persistedBody } from "./note";
+import { createdBody } from "./note";
 
 export interface NextEditorPendingMutation {
   mutationId: string;
@@ -48,7 +48,7 @@ export class NextEditorRecords {
   async create(input: CreateNoteInput, signal?: AbortSignal): Promise<NoteDocument> {
     const intent = input.id;
     const id = intent ?? crypto.randomUUID();
-    const body = input.titleField ? input.body : persistedBody(input.title, input.body, { kind: "heading" });
+    const body = createdBody(input);
     const request = JSON.stringify([input.path, body, input.properties]);
     const attempt = intent === undefined ? undefined : this.creates.get(intent) ?? { first: request, keys: new Set<string>() };
     if (intent !== undefined && attempt) {

@@ -25,7 +25,7 @@ import { folderTree, type FolderTreeNode } from "./note";
 import type { NoteFilter } from "./note-list-view";
 
 
-export function CollectionRail({ collectionId, name, count, types, activeFilter, notes, files, foldersLoading, surface, connectionState, connectionIssue, directAccess, directAccessBusy, onFilter, onCreateFolder, onCreateNoteInFolder, onCreateSubfolder, onMoveNotes, onCopyFacet, onTypes, onSettings, onReconnect, onRequestDirectAccess, switcher, onCollapse, onPlanFolderChange, onChangeFolder }: {
+export function CollectionRail({ collectionId, name, count, types, activeFilter, notes, files, foldersLoading, surface, connectionState, connectionIssue, directAccess, directAccessBusy, onFilter, onCreateNoteInFolder, onMoveNotes, onCopyFacet, onTypes, onSettings, onReconnect, onRequestDirectAccess, switcher, onCollapse, onPlanFolderChange, onChangeFolder }: {
   collectionId: string;
   name: string;
   count: number;
@@ -40,9 +40,7 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
   directAccess?: ConnectionSummary["directAccess"];
   directAccessBusy: boolean;
   onFilter: (filter?: NoteFilter) => void;
-  onCreateFolder?: () => void;
   onCreateNoteInFolder?: (folder: string) => void;
-  onCreateSubfolder?: (parent: string) => void;
   onMoveNotes?: (paths: string[], folder: string) => void;
   onCopyFacet: (value: string, label: string) => void;
   onTypes: () => void;
@@ -81,9 +79,7 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
         activeFilter={surface === "notes" ? activeFilter : undefined}
         loading={foldersLoading}
         onFilter={onFilter}
-        onCreate={onCreateFolder}
         onCreateNote={onCreateNoteInFolder}
-        onCreateSubfolder={onCreateSubfolder}
         onCopy={(path) => onCopyFacet(path, t`folder path`)}
         onRename={onPlanFolderChange && onChangeFolder ? (from) => setFolderChange({ from, mode: "rename" }) : undefined}
         onMove={moveFolder ? (from) => setFolderChange({ from, mode: "move" }) : undefined}
@@ -114,19 +110,25 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
   />}</>;
 }
 
-function FolderFilterSection({ collectionId, items, activeFilter, loading, onFilter, onCreate, onCreateNote, onCreateSubfolder, onCopy, ...folderActions }: {
+function FolderFilterSection({ collectionId, items, activeFilter, loading, onFilter, onCreateNote, onCopy, ...folderActions }: {
   collectionId: string;
   items: FolderTreeNode[];
   activeFilter?: NoteFilter;
   loading: boolean;
   onFilter: (filter: NoteFilter) => void;
-  onCreate?: () => void;
   onCreateNote?: (folder: string) => void;
-  onCreateSubfolder?: (parent: string) => void;
   onCopy: (path: string) => void;
 } & FolderActions) {
   useLingui();
   const [expanded, setExpanded] = useState<Set<string>>(() => loadExpandedFolders(collectionId));
+  /** A folder being named. It exists once it holds a note, so naming it opens a new note there. */
+  const [naming, setNaming] = useState<{ parent: string }>();
+  const nameFolder = onCreateNote ? (parent: string) => setNaming({ parent }) : undefined;
+  const createFolder = (name: string) => {
+    const folder = [naming!.parent, ...name.replaceAll("\\", "/").split("/").map((part) => part.trim())].filter(Boolean).join("/");
+    setNaming(undefined);
+    if (folder && folder !== naming!.parent) onCreateNote!(folder);
+  };
 
   useEffect(() => {
     setExpanded(loadExpandedFolders(collectionId));
@@ -175,14 +177,22 @@ function FolderFilterSection({ collectionId, items, activeFilter, loading, onFil
           onToggle={toggle}
           onSetDescendants={setDescendants}
           onCreateNote={onCreateNote}
-          onCreateSubfolder={onCreateSubfolder}
+          onCreateSubfolder={nameFolder}
           onCopy={onCopy}
           {...folderActions}
         />)}
       </ul>}
       {!items.length && <p className="folder-placeholder">{loading ? t`Finding folders…` : t`No folders`}</p>}
     </div>
-    {onCreate && <button className="rail-new-folder" onClick={onCreate}><span><FolderPlus aria-hidden="true" /><Trans>New folder</Trans></span></button>}
+    {naming ? <form className="rail-folder-name" onSubmit={(event) => { event.preventDefault(); createFolder(String(new FormData(event.currentTarget).get("folder") ?? "")); }}>
+      <FolderPlus aria-hidden="true" />
+      <input name="folder" autoFocus spellCheck="false" autoCapitalize="none" autoCorrect="off" enterKeyHint="go"
+        aria-label={naming.parent ? t`Name of the new folder in ${naming.parent}` : t`Name of the new folder`}
+        aria-describedby="rail-folder-name-hint" placeholder={t`Folder name`}
+        onBlur={() => setNaming(undefined)}
+        onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); setNaming(undefined); } }} />
+      <p id="rail-folder-name-hint">{naming.parent ? t`Opens a new note in ${naming.parent}/…` : t`Opens a new note in the folder.`}</p>
+    </form> : nameFolder && <button className="rail-new-folder" onClick={() => nameFolder("")}><span><FolderPlus aria-hidden="true" /><Trans>New folder</Trans></span></button>}
   </div>;
 }
 

@@ -10,7 +10,7 @@ import { applyThemePreference, loadThemePreference, observeTheme, saveThemePrefe
 import { Select } from "@mdbase-dev/ui/select";
 import { ThemeSelect } from "@mdbase-dev/ui/theme-select";
 
-// Lazy: the panel's note composer brings CodeMirror, which stays out of startup.
+// Lazy: the panel and its person setup are only needed in Settings, and stay out of startup.
 const YourPersonPanel = lazy(() => import("../YourPersonPanel").then((module) => ({ default: module.YourPersonPanel })));
 
 export function SettingsView({ description, connection, noteCount, preferences, directAccessBusy, leadingActions, gateway, onRefreshDescription, onChange, onBack, onForget, onRequestDirectAccess }: {

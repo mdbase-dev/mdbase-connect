@@ -246,12 +246,13 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
     });
   }
 
-  async function requestRename() {
+  /** Renames the open note to the path typed in the top bar, or to `path`. */
+  async function requestRename(path = pathDraft, reportUndo = true) {
     if (mutationScope.current.isFrozen || !canRenameNotes) return;
     const token = mutationScope.current.token();
     const session = noteSessions.current.active;
     if (!session) return;
-    const nextPath = safeRenamePath(pathDraft);
+    const nextPath = safeRenamePath(path);
     if (!nextPath || !nextPath.toLocaleLowerCase().endsWith(".md")) {
       setNotice(t`Use a collection-relative path ending in .md.`);
       return;
@@ -291,7 +292,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
         setRenamePlan(plan);
         return;
       }
-      await performRename(plan, true);
+      await performRename(plan, true, undefined, reportUndo);
     } catch (error) {
       if (!mutationScope.current.isCurrent(token)) return;
       const message = gatewayError(error);

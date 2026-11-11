@@ -1,5 +1,5 @@
 @media (pointer: coarse) {
-  .search-field .quick-open-trigger, .new-note-composer kbd { display: none; }
+  .search-field .quick-open-trigger { display: none; }
 }
 .unlinked-mentions { margin-top: var(--space-4); color: var(--color-text-soft); font-size: var(--font-size-ui); }
 .unlinked-mentions > summary { cursor: pointer; padding: var(--space-3) 0; }
