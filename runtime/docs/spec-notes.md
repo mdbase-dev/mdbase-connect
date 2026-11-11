@@ -70,19 +70,21 @@ where the path value wins with `path_field_in_frontmatter`. Historical [1,0]/[1,
 rows remain registered; the query projection identity advances to 2 so existing
 materializations rebuild.
 
-## Query ordering change (chapter 11)
+## Query ordering (chapter 11)
 
-The new shared device/DO index uses a deterministic total kind order:
-boolean, exact number, explicitly schema-typed date/date-time, text, list, map,
-then missing/null. DESC reverses kind/value order (null first); record ID is the
-final ASC tie-break in either direction. Lists/maps compare by length. Plain
-strings are not guessed to be dates; invalid declared temporal strings remain
-text. This replaces incompatible-kind-equals and the old path tie-break.
+Core's value comparator is the spec's: boolean, exact number, explicitly
+schema-typed date/date-time, text, list, map, then missing/null. `false < true`,
+numbers compare by exact value, temporals by instant, text by code point, lists
+and maps by length. DESC reverses the whole value order, so null sorts first.
+Plain strings are not guessed to be dates; invalid declared temporal strings
+remain text.
 
-Release integration must use the same atom codec for SQL and in-memory paths,
-with differential conformance. The initial codec/heap PR is draft until typed
-query and legacy ID-tie wiring are complete. Normative public spec text still
-needs the spec owner's matching update; read-only vendored fixtures are not edited.
+When every order term compares equal, the final tie-break is ascending
+`file.path` in code-point order, in both ASC and DESC queries, as the spec
+requires. Record IDs take no part in the order. The oracle, the top-k heap, the
+SQL field index and keyset positions all end in the path; key version 2 and
+store schema 2 replace the earlier ID tie-break, so field indexes rebuild once.
+A rename moves a record among its ties.
 
 ## YAML profile (chapter 03)
 

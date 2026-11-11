@@ -122,21 +122,23 @@ pub enum QueryPredicate {
     /// Every field/ID has a materialized atom, so there is no SQL NULL logic.
     Not(Box<QueryPredicate>),
 }
-/// An explicit order term; the final ID tie-break is always ascending.
+/// An explicit order term; the final path tie-break is always ascending.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QueryOrder {
     /// Exact indexed column.
     pub column: QueryColumn,
-    /// Reverse this term's kind/key, never the final ID tie-break.
+    /// Reverse this term's kind/key, never the final path tie-break.
     pub descending: bool,
 }
 /// Selected identity/ordering metadata without record source.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QueryKeyedId {
-    /// Stable record identity.
+    /// Stable record identity, for hydration; never part of the order.
     pub id: Uuid,
-    /// Full ordering tuple.
+    /// One atom per order term.
     pub keys: Vec<QueryAtom>,
+    /// Exact record path: the final ascending tie-break after `keys`.
+    pub path: String,
     /// SQL length(row) or equivalently conservative encoded source size.
     pub encoded_bytes: u64,
 }
@@ -151,7 +153,7 @@ pub struct QueryIndexRequest {
     pub predicate: QueryPredicate,
     /// Explicit order terms.
     pub order: Vec<QueryOrder>,
-    /// Full ordering tuple, with ID always ASC (also for DESC order terms).
+    /// Keyset position: keys, then path always ASC (also for DESC order terms).
     pub after: Option<QueryKeyedId>,
     /// Requested page size; backends reject values above 1000.
     pub limit: u32,
@@ -159,7 +161,7 @@ pub struct QueryIndexRequest {
     /// Skipping reads index keys only, never record sources; it lets a bounded
     /// page start deep in a large match set.
     pub offset: u64,
-    /// Aggregate returned key bytes; separate from record-source hydration.
+    /// Aggregate returned key and path bytes; separate from record-source hydration.
     pub max_key_bytes: u64,
     /// Also count every match ([`QueryIndexPage::total_matches`]). A full count
     /// costs work proportional to all matches, so the driver never asks for it.

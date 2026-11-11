@@ -421,7 +421,7 @@ impl<S: Store> Replica<S> {
             return Err(ErrorCode::Conflict
                 .err_with_reason("query_index_stale", "original query head changed"));
         }
-        rows.sort_by(|a, b| plan.compare_evaluated_by_id((a.0.id, &a.2), (b.0.id, &b.2)));
+        rows.sort_by(|a, b| plan.compare_evaluated((&a.0.path, &a.2), (&b.0.path, &b.2)));
         let start = usize::try_from(plan.query.offset)
             .unwrap_or(usize::MAX)
             .min(rows.len());

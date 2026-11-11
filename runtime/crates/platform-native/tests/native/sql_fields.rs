@@ -192,6 +192,7 @@ fn indexed_selection_matches_core_mixed_oracle_and_descending_id_ties() {
                 let p = project_record_query_index_row(&c, r, &refs, 8192).unwrap();
                 KeyedRecord {
                     id: mdbn_store_file::testing::replica::convert::uuid(&r.id),
+                    path: r.path.clone(),
                     keys: p
                         .fields
                         .iter()
@@ -248,6 +249,132 @@ fn indexed_selection_matches_core_mixed_oracle_and_descending_id_ties() {
         assert_eq!(ids, [id(1), id(2)]);
     }
     assert_eq!(blobs.get(), 0, "ID/key selection must not hydrate source");
+}
+/// A record whose path order need not follow its ID order.
+fn row_at(n: u16, path: &str, fields: &str) -> RecordRow {
+    RecordRow {
+        path_key: mdbn_core::paths::path_key(path),
+        path: path.into(),
+        ..row(n, fields)
+    }
+}
+/// Every keyset page of `req` at `limit`, as `(id, path)` in order.
+fn keyset_pages(
+    store: &SqlStore<Trace>,
+    req: &QueryIndexRequest,
+    limit: u32,
+) -> Vec<(B16, String)> {
+    let mut req = QueryIndexRequest {
+        limit,
+        count_matches: false,
+        ..req.clone()
+    };
+    let mut out = Vec::new();
+    loop {
+        let page = store.query_index_page(&req).unwrap().unwrap();
+        assert!(page.rows.len() <= limit as usize);
+        out.extend(page.rows.iter().map(|r| (r.id, r.path.clone())));
+        if !page.has_more {
+            return out;
+        }
+        req.after = page.rows.last().cloned();
+    }
+}
+#[test]
+fn ties_follow_ascending_path_in_both_directions_across_keyset_pages_and_renames() {
+    // Path order is the reverse of ID order within the `open` run, and "Z"
+    // precedes "a" in code-point order.
+    let rows = vec![
+        row_at(1, "tasks/e.md", "status: open\npoints: 1"),
+        row_at(2, "tasks/d.md", "status: open\npoints: 1"),
+        row_at(3, "tasks/c.md", "status: open\npoints: 1"),
+        row_at(4, "tasks/b.md", "status: open\npoints: 1"),
+        row_at(5, "tasks/a.md", "status: open\npoints: 1"),
+        row_at(6, "tasks/Z.md", "status: open\npoints: 1"),
+        row_at(7, "tasks/f.md", "status: done\npoints: 1"),
+    ];
+    let (mut store, _, blobs, _, refs) = open("query_index_path_ties", rows, &["status", "points"]);
+    let paths = |rows: &[(B16, String)]| -> Vec<String> {
+        rows.iter()
+            .map(|(_, p)| {
+                p.trim_start_matches("tasks/")
+                    .trim_end_matches(".md")
+                    .to_owned()
+            })
+            .collect()
+    };
+    let check = |store: &SqlStore<Trace>, open_run: &[&str]| {
+        let all = request(store, &refs);
+        // One term drives the field index; two terms sort within its leading run.
+        for terms in [1usize, 2] {
+            for descending in [false, true] {
+                let mut req = all.clone();
+                req.order.truncate(terms);
+                for o in &mut req.order {
+                    o.descending = descending;
+                }
+                let mut want: Vec<&str> = open_run.to_vec();
+                if descending {
+                    want.push("f");
+                } else {
+                    want.insert(0, "f");
+                }
+                // Page boundaries fall inside the run of ties at every size.
+                for limit in [1u32, 2, 3, 1000] {
+                    let got = keyset_pages(store, &req, limit);
+                    assert_eq!(
+                        paths(&got),
+                        want,
+                        "terms={terms} desc={descending} limit={limit}"
+                    );
+                }
+                let whole = store.query_index_page(&req).unwrap().unwrap();
+                for (offset, limit) in [(0u64, 3u32), (2, 3), (5, 2)] {
+                    let mut paged = req.clone();
+                    paged.offset = offset;
+                    paged.limit = limit;
+                    let page = store.query_index_page(&paged).unwrap().unwrap();
+                    assert_eq!(
+                        page.rows,
+                        whole.rows[offset as usize..][..limit as usize],
+                        "terms={terms} desc={descending} offset={offset}"
+                    );
+                }
+            }
+        }
+        // No order term at all is path order.
+        let mut req = all.clone();
+        req.order.clear();
+        let mut by_path: Vec<&str> = open_run.to_vec();
+        by_path.push("f");
+        by_path.sort_unstable();
+        assert_eq!(paths(&keyset_pages(store, &req, 2)), by_path);
+    };
+    check(&store, &["Z", "a", "b", "c", "d", "e"]);
+
+    // A rename moves the record within the run; its old position is gone.
+    let moved = row_at(3, "tasks/0.md", "status: open\npoints: 1");
+    let projected = project_record_query_index_row(&catalog(), &moved, &refs, 8192).unwrap();
+    store
+        .commit(Tx {
+            records_put: vec![moved],
+            query_index: Some(QueryIndexTx {
+                generation: [7; 32],
+                replace_specs: None,
+                rows: vec![projected],
+                publish_at: Some(Head::GENESIS),
+                completes_backfill: false,
+            }),
+            ..Tx::default()
+        })
+        .unwrap();
+    assert!(store.query_index_state().unwrap().unwrap().ready);
+    check(&store, &["0", "Z", "a", "b", "d", "e"]);
+    assert_eq!(
+        blobs.get(),
+        0,
+        "path ties are selected from the index alone"
+    );
 }
 #[test]
 fn typed_numeric_range_excludes_wrong_kinds_and_keyset_pages_are_exact() {

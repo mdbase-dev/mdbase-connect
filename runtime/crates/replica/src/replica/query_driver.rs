@@ -142,8 +142,8 @@ fn compare_keys(
             return cmp;
         }
     }
-    // Never reverse the final ID, including when every term is DESC.
-    a.id.cmp(&b.id)
+    // Never reverse the final path, including when every term is DESC.
+    a.path.cmp(&b.path)
 }
 
 fn validate_keyset_page(
@@ -164,7 +164,9 @@ fn validate_keyset_page(
         if row.keys.len() != request.order.len() || row.keys.len() > 8 || !ids.insert(row.id) {
             return Err(bad());
         }
-        bytes = bytes.checked_add(16).ok_or_else(bad)?;
+        bytes = bytes
+            .checked_add(16 + row.path.len() as u64)
+            .ok_or_else(bad)?;
         for key in &row.keys {
             // Canonical kind/key, not host scalar casts or guessed dates.
             mdbn_core::query::indexed::SortAtom::from_parts(key.kind, &key.key, 8192)
@@ -486,11 +488,12 @@ impl<S: Store> Replica<S> {
                 self.head,
                 u32::try_from(need).unwrap_or(u32::MAX),
                 MAX_BYTES.saturating_sub(after.map_or(0, |row| {
-                    16 + row
-                        .keys
-                        .iter()
-                        .map(|key| key.key.len() as u64 + 1)
-                        .sum::<u64>()
+                    16 + row.path.len() as u64
+                        + row
+                            .keys
+                            .iter()
+                            .map(|key| key.key.len() as u64 + 1)
+                            .sum::<u64>()
                 })),
             ) {
                 Ok(r) => Some(QueryIndexRequest {
@@ -646,25 +649,19 @@ impl<S: Store> Replica<S> {
                 keyed.push((id, rec.path.clone(), fm, types, Source::Layered(rec)));
             }
             keyed.sort_by(|a, b| {
-                plan.compare_by_id(
-                    (
-                        convert::uuid(&a.0),
-                        &QueryRecord {
-                            path: &a.1,
-                            types: &a.3,
-                            frontmatter: &a.2,
-                            body: None,
-                        },
-                    ),
-                    (
-                        convert::uuid(&b.0),
-                        &QueryRecord {
-                            path: &b.1,
-                            types: &b.3,
-                            frontmatter: &b.2,
-                            body: None,
-                        },
-                    ),
+                plan.compare(
+                    &QueryRecord {
+                        path: &a.1,
+                        types: &a.3,
+                        frontmatter: &a.2,
+                        body: None,
+                    },
+                    &QueryRecord {
+                        path: &b.1,
+                        types: &b.3,
+                        frontmatter: &b.2,
+                        body: None,
+                    },
                 )
             });
             keyed
@@ -722,12 +719,14 @@ mod keyset_validation_tests {
 
     #[test]
     fn keyset_metadata_requires_canonical_keys_strict_advancement_and_exact_bounds() {
-        let row = |n| QueryKeyedId {
+        // Paths ascend against the IDs: `row(1)` is `c.md`, `row(3)` is `a.md`.
+        let row = |n: u8| QueryKeyedId {
             id: B16([n; 16]),
             keys: vec![QueryAtom {
                 kind: 255,
                 key: vec![],
             }],
+            path: format!("{}.md", char::from(b'd' - n)),
             encoded_bytes: 1,
         };
         let mut request = QueryIndexRequest {
@@ -735,13 +734,16 @@ mod keyset_validation_tests {
             head: crate::store::Head::GENESIS,
             predicate: QueryPredicate::All,
             order: vec![QueryOrder {
-                column: QueryColumn::Path,
+                column: QueryColumn::Field(crate::store_query::QueryField {
+                    source: 0,
+                    path_key: vec![],
+                }),
                 descending: true,
             }],
-            after: Some(row(1)),
+            after: Some(row(3)),
             limit: 2,
             offset: 0,
-            max_key_bytes: 34,
+            max_key_bytes: 42,
             count_matches: false,
         };
         let page = |rows, has_more| QueryIndexPage {
@@ -749,20 +751,21 @@ mod keyset_validation_tests {
             has_more,
             total_matches: None,
         };
-        // DESC does NOT reverse UUID ties; 2*(16-byte UUID+1-byte kind) fits exactly.
-        assert!(validate_keyset_page(&request, &page(vec![row(2), row(3)], true)).is_ok());
+        // DESC does NOT reverse path ties, and IDs take no part in the order;
+        // 2*(16-byte UUID+4-byte path+1-byte kind) fits exactly.
+        assert!(validate_keyset_page(&request, &page(vec![row(2), row(1)], true)).is_ok());
         for bad in [
             page(vec![], true),
-            page(vec![row(1)], false),
+            page(vec![row(3)], false),
             page(vec![row(2), row(2)], false),
-            page(vec![row(3), row(2)], false),
-            page(vec![row(2), row(3), row(4)], false),
+            page(vec![row(1), row(2)], false),
+            page(vec![row(2), row(1), row(0)], false),
         ] {
             assert!(validate_keyset_page(&request, &bad).is_err());
         }
-        request.max_key_bytes = 33;
-        assert!(validate_keyset_page(&request, &page(vec![row(2), row(3)], false)).is_err());
-        request.max_key_bytes = 34;
+        request.max_key_bytes = 41;
+        assert!(validate_keyset_page(&request, &page(vec![row(2), row(1)], false)).is_err());
+        request.max_key_bytes = 42;
         let mut invalid_atom = row(2);
         invalid_atom.keys[0].key.push(0);
         assert!(validate_keyset_page(&request, &page(vec![invalid_atom], false)).is_err());

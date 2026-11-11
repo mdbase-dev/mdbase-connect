@@ -5,14 +5,16 @@
 use std::cmp::Ordering;
 
 use crate::cel::time::{MAX_SECONDS, MIN_SECONDS, Timestamp};
-use crate::ids::RecordId;
 use crate::types::Catalog;
 use crate::value::{Number, Value};
 
 use super::{FieldRef, QueryEnv, QueryRecord};
 
-/// Version of the kind codes, order-key encoding and canonical field paths.
-pub const KEY_VERSION: u8 = 1;
+/// Version of the kind codes, order-key encoding, canonical field paths and
+/// keyset position.
+///
+/// 2: a position ends in the record path (the spec's tie-break), not the ID.
+pub const KEY_VERSION: u8 = 2;
 
 /// Ascending kind order. Null/missing is last.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -451,16 +453,16 @@ pub struct CursorStamp {
     pub clock: CapturedClock,
 }
 
-/// Full lexicographic keyset position. Record ID is the final ASC tie-break in
-/// both ASC and DESC queries. Path is payload, never a stability tie-break.
+/// Full lexicographic keyset position. `file.path` is the final ASC tie-break
+/// in both ASC and DESC queries; the record ID takes no part in the order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IndexCursor {
     /// Query/snapshot identity.
     pub stamp: CursorStamp,
     /// One key per order term.
     pub keys: Vec<SortAtom>,
-    /// Last record ID.
-    pub id: RecordId,
+    /// Last record path.
+    pub path: String,
 }
 
 impl IndexCursor {

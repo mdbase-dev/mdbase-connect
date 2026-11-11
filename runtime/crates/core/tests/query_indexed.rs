@@ -189,7 +189,7 @@ fn bounded_key_decode_and_unambiguous_paths() {
 }
 
 #[test]
-fn bounded_topk_matches_full_sort_with_mixed_kinds_and_id_ties() {
+fn bounded_topk_matches_full_sort_with_mixed_kinds_and_path_ties() {
     let values = [
         Value::Null,
         Value::Bool(true),
@@ -204,6 +204,8 @@ fn bounded_topk_matches_full_sort_with_mixed_kinds_and_id_ties() {
         .rev()
         .map(|i| KeyedRecord {
             id: Uuid([i; 16]),
+            // Path order is the reverse of ID order.
+            path: format!("notes/{:03}.md", 200 - u16::from(i)),
             keys: vec![
                 atom(&values[usize::from(i) % values.len()]),
                 atom(&Value::Int(i64::from(i % 3))),
@@ -226,18 +228,38 @@ fn bounded_topk_matches_full_sort_with_mixed_kinds_and_id_ties() {
             assert_eq!(heap.finish().unwrap(), expected[..limit]);
         }
     }
+    // Equal keys: the smaller path is first in both directions, whatever the
+    // IDs are, and code-point order puts "Z" before "a".
     let low = KeyedRecord {
-        id: Uuid([1; 16]),
+        id: Uuid([2; 16]),
+        path: "Z.md".into(),
         keys: vec![atom(&Value::Null)],
     };
     let high = KeyedRecord {
-        id: Uuid([2; 16]),
+        id: Uuid([1; 16]),
+        path: "a.md".into(),
         keys: low.keys.clone(),
     };
-    assert_eq!(
-        topk::compare(&low, &high, &[Direction::Desc]),
-        Ordering::Less
-    );
+    for direction in [Direction::Asc, Direction::Desc] {
+        assert_eq!(topk::compare(&low, &high, &[direction]), Ordering::Less);
+        let mut heap = TopK::new(1, vec![direction], MAX_KEY_BYTES).unwrap();
+        heap.push(high.clone()).unwrap();
+        heap.push(low.clone()).unwrap();
+        assert_eq!(heap.finish().unwrap(), std::slice::from_ref(&low));
+    }
+}
+
+#[test]
+fn topk_charges_retained_paths_to_its_byte_budget() {
+    let row = |path: String| KeyedRecord {
+        id: Uuid([1; 16]),
+        path,
+        keys: vec![atom(&Value::Int(1))],
+    };
+    let mut heap = TopK::new(1, vec![Direction::Asc], 512).unwrap();
+    heap.push(row("a.md".into())).unwrap();
+    let mut heap = TopK::new(1, vec![Direction::Asc], 512).unwrap();
+    assert_eq!(heap.push(row("p".repeat(1000))), Err(TopKError::TooWide));
 }
 
 #[test]
@@ -249,12 +271,14 @@ fn exhausted_topk_cannot_publish_partial_results() {
     let mut heap = TopK::new(1, vec![Direction::Asc], 512).unwrap();
     heap.push(KeyedRecord {
         id: Uuid([1; 16]),
+        path: "1.md".into(),
         keys: vec![atom(&Value::string("z"))],
     })
     .unwrap();
     assert_eq!(
         heap.push(KeyedRecord {
             id: Uuid([2; 16]),
+            path: "2.md".into(),
             keys: vec![atom(&Value::string(format!("a{}", "x".repeat(1000))))]
         }),
         Err(TopKError::TooWide)
@@ -264,6 +288,7 @@ fn exhausted_topk_cannot_publish_partial_results() {
     assert_eq!(
         heap.push(KeyedRecord {
             id: Uuid([1; 16]),
+            path: "1.md".into(),
             keys: vec![]
         }),
         Err(TopKError::Arity)
@@ -291,7 +316,7 @@ fn cursor_binds_generation_catalogue_sem_query_and_captured_clock() {
     let cursor = IndexCursor {
         stamp: stamp.clone(),
         keys: vec![atom(&Value::Int(1))],
-        id: Uuid([1; 16]),
+        path: "tasks/a.md".into(),
     };
     assert_eq!(cursor.validate(&stamp, 1), Ok(()));
     let mut changed = stamp.clone();

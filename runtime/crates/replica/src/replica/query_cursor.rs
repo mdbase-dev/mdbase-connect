@@ -340,6 +340,7 @@ fn owned_bytes(frontier: &QueryKeyedId, env: &QueryEnv) -> ApiResult<usize> {
     let mut bytes = 1024usize
         .checked_add(env.tz.capacity())
         .and_then(|n| n.checked_add(env.today.capacity()))
+        .and_then(|n| n.checked_add(frontier.path.capacity()))
         .ok_or_else(full)?;
     bytes = bytes
         .checked_add(
@@ -761,6 +762,7 @@ mod tests {
                 frontier: QueryKeyedId {
                     id: B16([1; 16]),
                     keys: vec![],
+                    path: "a.md".into(),
                     encoded_bytes: 1,
                 },
             },

@@ -720,7 +720,7 @@ const SCAN: &str = "SELECT id, row FROM st_rec WHERE id >=";
 const BY_ID: &str = "SELECT row FROM st_rec WHERE id = ?";
 const INDEX_STATE: &str = "SELECT CASE WHEN length(generation)=32";
 const HEAD: &str = "SELECT v FROM st_kv WHERE k = 'head'";
-const SEEK: &str = "SELECT q.id,length(r.row),f0.kind,";
+const SEEK: &str = "SELECT q.id,length(r.row),";
 
 /// The per-record path decodes each row once, in the scan, and never reads a
 /// record again by id: not to evaluate it, and not to build the view of a match.
@@ -1604,6 +1604,112 @@ fn query_keysets_equal_core_order_and_pay_initial_offset_only_once() {
             "{label}: ties/null/mixed kinds/full multi-term exclusive frontier"
         );
     }
+}
+
+/// Records whose order terms all compare equal come back in ascending path
+/// order from every replica executor (the index, its keyset pages, the
+/// per-record scan, the projected selection and the merge with a pending edit)
+/// in both directions, and a rename moves a record within its ties.
+#[test]
+fn tied_results_follow_ascending_path_in_every_executor() {
+    let svc = FakeLogService::new();
+    let mut node = open(&svc, store("query_path_ties"));
+    // Paths descend as creation order ascends, and `id` spreads IDs again:
+    // twelve `open` records, then three `done` ones.
+    seed_notes(&mut node, 15, |i| {
+        let status = if i <= 12 { "open" } else { "done" };
+        (
+            format!("tasks/n{:02}.md", 50 - i),
+            format!("---\nstatus: {status}\n---\n"),
+        )
+    });
+    let ids = |ns: &[u32]| ns.iter().map(|n| id(*n)).collect::<Vec<_>>();
+    let by_id = {
+        let mut all = ids(&(1..=15).collect::<Vec<_>>());
+        all.sort();
+        all
+    };
+    let answers = |node: &mut Node, direction: &str, keysets: bool| {
+        let base = vec![
+            ("types", Value::List(vec![Value::Text("task".into())])),
+            ("order_by", order("status", direction)),
+        ];
+        let found = |r: QueryResult| r.records.iter().map(|r| r.id).collect::<Vec<_>>();
+        let mut out = Vec::new();
+        let before = node.r.query_stats();
+        let mut limited = base.clone();
+        limited.push(("limit", Value::Int(15)));
+        out.push((
+            "indexed",
+            found(node.r.query(node.s, q(&limited), none()).unwrap()),
+        ));
+        assert_eq!(node.r.query_stats().indexed, before.indexed + 1);
+        out.push((
+            "per-record",
+            found(node.r.query(node.s, q(&base), none()).unwrap()),
+        ));
+        assert_eq!(node.r.query_stats().declined, before.declined + 1);
+        let mut selected = base.clone();
+        selected.push((
+            "select",
+            Value::List(vec![Value::Map(vec![
+                ("name".into(), Value::Text("s".into())),
+                ("expr".into(), Value::Text("status".into())),
+            ])]),
+        ));
+        out.push((
+            "projected",
+            found(node.r.query(node.s, q(&selected), none()).unwrap()),
+        ));
+        if keysets {
+            // Page boundaries fall inside both runs of ties.
+            let mut paged = base.clone();
+            paged.push(("limit", Value::Int(2)));
+            let original = q(&paged);
+            let (mut query, mut all) = (original.clone(), Vec::new());
+            loop {
+                let page = node.r.query(node.s, query, none()).unwrap();
+                assert!(page.records.len() <= 2);
+                all.extend(page.records.iter().map(|r| r.id));
+                match page.cursor {
+                    Some(cursor) => query = with_cursor(&original, &cursor),
+                    None => break,
+                }
+            }
+            out.push(("keyset pages", all));
+        }
+        out
+    };
+    let check = |node: &mut Node, open: &[u32], keysets: bool| {
+        let done = [15, 14, 13];
+        let asc = ids(&[&done[..], open].concat());
+        let desc = ids(&[open, &done[..]].concat());
+        assert_ne!(asc, by_id, "path order must differ from ID order here");
+        for (direction, want) in [("asc", &asc), ("desc", &desc)] {
+            for (executor, got) in answers(node, direction, keysets) {
+                assert_eq!(&got, want, "{executor} {direction}");
+            }
+        }
+    };
+    check(&mut node, &[12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1], true);
+
+    // A pending rename moves record 7 to the front of its run; the cursor path
+    // declines while an edit is pending.
+    submit(
+        &mut node,
+        vec![Op::Rename(mdbn_wire::intent::Rename {
+            id: id(7),
+            from: "tasks/n43.md".into(),
+            to: "tasks/a00.md".into(),
+            update_refs: false,
+            if_revision: None,
+        })],
+    );
+    let renamed = [7, 12, 11, 10, 9, 8, 6, 5, 4, 3, 2, 1];
+    check(&mut node, &renamed, false);
+    // Confirmed: the field index itself holds the new position.
+    node.pump();
+    check(&mut node, &renamed, true);
 }
 
 #[test]
