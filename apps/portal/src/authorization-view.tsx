@@ -251,7 +251,9 @@ export function Authorization({ requestId }: { requestId: string }) {
             onContinueInDesktop={() => continueInDesktop(true)}
             onDecision={(decision, collection) => {
               setApprovedCollection(collection);
-              setStatus(decision === "approved" ? "setting_up" : decision);
+              // The status poll can report the approval before the approve request
+              // returns, and it stops once it holds the return: keep its answer.
+              setStatus(current => decision === "denied" ? decision : current === "approved" ? current : "setting_up");
             }}
             onDecisionError={(detail) => { setDecisionError(detail); setStatus("pending"); }}
             onCollectionCreated={(collection) => setRequest((current) => current ? {

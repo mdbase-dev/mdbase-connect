@@ -429,6 +429,31 @@ test("W17 pending approval retains heading focus", async ({ page }) => {
   expect(await page.evaluate(() => document.activeElement === document.body)).toBe(false);
 });
 
+test("an approval the status poll reports before the approve request returns still goes back to the app", async ({ page }) => {
+  await openScenario(page, "authorization");
+  await page.getByRole("combobox", { name: "Choose a collection", exact: true }).fill("Field");
+  await page.getByRole("option").first().click();
+  await page.getByRole("button", { name: "Review access", exact: true }).click();
+  let finishApproval!: () => void;
+  const approvalResponse = new Promise<void>(resolve => { finishApproval = resolve; });
+  let approving = false;
+  await page.route(`**/v1/authorization-requests/${authorizationId}/approve`, async route => {
+    approving = true;
+    await approvalResponse;
+    await route.fulfill({ json: { ok: true } });
+  });
+  // The server completes the approval while the approve request is still in flight,
+  // and the page stops polling once it holds the return address.
+  const returnUrl = new URL("/collections?returned=1", page.url()).href;
+  await page.route(`**/v1/authorization-requests/${authorizationId}/status`, route => route.fulfill({
+    json: approving ? { status: "approved", redirect_uri: returnUrl } : { status: "pending" }
+  }));
+  await page.getByRole("button", { name: "Allow access", exact: true }).click();
+  await expect(page.getByText("Access approved", { exact: true })).toBeVisible();
+  finishApproval();
+  await page.waitForURL(url => url.searchParams.get("returned") === "1", { waitUntil: "commit" });
+});
+
 for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
   for (const colorScheme of ["light", "dark"] as const) test(`W11 list slots and shell ${viewport.width} ${colorScheme}`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
