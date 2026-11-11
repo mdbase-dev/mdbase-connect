@@ -118,11 +118,20 @@ impl<S: Store> Replica<S> {
             return Err(denied());
         }
         self.check_apply_health()?;
+        // A store that never holds the keyring (the app's) reopens without
+        // epoch keys and re-derives them from the log's control prefix
+        // (`key_rebuild.rs`). The stored policy is the live one meanwhile and
+        // already serves ordinary reads; its own `keyed` bit for this device
+        // (`device_can_write` above) stands in for the key not yet in memory,
+        // so a warm start can show its views before the first log turn. A
+        // rebuild that fails is no longer pending and stays refused.
+        let keyed = self.sealer.current_epoch() == Some(self.policy.epoch)
+            || self.keyring_reopen_pending();
         if self.serves_apps().is_err()
             || self.regressed_at.is_some()
             || self.policy.frozen
             || self.policy.rekey_required
-            || self.sealer.current_epoch() != Some(self.policy.epoch)
+            || !keyed
             || self.policy.epoch == 0
             || self.stalled.is_some()
             || self.repair.is_some()

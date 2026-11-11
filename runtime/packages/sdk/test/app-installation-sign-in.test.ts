@@ -822,6 +822,10 @@ describe("protected installation lifecycle (stand-in store/CP/native, actual ran
     const saved = f.read(); expect(saved.collectionListing).toEqual([{collection_id: collection, display_name: "Tasks", role: "editor"}]);
     await flow.close();
     const restored = await AppProtectedInstallationSignIn.open({...f.options, mode: "existing"});
+    // The kept listing is readable without a request (a signed-in start shows it).
+    const requests = vi.mocked(f.request).mock.calls.length;
+    expect(restored.cachedApprovedCollections(f.installation)).toEqual(listed.map(c => ({...c, fileActions: []})));
+    expect(vi.mocked(f.request).mock.calls.length).toBe(requests);
     vi.mocked(f.request).mockRejectedValueOnce(new TypeError("offline"));
     expect(await restored.listApprovedCollections(f.installation)).toEqual(listed.map(c => ({...c, fileActions: []})));
     expect(f.read()).toEqual(saved);

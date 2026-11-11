@@ -938,6 +938,15 @@ export class AppWebCloudCopyHost {
             return null;
         }
     }
+    /** For a collection opened before its log: has the reopened replica its
+     * keys back from the log's control prefix? `failed` is what a waited open
+     * refuses as `recovery_required`. */
+    keyringSettled(): "pending" | "failed" | "settled" {
+        if (!this.native) throw fail("binding");
+        const observation = this.native.observations();
+        if (observation.requiresReopen || observation.keyringRebuildFailed) return "failed";
+        return observation.keyringRebuilding ? "pending" : "settled";
+    }
     /** Local writes not yet confirmed by the log (native sync status). */
     pendingWrites(): number {
         try {
@@ -1026,8 +1035,13 @@ export class AppWebCloudCopyHost {
         /** SDK join ledger has never completed this local replica's first sync.
          * The budget then bounds inactivity, not total collection catch-up. */
         cold?: boolean;
+        /** Answer from the replica as it is on this device: the log is not
+         * driven, whether or not it is bound yet. Fails where a read would
+         * need the log; the caller then takes the ordinary path. Not for a
+         * cold replica. */
+        local?: boolean;
     }): Promise<void> {
-        const { timeoutMs = 15000, cold = false } = options;
+        const { timeoutMs = 15000, cold = false, local = false } = options;
         const signal = this.operationSignal(options.signal);
         this.checkCollection(signal);
         if (
@@ -1038,14 +1052,15 @@ export class AppWebCloudCopyHost {
             timeoutMs < 1 ||
             timeoutMs > 15000 ||
             typeof cold !== "boolean" ||
-            (cold && !this.pump)
+            typeof local !== "boolean" ||
+            (cold && (local || !this.pump))
         )
             throw fail("binding");
         if (this.readWork)
             return this.readWork.then(() => {
                 this.checkCollection(signal);
             });
-        const work = this.verifyRead(signal, timeoutMs, cold, options.onProgress);
+        const work = this.verifyRead(signal, timeoutMs, cold, local, options.onProgress);
         this.readWork = work;
         void work
             .finally(() => {
@@ -1058,10 +1073,13 @@ export class AppWebCloudCopyHost {
         signal: AbortSignal,
         timeoutMs: number,
         cold: boolean,
+        local: boolean,
         onProgress?: (progress: import("./opening-progress.js").AppOpeningProgress) => void,
     ): Promise<void> {
         const ctrl = new AbortController(),
             abort = () => ctrl.abort();
+        // A local read never drives the log, even one bound while it runs.
+        const pump = () => (local ? null : this.pump);
         this.readAbort = ctrl;
         signal.addEventListener("abort", abort, { once: true });
         let timer: ReturnType<typeof setTimeout> | null = null;
@@ -1080,7 +1098,7 @@ export class AppWebCloudCopyHost {
         };
         const observe = () => {
             this.checkCollection(signal);
-            const refusal = cold ? this.pump!.terminalProblem : null;
+            const refusal = cold ? pump()!.terminalProblem : null;
             if (isAppServerProblem(refusal))
                 throw new AppHttpLogError(appServerOutcome(refusal) ?? "unavailable", refusal);
             const observation = this.native!.observations();
@@ -1091,7 +1109,7 @@ export class AppWebCloudCopyHost {
         };
         this.readVerified = false;
         try {
-            if (this.pump) {
+            if (pump()) {
                 // Only native accepted prefix/READ-cursor/snapshot positions count.
                 // Requests sent, accepted heartbeats, head growth and status
                 // flicker cannot keep a stuck replica alive. Observe DURING a
@@ -1099,7 +1117,7 @@ export class AppWebCloudCopyHost {
                 const progress = () => {
                     const observation = observe();
                     return [observation.status.confirmedThrough, observation.status.installing?.done ?? 0,
-                        observation.status.installing?.total ?? 0, this.pump!.readProgress];
+                        observation.status.installing?.total ?? 0, pump()!.readProgress];
                 };
                 let high = progress(), lastProgress = Date.now();
                 const bodies = new Map<number, {bytes: number; at: number}>();
@@ -1109,7 +1127,7 @@ export class AppWebCloudCopyHost {
                         const now = Date.now(), next = progress();
                         if (next.some((value, i) => value > high[i]!)) { lastProgress = now; deferred = null; }
                         high = next.map((value, i) => Math.max(value, high[i]!));
-                        const active = this.pump!.responseProgress();
+                        const active = pump()!.responseProgress();
                         const ids = new Set(active.map(body => body.id));
                         for (const id of bodies.keys()) if (!ids.has(id)) bodies.delete(id);
                         for (const body of active) {
@@ -1155,7 +1173,8 @@ export class AppWebCloudCopyHost {
             let delay = 250;
             while (!ctrl.signal.aborted) {
                 this.native!.tick();
-                if (this.pump) await Promise.race([this.pump.pump(), aborted]);
+                const turn = pump();
+                if (turn) await Promise.race([turn.pump(), aborted]);
                 this.checkCollection(signal);
                 const observation = observe();
                 // Cold catch-up owns its progress clock until the complete
@@ -1180,7 +1199,7 @@ export class AppWebCloudCopyHost {
                     if (
                         !(error instanceof MdbaseError) ||
                         error.code !== "unavailable" ||
-                        !this.pump ||
+                        !pump() ||
                         ctrl.signal.aborted
                     )
                         throw error;

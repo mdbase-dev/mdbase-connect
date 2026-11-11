@@ -808,6 +808,19 @@ export class AppProtectedInstallationSignIn {
   }
   /** Current approved/member cloud-copy metadata only; never readiness, keying,
    * or permission inferred from this response or retained consent snapshots. */
+  /** The kept listing narrowed to this installation's consent. File actions
+   * are never kept, so every row has none until the next read. */
+  private keptCollections(): readonly AppInstallationCollection[] | null {
+    if (this.state.collectionListing === undefined) return null;
+    return Object.freeze(collectionListing(this.state.collectionListing).filter(c => this.state.collectionIds.includes(c.collectionId) && this.modeConsented(c)).map(c => Object.freeze({...c, fileActions: Object.freeze([])})));
+  }
+  /** The approved collections as this installation last read them, or null
+   * when no listing is kept. No request. It can be out of date in every way a
+   * list can; `listApprovedCollections` is still the authority. */
+  cachedApprovedCollections(installation: AppInstallationCustodyAuthority): readonly AppInstallationCollection[] | null {
+    this.consentGuard(installation)();
+    try { return this.keptCollections(); } catch { return null; }
+  }
   listApprovedCollections(installation: AppInstallationCustodyAuthority): Promise<readonly AppInstallationCollection[]> {
     const check = this.consentGuard(installation);
     return this.exclusive(async () => {
@@ -831,7 +844,7 @@ export class AppProtectedInstallationSignIn {
       } catch (error) {
         check();
         if (error instanceof AppInstallationSignInError && error.reason === "unavailable" && !error.server && !nonOkResponses.has(error) && this.state.collectionListing !== undefined)
-          return Object.freeze(collectionListing(this.state.collectionListing).filter(c => this.state.collectionIds.includes(c.collectionId) && this.modeConsented(c)).map(c => Object.freeze({...c, fileActions: Object.freeze([])})));
+          return this.keptCollections()!;
         if (error instanceof AppInstallationSignInError && (error.server || nonOkResponses.has(error)) && this.state.collectionListing !== undefined) {
           const state = {...this.state}; delete state.collectionListing;
           await this.save(state); check();

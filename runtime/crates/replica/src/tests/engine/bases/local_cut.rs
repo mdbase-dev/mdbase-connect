@@ -159,3 +159,108 @@ fn only_local_only_mode_takes_the_unkeyed_read_authority() {
         Some("view_requires_keyed_device")
     );
 }
+
+/// The app's store never holds the keyring, so a reopen starts without epoch
+/// keys and re-derives them from the log. A fixture Base in such a store, and
+/// the pieces to reopen it.
+fn reopenable_app_store(
+    source: &str,
+) -> (
+    FakeLogService,
+    impl Fn(&FakeLogService, MemStore) -> Node,
+    std::rc::Rc<std::cell::RefCell<crate::mem::MemData>>,
+) {
+    use crate::seal::KeyringSealer;
+    let svc = FakeLogService::new();
+    let dev = B16([101; 16]);
+    let (sign, kem) = ([0x31u8; 32], [0x32u8; 32]);
+    crate::testkit::TestControlPlane::signed(COL).genesis_with_keys(
+        &svc,
+        mdbn_wire::policy::CState::E2e,
+        dev,
+        &sign,
+        &kem,
+    );
+    let open = move |svc: &FakeLogService, store: MemStore| {
+        let sealer: Box<dyn crate::seal::Sealer> =
+            Box::new(KeyringSealer::new(COL, dev, &sign, &kem));
+        let mut node = node_with(svc, 1, store, vec![], Some(sealer));
+        node.r.planner = Box::new(crate::plan::CorePlanner);
+        node
+    };
+    let store = MemStore::new().with_keyring_rebuild();
+    let data = store.data();
+    let mut a = open(&svc, store);
+    settle(&mut [&mut a]);
+    a.r.submit(a.s, submission(setup_ops())).unwrap();
+    settle(&mut [&mut a]);
+    a.create(1, "tasks.base", source);
+    settle(&mut [&mut a]);
+    assert_eq!(a.r.sync_status().pending, 0);
+    (svc, open, data)
+}
+
+#[test]
+fn reopened_app_store_reads_bases_while_its_keyring_rebuilds() {
+    let source = fixture()["source"].as_str().unwrap().to_owned();
+    let (svc, open, data) = reopenable_app_store(&source);
+    let mut a = open(&svc, MemStore::shared(data.clone()));
+    assert!(a.r.keyring_rebuilding());
+    assert!(a.r.testing_epoch_keys().is_empty(), "no keys until rebuilt");
+    // The stored policy names this device keyed; that serves the views before
+    // the first log turn.
+    a.r.authorize_bases_read(a.s).unwrap();
+    let capture = a.r.capture_bases_discovery(Some("UTC")).unwrap();
+    assert_eq!(capture.views()[0].record, B16([1; 16]));
+    // The rebuild finishing is not a change of the cut.
+    settle(&mut [&mut a]);
+    assert!(!a.r.keyring_rebuilding() && !a.r.keyring_rebuild_failed());
+    assert_eq!(a.r.testing_epoch_keys().len(), 1);
+    a.r.recheck_bases_discovery(&capture).unwrap();
+    a.r.capture_bases_discovery(Some("UTC")).unwrap();
+
+    // The policy's keyed bit is what stands in for the key: without it the
+    // pending rebuild admits nothing.
+    let mut b = open(&svc, MemStore::shared(data));
+    assert!(b.r.keyring_rebuilding());
+    let device = b.r.cfg.device_id;
+    b.r.policy.devices.get_mut(&device).unwrap().keyed = false;
+    let error = b.r.capture_bases_discovery(Some("UTC")).err().unwrap();
+    assert_eq!(error.code(), Some(ErrorCode::Forbidden));
+}
+
+#[test]
+fn failed_keyring_rebuild_stops_serving_bases() {
+    use crate::store::meta_keys::POLICY;
+    let source = fixture()["source"].as_str().unwrap().to_owned();
+    let (svc, open, data) = reopenable_app_store(&source);
+    // Tamper: the stored policy claims a later epoch than the log granted.
+    let mut policy = {
+        let a = open(&svc, MemStore::shared(data.clone()));
+        a.r.policy.clone()
+    };
+    policy.epoch += 1;
+    let mut store = MemStore::shared(data.clone());
+    Store::commit(
+        &mut store,
+        Tx {
+            meta: vec![(POLICY.into(), policy.to_bytes().ok())],
+            ..Tx::default()
+        },
+    )
+    .unwrap();
+    let mut a = open(&svc, MemStore::shared(data));
+    assert!(a.r.keyring_rebuilding());
+    let capture = a.r.capture_bases_discovery(Some("UTC")).unwrap();
+    settle(&mut [&mut a]);
+    assert!(a.r.keyring_rebuild_failed());
+    for error in [
+        a.r.recheck_bases_discovery(&capture).err().unwrap(),
+        a.r.capture_bases_discovery(Some("UTC")).err().unwrap(),
+    ] {
+        assert_eq!(
+            error.problem().reason.as_deref(),
+            Some("view_read_not_ready")
+        );
+    }
+}

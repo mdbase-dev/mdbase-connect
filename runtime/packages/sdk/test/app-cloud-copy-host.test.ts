@@ -20,6 +20,7 @@ import {
 } from "../src/app-host/cloud-copy-bootstrap.js";
 import { AppIndexedDbCloudCopyOutcomeStore } from "../src/app-host/cloud-copy-persistence-idb.js";
 import { MdbaseClient } from "../src/client.js";
+import { MdbaseError } from "../src/errors.js";
 import { mdbaseError } from "../src/errors.js";
 import type { SyncStatus } from "../src/wire.js";
 import { AppLogPump, type AppLogCall, type AppLogRuntime, type AppLogTransport } from "../src/app-host/log-pump.js";
@@ -520,6 +521,38 @@ describe("owned cloud-copy outcome composition (IDB/native/CP stand-ins, actual 
         expect(c.host.openTimersPort({scope: c.options.scope, generation: "55555555-5555-4555-8555-555555555555", signal: child.signal})).toBeNull();
         expect(channel).not.toHaveBeenCalled(); expect(request).not.toHaveBeenCalled();
         expect(c.f.session.connectorBearer).not.toHaveBeenCalled(); await c.host.close();
+    });
+    it("a local verified read answers from the replica and never drives the log, bound or not", async () => {
+        const c = await readableFixture();
+        await c.host.waitForVerifiedRead({signal: c.options.signal, local: true});
+        expect(c.pump.pump).not.toHaveBeenCalled();
+        await c.host.startCollectionLog({signal: c.options.signal, fetch: vi.fn(async () => Response.json({}))});
+        await c.host.waitForVerifiedRead({signal: c.options.signal, local: true});
+        expect(c.pump.pump).not.toHaveBeenCalled();
+        // A cold replica has nothing to answer from.
+        expect(() => c.host.waitForVerifiedRead({signal: c.options.signal, local: true, cold: true})).toThrow(expect.objectContaining({reason: "binding"}));
+        c.host.attachDataFacade(c.channel); // the local read is a verified read
+        await c.host.close();
+    });
+    it("a local verified read that the replica refuses fails at once instead of waiting for the log", async () => {
+        const c = await readableFixture();
+        await c.host.startCollectionLog({signal: c.options.signal, fetch: vi.fn(async () => Response.json({}))});
+        const refused = new MdbaseError({code: "unavailable", recovery: "retry", message: "not ready"});
+        c.reader.query.mockRejectedValueOnce(refused);
+        await expect(c.host.waitForVerifiedRead({signal: c.options.signal, local: true})).rejects.toBe(refused);
+        expect(c.pump.pump).not.toHaveBeenCalled();
+        await c.host.close();
+    });
+    it("says whether a replica opened before its log has its keys back", async () => {
+        const c = await readableFixture(), status = c.f.runtime.observations().status;
+        const observed = (o: {requiresReopen?: boolean; keyringRebuildFailed?: boolean; keyringRebuilding?: boolean}) =>
+            c.f.runtime.observations.mockReturnValueOnce({requiresReopen: false, keyringRebuildFailed: false, keyringRebuilding: false, status, ...o});
+        observed({keyringRebuilding: true}); expect(c.host.keyringSettled()).toBe("pending");
+        observed({}); expect(c.host.keyringSettled()).toBe("settled");
+        // What a waited open refuses as recovery_required.
+        observed({keyringRebuildFailed: true}); expect(c.host.keyringSettled()).toBe("failed");
+        observed({requiresReopen: true, keyringRebuilding: true}); expect(c.host.keyringSettled()).toBe("failed");
+        await c.host.close();
     });
     it("a drive keeps turning while ticks queue log calls, then stops; app writes ask for a drive", async () => {
         const c = await readableFixture();

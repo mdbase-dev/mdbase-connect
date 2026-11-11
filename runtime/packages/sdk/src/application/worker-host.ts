@@ -37,6 +37,9 @@ function wipeUnlockSecret(request:unknown):void {
 
 /** Tabs that may attach to one Worker: the leader tab plus followers. */
 export const APPLICATION_WORKER_MAX_CLIENTS=32;
+/** After a start that showed the kept collection list with nothing open and no
+ * request following: how long before Connect's list is read anyway. */
+const LIST_CONFIRM_MS=2_000,LIST_CONFIRM_TRIES=3;
 interface HostClient {
   readonly port:MessagePort;readonly binding:string;readonly primary:boolean;
   lastId:number;foreground:boolean;gone:boolean;
@@ -77,6 +80,8 @@ export class ApplicationWorkerHost {
   private stopping:Promise<void>|null=null;
   private readonly appliedForeground=new Map<string,string>();private sessionForeground:boolean|null=null;
   private collecting=false;private revalidationQueued=false;
+  /** A signed-in start showed the kept collection list; Connect's is read once. */
+  private listConfirm:"idle"|"armed"|"done"="idle";private listTimer:ReturnType<typeof setTimeout>|null=null;private listAttempts=0;
   private nativeRpc=0;
   private nativeWait:{rpc:number;id:number;client:HostClient;resolve(value:NativeAuthorizationResult):void;reject(error:unknown):void}|null=null;
   /** The latest proxy portal's person-closed report (page `approvalClosed`). */
@@ -347,13 +352,42 @@ export class ApplicationWorkerHost {
   /** One inventory read, in the SAME queue as lifecycle actions. Visibility and
    * native transport wake immediately; metadata cannot make a tab's start/select
    * fail busy or overlap an original consent/receipt operation. */
-  private revalidateForeground():void {
+  private revalidateForeground(shown=true):void {
     if(this.stopping||this.revalidationQueued)return;
     this.revalidationQueued=true;
     this.queue.push({client:null,request:null,job:async()=>{
       try{
-        if(this.foreground&&this.session.getSnapshot().signIn?.state==="paired")await this.session.refreshCollectionList();
+        if((this.foreground||!shown)&&this.session.getSnapshot().signIn?.state==="paired")await this.session.refreshCollectionList();
       }finally{this.revalidationQueued=false;}
+    }});
+    this.pump();
+  }
+  /** A signed-in start published the collection list this installation kept
+   * and did not wait for Connect. Read Connect's list once, in the same queue,
+   * where it cannot delay the page: after the page's next request (opening its
+   * remembered collection), at once when a collection is already open, or
+   * shortly after when no request comes (the chooser is showing). */
+  private confirmListing(after:"start"|"request"|"timer"):void {
+    if(this.stopping||this.listConfirm==="done")return;
+    if(after==="start"){
+      if(this.listConfirm!=="idle"||!this.session.collectionListCached())return;
+      this.listConfirm="armed";
+      if(this.session.heldCollections().length===0){
+        this.listTimer=setTimeout(()=>{this.listTimer=null;this.confirmListing("timer");},LIST_CONFIRM_MS);return;
+      }
+    }else if(this.listConfirm!=="armed")return;
+    if(this.listTimer!==null)clearTimeout(this.listTimer);this.listTimer=null;
+    this.listConfirm="done";
+    if(!this.session.collectionListCached())return;
+    const attempt=++this.listAttempts;
+    this.queue.push({client:null,request:null,job:async()=>{
+      try{if(this.session.getSnapshot().signIn?.state==="paired")await this.session.refreshCollectionList();}catch{/* a failed read changes nothing */}
+      // Not read after all (the session was busy, or the read failed): look
+      // again shortly, a few times. Showing the app again or coming back
+      // online reads the list as well.
+      if(this.stopping||!this.session.collectionListCached()||attempt>=LIST_CONFIRM_TRIES)return;
+      this.listConfirm="armed";
+      this.listTimer=setTimeout(()=>{this.listTimer=null;this.confirmListing("timer");},LIST_CONFIRM_MS);
     }});
     this.pump();
   }
@@ -449,7 +483,8 @@ export class ApplicationWorkerHost {
     const next=this.queue.shift();if(!next)return;
     this.active=next;
     let pending:Promise<void>|null=null;
-    const finish=()=>{if(this.pending===pending){this.pending=null;this.active=null;this.reconcile();this.applyForeground();this.pump();}};
+    const finish=()=>{if(this.pending===pending){this.pending=null;this.active=null;this.reconcile();this.applyForeground();
+      if(next.client!==null)this.confirmListing(next.request[3]==="start"?"start":"request");this.pump();}};
     if(next.client===null){
       // Internal: a failed close stays quarantined in the session (its problem shows there).
       pending=Promise.resolve().then(next.job).catch(()=>{}).finally(finish);
@@ -520,6 +555,7 @@ export class ApplicationWorkerHost {
    * original SDK leases; a subsequent call returns the SAME rejection. */
   stop(detach=true):Promise<void>{
     if(this.stopping)return this.stopping;
+    if(this.listTimer!==null)clearTimeout(this.listTimer);this.listTimer=null;
     const pending=this.pending;for(const item of this.queue)wipeUnlockSecret(item.request);this.queue.length=0;
     this.stopping=Promise.resolve().then(async()=>{
       const unsynced=this.unsynced;this.unsynced=null;
