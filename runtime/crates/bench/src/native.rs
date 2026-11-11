@@ -9,7 +9,8 @@
 //! - `native.edit_visible`: commit, then re-run the open-tasks query;
 //! - `native.query_tasks_open`: open tasks sorted by due, first 100;
 //! - `native.query_tasks_all`: every task, sorted by due (a full TaskNotes list);
-//! - `native.search_title`: records whose file name contains a word;
+//! - `native.search_title`: TaskNotes' record completion: the first 48 records
+//!   by path whose path or title contains a word, in any case;
 //! - `native.backlinks_hub` / `native.backlinks_random`: `links()` of the
 //!   most-linked note / a random note;
 //! - `native.external_edit_rescan`: append a line to a note on disk, rescan.
@@ -277,13 +278,19 @@ pub fn run(w: &Written, size: u32, iters: usize, cold: usize, out: &mut Vec<Samp
     let mut s = Sample::new(
         "native.search_title",
         size,
-        "all records whose file name contains a word (CEL file.name.contains)",
+        "first 48 records by path whose path or title contains a word, in any case (TaskNotes' record completion)",
     );
-    let words = ["lantern", "orbit", "Willow", "café"];
+    let words = ["lantern", "orbit", "willow", "café"];
     let mut rows = 0;
     let mut failed = None;
     for i in 0..iters {
-        let q = Query::all().filter(format!("file.name.contains(\"{}\")", words[i % 4]));
+        let word = words[i % 4];
+        let q = Query::all()
+            .filter(format!(
+                "file.path.lower().contains(\"{word}\") || (\"title\" in record && record.title.lower().contains(\"{word}\"))"
+            ))
+            .order_by("file.path", Order::Asc)
+            .limit(48);
         match s.time(|| col.query(q)) {
             Ok(p) => rows = p.records.len(),
             Err(e) => {

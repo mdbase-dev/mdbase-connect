@@ -29,6 +29,7 @@ use std::collections::BTreeSet;
 pub mod groups;
 pub mod indexed;
 mod lower;
+pub use lower::folded_contains;
 pub mod profile;
 pub mod projection;
 pub mod topk;
@@ -342,6 +343,16 @@ pub enum Pruning {
     Conservative,
 }
 
+/// The text a [`Candidate::FoldedContains`] searches.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Haystack {
+    /// The record's path. Its name, basename, folder and extension are
+    /// substrings of it.
+    Path,
+    /// A top-level persisted frontmatter field.
+    Field(String),
+}
+
 /// The closed candidate predicate (provider-neutral; no SQL).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Candidate {
@@ -375,6 +386,23 @@ pub enum Candidate {
     /// key space of the link index). Necessary for `file.hasLink(link("x"))`
     /// and `"x" in file.links`; never sufficient.
     LinksTo(Vec<crate::links::LinkKey>),
+    /// `text` contains `needle` once both are folded
+    /// ([`folded_contains`]; `needle` is stored folded). Necessary for
+    /// `x.contains(lit)` and `x.lower().contains(lit)` where `x` is
+    /// `file.path`, a part of it (`file.name`, `file.basename`, `file.folder`,
+    /// `file.ext`) or a top-level field no type gives a read default or
+    /// declares a date-time; never sufficient.
+    ///
+    /// A store tests it on the record's path or on the stored value of the
+    /// field. Only a text value can satisfy it: `contains` and `lower()` are
+    /// defined on strings alone, so a missing, null, numeric, boolean, list or
+    /// map value is an evaluation error, which excludes the record.
+    FoldedContains {
+        /// What is searched.
+        text: Haystack,
+        /// The folded literal.
+        needle: String,
+    },
     /// The body contains `text` (case-insensitively when set: CEL `lower()`
     /// is full Unicode lower-casing). Necessary for `file.body.contains(..)`;
     /// never sufficient. A store that cannot test it exactly (for example an

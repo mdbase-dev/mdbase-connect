@@ -138,8 +138,11 @@ pub fn core_where(c: &CoreCandidate, p: &mut Params) -> (String, bool) {
             value,
             pruning,
         } => compare(field, *op, value, *pruning, p),
-        // Not pushed down yet (link-index and full-text terms); conservative.
-        CoreCandidate::LinksTo(_) | CoreCandidate::BodyContains { .. } => ("TRUE".into(), false),
+        // Not pushed down (link-index and full-text terms; a folded substring
+        // would need the core's fold in SQL, a second definition); conservative.
+        CoreCandidate::LinksTo(_)
+        | CoreCandidate::BodyContains { .. }
+        | CoreCandidate::FoldedContains { .. } => ("TRUE".into(), false),
     }
 }
 

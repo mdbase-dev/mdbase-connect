@@ -13,6 +13,8 @@ use mdbn_wire::intent::{
 };
 use mdbn_wire::snapshot::{EntityKind, TextOrBlob};
 
+use mdbn_core::query::Haystack;
+
 use crate::store::{
     AliasRow, Candidate, ConflictRow, FileLocal, FileRow, Head, LocalReceipt, Page, PendingRow,
     Prune, ReceiptRow, RecordMeta, RecordRow, Store, TailRow, TailStats, TombstoneLast,
@@ -671,7 +673,11 @@ fn candidates(s: &mut dyn Store) {
     for n in 1..=20u64 {
         let mut r = record(
             n,
-            &format!("{}/{n}.md", if n % 2 == 0 { "even" } else { "odd" }),
+            &format!(
+                "{}/{n}{}.md",
+                if n % 2 == 0 { "even" } else { "odd" },
+                if n % 4 == 0 { " Été" } else { "" }
+            ),
             "x",
         );
         r.meta.types = vec![if n % 3 == 0 {
@@ -683,6 +689,19 @@ fn candidates(s: &mut dyn Store) {
             "n".into(),
             Value::Int(i64::try_from(n % 4).unwrap()),
         )]);
+        // A title that is text in mixed case, text with a final sigma, a
+        // number, a list holding the text, or missing.
+        let title = match n % 5 {
+            1 => Some(Value::Text("Café Été".into())),
+            2 => Some(Value::Text("ΟΔΟΣ".into())),
+            3 => Some(Value::Int(7)),
+            4 => Some(Value::List(vec![Value::Text("café".into())])),
+            _ => None,
+        };
+        r.meta
+            .effective
+            .0
+            .extend(title.map(|title| ("title".into(), title)));
         r.meta.tags = if n % 5 == 0 {
             vec!["five".into()]
         } else {
@@ -709,6 +728,19 @@ fn candidates(s: &mut dyn Store) {
             Candidate::InFolder("odd".into()),
         ]),
         Candidate::Or(vec![eq_n(0), Candidate::HasType("task".into())]),
+        folded(Haystack::Path, "été"),
+        folded(Haystack::Path, "odd/1"),
+        folded(Haystack::Field("title".into()), "caf"),
+        folded(Haystack::Field("title".into()), "οσ"),
+        folded(Haystack::Field("absent".into()), ""),
+        Candidate::Or(vec![
+            folded(Haystack::Path, "été"),
+            folded(Haystack::Field("title".into()), "été"),
+        ]),
+        Candidate::And(vec![
+            Candidate::HasType("note".into()),
+            folded(Haystack::Field("title".into()), "δ"),
+        ]),
     ];
     for c in cases {
         let got = s.candidates(&c, all()).unwrap();
@@ -722,19 +754,30 @@ fn candidates(s: &mut dyn Store) {
                 );
             }
         }
-        // Paging composes.
-        if let Some(first) = got.first() {
-            let rest = s
-                .candidates(
-                    &c,
-                    Page {
-                        after: Some(first.id),
-                        limit: u32::MAX,
-                    },
-                )
-                .unwrap();
-            assert_eq!(rest.len(), got.len() - 1, "{c:?}: paging");
+        // Paging composes, and only the last page is short.
+        let mut paged = Vec::new();
+        let mut after = None;
+        loop {
+            let page = s.candidates(&c, Page { after, limit: 3 }).unwrap();
+            assert!(page.len() <= 3, "{c:?}: page limit");
+            let last = page.len() < 3;
+            after = page.last().map(|r| r.id).or(after);
+            paged.extend(page.into_iter().map(|r| r.id));
+            if last {
+                let next = s.candidates(&c, Page { after, limit: 3 }).unwrap();
+                assert!(next.is_empty(), "{c:?}: a short page is the last");
+                break;
+            }
         }
+        let ids: Vec<_> = got.iter().map(|r| r.id).collect();
+        assert_eq!(paged, ids, "{c:?}: paging");
+    }
+}
+
+fn folded(text: Haystack, needle: &str) -> Candidate {
+    Candidate::FoldedContains {
+        text,
+        needle: needle.into(),
     }
 }
 

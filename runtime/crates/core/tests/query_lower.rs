@@ -7,7 +7,8 @@
 )]
 
 use mdbn_core::query::{
-    self, Candidate, CompareOp, FieldRef, Pruning, Query, QueryEnv, QueryRecord, Verdict,
+    self, Candidate, CompareOp, FieldRef, Haystack, Pruning, Query, QueryEnv, QueryRecord, Verdict,
+    folded_contains,
 };
 use mdbn_core::types::Catalog;
 use mdbn_core::value::{Map, Value};
@@ -65,6 +66,12 @@ fn holds(c: &Candidate, path: &str, types: &[String], fm: &Map) -> bool {
         },
         Candidate::Compare { .. } => true,
         Candidate::LinksTo(_) | Candidate::BodyContains { .. } => true,
+        Candidate::FoldedContains { text, needle } => match text {
+            Haystack::Path => folded_contains(path, needle),
+            Haystack::Field(field) => {
+                matches!(fm.get(field), Some(Value::Text(s)) if folded_contains(s, needle))
+            }
+        },
     }
 }
 
@@ -117,16 +124,140 @@ fn atom(r: &mut Rng) -> String {
     }
 }
 
-fn expr(r: &mut Rng, depth: u32) -> String {
+type Atom = fn(&mut Rng) -> String;
+
+fn expr(r: &mut Rng, depth: u32, atom: Atom) -> String {
     if depth == 0 || r.next().is_multiple_of(3) {
         return atom(r);
     }
     match r.next() % 4 {
-        0 => format!("({} && {})", expr(r, depth - 1), expr(r, depth - 1)),
-        1 => format!("({} || {})", expr(r, depth - 1), expr(r, depth - 1)),
-        2 => format!("!({})", expr(r, depth - 1)),
+        0 => format!(
+            "({} && {})",
+            expr(r, depth - 1, atom),
+            expr(r, depth - 1, atom)
+        ),
+        1 => format!(
+            "({} || {})",
+            expr(r, depth - 1, atom),
+            expr(r, depth - 1, atom)
+        ),
+        2 => format!("!({})", expr(r, depth - 1, atom)),
         _ => format!("({} ? {} : {})", atom(r), atom(r), atom(r)),
     }
+}
+
+/// A substring search in every form the lowering reads or must leave alone:
+/// exact and lower-cased, over the path, its parts and fields that are
+/// persisted, read-defaulted (`priority`), nested or not text, bare and under
+/// the guards real queries write. One time in four, a comparison instead.
+fn search_atom(r: &mut Rng) -> String {
+    let receiver = r.pick(&[
+        "file.path",
+        "file.name",
+        "file.basename",
+        "file.folder",
+        "file.ext",
+        "title",
+        "raw.title",
+        "record.title",
+        "url",
+        "priority",
+        "record.priority",
+        "meta.title",
+        "n",
+    ]);
+    let needle = r.pick(&[
+        "caf",
+        "CAF",
+        "é",
+        "É",
+        "ς",
+        "σ",
+        "Σ",
+        "οσ",
+        "ος",
+        "ΟΣ",
+        "i\u{307}s",
+        "İ",
+        "ist",
+        "ss",
+        "ß",
+        "k",
+        "\u{212a}",
+        "passport",
+        "lo",
+        "",
+        ".md",
+        "TASKS",
+        "tasks/",
+    ]);
+    let field = r.pick(&["title", "url", "priority", "n"]);
+    match r.next() % 8 {
+        0 | 1 => atom(r),
+        2 => format!("{receiver}.contains(\"{needle}\")"),
+        3 => format!("{receiver}.upper().contains(\"{needle}\")"),
+        4 => format!("(\"{field}\" in record && record.{field}.lower().contains(\"{needle}\"))"),
+        5 => format!("({field} != null && {field}.lower().contains(\"{needle}\"))"),
+        _ => format!("{receiver}.lower().contains(\"{needle}\")"),
+    }
+}
+
+/// Records for the search atoms: mixed-case and non-ASCII paths, and fields
+/// that are missing, null, not text, nested, or text in mixed case.
+fn search_record(r: &mut Rng) -> (String, Map) {
+    let path = r
+        .pick(&[
+            "tasks/Café Été.md",
+            "tasks/a/İstanbul.md",
+            "tasks/passport.MD",
+            "notes/ΟΔΟΣ.md",
+            "notes/straße \u{212a}.md",
+            "Other/ΟΔΟΣ ΟΣ.txt",
+        ])
+        .to_owned();
+    let mut m = Map::new();
+    for key in ["title", "url", "priority", "n", "status", "due"] {
+        let text = r.pick(&[
+            "Café",
+            "CAFÉ ÉTÉ",
+            "ΟΔΟΣ",
+            "οδος",
+            "οδοσ α",
+            "İstanbul",
+            "istanbul",
+            "STRASSE",
+            "straße",
+            "Passport Renewal",
+            "\u{212a}elvin",
+            "low",
+            "open",
+            "",
+        ]);
+        match r.next() % 8 {
+            0 => {}
+            1 => {
+                m.insert(key, Value::Null);
+            }
+            2 => {
+                m.insert(key, Value::Int(1));
+            }
+            3 => {
+                m.insert(key, Value::List(vec![Value::string(text)]));
+            }
+            _ => {
+                m.insert(key, Value::string(text));
+            }
+        }
+    }
+    if r.next().is_multiple_of(2) {
+        let mut meta = Map::new();
+        meta.insert(
+            "title",
+            Value::string(r.pick(&["Café", "ΟΔΟΣ", "passport"])),
+        );
+        m.insert("meta", Value::Map(meta));
+    }
+    (path, m)
 }
 
 fn record(r: &mut Rng) -> (String, Map) {
@@ -155,25 +286,37 @@ fn record(r: &mut Rng) -> (String, Map) {
     (path, m)
 }
 
-#[test]
-fn candidates_are_necessary_and_exact_plans_are_sufficient() {
+/// What a run of generated plans and records showed.
+#[derive(Default)]
+struct Seen {
+    exact_plans: u32,
+    /// Records the residual matched.
+    matched: u32,
+    /// Records the candidate rejected.
+    pruned: u32,
+}
+
+/// For generated `where` clauses and records: a record the residual matches
+/// always satisfies the candidate, and an exact plan's candidate is the
+/// residual.
+fn check(seeds: u64, atom: Atom, record: fn(&mut Rng) -> (String, Map)) -> Seen {
     let catalog = Catalog::load(TYPES.iter().copied());
     let env = QueryEnv {
         now_ms: 0,
         tz: "UTC".into(),
         today: "2026-01-01".into(),
     };
-    let mut exact_plans = 0;
-    for seed in 0..2_000u64 {
+    let mut seen = Seen::default();
+    for seed in 0..seeds {
         let mut r = Rng(seed);
-        let src = expr(&mut r, 3);
+        let src = expr(&mut r, 3, atom);
         let mut q = Query::default();
         q.where_ = Some(src.clone());
         if r.next().is_multiple_of(3) {
             q.types = vec!["task".into()];
         }
         let plan = query::compile(&q, &catalog).expect(&src);
-        exact_plans += u32::from(plan.exact);
+        seen.exact_plans += u32::from(plan.exact);
         for _ in 0..20 {
             let (path, fm) = record(&mut r);
             let types = catalog.membership(&path, &fm).types;
@@ -196,12 +339,112 @@ fn candidates_are_necessary_and_exact_plans_are_sufficient() {
                     "exact plan disagrees: `{src}` on {path} {fm:?}"
                 );
             }
+            seen.matched += u32::from(matched);
+            seen.pruned += u32::from(!cand);
         }
     }
+    seen
+}
+
+#[test]
+fn candidates_are_necessary_and_exact_plans_are_sufficient() {
+    let seen = check(2_000, atom, record);
     assert!(
-        exact_plans > 50,
-        "only {exact_plans} exact plans; the generator is too weak"
+        seen.exact_plans > 50,
+        "only {} exact plans; the generator is too weak",
+        seen.exact_plans
     );
+}
+
+/// The same property where the atoms are substring searches: the folded
+/// candidate never rejects a record the evaluator accepts, whatever the case,
+/// script, guard, combination or stored value.
+#[test]
+fn substring_search_candidates_are_necessary() {
+    let seen = check(4_000, search_atom, search_record);
+    assert!(
+        seen.matched > 2_000 && seen.pruned > 10_000,
+        "{} matches and {} pruned records; the generator is too weak",
+        seen.matched,
+        seen.pruned
+    );
+}
+
+fn candidate_of(where_: &str) -> Candidate {
+    let catalog = Catalog::load(TYPES.iter().copied());
+    let q = Query {
+        where_: Some(where_.into()),
+        ..Query::default()
+    };
+    query::compile(&q, &catalog).expect(where_).candidate
+}
+
+fn folded(text: Haystack, needle: &str) -> Candidate {
+    Candidate::FoldedContains {
+        text,
+        needle: needle.into(),
+    }
+}
+
+/// The searches the apps send, and the forms that must stay unlowered.
+#[test]
+fn substring_searches_lower_to_folded_contains() {
+    let title = || Haystack::Field("title".into());
+    // TaskNotes record completion.
+    assert_eq!(
+        candidate_of(
+            "file.path.lower().contains(\"café\") || (\"title\" in record && record.title.lower().contains(\"café\"))"
+        ),
+        Candidate::Or(vec![
+            folded(Haystack::Path, "café"),
+            folded(title(), "café")
+        ])
+    );
+    // Reader find-by-URL.
+    assert_eq!(
+        candidate_of(
+            "(url != null && url.lower().contains(\"example.com/a\")) || (original_url != null && original_url.lower().contains(\"example.com/a\"))"
+        ),
+        Candidate::Or(vec![
+            folded(Haystack::Field("url".into()), "example.com/a"),
+            folded(Haystack::Field("original_url".into()), "example.com/a"),
+        ])
+    );
+    // The MCP skill's title search.
+    assert_eq!(
+        candidate_of("title.lower().contains(\"passport\")"),
+        folded(title(), "passport")
+    );
+    // The exact form: every part of the path is searched in the path, and the
+    // literal is folded, final sigma included.
+    for part in ["path", "name", "basename", "folder", "ext"] {
+        assert_eq!(
+            candidate_of(&format!("file.{part}.contains(\"Willow ΟΣ\")")),
+            folded(Haystack::Path, "willow οσ")
+        );
+    }
+    assert_eq!(
+        candidate_of("raw.title.contains(\"A\")"),
+        folded(title(), "a")
+    );
+    // Not lowered: a read-defaulted field (its stored value is not what the
+    // evaluator reads), a nested field, a non-literal needle, another
+    // transform, a negation, and a disjunction with an unlowered side.
+    for unlowered in [
+        "priority.lower().contains(\"lo\")",
+        "record.priority.contains(\"lo\")",
+        "meta.title.lower().contains(\"a\")",
+        "title.contains(status)",
+        "title.contains(1)",
+        "title.upper().contains(\"A\")",
+        "title.lower().lower().contains(\"a\")",
+        "!title.contains(\"a\")",
+        "title.contains(\"a\") || n > 1",
+        "this.title.contains(\"a\")",
+        "projection.title.contains(\"a\")",
+    ] {
+        assert_eq!(candidate_of(unlowered), Candidate::All, "{unlowered}");
+    }
 }
 
 #[test]

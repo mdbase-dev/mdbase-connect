@@ -43,6 +43,7 @@ pub mod template;
 pub mod time;
 mod value;
 
+pub(crate) use eval::lower;
 pub use eval::{Activation, Clock, LinkHost};
 pub use parse::References;
 

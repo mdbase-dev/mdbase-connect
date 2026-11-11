@@ -212,9 +212,8 @@ impl QueryState<'_> {
             if page.len() > limit as usize {
                 return Err(ErrorCode::Internal.err("invalid query size page"));
             }
-            if page.is_empty() {
-                break;
-            }
+            // A page shorter than its limit is the last of either source.
+            let more = page.len() == limit as usize;
             for id in page {
                 if after.is_some_and(|after| id <= after) {
                     return Err(ErrorCode::Internal.err("invalid query size frontier"));
@@ -226,6 +225,9 @@ impl QueryState<'_> {
                     }
                     ids.insert(convert::uuid(&id));
                 }
+            }
+            if !more {
+                break;
             }
         }
         for (id, change) in self.view.layer.record_changes() {

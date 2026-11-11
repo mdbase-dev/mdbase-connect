@@ -613,6 +613,17 @@ fn is_num(v: &CelValue) -> bool {
     )
 }
 
+/// CEL `lower()`: full Unicode lower-casing ([`str::to_lowercase`]). It is not
+/// ASCII-only (`É` becomes `é`, `İ` becomes `i` and a combining dot) and it is
+/// not case folding (`ß` and `ſ` stay as they are). One character depends on
+/// its neighbours: `Σ` becomes `ς` at the end of a word and `σ` elsewhere.
+///
+/// The query candidate folds text through this same function
+/// ([`crate::query::folded_contains`]), so there is one definition.
+pub(crate) fn lower(s: &str) -> String {
+    s.to_lowercase()
+}
+
 fn call(func: &str, target: Option<&CelValue>, args: &[CelValue], clock: &Clock) -> R {
     use CelValue as V;
     // Receiver-style calls become (target, args...).
@@ -635,7 +646,7 @@ fn call(func: &str, target: Option<&CelValue>, args: &[CelValue], clock: &Clock)
             Ok(p) => Ok(V::Bool(p.is_match(s))),
             Err(e) => err(e.to_string()),
         },
-        ("lower", [V::String(s)]) if target.is_some() => Ok(V::String(Arc::from(s.to_lowercase()))),
+        ("lower", [V::String(s)]) if target.is_some() => Ok(V::String(Arc::from(lower(s)))),
         ("upper", [V::String(s)]) if target.is_some() => Ok(V::String(Arc::from(s.to_uppercase()))),
         ("dyn", [v]) if target.is_none() => Ok((*v).clone()),
         ("type", [v]) if target.is_none() => Ok(V::string(v.type_name())),
