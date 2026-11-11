@@ -1110,7 +1110,8 @@ pub trait Store {
     fn referrers(&self, target_keys: &[String]) -> StoreResult<Vec<Uuid>>;
     /// Records holding `value_key` in a `unique.enforce` field, by ID.
     fn unique_holders(&self, field: &str, value_key: &str) -> StoreResult<Vec<Uuid>>;
-    /// Candidate records for a query, in ID order. May be a superset.
+    /// Candidate records for a query, in ID order. May be a superset. A page
+    /// shorter than `page.limit` is the last.
     fn candidates(&self, q: &Candidate, page: Page) -> StoreResult<Vec<RecordRow>>;
 
     /// Whether this store maintains the query index at all. Wrappers forward it.

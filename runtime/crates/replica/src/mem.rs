@@ -644,10 +644,10 @@ fn after_range<T>(
 }
 
 /// Does a record possibly satisfy a candidate? Exact for types and folders, and for
-/// `Compare` with `Pruning::Exact` and `==`/`!=` on scalar fields; conservative
-/// (true) for everything else.
+/// `Compare` with `Pruning::Exact` and `==`/`!=` on scalar fields; the folded
+/// substring test for `FoldedContains`; conservative (true) for everything else.
 pub fn candidate_matches(c: &Candidate, r: &RecordRow) -> bool {
-    use mdbn_core::query::{CompareOp, FieldRef, Pruning};
+    use mdbn_core::query::{CompareOp, FieldRef, Haystack, Pruning, folded_contains};
     match c {
         Candidate::All => true,
         Candidate::None => false,
@@ -667,6 +667,15 @@ pub fn candidate_matches(c: &Candidate, r: &RecordRow) -> bool {
         }),
         // Necessary only; the residual decides.
         Candidate::BodyContains { .. } => true,
+        // Only text can satisfy it: `contains` and `lower()` have no overload
+        // for a missing, null, numeric, boolean, list or map value.
+        Candidate::FoldedContains { text, needle } => match text {
+            Haystack::Path => folded_contains(&r.path, needle),
+            Haystack::Field(field) => matches!(
+                r.meta.effective.get(field),
+                Some(mdbn_wire::common::Value::Text(s)) if folded_contains(s, needle)
+            ),
+        },
         Candidate::Compare {
             field,
             op,

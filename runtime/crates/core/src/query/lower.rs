@@ -6,7 +6,8 @@
 //! negation from being lowered at all. The result is also **sufficient**
 //! (`complete`) only when every leaf is one a store evaluates exactly:
 //! [`Candidate::HasType`], [`Candidate::InFolder`], or `==`/`!=` with
-//! [`Pruning::Exact`].
+//! [`Pruning::Exact`]. A substring search lowers to
+//! [`Candidate::FoldedContains`], which is necessary only.
 //!
 //! **Effective vs persisted.** A bare field (`status`) reads the effective
 //! value. When no type declares a read default for it, effective equals
@@ -18,7 +19,7 @@
 
 use std::collections::BTreeSet;
 
-use super::{Candidate, CompareOp, FieldRef, Pruning};
+use super::{Candidate, CompareOp, FieldRef, Haystack, Pruning};
 use crate::cel::CelValue;
 use crate::cel::ast::{BinOp, Expr};
 use crate::value::Value;
@@ -151,12 +152,13 @@ impl Lowerer<'_> {
                 target: Some(t),
                 func,
                 args,
-            } if func == "contains" => match (self.field(t), args.as_slice()) {
-                (Some(field), [Expr::Lit(v)]) => match literal(v) {
-                    Some(value) => {
-                        compare_term(field, CompareOp::Contains, value, Pruning::Conservative)
-                    }
-                    None => Lowered::all(),
+            } if func == "contains" => match (self.haystack(t), args.as_slice()) {
+                (Some(text), [Expr::Lit(CelValue::String(lit))]) => Lowered {
+                    candidate: Candidate::FoldedContains {
+                        text,
+                        needle: fold(lit),
+                    },
+                    complete: false,
                 },
                 _ => Lowered::all(),
             },
@@ -234,6 +236,32 @@ impl Lowerer<'_> {
         }
     }
 
+    /// The stored text a `contains` receiver reads: `x` or `x.lower()`, where
+    /// `x` is the path, a part of the path, or a top-level field whose
+    /// evaluated value is its persisted value ([`Lowerer::field`]: no read
+    /// default, no date-time declaration). Nested fields are not lowered:
+    /// stores test top-level values only.
+    fn haystack(&self, e: &Expr) -> Option<Haystack> {
+        let e = match e {
+            Expr::Call {
+                target: Some(t),
+                func,
+                args,
+            } if func == "lower" && args.is_empty() => t,
+            e => e,
+        };
+        if PATH_PARTS.iter().any(|part| is_file_member(e, part)) {
+            return Some(Haystack::Path);
+        }
+        match self.field(e)? {
+            FieldRef::Persisted(path) => match <[String; 1]>::try_from(path) {
+                Ok([field]) => Some(Haystack::Field(field)),
+                Err(_) => None,
+            },
+            _ => None,
+        }
+    }
+
     fn possibly_timestamp(&self, field: &FieldRef) -> bool {
         let path = match field {
             FieldRef::Effective(path) | FieldRef::Persisted(path) => path,
@@ -255,6 +283,31 @@ impl Lowerer<'_> {
             FieldRef::Persisted(path)
         }
     }
+}
+
+/// The `file` members that are the path or a contiguous slice of it
+/// ([`super::file_value`]).
+const PATH_PARTS: &[&str] = &["path", "name", "basename", "folder", "ext"];
+
+/// The folding of [`Candidate::FoldedContains`]: CEL `lower()` (the
+/// evaluator's own [`crate::cel::lower`]), then final sigma `ς` written `σ`.
+///
+/// `lower()` maps each character on its own except `Σ`, which becomes `ς` at
+/// the end of a word and `σ` elsewhere. Writing both as `σ` removes that one
+/// dependence on neighbouring characters, so
+/// `fold(a + b) == fold(a) + fold(b)`; and lower-casing twice changes
+/// nothing, so `fold(lower(s)) == fold(s)`. Therefore `s.contains(t)` and
+/// `s.lower().contains(t)` each imply `fold(s).contains(fold(t))`: the folded
+/// test never rejects text the evaluator accepts. It may keep text the
+/// evaluator rejects (`"ABC".contains("abc")`), which the residual settles.
+fn fold(s: &str) -> String {
+    crate::cel::lower(s).replace('ς', "σ")
+}
+
+/// Whether `text` contains the already folded `needle` of a
+/// [`Candidate::FoldedContains`].
+pub fn folded_contains(text: &str, needle: &str) -> bool {
+    fold(text).contains(needle)
 }
 
 /// `file.<member>`.
@@ -409,5 +462,54 @@ pub(super) fn and(a: Candidate, b: Candidate) -> Candidate {
         0 => Candidate::All,
         1 => terms.pop().unwrap_or(Candidate::All),
         _ => Candidate::And(terms),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{fold, folded_contains};
+    use crate::cel::lower;
+
+    /// The two facts the candidate's necessity rests on, for every character of
+    /// the toolchain's Unicode tables: a character folds the same whatever
+    /// stands next to it (so folding distributes over concatenation), and
+    /// folding lower-cased text is folding the text.
+    #[test]
+    fn fold_distributes_over_concatenation_and_absorbs_lower() {
+        for c in (0..=u32::from(char::MAX)).filter_map(char::from_u32) {
+            let alone = fold(&c.to_string());
+            for (before, after) in [("a", ""), ("", "a"), ("Σ", "Σ"), ("a ", " a")] {
+                assert_eq!(
+                    fold(&format!("{before}{c}{after}")),
+                    format!("{}{alone}{}", fold(before), fold(after)),
+                    "{c:?} between {before:?} and {after:?}"
+                );
+            }
+            assert_eq!(fold(&lower(&c.to_string())), alone, "{c:?}");
+        }
+    }
+
+    /// What `lower()` does to text that is not ASCII, and what the fold adds.
+    #[test]
+    fn fold_is_lower_with_one_sigma() {
+        assert_eq!(lower("CAFÉ Été"), "café été");
+        // Final sigma depends on position in `lower()` and not in the fold.
+        assert_eq!(lower("ΟΔΟΣ ΟΣΑ"), "οδος οσα");
+        assert_eq!(fold("ΟΔΟΣ ΟΣΑ"), "οδοσ οσα");
+        assert_eq!(fold("οδος"), fold("ΟΔΟΣ"));
+        // Full lower-casing, not ASCII-only and not case folding.
+        assert_eq!(lower("İstanbul"), "i\u{307}stanbul");
+        assert_eq!(lower("\u{212a}elvin"), "kelvin");
+        assert_eq!(lower("Straße ſ"), "straße ſ");
+
+        // Exact and lower-cased searches both keep the text.
+        let text = "Notes/ΟΔΟΣ Café.md";
+        assert!(text.contains("ΟΣ") && folded_contains(text, &fold("ΟΣ")));
+        assert!(lower(text).contains("ος caf") && folded_contains(text, &fold("ος caf")));
+        assert!(lower(text).contains("café") && folded_contains(text, &fold("café")));
+        // A superset, not the answer: the evaluator rejects this one.
+        assert!(!text.contains("café") && folded_contains(text, &fold("café")));
+        assert!(!folded_contains(text, &fold("cafe")));
+        assert!(!folded_contains("İstanbul", &fold("ist")));
     }
 }

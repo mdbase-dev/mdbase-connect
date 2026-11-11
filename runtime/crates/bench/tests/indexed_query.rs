@@ -211,6 +211,24 @@ fn create(n: u32, path: &str, doc: String) -> Op {
     })
 }
 
+/// Set one frontmatter field of record `n`.
+fn set(n: u32, field: &str, value: Value) -> Op {
+    Op::Update(mdbn_wire::intent::Update {
+        id: id(n),
+        patch: Some(mdbn_wire::common::DataMap(vec![(field.into(), value)])),
+        unset: None,
+        add: None,
+        remove: None,
+        body: None,
+        body_edits: None,
+        body_base: None,
+        body_base_text: None,
+        base: None,
+        if_revision: None,
+        update_refs: None,
+    })
+}
+
 fn submit(node: &mut Node, ops: Vec<Op>) {
     let receipts = node
         .r
@@ -261,6 +279,11 @@ fn seed(node: &mut Node, count: u32) {
 }
 
 fn seed_with(node: &mut Node, count: u32, document: fn(u32) -> String) {
+    seed_notes(node, count, |i| (format!("tasks/t{i:05}.md"), document(i)));
+}
+
+/// Seed `count` records, each at the path and with the document `note` gives.
+fn seed_notes(node: &mut Node, count: u32, note: impl Fn(u32) -> (String, String)) {
     submit(
         node,
         vec![Op::ResourcePut(ResourcePut {
@@ -274,7 +297,10 @@ fn seed_with(node: &mut Node, count: u32, document: fn(u32) -> String) {
     let mut n = 1;
     while n <= count {
         let ops = (n..(n + 100).min(count + 1))
-            .map(|i| create(i, &format!("tasks/t{i:05}.md"), document(i)))
+            .map(|i| {
+                let (path, document) = note(i);
+                create(i, &path, document)
+            })
             .collect();
         submit(node, ops);
         node.pump();
@@ -710,7 +736,7 @@ fn per_record_queries_read_each_row_once_and_none_by_id() {
             q(&[types.clone(), ("order_by", order("priority", "asc"))]),
             300,
         ),
-        // A name search has no index: every record is evaluated, ten match.
+        // A name search has no index: every row is decoded, ten match.
         (
             q(&[("where", Value::Text("file.name.contains(\"t0001\")".into()))]),
             10,
@@ -787,23 +813,7 @@ fn per_record_windows_are_slices_of_the_whole_answer() {
         &mut node,
         vec![
             create(9001, "tasks/t09001.md", task(9001)),
-            Op::Update(mdbn_wire::intent::Update {
-                id: id(150),
-                patch: Some(mdbn_wire::common::DataMap(vec![(
-                    "priority".into(),
-                    Value::Int(-1),
-                )])),
-                unset: None,
-                add: None,
-                remove: None,
-                body: None,
-                body_edits: None,
-                body_base: None,
-                body_base_text: None,
-                base: None,
-                if_revision: None,
-                update_refs: None,
-            }),
+            set(150, "priority", Value::Int(-1)),
         ],
     );
     // `contains` has no index, so these stay on the per-record path with a limit.
@@ -847,6 +857,381 @@ fn per_record_windows_are_slices_of_the_whole_answer() {
             assert!(page.cursor.is_none());
         }
     }
+}
+
+/// A note for the search tests. Paths and titles are in mixed case and in
+/// other scripts; `title`, `url` and `original_url` are each missing, null, a
+/// number, a list, or text.
+fn search_note(n: u32) -> (String, String) {
+    let path = match n % 6 {
+        0 => format!("tasks/Café {n}.md"),
+        1 => format!("tasks/ΟΔΟΣ {n}.md"),
+        2 => format!("Notes/İstanbul {n}.md"),
+        3 => format!("notes/passport-{n}.md"),
+        4 => format!("Reading/Willow {n}.md"),
+        _ => format!("tasks/t{n:05}.md"),
+    };
+    let title = match n % 7 {
+        1 => format!("title: Passport Renewal {n}\n"),
+        2 => "title: CAFÉ été\n".to_string(),
+        3 => "title: 42\n".to_string(),
+        4 => "title: [Café, passport]\n".to_string(),
+        5 => format!("title: ΟΔΟΣ {n}\n"),
+        6 => "title: null\n".to_string(),
+        _ => String::new(),
+    };
+    let url = match n % 5 {
+        1 => format!("url: https://Example.com/Article/{n}\n"),
+        2 => "url: 7\n".to_string(),
+        3 => format!("original_url: https://example.com/article/{n}\n"),
+        4 => {
+            format!("url: https://example.org/{n}\noriginal_url: https://EXAMPLE.com/ARTICLE/{n}\n")
+        }
+        _ => String::new(),
+    };
+    (
+        path,
+        format!("---\n{title}{url}status: open\n---\nNote {n}\n"),
+    )
+}
+
+/// TaskNotes' record completion (`searchRecords`): path or title, lower-cased.
+fn tasknotes_search(text: &str) -> String {
+    format!(
+        "file.path.lower().contains(\"{text}\") || (\"title\" in record && record.title.lower().contains(\"{text}\"))"
+    )
+}
+
+/// Reader's find-by-URL.
+fn reader_search(key: &str) -> String {
+    format!(
+        "(url != null && url.lower().contains(\"{key}\")) || (original_url != null && original_url.lower().contains(\"{key}\"))"
+    )
+}
+
+/// The same `where` in a form no candidate is derived from (a conditional is
+/// not lowered), so every record is parsed and evaluated: the reference answer.
+fn unpruned(where_: &str) -> String {
+    format!("({where_}) ? true : false")
+}
+
+/// The searches the apps send, answered through the folded candidate and
+/// through the full evaluation of every record, over notes in mixed case and
+/// other scripts with missing and non-text fields and with pending local
+/// edits: the same rows in the same order, `has_more` and cursor.
+#[test]
+fn substring_searches_answer_as_the_full_evaluation_does() {
+    let svc = FakeLogService::new();
+    let mut node = open(&svc, store("substring_search_equal"));
+    seed_notes(&mut node, 420, search_note);
+    // Pending local edits, not confirmed: new notes that match by path and by
+    // title, a title that starts to match (7) and one that stops (8), a rename
+    // into a matching path (10) and a matching note deleted (15).
+    submit(
+        &mut node,
+        vec![
+            create(
+                9001,
+                "tasks/Pending CAFÉ.md",
+                "---\nstatus: open\n---\n".into(),
+            ),
+            create(
+                9002,
+                "notes/pending.md",
+                "---\ntitle: Passport ΟΔΟΣ\nurl: https://example.com/article/9002\n---\n".into(),
+            ),
+            set(7, "title", Value::Text("Café Passport".into())),
+            set(8, "title", Value::Int(7)),
+            Op::Rename(mdbn_wire::intent::Rename {
+                id: id(10),
+                from: "Reading/Willow 10.md".into(),
+                to: "Archive/Renamed Café Passport.md".into(),
+                update_refs: false,
+                if_revision: None,
+            }),
+            Op::Delete(mdbn_wire::intent::Delete {
+                id: id(15),
+                base_revision: None,
+                if_revision: None,
+            }),
+        ],
+    );
+    let total = 421;
+
+    let searches: Vec<String> = [
+        "café",
+        "passport",
+        "ος",
+        "οσ",
+        "i\u{307}stanbul",
+        "willow 1",
+        "",
+        "zzz",
+    ]
+    .iter()
+    .map(|text| tasknotes_search(text))
+    .chain(
+        ["example.com/article/1", "article/42", "EXAMPLE", "example"]
+            .iter()
+            .map(|key| reader_search(key)),
+    )
+    // The MCP skill's title search.
+    .chain(
+        ["passport", "οδος", "οδοσ", "é"]
+            .iter()
+            .map(|text| format!("title.lower().contains(\"{text}\")")),
+    )
+    // The exact form.
+    .chain(
+        ["Willow", "willow", "Café", "ΟΣ", "t0001", "CAFÉ"]
+            .iter()
+            .map(|text| format!("file.name.contains(\"{text}\")")),
+    )
+    .collect();
+    let task = ("types", Value::List(vec![Value::Text("task".into())]));
+    let shapes: Vec<Vec<(&str, Value)>> = vec![
+        // TaskNotes' window, with and without a type.
+        vec![
+            ("order_by", order("file.path", "asc")),
+            ("limit", Value::Int(48)),
+        ],
+        vec![
+            task.clone(),
+            ("order_by", order("file.path", "asc")),
+            ("limit", Value::Int(48)),
+        ],
+        // Every match.
+        vec![],
+        vec![task],
+        // A later window in another order.
+        vec![
+            ("order_by", order("title", "desc")),
+            ("limit", Value::Int(5)),
+            ("offset", Value::Int(3)),
+        ],
+        // The projected path (`select`).
+        vec![
+            ("select", Value::List(vec![Value::Text("title".into())])),
+            ("order_by", order("file.path", "desc")),
+            ("limit", Value::Int(20)),
+        ],
+    ];
+    let (mut matched, mut skipped, mut more) = (0, 0, 0);
+    for where_ in &searches {
+        for shape in &shapes {
+            let mut answer = |where_: String| {
+                let mut query = shape.clone();
+                query.push(("where", Value::Text(where_)));
+                let before = node.r.query_stats();
+                let page = node.r.query(node.s, q(&query), none()).expect("query");
+                assert_eq!(node.r.query_stats().indexed, before.indexed, "{query:?}");
+                (page, node.r.query_stats().parsed - before.parsed)
+            };
+            let (pruned, parsed) = answer(where_.clone());
+            let (full, parsed_full) = answer(unpruned(where_));
+            assert_eq!(pruned.records, full.records, "{where_} {shape:?}");
+            assert_eq!(pruned.has_more, full.has_more, "{where_} {shape:?}");
+            assert_eq!(pruned.cursor, full.cursor, "{where_} {shape:?}");
+            assert_eq!(pruned.columns, full.columns, "{where_} {shape:?}");
+            assert!(parsed <= parsed_full, "{where_} {shape:?}");
+            matched += pruned.records.len();
+            skipped += parsed_full - parsed;
+            more += usize::from(pruned.has_more == Some(true));
+        }
+    }
+    // The comparison is of real answers: matches, windows with more behind
+    // them, and many records the candidate kept from being parsed.
+    assert!(
+        matched > 2_000 && more > 10 && skipped > 20_000,
+        "{matched} {more} {skipped}"
+    );
+
+    // The pending edits are in the answer, whatever the confirmed rows say.
+    let page = node
+        .r
+        .query(
+            node.s,
+            q(&[("where", Value::Text(tasknotes_search("passport")))]),
+            none(),
+        )
+        .unwrap();
+    let ids: Vec<B16> = page.records.iter().map(|r| r.id).collect();
+    for n in [9002, 7, 10] {
+        assert!(ids.contains(&id(n)), "pending match {n}");
+    }
+    for n in [8, 15] {
+        assert!(!ids.contains(&id(n)), "pending non-match {n}");
+    }
+    // Every record is parsed for the reference form, so it is the full scan.
+    let before = node.r.query_stats();
+    let all = q(&[("where", Value::Text(unpruned(&tasknotes_search("zzz"))))]);
+    assert!(
+        node.r
+            .query(node.s, all, none())
+            .unwrap()
+            .records
+            .is_empty()
+    );
+    assert_eq!(node.r.query_stats().parsed - before.parsed, total);
+}
+
+/// What a search costs at 1,000 notes: the statements run, the rows decoded
+/// and the records parsed. Every row is still decoded, once; only the rows
+/// whose path or stored fields can match are parsed. The reference form of
+/// the same search (no candidate) parses every record, as both searches did
+/// before the candidate; then each also ran one more statement (13 and 6),
+/// asking for a page after the last.
+#[test]
+fn a_substring_search_parses_only_the_records_that_can_match() {
+    let svc = FakeLogService::new();
+    let mut node = open(&svc, store("substring_search_counts"));
+    seed_notes(&mut node, 1000, search_note);
+    let completion = |where_: String| {
+        q(&[
+            ("where", Value::Text(where_)),
+            ("order_by", order("file.path", "asc")),
+            ("limit", Value::Int(48)),
+        ])
+    };
+    let name = "file.name.contains(\"Willow\")";
+    let cases = [
+        // (a) TaskNotes' record completion, and its reference form.
+        ("completion", completion(tasknotes_search("café")), 48),
+        (
+            "completion, no candidate",
+            completion(unpruned(&tasknotes_search("café"))),
+            48,
+        ),
+        // (b) The exact name search, and its reference form.
+        ("name", q(&[("where", Value::Text(name.into()))]), 167),
+        (
+            "name, no candidate",
+            q(&[("where", Value::Text(unpruned(name)))]),
+            167,
+        ),
+    ];
+    let mut seen = Vec::new();
+    for (case, query, matches) in cases {
+        let before = node.r.query_stats();
+        let (page, log) = counted(&mut node, query.clone());
+        let stats = node.r.query_stats();
+        assert_eq!(stats.declined, before.declined + 1, "{query:?}");
+        assert_eq!(page.records.len(), matches, "{query:?}");
+        assert_eq!(ran(&log, BY_ID).0, 0, "no read by id: {query:?}");
+        seen.push((
+            case,
+            log.len(),
+            ran(&log, SCAN).1,
+            stats.parsed - before.parsed,
+        ));
+    }
+    // Statements, rows decoded, records parsed.
+    assert_eq!(
+        seen,
+        [
+            ("completion", 12, 1000, 285),
+            ("completion, no candidate", 12, 1000, 1000),
+            ("name", 5, 1000, 167),
+            ("name, no candidate", 5, 1000, 1000),
+        ]
+    );
+}
+
+/// A budgeted host charges the records the store returns, not the rows it
+/// rejects: a selective search over more notes than the budget covers is
+/// answered, and a search every note can match is still refused.
+#[test]
+fn a_budgeted_host_answers_a_selective_search_and_refuses_a_broad_one() {
+    let svc = FakeLogService::new();
+    let mut node = open(&svc, store("substring_search_budget"));
+    seed_notes(&mut node, 1000, search_note);
+    node.r
+        .set_query_execution_profile(mdbn_replica::QueryExecutionProfile::MemoryConstrained);
+    let completion = |where_: String| {
+        q(&[
+            ("where", Value::Text(where_)),
+            ("order_by", order("file.path", "asc")),
+            ("limit", Value::Int(48)),
+        ])
+    };
+    let refused = |answer: Result<QueryResult, mdbn_replica::api::ApiError>| {
+        let e = answer.unwrap_err();
+        assert_eq!(e.code(), Some(mdbn_replica::ErrorCode::TooLarge));
+        assert_eq!(e.problem().reason.as_deref(), Some("query_budget_exceeded"));
+    };
+    // 286 of 1,000 notes can match: 572 source copies of the 1,000 allowed.
+    let selective = tasknotes_search("café");
+    let before = node.r.query_stats();
+    let (page, log) = counted(&mut node, completion(selective.clone()));
+    assert_eq!(page.records.len(), 48);
+    assert_eq!(page.has_more, Some(true));
+    let stats = node.r.query_stats();
+    assert_eq!(stats.declined, before.declined + 1);
+    assert_eq!(stats.parsed - before.parsed, 285);
+    // The store reads 512 rows at a time and returns 32 candidates a page, so
+    // rows after a page's last candidate are decoded again for the next page.
+    assert_eq!(ran(&log, SCAN).1, 3656, "rows decoded");
+    // Without the candidate the same search is over budget, as it was.
+    refused(
+        node.r
+            .query(node.s, completion(unpruned(&selective)), none()),
+    );
+    // Every path holds ".md", so every note is returned and charged.
+    refused(
+        node.r
+            .query(node.s, completion(tasknotes_search(".md")), none()),
+    );
+}
+
+/// A pending type change makes a record's types differ from the stored index
+/// entries, which follow the confirmed catalogue: the per-record path then
+/// asks the store for every row instead of trusting them.
+#[test]
+fn a_pending_type_change_is_answered_from_the_records_not_stored_types() {
+    let svc = FakeLogService::new();
+    let mut node = open(&svc, store("per_record_layered_catalog"));
+    seed_notes(&mut node, 60, search_note);
+    let tasks = q(&[("types", Value::List(vec![Value::Text("task".into())]))]);
+    let confirmed = node.r.query(node.s, tasks.clone(), none()).unwrap();
+    assert_eq!(confirmed.records.len(), 30);
+    assert!(
+        confirmed
+            .records
+            .iter()
+            .all(|r| r.path.starts_with("tasks/"))
+    );
+    // Not confirmed: tasks are now the notes under `Reading/`.
+    submit(
+        &mut node,
+        vec![Op::ResourcePut(ResourcePut {
+            path: "_types/task.md".into(),
+            doc: Text::Inline(TASK.replace("tasks/*.md", "Reading/*.md")),
+            base_revision: None,
+            must_not_exist: None,
+        })],
+    );
+    let pending = node.r.query(node.s, tasks.clone(), none()).unwrap();
+    assert_eq!(pending.records.len(), 10);
+    assert!(
+        pending
+            .records
+            .iter()
+            .all(|r| r.path.starts_with("Reading/"))
+    );
+    // The same holds for a search: its candidate reads stored entries too.
+    let mut search = vec![(
+        "where",
+        Value::Text("file.name.contains(\"Willow\")".into()),
+    )];
+    search.push(("types", Value::List(vec![Value::Text("task".into())])));
+    assert_eq!(
+        node.r
+            .query(node.s, q(&search), none())
+            .unwrap()
+            .records
+            .len(),
+        10
+    );
 }
 
 /// The indexed and per-record paths report the same view of each record, not

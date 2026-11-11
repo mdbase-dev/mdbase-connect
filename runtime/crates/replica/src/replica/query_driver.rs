@@ -194,6 +194,8 @@ pub struct QueryStats {
     pub failed: u64,
     /// Why the most recent declined query was declined.
     pub last_decline: Option<&'static str>,
+    /// Records the per-record path parsed to evaluate them.
+    pub parsed: u64,
 }
 
 /// A candidate in the final merge: confirmed (from the index) or layered.

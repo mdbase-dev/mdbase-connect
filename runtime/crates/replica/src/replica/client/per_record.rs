@@ -7,7 +7,7 @@ use std::cmp::Ordering;
 
 use mdbn_core::doc::Document;
 use mdbn_core::ids::RecordId;
-use mdbn_core::query::QueryPlan;
+use mdbn_core::query::{Candidate, QueryPlan};
 use mdbn_core::types::Catalog;
 use mdbn_core::value::Map;
 
@@ -126,7 +126,9 @@ impl<S: Store> Replica<S> {
     /// Candidates are the confirmed rows the layer does not override, then the
     /// layer's own records. A budgeted profile charges every source copy (each
     /// candidate row, then each record parsed) and pages small, so it stops near
-    /// the budget with an explicit error instead of a partial answer.
+    /// the budget with an explicit error instead of a partial answer. A row the
+    /// store's candidate test rejects is never returned, so it is neither
+    /// charged nor parsed.
     pub(super) fn per_record_window(
         &self,
         plan: &QueryPlan,
@@ -136,7 +138,7 @@ impl<S: Store> Replica<S> {
         include: &Include,
     ) -> ApiResult<(Vec<RecordView>, bool)> {
         let mut budget = self.fallback_budget();
-        let page_limit = if budget.is_some() { 32 } else { 1024 };
+        let page_limit: u32 = if budget.is_some() { 32 } else { 1024 };
         let mut matched = Matched::new(plan);
         let mut consider =
             |id: &Uuid, path: &str, doc: &Document, position: &dyn Fn() -> RecordPosition| {
@@ -155,22 +157,35 @@ impl<S: Store> Replica<S> {
                     parsed_record_view(catalog, id, path, doc, types, position(), pending, include);
                 matched.push(doc.frontmatter().clone(), view);
             };
+        // Stored index entries follow the confirmed catalogue. Under a layered
+        // one a record's types and path-stored values can differ from them, so
+        // the store returns every row and the evaluation alone decides.
+        let candidate = if self.layer.catalog_ref().is_some() {
+            &Candidate::All
+        } else {
+            &plan.candidate
+        };
+        let parsed = || {
+            let mut stats = self.query_stats.get();
+            stats.parsed += 1;
+            self.query_stats.set(stats);
+        };
         let mut after = None;
         loop {
             let page = self
                 .store
                 .candidates(
-                    &plan.candidate,
+                    candidate,
                     Page {
                         after,
                         limit: page_limit,
                     },
                 )
                 .map_err(store_err)?;
-            let Some(last) = page.last() else {
-                break;
-            };
-            after = Some(last.id);
+            // A page shorter than its limit is the last: asking again would
+            // have the store read every row after the last candidate twice.
+            let more = page.len() >= page_limit as usize;
+            after = page.last().map(|row| row.id);
             for row in page {
                 Self::charge_fallback(&mut budget, row.doc.len())?;
                 if self.layer.touches(&convert::uuid(&row.id)) {
@@ -178,8 +193,12 @@ impl<S: Store> Replica<S> {
                 }
                 Self::charge_fallback(&mut budget, row.doc.len())?;
                 let position = (row.modified_seq, row.mtime);
+                parsed();
                 let doc = Document::parse_at(&row.path, row.doc);
                 consider(&row.id, &row.path, &doc, &|| position);
+            }
+            if !more {
+                break;
             }
         }
         for id in self.layer.touched_ids() {
@@ -187,6 +206,7 @@ impl<S: Store> Replica<S> {
                 continue;
             };
             Self::charge_fallback(&mut budget, record.source.len())?;
+            parsed();
             let doc = Document::parse_at(&record.path, &*record.source);
             let id = convert::wuuid(&id);
             consider(&id, &record.path, &doc, &|| {
