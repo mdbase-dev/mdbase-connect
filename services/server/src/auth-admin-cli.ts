@@ -48,6 +48,7 @@ try {
     ...(emailTransport ? { emailTransport } : {}),
     ...(relayBroker
       ? {
+          relayBroker,
           connectorSessionFencer: {
             async fenceUser(userId: string) {
               const connectors = await db.query<{

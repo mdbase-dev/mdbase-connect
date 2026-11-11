@@ -3,6 +3,8 @@ import { usage } from "./features/instance-admin/auth-admin-usage.js";
 import { migrationExecutableSha256, repairAuthorityImportSources } from "./migrations.js";
 import type { DatabasePool } from "./db.js";
 import { compatibilityReport } from "./features/instance-admin/auth-admin-compatibility.js";
+import { diagnoseCollections } from "./features/instance-admin/collection-diagnostics.js";
+import type { RelayBroker } from "./features/relay/relay-broker.js";
 import { usageReport } from "./features/usage/usage-report.js";
 import { drainArchiveErasures } from "./features/instance-admin/archive-erasure-admin.js";
 import {
@@ -47,6 +49,7 @@ interface AuthAdminContext {
   hostedReplicaRevoker?: HostedReplicaRevoker;
   connectorSessionFencer?: ConnectorSessionFencer;
   hostedProvider?: HostedProviderClient;
+  relayBroker?: Pick<RelayBroker, "request">;
 }
 export async function runAuthAdminCommand(
   argv: string[],
@@ -140,6 +143,15 @@ async function runCommand(
   }
   if (area === "users" && action === "show") {
     return showUser(rest, context);
+  }
+  if (area === "collections" && action === "diagnose") {
+    const flags = parseFlags(rest, new Set(["user", "collection", "limit", "cursor"]));
+    return diagnoseCollections(context, {
+      user: requiredFlag(flags, "user"),
+      collection: flags.get("collection"),
+      limit: flags.get("limit"),
+      cursor: flags.get("cursor")
+    });
   }
   if (area === "users" && action === "suspend") {
     return suspendUser(rest, context);

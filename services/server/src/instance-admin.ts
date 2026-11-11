@@ -721,7 +721,7 @@ export class InstanceAdminService {
   }
 }
 
-async function resolveUserId(
+export async function resolveUserId(
   db: DatabaseQueryable,
   reference: string
 ): Promise<string> {

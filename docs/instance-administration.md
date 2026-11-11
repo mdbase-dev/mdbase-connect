@@ -41,6 +41,51 @@ invitation, or audit list. Policy history uses `next_before_revision`.
 operational metadata and counts; it never returns password hashes, session
 tokens, invitation tokens, provider credentials, or collection contents.
 
+### Collection availability diagnostics
+
+```bash
+pnpm --filter @mdbase/connect-server instance:admin -- collections diagnose --user USER_UUID
+pnpm --filter @mdbase/connect-server instance:admin -- collections diagnose --user USER_UUID --collection COLLECTION_UUID
+```
+
+This read-only support command lists **owned native collection metadata** (including
+deleted, left-sync and shadow rows), not collection contents. It does not inspect
+legacy-only registrations or collections shared by other owners. It defaults to
+10 collections, accepts `--limit 1` through `25`, and returns a UUID `next_cursor`
+for `--cursor`. `--collection` selects one owned UUID and cannot be combined with
+`--cursor`; a missing or another account's UUID returns the same not-found error.
+
+The database snapshot is enforced read-only. Current serving devices are selected
+by the same appended-enrolment/revocation rules as app routing; the same relay-owner
+`device_presence` probe and availability evaluation used by the chooser determine
+Private availability. No file operation, Noise pipe, policy push, authorization
+or key/grant reset runs. A missing broker or unexpected internal failure refuses
+the report instead of claiming a computer is offline.
+
+`account_registrations` includes connector/device UUIDs, versions, revocation and
+last-seen timestamps. These are **account inventory**, not proof every registration
+serves every listed collection or represents a distinct physical computer. Each
+collection's `devices` contains only its currently eligible serving associations.
+Revoked, obsolete-key or non-appended enrolments are not probed. Recent `last_seen_at`
+is not live presence. `presence: unreachable` means the owner could not confirm the
+device, not proof that the physical computer is powered off. `online`/`serving`
+describe relay eligibility, not app-specific authorization, file readiness or a
+successful end-to-end file read. Hosted replicas are explicitly `not_checked`.
+
+Reports refuse accounts exceeding 100 registrations or pages exceeding 100 presence
+probes, without returning partial inventories. For the latter, narrow `--collection`
+or `--limit`. The database snapshot and subsequent relay probes are timestamped
+observations, not an atomic view of a changing network. No tokens, public/private
+keys, local paths, scopes, records or files are returned. Treat account selectors
+and report UUIDs as private support data; never paste them into public issues.
+
+Managed-service use also requires the private ops wrapper to allow
+`collections diagnose` as a read command. That wrapper executes the exact deployed
+server build: merging this change or updating the wrapper alone does **not** install
+the command on LAB/staging/production. Use the normal approved release and
+qualification process; do not upload replacement production query code or use
+ad-hoc SQL. A diagnostic deployment is not a customer recovery fix.
+
 `entitlements show --user USER_UUID` reports the effective profiles, all grant
 history, the control-plane storage account, and provider usage without granting
 or provisioning anything. A new account may have `provider_revision: 0` and
