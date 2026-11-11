@@ -121,7 +121,11 @@ export async function backupCases({ base, token, transport, encode, decode, map,
     }
     ok(await call('append',map([[0,c],[1,start],[2,previous],[3,batch]]),true));
   }
-  if (compacted) ok(await call('put_snapshot',map([[0,c],[1,H],[2,manifestAddress],[3,[address]]]),true));
+  // Compaction never passes the older of the two retained snapshots (snapshot.md
+  // §5.1), so the older one is registered at 35, the position compacted through.
+  // Registering two more evicts the snapshot at 2.
+  const olderSnapshot = compacted ? 35 : 2;
+  if (compacted) for (const seq of [olderSnapshot, H]) ok(await call('put_snapshot',map([[0,c],[1,seq],[2,manifestAddress],[3,[address]]]),true));
   assert.equal((await fetch(`${base}/__test/age-aux-fixture`, { method: 'POST', body: JSON.stringify({ actor }) })).status, 200);
   if (compacted) {
     assert.equal(ok(await call('compact',map([[0,c]]))).get(0),36,'real native compaction preserves controls and removes old entries');
@@ -198,8 +202,8 @@ export async function backupCases({ base, token, transport, encode, decode, map,
     assert.equal(objects.filter(r=>r[2]===17).length,2);
   }
   assert.equal(snapshots.length, compacted ? 2 : 1);
-  assert.deepEqual(snapshots[0].slice(0, 3), [2, manifestAddress, device]);
-  assert.ok(refs.some((row) => row[1].equals(manifestAddress) && row[2] === 1 && row[3] === 2));
+  assert.deepEqual(snapshots[0].slice(0, 3), [olderSnapshot, manifestAddress, device]);
+  assert.ok(refs.some((row) => row[1].equals(manifestAddress) && row[2] === 1 && row[3] === olderSnapshot));
   assert.ok(objects.some((row) => row[1].equals(address)));
   assert.ok(!objects.some((row) => row[1].equals(lateAddress)), 'object committed after cut is excluded');
   assert.equal(tokens.length, H - 2, 'idempotency token past H is excluded');
