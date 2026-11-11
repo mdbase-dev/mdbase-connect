@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import type { DatabasePool } from "./db.js";
+import type { DatabasePool, DatabaseQueryable } from "./db.js";
 import { ConnectGateway } from "./connect.js";
 import type { GrantKeyStore } from "@mdbase-dev/connect/crypto";
 import { capabilityOperations, type CollectionOperation } from "@mdbase-dev/connect-protocol";
@@ -329,30 +329,56 @@ export class OAuthService {
       if (!used.rows[0]) throw new OAuthError("invalid_grant", "The authorization code was already used.");
       return this.issueTokens(code);
     }
-    const result = await this.db.query<{
-      id: string;
-      client_id: string;
-      connection_set_id: string;
-      resource: string;
-      scopes: McpScope[];
-    }>(
-      `SELECT id, client_id, connection_set_id, resource, scopes
-       FROM mcp_refresh_tokens
-       WHERE token_hash = $1 AND used_at IS NULL AND revoked_at IS NULL AND expires_at > now()`,
-      [tokenHash(body.refresh_token)]
-    );
-    const refresh = result.rows[0];
-    if (!refresh
-        || refresh.client_id !== body.client_id
-        || canonicalResource(body.resource ?? refresh.resource, this.resource) !== refresh.resource) {
-      throw new OAuthError("invalid_grant", "The refresh token is invalid or expired.");
+    // Refresh tokens rotate. The row lock orders a rotation and a reuse of the
+    // same token, so a revocation also covers the successor a rotation issued.
+    const transaction = await this.db.connect();
+    try {
+      await transaction.query("BEGIN");
+      const result = await transaction.query<{
+        id: string;
+        client_id: string;
+        connection_set_id: string;
+        resource: string;
+        scopes: McpScope[];
+        expires_at: Date | string;
+        used_at: Date | string | null;
+        revoked_at: Date | string | null;
+      }>(
+        `SELECT id, client_id, connection_set_id, resource, scopes, expires_at, used_at, revoked_at
+         FROM mcp_refresh_tokens WHERE token_hash = $1 FOR UPDATE`,
+        [tokenHash(body.refresh_token)]
+      );
+      const refresh = result.rows[0];
+      if (refresh?.used_at && !refresh.revoked_at) {
+        // A rotated token came back, so it or its successor is held by someone
+        // else. Revoke the whole family: every token issued from one
+        // authorization shares its connection set.
+        for (const table of ["mcp_refresh_tokens", "mcp_access_tokens"]) {
+          await transaction.query(
+            `UPDATE ${table} SET revoked_at = now() WHERE connection_set_id = $1 AND revoked_at IS NULL`,
+            [refresh.connection_set_id]
+          );
+        }
+        await transaction.query("COMMIT");
+        throw new OAuthError("invalid_grant", "The refresh token was already used.");
+      }
+      if (!refresh
+          || refresh.revoked_at
+          || new Date(refresh.expires_at).getTime() <= Date.now()
+          || refresh.client_id !== body.client_id
+          || canonicalResource(body.resource ?? refresh.resource, this.resource) !== refresh.resource) {
+        throw new OAuthError("invalid_grant", "The refresh token is invalid or expired.");
+      }
+      await transaction.query("UPDATE mcp_refresh_tokens SET used_at = now() WHERE id = $1", [refresh.id]);
+      const tokens = await this.issueTokens(refresh, transaction);
+      await transaction.query("COMMIT");
+      return tokens;
+    } catch (error) {
+      await transaction.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      transaction.release();
     }
-    const used = await this.db.query(
-      "UPDATE mcp_refresh_tokens SET used_at = now() WHERE id = $1 AND used_at IS NULL RETURNING id",
-      [refresh.id]
-    );
-    if (!used.rows[0]) throw new OAuthError("invalid_grant", "The refresh token was already used.");
-    return this.issueTokens(refresh);
   }
 
   async authenticate(bearer: string): Promise<McpAuthContext | null> {
@@ -481,10 +507,10 @@ export class OAuthService {
     connection_set_id: string;
     resource: string;
     scopes: McpScope[];
-  }): Promise<Record<string, unknown>> {
+  }, db: DatabaseQueryable = this.db): Promise<Record<string, unknown>> {
     const accessToken = randomToken("mcp");
     const refreshToken = randomToken("mrf");
-    await this.db.query(
+    await db.query(
       `INSERT INTO mcp_access_tokens
          (id, token_hash, client_id, connection_set_id, resource, scopes, expires_at)
        VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)`,
@@ -498,7 +524,7 @@ export class OAuthService {
         new Date(Date.now() + 60 * 60_000)
       ]
     );
-    await this.db.query(
+    await db.query(
       `INSERT INTO mcp_refresh_tokens
          (id, token_hash, client_id, connection_set_id, resource, scopes, expires_at)
        VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)`,

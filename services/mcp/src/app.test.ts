@@ -403,19 +403,6 @@ describe("mdbase MCP gateway", () => {
       }).toString()
     });
     expect(refreshed.statusCode).toBe(200);
-    const reusedRefresh = await app.inject({
-      method: "POST",
-      url: "/oauth/token",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      payload: new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: originalRefreshToken,
-        client_id: clientId,
-        resource: "https://mcp.example/mcp"
-      }).toString()
-    });
-    expect(reusedRefresh.statusCode).toBe(400);
-    expect(reusedRefresh.json().error).toBe("invalid_grant");
     const accessToken = refreshed.json().access_token as string;
     const context = await oauth.authenticate(accessToken);
     expect(context).not.toBeNull();
@@ -741,6 +728,39 @@ describe("open OAuth endpoints", () => {
       expect(await remaining("mcp_grant_keys", "handle")).toContainEqual(expect.stringMatching(/^mcp-application-identity:/));
       const context = await oauth.authenticate(token.access_token as string);
       expect(await gateway.listConnections(context!.connectionSetId)).toHaveLength(1);
+    } finally { await app.close(); await db.end(); }
+  });
+});
+
+describe("refresh token rotation", () => {
+  it("revokes every token from the authorization when a rotated refresh token is used again", async () => {
+    const fixture = await nativeOAuth();
+    const { app, db, oauth } = fixture;
+    try {
+      const callback = new URL((await fixture.callback()).headers.location!);
+      const token = (body: Record<string, unknown>) => app.inject({ method: "POST", url: "/oauth/token", payload: body });
+      const refresh = (refreshToken: unknown, clientId = fixture.clientId) =>
+        token({ grant_type: "refresh_token", refresh_token: refreshToken, client_id: clientId });
+      const first = (await token({
+        grant_type: "authorization_code", code: callback.searchParams.get("code"), client_id: fixture.clientId,
+        redirect_uri: "https://client.example/callback", code_verifier: fixture.verifier
+      })).json();
+      expect((await refresh(first.refresh_token, "another-client")).statusCode).toBe(400);
+      const second = await refresh(first.refresh_token);
+      expect(second.statusCode).toBe(200);
+      const third = await refresh(second.json().refresh_token);
+      expect(third.statusCode).toBe(200);
+      expect(await oauth.authenticate(third.json().access_token)).not.toBeNull();
+
+      const reused = await refresh(first.refresh_token);
+      expect(reused.statusCode).toBe(400);
+      expect(reused.json()).toMatchObject({ error: "invalid_grant" });
+      expect(await oauth.authenticate(third.json().access_token)).toBeNull();
+      expect(await oauth.authenticate(first.access_token)).toBeNull();
+      expect((await refresh(third.json().refresh_token)).statusCode).toBe(400);
+      for (const table of ["mcp_refresh_tokens", "mcp_access_tokens"]) {
+        expect((await db.query(`SELECT id FROM ${table} WHERE revoked_at IS NULL`)).rows).toEqual([]);
+      }
     } finally { await app.close(); await db.end(); }
   });
 });
