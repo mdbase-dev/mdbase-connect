@@ -515,6 +515,7 @@ impl Gen0Writer {
             record_count: self.records,
             file_count: self.files,
             control_chain: B32([0; 32]),
+            sem_ratchet: None,
             previous: None,
         };
         let plain = mdbn_wire::ref_index::encode_manifest(&payload, &indexed.ref_indices)

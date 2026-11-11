@@ -67,11 +67,25 @@ fn item(seq: u64, kind: u64, bytes: Vec<u8>, refs: Vec<B32>) -> StoredItem {
 
 /// A collection of `n` items at `T0`: seq 1 is control (genesis), `control`
 /// lists further control positions, every other position is an `entry` of
-/// `entry_bytes(seq)` bytes; an endorsed snapshot at `n`.
+/// `entry_bytes(seq)` bytes; an endorsed snapshot at `n` and the older retained
+/// one just before it, so the grace region is what bounds compaction.
 fn seed<O: ObjectStore>(
     svc: &Service<MemBackend, O>,
     c: &Uuid,
     n: u64,
+    control: &[u64],
+    entry_bytes: impl Fn(u64) -> Vec<u8>,
+    refs: impl Fn(u64) -> Vec<B32>,
+) -> Vec<StoredItem> {
+    seed_snapshots(svc, c, n, Some(n - 1), control, entry_bytes, refs)
+}
+
+/// [`seed`], with the older retained snapshot at `older` (or none).
+fn seed_snapshots<O: ObjectStore>(
+    svc: &Service<MemBackend, O>,
+    c: &Uuid,
+    n: u64,
+    older: Option<u64>,
     control: &[u64],
     entry_bytes: impl Fn(u64) -> Vec<u8>,
     refs: impl Fn(u64) -> Vec<B32>,
@@ -102,14 +116,16 @@ fn seed<O: ObjectStore>(
     for i in &items {
         tx.write(Write::InsertItem(i.clone()));
     }
-    tx.write(Write::InsertSnapshot(SnapshotRow {
-        seq: n,
-        manifest: B32([9; 32]),
-        author: B16([1; 16]),
-        created_at: T0,
-        endorsed: true,
-        refs: vec![],
-    }));
+    for (seq, endorsed) in older.map(|s| (s, false)).into_iter().chain([(n, true)]) {
+        tx.write(Write::InsertSnapshot(SnapshotRow {
+            seq,
+            manifest: B32([9; 32]),
+            author: B16([1; 16]),
+            created_at: T0,
+            endorsed,
+            refs: vec![],
+        }));
+    }
     ready(tx.commit()).unwrap();
     items
 }
@@ -499,6 +515,52 @@ fn archive_writes_do_not_hold_the_write_lock() {
         "no archive write ran while the collection's write lock was held"
     );
     assert_eq!(svc.objects.inner.archived().len(), 2);
+}
+
+/// The entries still readable, by position.
+fn entries<O: ObjectStore>(svc: &Service<MemBackend, O>, c: &Uuid) -> Vec<u64> {
+    all_items(svc, c, false)
+        .iter()
+        .filter(|i| i.kind == 1)
+        .map(|i| i.seq)
+        .collect()
+}
+
+#[test]
+fn compaction_never_trims_past_the_older_retained_snapshot() {
+    // The two retained snapshots are further apart than the grace region: the
+    // older at 100, the newer (endorsed) at GRACE + 500. A replica that refuses
+    // the newer one installs the older and replays from 101, so those entries
+    // stay (`snapshot.md` §5.1, §8).
+    let svc = svc();
+    let c = B16([0x21; 16]);
+    let n = GRACE + 500;
+    seed_snapshots(
+        &svc,
+        &c,
+        n,
+        Some(100),
+        &[],
+        |s| vec![s as u8; 8],
+        |_| vec![],
+    );
+    assert_eq!(ready(svc.compact(&c, T0 + 8 * DAY)).unwrap(), 101);
+    assert_eq!(meta(&svc, &c).retained_from, 101);
+    assert_eq!(entries(&svc, &c), (101..=n).collect::<Vec<_>>());
+    assert!(svc.objects.archived().keys().all(|k| k.ends_with("/2-100")));
+}
+
+#[test]
+fn nothing_is_compacted_while_a_single_snapshot_is_retained() {
+    // A replica that refuses the only snapshot has no older one to install: it
+    // replays the whole log, which therefore stays.
+    let svc = svc();
+    let c = B16([0x22; 16]);
+    let n = GRACE + 500;
+    seed_snapshots(&svc, &c, n, None, &[], |s| vec![s as u8; 8], |_| vec![]);
+    assert_eq!(ready(svc.compact(&c, T0 + 8 * DAY)).unwrap(), 1);
+    assert_eq!(entries(&svc, &c), (2..=n).collect::<Vec<_>>());
+    assert!(svc.objects.archived().is_empty());
 }
 
 #[test]

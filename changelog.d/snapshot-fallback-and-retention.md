@@ -1,0 +1,6 @@
+## Fixed
+
+- A replica that refuses the newest snapshot now installs the older retained one and replays the log from it, as the contract says, and reports an incident only when both are refused. It no longer fetches a refused snapshot again on every read; it waits for a newer one.
+- Log compaction never trims past the older of the two retained snapshots, so a replica that falls back to it can still read the entries after it. Nothing is compacted while only one snapshot is retained. No shipped build compacts yet.
+- A snapshot manifest now states the log's semantics major at its position (a new optional key, read as absent by older builds), and an installer takes its ratchet from it instead of keeping its own. A snapshot built by a newer semantics major than the installer has is not installed and asks for an upgrade.
+- A snapshot upload or registration that the service refuses is no longer rebuilt on every tick: the replica waits for its next period. One that gets no answer is retried after a wait that doubles from one second to at most an hour.
