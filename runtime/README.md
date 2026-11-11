@@ -18,7 +18,7 @@ deny.toml               cargo-deny: licenses, advisories, banned crates, getrand
 crates/                 the product crates (map below)
 xtask/                  repo automation: `cargo xtask help`
 conformance/
-  spec/                 vendored rc.5 spec fixtures + SOURCE (spec commit)
+  spec/                 vendored spec fixtures + SOURCE (spec commit)
   spec-expectations.txt the spec ratchet: pass / pending / skip per fixture id
   determinism/          replay fixtures (*.log) and golden outputs (*.expected.json)
   wire/                 golden byte fixtures per wire format (docs/contracts/00-overview.md §8)
@@ -155,7 +155,7 @@ architecture bounds are unaffected.
 
 ## Spec conformance ratchet
 
-`conformance/spec/` vendors the rc.5 fixtures the core must pass: three-way merge,
+`conformance/spec/` vendors the spec fixtures the core must pass: three-way merge,
 body edits, the regex profile, paths, and move detection, plus the suite README
 that defines their format. `conformance/spec/SOURCE` records the spec commit.
 Refresh them with `scripts/sync-spec-fixtures.sh`.

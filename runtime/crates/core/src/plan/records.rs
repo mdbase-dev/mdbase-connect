@@ -111,12 +111,19 @@ fn has_stored_fields(catalog: &Catalog, types: &[String]) -> bool {
         .filter_map(|t| t.path_policy.as_ref())
         .any(|p| !p.fields.is_empty())
 }
+/// A path-stored value that normalization changed: the field, the value as
+/// it was written, and the value that is stored (spec 07).
+type NormalizedValue = (String, Value, Value);
+
+/// Normalize the path-stored values in `written`, returning the ones that
+/// changed.
 fn normalize_path_values(
     catalog: &Catalog,
     types: &[String],
     values: &mut Map,
     written: &Map,
-) -> Result<(), Rejection> {
+) -> Result<Vec<NormalizedValue>, Rejection> {
+    let mut changed = Vec::new();
     for p in types
         .iter()
         .filter_map(|n| catalog.type_named(n))
@@ -124,9 +131,41 @@ fn normalize_path_values(
     {
         let mut assigned = p.clone();
         assigned.fields.retain(|f| written.contains_key(f));
+        let before: Vec<Option<Value>> = assigned
+            .fields
+            .iter()
+            .map(|f| values.get(f).cloned())
+            .collect();
         assigned.normalize(values).map_err(path_error)?;
+        for (field, before) in assigned.fields.iter().zip(before) {
+            if let (Some(before), Some(stored)) = (before, values.get(field))
+                && before != *stored
+            {
+                changed.push((field.clone(), before, stored.clone()));
+            }
+        }
     }
-    Ok(())
+    Ok(changed)
+}
+
+/// Report each value an `api` write set and normalization changed, as a
+/// `path_value_normalized` warning of the operation (spec 07). It is not a
+/// validation issue, so it does not follow the validation level.
+fn warn_normalized(ctx: &mut Ctx<'_>, id: RecordId, changed: Vec<NormalizedValue>) {
+    if !ctx.api() || ctx.submit_level().is_none() {
+        return;
+    }
+    for (field, written, stored) in changed {
+        let mut issue = validate::Issue::new(
+            "path_value_normalized",
+            Severity::Warning,
+            Tier::Request,
+            format!("`{field}` is stored in its path-safe form"),
+        )
+        .at(format!("/{field}"));
+        issue.details = details(&[("written", written), ("stored", stored)]);
+        ctx.issues.push(RecordIssue { id, issue });
+    }
 }
 pub(super) fn strip_path_fields(catalog: &Catalog, types: &[String], values: &mut Map) {
     for p in types
@@ -743,7 +782,8 @@ pub(super) fn create(ctx: &mut Ctx<'_>, ov: &mut Overlay<'_>, c: &Create) -> Res
         fm.clone()
     };
     mark_changed(&mut written, &before_lifecycle, &fm);
-    normalize_path_values(&catalog, &types, &mut fm, &written)?;
+    let normalized = normalize_path_values(&catalog, &types, &mut fm, &written)?;
+    warn_normalized(ctx, c.id, normalized);
     // The path.
     let path = match &c.path {
         Some(p) => p.clone(),
@@ -1196,7 +1236,8 @@ pub(super) fn update(ctx: &mut Ctx<'_>, ov: &mut Overlay<'_>, u: &Update) -> Res
     let mut values = draft.clone();
     let mut written = u.patch.clone().unwrap_or_default();
     mark_changed(&mut written, &cur_fm, &draft);
-    normalize_path_values(&catalog, &types, &mut values, &written)?;
+    let normalized = normalize_path_values(&catalog, &types, &mut values, &written)?;
+    warn_normalized(ctx, u.id, normalized);
     let target = stored_update_path(&catalog, &types, &path, &values)?;
     strip_path_fields(&catalog, &types, &mut values);
     if target != path {
@@ -1366,6 +1407,7 @@ pub(super) fn document(
         &ctx.m.clock,
     );
     let encoded_new;
+    let mut projected_values = Vec::new();
     let new = if ctx.api() {
         let doc = Document::parse_at(&new.path, &new.doc);
         let raw = doc.frontmatter();
@@ -1377,9 +1419,13 @@ pub(super) fn document(
             }
             // This is only a projection for path merging, not write admission:
             // lifecycle below may supply or replace an initially unencodable value.
-            let projected = normalize_path_values(&catalog, &types, &mut values, raw)
-                .and_then(|()| stored_update_path(&catalog, &types, &new.path, &values));
-            if let Ok(path) = projected {
+            let projected =
+                normalize_path_values(&catalog, &types, &mut values, raw).and_then(|changed| {
+                    stored_update_path(&catalog, &types, &new.path, &values)
+                        .map(|path| (changed, path))
+                });
+            if let Ok((changed, path)) = projected {
+                projected_values = changed;
                 strip_path_fields(&catalog, &types, &mut values);
                 let source = rewrite(&new.path, &new.doc, &writer::diff(raw, &values), None)?;
                 encoded_new = crate::intent::DocVersion { path, doc: source };
@@ -1474,7 +1520,16 @@ pub(super) fn document(
             )?;
             let mut written = raw.clone();
             mark_changed(&mut written, &draft, &fm);
-            normalize_path_values(&catalog, &types, &mut fm, &written)?;
+            let mut normalized = normalize_path_values(&catalog, &types, &mut fm, &written)?;
+            // The projection above normalized the request's own assignments;
+            // they count when merge and lifecycle left them as the value.
+            for value in projected_values {
+                if fm.get(&value.0) == Some(&value.2) && !normalized.iter().any(|n| n.0 == value.0)
+                {
+                    normalized.push(value);
+                }
+            }
+            warn_normalized(ctx, d.id, normalized);
             let path = stored_update_path(&catalog, &types, &target_path, &fm)?;
             strip_path_fields(&catalog, &types, &mut fm);
             target_doc = rewrite(&target_path, &target_doc, &writer::diff(&raw, &fm), None)?;

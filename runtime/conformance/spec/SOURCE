@@ -1,28 +1,29 @@
 # Vendored by scripts/sync-spec-fixtures.sh. Do not edit the files by hand.
 repository: mdbase-dev/mdbase-spec (MIT License)
 branch: main
-commit: 329c8b41e2292b3798556b489430d7bf50d2dc59
+commit: 47d257d6a56e34c7279e5ebb959af0b0f49744b2
 files:
-  d5b0111b29dd942f4676da01eba3ac0caa27fcbd82350b11154300f301073115  tests/v0.3/README.md
-  55eef234a2265d09331ce422d0522cad958531e5c90b514e628c28fdb94bb030  tests/v0.3/merge/merge.yaml
-  36766a317ba96d2091761d36f0c1660bb957f602e6422d94bf20fccd048bc3a6  tests/v0.3/merge/body-edits.yaml
+  0d0b63524ca4ea2ca09e329fdf528aef208333e8b10ed50de3e01a7a77900235  tests/v0.3/README.md
+  5a544492c4fd8c4b8a64daabdd6ad10f24300f64c085aafe1f04c4b64e7a6792  tests/v0.3/merge/merge.yaml
+  17e93066f3efb2194364e341427cb90c88fc03b8cb1ec8d95367caace5fa75b7  tests/v0.3/merge/body-edits.yaml
   ed4a1f968838bab41ff43be7d02a8ca1254cd569535c7b56b845577c6c015ba8  tests/v0.3/cel/regex-profile.yaml
-  5a3a1ebdfcc0670d8bf0134f4bb0f81c902037a18866c9e0f9159c98a6687e12  tests/v0.3/core/paths.yaml
-  7e854f571857c675e173bb48e40a840a352319451a904117d17ce7ffe3f03a23  tests/v0.3/core/path-fields.yaml
+  c674bc29db027bee189a55453851e66c48b1e6ea58a332210a17680ecd8ee034  tests/v0.3/core/paths.yaml
+  fd2525f62af7b0418e5bd618310d7d941c3966044e50d59ceecb3105b67017d2  tests/v0.3/core/path-fields.yaml
   83690fae688ddefbb4f2bbe5544534d80f7ff58b00a7b19c294ff7683c70ec99  tests/v0.3/core/link-ambiguity.yaml
   81b0b6eee42d3b4cfe6a870a33e477a8aaeaa1002d70fcba6c2b7b36abdf1d70  tests/v0.3/core/rename-references.yaml
-  313edf263d6f1daa7cbd9e35d21f4126cfd328c395fa982779ea54c8e1275d54  tests/v0.3/core/links-and-discovery.yaml
-  22eaed937718ac0f9e6eb4f1db2dda27869d6f46e5bd8d3214ee7d17b98af3a0  tests/v0.3/core/core-collection.yaml
-  b7213820aed877cdeb9da5de0126eb898032a9a145c1a92cefa01f694f831a72  tests/v0.3/core/core-write.yaml
-  ca1b38cdf43d29747e6565d77ddc206b31f0a8464b3cd9d48b9436b632b8bf5d  tests/v0.3/core/list-ops-and-fidelity.yaml
+  7f6bea9ebc3e97747d9e4366f24d85169dd004553cb014607b421cba17a1a933  tests/v0.3/core/links-and-discovery.yaml
+  6d1d3f1124a72c98482e7a4763ba2e3ed7b96fe5b5f7e7893edbcda47d5cc2d2  tests/v0.3/core/core-collection.yaml
+  f61097b3fd8c39f12a5af2243d2d75af9a86a83c586f35a6cae335fdcfb71702  tests/v0.3/core/core-write.yaml
+  96bd61486b45d21345e39c2ab2628953ca5455cd1dd7acb164db78f844602d64  tests/v0.3/core/list-ops-and-fidelity.yaml
   e300bac6f68d348924b8edaa14ca81af1ce3b99e31a4567e81923d6df5ad6efa  tests/v0.3/core/optional-membership.yaml
   999732d6d2e695b424ed4f24f707260db8a778f8f88134cbd5f914feb7528400  tests/v0.3/core/validation-tiers.yaml
-  c8ec57bff9f07f4c680ce85c42ac2b8fbec9d13e12da0a735b384b5c23717f28  tests/v0.3/core/body-edits-update.yaml
+  0d4257eb9034e3f5d65cc455c1b9925ab72c88a518517e1468d32794faf2fdbc  tests/v0.3/core/body-edits-update.yaml
   b63a8680d700ea424c71f6ab6b55fa68bbb7d464381f9bab59d4fabfd21865b3  tests/v0.3/core/yaml-document-records.yaml
   19cca19a1a5dd7075023e74322d3535f5353ae18bddc761718700abac39c721c  tests/v0.3/cel/match-determinism.yaml
-  dd87c0c42a4f76ba6cfa67eb446a39d2d595c541a3de48c55fa2b1c74ff17850  tests/v0.3/lifecycle/lifecycle.yaml
+  8da08b3dd5e92831e47bda22c7861b1cb238e1820c67216505ab5980fe5b531f  tests/v0.3/cel/query-order.yaml
+  aebd948ca1231a69c35e19afccdc11946d0119cad1b58db8bb355e6c4aeb486f  tests/v0.3/lifecycle/lifecycle.yaml
   9ff8ce139c42f858a409ef187dc3dc24241a98240cf08f2ff72b90a037cddb16  tests/v0.3/data-contracts/data-contracts.yaml
-  d3ea060c1765b6b05514286e4a9d6e708dd75aa2961c30c15881e7b827032a10  tests/v0.3/type-packs/type-packs.yaml
+  79af9d83c9e2aea2491328b0840318f026743c818c69c04f0828004485aaeb19  tests/v0.3/type-packs/type-packs.yaml
   1204c568b3b916b2f9633f63f6c8c2a967fe137cfec30c8bf37c2fceaa09b383  examples/v0.3/tasknotes-migration/v0.3/mdbase-pack.yaml
   205efb830824248729e9141a0915dd25fe4606be74078a55e612dc0583bc156a  examples/v0.3/seed-upgrades/invalid-baseline-digest/mdbase-pack.yaml
   57160cce297903e123f876d789d518ed83b1cf790edafae660f43f3d44744065  examples/v0.3/seed-upgrades/invalid-baseline-digest/_types/note.md
@@ -63,4 +64,4 @@ files:
   4e5817e936e2245bfdc9e16ae4afc899aa3de69455b0f814b332f59d4e73d203  tests/v0.3/fixtures/data-contracts/missing-required-map-type.md
   b111582f36da4564a5190f02423fc72d0c00a92147e625b9c322849481662f37  tests/v0.3/fixtures/data-contracts/unknown-record-field-type.md
   97772c6bef7f783dc9a6afd40ed8cce4e0146f6ceaaeae9e6662f89de42c7d40  tests/v0.3/fixtures/data-contracts/valid-task.yml
-  2963c42f55d898b800e37e338f30e6379bbd7e198ceec9e618ee05450956c6e7  tests/v0.3/watch/move-detection.yaml
+  d13087447945461adf0c0a7f6f4eb88b87860ac5f6719d2df0e964d75ea93c50  tests/v0.3/watch/move-detection.yaml
