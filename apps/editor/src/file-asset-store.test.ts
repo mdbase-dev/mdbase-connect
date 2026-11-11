@@ -282,7 +282,8 @@ describe("FileAssetStore", () => {
     ["image/svg+xml", "image/svg+xml"],
     ["text/html", "application/octet-stream"],
     ["application/xhtml+xml", "application/octet-stream"],
-    ["text/plain", "application/octet-stream"],
+    ["text/plain; charset=utf-8", "text/plain"],
+    ["application/json", "application/octet-stream"],
     [undefined, "application/octet-stream"]
   ])("publishes a file declared as %s under %s, whatever the source blob's type", async (mediaType, published) => {
     const blob = new Blob(["<html>bytes</html>"], { type: "text/html" });

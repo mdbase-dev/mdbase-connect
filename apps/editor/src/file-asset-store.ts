@@ -39,13 +39,13 @@ export function isReadOnlyMarkdownFile(file: Pick<CollectionFile, "contentProfil
 
 // Media types browsers render inertly, so "Open original" may show them at the
 // application origin.
-const INLINE_MEDIA_TYPE = /^(?:image\/(?:png|jpeg|gif|webp|avif|bmp)|audio\/[a-z0-9.+-]+|video\/[a-z0-9.+-]+|application\/pdf)$/;
+const INLINE_MEDIA_TYPE = /^(?:text\/plain|image\/(?:png|jpeg|gif|webp|avif|bmp)|audio\/[a-z0-9.+-]+|video\/[a-z0-9.+-]+|application\/pdf)$/;
 
 /** The type a file's verified original is published under, and whether "Open
  * original" may navigate to it. Uploaders choose media types, so only inert
- * types open at the application origin: Markdown opens as plain text, SVG
- * keeps its type for `<img>` previews but is downloaded, and every other file
- * is published as an opaque download. */
+ * types open at the application origin: Markdown and plain text open as plain
+ * text, SVG keeps its type for `<img>` previews but is downloaded, and every
+ * other file is published as an opaque download. */
 export function originalPresentation(file: Pick<CollectionFile, "contentProfile" | "mediaType">): { type: string; inline: boolean } {
   if (isReadOnlyMarkdownFile(file)) return { type: "text/plain;charset=utf-8", inline: true };
   const type = file.mediaType?.split(";", 1)[0].trim().toLowerCase() ?? "";

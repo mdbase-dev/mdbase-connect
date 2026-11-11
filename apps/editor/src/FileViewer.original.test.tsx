@@ -14,7 +14,8 @@ describe("Open original", () => {
   it.each([
     ["photo.png", "image", "image/png"],
     ["scan.pdf", "pdf", "application/pdf"],
-    ["clip.mp4", "video", "video/mp4"]
+    ["clip.mp4", "video", "video/mp4"],
+    ["notes.txt", "other", "text/plain"]
   ] as const)("opens inert %s in a new tab", (path, mediaClass, mediaType) => {
     const asset = { status: "ready", file: upload(path, mediaClass, mediaType), url: "blob:original" } as const;
     for (const element of [
@@ -33,7 +34,7 @@ describe("Open original", () => {
   it.each([
     ["page.html", "other", "text/html"],
     ["drawing.svg", "image", "image/svg+xml"],
-    ["notes.txt", "other", "text/plain"]
+    ["data.json", "other", "application/json"]
   ] as const)("downloads %s instead of opening it at the editor origin", (path, mediaClass, mediaType) => {
     const asset = { status: "ready", file: upload(path, mediaClass, mediaType), url: "blob:original" } as const;
     for (const element of [
