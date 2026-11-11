@@ -32,6 +32,10 @@ pub(super) struct Disk {
     /// Keep every transaction handed to the store in `committed`.
     pub(super) keep_committed: bool,
     pub(super) committed: Vec<Tx>,
+    /// For each of `committed`, whether a deferred-durability window was open.
+    pub(super) committed_in_window: Vec<bool>,
+    /// Publishes handed to the store while a window was open (never allowed).
+    pub(super) published_in_window: u64,
     /// The row reads so far, by store method (the reads `fail_row_read` counts).
     pub(super) row_reads: Vec<&'static str>,
     /// Fail the row read this many reads from now.
@@ -415,8 +419,14 @@ impl Store for DiskStore {
         if !tx.pending_put.is_empty() && self.disk.borrow().fail_pending_commits {
             return Err(StoreError::Io("injected: crashed before the commit".into()));
         }
+        let in_window = self.inner.durability_deferred();
         if self.disk.borrow().keep_committed {
-            self.disk.borrow_mut().committed.push(tx.clone());
+            let mut d = self.disk.borrow_mut();
+            d.committed.push(tx.clone());
+            d.committed_in_window.push(in_window);
+        }
+        if in_window {
+            self.disk.borrow_mut().published_in_window += tx.publish.len() as u64;
         }
         let publish = std::mem::take(&mut tx.publish);
         let acks = tx.ack_observations.clone();
@@ -1141,9 +1151,9 @@ fn external_edits_sync() {
     let svc = FakeLogService::new();
     let mut a = node(&svc, 1);
     let mut b = node(&svc, 2);
-    // Opening may rebuild derived data in a window of its own, closed before
-    // the replica syncs; only ingest is measured.
-    let opened = [&a, &b].map(|n| n.r.store().inner.data().borrow().windows);
+    for n in [&a, &b] {
+        n.disk.borrow_mut().keep_committed = true;
+    }
     create(&mut a, 1, "a.md", "one");
     settle(&mut [&mut a, &mut b]);
     b.disk.borrow_mut().user_write("a.md", Some("two"));
@@ -1159,8 +1169,20 @@ fn external_edits_sync() {
     settle(&mut [&mut a, &mut b]);
     assert!(a.file("new.md").is_none());
     // Synced ingest never defers durability: its entries leave the device.
-    for (n, opened) in [&a, &b].into_iter().zip(opened) {
-        assert_eq!(n.r.store().inner.data().borrow().windows, opened);
+    // (Applying them back from the log does, one window per applied page.)
+    for n in [&a, &b] {
+        let d = n.disk.borrow();
+        let ingested = d
+            .committed
+            .iter()
+            .zip(&d.committed_in_window)
+            .filter(|(tx, _)| !tx.pending_put.is_empty())
+            .map(|(_, in_window)| *in_window)
+            .collect::<Vec<_>>();
+        assert!(!ingested.is_empty());
+        assert!(ingested.iter().all(|in_window| !in_window));
+        let (opened, closed) = n.r.store().inner.data().borrow().windows;
+        assert_eq!(opened, closed);
     }
 }
 
@@ -2990,6 +3012,133 @@ fn local_cold_scan_barrier_failure_fences_without_pushes() {
     a.disk.borrow_mut().user_write("later.md", Some("x"));
     assert!(a.r.observe(None).is_err(), "fenced until reopen");
     assert_eq!(a.disk.borrow().acknowledged, acked);
+}
+
+/// The kind of every item in the log, by position.
+fn log_kinds(svc: &FakeLogService) -> BTreeMap<u64, mdbn_wire::envelope::ItemKind> {
+    use mdbn_wire::schema::Wire;
+    svc.items(&COL)
+        .iter()
+        .map(|bytes| {
+            let item = mdbn_wire::envelope::Item::from_bytes(bytes).unwrap();
+            (item.seq.unwrap(), item.kind)
+        })
+        .collect()
+}
+
+/// A log of entries with a control item in the middle, written by `a`.
+fn entries_around_a_control_item(svc: &FakeLogService, a: &mut Node) -> u64 {
+    for i in 0..6u8 {
+        create(a, 10 + i, &format!("before-{i}.md"), "one");
+    }
+    settle(&mut [a]);
+    let control = crate::testkit::TestControlPlane::new(COL).enrol(
+        svc,
+        crate::testkit::TestDevice {
+            device: B16([150; 16]),
+            account: crate::testkit::TEST_OWNER,
+            kind: mdbn_wire::policy::DeviceKind::Desktop,
+        },
+    );
+    settle(&mut [a]);
+    for i in 0..6u8 {
+        create(a, 20 + i, &format!("after-{i}.md"), "two");
+    }
+    settle(&mut [a]);
+    control
+}
+
+/// Catching up applies the entries of a page inside one deferred-durability
+/// window. A control item is never inside one, nothing is published to the
+/// folder from inside one, and no window outlives the call that applied the
+/// page: what the host takes next (log calls, client pushes) follows the barrier.
+#[test]
+fn a_caught_up_page_is_one_window_closed_before_anything_acts_on_it() {
+    use crate::log::{LogClient, LogPort, LogRequest};
+    use mdbn_wire::envelope::ItemKind;
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    let control = entries_around_a_control_item(&svc, &mut a);
+    let kinds = log_kinds(&svc);
+    assert_eq!(kinds[&control], ItemKind::Policy);
+    let entries = kinds.values().filter(|k| **k == ItemKind::Entry).count();
+    assert!(entries >= 12);
+
+    let mut b = node(&svc, 2);
+    b.disk.borrow_mut().keep_committed = true;
+    // Opening may rebuild derived data in a window of its own.
+    let at_open = b.r.store().inner.data().borrow().windows;
+    // The host's loop, by hand: after every reply the replica has returned
+    // and its outputs are about to leave.
+    let mut reads = 0;
+    for _ in 0..20 {
+        for call in b.r.take_log_calls() {
+            reads += u64::from(matches!(call.request, LogRequest::Read(_)));
+            let reply = b.log.call(call.request);
+            b.r.on_log_reply(call.id, reply);
+            assert!(
+                !b.r.store().durability_deferred(),
+                "a window outlived the reply that opened it"
+            );
+        }
+        b.r.tick();
+    }
+    assert_eq!(b.r.head(), a.r.head());
+    assert!(reads >= 1);
+    let (opened, closed) = b.r.store().inner.data().borrow().windows;
+    assert_eq!(opened, closed);
+    assert_eq!(
+        opened - at_open.0,
+        2,
+        "one page: the entries before the control item, and those after it"
+    );
+    let d = b.disk.borrow();
+    let mut applied = 0;
+    for (tx, in_window) in d.committed.iter().zip(&d.committed_in_window) {
+        let Some(head) = tx.head else {
+            assert!(!in_window, "only applied entries commit inside a window");
+            continue;
+        };
+        applied += 1;
+        assert_eq!(
+            *in_window,
+            kinds[&head.seq] == ItemKind::Entry,
+            "position {} ({:?})",
+            head.seq,
+            kinds[&head.seq]
+        );
+    }
+    assert_eq!(applied, kinds.len(), "every item is its own transaction");
+    assert_eq!(d.published_in_window, 0);
+    assert_eq!(d.files.len(), 12, "published after the barrier");
+}
+
+/// A window whose barrier fails has an unknown outcome: the instance is fenced
+/// until a reopen, and nothing derived from the page leaves it.
+#[test]
+fn a_failed_apply_barrier_fences_and_releases_nothing() {
+    use crate::log::LogPort;
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    entries_around_a_control_item(&svc, &mut a);
+    let mut b = node(&svc, 2);
+    b.r.take_pushes();
+    b.r.store_mut().barrier_fails = true;
+    pump(&mut b.r, &mut b.log, 100);
+    assert!(b.r.requires_reopen());
+    assert!(
+        b.r.take_pushes()
+            .iter()
+            .all(|(_, p)| matches!(p, crate::api::Push::Closed(_))),
+        "no change or receipt push from the unsynced page"
+    );
+    assert!(b.r.take_log_calls().is_empty(), "nothing sent to the log");
+    assert!(b.disk.borrow().files.is_empty(), "nothing published");
+    let head = b.r.head();
+    b.r.tick();
+    pump(&mut b.r, &mut b.log, 100);
+    assert_eq!(b.r.head(), head, "no further apply until the reopen");
+    assert!(b.disk.borrow().files.is_empty());
 }
 
 #[test]

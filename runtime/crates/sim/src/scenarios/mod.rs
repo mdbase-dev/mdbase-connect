@@ -1,5 +1,6 @@
 //! Scenarios.
 
+pub mod catchup_window;
 pub mod control_commit;
 pub mod journal;
 pub mod race;

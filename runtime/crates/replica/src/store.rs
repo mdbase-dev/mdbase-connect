@@ -1284,9 +1284,10 @@ pub trait Store {
     /// removal), or the store's own bound. Durability stays prefix-ordered: a
     /// crash keeps every commit before some point and loses every one after.
     /// The replica opens a window only around commits that can be redone from
-    /// what is still on disk: ingest of files no client write depends on, and
-    /// derived-data rebuilds (query index backfill, reindex) whose completion
-    /// stamps are written last.
+    /// what is still there: ingest of files no client write depends on (redone
+    /// from the files), derived-data rebuilds (query index backfill, reindex)
+    /// whose completion stamps are written last, and the entries of one
+    /// applied page (redone from the log; closed before the page is acted on).
     /// Closing it is a barrier: everything committed before is durable when it
     /// returns `Ok`. Stores without such a mode keep every commit durable.
     fn defer_durability(&mut self, _on: bool) -> StoreResult<()> {
