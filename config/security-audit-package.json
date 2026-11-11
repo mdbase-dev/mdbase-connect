@@ -270,6 +270,10 @@
       "description": "There is no append-only public key-transparency log."
     },
     {
+      "id": "runtime-sdk-relay-target-key",
+      "description": "The runtime application SDK takes the serving device's Noise static key from control-plane routing for each relay session and does not pin it on the client, so a malicious control plane can name a key it holds (runtime/docs/contracts/policy.md section 5)."
+    },
+    {
       "id": "native-app-key-storage",
       "description": "A future native application SDK still needs platform-keystore storage; browser keys are non-extractable and the desktop is a daemon presentation client."
     },

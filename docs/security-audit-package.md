@@ -133,6 +133,8 @@ items are:
   is not implemented;
 - connector TOFU detects key replacement only after the first successful
   authorization, and there is no append-only key-transparency log;
+- the runtime application SDK trusts control-plane routing for the serving
+  device's relay key and does not pin it;
 - future native SDK key storage still needs platform-keystore integration;
 - Render uses narrowly scoped, rotated static AWS credentials rather than
   workload identity federation;
