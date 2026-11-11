@@ -8,7 +8,7 @@
 //   new head;
 // - any other refusal parks the collection's queue (order matters) until an operator
 //   looks at it. Nothing is dropped silently.
-import { CreateError } from "./bootstrap-common.js";
+import { CreateError, refuseCollectionIdOfOther } from "./bootstrap-common.js";
 import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import { effectiveEntitlement, HostedEntitlementRequiredError } from "../account/entitlements.js";
 import { isLogRegion, LogServiceError, type LogPlacement, type LogRegion, LogServiceClient } from "./log-service-client.js";
@@ -108,6 +108,7 @@ export async function registerNextCollection(
     );
     if (Number(usage.rows[0]!.count) >= entitlement.maxHostedCollections) throw new CreateError(429, "account_collection_quota_exceeded");
   }
+  await refuseCollectionIdOfOther(client, input.collectionId, input.ownerUserId);
   await client.query(
     `INSERT INTO next_collections (collection_id, owner_user_id, runtime, sync, root_key_id, display_name)
      VALUES ($1, $2, $3, $4, $5, $6)`,

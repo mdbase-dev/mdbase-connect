@@ -161,6 +161,9 @@ export async function openMemoryDatabase(): Promise<DatabasePool> {
     // service-device removal is qualified by real PostgreSQL.
     const retireWakeTrigger = "-- mdbase:next-service-retire-wake-trigger:v1";
     if (sql.includes(retireWakeTrigger)) return memory.public.many(sql.slice(0, sql.indexOf(retireWakeTrigger)));
+    // A plpgsql trigger only (collection ID owner): creation paths run the same
+    // check in TypeScript; real PostgreSQL qualifies the trigger.
+    if (sql.trimStart().startsWith("-- mdbase:next-collection-id-owner-trigger:v1")) return [];
     // pg-mem does not use PostgreSQL's automatic CHECK name. Name ONLY the
     // original fixed device-kind CHECK so migration0055 replaces it exactly,
     // without editing historical SQL/checksums or weakening either constraint.
