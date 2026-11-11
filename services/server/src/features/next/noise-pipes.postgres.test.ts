@@ -422,31 +422,56 @@ describePostgres("Noise pipe revocation backstop", () => {
     }
   });
 
-  it.each(["grant", "token", "lookup"])("closes an open pipe at both ends on %s denial", async (revoked) => {
-    const id = await localGrantFixture(db);
-    await db.query("UPDATE grants SET activated_at = now() WHERE id = $1", [id]);
-    await db.query("UPDATE collections SET enabled = true, present = true, authority_state = 'active' WHERE id = $1", [id]);
-    await db.query("INSERT INTO next_grant_client_keys(grant_id, client_pk) VALUES($1,$2)", [id, randomBytes(32)]);
-    const token = `at_${randomUUID()}`;
-    await db.query("INSERT INTO access_tokens(id,token_hash,grant_id,expires_at) VALUES($1,$2,$3,now() + interval '1 hour')", [randomUUID(), tokenHash(token), id]);
-    // The daemon's side, on the broker: accept the open, then watch the device subject.
+  it.each(["grant", "token", "lookup"])("closes every pipe in a group at both ends on %s denial, leaving another grant open", async (revoked) => {
+    async function activeGrant() {
+      const id = await localGrantFixture(db);
+      await db.query("UPDATE grants SET activated_at = now() WHERE id = $1", [id]);
+      await db.query("UPDATE collections SET enabled = true, present = true, authority_state = 'active' WHERE id = $1", [id]);
+      await db.query("INSERT INTO next_grant_client_keys(grant_id, client_pk) VALUES($1,$2)", [id, randomBytes(32)]);
+      const token = `at_${randomUUID()}`;
+      await db.query("INSERT INTO access_tokens(id,token_hash,grant_id,expires_at) VALUES($1,$2,$3,now() + interval '1 hour')", [randomUUID(), tokenHash(token), id]);
+      // Accept the open on the daemon side, then watch the device subject.
+      await broker.subscribePipe(pipeSubject("open", id, "1"), (data) => {
+        const { pipe_id: pipeId } = JSON.parse(Buffer.from(data).toString()) as { pipe_id: string };
+        void broker.subscribePipe(pipeSubject(pipeId, "device"), (message) => toDevice.push(`${message[0]}:${Buffer.from(message.subarray(1)).toString()}`));
+        void broker.publishPipe(pipeSubject(pipeId, "client"), Buffer.of(1));
+      });
+      const device = randomUUID();
+      return { id, token, device };
+    }
     const toDevice: string[] = [];
-    await broker.subscribePipe(pipeSubject("open", id, "1"), (data) => {
-      const { pipe_id: pipeId } = JSON.parse(Buffer.from(data).toString()) as { pipe_id: string };
-      void broker.subscribePipe(pipeSubject(pipeId, "device"), (message) => toDevice.push(`${message[0]}:${Buffer.from(message.subarray(1)).toString()}`));
-      void broker.publishPipe(pipeSubject(pipeId, "client"), Buffer.of(1));
-    });
-    const socket = new WebSocket(`${base}/v1/next/relay/client`);
-    await once(socket, "open");
-    socket.send(JSON.stringify({ type: "pipe_auth", access_token: token, collection: id, grant: id, device: randomUUID(), device_noise_pk: "11".repeat(32) }));
-    await next(socket, json("pipe_opened"));
-    const closed = once(socket, "close");
-    const lookup = revoked === "lookup" ? vi.spyOn(db, "query").mockRejectedValueOnce(new Error("database unavailable")) : undefined;
+    const grant = await activeGrant(), otherGrant = await activeGrant();
+    const sockets: WebSocket[] = [];
+    async function open(g: typeof grant) {
+      const socket = new WebSocket(`${base}/v1/next/relay/client`);
+      sockets.push(socket);
+      await once(socket, "open");
+      const opened = next(socket, json("pipe_opened"));
+      socket.send(JSON.stringify({ type: "pipe_auth", access_token: g.token, collection: g.id, grant: g.id, device: g.device, device_noise_pk: "11".repeat(32) }));
+      await opened;
+      return socket;
+    }
+    let lookup: ReturnType<typeof vi.spyOn> | undefined;
     try {
-      if (revoked === "grant") await db.query("UPDATE grants SET revoked_at = now() WHERE id = $1", [id]);
-      else if (revoked === "token") await db.query("UPDATE access_tokens SET revoked_at = now() WHERE grant_id = $1", [id]);
-      expect((await closed).map(String)).toEqual(revoked === "lookup" ? ["4404", "connector_offline"] : ["4403", "grant_inactive"]);
-      expect(toDevice).toContain(revoked === "lookup" ? "2:authorization_unavailable" : "2:grant_revoked");
+      const clients = await Promise.all(Array.from({ length: 8 }, () => open(grant)));
+      const other = await open(otherGrant);
+      const closed = clients.map(socket => once(socket, "close"));
+      if (revoked === "grant") await db.query("UPDATE grants SET revoked_at = now() WHERE id = $1", [grant.id]);
+      else if (revoked === "token") await db.query("UPDATE access_tokens SET revoked_at = now() WHERE grant_id = $1", [grant.id]);
+      else {
+        // Fail only this group's admission; the other group must remain usable.
+        const query = db.query.bind(db);
+        lookup = vi.spyOn(db, "query").mockImplementation((sql, values) => {
+          if (String(sql).includes("FROM access_tokens tok") && values?.[0] === tokenHash(grant.token)) return Promise.reject(new Error("database unavailable"));
+          return query(sql, values);
+        });
+      }
+      for (const result of await Promise.all(closed)) {
+        expect(result.map(String)).toEqual(revoked === "lookup" ? ["4404", "connector_offline"] : ["4403", "grant_inactive"]);
+      }
+      expect(toDevice).toEqual(Array(8).fill(revoked === "lookup" ? "2:authorization_unavailable" : "2:grant_revoked"));
+      expect(other.readyState).toBe(WebSocket.OPEN);
+      const otherClosed = once(other, "close"); other.close(); await otherClosed;
       const afterClose = vi.spyOn(db, "query");
       const callsAtClose = afterClose.mock.calls.length;
       try {
@@ -455,7 +480,7 @@ describePostgres("Noise pipe revocation backstop", () => {
       } finally { afterClose.mockRestore(); }
     } finally {
       lookup?.mockRestore();
-      socket.close();
+      for (const socket of sockets) socket.close();
     }
   });
 });
