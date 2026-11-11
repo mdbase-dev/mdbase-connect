@@ -1521,12 +1521,14 @@ export class HostedCollection extends DurableObject<Env> {
         this.lastRefresh = Date.now();
         engine.refresh();
       }
-      // Bounded ingress: sockets (including pre-prologue ones) per DO.
-      const apps = this.ctx.getWebSockets().filter((w) => (w.deserializeAttachment() as AppAttachment | null)?.app).length;
-      if (apps >= MAX_APP_SOCKETS) return new Response("busy", { status: 503 });
+      // Bounded ingress: at the socket cap, the oldest socket without a session
+      // makes room. Sessions stay below the cap (MAX_APP_SESSIONS, checked at
+      // hello), so sockets that never authenticate cannot hold out one that does.
+      const apps = this.ctx.getWebSockets().filter((w) => (w.deserializeAttachment() as AppAttachment | null)?.app);
+      if (apps.length >= MAX_APP_SOCKETS) this.evictUnauthenticated(engine, apps);
       const pair = new WebSocketPair();
       this.ctx.acceptWebSocket(pair[1]);
-      pair[1].serializeAttachment({ wake: this.wakeId, app: true } satisfies AppAttachment);
+      pair[1].serializeAttachment({ wake: this.wakeId, app: true, opened: Date.now() } satisfies AppAttachment);
       void engine;
       return new Response(null, { status: 101, webSocket: pair[0] });
     }
@@ -1560,6 +1562,28 @@ export class HostedCollection extends DurableObject<Env> {
     try { console.info(JSON.stringify({ event: "hosted_session_refused", role: this.escrow ? "escrow" : "hosted", serving: engine.serving(), installing: engine.installStatus() !== null })); } catch { /* Logging is not authority. */ }
   }
 
+  /** App sockets of this wake that completed hello. */
+  private appSessions(): number {
+    return this.ctx.getWebSockets().filter((w) => {
+      const a = w.deserializeAttachment() as AppAttachment | null;
+      return !!a?.app && a.wake === this.wakeId && a.session !== undefined;
+    }).length;
+  }
+
+  /** Close the oldest app socket that holds no session in this wake. */
+  private evictUnauthenticated(engine: Engine, apps: WebSocket[]): void {
+    let oldest: { ws: WebSocket; a: AppAttachment } | null = null;
+    for (const ws of apps) {
+      const a = ws.deserializeAttachment() as AppAttachment;
+      if (a.wake === this.wakeId && a.session !== undefined) continue;
+      if (!oldest || a.opened! < oldest.a.opened!) oldest = { ws, a };
+    }
+    if (!oldest) throw new Error("hosted_app_sockets_exceed_sessions");
+    // An earlier wake's handles are not this engine's: close that socket only.
+    if (oldest.a.wake === this.wakeId) this.endApp(engine, oldest.ws, oldest.a, 1013, "busy");
+    else oldest.ws.close(1012, "rehandshake");
+  }
+
   /** End an app session: Noise state, reassembly and the replica session. */
   private endApp(engine: Engine, ws: WebSocket, a: AppAttachment, code: number, reason: string): void {
     if (a.noise) {
@@ -1584,7 +1608,6 @@ export class HostedCollection extends DurableObject<Env> {
     if (!a.noise) {
       // 1. The prologue, in clear.
       const grant = parsePrologue(bytes, collection, live.device);
-      if (this.readers.size >= MAX_APP_SESSIONS) return this.endApp(engine, ws, a, 1013, "busy");
       const h = grant ? engine.noiseStart(bytes) : 0;
       if (!grant || !h) return this.endApp(engine, ws, a, 1008, "prologue");
       this.readers.set(h, new FrameReader());
@@ -1593,6 +1616,7 @@ export class HostedCollection extends DurableObject<Env> {
     }
     if (a.session === undefined) {
       // 2. Noise message 1: the hello request; admitted, then answered in message 2.
+      if (this.appSessions() >= MAX_APP_SESSIONS) return this.endApp(engine, ws, a, 1013, "busy");
       const m1 = engine.noiseRead1(a.noise, bytes);
       if (!m1) return this.endApp(engine, ws, a, 1008, "handshake");
       // The hello payload is wiped on every path, including an early denial.
@@ -1725,6 +1749,8 @@ interface AppAttachment {
   wake: string;
   /** An app (Noise) socket rather than the LAB admin socket. */
   app?: boolean;
+  /** When an app socket was accepted (ms): the oldest without a session is evicted first. */
+  opened?: number;
   /** The engine's Noise session handle. */
   noise?: number;
   /** Grant ID from the prologue. */
