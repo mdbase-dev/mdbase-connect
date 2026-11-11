@@ -17,6 +17,10 @@ const AUTHORIZATION_LIFETIME_MS = 10 * 60_000;
 export const MAX_PENDING_AUTHORIZATIONS = 1_000;
 const EXPIRED_AUTHORIZATION_RETENTION_MS = 10 * 60_000;
 const UNUSED_CLIENT_RETENTION_MS = 7 * 24 * 60 * 60_000;
+// A client that refreshes twice at once presents one token twice within
+// moments. That second request is refused without revoking the tokens the
+// first one received; only a later return of a rotated token revokes them.
+const REFRESH_REUSE_GRACE_MS = 30_000;
 
 // Used only for new, explicitly approved connections; stored token ceilings remain exact.
 // Existing stored grants retain their original operation arrays without conversion.
@@ -352,16 +356,18 @@ export class OAuthService {
       );
       const refresh = result.rows[0];
       if (refresh?.used_at && !refresh.revoked_at) {
-        // A rotated token came back, so it or its successor is held by someone
-        // else. Revoke the whole family: every token issued from one
-        // authorization shares its connection set.
-        for (const table of ["mcp_refresh_tokens", "mcp_access_tokens"]) {
-          await transaction.query(
-            `UPDATE ${table} SET revoked_at = now() WHERE connection_set_id = $1 AND revoked_at IS NULL`,
-            [refresh.connection_set_id]
-          );
+        if (Date.now() - new Date(refresh.used_at).getTime() > REFRESH_REUSE_GRACE_MS) {
+          // A rotated token came back, so it or its successor is held by someone
+          // else. Revoke the whole family: every token issued from one
+          // authorization shares its connection set.
+          for (const table of ["mcp_refresh_tokens", "mcp_access_tokens"]) {
+            await transaction.query(
+              `UPDATE ${table} SET revoked_at = now() WHERE connection_set_id = $1 AND revoked_at IS NULL`,
+              [refresh.connection_set_id]
+            );
+          }
+          await transaction.query("COMMIT");
         }
-        await transaction.query("COMMIT");
         throw new OAuthError("invalid_grant", "The refresh token was already used.");
       }
       if (!refresh

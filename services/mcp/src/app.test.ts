@@ -748,7 +748,7 @@ describe("upstream PKCE verifier", () => {
 });
 
 describe("refresh token rotation", () => {
-  it("revokes every token from the authorization when a rotated refresh token is used again", async () => {
+  it("revokes every token from the authorization when a rotated refresh token returns after the race window", async () => {
     const fixture = await nativeOAuth();
     const { app, db, oauth } = fixture;
     try {
@@ -767,6 +767,14 @@ describe("refresh token rotation", () => {
       expect(third.statusCode).toBe(200);
       expect(await oauth.authenticate(third.json().access_token)).not.toBeNull();
 
+      // A second request with a token rotated moments ago is a client racing
+      // itself: refused, and the tokens the first request received still work.
+      const raced = await refresh(first.refresh_token);
+      expect(raced.statusCode).toBe(400);
+      expect(raced.json()).toMatchObject({ error: "invalid_grant" });
+      expect(await oauth.authenticate(third.json().access_token)).not.toBeNull();
+
+      await db.query("UPDATE mcp_refresh_tokens SET used_at = $1 WHERE used_at IS NOT NULL", [new Date(Date.now() - 60_000)]);
       const reused = await refresh(first.refresh_token);
       expect(reused.statusCode).toBe(400);
       expect(reused.json()).toMatchObject({ error: "invalid_grant" });
