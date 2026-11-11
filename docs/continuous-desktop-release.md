@@ -64,10 +64,14 @@ Tags cannot be moved, and a tag worker runs the code at its tag, so a failed
 attempt cannot be fixed in place. Release agents own this acknowledgement and
 need no owner approval. Once an agent has confirmed that the attempt published
 nothing, reconciling a partial or unknown outcome until it is known and
-recording the evidence in the deployment report or release dashboard, it sets
-repository variable **`DESKTOP_RELEASE_ACKNOWLEDGED_TAG`** to that exact tag. The coordinator then
-ignores unfinished reservations up to and including it and takes the next
-number. Acknowledgement is not a retry command and changes no tag or release.
+recording the evidence in the deployment report or release dashboard, it runs
+the ops front door `bin/release app-line clear desktop`. That is the only way
+to acknowledge: it refuses a draft or an unfinished run, then sets repository
+variable **`DESKTOP_RELEASE_ACKNOWLEDGED_TAG`** to the newest unfinished
+reservation and closes the ops hold. Never set the variable by hand. The
+coordinator then ignores unfinished reservations up to and including it and
+takes the next number. Acknowledgement is not a retry command and changes no
+tag or release.
 
 ## Compatibility, not a human-typed server SHA
 
@@ -110,15 +114,20 @@ outcome must be reconciled against the exact tag, run and release; never retry
 blindly. The coordinator refuses any unfinished automatic tag reservation and
 still respects an existing `Continuous desktop status: stopped` notes marker.
 
-Set repository variable **`DESKTOP_RELEASE_STOPPED=true`** for a reported crash,
-error or operational stop. It stops subsequent builds/publication, not
-downloads already offered or updates already installed. For an in-flight stop,
+Repository variable **`DESKTOP_RELEASE_STOPPED=true`** stops the line for a
+reported crash, error or operational stop. It stops subsequent
+builds/publication, not downloads already offered or updates already installed.
+The coordinator cannot read the private ops repository, so an open ops
+`desktop` hold does not stop it by itself. Hold Desktop with
+`bin/release app-line stop desktop desktop-held`, which sets this variable
+before opening the hold and refuses if it cannot. For an in-flight stop,
 disable **Desktop Release** and cancel its active runs: the workflow's active
 state is also read through the API immediately before publication.
 Malformed/unreadable state fails closed. There is no automated rollback or
 user-data deletion, and no token with variable-management authority is needed.
 Release agents own this switch too, including a stop set for a reported crash:
-an agent reconciles the cause, records the evidence, and deletes the variable.
+an agent reconciles the cause, records the evidence, and runs
+`bin/release app-line clear desktop`, which deletes the variable.
 
 The existing committed minimum and `UPDATE_BLOCKED_VERSIONS` remain in force:
 required updates bypass rollout, and manual downloads/Store submissions are
@@ -131,8 +140,8 @@ fixed 100% rollout and is no longer read.
 
 1. `DESKTOP_RELEASE_STOPPED=true` is already set and remains set during this
    implementation and review. Keep repository immutable releases enabled.
-   A release agent changes the stop switch to `false` when ready to enable
-   publication; the default for an unset switch remains running.
+   A release agent clears it with `bin/release app-line clear desktop` when
+   ready to enable publication; the default for an unset switch remains running.
 2. Keep the existing `desktop-release` environment. Its publication job must
    be allowed to run unattended for continuous delivery; required reviewer
    approvals would intentionally pause it. Its branch policy must allow `v*`.
@@ -149,7 +158,7 @@ fixed 100% rollout and is no longer read.
    permissions grant the coordinator contents/actions write and the signing
    jobs OIDC; the built-in token creates tags and dispatches the tagged worker.
 5. After review, merge and a green full main Server CI, a release agent may clear the
-   stop switch and either wait for the next six-hour coordinator wake or run
+   stop switch as above and either wait for the next six-hour coordinator wake or run
    `gh workflow run desktop-release.yml --repo mdbase-dev/mdbase-connect --ref main`.
    Do not supply a version, server SHA or tag. Review the coordinator and
    automatic tagged worker runs, including the draft-to-published boundary.
