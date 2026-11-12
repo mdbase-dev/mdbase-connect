@@ -69,8 +69,7 @@ pub async fn run_with(
     let _ = daemon.self_weak.set(Arc::downgrade(&daemon));
     tracing::info!(
         version = crate::BINARY_VERSION,
-        state_dir = %daemon.profile.state_dir.display(),
-        control = %daemon.profile.control,
+        target = ?daemon.profile.target,
         "daemon starting"
     );
 

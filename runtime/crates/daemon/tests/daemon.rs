@@ -966,3 +966,90 @@ async fn takeover_holds_refuse_an_unregistered_collection() {
     let _ = tokio::time::timeout(Duration::from_secs(10), daemon).await;
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// The daemon log names collections by ID: startup, registration and a failed
+/// open never write the state directory, the control socket or a collection's
+/// folder (`docs/threat-model.md`, "Logging and data minimization").
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_daemon_log_carries_no_local_paths() {
+    #[derive(Clone, Default)]
+    struct Capture(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+    impl std::io::Write for Capture {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Capture {
+        type Writer = Self;
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+    // The daemon logs from its runtime's worker threads, so the capture is the
+    // process-wide subscriber. Only this test in the binary installs one.
+    let capture = Capture::default();
+    tracing::subscriber::set_global_default(
+        tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_env_filter("info")
+            .with_writer(capture.clone())
+            .finish(),
+    )
+    .unwrap();
+
+    let root = scratch("g");
+    let profile = Profile::isolated(&root.join("s")).unwrap();
+    let keys = std::sync::Arc::new(MemoryStore::default());
+    let (p, k2) = (profile.clone(), keys.clone());
+    let daemon = tokio::spawn(async move { server::run(p, Some(Box::new(k2))).await });
+    wait_ready(&profile).await;
+    pairing::pair(&profile, &keys).await;
+    let mut c = ControlClient::connect(&profile.control).await.unwrap();
+
+    // One folder opens; one cannot, because its host lock is a symlink.
+    let notes = root.join("notes");
+    std::fs::create_dir_all(&notes).unwrap();
+    let linked = root.join("linked");
+    std::fs::create_dir_all(linked.join(".mdbase")).unwrap();
+    std::fs::write(root.join("elsewhere"), b"").unwrap();
+    std::os::unix::fs::symlink(root.join("elsewhere"), linked.join(".mdbase/host.lock")).unwrap();
+    let mut ids = Vec::new();
+    for folder in [&notes, &linked] {
+        let added: CollectionStatus = serde_json::from_value(
+            c.call(Method::COLLECTION_ADD, json!({ "path": folder }))
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        ids.push(added.id);
+    }
+    for id in &ids {
+        for _ in 0..500 {
+            if status_of(&mut c, id).await.state != CollectionState::Opening {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+    c.call(Method::SHUTDOWN, json!({})).await.unwrap();
+    let _ = tokio::time::timeout(Duration::from_secs(10), daemon).await;
+
+    let log = String::from_utf8(capture.0.lock().unwrap().clone()).unwrap();
+    for line in [
+        "daemon starting",
+        "collection registered",
+        "collection failed to open",
+    ] {
+        assert!(log.contains(line), "{line}: {log}");
+    }
+    for path in [root.clone(), root.canonicalize().unwrap()] {
+        let path = path.display().to_string();
+        assert!(!log.contains(&path), "{path} in the log:\n{log}");
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}

@@ -73,7 +73,8 @@ pub enum FolderError {
         /// Whether that announcement's heartbeat is old.
         stale: bool,
     },
-    /// The lock or private dir is a symlink or escapes the collection.
+    /// The lock or private dir is a symlink or escapes the collection. The
+    /// path is named from the collection root.
     Unsafe(PathBuf),
     /// Composing the folder failed.
     Host(Error),

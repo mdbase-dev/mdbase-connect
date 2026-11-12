@@ -148,7 +148,8 @@ impl DescriptorState {
 pub enum LockError {
     /// Another process holds the lock. The descriptor says who, when readable.
     Held(Option<Descriptor>),
-    /// A path under the root is a symlink or escapes it.
+    /// A path under the root is a symlink or escapes it. The path is named
+    /// from the collection root, never absolute: the message reaches logs.
     Unsafe(PathBuf),
     /// I/O failure.
     Io(io::Error),
@@ -186,20 +187,20 @@ pub struct HostLock {
 
 /// Reject anything at `p` that is not a regular file (the path need not
 /// exist): symlinks, directories, FIFOs, devices. A final check on the opened
-/// handle follows, since this one is by path.
-fn reject_non_regular(p: &Path) -> Result<(), LockError> {
+/// handle follows, since this one is by path. The error names `p` as `shown`.
+fn reject_non_regular(p: &Path, shown: &Path) -> Result<(), LockError> {
     match std::fs::symlink_metadata(p) {
         Ok(m) if m.file_type().is_file() => Ok(()),
-        Ok(_) => Err(LockError::Unsafe(p.to_owned())),
+        Ok(_) => Err(LockError::Unsafe(shown.to_owned())),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(LockError::Io(e)),
     }
 }
 
-/// Reject symlinks at `p` (the path need not exist).
-fn reject_symlink(p: &Path) -> Result<(), LockError> {
+/// Reject symlinks at `p` (the path need not exist), named as `shown`.
+fn reject_symlink(p: &Path, shown: &Path) -> Result<(), LockError> {
     match std::fs::symlink_metadata(p) {
-        Ok(m) if m.file_type().is_symlink() => Err(LockError::Unsafe(p.to_owned())),
+        Ok(m) if m.file_type().is_symlink() => Err(LockError::Unsafe(shown.to_owned())),
         Ok(_) => Ok(()),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(LockError::Io(e)),
@@ -211,14 +212,20 @@ fn reject_symlink(p: &Path) -> Result<(), LockError> {
 /// A private dir name is one plain path segment.
 fn check_private_name(root: &Path, private: &str) -> Result<PathBuf, LockError> {
     if private.is_empty() || private.contains(['/', '\\']) || private == "." || private == ".." {
-        return Err(LockError::Unsafe(root.join(private)));
+        return Err(LockError::Unsafe(private.into()));
     }
     Ok(root.join(private))
 }
 
+/// `name` in the private dir `dir` (`<root>/<private>`), named from the
+/// collection root as errors report it.
+fn in_private(dir: &Path, name: &str) -> PathBuf {
+    Path::new(dir.file_name().unwrap_or_default()).join(name)
+}
+
 fn private_dir(root: &Path, private: &str) -> Result<PathBuf, LockError> {
     let dir = check_private_name(root, private)?;
-    reject_symlink(&dir)?;
+    reject_symlink(&dir, Path::new(private))?;
     if !dir.is_dir() {
         std::fs::create_dir(&dir)?;
     }
@@ -265,10 +272,11 @@ impl HostLock {
     ) -> Result<HostLock, LockError> {
         let dir = private_dir(root, private)?;
         let path = dir.join(LOCK_NAME);
-        reject_non_regular(&path)?;
+        let lock = in_private(&dir, LOCK_NAME);
+        reject_non_regular(&path, &lock)?;
         let mut file = open_no_follow(&path, true)?;
         if !file.metadata()?.is_file() {
-            return Err(LockError::Unsafe(path));
+            return Err(LockError::Unsafe(lock));
         }
         match file.try_lock() {
             Ok(()) => {}
@@ -296,15 +304,16 @@ impl HostLock {
 
     /// Whether some process holds the folder lock (without taking it for long).
     pub fn is_held(root: &Path, private: &str) -> Result<bool, LockError> {
-        let path = check_private_name(root, private)?.join(LOCK_NAME);
-        reject_non_regular(&path)?;
+        let dir = check_private_name(root, private)?;
+        let (path, lock) = (dir.join(LOCK_NAME), in_private(&dir, LOCK_NAME));
+        reject_non_regular(&path, &lock)?;
         let file = match open_no_follow(&path, false) {
             Ok(f) => f,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
             Err(e) => return Err(LockError::Io(e)),
         };
         if !file.metadata()?.is_file() {
-            return Err(LockError::Unsafe(path));
+            return Err(LockError::Unsafe(lock));
         }
         match file.try_lock() {
             Ok(()) => {
@@ -399,7 +408,12 @@ fn read_descriptor_in(dir: &Path) -> Option<Descriptor> {
 
 fn descriptor_state_in(dir: &Path) -> DescriptorState {
     let path = dir.join(DESCRIPTOR_NAME);
-    let unreadable = |why: &str| DescriptorState::Unreadable(format!("{}: {why}", path.display()));
+    let unreadable = |why: &str| {
+        DescriptorState::Unreadable(format!(
+            "{}: {why}",
+            in_private(dir, DESCRIPTOR_NAME).display()
+        ))
+    };
     match std::fs::symlink_metadata(&path) {
         Ok(m) if m.file_type().is_file() => {}
         Ok(_) => return unreadable("not a regular file"),
@@ -436,7 +450,7 @@ fn write_descriptor_in(dir: &Path, d: &Descriptor) -> Result<(), LockError> {
     let _publication = descriptor_io_lock()?;
     let tmp = dir.join(format!("{DESCRIPTOR_NAME}.{}.tmp", std::process::id()));
     let dest = dir.join(DESCRIPTOR_NAME);
-    reject_symlink(&dest)?;
+    reject_symlink(&dest, &in_private(dir, DESCRIPTOR_NAME))?;
     let text = serde_json::to_string_pretty(d).map_err(|e| LockError::Io(io::Error::other(e)))?;
     // A stale temp file from a crashed writer is ours to remove; a planted
     // symlink is not followed because `create_new` never opens an existing path.

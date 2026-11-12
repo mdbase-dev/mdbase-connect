@@ -118,7 +118,7 @@ impl Daemon {
         inner.hosts.push(host);
         drop(inner);
         self.bump();
-        tracing::info!(collection = %status.id, root = %status.root.display(), "collection registered");
+        tracing::info!(collection = %status.id, "collection registered");
         to_value(&status)
     }
 
