@@ -4,7 +4,7 @@
  *
  * Use it in build scripts and tests, not in the running app: it carries the
  * precompiled manifest schema. The running app declares itself through
- * `MdbaseConnect`, which validates the same declaration internally.
+ * `createMdbase`, which validates the same declaration internally.
  */
 export {
   AppManifestValidationError,

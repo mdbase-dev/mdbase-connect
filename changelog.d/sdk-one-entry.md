@@ -1,0 +1,3 @@
+## Breaking
+
+- SDK: `createMdbase` is the only application entry and `Mdbase` its only interface. `MdbaseConnect`, `MdbaseApplication`, `MdbaseApplicationEntry`, `MdbaseApplicationSetup`, `MdbaseApplicationSnapshot`, `MdbaseApplicationUnavailableError`, `mdbase.application`, `addPrivateCollection` and `clearSelection` are removed, and `MdbaseConnectOptions` is now `MdbaseOptions`. Use `signIn` for `authorize`, `addCollection` for `approve(null)`, `chooseAnother` for `clearSelection`, and `MdbaseSnapshot` for the snapshot. The testing fixtures return `mdbase` in place of `entry` and `application`. `docs/sdk-one-entry.md` has the full mapping.

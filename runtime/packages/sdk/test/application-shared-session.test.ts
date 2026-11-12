@@ -15,7 +15,7 @@ vi.mock("../src/app-host/app-origin.js",async original=>{
   const actual=await original<typeof import("../src/app-host/app-origin.js")>();
   return {...actual,urlOrigin:(url:URL)=>url.protocol==="file:"?"https://app.test":actual.urlOrigin(url)};
 });
-const {MdbaseConnect}=await import("../src/application/entry.js");
+const {createMdbase}=await import("../src/application/front-door.js");
 
 const origin="https://app.test";
 const declaration={id:"org.example.app",name:"Example",origin,environment:"lab" as const,manifest:{manifest_version:1,id:"org.example.app",name:"Example",homepage:origin,
@@ -52,7 +52,7 @@ function page(){
 const build="1.4.2";
 const opened:{close():Promise<void>}[]=[];
 function context(session:{build:string;host?:boolean}|undefined,options:Record<string,unknown>={}){
-  const app=new MdbaseConnect(declaration,{...(session?{session}:{}),...options}).application();opened.push(app);return app;
+  const app=createMdbase(declaration,{...(session?{session}:{}),...options});opened.push(app);return app;
 }
 const settled=()=>new Promise(resolve=>setTimeout(resolve,30));
 
@@ -87,7 +87,7 @@ describe("session option",()=>{
     expect(worker.getSnapshot().status).toBe("unselected");
     expect(FakeWorker.all).toHaveLength(1);expect(FakeWorker.all[0]!.attached).toHaveLength(1);
     // The same place cannot host: it reports the SDK as unavailable and allocates nothing.
-    const cannot=new MdbaseConnect(declaration,{session:{build}}).application();
+    const cannot=createMdbase(declaration,{session:{build}});
     expect(cannot.getSnapshot()).toMatchObject({status:"blocked",problem:"application_not_yet_available"});
   });
 
@@ -128,8 +128,8 @@ describe("session option",()=>{
 
   it("refuses a malformed option at construction",()=>{
     for(const session of [null,"1.4.2",{},{build:""},{build:7},{build:"a\nb"},{build:"x".repeat(129)}])
-      expect(()=>new MdbaseConnect(declaration,{session:session as unknown as {build:string}})).toThrow(new TypeError("session.build must be a short non-empty string"));
-    expect(()=>new MdbaseConnect(declaration,{session:{build,host:"no" as unknown as boolean}})).toThrow(new TypeError("session.host must be a boolean"));
-    expect(()=>new MdbaseConnect(declaration,{session:{build,host:false},worker:()=>new FakeWorker() as unknown as Worker})).toThrow(new TypeError("worker has no effect with session.host: false"));
+      expect(()=>createMdbase(declaration,{session:session as unknown as {build:string}})).toThrow(new TypeError("session.build must be a short non-empty string"));
+    expect(()=>createMdbase(declaration,{session:{build,host:"no" as unknown as boolean}})).toThrow(new TypeError("session.host must be a boolean"));
+    expect(()=>createMdbase(declaration,{session:{build,host:false},worker:()=>new FakeWorker() as unknown as Worker})).toThrow(new TypeError("worker has no effect with session.host: false"));
   });
 });

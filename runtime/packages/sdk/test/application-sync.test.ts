@@ -1,7 +1,7 @@
 // `snapshot.sync` in the application entry: one object from the replica's
 // status, its ledger and link, the session's transport health and the browser.
 import {afterEach,expect,it,vi} from "vitest";
-import {MdbaseConnect} from "../src/application/entry.js";
+import {MdbaseEntry} from "../src/application/entry.js";
 import type {ApplicationRuntime} from "../src/application/runtime.js";
 import type {SyncStatus} from "../src/wire.js";
 import type {WriteLedgerSnapshot} from "../src/write-ledger.js";
@@ -17,7 +17,7 @@ function open(scope:"page"|"worker"="page"){
   vi.stubGlobal("location",page.location);vi.stubGlobal("Worker",class{});
   const browser:{onLine?:boolean;storage:unknown}={storage:{persisted:async()=>true}};
   vi.stubGlobal("navigator",browser);
-  const entry=new MdbaseConnect({id:"org.example.app",name:"Example",origin,environment:"lab",manifest:{manifest_version:1,id:"org.example.app",name:"Example",homepage:origin,
+  const entry=new MdbaseEntry({id:"org.example.app",name:"Example",origin,environment:"lab",manifest:{manifest_version:1,id:"org.example.app",name:"Example",homepage:origin,
     redirect_uris:[`${origin}/callback`],requirements:{access:"full_collection",contracts:[]}}},{privateCollections:false});
   // Stand-in runtime/replica IO; the entry, its subscriptions, clock and timers are real.
   let status:SyncStatus={mode:"synced",confirmedThrough:1,headKnown:1,pending:0,holds:0,unresolved:0,connection:"online",incidents:[]};
@@ -34,7 +34,7 @@ function open(scope:"page"|"worker"="page"){
   const connection={id,isCurrent:()=>true,records};
   const runtime={getSnapshot:()=>raw,getNativeSnapshot:()=>raw,connection:()=>connection,close:async()=>{}};
   (entry as unknown as {runtime:ApplicationRuntime}).runtime=runtime as unknown as ApplicationRuntime;
-  const app=entry.application();
+  const app=entry.mdbase;
   return {app,page,browser,setTransportDeferred,sync:()=>app.getSnapshot().sync!,
     status:(next:Partial<SyncStatus>)=>{status={...status,...next};onStatus(status);},
     writes:(next:Partial<WriteLedgerSnapshot>)=>{writes={...writes,...next};onWrites();},

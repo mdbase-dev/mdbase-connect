@@ -6,7 +6,7 @@
  * (scripts/bundle-boundaries.mjs).
  *
  * The root entry re-exports all of this and adds the application entry
- * (`MdbaseConnect`), people, timers, notifications, holds, `describeError`,
+ * (`createMdbase`), people, timers, notifications, holds, `describeError`,
  * `WasmRuntime` and `inProcessConnector`.
  */
 export * from "./cbor.js";

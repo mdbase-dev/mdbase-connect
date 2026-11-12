@@ -163,13 +163,11 @@ MDBASE_NOTIFICATION_TYPE -> MDBASE_NOTIFICATION_TYPE@notifications.ts
 MdbaseAccessRequest -> MdbaseAccessRequest@application/file-access.ts
 MdbaseAccessRequestOptions -> MdbaseAccessRequestOptions@application/file-access.ts
 MdbaseAccessResult -> MdbaseAccessResult@application/file-access.ts
-MdbaseApplication -> MdbaseApplication@application/entry.ts
 MdbaseApplicationAssessment -> MdbaseApplicationAssessment@application/entry.ts
 MdbaseApplicationCapabilities -> MdbaseApplicationCapabilities@application/capabilities.ts
 MdbaseApplicationCapability -> MdbaseApplicationCapability@application/capabilities.ts
 MdbaseApplicationConnection -> MdbaseApplicationConnection@application/entry.ts
 MdbaseApplicationDeclaration -> MdbaseApplicationDeclaration@application/declaration.ts
-MdbaseApplicationEntry -> MdbaseApplicationEntry@application/entry.ts
 MdbaseApplicationFacet -> MdbaseApplicationFacet@application/entry.ts
 MdbaseApplicationFacetSnapshot -> MdbaseApplicationFacetSnapshot@application/entry.ts
 MdbaseApplicationProblem -> MdbaseApplicationProblem@application/entry.ts
@@ -177,15 +175,10 @@ MdbaseApplicationReadinessSnapshot -> MdbaseApplicationReadinessSnapshot@applica
 MdbaseApplicationRequestOptions -> MdbaseApplicationRequestOptions@application/entry.ts
 MdbaseApplicationSelectionSnapshot -> ApplicationCollectionSelectionSnapshot@application/collection-selection.ts
 MdbaseApplicationSelectionState -> ApplicationCollectionSelectionState@application/collection-selection.ts
-MdbaseApplicationSetup -> MdbaseApplicationSetup@application/setup.ts
-MdbaseApplicationSnapshot -> MdbaseApplicationSnapshot@application/entry.ts
-MdbaseApplicationUnavailableError -> MdbaseApplicationUnavailableError@application/entry.ts
 MdbaseApprovalOutcome -> MdbaseApprovalOutcome@application/phase.ts
 MdbaseClient -> MdbaseClient@client.ts
 MdbaseCollectionDeleteOptions -> MdbaseCollectionDeleteOptions@application/entry.ts
 MdbaseCollectionSummary -> MdbaseCollectionSummary@application/phase.ts
-MdbaseConnect -> MdbaseConnect@application/entry.ts
-MdbaseConnectOptions -> MdbaseConnectOptions@application/entry.ts
 mdbaseError -> mdbaseError@errors.ts
 MdbaseError -> MdbaseError@errors.ts
 MdbaseErrorAction -> MdbaseErrorAction@describe-error.ts
@@ -196,6 +189,7 @@ MdbaseNotification -> MdbaseNotification@notifications.ts
 MdbaseNotificationClickMessage -> MdbaseNotificationClickMessage@notifications.ts
 MdbaseNotificationDisplayOptions -> MdbaseNotificationDisplayOptions@notifications.ts
 MdbaseNotificationPresentation -> MdbaseNotificationPresentation@notifications.ts
+MdbaseOptions -> MdbaseOptions@application/entry.ts
 MdbasePeopleClient -> MdbasePeopleClient@people.ts
 MdbasePhase -> MdbasePhase@application/phase.ts
 MdbasePhaseKind -> MdbasePhaseKind@application/phase.ts
@@ -847,13 +841,11 @@ MDBASE_NOTIFICATION_TYPE -> MDBASE_NOTIFICATION_TYPE@notifications.ts
 MdbaseAccessRequest -> MdbaseAccessRequest@application/file-access.ts
 MdbaseAccessRequestOptions -> MdbaseAccessRequestOptions@application/file-access.ts
 MdbaseAccessResult -> MdbaseAccessResult@application/file-access.ts
-MdbaseApplication -> MdbaseApplication@application/entry.ts
 MdbaseApplicationAssessment -> MdbaseApplicationAssessment@application/entry.ts
 MdbaseApplicationCapabilities -> MdbaseApplicationCapabilities@application/capabilities.ts
 MdbaseApplicationCapability -> MdbaseApplicationCapability@application/capabilities.ts
 MdbaseApplicationConnection -> MdbaseApplicationConnection@application/entry.ts
 MdbaseApplicationDeclaration -> MdbaseApplicationDeclaration@application/declaration.ts
-MdbaseApplicationEntry -> MdbaseApplicationEntry@application/entry.ts
 MdbaseApplicationFacet -> MdbaseApplicationFacet@application/entry.ts
 MdbaseApplicationFacetSnapshot -> MdbaseApplicationFacetSnapshot@application/entry.ts
 MdbaseApplicationProblem -> MdbaseApplicationProblem@application/entry.ts
@@ -861,15 +853,10 @@ MdbaseApplicationReadinessSnapshot -> MdbaseApplicationReadinessSnapshot@applica
 MdbaseApplicationRequestOptions -> MdbaseApplicationRequestOptions@application/entry.ts
 MdbaseApplicationSelectionSnapshot -> ApplicationCollectionSelectionSnapshot@application/collection-selection.ts
 MdbaseApplicationSelectionState -> ApplicationCollectionSelectionState@application/collection-selection.ts
-MdbaseApplicationSetup -> MdbaseApplicationSetup@application/setup.ts
-MdbaseApplicationSnapshot -> MdbaseApplicationSnapshot@application/entry.ts
-MdbaseApplicationUnavailableError -> MdbaseApplicationUnavailableError@application/entry.ts
 MdbaseApprovalOutcome -> MdbaseApprovalOutcome@application/phase.ts
 MdbaseClient -> MdbaseClient@client.ts
 MdbaseCollectionDeleteOptions -> MdbaseCollectionDeleteOptions@application/entry.ts
 MdbaseCollectionSummary -> MdbaseCollectionSummary@application/phase.ts
-MdbaseConnect -> MdbaseConnect@application/entry.ts
-MdbaseConnectOptions -> MdbaseConnectOptions@application/entry.ts
 mdbaseError -> mdbaseError@errors.ts
 MdbaseError -> MdbaseError@errors.ts
 MdbaseErrorAction -> MdbaseErrorAction@describe-error.ts
@@ -880,6 +867,7 @@ MdbaseNotification -> MdbaseNotification@notifications.ts
 MdbaseNotificationClickMessage -> MdbaseNotificationClickMessage@notifications.ts
 MdbaseNotificationDisplayOptions -> MdbaseNotificationDisplayOptions@notifications.ts
 MdbaseNotificationPresentation -> MdbaseNotificationPresentation@notifications.ts
+MdbaseOptions -> MdbaseOptions@application/entry.ts
 MdbasePeopleClient -> MdbasePeopleClient@people.ts
 MdbasePhase -> MdbasePhase@application/phase.ts
 MdbasePhaseKind -> MdbasePhaseKind@application/phase.ts
@@ -1317,6 +1305,7 @@ ApplicationFixtureCall -> ApplicationFixtureCall@testing/application.ts
 ApplicationFixtureControls -> ApplicationFixtureControls@testing/application.ts
 ApplicationFixtureHandler -> ApplicationFixtureHandler@testing/application.ts
 ApplicationFixtureOptions -> ApplicationFixtureOptions@testing/application.ts
+ApplicationFixtureSnapshot -> ApplicationFixtureSnapshot@testing/application.ts
 createApplicationFixture -> createApplicationFixture@testing/application.ts
 createTestApp -> createTestApp@testing/test-app.ts
 createTestMdbase -> createTestMdbase@testing/test-app.ts
@@ -3485,10 +3474,10 @@ ApplicationCollectionSelectionState@application/collection-selection.ts
 
 ApplicationFixture@testing/application.ts
   readonly controls: ApplicationFixtureControls
-  readonly entry: MdbaseApplicationEntry
+  readonly mdbase: Mdbase
 
 ApplicationFixtureAction@testing/application.ts
-  = 'unlock' | 'reauthorize' | 'approve' | 'assess' | 'start' | 'authorize' | 'refreshCollectionList' | 'select' | 'clearSelection' | 'chooseAnother' | 'forget' | 'deleteCollection' | 'requestAccess' | 'configure' | 'planSetup' | 'applySetup' | 'signOut' | 'openUnsynced' | 'planUnsyncedTransfer' | 'transferUnsynced' | 'discardUnsynced' | 'close'
+  = 'unlock' | 'reauthorize' | 'approve' | 'assess' | 'start' | 'authorize' | 'refreshCollectionList' | 'select' | 'chooseAnother' | 'forget' | 'deleteCollection' | 'requestAccess' | 'configure' | 'planSetup' | 'applySetup' | 'signOut' | 'openUnsynced' | 'planUnsyncedTransfer' | 'transferUnsynced' | 'discardUnsynced' | 'close'
 
 ApplicationFixtureCall@testing/application.ts
   readonly action: ApplicationFixtureAction | 'setForeground'
@@ -3505,20 +3494,23 @@ ApplicationFixtureControls@testing/application.ts
   close: () => void
   readonly declaration: MdbaseApplicationDeclaration
   observedActions: () => readonly ApplicationFixtureCall[]
-  publishSnapshot: (snapshot: MdbaseApplicationSnapshot) => void
+  publishSnapshot: (snapshot: ApplicationFixtureSnapshot) => void
   setAccessResult: (result: MdbaseAccessResult | null) => void
   setConnections: (connections: readonly MdbaseApplicationConnection[]) => void
   setHandler: (action: ApplicationFixtureAction, handler: ApplicationFixtureHandler) => () => void
   setSetupPlan: (plan: MdbaseSetupPlan | null) => void
 
 ApplicationFixtureHandler@testing/application.ts
-  = (call: ApplicationFixtureCall) => void | MdbaseApplicationSnapshot | Promise<void | MdbaseApplicationSnapshot>
+  = (call: ApplicationFixtureCall) => void | ApplicationFixtureSnapshot | Promise<void | ApplicationFixtureSnapshot>
 
 ApplicationFixtureOptions@testing/application.ts
   readonly connections: readonly MdbaseApplicationConnection[]
   readonly declaration: MdbaseApplicationDeclaration
   readonly initialSnapshot: MdbaseApplicationSnapshot
   readonly unsynced?: MdbaseApplicationConnection | undefined
+
+ApplicationFixtureSnapshot@testing/application.ts
+  = MdbaseApplicationSnapshot
 
 ApplicationJson@application/declaration.ts
   = string | number | boolean | readonly ApplicationJson[] | { readonly [key: string]: ApplicationJson; } | null
@@ -4383,8 +4375,6 @@ Materialization@wire.ts
 
 Mdbase@application/front-door.ts
   addCollection: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
-  addPrivateCollection: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
-  readonly application: MdbaseApplication
   approve: (collectionId?: string | null, options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
   assess: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationReadinessSnapshot>
   chooseAnother: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
@@ -4439,33 +4429,6 @@ MdbaseAppGrantsOptions@app-grant/client.ts
   readonly store?: AppGrantStore | undefined
   readonly webSocket?: WebSocketFactory | undefined
 
-MdbaseApplication@application/entry.ts
-  addPrivateCollection?: ((options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>) | undefined
-  approve: (collectionId?: string | null, options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>
-  assess: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationReadinessSnapshot>
-  authorize: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>
-  chooseAnother: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>
-  clearSelection: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>
-  close: () => Promise<void>
-  configure: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>
-  deleteCollection: (collectionId: string, options: MdbaseCollectionDeleteOptions) => Promise<MdbaseApplicationSnapshot>
-  discardUnsynced?: ((options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>) | undefined
-  forget: (collectionId: string, options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>
-  getSnapshot: () => MdbaseApplicationSnapshot
-  openUnsynced?: ((options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>) | undefined
-  planUnsyncedTransfer?: ((options?: MdbaseTransferPlanOptions) => Promise<MdbaseTransferPlan>) | undefined
-  reauthorize: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>
-  refreshCollectionList?: ((options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>) | undefined
-  requestAccess: (request: MdbaseAccessRequest, options: MdbaseAccessRequestOptions) => Promise<MdbaseAccessResult>
-  select: (collectionId: string, options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>
-  setForeground: (active: boolean) => void
-  readonly setup: MdbaseApplicationSetup
-  signOut?: ((options?: MdbaseSignOutOptions) => Promise<MdbaseApplicationSnapshot>) | undefined
-  start: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>
-  subscribe: (listener: () => void) => () => void
-  transferUnsynced?: ((plan: MdbaseTransferPlan, options?: MdbaseTransferOptions) => Promise<MdbaseTransferResult>) | undefined
-  unlock?: ((collectionId: string, secret: MdbaseUnlockSecret, options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>) | undefined
-
 MdbaseApplicationAssessment@application/entry.ts
   readonly problem: MdbaseApplicationProblem | null
   readonly status: 'setup_required' | 'incompatible' | 'ready'
@@ -4501,10 +4464,6 @@ MdbaseApplicationDeclaration@application/declaration.ts
   readonly origin: string
   readonly storage?: ApplicationStorageDeclaration | undefined
 
-MdbaseApplicationEntry@application/entry.ts
-  application: () => MdbaseApplication
-  connection: (collectionId: string) => MdbaseApplicationConnection | null
-
 MdbaseApplicationFacet@application/entry.ts
   = 'contracts' | 'capabilities' | 'configuration' | 'files' | 'people' | 'notifications'
 
@@ -4525,10 +4484,6 @@ MdbaseApplicationReadinessSnapshot@application/entry.ts
 
 MdbaseApplicationRequestOptions@application/entry.ts
   readonly signal?: AbortSignal | undefined
-
-MdbaseApplicationSetup@application/setup.ts
-  apply: (plan: MdbaseSetupPlan, options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>
-  plan: (options?: MdbaseSetupPlanOptions) => Promise<MdbaseSetupPlan>
 
 MdbaseApplicationSnapshot@application/entry.ts
   readonly approval?: Readonly<{ outcome: 'closed' | 'cancelled'; }> | null | undefined
@@ -4556,17 +4511,6 @@ MdbaseApplicationSnapshot@application/entry.ts
   readonly unlock?: Readonly<{ mode: 'password' | 'strict' | 'none'; unlocking: boolean; problem: string | null; }> | null | undefined
   readonly unsynced?: Readonly<{ collectionId: string; sessionStatus: AppWebSignInSnapshot['status']; }> | null | undefined
   readonly unsyncedWork?: Readonly<{ since: number; }> | null | undefined
-
-MdbaseApplicationUnavailableError@application/entry.ts
-  cause?: unknown
-  readonly code: 'application_not_yet_available'
-  message: string
-  name: string
-  stack?: string | undefined
-  static new (): MdbaseApplicationUnavailableError
-  static captureStackTrace: (targetObject: object, constructorOpt?: Function) => void
-  static prepareStackTrace: (err: Error, stackTraces: NodeJS.CallSite[]) => any
-  static stackTraceLimit: number
 
 MdbaseApprovalOutcome@application/phase.ts
   = ApplicationApprovalOutcome
@@ -4677,22 +4621,6 @@ MdbaseCollectionRole@app-grant/client.ts
 MdbaseCollectionSummary@application/phase.ts
   = AppInstallationCollection
 
-MdbaseConnect@application/entry.ts
-  application: () => MdbaseApplication
-  connection: (collectionId: string) => MdbaseApplicationConnection | null
-  static new (declaration: MdbaseApplicationDeclaration, options?: MdbaseConnectOptions): MdbaseConnect
-
-MdbaseConnectOptions@application/entry.ts
-  readonly followVisibility?: boolean | undefined
-  readonly messages?: Readonly<Partial<Record<'refused' | 'not_found' | 'device_offline' | 'desktop_update_required' | 'old_connector_running' | 'approval_required' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'collection_migrating' | 'collection_not_yet_migrated' | 'collection_deleted' | 'unavailable' | 'conflict' | 'read_only' | 'capability_missing' | 'collection_unavailable' | 'moved_to_next_runtime' | 'device_approval_required' | 'account_suspended' | 'update_required' | 'account_collection_quota_exceeded' | 'invalid_request' | 'invalid_record' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'expired' | 'approval_window_closed' | 'account_confirmation_required' | 'recovery_required' | 'open_failed' | 'busy' | 'open_in_another_tab' | 'not_authorized' | 'sign_out_pending_writes' | 'sign_out_failed' | 'application_popup_blocked' | 'sign_in_window' | 'application_not_yet_available' | 'application_failed' | 'application_worker_unavailable' | 'browser_unsupported' | 'application_storage_unavailable' | 'storage_may_be_evicted' | 'application_registration_unsupported' | 'application_registration_refused' | 'application_selection_not_approved' | 'application_selection_invalid' | 'installation_scope_removed' | 'recovery_account_mismatch' | 'assets' | 'setup_required' | 'incompatible' | 'contract_mismatch' | 'contract_missing' | 'implementation_missing' | 'catalog_invalid' | 'catalog_response' | 'type_invalid' | 'readiness_budget' | 'readiness_unsupported' | 'notifications_consent_required' | 'timer_channel_reapproval_required' | 'notifications_unsupported' | 'people_unsupported' | 'people_permission_declined' | 'people_access' | 'configuration_conflict' | 'configuration_unavailable' | 'configuration_unsupported' | 'configuration_busy_timeout' | 'readiness_busy_timeout' | 'setup_forbidden' | 'setup_conflict' | 'setup_unresolved' | 'collection_setup_conflict' | 'setup_records_forbidden' | 'setup_changed' | 'installed_newer' | 'type_pack_conflict' | 'invalid_type_pack' | 'access_required' | 'access_declined' | 'access_undeclared' | 'files_access_missing' | 'files_scope_missing' | 'file_read_failed' | 'file_read_idle' | 'collection_delete_name_mismatch' | 'collection_delete_not_owner' | 'collection_delete_not_found' | 'collection_delete_frozen' | 'collection_delete_busy' | 'collection_delete_not_approved' | 'collection_delete_sign_in' | 'collection_delete_invalid' | 'collection_delete_outcome_unknown' | 'collection_delete_failed' | 'wrong_secret' | 'locked' | 'weak_password' | 'already_set_up' | 'no_account_key' | 'invalid_recovery_key' | 'unlock_strict' | 'unlock_unavailable' | 'unlock_failed' | 'private_device_limit' | 'private_device_not_allowed' | 'unknown', import("src/describe-error").MdbaseProblemMessages>>> | undefined
-  readonly privateCollections?: boolean | undefined
-  readonly readiness?: { readonly typeIssues?: 'block' | 'degrade'; } | undefined
-  readonly session?: { readonly build: string; readonly host?: boolean; } | undefined
-  readonly signIn?: MdbaseSignInOpener | undefined
-  readonly unsynced?: boolean | undefined
-  readonly urlSelection?: boolean | undefined
-  readonly worker?: ((url: string) => Worker) | undefined
-
 MdbaseError@errors.ts
   cause?: unknown
   readonly code: 'not_found' | 'unavailable' | 'conflict' | 'invalid_request' | 'invalid_record' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'upgrade_required' | 'cancelled'
@@ -4769,6 +4697,17 @@ MdbaseNotificationPresentation@notifications.ts
 MdbaseNotificationRegistration@notifications.ts
   readonly scope?: string | undefined
   showNotification: (title: string, options?: NotificationOptions) => Promise<void>
+
+MdbaseOptions@application/entry.ts
+  readonly followVisibility?: boolean | undefined
+  readonly messages?: Readonly<Partial<Record<'refused' | 'not_found' | 'device_offline' | 'desktop_update_required' | 'old_connector_running' | 'approval_required' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'collection_migrating' | 'collection_not_yet_migrated' | 'collection_deleted' | 'unavailable' | 'conflict' | 'read_only' | 'capability_missing' | 'collection_unavailable' | 'moved_to_next_runtime' | 'device_approval_required' | 'account_suspended' | 'update_required' | 'account_collection_quota_exceeded' | 'invalid_request' | 'invalid_record' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'expired' | 'approval_window_closed' | 'account_confirmation_required' | 'recovery_required' | 'open_failed' | 'busy' | 'open_in_another_tab' | 'not_authorized' | 'sign_out_pending_writes' | 'sign_out_failed' | 'application_popup_blocked' | 'sign_in_window' | 'application_not_yet_available' | 'application_failed' | 'application_worker_unavailable' | 'browser_unsupported' | 'application_storage_unavailable' | 'storage_may_be_evicted' | 'application_registration_unsupported' | 'application_registration_refused' | 'application_selection_not_approved' | 'application_selection_invalid' | 'installation_scope_removed' | 'recovery_account_mismatch' | 'assets' | 'setup_required' | 'incompatible' | 'contract_mismatch' | 'contract_missing' | 'implementation_missing' | 'catalog_invalid' | 'catalog_response' | 'type_invalid' | 'readiness_budget' | 'readiness_unsupported' | 'notifications_consent_required' | 'timer_channel_reapproval_required' | 'notifications_unsupported' | 'people_unsupported' | 'people_permission_declined' | 'people_access' | 'configuration_conflict' | 'configuration_unavailable' | 'configuration_unsupported' | 'configuration_busy_timeout' | 'readiness_busy_timeout' | 'setup_forbidden' | 'setup_conflict' | 'setup_unresolved' | 'collection_setup_conflict' | 'setup_records_forbidden' | 'setup_changed' | 'installed_newer' | 'type_pack_conflict' | 'invalid_type_pack' | 'access_required' | 'access_declined' | 'access_undeclared' | 'files_access_missing' | 'files_scope_missing' | 'file_read_failed' | 'file_read_idle' | 'collection_delete_name_mismatch' | 'collection_delete_not_owner' | 'collection_delete_not_found' | 'collection_delete_frozen' | 'collection_delete_busy' | 'collection_delete_not_approved' | 'collection_delete_sign_in' | 'collection_delete_invalid' | 'collection_delete_outcome_unknown' | 'collection_delete_failed' | 'wrong_secret' | 'locked' | 'weak_password' | 'already_set_up' | 'no_account_key' | 'invalid_recovery_key' | 'unlock_strict' | 'unlock_unavailable' | 'unlock_failed' | 'private_device_limit' | 'private_device_not_allowed' | 'unknown', import("src/describe-error").MdbaseProblemMessages>>> | undefined
+  readonly privateCollections?: boolean | undefined
+  readonly readiness?: { readonly typeIssues?: 'block' | 'degrade'; } | undefined
+  readonly session?: { readonly build: string; readonly host?: boolean; } | undefined
+  readonly signIn?: MdbaseSignInOpener | undefined
+  readonly unsynced?: boolean | undefined
+  readonly urlSelection?: boolean | undefined
+  readonly worker?: ((url: string) => Worker) | undefined
 
 MdbasePeopleClient@people.ts
   current: (options?: PeopleRequestOptions) => Promise<CurrentAccount>
@@ -5918,11 +5857,9 @@ TemporalHint@wire.ts
   = 'none' | 'date' | 'date_time'
 
 TestApp@testing/test-app.ts
-  readonly application: MdbaseApplication
   client: (collectionId?: string) => MdbaseClient
   close: () => Promise<void>
   readonly controls: ApplicationFixtureControls
-  readonly entry: MdbaseApplicationEntry
   fail: (fault: TestAppFault) => void
   readonly mdbase: Mdbase
   replica: (collectionId?: string) => MemoryReplica
@@ -5949,8 +5886,6 @@ TestAppPreset@testing/test-app.ts
 
 TestMdbase@testing/test-app.ts
   addCollection: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
-  addPrivateCollection: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
-  readonly application: MdbaseApplication
   approve: (collectionId?: string | null, options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
   assess: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationReadinessSnapshot>
   chooseAnother: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
@@ -6435,7 +6370,7 @@ createApplicationFixture@testing/application.ts
   : (options: ApplicationFixtureOptions) => ApplicationFixture
 
 createMdbase@application/front-door.ts
-  : (declaration: MdbaseApplicationDeclaration, options?: MdbaseConnectOptions) => Mdbase
+  : (declaration: MdbaseApplicationDeclaration, options?: MdbaseOptions) => Mdbase
 
 createTestApp@testing/test-app.ts
   : (options?: TestAppOptions) => Promise<TestApp>

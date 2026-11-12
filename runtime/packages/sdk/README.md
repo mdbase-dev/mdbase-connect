@@ -16,7 +16,7 @@ The SDK implements transport, session and typed client-API boundaries.
 
 | Path | What |
 |---|---|
-| `src/index.ts` (`@mdbase-dev/sdk`) | The full entry: everything in the thin client, plus `MdbaseConnect` (which validates the app's declaration), people, timers, notifications, holds, `describeError`, `WasmRuntime` and `inProcessConnector` |
+| `src/index.ts` (`@mdbase-dev/sdk`) | The full entry: everything in the thin client, plus `createMdbase` (which validates the app's declaration), people, timers, notifications, holds, `describeError`, `WasmRuntime` and `inProcessConnector` |
 | `src/thin-client.ts` (`@mdbase-dev/sdk/thin-client`) | The thin client for consumers that bring their own connection (an Obsidian-plugin-style integration): codec, client, records, files, presence, Noise and relay transports, keys, status, availability. Held to 64 KiB gzip and never bundles manifest validation |
 | `src/cbor.ts` | Strict `mdb-cbor/1` codec (00-overview §3.2): the TS twin of `crates/wire/src/cbor.rs` |
 | `src/codec.ts` | Typed struct/union/enum codecs, the TS twin of `crates/wire/src/schema.rs` |
@@ -326,8 +326,8 @@ physical durability or release-qualification evidence.
 
 ## Application access and step-up
 
-`MdbaseConnect` replaces the Connect session's `authorize(target)`:
-`authorize()` (sign in or choose), `reauthorize()` (the open or requested
+`createMdbase` replaces the Connect session's `authorize(target)`:
+`signIn()` (sign in or choose), `reauthorize()` (the open or requested
 collection, `authorize("selected")`), `approve(id)` (`{collectionId}`) and
 `chooseAnother()`. Call them from the user gesture; the SDK reserves the popup,
 and a `signal` replaces `timeoutMs`. There is no per-call capability list
@@ -552,7 +552,7 @@ and `SdkEditorRoot.tsx` are the reference):
 
 Not covered yet for Private collections:
 
-- The `MdbaseApplication` readiness flow (`configure`) doesn't apply; use
+- The `Mdbase` readiness flow (`configure`) doesn't apply; use
   `grants.setup(client)` and `grants.availability(id)`.
 - Merged entries carry `role` (`owner`, `editor`, `viewer` or `null`). Cloud
   copies always have one. A Private entry's is `null` when Connect doesn't
@@ -561,7 +561,7 @@ Not covered yet for Private collections:
 
 ## Private collections on the app's own replica
 
-An app that hosts its own replica through `MdbaseApplication` (`createMdbase`)
+An app that hosts its own replica through `createMdbase`
 can open an existing Private collection with that replica, as a device of the
 collection, instead of through the relay. The person unlocks it once with the
 account's encryption password or recovery key. Connect only offers this to
@@ -677,7 +677,7 @@ Connect.
 Where a popup is unavailable, pass a sign-in opener:
 
 ```ts
-const connect = new MdbaseConnect(declaration, {
+const mdbase = createMdbase(declaration, {
   signIn: {
     open: url => Browser.open({ url }),            // or chrome.tabs.create({ url })
     close: () => Browser.close(),
@@ -687,8 +687,8 @@ const connect = new MdbaseConnect(declaration, {
 });
 ```
 
-`returnUrl` must exactly equal one of the manifest's `redirect_uris`, or the
-constructor throws `application_sign_in_opener`. That is either an https URL on
+`returnUrl` must exactly equal one of the manifest's `redirect_uris`, or
+`createMdbase` throws `application_sign_in_opener`. That is either an https URL on
 the homepage origin or, for a native app, a private-use scheme derived from the
 manifest ID (RFC 8252), such as `dev.tasknotes.app://auth/mdbase/callback` for
 ID `dev.tasknotes.app`. No prefix or wildcard matching. Connect applies the same
@@ -699,7 +699,7 @@ The SDK still binds the URL to the environment's Connect origin. The pending
 pairing request is persisted, so a context that closes during sign-in (an
 extension popup) resumes it on the next `start()`. Run extension sign-in from a
 side panel or tab page where possible. Without `followVisibility`, call
-`application().setForeground(active)` from the shell's resume/pause events.
+`mdbase.setForeground(active)` from the shell's resume/pause events.
 
 An extension's pages, offscreen document and service worker are bundled
 separately. The `session` option puts them in one session with one Worker:
@@ -721,7 +721,7 @@ const mdbase = createMdbase(declaration, {
 
 - `urlSelection: false`: the SDK never reads or writes the page URL. A link or
   Back/forward no longer selects a collection, and the app selects with
-  `select`, `approve` and `clearSelection`. The last-used collection is still
+  `select`, `approve` and `chooseAnother`. The last-used collection is still
   remembered on the device. Without it, a `blob:` document reports
   `application_selection_binding`.
 - `worker`: the SDK calls it with the URL it would load its module Worker from
@@ -781,7 +781,7 @@ definition always blocks.
 
 ## Collection setup
 
-`application.setup` sets up the open collection from the app's declaration
+`mdbase.setup` sets up the open collection from the app's declaration
 with one review screen. `plan(options)` changes no collection data: native Core plans the
 declared types into the collection's configured definition folders (an
 installed pack stays where it is) and the SDK words the result for a
@@ -818,12 +818,12 @@ make setup fail.
 
 `apply(plan)` takes a plan from `plan` unchanged and writes everything as one
 guarded mutation, all or nothing. If the collection changed since review,
-including a definition or starter path taken in the meantime, it refuses with
-`conflict`/`setup_changed`, nothing is applied, and the next `plan` starts
+including a definition or starter path taken in the meantime, it resolves
+`outcome: "changed"`, nothing is applied, and the next `plan` starts
 afresh. If another Private setup plan only retired Native's review ticket,
 the SDK re-plans once and continues only when the fresh assessment and file
-impact match the original consent. Different changes return `setup_changed`
-(`mdbase.setup.apply` returns `outcome: "changed"`); show a fresh plan and ask
+impact match the original consent. Different changes resolve
+`outcome: "changed"`; show a fresh plan and ask
 for consent again. Lost or uncertain mutation outcomes are never retried.
 Refusal codes: `setup_forbidden` (no `definitions.manage`),
 `setup_conflict`, `setup_unresolved`, `installed_newer` (a newer app version

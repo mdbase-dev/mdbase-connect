@@ -36,10 +36,10 @@ try {
     assert(!existsSync(join(consumer,"node_modules")),"lock generation must not preinstall SDK metadata");
     const cache=join(consumer,"empty-ci-cache");assert(!existsSync(cache),"ci cache starts empty");
     npm(["ci","--ignore-scripts","--no-audit","--no-fund","--cache",cache],consumer);
-    writeFileSync(join(consumer,"intake.ts"),'import {MdbaseConnect} from "@mdbase-dev/sdk";\nimport {MdbaseAppGrants} from "@mdbase-dev/sdk/app-grant";\nexport const grants: typeof MdbaseAppGrants = MdbaseAppGrants;\nimport {createApplicationFixture} from "@mdbase-dev/sdk/testing";\nexport const entry: typeof MdbaseConnect = MdbaseConnect;\nexport const fixture: typeof createApplicationFixture = createApplicationFixture;\n');
+    writeFileSync(join(consumer,"intake.ts"),'import {createMdbase} from "@mdbase-dev/sdk";\nimport {MdbaseAppGrants} from "@mdbase-dev/sdk/app-grant";\nexport const grants: typeof MdbaseAppGrants = MdbaseAppGrants;\nimport {createApplicationFixture} from "@mdbase-dev/sdk/testing";\nexport const entry: typeof createMdbase = createMdbase;\nexport const fixture: typeof createApplicationFixture = createApplicationFixture;\n');
     writeFileSync(join(consumer,"tsconfig.json"),JSON.stringify({compilerOptions:{target:"ES2022",module:"NodeNext",moduleResolution:"NodeNext",strict:true,exactOptionalPropertyTypes:true,noUncheckedIndexedAccess:true,skipLibCheck:false,noEmit:true},include:["intake.ts"]}));
     run([join(sdk,"node_modules/typescript/bin/tsc"),"-p","tsconfig.json"],consumer);
-    run(["--input-type=module","-e",'import {MdbaseConnect} from "@mdbase-dev/sdk";import {createApplicationFixture} from "@mdbase-dev/sdk/testing";if(typeof MdbaseConnect!=="function"||typeof createApplicationFixture!=="function")throw Error("public imports");'],consumer);
+    run(["--input-type=module","-e",'import {createMdbase} from "@mdbase-dev/sdk";import {createApplicationFixture} from "@mdbase-dev/sdk/testing";if(typeof createMdbase!=="function"||typeof createApplicationFixture!=="function")throw Error("public imports");'],consumer);
   }
   console.log("npm consumer ok: empty install roots and empty ci caches; original protocol bundle; strict public declarations/imports");
 } finally {rmSync(root,{recursive:true,force:true});}

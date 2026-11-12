@@ -13,7 +13,7 @@ vi.mock("../src/app-host/app-origin.js",async original=>{
   const actual=await original<typeof import("../src/app-host/app-origin.js")>();
   return {...actual,urlOrigin:(url:URL)=>url.protocol==="file:"?"https://app.test":actual.urlOrigin(url)};
 });
-const {MdbaseConnect}=await import("../src/application/entry.js");
+const {createMdbase}=await import("../src/application/front-door.js");
 // start() loads this module lazily. Cold, that takes longer than vi.waitFor's
 // one second, so the first test would time out on a busy machine.
 await import("../src/application/runtime.js");
@@ -56,7 +56,7 @@ afterEach(()=>{vi.unstubAllGlobals();});
 
 describe("application entry across the back/forward cache",()=>{
   it("a persisted pagehide terminates the Worker at once and fences every request",async()=>{
-    const app=new MdbaseConnect(declaration).application();
+    const app=createMdbase(declaration);
     FakeWorker.replies=false;const starting=app.start();
     await vi.waitFor(()=>expect(FakeWorker.all[0]?.requests).toHaveLength(1));
     const worker=FakeWorker.all[0]!;
@@ -69,7 +69,7 @@ describe("application entry across the back/forward cache",()=>{
   });
 
   it("a persisted pageshow starts a fresh Worker and session, and the app re-renders from it",async()=>{
-    const app=new MdbaseConnect(declaration).application();
+    const app=createMdbase(declaration);
     await app.start();
     const first=FakeWorker.all[0]!;expect(app.getSnapshot().status).toBe("unselected");
     transition("pagehide",true);expect(first.terminate).toHaveBeenCalledOnce();
@@ -84,7 +84,7 @@ describe("application entry across the back/forward cache",()=>{
   });
 
   it("a non-persisted pagehide (unload) terminates too and nothing restarts",async()=>{
-    const connect=new MdbaseConnect(declaration),app=connect.application();
+    const app=createMdbase(declaration);
     await app.start();
     transition("pagehide",false);
     expect(FakeWorker.all[0]!.terminate).toHaveBeenCalledOnce();
@@ -96,7 +96,7 @@ describe("application entry across the back/forward cache",()=>{
   });
 
   it("a closed application no longer follows page transitions",async()=>{
-    const app=new MdbaseConnect(declaration).application();
+    const app=createMdbase(declaration);
     const starting=app.start();
     await vi.waitFor(()=>expect(FakeWorker.all[0]?.requests).toHaveLength(1));
     await starting;
@@ -128,7 +128,7 @@ describe("application entry when the app is open in another tab",()=>{
 
   it("waits for the other tab's release, then starts again by itself",async()=>{
     const waits=otherTab();doc("visible");
-    const app=new MdbaseConnect(declaration).application();
+    const app=createMdbase(declaration);
     FakeWorker.replies=false;const starting=app.start();
     await vi.waitFor(()=>expect(FakeWorker.all[0]?.requests).toHaveLength(1));
     const worker=FakeWorker.all[0]!;worker.reply(worker.requests[0]![2] as number,blocked);await starting;
@@ -143,7 +143,7 @@ describe("application entry when the app is open in another tab",()=>{
 
   it("start resolves while the app is open in another tab (the Worker refuses with that code)",async()=>{
     otherTab();doc("visible");
-    const app=new MdbaseConnect(declaration).application();
+    const app=createMdbase(declaration);
     FakeWorker.replies=false;const starting=app.start();
     await vi.waitFor(()=>expect(FakeWorker.all[0]?.requests).toHaveLength(1));
     const worker=FakeWorker.all[0]!,id=worker.requests[0]![2] as number;
@@ -153,7 +153,6 @@ describe("application entry when the app is open in another tab",()=>{
   });
 
   it("createMdbase with followVisibility constructs in a browser and starts in the page's state",async()=>{
-    const {createMdbase}=await import("../src/application/front-door.js");
     const d=doc("hidden");
     const mdbase=createMdbase(declaration,{followVisibility:true});
     expect((mdbase as unknown as {entry?:unknown}).entry??mdbase).toBeTruthy();
@@ -163,7 +162,7 @@ describe("application entry when the app is open in another tab",()=>{
 
   it("a hidden tab takes over only once it is shown",async()=>{
     const waits=otherTab(),d=doc("hidden");
-    const app=new MdbaseConnect(declaration).application();
+    const app=createMdbase(declaration);
     FakeWorker.replies=false;const starting=app.start();
     await vi.waitFor(()=>expect(FakeWorker.all[0]?.requests).toHaveLength(1));
     const worker=FakeWorker.all[0]!;worker.reply(worker.requests[0]![2] as number,blocked);await starting;
@@ -179,7 +178,7 @@ describe("application entry in a browser below the feature floor",()=>{
   it("never starts the Worker and reports browser_unsupported on the unavailable phase",async()=>{
     // No Web Locks (an old browser): the upfront probe stops initialization.
     vi.stubGlobal("navigator",{storage:{getDirectory:async()=>({}),persisted:async()=>false,persist:async()=>false}});
-    const app=new MdbaseConnect(declaration).application();
+    const app=createMdbase(declaration);
     await expect(app.start()).rejects.toMatchObject({code:"unavailable",reason:"browser_unsupported"});
     expect(FakeWorker.all).toHaveLength(0);
     expect(app.getSnapshot()).toMatchObject({status:"blocked",problem:"browser_unsupported",phase:{kind:"unavailable",problem:{key:"browser_unsupported"}}});
@@ -189,7 +188,7 @@ describe("application entry in a browser below the feature floor",()=>{
 describe("application entry starting with work before connecting",()=>{
   it("stays on starting, not the sign-in screen, until the unsynced open settles",async()=>{
     const signedOut={...unselected,status:"signed_out"};
-    const app=new MdbaseConnect(declaration,{unsynced:true}).application();
+    const app=createMdbase(declaration,{unsynced:true});
     FakeWorker.replies=false;const kinds:string[]=[];app.subscribe(()=>kinds.push(app.getSnapshot().phase?.kind??""));
     const starting=app.start();
     await vi.waitFor(()=>expect(FakeWorker.all[0]?.requests).toHaveLength(1));
@@ -216,7 +215,7 @@ describe("application entry starting signed in with a remembered collection",()=
     vi.stubGlobal("localStorage",{getItem:(key:string)=>key.endsWith(".selected-collection.v1")?A:null,setItem(){},removeItem(){}});
     const measures:string[]=[];const measure=performance.measure.bind(performance);
     vi.spyOn(performance,"measure").mockImplementation(((name:string,options?:PerformanceMeasureOptions)=>{measures.push(name);return measure(name,options);}) as typeof performance.measure);
-    const app=new MdbaseConnect(declaration).application();
+    const app=createMdbase(declaration);
     const kinds:Array<string|undefined>=[];app.subscribe(()=>{kinds.push(app.getSnapshot().phase?.kind);});
     FakeWorker.replies=false;const starting=app.start();
     await vi.waitFor(()=>expect(FakeWorker.all[0]?.requests).toHaveLength(1));

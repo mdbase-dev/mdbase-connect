@@ -26,7 +26,7 @@ vi.mock("../src/app-host/app-origin.js",async original=>{
   const actual=await original<typeof import("../src/app-host/app-origin.js")>();
   return {...actual,urlOrigin:(url:URL)=>url.protocol==="file:"?"https://app.test":actual.urlOrigin(url)};
 });
-const {MdbaseConnect}=await import("../src/application/entry.js");
+const {createMdbase}=await import("../src/application/front-door.js");
 
 const origin="https://app.test",A="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",B="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const declaration={id:"org.example.app",name:"Example",origin,environment:"lab" as const,manifest:{manifest_version:1,id:"org.example.app",name:"Example",homepage:origin,
@@ -58,7 +58,7 @@ const actions=()=>FakeWorker.all.flatMap(w=>w.requests.map(r=>r[3]));
 const reload=(options={},href=`${origin}/`)=>{
   const next=Object.assign(new EventTarget(),{location:{origin,href},history:{state:null,pushState(){},replaceState(){}}});
   page=next;vi.stubGlobal("window",next);vi.stubGlobal("location",next.location);
-  return new MdbaseConnect(declaration,options).application();
+  return createMdbase(declaration,options);
 };
 beforeEach(()=>{
   opened.length=0;gate.wait=null;gate.error=null;gate.wipeError=null;
@@ -161,7 +161,7 @@ describe("Private collections",()=>{
     await app.approve(null);
     await vi.waitFor(()=>expect(app.getSnapshot().selection.lastApproval).toEqual({kind:"add",outcome:"closed",collectionId:null}));
     FakeWorker.snapshot={...paired,signIn:{...signIn,nativeSelection:{requestId:"r1",authorizationRequestId:"n1",collectionId:P}}};
-    await app.addPrivateCollection!();
+    await app.addCollection();
     expect(actions().filter(a=>a==="authorize")).toHaveLength(2); // same ordinary Sign in/Add route, never separate Native authorize
     await vi.waitFor(()=>expect(app.getSnapshot()).toMatchObject({status:"ready",selectedCollectionId:P}));
     expect(app.getSnapshot().selection.lastApproval).toEqual({kind:"add",outcome:"unchanged",collectionId:P});
@@ -189,11 +189,11 @@ describe("Private collections",()=>{
     const app=reload({},`${origin}/?collection=${C}`);await app.start();
     await vi.waitFor(()=>expect(app.getSnapshot()).toMatchObject({selection:{state:"approval_required"},phase:{kind:"needs_approval",collectionId:C}}));
   });
-  it("legacy Private Add opens the unified chooser without inheriting the current URL target",async()=>{
+  it("Add opens the unified chooser without inheriting the current URL target",async()=>{
     const app=reload({},`${origin}/?collection=${A}`);
     Object.assign(window,{open:()=>({location:{href:"about:blank"},closed:false,close(){}})});
     await app.start();
-    await app.addPrivateCollection!({signal:new AbortController().signal});
+    await app.addCollection({signal:new AbortController().signal});
     const requests=FakeWorker.all.flatMap(w=>w.requests).filter(r=>r[3]==="authorize");
     expect(requests).toHaveLength(1);
     expect(requests[0]![4]).toBeNull();
