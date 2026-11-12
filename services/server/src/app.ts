@@ -108,7 +108,7 @@ import type { ClientUpdatePolicy } from "./features/next/cutover-problems.js";
 import { authorityUrl } from "./platform/authority-url.js";
 import { installationEnvironment } from "./platform/local-deployment.js";
 import { apiError, RateLimitError } from "./platform/http-errors.js";
-import { sessionToken } from "./platform/session-cookies.js";
+import { acceptOnlyIssuedSessionCookie, sessionToken } from "./platform/session-cookies.js";
 import type { AccountBackend } from "./features/next/account-backend-flip.js";
 
 interface BuildOptions {
@@ -322,6 +322,7 @@ export async function buildApp(options: BuildOptions) {
     : undefined;
 
   await app.register(cookie);
+  acceptOnlyIssuedSessionCookie(app, publicUrl);
   await app.register(helmet, {
     referrerPolicy: {
       policy: "strict-origin-when-cross-origin"
