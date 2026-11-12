@@ -21,6 +21,7 @@ const requiredLimitationIds = [
   "control-plane-metadata",
   "standard-hosted-provider-trust",
   "no-key-transparency",
+  "runtime-sdk-relay-target-key",
   "render-static-aws-credentials",
   "single-relay-broker",
   "complete-recovery-drill-pending",

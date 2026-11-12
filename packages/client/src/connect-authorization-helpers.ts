@@ -1,5 +1,11 @@
-import { APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY } from "@mdbase-dev/connect-protocol";
+import {
+  APPLICATION_AUTHORIZATION_V2_ISSUANCE_CAPABILITY,
+  normalizeApplicationManifest,
+  type MdbaseApplicationManifest
+} from "@mdbase-dev/connect-protocol";
 import { MdbaseConnectError, connectError } from "./errors.js";
+import type { Application } from "./internal-types.js";
+import { canonicalJson } from "./operation-helpers.js";
 
 export async function assertFreshV2AuthorizationSupport(
   serverUrl: string,
@@ -14,6 +20,42 @@ export async function assertFreshV2AuthorizationSupport(
       details: { contract: "fresh_application_authorization", required: [2], supported: [], peer: "server" }
     });
   }
+}
+
+/**
+ * The registered application, bound to the manifest this client sent. Connect
+ * assigns the application ID; the declaration, and so the authorization ceiling
+ * signed from it, stays the bundled manifest. A registration that digests any
+ * other declaration is refused.
+ */
+export async function registeredApplication(
+  manifest: MdbaseApplicationManifest,
+  registered: unknown
+): Promise<Application> {
+  const declaration = normalizeApplicationManifest(manifest);
+  const digest = new Uint8Array(await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(canonicalJson(declaration))
+  ));
+  const application = registered as Partial<Application> | null | undefined;
+  if (
+    typeof application?.id !== "string"
+    || application.id.length === 0
+    || application.family_identity !== `bundle:${declaration.id}`
+    || application.manifest_digest !== Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("")
+  ) {
+    throw connectError(
+      "invalid_operation_response",
+      "Connect registered a different application declaration than this application sent."
+    );
+  }
+  return {
+    ...application as Application,
+    distribution: declaration.distribution === "portable" ? "portable" : "web",
+    requirements: declaration.requirements as Application["requirements"],
+    provisions: declaration.provisions as Application["provisions"],
+    notifications: declaration.notifications
+  };
 }
 
 export function declarationIdFromFamilyIdentity(familyIdentity: string): string {

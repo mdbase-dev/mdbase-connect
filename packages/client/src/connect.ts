@@ -8,7 +8,8 @@ import {
   authorizationContractRequirements,
   DEFAULT_LOOPBACK_PORT,
   GRANT_ENCRYPTION_PROTOCOL_VERSION,
-  RELAY_ENCRYPTION_SUITE
+  RELAY_ENCRYPTION_SUITE,
+  validAuthorityTokenResponse
 } from "@mdbase-dev/connect-protocol";
 import {
   authorizationOperations,
@@ -42,7 +43,8 @@ import type { MdbaseConnectionInfo, MdbaseDeviceAuthorization } from "./connecti
 import {
   assertFreshV2AuthorizationSupport,
   authorizationAbort,
-  declarationIdFromFamilyIdentity
+  declarationIdFromFamilyIdentity,
+  registeredApplication
 } from "./connect-authorization-helpers.js";
 import {
   IndexedDbGrantKeyStore,
@@ -80,13 +82,13 @@ import {
   createPkce,
   defaultStorage,
   decodeJsonResponse,
+  isConnectPage,
   isOpaquePortableManifest,
   resolveManifestSource,
   oauthErrorCode,
   parseDeviceAuthorization,
   parseStored,
-  stripTrailingSlash,
-  validAuthorityTokenResponse
+  stripTrailingSlash
 } from "./runtime-utils.js";
 import { storedTokenFromResponse } from "./token-response.js";
 import { deleteUnusedGrantKey, planRetiredGrantKeys, storedTokenKeyHandles } from "./retired-grant-keys.js";
@@ -171,10 +173,11 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
 
   private async registerWithinBudget(signal: AbortSignal): Promise<Application> {
     if (this.application) return this.application;
+    const manifest = await this.manifestDeclaration({ signal, timeoutMs: null });
     const response = await connectFetch(`${this.serverUrl}/v1/apps/register`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ manifest: await this.manifestDeclaration({ signal, timeoutMs: null }) }),
+      body: JSON.stringify({ manifest }),
       signal
     }, "temporarily_unavailable", "Application registration is temporarily unavailable.");
     const body = await decodeJsonResponse(
@@ -183,8 +186,8 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       "Connect returned an invalid application registration response."
     );
     if (!response.ok) throw apiError(body, "discovery_failed", "Application discovery failed.", response.status);
-    this.application = body.application;
-    return this.application!;
+    this.application = await registeredApplication(manifest, body.application);
+    return this.application;
   }
 
   manifestDeclaration(options: ConnectRequestOptions = {}): Promise<MdbaseAppManifest> {
@@ -391,7 +394,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
         );
       }
       if (
-        typeof body.authorization_uri !== "string"
+        !isConnectPage(body.authorization_uri, this.serverUrl, "/oauth/authorize")
         || body.authorization_id !== authorizationId
         || !Number.isInteger(body.expires_in)
         || body.expires_in <= 0
@@ -538,7 +541,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     }
     let authorization: MdbaseDeviceAuthorization;
     try {
-      authorization = parseDeviceAuthorization(body);
+      authorization = parseDeviceAuthorization(body, this.serverUrl);
     } catch (error) {
       popup?.close();
       await this.keyStore.delete(keyHandle);

@@ -107,6 +107,56 @@ describe("connector identity continuity", () => {
   });
 });
 
+describe("collection transport continuity", () => {
+  it.each([
+    ["a remote authority", (body: Record<string, unknown>) => ({
+      ...body,
+      encryption: null,
+      authority: {
+        operations_url: `https://hosted.example/v1/authorities/${COLLECTION_ID}/operations`,
+        sync_url: `https://hosted.example/v1/authorities/${COLLECTION_ID}/sync`,
+        files_url: `https://hosted.example/v1/authorities/${COLLECTION_ID}/files`,
+        replica_id: "replica",
+        access_token: "hosted-access",
+        proof_public_key: "proof-key"
+      }
+    })],
+    ["an unencrypted relay", (body: Record<string, unknown>) => ({ ...body, encryption: null })]
+  ])("refuses a renewal that moves an encrypted grant to %s", async (_name, renew) => {
+    const storage = new MemoryStorage();
+    const keys = new MemoryGrantKeyStore();
+    const application = await keys.create("grant-key");
+    const connector = await keys.create("connector");
+    const manager = new MdbaseConnect({
+      serverUrl: "https://connect.example",
+      manifest: "https://app.example/.well-known/mdbase-app.json",
+      redirectUri: "https://app.example/callback",
+      storage,
+      keyStore: keys,
+      relayEncryption: "disabled"
+    });
+    const internals = Reflect.get(manager, "internals") as {
+      storeTokenResponse(body: Record<string, unknown>, clientId: string, keyHandle: string): unknown;
+    };
+    const encrypted = tokenResponse(application.agreementPublicKey, connector.agreementPublicKey, 1);
+    internals.storeTokenResponse(encrypted, "application", "grant-key");
+
+    expect(() => internals.storeTokenResponse(renew(encrypted), "application", "grant-key"))
+      .toThrow(expect.objectContaining({
+        problem: expect.objectContaining({ code: "connector_identity_changed", recovery: "reauthorize" })
+      }));
+    const saved = JSON.parse(storage.getItem(
+      "mdbase-connect:https://connect.example:"
+        + `https://app.example/.well-known/mdbase-app.json:token:${COLLECTION_ID}`
+    )!);
+    expect(saved.encryption).toMatchObject({ connector_agreement_public_key: connector.agreementPublicKey });
+    expect(saved.authority).toBeUndefined();
+
+    // A new authorization, with its own grant key, may choose another transport.
+    expect(() => internals.storeTokenResponse(renew(encrypted), "application", "fresh-grant-key")).not.toThrow();
+  });
+});
+
 function tokenResponse(
   applicationPublicKey: string,
   connectorPublicKey: string,

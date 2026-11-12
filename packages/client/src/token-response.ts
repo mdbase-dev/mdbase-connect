@@ -1,10 +1,10 @@
+import { validAuthorityTokenResponse } from "@mdbase-dev/connect-protocol";
 import { validateGrantEncryption } from "./crypto.js";
 import { connectError } from "./errors.js";
 import type { StoredToken } from "./internal-types.js";
 import {
   isCanonicalGrantScope,
   parseGrantScope,
-  validAuthorityTokenResponse,
   validFileCapability
 } from "./runtime-utils.js";
 
@@ -87,11 +87,23 @@ export function storedTokenFromResponse({
       );
     }
   }
+  const renewal = Boolean(previous?.keyHandle) && previous?.keyHandle === keyHandle;
+  // A grant keeps its transport for its lifetime; only a new authorization
+  // (with a new grant key) may move the collection to another one.
   if (
-    previous?.encryption
+    renewal
+    && (Boolean(previous?.encryption) !== Boolean(body.encryption)
+      || Boolean(previous?.authority) !== Boolean(body.authority))
+  ) {
+    throw connectError(
+      "connector_identity_changed",
+      "The collection transport changed during authorization renewal. Reauthorize before sending collection data."
+    );
+  }
+  if (
+    renewal
+    && previous?.encryption
     && body.encryption
-    && previous.keyHandle
-    && previous.keyHandle === keyHandle
     && (
       previous.grantId !== body.grant_id
       || previous.encryption.connector_id !== body.encryption.connector_id

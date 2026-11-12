@@ -24,6 +24,28 @@ export type MdbaseApplicationRequirements = ApplicationRequirements | LegacyAppl
 export type MdbaseApplicationCapabilityRequirements = ApplicationCapabilityRequirements | LegacyApplicationCapabilityRequirements;
 export type MdbaseApplicationCapabilityId = ApplicationCapabilityId | LegacyApplicationCapabilityId;
 
+/**
+ * The declaration Connect registers and digests: the bundled manifest with its
+ * optional sections defaulted. Clients hash the same value to check that a
+ * registration describes the manifest they sent.
+ */
+export function normalizeApplicationManifest<T extends MdbaseApplicationManifest>(value: T) {
+  const manifest = structuredClone(value);
+  return {
+    ...manifest,
+    requirements: {
+      configuration: [],
+      ...manifest.requirements
+    },
+    provisions: {
+      type_packs: [],
+      configuration: [],
+      ...manifest.provisions
+    },
+    notifications: manifest.notifications ?? { criteria: [] }
+  };
+}
+
 interface MdbaseAuthorizationSelection {
   operations?: CollectionOperation[];
   capabilities?: MdbaseApplicationCapabilityId[];

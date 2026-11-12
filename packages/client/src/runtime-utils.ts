@@ -4,6 +4,7 @@ import type {
   GrantScope
 } from "@mdbase-dev/connect-protocol";
 import type { MdbaseApplicationManifest as MdbaseAppManifest } from "@mdbase-dev/connect-protocol";
+import { validAuthorityTokenResponse } from "@mdbase-dev/connect-protocol";
 import { validateGrantEncryption } from "./crypto.js";
 import {
   MdbaseConnectError,
@@ -142,63 +143,6 @@ export function oauthErrorCode(body: any): string | undefined {
   return typeof body?.error === "string" ? body.error : undefined;
 }
 
-export function validAuthorityTokenResponse(value: unknown, collectionId: unknown): boolean {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  if (typeof collectionId !== "string") return false;
-  const authority = value as {
-    operations_url?: unknown;
-    sync_url?: unknown;
-    files_url?: unknown;
-    replica_id?: unknown;
-    access_token?: unknown;
-    proof_public_key?: unknown;
-  };
-  if (
-    typeof authority.operations_url !== "string"
-    || typeof authority.sync_url !== "string"
-    || typeof authority.files_url !== "string"
-    || typeof authority.replica_id !== "string"
-    || authority.replica_id.length === 0
-    || typeof authority.access_token !== "string"
-    || authority.access_token.length === 0
-    || (
-      authority.proof_public_key !== undefined
-      && (
-        typeof authority.proof_public_key !== "string"
-        || authority.proof_public_key.length === 0
-      )
-    )
-  ) return false;
-  try {
-    const operations = new URL(authority.operations_url);
-    const sync = new URL(authority.sync_url);
-    const files = new URL(authority.files_url);
-    return [operations, sync, files].every((url) =>
-      (
-        url.protocol === "https:"
-        || (
-          url.protocol === "http:"
-          && ["localhost", "127.0.0.1", "[::1]", "::1"].includes(url.hostname)
-        )
-      )
-      && !url.username
-      && !url.password
-      && !url.search
-      && !url.hash
-    )
-      && /^\/v1\/authorities\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/operations$/i.test(operations.pathname)
-      && /^\/v1\/authorities\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/sync$/i.test(sync.pathname)
-      && /^\/v1\/authorities\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/files$/i.test(files.pathname)
-      && operations.origin === sync.origin
-      && operations.origin === files.origin
-      && operations.pathname.split("/")[3] === collectionId
-      && sync.pathname.split("/")[3] === collectionId
-      && files.pathname.split("/")[3] === collectionId;
-  } catch {
-    return false;
-  }
-}
-
 export function validStoredAuthority(
   authority: StoredToken["authority"],
   collectionId: string
@@ -296,12 +240,26 @@ export function validStoredEncryption(
   }
 }
 
-export function parseDeviceAuthorization(body: any): MdbaseDeviceAuthorization {
+/**
+ * Whether a server-supplied page is the Connect page the client expects to
+ * open: on the configured server's origin, at exactly that path.
+ */
+export function isConnectPage(value: unknown, serverUrl: string, pathname: string): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    const url = new URL(value);
+    return url.origin === new URL(serverUrl).origin && url.pathname === pathname;
+  } catch {
+    return false;
+  }
+}
+
+export function parseDeviceAuthorization(body: any, serverUrl: string): MdbaseDeviceAuthorization {
   if (
     typeof body?.device_code !== "string"
     || typeof body?.user_code !== "string"
-    || typeof body?.verification_uri !== "string"
-    || typeof body?.verification_uri_complete !== "string"
+    || !isConnectPage(body?.verification_uri, serverUrl, "/device")
+    || !isConnectPage(body?.verification_uri_complete, serverUrl, "/device")
     || !Number.isFinite(body?.expires_in)
     || !Number.isFinite(body?.interval)
   ) {
