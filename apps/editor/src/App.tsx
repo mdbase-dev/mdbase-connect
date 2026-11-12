@@ -1841,6 +1841,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     else if (id === "note-open") setNoteOpenFailure(undefined);
     else if (id === recoveryToastId) setRecoveryAction(undefined);
   }, [recoveryToastId]);
+  // A queued attachment link belongs to the note it was uploaded for; leaving that note drops it.
+  const shownEditorKey = openNew ? newNoteEditorKey(openNew) : document ? noteSessions.current.active?.editorSessionKey : undefined;
+  useEffect(() => { attachments.keepInsertionFor(shownEditorKey); }, [shownEditorKey]);
   const confirmationDialog = confirmation && <ConfirmDialog open role="alertdialog" title={confirmation.title}
     pendingLabel={t`Working…`}
     confirmLabel={confirmation.confirmLabel}
@@ -2251,7 +2254,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             currentPath={editing.path} linkTargets={linkTargets} recentPaths={recentPaths} linkSuggestions={linkOptions} linkTypes={linkTypeNames}
             embeddedFiles={embeddedFiles} embeddedNotes={embeddedNotes} files={fileInventory.files} notes={allNotes}
             onUploadAttachment={!openNew && canAttachFiles && !attachments.disabled ? attachments.uploadReference : undefined}
-            insertion={openNew ? undefined : attachments.insertion} onTitleVisibilityChange={setNoteTitleVisible} onTitleChange={(title) => editNote({ title })}
+            insertion={!openNew && attachments.insertion?.editorKey === editing.key ? attachments.insertion : undefined} onTitleVisibilityChange={setNoteTitleVisible} onTitleChange={(title) => editNote({ title })}
             onBodyChange={(body) => editNote({ body })} onOpenLink={navigateToNote}
             onCreateLink={createLinkedNote} onPreviewLink={notePreviewController.request}
             onDismissLinkPreview={notePreviewController.dismiss} onOpenFile={setOpenFileAsset} onOpenFileLink={navigateToFile}

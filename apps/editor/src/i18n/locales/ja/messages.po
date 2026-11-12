@@ -132,7 +132,7 @@ msgstr "{0, plural, other {# 件のノートを移動しました。}}"
 msgid "{0, plural, one {Rename ‘{basename}’ and move # note?} other {Rename ‘{basename}’ and move # notes?}}"
 msgstr "{0, plural, other {「{basename}」の名前を変更して#件のノートを移動しますか？}}"
 
-#. placeholder {0}: files.length
+#. placeholder {0}: references.length
 #: src/AttachmentUpload.tsx
 msgid "{0, plural, one {The file was uploaded, but the note changed before its link could be inserted.} other {The files were uploaded, but the note changed before its link could be inserted.}}"
 msgstr "{0, plural, other {ファイルはアップロードされましたが、リンクの挿入前にノートが変更されました。}}"
@@ -1895,6 +1895,10 @@ msgstr "{name}をアップロードできませんでした。"
 #: src/AttachmentUpload.tsx
 msgid "Couldn’t upload {name}. Check your connection and try again."
 msgstr "{name}をアップロードできませんでした。接続を確認して再試行してください。"
+
+#: src/AttachmentUpload.tsx
+msgid "Couldn’t upload {name}. Files ending in .md are notes, so they can’t be attached."
+msgstr "{name} をアップロードできませんでした。.md で終わるファイルはノートのため、添付できません。"
 
 #: src/YourPersonPanel.tsx
 msgid "Create a note for yourself, starting from your account name."
@@ -5890,6 +5894,10 @@ msgstr "<0>{0}</0>を現在の Person 初期型にアップグレードします
 #: src/AttachmentUpload.tsx
 msgid "Uploaded “{0}”. The collection file is committed; the note link is saving separately."
 msgstr "「{0}」をアップロードしました。コレクション内のファイルは保存済みです。ノートのリンクは別途保存中です。"
+
+#: src/AttachmentUpload.tsx
+msgid "Uploaded {uploaded} of {total} files."
+msgstr "{total} 件中 {uploaded} 件のファイルをアップロードしました。"
 
 #: src/AttachmentUpload.tsx
 msgid "Uploading"

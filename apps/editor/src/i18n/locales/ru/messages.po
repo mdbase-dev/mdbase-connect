@@ -132,7 +132,7 @@ msgstr "{0, plural, one {Перемещена # заметка.} few {Перем
 msgid "{0, plural, one {Rename ‘{basename}’ and move # note?} other {Rename ‘{basename}’ and move # notes?}}"
 msgstr "{0, plural, one {Переименовать «{basename}» и переместить # заметку?} few {Переименовать «{basename}» и переместить # заметки?} many {Переименовать «{basename}» и переместить # заметок?} other {Переименовать «{basename}» и переместить # заметки?}}"
 
-#. placeholder {0}: files.length
+#. placeholder {0}: references.length
 #: src/AttachmentUpload.tsx
 msgid "{0, plural, one {The file was uploaded, but the note changed before its link could be inserted.} other {The files were uploaded, but the note changed before its link could be inserted.}}"
 msgstr "{0, plural, one {Файл загружен, но заметка изменилась до вставки ссылки на него.} few {Файлы загружены, но заметка изменилась до вставки ссылок на них.} many {Файлы загружены, но заметка изменилась до вставки ссылок на них.} other {Файлы загружены, но заметка изменилась до вставки ссылок на них.}}"
@@ -1895,6 +1895,10 @@ msgstr "Не удалось загрузить {name}."
 #: src/AttachmentUpload.tsx
 msgid "Couldn’t upload {name}. Check your connection and try again."
 msgstr "Не удалось загрузить {name}. Проверьте подключение и повторите попытку."
+
+#: src/AttachmentUpload.tsx
+msgid "Couldn’t upload {name}. Files ending in .md are notes, so they can’t be attached."
+msgstr "Не удалось загрузить {name}. Файлы с расширением .md — это заметки, их нельзя прикрепить."
 
 #: src/YourPersonPanel.tsx
 msgid "Create a note for yourself, starting from your account name."
@@ -5890,6 +5894,10 @@ msgstr "Обновить <0>{0}</0> до текущего шаблона Person.
 #: src/AttachmentUpload.tsx
 msgid "Uploaded “{0}”. The collection file is committed; the note link is saving separately."
 msgstr "Загружено: «{0}». Файл коллекции сохранён; ссылка в заметке сохраняется отдельно."
+
+#: src/AttachmentUpload.tsx
+msgid "Uploaded {uploaded} of {total} files."
+msgstr "Загружено файлов: {uploaded} из {total}."
 
 #: src/AttachmentUpload.tsx
 msgid "Uploading"

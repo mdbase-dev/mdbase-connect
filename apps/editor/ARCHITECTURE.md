@@ -85,7 +85,9 @@ never enter the saved Markdown. Errors use plain language and only transient
 failures offer Retry; permanent size/type/permission failures offer Remove.
 The file commits first; only then does the editor insert an independently undoable
 Markdown reference. Navigation, removal, deleted anchors and read-only/frozen
-notes cannot receive late references. This makes partial failure explicit: a
+notes cannot receive late references; a menu upload's queued links carry the
+note editor key they were made for, and leaving that note drops them. A
+multi-file selection uploads every file it can and names each one that failed. This makes partial failure explicit: a
 committed file survives even if insertion is removed or the later note save
 fails. File size/type authorization stays in the collection gateway/SDK.
 

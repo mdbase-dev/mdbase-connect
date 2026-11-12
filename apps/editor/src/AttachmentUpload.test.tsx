@@ -128,6 +128,42 @@ describe("shared attachment pipeline", () => {
     expect(setNotice).toHaveBeenLastCalledWith("scan.pdf is too large to upload.");
   });
 
+  it("carries on past a rejected file and names every file that failed", async () => {
+    const { result, gateway, setNotice } = harness();
+    const original = gateway.uploadFile.bind(gateway);
+    const upload = vi.spyOn(gateway, "uploadFile").mockImplementation(async (path, ...rest) => {
+      if (/\.(?:md|json)$/u.test(path)) throw new Error("rejected");
+      return original(path, ...rest);
+    });
+    const names = ["pic.png", "note.md", "plain.txt", "data.json", "page.html"];
+    await act(async () => result.current.attach(names.map((name) => new File(["x"], name))));
+    expect(upload).toHaveBeenCalledTimes(5);
+    expect(result.current.insertion?.text).toBe([
+      "[pic.png](<Attachments/pic.png>)", "[plain.txt](<Attachments/plain.txt>)", "[page.html](<Attachments/page.html>)"
+    ].join("\n"));
+    expect(setNotice).toHaveBeenLastCalledWith(
+      "Uploaded 3 of 5 files. Couldn’t upload note.md. Files ending in .md are notes, so they can’t be attached. Couldn’t upload data.json."
+    );
+  });
+
+  it("names every failed file when nothing uploads", async () => {
+    const { result, gateway, setNotice } = harness();
+    vi.spyOn(gateway, "uploadFile").mockRejectedValue(new Error("rejected"));
+    await act(async () => result.current.attach([new File(["x"], "a.json"), new File(["x"], "b.json")]));
+    expect(result.current.insertion).toBeUndefined();
+    expect(setNotice).toHaveBeenLastCalledWith("Couldn’t upload a.json. Couldn’t upload b.json.");
+  });
+
+  it("ties a queued insertion to the note editor it was uploaded for", async () => {
+    const { result } = harness();
+    await act(async () => result.current.attach([new File(["x"], "plain.txt")]));
+    const editorKey = result.current.insertion!.editorKey;
+    act(() => result.current.keepInsertionFor(editorKey));
+    expect(result.current.insertion?.text).toBe("[plain.txt](<Attachments/plain.txt>)");
+    act(() => result.current.keepInsertionFor("another note"));
+    expect(result.current.insertion).toBeUndefined();
+  });
+
   it("does not insert into a different note after an in-flight upload", async () => {
     const { result, gateway, changeNote, inventory } = harness();
     const original = gateway.uploadFile.bind(gateway);

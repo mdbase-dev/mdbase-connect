@@ -132,7 +132,7 @@ msgstr "{0, plural, one {# nota movida.} other {# notas movidas.}}"
 msgid "{0, plural, one {Rename ‘{basename}’ and move # note?} other {Rename ‘{basename}’ and move # notes?}}"
 msgstr "{0, plural, one {Renomear ‘{basename}’ e mover # nota?} other {Renomear ‘{basename}’ e mover # notas?}}"
 
-#. placeholder {0}: files.length
+#. placeholder {0}: references.length
 #: src/AttachmentUpload.tsx
 msgid "{0, plural, one {The file was uploaded, but the note changed before its link could be inserted.} other {The files were uploaded, but the note changed before its link could be inserted.}}"
 msgstr "{0, plural, one {O arquivo foi enviado, mas a nota mudou antes que o link pudesse ser inserido.} other {Os arquivos foram enviados, mas a nota mudou antes que os links pudessem ser inseridos.}}"
@@ -1895,6 +1895,10 @@ msgstr "Não foi possível enviar {name}."
 #: src/AttachmentUpload.tsx
 msgid "Couldn’t upload {name}. Check your connection and try again."
 msgstr "Não foi possível enviar {name}. Verifique sua conexão e tente novamente."
+
+#: src/AttachmentUpload.tsx
+msgid "Couldn’t upload {name}. Files ending in .md are notes, so they can’t be attached."
+msgstr "Não foi possível enviar {name}. Arquivos terminados em .md são notas, por isso não podem ser anexados."
 
 #: src/YourPersonPanel.tsx
 msgid "Create a note for yourself, starting from your account name."
@@ -5890,6 +5894,10 @@ msgstr "Atualize <0>{0}</0> para o modelo inicial atual de Pessoa. "
 #: src/AttachmentUpload.tsx
 msgid "Uploaded “{0}”. The collection file is committed; the note link is saving separately."
 msgstr "“{0}” enviado. O arquivo da coleção foi confirmado; o link na nota está sendo salvo separadamente."
+
+#: src/AttachmentUpload.tsx
+msgid "Uploaded {uploaded} of {total} files."
+msgstr "{uploaded} de {total} arquivos enviados."
 
 #: src/AttachmentUpload.tsx
 msgid "Uploading"
