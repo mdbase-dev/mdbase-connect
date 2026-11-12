@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# Decide whether new hosted-provider migrations can be rolled back past, and
+# whether CI must prove it. See docs/hosted-provider-migrations.md.
+#
+#   provider-migration-rollback-gate BASE HEAD
+#
+# The previous release is the merge base of BASE and HEAD: deterministic,
+# available to every PR and merge-queue run, and never older than production
+# (ops classifies the exact production predecessor separately at deploy).
+#
+# Writes run_proof=true|false and predecessor=<sha> to $GITHUB_OUTPUT when set.
+# Exits non-zero only for a new migration that is misnamed or not numbered
+# after every existing one.
+set -euo pipefail
+
+[[ $# == 2 ]] || { echo 'usage: provider-migration-rollback-gate BASE HEAD' >&2; exit 2; }
+dir=crates/connect-hosted-provider/migrations
+marker='-- mdbase: rollback-compatible'
+tolerance='pub const MIGRATION_ROLLBACK_TOLERANCE: &str = "marked-v1";'
+predecessor=$(git merge-base "$1" "$2")
+head=$(git rev-parse "$2^{commit}")
+summary=${GITHUB_STEP_SUMMARY:-/dev/null}
+
+output() {
+  [[ -z ${GITHUB_OUTPUT:-} ]] || printf 'run_proof=%s\npredecessor=%s\n' "$1" "$predecessor" >>"$GITHUB_OUTPUT"
+}
+# The marker counts only in the leading comment header: the run of lines that
+# start with "--" at the top of the file (it may follow -- no-transaction).
+declares_compatible() {
+  git show "$head:$1" | awk -v marker="$marker" '
+    !/^--/ { exit }
+    { sub(/[ \t\r]+$/, "") }
+    $0 == marker { found = 1; exit }
+    END { exit !found }'
+}
+
+changes=$(git diff --no-renames --name-status "$predecessor" "$head" -- "$dir")
+added=()
+invalid=0
+changed_existing=0
+latest=$(git ls-tree --name-only "$predecessor" "$dir/" | sed -n 's|.*/\([0-9]\{4\}\)_[^/]*\.sql$|\1|p' | sort | tail -1)
+while IFS=$'\t' read -r status path; do
+  [[ -n ${status:-} ]] || continue
+  if [[ $status != A ]]; then
+    # Reverting an unreleased migration is legitimate; anything else breaks
+    # every database that applied the old file. Never a rollback candidate.
+    echo "::warning file=$path::FORWARD-ONLY: this change edits or removes the existing migration $path. A database that applied it will refuse builds without the same file."
+    changed_existing=1
+  elif [[ ! $(basename "$path") =~ ^([0-9]{4})_[A-Za-z0-9_.-]+\.sql$ ]]; then
+    echo "::error file=$path::$path is not a hosted-provider migration name (NNNN_description.sql)."
+    invalid=1
+  elif ((10#${BASH_REMATCH[1]} <= 10#${latest:-0})); then
+    echo "::error file=$path::$path must be numbered after the previous release's newest migration ($latest)."
+    invalid=1
+  else
+    added+=("$path")
+  fi
+done <<<"$changes"
+if ((invalid)); then
+  output false
+  exit 1
+fi
+
+if ((changed_existing)); then
+  echo '### Hosted-provider migrations: existing migrations changed (forward-only)' >>"$summary"
+  output false
+  exit 0
+fi
+if ((${#added[@]} == 0)); then
+  echo 'No new hosted-provider migrations; the rollback gate does not apply.' | tee -a "$summary"
+  output false
+  exit 0
+fi
+
+unmarked=()
+for path in "${added[@]}"; do
+  declares_compatible "$path" || unmarked+=("$path")
+done
+if ((${#unmarked[@]})); then
+  for path in "${unmarked[@]}"; do
+    echo "::warning file=$path,line=1::FORWARD-ONLY: $path is not marked '$marker' in its leading comment header. The release that ships it cannot roll back to the previous provider, and ops continuous deployment refuses forward-only releases."
+  done
+  {
+    echo '### Hosted-provider migrations: forward-only'
+    echo
+    echo "These new migrations are not marked \`$marker\`, so the release that ships them is **forward-only**: the previous provider will refuse to start against the migrated database, and ops CD will not deploy it. Mark a migration only if it follows the rules in docs/hosted-provider-migrations.md."
+    echo
+    printf -- '- `%s`\n' "${unmarked[@]}"
+  } >>"$summary"
+  output false
+  exit 0
+fi
+
+if [[ $(git show "$predecessor:crates/connect-hosted-provider/src/provider.rs" | grep -cxF "$tolerance") != 1 ]]; then
+  echo "::warning::FORWARD-ONLY: the previous release ($predecessor) predates the tolerant migration runner, so it refuses any newer migration, marked or not."
+  {
+    echo '### Hosted-provider migrations: forward-only'
+    echo
+    echo "The new migrations are marked rollback-compatible, but the previous release (\`$predecessor\`) has no tolerant migration runner, so the release is still **forward-only**."
+  } >>"$summary"
+  output false
+  exit 0
+fi
+# The previous release must also carry the test hook and shared test list the
+# proof runs; they shipped with the tolerant runner.
+git show "$predecessor:crates/connect-hosted-provider/tests/support/test_postgres.rs" |
+  grep -F MDBASE_TEST_NEWER_HOSTED_MIGRATIONS >/dev/null
+git cat-file -e "$predecessor:scripts/ci/hosted-provider-postgres-tests"
+
+{
+  echo '### Hosted-provider migrations: rollback-compatible'
+  echo
+  echo "Running the previous release's (\`$predecessor\`, merge base) hosted-provider PostgreSQL tests against a schema with these migrations applied:"
+  echo
+  printf -- '- `%s`\n' "${added[@]}"
+} | tee -a "$summary"
+output true

@@ -90,6 +90,7 @@ Git history is the archive for finished phases, campaigns and superseded designs
 - [self-hosting.md](self-hosting.md) — production self-hosting.
 - [instance-administration.md](instance-administration.md) — instance administration.
 - [control-plane-migrations.md](control-plane-migrations.md) — control-plane database migrations.
+- [hosted-provider-migrations.md](hosted-provider-migrations.md) — hosted-provider migrations, expand-then-contract and rollback-compatible marking.
 - [usage-report.md](usage-report.md) — operator usage report.
 - [beta-observability.md](beta-observability.md) — privacy-safe operational signals.
 - [native-staging-build.md](native-staging-build.md) — staging daemon build.

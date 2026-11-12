@@ -29,7 +29,7 @@ test("required Qualification rejects failed, cancelled or skipped merge-queue na
   const env = Object.fromEntries([
     "WINDOWS", "WINDOWS_DAEMON", "RUNTIME", "NODE", "CONTAINER", "SERVER_UPGRADE",
     "SERVER_RETAINED_V2", "PROVIDER_UPGRADE", "RETAINED_V2", "PROVIDER_RUST",
-    "PROVIDER_SYSTEM", "LOG_POSTGRES", "LOG_DO"
+    "PROVIDER_SYSTEM", "LOG_POSTGRES", "LOG_DO", "MIGRATION_ROLLBACK"
   ].map((name) => [name, "success"]));
   for (const result of ["success", "failure", "cancelled", "skipped"]) {
     const command = spawnSync("bash", ["-e", "-c", body], {
@@ -41,4 +41,17 @@ test("required Qualification rejects failed, cancelled or skipped merge-queue na
     env: { ...process.env, ...env, RUN_FULL: "true", GITHUB_EVENT_NAME: "pull_request", RUNTIME_NATIVE: "skipped" }
   });
   assert.equal(pullRequest.status, 0);
+  // The migration rollback gate is required at every depth except on push.
+  for (const [event, runFull, result, status] of [
+    ["pull_request", "false", "failure", 1],
+    ["pull_request", "false", "skipped", 1],
+    ["merge_group", "true", "failure", 1],
+    ["push", "false", "skipped", 0]
+  ]) {
+    const command = spawnSync("bash", ["-e", "-c", body], {
+      env: { ...process.env, ...env, RUN_FULL: runFull, UPSTREAM_RUN_ID: "1", GITHUB_EVENT_NAME: event,
+        RUNTIME_NATIVE: "success", MIGRATION_ROLLBACK: result }
+    });
+    assert.equal(command.status, status, `${event} ${result}`);
+  }
 });

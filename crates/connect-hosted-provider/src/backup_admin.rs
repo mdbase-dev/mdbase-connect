@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::{
     error::{ApiError, ApiResult},
-    provider::hosted_migrator,
+    provider::run_hosted_migrator,
 };
 
 const MINIMUM_HOLD_SECONDS: u64 = 60;
@@ -67,7 +67,7 @@ impl HostedBackupAdmin {
             })
             .connect(database_url)
             .await?;
-        hosted_migrator().run(&pool).await.map_err(|error| {
+        run_hosted_migrator(&pool).await.map_err(|error| {
             tracing::error!(%error, "hosted backup administration migration check failed");
             ApiError::internal("The hosted provider database migration check failed.")
         })?;

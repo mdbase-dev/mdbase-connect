@@ -506,7 +506,11 @@ fn validate_atomic_catalog(migrator: &sqlx::migrate::Migrator) -> Result<(), Str
     Ok(())
 }
 
-async fn validate_migration_prefix(connection: &mut sqlx::PgConnection) -> Result<(), String> {
+/// Returns the applied migrations newer than this build's catalog, all of
+/// which are recorded rollback-compatible; empty for an ordinary prefix.
+async fn validate_migration_prefix(
+    connection: &mut sqlx::PgConnection,
+) -> Result<Vec<i64>, String> {
     let migrator = migration_catalog();
     validate_atomic_catalog(&migrator)?;
     let exists: bool = sqlx::query_scalar("SELECT to_regclass('_sqlx_migrations') IS NOT NULL")
@@ -514,27 +518,15 @@ async fn validate_migration_prefix(connection: &mut sqlx::PgConnection) -> Resul
         .await
         .map_err(|e| e.to_string())?;
     if !exists {
-        return Ok(());
+        return Ok(Vec::new());
     }
-    let applied: Vec<(i64, bool, Vec<u8>)> =
+    let applied: Vec<migration_compat::AppliedMigration> =
         sqlx::query_as("SELECT version, success, checksum FROM _sqlx_migrations ORDER BY version")
-            .fetch_all(connection)
+            .fetch_all(&mut *connection)
             .await
             .map_err(|e| e.to_string())?;
-    let mut expected = migrator
-        .iter()
-        .filter(|m| !m.migration_type.is_down_migration());
-    for (version, success, checksum) in applied {
-        let valid = expected
-            .next()
-            .is_some_and(|m| m.version == version && success && m.checksum.as_ref() == checksum);
-        if !valid {
-            return Err(format!(
-                "hosted migration ledger is not an exact successful catalog prefix at {version}"
-            ));
-        }
-    }
-    Ok(())
+    let compatible = migration_compat::recorded_compatible_migrations(connection).await?;
+    migration_compat::classify_ledger(&migrator, &applied, &compatible)
 }
 
 async fn run_atomic_migrations(connection: &mut sqlx::PgConnection) -> Result<(), String> {
@@ -669,7 +661,22 @@ async fn run_hosted_migrations_on_connection(
         .await
         .map_err(|error| error.to_string())?;
 
-    validate_migration_prefix(connection).await?;
+    let newer = validate_migration_prefix(connection).await?;
+    migration_compat::record_catalog_compatibility(connection, &migration_catalog()).await?;
+    if let Some(latest) = newer.last() {
+        // A newer release applied only rollback-compatible migrations after
+        // this build's whole catalog, so there is nothing for this build to
+        // migrate or repair: serve on the newer schema unchanged.
+        tracing::warn!(
+            target: "mdbase_connect::metrics",
+            metric = "hosted_migration_newer_compatible",
+            protocol = MIGRATION_ROLLBACK_TOLERANCE,
+            newer_migrations = newer.len(),
+            latest_migration = latest,
+            "privacy-safe hosted provider metric"
+        );
+        return reset_migration_timeouts(connection).await;
+    }
     for index in CONCURRENT_MIGRATION_INDEXES {
         let existing: Option<(bool, String, String)> = sqlx::query_as(
             r#"SELECT i.indisvalid, pg_get_indexdef(i.indexrelid),
@@ -716,18 +723,20 @@ async fn run_hosted_migrations_on_connection(
     }
 
     let migration = run_atomic_migrations(connection).await;
-    let reset = async {
-        sqlx::query("RESET statement_timeout")
-            .execute(&mut *connection)
-            .await?;
-        sqlx::query("RESET lock_timeout")
-            .execute(&mut *connection)
-            .await?;
-        Ok::<(), sqlx::Error>(())
-    }
-    .await
-    .map_err(|error| error.to_string());
+    let reset = reset_migration_timeouts(connection).await;
     migration.and(reset)
+}
+
+async fn reset_migration_timeouts(connection: &mut sqlx::PgConnection) -> Result<(), String> {
+    sqlx::query("RESET statement_timeout")
+        .execute(&mut *connection)
+        .await
+        .map_err(|error| error.to_string())?;
+    sqlx::query("RESET lock_timeout")
+        .execute(&mut *connection)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 impl HostedProvider {

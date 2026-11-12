@@ -134,13 +134,14 @@ jobs:
               .predecessor_commit == $predecessor and .predecessor_image == $predecessor_image and
               (.predecessor_migration | type) == "number" and (.candidate_migration | type) == "number" and
               ((.rollback_result == "fixture-compatible" and .candidate_migration == .predecessor_migration) or
+               (.rollback_result == "compatible-newer-migration" and .candidate_migration > .predecessor_migration) or
                (.rollback_result == "refused-unknown-migration" and .candidate_migration > .predecessor_migration)))
             | {schema_version: 1, scenario: "provider-predecessor-read",
                candidate_commit: $candidate, candidate_provider_image: $candidate_image,
                predecessor_release: $release, predecessor_commit: $predecessor,
                predecessor_provider_image: $predecessor_image,
                predecessor_migration, candidate_migration,
-               result: (if .rollback_result == "fixture-compatible" then "compatible" else "incompatible" end)}
+               result: (if .rollback_result == "refused-unknown-migration" then "incompatible" else "compatible" end)}
           ' "${files[0]}" >"$RUNNER_TEMP/rollback-read-compat/rollback-read-compat.json"
           cat "$RUNNER_TEMP/rollback-read-compat/rollback-read-compat.json"
           {

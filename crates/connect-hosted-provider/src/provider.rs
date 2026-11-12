@@ -55,6 +55,18 @@ const _: () = assert!(
 /// engine can serve. Release tooling reads this line from source.
 pub const PROJECTION_ENGINE_UPGRADE: &str = "online-v1";
 
+/// How this provider treats applied hosted migrations newer than its own
+/// catalog. `marked-v1`: it starts normally only when every newer migration is
+/// recorded in `hosted_provider_rollback_compatible_migrations` with the
+/// checksum in the migration ledger, which the runner writes for migrations
+/// carrying [`ROLLBACK_COMPATIBLE_MIGRATION_MARKER`]; any other newer
+/// migration refuses startup. Release tooling reads this line from source to
+/// decide whether a release can roll back to a build with this runner.
+pub const MIGRATION_ROLLBACK_TOLERANCE: &str = "marked-v1";
+pub use migration_compat::{
+    apply_newer_migrations_for_rollback_gate, ROLLBACK_COMPATIBLE_MIGRATION_MARKER,
+};
+
 use crate::{
     backup_admin::lock_blob_deletion,
     blob_store::BlobStore,
@@ -90,6 +102,7 @@ mod lifecycle;
 pub use collections::{LegacyRollbackEnvelope, LegacyRollbackReceipt, LegacyRollbackRequest};
 pub use lifecycle::run_hosted_cutover_migrations;
 mod lifecycle_states;
+mod migration_compat;
 mod mutation_journal;
 pub use mutation_journal::{HostedMutationJournalDiagnostics, HostedMutationSweep};
 mod mutation_journal_files;
@@ -981,6 +994,16 @@ pub(crate) fn hosted_migrator() -> sqlx::migrate::Migrator {
     let mut migrator = sqlx::migrate!("./migrations");
     migrator.set_ignore_missing(true);
     migrator
+}
+
+/// Run the embedded migrations for an administration command, recording
+/// rollback-compatible migrations before they apply, as the provider does.
+pub(crate) async fn run_hosted_migrator(pool: &PgPool) -> Result<(), String> {
+    let migrator = hosted_migrator();
+    let mut connection = pool.acquire().await.map_err(|error| error.to_string())?;
+    migration_compat::record_catalog_compatibility(&mut connection, &migrator).await?;
+    drop(connection);
+    migrator.run(pool).await.map_err(|error| error.to_string())
 }
 
 #[cfg(test)]

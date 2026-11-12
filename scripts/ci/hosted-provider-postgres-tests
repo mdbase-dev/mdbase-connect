@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# The hosted provider's PostgreSQL integration tests (ignored by default).
+# Server CI runs them for every candidate, and the provider migration rollback
+# gate runs the *previous release's* copy of this script against a newer
+# release's schema, so the list lives here once.
+#
+# Requires the disposable loopback database and approval variables that
+# server-ci.yml sets; extra arguments are passed to cargo test.
+set -euo pipefail
+exec cargo test --locked --workspace \
+  --test mutation_abandon --test lifecycle_diagnostics --test sync_stored_errors \
+  --test file_control_stored_errors --test file_upload_retries \
+  --test migration_rollback_compat \
+  "$@" -- --ignored --test-threads=1
