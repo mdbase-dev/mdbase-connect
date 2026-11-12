@@ -678,13 +678,20 @@ jobs:
   # sits on (main for a PR's test merge, the queue base in the merge queue).
   # Its own PostgreSQL provider tests run with every disposable schema
   # pre-migrated by this candidate's migrations, through its tolerant runner.
-  # Unmarked migrations are reported as forward-only. See
+  # A forward-only change (an unmarked new migration, or an edited or removed
+  # one) fails unless its pull request carries the forward-only-approved
+  # label, which the release supervisor applies after Callum's yes. The
+  # labeled and unlabeled pull_request events rerun it; in the merge queue it
+  # reads the responsible pull requests' labels. See
   # docs/hosted-provider-migrations.md.
   provider-migration-rollback:
     name: Hosted-provider migration rollback gate
     if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
+      pull-requests: read
     services:
       postgres:
         image: postgres:18-alpine
@@ -710,6 +717,7 @@ jobs:
         working-directory: mdbase-connect
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          GH_TOKEN: ${{ github.token }}
         run: scripts/ci/provider-migration-rollback-gate "$BASE" "$GITHUB_SHA"
       - name: Check out the previous release
         if: steps.gate.outputs.run_proof == 'true'
