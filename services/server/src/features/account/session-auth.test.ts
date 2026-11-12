@@ -31,6 +31,8 @@ describe("account session enforcement", () => {
       : "";
     expect(cookie).not.toBe("");
     await expectMe(app, cookie, 200);
+    const overview = await app.inject({ method: "GET", url: "/v1/me", headers: { cookie } });
+    expect(overview.headers["cache-control"]).toBe("no-store");
 
     await db.query(
       "UPDATE sessions SET revoked_at = now() WHERE user_id = $1",
