@@ -1,4 +1,4 @@
-import { connect, MdbaseError, type MdbaseClient } from "@mdbase-dev/sdk";
+import { MdbaseError, type MdbaseClient } from "@mdbase-dev/sdk";
 import { MemoryReplica } from "@mdbase-dev/sdk/testing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NextEditorRecords } from "./next-editor-records";
@@ -14,7 +14,7 @@ afterEach(() => {
 async function fixture(pending = false) {
   const replica = new MemoryReplica({ confirmDelayMs: pending ? null : 0 });
   const record = replica.seed({ path: "notes/plan.md", frontmatter: { title: "Plan", status: "open" }, body: "Original body\n" });
-  const client = await connect({ connector: replica.connector(), app: { name: "editor-record-test", version: "test" }, reconnect: false });
+  const client = await replica.client();
   clients.push(client);
   const adapter = new NextEditorRecords(client);
   adapters.push(adapter);
@@ -29,13 +29,13 @@ describe("NextEditorRecords (SDK stand-in, not LAB)", () => {
     expect(note.body).toBe("Original body\n");
     expect(note.document).toContain("Original body");
     expect(note.effectiveFrontmatter.title).toBe("Plan");
-    expect(get).toHaveBeenCalledWith({ path: "notes/plan.md" }, { body: true, effective: true, document: true }, expect.any(AbortSignal));
+    expect(get).toHaveBeenCalledWith({ path: "notes/plan.md" }, { include: { body: true, effective: true, document: true }, signal: expect.any(AbortSignal) });
     expect(note.file).toEqual({ path: "notes/plan.md" });
   });
 
   it("refuses absent source bytes rather than reconstructing formatted YAML", async () => {
     const f = await fixture();
-    const record = await f.client.get(f.record.id, { body: true });
+    const record = await f.client.get(f.record.id, { include: { body: true } });
     vi.spyOn(f.client, "get").mockResolvedValue(record);
     await expect(f.adapter.read(record.path)).rejects.toThrow("complete note source");
   });
@@ -197,7 +197,7 @@ describe("NextEditorRecords (SDK stand-in, not LAB)", () => {
 
   it("refuses protected records before any submission", async () => {
     const f = await fixture();
-    const record = await f.client.get(f.record.id, { body: true, effective: true, document: true });
+    const record = await f.client.get(f.record.id, { include: { body: true, effective: true, document: true } });
     vi.spyOn(f.client, "get").mockResolvedValue({ ...record, state: { ...record.state, unresolved: 1 } });
     const base = await f.adapter.read(record.path);
     const update = vi.spyOn(f.client, "update");
@@ -215,7 +215,7 @@ describe("NextEditorRecords (SDK stand-in, not LAB)", () => {
 
   it("refuses a metadata-only fallback base before submitting document replacement", async () => {
     const f = await fixture(true);
-    const partial = await f.client.get(f.record.id, { body: true });
+    const partial = await f.client.get(f.record.id, { include: { body: true } });
     vi.spyOn(f.client, "get").mockResolvedValue(partial);
     const replace = vi.spyOn(f.client, "replaceDocument");
     vi.spyOn(f.client, "awaitReceipt").mockImplementation(async mutation => ({ mutation, state: "pending" }));
@@ -226,7 +226,7 @@ describe("NextEditorRecords (SDK stand-in, not LAB)", () => {
 
   it("refuses a complete source whose bytes do not match the native fallback revision", async () => {
     const f = await fixture();
-    const record = await f.client.get(f.record.id, { body: true, document: true });
+    const record = await f.client.get(f.record.id, { include: { body: true, document: true } });
     // Controlled malformed read response, not native parser qualification.
     vi.spyOn(f.client, "get").mockResolvedValue({ ...record, document: `${record.document}\n` });
     const replace = vi.spyOn(f.client, "replaceDocument");
@@ -239,15 +239,15 @@ describe("NextEditorRecords (SDK stand-in, not LAB)", () => {
     const f = await fixture(true);
     const base = await f.adapter.read(f.record.path);
     const originalGet = f.client.get.bind(f.client);
-    const get = vi.spyOn(f.client, "get").mockImplementation(async (ref, include, signal) => {
-      const record = await originalGet(ref, include, signal);
+    const get = vi.spyOn(f.client, "get").mockImplementation(async (ref, options) => {
+      const record = await originalGet(ref, options);
       // Controlled protected read response; MemoryReplica does not merge holds.
       return { ...record, state: { ...record.state, unresolved: 1 } };
     });
     const originalReceipt = f.client.awaitReceipt.bind(f.client);
-    const receipt = vi.spyOn(f.client, "awaitReceipt").mockImplementation(async (mutation, timeout, signal) => {
+    const receipt = vi.spyOn(f.client, "awaitReceipt").mockImplementation(async (mutation, options) => {
       f.replica.confirmAll();
-      return originalReceipt(mutation, timeout, signal);
+      return originalReceipt(mutation, options);
     });
     await expect(f.adapter.updateProperties(base.path, { title: "Changed" }, base.revision)).rejects.toMatchObject({ code: "outcome_unknown", reason: "unqualified_readback" });
     const [mutation] = f.adapter.pendingMutations();
@@ -273,7 +273,7 @@ describe("NextEditorRecords (SDK stand-in, not LAB)", () => {
 
   it("ignores late source replies after its repository lifetime is closed", async () => {
     const f = await fixture();
-    const record = await f.client.get(f.record.id, { body: true, document: true });
+    const record = await f.client.get(f.record.id, { include: { body: true, document: true } });
     vi.spyOn(f.client, "get").mockImplementation(async () => { f.adapter.dispose(); return record; });
     await expect(f.adapter.read(record.path)).rejects.toMatchObject({ name: "AbortError" });
   });

@@ -1,4 +1,4 @@
-import type { MdbaseApplicationSnapshot, MdbaseClient } from "@mdbase-dev/sdk";
+import type { MdbaseClient, MdbaseSnapshot } from "@mdbase-dev/sdk";
 import type {
   CollectionAvailability,
   MdbaseCollectionEntry,
@@ -6,7 +6,7 @@ import type {
   MdbaseWaitOptions
 } from "@mdbase-dev/sdk/app-grant";
 
-type AppInstallationCollection = MdbaseApplicationSnapshot["collections"][number];
+type AppInstallationCollection = MdbaseSnapshot["collections"][number];
 
 /** Isolated test-adapter surface. Production collection authority and lifetime
  * belong to the SDK's account-bound Native controller. */

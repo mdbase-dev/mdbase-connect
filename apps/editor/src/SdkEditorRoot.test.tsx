@@ -91,7 +91,7 @@ describe("SdkEditorRoot behind the shared collection gate", () => {
   it("a refused registration logs only the developer detail", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const h = await testApp({ phase: { problem: "application_registration_refused" } });
-    h.controls.publishSnapshot({ ...h.application.getSnapshot(),
+    h.controls.publishSnapshot({ ...h.mdbase.getSnapshot(),
       problemDetail: { name: "MdbaseError", code: "forbidden", registration: { code: "invalid_application_manifest", paths: ["/homepage"] } } });
     render(<SdkEditorRoot sdk={h.mdbase} />);
     await waitFor(() => expect(warn).toHaveBeenCalledWith(expect.stringContaining("invalid manifest: /homepage")));

@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "./test/locale";
 import { StrictMode, useEffect } from "react";
-import { connect, type MdbaseClient } from "@mdbase-dev/sdk";
+import type { MdbaseClient } from "@mdbase-dev/sdk";
 import { describeError } from "@mdbase-dev/sdk/describe";
 import { COLLECTION_UNAVAILABLE_REASONS, mergeCollectionEntries, type CollectionAvailability, type MdbasePrivateCollection } from "@mdbase-dev/sdk/app-grant";
 import { MemoryReplica } from "@mdbase-dev/sdk/testing";
@@ -30,7 +30,7 @@ function fakePrivate(entries: MdbasePrivateCollection[]) {
       return available;
     }),
     open: vi.fn(async (_collection: string, _options?: { signal?: AbortSignal }) => {
-      const client = await connect({ connector: replica.connector(), app: { name: "editor-private-test", version: "test" }, reconnect: false });
+      const client = await replica.client();
       clients.push(client);
       return client;
     }),

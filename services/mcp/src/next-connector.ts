@@ -10,7 +10,7 @@
 import {
   clientPrologue, mdbaseError, noiseConnector, relayPipeCarrier, webSocketCarrier,
   type Connector, type KeyPair, type RelayRoute, type StaticKey, type WebSocketFactory
-} from "@mdbase-dev/sdk";
+} from "@mdbase-dev/sdk/thin-client";
 
 export interface GatewayConnectorOptions {
   collection: string;

@@ -53,7 +53,6 @@ function fakeMdbase(phase: MdbasePhase, extra: Partial<MdbaseSnapshot> = {}) {
     subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener); },
     signIn: vi.fn(pending),
     addCollection: vi.fn((_options?: { readonly signal?: AbortSignal }) => pending()),
-    addPrivateCollection: vi.fn(pending),
     approve: vi.fn(pending),
     select: vi.fn(pending),
     chooseAnother: vi.fn(pending),
@@ -278,7 +277,6 @@ describe("SDK storage and Private states", () => {
       adds[0]!.click();
       expect(mdbase.addCollection).toHaveBeenCalledExactlyOnceWith({ signal: expect.any(AbortSignal) });
     });
-    expect(mdbase.addPrivateCollection).not.toHaveBeenCalled();
   });
 
   it("still aborts a legacy tracked private add without claiming it settled early", async () => {
@@ -324,7 +322,6 @@ describe("SDK storage and Private states", () => {
     expect(signal.aborted).toBe(false);
     act(() => button("Cancel add").click());
     expect(signal.aborted).toBe(true);
-    expect(mdbase.addPrivateCollection).not.toHaveBeenCalled();
   });
 
   it("uses normal Add in the gesture and renders the SDK computer-approval state", async () => {
@@ -333,7 +330,6 @@ describe("SDK storage and Private states", () => {
     act(() => {
       button("Add a collection…").click();
       expect(mdbase.addCollection).toHaveBeenCalledExactlyOnceWith({ signal: expect.any(AbortSignal) });
-      expect(mdbase.addPrivateCollection).not.toHaveBeenCalled();
     });
     const problem = describeError("device_approval_required")!;
     act(() => set({ phase: { kind: "problem", collectionId: A, problem } }));
@@ -349,12 +345,10 @@ describe("SDK storage and Private states", () => {
     act(() => button("Add a collection…").click());
     expect(before).toHaveBeenCalledWith("add");
     expect(mdbase.addCollection).not.toHaveBeenCalled();
-    expect(mdbase.addPrivateCollection).not.toHaveBeenCalled();
     render(<CollectionSwitcher mdbase={entry} app={app} />);
     act(() => switcherTrigger("Alpha").click());
     act(() => button("Add a collection…").click());
     expect(mdbase.addCollection).toHaveBeenCalledExactlyOnceWith({ signal: expect.any(AbortSignal) });
-    expect(mdbase.addPrivateCollection).not.toHaveBeenCalled();
   });
 
   it("shows only the SDK save warning and removes it on confirmation", () => {

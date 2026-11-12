@@ -3,7 +3,7 @@
 // `mcp-noise:<grant key handle>`, existing columns), and is attested by the grant
 // signing key, at consent (`client_noise_key`) or by the one-time attach route.
 import { randomBytes } from "node:crypto";
-import { keyPairFromSecret, type KeyPair } from "@mdbase-dev/sdk";
+import { keyPairFromSecret, type KeyPair } from "@mdbase-dev/sdk/thin-client";
 import type { GrantKeyRecord } from "@mdbase-dev/connect/crypto";
 import type { DatabasePool } from "./db.js";
 import { SecretBox } from "./security.js";

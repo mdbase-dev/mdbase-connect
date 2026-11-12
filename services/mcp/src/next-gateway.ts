@@ -3,7 +3,8 @@
 // the hosted replica (cloud copy) or a user device through the relay (Private), and
 // runs the tool there. Collections the control plane does not route stay on the
 // legacy authority path until it is removed.
-import { connect, controlRouteResolver, describeError, isMdbaseError, routeFromControl, uuidv7, type KeyPair, type MdbaseClient, type RecordView, type Write } from "@mdbase-dev/sdk";
+import { connect, controlRouteResolver, isMdbaseError, routeFromControl, uuidv7, type KeyPair, type MdbaseClient, type RecordView, type Write } from "@mdbase-dev/sdk/thin-client";
+import { describeError } from "@mdbase-dev/sdk/describe";
 import type { GrantKeyStore } from "@mdbase-dev/connect/crypto";
 import { GatewayOperationError } from "./errors.js";
 import { gatewayConnector } from "./next-connector.js";
@@ -342,12 +343,12 @@ async function execute(client: MdbaseClient, connection: NextConnection, operati
   const write = { mutationId: requestId, wait: "confirmed" as const, include: { effective: true, body: true }, ...(signal ? { signal } : {}) };
   switch (operation) {
     case "describe": {
-      const [description, cursor] = await Promise.all([client.describe({ definitions: true, ...(signal ? { signal } : {}) }), client.changes(undefined, 1, signal)]);
+      const [description, cursor] = await Promise.all([client.describe({ definitions: true, ...(signal ? { signal } : {}) }), client.changes({ limit: 1, signal })]);
       return collectionDescription({ collectionId: connection.collection_id, displayName: connection.display_name, operations: connection.operations, changeCursor: cursor.cursor }, description);
     }
     case "changes": {
       const { cursor, limit } = changesInput(input as { after?: number | string; limit?: number });
-      return changesOutput(await client.changes(cursor, limit, signal), limit);
+      return changesOutput(await client.changes({ cursor, limit, signal }), limit);
     }
     case "query": {
       if (typeof input.release_cursor === "string") return { released: true };
@@ -362,15 +363,15 @@ async function execute(client: MdbaseClient, connection: NextConnection, operati
         ]);
         return contractQueryOutput(plan, result, implementationDigests(plan.contract, description));
       }
-      return queryOutput(plan, await client.query(plan.query as Parameters<MdbaseClient["query"]>[0], plan.include, signal));
+      return queryOutput(plan, await client.query(plan.query as Parameters<MdbaseClient["query"]>[0], { include: plan.include, signal }));
     }
     case "read":
       return recordDocument(await read(client, String(input.path), signal));
     case "validate":
-      return validationOutput(await client.validate(undefined, signal));
+      return validationOutput(await client.validate({ signal }));
     case "read_type": {
       const type = await findType(client, input, signal);
-      return typeDocument(type.name, await client.resources.get(type.path, signal));
+      return typeDocument(type.name, await client.resources.get(type.path, { signal }));
     }
     case "create": {
       const id = memo.createId;
@@ -380,20 +381,20 @@ async function execute(client: MdbaseClient, connection: NextConnection, operati
         ...(typeof input.type === "string" ? { type: input.type } : {}),
         ...(input.frontmatter ? { frontmatter: input.frontmatter as Record<string, never> } : {}),
         ...(typeof input.body === "string" ? { body: input.body } : {})
-      }, write), () => client.find(id, RECORD_VIEW, signal));
+      }, write), () => client.find(id, { include: RECORD_VIEW, signal }));
       return recordDocument(created);
     }
     case "update": {
       const current = await read(client, String(input.path), signal, true);
       if (typeof input.document === "string") {
         if (input.patch !== undefined || input.body !== undefined) throw new GatewayOperationError("invalid_request", "document cannot be combined with patch or body.");
-        return { ...recordDocument(await settle(client.replaceDocument(current, input.document, { ...write, ...(typeof input.if_revision === "string" ? { ifRevision: input.if_revision } : {}) }), () => client.find(current.id, RECORD_VIEW, signal))) };
+        return { ...recordDocument(await settle(client.replaceDocument(current, input.document, { ...write, ...(typeof input.if_revision === "string" ? { ifRevision: input.if_revision } : {}) }), () => client.find(current.id, { include: RECORD_VIEW, signal }))) };
       }
       return recordDocument(await settle(client.update(current, {
         ...(input.patch ? { patch: input.patch as Record<string, never> } : {}),
         ...(typeof input.body === "string" ? { body: input.body } : {}),
         ...(typeof input.if_revision === "string" ? { ifRevision: input.if_revision } : {})
-      }, write), () => client.find(current.id, RECORD_VIEW, signal)));
+      }, write), () => client.find(current.id, { include: RECORD_VIEW, signal })));
     }
     case "delete": {
       const current = await find(client, String(input.path), signal);
@@ -412,31 +413,31 @@ async function execute(client: MdbaseClient, connection: NextConnection, operati
         // Run again after its answer was lost: the record is already at its new path.
         // By ID when an earlier attempt saw it; the replica may have normalized the path.
         const moved = !await confirmedBefore(client, requestId, signal) ? null
-          : memo.recordId ? await client.find(memo.recordId, RECORD_VIEW, signal) : await find(client, String(input.to), signal);
+          : memo.recordId ? await client.find(memo.recordId, { include: RECORD_VIEW, signal }) : await find(client, String(input.to), signal);
         if (!moved) throw notFound(String(input.from));
         return { ...recordDocument(moved), from: String(input.from), to: moved.path };
       }
       memo.recordId = current.id;
       const renamed = await settle(client.rename(current, String(input.to), {
         ...write, updateRefs: input.update_refs !== false, ...(typeof input.if_revision === "string" ? { ifRevision: input.if_revision } : {})
-      }), () => client.find(current.id, RECORD_VIEW, signal));
+      }), () => client.find(current.id, { include: RECORD_VIEW, signal }));
       return { ...recordDocument(renamed), from: current.path, to: renamed.path };
     }
     case "create_type": {
       const document = String(input.document);
       if (typeof input.path === "string") {
         await settle(client.resources.put(input.path, document, { ...write, mustNotExist: true }), null);
-        const resource = await client.resources.get(input.path, signal);
+        const resource = await client.resources.get(input.path, { signal });
         return typeDocument(input.path.replace(/^.*\//u, "").replace(/\.md$/u, ""), resource);
       }
       const created = await client.createType(document, write);
       await settle(Promise.resolve(created.write), null);
-      return typeDocument(created.name, await client.resources.get(created.path, signal));
+      return typeDocument(created.name, await client.resources.get(created.path, { signal }));
     }
     case "update_type": {
       const type = await findType(client, input, signal);
       await settle(client.resources.put(type.path, String(input.document), { ...write, baseRevision: String(input.if_revision) }), null);
-      return typeDocument(type.name, await client.resources.get(type.path, signal));
+      return typeDocument(type.name, await client.resources.get(type.path, { signal }));
     }
     default:
       throw new GatewayOperationError("unsupported_operation", `${operation} is not available for this collection.`);
@@ -450,7 +451,7 @@ async function read(client: MdbaseClient, path: string, signal?: AbortSignal, do
 }
 
 function find(client: MdbaseClient, path: string, signal?: AbortSignal, document = false): Promise<RecordView | null> {
-  return client.find({ path }, { effective: true, body: true, ...(document ? { document: true } : {}) }, signal);
+  return client.find({ path }, { include: { effective: true, body: true, ...(document ? { document: true } : {}) }, signal });
 }
 
 function notFound(path: string): GatewayOperationError {
@@ -464,8 +465,8 @@ function notFound(path: string): GatewayOperationError {
  */
 async function confirmedBefore(client: MdbaseClient, mutationId: string, signal?: AbortSignal): Promise<boolean> {
   try {
-    let receipt = await client.receipt(mutationId, signal);
-    if (receipt.state === "pending") receipt = await client.awaitReceipt(mutationId, WRITE_TIMEOUT_MS, signal);
+    let receipt = await client.receipt(mutationId, { signal });
+    if (receipt.state === "pending") receipt = await client.awaitReceipt(mutationId, { timeoutMs: WRITE_TIMEOUT_MS, signal });
     if (receipt.state === "pending") {
       throw new GatewayOperationError("outcome_unknown", "The write was accepted but not yet confirmed. Retry with the same mutation_id to check.");
     }

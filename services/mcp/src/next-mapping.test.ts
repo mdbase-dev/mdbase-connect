@@ -1,6 +1,6 @@
 // Golden mapping of every legacy query_records input onto the mdbase-next query.
 import { describe, expect, it } from "vitest";
-import type { RecordView } from "@mdbase-dev/sdk";
+import type { RecordView } from "@mdbase-dev/sdk/thin-client";
 import { changesInput, changesOutput, contractQueryOutput, implementationDigests, nextQueryPlan, queryOutput, recordDocument } from "./next-mapping.js";
 
 const effective = { effective: true, body: false };
@@ -49,13 +49,13 @@ describe("query_records input mapping (golden)", () => {
 
 const view = (over: Partial<RecordView> = {}): RecordView => ({
   id: "0190aaaa-0000-7000-8000-000000000001", path: "notes/a.md", revision: "rev1",
-  frontmatter: new Map<string, never>([["title", "Persisted" as never]]),
-  effective: new Map<string, never>([["title", "Persisted" as never], ["status", "open" as never]]),
+  frontmatter: { title: "Persisted" },
+  effective: { title: "Persisted", status: "open" },
   body: "Body", types: ["note"], state: { pending: false } as never, mtime: Date.UTC(2026, 9, 1), ...over
 });
 
 describe("query_records output mapping", () => {
-  const result = { records: [view({ values: new Map([["title", "Persisted" as never]]) })], cursor: "next", complete: true, asOf: 7, totalCount: 3, hasMore: true };
+  const result = { records: [view({ values: { title: "Persisted" } })], cursor: "next", complete: true, asOf: 7, totalCount: 3, hasMore: true };
   it("keeps the legacy row and meta shape per frontmatter_mode", () => {
     const plan = nextQueryPlan({ frontmatter_mode: "both" }) as Extract<ReturnType<typeof nextQueryPlan>, { kind: "query" }>;
     expect(queryOutput(plan, result)).toEqual({
@@ -100,13 +100,13 @@ describe("contract query output", () => {
   it("names the contract and implementation digests of each valid projection", () => {
     const plan = nextQueryPlan({ contract: { id: "dev.tasks/task", version: "1.0.0" } }) as Extract<ReturnType<typeof nextQueryPlan>, { kind: "contract" }>;
     const digests = implementationDigests(plan.contract, { types: [
-      { name: "task", path: "_types/task.md", implements: [{ contract: "dev.tasks/task", version: "1.0.0", fields: new Map(), digest: "impl-digest" }] },
+      { name: "task", path: "_types/task.md", implements: [{ contract: "dev.tasks/task", version: "1.0.0", fields: {}, digest: "impl-digest" }] },
       { name: "note", path: "_types/note.md", implements: [] }
     ] } as never);
     const record = view({ types: ["task"] });
     const output = contractQueryOutput(plan, {
       version: 1, contractDigest: "contract-digest", page: { records: [record], complete: true, asOf: 1 },
-      records: [{ id: record.id, implementations: [{ typeName: "task", fields: new Map([["title", "Persisted" as never]]), issues: [] }] }]
+      records: [{ id: record.id, implementations: [{ typeName: "task", fields: { title: "Persisted" }, issues: [] }] }]
     } as never, digests) as { results: Array<Record<string, unknown>> };
     expect(output.results[0]).toMatchObject({
       path: "notes/a.md", frontmatter: { title: "Persisted" },

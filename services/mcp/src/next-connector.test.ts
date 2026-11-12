@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { clientPrologue, connect, generateKeyPair, routeFromControl, type MessageCarrier, type WebSocketLike } from "@mdbase-dev/sdk";
+import { clientPrologue, connect, generateKeyPair, routeFromControl, type MessageCarrier, type WebSocketLike } from "@mdbase-dev/sdk/thin-client";
 import { MemoryReplica, serveNoise } from "@mdbase-dev/sdk/testing";
 import { gatewayConnector } from "./next-connector.js";
 
@@ -123,7 +123,7 @@ describe("gatewayConnector", () => {
     expect(hex(sent[0] as Uint8Array)).toBe(hex(prologue));
     const write = await client.create({ path: "a.md", body: "hosted" });
     await write.confirmed;
-    expect((await client.get({ path: "a.md" }, { body: true })).body).toBe("hosted");
+    expect((await client.get({ path: "a.md" }, { include: { body: true } })).body).toBe("hosted");
     client.close();
   });
 
@@ -154,7 +154,7 @@ describe("gatewayConnector", () => {
     expect(piped.some((message) => hex(message) === hex(prologue))).toBe(false);
     const write = await client.create({ path: "a.md", body: "device" });
     await write.confirmed;
-    expect((await client.get({ path: "a.md" }, { body: true })).body).toBe("device");
+    expect((await client.get({ path: "a.md" }, { include: { body: true } })).body).toBe("device");
     client.close();
   });
 
