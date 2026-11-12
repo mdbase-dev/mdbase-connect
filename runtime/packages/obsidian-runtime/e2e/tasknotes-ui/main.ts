@@ -80,7 +80,7 @@ export default class LabTaskNotesUI extends TaskNotesPlugin {
         submit: async (ops: any[], options: any) => {
           this.result.attemptedResources.push(...ops.map(op => op.path));
           try {
-            return (await delegate.submit(ops, options)).map((w: any) => observe(w, true));
+            return [observe(await delegate.submit(ops, options), true)];
           } catch (error) {
             appendDiagnostic(this.result.diagnostics, "resource_submit", "throw", errorSummary(error));
             throw error;

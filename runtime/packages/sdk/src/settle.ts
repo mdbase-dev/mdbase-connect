@@ -97,8 +97,7 @@ export async function settleWrite(
       mutationId = write.mutationId;
       receipt = write.receipt;
     } catch (e) {
-      // One mutation is settled here; a partial batch names several.
-      if (!(e instanceof MdbaseError) || cancelled(e) || (e.mutationIds && e.mutationIds.length > 1)) throw e;
+      if (!(e instanceof MdbaseError) || cancelled(e)) throw e;
       if (e.mutationId === undefined) return Object.freeze({ outcome: "rejected" as const, problem: e.toProblem() });
       mutationId = e.mutationId;
       // An error from submit does not prove the write was not captured: only

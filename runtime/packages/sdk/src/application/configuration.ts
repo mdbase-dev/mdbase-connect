@@ -352,15 +352,15 @@ export function createApplicationConfiguration(source: ApplicationConfigurationI
       if ((attempted.version !== 3 && attempted.version !== 4) || attempted.mutationId !== intent.mutationId || attempted.phase !== "attempted"
         || JSON.stringify(attempted.plan) !== JSON.stringify(plan)) throw failure("recovery_required");
       const ops: Op[] = [...plan.resourceOps, ...plan.sources.map(r => ({ kind: "create" as const, id: r.id, path: r.path, document: r.document }))];
-      const writes = await input.client.submit(ops, { mutationId: intent.mutationId, wait: "confirmed", signal: readSignal });
+      const write = await input.client.submit(ops, { mutationId: intent.mutationId, wait: "confirmed", signal: readSignal });
       check(signal, session);
-      if (writes.length !== 1 || writes[0]!.mutationId !== intent.mutationId) throw failure("recovery_required");
+      if (write.mutationId !== intent.mutationId) throw failure("recovery_required");
       let receipt: Receipt;
-      try { receipt = await writes[0]!.confirmed; } catch (error) {
+      try { receipt = await write.confirmed; } catch (error) {
         check(signal, session);
         // A final rejection applied nothing (for example a definition or
         // starter path changed after review): settle it so setup can re-plan.
-        if (writes[0]!.receipt.state !== "rejected" || !input.journal.recordResourceRejected) throw error;
+        if (write.receipt.state !== "rejected" || !input.journal.recordResourceRejected) throw error;
         await input.journal.recordResourceRejected(intent.mutationId, readSignal);
         check(signal, session);
         throw changed(intent.mutationId, error);

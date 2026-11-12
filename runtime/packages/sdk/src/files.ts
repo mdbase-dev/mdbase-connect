@@ -585,8 +585,7 @@ export class FilesApi {
   ): Promise<Write> {
     gates.get(this)?.check("move");
     const op = { kind: "file_move" as const, id: f.id, from: f.path, to, updateRefs: o.updateRefs ?? true };
-    const [w] = await this.client.submit([o.ifRevision ? { ...op, ifRevision: o.ifRevision } : op], o);
-    return w!;
+    return this.client.submit([o.ifRevision ? { ...op, ifRevision: o.ifRevision } : op], o);
   }
 
   /** Delete a file. With a FileView, a concurrent replacement supersedes the delete. */
@@ -595,8 +594,7 @@ export class FilesApi {
     const op: import("./wire.js").Op = { kind: "file_delete", id: fileId(f) };
     if (typeof f === "object" && "digest" in f) op.base = f.digest;
     if (o.ifRevision) op.ifRevision = o.ifRevision;
-    const [w] = await this.client.submit([op], o);
-    return w!;
+    return this.client.submit([op], o);
   }
 }
 

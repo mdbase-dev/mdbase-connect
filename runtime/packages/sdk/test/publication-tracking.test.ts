@@ -41,7 +41,7 @@ async function fixture(initial: Receipt) {
   const client = await connect({ connector, app: { name: "tracking test", version: "0" }, timezone: "UTC", reconnect: { minDelayMs: 1, maxDelayMs: 1 } });
   return {
     client,
-    submit: async () => (await client.submit([{ kind: "delete", id: mutation }], { mutationId: mutation }))[0]!,
+    submit: () => client.submit([{ kind: "delete", id: mutation }], { mutationId: mutation }),
     setResponse: (r: Receipt) => { response = r; },
     setRestored: (r: Receipt) => { restored = r; },
     setEarly: (...r: Receipt[]) => { early = r; },

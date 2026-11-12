@@ -280,7 +280,7 @@ export async function applyTypePack(client: MdbaseClient, plan: TypePackPlan, o:
   const ops = writes.map((w): Op => w.doc === undefined
     ? { kind: "resource_delete", path: w.path, ...opt("baseRevision", w.baseRevision) }
     : { kind: "resource_put", path: w.path, doc: w.doc, ...opt("baseRevision", w.baseRevision), ...(w.mustNotExist ? { mustNotExist: true } : {}) });
-  const write = (await client.submit(ops, { ...o, allowPartial: false }))[0]!;
+  const write = await client.submit(ops, o);
   const receipt = write.receipt;
   if (receipt.state === "rejected" || receipt.state === "unknown") {
     throw new MdbaseError(receipt.problem ?? (receipt.state === "unknown"

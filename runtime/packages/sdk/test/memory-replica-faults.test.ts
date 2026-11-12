@@ -19,7 +19,7 @@ describe("MemoryReplica fault parity", () => {
     await expect(c.submit([{ kind: "create", id: crypto.randomUUID(), path: "a.md", body: "a" }])).rejects.toMatchObject({ code: "unavailable" });
     await expect.poll(() => c.ledger.getSnapshot().pending.length).toBe(0);
     replica.stallConfirmations();
-    const saved = await c.settle(c.submit([{ kind: "create", id: crypto.randomUUID(), path: "b.md", body: "b" }]).then((w) => w[0]!), { timeoutMs: 50 });
+    const saved = await c.settle(c.submit([{ kind: "create", id: crypto.randomUUID(), path: "b.md", body: "b" }]), { timeoutMs: 50 });
     expect(saved.outcome).toBe("saved_on_device");
     expect(c.ledger.getSnapshot().pending).toHaveLength(1);
     replica.confirmAll();

@@ -87,7 +87,7 @@ export default class LabDaemonClient extends Plugin {
       create: async (input: any, options: any) => observe(await delegate.create(input, options)),
       update: async (target: any, changes: any, options: any) => observe(await delegate.update(target, changes, options)),
       replaceDocument: async (target: any, doc: any, options: any) => observe(await delegate.replaceDocument(target, doc, options)),
-      submit: async (ops: any, options: any) => (await delegate.submit(ops, options)).map(observe),
+      submit: async (ops: any, options: any) => [observe(await delegate.submit(ops, options))],
     };
     const adapter = new SdkWriteClient(port, { root: "", toPlain, revisionOf, includeDocument: { document: true },
       indexed: obsidianIndexed(this.app.vault, 15_000), isRecordPath: (p: string) => p === path, isResourcePath: () => false });
