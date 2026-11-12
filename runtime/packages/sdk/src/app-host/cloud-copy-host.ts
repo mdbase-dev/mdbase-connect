@@ -1201,7 +1201,7 @@ export class AppWebCloudCopyHost {
                 }
                 try {
                     await Promise.race([
-                        this.readClient.query({ limit: 1 }, undefined, ctrl.signal),
+                        this.readClient.query({ limit: 1 }, { signal: ctrl.signal }),
                         aborted,
                     ]);
                     this.checkCollection(signal);

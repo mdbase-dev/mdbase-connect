@@ -116,7 +116,7 @@ it("one original ordinary query preserves raw links, aliases, nulls, duplicates 
     expect(select.map((s) => s.name)).toEqual(["raw", "paths"]);
     expect(select[0]?.expr).toContain('raw["Crew Links"]');
     expect(select[1]?.expr).toContain(".asFile()");
-    expect(query.mock.calls[0]?.[1]).toBeUndefined();
+    expect(query.mock.calls[0]?.[1]?.include).toBeUndefined();
 });
 it.each([
     [

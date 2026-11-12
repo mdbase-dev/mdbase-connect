@@ -64,8 +64,8 @@ async function fixture(features?: string[]) {
         },
     });
     clients.push(client);
-    const seen = await client.get(a.id, { document: true }),
-        other = await client.get(b.id, { document: true });
+    const seen = await client.get(a.id, { include: { document: true } }),
+        other = await client.get(b.id, { include: { document: true } });
     function row(
         view = seen,
         issues: RecordValidation["issues"] = [],
@@ -127,10 +127,10 @@ describe("public current-record validation", () => {
         );
         const signal = new AbortController().signal,
             call = vi.spyOn(f.client, "call");
-        const out = await f.client.validate(
-            [f.other.id, { path: f.seen.path }, f.other],
+        const out = await f.client.validate({
+            refs: [f.other.id, { path: f.seen.path }, f.other],
             signal,
-        );
+        });
         expect(out).toEqual([
             f.row(f.other, [diagnostic]),
             f.row(),
@@ -153,7 +153,7 @@ describe("public current-record validation", () => {
         f.setReply(recordValidations.enc([f.row(), f.row()]));
         const path = { path: f.seen.path },
             view = { ...f.seen };
-        const pending = f.client.validate([view, path]);
+        const pending = f.client.validate({ refs: [view, path] });
         view.id = f.other.id;
         view.revision = f.other.revision;
         path.path = "changed.md";
@@ -168,7 +168,7 @@ describe("public current-record validation", () => {
                 { ...f.row(), revision: "sha256:" + "11".repeat(32) },
             ]),
         );
-        const stale = f.client.validate([f.seen]);
+        const stale = f.client.validate({ refs: [f.seen] });
         await vi.waitFor(() => expect(f.calls).toHaveLength(2));
         f.deliver();
         await expect(stale).rejects.toMatchObject({
@@ -188,7 +188,7 @@ describe("public current-record validation", () => {
                       ? [f.row(), f.row()]
                       : [f.row(f.other)];
             f.setReply(recordValidations.enc(rows));
-            await expect(f.client.validate([f.seen.id])).rejects.toMatchObject({
+            await expect(f.client.validate({ refs: [f.seen.id] })).rejects.toMatchObject({
                 code: "internal",
                 reason: "invalid_validation_result",
             });
@@ -201,7 +201,7 @@ describe("public current-record validation", () => {
         expect(await f.client.validate()).toEqual([f.row()]);
         expect(f.calls[0]).toEqual(new Map());
         f.setReply([]);
-        expect(await f.client.validate([])).toEqual([]);
+        expect(await f.client.validate({ refs: [] })).toEqual([]);
         expect(f.calls[1]).toEqual(new Map([[0, []]]));
         f.setReply(null);
         await expect(f.client.validate()).rejects.toMatchObject({
@@ -228,14 +228,14 @@ describe("public current-record validation", () => {
         ]);
         // Selections stay one request.
         f.setReply(recordValidations.enc([f.row()]));
-        expect(await f.client.validate([f.seen.id])).toEqual([f.row()]);
+        expect(await f.client.validate({ refs: [f.seen.id] })).toEqual([f.row()]);
         expect(f.calls[3]).toEqual(new Map([[0, [uuid.enc(f.seen.id)]]]));
     });
     it("pre-abort and final delivery abort preserve original cancellation, including empty replies", async () => {
         const f = await fixture();
         const pre = new AbortController();
         pre.abort(new Error("original pre-abort"));
-        await expect(f.client.validate([], pre.signal)).rejects.toBe(
+        await expect(f.client.validate({ refs: [], signal: pre.signal })).rejects.toBe(
             pre.signal.reason,
         );
         expect(f.calls).toHaveLength(0);
@@ -243,7 +243,7 @@ describe("public current-record validation", () => {
             reason = new Error("original delivery abort");
         f.setReply([]);
         f.after(() => final.abort(reason));
-        await expect(f.client.validate([], final.signal)).rejects.toBe(reason);
+        await expect(f.client.validate({ refs: [], signal: final.signal })).rejects.toBe(reason);
     });
     it("bounds and validates all input selections before dispatch", async () => {
         const f = await fixture();
@@ -254,7 +254,7 @@ describe("public current-record validation", () => {
             [{ path: "é".repeat(2049) }],
             [undefined],
         ] as unknown as RecordRef[][])
-            await expect(f.client.validate(refs)).rejects.toBeDefined();
+            await expect(f.client.validate({ refs })).rejects.toBeDefined();
         expect(f.calls).toHaveLength(0);
     });
 });

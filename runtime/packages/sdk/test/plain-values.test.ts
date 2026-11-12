@@ -85,7 +85,7 @@ describe("a client over plain values", () => {
 
   it("answers get, query and a write's receipt in JSON", async () => {
     const { client, seeded } = await open();
-    const record = await client.get(seeded.id, { body: true });
+    const record = await client.get(seeded.id, { include: { body: true } });
     expect(record.frontmatter).toEqual({ title: "A", rating: 1, big: BIG.toString(), tags: ["x"] });
     const page = await client.query({ types: ["note"] });
     const write = await client.update(record, { patch: { title: "B" } }, { wait: "confirmed" });

@@ -1,0 +1,3 @@
+## Breaking
+
+- SDK: every client read takes one trailing options object, as writes already do. `signal` and `include` are fields of it: `get(ref, { include, signal })`, `query(query, { include, signal, contract })`, `pages(query, { include, signal, onReset })`, `changes({ cursor, limit, signal })`, `validate({ refs, signal })`, `awaitReceipt(mutation, { timeoutMs, signal })`. `watchChanges` now takes the callback first: `watchChanges(onChanges, { cursor })`. `describe` no longer accepts a bare `AbortSignal`. There are no overloads for the old call shapes. `docs/sdk-read-options.md` lists every method.

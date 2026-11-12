@@ -49,9 +49,11 @@ describe("readMany ordered bounded ordinary gets", () => {
             signal = new AbortController().signal;
         const rows = await f.client.readMany(
             [f.b.id, { path: f.a.path }, seen, f.b.id],
-            { body: true, document: true, effective: true },
-            signal,
-            { concurrency: 2 },
+            {
+                include: { body: true, document: true, effective: true },
+                signal,
+                concurrency: 2,
+            },
         );
         expect(rows.map((r) => r.id)).toEqual([f.b.id, f.a.id, f.a.id, f.b.id]);
         expect(rows.map((r) => r.body)).toEqual([
@@ -62,7 +64,7 @@ describe("readMany ordered bounded ordinary gets", () => {
         ]);
         expect(rows.every((r) => typeof r.document === "string")).toBe(true);
         expect(get).toHaveBeenCalledTimes(4);
-        expect(get.mock.calls.map((c) => c[2])).toEqual([
+        expect(get.mock.calls.map((c) => c[1]?.signal)).toEqual([
             signal,
             signal,
             signal,
@@ -78,24 +80,21 @@ describe("readMany ordered bounded ordinary gets", () => {
             index = 0;
         const get = vi
             .spyOn(f.client, "get")
-            .mockImplementation(async (ref, include, signal) => {
+            .mockImplementation(async (ref, o) => {
                 const i = index++;
                 active++;
                 max = Math.max(max, active);
                 try {
-                    const row = await original(ref, include, signal);
+                    const row = await original(ref, o);
                     await gates[i]!.promise;
                     return row;
                 } finally {
                     active--;
                 }
             });
-        const batch = f.client.readMany(
-            [f.a.id, f.b.id, f.a.id, f.b.id],
-            undefined,
-            undefined,
-            { concurrency: 2 },
-        );
+        const batch = f.client.readMany([f.a.id, f.b.id, f.a.id, f.b.id], {
+            concurrency: 2,
+        });
         expect(get).toHaveBeenCalledTimes(2);
         gates[1]!.release();
         await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(3));
@@ -124,21 +123,19 @@ describe("readMany ordered bounded ordinary gets", () => {
         expect(missing).toBeInstanceOf(MdbaseError);
         const get = vi
             .spyOn(f.client, "get")
-            .mockImplementation(async (ref, include, signal) => {
+            .mockImplementation(async (ref, o) => {
                 if (
                     typeof ref === "object" &&
                     "path" in ref &&
                     ref.path === "missing.md"
                 )
                     throw missing;
-                const row = await original(ref, include, signal);
+                const row = await original(ref, o);
                 await slow.promise;
                 return row;
             });
         const batch = f.client.readMany(
             [{ path: "missing.md" }, f.a.id, f.b.id],
-            undefined,
-            undefined,
             { concurrency: 2 },
         );
         let settled = false;
@@ -158,9 +155,7 @@ describe("readMany ordered bounded ordinary gets", () => {
             const f = await fixture(),
                 get = vi.spyOn(f.client, "get");
             await expect(
-                f.client.readMany([f.a.id], undefined, undefined, {
-                    concurrency,
-                }),
+                f.client.readMany([f.a.id], { concurrency }),
             ).rejects.toMatchObject({
                 code: "invalid_request",
                 reason: "read_many_bounds",
@@ -190,7 +185,7 @@ describe("readMany ordered bounded ordinary gets", () => {
             get = vi.spyOn(f.client, "get");
         expect(await f.client.readMany([])).toEqual([]);
         await expect(
-            f.client.readMany([], undefined, AbortSignal.abort()),
+            f.client.readMany([], { signal: AbortSignal.abort() }),
         ).rejects.toHaveProperty("name", "AbortError");
         expect(get).not.toHaveBeenCalled();
     });
@@ -203,26 +198,22 @@ describe("readMany ordered bounded ordinary gets", () => {
             await slow.promise;
             return row;
         });
-        const batch = f.client.readMany(
-            [f.a.id, f.a.id],
-            undefined,
-            controller.signal,
-            { concurrency: 1 },
-        );
+        const batch = f.client.readMany([f.a.id, f.a.id], {
+            signal: controller.signal,
+            concurrency: 1,
+        });
         controller.abort();
         slow.release();
         await expect(batch).rejects.toHaveProperty("name", "AbortError");
         expect(get).toHaveBeenCalledTimes(1);
-        expect(get.mock.calls[0]![2]).toBe(controller.signal);
+        expect(get.mock.calls[0]![1]?.signal).toBe(controller.signal);
     });
     it("binds selected UUIDs to genuine readback without substituting another record", async () => {
         const f = await fixture(),
             wrong = await f.client.get(f.b.id),
             get = vi.spyOn(f.client, "get").mockResolvedValue(wrong);
         await expect(
-            f.client.readMany([f.a.id, f.a.id], undefined, undefined, {
-                concurrency: 1,
-            }),
+            f.client.readMany([f.a.id, f.a.id], { concurrency: 1 }),
         ).rejects.toMatchObject({ reason: "read_many_identity_mismatch" });
         expect(get).toHaveBeenCalledTimes(1);
     });

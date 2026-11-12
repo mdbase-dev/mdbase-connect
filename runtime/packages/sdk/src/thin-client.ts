@@ -64,6 +64,8 @@ export type {
   PagesReset,
   ChangesWatch,
   ChangesWatchState,
+  ReadOptions,
+  RecordReadOptions,
   RecordRef,
   RecordWrite,
   UpdateInput,

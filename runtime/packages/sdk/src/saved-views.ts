@@ -2,7 +2,7 @@
  * `query_contract_v1`, `get_contract_v1`, `get` and `query` methods. A named view
  * resolves to an ordinary query (spec 11 "Named-view resolution"); the native
  * runtime serves no `list_views`/`execute_view`/`read_view_source` RPC. */
-import type {MdbaseClient, Query, RecordRef} from "./client.js";
+import type {MdbaseClient, Query, ReadOptions, RecordRef} from "./client.js";
 import {isMdbaseError, mdbaseError} from "./errors.js";
 import type { Include, Issue, ViewProperty, ViewSourceDocument } from "./wire.js";
 import { fieldOf, type JsonObject, type JsonValue, type QueryResult, type ViewDescriptor, type ViewSource } from "./plain.js";
@@ -50,7 +50,8 @@ function properties(record: JsonObject, view: JsonObject): ViewProperty[] {
 /** Every `mdbase.view` source, ascending by path, then source-defined view order.
  * A collection without the contract has no saved views. Invalid sources become
  * warnings, never a partial descriptor. */
-export async function listSavedViews(client: Client, folder?: string, signal?: AbortSignal): Promise<ListViewsResult> {
+export async function listSavedViews(client: Client, o: {folder?: string; signal?: AbortSignal} = {}): Promise<ListViewsResult> {
+  const {folder, signal} = o;
   const sources: ViewSource[] = [], diagnostics: Issue[] = [];
   const prefix = folder ? folder.replace(/\/?$/, "/") : "";
   let cursor: string | undefined, complete = true;
@@ -103,7 +104,7 @@ export async function listSavedViews(client: Client, folder?: string, signal?: A
 /** Spec 11 named-view resolution, then one ordinary native query page. */
 export async function executeSavedView(client: Client, source: RecordRef, viewId: string, o: ExecuteViewOptions = {}): Promise<QueryResult> {
   const signal = o.signal;
-  const record = await client.getContract(source, SAVED_VIEW_CONTRACT, signal).catch(e => notFound(e, refPath(source)));
+  const record = await client.getContract(source, SAVED_VIEW_CONTRACT, {signal}).catch(e => notFound(e, refPath(source)));
   const fields = record.fields, path = record.path;
   const views = list(fieldOf(fields, "views")).map(map);
   const ids = views.map(view => text(fieldOf(view, "id")));
@@ -142,21 +143,22 @@ export async function executeSavedView(client: Client, source: RecordRef, viewId
     const required = list(fieldOf(declaration, "types")).filter((t): t is string => typeof t === "string");
     let contextPath = typeof context === "string" ? undefined : context.path;
     if (required.length || contextPath === undefined) {
-      const bound = await client.get(context, undefined, signal);
+      const bound = await client.get(context, {signal});
       contextPath = bound.path;
       if (required.length && !bound.types.some(t => required.some(r => r.toLowerCase() === t.toLowerCase())))
         throw mdbaseError("invalid_request", "The invocation context does not match an allowed context type.", "context_type_mismatch");
     }
     query.set("context", {this: {path: contextPath}});
   }
-  const result = await client.query(Object.fromEntries(query) as Query, o.include, signal);
+  const result = await client.query(Object.fromEntries(query) as Query, {include: o.include, signal});
   return {...result, view: {path, view: viewId}};
 }
 
 /** The complete current source document of one `mdbase.view` record. */
-export async function readSavedViewSource(client: Client, source: RecordRef, signal?: AbortSignal): Promise<ViewSourceDocument> {
-  const contract = await client.getContract(source, SAVED_VIEW_CONTRACT, signal).catch(e => notFound(e, refPath(source)));
-  const record = await client.get(contract.id, {document: true}, signal);
+export async function readSavedViewSource(client: Client, source: RecordRef, o: ReadOptions = {}): Promise<ViewSourceDocument> {
+  const signal = o.signal;
+  const contract = await client.getContract(source, SAVED_VIEW_CONTRACT, {signal}).catch(e => notFound(e, refPath(source)));
+  const record = await client.get(contract.id, {include: {document: true}, signal});
   if (record.revision !== contract.revision || typeof record.document !== "string")
     throw mdbaseError("unavailable", "saved view source changed while it was read", "view_source_changed");
   return {path: record.path, format: SAVED_VIEW_CONTRACT.id, revision: record.revision, document: record.document, record: record.id};

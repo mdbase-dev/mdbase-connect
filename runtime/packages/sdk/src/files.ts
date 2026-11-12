@@ -7,7 +7,7 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import type { CborValue } from "./cbor.js";
 import { hash as hashCodec, hashFromBytes, list, plainAnswer, uint, uuid as uuidCodec } from "./codec.js";
-import type { ChangesWatch, MdbaseClient, Write, WriteOptions } from "./client.js";
+import type { ChangesWatch, MdbaseClient, ReadOptions, Write, WriteOptions } from "./client.js";
 import { isMdbaseError, MdbaseError, mdbaseError } from "./errors.js";
 import { withMutation, type Session } from "./session.js";
 import { uuidv7 } from "./values.js";
@@ -173,12 +173,12 @@ export class FilesApi {
     if (version.major !== 1 || version.minor < 2) {
       throw mdbaseError("upgrade_required", "this replica's change feed does not name files", "change_entity_unsupported");
     }
-    return this.client.watchChanges(options.cursor, (batch) => {
+    return this.client.watchChanges((batch) => {
       const changes = batch.changes.filter((c) => c.entity === "file" || (c.entity === undefined && c.kind === "remove"));
       const unclassified = batch.changes.some((c) => c.entity === undefined && c.kind === "put");
       if (unclassified) onChanges({ changes: [], cursor: batch.cursor, reset: true });
       else if (changes.length || batch.reset) onChanges({ changes, cursor: batch.cursor, reset: batch.reset });
-    });
+    }, options);
   }
 
   private wire(s: Session): void {
@@ -233,7 +233,7 @@ export class FilesApi {
   }
 
   private async session(signal?: AbortSignal, read = false): Promise<Session> {
-    const s = await (read ? this.client.readyForRead(signal) : this.client.ready(signal));
+    const s = await (read ? this.client.readyForRead(signal) : this.client.ready({ signal }));
     this.wire(s);
     return s;
   }
@@ -271,11 +271,12 @@ export class FilesApi {
     }
   }
 
-  get(f: FileRef, signal?: AbortSignal): Promise<FileView> {
+  /** One file's handle by ID or path. `o.signal` cancels the read. */
+  get(f: FileRef, o: ReadOptions = {}): Promise<FileView> {
     return this.client.call("get_file", m([[0, fileRef(f)]]), {
       codec: fileView,
       retry: true,
-      ...(signal ? { signal } : {}),
+      ...(o.signal ? { signal: o.signal } : {}),
     });
   }
 
@@ -538,7 +539,7 @@ export class FilesApi {
    * `downloadStream`). Includes canonical unindexed Markdown Blob sources;
    * ordinary Blob support and AttachmentV1 behavior are unchanged. */
   async download(f: FileRef, o: { signal?: AbortSignal; onProgress?: (p: TransferProgress) => void } = {}): Promise<Uint8Array> {
-    const view = typeof f === "object" && "size" in f ? f : await this.get(f, o.signal);
+    const view = typeof f === "object" && "size" in f ? f : await this.get(f, o);
     if (view.size > MAX_CONVENIENCE_BYTES) {
       throw mdbaseError("too_large", `file is ${view.size} bytes; use downloadStream`, {
         details: { limit: MAX_CONVENIENCE_BYTES },
@@ -556,10 +557,10 @@ export class FilesApi {
     return out.subarray(0, off);
   }
 
-  /** Materialize a remote file on this device. */
-  fetch(f: FileRef, signal?: AbortSignal): Promise<void> {
+  /** Materialize a remote file on this device. `o.signal` cancels the request. */
+  fetch(f: FileRef, o: ReadOptions = {}): Promise<void> {
     return this.client
-      .call("fetch_file", m([[0, uuidCodec.enc(fileId(f))]]), { retry: true, ...(signal ? { signal } : {}) })
+      .call("fetch_file", m([[0, uuidCodec.enc(fileId(f))]]), { retry: true, ...(o.signal ? { signal: o.signal } : {}) })
       .then(() => {});
   }
 

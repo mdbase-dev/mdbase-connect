@@ -138,10 +138,10 @@ describe("writes", () => {
       expect(write.state).toBe("pending");
       expect(write.records[0]).toMatchObject({ id, path: "notes/source.md", body: "First body\n", document, types: ["note"] });
       expect(write.records[0]!.frontmatter).toEqual({ title: "Original", rank: 2, active: true, labels: ["a", "b"] });
-      const seen = await c.get(id, { body: true, document: true });
+      const seen = await c.get(id, { include: { body: true, document: true } });
       expect(seen.document).toBe(document);
       await c.create({ id, path: "notes/source.md", document: "Never a replacement" }, { mutationId: mid });
-      expect((await c.get(id, { body: true })).body).toBe("First body\n");
+      expect((await c.get(id, { include: { body: true } })).body).toBe("First body\n");
       const replacement = '---\ntitle: "Replacement"\nrank: 3\n---\nSecond body\n';
       const next = await c.replaceDocument(seen, replacement, { include: { body: true, document: true } });
       expect(next.records[0]).toMatchObject({ id, path: seen.path, body: "Second body\n", document: replacement });
@@ -179,7 +179,7 @@ describe("writes", () => {
     const { replica, client } = setup();
     const rec = replica.seed({ path: "n.md", frontmatter: { status: "open", n: 1 }, body: "hello world" });
     const c = await client();
-    const seen = await c.get(rec.id, { body: true });
+    const seen = await c.get(rec.id, { include: { body: true } });
     const op = c.updateOp(seen, { patch: { status: "done", n: 1 }, body: "hello brave world", updateRefs: false });
     expect(op.updateRefs).toBe(false);
     expect(c.updateOp(seen, {patch: {status: "done"}}).updateRefs).toBeUndefined();
@@ -188,7 +188,7 @@ describe("writes", () => {
     expect(op.bodyEdits).toEqual([[6, 6, "brave "]]);
     const w = await c.update(seen, { patch: { status: "done" }, body: "hello brave world" });
     expect(w.records[0]!.state.state).toBe("pending");
-    const after = await c.get(rec.id, { body: true });
+    const after = await c.get(rec.id, { include: { body: true } });
     expect(after.body).toBe("hello brave world");
     c.close();
   });

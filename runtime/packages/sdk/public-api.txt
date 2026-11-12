@@ -283,6 +283,7 @@ READ_MANY_MAX_REFS -> READ_MANY_MAX_REFS@read-helpers.ts
 readMany -> readMany@read-helpers.ts
 ReadManyOptions -> ReadManyOptions@read-helpers.ts
 readMdbaseNotificationData -> readMdbaseNotificationData@notifications.ts
+ReadOptions -> ReadOptions@client.ts
 readViewSourceRecord -> readViewSourceRecord@view-sources.ts
 Receipt -> Receipt@plain.ts
 RecordFlushOptions -> RecordFlushOptions@records/types.ts
@@ -290,6 +291,7 @@ RecordFlushResult -> RecordFlushResult@records/types.ts
 RecordLease -> RecordLease@records/types.ts
 RecordOpenOptions -> RecordOpenOptions@records/types.ts
 RecordReader -> RecordReader@transport/port.ts
+RecordReadOptions -> RecordReadOptions@client.ts
 RecordRecovery -> RecordRecovery@records/types.ts
 RecordRecoveryRef -> RecordRecoveryRef@records/types.ts
 RecordRef -> RecordRef@client.ts
@@ -575,6 +577,7 @@ READ_MANY_MAX_CONCURRENCY -> READ_MANY_MAX_CONCURRENCY@read-helpers.ts
 READ_MANY_MAX_REFS -> READ_MANY_MAX_REFS@read-helpers.ts
 readMany -> readMany@read-helpers.ts
 ReadManyOptions -> ReadManyOptions@read-helpers.ts
+ReadOptions -> ReadOptions@client.ts
 readViewSourceRecord -> readViewSourceRecord@view-sources.ts
 Receipt -> Receipt@plain.ts
 RecordFlushOptions -> RecordFlushOptions@records/types.ts
@@ -582,6 +585,7 @@ RecordFlushResult -> RecordFlushResult@records/types.ts
 RecordLease -> RecordLease@records/types.ts
 RecordOpenOptions -> RecordOpenOptions@records/types.ts
 RecordReader -> RecordReader@transport/port.ts
+RecordReadOptions -> RecordReadOptions@client.ts
 RecordRecovery -> RecordRecovery@records/types.ts
 RecordRecoveryRef -> RecordRecoveryRef@records/types.ts
 RecordRef -> RecordRef@client.ts
@@ -963,6 +967,7 @@ READ_MANY_MAX_REFS -> READ_MANY_MAX_REFS@read-helpers.ts
 readMany -> readMany@read-helpers.ts
 ReadManyOptions -> ReadManyOptions@read-helpers.ts
 readMdbaseNotificationData -> readMdbaseNotificationData@notifications.ts
+ReadOptions -> ReadOptions@client.ts
 readViewSourceRecord -> readViewSourceRecord@view-sources.ts
 Receipt -> Receipt@plain.ts
 RecordFlushOptions -> RecordFlushOptions@records/types.ts
@@ -970,6 +975,7 @@ RecordFlushResult -> RecordFlushResult@records/types.ts
 RecordLease -> RecordLease@records/types.ts
 RecordOpenOptions -> RecordOpenOptions@records/types.ts
 RecordReader -> RecordReader@transport/port.ts
+RecordReadOptions -> RecordReadOptions@client.ts
 RecordRecovery -> RecordRecovery@records/types.ts
 RecordRecoveryRef -> RecordRecoveryRef@records/types.ts
 RecordRef -> RecordRef@client.ts
@@ -1683,6 +1689,8 @@ problemCodeOf -> problemCodeOf@describe-error.ts
   export RecordRef
   export CreateInput
   export UpdateInput
+  export ReadOptions
+  export RecordReadOptions
   export WriteOptions
   export Write
   export RecordWrite
@@ -4028,8 +4036,8 @@ FilesApi@files.ts
   download: (f: FileRef, o?: { signal?: AbortSignal; onProgress?: (p: TransferProgress) => void; }) => Promise<Uint8Array>
   downloadStream: (f: FileRef, o?: { signal?: AbortSignal; onProgress?: (p: TransferProgress) => void; range?: [offset: number, length: number]; revision?: string; }) => ReadableStream<Uint8Array> & { file: Promise<FileView>; }
   evict: (f: FileRef) => Promise<void>
-  fetch: (f: FileRef, signal?: AbortSignal) => Promise<void>
-  get: (f: FileRef, signal?: AbortSignal) => Promise<FileView>
+  fetch: (f: FileRef, o?: ReadOptions) => Promise<void>
+  get: (f: FileRef, o?: ReadOptions) => Promise<FileView>
   getMaterialization: () => Promise<Materialization>
   readonly grant: FileGrant | null
   list: (o?: { folder?: string; media?: MediaClass[]; pageSize?: number; signal?: AbortSignal; }) => AsyncGenerator<FileView>
@@ -4313,7 +4321,7 @@ LiveQuery@client.ts
   readonly metadata: import("src/plain").QueryMetadata | undefined
   readonly ready: Promise<void>
   readonly records: readonly RecordView[]
-  setQuery: (query: Query, include?: Include | undefined) => Promise<void>
+  setQuery: (query: Query, o?: { include?: Include; }) => Promise<void>
   readonly stale: boolean
   subscribe: (fn: LiveListener) => () => void
   static new (client: MdbaseClient, query: Query, include: Include | undefined): LiveQuery
@@ -4572,61 +4580,61 @@ MdbaseClient@client.ts
   _closeLive: (l: LiveQuery) => void
   _resubscribeLive: (l: LiveQuery, first?: boolean, forSession?: Session) => Promise<void>
   _track: (r: Receipt) => Write
-  readonly accountKey: { setup: (secret: Uint8Array) => Promise<Write>; unlock: (secret: Uint8Array) => Promise<void>; status: (signal?: AbortSignal) => Promise<AccountKeyStatus>; }
-  appliedPrefix: (seq: number, signal?: AbortSignal) => Promise<AppliedPrefix>
+  readonly accountKey: { setup: (secret: Uint8Array) => Promise<Write>; unlock: (secret: Uint8Array) => Promise<void>; status: (o?: ReadOptions) => Promise<AccountKeyStatus>; }
+  appliedPrefix: (seq: number, o?: ReadOptions) => Promise<AppliedPrefix>
   approveDevice: (device: Uuid, sas: string) => Promise<void>
   readonly authenticatedDevice: string | undefined
-  awaitReceipt: (mutation: Uuid, timeoutMs?: number, signal?: AbortSignal) => Promise<Receipt>
+  awaitReceipt: (mutation: Uuid, o?: { timeoutMs?: number; signal?: AbortSignal; }) => Promise<Receipt>
   backlinks: (target: RecordRef, o?: { include?: Include; limit?: number; cursor?: string; signal?: AbortSignal; }) => Promise<BacklinksResult>
   call: { (method: string, p: CborValue, o?: { signal?: AbortSignal; retry?: boolean; }): Promise<CborValue>; <T>(method: string, p: CborValue, o: { signal?: AbortSignal; codec: Codec<T>; retry?: boolean; }): Promise<Plain<T>>; }
-  changes: (cursor?: string, limit?: number, signal?: AbortSignal) => Promise<ChangesResult>
+  changes: (o?: { cursor?: string; limit?: number; signal?: AbortSignal; }) => Promise<ChangesResult>
   close: () => void
   readonly collection: string
   create: (input: CreateInput, o?: WriteOptions) => Promise<RecordWrite>
   createType: (document: string, o?: WriteOptions) => Promise<TypeCreation>
   currentSession: () => Session
   delete: (target: RecordRef, o?: WriteOptions & { ifRevision?: string; contract?: ContractSelector; }) => Promise<Write>
-  describe: (options?: AbortSignal | DescribeOptions) => Promise<DescribeResult>
-  describeTyping: (types: readonly string[], paths: readonly string[], signal?: AbortSignal) => Promise<DescribeTypingResult>
+  describe: (o?: DescribeOptions) => Promise<DescribeResult>
+  describeTyping: (types: readonly string[], paths: readonly string[], o?: ReadOptions) => Promise<DescribeTypingResult>
   dismissConflict: (entry: ConflictEntry, o?: WriteOptions) => Promise<Write>
-  executeAppBases: (request: AppBasesRequest, signal?: AbortSignal) => Promise<AppBasesResult>
+  executeAppBases: (request: AppBasesRequest, o?: ReadOptions) => Promise<AppBasesResult>
   executeAppBasesPages: (request: AppBasesRequest, options?: AppBasesPagesOptions) => AsyncGenerator<{ kind: 'refusal'; problem: Problem; } | import("src/app-host/bases-pages").AppBasesPage, any, any>
   readonly files: FilesApi
-  find: (ref: RecordRef, include?: Include, signal?: AbortSignal) => Promise<RecordView | null>
-  get: (ref: RecordRef, include?: Include, signal?: AbortSignal) => Promise<RecordView>
-  getContract: (ref: RecordRef, contract: ContractSelector, signal?: AbortSignal) => Promise<ContractRecordView>
+  find: (ref: RecordRef, o?: RecordReadOptions) => Promise<RecordView | null>
+  get: (ref: RecordRef, o?: RecordReadOptions) => Promise<RecordView>
+  getContract: (ref: RecordRef, contract: ContractSelector, o?: ReadOptions) => Promise<ContractRecordView>
   getStatus: () => Promise<SyncStatus>
   readonly headWitness: Uint8Array<ArrayBufferLike> | undefined
   readonly hello: HelloResult
   readonly ledger: WriteLedgerView
   readonly link: LinkState
   readonly linkProblem: MdbaseError | null
-  listAppBasesViews: (request: AppBasesDiscoveryRequest, signal?: AbortSignal) => Promise<AppBasesDiscoveryResult>
-  listConflicts: (record?: Uuid, signal?: AbortSignal) => Promise<ConflictEntry[]>
-  listHolds: (signal?: AbortSignal) => Promise<Hold[]>
-  live: (query: Query, include?: Include) => LiveQuery
+  listAppBasesViews: (request: AppBasesDiscoveryRequest, o?: ReadOptions) => Promise<AppBasesDiscoveryResult>
+  listConflicts: (o?: { record?: Uuid; signal?: AbortSignal; }) => Promise<ConflictEntry[]>
+  listHolds: (o?: ReadOptions) => Promise<Hold[]>
+  live: (query: Query, o?: { include?: Include; }) => LiveQuery
   offerFence: (handler: FenceHandler) => void
   onConflicts: (fn: (c: ConflictEntry[]) => void) => () => void
   onHolds: (fn: (h: Hold[]) => void) => () => void
   onLink: (fn: (s: LinkState, why: MdbaseError | null) => void) => () => void
   onSession: (fn: (s: Session) => Promise<void> | void) => void
   onStatus: (fn: (s: SyncStatus) => void) => () => void
-  pages: (query: Query, include?: Include, signal?: AbortSignal, options?: PagesOptions) => AsyncGenerator<QueryResult>
-  pendingDevices: (signal?: AbortSignal) => Promise<PendingDevice[]>
-  pendingWrites: (signal?: AbortSignal) => Promise<PendingMutation[]>
+  pages: (query: Query, o?: RecordReadOptions & PagesOptions) => AsyncGenerator<QueryResult>
+  pendingDevices: (o?: ReadOptions) => Promise<PendingDevice[]>
+  pendingWrites: (o?: ReadOptions) => Promise<PendingMutation[]>
   preflightDelete: (target: RecordRef) => Promise<Preflight>
   preflightRename: (target: RecordView, to: string, o?: { updateRefs?: boolean; }) => Promise<Preflight>
   readonly presence: PresenceApi
-  query: (query: Query, include?: Include, signal?: AbortSignal, opts?: { contract?: string; }) => Promise<QueryResult>
+  query: (query: Query, o?: RecordReadOptions & { contract?: string; }) => Promise<QueryResult>
   queryContract: (contract: ContractRef, options?: ContractQueryOptions) => Promise<ContractQueryResult>
-  queryPages: (query: Query, include?: Include, signal?: AbortSignal, options?: PagesOptions) => AsyncGenerator<QueryResult>
-  readAppBasesViewSource: (request: AppBasesSourceRequest, signal?: AbortSignal) => Promise<AppBasesSourceResult>
+  queryPages: (query: Query, o?: RecordReadOptions & PagesOptions) => AsyncGenerator<QueryResult>
+  readAppBasesViewSource: (request: AppBasesSourceRequest, o?: ReadOptions) => Promise<AppBasesSourceResult>
   readFence: (signal?: AbortSignal) => Promise<void>
   readonly readFenced: boolean
-  readMany: (refs: readonly RecordRef[], include?: Include, signal?: AbortSignal, options?: ReadManyOptions) => Promise<RecordView[]>
-  ready: (signal?: AbortSignal) => Promise<Session>
+  readMany: (refs: readonly RecordRef[], o?: RecordReadOptions & ReadManyOptions) => Promise<RecordView[]>
+  ready: (o?: ReadOptions) => Promise<Session>
   readyForRead: (signal?: AbortSignal, immediate?: boolean) => Promise<Session>
-  receipt: (mutation: Uuid, signal?: AbortSignal) => Promise<Receipt>
+  receipt: (mutation: Uuid, o?: ReadOptions) => Promise<Receipt>
   readonly records: Records
   recordSet: (options?: RecordSetOptions) => RecordSet
   readonly recoveryKey: { status: () => Promise<RecoveryKeyStatus>; create: () => Promise<{ phrase: string; device: Uuid; }>; import: (phrase: string) => Promise<void>; }
@@ -4637,7 +4645,7 @@ MdbaseClient@client.ts
   resolveConflict: (entry: ConflictEntry, field: string, chosen: PlainValue, o?: WriteOptions) => Promise<Write>
   resolveHold: (id: Uuid, how: HoldResolution, use?: string) => Promise<Write>
   resolveLinks: (from: string, links: readonly string[], o?: { signal?: AbortSignal; }) => Promise<ResolveLinksResult>
-  readonly resources: { get: (path: string, signal?: AbortSignal) => Promise<ResourceView>; list: (o?: { folder?: string; text?: boolean; cursor?: string; limit?: number; signal?: AbortSignal; }) => Promise<{ resources: { path: string; revision: import("src/wire").Hash; size: number; state: 'confirmed' | 'pending'; text?: string | undefined; }[]; complete: boolean; cursor?: string | undefined; }>; put: (path: string, doc: string, o?: WriteOptions & { baseRevision?: string; mustNotExist?: boolean; }) => Promise<Write>; delete: (path: string, o?: WriteOptions & { baseRevision?: string; }) => Promise<Write>; }
+  readonly resources: { get: (path: string, o?: ReadOptions) => Promise<ResourceView>; list: (o?: { folder?: string; text?: boolean; cursor?: string; limit?: number; signal?: AbortSignal; }) => Promise<{ resources: { path: string; revision: import("src/wire").Hash; size: number; state: 'confirmed' | 'pending'; text?: string | undefined; }[]; complete: boolean; cursor?: string | undefined; }>; put: (path: string, doc: string, o?: WriteOptions & { baseRevision?: string; mustNotExist?: boolean; }) => Promise<Write>; delete: (path: string, o?: WriteOptions & { baseRevision?: string; }) => Promise<Write>; }
   settle: (write: Write | Promise<Write> | Uuid, options?: SettleOptions) => Promise<Settlement>
   setTransportDeferred: (deferred: boolean) => void
   readonly status: SyncStatus
@@ -4645,9 +4653,9 @@ MdbaseClient@client.ts
   readonly typePacks: Readonly<{ plan: (pack: TypePackProvision, options: TypePackOptions) => Promise<TypePackPlan>; apply: (plan: TypePackPlan, o?: WriteOptions) => Promise<TypePackApplyResult>; }>
   update: (target: RecordRef, changes: UpdateInput, o?: WriteOptions) => Promise<Write>
   updateOp: (target: RecordRef, c: UpdateInput) => Op & { kind: 'update'; }
-  validate: (refs?: readonly RecordRef[], signal?: AbortSignal) => Promise<RecordValidation[]>
-  readonly views: { createSource: (input: ViewSourceCreateInput, options: ViewSourceWriteOptions) => Promise<Write>; updateSource: (seen: RecordView, document: string, options: ViewSourceWriteOptions) => Promise<Write>; getSourceRecord: (source: RecordRef, options?: ViewSourceReadOptions) => Promise<RecordView>; list: (folder?: string, signal?: AbortSignal) => Promise<ListViewsResult>; execute: (source: RecordRef, view: string, o?: ExecuteViewOptions) => Promise<QueryResult>; readSource: (source: RecordRef, signal?: AbortSignal) => Promise<ViewSourceDocument>; }
-  watchChanges: (cursor: string | undefined, onChanges: (batch: ChangesResult) => void) => ChangesWatch
+  validate: (o?: { refs?: readonly RecordRef[]; signal?: AbortSignal; }) => Promise<RecordValidation[]>
+  readonly views: { createSource: (input: ViewSourceCreateInput, options: ViewSourceWriteOptions) => Promise<Write>; updateSource: (seen: RecordView, document: string, options: ViewSourceWriteOptions) => Promise<Write>; getSourceRecord: (source: RecordRef, options?: ViewSourceReadOptions) => Promise<RecordView>; list: (o?: { folder?: string; signal?: AbortSignal; }) => Promise<ListViewsResult>; execute: (source: RecordRef, view: string, o?: ExecuteViewOptions) => Promise<QueryResult>; readSource: (source: RecordRef, o?: ReadOptions) => Promise<ViewSourceDocument>; }
+  watchChanges: (onChanges: (batch: ChangesResult) => void, o?: { cursor?: string; }) => ChangesWatch
   static new (opts: ClientOptions, session: Session): MdbaseClient
   static connect: (opts: ClientOptions) => Promise<MdbaseClient>
 
@@ -5438,6 +5446,9 @@ READ_MANY_MAX_REFS@read-helpers.ts
 ReadManyOptions@read-helpers.ts
   concurrency?: number | undefined
 
+ReadOptions@client.ts
+  signal?: AbortSignal | undefined
+
 Receipt@plain.ts
   conflicts?: Conflict[] | undefined
   mutation: string
@@ -5472,6 +5483,10 @@ RecordOpenOptions@records/types.ts
   recovery?: RecordRecoveryRef | undefined
   signal?: AbortSignal | undefined
   timeoutMs?: number | undefined
+
+RecordReadOptions@client.ts
+  include?: Include | undefined
+  signal?: AbortSignal | undefined
 
 RecordReader@transport/port.ts
   push: (chunk: Uint8Array) => Uint8Array[]
@@ -5722,7 +5737,7 @@ Session@session.ts
   static open: (connector: Connector, params: HelloParams, signal?: AbortSignal) => Promise<Session>
 
 SetClient@record-set.ts
-  = { readonly status: import("src/wire").SyncStatus; find: (ref: import("src/client").RecordRef, include?: Include, signal?: AbortSignal) => Promise<RecordView | null>; pages: (query: import("src/client").Query, include?: Include, signal?: AbortSignal, options?: import("src/client").PagesOptions) => AsyncGenerator<import("src/plain").QueryResult>; watchChanges: (cursor: string | undefined, onChanges: (batch: ChangesResult) => void) => ChangesWatch; onStatus: (fn: (s: import("src/wire").SyncStatus) => void) => () => void; readonly link: import("src/client").LinkState; }
+  = { readonly status: import("src/wire").SyncStatus; find: (ref: import("src/client").RecordRef, o?: import("src/client").RecordReadOptions) => Promise<RecordView | null>; pages: (query: import("src/client").Query, o?: import("src/client").RecordReadOptions & import("src/client").PagesOptions) => AsyncGenerator<import("src/plain").QueryResult>; watchChanges: (onChanges: (batch: ChangesResult) => void, o?: { cursor?: string; }) => ChangesWatch; onStatus: (fn: (s: import("src/wire").SyncStatus) => void) => () => void; readonly link: import("src/client").LinkState; }
 
 SettleOptions@settle.ts
   read?: boolean | SettleRead | undefined
@@ -6679,7 +6694,7 @@ problemCodeOf@describe-error.ts
   : (code: string) => ProblemCode | null
 
 queryPages@read-helpers.ts
-  : (client: Pick<MdbaseClient, 'pages'>, query: Query, include?: Include, signal?: AbortSignal, options?: PagesOptions) => AsyncGenerator<QueryResult>
+  : (client: Pick<MdbaseClient, 'pages'>, query: Query, o?: RecordReadOptions & PagesOptions) => AsyncGenerator<QueryResult>
 
 readAccountKeyMode@app-host/account-key-host.ts
   : (session: AppAccountKeySession, options: AppAccountKeyHostOptions & { signal: AbortSignal; }) => Promise<AccountKeyMode>
@@ -6691,7 +6706,7 @@ readLocalLink@node.ts
   : (stateDir?: string) => Promise<LocalLink>
 
 readMany@read-helpers.ts
-  : (client: Pick<MdbaseClient, 'get'>, refs: readonly RecordRef[], include?: Include, signal?: AbortSignal, options?: ReadManyOptions) => Promise<RecordView[]>
+  : (client: Pick<MdbaseClient, 'get'>, refs: readonly RecordRef[], o?: RecordReadOptions & ReadManyOptions) => Promise<RecordView[]>
 
 readMdbaseNotificationData@notifications.ts
   : (data: unknown) => MdbaseNotification | null

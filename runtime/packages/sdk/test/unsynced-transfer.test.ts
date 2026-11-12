@@ -16,7 +16,7 @@ async function pair(seedDestination:(replica:MemoryReplica)=>void=()=>{}){
   const source=await connect({connector:from.connector(),app}),destination=await connect({connector:to.connector(),app});
   return {source,destination,to};
 }
-const all=async(client:MdbaseClient)=>(await client.query({},{body:true})).records;
+const all=async(client:MdbaseClient)=>(await client.query({},{include:{body:true}})).records;
 
 describe("unsynced transfer",()=>{
   it("keeps IDs, paths and content, and a second run creates nothing",async()=>{
@@ -42,8 +42,8 @@ describe("unsynced transfer",()=>{
     expect(plan.items.find(i=>i.sourceId===B)).toEqual({sourceId:B,sourcePath:"todo.md",outcome:"create",path:"todo 3.md",renamedFrom:"todo.md"});
     expect(plan.counts.renamed).toBe(1);expect(plan.missingTypes).toEqual(["task"]);
     await runUnsyncedTransfer(plan,destination);
-    expect((await destination.get(B,{body:true})).path).toBe("todo 3.md");
-    expect((await destination.get({path:"todo.md"},{body:true})).body).toBe("theirs\n");
+    expect((await destination.get(B,{include:{body:true}})).path).toBe("todo 3.md");
+    expect((await destination.get({path:"todo.md"},{include:{body:true}})).body).toBe("theirs\n");
   });
 
   it("adds the types the destination lacks from the source's own definitions, and a rerun finds them present",async()=>{
@@ -83,8 +83,8 @@ describe("unsynced transfer",()=>{
     const item=plan.items.find(i=>i.sourceId===B)!;
     expect(item).toMatchObject({outcome:"changed",path:"todo 2.md"});
     expect(await runUnsyncedTransfer(plan,destination)).toMatchObject({created:1,failed:[]});
-    expect((await destination.get(B,{body:true})).body).toBe("Buy milk and eggs\n");
-    expect((await destination.get(item.copyId!,{body:true})).body).toBe("Buy oat milk\n");
+    expect((await destination.get(B,{include:{body:true}})).body).toBe("Buy milk and eggs\n");
+    expect((await destination.get(item.copyId!,{include:{body:true}})).body).toBe("Buy oat milk\n");
     expect(await unsyncedTransferComplete(plan,source,destination)).toBe(true);
     // A run interrupted after the copy landed but before its revision was recorded: the copy is found, not made twice.
     rows.get(SOURCE)!.set(B,(await source.get(B)).revision.replace(/.$/,c=>c==="0"?"1":"0"));

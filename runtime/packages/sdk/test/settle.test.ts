@@ -25,7 +25,7 @@ describe("settle over a replica", () => {
   it("reads back the record an update, rename or replace targets without being told which", async () => {
     const replica = replicaWith(), client = await open(replica);
     const seeded = replica.seed({ path: "notes/a.md", frontmatter: { title: "old" }, body: "a" });
-    const record = await client.get(seeded.id, { body: true, document: true });
+    const record = await client.get(seeded.id, { include: { body: true, document: true } });
     const updated = await client.settle(client.update(record, { patch: { title: "new" } }), { read: true });
     expect(updated).toMatchObject({ outcome: "confirmed", record: { id: seeded.id } });
     const current = await client.get(seeded.id);

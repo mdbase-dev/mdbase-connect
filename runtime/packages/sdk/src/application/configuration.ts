@@ -157,7 +157,7 @@ export function createApplicationConfiguration(source: ApplicationConfigurationI
     if (probing) { probeAgain = true; return; }
     probing = true;
     const assessed = value, catalog = assessedCatalog;
-    void input.client.describe(readSignal).then(found => {
+    void input.client.describe({ signal: readSignal }).then(found => {
       if (!closed && value === assessed && catalogFingerprint(found) !== catalog) recheck();
     }, () => { if (!closed) recheck(); }).finally(() => {
       probing = false;
@@ -190,7 +190,7 @@ export function createApplicationConfiguration(source: ApplicationConfigurationI
     return value;
   }
   async function originalReceipt(intent: ModelSetupIntent, signal: AbortSignal, session: Session) {
-    const receipt = await input.client.awaitReceipt(intent.mutationId, 120000, readSignal);
+    const receipt = await input.client.awaitReceipt(intent.mutationId, { timeoutMs: 120000, signal: readSignal });
     check(signal, session);
     if (receipt.mutation !== intent.mutationId || receipt.state !== "confirmed" || receipt.status !== "applied"
       || (receipt.conflicts?.length ?? 0) !== 0 || receipt.published === "publishing" || receipt.published === "not_published")
@@ -231,7 +231,7 @@ export function createApplicationConfiguration(source: ApplicationConfigurationI
     if (retired.size) await retiredResourcesAbsent(retired, signal, session);
     for (const expected of rows) {
       if (expected.doc === null) continue;
-      const actual = await input.client.resources.get(expected.path, readSignal);
+      const actual = await input.client.resources.get(expected.path, { signal: readSignal });
       check(signal, session);
       if (actual.path !== expected.path || actual.text !== expected.doc || actual.state !== "confirmed")
         throw failure("recovery_required");
@@ -239,7 +239,7 @@ export function createApplicationConfiguration(source: ApplicationConfigurationI
     // A created record proves itself by identity, path and confirmation: Core
     // may canonicalize its frontmatter (defaults, declared type) on create.
     if (intent.version !== 2) for (const expected of intent.plan.sources) {
-      const actual = await input.client.get(expected.id, undefined, readSignal);
+      const actual = await input.client.get(expected.id, { signal: readSignal });
       check(signal, session);
       if (actual.id !== expected.id || actual.path !== expected.path || actual.state.state !== "confirmed" || actual.state.hold || actual.state.unresolved)
         throw failure("recovery_required");
@@ -273,7 +273,7 @@ export function createApplicationConfiguration(source: ApplicationConfigurationI
     original = decode(original, input.scope);
     if (original.version === 1 || original.phase === "prepared") throw failure("recovery_required");
     if (original.phase === "attempted" && (original.version === 3 || original.version === 4) && input.journal.recordResourceRejected) {
-      const receipt = await input.client.awaitReceipt(original.mutationId, 120000, readSignal);
+      const receipt = await input.client.awaitReceipt(original.mutationId, { timeoutMs: 120000, signal: readSignal });
       check(signal, session);
       if (receipt.mutation === original.mutationId && receipt.state === "rejected") {
         original = decode(await input.journal.recordResourceRejected(original.mutationId, readSignal), input.scope);
@@ -312,7 +312,7 @@ export function createApplicationConfiguration(source: ApplicationConfigurationI
     if (!resources) throw failure("unsupported");
     // Taken before assessing: a change after it shows as a different catalog.
     let catalog: string | null = null;
-    try { catalog = catalogFingerprint(await input.client.describe(readSignal)); } catch { /* no probe: every change re-assesses */ }
+    try { catalog = catalogFingerprint(await input.client.describe({ signal: readSignal })); } catch { /* no probe: every change re-assesses */ }
     check(signal, session);
     const chosen = await effective(request.decisions, false);
     let assessed = chosen.assessed;const manifest = chosen.manifest;
@@ -371,7 +371,7 @@ export function createApplicationConfiguration(source: ApplicationConfigurationI
       await confirmed(attempted, signal, session);
       // This final assessment covers the setup's own writes.
       dirty = false; lastStamp = stamp();
-      try { catalog = catalogFingerprint(await input.client.describe(readSignal)); } catch { catalog = null; }
+      try { catalog = catalogFingerprint(await input.client.describe({ signal: readSignal })); } catch { catalog = null; }
       assessed = await resources.assess(manifest, readSignal);
       check(signal, session);
       if (assessed.status !== "current" || !hash.test(assessed.assessmentDigest)) throw failure("recovery_required");
@@ -412,7 +412,7 @@ export function createApplicationConfiguration(source: ApplicationConfigurationI
     if (!assessed.review) throw failure("response");
     const occupied: { path: string; free: boolean }[] = [];
     if (assessed.status !== "current") for (const r of records) {
-      const found = await input.client.find({ path: r.path }, undefined, readSignal);
+      const found = await input.client.find({ path: r.path }, { signal: readSignal });
       check(signal, session);
       occupied.push({ path: r.path, free: found === null });
     }

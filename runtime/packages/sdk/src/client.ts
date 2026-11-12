@@ -139,7 +139,6 @@ export type LinkState = "open" | "reconnecting" | "closed";
 
 /** Local subscription state, not cache completeness or fresh authority. */
 export type ChangesWatchState = "starting" | "active" | "stale" | "failed" | "closed";
-/** Callable for compatibility with the former stop-only return value. */
 export interface ChangesWatch {
   (): void;
   /** First current-session watch ACK; rejects initial failure or stop. */
@@ -281,6 +280,17 @@ export interface UpdateInput {
    * replicas refuse the option with `invalid_request`.
    */
   promote?: boolean;
+}
+
+/** What every read takes. */
+export interface ReadOptions {
+  signal?: AbortSignal;
+}
+
+/** A read that returns records. */
+export interface RecordReadOptions extends ReadOptions {
+  /** What each record carries beyond its path, type and frontmatter. */
+  include?: Include;
 }
 
 export interface WriteOptions {
@@ -461,8 +471,11 @@ export class LiveQuery implements LiveQueryState {
     return () => this.listeners.delete(fn);
   }
 
-  /** Change the query (for example a larger `limit` window). Re-subscribes. */
-  async setQuery(query: Query, include = this.include): Promise<void> {
+  /** Change the query (for example a larger `limit` window). Re-subscribes.
+   * `o.include` replaces what each record carries; without it the current
+   * include is kept. */
+  async setQuery(query: Query, o: { include?: Include } = {}): Promise<void> {
+    const { include = this.include } = o;
     this.query = query;
     this.include = include;
     this.result.markStale();
@@ -764,9 +777,9 @@ export class MdbaseClient {
 
   /** Recheck session identity after waiting for catch-up (SDK-internal use). */
   async readyForRead(signal?: AbortSignal, immediate = false): Promise<Session> {
-    if (!this.fenceReads) return immediate ? this.currentSession() : this.ready(signal);
+    if (!this.fenceReads) return immediate ? this.currentSession() : this.ready({ signal });
     for (;;) {
-      const s = immediate ? this.currentSession() : await this.ready(signal);
+      const s = immediate ? this.currentSession() : await this.ready({ signal });
       await this.readFence(signal);
       if (s === this.session && !s.closed && this.readFencedAt === null) return s;
       if (immediate) this.currentSession();
@@ -798,8 +811,9 @@ export class MdbaseClient {
     return this.session;
   }
 
-  /** @internal Wait until a session is open (or the client closes). */
-  async ready(signal?: AbortSignal): Promise<Session> {
+  /** @internal Wait until a session is open (or the client closes); `o.signal` cancels the wait. */
+  async ready(o: ReadOptions = {}): Promise<Session> {
+    const signal = o.signal;
     for (;;) {
       if (this.linkState === "closed") throw this.linkError ?? mdbaseError("unavailable", "client closed");
       if (this.session && !this.session.closed) return this.session;
@@ -831,7 +845,7 @@ export class MdbaseClient {
     const codec = o.codec;
     const read = this.fenceReads && READ_METHODS.has(method);
     for (;;) {
-      const s = read ? await this.readyForRead(o.signal, !o.retry) : o.retry ? await this.ready(o.signal) : this.currentSession();
+      const s = read ? await this.readyForRead(o.signal, !o.retry) : o.retry ? await this.ready({ signal: o.signal }) : this.currentSession();
       try {
         const r = await s.request<CborValue | Plain<T>>(method, p, {
           ...(o.signal ? { signal: o.signal } : {}),
@@ -1089,11 +1103,12 @@ export class MdbaseClient {
    * revalidate the authenticated session and all readiness gates after any await.
    * Missing chain or any error means remain hosted; never substitute asOf or the
    * current head/generations. Decoding does not authenticate a witness or switch.
+   * `o.signal` cancels the read.
    */
-  async appliedPrefix(seq: number, signal?: AbortSignal): Promise<AppliedPrefix> {
+  async appliedPrefix(seq: number, o: ReadOptions = {}): Promise<AppliedPrefix> {
     const p = appliedPrefixParams.enc({ seq });
     const r = await this.call("applied_prefix", p, {
-      codec: appliedPrefixCodec, retry: false, ...(signal ? { signal } : {}),
+      codec: appliedPrefixCodec, retry: false, ...(o.signal ? { signal: o.signal } : {}),
     });
     if (r.seq !== seq || (r.chain !== undefined && (seq === 0 || r.appliedThrough < seq))) {
       throw mdbaseError("invalid_request", "applied_prefix: inconsistent historical proof", "prefix_response");
@@ -1129,9 +1144,9 @@ export class MdbaseClient {
    * definition and schema and each contract's schemas, bounded by the replica
    * (`too_large` when over budget; read them with `resources.get` instead).
    * A producer that cannot describe definitions fails `upgrade_required`.
+   * `o.signal` cancels the read.
    */
-  async describe(options: AbortSignal | DescribeOptions = {}): Promise<DescribeResult> {
-    const o: DescribeOptions = options instanceof AbortSignal ? { signal: options } : options;
+  async describe(o: DescribeOptions = {}): Promise<DescribeResult> {
     const result = await this.call("describe", o.definitions ? params([[0, true]]) : null, {
       codec: describeResult,
       retry: true,
@@ -1168,15 +1183,16 @@ export class MdbaseClient {
    * Core's temporal typing for top-level fields under a query's exact `types` OR list
    * (`date` / `date_time` only when every type agrees; otherwise `none`). The answer is
    * bound to a catalog generation; nested paths are `none`. The SDK never infers typing.
+   * `o.signal` cancels the read.
    */
-  describeTyping(types: readonly string[], paths: readonly string[], signal?: AbortSignal): Promise<DescribeTypingResult> {
+  describeTyping(types: readonly string[], paths: readonly string[], o: ReadOptions = {}): Promise<DescribeTypingResult> {
     const strings = (a: readonly string[], max: number) =>
       Array.isArray(a) && a.length <= max && a.every((s) => typeof s === "string" && s.length > 0 && s.length <= 1024);
     if (!strings(types, DESCRIBE_TYPING_MAX_TYPES) || !strings(paths, DESCRIBE_TYPING_MAX_PATHS)) {
       return Promise.reject(mdbaseError("invalid_request", "describe_typing: at most 64 types and 256 non-empty paths", "typing_bounds"));
     }
     return this.call("describe_typing", params([[0, [...types]], [1, [...paths]]]), {
-      codec: describeTypingResult, retry: true, ...(signal ? { signal } : {}),
+      codec: describeTypingResult, retry: true, ...(o.signal ? { signal: o.signal } : {}),
     }).then((r) => {
       if (r.fields.length !== paths.length || r.fields.some((f, i) => f.path !== paths[i])) {
         throw mdbaseError("internal", "describe_typing answered for different paths", "invalid_typing_response");
@@ -1185,15 +1201,16 @@ export class MdbaseClient {
     });
   }
 
-  /** One record by ID or path. Throws `not_found`. */
-  get(ref: RecordRef, include?: Include, signal?: AbortSignal): Promise<RecordView> {
+  /** One record by ID or path. Throws `not_found`. `o.include` adds the body
+   * and other parts to the record; `o.signal` cancels the read. */
+  get(ref: RecordRef, o: RecordReadOptions = {}): Promise<RecordView> {
     return this.call(
       "get",
       params([
         [0, refValue(ref)],
-        [1, includeValue(include)],
+        [1, includeValue(o.include)],
       ]),
-      { codec: recordView, retry: true, ...(signal ? { signal } : {}) },
+      { codec: recordView, retry: true, ...(o.signal ? { signal: o.signal } : {}) },
     );
   }
 
@@ -1204,11 +1221,12 @@ export class MdbaseClient {
    * `invalid_request`/`data_contract_ambiguous` (select `type`; details: the types),
    * `invalid_record`/`data_contract_record_invalid` (with issues), and
    * `upgrade_required`/`contract_records_unsupported` from an older replica.
+   * `o.signal` cancels the read.
    */
-  async getContract(ref: RecordRef, contract: ContractSelector, signal?: AbortSignal): Promise<ContractRecordView> {
+  async getContract(ref: RecordRef, contract: ContractSelector, o: ReadOptions = {}): Promise<ContractRecordView> {
     const r = await this.contractCall("get_contract_v1", params([
       [0, 1], [1, refValue(ref)], [2, contract.id], [3, contract.version], [4, contract.type],
-    ]), (answer) => decodePlain(contractRecordWire, answer), signal);
+    ]), (answer) => decodePlain(contractRecordWire, answer), o.signal);
     if (r.version !== 1) throw mdbaseError("upgrade_required", "unsupported contract record", "contract_records_unsupported");
     return {
       id: r.id, path: r.path, revision: r.revision, fields: r.fields,
@@ -1249,20 +1267,17 @@ export class MdbaseClient {
   }
 
   /** Bounded ordered ordinary gets. Missing/refused reads fail the batch;
-   * duplicate slots and the original signal are retained, not a snapshot. */
-  readMany(
-    refs: readonly RecordRef[],
-    include?: Include,
-    signal?: AbortSignal,
-    options: ReadManyOptions = {},
-  ): Promise<RecordView[]> {
-    return readManyRecords(this, refs, include, signal, options);
+   * duplicate slots and the original signal are retained, not a snapshot.
+   * `o.include` and `o.signal` apply to every get; `o.concurrency` bounds the
+   * gets in flight. */
+  readMany(refs: readonly RecordRef[], o: RecordReadOptions & ReadManyOptions = {}): Promise<RecordView[]> {
+    return readManyRecords(this, refs, o);
   }
 
-  /** One record, or `null` when there is none. */
-  async find(ref: RecordRef, include?: Include, signal?: AbortSignal): Promise<RecordView | null> {
+  /** One record, or `null` when there is none. `o` is as for {@link get}. */
+  async find(ref: RecordRef, o: RecordReadOptions = {}): Promise<RecordView | null> {
     try {
-      return await this.get(ref, include, signal);
+      return await this.get(ref, o);
     } catch (e) {
       if (isMdbaseError(e, "not_found")) return null;
       throw e;
@@ -1272,19 +1287,21 @@ export class MdbaseClient {
   /**
    * One page of a query, evaluated by the replica (body predicates and links
    * included, §4). Pass `result.cursor` back as `query.cursor` for the next.
-   * `opts.contract` is not supported by the live replica dispatch. Supplying it
+   * `o.include` adds the body and other parts to each record; `o.signal`
+   * cancels the read.
+   * `o.contract` is not supported by the live replica dispatch. Supplying it
    * returns `invalid_request` with reason `unknown_param`; no contract filter
    * is applied. The option remains encoded unchanged for API compatibility.
    */
-  query(query: Query, include?: Include, signal?: AbortSignal, opts: { contract?: string } = {}): Promise<QueryResult> {
+  query(query: Query, o: RecordReadOptions & { contract?: string } = {}): Promise<QueryResult> {
     return this.call(
       "query",
       params([
         [0, toValue(query)],
-        [1, includeValue(include)],
-        [2, opts.contract],
+        [1, includeValue(o.include)],
+        [2, o.contract],
       ]),
-      { codec: queryResult, retry: true, ...(signal ? { signal } : {}) },
+      { codec: queryResult, retry: true, ...(o.signal ? { signal: o.signal } : {}) },
     );
   }
 
@@ -1369,8 +1386,9 @@ export class MdbaseClient {
 
   /** Definitions: `mdbase.yaml`, type files, contract files (§4.1). */
   readonly resources = {
-    get: (path: string, signal?: AbortSignal): Promise<ResourceView> =>
-      this.call("get_resource", params([[0, path]]), { codec: resourceView, retry: true, ...(signal ? { signal } : {}) }),
+    /** One definition by path. `o.signal` cancels the read. */
+    get: (path: string, o: ReadOptions = {}): Promise<ResourceView> =>
+      this.call("get_resource", params([[0, path]]), { codec: resourceView, retry: true, ...(o.signal ? { signal: o.signal } : {}) }),
     /** One bounded resource inventory page. Text defaults to false; limit defaults
      * to 64 (maximum 128). Preserve folder/text/limit on continuation. Collect all
      * pages before assessing a complete snapshot; stale/expired cursors require
@@ -1434,22 +1452,27 @@ export class MdbaseClient {
     getSourceRecord: (source: RecordRef, options: ViewSourceReadOptions = {}): Promise<RecordView> =>
       readViewSourceRecord(this, source, options),
     /** `mdbase.view` sources (spec 12 `list_views` shape), resolved over served
-     * contract queries: the native runtime has no `list_views` RPC. */
-    list: (folder?: string, signal?: AbortSignal): Promise<ListViewsResult> => listSavedViews(this, folder, signal),
+     * contract queries: the native runtime has no `list_views` RPC. `o.folder`
+     * keeps the sources under one folder; `o.signal` cancels the read. */
+    list: (o: { folder?: string; signal?: AbortSignal } = {}): Promise<ListViewsResult> => listSavedViews(this, o),
     /** Spec 11 named-view resolution, executed as one ordinary native query. */
     execute: (source: RecordRef, view: string, o: ExecuteViewOptions = {}): Promise<QueryResult> =>
       executeSavedView(this, source, view, o),
-    readSource: (source: RecordRef, signal?: AbortSignal): Promise<ViewSourceDocument> =>
-      readSavedViewSource(this, source, signal),
+    /** The current source document of one `mdbase.view` record. `o.signal`
+     * cancels the read. */
+    readSource: (source: RecordRef, o: ReadOptions = {}): Promise<ViewSourceDocument> =>
+      readSavedViewSource(this, source, o),
   };
 
   /**
    * Pending mutations of this session's owner (its grant, or the device), oldest
    * first (§6): a new session after a reload sees writes made before it. Follow
    * each with `awaitReceipt`, or keep the `mutationId` you chose and call
-   * `receipt(id)` / `awaitReceipt(id)`. Pages through everything.
+   * `receipt(id)` / `awaitReceipt(id)`. Pages through everything; `o.signal`
+   * cancels the read.
    */
-  async pendingWrites(signal?: AbortSignal): Promise<PendingMutation[]> {
+  async pendingWrites(o: ReadOptions = {}): Promise<PendingMutation[]> {
+    const signal = o.signal;
     const out: PendingMutation[] = [];
     let after: string | undefined;
     for (;;) {
@@ -1484,23 +1507,27 @@ export class MdbaseClient {
     return r.preflight ?? { rewrites: [], broken: [] };
   }
 
-  /** Every page of a query. Cursor resets require explicit caller clearing;
-   * otherwise cursor_expired/cursor_stale is thrown unchanged. */
-  async *pages(query: Query, include?: Include, signal?: AbortSignal, options: PagesOptions = {}): AsyncGenerator<QueryResult> {
+  /** Every page of a query. `o.include` and `o.signal` apply to every page.
+   * Cursor resets require explicit caller clearing through `o.onReset`;
+   * otherwise cursor_expired/cursor_stale is thrown unchanged. The query and
+   * `o` are captured when iteration starts. */
+  async *pages(query: Query, o: RecordReadOptions & PagesOptions = {}): AsyncGenerator<QueryResult> {
+    const { include, signal, onReset } = o;
     const original = snapshotQueryValue(query) as Query;
     const originalInclude = include ? { ...include } : undefined;
+    const read: RecordReadOptions = { ...(originalInclude ? { include: originalInclude } : {}), ...(signal ? { signal } : {}) };
     let cursor = original.cursor, restarted = false, pagesYielded = 0;
     delete original.cursor;
     for (;;) {
       signal?.throwIfAborted();
       let page: QueryResult;
       try {
-        page = await this.query(cursor !== undefined ? { ...original, cursor } : { ...original }, originalInclude, signal);
+        page = await this.query(cursor !== undefined ? { ...original, cursor } : { ...original }, read);
       } catch (error) {
-        if (!options.onReset || restarted || !isMdbaseError(error, "invalid_request") || error.recovery !== "fix_request" ||
+        if (!onReset || restarted || !isMdbaseError(error, "invalid_request") || error.recovery !== "fix_request" ||
             (error.reason !== "cursor_expired" && error.reason !== "cursor_stale")) throw error;
         signal?.throwIfAborted();
-        await options.onReset({ reason: error.reason, error, pagesYielded, ...(signal ? { signal } : {}) });
+        await onReset({ reason: error.reason, error, pagesYielded, ...(signal ? { signal } : {}) });
         signal?.throwIfAborted();
         restarted = true;
         cursor = undefined;
@@ -1518,14 +1545,11 @@ export class MdbaseClient {
     }
   }
 
-  /** Shared alias of pages(): whole native pages, no implicit cursor reset. */
-  queryPages(
-    query: Query,
-    include?: Include,
-    signal?: AbortSignal,
-    options: PagesOptions = {},
-  ): AsyncGenerator<QueryResult> {
-    return readQueryPages(this, query, include, signal, options);
+  /** Shared alias of pages(): whole native pages, no implicit cursor reset.
+   * `o.include` and `o.signal` apply to every page; `o.onReset` opts in to one
+   * first-page restart. */
+  queryPages(query: Query, o: RecordReadOptions & PagesOptions = {}): AsyncGenerator<QueryResult> {
+    return readQueryPages(this, query, o);
   }
 
   /**
@@ -1541,10 +1565,11 @@ export class MdbaseClient {
    * A live query: one window of at most 1,000 records and 1 MiB, with the
    * replica's order and counts. Subscribe for pushes; keep lists cheap with a
    * `limit` window and no bodies, and widen the window with `setQuery`. For a
-   * whole collection use `recordSet`.
+   * whole collection use `recordSet`. `o.include` adds the body and other
+   * parts to each record.
    */
-  live(query: Query, include?: Include): LiveQuery {
-    const l = new LiveQuery(this, query, include);
+  live(query: Query, o: { include?: Include } = {}): LiveQuery {
+    const l = new LiveQuery(this, query, o.include);
     this.lives.add(l);
     void this._resubscribeLive(l, true);
     return l;
@@ -1596,33 +1621,36 @@ export class MdbaseClient {
     }
   }
 
-  /** One page of the change feed. A `reset: true` result means "re-read what you cache". */
-  changes(cursor?: string, limit?: number, signal?: AbortSignal): Promise<ChangesResult> {
+  /** One page of the change feed, from `o.cursor` (default: the start) and of
+   * at most `o.limit` changes. A `reset: true` result means "re-read what you
+   * cache". `o.signal` cancels the read. */
+  changes(o: { cursor?: string; limit?: number; signal?: AbortSignal } = {}): Promise<ChangesResult> {
     return this.call(
       "changes",
       params([
-        [0, cursor ?? null],
-        [1, limit],
+        [0, o.cursor ?? null],
+        [1, o.limit],
       ]),
-      { codec: changesResult, retry: true, ...(signal ? { signal } : {}) },
+      { codec: changesResult, retry: true, ...(o.signal ? { signal: o.signal } : {}) },
     );
   }
 
   /**
-   * Follow the change feed from `cursor`. `onChanges` gets every batch; `reset: true`
-   * means the app must re-read what it caches. Survives reconnects.
+   * Follow the change feed from `o.cursor` (default: the start). `onChanges` gets
+   * every batch; `reset: true` means the app must re-read what it caches. Survives
+   * reconnects.
    * `ready` confirms the first watch ACK, not a complete/current collection cache.
    * After reconnect, observe `state`; an already-resolved promise is not freshness.
    */
-  watchChanges(cursor: string | undefined, onChanges: (batch: ChangesResult) => void): ChangesWatch {
-    let last = cursor, stopped = false, epoch = 0;
+  watchChanges(onChanges: (batch: ChangesResult) => void, o: { cursor?: string } = {}): ChangesWatch {
+    let last = o.cursor, stopped = false, epoch = 0;
     let state: ChangesWatchState = "starting", error: MdbaseError | null = null;
     let active: Session | null = null, controller: AbortController | null = null;
     let offPush: (() => void) | null = null, offClose: (() => void) | null = null;
     let clearEarly = () => {};
     let resolveReady!: () => void, rejectReady!: (e: MdbaseError) => void;
     const ready = new Promise<void>((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
-    // Legacy callers may use only the callable stop function.
+    // A caller that never awaits `ready` must not get an unhandled rejection.
     ready.catch(() => {});
     const listeners = new Set<(state: ChangesWatchState, error: MdbaseError | null) => void>();
     const notify = (listener: (state: ChangesWatchState, error: MdbaseError | null) => void) => {
@@ -1730,13 +1758,15 @@ export class MdbaseClient {
     return Object.freeze(watch) as ChangesWatch;
   }
 
-  /** Validate these records, or every record. Every record is validated a
+  /** Validate `o.refs`, or every record without them. Every record is validated a
    * page at a time when the replica grants `validate-page-v1`; each page is an
    * independent READ, so records changed meanwhile may be missed or repeated.
-   * Older replicas validate every record in one bounded request. */
-  async validate(refs?: readonly RecordRef[], signal?: AbortSignal): Promise<RecordValidation[]> {
+   * Older replicas validate every record in one bounded request. `o.signal`
+   * cancels the read. */
+  async validate(o: { refs?: readonly RecordRef[]; signal?: AbortSignal } = {}): Promise<RecordValidation[]> {
+    const signal = o.signal;
     signal?.throwIfAborted();
-    const {targets,expected}=captureValidation(refs);
+    const {targets,expected}=captureValidation(o.refs);
     const call = (p: Map<number, CborValue>) => this.call("validate", p, {
       codec: recordValidations, retry: true, ...(signal ? { signal } : {}),
     });
@@ -1757,8 +1787,10 @@ export class MdbaseClient {
   }
 
   /** Independent native app-host Bases READ, exact original held session.
-   * Unsupported transports refuse: no generic execute_view/data fallback. */
-  async executeAppBases(request: AppBasesRequest, signal?: AbortSignal): Promise<AppBasesResult> {
+   * Unsupported transports refuse: no generic execute_view/data fallback.
+   * `o.signal` cancels the read. */
+  async executeAppBases(request: AppBasesRequest, o: ReadOptions = {}): Promise<AppBasesResult> {
+    const signal = o.signal;
     const window = request.window === undefined ? null : {...request.window};
     const bytes = encodeAppBasesRequest({...request, ...(window === null ? {} : {window})});
     const session = await this.readyForRead(signal);
@@ -1772,12 +1804,14 @@ export class MdbaseClient {
    * `executeViewPages`). Each page is an independent READ; `changedSinceFirst`
    * marks pages taken after the collection changed. */
   executeAppBasesPages(request: AppBasesRequest, options: AppBasesPagesOptions = {}) {
-    return appBasesPages((r, signal) => this.executeAppBases(r, signal), request, options);
+    return appBasesPages((r, signal) => this.executeAppBases(r, signal ? { signal } : {}), request, options);
   }
 
   /** One bounded native discovery page. Empty views do not mean EOF when a
-   * continuation is present. Supplied handles never silently restart/retry. */
-  async listAppBasesViews(request: AppBasesDiscoveryRequest, signal?: AbortSignal): Promise<AppBasesDiscoveryResult> {
+   * continuation is present. Supplied handles never silently restart/retry.
+   * `o.signal` cancels the read. */
+  async listAppBasesViews(request: AppBasesDiscoveryRequest, o: ReadOptions = {}): Promise<AppBasesDiscoveryResult> {
+    const signal = o.signal;
     const limit = request.limit, bytes = encodeAppBasesDiscoveryRequest(request);
     const session = await this.readyForRead(signal);
     const reply = await session.readAppBasesDiscovery("list-views",bytes,signal);
@@ -1789,8 +1823,10 @@ export class MdbaseClient {
   }
 
   /** Exact current source for one native UUID/SHA/original ordinal, never path
-   * aliases, inferred catalog entries, generic RPC or cached document fallback. */
-  async readAppBasesViewSource(request: AppBasesSourceRequest, signal?: AbortSignal): Promise<AppBasesSourceResult> {
+   * aliases, inferred catalog entries, generic RPC or cached document fallback.
+   * `o.signal` cancels the read. */
+  async readAppBasesViewSource(request: AppBasesSourceRequest, o: ReadOptions = {}): Promise<AppBasesSourceResult> {
+    const signal = o.signal;
     const original = {...request}, bytes = encodeAppBasesSourceRequest(original);
     const session = await this.readyForRead(signal);
     const reply = await session.readAppBasesDiscovery("read-view-source",bytes,signal);
@@ -2050,31 +2086,33 @@ export class MdbaseClient {
     return settleWrite(this, write, options);
   }
 
-  /** The current receipt of a mutation. Failures carry `mutationId`. */
-  receipt(mutation: Uuid, signal?: AbortSignal): Promise<Receipt> {
+  /** The current receipt of a mutation. Failures carry `mutationId`. `o.signal` cancels the read. */
+  receipt(mutation: Uuid, o: ReadOptions = {}): Promise<Receipt> {
     return this.call("receipt", params([[0, uuidCodec.enc(mutation)]]), {
       codec: receiptCodec,
       retry: true,
-      ...(signal ? { signal } : {}),
+      ...(o.signal ? { signal: o.signal } : {}),
     }).catch((e: unknown) => { throw withMutation(e, "receipt", { mutationId: mutation }); });
   }
 
-  /** Resolves when the receipt leaves `pending`, or at `timeoutMs` with the pending receipt. */
-  awaitReceipt(mutation: Uuid, timeoutMs?: number, signal?: AbortSignal): Promise<Receipt> {
+  /** Resolves when the receipt leaves `pending`, or at `o.timeoutMs` with the
+   * pending receipt. `o.signal` cancels the wait. */
+  awaitReceipt(mutation: Uuid, o: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<Receipt> {
     return this.call(
       "await",
       params([
         [0, uuidCodec.enc(mutation)],
-        [1, timeoutMs],
+        [1, o.timeoutMs],
       ]),
-      { codec: receiptCodec, retry: true, ...(signal ? { signal } : {}) },
+      { codec: receiptCodec, retry: true, ...(o.signal ? { signal: o.signal } : {}) },
     ).catch((e: unknown) => { throw withMutation(e, "await", { mutationId: mutation }); });
   }
 
   // ---------------------------------------------------------------- holds and conflicts (§8)
 
-  listHolds(signal?: AbortSignal): Promise<Hold[]> {
-    return this.call("list_holds", null, { codec: list(hold), retry: true, ...(signal ? { signal } : {}) });
+  /** The current holds. `o.signal` cancels the read. */
+  listHolds(o: ReadOptions = {}): Promise<Hold[]> {
+    return this.call("list_holds", null, { codec: list(hold), retry: true, ...(o.signal ? { signal: o.signal } : {}) });
   }
 
   /** Call `fn` with the holds now and on every change. */
@@ -2110,11 +2148,12 @@ export class MdbaseClient {
     return this._track(r);
   }
 
-  listConflicts(record?: Uuid, signal?: AbortSignal): Promise<ConflictEntry[]> {
-    return this.call("list_conflicts", record ? params([[0, uuidCodec.enc(record)]]) : null, {
+  /** The current conflicts, of `o.record` only when given. `o.signal` cancels the read. */
+  listConflicts(o: { record?: Uuid; signal?: AbortSignal } = {}): Promise<ConflictEntry[]> {
+    return this.call("list_conflicts", o.record ? params([[0, uuidCodec.enc(o.record)]]) : null, {
       codec: list(conflictEntry),
       retry: true,
-      ...(signal ? { signal } : {}),
+      ...(o.signal ? { signal: o.signal } : {}),
     });
   }
 
@@ -2160,9 +2199,10 @@ export class MdbaseClient {
    * hosting the replica (no grant). `exchangeReady` is challenge/reveal readiness,
    * NOT approval/key delivery. Once ready, `sas` is the host-only comparison code
    * to display beside Allow; the user must check it matches on the other computer.
+   * `o.signal` cancels the read.
    */
-  pendingDevices(signal?: AbortSignal): Promise<PendingDevice[]> {
-    return this.call("pending_devices", null, { codec: list(pendingDevice), retry: true, ...(signal ? { signal } : {}) });
+  pendingDevices(o: ReadOptions = {}): Promise<PendingDevice[]> {
+    return this.call("pending_devices", null, { codec: list(pendingDevice), retry: true, ...(o.signal ? { signal: o.signal } : {}) });
   }
 
   /**
@@ -2206,8 +2246,10 @@ export class MdbaseClient {
       accountSecret(secret);
       await this.call("account_key_unlock", params([[0, secret]]));
     },
-    status: (signal?: AbortSignal): Promise<AccountKeyStatus> =>
-      this.call("account_key_status", null, { codec: accountKeyStatus, retry: true, ...(signal ? { signal } : {}) }),
+    /** Where an account-key unlock stands on this replica. `o.signal` cancels
+     * the read. */
+    status: (o: ReadOptions = {}): Promise<AccountKeyStatus> =>
+      this.call("account_key_status", null, { codec: accountKeyStatus, retry: true, ...(o.signal ? { signal: o.signal } : {}) }),
   };
 
   /** Recovery key for a private collection (hosting app only). */

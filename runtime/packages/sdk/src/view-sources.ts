@@ -56,7 +56,7 @@ export async function readViewSourceRecord(
   // silently authorize readback for another record.
   const expectedId = typeof source === "string" ? source : "id" in source ? source.id : undefined;
   const expected = expectedId === undefined ? undefined : uuid.dec(uuid.enc(expectedId));
-  const record = await client.get(source, {...options.include, document: true}, options.signal);
+  const record = await client.get(source, {include: {...options.include, document: true}, signal: options.signal});
   fullSource(record);
   if (expected !== undefined && record.id !== expected) throw invalid("view source readback belongs to another record");
   return record;

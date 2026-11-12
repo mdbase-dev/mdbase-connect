@@ -1,7 +1,12 @@
-import type { MdbaseClient, PagesOptions, Query, RecordRef } from "./client.js";
+import type {
+    MdbaseClient,
+    PagesOptions,
+    Query,
+    RecordReadOptions,
+    RecordRef,
+} from "./client.js";
 import { uuid } from "./codec.js";
 import { mdbaseError } from "./errors.js";
-import type { Include } from "./wire.js";
 import { fieldOf, type QueryResult, type RecordView } from "./plain.js";
 
 export const READ_MANY_MAX_REFS = 1000;
@@ -13,16 +18,16 @@ export interface ReadManyOptions {
 
 /** Ordered ordinary reads, not a transaction or a consistent native snapshot.
  * Duplicate selections remain separate calls/slots. A failure stops scheduling;
- * all already-started calls settle before the original error is delivered. */
+ * all already-started calls settle before the original error is delivered.
+ * `o.include` and `o.signal` apply to every get. */
 export async function readMany(
     client: Pick<MdbaseClient, "get">,
     refs: readonly RecordRef[],
-    include?: Include,
-    signal?: AbortSignal,
-    options: ReadManyOptions = {},
+    o: RecordReadOptions & ReadManyOptions = {},
 ): Promise<RecordView[]> {
+    const { include, signal } = o;
     signal?.throwIfAborted();
-    const concurrency = options.concurrency ?? 8;
+    const concurrency = o.concurrency ?? 8;
     if (
         !Number.isSafeInteger(concurrency) ||
         concurrency < 1 ||
@@ -45,6 +50,10 @@ export async function readMany(
     // its possibly stale path/revision; no input is promoted to a native witness.
     const selections = Array.from(refs, capture);
     const capturedInclude = include ? Object.freeze({ ...include }) : undefined;
+    const read: RecordReadOptions = {
+        ...(capturedInclude ? { include: capturedInclude } : {}),
+        ...(signal ? { signal } : {}),
+    };
     const records = new Array<RecordView>(selections.length);
     let next = 0,
         failed = false,
@@ -55,11 +64,7 @@ export async function readMany(
                 signal?.throwIfAborted();
                 const index = next++,
                     selected = selections[index]!;
-                const record = await client.get(
-                    selected,
-                    capturedInclude,
-                    signal,
-                );
+                const record = await client.get(selected, read);
                 signal?.throwIfAborted();
                 if (failed) return;
                 if (typeof selected === "string" && record.id !== selected) {
@@ -115,15 +120,14 @@ function capture(ref: RecordRef): RecordRef {
 }
 
 /** Alias the canonical paginator. Preserve whole pages, original opaque cursors,
- * Include/signal and explicit onReset semantics; never flatten or auto-reset. */
+ * `o.include`/`o.signal` and explicit `o.onReset` semantics; never flatten or
+ * auto-reset. */
 export function queryPages(
     client: Pick<MdbaseClient, "pages">,
     query: Query,
-    include?: Include,
-    signal?: AbortSignal,
-    options: PagesOptions = {},
+    o: RecordReadOptions & PagesOptions = {},
 ): AsyncGenerator<QueryResult> {
-    return client.pages(query, include, signal, options);
+    return client.pages(query, o);
 }
 
 /** Resolve a persisted flat frontmatter key through ONE ordinary native query.
@@ -196,8 +200,7 @@ export async function resolveRecordLinks(
                 { name: "paths", expr: paths },
             ],
         },
-        undefined,
-        signal,
+        signal ? { signal } : {},
     );
     cut();
     const invalid = () =>

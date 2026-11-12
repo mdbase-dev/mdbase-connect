@@ -94,7 +94,7 @@ describe("public application fixture (metadata stand-in, not runtime evidence)",
     expect(fixture.entry.connection(h.records.collection)?.people).toBe(h.connection.people);
     expect(fixture.entry.connection(h.records.collection)?.timers).toBe(h.connection.timers);
     expect(Object.isFrozen(h.records)).toBe(false);
-    const record = await h.records.get({path: "fixture.md"}, {body: true});
+    const record = await h.records.get({path: "fixture.md"}, {include: {body: true}});
     expect(record.body).toBe("Original native record");
     // A fixture-selected client does not manufacture semantic readiness.
     expect(fixture.entry.application().getSnapshot().readiness.assessment).toBeNull();

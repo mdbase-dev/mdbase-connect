@@ -257,12 +257,12 @@ describe("a record set whose change watch fails", () => {
       onStatus: () => () => {},
       async *pages() { yield { records: [...rows.values()], complete: true, asOf: 1 } as QueryResult; },
       async find(id: string) { return rows.get(id) ?? null; },
-      watchChanges(cursor: string | undefined, changes: (batch: ChangesResult) => void): ChangesWatch {
+      watchChanges(changes: (batch: ChangesResult) => void, o: { cursor?: string } = {}): ChangesWatch {
         let state: ChangesWatchState = "starting", error: MdbaseError | null = null;
         const listeners = new Set<(s: ChangesWatchState, e: MdbaseError | null) => void>();
         const watch = Object.assign(() => {}, { ready: Promise.resolve(), subscribe: (fn: (s: ChangesWatchState, e: MdbaseError | null) => void) => { listeners.add(fn); return () => { listeners.delete(fn); }; } });
         Object.defineProperties(watch, { state: { get: () => state }, error: { get: () => error } });
-        watches.push({ cursor, changes, go: (next, why) => { state = next; error = why ?? null; for (const fn of [...listeners]) fn(state, error); } });
+        watches.push({ cursor: o.cursor, changes, go: (next, why) => { state = next; error = why ?? null; for (const fn of [...listeners]) fn(state, error); } });
         return watch as ChangesWatch;
       },
     };

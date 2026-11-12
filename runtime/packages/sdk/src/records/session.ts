@@ -267,7 +267,7 @@ export class RecordSessionImpl {
         }
     }
     private async read(signal: AbortSignal): Promise<RecordView> {
-        const record = await this.client.get(this.id, include, signal);
+        const record = await this.client.get(this.id, { include, signal });
         signal.throwIfAborted();
         complete(record, this.id);
         return record;
@@ -519,11 +519,13 @@ export class RecordSessionImpl {
     private async settle(signal: AbortSignal, budget: Budget): Promise<void> {
         const captured = this.captured!,
             original = captured.recovery;
-        const receipt = await this.client.awaitReceipt(
-            original.mutationId,
-            Math.max(1, budget.until - Date.now() - budget.margin),
+        const receipt = await this.client.awaitReceipt(original.mutationId, {
+            timeoutMs: Math.max(
+                1,
+                budget.until - Date.now() - budget.margin,
+            ),
             signal,
-        );
+        });
         signal.throwIfAborted();
         if (receipt.mutation !== original.mutationId)
             throw refusal(

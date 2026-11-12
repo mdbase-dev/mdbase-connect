@@ -178,7 +178,7 @@ export class RecordSet {
 
   private startWatch(): void {
     this.offWatch();
-    const watch = this.client.watchChanges(this.cursor, (batch) => { if (this.watch === watch) this.changed(batch); });
+    const watch = this.client.watchChanges((batch) => { if (this.watch === watch) this.changed(batch); }, { cursor: this.cursor });
     this.watch = watch;
     // Without a cursor the new watch starts from now: what came before is unread.
     if (this.cursor === undefined) this.dirty = true;
@@ -282,7 +282,7 @@ export class RecordSet {
     let complete = true;
     try {
       const query = { ...(this.types ? { types: [...this.types] } : {}), limit: PAGE };
-      for await (const page of this.client.pages(query, this.include, signal)) {
+      for await (const page of this.client.pages(query, { include: this.include, signal })) {
         for (const r of page.records) next.set(r.id, r);
         complete &&= page.complete;
         // The first read shows its pages as they arrive.
@@ -309,7 +309,7 @@ export class RecordSet {
     let next = 0;
     try {
       await Promise.all(Array.from({ length: Math.min(REREAD_CONCURRENCY, ids.length) }, async () => {
-        while (next < ids.length) { const i = next++; read[i] = await this.client.find(ids[i]!, this.include, signal); }
+        while (next < ids.length) { const i = next++; read[i] = await this.client.find(ids[i]!, { include: this.include, signal }); }
       }));
     } catch (e) {
       // Only `not_found` means gone; any other failure leaves them unread.

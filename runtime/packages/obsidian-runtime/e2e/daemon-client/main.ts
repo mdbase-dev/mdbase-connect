@@ -83,7 +83,7 @@ export default class LabDaemonClient extends Plugin {
     };
     // Actual SDK API. No custom conversion, frame encoding, confirmation fallback or direct vault write.
     const port = {
-      find: (ref: any, include: any) => delegate.find(ref, include),
+      find: (ref: any, include: any) => delegate.find(ref, { include }),
       create: async (input: any, options: any) => observe(await delegate.create(input, options)),
       update: async (target: any, changes: any, options: any) => observe(await delegate.update(target, changes, options)),
       replaceDocument: async (target: any, doc: any, options: any) => observe(await delegate.replaceDocument(target, doc, options)),
@@ -105,7 +105,7 @@ export default class LabDaemonClient extends Plugin {
     if (!updated.handled) throw new Error("backend_did_not_update");
     this.result.backendUpdated = true;
     this.result.stage = "sdk_and_vault_readback";
-    const record = await delegate.get({ path }, { body: true });
+    const record = await delegate.get({ path }, { include: { body: true } });
     const file = this.app.vault.getAbstractFileByPath(path);
     if (!file || !("extension" in file)) throw new Error("file_missing");
     const disk = await this.app.vault.read(file as any);

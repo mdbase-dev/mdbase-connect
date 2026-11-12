@@ -527,7 +527,7 @@ describe("bridge scope and session regressions", () => {
     const { c } = await failoverClient();
     expect(c.readFenced).toBe(true);
     const ac = new AbortController();
-    const aborted = c.get({ path: "n1.md" }, undefined, ac.signal);
+    const aborted = c.get({ path: "n1.md" }, { signal: ac.signal });
     ac.abort();
     await expect(aborted).rejects.toMatchObject({ code: "cancelled" });
     const pending = c.query({});
@@ -539,7 +539,7 @@ describe("bridge scope and session regressions", () => {
     const { w, a, b, c } = await failoverClient();
     const live = c.live({});
     const batches: number[] = [];
-    const stop = c.watchChanges(undefined, (x) => batches.push(x.changes.length));
+    const stop = c.watchChanges((x) => batches.push(x.changes.length));
     const read = c.get({ path: "n1.md" });
     expect(c.readFenced).toBe(true);
     // B dies while behind; A returns (it has everything).
@@ -625,7 +625,7 @@ describe("next-relay-only consistency policy", () => {
     const { c } = await failoverClient();
     try {
       const ac = new AbortController();
-      const typed = c.describeTyping(["task"], ["due"], ac.signal);
+      const typed = c.describeTyping(["task"], ["due"], { signal: ac.signal });
       const stream = c.files.downloadStream({ path: "missing.bin" } as never, { signal: ac.signal });
       await c.getStatus();
       const observed = await c.receipt(uuidv7()).catch(e => e);

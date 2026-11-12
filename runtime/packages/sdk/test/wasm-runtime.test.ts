@@ -49,13 +49,13 @@ collection:
 `);
       const created = await c.create({type: "task", frontmatter: {title: "Old?"}});
       expect(created.records).toHaveLength(1);
-      const seen = await c.get(created.records[0]!.id, {document: true});
+      const seen = await c.get(created.records[0]!.id, {include: {document: true}});
       expect(seen.path).toBe("tasks/Old.md");
       expect(seen.frontmatter.title).toBe("Old");
       expect(seen.document).not.toContain("title:");
       const updated = await c.update(seen, {patch: {title: "New"}, updateRefs: false});
       expect(updated.records[0]!.path).toBe("tasks/New.md");
-      const after = await c.get(seen.id, {document: true});
+      const after = await c.get(seen.id, {include: {document: true}});
       expect(after.frontmatter.title).toBe("New");
       expect(after.document).not.toContain("title:");
     } finally {c.close(); rt.dispose();}
@@ -67,7 +67,7 @@ collection:
     const c = await connect({app: {name: "plain-base", version: "1"}, connector: inProcessConnector(rt), reconnect: false});
     try {
       const created = await c.create({path: "notes/a.md", frontmatter: {rating: new Float64(1), nested: {z: new Float64(2), a: [new Float64(3)]}, keep: new Float64(4)}});
-      const seen = await c.get(created.records[0]!.id, {document: true});
+      const seen = await c.get(created.records[0]!.id, {include: {document: true}});
       // The store holds floats; the app reads numbers and writes from that reading.
       expect(seen.document).toContain("rating: 1.0");
       expect(seen.frontmatter).toEqual({rating: 1, nested: {z: 2, a: [3]}, keep: 4});
@@ -76,7 +76,7 @@ collection:
       const write = await c.update(seen, {patch: {rating: 2}, unset: ["nested"]});
       expect(write.receipt.problem).toBeUndefined();
       expect(write.receipt.conflicts ?? []).toEqual([]);
-      const after = await c.get(seen.id, {document: true});
+      const after = await c.get(seen.id, {include: {document: true}});
       expect(after.frontmatter).toEqual({rating: 2, keep: 4});
       // The field nobody wrote keeps its exact form.
       expect(after.document).toContain("keep: 4.0");
@@ -145,7 +145,7 @@ collection:
     expect(w.state).toBe("confirmed");
     expect((await w.confirmed).state).toBe("confirmed");
     expect(w.records).toHaveLength(1);
-    const record = await c.get(w.records[0]!.id, { body: true });
+    const record = await c.get(w.records[0]!.id, { include: { body: true } });
     expect(record.path).toBe("a.md");
     expect(record.body).toBe("hi");
     c.close();

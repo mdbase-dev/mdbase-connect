@@ -245,7 +245,7 @@ describe("shared native record leases", () => {
     });
     it("refuses metadata-only/mismatched source before open or submit", async () => {
         const f = await fixture(),
-            row = await f.client.get(f.record.id, { body: true }),
+            row = await f.client.get(f.record.id, { include: { body: true } }),
             get = vi.spyOn(f.client, "get").mockResolvedValue(row),
             update = vi.spyOn(f.client, "update");
         await expect(f.client.records.open(f.record.id)).rejects.toMatchObject({
@@ -260,8 +260,7 @@ describe("shared native record leases", () => {
     it("refuses native protection and pending current records without minting an update", async () => {
         const f = await fixture(),
             row = await f.client.get(f.record.id, {
-                body: true,
-                document: true,
+                include: { body: true, document: true },
             });
         vi.spyOn(f.client, "get").mockResolvedValue({
             ...row,
@@ -284,12 +283,11 @@ describe("shared native record leases", () => {
             original = f.client.awaitReceipt.bind(f.client);
         const receipt = vi
             .spyOn(f.client, "awaitReceipt")
-            .mockImplementation(async (mid, ms, signal) => {
+            .mockImplementation(async (mid, o) => {
                 f.replica.confirmAll();
-                const r = await original(mid, ms, signal);
+                const r = await original(mid, o);
                 const seen = await f.client.get(f.record.id, {
-                    body: true,
-                    document: true,
+                    include: { body: true, document: true },
                 });
                 await f.client.update(seen, {
                     body: "other pending\n",
@@ -313,8 +311,7 @@ describe("shared native record leases", () => {
             lease = await f.client.records.open(f.record.id);
         lease.session.setBody("mine");
         const current = await f.client.get(f.record.id, {
-                body: true,
-                document: true,
+                include: { body: true, document: true },
             }),
             w = await f.client.update(current, { body: "theirs" });
         await w.confirmed;
@@ -358,8 +355,7 @@ describe("shared native record leases", () => {
     it("opens an earlier session's pending write as saved on device and edits on top of it", async () => {
         const f = await fixture(true),
             seen = await f.client.get(f.record.id, {
-                body: true,
-                document: true,
+                include: { body: true, document: true },
             });
         const other = await f.client.update(seen, {
             body: "other session",
@@ -395,8 +391,7 @@ describe("shared native record leases", () => {
         const f = await fixture(),
             other = f.replica.seed({ path: "notes/other.md", body: "other" });
         const seen = await f.client.get(other.id, {
-                body: true,
-                document: true,
+                include: { body: true, document: true },
             }),
             write = await f.client.update(seen, {
                 body: "other updated",
@@ -540,8 +535,7 @@ describe("shared native record leases", () => {
         const f = await fixture(),
             controller = new AbortController(),
             row = await f.client.get(f.record.id, {
-                body: true,
-                document: true,
+                include: { body: true, document: true },
             });
         vi.spyOn(f.client, "get").mockImplementation(async () => {
             controller.abort();

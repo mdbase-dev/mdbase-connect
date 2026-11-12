@@ -37,7 +37,7 @@ describe("MemoryReplica fault parity", () => {
     expect((await c.get(r.id)).path).toBe("u.md");
     replica.deleteElsewhere(r.id);
     await expect(c.get(r.id)).rejects.toMatchObject({ code: "not_found" });
-    const seen = (await c.changes(start)).changes;
+    const seen = (await c.changes({ cursor: start })).changes;
     expect(seen.map((ch) => ch.kind)).toEqual(["put", "remove", "put", "remove"]);
     expect(seen.every((ch) => ch.types?.[0] === "task")).toBe(true);
   });
@@ -53,8 +53,8 @@ describe("MemoryReplica fault parity", () => {
     expect((await c.getStatus()).holds).toBe(1);
     await c.resolveHold(holdId, "take_theirs");
     expect(await c.listHolds()).toEqual([]);
-    expect((await c.get(r.id, { body: true })).body).toBe("theirs");
-    const listed = await c.listConflicts(r.id);
+    expect((await c.get(r.id, { include: { body: true } })).body).toBe("theirs");
+    const listed = await c.listConflicts({ record: r.id });
     expect(listed).toEqual([entry]);
     await c.dismissConflict(listed[0]!);
     expect(await c.listConflicts()).toEqual([]);

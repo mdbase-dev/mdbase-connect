@@ -41,7 +41,7 @@ async function fixture(reconnect = false) {
 
 describe("change watch readiness and local lifetime (actual Client/Session wire models)", () => {
   it("acknowledges an empty first batch and retains callable-stop compatibility", async () => {
-    const f = await fixture(), changed = vi.fn(); const watch = f.client.watchChanges(undefined, changed);
+    const f = await fixture(), changed = vi.fn(); const watch = f.client.watchChanges(changed);
     const legacyStop: () => void = watch; const exportedType: ChangesWatch = watch;
     try {
       expect(exportedType.state).toBe("starting"); expect(Object.isFrozen(watch)).toBe(true);
@@ -51,7 +51,7 @@ describe("change watch readiness and local lifetime (actual Client/Session wire 
     } finally { watch(); f.client.close(); }
   });
   it("exposes an initial refusal rather than silently becoming ready", async () => {
-    const f = await fixture(), changed = vi.fn(); const watch = f.client.watchChanges(undefined, changed);
+    const f = await fixture(), changed = vi.fn(); const watch = f.client.watchChanges(changed);
     try {
       const rejected = expect(watch.ready).rejects.toMatchObject({ code: "forbidden" });
       const r = await f.request(); r.port.onframe?.(clientFrame.enc({ kind: "response", id: r.id, problem: { code: "forbidden", message: "denied", recovery: "reauthorize" } }));
@@ -60,7 +60,7 @@ describe("change watch readiness and local lifetime (actual Client/Session wire 
     } finally { watch(); f.client.close(); }
   });
   it("stop cancels the first request and fences its late result/pushes", async () => {
-    const f = await fixture(), changed = vi.fn(), watch = f.client.watchChanges(undefined, changed);
+    const f = await fixture(), changed = vi.fn(), watch = f.client.watchChanges(changed);
     try {
       const rejected = expect(watch.ready).rejects.toMatchObject({ code: "cancelled" });
       await f.request(); watch(); await rejected;
@@ -69,13 +69,13 @@ describe("change watch readiness and local lifetime (actual Client/Session wire 
     } finally { watch(); f.client.close(); }
   });
   it("client close before acknowledgement cannot produce a late ready callback", async () => {
-    const f = await fixture(), changed = vi.fn(), watch = f.client.watchChanges(undefined, changed);
+    const f = await fixture(), changed = vi.fn(), watch = f.client.watchChanges(changed);
     const rejected = expect(watch.ready).rejects.toBeDefined();
     await f.request(); f.client.close(); await rejected; f.reply(0, batch("late", "late.md"));
     await Promise.resolve(); expect(watch.state).toBe("closed"); expect(changed).not.toHaveBeenCalled(); watch();
   });
   it("buffers bounded startup pushes until the initial batch is delivered", async () => {
-    const f = await fixture(), paths: string[] = [], watch = f.client.watchChanges(undefined, b => paths.push(...b.changes.map(c => c.path)));
+    const f = await fixture(), paths: string[] = [], watch = f.client.watchChanges(b => paths.push(...b.changes.map(c => c.path)));
     try {
       await f.request(); f.push(batch("second", "second.md")); f.push(batch("third", "third.md"));
       expect(paths).toEqual([]); f.reply(0, batch("first", "first.md")); await watch.ready;
@@ -83,7 +83,7 @@ describe("change watch readiness and local lifetime (actual Client/Session wire 
     } finally { watch(); f.client.close(); }
   });
   it.each(["count"])("rejects startup queue %s exhaustion, never partial active success", async limit => {
-    const f = await fixture(), changed = vi.fn(), watch = f.client.watchChanges(undefined, changed);
+    const f = await fixture(), changed = vi.fn(), watch = f.client.watchChanges(changed);
     try {
       const rejected = expect(watch.ready).rejects.toMatchObject({ code: "unavailable" }); await f.request();
       if (limit === "count") for (let i = 0; i < 17; i++) f.push(batch(String(i), "queued.md"));
@@ -93,7 +93,7 @@ describe("change watch readiness and local lifetime (actual Client/Session wire 
     } finally { watch(); f.client.close(); }
   });
   it("reports malformed pushes without pretending the subscription remains active", async () => {
-    const f = await fixture(), watch = f.client.watchChanges(undefined, () => {});
+    const f = await fixture(), watch = f.client.watchChanges(() => {});
     try {
       await f.request(); f.reply(); await watch.ready;
       f.ports[0]!.onframe?.(clientFrame.enc({ kind: "push", type: "changes", payload: null }));
@@ -102,7 +102,7 @@ describe("change watch readiness and local lifetime (actual Client/Session wire 
   });
   it("old-session results/pushes cannot activate a new generation", async () => {
     const f = await fixture(true), paths: string[] = [], states: string[] = [];
-    const watch = f.client.watchChanges(undefined, b => paths.push(...b.changes.map(c => c.path)));
+    const watch = f.client.watchChanges(b => paths.push(...b.changes.map(c => c.path)));
     const off = watch.subscribe(state => states.push(state));
     try {
       await f.request(); f.reply(0, batch("old-cursor")); await watch.ready;
@@ -116,7 +116,7 @@ describe("change watch readiness and local lifetime (actual Client/Session wire 
     } finally { off(); watch(); f.client.close(); }
   });
   it("throwing state observers do not interrupt terminal cleanup", async () => {
-    const f = await fixture(), watch = f.client.watchChanges(undefined, () => {});
+    const f = await fixture(), watch = f.client.watchChanges(() => {});
     try {
       watch.subscribe(() => { throw new Error("observer"); }); const rejected = expect(watch.ready).rejects.toBeDefined();
       await f.request(); f.client.close(); await rejected; expect(watch.state).toBe("closed");
@@ -131,7 +131,7 @@ describe("change watch catch-up", () => {
     const { cursor } = await client.changes();
     for (let i = 0; i < 2_300; i++) replica.seed({ path: `notes/${i}.md` });
     const seen = new Set<string>();
-    const watch = client.watchChanges(cursor, b => { for (const c of b.changes) seen.add(c.path); });
+    const watch = client.watchChanges(b => { for (const c of b.changes) seen.add(c.path); }, { cursor });
     try {
       await watch.ready;
       expect(seen.size).toBe(2_300);

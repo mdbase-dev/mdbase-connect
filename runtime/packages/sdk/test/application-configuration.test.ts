@@ -495,8 +495,8 @@ describe("reviewable setup plan/apply", () => {
       expect(f.port.apply).toHaveBeenCalledWith(expect.anything(), adopted, expect.anything(), { adopt: { [target]: live } });
       expect(submit).toHaveBeenCalledTimes(1);
       expect(submit.mock.calls[0]![0].map(op => op.kind)).toEqual(["resource_put", "create"]);
-      expect((await f.client.get({ path: "Welcome.md" }, { body: true })).body).toBe("Start here.\n");
-      expect((await f.client.get({ path: "Taken.md" }, { body: true })).body).toBe("mine");
+      expect((await f.client.get({ path: "Welcome.md" }, { include: { body: true } })).body).toBe("Start here.\n");
+      expect((await f.client.get({ path: "Taken.md" }, { include: { body: true } })).body).toBe("mine");
       expect(f.helper.getSnapshot().assessment?.status).toBe("ready");
       expect((await f.journal.load(f.controller.signal))?.phase).toBe("verified");
     } finally { await f.close(); }

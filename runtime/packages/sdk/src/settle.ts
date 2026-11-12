@@ -84,7 +84,7 @@ export async function settleWrite(
   if (typeof input === "string") {
     mutationId = input;
     try {
-      receipt = await client.receipt(mutationId, signal);
+      receipt = await client.receipt(mutationId, { signal });
     } catch (e) {
       if (cancelled(e)) throw e;
       // No receipt for an ID means the replica never captured that write.
@@ -104,7 +104,7 @@ export async function settleWrite(
       // An error from submit does not prove the write was not captured: only
       // its receipt does.
       try {
-        receipt = await client.receipt(mutationId, signal);
+        receipt = await client.receipt(mutationId, { signal });
       } catch (lookup) {
         if (cancelled(lookup)) throw lookup;
         if (isMdbaseError(lookup, "not_found")) return Object.freeze({ outcome: "rejected" as const, mutationId, problem: e.toProblem() });
@@ -115,7 +115,7 @@ export async function settleWrite(
 
   if (receipt.state === "pending") {
     try {
-      receipt = await client.awaitReceipt(mutationId, options.timeoutMs ?? DEFAULT_WAIT_MS, signal);
+      receipt = await client.awaitReceipt(mutationId, { timeoutMs: options.timeoutMs ?? DEFAULT_WAIT_MS, signal });
       write?.update(receipt);
     } catch (e) {
       if (cancelled(e)) throw e;
@@ -172,10 +172,10 @@ async function readBack(
 ): Promise<{ record: RecordView | null; contractRecord?: ContractRecordView | null }> {
   let record: RecordView;
   try {
-    record = await client.get(ref, how.include, signal);
+    record = await client.get(ref, { include: how.include, signal });
   } catch (e) {
     if (!isMdbaseError(e, "not_found")) throw e;
     return how.contract ? { record: null, contractRecord: null } : { record: null };
   }
-  return how.contract ? { record, contractRecord: await client.getContract(record, how.contract, signal) } : { record };
+  return how.contract ? { record, contractRecord: await client.getContract(record, how.contract, { signal }) } : { record };
 }

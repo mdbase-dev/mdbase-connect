@@ -16,7 +16,7 @@ describe("verified app handover candidate", () => {
   it("requires native verified policy and exact retained historical prefix when local is ahead", async () => {
     const f = fixture(), evidence = await verifyAppHandover(f.options, f.controller.signal);
     expect(evidence?.head).toEqual(head); expect(evidence?.appliedThrough).toBe(9); expect(evidence?.isCurrent()).toBe(true); expect(Object.isFrozen(evidence?.head)).toBe(true);
-    expect(f.localClient.appliedPrefix).toHaveBeenCalledWith(5, f.controller.signal); evidence?.dispose(); expect(evidence?.isCurrent()).toBe(false);
+    expect(f.localClient.appliedPrefix).toHaveBeenCalledWith(5, { signal: f.controller.signal }); evidence?.dispose(); expect(evidence?.isCurrent()).toBe(false);
   });
   it("copies aliased Buffer/subclass witnesses independently; failures and evidence disposal never wipe caller bytes", async () => {
     const f = fixture(), borrowed = Buffer.from([1, 2, 3]); f.hostedClient.hello.headWitness = borrowed;

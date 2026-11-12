@@ -364,7 +364,7 @@ export class AppCollectionReadiness {
     }
     if (this.probing) { this.probeAgain = true; return; }
     const assessed = this.snapshotValue.assessment, catalog = this.assessedCatalog;
-    const probe = this.client.describe(this.readSignal).then(
+    const probe = this.client.describe({ signal: this.readSignal }).then(
       (next) => {
         if (this.closed || this.snapshotValue.assessment !== assessed) return;
         if (catalogFingerprint(next) !== catalog) this.recheck();
@@ -436,7 +436,7 @@ export class AppCollectionReadiness {
   }
   private attach(): void {
     if (this.watch) return;
-    this.watch = this.client.watchChanges(undefined, this.invalidate);
+    this.watch = this.client.watchChanges(this.invalidate);
     this.stops.push(
       this.watch.subscribe(this.invalidate),
       this.client.onLink(this.invalidate),
@@ -481,14 +481,14 @@ export class AppCollectionReadiness {
         const before = await this.inventory(signal, session, epoch);
         // A caller abort fences delivery without cancelling/removing the
         // original Session.call waiter before its reply. Keep that READ occupied.
-        const catalog = await this.client.describe(this.readSignal);
+        const catalog = await this.client.describe({ signal: this.readSignal });
         this.check(signal, session, epoch);
         const evaluation = this.evaluate(catalog, session);
         const fingerprint = catalogFingerprint(catalog);
         for (const path of evaluation.paths) {
           const expected = before.find((row) => row.path === path);
           if (!expected) throw error("changed");
-          const actual = await this.client.resources.get(path, this.readSignal);
+          const actual = await this.client.resources.get(path, { signal: this.readSignal });
           this.check(signal, session, epoch);
           if (
             actual.path !== expected.path ||

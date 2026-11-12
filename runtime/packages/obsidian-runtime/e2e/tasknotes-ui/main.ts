@@ -66,7 +66,7 @@ export default class LabTaskNotesUI extends TaskNotesPlugin {
         return write;
       };
       const port = {
-        find: (ref: any, include: any) => delegate.find(ref, include),
+        find: (ref: any, include: any) => delegate.find(ref, { include }),
         create: async (input: any, options: any) => {
           this.result.createdFixtures.push(input.path);
           try { return observe(await delegate.create(input, options)); }
@@ -166,7 +166,7 @@ export default class LabTaskNotesUI extends TaskNotesPlugin {
     this.result.editModalRendered = this.modal.containerEl.isConnected && editSave.offsetParent !== null;
     this.modal.close();
     this.result.stage = "sdk_and_vault_readback";
-    const record = await this.client.get({ path: task.path }, { body: true });
+    const record = await this.client.get({ path: task.path }, { include: { body: true } });
     const file = this.app.vault.getAbstractFileByPath(task.path);
     if (!(file instanceof TFile)) throw new Error("file_missing");
     const disk = await this.app.vault.read(file);

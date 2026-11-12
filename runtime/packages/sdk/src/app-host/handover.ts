@@ -60,7 +60,7 @@ export async function verifyAppHandover(options: AppHandoverOptions, signal: Abo
       try { return !signal.aborted && current() && hostedClient.hello === hosted && hostedClient.authenticatedDevice === authenticatedDevice; } catch { return false; }
     };
     if (!candidateCurrent() || !native()) return null;
-    const prefix = await localClient.appliedPrefix(captured.seq, signal); // current READ, SDK retry:false.
+    const prefix = await localClient.appliedPrefix(captured.seq, { signal }); // current READ, SDK retry:false.
     if (!candidateCurrent() || !native() || prefix.seq !== captured.seq || prefix.appliedThrough < captured.seq || prefix.chain !== captured.chain) return null;
     // Copy/freeze tuple: caller mutation of status/hello must not rewrite proof.
     const head = Object.freeze({ ...captured }); let disposed = false;

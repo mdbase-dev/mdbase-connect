@@ -85,7 +85,7 @@ describe("contract-scoped records", () => {
     expect(view.contract.type).toBe("card");
 
     const w = await client.update(view, { contract, patch: { label: "y" }, body: "final" });
-    const record = await client.get(view.id, { body: true });
+    const record = await client.get(view.id, { include: { body: true } });
     expect(record.frontmatter.meta).toEqual({ label: "y" });
     expect(record.body).toBe("final");
     expect(w.mutationId).toBeDefined();
@@ -101,12 +101,12 @@ describe("contract-scoped records", () => {
     });
     const client = await connect({ connector: replica.connector(), app });
     await client.create({ path: "drafts/m.md", frontmatter: { custom: 1 }, body: "text" });
-    const draft = await client.get({ path: "drafts/m.md" }, { body: true });
+    const draft = await client.get({ path: "drafts/m.md" }, { include: { body: true } });
     const refused = await client.update(draft, { contract, patch: { name: "M" } }).catch((e: unknown) => e);
     expect(isMdbaseError(refused) && refused.reason).toBe("data_contract_not_implemented");
 
     await client.update(draft, { contract, promote: true, patch: { name: "M" }, ifRevision: draft.revision });
-    const promoted = await client.get(draft.id, { body: true });
+    const promoted = await client.get(draft.id, { include: { body: true } });
     expect([promoted.id, promoted.body, promoted.types]).toEqual([draft.id, "text", ["card"]]);
     expect(promoted.frontmatter).toEqual({ custom: 1, title: "M", type: "card" });
     const view = await client.getContract(draft.id, contract);

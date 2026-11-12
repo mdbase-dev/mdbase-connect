@@ -89,7 +89,7 @@ const MAX_RENAME = 100;
 
 const intentOf = (source: string, record: string) => `unsynced/1\0${source}\0${record}`;
 async function present(destination: Destination, ref: string | {path: string}, signal: AbortSignal | undefined): Promise<RecordView | null> {
-  try { return await destination.get(ref, undefined, signal); }
+  try { return await destination.get(ref, {signal}); }
   catch (error) { if (isMdbaseError(error, "not_found")) return null; throw error; }
 }
 function renamed(path: string, n: number): string {
@@ -121,7 +121,7 @@ export async function planUnsyncedTransfer(source: Source, destination: Destinat
   const defined = new Set(described.types.map(t => t.name.toLowerCase()));
   const items: MdbaseTransferItem[] = [], inputs = new Map<string, CreateInput>(), claimed = new Set<string>(), missing = new Set<string>();
   let renames = 0;
-  for await (const page of source.pages({}, {body: true, document: true}, signal)) {
+  for await (const page of source.pages({}, {include: {body: true, document: true}, signal})) {
     for (const record of page.records) {
       signal?.throwIfAborted();
       let copyId: string | null = null;
@@ -165,7 +165,7 @@ export async function planUnsyncedTransfer(source: Source, destination: Destinat
       const type = own.get(name.toLowerCase());
       if (!type?.revision) continue;
       let text: string | undefined;
-      try { text = (await source.resources.get(type.path, signal)).text; }
+      try { text = (await source.resources.get(type.path, {signal})).text; }
       catch (error) { if (isMdbaseError(error, "not_found")) continue; throw error; }
       if (typeof text === "string") { types.set(type.name, text); missing.delete(name); }
     }

@@ -122,7 +122,7 @@ const db = await connect({
 const tasks = db.recordSet({ types: ["task"] });            // every task, kept current
 tasks.subscribe(() => render(tasks.getSnapshot()));
 
-const rec = await db.get(id, { body: true });
+const rec = await db.get(id, { include: { body: true } });
 const w = await db.update(rec, { patch: { status: "done" }, body: edited }); // base + body edits filled in
 w.records;                    // optimistic view now
 await w.confirmed;            // at a log position, or throws MdbaseError (15 codes)
@@ -926,15 +926,15 @@ coherent set restart. A native refusal is yielded once and ends the iteration.
 ## Persisted-record validation
 
 ```ts
-const seen = await db.get(id, { document: true }, signal);
-const [validation] = await db.validate([seen], signal);
+const seen = await db.get(id, { include: { document: true }, signal });
+const [validation] = await db.validate({ refs: [seen], signal });
 // validation.id/path/revision identify the actual document validated.
 for (const issue of validation.issues) {
   console.log(issue.severity, issue.code, issue.location, issue.message);
 }
 ```
 
-`validate(refs?, originalSignal?)` returns typed `RecordValidation[]` with real
+`validate({ refs?, signal? })` returns typed `RecordValidation[]` with real
 Core `ValidationIssue`s, including optional location/type name and diagnostic
 tier. UUID/path selections validate current native records; a `RecordView`
 selection also requires the result to match that captured view's revision.
@@ -961,15 +961,17 @@ a native peak-heap/CPU, app-intake or UI acceptance certificate.
 ## Shared read helpers
 
 ```ts
-const records = await db.readMany(refs, { effective: true }, signal, {
+const records = await db.readMany(refs, {
+  include: { effective: true },
+  signal,
   concurrency: 8,
 });
-for await (const page of db.queryPages(query, include, signal)) {
+for await (const page of db.queryPages(query, { include, signal })) {
   displayPage(page); // retains complete/asOf/diagnostics, not only records
 }
 ```
 
-`readMany(refs, include?, signal?, options?)` makes ordinary `get` calls and
+`readMany(refs, { include?, signal?, concurrency? })` makes ordinary `get` calls and
 returns genuine `RecordView` values in input order. Duplicate selections retain
 separate calls and output slots. Up to 1000 selections are allowed; concurrency
 is an integer 1..16 (default 8). Path selectors must be nonempty and at most
@@ -987,7 +989,7 @@ are not a peak-heap or returned-byte budget. Use explicit Include and bounded
 selections when hydrating bodies/documents. Multiple gets are **not a single
 native snapshot**; callers still check identity/source-revision witnesses.
 
-`queryPages(query, include?, signal?, options?)` delegates **exactly** to `pages`
+`queryPages(query, { include?, signal?, onReset? })` delegates **exactly** to `pages`
 and returns the same whole-page iterator. No records are flattened and no reset
 is added. Root exports `readMany(client, ...)`, `queryPages(client, ...)` and
 `ReadManyOptions` are also available.
@@ -1027,7 +1029,7 @@ Legacy Connect labels are not native feature names or negotiation aliases:
 | Legacy probe | Public SDK mapping | What it does **not** prove |
 |---|---|---|
 | `query-metadata-v1` (Reader and Writer discovery) | `query` / `queryPages` with canonical Core `select` and explicit Include; typed `QueryResult` / `RecordView.values`, columns and page metadata | No legacy `output: metadata` mode, metadata-only SQL/performance guarantee or native feature marker |
-| `read-many-documents-v1` (Reader hydration) | `readMany(refs, include, originalSignal)`; ordinary bounded `get` calls | No native bulk opcode, transaction or same-snapshot / shared-`asOf` proof |
+| `read-many-documents-v1` (Reader hydration) | `readMany(refs, { include, signal })`; ordinary bounded `get` calls | No native bulk opcode, transaction or same-snapshot / shared-`asOf` proof |
 | `query-record-revisions-v1` (legacy performance fixtures, not a Reader/Writer product probe) | Genuine mandatory `RecordView.id`, `.path` and `.revision` | No confirmed save, currentness after delivery, full edit base or draft/CAS authorization |
 
 Writer's legacy changed-path `readMany` call has no bulk-feature probe. The next
@@ -1087,7 +1089,7 @@ or key is sent to the metadata authority.
 
 ## Query cursor resets
 
-`pages(query, include?, signal?, options?)` repeats the original query with the
+`pages(query, { include?, signal?, onReset? })` repeats the original query with the
 replica's opaque cursor. By default, typed `invalid_request/fix_request` reasons
 `cursor_expired` and `cursor_stale` are thrown unchanged. There is no offset
 fallback or automatic mixing of already-yielded pages with a fresh query.
@@ -1096,7 +1098,9 @@ To opt in to **one restart per iterator**, clear your accumulated/displayed
 paging state in the awaited `onReset` callback:
 
 ```ts
-for await (const page of db.pages(query, include, signal, {
+for await (const page of db.pages(query, {
+  include,
+  signal,
   onReset: async ({ reason, pagesYielded, signal }) => {
     await clearDisplayedPages(); // completes BEFORE the fresh first-page RPC
   },
