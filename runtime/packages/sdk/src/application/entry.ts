@@ -1,5 +1,5 @@
 import {applicationDeclaration,rebindApplicationDeclaration,type ApplicationDeclarationSnapshot,type MdbaseApplicationDeclaration} from "./declaration.js";
-import {describeDiagnostic} from "../describe-error.js";
+import {describeDiagnostic,type DescribeErrorOptions} from "../describe-error.js";
 import {currentAppOrigin,isAppOrigin,urlOrigin} from "../app-host/app-origin.js";
 import {compileApplicationManifest} from "./manifest.js";
 import {declaredReturnUrl} from "./return-url.js";
@@ -149,6 +149,10 @@ export interface MdbaseConnectOptions {
    * finishes sending pending writes (for at most two minutes). Default true;
    * false leaves `setForeground` to the app. */
   readonly followVisibility?:boolean;
+  /** Copy for `phase.problem` and the signed-out notice in the person's
+   * language: replacement `title`, `message` and `actionLabel` by problem key,
+   * as `describeError` takes them. A key left out keeps the English copy. */
+  readonly messages?:DescribeErrorOptions["messages"];
   /** Readiness policy. `typeIssues: "degrade"` keeps the collection ready when
    * one of the app's own types has an error-level definition issue, and lists
    * it in `readiness.assessment.unavailableTypes`; the app must then treat
@@ -303,9 +307,9 @@ const noSelection:ApplicationCollectionSelectionSnapshot=Object.freeze({state:"n
 /** Honest shell where the SDK cannot host its own module Worker (SSR, Node,
  * non-browser tests, non-web origins). Performs no registration, key, Worker,
  * storage, network or popup IO and never returns a fake client/READY state. */
-function unavailableApplication():MdbaseApplication{
+function unavailableApplication(messages:DescribeErrorOptions["messages"]):MdbaseApplication{
   const base={status:"blocked" as const,signIn:null,collections:Object.freeze([]),selectedCollectionId:null,problem:problem.code,timing:null,readiness,selection:noSelection};
-  const snapshot:MdbaseApplicationSnapshot=Object.freeze({...base,phase:applicationPhase(base),sync:null,writes:null,links:null});
+  const snapshot:MdbaseApplicationSnapshot=Object.freeze({...base,phase:applicationPhase(base,messages?{messages}:{}),sync:null,writes:null,links:null});
   const refuse=()=>Promise.reject(unavailable());
   return Object.freeze({getSnapshot:()=>snapshot,subscribe:()=>()=>{},start:refuse,authorize:refuse,select:refuse,approve:refuse,reauthorize:refuse,refreshCollectionList:refuse,requestAccess:refuse,chooseAnother:refuse,
     assess:refuse,configure:refuse,setup:Object.freeze({plan:refuse,apply:refuse}),clearSelection:refuse,forget:refuse,deleteCollection:refuse,unlock:refuse,setForeground(){throw unavailable();},close:refuse,signOut:refuse});
@@ -377,6 +381,7 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
   /** Bumped by state outside base/selection: the slow-opening timer and sync. */
   private revision=0;
   private readonly links:MdbaseLinks|null=null;private readonly cpOrigin:string|null=null;
+  private readonly messages:DescribeErrorOptions["messages"];
   private opening:{readonly id:string;slow:boolean;timer:ReturnType<typeof setTimeout>}|null=null;
   private syncing:{readonly id:string;readonly stop:()=>void;status:SyncStatus|null;writes:()=>WriteLedgerSnapshot|null}|null=null;
   /** On-device storage policy for this origin; null where it cannot be read. */
@@ -399,9 +404,9 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
     this.typeIssues=typeIssues;this.unsyncedFirst=options.unsynced===true;
     if(options.urlSelection!==undefined&&typeof options.urlSelection!=="boolean")throw new TypeError("urlSelection must be a boolean");
     if(options.worker!==undefined&&typeof options.worker!=="function")throw new TypeError("worker must be a function");
-    this.createWorker=options.worker??null;
+    this.createWorker=options.worker??null;this.messages=options.messages;
     this.signIn=signInOpener(options.signIn,this.declaration);
-    if(!browserHost(this.declaration.origin)){this.app=unavailableApplication();return;}
+    if(!browserHost(this.declaration.origin)){this.app=unavailableApplication(options.messages);return;}
     try{const cp=this.environment().cpOrigin;this.cpOrigin=cp;this.hint=applicationSessionHint(this.declaration.storage.applicationNamespace,cp);this.forgotten=applicationForgotten(this.declaration.storage.applicationNamespace,cp);this.links=Object.freeze({account:`${cp}/account`,manageAccess:`${cp}/account/applications`});}catch{/* no links where the environment is unknown */}
     if(options.followVisibility!==false)this.followVisibility();
     this.followPageLifecycle();this.followFocus();this.followStoragePolicy();
@@ -530,7 +535,7 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
       ?Object.freeze({...shown,collections:Object.freeze(shown.collections.filter(c=>!hidden.has(c.collectionId)||c.collectionId===shown.selectedCollectionId))}):shown;
     const id=base.selectedCollectionId,connection=id&&!this.closed?this.privates?.connection(id)??this.runtime?.connection(id)??null:null;
     const openingUnsynced=this.unsyncedOpening>0&&!base.unsynced&&!base.signOutResult&&selection.requested.collectionId===null;
-    let phase=applicationPhase({...base,selection},{connection,previous:last?.value.phase??null,openingUnsynced,startPending:this.selection?.startPending()??false,...(this.cpOrigin?{cpOrigin:this.cpOrigin}:{})});
+    let phase=applicationPhase({...base,selection},{connection,previous:last?.value.phase??null,openingUnsynced,startPending:this.selection?.startPending()??false,...(this.cpOrigin?{cpOrigin:this.cpOrigin}:{}),...(this.messages?{messages:this.messages}:{})});
     phase=this.trackOpening(phase);this.timing.observe(phase);
     const sync=this.trackSync(phase,base.problem,base.transport??null,base.live??null);
     const writes=this.syncing?.writes()??null;

@@ -81,6 +81,19 @@ describe("worker option",()=>{
     expect(FakeWorker.all[0]!.bootstrap.slice(3)).toEqual(["vault-a",workerUrl]);
   });
 
+  it("describes a problem in the app's own words, and keeps the English copy for what it leaves out",async()=>{
+    const messages={application_worker_unavailable:{title:"Impossible de démarrer"}};
+    const app=new MdbaseConnect(declaration,{messages,worker:()=>{throw new Error("no blob Worker here");}}).application();
+    await expect(app.start()).rejects.toMatchObject({reason:"application_worker_unavailable"});
+    const phase=app.getSnapshot().phase!;
+    expect(phase).toMatchObject({kind:"unavailable",problem:{key:"application_worker_unavailable",title:"Impossible de démarrer"}});
+    const english=new MdbaseConnect(declaration,{worker:()=>{throw new Error("no blob Worker here");}}).application();
+    await expect(english.start()).rejects.toThrow();
+    const plain=english.getSnapshot().phase!;
+    if(phase.kind!=="unavailable"||plain.kind!=="unavailable")throw Error("expected the unavailable phase");
+    expect(plain.problem.title).not.toBe(phase.problem.title);expect(phase.problem.message).toBe(plain.problem.message);
+  });
+
   it.each([
     ["throws",()=>{throw new Error("no blob Worker here");}],
     ["returns no Worker",()=>({postMessage(){}})],
