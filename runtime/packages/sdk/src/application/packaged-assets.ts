@@ -15,8 +15,11 @@ const unavailable = () => mdbaseError("unavailable", "SDK packaged application a
 
 /** Private SDK selector, not an application configuration callback. UI and
  * Worker use the same ESM artifact anchor. Selection performs no IO, storage,
- * Worker construction, dynamic imports or WASM initialization. */
-export function packagedApplicationAssets(environment:"lab"|"staging"|"production"|"local",appOrigin:string):PackagedApplicationNativeAssets {
+ * Worker construction, dynamic imports or WASM initialization.
+ * `anchor` is the URL a host-constructed Worker (the `worker` option) stands
+ * for: its own module URL is then a `blob:` URL with nothing beside it. The
+ * anchor gets the same origin checks, and the assets the same pins. */
+export function packagedApplicationAssets(environment:"lab"|"staging"|"production"|"local",appOrigin:string,anchor?:string):PackagedApplicationNativeAssets {
   if(!applicationEnvironmentAllowed(environment))throw unavailable();
   const release=appReleaseTrust();
   selectAppEnvironment({environment,appOrigin,release});
@@ -27,10 +30,10 @@ export function packagedApplicationAssets(environment:"lab"|"staging"|"productio
     // A development server names this module with a cache-busting query
     // (Vite's `?v=`). The assets resolve beside it without that query, and their
     // bytes are checked against the pins, so the query is not part of the anchor.
-    const module=new URL(import.meta.url);
+    const module=new URL(anchor??import.meta.url);
     if(urlOrigin(module)!==appOrigin||module.username||module.password)throw unavailable();
-    runtimeUrl=new URL("../native/runtime.wasm",import.meta.url);
-    sqliteUrl=new URL("../native/sqlite3.wasm",import.meta.url);
+    runtimeUrl=anchor===undefined?new URL("../native/runtime.wasm",import.meta.url):new URL("../native/runtime.wasm",module);
+    sqliteUrl=anchor===undefined?new URL("../native/sqlite3.wasm",import.meta.url):new URL("../native/sqlite3.wasm",module);
     if(urlOrigin(runtimeUrl)!==appOrigin||urlOrigin(sqliteUrl)!==appOrigin)throw unavailable();
   } catch { throw unavailable(); }
   const descriptor=(url:URL,pin:Pick<ApplicationAsset,"sha256"|"bytes"|"maxBytes">):ApplicationAsset=>Object.freeze({url:url.href,...pin});
@@ -41,7 +44,7 @@ export function packagedApplicationAssets(environment:"lab"|"staging"|"productio
     // after createAppCollectionSql has authenticated the supplied WASM bytes.
     // It is an emitted asset loaded by URL, never followed by a bundler: its
     // unused promiser default Worker script is not shipped.
-    const initializer=new URL("../native/sqlite3.js",import.meta.url);
+    const initializer=anchor===undefined?new URL("../native/sqlite3.js",import.meta.url):new URL("../native/sqlite3.js",anchor);
     const {default:initialize}=await import(/* @vite-ignore */ /* webpackIgnore: true */ initializer.href) as typeof import("../native/sqlite3.js");
     // Collection SQL explicitly uses SAH-pool. Skip the two unused VFSes
     // which otherwise probe an async proxy Worker that this SDK does not ship.

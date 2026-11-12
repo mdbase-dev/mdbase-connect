@@ -41,6 +41,22 @@ it("passes only the declaration namespace to the original Worker session",async(
   await vi.waitFor(()=>expect(state.constructed).toHaveBeenCalledOnce());
   expect(state.constructed.mock.calls[0]!.at(-1)).toBe("vault-a");
 });
+it.each([
+  ["beside its own module by default",[],undefined],
+  ["beside the URL a host-constructed Worker stands for",[null,"https://app.test/sdk/application/worker.js"],"https://app.test/sdk/application/worker.js"],
+])("selects the packaged assets %s",async(_name,rest,anchor)=>{
+  const {packagedApplicationAssets}=await import("../src/application/packaged-assets.js");vi.mocked(packagedApplicationAssets).mockClear();
+  await import("../src/application/worker.js");
+  events.dispatchEvent(new MessageEvent("message",{data:[APPLICATION_WORKER_PROTOCOL,binding,declaration,...rest],ports:[channel().port1]}));
+  await vi.waitFor(()=>expect(state.constructed).toHaveBeenCalledOnce());
+  expect(packagedApplicationAssets).toHaveBeenCalledExactlyOnceWith("lab","https://app.test",anchor);
+});
+it("refuses a host Worker URL that is not a string before constructing the Worker host",async()=>{
+  const rest=[null,new URL("https://app.test/sdk/application/worker.js")];
+  await import("../src/application/worker.js");const c=channel(),reply=new Promise<unknown>(resolve=>{c.port2.addEventListener("message",event=>resolve(event.data));c.port2.start();});
+  events.dispatchEvent(new MessageEvent("message",{data:[APPLICATION_WORKER_PROTOCOL,binding,declaration,...rest],ports:[c.port1]}));
+  await expect(reply).resolves.toEqual([APPLICATION_WORKER_PROTOCOL,binding,"fatal",0,{code:"application_worker_binding"}]);expect(state.constructed).not.toHaveBeenCalled();
+});
 it("refuses a substituted namespace before constructing the Worker host",async()=>{
   await import("../src/application/worker.js");const c=channel(),reply=new Promise<unknown>(resolve=>{c.port2.addEventListener("message",event=>resolve(event.data));c.port2.start();});
   events.dispatchEvent(new MessageEvent("message",{data:[APPLICATION_WORKER_PROTOCOL,binding,{...declaration,storage:{applicationNamespace:"vault-a"}},"vault-b"],ports:[c.port1]}));

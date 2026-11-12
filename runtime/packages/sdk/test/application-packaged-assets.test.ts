@@ -53,6 +53,23 @@ describe("SDK packaged application assets",()=>{
     expect(assets.runtime.url).toBe("http://localhost:5173/node_modules/@mdbase-dev/sdk/dist/native/runtime.wasm");
     expect(assets.sqlite.url).toBe("http://localhost:5173/node_modules/@mdbase-dev/sdk/dist/native/sqlite3.wasm");
   });
+  it("a host-constructed Worker selects the pinned assets beside the URL it stands for, not beside its blob: module",async()=>{
+    const select=await selector("blob:http://localhost/0b6e6f3c-7f8e-4a43-9d0a-5c1e2f3a4b5c");
+    // Its own module URL has nothing beside it: refused as today.
+    expect(()=>select("lab","http://localhost")).toThrow("SDK packaged application assets unavailable");
+    const assets=select("lab","http://localhost","http://localhost/_capacitor_file_/storage/vault/.obsidian/plugins/mdbase/engine/sdk/application/worker.js");
+    expect(assets.runtime).toEqual({url:"http://localhost/_capacitor_file_/storage/vault/.obsidian/plugins/mdbase/engine/sdk/native/runtime.wasm",sha256:pins.runtime.sha256,bytes:pins.runtime.bytes,maxBytes:pins.runtime.maxBytes});
+    expect(assets.sqlite).toEqual({url:"http://localhost/_capacitor_file_/storage/vault/.obsidian/plugins/mdbase/engine/sdk/native/sqlite3.wasm",sha256:pins.sqlite.sha256,bytes:pins.sqlite.bytes,maxBytes:pins.sqlite.maxBytes});
+  });
+  it.each([
+    ["a foreign origin","https://foreign.test/sdk/application/worker.js"],
+    ["credentials","https://user:secret@app.test/sdk/application/worker.js"],
+    ["a blob: URL","blob:https://app.test/0b6e6f3c-7f8e-4a43-9d0a-5c1e2f3a4b5c"],
+    ["no URL","worker.js"],
+  ])("refuses a host Worker URL with %s",async(_name,anchor)=>{
+    const select=await selector("https://app.test/sdk/application/packaged-assets.js");
+    expect(()=>select("lab","https://app.test",anchor)).toThrow("SDK packaged application assets unavailable");
+  });
   it("refuses a module anchor that carries credentials",async()=>{const select=await selector("https://user:secret@app.test/sdk/application/packaged-assets.js");expect(()=>select("lab","https://app.test")).toThrow();});
   it("refuses a foreign module anchor",async()=>{const select=await selector("https://foreign.test/sdk/application/a.js");expect(()=>select("lab","https://app.test")).toThrow();});
   it("selector uses the canonical packaging pins without exposing build provenance or initializer metadata",async()=>{

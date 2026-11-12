@@ -164,6 +164,21 @@ export interface MdbaseConnectOptions {
    * collection (`phase.kind === "unsynced"`): saved only in this browser,
    * never listed in `collections`. Default false. */
   readonly unsynced?:boolean;
+  /** Keep the requested collection in the page URL (`?collection=<id>`): a
+   * link or reload opens it, and Back/forward switch collections. Default
+   * true; false for a page with no URL of its own, such as a `blob:` document
+   * embedded in another app. The URL is then never read or written, and the
+   * app chooses with `select`, `approve` and `clearSelection`. */
+  readonly urlSelection?:boolean;
+  /** Construct the SDK's module Worker yourself, where the page cannot load
+   * it by URL as a secure context (for example a `blob:` document inside a
+   * mobile WebView). Called with the URL the SDK would load; return a module
+   * Worker that runs that script's exact bytes, such as one from a `blob:`
+   * URL of them. The Worker still loads the native assets from beside that
+   * URL and checks them against the SDK's pins. A factory that throws or
+   * returns no Worker fails with `application_worker_unavailable`. Default:
+   * `new Worker(url, {type: "module"})`. */
+  readonly worker?:(url:string)=>Worker;
 }
 export interface MdbaseApplicationConnection {
   readonly id:string;
@@ -295,6 +310,10 @@ function unavailableApplication():MdbaseApplication{
   return Object.freeze({getSnapshot:()=>snapshot,subscribe:()=>()=>{},start:refuse,authorize:refuse,select:refuse,approve:refuse,reauthorize:refuse,refreshCollectionList:refuse,requestAccess:refuse,chooseAnother:refuse,
     assess:refuse,configure:refuse,setup:Object.freeze({plan:refuse,apply:refuse}),clearSelection:refuse,forget:refuse,deleteCollection:refuse,unlock:refuse,setForeground(){throw unavailable();},close:refuse,signOut:refuse});
 }
+/** A host factory's Worker may come from another realm (a parent document's
+ * `Worker`), so it is checked by shape rather than `instanceof`. */
+const isWorker=(value:unknown):value is Worker=>typeof value==="object"&&value!==null&&
+  ["postMessage","terminate","addEventListener","removeEventListener"].every(name=>typeof (value as Record<string,unknown>)[name]==="function");
 const browserHost=(origin:string)=>typeof Worker==="function"&&typeof MessageChannel==="function"&&currentAppOrigin()!==null&&isAppOrigin(origin);
 function signInOpener(value:MdbaseSignInOpener|undefined,declaration:ApplicationDeclarationSnapshot):MdbaseSignInOpener|null{
   if(value===undefined)return null;
@@ -335,8 +354,9 @@ function selectionMemory(namespace:string):ApplicationSelectionMemory{
  * Declaration-only public entry. Construction is IO-free; SDK registration,
  * same-artifact Worker and original profile/SQL start lazily on the first
  * action. The URL names the requested collection; sign-in approval decides what
- * opens. No app factories, private authority hooks, replacement actors or
- * transport-only READY. */
+ * opens. No private authority hooks, replacement actors or transport-only
+ * READY: a host's `worker` factory only constructs the SDK's own Worker, which
+ * checks its bootstrap and assets as always. */
 export class MdbaseConnect implements MdbaseApplicationEntry {
   private readonly app:MdbaseApplication;private readonly declaration:Readonly<ApplicationDeclarationSnapshot>;
   private readonly compiled:ReturnType<typeof compileApplicationManifest>;
@@ -363,6 +383,7 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
   private storagePolicy:AppStoragePolicy|null=null;
   private pendingSave:{readonly id:string;readonly since:number;timer:ReturnType<typeof setTimeout>|null}|null=null;
   private readonly signIn:MdbaseSignInOpener|null;private readonly typeIssues:"block"|"degrade";
+  private readonly createWorker:((url:string)=>Worker)|null;
   /** SDK-10: this tab's Private collections (page-side thin clients, never the Worker). */
   private readonly privates:ApplicationPrivateCollections|null=null;
   /** Open the unsynced collection when started signed out; tried once per start. */
@@ -376,6 +397,9 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
     const typeIssues=options.readiness?.typeIssues??"block";
     if(typeIssues!=="block"&&typeIssues!=="degrade")throw new TypeError('readiness.typeIssues must be "block" or "degrade"');
     this.typeIssues=typeIssues;this.unsyncedFirst=options.unsynced===true;
+    if(options.urlSelection!==undefined&&typeof options.urlSelection!=="boolean")throw new TypeError("urlSelection must be a boolean");
+    if(options.worker!==undefined&&typeof options.worker!=="function")throw new TypeError("worker must be a function");
+    this.createWorker=options.worker??null;
     this.signIn=signInOpener(options.signIn,this.declaration);
     if(!browserHost(this.declaration.origin)){this.app=unavailableApplication();return;}
     try{const cp=this.environment().cpOrigin;this.cpOrigin=cp;this.hint=applicationSessionHint(this.declaration.storage.applicationNamespace,cp);this.forgotten=applicationForgotten(this.declaration.storage.applicationNamespace,cp);this.links=Object.freeze({account:`${cp}/account`,manageAccess:`${cp}/account/applications`});}catch{/* no links where the environment is unknown */}
@@ -383,7 +407,7 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
     this.followPageLifecycle();this.followFocus();this.followStoragePolicy();
     this.memory=selectionMemory(this.declaration.storage.applicationNamespace);
     if(options.privateCollections!==false)this.privates=new ApplicationPrivateCollections({declaration:this.declaration,onChange:()=>{this.revision++;this.notify();}});
-    this.selection=new ApplicationCollectionSelection({browser:new ApplicationBrowserSelection(this.declaration.origin,{},browserApplicationSelectionPort()),
+    this.selection=new ApplicationCollectionSelection({browser:new ApplicationBrowserSelection(this.declaration.origin,{},options.urlSelection===false?null:browserApplicationSelectionPort()),
       session:this.selectionSession(),memory:this.memory});
     this.selection.subscribe(()=>{this.unforgetApproved();this.notify(false);});
     const view=()=>this.getSnapshot();
@@ -705,10 +729,16 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
       if(role.kind==="follower")return install(new ApplicationRuntime({declaration,compiledManifest:this.compiled,typeIssues:this.typeIssues,cpOrigin:environment.cpOrigin,port:role.port,binding:role.binding,releaseWorker:()=>role.leave(),nativeAuthorization:(call,portal,signal)=>this.nativeAuthorization(call,portal,signal)}));
       const channel=new MessageChannel(),binding=crypto.randomUUID();let worker:Worker;
       // Literal module-relative form so app bundlers emit the SDK Worker chunk.
-      try{worker=new Worker(new URL("./worker.js",import.meta.url),{type:"module"});}catch{tabs?.resign();channel.port1.close();channel.port2.close();throw mdbaseError("unavailable","Application Worker construction unavailable","application_worker_unavailable");}
+      // A host-constructed Worker stands for the script beside this module, and
+      // is told that URL to load the native assets beside it.
+      const create=this.createWorker,hosted=create?new URL("./worker.js",moduleUrl).href:null;
+      try{
+        if(!create)worker=new Worker(new URL("./worker.js",import.meta.url),{type:"module"});
+        else{worker=create(hosted!);if(!isWorker(worker))throw new TypeError("not a Worker");}
+      }catch{tabs?.resign();channel.port1.close();channel.port2.close();throw mdbaseError("unavailable","Application Worker construction unavailable","application_worker_unavailable");}
       const failed=(event:Event)=>{event.preventDefault();channel.port1.dispatchEvent(new MessageEvent("messageerror"));tabs?.fault();};worker.addEventListener("error",failed);
       const runtime=new ApplicationRuntime({declaration,compiledManifest:this.compiled,typeIssues:this.typeIssues,cpOrigin:environment.cpOrigin,port:channel.port1,binding,releaseWorker:()=>{worker.removeEventListener("error",failed);worker.terminate();tabs?.resign();},nativeAuthorization:(call,portal,signal)=>this.nativeAuthorization(call,portal,signal)});
-      try{worker.postMessage([APPLICATION_WORKER_PROTOCOL,binding,declaration,...(storageNamespace===null?[]:[storageNamespace])],[channel.port2]);}catch{
+      try{worker.postMessage([APPLICATION_WORKER_PROTOCOL,binding,declaration,...(hosted!==null?[storageNamespace,hosted]:storageNamespace===null?[]:[storageNamespace])],[channel.port2]);}catch{
         // No startup request was accepted; the original bootstrap transfer failed.
         worker.removeEventListener("error",failed);worker.terminate();tabs?.resign();channel.port1.close();channel.port2.close();throw mdbaseError("unavailable","Application bootstrap unavailable","application_worker_binding");
       }

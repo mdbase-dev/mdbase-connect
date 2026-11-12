@@ -155,7 +155,7 @@ jobs:
           npm ci --prefix tools/browser-smokes --no-audit --no-fund
           npm exec --prefix tools/browser-smokes -- playwright install --with-deps chromium
           node --test packages/sdk/scripts/prepare-app-handover-fixture.node-test.mjs
-          for smoke in app-storage app-sqlite app-owner keys-mv3 app-private-persistence app-cloud-copy-outcome; do
+          for smoke in app-storage app-sqlite app-owner keys-mv3 app-private-persistence app-cloud-copy-outcome app-embedded-host; do
             timeout 120s node "packages/sdk/scripts/$smoke-smoke.mjs"
           done
       - name: bundle boundaries

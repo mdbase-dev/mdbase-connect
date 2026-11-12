@@ -56,9 +56,9 @@ export function buildLocalApplication({stackConfig, verifier, runtimeFile, outpu
     fs.writeFileSync(path.join(output, 'src/application/asset-pins.json'), JSON.stringify(pins, null, 2) + '\n');
     const assetPath = path.join(output, 'src/application/packaged-assets.ts');
     const selector = fs.readFileSync(assetPath, 'utf8');
-    const anchor = 'new URL("../native/runtime.wasm",import.meta.url)';
-    if (selector.split(anchor).length !== 2) throw refuse();
-    fs.writeFileSync(assetPath, selector.replace(anchor, 'new URL("../native/runtime-local.wasm",import.meta.url)'));
+    // Both the bundler literal and a host-constructed Worker's form name it.
+    if (selector.split('new URL("../native/runtime.wasm",import.meta.url)').length !== 2) throw refuse();
+    fs.writeFileSync(assetPath, selector.replaceAll('"../native/runtime.wasm"', '"../native/runtime-local.wasm"'));
     const native = path.join(output, 'src/native');
     fs.mkdirSync(native, {recursive: true});
     fs.writeFileSync(path.join(native, 'runtime-local.wasm'), runtime);
