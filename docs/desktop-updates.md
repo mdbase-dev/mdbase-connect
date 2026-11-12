@@ -6,10 +6,20 @@ daemon on its own and never mixes binaries from different releases.
 
 ## Trust and discovery
 
-The desktop checks the GitHub Releases API for its channel:
+The desktop checks the GitHub releases for its channel:
 
 - prerelease application versions use the `beta` channel;
 - versions without a prerelease suffix use the `stable` channel.
+
+It does not use GitHub's REST API, whose unauthenticated limit of 60 requests
+an hour is shared by everything behind the same public IP. One git
+protocol-v2 `ls-refs` request lists the repository's version tags; the desktop
+then fetches the channel document from each tag's release download URL, newest
+version first and a few at a time. A tag without a published release (other
+trains tag versions too) answers 404 and is skipped. The first tag whose signed
+document verifies is the channel's latest release, because the document's
+version must equal its tag's. The first automatic check runs 30 seconds after
+launch, without waiting for the daemon to start, and then every six hours.
 
 Every release contains a frozen updater bootstrap for two generations:
 

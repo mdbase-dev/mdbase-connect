@@ -50,6 +50,21 @@ test("status, start, install and readiness failures remain failures", async () =
   }
 });
 
+test("a service-manager failure names the failing call instead of only its exit code", async () => {
+  // As on a Linux system without a user systemd session (#1283).
+  const message = "`systemctl --user daemon-reload` failed (exit status: 1): Failed to connect to bus: No medium found";
+  const failed = { exitCode: 1, value: { error: { code: "unavailable", reason: "service_manager_failed", message } } };
+  await assert.rejects(ensureNextDaemon(runner([{ exitCode: 0, value: { registration: "absent" } }, failed]).run, version),
+    { message: `mdbase service install failed: ${message}` });
+  await assert.rejects(ensureNextDaemon(runner([{ exitCode: 0, value: { ...ready(), readiness: null } }, failed]).run, version),
+    { message: `mdbase service start failed: ${message}` });
+  await assert.rejects(ensureNextDaemon(runner([failed]).run, version),
+    { message: `mdbase service status failed: ${message}` });
+  // Without the CLI's JSON error, only the exit code is known.
+  await assert.rejects(ensureNextDaemon(runner([{ exitCode: 0, value: { registration: "absent" } }, { exitCode: 1, value: null }]).run, version),
+    { message: "mdbase service install failed (exit 1)." });
+});
+
 test("a swapped-in bundle that does not become ready is rolled back to mdbase.previous", async () => {
   const previous = "0.1.9";
   const { run, calls } = runner([

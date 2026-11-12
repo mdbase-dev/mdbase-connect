@@ -43,10 +43,19 @@ interface ServiceStatus {
   readiness?: { ready?: unknown; binary_version?: unknown } | null;
 }
 
+/**
+ * A failed `mdbase service` command, with the CLI's own error message when it
+ * printed one: for example, which service-manager call failed and why.
+ */
+function serviceFailure(command: string, result: CliResult): Error {
+  const error = result.value?.error as { message?: unknown } | undefined;
+  return new Error(typeof error?.message === "string" && error.message
+    ? `mdbase service ${command} failed: ${error.message}`
+    : `mdbase service ${command} failed (exit ${result.exitCode}).`);
+}
+
 function serviceStatus(result: CliResult, command: string): ServiceStatus {
-  if (result.exitCode !== 0 && result.exitCode !== 3) {
-    throw new Error(`mdbase service ${command} failed (exit ${result.exitCode}).`);
-  }
+  if (result.exitCode !== 0 && result.exitCode !== 3) throw serviceFailure(command, result);
   if (!result.value) throw new Error(`mdbase service ${command} returned no status.`);
   return result.value as unknown as ServiceStatus;
 }
@@ -93,7 +102,7 @@ export async function ensureNextDaemon(
       (atLeast(version, bundledVersion) || options.heldBack === bundledVersion)) {
     if (status.readiness === null || status.readiness === undefined) {
       const started = await run(["--json", "service", "start"]);
-      if (started.exitCode !== 0) throw new Error(`mdbase service start failed (exit ${started.exitCode}).`);
+      if (started.exitCode !== 0) throw serviceFailure("start", started);
       if (!healthy(started.value, version)) {
         throw new Error("The installed mdbase daemon did not become ready after starting.");
       }
@@ -125,15 +134,9 @@ export async function ensureNextDaemon(
 
 async function installBundled(run: CliRunner, bundledVersion: string): Promise<NextDaemonOutcome> {
   const installed = await run(["--json", "service", "install"]);
-  if (installed.exitCode !== 0) {
-    throw new Error(
-      installed.exitCode === 2
-        ? "mdbase refused to install its service for this profile."
-        : installed.exitCode === 3
-          ? "The mdbase daemon was installed but did not become ready."
-          : `mdbase service install failed (exit ${installed.exitCode}).`
-    );
-  }
+  if (installed.exitCode === 2) throw new Error("mdbase refused to install its service for this profile.");
+  if (installed.exitCode === 3) throw new Error("The mdbase daemon was installed but did not become ready.");
+  if (installed.exitCode !== 0) throw serviceFailure("install", installed);
   if (!healthy(installed.value, bundledVersion)) {
     throw new Error("The mdbase daemon did not report a healthy installation of the bundled version.");
   }

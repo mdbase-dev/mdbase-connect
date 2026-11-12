@@ -5,11 +5,12 @@ import {
   channelForVersion,
   compareVersions,
   parseUpdateManifest,
+  TAG_PATTERN,
   type UpdateChannel,
   type UpdateManifest
 } from "./update-policy";
 
-const GITHUB_API = "https://api.github.com";
+const GITHUB = "https://github.com";
 const REPOSITORY = "mdbase-dev/mdbase-connect";
 const WORKFLOW_IDENTITY_PREFIX =
   "https://github.com/mdbase-dev/mdbase-connect/.github/workflows/desktop-release.yml@refs/tags/";
@@ -19,27 +20,23 @@ const OIDC_ISSUER = "https://token.actions.githubusercontent.com";
 // in separately versioned assets.
 const MANIFEST_NAME = "mdbase-connect-channel-v1.json";
 const MANIFEST_BUNDLE_NAME = `${MANIFEST_NAME}.sigstore.json`;
-const MAX_RELEASE_INDEX_BYTES = 2 * 1024 * 1024;
-const RELEASES_PER_PAGE = 10;
-const MAX_RELEASE_PAGES = 100;
+// Release tags come from the repository's git refs, not GitHub's REST API: an
+// unauthenticated client shares 60 REST requests an hour with everything else
+// behind its public IP. One protocol-v2 `ls-refs` request lists every version
+// tag, and release assets download from release URLs that the REST limit does
+// not count.
+const TAG_INDEX_URL = `${GITHUB}/${REPOSITORY}.git/git-upload-pack`;
+const TAG_PREFIX = "refs/tags/";
+const TAG_INDEX_REQUEST =
+  `${pktLine("command=ls-refs\n")}${pktLine("object-format=sha1\n")}0001${pktLine(`ref-prefix ${TAG_PREFIX}v\n`)}0000`;
+const MAX_TAG_INDEX_BYTES = 1024 * 1024;
+// Most version tags have no desktop release (other trains tag them too), so
+// manifests are probed a few at a time, newest first.
+const MANIFEST_PROBE_BATCH = 8;
 const MAX_MANIFEST_BYTES = 1024 * 1024;
 const MAX_BUNDLE_BYTES = 4 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 15_000;
 const responseTimeouts = new WeakMap<Response, ReturnType<typeof setTimeout>>();
-
-interface GitHubAsset {
-  name: string;
-  browser_download_url: string;
-  size: number;
-}
-
-interface GitHubRelease {
-  draft: boolean;
-  prerelease: boolean;
-  tag_name: string;
-  html_url: string;
-  assets: GitHubAsset[];
-}
 
 export interface ReleaseCandidate {
   manifest: UpdateManifest;
@@ -63,95 +60,134 @@ export interface ReleaseSourceOptions {
   ) => Promise<void>;
 }
 
+/**
+ * The highest version on `channel` with valid signed update metadata. Tags are
+ * tried newest first and the first one that verifies wins: the signed manifest's
+ * version is its tag's, so no lower tag can beat it. A tag without a published
+ * release is skipped; a release whose metadata fails is rejected without
+ * preventing an older valid one from being found.
+ */
 export async function findLatestRelease(options: ReleaseSourceOptions): Promise<ReleaseCandidate | null> {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const releases = await fetchReleaseIndex(fetchImpl, options.signal);
-  const matching = releases.filter(
-    (release) =>
-      !release.draft &&
-      (options.channel === "beta" ? release.prerelease : !release.prerelease) &&
-      /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(release.tag_name)
-  );
-  let best: ReleaseCandidate | null = null;
+  const tags = (await fetchReleaseTags(fetchImpl, options.signal))
+    .filter((tag) => channelForVersion(tag.slice(1)) === options.channel)
+    .sort((left, right) => compareVersions(right.slice(1), left.slice(1)));
   const rejected: Error[] = [];
-  for (const release of matching) {
+  const reject = (tag: string, error: unknown) => {
     options.signal?.throwIfAborted();
-    const manifestAsset = release.assets.find((asset) => asset.name === MANIFEST_NAME);
-    const bundleAsset = release.assets.find((asset) => asset.name === MANIFEST_BUNDLE_NAME);
-    if (!manifestAsset || !bundleAsset) continue;
-    try {
-      const [manifestResponse, bundleResponse] = await Promise.all([
-        request(fetchImpl, manifestAsset.browser_download_url, options.signal),
-        request(fetchImpl, bundleAsset.browser_download_url, options.signal)
-      ]);
-      const [manifestBytes, bundleBytes] = await Promise.all([
-        readLimited(manifestResponse, MAX_MANIFEST_BYTES),
-        readLimited(bundleResponse, MAX_BUNDLE_BYTES)
-      ]);
-      options.signal?.throwIfAborted();
-      const identity = `${WORKFLOW_IDENTITY_PREFIX}${release.tag_name}`;
-      const verifyBundle = options.verifyBundle ?? ((bundle, payload, signer, cache) =>
-        verifyReleaseBundle(bundle, payload, signer, cache, options.signal));
-      await verifyBundle(
-        JSON.parse(bundleBytes.toString("utf8")),
-        manifestBytes,
-        identity,
-        options.trustCacheDirectory
-      );
-      options.signal?.throwIfAborted();
-      const manifest = parseUpdateManifest(JSON.parse(manifestBytes.toString("utf8")));
-      if (manifest.tag !== release.tag_name) {
-        throw new Error("Signed update manifest does not match its release tag.");
+    rejected.push(
+      new Error(
+        `Rejected update metadata for ${tag}: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error }
+      )
+    );
+  };
+  for (let start = 0; start < tags.length; start += MANIFEST_PROBE_BATCH) {
+    const batch = tags.slice(start, start + MANIFEST_PROBE_BATCH);
+    const manifests = await Promise.allSettled(batch.map(async (tag) => {
+      const response = await request(fetchImpl, assetUrl(tag, MANIFEST_NAME), options.signal, { missing: "null" });
+      return response && await readLimited(response, MAX_MANIFEST_BYTES);
+    }));
+    for (const [index, tag] of batch.entries()) {
+      const manifest = manifests[index];
+      if (manifest.status === "rejected") {
+        reject(tag, manifest.reason);
+        continue;
       }
-      if (manifest.release_url !== new URL(release.html_url).href) {
-        throw new Error("Signed update manifest does not match its release page.");
+      if (!manifest.value) continue;
+      try {
+        return await verifiedCandidate(tag, manifest.value, fetchImpl, options);
+      } catch (error) {
+        reject(tag, error);
       }
-      if (manifest.channel !== options.channel || channelForVersion(manifest.version) !== options.channel) {
-        throw new Error("Signed update manifest is published on the wrong channel.");
-      }
-      if (!best || compareVersions(manifest.version, best.manifest.version) > 0) {
-        best = { manifest, manifestBytes, release: { tag: release.tag_name, url: release.html_url } };
-      }
-    } catch (error) {
-      options.signal?.throwIfAborted();
-      rejected.push(
-        new Error(
-          `Rejected update metadata for ${release.tag_name}: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-          { cause: error }
-        )
-      );
     }
   }
-  if (!best && rejected.length > 0) {
+  if (rejected.length > 0) {
     throw new AggregateError(
       rejected,
       `No release had valid signed update metadata. ${rejected[0].message}`
     );
   }
-  return best;
+  return null;
 }
 
-async function fetchReleaseIndex(fetchImpl: typeof fetch, signal?: AbortSignal): Promise<GitHubRelease[]> {
-  const releases: GitHubRelease[] = [];
-  // GitHub includes every artifact's metadata in this response. Keep individual
-  // pages small as releases accumulate, rather than raising the response limit.
-  // Construct URLs locally; never follow an untrusted pagination URL.
-  for (let page = 1; page <= MAX_RELEASE_PAGES; page += 1) {
-    const url = `${GITHUB_API}/repos/${REPOSITORY}/releases?per_page=${RELEASES_PER_PAGE}&page=${page}`;
-    signal?.throwIfAborted();
-    const response = await request(fetchImpl, url, signal);
-    const entries = parseReleaseIndex(
-      JSON.parse((await readLimited(response, MAX_RELEASE_INDEX_BYTES)).toString("utf8"))
-    );
-    signal?.throwIfAborted();
-    releases.push(...entries);
-    if (entries.length < RELEASES_PER_PAGE) return releases;
+async function verifiedCandidate(
+  tag: string,
+  manifestBytes: Buffer,
+  fetchImpl: typeof fetch,
+  options: ReleaseSourceOptions
+): Promise<ReleaseCandidate> {
+  const bundleBytes = await readLimited(
+    await request(fetchImpl, assetUrl(tag, MANIFEST_BUNDLE_NAME), options.signal),
+    MAX_BUNDLE_BYTES
+  );
+  options.signal?.throwIfAborted();
+  const identity = `${WORKFLOW_IDENTITY_PREFIX}${tag}`;
+  const verifyBundle = options.verifyBundle ?? ((bundle, payload, signer, cache) =>
+    verifyReleaseBundle(bundle, payload, signer, cache, options.signal));
+  await verifyBundle(JSON.parse(bundleBytes.toString("utf8")), manifestBytes, identity, options.trustCacheDirectory);
+  options.signal?.throwIfAborted();
+  const manifest = parseUpdateManifest(JSON.parse(manifestBytes.toString("utf8")));
+  const url = `${GITHUB}/${REPOSITORY}/releases/tag/${tag}`;
+  if (manifest.tag !== tag) {
+    throw new Error("Signed update manifest does not match its release tag.");
   }
-  // Do not report a partial index as the latest release: GitHub's ordering is
-  // not semantic-version ordering, and another channel may be on a later page.
-  throw new Error("Update release discovery exceeded its page limit; could not verify the latest release.");
+  if (manifest.release_url !== url) {
+    throw new Error("Signed update manifest does not match its release page.");
+  }
+  if (manifest.channel !== options.channel || channelForVersion(manifest.version) !== options.channel) {
+    throw new Error("Signed update manifest is published on the wrong channel.");
+  }
+  return { manifest, manifestBytes, release: { tag, url } };
+}
+
+function assetUrl(tag: string, name: string): string {
+  return `${GITHUB}/${REPOSITORY}/releases/download/${tag}/${name}`;
+}
+
+/** Every version tag in the repository, from one git protocol-v2 `ls-refs` request. */
+async function fetchReleaseTags(fetchImpl: typeof fetch, signal?: AbortSignal): Promise<string[]> {
+  const response = await request(fetchImpl, TAG_INDEX_URL, signal, {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-git-upload-pack-request",
+      accept: "application/x-git-upload-pack-result",
+      "git-protocol": "version=2"
+    },
+    body: TAG_INDEX_REQUEST
+  });
+  const tags: string[] = [];
+  for (const line of parsePktLines(await readLimited(response, MAX_TAG_INDEX_BYTES))) {
+    const match = /^[0-9a-f]{40} refs\/tags\/(\S+)$/.exec(line);
+    if (!match) throw new Error("Update service returned an invalid tag index.");
+    if (TAG_PATTERN.test(match[1])) tags.push(match[1]);
+  }
+  return tags;
+}
+
+function pktLine(payload: string): string {
+  return (Buffer.byteLength(payload) + 4).toString(16).padStart(4, "0") + payload;
+}
+
+/** The data lines of one `ls-refs` response, which ends with a flush packet. */
+export function parsePktLines(bytes: Buffer): string[] {
+  const lines: string[] = [];
+  let offset = 0;
+  while (offset + 4 <= bytes.length) {
+    const header = bytes.subarray(offset, offset + 4).toString("latin1");
+    if (!/^[0-9a-f]{4}$/.test(header)) break;
+    const length = Number.parseInt(header, 16);
+    if (length === 0) {
+      if (offset + 4 === bytes.length) return lines;
+      break;
+    }
+    if (length < 5 || offset + length > bytes.length) break;
+    const line = bytes.subarray(offset + 4, offset + length).toString("utf8").replace(/\n$/, "");
+    if (line.startsWith("ERR ")) throw new Error(`Update service refused the tag index: ${line.slice(4)}`);
+    lines.push(line);
+    offset += length;
+  }
+  throw new Error("Update service returned an invalid tag index.");
 }
 
 export async function verifyArtifactBundle(input: {
@@ -162,7 +198,7 @@ export async function verifyArtifactBundle(input: {
   trustCacheDirectory: string;
   signal?: AbortSignal;
 }): Promise<void> {
-  if (!/^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(input.tag)) {
+  if (!TAG_PATTERN.test(input.tag)) {
     throw new Error("Cannot verify an artifact from an invalid release tag.");
   }
   let payload = input.artifactBytes;
@@ -262,14 +298,28 @@ function isMissingPath(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
-async function request(fetchImpl: typeof fetch, url: string, signal?: AbortSignal): Promise<Response> {
+interface RequestInit {
+  method?: "GET" | "POST";
+  headers?: Record<string, string>;
+  body?: string;
+  /** Resolve a 404 to null: the release does not exist (or is not published). */
+  missing?: "null";
+}
+
+function request(fetchImpl: typeof fetch, url: string, signal?: AbortSignal, init?: RequestInit & { missing?: undefined }): Promise<Response>;
+function request(fetchImpl: typeof fetch, url: string, signal: AbortSignal | undefined, init: RequestInit): Promise<Response | null>;
+async function request(
+  fetchImpl: typeof fetch,
+  url: string,
+  signal?: AbortSignal,
+  init: RequestInit = {}
+): Promise<Response | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   const response = await fetchImpl(url, {
-    headers: {
-      accept: "application/vnd.github+json, application/octet-stream",
-      "user-agent": "mdbase-connect-updater"
-    },
+    method: init.method ?? "GET",
+    headers: { accept: "application/octet-stream", ...init.headers, "user-agent": "mdbase-connect-updater" },
+    body: init.body,
     redirect: "follow",
     signal: signal ? AbortSignal.any([controller.signal, signal]) : controller.signal
   }).catch((error) => {
@@ -278,6 +328,8 @@ async function request(fetchImpl: typeof fetch, url: string, signal?: AbortSigna
   });
   if (!response.ok) {
     clearTimeout(timeout);
+    await response.body?.cancel().catch(() => undefined);
+    if (response.status === 404 && init.missing === "null") return null;
     throw new Error(`Update service returned HTTP ${response.status}.`);
   }
   if (!response.url.startsWith("https://")) {
@@ -310,52 +362,4 @@ async function readLimited(response: Response, maximum: number): Promise<Buffer>
     if (timeout) clearTimeout(timeout);
     responseTimeouts.delete(response);
   }
-}
-
-function parseReleaseIndex(value: unknown): GitHubRelease[] {
-  if (!Array.isArray(value)) throw new Error("Update service returned an invalid release index.");
-  return value.map((entry) => {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-      throw new Error("Update service returned an invalid release.");
-    }
-    const release = entry as Record<string, unknown>;
-    if (
-      typeof release.draft !== "boolean" ||
-      typeof release.prerelease !== "boolean" ||
-      typeof release.tag_name !== "string" ||
-      typeof release.html_url !== "string" ||
-      !release.html_url.startsWith("https://") ||
-      !Array.isArray(release.assets)
-    ) {
-      throw new Error("Update service returned an invalid release.");
-    }
-    const assets = release.assets.map((asset) => {
-      if (!asset || typeof asset !== "object" || Array.isArray(asset)) {
-        throw new Error("Update service returned an invalid release asset.");
-      }
-      const value = asset as Record<string, unknown>;
-      if (
-        typeof value.name !== "string" ||
-        typeof value.browser_download_url !== "string" ||
-        !value.browser_download_url.startsWith("https://") ||
-        typeof value.size !== "number" ||
-        !Number.isSafeInteger(value.size) ||
-        value.size < 0
-      ) {
-        throw new Error("Update service returned an invalid release asset.");
-      }
-      return {
-        name: value.name,
-        browser_download_url: value.browser_download_url,
-        size: value.size
-      };
-    });
-    return {
-      draft: release.draft,
-      prerelease: release.prerelease,
-      tag_name: release.tag_name,
-      html_url: new URL(release.html_url).href,
-      assets
-    };
-  });
 }

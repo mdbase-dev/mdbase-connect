@@ -790,6 +790,12 @@ app.whenReady().then(async () => {
     },
     blockedReason: () => null
   });
+  // Update checks need only the boot gate's initialization, not the daemon: the
+  // first one is due 30 seconds after launch however long daemon startup takes.
+  const initialUpdateCheck = setTimeout(() => void bootGate.check(() => updater.check(false)).catch(() => undefined), 30_000);
+  initialUpdateCheck.unref();
+  const updateChecks = setInterval(() => void bootGate.check(() => updater.check(false)).catch(() => undefined), 6 * 60 * 60 * 1000);
+  updateChecks.unref();
   registerIpc();
   createWindow();
   createTray();
@@ -815,10 +821,6 @@ app.whenReady().then(async () => {
       error instanceof Error ? error.message : String(error)
     );
   }
-  const initialUpdateCheck = setTimeout(() => void bootGate.check(() => updater.check(false)).catch(() => undefined), 30_000);
-  initialUpdateCheck.unref();
-  const updateChecks = setInterval(() => void bootGate.check(() => updater.check(false)).catch(() => undefined), 6 * 60 * 60 * 1000);
-  updateChecks.unref();
 });
 
 app.on("second-instance", (_event, argv) => {
