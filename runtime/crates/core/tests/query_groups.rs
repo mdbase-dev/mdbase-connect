@@ -100,16 +100,16 @@ fn custom_values_retain_authority_order_and_missing_nulls() {
         &s,
         "where: 'excluded != true'\ngroup_by: [{field: status, direction: desc}]\nsummary_functions: {ordered: {expr: values}}\nsummaries: [{field: estimate, function: ordered}]\nlimit: 1\n",
     );
-    assert_eq!(p.ids, [Uuid([1; 16])]); // z.md precedes a.md by final ID, not path.
+    assert_eq!(p.ids, [Uuid([2; 16])]); // a.md precedes z.md by final path, not ID.
     let g = p.groups.unwrap();
     assert_eq!(g[0].values.get("status"), Some(&Value::Null));
     assert_eq!(
         g[0].summaries.get("ordered"),
-        Some(&Value::List(vec![Value::Null, Value::Int(5)]))
+        Some(&Value::List(vec![Value::Int(5), Value::Null])) // m.md, n.md
     );
     assert_eq!(
         g[1].summaries.get("ordered"),
-        Some(&Value::List(vec![Value::Int(1), Value::Int(2)]))
+        Some(&Value::List(vec![Value::Int(2), Value::Int(1)])) // a.md, z.md
     );
     let ordered = run(
         &s,

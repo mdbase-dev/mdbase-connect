@@ -68,7 +68,7 @@ fn fresh_database_gets_schema_and_derived_versions_and_warm_open_does_not_reinde
     let idx = index(&path);
     assert_eq!(version(&idx), 0);
     let store = SqlStore::open(idx.clone()).unwrap();
-    assert_eq!(version(&idx), 1);
+    assert_eq!(version(&idx), 2);
     let app = replica(store).unwrap();
     assert_eq!(app.stats.reindexed, 0);
     let store = app.into_store();
@@ -128,10 +128,69 @@ fn unversioned_database_is_adopted_without_losing_any_durable_row_family() {
     drop(idx);
     let idx = index(&path);
     let store = SqlStore::open(idx.clone()).unwrap();
-    assert_eq!(version(&idx), 1);
+    assert_eq!(version(&idx), 2);
     let after: Vec<_> = sql(&idx, &queries).into_iter().map(|r| r.values).collect();
     assert_eq!(before, after);
     assert_eq!(store.record(&row.id).unwrap(), Some(row));
+}
+
+#[test]
+fn version_1_field_index_is_replaced_for_rebuild_and_records_are_kept() {
+    let path = scratch("schema-v1-fields").join("state.db");
+    let idx = index(&path);
+    let mut store = SqlStore::open(idx.clone()).unwrap();
+    let row = r::conformance::record(1, "old.md", "---\ntitle: old\n---\nbody");
+    store
+        .commit(Tx {
+            records_put: vec![row.clone()],
+            ..Tx::default()
+        })
+        .unwrap();
+    drop(store);
+    // The version 1 field index: ties by record ID, no path, published ready.
+    sql(
+        &idx,
+        &[
+            "DROP TABLE st_field",
+            "CREATE TABLE st_field(id BLOB NOT NULL,source INTEGER NOT NULL,field BLOB NOT NULL,kind INTEGER NOT NULL,sort BLOB NOT NULL,hint INTEGER NOT NULL,PRIMARY KEY(id,source,field)) WITHOUT ROWID",
+            "CREATE INDEX st_field_asc ON st_field(source,field,kind,sort,id)",
+            "CREATE INDEX st_field_desc ON st_field(source,field,kind DESC,sort DESC,id ASC)",
+            "INSERT INTO st_field VALUES(x'01',0,x'00',255,x'',0)",
+            "INSERT INTO st_qrecord VALUES(x'01',x'6f6c642e6d64')",
+            "INSERT INTO st_qtype VALUES('note',x'01')",
+            "INSERT OR REPLACE INTO st_qstate VALUES(0,zeroblob(32),1)",
+            "PRAGMA user_version=1",
+        ],
+    );
+    drop(idx);
+    let idx = index(&path);
+    let store = SqlStore::open(idx.clone()).unwrap();
+    assert_eq!(version(&idx), 2);
+    assert_eq!(store.record(&row.id).unwrap(), Some(row));
+    // No version 1 position survives, and the index is not served until rebuilt.
+    let after = sql(
+        &idx,
+        &[
+            "SELECT count(*),count(path) FROM st_field",
+            "SELECT count(*) FROM st_qrecord",
+            "SELECT count(*) FROM st_qtype",
+            "SELECT ready FROM st_qstate",
+            "SELECT sql FROM sqlite_master WHERE name='st_field_asc'",
+        ],
+    );
+    assert_eq!(
+        after[0].values,
+        [SqlValue::Integer(0), SqlValue::Integer(0)]
+    );
+    assert_eq!(after[1].values, [SqlValue::Integer(0)]);
+    assert_eq!(after[2].values, [SqlValue::Integer(0)]);
+    assert_eq!(after[3].values, [SqlValue::Integer(0)]);
+    assert!(
+        matches!(after[4].values.as_slice(), [SqlValue::Text(ddl)] if ddl.ends_with("(source,field,kind,sort,path)")),
+        "{:?}",
+        after[4].values
+    );
+    assert!(!store.query_index_state().unwrap().unwrap().ready);
 }
 
 #[test]
@@ -143,7 +202,7 @@ fn newer_schema_refuses_before_ddl_and_does_not_reset() {
         &[
             "CREATE TABLE future(bytes BLOB)",
             "INSERT INTO future VALUES(x'0102')",
-            "PRAGMA user_version=2",
+            "PRAGMA user_version=3",
         ],
     );
     let err = SqlStore::open(idx.clone())
@@ -153,7 +212,7 @@ fn newer_schema_refuses_before_ddl_and_does_not_reset() {
         matches!(err, r::StoreError::Io(ref m) if m.contains("newer") && m.contains("upgrade")),
         "{err}"
     );
-    assert_eq!(version(&idx), 2);
+    assert_eq!(version(&idx), 3);
     assert_eq!(
         sql(&idx, &["SELECT bytes FROM future"])[0].values,
         vec![SqlValue::Blob(vec![1, 2])]
@@ -329,7 +388,7 @@ fn failed_schema_migration_rolls_back_ddl_and_version_then_cold_retry_succeeds()
         vec![SqlValue::Integer(0)]
     );
     SqlStore::open(idx.clone()).unwrap();
-    assert_eq!(version(&idx), 1);
+    assert_eq!(version(&idx), 2);
 }
 #[test]
 fn interrupted_reindex_does_not_advance_version_and_cold_retry_completes() {

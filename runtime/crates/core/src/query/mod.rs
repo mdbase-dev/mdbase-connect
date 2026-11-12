@@ -439,7 +439,7 @@ pub struct QueryPlan {
     pub candidate: Candidate,
     /// The candidate is also sufficient (no residual evaluation needed).
     pub exact: bool,
-    /// Sort terms; ID-aware executors use ascending record ID as final tie-break.
+    /// Sort terms. Ascending `file.path` is the final tie-break in both directions.
     pub order: Vec<OrderTerm>,
     /// Hydration requirements.
     pub requirements: Requirements,
@@ -1084,25 +1084,14 @@ impl QueryPlan {
             .collect()
     }
 
-    /// Compatibility comparison when the caller has no IDs. Prefer
-    /// [`Self::compare_evaluated_by_id`]; this helper retains path ties.
-    pub fn compare_evaluated(&self, a: (&str, &Evaluated), b: (&str, &Evaluated)) -> Ordering {
-        self.compare_evaluated_terms(a.1, b.1)
-            .then_with(|| a.0.cmp(b.0))
-    }
-
-    /// Canonical evaluated order: typed keys by direction, then record ID ASC
-    /// in both directions. Hints come from schema/native CEL values, not shape.
-    pub fn compare_evaluated_by_id(
+    /// Canonical order of two evaluated records, each given with its path:
+    /// typed keys by direction, then `file.path` ascending (code-point order) in
+    /// both directions. Hints come from schema/native CEL values, not shape.
+    pub fn compare_evaluated(
         &self,
-        a: (RecordId, &Evaluated),
-        b: (RecordId, &Evaluated),
+        (a_path, a): (&str, &Evaluated),
+        (b_path, b): (&str, &Evaluated),
     ) -> Ordering {
-        self.compare_evaluated_terms(a.1, b.1)
-            .then_with(|| a.0.cmp(&b.0))
-    }
-
-    fn compare_evaluated_terms(&self, a: &Evaluated, b: &Evaluated) -> Ordering {
         for (i, term) in self.order.iter().enumerate() {
             let (x, y) = (
                 a.sort_keys.get(i).and_then(Option::as_ref),
@@ -1124,7 +1113,7 @@ impl QueryPlan {
                 return o;
             }
         }
-        Ordering::Equal
+        a_path.cmp(b_path)
     }
 
     fn computed_alias(&self, name: &str) -> bool {
@@ -1175,25 +1164,10 @@ impl QueryPlan {
         }
     }
 
-    /// Compatibility comparison without IDs; retains path ties. Computed
-    /// order terms require `evaluate` and `compare_evaluated_by_id` instead.
+    /// Typed field order, then `file.path` ascending regardless of sort
+    /// direction. Computed/projection order terms require `evaluate` and
+    /// [`Self::compare_evaluated`] instead.
     pub fn compare(&self, a: &QueryRecord<'_>, b: &QueryRecord<'_>) -> Ordering {
-        self.compare_record_terms(a, b)
-            .then_with(|| a.path.cmp(b.path))
-    }
-
-    /// Typed field order, then record ID ASC regardless of sort direction.
-    /// Computed/projection order terms use `compare_evaluated_by_id` instead.
-    pub fn compare_by_id(
-        &self,
-        a: (RecordId, &QueryRecord<'_>),
-        b: (RecordId, &QueryRecord<'_>),
-    ) -> Ordering {
-        self.compare_record_terms(a.1, b.1)
-            .then_with(|| a.0.cmp(&b.0))
-    }
-
-    fn compare_record_terms(&self, a: &QueryRecord<'_>, b: &QueryRecord<'_>) -> Ordering {
         for term in &self.order {
             let (x, y) = (
                 self.sort_value(&term.field, a),
@@ -1215,7 +1189,7 @@ impl QueryPlan {
                 return o;
             }
         }
-        Ordering::Equal
+        a.path.cmp(b.path)
     }
 }
 
@@ -1363,7 +1337,7 @@ pub fn execute(
             Verdict::Error(issue) => diagnostics.push(issue.clone()),
         }
     }
-    rows.sort_by(|a, b| plan.compare_evaluated_by_id((a.0, &a.2), (b.0, &b.2)));
+    rows.sort_by(|a, b| plan.compare_evaluated((&a.1, &a.2), (&b.1, &b.2)));
     let group_rows: Vec<_> = rows.iter().map(|r| &r.2.reduction).collect();
     let groups = groups::reduce(
         &plan.query.group_by,

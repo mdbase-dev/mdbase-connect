@@ -85,12 +85,12 @@ pub enum Predicate {
     /// (bare-identifier equality), so "not matched" is exactly "evaluated false".
     Not(Box<Predicate>),
 }
-/// One explicit order term; callers append record ID ASC in both directions.
+/// One explicit order term; callers append `file.path` ASC in both directions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Order {
     /// Physical atom or exact path.
     pub column: Column,
-    /// Reverse this term only, not final ID.
+    /// Reverse this term only, not the final path tie-break.
     pub direction: Direction,
 }
 /// Membership/order proof, never a full executor feature flag.

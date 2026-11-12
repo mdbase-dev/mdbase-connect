@@ -112,7 +112,7 @@ fn trusted_projection_uses_defaults_nulls_and_all_matched_schema_types() {
 }
 
 #[test]
-fn prepared_and_direct_comparators_match_row_atoms_not_text_or_path_ties() {
+fn prepared_and_direct_comparators_match_row_atoms_then_path_ties() {
     let c = catalog();
     let types = vec!["task".into()];
     let left = fm(Value::string("2026-01-01T01:00:00+01:00"));
@@ -142,6 +142,7 @@ fn prepared_and_direct_comparators_match_row_atoms_not_text_or_path_ties() {
         let field = [FieldRef::Effective(vec!["at".into()])];
         let ka = KeyedRecord {
             id: Uuid([1; 16]),
+            path: a.path.into(),
             keys: indexed::project_index_fields(&c, &a, &field, 128)
                 .unwrap()
                 .into_iter()
@@ -150,6 +151,7 @@ fn prepared_and_direct_comparators_match_row_atoms_not_text_or_path_ties() {
         };
         let kb = KeyedRecord {
             id: Uuid([2; 16]),
+            path: b.path.into(),
             keys: indexed::project_index_fields(&c, &b, &field, 128)
                 .unwrap()
                 .into_iter()
@@ -157,9 +159,9 @@ fn prepared_and_direct_comparators_match_row_atoms_not_text_or_path_ties() {
                 .collect(),
         };
         let expected = topk::compare(&ka, &kb, &[direction]);
-        assert_eq!(plan.compare_by_id((ka.id, &a), (kb.id, &b)), expected);
+        assert_eq!(plan.compare(&a, &b), expected);
         assert_eq!(
-            plan.compare_evaluated_by_id((ka.id, &ae), (kb.id, &be)),
+            plan.compare_evaluated((a.path, &ae), (b.path, &be)),
             expected
         );
         assert_eq!(
@@ -170,25 +172,28 @@ fn prepared_and_direct_comparators_match_row_atoms_not_text_or_path_ties() {
                 Ordering::Greater
             }
         );
-        // Same instant, inverse paths: ID ASC stays final even in DESC.
+        // Same instant: path ASC stays final even in DESC, against ID order
+        // (`tasks/a.md` has the larger ID).
         let equal = QueryRecord {
             frontmatter: &left,
             ..b.clone()
         };
         let ee = plan.evaluate(&equal, &env(), None);
+        let ke = KeyedRecord {
+            keys: ka.keys.clone(),
+            ..kb.clone()
+        };
+        assert_eq!(topk::compare(&ka, &ke, &[direction]), Ordering::Greater);
+        assert_eq!(plan.compare(&a, &equal), Ordering::Greater);
         assert_eq!(
-            plan.compare_by_id((ka.id, &a), (kb.id, &equal)),
-            Ordering::Less
-        );
-        assert_eq!(
-            plan.compare_evaluated_by_id((ka.id, &ae), (kb.id, &ee)),
-            Ordering::Less
+            plan.compare_evaluated((a.path, &ae), (equal.path, &ee)),
+            Ordering::Greater
         );
     }
 }
 
 #[test]
-fn actual_core_executor_uses_typed_instants_and_id_ties_in_both_directions() {
+fn actual_core_executor_uses_typed_instants_and_path_ties_in_both_directions() {
     let mut s = MemState::new();
     s.insert_resource("_types/task.md", TASK);
     s.insert_record(
@@ -207,8 +212,9 @@ fn actual_core_executor_uses_typed_instants_and_id_ties_in_both_directions() {
         "---\nat: '2026-01-01T00:30:00Z'\n---\n",
     );
     for (name, expected) in [
-        ("asc", [Uuid([1; 16]), Uuid([2; 16]), Uuid([3; 16])]),
-        ("desc", [Uuid([3; 16]), Uuid([1; 16]), Uuid([2; 16])]),
+        // `tasks/z.md` (ID 1) and `tasks/a.md` (ID 2) name the same instant.
+        ("asc", [Uuid([2; 16]), Uuid([1; 16]), Uuid([3; 16])]),
+        ("desc", [Uuid([3; 16]), Uuid([2; 16]), Uuid([1; 16])]),
     ] {
         let plan = query::compile(
             &parse(&format!("order_by: [{{field: at, direction: {name}}}]")),
@@ -226,6 +232,32 @@ fn actual_core_executor_uses_typed_instants_and_id_ties_in_both_directions() {
         query::execute(&plan, &s, &env()).unwrap().ids,
         [Uuid([1; 16]), Uuid([2; 16]), Uuid([3; 16])]
     );
+
+    // A window boundary inside the run of ties splits it by path, and a rename
+    // moves a record within the run in both directions.
+    let page = |s: &MemState, direction: &str, offset: u8| {
+        let plan = query::compile(
+            &parse(&format!(
+                "order_by: [{{field: at, direction: {direction}}}]\noffset: {offset}\nlimit: 1"
+            )),
+            &s.catalog(),
+        )
+        .unwrap();
+        query::execute(&plan, s, &env()).unwrap().ids
+    };
+    assert_eq!(page(&s, "asc", 0), [Uuid([2; 16])]);
+    assert_eq!(page(&s, "asc", 1), [Uuid([1; 16])]);
+    assert_eq!(page(&s, "desc", 1), [Uuid([2; 16])]);
+    assert_eq!(page(&s, "desc", 2), [Uuid([1; 16])]);
+    s.insert_record(
+        Uuid([1; 16]),
+        "tasks/0.md",
+        "---\nat: '2026-01-01T01:00:00+01:00'\n---\n",
+    );
+    assert_eq!(page(&s, "asc", 0), [Uuid([1; 16])]);
+    assert_eq!(page(&s, "asc", 1), [Uuid([2; 16])]);
+    assert_eq!(page(&s, "desc", 1), [Uuid([1; 16])]);
+    assert_eq!(page(&s, "desc", 2), [Uuid([2; 16])]);
 }
 
 #[test]
@@ -272,12 +304,9 @@ fn per_record_hints_preserve_total_kind_order_and_plain_string_classification() 
                     plan.evaluate(a, &env(), None),
                     plan.evaluate(b, &env(), None),
                 );
+                assert_eq!(plan.compare(a, b), expected);
                 assert_eq!(
-                    plan.compare_by_id((Uuid([1; 16]), a), (Uuid([1; 16]), b)),
-                    expected
-                );
-                assert_eq!(
-                    plan.compare_evaluated_by_id((Uuid([1; 16]), &ae), (Uuid([1; 16]), &be)),
+                    plan.compare_evaluated((a.path, &ae), (b.path, &be)),
                     expected
                 );
             }
@@ -314,7 +343,7 @@ fn native_timestamp_order_terms_remain_typed_but_string_casts_do_not() {
         );
         assert_eq!(ae.sort_hints, [TemporalHint::DateTime]);
         assert_eq!(
-            plan.compare_evaluated_by_id((Uuid([1; 16]), &ae), (Uuid([2; 16]), &be)),
+            plan.compare_evaluated((a.path, &ae), (b.path, &be)),
             Ordering::Less
         );
     }

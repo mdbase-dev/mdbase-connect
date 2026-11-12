@@ -6,7 +6,6 @@ use super::*;
 use std::cmp::Ordering;
 
 use mdbn_core::doc::Document;
-use mdbn_core::ids::RecordId;
 use mdbn_core::query::{Candidate, QueryPlan};
 use mdbn_core::types::Catalog;
 use mdbn_core::value::Map;
@@ -31,16 +30,13 @@ struct Matched<'p> {
     settled: bool,
 }
 
-fn key(row: &(Map, RecordView)) -> (RecordId, QueryRecord<'_>) {
-    (
-        convert::uuid(&row.1.id),
-        QueryRecord {
-            path: &row.1.path,
-            types: &row.1.types,
-            frontmatter: &row.0,
-            body: None,
-        },
-    )
+fn key(row: &(Map, RecordView)) -> QueryRecord<'_> {
+    QueryRecord {
+        path: &row.1.path,
+        types: &row.1.types,
+        frontmatter: &row.0,
+        body: None,
+    }
 }
 
 impl<'p> Matched<'p> {
@@ -62,14 +58,11 @@ impl<'p> Matched<'p> {
 
     fn sort(&mut self) {
         let plan = self.plan;
-        self.rows.sort_by(|a, b| {
-            let (a, b) = (key(a), key(b));
-            plan.compare_by_id((a.0, &a.1), (b.0, &b.1))
-        });
+        self.rows.sort_by(|a, b| plan.compare(&key(a), &key(b)));
     }
 
     /// Count a match, and say whether it can still be among the rows returned.
-    fn admit(&mut self, id: &Uuid, record: &QueryRecord<'_>) -> bool {
+    fn admit(&mut self, record: &QueryRecord<'_>) -> bool {
         self.total += 1;
         let Some(keep) = self.keep() else {
             return true;
@@ -85,9 +78,7 @@ impl<'p> Matched<'p> {
             body: None,
             ..record.clone()
         };
-        self.plan
-            .compare_by_id((convert::uuid(id), &record), (last.0, &last.1))
-            == Ordering::Less
+        self.plan.compare(&record, &last) == Ordering::Less
     }
 
     fn push(&mut self, frontmatter: Map, view: RecordView) {
@@ -149,7 +140,7 @@ impl<S: Store> Replica<S> {
                     frontmatter: doc.frontmatter(),
                     body: Some(doc.body()),
                 };
-                if plan.matches(&record, env) != Verdict::Match || !matched.admit(id, &record) {
+                if plan.matches(&record, env) != Verdict::Match || !matched.admit(&record) {
                     return;
                 }
                 let pending = self.layer.touches(&convert::uuid(id));

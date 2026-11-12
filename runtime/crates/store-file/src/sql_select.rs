@@ -326,8 +326,8 @@ pub fn select<I: IndexStorage>(
                 SqlValue::Blob(a.key.clone()),
             ]);
         }
-        names.push("id".into());
-        params.push(SqlValue::Blob(after.id.0.to_vec()));
+        names.push("path".into());
+        params.push(SqlValue::Blob(after.path.as_bytes().to_vec()));
         prefix = format!(
             "WITH c({}) AS (VALUES({})) ",
             names.join(","),
@@ -346,7 +346,9 @@ pub fn select<I: IndexStorage>(
         QueryColumn::Field(field) => b.fields.get(field).map(|n| (*n, term.descending)),
         QueryColumn::Path => None,
     });
-    let (mut from, final_id) = if let Some((lead, descending)) = leading {
+    // The final ascending path tie-break. A leading field's index rows carry
+    // the path, so the seek yields the complete order without a sort.
+    let (mut from, final_path) = if let Some((lead, descending)) = leading {
         let (field, _) = b
             .fields
             .iter()
@@ -382,12 +384,12 @@ pub fn select<I: IndexStorage>(
                 SqlValue::Blob(field.path_key.clone()),
             ]);
         }
-        (from, format!("f{lead}.id"))
+        (from, format!("f{lead}.path"))
     } else {
         let joins = b.field_joins(&state.fields, &mut params)?;
         (
             format!(" FROM st_qrecord q JOIN st_rec r ON r.id=q.id{joins}"),
-            "q.id".into(),
+            "q.path".into(),
         )
     };
     if req.after.is_some() {
@@ -412,7 +414,7 @@ pub fn select<I: IndexStorage>(
             }
         }
         terms.push(format!(
-            "({}{}q.id>c.id)",
+            "({}{}{final_path}>c.path)",
             equal.join(" AND "),
             if equal.is_empty() { "" } else { " AND " }
         ));
@@ -420,11 +422,11 @@ pub fn select<I: IndexStorage>(
         if let Some((lead, descending)) = leading {
             // The inclusive leading-term bound is necessary for every full
             // multi-term continuation. KEEP the exact residual above. With a
-            // single ASC term the complete (kind,key,ID) bound is exclusive.
+            // single ASC term the complete (kind,key,path) bound is exclusive.
             // Scalar references to the one-row CTE let SQLite seek before its
             // nested loops, without extra key copies or caller budget credit.
             if !descending && order.len() == 1 {
-                after_sql.push_str(&format!(" AND (f{lead}.kind,f{lead}.sort,f{lead}.id) > ((SELECT k0 FROM c),(SELECT s0 FROM c),(SELECT id FROM c))"));
+                after_sql.push_str(&format!(" AND (f{lead}.kind,f{lead}.sort,f{lead}.path) > ((SELECT k0 FROM c),(SELECT s0 FROM c),(SELECT path FROM c))"));
             } else {
                 let cmp = if descending { "<=" } else { ">=" };
                 after_sql.push_str(&format!(
@@ -434,8 +436,12 @@ pub fn select<I: IndexStorage>(
         }
     }
     let mut ordering = Vec::new();
-    let mut metadata = vec!["q.id".into(), "length(r.row)".into()];
-    let mut data = metadata.clone();
+    let mut metadata = vec![
+        "q.id".into(),
+        "length(r.row)".into(),
+        format!("length({final_path})"),
+    ];
+    let mut data = vec!["q.id".into(), "length(r.row)".into(), final_path.clone()];
     for ((kind, key), desc) in &order {
         // A constant kind (the path column's literal `4`) must not appear in
         // ORDER BY: SQLite reads a constant integer there as a result-column
@@ -447,7 +453,7 @@ pub fn select<I: IndexStorage>(
         metadata.extend([kind.clone(), format!("length({key})")]);
         data.extend([kind.clone(), key.clone()]);
     }
-    ordering.push(format!("{final_id} ASC"));
+    ordering.push(format!("{final_path} ASC"));
     let tail = format!(
         "{after_sql} ORDER BY {} LIMIT ? OFFSET ?",
         ordering.join(",")
@@ -474,7 +480,7 @@ pub fn select<I: IndexStorage>(
         Some(c) => Some(count(c)?),
         None => None,
     };
-    let columns = 2 + 2 * order.len();
+    let columns = 3 + 2 * order.len();
     let meta = &results[0];
     if usize::try_from(meta.columns).map_err(|_| corrupt())? != columns
         || meta.values.len() % columns != 0
@@ -488,7 +494,14 @@ pub fn select<I: IndexStorage>(
     for row in page_values.chunks_exact(columns) {
         id(&row[0])?;
         integer(&row[1])?;
-        for pair in row[2..].chunks_exact(2) {
+        // The returned path counts toward the key budget before it is copied.
+        bytes = bytes
+            .checked_add(integer(&row[2])?)
+            .ok_or(StoreError::Full)?;
+        if bytes > req.max_key_bytes {
+            return Err(StoreError::Full);
+        }
+        for pair in row[3..].chunks_exact(2) {
             let kind = integer(&pair[0])?;
             if !matches!(kind, 1 | 2 | 3 | 4 | 5 | 6 | 255) {
                 return Err(corrupt());
@@ -522,8 +535,15 @@ pub fn select<I: IndexStorage>(
         if r[..2] != m[..2] {
             return Err(stale());
         }
+        let SqlValue::Blob(path) = &r[2] else {
+            return Err(corrupt());
+        };
+        if path.len() as u64 != integer(&m[2])? {
+            return Err(stale());
+        }
+        let path = String::from_utf8(path.clone()).map_err(|_| corrupt())?;
         let mut keys = Vec::new();
-        for (pair, expected) in r[2..].chunks_exact(2).zip(m[2..].chunks_exact(2)) {
+        for (pair, expected) in r[3..].chunks_exact(2).zip(m[3..].chunks_exact(2)) {
             let SqlValue::Blob(key) = &pair[1] else {
                 return Err(corrupt());
             };
@@ -541,6 +561,7 @@ pub fn select<I: IndexStorage>(
             id: id(&r[0])?,
             encoded_bytes: integer(&r[1])?,
             keys,
+            path,
         });
     }
     validate_snapshot(index, req)?;

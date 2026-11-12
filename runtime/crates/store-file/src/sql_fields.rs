@@ -17,9 +17,20 @@ pub(crate) const SCHEMA: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS st_qrecord_path ON st_qrecord(path,id)",
     "CREATE TABLE IF NOT EXISTS st_qtype(name TEXT NOT NULL,id BLOB NOT NULL,PRIMARY KEY(name,id)) WITHOUT ROWID",
     "CREATE INDEX IF NOT EXISTS st_qtype_id ON st_qtype(id)",
-    "CREATE TABLE IF NOT EXISTS st_field(id BLOB NOT NULL,source INTEGER NOT NULL,field BLOB NOT NULL,kind INTEGER NOT NULL,sort BLOB NOT NULL,hint INTEGER NOT NULL,PRIMARY KEY(id,source,field)) WITHOUT ROWID",
-    "CREATE INDEX IF NOT EXISTS st_field_asc ON st_field(source,field,kind,sort,id)",
-    "CREATE INDEX IF NOT EXISTS st_field_desc ON st_field(source,field,kind DESC,sort DESC,id ASC)",
+];
+
+/// Schema version 2 replaces the field index: each row carries its record's
+/// exact path, so one B-tree seek yields a field's order with the final
+/// ascending path tie-break. Version 1 rows (ID tie-break) are dropped with
+/// their coverage; the replica rebuilds under the new key version.
+pub(crate) const FIELD_SCHEMA: &[&str] = &[
+    "DROP TABLE IF EXISTS st_field",
+    "CREATE TABLE st_field(id BLOB NOT NULL,source INTEGER NOT NULL,field BLOB NOT NULL,kind INTEGER NOT NULL,sort BLOB NOT NULL,hint INTEGER NOT NULL,path BLOB NOT NULL,PRIMARY KEY(id,source,field)) WITHOUT ROWID",
+    "CREATE INDEX st_field_asc ON st_field(source,field,kind,sort,path)",
+    "CREATE INDEX st_field_desc ON st_field(source,field,kind DESC,sort DESC,path ASC)",
+    "DELETE FROM st_qrecord",
+    "DELETE FROM st_qtype",
+    "UPDATE st_qstate SET ready=0 WHERE slot=0",
 ];
 
 fn error(e: IndexError) -> StoreError {
@@ -191,7 +202,13 @@ pub(crate) fn maintenance<I: IndexStorage>(
         if present != declared {
             return Ok(invalidate());
         }
-        bytes = match bytes.checked_add(r.path.len()) {
+        // The path is written once in `st_qrecord` and once per field row.
+        bytes = match r
+            .path
+            .len()
+            .checked_mul(1 + r.fields.len())
+            .and_then(|n| bytes.checked_add(n))
+        {
             Some(n) => n,
             None => return Ok(invalidate()),
         };
@@ -257,7 +274,7 @@ pub(crate) fn maintenance<I: IndexStorage>(
         }
         for v in &r.fields {
             out.push(Stmt::new(
-                "INSERT INTO st_field(id,source,field,kind,sort,hint) VALUES(?,?,?,?,?,?)",
+                "INSERT INTO st_field(id,source,field,kind,sort,hint,path) VALUES(?,?,?,?,?,?,?)",
                 vec![
                     blob(&r.id.0),
                     SqlValue::Integer(i64::from(v.field.source)),
@@ -265,6 +282,7 @@ pub(crate) fn maintenance<I: IndexStorage>(
                     SqlValue::Integer(i64::from(v.atom.kind)),
                     blob(&v.atom.key),
                     SqlValue::Integer(i64::from(v.temporal_hint)),
+                    blob(r.path.as_bytes()),
                 ],
             ));
         }

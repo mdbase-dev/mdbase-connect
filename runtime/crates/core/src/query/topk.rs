@@ -1,5 +1,5 @@
-//! Bounded top-k over the same compact keys used by SQL. Holds IDs and keys,
-//! never source documents or selection payloads. Hydration/work budgets belong
+//! Bounded top-k over the same compact keys used by SQL. Holds IDs, paths and
+//! keys, never source documents or selection payloads. Hydration/work budgets belong
 //! to the request driver and are cumulative across its scan steps.
 
 use std::cmp::Ordering;
@@ -30,8 +30,10 @@ pub enum TopKError {
 /// One matching record, produced once per record in a fixed snapshot.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KeyedRecord {
-    /// Stable final ascending tie-break, independent of path and direction.
+    /// Record identity; payload, never part of the order.
     pub id: RecordId,
+    /// `file.path`: the final ascending tie-break, independent of direction.
+    pub path: String,
     /// One key for each requested order term.
     pub keys: Vec<SortAtom>,
 }
@@ -46,11 +48,12 @@ impl KeyedRecord {
         for key in &self.keys {
             bytes = bytes.checked_add(key.allocated_key_bytes())?;
         }
-        Some(bytes)
+        bytes.checked_add(self.path.capacity())
     }
 }
 
-/// Compare keys by direction, then record ID ascending in both directions.
+/// Compare keys by direction, then path ascending (code-point order) in both
+/// directions. Paths are unique in a collection, so this is a total order.
 pub fn compare(a: &KeyedRecord, b: &KeyedRecord, directions: &[Direction]) -> Ordering {
     for ((a, b), direction) in a.keys.iter().zip(&b.keys).zip(directions) {
         let order = a.cmp(b);
@@ -63,7 +66,7 @@ pub fn compare(a: &KeyedRecord, b: &KeyedRecord, directions: &[Direction]) -> Or
             return order;
         }
     }
-    a.id.cmp(&b.id)
+    a.path.cmp(&b.path)
 }
 
 #[derive(Clone, Debug)]
