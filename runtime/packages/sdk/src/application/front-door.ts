@@ -13,14 +13,14 @@ import {
 } from "./entry.js";
 import type { MdbaseTransferPlan, MdbaseTransferResult } from "./unsynced-transfer.js";
 import type { MdbasePhase } from "./phase.js";
-import type { StatusSummary } from "../status.js";
+import type { MdbaseSync } from "../status.js";
 import type { MdbaseSetupPlan, MdbaseSetupPlanOptions } from "./setup.js";
 import type { MdbaseAccessRequest, MdbaseAccessRequestOptions, MdbaseAccessResult } from "./file-access.js";
 
 /** The application snapshot with the derived fields always present. */
 export interface MdbaseSnapshot extends MdbaseApplicationSnapshot {
   readonly phase: MdbasePhase;
-  readonly sync: StatusSummary | null;
+  readonly sync: MdbaseSync | null;
   readonly links: MdbaseLinks | null;
 }
 /** SDK-8: how `setup.apply` ended. `changed`: the collection changed since the

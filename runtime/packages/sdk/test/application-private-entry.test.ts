@@ -17,7 +17,7 @@ vi.mock("../src/app-grant/client.js",()=>({MdbaseAppGrants:class{
   connector=()=>({});people=()=>({});forget=async()=>{};forgetAllGrants=async()=>{if(gate.wipeError)throw gate.wipeError;};authorize=async()=>({collectionId:P});
   setup=()=>({assess:async()=>"ready",plan:async()=>({}),apply:async()=>"ready"});
 }}));
-vi.mock("../src/client.js",()=>({connect:async()=>{if(gate.error)throw gate.error;const c={collection:P,files:{},close:vi.fn(),ledger:{subscribe:()=>()=>{},getSnapshot:()=>null},status:{},onStatus:()=>()=>{},onLink:()=>()=>{}};opened.push(c);return c;}}));
+vi.mock("../src/client.js",()=>({connect:async()=>{if(gate.error)throw gate.error;const c={collection:P,files:{},close:vi.fn(),ledger:{subscribe:()=>()=>{},getSnapshot:()=>null},status:{mode:"local_only",confirmedThrough:0,headKnown:0,pending:0,holds:0,unresolved:0,connection:"offline",incidents:[]},onStatus:()=>()=>{},onLink:()=>()=>{}};opened.push(c);return c;}}));
 vi.mock("../src/application/registration.js",()=>({resolveApplicationRegistration:async()=>({id:"55555555-5555-4555-8555-555555555555",name:"Example"})}));
 vi.mock("../src/application/packaged-assets.js",()=>({packagedApplicationAssets:()=>({})}));
 vi.mock("../src/application/packaged-trust.js",()=>({appReleaseTrust:()=>null}));

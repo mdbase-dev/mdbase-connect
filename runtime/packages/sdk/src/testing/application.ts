@@ -13,7 +13,7 @@ import type {MdbaseSetupPlan} from "../application/setup.js";
 import type {MdbaseAccessRequest, MdbaseAccessRequestOptions, MdbaseAccessResult} from "../application/file-access.js";
 import type {FileAction} from "../files.js";
 import {applicationPhase} from "../application/phase.js";
-import {summarizeStatus} from "../status.js";
+import {summarizeSync} from "../status.js";
 
 export type ApplicationFixtureAction = "start" | "authorize" | "approve" | "reauthorize" | "refreshCollectionList" | "select" | "clearSelection" | "chooseAnother" | "forget" | "deleteCollection" | "requestAccess" | "assess" | "configure" | "planSetup" | "applySetup" | "signOut" | "openUnsynced" | "planUnsyncedTransfer" | "transferUnsynced" | "discardUnsynced" | "unlock" | "close";
 export interface ApplicationFixtureCall {
@@ -176,7 +176,7 @@ export function createApplicationFixture(options: ApplicationFixtureOptions): Ap
     if (derived && derived.source === snapshot && derived.connection === connection) return derived.value;
     const phase = applicationPhase(snapshot, {connection, previous: derived?.value.phase ?? null});
     let sync = null;
-    if (phase.kind === "ready") try {sync = summarizeStatus(phase.connection.records.status, snapshot.problem);} catch {/* status not known yet */}
+    if (phase.kind === "ready") try {{const records = phase.connection.records; sync = summarizeSync({status: records.status, writes: records.ledger.getSnapshot(), link: records.link, problem: snapshot.problem});}} catch {/* status not known yet */}
     const value = Object.freeze({...snapshot, phase, sync, links: snapshot.links ?? null});
     derived = {source: snapshot, connection, value};
     return value;

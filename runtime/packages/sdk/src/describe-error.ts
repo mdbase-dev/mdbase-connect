@@ -363,7 +363,7 @@ const DEVELOPER: Readonly<Record<string, string>> = Object.assign(Object.create(
   application_worker_unavailable: "application_worker_unavailable: this page cannot construct the SDK's module Worker (no Worker/MessageChannel, or a non-web origin).",
   browser_unsupported: "browser_unsupported: the SDK's upfront capability probe found a required browser feature missing (Web Crypto/X25519, AbortSignal.any, Web Locks, BroadcastChannel, IndexedDB, Worker/MessageChannel or crypto.randomUUID); see the MdbaseError details for the missing tokens.",
   application_storage_unavailable: "application_storage_unavailable: navigator.storage.getDirectory() (OPFS) is absent or rejected, as in private browsing; the local replica cannot be kept on this device.",
-  storage_may_be_evicted: "storage_may_be_evicted: replica edits are pending for at least 30 seconds or while disconnected on nonpersistent storage (snapshot.saveWarning); only a log-confirmed receipt counts as saved.",
+  storage_may_be_evicted: "storage_may_be_evicted: replica edits are pending for at least 30 seconds or while disconnected on nonpersistent storage (`storage_may_be_evicted` in snapshot.sync.attention); only a log-confirmed receipt counts as saved.",
   sign_out_pending_writes: "sign_out_pending_writes: unconfirmed writes are still queued on this device; signOut({discard: true}) discards them.",
 });
 

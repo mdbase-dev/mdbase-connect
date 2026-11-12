@@ -14,7 +14,7 @@ it("createTestApp: preset screens, real records when ready, and realistic faults
     await a.select(notes);
     const phase=a.getSnapshot().phase!;expect(phase.kind).toBe("ready");
     if(phase.kind==="ready")expect((await phase.connection.records.query({})).records.map(r=>r.path)).toEqual(["hello.md"]);
-    expect(a.getSnapshot().sync).toMatchObject({kind:"synced"});
+    expect(a.getSnapshot().sync).toMatchObject({state:"saved",connection:"online",pending:0});
     app.fail({action:"applySetup",reason:"setup_changed"});app.set("needs_setup");
     await expect(a.setup.apply({} as never)).rejects.toMatchObject({code:"conflict",reason:"setup_changed"});
     app.fail({action:"select",problem:"access_removed"});await a.select(notes);

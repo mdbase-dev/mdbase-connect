@@ -41,7 +41,7 @@ function whenVisible(signal:AbortSignal):Promise<void>{
 }
 import {unresolvedSetup,type MdbaseApplicationSetup,type MdbaseSetupPlan,type MdbaseSetupPlanOptions} from "./setup.js";
 import {applicationPhase,SLOW_OPENING_MS,type MdbasePhase} from "./phase.js";
-import {summarizeStatus,type StatusSummary,type TransportHealth} from "../status.js";
+import {BRIEF_PENDING_MS,LONG_PENDING_MS,summarizeSync,type MdbaseSync,type TransportHealth} from "../status.js";
 import type {WriteLedgerSnapshot} from "../write-ledger.js";
 import {applicationForgotten,type ApplicationForgottenStore} from "./forgotten.js";
 import {applicationSessionHint,type ApplicationSessionHint,type ApplicationSessionHintStore} from "./session-hint.js";
@@ -83,18 +83,21 @@ export interface MdbaseApplicationSnapshot extends AppWebSignInSnapshot {
   /** R1: the one derived state for UI. Switch on `phase.kind`; never hand-roll
    * a ready check from `status`/`readiness`. Always set by the SDK entry. */
   readonly phase?:MdbasePhase;
-  /** Sync of the open collection (null until it is ready). */
-  readonly sync?:StatusSummary|null;
-  /** R2: unconfirmed and refused writes of the open collection, and the save
-   * state to show (null until it is ready). Survives a reload. */
-  readonly writes?:WriteLedgerSnapshot|null;
+  /** The one status to show for the open collection (null until it is ready):
+   * whether changes reach the cloud copy, what is waiting, including each
+   * unconfirmed and refused write (`sync.writes`, which survives a reload), and
+   * what needs the person. */
+  readonly sync?:MdbaseSync|null;
   /** On-device storage policy for this origin, read by the SDK (null where the
    * SDK cannot tell). `persistent` is the browser's answer, never a durability
    * claim: only a log-confirmed receipt counts as saved. */
   readonly storage?:AppStoragePolicy|null;
   /** Pending replica edits on nonpersistent storage: set after 30 seconds
    * continuously pending, or immediately while disconnected. Normal online
-   * edits do not flash a warning. Null at zero pending or with persistence. */
+   * edits do not flash a warning. Null at zero pending or with persistence.
+   * The same fact as `storage_may_be_evicted` in `sync.attention`; kept for
+   * app-ui's `CollectionSaveWarning`, which pins a published SDK, and removed
+   * once that reads `sync.attention`. */
   readonly saveWarning?:"storage_may_be_evicted"|null;
   /** Connect pages for this account (SDK-4). Null where the SDK cannot run. */
   readonly links?:MdbaseLinks|null;
@@ -378,7 +381,7 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
   private revision=0;
   private readonly links:MdbaseLinks|null=null;private readonly cpOrigin:string|null=null;
   private opening:{readonly id:string;slow:boolean;timer:ReturnType<typeof setTimeout>}|null=null;
-  private syncing:{readonly id:string;readonly stop:()=>void;status:SyncStatus|null;writes:()=>WriteLedgerSnapshot|null}|null=null;
+  private syncing:{readonly id:string;readonly stop:()=>void;status:SyncStatus|null;writes:()=>WriteLedgerSnapshot|null;link:()=>"open"|"reconnecting"|"closed"|undefined}|null=null;
   /** On-device storage policy for this origin; null where it cannot be read. */
   private storagePolicy:AppStoragePolicy|null=null;
   private pendingSave:{readonly id:string;readonly since:number;timer:ReturnType<typeof setTimeout>|null}|null=null;
@@ -404,7 +407,7 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
     if(!browserHost(this.declaration.origin)){this.app=unavailableApplication();return;}
     try{const cp=this.environment().cpOrigin;this.cpOrigin=cp;this.hint=applicationSessionHint(this.declaration.storage.applicationNamespace,cp);this.forgotten=applicationForgotten(this.declaration.storage.applicationNamespace,cp);this.links=Object.freeze({account:`${cp}/account`,manageAccess:`${cp}/account/applications`});}catch{/* no links where the environment is unknown */}
     if(options.followVisibility!==false)this.followVisibility();
-    this.followPageLifecycle();this.followFocus();this.followStoragePolicy();
+    this.followPageLifecycle();this.followFocus();this.followStoragePolicy();this.followNetwork();
     this.memory=selectionMemory(this.declaration.storage.applicationNamespace);
     if(options.privateCollections!==false)this.privates=new ApplicationPrivateCollections({declaration:this.declaration,onChange:()=>{this.revision++;this.notify();}});
     this.selection=new ApplicationCollectionSelection({browser:new ApplicationBrowserSelection(this.declaration.origin,{},options.urlSelection===false?null:browserApplicationSelectionPort()),
@@ -532,26 +535,35 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
     const openingUnsynced=this.unsyncedOpening>0&&!base.unsynced&&!base.signOutResult&&selection.requested.collectionId===null;
     let phase=applicationPhase({...base,selection},{connection,previous:last?.value.phase??null,openingUnsynced,startPending:this.selection?.startPending()??false,...(this.cpOrigin?{cpOrigin:this.cpOrigin}:{})});
     phase=this.trackOpening(phase);this.timing.observe(phase);
-    const sync=this.trackSync(phase,base.problem,base.transport??null,base.live??null);
+    const transport=base.transport??null,online=globalThis.navigator?.onLine;
+    const status=this.trackSync(phase,transport!==null||online===false);
     const writes=this.syncing?.writes()??null;
-    const saveWarning=this.trackSaveWarning();
-    const value:MdbaseApplicationSnapshot=Object.freeze({...base,selection,phase,sync,writes,storage:this.storagePolicy,saveWarning,links:this.linksFor(id)});
+    const pendingForMs=this.trackPending(Math.max(status?.pending??0,writes?.pending.length??0));
+    const saveWarning=status&&pendingForMs!==null
+      ?appSaveState(status.pending,this.storagePolicy??{persistent:false,installed:false},{pendingForMs,connection:status.connection}).warning:null;
+    const link=this.syncing?.link();
+    const sync=status?Object.freeze(summarizeSync({status,writes,problem:base.problem,transport,live:base.live??null,storageWarning:saveWarning!==null,
+      ...(link===undefined?{}:{link}),...(typeof online==="boolean"?{online}:{}),...(pendingForMs===null?{}:{pendingForMs})})):null;
+    const value:MdbaseApplicationSnapshot=Object.freeze({...base,selection,phase,sync,storage:this.storagePolicy,saveWarning,links:this.linksFor(id)});
     this.composed={base:raw,selection,revision:this.revision,hint,value};return value;
   }
   private linksFor(id:string|null):MdbaseLinks|null{
     return this.links&&id?Object.freeze({...this.links,manageAccess:`${this.cpOrigin}/access?collection=${encodeURIComponent(id)}`}):this.links;
   }
-  /** One grace window per continuously pending replica, not per edit or request. */
-  private trackSaveWarning():"storage_may_be_evicted"|null{
-    const syncing=this.syncing,status=syncing?.status,count=status?.pending??0;
+  /** How long changes have been pending without a break, or null with none:
+   * one clock per continuously pending replica, not per edit or request. It
+   * wakes the snapshot when a save stops being brief and when it becomes long. */
+  private trackPending(count:number):number|null{
+    const syncing=this.syncing;
     if(this.pendingSave&&(this.closed||this.hidden||!count||this.pendingSave.id!==syncing?.id))this.clearPendingSave();
-    if(this.closed||this.hidden||!syncing||!status||!count)return null;
+    if(this.closed||this.hidden||!syncing||!count)return null;
     if(!this.pendingSave){
       const pending={id:syncing.id,since:performance.now(),timer:null as ReturnType<typeof setTimeout>|null};
-      pending.timer=setTimeout(()=>{if(this.pendingSave!==pending)return;pending.timer=null;this.revision++;this.notify(false);},30_000);
+      const wake=(next:number|null)=>()=>{if(this.pendingSave!==pending)return;pending.timer=next===null?null:setTimeout(wake(null),next);this.revision++;this.notify(false);};
+      pending.timer=setTimeout(wake(LONG_PENDING_MS-BRIEF_PENDING_MS),BRIEF_PENDING_MS);
       this.pendingSave=pending;
     }
-    return appSaveState(count,this.storagePolicy??{persistent:false,installed:false},{pendingForMs:performance.now()-this.pendingSave.since,connection:status.connection}).warning;
+    return performance.now()-this.pendingSave.since;
   }
   private clearPendingSave():void{
     if(this.pendingSave?.timer!==null&&this.pendingSave?.timer!==undefined)clearTimeout(this.pendingSave.timer);
@@ -568,25 +580,26 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
     }
     return phase.kind==="opening"&&this.opening.slow?{...phase,slow:true}:phase;
   }
-  /** Follow the open collection's sync status while it is ready. */
-  private trackSync(phase:MdbasePhase,problem:string|null,transport:TransportHealth|null,live:boolean|null):StatusSummary|null{
+  /** Follow the open collection's status, write ledger and link while it is ready. */
+  private trackSync(phase:MdbasePhase,deferred:boolean):SyncStatus|null{
     const id=phase.kind==="ready"?phase.collectionId:null;
     if(this.syncing&&this.syncing.id!==id){try{this.syncing.stop();}catch{/* observer only */}this.syncing=null;}
     if(phase.kind!=="ready"||this.closed)return null;
     if(!this.syncing){
       const records=phase.connection.records;
       let status:SyncStatus|null=null;try{status=records.status;}catch{/* not yet known */}
-      const syncing:{readonly id:string;stop:()=>void;status:SyncStatus|null;writes:()=>WriteLedgerSnapshot|null}={id:phase.collectionId,stop:()=>{},status,writes:()=>null};
+      const syncing:NonNullable<MdbaseConnect["syncing"]>&{stop:()=>void}={id:phase.collectionId,stop:()=>{},status,writes:()=>null,link:()=>undefined};
       const changed=()=>{if(this.syncing!==syncing)return;this.revision++;this.getSnapshot();this.notify(false);};
-      let offStatus=()=>{},offWrites=()=>{};
+      let offStatus=()=>{},offWrites=()=>{},offLink=()=>{};
       try{offStatus=records.onStatus(next=>{syncing.status=next;changed();});}catch{/* status stays as read */}
       try{const ledger=records.ledger;offWrites=ledger.subscribe(changed);syncing.writes=()=>{try{return ledger.getSnapshot();}catch{return null;}};}catch{/* no ledger */}
-      syncing.stop=()=>{offStatus();offWrites();};
+      try{offLink=records.onLink(changed);syncing.link=()=>{try{return records.link;}catch{return undefined;}};}catch{/* link not observable */}
+      syncing.stop=()=>{offStatus();offWrites();offLink();};
       this.syncing=syncing;
     }
     // A transport that cannot deliver writes makes pending ones "saved on this device".
-    try{phase.connection.records.setTransportDeferred(transport!==null);}catch{/* observer only */}
-    return this.syncing.status?summarizeStatus(this.syncing.status,problem,transport,live):null;
+    try{phase.connection.records.setTransportDeferred(deferred);}catch{/* observer only */}
+    return this.syncing.status;
   }
   private nativeAuthorization(call:import("./native-authorization-rpc.js").NativeAuthorizationCall,portal:import("../app-host/web-sign-in-session.js").AppWebSignInPortal,signal:AbortSignal):Promise<import("./native-authorization-rpc.js").NativeAuthorizationResult>{
     if(!this.privates || this.closed || this.hidden)return Promise.reject(mdbaseError("unavailable","Native authorization unavailable"));
@@ -898,6 +911,13 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
     const win=typeof window==="undefined"?undefined:window;
     if(win&&typeof win.addEventListener==="function"){win.addEventListener("focus",wake,{signal:this.lifetime.signal});win.addEventListener("online",wake,{signal:this.lifetime.signal});}
     sync();
+  }
+  /** `sync.connection` says offline as soon as the browser does, not at the next failed request. */
+  private followNetwork():void{
+    const win=typeof window==="undefined"?undefined:window;
+    if(!win||typeof win.addEventListener!=="function")return;
+    const changed=()=>{if(this.closed)return;this.revision++;this.notify(false);};
+    win.addEventListener("online",changed,{signal:this.lifetime.signal});win.addEventListener("offline",changed,{signal:this.lifetime.signal});
   }
   /** Back/forward cache: a page parked there is frozen with its Worker, which
    * would keep holding the collection lease and block the next document of
