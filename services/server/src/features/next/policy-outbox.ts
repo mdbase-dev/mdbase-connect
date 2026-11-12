@@ -72,6 +72,22 @@ async function ownerPlacement(client: DatabaseQueryable, ownerUserId: string): P
 }
 
 /**
+ * The native collections an account's hosted-collection limit counts: those it
+ * owns that sync to mdbase (cloud copy or private) and are neither deleted nor
+ * left sync. `GET /v1/me` reports this same count as its usage.
+ */
+export async function nativeCollectionQuotaUsage(client: DatabaseQueryable, ownerUserId: string): Promise<number> {
+  const usage = await client.query<{ count: string }>(
+    `SELECT count(*) FROM next_collections n
+     WHERE n.owner_user_id = $1 AND n.runtime = 'next'
+       AND n.sync IN ('cloud_copy', 'private') AND n.left_sync_at IS NULL
+       AND NOT EXISTS (SELECT 1 FROM next_collection_deletion_facts d WHERE d.collection_id = n.collection_id)`,
+    [ownerUserId]
+  );
+  return Number(usage.rows[0]!.count);
+}
+
+/**
  * Register a collection whose log the control plane creates on the hosted log
  * service. `ops` must start with its `genesis`, in the state matching `sync`; they
  * become the item at seq 1 (`create_log`). A private collection may not enrol a
@@ -99,14 +115,7 @@ export async function registerNextCollection(
     await client.query("SELECT pg_advisory_xact_lock(hashtextextended('next-collection-quota:' || $1::uuid::text, 0))", [input.ownerUserId]);
     const entitlement = await effectiveEntitlement(client, input.ownerUserId);
     if (!entitlement) throw new HostedEntitlementRequiredError();
-    const usage = await client.query<{ count: string }>(
-      `SELECT count(*) FROM next_collections n
-       WHERE n.owner_user_id = $1 AND n.runtime = 'next'
-         AND n.sync IN ('cloud_copy', 'private') AND n.left_sync_at IS NULL
-         AND NOT EXISTS (SELECT 1 FROM next_collection_deletion_facts d WHERE d.collection_id = n.collection_id)`,
-      [input.ownerUserId]
-    );
-    if (Number(usage.rows[0]!.count) >= entitlement.maxHostedCollections) throw new CreateError(429, "account_collection_quota_exceeded");
+    if (await nativeCollectionQuotaUsage(client, input.ownerUserId) >= entitlement.maxHostedCollections) throw new CreateError(429, "account_collection_quota_exceeded");
   }
   await refuseCollectionIdOfOther(client, input.collectionId, input.ownerUserId);
   await client.query(

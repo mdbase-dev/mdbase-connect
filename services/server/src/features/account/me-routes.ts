@@ -26,6 +26,7 @@ import { hostedMirrorReplicas } from "../hosted/service.js";
 import type { LogServiceClient } from "../next/log-service-client.js";
 import { nativeDevicesByCollection } from "../next/native-grant-target.js";
 import { nextFileBytes } from "../next/storage-usage.js";
+import { nativeCollectionQuotaUsage } from "../next/policy-outbox.js";
 
 /** The native replica's record source cap (`RECORD_SOURCE_CAP_BYTES`, pinned by
  * document-limit.test.ts). It bounds every next-backend document; an entitlement's
@@ -318,7 +319,11 @@ export function registerAccountOverviewRoute(
           max_collection_member_seats: entitlement.maxCollectionMemberSeats
         },
         usage: hostedUsage ? {
-          hosted_collections: hostedUsage.collection_count,
+          // The limit a native account meets counts its native collections; the
+          // legacy provider only knows legacy hosted ones.
+          hosted_collections: creation.backend === "next"
+            ? await nativeCollectionQuotaUsage(options.db, user.id)
+            : hostedUsage.collection_count,
           live_content_bytes: hostedUsage.live_content_bytes,
           live_file_bytes: hostedUsage.live_file_bytes,
           live_storage_bytes:
