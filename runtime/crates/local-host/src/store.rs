@@ -14,7 +14,7 @@ use mdbn_store_file::diskdb::SqlDiskDb;
 use mdbn_store_file::index::IndexDurability;
 use mdbn_store_file::{Config, FileStore, SqlStore, SqlStoreLimits};
 
-use crate::Error;
+use crate::{Error, LockError};
 
 /// The native store type.
 pub type NativeStore = FileStore<NativePlatform, SqlStore<SqliteIndex>, SqlDiskDb<SqliteIndex>>;
@@ -23,6 +23,8 @@ pub type NativeStore = FileStore<NativePlatform, SqlStore<SqliteIndex>, SqlDiskD
 pub const DEFAULT_PRIVATE_DIR: &str = ".mdbase";
 /// Default name of the index database inside the state dir.
 pub const INDEX_FILE: &str = "index.sqlite";
+/// Name of the default state dir inside the private dir.
+const LIBRARY_DIR: &str = "library";
 
 /// How to open the store.
 #[derive(Debug, Clone)]
@@ -30,7 +32,8 @@ pub struct StoreOptions {
     /// The private dir name inside the collection root (`.mdbase`).
     pub private_dir: String,
     /// Where this host keeps its replica state (the SQLite index, identity).
-    /// `None` means `<root>/<private_dir>/library`.
+    /// `None` means `<root>/<private_dir>/library`, which must be a real
+    /// directory and hold no symlink.
     pub state_dir: Option<PathBuf>,
     /// Blob size limits. The portable, constrained profile is the default;
     /// a desktop host selects [`SqlStoreLimits::DESKTOP`] explicitly.
@@ -58,7 +61,44 @@ impl StoreOptions {
     pub fn state_dir(&self, root: &Path) -> PathBuf {
         self.state_dir
             .clone()
-            .unwrap_or_else(|| root.join(&self.private_dir).join("library"))
+            .unwrap_or_else(|| root.join(&self.private_dir).join(LIBRARY_DIR))
+    }
+
+    /// Create the state dir for `root` if missing, and return it.
+    ///
+    /// An explicit [`StoreOptions::state_dir`] is the caller's choice and is
+    /// used as given. The default lies inside the collection, whose contents
+    /// are whatever the folder was given, so the index and identity must not
+    /// follow it elsewhere: the private dir and the state dir must be real
+    /// directories (not symlinks or junctions), and nothing in the state dir
+    /// may be a symlink. Errors name paths from the collection root.
+    pub(crate) fn ensure_state_dir(&self, root: &Path) -> Result<PathBuf, Error> {
+        if let Some(dir) = &self.state_dir {
+            std::fs::create_dir_all(dir)?;
+            return Ok(dir.clone());
+        }
+        crate::host_lock::check_private_name(root, &self.private_dir)?;
+        let private = Path::new(&self.private_dir);
+        let shown = private.join(LIBRARY_DIR);
+        for rel in [private, &shown] {
+            let dir = root.join(rel);
+            if let Err(e) = std::fs::create_dir(&dir)
+                && e.kind() != std::io::ErrorKind::AlreadyExists
+            {
+                return Err(e.into());
+            }
+            if !std::fs::symlink_metadata(&dir)?.is_dir() {
+                return Err(LockError::Unsafe(rel.to_owned()).into());
+            }
+        }
+        let dir = root.join(&shown);
+        for entry in std::fs::read_dir(&dir)? {
+            let entry = entry?;
+            if entry.file_type()?.is_symlink() {
+                return Err(LockError::Unsafe(shown.join(entry.file_name())).into());
+            }
+        }
+        Ok(dir)
     }
 
     /// The index database path for `root`.
@@ -75,8 +115,7 @@ pub fn open_store(
     opts: &StoreOptions,
     clock: Box<dyn Clock>,
 ) -> Result<NativeStore, Error> {
-    let state_dir = opts.state_dir(root);
-    std::fs::create_dir_all(&state_dir)?;
+    opts.ensure_state_dir(root)?;
     // Caller still takes the folder host lock first. Acquire and retain the
     // exclusive private index before any platform probe/private directory IO;
     // a separate daemon preflight is diagnostic, not a TOCTOU-safe gate.
