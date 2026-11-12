@@ -434,10 +434,10 @@ impl HostedNotificationRuntime {
                 .await;
             match result {
                 Ok(()) => {
+                    // A delivered event is never read again; its payload holds
+                    // the record path and frontmatter, so it is not retained.
                     sqlx::query(
-                        "UPDATE hosted_provider_runtime_outbox
-                         SET processed_at = now(), lease_token = NULL, leased_until = NULL,
-                             last_error = NULL
+                        "DELETE FROM hosted_provider_runtime_outbox
                          WHERE collection_id = $1 AND sequence = $2 AND lease_token = $3",
                     )
                     .bind(collection_id)
@@ -778,7 +778,8 @@ fn denied(code: &str, message: &str) -> AuthorizationDecision {
 fn runtime_error(stage: &'static str) -> impl FnOnce(mdbase_runtime::RuntimeError) -> ApiError {
     move |error| {
         // Runtime diagnostics may include record content in their messages.
-        // Emit only owned categories, never arbitrary diagnostic codes/messages.
+        // Emit, store and return only owned categories, never arbitrary
+        // diagnostic codes/messages.
         let code = safe_runtime_error_code(&error);
         tracing::warn!(
             target: "mdbase_connect::metrics",
@@ -787,7 +788,9 @@ fn runtime_error(stage: &'static str) -> impl FnOnce(mdbase_runtime::RuntimeErro
             runtime_error_code = code,
             "privacy-safe hosted provider metric"
         );
-        ApiError::internal(error.to_string())
+        ApiError::internal(format!(
+            "The hosted notification runtime failed at {stage}: {code}."
+        ))
     }
 }
 
@@ -817,7 +820,9 @@ mod migration_tests;
 
 #[cfg(test)]
 mod tests {
-    use super::{is_canonical_application_scope, retry_delay_seconds, safe_runtime_error_code};
+    use super::{
+        is_canonical_application_scope, retry_delay_seconds, runtime_error, safe_runtime_error_code,
+    };
     use mdbase_connect_protocol::{ApplicationAccess, GrantScope};
 
     #[tokio::test]
@@ -921,6 +926,22 @@ mod tests {
             safe_runtime_error_code(&RuntimeError::Store("private database error".into())),
             "runtime_store_error"
         );
+    }
+
+    #[test]
+    fn runtime_errors_carry_only_their_stage_and_owned_code() {
+        use mdbase_runtime::RuntimeError;
+        for error in [
+            RuntimeError::diagnostic("invalid_runtime_event", "/data/after/private-field"),
+            RuntimeError::diagnostic("private-diagnostic-code", "private record content"),
+            RuntimeError::Store("private database error".into()),
+        ] {
+            let code = safe_runtime_error_code(&error);
+            let stored = runtime_error("event_admission")(error).to_string();
+            assert!(!stored.contains("private"), "{stored}");
+            assert!(stored.contains("event_admission"), "{stored}");
+            assert!(stored.contains(code), "{stored}");
+        }
     }
 
     #[test]
