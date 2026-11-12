@@ -30,8 +30,8 @@ const STALE_MS: u64 = 60_000;
 #[derive(Debug, Clone)]
 pub struct FolderOptions {
     /// Where to keep this host's index and identity. `None` means
-    /// `<root>/.mdbase/library`, which must be a real directory owned by this
-    /// user and hold no symlink.
+    /// `<root>/.mdbase/library`, which must be a real directory and hold no
+    /// symlink.
     pub state_dir: Option<PathBuf>,
     /// Desktop resource limits rather than the constrained (mobile) profile.
     pub desktop: bool,

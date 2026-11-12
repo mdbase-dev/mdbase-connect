@@ -33,7 +33,7 @@ pub struct StoreOptions {
     pub private_dir: String,
     /// Where this host keeps its replica state (the SQLite index, identity).
     /// `None` means `<root>/<private_dir>/library`, which must be a real
-    /// directory owned by this user and hold no symlink.
+    /// directory and hold no symlink.
     pub state_dir: Option<PathBuf>,
     /// Blob size limits. The portable, constrained profile is the default;
     /// a desktop host selects [`SqlStoreLimits::DESKTOP`] explicitly.
@@ -70,9 +70,8 @@ impl StoreOptions {
     /// used as given. The default lies inside the collection, whose contents
     /// are whatever the folder was given, so the index and identity must not
     /// follow it elsewhere: the private dir and the state dir must be real
-    /// directories (not symlinks or junctions) owned by this user on Unix, and
-    /// nothing in the state dir may be a symlink. Errors name paths from the
-    /// collection root.
+    /// directories (not symlinks or junctions), and nothing in the state dir
+    /// may be a symlink. Errors name paths from the collection root.
     pub(crate) fn ensure_state_dir(&self, root: &Path) -> Result<PathBuf, Error> {
         if let Some(dir) = &self.state_dir {
             std::fs::create_dir_all(dir)?;
@@ -88,19 +87,8 @@ impl StoreOptions {
             {
                 return Err(e.into());
             }
-            let meta = std::fs::symlink_metadata(&dir)?;
-            if !meta.is_dir() {
+            if !std::fs::symlink_metadata(&dir)?.is_dir() {
                 return Err(LockError::Unsafe(rel.to_owned()).into());
-            }
-            #[cfg(unix)]
-            if std::os::unix::fs::MetadataExt::uid(&meta) != euid() {
-                return Err(Error::Io(std::io::Error::new(
-                    std::io::ErrorKind::PermissionDenied,
-                    format!(
-                        "{} is owned by another user; pass a state directory to keep this collection's state elsewhere",
-                        rel.display()
-                    ),
-                )));
             }
         }
         let dir = root.join(&shown);
@@ -154,12 +142,4 @@ pub fn open_store(
         clock,
         opts.fs.clone(),
     )?)
-}
-
-/// This process's effective user ID.
-#[cfg(unix)]
-#[allow(unsafe_code)]
-fn euid() -> u32 {
-    // SAFETY: geteuid has no preconditions and cannot fail.
-    unsafe { libc::geteuid() }
 }
