@@ -59,6 +59,12 @@ enum Payload {
         env: QueryEnv,
         frontier: QueryKeyedId,
     },
+    /// A keyset position in a query whose `where` the index cannot express:
+    /// the last record a residual page read.
+    Residual {
+        env: QueryEnv,
+        frontier: QueryKeyedId,
+    },
     /// A keyset position in a path-ordered list.
     Path { list: PathList, after: String },
 }
@@ -205,7 +211,7 @@ impl Cursors {
             self.owners.remove(&old.handle);
         }
         let prefix = match entry.payload {
-            Payload::Query { .. } => TOKEN_PREFIX,
+            Payload::Query { .. } | Payload::Residual { .. } => TOKEN_PREFIX,
             Payload::Path { list, .. } => list.prefix(),
         };
         entries.bytes += entry.bytes;
@@ -596,7 +602,7 @@ impl<S: Store> Replica<S> {
             .transpose()?;
         if saved
             .as_ref()
-            .is_some_and(|s| !matches!(s.payload, Payload::Query { .. }))
+            .is_some_and(|s| matches!(s.payload, Payload::Path { .. }))
         {
             return Err(invalid("cursor method changed"));
         }
@@ -640,7 +646,8 @@ impl<S: Store> Replica<S> {
             q.offset = 0;
         }
         let env = if let Some(saved) = &saved {
-            let Payload::Query { env, .. } = &saved.payload else {
+            let (Payload::Query { env, .. } | Payload::Residual { env, .. }) = &saved.payload
+            else {
                 return Err(invalid("cursor method changed"));
             };
             QueryEnv {
@@ -668,21 +675,46 @@ impl<S: Store> Replica<S> {
         let plan = mdbn_core::query::compile(&q, &self.catalog).map_err(|e| {
             ErrorCode::InvalidRequest.err_with_reason("invalid_query", format!("{e:?}"))
         })?;
-        if mdbn_core::query::profile::lower(&plan, &self.catalog).is_err() && saved.is_none() {
-            return self.run_query(query, include);
-        }
+        // A `where` the index cannot express (a body search) is decided record
+        // by record. Where that whole answer exceeds this host's request
+        // budget, it pages over the index's selection of the query's types.
+        let mut refusal = None;
+        let residual_frontier = match saved.as_ref().map(|s| &s.payload) {
+            Some(Payload::Residual { frontier, .. }) => Some(Some(frontier)),
+            None if mdbn_core::query::profile::lower(&plan, &self.catalog).is_err() => {
+                match self.run_query(query, include) {
+                    Err(e)
+                        if e.problem().reason.as_deref() == Some("query_budget_exceeded")
+                            && !plan.requirements.links =>
+                    {
+                        refusal = Some(e);
+                        Some(None)
+                    }
+                    answer => return answer,
+                }
+            }
+            _ => None,
+        };
         self.trace_query("prepare_done");
-        let page = self.indexed_query_page(
-            &plan,
-            &lv,
-            &env,
-            include,
-            saved.as_ref().and_then(|s| match &s.payload {
-                Payload::Query { frontier, .. } => Some(frontier),
-                Payload::Path { .. } => None,
-            }),
-            super::query_driver::Window::BudgetBounded,
-        );
+        let page = match residual_frontier {
+            Some(after) => match self.residual_query_page(&plan, &env, include, after)? {
+                Some(page) => Ok(Ok(page)),
+                // The index cannot select it: the refusal stands.
+                None => return Err(refusal.unwrap_or_else(stale)),
+            },
+            None => self.indexed_query_page(
+                &plan,
+                &lv,
+                &env,
+                include,
+                saved.as_ref().and_then(|s| match &s.payload {
+                    Payload::Query { frontier, .. } => Some(frontier),
+                    Payload::Residual { .. } | Payload::Path { .. } => None,
+                }),
+                super::query_driver::Window::BudgetBounded,
+            ),
+        };
+        let residual = residual_frontier.is_some();
         self.require(session, crate::policy::capability::READ)?;
         if self.cursor_stamp(session)? != stamp {
             return Err(stale());
@@ -703,7 +735,9 @@ impl<S: Store> Replica<S> {
             Err(_) => return Err(stale()),
         };
         self.trace_query("check_after");
-        if page.result.has_more == Some(true) && !page.result.records.is_empty() {
+        // A residual page may read only records that do not match; it still
+        // advances.
+        if page.result.has_more == Some(true) && (residual || !page.result.records.is_empty()) {
             let frontier = page
                 .frontier
                 .take()
@@ -719,7 +753,11 @@ impl<S: Store> Replica<S> {
                 handle: [0; 16],
                 stamp,
                 invocation: fingerprint,
-                payload: Payload::Query { env, frontier },
+                payload: if residual {
+                    Payload::Residual { env, frontier }
+                } else {
+                    Payload::Query { env, frontier }
+                },
                 expires_at,
                 bytes,
             };

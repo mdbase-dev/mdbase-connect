@@ -24,7 +24,7 @@ use mdbn_wire::client::{Include, QueryResult, RecordView};
 use mdbn_wire::common::Uuid;
 
 use super::Replica;
-use super::submit::{RecordPosition, record_view, store_err};
+use super::submit::{RecordPosition, parsed_record_view, record_view, store_err};
 use crate::api::{ApiError, ApiResult, ErrorCode};
 use crate::convert;
 use crate::layer::LayerView;
@@ -207,6 +207,149 @@ enum Source {
 }
 
 impl<S: Store> Replica<S> {
+    /// One page of a query whose `where` the index cannot express (a body
+    /// search), on a host whose per-record scan has a request budget.
+    ///
+    /// The index selects every record of the query's types in the query's own
+    /// order; each selected record is read and the plan itself decides it. A
+    /// page ends after `limit` matches or where the request budget runs out,
+    /// and its frontier is the last record it read, so the next page continues
+    /// in order. `None`: the index cannot select that (not ready, an order it
+    /// does not hold, pending edits); the caller answers as before.
+    pub(crate) fn residual_query_page(
+        &self,
+        plan: &QueryPlan,
+        env: &QueryEnv,
+        include: &Include,
+        after: Option<&QueryKeyedId>,
+    ) -> ApiResult<Option<IndexedQueryPage>> {
+        let q = &plan.query;
+        let Some(limit) = q.limit.filter(|&n| n > 0) else {
+            return Ok(None);
+        };
+        if self.install.is_some()
+            || self.layer.catalog().is_some()
+            || !self.layer.touched_ids().is_empty()
+            || q.offset != 0
+        {
+            return Ok(None);
+        }
+        let Ok(context) = self.ready_context()? else {
+            return Ok(None);
+        };
+        let catalog = context.catalog();
+        let mut selection = q.clone();
+        selection.where_ = None;
+        let Ok(selection) = mdbn_core::query::compile(&selection, catalog) else {
+            return Ok(None);
+        };
+        let Ok(profile) = profile::lower(&selection, catalog) else {
+            return Ok(None);
+        };
+        if profile.predicate == Predicate::None {
+            return Ok(None);
+        }
+        let after_bytes = after.map_or(0, |row| {
+            16 + row.path.len() as u64
+                + row
+                    .keys
+                    .iter()
+                    .map(|key| key.key.len() as u64 + 1)
+                    .sum::<u64>()
+        });
+        let request = match QueryIndexRequest::from_profile(
+            &profile,
+            context,
+            self.head,
+            MAX_SELECTED as u32,
+            MAX_BYTES.saturating_sub(after_bytes),
+        ) {
+            Ok(r) => QueryIndexRequest {
+                offset: 0,
+                after: after.cloned(),
+                ..r
+            },
+            Err(_) => return Ok(None),
+        };
+        let page = self
+            .store
+            .query_index_page(&request)
+            .map_err(|e| indexed_err(e, "the selected keys"))?
+            .ok_or_else(|| ErrorCode::Unavailable.err("query index unavailable"))?;
+        validate_keyset_page(&request, &page)?;
+
+        let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+        let mut budget = QueryBudget::new(MAX_SELECTED as u32, MAX_BYTES);
+        let mut records = Vec::new();
+        let mut read = 0;
+        let mut full = false;
+        // Read in small chunks so a page that fills early reads little more.
+        'chunks: for chunk in page.rows.chunks(32) {
+            let rows: Vec<_> = chunk.iter().collect();
+            let fits = fitting_prefix(&rows, budget.bytes_left(), budget.records_left());
+            let ids: Vec<Uuid> = chunk[..fits].iter().map(|r| r.id).collect();
+            let hydrated = self
+                .store
+                .hydrate_query_at(&ids, self.head, &mut budget)
+                .map_err(|e| indexed_err(e, "the records this query has to read"))?;
+            let mut by_id: BTreeMap<Uuid, RecordRow> =
+                hydrated.into_iter().map(|r| (r.id, r)).collect();
+            if by_id.len() != ids.len() {
+                return Err(ErrorCode::Unavailable.err_with_reason(
+                    "query_index_stale",
+                    "the query index changed during the query; retry",
+                ));
+            }
+            for id in &ids {
+                let row = by_id.remove(id).expect("hydrated above");
+                let doc = mdbn_core::doc::Document::parse_at(&row.path, &row.doc);
+                let types = catalog.membership(&row.path, doc.frontmatter()).types;
+                let record = QueryRecord {
+                    path: &row.path,
+                    types: &types,
+                    frontmatter: doc.frontmatter(),
+                    body: Some(doc.body()),
+                };
+                if plan.matches(&record, env) == Verdict::Match {
+                    if records.len() == limit {
+                        // A further match: the next page starts with it.
+                        full = true;
+                        break 'chunks;
+                    }
+                    let position = (row.modified_seq, row.mtime);
+                    records.push(parsed_record_view(
+                        catalog, &row.id, &row.path, &doc, types, position, false, include,
+                    ));
+                }
+                read += 1;
+            }
+            if fits < chunk.len() {
+                break;
+            }
+        }
+        // A first record beyond the whole budget on its own still refuses.
+        if read == 0 && !full && !page.rows.is_empty() {
+            return Err(budget_error("the records this query has to read"));
+        }
+        let has_more = full || read < page.rows.len() || page.has_more;
+        let frontier = has_more.then(|| page.rows[read - 1].clone());
+        Ok(Some(IndexedQueryPage {
+            frontier,
+            result: QueryResult {
+                records,
+                cursor: None,
+                complete: true,
+                as_of: self.view_version,
+                columns: None,
+                total_count: None,
+                diagnostics: None,
+                view: None,
+                groups: None,
+                has_more: Some(has_more),
+            },
+        }))
+    }
+
     /// The ready index context, or why there is none.
     /// A genuine store error is an error, never a decline.
     pub(crate) fn ready_context(&self) -> ApiResult<Result<&QueryProjectionContext, Decline>> {
