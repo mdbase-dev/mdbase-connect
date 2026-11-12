@@ -15,6 +15,11 @@ describe("security primitives", () => {
     expect(isP256PublicKey(key.getPublicKey().toString("base64url"))).toBe(true);
     expect(isP256PublicKey(key.getPublicKey("base64url", "compressed"))).toBe(false);
     expect(isP256PublicKey("not+p256")).toBe(false);
+    const encoded = key.getPublicKey().toString("base64url");
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    const nonCanonical = `${encoded.slice(0, -1)}${alphabet[alphabet.indexOf(encoded.at(-1)!) ^ 1]}`;
+    expect(Buffer.from(nonCanonical, "base64url")).toEqual(key.getPublicKey());
+    expect(isP256PublicKey(nonCanonical)).toBe(false);
   });
 
   it("compares equal values without accepting different lengths", () => {

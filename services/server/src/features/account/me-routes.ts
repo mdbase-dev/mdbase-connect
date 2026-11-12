@@ -64,6 +64,7 @@ export function registerAccountOverviewRoute(
   options: AccountOverviewRouteOptions
 ): void {
   app.get("/v1/me", async (request, reply) => {
+    reply.header("cache-control", "no-store");
     const authenticated = await requireUser(
       request,
       reply,

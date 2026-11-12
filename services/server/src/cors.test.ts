@@ -81,7 +81,7 @@ for (const [environment, publicUrl, editorOrigin] of deployments) {
 
     it("still refuses an ambient session cookie from a non-account origin", async () => {
       for (const origin of ["https://app.tasknotes.dev", "https://writer.mdbase.dev", "app://obsidian.md", "https://application.example"]) {
-        const response = await app.inject({ url: "/v1/me", headers: { origin, cookie: "mdbase_session=synthetic" } });
+        const response = await app.inject({ url: "/v1/me", headers: { origin, cookie: "__Host-mdbase_session=synthetic" } });
         expect(response.statusCode, origin).toBe(403);
         expect(response.json()).toMatchObject({ error: { code: "origin_denied" } });
         expect(response.headers["access-control-allow-credentials"], origin).toBeUndefined();

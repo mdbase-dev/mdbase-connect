@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type {
   ApplicationNotifications,
   NotificationCriterion
@@ -26,6 +26,9 @@ import {
   bearerToken,
   requireConnector
 } from "../../platform/request-authentication.js";
+
+/** Each active channel receives one delivery for every matching signal. */
+export const MAX_ACTIVE_PUSH_CHANNELS_PER_GRANT = 100;
 
 interface NotificationRoutesOptions {
   serverEnvironment?: string;
@@ -216,6 +219,19 @@ export function registerNotificationRoutes(
       const stored = sealer
         ? { endpoint: null, p256dh: null, auth: null, fcm_token: null }
         : target;
+      // Serialize registrations of one grant so the active-channel bound holds.
+      const grantLock = createHash("sha256").update(`mdbase/v1/push-channels\0${grant.grant_id}`).digest();
+      await connection.query("SELECT pg_advisory_xact_lock($1, $2)", [grantLock.readInt32BE(0), grantLock.readInt32BE(4)]);
+      const others = await connection.query<{ active: number | string }>(
+        `SELECT count(*) AS active FROM push_channels
+         WHERE grant_id = $1 AND installation_id <> $2 AND disabled_at IS NULL`,
+        [grant.grant_id, input.installation_id]
+      );
+      if (Number(others.rows[0].active) >= MAX_ACTIVE_PUSH_CHANNELS_PER_GRANT) {
+        throw new TimerError(413, "too_large", "Too many active notification channels for this grant.", {
+          limit: MAX_ACTIVE_PUSH_CHANNELS_PER_GRANT
+        });
+      }
       const channel = await connection.query<{ id: string }>(
         `INSERT INTO push_channels
            (id, grant_id, installation_id, kind, endpoint, endpoint_hash,

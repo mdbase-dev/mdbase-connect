@@ -50,7 +50,7 @@ describePg("account deletion on native collections (dedicated local Postgres)", 
     await db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'Desktop',$3)", [connector, id, tokenHash(randomUUID())]);
     await db.query("INSERT INTO next_devices(id,connector_id,user_id,kind,sign_pk,kem_pk,noise_pk) VALUES($1,$2,$3,'desktop',$4,$5,$6)",
       [device, connector, id, randomBytes(32), randomBytes(32), randomBytes(32)]);
-    return { id, connector, device, cookie: `mdbase_session=${sessionToken}` };
+    return { id, connector, device, cookie: `__Host-mdbase_session=${sessionToken}` };
   }
   type Account = Awaited<ReturnType<typeof account>>;
 
