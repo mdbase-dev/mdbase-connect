@@ -281,7 +281,7 @@ async fn candidate_b_consolidated_migrations_upgrade_the_beta69_schema() {
             .fetch_all(&pool)
             .await
             .unwrap();
-    assert_eq!(final_versions, (1_i64..=50).collect::<Vec<_>>());
+    assert_eq!(final_versions, (1_i64..=49).collect::<Vec<_>>());
     let owner_column: (String, String) = sqlx::query_as(
         "SELECT data_type, is_nullable FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'hosted_provider_legacy_rollback_receipts' AND column_name = 'provider_account_id'",
     ).fetch_one(&pool).await.unwrap();
@@ -366,7 +366,7 @@ async fn projection_index_plan_requires_exact_embedded_migration_inventory() {
             .fetch_all(&fixture.pool)
             .await
             .unwrap();
-    assert_eq!(versions, (1..=50).collect::<Vec<_>>());
+    assert_eq!(versions, (1..=49).collect::<Vec<_>>());
     let plan = fixture
         .provider
         .projection_index_plan(None, 1)
@@ -375,7 +375,7 @@ async fn projection_index_plan_requires_exact_embedded_migration_inventory() {
     assert!(plan.migration_ledger_valid);
     assert!(plan.schema_valid);
     assert_eq!(plan.migration_baseline, 34);
-    assert_eq!(plan.migration_target, 50);
+    assert_eq!(plan.migration_target, 49);
 
     // Only this disposable fixture's ledger is corrupted. Save every original
     // column, including checksum bytes and timestamps; never rerun migrations
@@ -410,7 +410,7 @@ async fn projection_index_plan_requires_exact_embedded_migration_inventory() {
         assert_eq!(restored, original, "exact restoration after {name}");
         let plan = result.unwrap();
         assert!(!plan.migration_ledger_valid, "accepted {name}");
-        assert_eq!(plan.migration_target, 50, "target changed for {name}");
+        assert_eq!(plan.migration_target, 49, "target changed for {name}");
         assert!(plan.schema_valid, "schema changed for {name}");
         assert!(fixture.provider.projection_index_plan(None, 1).await.unwrap().migration_ledger_valid);
     }

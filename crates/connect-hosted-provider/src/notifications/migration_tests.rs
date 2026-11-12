@@ -545,29 +545,68 @@ async fn delivered_outbox_rows_are_removed_with_their_payload() {
         .unwrap()
     };
 
-    // Rows delivered by an earlier build are removed by the migration.
+    // Rows an earlier build marked delivered are swept in bounded batches;
+    // a row awaiting delivery is never swept.
+    for sequence in 1..=3_i64 {
+        sqlx::query(
+            "INSERT INTO hosted_provider_runtime_outbox
+               (collection_id, sequence, event_type, payload, processed_at)
+             VALUES($1, $2, 'mdbase.record.created', $3, now())",
+        )
+        .bind(f.collection_id)
+        .bind(sequence)
+        .bind(json!({"path": "fixture.md", "after": {"title": "fixture"}}))
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    }
     sqlx::query(
         "INSERT INTO hosted_provider_runtime_outbox
-           (collection_id, sequence, event_type, payload, processed_at)
-         VALUES($1, 1, 'mdbase.record.created', $2, now())",
+           (collection_id, sequence, event_type, payload, available_at)
+         VALUES($1, 4, 'mdbase.record.created', $2, now() + interval '1 hour')",
     )
     .bind(f.collection_id)
     .bind(json!({"path": "fixture.md", "after": {"title": "fixture"}}))
     .execute(&f.pool)
     .await
     .unwrap();
-    sqlx::raw_sql(include_str!(
-        "../../migrations/0050_delete_delivered_runtime_outbox.sql"
-    ))
+    assert_eq!(runtime.sweep_delivered_outbox(2).await.unwrap(), 2);
+    assert_eq!(runtime.sweep_delivered_outbox(2).await.unwrap(), 1);
+    assert_eq!(runtime.sweep_delivered_outbox(2).await.unwrap(), 0);
+    assert_eq!(runtime.sweep_delivered_outbox(2).await.unwrap(), 0);
+    assert_eq!(outbox_rows().await, 1);
+    // Recovery sweeps too, and still leaves the deferred row in place.
+    sqlx::query(
+        "INSERT INTO hosted_provider_runtime_outbox
+           (collection_id, sequence, event_type, payload, processed_at)
+         VALUES($1, 5, 'mdbase.record.created', $2, now())",
+    )
+    .bind(f.collection_id)
+    .bind(json!({"path": "fixture.md", "after": {"title": "fixture"}}))
     .execute(&f.pool)
     .await
     .unwrap();
-    assert_eq!(outbox_rows().await, 0);
+    assert_eq!(runtime.recover(10).await.unwrap(), 0);
+    assert_eq!(outbox_rows().await, 1);
+    let pending: Option<chrono::DateTime<Utc>> = sqlx::query_scalar(
+        "SELECT processed_at FROM hosted_provider_runtime_outbox
+         WHERE collection_id=$1 AND sequence=4",
+    )
+    .bind(f.collection_id)
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert!(pending.is_none());
+    sqlx::query("DELETE FROM hosted_provider_runtime_outbox WHERE collection_id=$1")
+        .bind(f.collection_id)
+        .execute(&f.pool)
+        .await
+        .unwrap();
 
     // A row is removed in the same step that delivers it.
     sqlx::query(
         "INSERT INTO hosted_provider_runtime_outbox(collection_id, sequence, event_type, payload)
-         VALUES($1, 2, 'mdbase.record.created', $2)",
+         VALUES($1, 6, 'mdbase.record.created', $2)",
     )
     .bind(f.collection_id)
     .bind(json!({"path": "fixture.md", "after": {"title": "fixture"}}))
