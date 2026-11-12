@@ -66,12 +66,14 @@ export function defaultBrowserCapabilityEnvironment(): BrowserCapabilityEnvironm
  * browsing takes on an otherwise current browser). */
 export async function probeBrowserCapabilities(
   env: BrowserCapabilityEnvironment = defaultBrowserCapabilityEnvironment(),
+  runsWorker = true,
 ): Promise<BrowserCapabilityResult> {
   const missing: string[] = [];
   if (!env.subtle) missing.push("web_crypto");
   if (!env.abortSignalAny) missing.push("abort_signal_any");
   if (!env.randomUUID) missing.push("random_uuid");
-  if (!env.worker) missing.push("worker");
+  // A context that joins another context's Worker constructs none itself.
+  if (runsWorker && !env.worker) missing.push("worker");
   if (!env.messageChannel) missing.push("message_channel");
   if (!env.locks) missing.push("web_locks");
   if (!env.broadcastChannel) missing.push("broadcast_channel");
