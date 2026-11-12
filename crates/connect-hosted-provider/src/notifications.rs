@@ -32,6 +32,10 @@ pub struct HostedNotificationConfig {
 // globally oldest item. No identifiers, payloads, or record content leave SQL.
 const PENDING_SAMPLE_LIMIT: i64 = 100;
 
+// Delivered outbox rows left by earlier builds are deleted at most this many
+// per recovery sweep, so one sweep holds a short, bounded delete.
+const DELIVERED_SWEEP_BATCH: i64 = 500;
+
 struct PendingDeliverySample {
     outbox_count_capped: i64,
     outbox_sample_max_age_seconds: Option<i64>,
@@ -233,6 +237,14 @@ impl HostedNotificationRuntime {
     }
 
     pub async fn recover(&self, limit: usize) -> ApiResult<usize> {
+        // Cleanup must never hold up delivery, so a failed sweep is retried
+        // on the next recovery pass instead of failing this one.
+        if let Err(error) = self.sweep_delivered_outbox(DELIVERED_SWEEP_BATCH).await {
+            tracing::warn!(
+                error_code = %error.code,
+                "delivered hosted runtime event sweep deferred"
+            );
+        }
         let processed = self.process_outbox(limit).await?;
         let collections = sqlx::query_scalar::<_, Uuid>(
             "SELECT DISTINCT collection_id FROM hosted_provider_notification_grants",
@@ -372,6 +384,38 @@ impl HostedNotificationRuntime {
                 metric = "notification_recovery_sample_unavailable",
                 "privacy-safe hosted provider metric"),
         }
+    }
+
+    /// Deletes up to `batch` outbox rows that an earlier build marked
+    /// delivered instead of deleting. A delivered event is never read again
+    /// and its payload holds the record path and frontmatter. Rows awaiting
+    /// delivery (`processed_at IS NULL`) are never touched, and repeating the
+    /// sweep is harmless, so it runs on every recovery pass, including the
+    /// one at startup, while an earlier build may still be delivering.
+    async fn sweep_delivered_outbox(&self, batch: i64) -> ApiResult<u64> {
+        let deleted = sqlx::query(
+            "DELETE FROM hosted_provider_runtime_outbox
+             WHERE processed_at IS NOT NULL
+               AND (collection_id, sequence) IN (
+                 SELECT collection_id, sequence
+                 FROM hosted_provider_runtime_outbox
+                 WHERE processed_at IS NOT NULL
+                 LIMIT $1
+               )",
+        )
+        .bind(batch.max(1))
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        if deleted > 0 {
+            tracing::info!(
+                target: "mdbase_connect::metrics",
+                metric = "notification_delivered_outbox_swept",
+                deleted,
+                "privacy-safe hosted provider metric"
+            );
+        }
+        Ok(deleted)
     }
 
     async fn process_outbox(&self, limit: usize) -> ApiResult<usize> {
