@@ -213,3 +213,39 @@ describe("approval collection chooser",()=>{
     expect(vi.mocked(api).mock.calls.some(([,options])=>options?.method==="POST")).toBe(false);
   });
 });
+describe("a sign-in started with another account",()=>{
+  const foreign = () => new ApiError(403,"This sign-in was started with a different mdbase account. Switch back to that account to continue.","installation_account_changed");
+  it("says what happened and cancels it, so the app stops waiting", async () => {
+    const close = vi.spyOn(window, "close").mockImplementation(() => {});
+    vi.mocked(api).mockReset().mockImplementation(async (_path, options) => {
+      if (options?.method === "POST") return { ok: true };
+      throw foreign();
+    });
+    render(<Pairing pairingId="pairing"/>);
+    await screen.findByRole("heading",{name:"Signed in to a different account"});
+    expect(screen.getByText(/started with a different mdbase account\. To continue, switch back to that account/)).toBeInTheDocument();
+    expect(screen.queryByRole("button",{name:"Try again"})).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button",{name:"Cancel sign-in"}));
+    await screen.findByRole("heading",{name:"Sign-in cancelled"});
+    expect(vi.mocked(api)).toHaveBeenCalledWith("/v1/pairing-requests/pairing/deny",{method:"POST"});
+    expect(close).toHaveBeenCalled();
+  });
+  it("loads the request again once the browser is back on the original account", async () => {
+    let switched = false;
+    vi.mocked(api).mockReset().mockImplementation(async () => { if (!switched) throw foreign(); return { pairing: preparedPairing() }; });
+    render(<Pairing pairingId="pairing"/>);
+    await screen.findByRole("heading",{name:"Signed in to a different account"});
+    switched = true;
+    fireEvent.click(screen.getByRole("button",{name:"Check again"}));
+    await screen.findByRole("combobox",{name:"Open in Reader"});
+    expect(vi.mocked(api).mock.calls.some(([,options])=>options?.method==="POST")).toBe(false);
+  });
+  it("keeps the explanation when only the original account may cancel", async () => {
+    vi.mocked(api).mockReset().mockImplementation(async () => { throw foreign(); });
+    render(<Pairing pairingId="pairing"/>);
+    await screen.findByRole("heading",{name:"Signed in to a different account"});
+    fireEvent.click(screen.getByRole("button",{name:"Cancel sign-in"}));
+    await screen.findByText("This sign-in was started with a different mdbase account. Switch back to that account to continue.");
+    expect(screen.getByRole("heading",{name:"Signed in to a different account"})).toBeInTheDocument();
+  });
+});

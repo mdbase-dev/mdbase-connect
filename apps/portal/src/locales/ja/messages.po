@@ -870,6 +870,10 @@ msgctxt "Connect interface"
 msgid "Cancel invitation"
 msgstr "招待を取り消す"
 
+#: src/authority-workflows.tsx
+msgid "Cancel sign-in"
+msgstr "ログインをキャンセル"
+
 #: src/ConnectApp.tsx
 msgid "Cancel this collection invitation?"
 msgstr "このコレクションへの招待を取り消しますか？"
@@ -2864,6 +2868,10 @@ msgid "Return to sign in"
 msgstr "ログインに戻る"
 
 #: src/authority-workflows.tsx
+msgid "Return to the app."
+msgstr "アプリに戻ってください。"
+
+#: src/authority-workflows.tsx
 msgid "Return to your account"
 msgstr "アカウントに戻る"
 
@@ -3227,6 +3235,10 @@ msgstr "ログインをキャンセルしました。再試行するか、別の
 #: src/AccountManagement.tsx
 msgid "Signed in <0>{0}</0>"
 msgstr "サインイン日時：<0>{0}</0>"
+
+#: src/authority-workflows.tsx
+msgid "Signed in to a different account"
+msgstr "別のアカウントでログインしています"
 
 #. placeholder {0}: session.client_name
 #: src/AccountManagement.tsx
@@ -3636,6 +3648,10 @@ msgstr "コンピューターの接続またはコレクションの追加中も
 #: src/auth-view.tsx
 msgid "This reset link can’t be opened"
 msgstr "このリセットリンクは開けません"
+
+#: src/authority-workflows.tsx
+msgid "This sign-in was started with a different mdbase account. To continue, switch back to that account, then check again. Or cancel the sign-in, and the app stops waiting."
+msgstr "このログインは別の mdbase アカウントで開始されました。続けるには、そのアカウントに切り替えてから再確認してください。または、ログインをキャンセルすると、アプリは待機を終了します。"
 
 #: src/auth-view.tsx
 msgid "This unsubscribe link can’t be opened"

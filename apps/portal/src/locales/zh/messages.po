@@ -870,6 +870,10 @@ msgctxt "Connect interface"
 msgid "Cancel invitation"
 msgstr "取消邀请"
 
+#: src/authority-workflows.tsx
+msgid "Cancel sign-in"
+msgstr "取消登录"
+
 #: src/ConnectApp.tsx
 msgid "Cancel this collection invitation?"
 msgstr "取消此集合邀请？"
@@ -2864,6 +2868,10 @@ msgid "Return to sign in"
 msgstr "返回登录页面"
 
 #: src/authority-workflows.tsx
+msgid "Return to the app."
+msgstr "请返回应用。"
+
+#: src/authority-workflows.tsx
 msgid "Return to your account"
 msgstr "返回你的账户"
 
@@ -3227,6 +3235,10 @@ msgstr "登录已取消。你可以重试或选择其他方式。"
 #: src/AccountManagement.tsx
 msgid "Signed in <0>{0}</0>"
 msgstr "登录于 <0>{0}</0>"
+
+#: src/authority-workflows.tsx
+msgid "Signed in to a different account"
+msgstr "已登录其他账户"
 
 #. placeholder {0}: session.client_name
 #: src/AccountManagement.tsx
@@ -3636,6 +3648,10 @@ msgstr "连接电脑或添加集合期间，此请求会保持打开。请在桌
 #: src/auth-view.tsx
 msgid "This reset link can’t be opened"
 msgstr "无法打开此重置链接"
+
+#: src/authority-workflows.tsx
+msgid "This sign-in was started with a different mdbase account. To continue, switch back to that account, then check again. Or cancel the sign-in, and the app stops waiting."
+msgstr "此登录是用另一个 mdbase 账户发起的。要继续，请切换回该账户，然后再次检查。或者取消登录，应用将不再等待。"
 
 #: src/auth-view.tsx
 msgid "This unsubscribe link can’t be opened"

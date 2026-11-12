@@ -33,6 +33,16 @@ function fail(code: string, status = 409): never {
     "The original device sign-in cannot continue. Preserve its state and reconcile.",
   );
 }
+/** The request belongs to another account than the one asking about it. The
+ * portal shows this to a browser signed in to a different account, so it says
+ * what to do instead of the generic refusal. */
+function accountChanged(status = 403): never {
+  throw new InstallationPairingError(
+    status,
+    "installation_account_changed",
+    "This sign-in was started with a different mdbase account. Switch back to that account to continue.",
+  );
+}
 /** Private device access is the person's portal consent, behind the operator's
  * switch. Sign-in never refuses an app for asking; an approval that names device
  * access the request was not granted, or made after the switch was turned off, is
@@ -411,12 +421,12 @@ export async function inspectInstallationPairing(
   serverEnvironment?: string,
   privateDevice?: PrivateDeviceGate,
 ) {
-  if (authenticated.id !== user) fail("installation_account_changed", 403);
+  if (authenticated.id !== user) accountChanged();
   const identity = portalAccountIdentity(authenticated);
   const r = await row(db, serverEnvironment, id);
   live(r);
   if (r.user_id && r.user_id !== user)
-    fail("installation_account_changed", 403);
+    accountChanged();
   const accountUpgrade = await active(db, user, false, true);
   const declaration = (await findInstallationApplication(db, r.app_id))?.application_declaration;
   const native = declaration && "platform" in declaration && declaration.platform === "native" && isNativeLoopbackOrigin(r.app_origin);
@@ -516,7 +526,7 @@ export async function selectInstallationAccount(
   authenticated: User,
   serverEnvironment?: string,
 ) {
-  if (authenticated.id !== user) fail("installation_account_changed", 403);
+  if (authenticated.id !== user) accountChanged();
   const identity = portalAccountIdentity(authenticated);
   return tx(db, async (c) => {
     await active(c, user, true);
@@ -525,7 +535,7 @@ export async function selectInstallationAccount(
     const r = await row(c, serverEnvironment, id, undefined, true);
     live(r);
     if (r.user_id && r.user_id !== user)
-      fail("installation_account_changed", 403);
+      accountChanged();
     if (!r.portal_account_confirmed_at && (r.approved_at || r.consumed_at))
       fail("installation_approval_already_recorded");
     // Pin the canonical authenticated identity before awaits. currentSession
@@ -562,7 +572,7 @@ export async function currentInstallationPairingPortal(c: Connection, id: string
   await ordinary(c,user);
   const r = await row(c, serverEnvironment,id,undefined,true);
   live(r);
-  if (r.user_id!==user) fail("installation_account_changed",403);
+  if (r.user_id!==user) accountChanged();
   if (r.approved_at || r.consumed_at) fail("installation_approval_already_recorded");
   const epoch = (await c.query<{session_epoch:string|number}>("SELECT session_epoch FROM users WHERE id=$1",[user])).rows[0]?.session_epoch;
   if (!r.portal_account_confirmed_at || String(epoch)!==String(r.portal_account_session_epoch)) fail("installation_account_confirmation_required",403);
@@ -792,8 +802,12 @@ export async function denyInstallationPairing(
     await currentSession(c, session, user);
     const r = await row(c, serverEnvironment, id, undefined, true);
     live(r);
-    if (r.user_id && r.user_id !== user)
-      fail("installation_account_changed", 403);
+    // Any signed-in account may cancel a window no account has selected yet, as
+    // with a fresh one. A renewal after a denial keeps its original account for
+    // approval but starts unselected, so a browser since switched to another
+    // account can still stop the app waiting on it.
+    if (r.account_selected_at && r.user_id !== user)
+      accountChanged();
     if (r.consumed_at) fail("installation_already_registered");
     // An approved file-access decision is already recorded; deny cannot undo it.
     if (r.file_access_collection_id && r.approved_at) fail("installation_approval_already_recorded");
@@ -814,7 +828,7 @@ export async function removeInstallationAccess(db:DatabasePool,source:string|{ap
     if (typeof source === "string") {
       const r=await row(c, serverEnvironment,source,undefined,true);
       live(r);
-      if (!r.scope_only || r.user_id!==user) return fail("installation_account_changed",403);
+      if (!r.scope_only || r.user_id!==user) return accountChanged();
       appId = r.app_id;
     } else {
       // Account management is authenticated independently of the expiring
@@ -998,7 +1012,7 @@ export async function exchangeInstallationPairing(
     // Match daemon lock order: account BEFORE request, and recheck after locking.
     await active(c, initial.user_id, true);
     const r = await row(c, serverEnvironment, id, secret, true);
-    if (r.user_id !== initial.user_id) fail("installation_account_changed");
+    if (r.user_id !== initial.user_id) accountChanged(409);
     if (!r.consumed_at) {
       live(r);
       await ordinary(c, r.user_id!);

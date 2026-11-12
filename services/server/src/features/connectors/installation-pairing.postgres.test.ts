@@ -509,6 +509,24 @@ describePg("installation device sign-in on daemon pairing", () => {
     const counts = await db.query("SELECT count(*)::int AS n FROM next_devices WHERE connector_id=$1",[selected.connector_id]); expect(counts.rows[0].n).toBe(1);
     expect((await app.inject({method:"POST",url:"/v1/pairing-requests",payload:renewal(next),headers:originHeaders(input)})).statusCode).toBe(409);
   });
+  it("tells a browser switched to another account what to do, and lets it cancel a denied window's unselected renewal", async () => {
+    const {owner,input,flow} = await prepared();
+    expect((await app.inject({method:"POST",url:`${flow.base}/deny`,headers:owner.headers})).statusCode).toBe(200);
+    const next = renewal(input), renewed = await start(next), other = await account();
+    const inspected = await app.inject({method:"GET",url:renewed.base,headers:other.headers});
+    expect(inspected.statusCode).toBe(403);
+    expect(inspected.json().error).toMatchObject({code:"installation_account_changed",message:"This sign-in was started with a different mdbase account. Switch back to that account to continue."});
+    expect((await app.inject({method:"POST",url:`${renewed.base}/deny`,headers:other.headers})).statusCode).toBe(200);
+    // The app learns at its next poll, not at expiry; the window belongs to no one else now.
+    const polled = await renewed.exchange();
+    expect(polled.statusCode).toBe(404); expect(polled.json().error.code).toBe("installation_pairing_denied");
+    expect((await app.inject({method:"POST",url:`${renewed.base}/select-account`,headers:owner.headers})).statusCode).toBe(404);
+    // A window an account has selected stays that account's to cancel.
+    const selected = await prepared();
+    const refused = await app.inject({method:"POST",url:`${selected.flow.base}/deny`,headers:other.headers});
+    expect(refused.statusCode).toBe(403); expect(refused.json().error.code).toBe("installation_account_changed");
+    expect((await selected.flow.exchange()).json().status).toBe("awaiting_approval");
+  });
   it("concurrent closed-window renewal has one successor; wrong previous capability or binding cannot replace the actor", async () => {
     const {input} = await prepared();
     await db.query("UPDATE pairing_requests SET expires_at=now()-interval '1 minute' WHERE id=$1",[input.installation.request_id]);
