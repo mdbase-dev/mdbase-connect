@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import pg from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { buildApp } from "../../app.js";
+import { HostedProviderClient } from "../hosted/hosted-provider.js";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { inTransaction } from "./bootstrap-common.js";
-import { registerNextCollection } from "./policy-outbox.js";
+import { nativeCollectionQuotaUsage, registerNextCollection } from "./policy-outbox.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -21,6 +23,7 @@ describePg("native synced collection entitlement admission", () => {
     url.searchParams.set("options", `-csearch_path=${schema}`);
     db = await createDatabase(url.toString());
   }, 60_000);
+  afterEach(() => { vi.restoreAllMocks(); });
   afterAll(async () => {
     await db?.end();
     if (admin && schema) await admin.query(`DROP SCHEMA "${schema}" CASCADE`);
@@ -72,7 +75,9 @@ describePg("native synced collection entitlement admission", () => {
     await db.query("INSERT INTO next_collection_deletion_facts(collection_id,deletion_id,lifecycle_epoch,authority) VALUES($1,$2,1,'cp-intent')", [deleted, randomUUID()]);
     await register(owner, left, "private");
     await db.query("UPDATE next_collections SET left_sync_at=now() WHERE collection_id=$1", [left]);
+    expect(await nativeCollectionQuotaUsage(db, owner)).toBe(0);
     await register(owner);
+    expect(await nativeCollectionQuotaUsage(db, owner)).toBe(1);
     await expect(register(owner)).rejects.toMatchObject({ code: "account_collection_quota_exceeded" });
     expect(await count(owner)).toBe(3);
   });
@@ -118,5 +123,50 @@ describePg("native synced collection entitlement admission", () => {
     expect(await count(owner)).toBe(0);
     expect((await db.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1", [collection])).rows).toEqual([]);
     await register(owner);
+  });
+
+  it("reports the count the limit enforces as /v1/me usage, and it follows a delete", async () => {
+    const owner = await account("open_beta_v1"), deleted = randomUUID(), left = randomUUID(), kept = randomUUID();
+    await db.query("INSERT INTO next_migration_account_flips(account_id,collections,evidence_digest) VALUES($1,'{}','test')", [owner]);
+    const providerAccountId = randomUUID();
+    await db.query("INSERT INTO account_storage_accounts (user_id, provider_account_id) VALUES ($1, $2)", [owner, providerAccountId]);
+    // The legacy provider knows none of a native account's collections.
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify({ account: {
+      account_id: providerAccountId, entitlement_revision: 1, collection_count: 0,
+      live_content_bytes: 0, live_file_bytes: 0, retained_file_bytes: 0,
+      limits: { hosted_storage_bytes: 1, retained_file_bytes: 1, max_document_bytes: 1, max_single_file_bytes: 1,
+        max_mirror_replicas_per_collection: 1, max_application_replicas_per_collection: 1,
+        max_hosted_collections: 3, max_files_per_collection: 1 }
+    } }), { status: 200, headers: { "content-type": "application/json" } }));
+    await register(owner, deleted); await register(owner, left, "private"); await register(owner, kept);
+    const { app } = await buildApp({ db, devAuth: true, publicUrl: "https://connect.test",
+      hostedProvider: new HostedProviderClient({ url: "https://provider.example", internalToken: "provider-internal-token" }) });
+    try {
+      const session = await app.inject({ method: "POST", url: "/v1/dev/session", payload: { name: "Quota fixture", email: `${owner}@example.test` } });
+      expect(session.statusCode, session.body).toBe(200);
+      const raw = session.headers["set-cookie"]!;
+      const cookie = (Array.isArray(raw) ? raw[0]! : raw).split(";")[0]!;
+      const counts = async () => {
+        const me = await app.inject({ url: "/v1/me", headers: { cookie } });
+        expect(me.statusCode, me.body).toBe(200);
+        return {
+          page: me.json().native_collections.filter((collection: { access: { relationship: string } }) => collection.access.relationship === "owner").length,
+          usage: me.json().subscription.usage.hosted_collections,
+          limit: await nativeCollectionQuotaUsage(db, owner),
+          max: me.json().subscription.limits.max_hosted_collections
+        };
+      };
+      const before = await counts();
+      expect(before).toMatchObject({ page: 3, usage: 3, limit: 3 });
+      await db.query("INSERT INTO next_collection_deletion_facts(collection_id,deletion_id,lifecycle_epoch,authority) VALUES($1,$2,1,'cp-intent')", [deleted, randomUUID()]);
+      await db.query("UPDATE next_collections SET left_sync_at=now() WHERE collection_id=$1", [left]);
+      expect(await counts()).toMatchObject({ page: 1, usage: 1, limit: 1 });
+      // The limit admits exactly the slots the reported usage leaves.
+      for (let used = 1; used < before.max; used++) await register(owner);
+      await expect(register(owner)).rejects.toMatchObject({ status: 429, code: "account_collection_quota_exceeded" });
+      expect(await counts()).toMatchObject({ page: before.max, usage: before.max, limit: before.max });
+    } finally {
+      await app.close();
+    }
   });
 });
