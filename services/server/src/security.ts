@@ -37,11 +37,12 @@ export function safeEqual(left: string, right: string): boolean {
   return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
 }
 
+/** An uncompressed P-256 point in canonical unpadded base64url. */
 export function isP256PublicKey(value: string): boolean {
   if (!/^[A-Za-z0-9_-]+$/.test(value)) return false;
   try {
     const bytes = Buffer.from(value, "base64url");
-    if (bytes.length !== 65 || bytes[0] !== 4) return false;
+    if (bytes.length !== 65 || bytes[0] !== 4 || bytes.toString("base64url") !== value) return false;
     ECDH.convertKey(bytes, "prime256v1", undefined, undefined, "uncompressed");
     return true;
   } catch {

@@ -32,6 +32,14 @@ const beta55Fixture: ApplicationAuthorizationProof = {
   signature: beta55FixtureDocument.signature
 };
 
+const BASE64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+/** Sets a spare low bit of the final character: same bytes, different text. */
+function nonCanonicalBase64url(value: string): string {
+  const last = BASE64URL.indexOf(value.at(-1)!);
+  return `${value.slice(0, -1)}${BASE64URL[last ^ 1]}`;
+}
+
 const expected = {
   applicationId: fixture.binding.application_id,
   applicationDeclarationId: fixture.binding.application_declaration_id,
@@ -85,7 +93,14 @@ describe("application authorization proofs", () => {
       { ...proof, binding: { ...fixture.binding, application_declaration_id: "dev.mdbase.other" } },
       { ...proof, binding: { ...fixture.binding, application_manifest_digest: "f".repeat(64) } },
       { ...proof, binding: { ...fixture.binding, requested_operations: ["describe"] } },
-      { ...proof, binding: { ...fixture.binding, collection_id: undefined } }
+      { ...proof, binding: { ...fixture.binding, collection_id: undefined } },
+      {
+        ...proof,
+        binding: {
+          ...fixture.binding,
+          installation_signing_public_key: nonCanonicalBase64url(fixture.binding.installation_signing_public_key)
+        }
+      }
     ];
     for (const mutation of mutations) {
       await expect(verifyApplicationAuthorization(mutation, expected))
