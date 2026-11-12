@@ -8,6 +8,7 @@ import { buildBrowserBundles } from "./build-browser.mjs";
 const directory = fileURLToPath(new URL("..", import.meta.url));
 let bundles;
 let root;
+let thinClient;
 let client;
 let appHost;
 
@@ -36,17 +37,19 @@ async function surface(entry) {
 before(async () => {
   bundles = await buildBrowserBundles({ write: false });
   root = await surface("src/index.ts");
+  thinClient = await surface("src/thin-client.ts");
   client = await surface("src/client.ts");
   appHost = await surface("src/app-host/index.ts");
 });
 
 for (const [index, label] of ["unminified", "minified"].entries()) {
-  test(`${label}: classic-script root/client/app-host exports with no import-time effects`, () => {
+  test(`${label}: classic-script root/thin-client/client/app-host exports with no import-time effects`, () => {
     const { value: sdk, context } = evaluate(bundles[index].outputFiles[0].text, "MdbaseSDK");
     assert.ok(sdk);
     assert.equal(context.window.MdbaseSDK, sdk);
     assert.equal(context.MdbaseConnect, undefined);
-    assert.deepEqual(Object.keys(sdk).sort(), [...Object.keys(root), "Client", "AppHost"].sort());
+    // Both entries: a classic script has no second import to reach the plumbing.
+    assert.deepEqual(Object.keys(sdk).sort(), [...new Set([...Object.keys(root), ...Object.keys(thinClient)]), "Client", "AppHost"].sort());
     assert.deepEqual(Object.keys(sdk.Client).sort(), Object.keys(client).sort());
     assert.deepEqual(Object.keys(sdk.AppHost).sort(), Object.keys(appHost).sort());
     assert.equal(sdk.Client.MdbaseClient, sdk.MdbaseClient);
