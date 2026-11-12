@@ -132,7 +132,7 @@ msgstr "{0, plural, other {노트 #개 이동됨}}"
 msgid "{0, plural, one {Rename ‘{basename}’ and move # note?} other {Rename ‘{basename}’ and move # notes?}}"
 msgstr "{0, plural, other {‘{basename}’ 이름을 바꾸고 노트 #개를 이동할까요?}}"
 
-#. placeholder {0}: files.length
+#. placeholder {0}: references.length
 #: src/AttachmentUpload.tsx
 msgid "{0, plural, one {The file was uploaded, but the note changed before its link could be inserted.} other {The files were uploaded, but the note changed before its link could be inserted.}}"
 msgstr "{0, plural, other {파일을 업로드했지만 링크를 삽입하기 전에 노트가 변경되었습니다.}}"
@@ -1895,6 +1895,10 @@ msgstr "{name}을(를) 업로드하지 못했습니다."
 #: src/AttachmentUpload.tsx
 msgid "Couldn’t upload {name}. Check your connection and try again."
 msgstr "{name}을(를) 업로드하지 못했습니다. 연결을 확인하고 다시 시도하세요."
+
+#: src/AttachmentUpload.tsx
+msgid "Couldn’t upload {name}. Files ending in .md are notes, so they can’t be attached."
+msgstr "{name}을(를) 업로드할 수 없습니다. .md로 끝나는 파일은 노트이므로 첨부할 수 없습니다."
 
 #: src/YourPersonPanel.tsx
 msgid "Create a note for yourself, starting from your account name."
@@ -5890,6 +5894,10 @@ msgstr "<0>{0}</0>을(를) 최신 Person 스타터로 업그레이드합니다. 
 #: src/AttachmentUpload.tsx
 msgid "Uploaded “{0}”. The collection file is committed; the note link is saving separately."
 msgstr "“{0}” 업로드됨. 컬렉션 파일 저장이 완료되었으며 노트 링크는 별도로 저장 중입니다."
+
+#: src/AttachmentUpload.tsx
+msgid "Uploaded {uploaded} of {total} files."
+msgstr "파일 {total}개 중 {uploaded}개를 업로드했습니다."
 
 #: src/AttachmentUpload.tsx
 msgid "Uploading"

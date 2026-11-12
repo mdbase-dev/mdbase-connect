@@ -48,7 +48,10 @@ export function attachmentUploadFailure(name: string, error: unknown): Attachmen
   const retryable = timedOut || network || status === 408 || status === 429 || status >= 500 && status < 600 || Boolean(sdk?.retryable);
   if (timedOut) return { message: t`Uploading ${name} took too long. Try again.`, retryable };
   if (network) return { message: t`Couldn’t upload ${name}. Check your connection and try again.`, retryable };
-  return { message: retryable ? t`Couldn’t upload ${name} right now. Try again shortly.` : t`Couldn’t upload ${name}.`, retryable };
+  if (retryable) return { message: t`Couldn’t upload ${name} right now. Try again shortly.`, retryable };
+  // Collections keep `.md` paths for notes, so the authority refuses them as attachments.
+  if (/\.md$/iu.test(name)) return permanent(t`Couldn’t upload ${name}. Files ending in .md are notes, so they can’t be attached.`);
+  return permanent(t`Couldn’t upload ${name}.`);
 }
 
 interface AttachmentUploadState {
@@ -59,12 +62,17 @@ interface AttachmentUploadState {
 export interface AttachmentUploadController {
   input: React.RefObject<HTMLInputElement | null>;
   upload?: AttachmentUploadState;
-  insertion?: { id: number; text: string; block: true };
+  /** Links for the note editor whose key is `editorKey`; no other note may apply them. */
+  insertion?: AttachmentInsertion;
   disabled: boolean;
   attach(files: readonly File[]): Promise<void>;
   uploadReference: AttachmentUploader;
+  /** Drop a queued insertion unless it belongs to the editor now shown. */
+  keepInsertionFor(editorKey: string | undefined): void;
   reset(): void;
 }
+
+export interface AttachmentInsertion { id: number; editorKey: string; text: string; block: true }
 
 export function useAttachmentUpload(input: {
   gateway: CollectionGateway;
@@ -78,7 +86,7 @@ export function useAttachmentUpload(input: {
   // Reserve across concurrent gestures, not just within one multi-file selection.
   const reservedPaths = useRef(new Set<string>());
   const [upload, setUpload] = useState<AttachmentUploadState>();
-  const [insertion, setInsertion] = useState<{ id: number; text: string; block: true }>();
+  const [insertion, setInsertion] = useState<AttachmentInsertion>();
 
   function attach(files: readonly File[]): Promise<void> {
     if (input.scope.isFrozen) return Promise.resolve();
@@ -91,11 +99,12 @@ export function useAttachmentUpload(input: {
     if (!session || files.length === 0) return;
     const occupiedPaths = reservedPaths.current;
     const references: string[] = [];
+    const failures: string[] = [];
     input.setNotice(undefined);
     // The notice that follows plays the mark's saved or error reaction, so the progress ends quietly.
     const markProgress = trackMdbaseMarkProgress();
     try {
-      await attachEach(files, session, occupiedPaths, references, token, markProgress.update);
+      await attachEach(files, session, occupiedPaths, references, failures, token, markProgress.update);
     } finally {
       markProgress.cancel();
     }
@@ -106,6 +115,7 @@ export function useAttachmentUpload(input: {
     session: NoteSession,
     occupiedPaths: Set<string>,
     references: string[],
+    failures: string[],
     token: ReturnType<CollectionMutationScope["token"]>,
     reportProgress: (fraction: number) => void
   ) {
@@ -125,18 +135,30 @@ export function useAttachmentUpload(input: {
         reportProgress((index + 1) / files.length);
       } catch (error) {
         if (!input.scope.isCurrent(token)) return;
-        input.setNotice(attachmentUploadFailure(source.name, error).message);
-        setUpload(undefined);
-        return;
+        // One rejected file must not drop the rest of the selection.
+        failures.push(attachmentUploadFailure(source.name, error).message);
+        reportProgress((index + 1) / files.length);
       }
     }
 
     setUpload(undefined);
-    if (input.activeSession() !== session || session.deleted) {
-      input.setNotice(plural(files.length, { one: `The file was uploaded, but the note changed before its link could be inserted.`, other: `The files were uploaded, but the note changed before its link could be inserted.` }), "success");
+    const failed = failures.join(" ");
+    if (references.length === 0) {
+      input.setNotice(failed);
       return;
     }
-    setInsertion({ id: ++sequence.current, text: references.join("\n"), block: true });
+    if (input.activeSession() !== session || session.deleted) {
+      const changed = plural(references.length, { one: `The file was uploaded, but the note changed before its link could be inserted.`, other: `The files were uploaded, but the note changed before its link could be inserted.` });
+      input.setNotice(failed ? `${changed} ${failed}` : changed, failed ? "error" : "success");
+      return;
+    }
+    setInsertion({ id: ++sequence.current, editorKey: session.editorSessionKey, text: references.join("\n"), block: true });
+    if (failed) {
+      const uploaded = references.length;
+      const total = files.length;
+      input.setNotice(`${t`Uploaded ${uploaded} of ${total} files.`} ${failed}`);
+      return;
+    }
     input.setNotice(files.length === 1
       ? t`Uploaded “${files[0]!.name}”. The collection file is committed; the note link is saving separately.`
       : plural(files.length, { one: "Uploaded # file. The collection file is committed; the note link is saving separately.", other: "Uploaded # files. The collection file is committed; the note link is saving separately." }), "success");
@@ -195,6 +217,10 @@ export function useAttachmentUpload(input: {
     }
   }
 
+  function keepInsertionFor(editorKey: string | undefined) {
+    setInsertion((current) => current?.editorKey === editorKey ? current : undefined);
+  }
+
   function reset() {
     sequence.current += 1;
     reservedPaths.current = new Set();
@@ -203,7 +229,7 @@ export function useAttachmentUpload(input: {
     if (fileInput.current) fileInput.current.value = "";
   }
 
-  return { input: fileInput, upload, insertion, disabled: input.scope.isFrozen, attach, uploadReference, reset };
+  return { input: fileInput, upload, insertion, disabled: input.scope.isFrozen, attach, uploadReference, keepInsertionFor, reset };
 }
 
 export function attachmentMenuItem(

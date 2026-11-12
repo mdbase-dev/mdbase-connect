@@ -132,7 +132,7 @@ msgstr "{0, plural, other {已移动 # 篇笔记。}}"
 msgid "{0, plural, one {Rename ‘{basename}’ and move # note?} other {Rename ‘{basename}’ and move # notes?}}"
 msgstr "{0, plural, other {重命名“{basename}”并移动 # 篇笔记？}}"
 
-#. placeholder {0}: files.length
+#. placeholder {0}: references.length
 #: src/AttachmentUpload.tsx
 msgid "{0, plural, one {The file was uploaded, but the note changed before its link could be inserted.} other {The files were uploaded, but the note changed before its link could be inserted.}}"
 msgstr "{0, plural, other {文件已上传，但在插入链接前，笔记已更改。}}"
@@ -1895,6 +1895,10 @@ msgstr "无法上传 {name}。"
 #: src/AttachmentUpload.tsx
 msgid "Couldn’t upload {name}. Check your connection and try again."
 msgstr "无法上传 {name}。请检查网络连接后重试。"
+
+#: src/AttachmentUpload.tsx
+msgid "Couldn’t upload {name}. Files ending in .md are notes, so they can’t be attached."
+msgstr "无法上传 {name}。以 .md 结尾的文件是笔记，不能作为附件添加。"
 
 #: src/YourPersonPanel.tsx
 msgid "Create a note for yourself, starting from your account name."
@@ -5890,6 +5894,10 @@ msgstr "将 <0>{0}</0> 升级为当前的 Person 初始类型。 "
 #: src/AttachmentUpload.tsx
 msgid "Uploaded “{0}”. The collection file is committed; the note link is saving separately."
 msgstr "已上传“{0}”。集合中的文件已提交；笔记链接正在单独保存。"
+
+#: src/AttachmentUpload.tsx
+msgid "Uploaded {uploaded} of {total} files."
+msgstr "已上传 {uploaded}/{total} 个文件。"
 
 #: src/AttachmentUpload.tsx
 msgid "Uploading"

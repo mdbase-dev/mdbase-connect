@@ -132,7 +132,7 @@ msgstr "{0, plural, one {# note déplacée.} other {# notes déplacées.}}"
 msgid "{0, plural, one {Rename ‘{basename}’ and move # note?} other {Rename ‘{basename}’ and move # notes?}}"
 msgstr "{0, plural, one {Renommer « {basename} » et déplacer # note ?} other {Renommer « {basename} » et déplacer # notes ?}}"
 
-#. placeholder {0}: files.length
+#. placeholder {0}: references.length
 #: src/AttachmentUpload.tsx
 msgid "{0, plural, one {The file was uploaded, but the note changed before its link could be inserted.} other {The files were uploaded, but the note changed before its link could be inserted.}}"
 msgstr "{0, plural, one {Le fichier a été téléversé, mais la note a changé avant que son lien puisse être inséré.} other {Les fichiers ont été téléversés, mais la note a changé avant que leur lien puisse être inséré.}}"
@@ -1895,6 +1895,10 @@ msgstr "Impossible de téléverser {name}."
 #: src/AttachmentUpload.tsx
 msgid "Couldn’t upload {name}. Check your connection and try again."
 msgstr "Impossible de téléverser {name}. Vérifiez votre connexion et réessayez."
+
+#: src/AttachmentUpload.tsx
+msgid "Couldn’t upload {name}. Files ending in .md are notes, so they can’t be attached."
+msgstr "Impossible d’importer {name}. Les fichiers se terminant par .md sont des notes : ils ne peuvent pas être joints."
 
 #: src/YourPersonPanel.tsx
 msgid "Create a note for yourself, starting from your account name."
@@ -5890,6 +5894,10 @@ msgstr "Mettre <0>{0}</0> à niveau vers le modèle de départ Person actuel. "
 #: src/AttachmentUpload.tsx
 msgid "Uploaded “{0}”. The collection file is committed; the note link is saving separately."
 msgstr "« {0} » a été envoyé. Le fichier de la collection est validé ; le lien de la note est enregistré séparément."
+
+#: src/AttachmentUpload.tsx
+msgid "Uploaded {uploaded} of {total} files."
+msgstr "{uploaded} fichiers importés sur {total}."
 
 #: src/AttachmentUpload.tsx
 msgid "Uploading"

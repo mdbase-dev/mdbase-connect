@@ -18,10 +18,22 @@ import type {
   NoteSummary
 } from "./model";
 
-vi.mock("./CodeEditor", () => ({
-  CodeEditor: ({ header, value, onChange, label, readOnly, footer }: { header?: ReactNode; value: string; onChange?: (value: string) => void; label: string; readOnly?: boolean; footer?: ReactNode }) =>
-    <>{header}<textarea aria-label={label} readOnly={readOnly} value={value} onChange={(event) => onChange?.(event.target.value)} />{footer}</>
-}));
+vi.mock("./CodeEditor", async () => {
+  const { useEffect, useRef } = await import("react");
+  type Props = { header?: ReactNode; value: string; onChange?: (value: string) => void; label: string; readOnly?: boolean; footer?: ReactNode; insertion?: { id: number; text: string } };
+  return {
+    // Like the real editor, apply each queued insertion once per mounted editor.
+    CodeEditor: function CodeEditor({ header, value, onChange, label, readOnly, footer, insertion }: Props) {
+      const applied = useRef<number>(undefined);
+      useEffect(() => {
+        if (readOnly || !insertion || applied.current === insertion.id) return;
+        applied.current = insertion.id;
+        onChange?.(value ? `${value}\n${insertion.text}` : insertion.text);
+      });
+      return <>{header}<textarea aria-label={label} readOnly={readOnly} value={value} onChange={(event) => onChange?.(event.target.value)} />{footer}</>;
+    }
+  };
+});
 
 vi.mock("@tanstack/react-virtual", () => ({
   useVirtualizer: ({ count }: { count: number }) => ({
@@ -224,6 +236,32 @@ describe("mdbase editor", () => {
     const files = await gateway.listFiles();
     expect(files.some((file) => file.path === "Notes/Attachments/cover.png" && file.mediaType === "image/png")).toBe(true);
     expect(await screen.findByRole("option", { name: /^cover\.png/ })).toBeInTheDocument();
+  });
+
+  it("inserts an attachment link only into the note it was uploaded for", async () => {
+    const gateway = new DemoCollectionGateway(3);
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+
+    await screen.findByRole("textbox", { name: "Note body" });
+    await user.click(screen.getByRole("button", { name: "More note actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Attach file…" }));
+    await user.upload(document.querySelector<HTMLInputElement>(".attachment-input")!, new File(["text"], "readme.txt", { type: "text/plain" }));
+    const body = () => screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Note body" }).value;
+    await waitFor(() => expect(body()).toContain("[readme.txt](<Attachments/readme.txt>)"));
+
+    await user.click(screen.getAllByRole("option").find((option) => !/shape of useful|readme|\.svg/iu.test(option.textContent ?? ""))!);
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).not.toHaveValue("The shape of useful tools"));
+    expect(body()).not.toContain("readme.txt");
+
+    await user.click(screen.getByRole("button", { name: "New note" }));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue(""));
+    await user.type(screen.getByRole("textbox", { name: "Note title" }), "Fresh");
+    await user.tab();
+    await waitFor(async () => expect((await gateway.read("Fresh.md")).path).toBe("Fresh.md"));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(body()).toBe("");
+    expect((await gateway.read("Fresh.md")).body).not.toContain("readme.txt");
   });
 
   it("does not reload the collection index after saving one note", async () => {
