@@ -48,6 +48,17 @@ connection. It passes that connection's collection ID as an advisory hint, so
 the approval screen opens on the expected collection without bypassing the
 user's choice or compatibility checks.
 
+Each connection set is its own application installation to Connect: the
+gateway signs that set's authorization requests with an installation key kept
+for the set's lifetime (`mcp-installation:<connection set id>`). Connect keeps
+one live grant per installation and collection, so approving a collection in
+one MCP host (or a second sign-in of the same host) does not replace another
+host's grant for it, while `reconnect_collection` in a set replaces only that
+set's own grant. A new sign-in therefore leaves the earlier sign-in's grant in
+place; the user revokes it in mdbase connect when it is no longer wanted.
+Native connections approved before this used one installation for the whole
+gateway (`mcp-application-identity:v3:…`) and stay bound to it.
+
 Revoking or narrowing the application grant in mdbase connect remains the final
 authorization control. The local connector independently enforces its cached
 exact grant before opening a local collection.

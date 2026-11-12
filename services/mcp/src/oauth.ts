@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { DatabasePool, DatabaseQueryable } from "./db.js";
-import { ConnectGateway } from "./connect.js";
+import { ConnectGateway, INSTALLATION_HANDLE_PREFIX } from "./connect.js";
 import type { GrantKeyStore } from "@mdbase-dev/connect/crypto";
 import { capabilityOperations, type CollectionOperation } from "@mdbase-dev/connect-protocol";
 import { pkceChallenge, randomToken, safeEqual, tokenHash, type SecretBox } from "./security.js";
@@ -192,6 +192,13 @@ export class OAuthService {
            UNION SELECT key_handle FROM mcp_upstream_authorizations
            UNION SELECT 'mcp-noise:' || key_handle FROM mcp_upstream_authorizations)`,
       [expired]
+    );
+    // A connection set's installation identity lives exactly as long as the set.
+    await this.db.query(
+      `DELETE FROM mcp_grant_keys
+       WHERE handle LIKE $1
+         AND handle NOT IN (SELECT $2 || id::text FROM mcp_connection_sets)`,
+      [`${INSTALLATION_HANDLE_PREFIX}%`, INSTALLATION_HANDLE_PREFIX]
     );
   }
 
@@ -484,7 +491,8 @@ export class OAuthService {
         codeChallenge: pkceChallenge(verifier),
         operations: operationsForScopes(scopes),
         collectionId,
-        grantKey: key
+        grantKey: key,
+        connectionSetId
       });
       await this.db.query(
         `INSERT INTO mcp_upstream_authorizations

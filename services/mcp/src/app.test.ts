@@ -8,6 +8,7 @@ import { projectNextAuthorizationGroups } from "@mdbase-dev/connect-protocol/nex
 import { MAX_PENDING_AUTHORIZATIONS, READ_OPERATIONS, WRITE_OPERATIONS } from "./oauth.js";
 import { ConnectGateway } from "./connect.js";
 import { PostgresGrantKeyStore } from "./key-store.js";
+import { applicationInstallationId } from "@mdbase-dev/connect/crypto";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
 import type { McpRuntimeConfig } from "./config.js";
@@ -71,7 +72,7 @@ describe("mdbase MCP gateway", () => {
     const key = await keyStore.create("new-v2-key");
     await gateway.createAuthorizationRequest({
       authorizationId: randomUUID(), state: "new", codeChallenge: pkceChallenge("new-v2-verifier"),
-      operations: [...operations], collectionId: null, grantKey: key
+      operations: [...operations], collectionId: null, grantKey: key, connectionSetId: randomUUID()
     });
     expect(upstream.authorizationProofs[0]!.binding.contracts).toMatchObject({ semantic_capabilities: 2 });
     expect(upstream.authorizationProofs[0]!.binding.requested_operations).toEqual(operations);
@@ -104,7 +105,7 @@ describe("mdbase MCP gateway", () => {
     }, `${config.publicUrl}/oauth/connect/callback`);
     await legacy.createAuthorizationRequest({
       authorizationId: randomUUID(), state: "retained", codeChallenge: pkceChallenge("retained-v1-verifier"), operations: ["query", "update"],
-      collectionId: null, grantKey: key
+      collectionId: null, grantKey: key, connectionSetId: randomUUID()
     });
     expect(upstream.authorizationProofs[0]!.binding.contracts).toMatchObject({ semantic_capabilities: 1 });
     expect(upstream.authorizationProofs[0]!.binding.requested_operations).toEqual(["query", "update"]);
@@ -177,6 +178,36 @@ describe("mdbase MCP gateway", () => {
       expect((await fixture.db.query("SELECT id FROM mcp_connections")).rows).toHaveLength(1);
       expect((await fixture.db.query("SELECT id FROM mcp_authorization_codes")).rows).toHaveLength(1);
       expect(fixture.upstream.fetch.mock.calls.filter(([url]) => String(url).endsWith("/oauth/token"))).toHaveLength(1);
+    } finally { await fixture.app.close(); await fixture.db.end(); }
+  });
+
+  it("presents each MCP sign-in to Connect as its own installation, kept for collections added in that sign-in", async () => {
+    const fixture = await nativeOAuth();
+    try {
+      const sets = (await fixture.db.query<{ connection_set_id: string }>("SELECT connection_set_id FROM mcp_upstream_authorizations")).rows;
+      await fixture.oauth.beginAuthorization(Object.fromEntries(authorizeQuery(fixture.clientId)));
+      const ticket = new URL(await fixture.oauth.createConnectionTicket({
+        clientId: fixture.clientId, connectionSetId: sets[0]!.connection_set_id, scopes: ["mdbase:read"]
+      }));
+      await fixture.oauth.consumeConnectionTicket(ticket.searchParams.get("ticket")!);
+      const [first, second, added] = fixture.upstream.authorizationProofs.map(proof => proof.binding.application_installation_id);
+      expect(first).not.toBe(second);
+      expect(added).toBe(first);
+    } finally { await fixture.app.close(); await fixture.db.end(); }
+  });
+
+  it("keeps native connections bound to the earlier gateway-wide installation working", async () => {
+    let shared = "";
+    const fixture = await nativeOAuth({ mutateToken: token => { token.native_completion.application_installation_id = shared; } });
+    try {
+      const keys = new PostgresGrantKeyStore(fixture.db, testConfig().masterKey);
+      shared = await applicationInstallationId(await keys.create(`mcp-application-identity:v3:https://connect.example:${applicationId}`));
+      expect((await fixture.callback()).statusCode).toBe(302);
+      const row = (await fixture.db.query("SELECT id, connection_set_id FROM mcp_connections")).rows[0];
+      await fixture.db.query("UPDATE mcp_connections SET access_expires_at = now() - interval '1 second'");
+      // Binding and refresh pass; only the (fake) route has no device.
+      await expect(fixture.gateway.operation(row.connection_set_id, row.id, "query", {})).rejects.toMatchObject({ code: "no_device_registered" });
+      expect(fixture.upstream.refreshProofs).toHaveLength(1);
     } finally { await fixture.app.close(); await fixture.db.end(); }
   });
 
@@ -647,11 +678,6 @@ describe("mdbase MCP gateway", () => {
 });
 
 describe("open OAuth endpoints", () => {
-  const authorizeQuery = (clientId: string) => new URLSearchParams({
-    response_type: "code", client_id: clientId, redirect_uri: "https://client.example/callback",
-    code_challenge: pkceChallenge("host-pkce-verifier-that-is-long-enough-for-s256-0002"), code_challenge_method: "S256"
-  });
-
   it("limits registration and authorization per client address", async () => {
     const db = await createDatabase("memory");
     const { app } = await buildApp({ db, config: testConfig() });
@@ -712,6 +738,7 @@ describe("open OAuth endpoints", () => {
       const unused = await oauth.registerClient({ redirect_uris: ["https://other.example/callback"] });
       const authorizationKeys = "SELECT handle FROM mcp_grant_keys WHERE handle LIKE 'mcp:%' OR handle LIKE 'mcp-noise:%'";
       expect((await db.query(authorizationKeys)).rows).toHaveLength(4);
+      expect((await db.query("SELECT handle FROM mcp_grant_keys WHERE handle LIKE 'mcp-installation:%'")).rows).toHaveLength(2);
 
       await oauth.pruneExpiredState(Date.now() + 8 * 24 * 60 * 60_000);
 
@@ -725,7 +752,9 @@ describe("open OAuth endpoints", () => {
       expect((await db.query(authorizationKeys)).rows.map(row => row.handle).sort()).toEqual(
         [connection!.key_handle, `mcp-noise:${connection!.key_handle}`].sort()
       );
-      expect(await remaining("mcp_grant_keys", "handle")).toContainEqual(expect.stringMatching(/^mcp-application-identity:/));
+      // Only the live set's installation identity is kept.
+      expect((await remaining("mcp_grant_keys", "handle")).filter(handle => handle.startsWith("mcp-installation:")))
+        .toEqual([`mcp-installation:${connection!.connection_set_id}`]);
       const context = await oauth.authenticate(token.access_token as string);
       expect(await gateway.listConnections(context!.connectionSetId)).toHaveLength(1);
     } finally { await app.close(); await db.end(); }
@@ -786,6 +815,11 @@ describe("refresh token rotation", () => {
       }
     } finally { await app.close(); await db.end(); }
   });
+});
+
+const authorizeQuery = (clientId: string) => new URLSearchParams({
+  response_type: "code", client_id: clientId, redirect_uri: "https://client.example/callback",
+  code_challenge: pkceChallenge("host-pkce-verifier-that-is-long-enough-for-s256-0002"), code_challenge_method: "S256"
 });
 
 function testConfig(): McpRuntimeConfig {
