@@ -117,8 +117,9 @@ browser" instead of "Saved".
 
 Every tab's snapshot carries `unsyncedWork: {since} | null`, whichever
 collection it shows. It is set by the first submit to the unsynced collection
-and read at Worker start without opening the collection (or creating its
-database). It is a marker, not a count: deleting records does not clear it;
+that is not its own automatic setup (the declaration's definitions, written
+under a setup turn when it first opens), and read at Worker start without
+opening the collection (or creating its database). It is a marker, not a count: deleting records does not clear it;
 only discarding the collection does. Apps use it to offer "Connect to sync
 your work" and, when signed in elsewhere, to keep offering the transfer.
 

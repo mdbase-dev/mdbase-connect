@@ -35,9 +35,10 @@ export interface AppUnsyncedIdentity {
   readonly replica: string;
   readonly device: string;
 }
-/** Set once something has been saved in the unsynced collection: the app may
- * then offer to connect it. A marker, not a count; it is never cleared by
- * deleting records, only by discarding the collection. */
+/** Set once something has been saved in the unsynced collection (not by its
+ * automatic setup): the app may then offer to connect it. A marker, not a
+ * count; it is never cleared by deleting records, only by discarding the
+ * collection. */
 export interface AppUnsyncedWork {
   readonly version: 1;
   /** When the first change was saved (ms since the epoch). */
@@ -310,10 +311,11 @@ export async function openAppUnsyncedCollection(options: AppUnsyncedCollectionOp
     queueMicrotask(() => { ticking = false; try { if (current()) runtime?.tick(); } catch { void close().catch(() => {}); } });
   };
   // The first submit marks the collection as holding work (once per scope).
+  // Setup's own submit (the app's definitions, under a setup turn) is not work.
   const submitted = (method?: string) => {
     tick();
     if (method === "submit") writes++;
-    if (method !== "submit" || saved || marking || !current()) return;
+    if (method !== "submit" || saved || marking || setupTurn.owner !== null || !current()) return;
     marking = true;
     void row(options.databaseName, WORK, work, () => ({version: 1 as const, since: Date.now()}), signal)
       .then(value => { if (value && current()) { saved = value; changed(); } })
