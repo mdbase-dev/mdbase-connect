@@ -175,9 +175,10 @@ export class ConnectGateway {
     operations: CollectionOperation[];
     collectionId: string | null;
     grantKey: GrantKeyRecord;
+    connectionSetId: string;
   }): Promise<string> {
     const application = await this.registerApplication();
-    const installation = await this.applicationIdentity(application.id);
+    const installation = await this.installationIdentity(input.connectionSetId);
     const files = this.manifest.requirements?.files;
     const requestedFiles = files
       ? ("actions" in files ? files : scopedFileRequest(files, input.operations))
@@ -263,8 +264,15 @@ export class ConnectGateway {
     return summary(connection);
   }
 
-  private async applicationIdentity(applicationId: string): Promise<GrantKeyRecord> {
-    const handle = `mcp-application-identity:v3:${this.connectUrl}:${applicationId}`;
+  /**
+   * The application installation one connection set (one MCP client sign-in)
+   * presents to Connect. Connect keeps one live grant per installation and
+   * collection, so a shared installation let one MCP client's approval replace
+   * another client's grant; reconnecting a collection inside a set still
+   * replaces that set's own grant, matching its one connection per collection.
+   */
+  private async installationIdentity(connectionSetId: string): Promise<GrantKeyRecord> {
+    const handle = `${INSTALLATION_HANDLE_PREFIX}${connectionSetId}`;
     const existing = await this.keyStore.get(handle);
     if (existing) return existing;
     try {
@@ -309,7 +317,7 @@ export class ConnectGateway {
         if (completion) {
           if (credentials.authority || connection.encryption) throw new GatewayOperationError("authorization_changed", "Native access cannot use legacy credentials.");
           await this.assertNativeBinding(nativeCompletionSchema.parse(completion), connection.key_handle,
-            connection.upstream_client_id, connection.collection_id, connection.grant_id);
+            connection.upstream_client_id, connection.connection_set_id, connection.collection_id, connection.grant_id);
         }
         const next = await this.next.run(
           { ...connection, ...(completion ? { native: { collection: completion.collection_id, authorizationGrant: completion.grant_id } } : {}) }, credentials.accessToken, operation,
@@ -543,7 +551,8 @@ export class ConnectGateway {
       await this.assertTokenBinding(token, connection.key_handle, connection.upstream_client_id,
         credentials.nativeCompletion ? {
           authorizationId: credentials.nativeCompletion.authorization_request_id,
-          manifestDigest: credentials.nativeCompletion.application_manifest_digest
+          manifestDigest: credentials.nativeCompletion.application_manifest_digest,
+          connectionSetId: connection.connection_set_id
         } : undefined);
       const updated = await client.query<ConnectionRow>(
         `UPDATE mcp_connections
@@ -608,7 +617,7 @@ export class ConnectGateway {
     token: ConnectTokenResponse,
     keyHandle: string | null,
     applicationId: string,
-    expectedNative?: { authorizationId: string; manifestDigest: string }
+    expectedNative?: { authorizationId: string; manifestDigest: string; connectionSetId: string }
   ): Promise<void> {
     if (token.native_completion) {
       const completion = token.native_completion;
@@ -620,7 +629,7 @@ export class ConnectGateway {
       ) {
         throw new GatewayOperationError("grant_key_mismatch", "Connect returned a native grant for a different authorization.");
       }
-      await this.assertNativeBinding(completion, keyHandle, applicationId, token.collection_id, token.grant_id);
+      await this.assertNativeBinding(completion, keyHandle, applicationId, expectedNative.connectionSetId, token.collection_id, token.grant_id);
       return;
     }
     if (token.authority) {
@@ -724,14 +733,13 @@ export class ConnectGateway {
     return JSON.parse(this.secrets.decrypt(connection.credentials_ciphertext)) as StoredCredentials;
   }
 
-  private async assertNativeBinding(completion: z.infer<typeof nativeCompletionSchema>, keyHandle: string | null, applicationId: string, collectionId: string, grantId: string): Promise<void> {
+  private async assertNativeBinding(completion: z.infer<typeof nativeCompletionSchema>, keyHandle: string | null, applicationId: string, connectionSetId: string, collectionId: string, grantId: string): Promise<void> {
     const key = keyHandle ? await this.keyStore.get(keyHandle) : null;
     const noise = keyHandle ? await this.noise.get(keyHandle) : null;
-    const installation = await this.applicationIdentity(applicationId);
     if (!key || !noise
       || completion.application_id !== applicationId
       || completion.application_declaration_id !== this.manifest.id
-      || completion.application_installation_id !== await applicationInstallationId(installation)
+      || !await this.isOwnInstallation(completion.application_installation_id, connectionSetId, applicationId)
       || completion.application_origin !== this.applicationOrigin
       || completion.collection_id !== collectionId || completion.grant_id !== grantId
       || completion.grant_signing_public_key !== key.signingPublicKey
@@ -739,7 +747,21 @@ export class ConnectGateway {
       throw new GatewayOperationError("grant_key_mismatch", "Connect returned a native grant for a different authorization.");
     }
   }
+
+  private async isOwnInstallation(installationId: string, connectionSetId: string, applicationId: string): Promise<boolean> {
+    const own = await this.keyStore.get(`${INSTALLATION_HANDLE_PREFIX}${connectionSetId}`);
+    if (own && installationId === await applicationInstallationId(own)) return true;
+    // Compatibility: native connections approved before installations were per
+    // connection set are bound to the one installation the whole gateway used.
+    // Remove this, and delete that key, once Connect holds no live grant of the
+    // MCP application under that installation id.
+    const shared = await this.keyStore.get(`mcp-application-identity:v3:${this.connectUrl}:${applicationId}`);
+    return shared !== null && installationId === await applicationInstallationId(shared);
+  }
 }
+
+/** Key handles of connection set installation identities: this prefix and the set id. */
+export const INSTALLATION_HANDLE_PREFIX = "mcp-installation:";
 
 
 function credentialsFromToken(token: ConnectTokenResponse): StoredCredentials {
