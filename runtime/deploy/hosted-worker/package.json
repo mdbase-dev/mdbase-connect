@@ -21,5 +21,11 @@
   "dependencies": {
     "@noble/hashes": "2.4.0",
     "aws4fetch": "1.0.20"
+  },
+  "overrides": {
+    "miniflare": {
+      "undici": "7.30.1",
+      "sharp": "0.35.5"
+    }
   }
 }
