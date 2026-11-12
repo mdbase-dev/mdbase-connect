@@ -6,7 +6,7 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patches patches
 # The workspace lock resolves file-pinned editor SDK bytes even for filtered installs.
-COPY apps/editor/vendor/sdk-19197d2c-production-beta173.tgz apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.145-e6e66bcd172f.tgz apps/editor/vendor/
+COPY apps/editor/vendor/sdk-e8ffb806-production-beta188.tgz apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.145-e6e66bcd172f.tgz apps/editor/vendor/
 COPY apps/portal/package.json apps/portal/package.json
 COPY packages/app-ui/package.json packages/app-ui/package.json
 COPY packages/i18n/package.json packages/i18n/package.json
@@ -15,8 +15,6 @@ COPY packages/protocol/package.json packages/protocol/package.json
 COPY packages/sync/package.json packages/sync/package.json
 COPY packages/ui/package.json packages/ui/package.json
 COPY services/server/package.json services/server/package.json
-# The workspace lockfile names the vendored SDK tarball that services/mcp and packages/app-ui share; frozen installs read it.
-COPY packages/app-ui/vendor packages/app-ui/vendor
 
 RUN pnpm install --frozen-lockfile \
     --filter @mdbase/connect-server... \

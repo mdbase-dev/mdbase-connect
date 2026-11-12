@@ -1,7 +1,6 @@
 import { t } from "@lingui/core/macro";
-import { isMdbaseError, MdbaseError, type ChangesWatch, type ChangesWatchState, type MdbaseClient, type wire } from "@mdbase-dev/sdk";
+import { isMdbaseError, MdbaseError, type ChangesWatch, type ChangesWatchState, type MdbaseClient, type RecordView, type wire } from "@mdbase-dev/sdk";
 import type { QueryRecord } from "@mdbase-dev/connect";
-import { plain } from "./next-editor-records";
 import type {
   EditorCollectionChange,
   NativeCollectionChange,
@@ -43,7 +42,7 @@ export class NativeNoteObservation implements NoteObservation {
   constructor(private readonly client: MdbaseClient, private readonly isCurrent: () => boolean = () => true) {
     this.snapshot = { records: [], state: "loading", generation: 1, problem: null, watchStatus: { state: "connecting" } };
     // Registered before the first page so no change between pages is missed.
-    this.watch = client.watchChanges(undefined, batch => this.accept(batch));
+    this.watch = client.watchChanges(batch => this.accept(batch));
     this.stopWatchState = this.watch.subscribe((state, error) => this.watchChanged(state, error));
     this.ready = this.load(false);
   }
@@ -124,7 +123,7 @@ export class NativeNoteObservation implements NoteObservation {
       let asOf: number | undefined;
       let complete = false;
       let total: number | undefined;
-      for await (const page of this.client.pages({ limit: PAGE_SIZE }, { effective: true, ...(includeBody ? { body: true } : {}) }, signal)) {
+      for await (const page of this.client.pages({ limit: PAGE_SIZE }, { include: { effective: true, ...(includeBody ? { body: true } : {}) }, signal })) {
         this.check(signal);
         if (asOf !== undefined && asOf !== page.asOf) throw nativeFailure(t`The collection changed while its notes were loading. Reload to try again.`);
         asOf = page.asOf;
@@ -191,7 +190,7 @@ export class NativeNoteObservation implements NoteObservation {
             // A reset clears the queue while a reread is awaited.
             if (!this.queued.delete(id)) continue;
             const previous = this.confirmed.get(id);
-            const record = await this.client.find(id, { effective: true, ...(this.includeBody ? { body: true } : {}) }, signal);
+            const record = await this.client.find(id, { include: { effective: true, ...(this.includeBody ? { body: true } : {}) }, signal });
             this.check(signal);
             if (this.loading) { this.queued.add(id); break; }
             let change: NativeCollectionChange | undefined;
@@ -278,13 +277,13 @@ export class NativeNoteObservation implements NoteObservation {
   }
 }
 
-function noteRecord(record: wire.RecordView): Note {
+function noteRecord(record: RecordView): Note {
   return {
     path: record.path,
     revision: record.revision,
     types: [...record.types],
-    frontmatter: plain(record.frontmatter),
-    effectiveFrontmatter: plain(record.effective ?? record.frontmatter),
+    frontmatter: record.frontmatter,
+    effectiveFrontmatter: record.effective ?? record.frontmatter,
     ...(record.body === undefined ? {} : { body: record.body }),
     file: { path: record.path, ...(record.mtime === undefined ? {} : { mtime: new Date(record.mtime).toISOString() }) }
   };

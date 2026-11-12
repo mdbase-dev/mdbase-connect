@@ -3,12 +3,12 @@ import {
   effectiveCapabilities,
   isMdbaseError,
   MdbaseError,
-  toPlain,
-  type MdbaseApplication,
+  type Mdbase,
   type MdbaseApplicationConnection,
   type MdbaseApplicationDeclaration,
   type MdbaseClient,
   type TypePackPlan,
+  type TypeSummary,
   type wire
 } from "@mdbase-dev/sdk";
 import type {
@@ -25,7 +25,7 @@ import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
 import { NativeNoteObservation } from "./native-note-observation";
 import { downloadNativeFile, type NativeFileSelection } from "./native-file-download";
 import { fileAssetKey } from "./file-reference-resolution";
-import { NextEditorRecords, plain } from "./next-editor-records";
+import { NextEditorRecords } from "./next-editor-records";
 import type {
   CollectionAuthorizationOptions,
   CollectionAuthorizationTarget,
@@ -75,8 +75,8 @@ const RESOLVE_LINKS_BATCH = 512;
 
 /** Production scopes belong to the SDK, for both cloud copies and Private
  * collections. Isolated tests may supply their own fenced scope actions. */
-export type EditorScopeActions = Pick<MdbaseApplication, "chooseAnother" | "reauthorize" | "select" | "forget">
-  & Partial<Pick<MdbaseApplication, "getSnapshot" | "subscribe">>;
+export type EditorScopeActions = Pick<Mdbase, "chooseAnother" | "reauthorize" | "select" | "forget">
+  & Partial<Pick<Mdbase, "getSnapshot" | "subscribe">>;
 
 /** One borrowed collection. People access exists only when the SDK supplies its
  * scoped client; document access never implies metadata permission. */
@@ -184,7 +184,7 @@ export class NativeEditorGateway implements CollectionGateway {
     if (phase?.kind === "unsynced" && phase.collectionId === this.connection.id) return "unsynced";
     if (this.client.ledger.getSnapshot().saveState === "saved_on_device") return "saved_on_device";
     const sync = phase?.kind === "ready" && phase.collectionId === this.connection.id ? this.application.getSnapshot?.().sync : null;
-    return sync?.kind === "offline" || this.client.status.connection === "offline" || this.client.link !== "open" ? "offline" : "synced";
+    return sync?.connection === "offline" || sync?.health === "unreachable" || this.client.status.connection === "offline" || this.client.link !== "open" ? "offline" : "synced";
   }
 
   onSyncState(listener: () => void): () => void {
@@ -219,7 +219,7 @@ export class NativeEditorGateway implements CollectionGateway {
       throw error;
     });
     this.check();
-    const described = full ?? await this.client.describe(signal);
+    const described = full ?? await this.client.describe({ signal });
     this.check();
     const versions = new Map(described.types.map((type) => [type.name, type.version]));
     return {
@@ -230,18 +230,18 @@ export class NativeEditorGateway implements CollectionGateway {
       operations: this.operations(),
       // Native change cursors are opaque; observe() owns the watch position.
       changeCursor: 0,
-      configuration: { settings: toPlain(described.settings) },
+      configuration: { settings: described.settings },
       ...(full ? {} : { typing: "names_only" as const }),
       types: described.types.map(typeDescriptor),
       contracts: described.contracts.map((contract) => {
         const schemas = contract.schemas;
-        const bindingSchema = jsonObject(schemas?.get("binding_schema"));
+        const bindingSchema = jsonObject(schemas?.binding_schema);
         return {
           contractType: "record" as const,
           id: contract.id,
           version: contract.version,
           digest: contract.digest,
-          schema: jsonObject(schemas?.get("record_schema")) ?? {},
+          schema: jsonObject(schemas?.record_schema) ?? {},
           ...(bindingSchema ? { bindingSchema } : {}),
           implementations: described.types.flatMap((type) => type.implements
             .filter((implementation) => implementation.contract === contract.id && implementation.version === contract.version)
@@ -251,8 +251,8 @@ export class NativeEditorGateway implements CollectionGateway {
               // Names-only describes carry no versions; 0 never reads as current.
               typeVersion: full ? versions.get(type.name) ?? 1 : 0,
               digest: implementation.digest ?? "",
-              fields: Object.fromEntries(implementation.fields),
-              ...(implementation.binding === undefined ? {} : { binding: toPlain(implementation.binding) as JsonObject })
+              fields: implementation.fields,
+              ...(implementation.binding === undefined ? {} : { binding: implementation.binding as JsonObject })
             })))
         };
       })
@@ -272,7 +272,7 @@ export class NativeEditorGateway implements CollectionGateway {
           ? record.implementations.find((implementation) => implementation.typeName === contract.type)
           : record.implementations.length === 1 ? record.implementations[0] : undefined;
         const path = result.page.records.find((view) => view.id === record.id)?.path;
-        if (projection && path) records.push({ path, values: plain(projection.fields) });
+        if (projection && path) records.push({ path, values: projection.fields });
       }
       cursor = result.page.cursor;
       if (cursor) {
@@ -331,7 +331,7 @@ export class NativeEditorGateway implements CollectionGateway {
   }
 
   async mostRecentNote(): Promise<string | undefined> {
-    const result = await this.client.query({ order_by: ["-file.mtime"], limit: 1 }, {}, this.signal());
+    const result = await this.client.query({ order_by: ["-file.mtime"], limit: 1 }, { signal: this.signal() });
     this.check();
     return result.records[0]?.path;
   }
@@ -412,12 +412,12 @@ export class NativeEditorGateway implements CollectionGateway {
     });
     try {
       this.check();
-      const receipt = await this.client.awaitReceipt(write.mutationId, 30_000, current);
+      const receipt = await this.client.awaitReceipt(write.mutationId, { timeoutMs: 30_000, signal: current });
       this.check();
       if (receipt.mutation !== write.mutationId || receipt.state !== "confirmed" || receipt.status !== "applied"
         || (receipt.conflicts?.length ?? 0) !== 0 || receipt.published === "publishing" || receipt.published === "not_published")
         throw new MdbaseError({ code: "outcome_unknown", recovery: "resolve_outcome", message: t`This file upload is not confirmed. Resolve its original operation before trying again.` });
-      const file = await this.connection.files.get(write.fileId, current);
+      const file = await this.connection.files.get(write.fileId, { signal: current });
       this.check();
       if (file.id !== write.fileId || file.confirmedSeq !== receipt.seq || file.hold || file.state === "pending_upload")
         throw new MdbaseError({ code: "outcome_unknown", recovery: "resolve_outcome", message: t`The current file does not confirm this upload. Resolve its original operation before trying again.` });
@@ -477,7 +477,7 @@ export class NativeEditorGateway implements CollectionGateway {
   recoverNoteMutation(requestId: string): Promise<NoteDocument | undefined> { return this.records.recover(requestId); }
 
   async validate(path: string): Promise<MdbaseDiagnostic[]> {
-    const validations = await this.client.validate([{ path }], this.signal());
+    const validations = await this.client.validate({ refs: [{ path }], signal: this.signal() });
     this.check();
     return validations.flatMap((validation) => validation.issues.map((issue) => ({
       severity: issue.severity,
@@ -492,10 +492,10 @@ export class NativeEditorGateway implements CollectionGateway {
 
   async readType(name: string): Promise<TypeDocument> {
     const signal = this.signal();
-    const type = (await this.client.describe(signal)).types.find((candidate) => candidate.name === name);
+    const type = (await this.client.describe({ signal })).types.find((candidate) => candidate.name === name);
     this.check();
     if (!type) throw new MdbaseError({ code: "not_found", recovery: "refresh", message: t`The type ${name} is not defined in this collection.` });
-    const resource = await this.client.resources.get(type.path, signal);
+    const resource = await this.client.resources.get(type.path, { signal });
     this.check();
     if (resource.text === undefined) throw unsupported(t`The collection did not return this type definition's source.`);
     return { name: type.name, path: resource.path, revision: resource.revision, document: resource.text };
@@ -555,7 +555,7 @@ export class NativeEditorGateway implements CollectionGateway {
   /** Waits for a definition write's receipt; anything short of confirmed and
    * applied is reported, never assumed. */
   private async confirmed(mutationId: string, signal: AbortSignal, subject: string): Promise<void> {
-    const receipt = await this.client.awaitReceipt(mutationId, RECEIPT_TIMEOUT_MS, signal);
+    const receipt = await this.client.awaitReceipt(mutationId, { timeoutMs: RECEIPT_TIMEOUT_MS, signal });
     this.check();
     if (receipt.state === "rejected") throw receipt.problem ? new MdbaseError(receipt.problem) : new Error(t`The ${subject} was rejected.`);
     if (receipt.status === "conflicted") throw new MdbaseError({ code: "conflict", recovery: "resolve_conflict", message: t`The ${subject} has a conflict. Resolve it before continuing.` });
@@ -566,12 +566,12 @@ export class NativeEditorGateway implements CollectionGateway {
 
   /** Reads back the confirmed type source and the name Core gives it. */
   private async typeAt(path: string, written: string, signal: AbortSignal): Promise<TypeDocument> {
-    const resource = await this.client.resources.get(path, signal);
+    const resource = await this.client.resources.get(path, { signal });
     this.check();
     if (resource.text !== written) {
       throw new MdbaseError({ code: "conflict", recovery: "refresh", reason: "concurrent_modification", message: t`This type changed after it was saved. Reload it before editing again.` });
     }
-    const type = (await this.client.describe(signal)).types.find((candidate) => candidate.path === path);
+    const type = (await this.client.describe({ signal })).types.find((candidate) => candidate.path === path);
     this.check();
     if (!type) throw new MdbaseError({ code: "invalid_request", recovery: "fix_request", reason: "invalid_type_definition", message: t`The collection does not read this file as a type definition. Check its name and kind.` });
     return { name: type.name, path, revision: resource.revision, document: resource.text };
@@ -665,7 +665,7 @@ function unsupported(message: string): MdbaseError {
   return new MdbaseError({ code: "invalid_request", recovery: "fix_request", reason: "unsupported", message });
 }
 
-function typeDescriptor(type: wire.TypeSummary): EditorCollectionDescription["types"][number] {
+function typeDescriptor(type: TypeSummary): EditorCollectionDescription["types"][number] {
   const definition = jsonObject(type.definition);
   const description = definition?.description;
   const collection = jsonObject(definition?.collection);
@@ -685,9 +685,7 @@ function typeDescriptor(type: wire.TypeSummary): EditorCollectionDescription["ty
 }
 
 function jsonObject(value: unknown): JsonObject | undefined {
-  if (value === undefined || value === null) return undefined;
-  const plainValue = value instanceof Map ? toPlain(value as wire.Value) : value;
-  return plainValue && typeof plainValue === "object" && !Array.isArray(plainValue) ? plainValue as JsonObject : undefined;
+  return value && typeof value === "object" && !Array.isArray(value) ? value as JsonObject : undefined;
 }
 
 /** The editor's assessment shape from the SDK plan (no contract setups). */

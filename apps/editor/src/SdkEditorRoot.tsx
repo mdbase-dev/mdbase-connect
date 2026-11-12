@@ -101,7 +101,7 @@ export function SdkEditorRoot({ sdk, renderNative, onFeedbackContext, privateCol
     <CollectionGate mdbase={sdk} app={editorCollectionApp} allowPrivate={false} allowDelete unsynced extraActions={extraActions} sections={sections}
       renderAppCollection={() => priv.scope && <NativeScopeView key={priv.scope.connection.generation} application={priv.scope.actions}
         connection={priv.scope.connection} declaration={declaration} switcher={switcher} renderNative={renderNative} onFeedbackContext={onFeedbackContext} />}>
-      {(connection) => <NativeScopeView key={`${connection.id}:${connection.generation}`} application={sdk.application} connection={connection}
+      {(connection) => <NativeScopeView key={`${connection.id}:${connection.generation}`} application={sdk} connection={connection}
         declaration={declaration} switcher={switcher} renderNative={renderNative} onFeedbackContext={onFeedbackContext} />}
     </CollectionGate>
   </div>;
@@ -191,7 +191,6 @@ function usePrivateSection(sdk: Mdbase, privates: PrivateCollections | null) {
     }
     let live = true;
     const life = new AbortController();
-    const application = sdk.application;
     const connection: EditorConnection = { id: client.collection, displayName: entry.displayName, generation: `private:${++privateGeneration}`,
       records: client, files: client.files, isCurrent: () => live && current(signal) };
     const requireCurrent = () => {
@@ -205,28 +204,28 @@ function usePrivateSection(sdk: Mdbase, privates: PrivateCollections | null) {
     };
     signal.addEventListener("abort", leave, { once: true });
     const actions: EditorScopeActions = {
-      chooseAnother: async () => { leave(); return application.getSnapshot(); },
+      chooseAnother: async () => { leave(); return sdk.getSnapshot(); },
       reauthorize: async (options) => {
         requireCurrent();
         const requested = requestSignal(options?.signal); requested.throwIfAborted();
         await privates.authorize(entry.collectionId, { ...options, signal: requested });
         requested.throwIfAborted(); requireCurrent();
-        leave(); return application.getSnapshot();
+        leave(); return sdk.getSnapshot();
       },
       select: async (collectionId, options) => {
         requireCurrent();
         const requested = AbortSignal.any([signal, ...(options?.signal ? [options.signal] : [])]);
         requested.throwIfAborted(); leave();
-        return application.select(collectionId, { ...options, signal: requested });
+        return sdk.select(collectionId, { ...options, signal: requested });
       },
       forget: async (collectionId, options) => {
         requireCurrent();
         const requested = AbortSignal.any([signal, ...(options?.signal ? [options.signal] : [])]);
         requested.throwIfAborted();
-        if (collectionId !== entry.collectionId) return application.forget(collectionId, { ...options, signal: requested });
+        if (collectionId !== entry.collectionId) return sdk.forget(collectionId, { ...options, signal: requested });
         leave(); await privates.forget(collectionId);
         requested.throwIfAborted();
-        return application.getSnapshot();
+        return sdk.getSnapshot();
       }
     };
     setScope({ connection, actions });

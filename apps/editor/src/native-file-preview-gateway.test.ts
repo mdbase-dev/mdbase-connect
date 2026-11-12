@@ -52,7 +52,7 @@ async function fixture(overrides: Partial<FileView> = {}) {
   const download = vi.spyOn(f.client.files, "download").mockResolvedValue(new Uint8Array([104, 105]));
   const downloadStream = vi.spyOn(f.client.files, "downloadStream").mockReturnValue(stream);
   const close = vi.spyOn(f.client, "close");
-  const gateway = new NativeEditorGateway(f.application, f.connection);
+  const gateway = new NativeEditorGateway(f.mdbase, f.connection);
   gateways.push(gateway);
   const selected = (await gateway.listFiles())[0]!;
   return { ...f, file, metadata, controller, stream, cancel, release, read, list, get, download, downloadStream, close, gateway, selected };

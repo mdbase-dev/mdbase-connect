@@ -39,7 +39,7 @@ describe("work before connecting", () => {
     const body = await screen.findByRole("textbox", { name: "Note body" });
     expect(body).toHaveValue("First thoughts\n");
     fireEvent.change(body, { target: { value: "First thoughts, revised\n" } });
-    await waitFor(async () => expect((await h.unsynced.client.find({ path: "draft.md" }, { body: true }))?.body).toBe("# Draft\n\nFirst thoughts, revised\n"), { timeout: 10_000 });
+    await waitFor(async () => expect((await h.unsynced.client.find({ path: "draft.md" }, { include: { body: true } }))?.body).toBe("# Draft\n\nFirst thoughts, revised\n"), { timeout: 10_000 });
 
     // The SDK marks the work once something is saved; the gate then shows one quiet line.
     act(() => h.markWork());

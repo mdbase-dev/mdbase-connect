@@ -1,5 +1,5 @@
 import { t } from "@lingui/core/macro";
-import { isMdbaseError, MdbaseError, revisionOf, toPlain, type MdbaseClient, type PlainValue, type Write, type wire } from "@mdbase-dev/sdk";
+import { isMdbaseError, MdbaseError, revisionOf, type MdbaseClient, type PlainValue, type RecordView, type Write, type wire } from "@mdbase-dev/sdk";
 import type { JsonObject } from "@mdbase-dev/connect";
 import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
 import type { CreateNoteInput, NoteDocument } from "./model";
@@ -23,7 +23,7 @@ const RECEIPT_WAIT_MS = 3_000;
  * ID. Sign-in owns the client. */
 export class NextEditorRecords {
   private readonly lifetime = new AbortController();
-  private readonly seen = new Map<string, { record: wire.RecordView; bytes: number }>();
+  private readonly seen = new Map<string, { record: RecordView; bytes: number }>();
   private seenBytes = 0;
   /** Captured writes this adapter couldn't settle (unknown outcome, failed readback). */
   private readonly unknown = new Map<string, NextEditorPendingMutation>();
@@ -37,7 +37,7 @@ export class NextEditorRecords {
 
   async read(path: string, signal?: AbortSignal): Promise<NoteDocument> {
     const current = this.signal(signal);
-    const record = await this.client.get({ path }, noteInclude, current);
+    const record = await this.client.get({ path }, { include: noteInclude, signal: current });
     this.check(current);
     return this.remember(record);
   }
@@ -141,10 +141,10 @@ export class NextEditorRecords {
 
   dispose(): void { this.lifetime.abort(); this.clearSeen(); }
 
-  private async base(path: string, revision: string, signal: AbortSignal): Promise<wire.RecordView> {
+  private async base(path: string, revision: string, signal: AbortSignal): Promise<RecordView> {
     this.check(signal);
     const key = JSON.stringify([path, revision]);
-    const record = this.seen.get(key)?.record ?? await this.client.get({ path }, noteInclude, signal);
+    const record = this.seen.get(key)?.record ?? await this.client.get({ path }, { include: noteInclude, signal });
     this.check(signal);
     if (record.path !== path || record.revision !== revision)
       throw new MdbaseError({ code: "conflict", reason: "revision_mismatch", recovery: "refresh", message: t`This note changed after it was opened. Reload before saving.` });
@@ -186,16 +186,16 @@ export class NextEditorRecords {
   }
 
   private async captured(mutationId: string): Promise<boolean> {
-    try { await this.client.receipt(mutationId, AbortSignal.timeout(10_000)); return true; }
+    try { await this.client.receipt(mutationId, { signal: AbortSignal.timeout(10_000) }); return true; }
     catch (error) { return !isMdbaseError(error, "not_found"); }
   }
 
   private async confirm(mutation: NextEditorPendingMutation, signal: AbortSignal): Promise<NoteDocument | undefined> {
     // Still pending after the wait is saved on this device, not a failure.
-    const receipt = await this.client.awaitReceipt(mutation.mutationId, RECEIPT_WAIT_MS, signal).catch((error: unknown) => {
+    const receipt = await this.client.awaitReceipt(mutation.mutationId, { timeoutMs: RECEIPT_WAIT_MS, signal }).catch((error: unknown) => {
       if (isMdbaseError(error, "cancelled")) throw error;
       this.check(signal);
-      return this.client.receipt(mutation.mutationId, signal);
+      return this.client.receipt(mutation.mutationId, { signal });
     });
     this.check(signal);
     if (receipt.mutation !== mutation.mutationId) throw new Error(t`The native receipt changed its mutation identity.`);
@@ -207,7 +207,7 @@ export class NextEditorRecords {
     if (receipt.status === "conflicted")
       throw new Refused({ code: "conflict", recovery: "resolve_conflict", message: t`This note change has a conflict. Resolve it before continuing.` });
     if (mutation.operation === "delete") { this.unknown.delete(mutation.mutationId); this.clearSeen(); return undefined; }
-    const record = await this.client.get(mutation.recordId, noteInclude, signal);
+    const record = await this.client.get(mutation.recordId, { include: noteInclude, signal });
     this.check(signal);
     if (record.id !== mutation.recordId) throw new Error(t`The saved note changed its record identity.`);
     if (record.state.hold || record.state.unresolved)
@@ -216,15 +216,15 @@ export class NextEditorRecords {
     return this.remember(record);
   }
 
-  private remember(record: wire.RecordView): NoteDocument {
+  private remember(record: RecordView): NoteDocument {
     completeSource(record);
     const key = JSON.stringify([record.path, record.revision]);
     const previous = this.seen.get(key);
     if (previous) this.seenBytes -= previous.bytes;
     this.seen.delete(key);
     const bytes = 2 * (record.body.length + record.document.length +
-      JSON.stringify(plain(record.frontmatter)).length +
-      JSON.stringify(plain(record.effective ?? record.frontmatter)).length);
+      JSON.stringify(record.frontmatter).length +
+      JSON.stringify(record.effective ?? record.frontmatter).length);
     if (bytes <= 8 * 1024 * 1024) {
       this.seen.set(key, { record, bytes });
       this.seenBytes += bytes;
@@ -235,7 +235,7 @@ export class NextEditorRecords {
       this.seen.delete(oldest);
     }
     return { path: record.path, revision: record.revision, types: [...record.types],
-      frontmatter: plain(record.frontmatter), effectiveFrontmatter: plain(record.effective ?? record.frontmatter),
+      frontmatter: record.frontmatter, effectiveFrontmatter: record.effective ?? record.frontmatter,
       body: record.body, document: record.document,
       file: { path: record.path, ...(record.mtime === undefined ? {} : { mtime: new Date(record.mtime).toISOString() }) } };
   }
@@ -256,14 +256,12 @@ export class NextEditorRecords {
 }
 
 const noteInclude = { body: true, effective: true, document: true };
-function completeSource(record: wire.RecordView): asserts record is wire.RecordView & { body: string; document: string } {
+function completeSource(record: RecordView): asserts record is RecordView & { body: string; document: string } {
   if (record.body === undefined || record.document === undefined)
     throw unsupported(t`Mdbase did not return the complete note source. No source was reconstructed.`);
   if (revisionOf(record.document) !== record.revision)
     throw unsupported(t`The complete note source does not match its native revision. No source was reconstructed or submitted.`);
 }
-/** Plain JSON view of native frontmatter, for the editor's JSON domain model. */
-export function plain(value: wire.FmMap): JsonObject { return Object.fromEntries([...value].map(([key, item]) => [key, toPlain(item)])) as JsonObject; }
 /** The log refused the write: a plain failure, nothing to recover. */
 class Refused extends MdbaseError {}
 function unsupported(message: string): MdbaseError { return new MdbaseError({ code: "invalid_request", recovery: "fix_request", reason: "unsupported", message }); }

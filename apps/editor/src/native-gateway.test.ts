@@ -18,7 +18,7 @@ afterEach(() => {
 
 async function fixture(...args: Parameters<typeof readyFixture>) {
   const f = await readyFixture(...args);
-  const gateway = new NativeEditorGateway(f.application, f.connection, declaration);
+  const gateway = new NativeEditorGateway(f.mdbase, f.connection, declaration);
   gateways.push(gateway);
   return { ...f, gateway };
 }
@@ -36,7 +36,7 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
   it("can retire a borrowed scope before mounting without reading its closed hello", async () => {
     const f = await readyFixture();
     f.client.close();
-    const gateway = new NativeEditorGateway(f.application, { ...f.connection, isCurrent: () => true }, declaration);
+    const gateway = new NativeEditorGateway(f.mdbase, { ...f.connection, isCurrent: () => true }, declaration);
     gateways.push(gateway);
     expect(gateway.sessionSnapshot()).toEqual({ status: "unselected", connections: [] });
     gateway.dispose();
@@ -59,7 +59,7 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     const f = await fixture();
     const before = f.gateway.sessionSnapshot();
     expect(before.status === "ready" && before.connection.private).toBeUndefined();
-    const snapshot = f.application.getSnapshot();
+    const snapshot = f.mdbase.getSnapshot();
     f.controls.publishSnapshot({ ...snapshot, collections: snapshot.collections.map((entry) => ({ ...entry, kind: "private" as const })) });
     const after = f.gateway.sessionSnapshot();
     expect(after.status === "ready" && after.connection.private).toBe(true);
@@ -67,7 +67,7 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
 
   it("a Viewer grant exposes no write operations or misleading access-update prompts", async () => {
     const f = await fixture({ capabilities: ["collection.read"], role: "viewer" });
-    const membership = f.application.getSnapshot();
+    const membership = f.mdbase.getSnapshot();
     f.controls.publishSnapshot({ ...membership, collections: membership.collections.map((entry) => ({ ...entry, role: "viewer" })) });
     const snapshot = f.gateway.sessionSnapshot();
     const connection = snapshot.status === "ready" ? snapshot.connection : null;
@@ -82,7 +82,7 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
 
   it("uses live SDK membership and refuses mutations before local capture", async () => {
     const f = await fixture({}, seedNotes);
-    const snapshot = f.application.getSnapshot();
+    const snapshot = f.mdbase.getSnapshot();
     const setRole = (role: "viewer" | "editor") => f.controls.publishSnapshot({
       ...snapshot, collections: snapshot.collections.map((entry) => ({ ...entry, role }))
     });
@@ -168,7 +168,7 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     const hello = vi.spyOn(f.client, "hello", "get").mockReturnValue({ ...original, version: { major: 1, minor: 3 },
       grant: { role: "editor", capabilities: ["collection.read", "records.edit"] }
     });
-    const snapshot = f.application.getSnapshot();
+    const snapshot = f.mdbase.getSnapshot();
     f.controls.publishSnapshot({ ...snapshot, collections: snapshot.collections.map((entry) => ({ ...entry, role: "viewer" })) });
     expect(f.gateway.sessionSnapshot()).toMatchObject({ connection: { role: "viewer" } });
     await expect(f.gateway.create({ path: "early-downgrade.md", title: "Refused", body: "viewer", properties: {} }))
@@ -202,18 +202,16 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
   it("describes type schemas, versions and contract schemas from the native catalog", async () => {
     const f = await fixture({}, seedNotes);
     const describe = f.client.describe.bind(f.client);
-    const map = (value: object): Map<string, unknown> => new Map(Object.entries(value).map(([key, item]) =>
-      [key, item && typeof item === "object" && !Array.isArray(item) ? map(item) : item]));
     const schema = { type: "object", properties: { name: { type: "string" }, email: { type: "string" } } };
     vi.spyOn(f.client, "describe").mockImplementation(async (options) => {
       const base = await describe(options);
-      if (!(typeof options === "object" && !(options instanceof AbortSignal) && options.definitions)) return base;
+      if (!options?.definitions) return base;
       return { ...base,
         types: [{ name: "person", path: "_types/person.md", version: 2, revision: `sha256:${"a".repeat(64)}`,
-          implements: [{ contract: "mdbase.person", version: "2.0.0", fields: new Map([["name", "name"]]), digest: `sha256:${"b".repeat(64)}` }],
-          definition: map({ kind: "mdbase.type", name: "person", version: 2, description: "People", extensions: { "x-app": { on: true } }, schema }), schema: map(schema) }],
+          implements: [{ contract: "mdbase.person", version: "2.0.0", fields: { name: "name" }, digest: `sha256:${"b".repeat(64)}` }],
+          definition: { kind: "mdbase.type", name: "person", version: 2, description: "People", extensions: { "x-app": { on: true } }, schema }, schema }],
         contracts: [{ id: "mdbase.person", version: "2.0.0", path: "_contracts/person.md", digest: `sha256:${"c".repeat(64)}`, contractType: "record",
-          implementedBy: ["person"], schemas: new Map([["record_schema", map(schema)]]) }] } as Awaited<ReturnType<typeof describe>>;
+          implementedBy: ["person"], schemas: { record_schema: schema } }] } as Awaited<ReturnType<typeof describe>>;
     });
     const description = await f.gateway.describe();
     expect(description.typing).toBeUndefined();
@@ -227,8 +225,8 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     const f = await fixture();
     const original = f.client.call.bind(f.client);
     const pages = [
-      { version: 1, contractDigest: "sha256:test", page: { records: [{ id: "person-a", path: "people/a.md" }], cursor: "next-person-page", complete: true }, records: [{ id: "person-a", implementations: [{ typeName: "person", fields: new Map([["name", "Ada"]]), issues: [] }] }] },
-      { version: 1, contractDigest: "sha256:test", page: { records: [{ id: "person-b", path: "people/b.md" }], complete: true }, records: [{ id: "person-b", implementations: [{ typeName: "person", fields: new Map([["name", "Bea"]]), issues: [] }] }] },
+      { version: 1, contractDigest: "sha256:test", page: { records: [{ id: "person-a", path: "people/a.md" }], cursor: "next-person-page", complete: true }, records: [{ id: "person-a", implementations: [{ typeName: "person", fields: { name: "Ada" }, issues: [] }] }] },
+      { version: 1, contractDigest: "sha256:test", page: { records: [{ id: "person-b", path: "people/b.md" }], complete: true }, records: [{ id: "person-b", implementations: [{ typeName: "person", fields: { name: "Bea" }, issues: [] }] }] },
     ];
     const selections: Array<Map<number, unknown>> = [];
     vi.spyOn(f.client, "call").mockImplementation(((method: string, params: unknown, options: unknown) => {
@@ -374,11 +372,11 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
       ideas = replica.seed({ path: "notes/ideas.md", types: ["note"], frontmatter: { title: "Ideas" }, body: "# Ideas\n" }).id;
     });
     // The SDK decides how it batches changes; deliver one batch by hand.
-    let deliver!: (batch: Parameters<Parameters<typeof f.client.watchChanges>[1]>[0]) => void;
+    let deliver!: (batch: Parameters<Parameters<typeof f.client.watchChanges>[0]>[0]) => void;
     const watchChanges = f.client.watchChanges.bind(f.client);
-    vi.spyOn(f.client, "watchChanges").mockImplementation((cursor, onChanges) => {
+    vi.spyOn(f.client, "watchChanges").mockImplementation((onChanges, options) => {
       deliver = onChanges;
-      return watchChanges(cursor, () => {});
+      return watchChanges(() => {}, options);
     });
     const observation = f.gateway.observe();
     await observation.ready;
@@ -418,7 +416,7 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     expect(shown).toEqual([{ state: "loading", count: 500 }, { state: "loading", count: 1000 }, { state: "ready", count: 1100 }]);
     observation.close();
 
-    const [first, second, third] = await Promise.all(["notes/0000.md", "notes/0001.md", "notes/0002.md"].map(async (path) => (await f.client.find({ path }, { effective: true }))!));
+    const [first, second, third] = await Promise.all(["notes/0000.md", "notes/0001.md", "notes/0002.md"].map(async (path) => (await f.client.find({ path }, { include: { effective: true } }))!));
     vi.spyOn(f.client, "pages").mockImplementation(async function* () {
       yield { records: [first], cursor: "next", complete: false, asOf: 1, totalCount: 3 };
       yield { records: [second, first, third], complete: true, asOf: 1, totalCount: 3 };
@@ -464,13 +462,12 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     const document = "---\nkind: mdbase.type\nname: note\n---\n";
     const provision = { manifest: { kind: "mdbase.type-pack", id: "dev.mdbase.notes", version: "1.0.0", resources: [] }, resources: [{ source: "note.md", document }], provides: [] } as unknown as Parameters<typeof f.gateway.assessTypePack>[0];
     const native = (adopted: boolean, apply: boolean) => {
-      const row = new Map<string, unknown>([["source", "note.md"], ["target", "_types/note.md"], ["kind", "type"], ["mode", "managed"],
-        ["action", adopted ? "update" : "conflict"], ["digest", digest("c")], ["current_digest", live]]);
-      if (adopted) row.set("adopted_from_digest", live);
-      const assessment = new Map<string, unknown>([["status", adopted ? "install" : "conflict"], ["applicable", adopted], ["definitions_manage", true],
-        ["assessment_digest", digest(adopted ? "2" : "1")],
-        ["desired", new Map<string, unknown>([["id", "dev.mdbase.notes"], ["version", "1.0.0"], ["digest", digest("d")], ["installed_by", "dev.mdbase.editor"], ["resources", []]])],
-        ["resources", [row]], ["lock", new Map([["target", "mdbase.lock.yaml"], ["action", "create"], ["digest", digest("e")]])]]);
+      const row = { source: "note.md", target: "_types/note.md", kind: "type", mode: "managed",
+        action: adopted ? "update" : "conflict", digest: digest("c"), current_digest: live, ...(adopted ? { adopted_from_digest: live } : {}) };
+      const assessment = { status: adopted ? "install" : "conflict", applicable: adopted, definitions_manage: true,
+        assessment_digest: digest(adopted ? "2" : "1"),
+        desired: { id: "dev.mdbase.notes", version: "1.0.0", digest: digest("d"), installed_by: "dev.mdbase.editor", resources: [] },
+        resources: [row], lock: { target: "mdbase.lock.yaml", action: "create", digest: digest("e") } };
       return { version: 1, assessment, ...(apply ? { writes: [{ path: "_types/note.md", doc: document, mustNotExist: false }, { path: "mdbase.lock.yaml", doc: "lock\n", mustNotExist: true }] } : {}) };
     };
     const call = f.client.call.bind(f.client);

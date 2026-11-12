@@ -13,8 +13,7 @@ export function useCollectionSaveWarning(supplied?: Mdbase) {
   const inherited = useContext(CollectionMdbaseContext);
   const mdbase = supplied ?? inherited;
   const snapshot = useSyncExternalStore(mdbase?.subscribe ?? emptySubscribe, mdbase?.getSnapshot ?? emptySnapshot, emptySnapshot);
-  const warning = snapshot?.saveWarning;
-  return warning ? describeError(warning) : null;
+  return snapshot?.sync?.attention.includes("storage_may_be_evicted") ? describeError("storage_may_be_evicted") : null;
 }
 
 export function CollectionSaveWarning({ mdbase }: { readonly mdbase?: Mdbase }): JSX.Element | null {

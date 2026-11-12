@@ -1,15 +1,13 @@
 // MCP tool inputs/outputs <-> mdbase-next replica API. The tool surface (names,
 // input schemas, output shapes) stays the legacy authority's; this module is the
 // only place the two vocabularies meet. Pure functions: golden-tested per input.
-import { toPlain, type ContractQueryResult, type Include, type QueryResult, type RecordView, type RecordValidation, type wire } from "@mdbase-dev/sdk";
+import type { ContractQueryResult, DescribeResult, Include, QueryResult, RecordView, RecordValidation, wire } from "@mdbase-dev/sdk/thin-client";
 import { GatewayOperationError } from "./errors.js";
 
 type ChangesResult = wire.ChangesResult;
-type DescribeResult = wire.DescribeResult;
 type ResourceView = wire.ResourceView;
 
 type Json = Record<string, unknown>;
-const plain = (value: unknown) => toPlain(value as Parameters<typeof toPlain>[0]);
 
 /** Spec 11 members the replica parses natively, passed through unchanged. */
 const QUERY_PASSTHROUGH = [
@@ -73,8 +71,8 @@ function file(view: RecordView): Json {
 }
 
 function frontmatter(view: RecordView, mode: FrontmatterMode): Json {
-  const persisted = plain(view.frontmatter) as Json;
-  const effective = view.effective ? plain(view.effective) as Json : persisted;
+  const persisted: Json = view.frontmatter;
+  const effective: Json = view.effective ?? persisted;
   if (mode === "persisted") return { frontmatter: persisted };
   if (mode === "effective") return { frontmatter: effective };
   return { frontmatter: persisted, effective_frontmatter: effective };
@@ -86,16 +84,15 @@ function queryRecord(view: RecordView, mode: FrontmatterMode = "effective"): Jso
     path: view.path, revision: view.revision, ...frontmatter(view, mode),
     ...(view.body === undefined ? {} : { body: view.body }),
     types: view.types, file: file(view),
-    ...(view.values ? { values: plain(view.values) } : {})
+    ...(view.values ? { values: view.values } : {})
   };
 }
 
 /** Legacy `RecordDocument` (read, create, update, rename). */
 export function recordDocument(view: RecordView): Json {
-  const persisted = plain(view.frontmatter) as Json;
   return {
     path: view.path, revision: view.revision, types: view.types,
-    frontmatter: persisted, effective_frontmatter: view.effective ? plain(view.effective) : persisted,
+    frontmatter: view.frontmatter, effective_frontmatter: view.effective ?? view.frontmatter,
     ...(view.body === undefined ? {} : { body: view.body }),
     ...(view.document === undefined ? {} : { document: view.document }),
     file: file(view)
@@ -108,7 +105,7 @@ function meta(result: QueryResult): Json {
     has_more: result.hasMore ?? result.cursor !== undefined,
     ...(result.cursor ? { cursor: result.cursor } : {}),
     ...(result.columns ? { columns: result.columns } : {}),
-    ...(result.groups ? { groups: result.groups.map((group) => ({ values: plain(group.values), count: group.count, ...(group.summaries ? { summaries: plain(group.summaries) } : {}) })) } : {}),
+    ...(result.groups ? { groups: result.groups.map((group) => ({ values: group.values, count: group.count, ...(group.summaries ? { summaries: group.summaries } : {}) })) } : {}),
     ...(result.complete ? {} : { complete: false })
   };
 }
@@ -117,7 +114,7 @@ export function queryOutput(plan: Extract<NextQueryPlan, { kind: "query" }>, res
   if (plan.output === "metadata") {
     return {
       output: "metadata",
-      results: result.records.map((view) => ({ path: view.path, types: view.types, revision: view.revision, values: view.values ? plain(view.values) : {} })),
+      results: result.records.map((view) => ({ path: view.path, types: view.types, revision: view.revision, values: view.values ?? {} })),
       meta: meta(result)
     };
   }
@@ -142,7 +139,7 @@ export function contractQueryOutput(plan: Extract<NextQueryPlan, { kind: "contra
       if (!projection) return [];
       return [{
         path: view.path, revision: view.revision, types: view.types, file: file(view),
-        frontmatter: plain(projection.fields),
+        frontmatter: projection.fields,
         contract: {
           id: plan.contract.id, version: plan.contract.version, digest: result.contractDigest, type: projection.typeName,
           ...(digests.has(projection.typeName) ? { implementation_digest: digests.get(projection.typeName) } : {})
@@ -167,21 +164,21 @@ export function collectionDescription(input: { collectionId: string; displayName
       name: type.name, path: type.path,
       ...(type.version === undefined ? {} : { version: type.version }),
       ...(type.revision === undefined ? {} : { revision: type.revision }),
-      ...(type.definition === undefined ? {} : { definition: plain(type.definition) }),
-      schema: type.schema === undefined ? {} : plain(type.schema),
+      ...(type.definition === undefined ? {} : { definition: type.definition }),
+      schema: type.schema === undefined ? {} : type.schema,
       extensions: {}
     })),
     contracts: result.contracts.map((contract) => ({
       contract_type: contract.contractType, id: contract.id, version: contract.version, digest: contract.digest,
-      schema: contract.schemas?.get("record_schema") === undefined ? {} : plain(contract.schemas.get("record_schema")),
+      schema: contract.schemas?.record_schema === undefined ? {} : contract.schemas.record_schema,
       implementations: result.types.flatMap((type) => type.implements
         .filter((implementation) => implementation.contract === contract.id && implementation.version === contract.version)
         .map((implementation) => ({
           type_name: type.name, type_version: type.version ?? 1, type_path: type.path,
-          ...(implementation.digest ? { digest: implementation.digest } : {}), fields: Object.fromEntries(implementation.fields)
+          ...(implementation.digest ? { digest: implementation.digest } : {}), fields: implementation.fields
         })))
     })),
-    ...(result.settings === null || result.settings === undefined ? {} : { configuration: plain(result.settings) })
+    ...(result.settings === null || result.settings === undefined ? {} : { configuration: result.settings })
   };
 }
 

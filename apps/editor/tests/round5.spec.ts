@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { openingNoteSettled } from "./note-body";
 
 for (const width of [1440, 390]) for (const theme of ["light", "dark"] as const) for (const motion of ["no-preference", "reduce"] as const) {
   test.describe(`W18 ${width} ${theme} ${motion}`, () => {
@@ -10,6 +11,7 @@ for (const width of [1440, 390]) for (const theme of ["light", "dark"] as const)
       const body = page.getByRole("textbox", { name: "Note body", exact: true });
       await expect(body).toBeVisible();
       await page.evaluate(() => document.fonts.ready);
+      await openingNoteSettled(body);
       const original = await body.innerText();
       await expect(body).not.toBeFocused();
       const list = page.locator(".note-scroll");
@@ -60,6 +62,7 @@ for (const width of [1440, 390]) for (const theme of ["light", "dark"] as const)
       const body = page.locator(".code-editor-writer .cm-content");
       await expect(body).toBeVisible();
       await page.evaluate(() => document.fonts.ready);
+      await openingNoteSettled(body);
       const original = (await body.textContent())!;
       const list = page.locator(".note-scroll");
       await page.keyboard.press("g"); await page.keyboard.press("n");

@@ -1,6 +1,6 @@
 import { createPublicKey, verify } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
-import { keyPairFromSecret, mdbaseError, type KeyPair, type MdbaseClient } from "@mdbase-dev/sdk";
+import { keyPairFromSecret, mdbaseError, type KeyPair, type MdbaseClient } from "@mdbase-dev/sdk/thin-client";
 import type { GrantKeyRecord, GrantKeyStore } from "@mdbase-dev/connect/crypto";
 import { LEGACY, NextGateway, type NextConnection } from "./next-gateway.js";
 import { clientKeyAttachMessage, clientNoiseKeyMessage, type NoiseKeyStore } from "./next-keys.js";
@@ -109,7 +109,7 @@ describe("NextGateway", () => {
       await expect(setup.gateway.run(native, "access", "create", { path: "notes/a.md", body: "Body" }, "req-1")).resolves.toMatchObject({ path: "notes/a.md", revision: "rev1" });
       const id = (create.mock.calls[0] as unknown as [{ id: string }])[0].id;
       expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-/u);
-      expect(find).toHaveBeenCalledWith(id, { effective: true, body: true }, undefined);
+      expect(find).toHaveBeenCalledWith(id, { include: { effective: true, body: true }, signal: undefined });
       setup.gateway.close();
     });
 
@@ -118,7 +118,7 @@ describe("NextGateway", () => {
       const find = vi.fn(async () => record);
       const setup = await writing({ update, find });
       await expect(setup.gateway.run(native, "access", "update", { path: "notes/a.md", body: "Body" }, "req-1")).resolves.toMatchObject({ path: "notes/a.md" });
-      expect(find).toHaveBeenLastCalledWith(record.id, { effective: true, body: true }, undefined);
+      expect(find).toHaveBeenLastCalledWith(record.id, { include: { effective: true, body: true }, signal: undefined });
       setup.gateway.close();
     });
 
@@ -451,7 +451,7 @@ describe("NextGateway", () => {
       const [input, options] = first.mock.calls[0] as unknown as [{ id: string }, { mutationId: string }];
       expect(second).toHaveBeenCalledWith(expect.objectContaining({ id: input.id }), expect.objectContaining({ mutationId: "req-1" }));
       expect(options.mutationId).toBe("req-1");
-      expect(find).toHaveBeenCalledWith(input.id, { effective: true, body: true }, undefined);
+      expect(find).toHaveBeenCalledWith(input.id, { include: { effective: true, body: true }, signal: undefined });
       setup.gateway.close();
     });
 
@@ -460,7 +460,7 @@ describe("NextGateway", () => {
       const receipt = vi.fn(async () => ({ mutation: "req-1", state: "confirmed" }));
       const setup = await sessions([{ find: vi.fn(async () => record), delete: remove }, { find: vi.fn(async () => null), receipt }]);
       await expect(setup.gateway.run(native, "access", "delete", { path: "notes/a.md" }, "req-1")).resolves.toEqual({ path: "notes/a.md", deleted: true });
-      expect(receipt).toHaveBeenCalledWith("req-1", undefined);
+      expect(receipt).toHaveBeenCalledWith("req-1", { signal: undefined });
       setup.gateway.close();
     });
 
@@ -469,7 +469,7 @@ describe("NextGateway", () => {
       const awaitReceipt = vi.fn(async () => ({ mutation: "req-1", state: "confirmed" }));
       const setup = await sessions([{ find: vi.fn(async () => null), receipt, awaitReceipt }]);
       await expect(setup.gateway.run(native, "access", "delete", { path: "notes/a.md" }, "req-1")).resolves.toEqual({ path: "notes/a.md", deleted: true });
-      expect(awaitReceipt).toHaveBeenCalledWith("req-1", 30_000, undefined);
+      expect(awaitReceipt).toHaveBeenCalledWith("req-1", { timeoutMs: 30_000, signal: undefined });
       setup.gateway.close();
     });
 
@@ -506,7 +506,7 @@ describe("NextGateway", () => {
         { find, receipt: vi.fn(async () => ({ mutation: "req-1", state: "confirmed" })) }
       ]);
       await expect(setup.gateway.run(native, "access", "rename", { from: "notes/a.md", to: "notes/b" }, "req-1")).resolves.toMatchObject({ path: "notes/b.md", from: "notes/a.md", to: "notes/b.md" });
-      expect(find).toHaveBeenLastCalledWith(record.id, { effective: true, body: true }, undefined);
+      expect(find).toHaveBeenLastCalledWith(record.id, { include: { effective: true, body: true }, signal: undefined });
       setup.gateway.close();
     });
 
