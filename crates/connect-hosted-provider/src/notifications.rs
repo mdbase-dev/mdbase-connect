@@ -434,10 +434,10 @@ impl HostedNotificationRuntime {
                 .await;
             match result {
                 Ok(()) => {
+                    // A delivered event is never read again; its payload holds
+                    // the record path and frontmatter, so it is not retained.
                     sqlx::query(
-                        "UPDATE hosted_provider_runtime_outbox
-                         SET processed_at = now(), lease_token = NULL, leased_until = NULL,
-                             last_error = NULL
+                        "DELETE FROM hosted_provider_runtime_outbox
                          WHERE collection_id = $1 AND sequence = $2 AND lease_token = $3",
                     )
                     .bind(collection_id)

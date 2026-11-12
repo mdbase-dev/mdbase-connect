@@ -519,3 +519,63 @@ async fn unsupported_schema_and_unsettled_outbox_fail_closed_then_fenced_timers_
     assert!(runtime.lock_active_collection(id).await.unwrap().is_none());
     f.pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn delivered_outbox_rows_are_removed_with_their_payload() {
+    let db = DisposablePostgres::from_projection_env().await;
+    let f = FileLifecycleFixture::new(db.url()).await;
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    let runtime = HostedNotificationRuntime::new(
+        f.pool.clone(),
+        HostedNotificationConfig {
+            control_plane_url: "http://127.0.0.1:9".to_string(),
+            internal_token: "isolated-fixture-only-".repeat(2),
+        },
+    )
+    .unwrap();
+    runtime.prepare().await.unwrap();
+    let outbox_rows = || async {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM hosted_provider_runtime_outbox WHERE collection_id=$1",
+        )
+        .bind(f.collection_id)
+        .fetch_one(&f.pool)
+        .await
+        .unwrap()
+    };
+
+    // Rows delivered by an earlier build are removed by the migration.
+    sqlx::query(
+        "INSERT INTO hosted_provider_runtime_outbox
+           (collection_id, sequence, event_type, payload, processed_at)
+         VALUES($1, 1, 'mdbase.record.created', $2, now())",
+    )
+    .bind(f.collection_id)
+    .bind(json!({"path": "fixture.md", "after": {"title": "fixture"}}))
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../migrations/0050_delete_delivered_runtime_outbox.sql"
+    ))
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(outbox_rows().await, 0);
+
+    // A row is removed in the same step that delivers it.
+    sqlx::query(
+        "INSERT INTO hosted_provider_runtime_outbox(collection_id, sequence, event_type, payload)
+         VALUES($1, 2, 'mdbase.record.created', $2)",
+    )
+    .bind(f.collection_id)
+    .bind(json!({"path": "fixture.md", "after": {"title": "fixture"}}))
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(outbox_rows().await, 1);
+    assert_eq!(runtime.recover(10).await.unwrap(), 1);
+    assert_eq!(outbox_rows().await, 0);
+    f.pool.close().await;
+}

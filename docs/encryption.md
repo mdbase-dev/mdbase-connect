@@ -298,7 +298,11 @@ uniqueness without storing the record path itself. Resource paths such as
 `mdbase.yaml` and type-definition paths are visible.
 
 Frontmatter values, bodies, retained document versions, change images, and
-mutation receipts are encrypted at rest in the currently deployed schema. The
+mutation receipts are encrypted at rest in the currently deployed schema.
+Record-change notification events are the exception: for collections with a
+notification grant, the event's record path and frontmatter are stored in
+plaintext in the provider's notification outbox until the event is delivered,
+when the row is deleted, and in the notification runtime's event store. The
 provider decrypts scoped candidate records and evaluates queries through
 `mdbase-rs`; the deployed schema does not yet maintain the selected semantic
 projection.
