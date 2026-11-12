@@ -359,7 +359,9 @@ export class MdbaseAppGrants {
     try {
       let res: Response;
       try {
-        res = await this.fetcher(`${this.cpOrigin}${path}`, { ...init, redirect: "error", signal: budget.signal });
+        // Signed requests only: a browser extension's host permissions would otherwise attach the
+        // person's Connect cookies to a request from this origin.
+        res = await this.fetcher(`${this.cpOrigin}${path}`, { ...init, redirect: "error", credentials: "omit", signal: budget.signal });
       } catch {
         if (signal?.aborted) throw mdbaseError("cancelled", "request cancelled");
         throw mdbaseError("unavailable", "cannot reach the control plane", "control_unreachable");
