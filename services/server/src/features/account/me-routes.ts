@@ -281,8 +281,10 @@ export function registerAccountOverviewRoute(
           [user.id]
         )
       : { rows: [] };
+    // The legacy provider meters only legacy hosted collections, so a native
+    // account's usage never asks it.
     let hostedUsage = null;
-    if (options.hostedProvider && storageAccount.rows[0]) {
+    if (creation.backend !== "next" && options.hostedProvider && storageAccount.rows[0]) {
       try {
         hostedUsage = await options.hostedProvider.accountUsage(
           storageAccount.rows[0].provider_account_id
@@ -319,12 +321,16 @@ export function registerAccountOverviewRoute(
           max_files_per_collection: entitlement.maxFilesPerCollection,
           max_collection_member_seats: entitlement.maxCollectionMemberSeats
         },
-        usage: hostedUsage ? {
-          // The limit a native account meets counts its native collections; the
-          // legacy provider only knows legacy hosted ones.
-          hosted_collections: creation.backend === "next"
-            ? await nativeCollectionQuotaUsage(options.db, user.id)
-            : hostedUsage.collection_count,
+        // A native account's count is the one its collection limit enforces; its
+        // storage is `native_storage_bytes`, so the legacy byte figures are null.
+        usage: creation.backend === "next" ? {
+          hosted_collections: await nativeCollectionQuotaUsage(options.db, user.id),
+          live_content_bytes: null,
+          live_file_bytes: null,
+          live_storage_bytes: null,
+          retained_file_bytes: null
+        } : hostedUsage ? {
+          hosted_collections: hostedUsage.collection_count,
           live_content_bytes: hostedUsage.live_content_bytes,
           live_file_bytes: hostedUsage.live_file_bytes,
           live_storage_bytes:

@@ -79,9 +79,10 @@ async function ownerPlacement(client: DatabaseQueryable, ownerUserId: string): P
 export async function nativeCollectionQuotaUsage(client: DatabaseQueryable, ownerUserId: string): Promise<number> {
   const usage = await client.query<{ count: string }>(
     `SELECT count(*) FROM next_collections n
+     LEFT JOIN next_collection_deletion_facts d ON d.collection_id = n.collection_id
      WHERE n.owner_user_id = $1 AND n.runtime = 'next'
        AND n.sync IN ('cloud_copy', 'private') AND n.left_sync_at IS NULL
-       AND NOT EXISTS (SELECT 1 FROM next_collection_deletion_facts d WHERE d.collection_id = n.collection_id)`,
+       AND d.collection_id IS NULL`,
     [ownerUserId]
   );
   return Number(usage.rows[0]!.count);

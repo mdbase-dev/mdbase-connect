@@ -437,7 +437,7 @@ function SubscriptionStorage({ subscription, fallbackStorage }: {
       : <p>{liveContentBytes === null || liveFileBytes === null
         ? t(i18n)({ message: "Markdown and file usage is temporarily unavailable." })
         : t(i18n)`${formatBytes(liveContentBytes)} Markdown · ${formatBytes(liveFileBytes)} files`}</p>}
-    {!native && subscription.limits.retained_file_bytes > 0 && <p>{subscription.usage
+    {!native && subscription.limits.retained_file_bytes > 0 && <p>{subscription.usage?.retained_file_bytes != null
       ? t(i18n)`${formatBytes(subscription.usage.retained_file_bytes)} of ${formatBytes(subscription.limits.retained_file_bytes)} retained file storage`
       : t(i18n)`${formatBytes(subscription.limits.retained_file_bytes)} retained file storage included`}</p>}
     <p><Trans>Documents up to {formatBytes(subscription.limits.max_document_bytes)} · files up to {formatBytes(subscription.limits.max_single_file_bytes)} · {countLabel(subscription.limits.max_mirror_replicas_per_collection, "folder")} · {countLabel(subscription.limits.max_application_replicas_per_collection, "application-installation")} per collection</Trans></p>

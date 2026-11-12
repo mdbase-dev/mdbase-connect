@@ -125,19 +125,13 @@ describePg("native synced collection entitlement admission", () => {
     await register(owner);
   });
 
-  it("reports the count the limit enforces as /v1/me usage, and it follows a delete", async () => {
+  // Production native accounts have no legacy storage account (#1435 retest); one
+  // that still has one must not take its usage from the legacy provider either.
+  it.each([["without", false], ["with", true]] as const)("reports the count the limit enforces as /v1/me usage %s a legacy storage account, and it follows a delete", async (_label, legacyRow) => {
     const owner = await account("open_beta_v1"), deleted = randomUUID(), left = randomUUID(), kept = randomUUID();
     await db.query("INSERT INTO next_migration_account_flips(account_id,collections,evidence_digest) VALUES($1,'{}','test')", [owner]);
-    const providerAccountId = randomUUID();
-    await db.query("INSERT INTO account_storage_accounts (user_id, provider_account_id) VALUES ($1, $2)", [owner, providerAccountId]);
-    // The legacy provider knows none of a native account's collections.
-    vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify({ account: {
-      account_id: providerAccountId, entitlement_revision: 1, collection_count: 0,
-      live_content_bytes: 0, live_file_bytes: 0, retained_file_bytes: 0,
-      limits: { hosted_storage_bytes: 1, retained_file_bytes: 1, max_document_bytes: 1, max_single_file_bytes: 1,
-        max_mirror_replicas_per_collection: 1, max_application_replicas_per_collection: 1,
-        max_hosted_collections: 3, max_files_per_collection: 1 }
-    } }), { status: 200, headers: { "content-type": "application/json" } }));
+    if (legacyRow) await db.query("INSERT INTO account_storage_accounts (user_id, provider_account_id) VALUES ($1, $2)", [owner, randomUUID()]);
+    const fetched = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("a native account's usage must not ask the legacy provider"));
     await register(owner, deleted); await register(owner, left, "private"); await register(owner, kept);
     const { app } = await buildApp({ db, devAuth: true, publicUrl: "https://connect.test",
       hostedProvider: new HostedProviderClient({ url: "https://provider.example", internalToken: "provider-internal-token" }) });
@@ -146,18 +140,22 @@ describePg("native synced collection entitlement admission", () => {
       expect(session.statusCode, session.body).toBe(200);
       const raw = session.headers["set-cookie"]!;
       const cookie = (Array.isArray(raw) ? raw[0]! : raw).split(";")[0]!;
-      const counts = async () => {
-        const me = await app.inject({ url: "/v1/me", headers: { cookie } });
+      const counts = async (url = "/v1/me") => {
+        const me = await app.inject({ url, headers: { cookie } });
         expect(me.statusCode, me.body).toBe(200);
+        const { subscription } = me.json();
+        expect(subscription.usage).toMatchObject({ live_content_bytes: null, live_file_bytes: null, live_storage_bytes: null, retained_file_bytes: null });
         return {
           page: me.json().native_collections.filter((collection: { access: { relationship: string } }) => collection.access.relationship === "owner").length,
-          usage: me.json().subscription.usage.hosted_collections,
+          usage: subscription.usage.hosted_collections,
           limit: await nativeCollectionQuotaUsage(db, owner),
-          max: me.json().subscription.limits.max_hosted_collections
+          max: subscription.limits.max_hosted_collections
         };
       };
       const before = await counts();
       expect(before).toMatchObject({ page: 3, usage: 3, limit: 3 });
+      // The portal's frequent refresh omits native storage; the count stays.
+      expect(await counts("/v1/me?native_storage=omit")).toMatchObject({ usage: 3 });
       await db.query("INSERT INTO next_collection_deletion_facts(collection_id,deletion_id,lifecycle_epoch,authority) VALUES($1,$2,1,'cp-intent')", [deleted, randomUUID()]);
       await db.query("UPDATE next_collections SET left_sync_at=now() WHERE collection_id=$1", [left]);
       expect(await counts()).toMatchObject({ page: 1, usage: 1, limit: 1 });
@@ -165,6 +163,7 @@ describePg("native synced collection entitlement admission", () => {
       for (let used = 1; used < before.max; used++) await register(owner);
       await expect(register(owner)).rejects.toMatchObject({ status: 429, code: "account_collection_quota_exceeded" });
       expect(await counts()).toMatchObject({ page: before.max, usage: before.max, limit: before.max });
+      expect(fetched).not.toHaveBeenCalled();
     } finally {
       await app.close();
     }

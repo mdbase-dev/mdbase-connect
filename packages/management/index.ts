@@ -195,12 +195,14 @@ export interface ManagementOverview {
       max_files_per_collection: number;
       max_collection_member_seats: number;
     };
+    /** Legacy accounts: the storage provider's figures. Native accounts: the count
+     * the collection limit enforces, with null byte figures (see `native_storage_bytes`). */
     usage: null | {
       hosted_collections: number;
-      live_content_bytes: number;
-      live_file_bytes: number;
-      live_storage_bytes: number;
-      retained_file_bytes: number;
+      live_content_bytes: number | null;
+      live_file_bytes: number | null;
+      live_storage_bytes: number | null;
+      retained_file_bytes: number | null;
     };
     /** Uploaded file bytes across this account's native collections; notes and history don't count. Null when unknown; absent when the read omitted it. */
     native_storage_bytes?: number | null;
