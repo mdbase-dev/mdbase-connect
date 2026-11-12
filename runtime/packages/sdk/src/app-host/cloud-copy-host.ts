@@ -18,7 +18,7 @@ import type { PeopleAuthority } from "../people.js";
 import type { AppLogHealth, AppLogPump } from "./log-pump.js";
 import { appServerOutcome, isAppServerProblem, type AppServerProblem } from "./cp-problem.js";
 import { AppHttpLogError } from "./http-log.js";
-import { initialSyncWait, keyWaitDetail, type AppInitialSyncWait } from "./initial-sync.js";
+import { KEY_GRANT_WAIT_MS, awaitingKeyGrant, initialSyncWait, keyWaitDetail, type AppInitialSyncWait } from "./initial-sync.js";
 import { attachAppLocalFacade } from "./local-facade.js";
 import {
     AppCpCloudCopyBootstrap,
@@ -1045,7 +1045,8 @@ export class AppWebCloudCopyHost {
         timeoutMs?: number;
         onProgress?: (progress: import("./opening-progress.js").AppOpeningProgress) => void;
         /** SDK join ledger has never completed this local replica's first sync.
-         * The budget then bounds inactivity, not total collection catch-up. */
+         * The budget then bounds inactivity, not total collection catch-up, and
+         * while the replica waits for its key grant it is KEY_GRANT_WAIT_MS. */
         cold?: boolean;
         /** Answer from the replica as it is on this device: the log is not
          * driven, whether or not it is bound yet. Fails where a read would
@@ -1128,8 +1129,12 @@ export class AppWebCloudCopyHost {
                 // Requests sent, accepted heartbeats, head growth and status
                 // flicker cannot keep a stuck replica alive. Observe DURING a
                 // multi-RPC pump, not only after all its rounds have returned.
+                // A cold replica waiting for its own key grant is waiting on the
+                // service that writes it, which a short inactivity budget outruns.
+                let granting = false;
                 const progress = () => {
                     const observation = observe();
+                    granting = cold && awaitingKeyGrant(observation.status);
                     return [observation.status.confirmedThrough, observation.status.installing?.done ?? 0,
                         observation.status.installing?.total ?? 0, pump()!.readProgress];
                 };
@@ -1148,7 +1153,7 @@ export class AppWebCloudCopyHost {
                             const prior = bodies.get(body.id);
                             if (body.bytes > (prior?.bytes ?? 0)) bodies.set(body.id, {bytes: body.bytes, at: now});
                         }
-                        let left = timeoutMs - (now - lastProgress);
+                        let left = (granting ? Math.max(timeoutMs, KEY_GRANT_WAIT_MS) : timeoutMs) - (now - lastProgress);
                         if (left <= 0) {
                             // An HTTP body can start later than the sync clock,
                             // or use a longer bounded object-transfer deadline.

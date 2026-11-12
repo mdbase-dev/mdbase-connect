@@ -50,3 +50,19 @@ export function keyWaitDetail(status: SyncStatus): Record<string, string | numbe
   }
   return out;
 }
+
+/** How long a first sync may wait, without other progress, for the key grant
+ * that keys this device. In a cloud copy the hosted service grants it once the
+ * control plane wakes it after the enrolment (a cold hosted actor took ~14 s in
+ * LAB; that wake's request is bounded at 30 s), and the escrow grants it 120 s
+ * after the enrolment if hosted has not (replica `ESCROW_GRANT_AFTER_MS`). */
+export const KEY_GRANT_WAIT_MS = 150_000;
+
+/** The replica has read ahead and found no key grant to this device yet: the
+ * grant is still to be written, not refused. Void, inconsistent or unusable
+ * grants and blocked read-ahead are not waits. */
+export function awaitingKeyGrant(status: SyncStatus): boolean {
+  if (initialSyncWait(status) !== "waiting_for_key") return false;
+  const key = keyWaitDetail(status)?.key;
+  return key === "reading" || key === "no_grant";
+}
