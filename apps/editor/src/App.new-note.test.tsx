@@ -47,6 +47,26 @@ class MeetingsGateway extends DemoCollectionGateway {
   }
 }
 
+/** A type that requires a field its own lifecycle sets when the note is created, as TaskNotes' task type does. */
+const stamped: CollectionTypeDescriptor = {
+  name: "stamped",
+  extensions: {},
+  definition: { match: { where: { tags: { contains: "ideas" } } } },
+  lifecycle: { on_create: { set: { dateCreated: { now: true } } } },
+  schema: {
+    type: "object",
+    required: ["dateCreated"],
+    properties: { dateCreated: { type: "string", format: "date-time" }, tags: { type: "array", items: { type: "string" } } }
+  }
+};
+
+class StampedGateway extends DemoCollectionGateway {
+  async describe(): Promise<CollectionDescription> {
+    const description = await super.describe();
+    return { ...description, types: [...description.types, stamped] };
+  }
+}
+
 class IdeasGateway extends DemoCollectionGateway {
   async describe(): Promise<CollectionDescription> {
     const description = await super.describe();
@@ -203,6 +223,24 @@ describe("a new note", () => {
     await user.click(noteBody());
     await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
     expect(create.mock.calls[0][0]).toMatchObject({ type: "idea", path: "Shared drafts.md", properties: { tags: ["ideas"], source: "Standup" } });
+    await waitFor(() => expect(unsavedNotes()).not.toBeInTheDocument());
+  });
+
+  it("is written without asking for a required field the type sets when the note is created", async () => {
+    const gateway = new StampedGateway(12);
+    const create = vi.spyOn(gateway, "create");
+    const user = await openEditor(gateway);
+    await user.type(screen.getByRole("combobox", { name: "Search notes and files" }), "#ideas{Enter}");
+
+    await startNote(user);
+    expect(screen.queryByRole("region", { name: "Required properties" })).not.toBeInTheDocument();
+    await user.type(noteTitle(), "Stamped on arrival");
+    await user.tab();
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    const input = create.mock.calls[0][0];
+    expect(input).toMatchObject({ type: "stamped", path: "Stamped on arrival.md", properties: { tags: ["ideas"] } });
+    // The field is left out, not sent empty: the runtime's rule fills it.
+    expect(input.properties).not.toHaveProperty("dateCreated");
     await waitFor(() => expect(unsavedNotes()).not.toBeInTheDocument());
   });
 

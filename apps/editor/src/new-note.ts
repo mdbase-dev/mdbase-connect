@@ -121,14 +121,16 @@ export function newNoteForm(typeName: string | undefined, types: CollectionTypeD
   };
 }
 
-/** Top-level fields the type's `lifecycle.on_create` assigns: the runtime sets them before it validates the new record. */
+/**
+ * Top-level fields the type's `lifecycle.on_create` assigns: the runtime sets
+ * them before it validates the new record. `on_create` is one rule or a list
+ * of rules, each with a `set` mapping.
+ */
 function fieldsSetOnCreate(type?: CollectionTypeDescriptor): Set<string> {
-  const actions = type?.lifecycle?.on_create;
-  if (!Array.isArray(actions)) return new Set();
-  return new Set(actions.flatMap((action) => {
-    const set = action && typeof action === "object" && !Array.isArray(action) ? action.set : undefined;
-    if (!set || typeof set !== "object" || Array.isArray(set)) return [];
-    return Object.keys(set).flatMap((field) => {
+  const rules = type?.lifecycle?.on_create;
+  return new Set((Array.isArray(rules) ? rules : [rules]).flatMap((rule) => {
+    if (!isObject(rule) || !isObject(rule.set)) return [];
+    return Object.keys(rule.set).flatMap((field) => {
       const path = fieldReferencePath(field);
       return path?.length === 1 ? path : [];
     });

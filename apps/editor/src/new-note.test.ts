@@ -138,6 +138,33 @@ describe("what a type asks of a new note", () => {
     expect(beginNewNote({ type: "task" }, [task]).properties).toEqual({ type: "task", status: "open", due: "" });
   });
 
+  it("reads a single on_create rule as well as a list of them", () => {
+    // TaskNotes' task type as production has it: one rule, and a title that is the note's name.
+    const task: CollectionTypeDescriptor = {
+      name: "task",
+      extensions: {},
+      collection: { display: { name_field: "title" } },
+      definition: { match: { where: { tags: { contains: "task" } } } },
+      lifecycle: { on_create: { set: { id: { uuid: true }, dateCreated: { now: true }, dateModified: { now: true } } }, on_update: { set: { dateModified: { now: true } } } },
+      schema: {
+        type: "object",
+        required: ["title", "status", "dateCreated"],
+        properties: {
+          id: { type: "string", minLength: 1 },
+          title: { type: "string", minLength: 1 },
+          status: { enum: ["open", "done"], default: "open" },
+          dateCreated: { type: "string", format: "date-time" },
+          dateModified: { type: "string", format: "date-time" }
+        }
+      }
+    };
+    const form = newNoteForm("task", [task]);
+    expect(form.required).toEqual([]);
+    const note = { ...beginNewNote(newNoteContext({ kind: "tag", value: "task" }, [task]), [task]), title: "Call the plumber" };
+    expect(note.properties).toEqual({ status: "open", tags: ["task"] });
+    expect(newNoteBlocker(note, form)).toBeUndefined();
+  });
+
   it("puts the title in the declared name field and asks for nothing else", () => {
     const form = newNoteForm("contact", types);
     expect(form).toMatchObject({ titleField: "name", titleLabel: "Name", requiredTitle: "Name", required: [] });
