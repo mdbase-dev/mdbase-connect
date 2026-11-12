@@ -66,7 +66,6 @@ export type {RecordValidation, ValidationIssue} from "./validation.js";
 export { connect, LiveQuery, MdbaseClient, Write } from "./client.js";
 export type {
   ClientOptions,
-  SaveResult,
   CreateInput,
   FenceHandler,
   LinkState,
@@ -81,6 +80,8 @@ export type {
   WriteOptions,
 } from "./client.js";
 export type { DescribeOptions, TypeCreation } from "./client.js";
+export type { Settlement, SettleOptions, SettleRead } from "./settle.js";
+export { isProtected } from "./records/witness.js";
 export type {RecordLease, RecordOpenOptions, RecordSession, RecordSessionSnapshot, RecordSessionState, RecordRecovery, RecordRecoveryRef, RecordResolution, RecordFlushOptions, RecordFlushResult, Records} from "./records.js";
 export {readMany, queryPages, resolveRecordLinks, READ_MANY_MAX_REFS, READ_MANY_MAX_CONCURRENCY} from "./read-helpers.js";
 export type {ReadManyOptions} from "./read-helpers.js";

@@ -19,6 +19,7 @@ import { list, uint, uuid as uuidCodec, uuidFromBytes } from "./codec.js";
 import {recordValidations, captureValidation, bindValidation, type RecordValidation} from "./validation.js";
 import { isMdbaseError, mdbaseError, MdbaseError } from "./errors.js";
 import { FilesApi } from "./files.js";
+import { settleWrite, type Settlement, type SettleOptions } from "./settle.js";
 import { readMany as readManyRecords, queryPages as readQueryPages, type ReadManyOptions } from "./read-helpers.js";
 import {RecordsApi, type Records, type RecordOpenOptions, type RecordLease} from "./records.js";
 import {executeSavedView, listSavedViews, readSavedViewSource, type ExecuteViewOptions, type ListViewsResult} from "./saved-views.js";
@@ -124,16 +125,6 @@ export interface ClientOptions {
   /** Where the write ledger persists (default: memory). Web apps get the replica's store. */
   ledger?: WriteLedgerStore;
   signal?: AbortSignal;
-}
-
-/** What {@link MdbaseClient.save} settled to. */
-export interface SaveResult {
-  readonly outcome: "confirmed" | "saved_on_device" | "rejected";
-  readonly mutationId: Uuid;
-  readonly records: readonly RecordView[];
-  /** The first record, read back when asked. */
-  readonly record?: RecordView;
-  readonly problem?: Problem;
 }
 
 /** A type created by {@link MdbaseClient.createType}. */
@@ -359,6 +350,9 @@ export class Write {
    * Rejects rejected/unknown outcomes; not a native custody/durable ACK gate. */
   readonly published: Promise<Receipt>;
 
+  /** The record a single-record write targets (create, update, replace, rename, delete). */
+  recordId?: Uuid;
+
   constructor(public receipt: Receipt) {
     this.confirmed = new Promise((resolve, reject) => (this.settle = { resolve, reject }));
     this.published = new Promise((resolve, reject) => (this.settlePublished = { resolve, reject }));
@@ -412,8 +406,8 @@ export class Write {
   }
 }
 
-/** A create receipt with the record identity minted by the SDK, even when the
- * replica omits optimistic records from its response. */
+/** A create, with the record ID the SDK minted: known even when the replica
+ * omits optimistic records from its response. */
 export interface RecordWrite extends Write {
   readonly recordId: Uuid;
 }
@@ -1823,6 +1817,10 @@ export class MdbaseClient {
     return w!;
   }
 
+  private async record(op: Op & { id: Uuid }, o: WriteOptions): Promise<RecordWrite> {
+    return Object.assign(await this.one(op, o), { recordId: op.id });
+  }
+
   /** Create a record. The ID is minted here, so the app can use it before confirmation. */
   create(input: CreateInput, o: WriteOptions = {}): Promise<RecordWrite> {
     if (o.intent !== undefined && o.mutationId === undefined)
@@ -1834,7 +1832,7 @@ export class MdbaseClient {
     if (input.frontmatter !== undefined) op.frontmatter = toFmMap(input.frontmatter);
     if (input.body !== undefined) op.body = input.body;
     if (input.document !== undefined) op.document = input.document;
-    return this.one(op, o).then(write => Object.assign(write, { recordId: op.id }));
+    return this.record(op, o);
   }
 
   private async createThroughContract(input: CreateInput, contract: ContractSelector, o: WriteOptions): Promise<RecordWrite> {
@@ -1847,7 +1845,7 @@ export class MdbaseClient {
     const op: Op = { kind: "create", id: input.id ?? uuidv7(), type: plan.type, frontmatter: plan.patch };
     if (input.path !== undefined) op.path = input.path;
     if (input.body !== undefined) op.body = input.body;
-    return Object.assign(await this.one(op, o), { recordId: op.id });
+    return this.record(op, o);
   }
 
   /**
@@ -1857,7 +1855,7 @@ export class MdbaseClient {
    */
   update(target: RecordRef, changes: UpdateInput, o: WriteOptions = {}): Promise<Write> {
     if (changes.contract) return this.updateThroughContract(target, changes, changes.contract, o);
-    return this.one(this.updateOp(target, changes), o);
+    return this.record(this.updateOp(target, changes), o);
   }
 
   private async updateThroughContract(target: RecordRef, c: UpdateInput, contract: ContractSelector, o: WriteOptions): Promise<Write> {
@@ -1877,7 +1875,7 @@ export class MdbaseClient {
     if (plan.base.length) op.base = plan.base;
     if (c.updateRefs !== undefined) op.updateRefs = c.updateRefs;
     if (c.ifRevision) op.ifRevision = c.ifRevision;
-    return this.one(op, o);
+    return this.record(op, o);
   }
 
   /** Build an `update` op (exposed for batching with `submit`). */
@@ -1941,7 +1939,7 @@ export class MdbaseClient {
     if (!seen) throw mdbaseError("invalid_request", "replaceDocument needs the RecordView it was edited from");
     if (seen.document !== undefined) op.base = { path: seen.path, doc: seen.document };
     if (o.ifRevision) op.ifRevision = o.ifRevision;
-    return this.one(op, o);
+    return this.record(op, o);
   }
 
   /**
@@ -1955,13 +1953,13 @@ export class MdbaseClient {
       return this.contractPlan(contract, target, undefined, undefined, o.signal).then((plan) => {
         const op: Op = { kind: "delete", id: plan.id!, baseRevision: plan.revision! };
         if (rest.ifRevision) op.ifRevision = rest.ifRevision;
-        return this.one(op, rest);
+        return this.record(op, rest);
       });
     }
     const op: Op = { kind: "delete", id: refId(target) };
     if (typeof target === "object" && "revision" in target) op.baseRevision = (target as RecordView).revision;
     if (o.ifRevision) op.ifRevision = o.ifRevision;
-    return this.one(op, o);
+    return this.record(op, o);
   }
 
   /** Rename (move) a record; `updateRefs` rewrites links to it (default true).
@@ -1978,7 +1976,7 @@ export class MdbaseClient {
     }
     const op: Op = { kind: "rename", id: target.id, from: target.path, to, updateRefs: o.updateRefs ?? true };
     if (o.ifRevision) op.ifRevision = o.ifRevision;
-    return this.one(op, o);
+    return this.record(op, o);
   }
 
   /** @internal Track a receipt the replica returned outside `submit`. */
@@ -2006,38 +2004,19 @@ export class MdbaseClient {
   }
 
   /**
-   * Settle a write for the UI: waits up to `timeoutMs` (default 3 s) for the log
-   * to confirm it. Still pending then is `saved_on_device`, not a failure: the
-   * write is kept on this device and the ledger settles it later. With
-   * `readBack`, `record` is the record as it now reads here.
+   * Settle a write: wait for the sync service to confirm it (3 s by default),
+   * and with `read`, read the record back as it now reads here.
+   *
+   * Pass the write, the promise of one, or the mutation ID of an earlier write
+   * whose result was `unknown`. The answer is a {@link Settlement}; the only
+   * rejections are cancellation and a call that cannot be settled as asked.
+   * Nothing is ever submitted again.
+   *
+   *     const saved = await db.settle(db.update(record, { patch }), { read: true });
+   *     if (saved.outcome === "rejected") show(describeError(saved.problem));
    */
-  async save(write: Write | Promise<Write>, o: { readBack?: boolean; timeoutMs?: number; signal?: AbortSignal } = {}): Promise<SaveResult> {
-    const w = await write;
-    let r = w.receipt;
-    if (r.state === "pending") {
-      try {
-        r = await this.awaitReceipt(w.mutationId, o.timeoutMs ?? 3000, o.signal);
-        w.update(r);
-      } catch (e) {
-        if (isMdbaseError(e, "cancelled")) throw e;
-        // The wait failing says nothing about the write: it is on this device.
-        r = w.receipt;
-      }
-    }
-    const outcome: SaveResult["outcome"] = r.state === "confirmed" ? "confirmed"
-      : r.state === "pending" ? "saved_on_device" : "rejected";
-    const records = w.records;
-    let record: RecordView | undefined = records[0];
-    if (o.readBack && outcome !== "rejected" && record) {
-      record = (await this.find(record.id, undefined, o.signal).catch(() => null)) ?? record;
-    }
-    return Object.freeze({
-      outcome,
-      mutationId: w.mutationId,
-      records,
-      ...(record ? { record } : {}),
-      ...(outcome === "rejected" && r.problem ? { problem: r.problem } : {}),
-    });
+  settle(write: Write | Promise<Write> | Uuid, options: SettleOptions = {}): Promise<Settlement> {
+    return settleWrite(this, write, options);
   }
 
   /** The current receipt of a mutation. Failures carry `mutationId`. */
