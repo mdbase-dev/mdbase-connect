@@ -67,3 +67,16 @@ it("createTestMdbase: unlock through the front door",async()=>{
     expect((await mdbase.unlock(id,{password:"correct horse battery staple"})).phase?.kind).toBe("ready");
   }finally{await mdbase.close();}
 });
+
+it("createTestApp: problems read in the app's own words",async()=>{
+  const messages={open_in_another_tab:{title:"Ouvert ailleurs",message:"Cette collection est ouverte dans un autre onglet."}};
+  const app=await createTestApp({phase:"second_tab",messages});
+  try{
+    expect(app.mdbase.getSnapshot().phase).toMatchObject({kind:"problem",problem:{key:"open_in_another_tab",title:"Ouvert ailleurs",message:"Cette collection est ouverte dans un autre onglet."}});
+  }finally{await app.close();}
+  const plain=await createTestApp({phase:"second_tab"});
+  try{
+    expect(plain.mdbase.getSnapshot().phase).toMatchObject({kind:"problem",problem:{key:"open_in_another_tab"}});
+    expect(plain.mdbase.getSnapshot().phase).not.toMatchObject({problem:{title:"Ouvert ailleurs"}});
+  }finally{await plain.close();}
+});

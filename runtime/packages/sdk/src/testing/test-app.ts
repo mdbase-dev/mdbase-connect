@@ -5,11 +5,11 @@
  * that fail exactly as production does (same error codes and snapshots).
  * Not runtime, registration or readiness evidence.
  */
-import { connect, type MdbaseClient } from "../client.js";
+import type { MdbaseClient } from "../client.js";
+import type { PlainValue } from "../values.js";
 import { mdbaseError, type ErrorCode } from "../errors.js";
 import { MdbasePeopleClient } from "../people.js";
-import type { CborValue } from "../cbor.js";
-import type { ProblemCode } from "../describe-error.js";
+import type { DescribeErrorOptions, ProblemCode } from "../describe-error.js";
 import type { MdbaseApplicationDeclaration } from "../application/declaration.js";
 import type { MdbaseApplicationConnection, MdbaseApplicationSnapshot } from "../application/entry.js";
 import type { ApplicationApprovalOutcome, ApplicationCollectionSelectionSnapshot } from "../application/collection-selection.js";
@@ -28,7 +28,7 @@ export interface TestAppCollection {
   readonly id?: string;
   readonly name?: string;
   readonly role?: AppInstallationCollection["role"];
-  readonly records?: readonly { readonly path: string; readonly types?: string[]; readonly frontmatter?: Record<string, CborValue>; readonly body?: string }[];
+  readonly records?: readonly { readonly path: string; readonly types?: string[]; readonly frontmatter?: Record<string, PlainValue>; readonly body?: string }[];
   readonly contracts?: MemoryContract[];
 }
 export interface TestAppOptions {
@@ -37,6 +37,8 @@ export interface TestAppOptions {
   readonly collections?: readonly TestAppCollection[];
   /** Default: "ready" in the first collection. */
   readonly phase?: TestAppPreset;
+  /** The app's wording for problems, as `createMdbase` takes it. */
+  readonly messages?: DescribeErrorOptions["messages"];
   /** Members returned by `connection.people` (the first is the signed-in person). */
   readonly people?: readonly { readonly name: string; readonly role?: AppInstallationCollection["role"] }[];
 }
@@ -79,7 +81,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
   const opened = await Promise.all(specs.map(async (spec, i) => {
     const replica = new MemoryReplica({ confirmDelayMs: 0, ...(spec.id ? { collection: spec.id } : {}), ...(spec.contracts ? { contracts: spec.contracts } : {}) });
     for (const record of spec.records ?? []) replica.seed({ ...record });
-    const client = await connect({ connector: replica.connector(), app: { name: "test-app", version: "test" }, reconnect: false });
+    const client = await replica.client({ app: { name: "test-app", version: "test" } });
     const people = options.people ?? [{ name: "Test Person", role: "owner" as const }];
     const profile = (name: string, n: number) => ({ issuer: "https://connect.test", subject: `person-${n}`, name, ...(n === 0 ? { account_id: ACCOUNT } : {}) });
     const peopleClient = new MdbasePeopleClient(client, { collection: client.collection, isCurrent: () => true,
@@ -116,7 +118,8 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
   }
 
   const { mdbase, controls } = createApplicationFixture({ declaration: options.declaration ?? DECLARATION,
-    connections: opened.map(o => o.connection), initialSnapshot: snapshotFor(options.phase ?? "ready") });
+    connections: opened.map(o => o.connection), initialSnapshot: snapshotFor(options.phase ?? "ready"),
+    ...(options.messages ? { messages: options.messages } : {}) });
   const faults: TestAppFault[] = [];
   const take = (action: ApplicationFixtureAction) => {
     const i = faults.findIndex(f => f.action === action);

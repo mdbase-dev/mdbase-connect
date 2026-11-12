@@ -16,6 +16,7 @@ import type { CborValue } from "../cbor.js";
 import { decode, encode, Float64 } from "../cbor.js";
 import { hash as hashCodec, hashFromBytes, list, uuid as uuidCodec } from "../codec.js";
 import { ERROR_CODES, ErrorCode, isMdbaseError, mdbaseError, MdbaseError } from "../errors.js";
+import { connect, type ClientOptions, type MdbaseClient } from "../client.js";
 import { Connector, FramePort, portPair } from "../transport/port.js";
 import { revisionOf, toPlain, toValue, uuidv7, type PlainValue } from "../values.js";
 import * as w from "../wire.js";
@@ -68,11 +69,40 @@ export interface MemoryReplicaOptions {
   typing?: (types: string[], path: string) => w.TemporalHint;
   /** Serve contract-scoped records through these declared implementations (a
    * subset of Core's mapping; no schema validation). Absent: contract methods
-   * are unknown, as on an older replica. */
+   * are unknown, as on an older replica. `describe` lists them, after what
+   * each type file says it implements. */
   contracts?: MemoryContract[];
   /** Further `hello` features to grant when asked (default: `presence` and `fence`). */
   features?: string[];
+  /** Read a document's frontmatter and body. Default: one `key: JSON` line per
+   * field, which is what `seedType` and the replica itself write. Pass the
+   * app's YAML parser when the app writes type files or `document`s. */
+  parse?: (document: string) => { frontmatter: Record<string, PlainValue>; body: string };
 }
+
+/** A request `failNextRead` and `pauseReads` can target, by the client
+ * methods that send it. Writes have `failNextWrite`. */
+export type MemoryReplicaRead =
+  /** `describe` */
+  | "describe"
+  /** `get`, `find`, `readMany` */
+  | "get"
+  /** `query`, `pages`, and a record set's scan */
+  | "query"
+  /** `changes`, `watchChanges`, and a record set following changes */
+  | "changes"
+  /** `resources.get`, `resources.list` */
+  | "get_resource" | "list_resources"
+  /** `files.get`, `files.list` */
+  | "get_file" | "list_files"
+  /** `backlinks` */
+  | "backlinks"
+  /** `receipt`, `awaitReceipt` */
+  | "receipt" | "await"
+  /** `listHolds`, `listConflicts` */
+  | "list_holds" | "list_conflicts"
+  /** `getContract`, `queryContract` */
+  | "get_contract_v1" | "query_contract_v1";
 
 interface Sub {
   id: number;
@@ -188,6 +218,8 @@ export class MemoryReplica {
   private stalled = false;
   private loseNext = false;
   private failWrite: w.Problem | null = null;
+  private failRead = new Map<string, w.Problem>();
+  private paused = new Map<string, { gate: Promise<void>; release: () => void }>();
   private holdList = new Map<w.Uuid, { hold: w.Hold; record: w.Uuid }>();
   private conflictList: w.ConflictEntry[] = [];
   private baseViews = new Map<w.Uuid, MemoryBaseView[]>();
@@ -236,6 +268,12 @@ export class MemoryReplica {
     };
   }
 
+  /** A client connected to this replica. It does not reconnect by itself
+   * unless `reconnect` says so. */
+  client(o: Partial<Omit<ClientOptions, "connector">> = {}): Promise<MdbaseClient> {
+    return connect({ app: { name: "test", version: "test" }, reconnect: false, ...o, connector: this.connector() });
+  }
+
   /** Drop every session (simulates a broken link; clients reconnect). */
   dropConnections(): void {
     for (const c of [...this.conns]) c.port.close();
@@ -248,13 +286,14 @@ export class MemoryReplica {
     if (online && this.opts.confirmDelayMs !== null) this.scheduleConfirm();
   }
 
-  /** Seed a confirmed record directly. */
-  seed(r: { id?: w.Uuid; path: string; types?: string[]; frontmatter?: Record<string, CborValue>; body?: string }): MemoryRecord {
+  /** Seed a confirmed record directly. Frontmatter is plain data, or the
+   * exact forms where a test wants them (`Float64`, `bigint`, a `Map`). */
+  seed(r: { id?: w.Uuid; path: string; types?: string[]; frontmatter?: Record<string, PlainValue>; body?: string }): MemoryRecord {
     const rec: MemoryRecord = {
       id: r.id ?? uuidv7(),
       path: r.path,
       types: r.types ?? [],
-      frontmatter: new Map(Object.entries(r.frontmatter ?? {})),
+      frontmatter: new Map(Object.entries(r.frontmatter ?? {}).map(([k, v]) => [k, toValue(v)])),
       body: r.body ?? "",
       confirmedSeq: ++this.seq,
       pending: false,
@@ -273,12 +312,12 @@ export class MemoryReplica {
 
   /** Another device edits a record; the change arrives confirmed. A `null`
    * frontmatter value removes the field. */
-  editElsewhere(ref: string, change: { body?: string; frontmatter?: Record<string, CborValue | null> }): void {
+  editElsewhere(ref: string, change: { body?: string; frontmatter?: Record<string, PlainValue> }): void {
     const r = this.rec(ref);
     if (change.body !== undefined) r.body = change.body;
     for (const [k, v] of Object.entries(change.frontmatter ?? {})) {
       if (v === null) r.frontmatter.delete(k);
-      else r.frontmatter.set(k, v);
+      else r.frontmatter.set(k, toValue(v));
     }
     r.confirmedSeq = ++this.seq;
     this.touch(r.id, r.path, "put");
@@ -314,6 +353,26 @@ export class MemoryReplica {
   /** The next submit fails with `p` and captures nothing. */
   failNextWrite(p: w.Problem = problem("unavailable", "the replica could not take the write", "storage_busy")): void {
     this.failWrite = p;
+  }
+
+  /** The next `method` request fails with `p` and the one after it is answered. */
+  failNextRead(method: MemoryReplicaRead, p: w.Problem = problem("unavailable", "the replica could not answer", "storage_busy")): void {
+    this.failRead.set(method, p);
+  }
+
+  /** Hold every `method` request until the returned function is called, as a
+   * slow replica would. Requests already answered are not affected. */
+  pauseReads(method: MemoryReplicaRead): () => void {
+    const held = this.paused.get(method);
+    if (held) return held.release;
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => { open = resolve; });
+    const release = () => {
+      if (this.paused.get(method)?.release === release) this.paused.delete(method);
+      open();
+    };
+    this.paused.set(method, { gate, release });
+    return release;
   }
 
   /** Stuck pending: while stalled, writes are not confirmed on their own even
@@ -573,6 +632,13 @@ export class MemoryReplica {
       c.port.close();
       return;
     }
+    await this.paused.get(f.method)?.gate;
+    const failure = this.failRead.get(f.method);
+    if (failure) {
+      this.failRead.delete(f.method);
+      this.send(c, { kind: "response", id: f.id, problem: failure });
+      return;
+    }
     try {
       const result = await this.dispatch(c, f.method, f.params);
       this.send(c, { kind: "response", id: f.id, result: result ?? null });
@@ -730,24 +796,25 @@ export class MemoryReplica {
       case "cancel":
         return null;
       case "describe": {
-        const types = new Set<string>();
+        const types = new Set<string>((this.opts.contracts ?? []).map((c) => c.type));
         for (const r of this.records.values()) r.types.forEach((t) => types.add(t));
         for (const p of this.resources.keys()) {
           const m = /^_types\/(.+)\.md$/.exec(p);
           if (m) types.add(m[1]!);
         }
+        const summaries = [...types].sort().map((name) => this.typeSummary(name, m.get(0) === true));
         return w.describeResult.enc({
           specVersion: "0.3.0-rc.5",
-          types: [...types].sort().map((name) => this.typeSummary(name, m.get(0) === true)),
+          types: summaries,
           settings: new Map(),
           inclusion: { include: ["image", "audio", "video", "pdf", "other"] },
           issues: [],
-          contracts: [],
+          contracts: this.contractSummaries(summaries),
         });
       }
       case "new_type_file": {
         // Synthetic subset of Core's derivation: frontmatter name, default folder.
-        const { frontmatter } = parseDocument(m.get(0) as string);
+        const { frontmatter } = this.parse(m.get(0) as string);
         const name = frontmatter.get("name");
         if (frontmatter.get("kind") !== "mdbase.type" || typeof name !== "string" || name === "" || name.includes("/")) {
           throw mdbaseError("invalid_record", "the type needs a usable name", "invalid_type_definition");
@@ -1106,13 +1173,66 @@ export class MemoryReplica {
     this.resources.set(path, { text, pending: false });
   }
 
+  /** Frontmatter and body of a document, through `opts.parse` when given. */
+  private parse(doc: string): { frontmatter: w.FmMap; body: string } {
+    if (!this.opts.parse) return parseDocument(doc);
+    const { frontmatter, body } = this.opts.parse(doc);
+    return { frontmatter: new Map(Object.entries(frontmatter).map(([k, v]) => [k, toValue(v)])), body };
+  }
+
+  /** What a type implements: the `implements` list of its type file, then the
+   * declared contracts the file does not list. */
+  private implementations(name: string, frontmatter: w.FmMap | undefined): w.ContractImplementation[] {
+    const declared = (this.opts.contracts ?? []).filter((c) => c.type === name);
+    const digest = (contract: string, version: string) => {
+      const c = declared.find((x) => x.id === contract && x.version === version);
+      return implementationDigest(c ?? { id: contract, version, type: name, fields: {} });
+    };
+    const listed = toPlain(toValue((frontmatter?.get("implements") ?? []) as PlainValue));
+    if (!Array.isArray(listed)) throw new Error(`MemoryReplica: _types/${name}.md: implements must be a list`);
+    const out = listed.map((entry): w.ContractImplementation => {
+      const e = entry as { contract?: unknown; version?: unknown; fields?: Record<string, string>; binding?: PlainValue };
+      if (typeof e.contract !== "string" || typeof e.version !== "string") {
+        throw new Error(`MemoryReplica: _types/${name}.md: an implements entry needs a contract and a version`);
+      }
+      return {
+        contract: e.contract, version: e.version, fields: new Map(Object.entries(e.fields ?? {})),
+        ...(e.binding === undefined ? {} : { binding: toValue(e.binding) }), digest: digest(e.contract, e.version),
+      };
+    });
+    for (const c of declared) {
+      if (out.some((i) => i.contract === c.id && i.version === c.version)) continue;
+      out.push({
+        contract: c.id, version: c.version, fields: new Map(Object.entries(c.fields)),
+        ...(c.binding === undefined ? {} : { binding: toValue(c.binding) }), digest: implementationDigest(c),
+      });
+    }
+    return out;
+  }
+
+  /** One summary per contract version the types implement. */
+  private contractSummaries(types: w.TypeSummary[]): w.ContractSummary[] {
+    const out = new Map<string, w.ContractSummary>();
+    for (const type of types) for (const i of type.implements) {
+      const key = `${i.contract}@${i.version}`;
+      const declared = (this.opts.contracts ?? []).find((c) => c.id === i.contract && c.version === i.version);
+      const summary = out.get(key) ?? {
+        id: i.contract, version: i.version, path: declared?.path ?? `_contracts/${i.contract}.md`,
+        digest: contractDigest(declared ?? { id: i.contract, version: i.version }), contractType: "record", implementedBy: [],
+      };
+      summary.implementedBy.push(type.name);
+      out.set(key, summary);
+    }
+    return [...out.values()].sort((a, b) => (`${a.id}@${a.version}` < `${b.id}@${b.version}` ? -1 : 1));
+  }
+
   /** Synthetic type summary: the parsed subset of the type file, never Core's catalog. */
   private typeSummary(name: string, definitions: boolean): w.TypeSummary {
     const path = `_types/${name}.md`;
-    const summary: w.TypeSummary = { name, path, implements: [] };
     const source = this.resources.get(path);
-    if (source === undefined) return definitions ? { ...summary, definition: new Map(), schema: null } : summary;
-    const { frontmatter } = parseDocument(source.text);
+    const frontmatter = source === undefined ? undefined : this.parse(source.text).frontmatter;
+    const summary: w.TypeSummary = { name, path, implements: this.implementations(name, frontmatter) };
+    if (source === undefined || frontmatter === undefined) return definitions ? { ...summary, definition: new Map(), schema: null } : summary;
     const version = frontmatter.get("version");
     if (typeof version === "number" && Number.isInteger(version)) summary.version = version;
     summary.revision = this.resourceView(path, source, false).revision;
@@ -1314,7 +1434,7 @@ export class MemoryReplica {
             types: op.type ? [op.type] : [],
             ...(op.document === undefined
               ? { frontmatter: new Map(op.frontmatter ?? []), body: op.body ?? "" }
-              : parseDocument(op.document)),
+              : this.parse(op.document)),
             confirmedSeq: 0,
             pending: true,
           });
@@ -1368,7 +1488,7 @@ export class MemoryReplica {
             id: op.id,
             path: op.new.path || r0?.path || `${op.id}.md`,
             types: r0?.types ?? [],
-            ...parseDocument(op.new.doc),
+            ...this.parse(op.new.doc),
             confirmedSeq: r0?.confirmedSeq ?? 0,
             pending: true,
           });

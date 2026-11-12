@@ -14,6 +14,7 @@ import type {Mdbase, MdbaseSnapshot} from "../application/front-door.js";
 import type {MdbaseAccessRequest, MdbaseAccessRequestOptions, MdbaseAccessResult} from "../application/file-access.js";
 import type {FileAction} from "../files.js";
 import {applicationPhase} from "../application/phase.js";
+import type {DescribeErrorOptions} from "../describe-error.js";
 import {summarizeSync} from "../status.js";
 
 export type ApplicationFixtureAction = "start" | "authorize" | "approve" | "reauthorize" | "refreshCollectionList" | "select" | "chooseAnother" | "forget" | "deleteCollection" | "requestAccess" | "assess" | "configure" | "planSetup" | "applySetup" | "signOut" | "openUnsynced" | "planUnsyncedTransfer" | "transferUnsynced" | "discardUnsynced" | "unlock" | "close";
@@ -46,6 +47,8 @@ export interface ApplicationFixtureOptions {
    * with `{unsynced: true}`: `openUnsynced` shows it, and transfers read it.
    * Any client works, such as one over a `MemoryReplica`. Not in `collections`. */
   readonly unsynced?: MdbaseApplicationConnection;
+  /** The app's wording for problems, as `createMdbase` takes it: `phase.problem` uses it. */
+  readonly messages?: DescribeErrorOptions["messages"];
 }
 export interface ApplicationFixtureControls {
   readonly declaration: MdbaseApplicationDeclaration;
@@ -178,7 +181,7 @@ export function createApplicationFixture(options: ApplicationFixtureOptions): Ap
   function view(): MdbaseSnapshot {
     const id = snapshot.selectedCollectionId, connection = id ? mdbase.connection(id) : null;
     if (derived && derived.source === snapshot && derived.connection === connection) return derived.value;
-    const phase = applicationPhase(snapshot, {connection, previous: derived?.value.phase ?? null});
+    const phase = applicationPhase(snapshot, {connection, previous: derived?.value.phase ?? null, ...(options.messages ? {messages: options.messages} : {})});
     let sync = null;
     if (phase.kind === "ready") try {{const records = phase.connection.records; sync = summarizeSync({status: records.status, writes: records.ledger.getSnapshot(), link: records.link, problem: snapshot.problem});}} catch {/* status not known yet */}
     const value = Object.freeze({...snapshot, phase, sync, links: snapshot.links ?? null});

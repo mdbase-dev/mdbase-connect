@@ -43,8 +43,8 @@ them.
 | Runtime | `WasmRuntime`, `OpenConfig`, `RuntimeInfo`, `QueryExecutionProfile` |
 | Availability | `parseCollectionAvailability`, `collectionUnavailableError`, `isCollectionUnavailableReason`, `COLLECTION_UNAVAILABLE_REASONS`, `CollectionAvailability`, `CollectionUnavailableReason` |
 
-A test that connects to a `MemoryReplica` imports `connect` from
-`@mdbase-dev/sdk/thin-client`.
+A test that needs a client on a `MemoryReplica` calls `replica.client()`
+(`docs/sdk-testing.md`).
 
 `@mdbase-dev/sdk/browser`, the classic-script bundle, exports both entries and
 is unchanged.

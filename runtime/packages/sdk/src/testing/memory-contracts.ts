@@ -8,6 +8,7 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import type { CborValue } from "../cbor.js";
 import { hashFromBytes } from "../codec.js";
 import { mdbaseError } from "../errors.js";
+import type { PlainValue } from "../values.js";
 import type * as w from "../wire.js";
 
 /** One type implementing one contract version, as Core's catalog would see it. */
@@ -21,6 +22,10 @@ export interface MemoryContract {
   /** Digests to report (`sha256:<hex>`); default: a stand-in hash of `id@version` (and `:type`). */
   contractDigest?: string;
   implementationDigest?: string;
+  /** The contract's file, as `describe` reports it (default: `_contracts/<id>.md`). */
+  path?: string;
+  /** The implementation's binding, as `describe` reports it. */
+  binding?: Record<string, PlainValue>;
 }
 
 type Rec = { types: string[]; frontmatter: w.FmMap };

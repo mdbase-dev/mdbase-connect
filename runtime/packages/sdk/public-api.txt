@@ -1228,6 +1228,7 @@ MemoryContract -> MemoryContract@testing/memory-contracts.ts
 MemoryRecord -> MemoryRecord@testing/memory-replica.ts
 MemoryReplica -> MemoryReplica@testing/memory-replica.ts
 MemoryReplicaOptions -> MemoryReplicaOptions@testing/memory-replica.ts
+MemoryReplicaRead -> MemoryReplicaRead@testing/memory-replica.ts
 serveNoise -> serveNoise@testing/noise-server.ts
 ServeNoiseOptions -> ServeNoiseOptions@testing/noise-server.ts
 TestApp -> TestApp@testing/test-app.ts
@@ -3422,6 +3423,7 @@ ApplicationFixtureOptions@testing/application.ts
   readonly connections: readonly MdbaseApplicationConnection[]
   readonly declaration: MdbaseApplicationDeclaration
   readonly initialSnapshot: MdbaseApplicationSnapshot
+  readonly messages?: Readonly<Partial<Record<'refused' | 'not_found' | 'conflict' | 'device_offline' | 'desktop_update_required' | 'old_connector_running' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'read_only' | 'capability_missing' | 'collection_deleted' | 'collection_unavailable' | 'moved_to_next_runtime' | 'device_approval_required' | 'collection_migrating' | 'collection_not_yet_migrated' | 'account_suspended' | 'update_required' | 'account_collection_quota_exceeded' | 'invalid_request' | 'invalid_record' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'unavailable' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'expired' | 'approval_window_closed' | 'account_confirmation_required' | 'recovery_required' | 'open_failed' | 'busy' | 'open_in_another_tab' | 'not_authorized' | 'sign_out_pending_writes' | 'sign_out_failed' | 'application_popup_blocked' | 'sign_in_window' | 'application_not_yet_available' | 'application_failed' | 'application_worker_unavailable' | 'browser_unsupported' | 'application_storage_unavailable' | 'storage_may_be_evicted' | 'application_registration_unsupported' | 'application_registration_refused' | 'application_selection_not_approved' | 'application_selection_invalid' | 'installation_scope_removed' | 'recovery_account_mismatch' | 'assets' | 'setup_required' | 'incompatible' | 'approval_required' | 'contract_mismatch' | 'contract_missing' | 'implementation_missing' | 'catalog_invalid' | 'catalog_response' | 'type_invalid' | 'readiness_budget' | 'readiness_unsupported' | 'notifications_consent_required' | 'timer_channel_reapproval_required' | 'notifications_unsupported' | 'people_unsupported' | 'people_permission_declined' | 'people_access' | 'configuration_conflict' | 'configuration_unavailable' | 'configuration_unsupported' | 'configuration_busy_timeout' | 'readiness_busy_timeout' | 'setup_forbidden' | 'setup_conflict' | 'setup_unresolved' | 'collection_setup_conflict' | 'setup_records_forbidden' | 'setup_changed' | 'installed_newer' | 'type_pack_conflict' | 'invalid_type_pack' | 'access_required' | 'access_declined' | 'access_undeclared' | 'files_access_missing' | 'files_scope_missing' | 'file_read_failed' | 'file_read_idle' | 'collection_delete_name_mismatch' | 'collection_delete_not_owner' | 'collection_delete_not_found' | 'collection_delete_frozen' | 'collection_delete_busy' | 'collection_delete_not_approved' | 'collection_delete_sign_in' | 'collection_delete_invalid' | 'collection_delete_outcome_unknown' | 'collection_delete_failed' | 'wrong_secret' | 'locked' | 'weak_password' | 'already_set_up' | 'no_account_key' | 'invalid_recovery_key' | 'unlock_strict' | 'unlock_unavailable' | 'unlock_failed' | 'private_device_limit' | 'private_device_not_allowed' | 'unknown', import("src/describe-error").MdbaseProblemMessages>>> | undefined
   readonly unsynced?: MdbaseApplicationConnection | undefined
 
 ApplicationFixtureSnapshot@testing/application.ts
@@ -4849,10 +4851,12 @@ MemoryBaseView@testing/memory-replica.ts
   types: string[]
 
 MemoryContract@testing/memory-contracts.ts
+  binding?: Record<string, PlainValue> | undefined
   contractDigest?: string | undefined
   fields: Record<string, string>
   id: string
   implementationDigest?: string | undefined
+  path?: string | undefined
   type: string
   version: string
 
@@ -4869,19 +4873,22 @@ MemoryRecord@testing/memory-replica.ts
 
 MemoryReplica@testing/memory-replica.ts
   readonly allRecords: MemoryRecord[]
+  client: (o?: Partial<Omit<ClientOptions, 'connector'>>) => Promise<MdbaseClient>
   readonly collection: string
   confirmAll: () => void
   conflict: (ref: string, o: { field: string; kept: PlainValue; lost: PlainValue; }) => w.ConflictEntry
   connector: () => Connector
   deleteElsewhere: (ref: string) => void
   dropConnections: () => void
-  editElsewhere: (ref: string, change: { body?: string; frontmatter?: Record<string, CborValue | null>; }) => void
+  editElsewhere: (ref: string, change: { body?: string; frontmatter?: Record<string, PlainValue>; }) => void
+  failNextRead: (method: MemoryReplicaRead, p?: w.Problem) => void
   failNextWrite: (p?: w.Problem) => void
   hold: (ref: string, o?: { reason?: w.HoldReason; mine?: string; theirs?: string; }) => w.Uuid
   loseNextResponse: () => void
+  pauseReads: (method: MemoryReplicaRead) => () => void
   reject: (mutation: w.Uuid, p?: w.Problem) => void
   renameElsewhere: (ref: string, to: string) => void
-  seed: (r: { id?: w.Uuid; path: string; types?: string[]; frontmatter?: Record<string, CborValue>; body?: string; }) => MemoryRecord
+  seed: (r: { id?: w.Uuid; path: string; types?: string[]; frontmatter?: Record<string, PlainValue>; body?: string; }) => MemoryRecord
   seedBaseView: (view: MemoryBaseView) => { record: w.Uuid; sourceRevision: string; ordinal: number; }
   seedResource: (path: string, text: string) => void
   seedType: (name: string, definition?: Record<string, PlainValue>) => string
@@ -4899,11 +4906,15 @@ MemoryReplicaOptions@testing/memory-replica.ts
   features?: string[] | undefined
   fileFolders?: string[] | undefined
   grant?: string | undefined
+  parse?: ((document: string) => { frontmatter: Record<string, PlainValue>; body: string; }) | undefined
   refuse?: w.Problem | undefined
   role?: 'owner' | 'editor' | 'viewer' | undefined
   runtimeVersion?: string | undefined
   typing?: ((types: string[], path: string) => w.TemporalHint) | undefined
   where?: ((expr: string, record: MemoryRecord) => boolean) | undefined
+
+MemoryReplicaRead@testing/memory-replica.ts
+  = 'backlinks' | 'get' | 'list_resources' | 'receipt' | 'query' | 'describe' | 'changes' | 'get_resource' | 'get_file' | 'list_files' | 'await' | 'list_holds' | 'list_conflicts' | 'get_contract_v1' | 'query_contract_v1'
 
 MessageCarrier@transport/noise-session.ts
   close: () => void
@@ -5782,7 +5793,7 @@ TestAppCollection@testing/test-app.ts
   readonly contracts?: MemoryContract[] | undefined
   readonly id?: string | undefined
   readonly name?: string | undefined
-  readonly records?: readonly { readonly path: string; readonly types?: string[]; readonly frontmatter?: Record<string, CborValue>; readonly body?: string; }[] | undefined
+  readonly records?: readonly { readonly path: string; readonly types?: string[]; readonly frontmatter?: Record<string, PlainValue>; readonly body?: string; }[] | undefined
   readonly role?: 'owner' | 'editor' | 'viewer' | undefined
 
 TestAppFault@testing/test-app.ts
@@ -5791,6 +5802,7 @@ TestAppFault@testing/test-app.ts
 TestAppOptions@testing/test-app.ts
   readonly collections?: readonly TestAppCollection[] | undefined
   readonly declaration?: MdbaseApplicationDeclaration | undefined
+  readonly messages?: Readonly<Partial<Record<'refused' | 'not_found' | 'conflict' | 'device_offline' | 'desktop_update_required' | 'old_connector_running' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'read_only' | 'capability_missing' | 'collection_deleted' | 'collection_unavailable' | 'moved_to_next_runtime' | 'device_approval_required' | 'collection_migrating' | 'collection_not_yet_migrated' | 'account_suspended' | 'update_required' | 'account_collection_quota_exceeded' | 'invalid_request' | 'invalid_record' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'unavailable' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'expired' | 'approval_window_closed' | 'account_confirmation_required' | 'recovery_required' | 'open_failed' | 'busy' | 'open_in_another_tab' | 'not_authorized' | 'sign_out_pending_writes' | 'sign_out_failed' | 'application_popup_blocked' | 'sign_in_window' | 'application_not_yet_available' | 'application_failed' | 'application_worker_unavailable' | 'browser_unsupported' | 'application_storage_unavailable' | 'storage_may_be_evicted' | 'application_registration_unsupported' | 'application_registration_refused' | 'application_selection_not_approved' | 'application_selection_invalid' | 'installation_scope_removed' | 'recovery_account_mismatch' | 'assets' | 'setup_required' | 'incompatible' | 'approval_required' | 'contract_mismatch' | 'contract_missing' | 'implementation_missing' | 'catalog_invalid' | 'catalog_response' | 'type_invalid' | 'readiness_budget' | 'readiness_unsupported' | 'notifications_consent_required' | 'timer_channel_reapproval_required' | 'notifications_unsupported' | 'people_unsupported' | 'people_permission_declined' | 'people_access' | 'configuration_conflict' | 'configuration_unavailable' | 'configuration_unsupported' | 'configuration_busy_timeout' | 'readiness_busy_timeout' | 'setup_forbidden' | 'setup_conflict' | 'setup_unresolved' | 'collection_setup_conflict' | 'setup_records_forbidden' | 'setup_changed' | 'installed_newer' | 'type_pack_conflict' | 'invalid_type_pack' | 'access_required' | 'access_declined' | 'access_undeclared' | 'files_access_missing' | 'files_scope_missing' | 'file_read_failed' | 'file_read_idle' | 'collection_delete_name_mismatch' | 'collection_delete_not_owner' | 'collection_delete_not_found' | 'collection_delete_frozen' | 'collection_delete_busy' | 'collection_delete_not_approved' | 'collection_delete_sign_in' | 'collection_delete_invalid' | 'collection_delete_outcome_unknown' | 'collection_delete_failed' | 'wrong_secret' | 'locked' | 'weak_password' | 'already_set_up' | 'no_account_key' | 'invalid_recovery_key' | 'unlock_strict' | 'unlock_unavailable' | 'unlock_failed' | 'private_device_limit' | 'private_device_not_allowed' | 'unknown', import("src/describe-error").MdbaseProblemMessages>>> | undefined
   readonly people?: readonly { readonly name: string; readonly role?: AppInstallationCollection['role']; }[] | undefined
   readonly phase?: TestAppPreset | undefined
 
