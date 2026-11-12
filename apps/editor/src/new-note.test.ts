@@ -54,6 +54,30 @@ describe("where a new note starts", () => {
     const review: CollectionTypeDescriptor = { name: "review", extensions: {}, definition: { match: { path_glob: "Meetings/Reviews/*.md" } }, schema: {} };
     expect(newNoteContext({ kind: "folder", value: "Meetings/Reviews" }, [...types, review]).type).toBe("review");
   });
+
+  it("uses the type a tag alone puts a note under", () => {
+    const tagged = (match: CollectionTypeDescriptor["definition"]): CollectionTypeDescriptor => ({ name: "task", extensions: {}, definition: { match }, schema: {} });
+    const task = tagged({ where: { tags: { contains: "task" } } });
+    expect(newNoteContext({ kind: "tag", value: "task" }, [...types, task])).toEqual({ tag: "task", type: "task" });
+    expect(newNoteContext({ kind: "tag", value: "idea" }, [...types, task])).toEqual({ tag: "idea" });
+    // A match that asks for more than the tag is not decided by the tag.
+    expect(newNoteContext({ kind: "tag", value: "task" }, [tagged({ path_glob: "Tasks/*.md", where: { tags: { contains: "task" } } })])).toEqual({ tag: "task" });
+    expect(newNoteContext({ kind: "tag", value: "task" }, [tagged({ where: { tags: { contains: "task" }, status: "open" } })])).toEqual({ tag: "task" });
+    expect(newNoteContext({ kind: "tag", value: "task" }, [tagged({ where: { tags: { contains: "task", exists: true } } })])).toEqual({ tag: "task" });
+    expect(newNoteContext({ kind: "tag", value: "task" }, [tagged({ where: { tags: "task" } })])).toEqual({ tag: "task" });
+  });
+
+  it("starts a note from a claimed tag with the type's required fields and the tag", () => {
+    const task: CollectionTypeDescriptor = {
+      name: "task",
+      extensions: {},
+      definition: { match: { where: { tags: { contains: "task" } } } },
+      schema: { type: "object", required: ["status", "due"], properties: { status: { type: "string", default: "open" }, due: { type: "string", format: "date" } } }
+    };
+    const note = beginNewNote(newNoteContext({ kind: "tag", value: "task" }, [task]), [task]);
+    expect(note).toMatchObject({ type: "task", properties: { status: "open", tags: ["task"], due: "" } });
+    expect(newNoteBlocker({ ...note, title: "Call the plumber" }, newNoteForm("task", [task]))).toBe("Fill in the required properties.");
+  });
 });
 
 describe("a new note", () => {
