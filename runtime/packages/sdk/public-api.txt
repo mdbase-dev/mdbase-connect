@@ -206,6 +206,7 @@ MdbaseSetupResult -> MdbaseSetupResult@application/front-door.ts
 MdbaseSignInOpener -> MdbaseSignInOpener@application/entry.ts
 MdbaseSignOutOptions -> MdbaseSignOutOptions@application/entry.ts
 MdbaseSnapshot -> MdbaseSnapshot@application/front-door.ts
+MdbaseSync -> MdbaseSync@status.ts
 MdbaseTransferItem -> MdbaseTransferItem@application/unsynced-transfer.ts
 MdbaseTransferMap -> MdbaseTransferMap@application/unsynced-transfer.ts
 MdbaseTransferOptions -> MdbaseTransferOptions@application/entry.ts
@@ -314,13 +315,14 @@ showMdbaseNotification -> showMdbaseNotification@notifications.ts
 SLOW_OPENING_MS -> SLOW_OPENING_MS@application/phase.ts
 StaticKey -> StaticKey@transport/noise.ts
 staticKeyOf -> staticKeyOf@transport/noise.ts
-StatusKind -> StatusKind@status.ts
-StatusSummary -> StatusSummary@status.ts
 StoredKey -> StoredKey@keys.ts
 streamCarrier -> streamCarrier@transport/noise-session.ts
 structMap -> structMap@cbor.ts
 SubmitParams -> SubmitParams@wire.ts
-summarizeStatus -> summarizeStatus@status.ts
+summarizeSync -> summarizeSync@status.ts
+SyncAttention -> SyncAttention@status.ts
+SyncInput -> SyncInput@status.ts
+SyncState -> SyncState@status.ts
 SyncStatus -> SyncStatus@wire.ts
 syncStatusText -> syncStatusText@holds.ts
 TEMPORAL_HINTS -> TEMPORAL_HINTS@wire.ts
@@ -504,6 +506,7 @@ MdbaseClient -> MdbaseClient@client.ts
 mdbaseError -> mdbaseError@errors.ts
 MdbaseError -> MdbaseError@errors.ts
 MdbaseErrorContext -> MdbaseErrorContext@errors.ts
+MdbaseSync -> MdbaseSync@status.ts
 memoryKeyStorage -> memoryKeyStorage@keys.ts
 memoryWriteLedgerStore -> memoryWriteLedgerStore@write-ledger.ts
 MessageCarrier -> MessageCarrier@transport/noise-session.ts
@@ -580,13 +583,14 @@ Session -> Session@session.ts
 SESSION_LIFETIME_MS -> SESSION_LIFETIME_MS@transport/noise-session.ts
 StaticKey -> StaticKey@transport/noise.ts
 staticKeyOf -> staticKeyOf@transport/noise.ts
-StatusKind -> StatusKind@status.ts
-StatusSummary -> StatusSummary@status.ts
 StoredKey -> StoredKey@keys.ts
 streamCarrier -> streamCarrier@transport/noise-session.ts
 structMap -> structMap@cbor.ts
 SubmitParams -> SubmitParams@wire.ts
-summarizeStatus -> summarizeStatus@status.ts
+summarizeSync -> summarizeSync@status.ts
+SyncAttention -> SyncAttention@status.ts
+SyncInput -> SyncInput@status.ts
+SyncState -> SyncState@status.ts
 SyncStatus -> SyncStatus@wire.ts
 TEMPORAL_HINTS -> TEMPORAL_HINTS@wire.ts
 TemporalHint -> TemporalHint@wire.ts
@@ -842,6 +846,7 @@ MdbaseSetupResult -> MdbaseSetupResult@application/front-door.ts
 MdbaseSignInOpener -> MdbaseSignInOpener@application/entry.ts
 MdbaseSignOutOptions -> MdbaseSignOutOptions@application/entry.ts
 MdbaseSnapshot -> MdbaseSnapshot@application/front-door.ts
+MdbaseSync -> MdbaseSync@status.ts
 MdbaseTransferItem -> MdbaseTransferItem@application/unsynced-transfer.ts
 MdbaseTransferMap -> MdbaseTransferMap@application/unsynced-transfer.ts
 MdbaseTransferOptions -> MdbaseTransferOptions@application/entry.ts
@@ -950,13 +955,14 @@ showMdbaseNotification -> showMdbaseNotification@notifications.ts
 SLOW_OPENING_MS -> SLOW_OPENING_MS@application/phase.ts
 StaticKey -> StaticKey@transport/noise.ts
 staticKeyOf -> staticKeyOf@transport/noise.ts
-StatusKind -> StatusKind@status.ts
-StatusSummary -> StatusSummary@status.ts
 StoredKey -> StoredKey@keys.ts
 streamCarrier -> streamCarrier@transport/noise-session.ts
 structMap -> structMap@cbor.ts
 SubmitParams -> SubmitParams@wire.ts
-summarizeStatus -> summarizeStatus@status.ts
+summarizeSync -> summarizeSync@status.ts
+SyncAttention -> SyncAttention@status.ts
+SyncInput -> SyncInput@status.ts
+SyncState -> SyncState@status.ts
 SyncStatus -> SyncStatus@wire.ts
 syncStatusText -> syncStatusText@holds.ts
 TEMPORAL_HINTS -> TEMPORAL_HINTS@wire.ts
@@ -2587,7 +2593,7 @@ AppIndexedDbNoiseProtectedStore@app-host/noise-idb.ts
   static open: (options: AppIndexedDbNoiseOptions) => Promise<AppIndexedDbNoiseProtectedStore>
 
 AppInitialSyncWait@app-host/initial-sync.ts
-  = 'unavailable' | 'waiting_for_key' | 'offline' | 'installing' | 'first_turn' | 'resyncing' | 'head_unknown' | 'behind'
+  = 'unavailable' | 'waiting_for_key' | 'offline' | 'first_turn' | 'installing' | 'resyncing' | 'head_unknown' | 'behind'
 
 AppInstallationCollection@app-host/installation-sign-in.ts
   readonly availability?: CollectionAvailability | undefined
@@ -4467,13 +4473,12 @@ MdbaseApplicationSnapshot@application/entry.ts
   readonly signOutResult?: AppWebSignOutResult | null | undefined
   readonly status: 'starting' | 'closed' | 'opening' | 'setup_required' | 'ready' | 'signed_out' | 'authorizing' | 'needs_unlock' | 'blocked' | 'not_started' | 'unselected'
   readonly storage?: AppStoragePolicy | null | undefined
-  readonly sync?: StatusSummary | null | undefined
+  readonly sync?: MdbaseSync | null | undefined
   readonly timing: Readonly<{ firstScreenMs: number | null; readyMs: number | null; }> | null
   readonly transport?: AppLogHealth | null | undefined
   readonly unlock?: Readonly<{ mode: 'password' | 'strict' | 'none'; unlocking: boolean; problem: string | null; }> | null | undefined
   readonly unsynced?: Readonly<{ collectionId: string; sessionStatus: AppWebSignInSnapshot['status']; }> | null | undefined
   readonly unsyncedWork?: Readonly<{ since: number; }> | null | undefined
-  readonly writes?: WriteLedgerSnapshot | null | undefined
 
 MdbaseApplicationUnavailableError@application/entry.ts
   cause?: unknown
@@ -4817,13 +4822,25 @@ MdbaseSnapshot@application/front-door.ts
   readonly signOutResult?: AppWebSignOutResult | null | undefined
   readonly status: 'starting' | 'closed' | 'opening' | 'setup_required' | 'ready' | 'signed_out' | 'authorizing' | 'needs_unlock' | 'blocked' | 'not_started' | 'unselected'
   readonly storage?: AppStoragePolicy | null | undefined
-  readonly sync: StatusSummary | null
+  readonly sync: MdbaseSync | null
   readonly timing: Readonly<{ firstScreenMs: number | null; readyMs: number | null; }> | null
   readonly transport?: AppLogHealth | null | undefined
   readonly unlock?: Readonly<{ mode: 'password' | 'strict' | 'none'; unlocking: boolean; problem: string | null; }> | null | undefined
   readonly unsynced?: Readonly<{ collectionId: string; sessionStatus: AppWebSignInSnapshot['status']; }> | null | undefined
   readonly unsyncedWork?: Readonly<{ since: number; }> | null | undefined
-  readonly writes?: WriteLedgerSnapshot | null | undefined
+
+MdbaseSync@status.ts
+  readonly attention: readonly SyncAttention[]
+  readonly conflicts: number
+  readonly connection: 'reconnecting' | 'local' | 'offline' | 'online'
+  readonly health: TransportHealthKind | null
+  readonly holds: number
+  readonly incidents: readonly Incident[]
+  readonly live: boolean | null
+  readonly pending: number
+  readonly pendingFor: 'moment' | 'while' | 'long' | null
+  readonly state: SyncState
+  readonly writes: WriteLedgerSnapshot | null
 
 MdbaseTransferItem@application/unsynced-transfer.ts
   readonly copyId?: string | undefined
@@ -5425,7 +5442,7 @@ RecordSessionSnapshot@records/types.ts
   readonly state: RecordSessionState
 
 RecordSessionState@records/types.ts
-  = 'deleted' | 'conflict' | 'recovery' | 'error' | 'saved' | 'saved_on_device' | 'unsaved' | 'saving'
+  = 'deleted' | 'conflict' | 'recovery' | 'error' | 'saved_on_device' | 'saving' | 'saved' | 'unsaved'
 
 RecordState@wire.ts
   confirmedSeq: number
@@ -5563,7 +5580,7 @@ SaveResult@client.ts
   readonly records: readonly RecordView[]
 
 SaveState@write-ledger.ts
-  = 'rejected' | 'saved' | 'saved_on_device' | 'saving'
+  = 'rejected' | 'saved_on_device' | 'saving' | 'saved'
 
 SchemaError@codec.ts
   cause?: unknown
@@ -5677,19 +5694,6 @@ StaticKey@transport/noise.ts
   dh: (remotePublic: Uint8Array) => Uint8Array | Promise<Uint8Array>
   publicKey: Uint8Array<ArrayBufferLike>
 
-StatusKind@status.ts
-  = 'collection_migrating' | 'collection_not_yet_migrated' | 'account_suspended' | 'update_required' | 'local' | 'offline' | 'synced' | 'catching_up' | 'installing'
-
-StatusSummary@status.ts
-  confirmedThrough: number | null
-  conflicts: number
-  health: TransportHealthKind | null
-  holds: number
-  kind: StatusKind
-  live: boolean | null
-  pending: number
-  text: string
-
 Stmt@app-storage/sqlite-index.ts
   readonly params: readonly SqlValue[]
   readonly sql: string
@@ -5751,8 +5755,25 @@ SubmitParams@wire.ts
   validation?: ValidationLevel | undefined
   wait?: 'pending' | 'confirmed' | 'published' | undefined
 
+SyncAttention@status.ts
+  = 'collection_migrating' | 'collection_not_yet_migrated' | 'account_suspended' | 'update_required' | 'storage_may_be_evicted' | 'rejected' | 'conflicts' | 'held' | 'incident'
+
+SyncInput@status.ts
+  readonly link?: 'closed' | 'open' | 'reconnecting' | undefined
+  readonly live?: boolean | null | undefined
+  readonly online?: boolean | undefined
+  readonly pendingForMs?: number | undefined
+  readonly problem?: string | null | undefined
+  readonly status: SyncStatus
+  readonly storageWarning?: boolean | undefined
+  readonly transport?: TransportHealth | null | undefined
+  readonly writes?: WriteLedgerSnapshot | null | undefined
+
 SyncMode@wire.ts
   = 'local_only' | 'synced'
+
+SyncState@status.ts
+  = 'reconnecting' | 'offline' | 'attention' | 'saved_on_device' | 'saving' | 'catching_up' | 'saved'
 
 SyncStatus@wire.ts
   confirmedHead?: ConfirmedHead | undefined
@@ -6629,8 +6650,8 @@ streamCarrier@transport/noise-session.ts
 structMap@cbor.ts
   : (entries: [number, CborValue | undefined][]) => Map<number, CborValue>
 
-summarizeStatus@status.ts
-  : (s: SyncStatus, problem?: string | null, transport?: TransportHealth | null, live?: boolean | null) => StatusSummary
+summarizeSync@status.ts
+  : (input: SyncInput) => MdbaseSync
 
 syncStatusText@holds.ts
   : (s: SyncStatus) => string

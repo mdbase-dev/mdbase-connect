@@ -142,8 +142,8 @@ export { indexedDbKeyStorage, loadOrCreateClientKey, memoryKeyStorage } from "./
 export type { ClientKey, KeyStorage, LoadKeyOptions, StoredKey } from "./keys.js";
 export { ACCOUNT_KEY_STATES, DEVICE_KINDS, formatSas, approvalReadiness } from "./private.js";
 export type { AccountKeyState, AccountKeyStatus, DeviceKind, PendingDevice, ApprovalReadiness, RecoveryKeyStatus } from "./private.js";
-export { isConfirmed, summarizeStatus } from "./status.js";
-export type { StatusKind, StatusSummary, TransportHealth, TransportHealthKind } from "./status.js";
+export { isConfirmed, summarizeSync } from "./status.js";
+export type { MdbaseSync, SyncAttention, SyncInput, SyncState, TransportHealth, TransportHealthKind } from "./status.js";
 export { memoryWriteLedgerStore } from "./write-ledger.js";
 export type { SaveState, WriteLedgerEntry, WriteLedgerSnapshot, WriteLedgerStore, WriteLedgerView } from "./write-ledger.js";
 export { pipeCloseError, relayPipeCarrier } from "./transport/relay-pipe.js";
