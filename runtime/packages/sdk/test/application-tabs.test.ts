@@ -1,23 +1,7 @@
 import {afterEach,describe,expect,it,vi} from "vitest";
 import {ApplicationTabs,type ApplicationTabLocks} from "../src/application/tabs.js";
+import {webLocks} from "./support/web-locks.js";
 
-/** Exclusive Web Locks with ifAvailable, waiting and abort; one realm stands in for the browser. */
-function webLocks():ApplicationTabLocks{
-  const held=new Set<string>(),queues=new Map<string,Array<()=>void>>();
-  const next=(name:string)=>{const run=queues.get(name)?.shift();if(run)run();};
-  const grant=(name:string,callback:(lock:unknown)=>Promise<void>|void)=>{held.add(name);
-    return Promise.resolve().then(()=>callback({name})).finally(()=>{held.delete(name);next(name);});};
-  return {request(name:string,options:{ifAvailable?:true;signal?:AbortSignal},callback:(lock:unknown)=>Promise<void>|void){
-    if(options.ifAvailable)return held.has(name)||queues.get(name)?.length?Promise.resolve(callback(null)):grant(name,callback);
-    if(!held.has(name))return grant(name,callback);
-    return new Promise((resolve,reject)=>{
-      const queue=queues.get(name)??[];queues.set(name,queue);
-      const run=()=>{options.signal?.removeEventListener("abort",abort);grant(name,callback).then(resolve,reject);};
-      const abort=()=>{queue.splice(queue.indexOf(run),1);reject(options.signal!.reason);};
-      queue.push(run);options.signal?.addEventListener("abort",abort,{once:true});
-    });
-  }} as ApplicationTabLocks;
-}
 const scope={cpOrigin:"https://cp.test",appId:"55555555-5555-4555-8555-555555555555",build:`https://app.test/sdk-${Math.random()}.js`};
 const live:ApplicationTabs[]=[];
 afterEach(()=>{for(const tabs of live.splice(0))tabs.release();});
@@ -137,5 +121,84 @@ describe("one session per app per browser",()=>{
     await vi.waitFor(()=>expect(back).toHaveBeenCalledOnce());
     await new Promise(resolve=>setTimeout(resolve,10));
     expect(back).toHaveBeenCalledOnce();
+  });
+});
+
+describe("a context that never runs the Worker",()=>{
+  const settled=()=>new Promise(resolve=>setTimeout(resolve,20));
+  it("waits while no context leads, joins the one that starts, and leaves the lock to the next leader when that one goes",async()=>{
+    const env={locks:webLocks(),BroadcastChannel},lost=vi.fn();
+    const joiner=new ApplicationTabs(scope,env,lost,vi.fn(),{lead:false});live.push(joiner);
+    let role:Awaited<ReturnType<ApplicationTabs["elect"]>>|null=null;
+    const joining=joiner.elect(new AbortController().signal).then(value=>{role=value;});
+    await settled();expect(role).toBeNull();expect(joiner.leader).toBe(false);
+    const host=new ApplicationTabs(scope,env,vi.fn());live.push(host);
+    expect((await host.elect(new AbortController().signal)).kind).toBe("leader");
+    const attach=vi.fn();host.lead({attach,detach:vi.fn()});
+    await joining;
+    expect(role).toMatchObject({kind:"follower"});expect(attach).toHaveBeenCalledOnce();
+    // The leader goes without a goodbye: the joiner hears it by the lock and does not keep it.
+    host.release();
+    await vi.waitFor(()=>expect(lost).toHaveBeenCalledWith(false));
+    expect(joiner.leader).toBe(false);
+    const next=new ApplicationTabs(scope,env,vi.fn());live.push(next);
+    expect((await next.elect(new AbortController().signal)).kind).toBe("leader");
+  });
+  it("stopping the wait rejects it and leaves nothing behind",async()=>{
+    const env={locks:webLocks(),BroadcastChannel},stop=new AbortController();
+    const joiner=new ApplicationTabs(scope,env,vi.fn(),vi.fn(),{lead:false});live.push(joiner);
+    const joining=joiner.elect(stop.signal);
+    await settled();stop.abort();
+    await expect(joining).rejects.toMatchObject({name:"AbortError"});
+    const host=new ApplicationTabs(scope,env,vi.fn());live.push(host);
+    const attach=vi.fn();
+    expect((await host.elect(new AbortController().signal)).kind).toBe("leader");host.lead({attach,detach:vi.fn()});
+    await settled();expect(attach).not.toHaveBeenCalled();
+  });
+  /** A context that led and stopped (signed out): idle, with its channel still open. */
+  async function idleContext(env:{locks:ApplicationTabLocks;BroadcastChannel:typeof BroadcastChannel},wanted:()=>void){
+    const idle=new ApplicationTabs(scope,env,vi.fn(),vi.fn(),{wanted});live.push(idle);
+    expect((await idle.elect(new AbortController().signal)).kind).toBe("leader");
+    idle.lead({attach:vi.fn(),detach:vi.fn()});idle.resign();
+    return idle;
+  }
+  it("wakes an idle context that can lead when nobody leads, and then joins it",async()=>{
+    const env={locks:webLocks(),BroadcastChannel},wanted=vi.fn();
+    const idle=await idleContext(env,wanted);
+    const joiner=new ApplicationTabs(scope,env,vi.fn(),vi.fn(),{lead:false});live.push(joiner);
+    const joining=joiner.elect(new AbortController().signal);
+    await vi.waitFor(()=>expect(wanted).toHaveBeenCalledOnce());
+    expect((await idle.elect(new AbortController().signal)).kind).toBe("leader");
+    idle.lead({attach:vi.fn(),detach:vi.fn()});
+    expect((await joining).kind).toBe("follower");
+  });
+  it("leaves an idle context alone while another one leads or is starting to",async()=>{
+    const env={locks:webLocks(),BroadcastChannel},wanted=vi.fn();
+    await idleContext(env,wanted);
+    // Holds the lock, not ready yet: the join goes unanswered, and nobody else starts.
+    const host=new ApplicationTabs(scope,env,vi.fn());live.push(host);
+    expect((await host.elect(new AbortController().signal)).kind).toBe("leader");
+    const joiner=new ApplicationTabs(scope,env,vi.fn(),vi.fn(),{lead:false});live.push(joiner);
+    const joining=joiner.elect(new AbortController().signal);
+    await settled();expect(wanted).not.toHaveBeenCalled();
+    host.lead({attach:vi.fn(),detach:vi.fn()});
+    expect((await joining).kind).toBe("follower");
+    // Ready: a second joiner is served by the leader alone.
+    const second=new ApplicationTabs(scope,env,vi.fn(),vi.fn(),{lead:false});live.push(second);
+    expect((await second.elect(new AbortController().signal)).kind).toBe("follower");
+    await settled();expect(wanted).not.toHaveBeenCalled();
+  });
+  it("an ordinary tab's join never wakes an idle context",async()=>{
+    const env={locks:webLocks(),BroadcastChannel},wanted=vi.fn();
+    await idleContext(env,wanted);
+    const starting=new ApplicationTabs(scope,env,vi.fn());live.push(starting);
+    expect((await starting.elect(new AbortController().signal)).kind).toBe("leader");
+    // The tab asks to join a leader that is not ready; it could lead itself, so nobody is woken.
+    const tab=new ApplicationTabs(scope,env,vi.fn());live.push(tab);
+    const joining=tab.elect(new AbortController().signal);
+    await settled();expect(wanted).not.toHaveBeenCalled();
+    starting.lead({attach:vi.fn(),detach:vi.fn()});
+    expect((await joining).kind).toBe("follower");
+    expect(wanted).not.toHaveBeenCalled();
   });
 });

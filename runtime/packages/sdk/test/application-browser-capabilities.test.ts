@@ -26,6 +26,11 @@ describe("browser capability probe",()=>{
     await expect(probeBrowserCapabilities(env)).resolves.toMatchObject({ok:false,problem:"application_storage_unavailable",missing:["opfs"]});
     await expect(probeBrowserCapabilities({...capable,getDirectory:undefined})).resolves.toMatchObject({ok:false,problem:"application_storage_unavailable"});
   });
+  it("does not ask for Worker support of a context that joins another context's Worker",async()=>{
+    const env={...capable,worker:false};
+    await expect(probeBrowserCapabilities(env,false)).resolves.toEqual({ok:true});
+    await expect(probeBrowserCapabilities(env)).resolves.toMatchObject({ok:false,missing:["worker"]});
+  });
   it("does not touch storage when a core feature is already missing",async()=>{
     let asked=false;const env={...capable,worker:false,getDirectory:async()=>{asked=true;return{};}};
     await probeBrowserCapabilities(env);expect(asked).toBe(false);

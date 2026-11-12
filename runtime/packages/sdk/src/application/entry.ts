@@ -182,6 +182,15 @@ export interface MdbaseConnectOptions {
    * returns no Worker fails with `application_worker_unavailable`. Default:
    * `new Worker(url, {type: "module"})`. */
   readonly worker?:(url:string)=>Worker;
+  /** One session for contexts of this app that are built separately, such as
+   * a browser extension's pages, offscreen document and service worker. By
+   * default only contexts loading the same SDK module file share a session.
+   * `build` names this build of the app instead: every context of the origin
+   * that passes the same `build` and the same declaration uses one sign-in and
+   * one Worker. `host: false` is for a context that cannot run that Worker (a
+   * service worker) or should leave it to another: it joins the context that
+   * runs it and waits while there is none. Default: `host: true`. */
+  readonly session?:{readonly build:string;readonly host?:boolean};
 }
 export interface MdbaseApplicationConnection {
   readonly id:string;
@@ -317,7 +326,13 @@ function unavailableApplication():MdbaseApplication{
  * `Worker`), so it is checked by shape rather than `instanceof`. */
 const isWorker=(value:unknown):value is Worker=>typeof value==="object"&&value!==null&&
   ["postMessage","terminate","addEventListener","removeEventListener"].every(name=>typeof (value as Record<string,unknown>)[name]==="function");
-const browserHost=(origin:string)=>typeof Worker==="function"&&typeof MessageChannel==="function"&&currentAppOrigin()!==null&&isAppOrigin(origin);
+const browserHost=(origin:string,runsWorker:boolean)=>(!runsWorker||typeof Worker==="function")&&typeof MessageChannel==="function"&&currentAppOrigin()!==null&&isAppOrigin(origin);
+function sessionOption(value:MdbaseConnectOptions["session"]):{readonly build:string|null;readonly host:boolean}{
+  if(value===undefined)return {build:null,host:true};
+  if(!value||typeof value!=="object"||typeof value.build!=="string"||!value.build||value.build.length>128||/[\u0000-\u001f\u007f]/.test(value.build))throw new TypeError("session.build must be a short non-empty string");
+  if(value.host!==undefined&&typeof value.host!=="boolean")throw new TypeError("session.host must be a boolean");
+  return {build:value.build,host:value.host!==false};
+}
 function signInOpener(value:MdbaseSignInOpener|undefined,declaration:ApplicationDeclarationSnapshot):MdbaseSignInOpener|null{
   if(value===undefined)return null;
   const fail=():never=>{throw mdbaseError("invalid_request","Invalid sign-in opener","application_sign_in_opener");};
@@ -387,6 +402,8 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
   private pendingSave:{readonly id:string;readonly since:number;timer:ReturnType<typeof setTimeout>|null}|null=null;
   private readonly signIn:MdbaseSignInOpener|null;private readonly typeIssues:"block"|"degrade";
   private readonly createWorker:((url:string)=>Worker)|null;
+  /** The `session` option: the app's own build name, and whether this context may run the Worker. */
+  private readonly session:{readonly build:string|null;readonly host:boolean};
   /** SDK-10: this tab's Private collections (page-side thin clients, never the Worker). */
   private readonly privates:ApplicationPrivateCollections|null=null;
   /** Open the unsynced collection when started signed out; tried once per start. */
@@ -402,9 +419,10 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
     this.typeIssues=typeIssues;this.unsyncedFirst=options.unsynced===true;
     if(options.urlSelection!==undefined&&typeof options.urlSelection!=="boolean")throw new TypeError("urlSelection must be a boolean");
     if(options.worker!==undefined&&typeof options.worker!=="function")throw new TypeError("worker must be a function");
-    this.createWorker=options.worker??null;
+    this.createWorker=options.worker??null;this.session=sessionOption(options.session);
+    if(!this.session.host&&this.createWorker)throw new TypeError("worker has no effect with session.host: false");
     this.signIn=signInOpener(options.signIn,this.declaration);
-    if(!browserHost(this.declaration.origin)){this.app=unavailableApplication();return;}
+    if(!browserHost(this.declaration.origin,this.session.host)){this.app=unavailableApplication();return;}
     try{const cp=this.environment().cpOrigin;this.cpOrigin=cp;this.hint=applicationSessionHint(this.declaration.storage.applicationNamespace,cp);this.forgotten=applicationForgotten(this.declaration.storage.applicationNamespace,cp);this.links=Object.freeze({account:`${cp}/account`,manageAccess:`${cp}/account/applications`});}catch{/* no links where the environment is unknown */}
     if(options.followVisibility!==false)this.followVisibility();
     this.followPageLifecycle();this.followFocus();this.followStoragePolicy();this.followNetwork();
@@ -703,7 +721,7 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
       const environment=this.environment(),packaged=packagedApplicationAssets(this.declaration.environment,this.declaration.origin);
       // A browser below the SDK's feature floor fails here, once, with a typed
       // problem — before any registration, Worker, key or storage allocation.
-      const capabilities=await this.timing.time("capabilities",()=>probeBrowserCapabilities());this.check();
+      const capabilities=await this.timing.time("capabilities",()=>probeBrowserCapabilities(undefined,this.session.host));this.check();
       if(!capabilities.ok)throw mdbaseError("unavailable","This browser can't run mdbase",{reason:capabilities.problem,details:{missing:capabilities.missing.join(",")}});
       // Registration resolves BEFORE any Worker, key, profile or DB allocation.
       // A first visit registers over the network. Work before connecting opens
@@ -734,9 +752,9 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
       };
       // One session per app per browser: lead (run the Worker) or join the leader.
       const tabs=this.tabsFor(signInScope),election=new AbortController();this.election?.abort();this.election=election;
-      const role=tabs?await this.timing.time("election",()=>tabs.elect(AbortSignal.any([this.lifetime.signal,election.signal]))):{kind:"leader" as const};
+      const role=await this.timing.time("election",()=>tabs.elect(AbortSignal.any([this.lifetime.signal,election.signal])));
       if(this.closed||this.hidden||incarnation!==this.incarnation||election.signal.aborted){
-        if(role.kind==="follower")role.leave();else tabs?.resign();
+        if(role.kind==="follower")role.leave();else tabs.resign();
         throw mdbaseError("cancelled","Application entry fenced","application_entry_fenced");
       }
       if(role.kind==="follower")return install(new ApplicationRuntime({declaration,compiledManifest:this.compiled,typeIssues:this.typeIssues,cpOrigin:environment.cpOrigin,port:role.port,binding:role.binding,releaseWorker:()=>role.leave(),nativeAuthorization:(call,portal,signal)=>this.nativeAuthorization(call,portal,signal)}));
@@ -748,15 +766,15 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
       try{
         if(!create)worker=new Worker(new URL("./worker.js",import.meta.url),{type:"module"});
         else{worker=create(hosted!);if(!isWorker(worker))throw new TypeError("not a Worker");}
-      }catch{tabs?.resign();channel.port1.close();channel.port2.close();throw mdbaseError("unavailable","Application Worker construction unavailable","application_worker_unavailable");}
-      const failed=(event:Event)=>{event.preventDefault();channel.port1.dispatchEvent(new MessageEvent("messageerror"));tabs?.fault();};worker.addEventListener("error",failed);
-      const runtime=new ApplicationRuntime({declaration,compiledManifest:this.compiled,typeIssues:this.typeIssues,cpOrigin:environment.cpOrigin,port:channel.port1,binding,releaseWorker:()=>{worker.removeEventListener("error",failed);worker.terminate();tabs?.resign();},nativeAuthorization:(call,portal,signal)=>this.nativeAuthorization(call,portal,signal)});
+      }catch{tabs.resign();channel.port1.close();channel.port2.close();throw mdbaseError("unavailable","Application Worker construction unavailable","application_worker_unavailable");}
+      const failed=(event:Event)=>{event.preventDefault();channel.port1.dispatchEvent(new MessageEvent("messageerror"));tabs.fault();};worker.addEventListener("error",failed);
+      const runtime=new ApplicationRuntime({declaration,compiledManifest:this.compiled,typeIssues:this.typeIssues,cpOrigin:environment.cpOrigin,port:channel.port1,binding,releaseWorker:()=>{worker.removeEventListener("error",failed);worker.terminate();tabs.resign();},nativeAuthorization:(call,portal,signal)=>this.nativeAuthorization(call,portal,signal)});
       try{worker.postMessage([APPLICATION_WORKER_PROTOCOL,binding,declaration,...(hosted!==null?[storageNamespace,hosted]:storageNamespace===null?[]:[storageNamespace])],[channel.port2]);}catch{
         // No startup request was accepted; the original bootstrap transfer failed.
-        worker.removeEventListener("error",failed);worker.terminate();tabs?.resign();channel.port1.close();channel.port2.close();throw mdbaseError("unavailable","Application bootstrap unavailable","application_worker_binding");
+        worker.removeEventListener("error",failed);worker.terminate();tabs.resign();channel.port1.close();channel.port2.close();throw mdbaseError("unavailable","Application bootstrap unavailable","application_worker_binding");
       }
       // Other tabs of this app attach to this Worker through this page.
-      tabs?.lead({attach:(port,id)=>worker.postMessage([APPLICATION_WORKER_PROTOCOL,binding,"attach",id],[port]),detach:id=>worker.postMessage([APPLICATION_WORKER_PROTOCOL,binding,"detach",id])});
+      tabs.lead({attach:(port,id)=>worker.postMessage([APPLICATION_WORKER_PROTOCOL,binding,"attach",id],[port]),detach:id=>worker.postMessage([APPLICATION_WORKER_PROTOCOL,binding,"detach",id])});
       return install(runtime);
     }).catch(error=>{
       // Nothing native was allocated (no runtime installed), so a later explicit
@@ -867,13 +885,14 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
     if(!result||this.signingOut||this.closed||this.runtime!==runtime)return;
     void this.signedOut(runtime,result);
   }
-  private tabsFor(scope:Readonly<{cpOrigin:string;appId:string;storageNamespace?:string}>):ApplicationTabs|null{
-    if(this.tabs)return this.tabs;
-    const locks=globalThis.navigator?.locks as ApplicationTabLocks|undefined,Channel=globalThis.BroadcastChannel;
-    if(!locks||typeof locks.request!=="function"||typeof Channel!=="function")return null;
-    // The SDK module URL is per build: tabs on different builds never share a Worker.
-    this.tabs=new ApplicationTabs({...scope,build:import.meta.url},{locks,BroadcastChannel:Channel},this.leaderLost,this.signedInElsewhere);
-    return this.tabs;
+  /** This context's tab group. The capability probe has already required Web
+   * Locks and BroadcastChannel. */
+  private tabsFor(scope:Readonly<{cpOrigin:string;appId:string;storageNamespace?:string}>):ApplicationTabs{
+    // The SDK module URL is per build: tabs on different builds never share a
+    // Worker. Contexts built separately share one under the app's own build name.
+    return this.tabs??=new ApplicationTabs({...scope,build:this.session.build===null?import.meta.url:`app-build/${this.session.build}`},
+      {locks:globalThis.navigator.locks as ApplicationTabLocks,BroadcastChannel:globalThis.BroadcastChannel},
+      this.leaderLost,this.signedInElsewhere,{lead:this.session.host,wanted:this.hostWanted});
   }
   /** The leader tab went away: start again, as the new leader or a follower of it.
    * If it went because the session signed out, this tab is signed out too: it
@@ -891,6 +910,13 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
     const {problemDetail:_stale,...previous}=this.snapshot;
     this.snapshot=Object.freeze({...previous,status:"starting",problem:null,selectedCollectionId:null,readiness:emptyReadiness});
     this.notify();
+    this.selection?.resync();
+    void this.app.start().catch(()=>{/* the snapshot reports the typed problem */});
+  };
+  /** A context that cannot run the Worker is waiting, and none runs it: start
+   * as this context would on load, unless it is already starting or running. */
+  private readonly hostWanted=():void=>{
+    if(this.closed||this.hidden||this.signingOut||this.runtime!==null||this.initialization!==null)return;
     this.selection?.resync();
     void this.app.start().catch(()=>{/* the snapshot reports the typed problem */});
   };

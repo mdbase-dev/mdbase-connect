@@ -701,6 +701,10 @@ extension popup) resumes it on the next `start()`. Run extension sign-in from a
 side panel or tab page where possible. Without `followVisibility`, call
 `application().setForeground(active)` from the shell's resume/pause events.
 
+An extension's pages, offscreen document and service worker are bundled
+separately. The `session` option puts them in one session with one Worker:
+see [`docs/sdk-shared-session.md`](../../../docs/sdk-shared-session.md).
+
 ### Running inside another app's document
 
 A host app that runs the SDK in a document without a URL of its own (a `blob:`

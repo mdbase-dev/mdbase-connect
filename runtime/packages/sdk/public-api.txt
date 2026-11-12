@@ -4677,6 +4677,7 @@ MdbaseConnectOptions@application/entry.ts
   readonly followVisibility?: boolean | undefined
   readonly privateCollections?: boolean | undefined
   readonly readiness?: { readonly typeIssues?: 'block' | 'degrade'; } | undefined
+  readonly session?: { readonly build: string; readonly host?: boolean; } | undefined
   readonly signIn?: MdbaseSignInOpener | undefined
   readonly unsynced?: boolean | undefined
   readonly urlSelection?: boolean | undefined
