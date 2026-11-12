@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { MessageChannel } from "node:worker_threads";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { connect } from "../src/index.js";
+import { connect } from "../src/thin-client.js";
 import { MemoryReplica } from "../src/testing/index.js";
 import { fromHex } from "../src/cbor.js";
 import { appLocalConnector, attachAppLocalFacade, type AppLocalScope } from "../src/app-host/local-facade.js";

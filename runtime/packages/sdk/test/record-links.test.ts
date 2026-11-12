@@ -5,13 +5,8 @@ import { readFileSync } from "node:fs";
 import { afterEach, expect, it, vi } from "vitest";
 import { decode, fromHex } from "../src/cbor.js";
 import { toPlain } from "../src/values.js";
-import {
-    connect,
-    resolveRecordLinks,
-    MdbaseError,
-    type MdbaseClient,
-    type QueryResult,
-} from "../src/index.js";
+import { resolveRecordLinks, MdbaseError, type MdbaseClient, type QueryResult } from "../src/index.js";
+import { connect } from "../src/thin-client.js";
 import { MemoryReplica } from "../src/testing/index.js";
 const clients: MdbaseClient[] = [];
 afterEach(() => {

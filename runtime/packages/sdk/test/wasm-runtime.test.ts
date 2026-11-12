@@ -5,7 +5,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { connect, Float64, inProcessConnector } from "../src/index.js";
+import { connect, Float64, inProcessConnector } from "../src/thin-client.js";
 import { WasmRuntime } from "../src/runtime/wasm.js";
 import { uuidv7 } from "../src/values.js";
 

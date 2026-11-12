@@ -16,8 +16,9 @@ The SDK implements transport, session and typed client-API boundaries.
 
 | Path | What |
 |---|---|
-| `src/index.ts` (`@mdbase-dev/sdk`) | The full entry: everything in the thin client, plus `createMdbase` (which validates the app's declaration), people, timers, notifications, holds, `describeError`, `WasmRuntime` and `inProcessConnector` |
-| `src/thin-client.ts` (`@mdbase-dev/sdk/thin-client`) | The thin client for consumers that bring their own connection (an Obsidian-plugin-style integration): codec, client, records, files, presence, Noise and relay transports, keys, status, availability. Held to 64 KiB gzip and never bundles manifest validation |
+| `src/index.ts` (`@mdbase-dev/sdk`) | The entry for an app: `createMdbase` (which validates the app's declaration), the collection API, people, timers, notifications, holds and `describeError` |
+| `src/collection-api.ts` | The collection API both entries export: client, records, files, presence, contracts, values, errors, status |
+| `src/thin-client.ts` (`@mdbase-dev/sdk/thin-client`) | For code that brings its own connection (a server, a CLI, an Obsidian-plugin-style integration): the collection API plus `connect`, the Noise, relay and in-process transports, keys, the session, the wire encoding, `WasmRuntime` and availability. Never bundles manifest validation |
 | `src/cbor.ts` | Strict `mdb-cbor/1` codec (00-overview §3.2): the TS twin of `crates/wire/src/cbor.rs` |
 | `src/codec.ts` | Typed struct/union/enum codecs, the TS twin of `crates/wire/src/schema.rs` |
 | `src/wire.ts` | Client API messages and operations, typed (mirrors `crates/wire/src/client.rs`, `intent.rs`) |
@@ -110,7 +111,7 @@ revision tokens, and enumerations are their snake_case names.
 ## Usage
 
 ```ts
-import { connect, relayConnector, loadOrCreateClientKey } from "@mdbase-dev/sdk";
+import { connect, relayConnector, loadOrCreateClientKey } from "@mdbase-dev/sdk/thin-client";
 
 const key = await loadOrCreateClientKey("my-app");          // register key.publicKey with the grant
 const db = await connect({

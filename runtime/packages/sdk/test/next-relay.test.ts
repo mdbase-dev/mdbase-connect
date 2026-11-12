@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 import { fromHex, toHex, type CborValue } from "../src/cbor.js";
 import { clientFrame } from "../src/wire.js";
 import { uuidToBytes } from "../src/codec.js";
-import { connect, MdbaseClient } from "../src/index.js";
+import { MdbaseClient } from "../src/index.js";
+import { connect } from "../src/thin-client.js";
 import { clientPrologue, generateKeyPair } from "../src/transport/noise.js";
 import type { MessageCarrier } from "../src/transport/noise-session.js";
 import {

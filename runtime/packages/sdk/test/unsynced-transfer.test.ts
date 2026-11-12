@@ -1,5 +1,6 @@
 import {describe,expect,it} from "vitest";
-import {connect,isMdbaseError,type MdbaseClient} from "../src/index.js";
+import { isMdbaseError, type MdbaseClient } from "../src/index.js";
+import { connect } from "../src/thin-client.js";
 import {MemoryReplica} from "../src/testing/index.js";
 import {planUnsyncedTransfer,runUnsyncedTransfer,unsyncedTransferComplete} from "../src/application/unsynced-transfer.js";
 

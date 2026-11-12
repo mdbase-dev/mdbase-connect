@@ -1,7 +1,8 @@
 // settle(): one answer for every way a write can end, over MemoryReplica and,
 // for receipts the test replica does not produce, over a stub client.
 import { afterEach, describe, expect, it } from "vitest";
-import { connect, mdbaseError, uuidv7, Write, type MdbaseClient, type Receipt, type RecordView } from "../src/index.js";
+import { mdbaseError, uuidv7, Write, type MdbaseClient, type Receipt, type RecordView } from "../src/index.js";
+import { connect } from "../src/thin-client.js";
 import { settleWrite } from "../src/settle.js";
 import { MemoryReplica, type MemoryReplicaOptions } from "../src/testing/index.js";
 

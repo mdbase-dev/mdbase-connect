@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { connect, type MdbaseClient } from "../src/index.js";
+import { type MdbaseClient } from "../src/index.js";
+import { connect } from "../src/thin-client.js";
 import { MemoryReplica } from "../src/testing/index.js";
 
 const app = { name: "memory faults", version: "0" };

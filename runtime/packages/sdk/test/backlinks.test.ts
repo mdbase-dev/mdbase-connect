@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { connect, isMdbaseError, mdbaseError, type Connector } from "../src/index.js";
+import { isMdbaseError, mdbaseError } from "../src/index.js";
+import { connect, type Connector } from "../src/thin-client.js";
 import { MemoryReplica } from "../src/testing/index.js";
 import { clientFrame } from "../src/wire.js";
 

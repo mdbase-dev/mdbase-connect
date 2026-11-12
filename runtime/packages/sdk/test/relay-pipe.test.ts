@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fromHex, toHex } from "../src/cbor.js";
 import { uuidToBytes } from "../src/codec.js";
-import { connect } from "../src/index.js";
+import { connect } from "../src/thin-client.js";
 import { clientPrologue, generateKeyPair } from "../src/transport/noise.js";
 import { MessageCarrier, WebSocketLike } from "../src/transport/noise-session.js";
 import { relayConnector } from "../src/transport/relay.js";

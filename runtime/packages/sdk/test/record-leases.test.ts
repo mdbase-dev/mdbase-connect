@@ -1,11 +1,7 @@
 // Real SDK over MemoryReplica: protocol/lease grammar, not native/LAB qualification.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-    connect,
-    MdbaseError,
-    type MdbaseClient,
-    type RecordLease,
-} from "../src/index.js";
+import { MdbaseError, type MdbaseClient, type RecordLease } from "../src/index.js";
+import { connect } from "../src/thin-client.js";
 import { MemoryReplica } from "../src/testing/index.js";
 const clients: MdbaseClient[] = [];
 afterEach(() => {

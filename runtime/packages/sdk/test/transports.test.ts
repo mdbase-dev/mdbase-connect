@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { toHex } from "../src/cbor.js";
 import { uuidToBytes } from "../src/codec.js";
-import { connect } from "../src/index.js";
+import { connect } from "../src/thin-client.js";
 import { memoryKeyStorage, loadOrCreateClientKey } from "../src/keys.js";
 import { daemonIdentityFile, defaultDaemonStateDir, ipcConnector, readDaemonIdentity } from "../src/node.js";
 import { inProcessConnector } from "../src/transport/inprocess.js";

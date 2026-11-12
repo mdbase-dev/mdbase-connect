@@ -1,7 +1,8 @@
 /** `describe_typing` and the AK1 §6 account-key operations. */
 import { describe, expect, it } from "vitest";
 import { decode, encode } from "../src/cbor.js";
-import { connect, wire } from "../src/index.js";
+import { wire } from "../src/index.js";
+import { connect } from "../src/thin-client.js";
 import { accountKeyStatus } from "../src/private.js";
 import { MemoryReplica } from "../src/testing/index.js";
 

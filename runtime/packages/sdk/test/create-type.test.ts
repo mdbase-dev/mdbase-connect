@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { connect, isMdbaseError, MdbaseError } from "../src/index.js";
+import { isMdbaseError, MdbaseError } from "../src/index.js";
+import { connect } from "../src/thin-client.js";
 import { MemoryReplica } from "../src/testing/index.js";
 
 const app = { name: "create-type-test", version: "0.0.0" };

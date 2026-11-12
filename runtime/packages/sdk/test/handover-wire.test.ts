@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { CborValue } from "../src/cbor.js";
 import { decode, encode } from "../src/cbor.js";
-import { connect } from "../src/index.js";
+import { connect } from "../src/thin-client.js";
 import { MemoryReplica } from "../src/testing/index.js";
 import { appliedPrefix, appliedPrefixParams, confirmedHead } from "../src/wire.js";
 import { uint } from "../src/codec.js";

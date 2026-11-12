@@ -2,7 +2,7 @@
 import { Plugin, parseYaml } from "obsidian";
 import { readFile, realpath } from "node:fs/promises";
 import { dirname, relative, sep } from "node:path";
-import { connect, toPlain, revisionOf } from "@mdbase-lab/sdk";
+import { connect, toPlain, revisionOf } from "@mdbase-lab/sdk/thin-client";
 import { connectDaemonLocalhost } from "@mdbase-lab/sdk/node";
 import { SdkWriteClient, obsidianIndexed } from "@mdbase-lab/write-client";
 import { MdbaseMutationBackend } from "@mdbase-lab/tasknotes-backend";

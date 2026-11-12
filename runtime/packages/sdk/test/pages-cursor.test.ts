@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { connect, MdbaseClient, MdbaseError, Float64, type QueryResult, type PagesReset } from "../src/index.js";
+import { MdbaseClient, MdbaseError, type QueryResult, type PagesReset } from "../src/index.js";
+import { connect, Float64 } from "../src/thin-client.js";
 import { MemoryReplica } from "../src/testing/index.js";
 
 const clients: MdbaseClient[] = [];

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { GrantInfo, SyncStatus } from "../src/wire.js";
-import { connect, isMdbaseError, LiveQuery, MdbaseClient, MdbaseError } from "../src/index.js";
+import { isMdbaseError, LiveQuery, MdbaseClient, MdbaseError } from "../src/index.js";
+import { connect } from "../src/thin-client.js";
 import { MemoryReplica } from "../src/testing/index.js";
 import { clientFrame, problem } from "../src/wire.js";
 import { mdbaseError } from "../src/errors.js";

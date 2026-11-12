@@ -1,14 +1,8 @@
 // Controlled protocol replies test the public SDK, not a native validator,
 // SQL, app acceptance, browser or operational qualification.
 import { afterEach, describe, it, expect, vi } from "vitest";
-import {
-    connect,
-    type MdbaseClient,
-    type RecordRef,
-    type RecordValidation,
-    wire,
-    SchemaError,
-} from "../src/index.js";
+import { type MdbaseClient, type RecordRef, type RecordValidation, wire } from "../src/index.js";
+import { connect, SchemaError } from "../src/thin-client.js";
 import { MemoryReplica } from "../src/testing/index.js";
 import { recordValidations } from "../src/validation.js";
 import { uuid } from "../src/codec.js";

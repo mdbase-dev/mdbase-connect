@@ -1,5 +1,6 @@
 import {afterEach, describe, expect, it, vi} from "vitest";
-import {connect, MdbasePeopleClient, TimersApi, type MdbaseClient, type MdbaseApplicationConnection} from "../src/index.js";
+import { MdbasePeopleClient, TimersApi, type MdbaseClient, type MdbaseApplicationConnection } from "../src/index.js";
+import { connect } from "../src/thin-client.js";
 import {createApplicationFixture, MemoryReplica, type ApplicationFixtureSnapshot} from "../src/testing/index.js";
 
 const declaration = {id: "fixture.application", name: "Fixture", origin: "https://fixture.example", environment: "lab" as const, manifest: {id: "dev.fixture"}};

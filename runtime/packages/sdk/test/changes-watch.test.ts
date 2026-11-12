@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { connect, type ChangesWatch, type FramePort } from "../src/index.js";
+import { type ChangesWatch } from "../src/index.js";
+import { connect, type FramePort } from "../src/thin-client.js";
 import { MemoryReplica } from "../src/testing/index.js";
 import { clientFrame, changesResult, type ChangesResult } from "../src/wire.js";
 

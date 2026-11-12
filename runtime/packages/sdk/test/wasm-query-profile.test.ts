@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as cbor from "../src/cbor.js";
-import { WasmRuntime, type OpenConfig, type QueryExecutionProfile } from "../src/index.js";
+import { WasmRuntime, type OpenConfig, type QueryExecutionProfile } from "../src/thin-client.js";
 
 const config = (): OpenConfig => ({
   collection: "0192f3a4-6000-7abc-8def-0123456789ab",

@@ -1,6 +1,7 @@
 // The write ledger over MemoryReplica: persistence across a reload and settle().
 import { afterEach, describe, expect, it } from "vitest";
-import { connect, memoryWriteLedgerStore, type MdbaseClient, type WriteLedgerStore } from "../src/index.js";
+import { memoryWriteLedgerStore, type MdbaseClient, type WriteLedgerStore } from "../src/index.js";
+import { connect } from "../src/thin-client.js";
 import { MemoryReplica } from "../src/testing/index.js";
 
 const clients: MdbaseClient[] = [];

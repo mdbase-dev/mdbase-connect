@@ -1,6 +1,7 @@
 // recordSet(): a whole collection read once and kept current, over MemoryReplica.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { connect, mdbaseError, RecordSet, type ChangesWatch, type ChangesWatchState, type MdbaseClient, type MdbaseError, type QueryResult, type RecordSetChange, type RecordView } from "../src/index.js";
+import { mdbaseError, RecordSet, type ChangesWatch, type ChangesWatchState, type MdbaseClient, type MdbaseError, type QueryResult, type RecordSetChange, type RecordView } from "../src/index.js";
+import { connect } from "../src/thin-client.js";
 import { MemoryReplica } from "../src/testing/index.js";
 import type { ChangesResult } from "../src/wire.js";
 

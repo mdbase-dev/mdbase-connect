@@ -2,11 +2,12 @@
  * @mdbase-dev/sdk: the TS SDK for replicas
  * (`docs/contracts/replica-client-api.md`).
  *
- * The root entry is the thin client (`./thin-client.js`) plus the application
- * entry (`createMdbase`, which validates the app's manifest declaration),
- * people, timers, notifications, holds and error copy, and the in-browser runtime.
+ * The root entry is for an app: the application entry (`createMdbase`, which
+ * validates the app's manifest declaration), the collection API
+ * (`./collection-api.js`), people, timers, notifications, holds and error
+ * copy. Code that makes its own connection imports `./thin-client`.
  */
-export * from "./thin-client.js";
+export * from "./collection-api.js";
 export { MdbasePeopleClient, PERSON_CONTRACT, sameIdentity } from "./people.js";
 export type { AccountIdentity, AccountProfile, CurrentAccount, CollectionMemberProfile, PersonRecord, InvalidPersonRecord, PersonResolution, PeopleDirectory, PeopleRequestOptions, PeopleDirectoryOptions, PeopleAuthority } from "./people.js";
 export { TimersApi } from "./timers.js";
@@ -24,10 +25,6 @@ export type {
   MdbaseNotification, MdbaseNotificationPresentation, MdbaseNotificationClickMessage, MdbaseNotificationDisplayOptions,
   HandleMdbasePushOptions, HandleMdbaseNotificationClickOptions,
 } from "./notifications.js";
-export { inProcessConnector } from "./transport/inprocess.js";
-export type { InProcessConnectOptions, InProcessRuntime } from "./transport/inprocess.js";
-export { WasmRuntime } from "./runtime/wasm.js";
-export type { OpenConfig, QueryExecutionProfile, RuntimeInfo } from "./runtime/wasm.js";
 export { HOLD_COMPARE_SCHEME, HOLD_TITLE, describeHold, holdCompareLink, holdNotice, parseHoldCompareLink, syncStatusText } from "./holds.js";
 export type { DescribeHoldOptions, HoldAction, HoldActionOption, HoldPresentation } from "./holds.js";
 export {

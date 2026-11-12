@@ -9,7 +9,7 @@ import { TaskCreationModal } from "@mdbase-lab/tasknotes-create-modal";
 import { TaskEditModal } from "@mdbase-lab/tasknotes-edit-modal";
 import { setMdbaseMutationBackend } from "@mdbase-lab/tasknotes-vault-service";
 import { MdbaseMutationBackend } from "@mdbase-lab/tasknotes-backend";
-import { connect, toPlain, revisionOf } from "@mdbase-lab/sdk";
+import { connect, toPlain, revisionOf } from "@mdbase-lab/sdk/thin-client";
 import { connectDaemonLocalhost } from "@mdbase-lab/sdk/node";
 import { SdkWriteClient, obsidianIndexed } from "@mdbase-lab/write-client";
 

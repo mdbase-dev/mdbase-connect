@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { connect, fileGrant, type Connector } from "../src/index.js";
+import { fileGrant } from "../src/index.js";
+import { connect, type Connector } from "../src/thin-client.js";
 import { MemoryReplica, type MemoryReplicaOptions } from "../src/testing/index.js";
 import { clientFrame, helloResult, type HelloResult } from "../src/wire.js";
 

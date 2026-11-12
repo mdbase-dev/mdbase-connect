@@ -10,11 +10,11 @@ const backend = required("LAB_TASKNOTES_BACKEND_SOURCE");
 const fixture = required("LAB_FIXTURE_FILE");
 const status = required("LAB_STATUS_FILE");
 const out = process.env.LAB_CLIENT_OUT ? resolve(process.env.LAB_CLIENT_OUT) : join(here, "../.work/daemon-client-bundle");
-for (const file of [join(sdk, "index.js"), join(sdk, "node.js"), adapter, backend, fixture, status]) if (!statSync(file).isFile()) throw new Error("missing build input");
+for (const file of [join(sdk, "thin-client.js"), join(sdk, "node.js"), adapter, backend, fixture, status]) if (!statSync(file).isFile()) throw new Error("missing build input");
 mkdirSync(out, { recursive: true });
 await build({ entryPoints: [join(here, "main.ts")], bundle: true, outfile: join(out, "main.js"),
   format: "cjs", platform: "node", target: "es2022", external: ["obsidian", "electron", "node:*"],
-  alias: { "@mdbase-lab/sdk/node": join(sdk, "node.js"), "@mdbase-lab/sdk": join(sdk, "index.js"),
+  alias: { "@mdbase-lab/sdk/node": join(sdk, "node.js"), "@mdbase-lab/sdk/thin-client": join(sdk, "thin-client.js"),
     "@mdbase-lab/write-client": adapter, "@mdbase-lab/tasknotes-backend": backend },
   define: { LAB_FIXTURE_FILE: JSON.stringify(fixture), LAB_STATUS_FILE: JSON.stringify(status) }, logLevel: "warning" });
 copyFileSync(join(here, "manifest.json"), join(out, "manifest.json"));

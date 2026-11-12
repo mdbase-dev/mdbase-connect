@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Float64, type CborValue } from "../src/cbor.js";
 import { decodePlain } from "../src/codec.js";
 import { attachmentContentV1 } from "../src/attachment-wire.js";
-import { connect, toPlain, wire, type MdbaseClient, type Plain, type RecordView } from "../src/index.js";
+import { toPlain, wire, type MdbaseClient, type Plain, type RecordView } from "../src/index.js";
+import { connect } from "../src/thin-client.js";
 import type * as p from "../src/plain.js";
 import { MemoryReplica } from "../src/testing/index.js";
 

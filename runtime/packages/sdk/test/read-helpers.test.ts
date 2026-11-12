@@ -1,13 +1,8 @@
 // Public SDK over MemoryReplica / controlled read replies: helper grammar only,
 // not native snapshot, cursor, authorization or app/browser qualification.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-    connect,
-    READ_MANY_MAX_REFS,
-    MdbaseError,
-    type MdbaseClient,
-    type RecordRef,
-} from "../src/index.js";
+import { READ_MANY_MAX_REFS, MdbaseError, type MdbaseClient, type RecordRef } from "../src/index.js";
+import { connect } from "../src/thin-client.js";
 import { MemoryReplica } from "../src/testing/index.js";
 const clients: MdbaseClient[] = [];
 afterEach(() => {
