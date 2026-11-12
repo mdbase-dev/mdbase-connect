@@ -88,6 +88,8 @@ export {createViewSource, updateViewSource, readViewSourceRecord} from "./view-s
 export type {ViewSourceCreateInput, ViewSourceWriteOptions, ViewSourceReadOptions} from "./view-sources.js";
 export type {ListViewsResult, ExecuteViewOptions} from "./saved-views.js";
 export type { LiveQueryState } from "./live.js";
+export { RecordSet } from "./record-set.js";
+export type { RecordSetChange, RecordSetListener, RecordSetOptions, RecordSetSnapshot, RecordSetState } from "./record-set.js";
 export { FilesApi, MAX_CONVENIENCE_BYTES } from "./files.js";
 export type { FileRef, FileWrite, UploadOptions, UploadSource } from "./files.js";
 export { fileGrant } from "./files.js";
