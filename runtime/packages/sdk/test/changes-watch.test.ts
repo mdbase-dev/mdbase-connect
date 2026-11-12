@@ -123,3 +123,21 @@ describe("change watch readiness and local lifetime (actual Client/Session wire 
     } finally { watch(); f.client.close(); }
   });
 });
+
+describe("change watch catch-up", () => {
+  it("delivers every change since its cursor, not only the first page of them", async () => {
+    const replica = new MemoryReplica({ confirmDelayMs: 0 });
+    const client = await connect({ app, connector: replica.connector(), reconnect: false });
+    const { cursor } = await client.changes();
+    for (let i = 0; i < 2_300; i++) replica.seed({ path: `notes/${i}.md` });
+    const seen = new Set<string>();
+    const watch = client.watchChanges(cursor, b => { for (const c of b.changes) seen.add(c.path); });
+    try {
+      await watch.ready;
+      expect(seen.size).toBe(2_300);
+      // Changes after the catch-up still arrive, once each.
+      replica.seed({ path: "notes/after.md" });
+      await vi.waitFor(() => expect(seen.has("notes/after.md")).toBe(true));
+    } finally { watch(); client.close(); }
+  });
+});
