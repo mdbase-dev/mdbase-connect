@@ -8,9 +8,10 @@ is never edited, renamed or removed once it has reached a deployed database.
 Rolling back a release does not roll back its migrations: the previous
 provider has to start against the newer schema. By default it cannot, because
 the provider refuses a migration ledger it does not fully recognise, so a
-release that adds a migration is **forward-only** and ops continuous deployment
-will not ship it. A migration can opt out of that by being marked
-rollback-compatible.
+release that adds a migration is **forward-only**. A migration can opt out of
+that by being marked rollback-compatible. A forward-only change can merge only
+with the `forward-only-approved` label (see
+[Breaking migrations](#breaking-forward-only-migrations)).
 
 ## Expand, then contract
 
@@ -53,6 +54,32 @@ Never mark a migration that:
 When in doubt, leave it unmarked: the release is then forward-only, which is
 safe but needs the breaking-migration process instead of ordinary CD.
 
+## Breaking (forward-only) migrations
+
+A pull request is forward-only when it adds an unmarked migration, edits or
+removes an existing one, or adds marked migrations that the previous release
+cannot tolerate. Server CI's migration gate fails such a pull request unless it
+carries the `forward-only-approved` label. That label is the approval: the
+release supervisor applies it, and only after Callum has said yes.
+
+1. Try expand-then-contract first. Most changes can be split so that every
+   step is rollback-compatible.
+2. If the change really cannot be, ask the release supervisor. The supervisor
+   checks that, gets Callum's yes and applies the label. Do not apply it
+   yourself.
+3. Adding or removing the label reruns the gate (the `labeled` and `unlabeled`
+   pull request events). In the merge queue the gate reads the labels of the
+   pull requests whose commits made the forward-only change, so removing the
+   label after queueing fails the queue entry.
+
+Ops then ships the approved merge commit through a separate lane: alone, with
+nothing else unshipped in the release, and only after a fresh complete
+production recovery archive succeeds. A failure there is fixed forward or
+recovered from that archive; the previous provider is never restored. Ops also
+reads the label at deploy time from the pull request that merged the migration,
+so removing it after merge holds the release. See the ops
+`docs/continuous-deployment.md` and `docs/release-supervisor.md`.
+
 ## How it works
 
 - **Runner.** Before applying migrations, the provider records the version and
@@ -81,7 +108,10 @@ safe but needs the breaking-migration process instead of ordinary CD.
   real production predecessor separately when it deploys.
   - No new migrations: nothing to do.
   - Any new migration unmarked, or an existing migration changed: the job warns
-    that the release is forward-only and passes.
+    that the release is forward-only, and fails unless the pull request (in
+    the merge queue, every pull request that made the change) carries the
+    `forward-only-approved` label. Its error says the release supervisor must
+    get Callum's yes and apply the label.
   - All new migrations marked, and the previous release declares both the
     tolerant runner and the tolerant indexer: the job checks out the previous release and runs its
     `scripts/ci/hosted-provider-postgres-tests` with
@@ -90,10 +120,13 @@ safe but needs the breaking-migration process instead of ordinary CD.
     applied and recorded, and the previous release's tests run against it
     through its own tolerant startup and index plan. The job fails if they
     fail.
+  - All new migrations marked, but the previous release lacks the tolerant
+    runner or indexer: forward-only, and needs the label like an unmarked one.
 - **Ops.** `mdbase-cloud-ops/bin/provider-migration-capability` reports
   `recovery_mode: predecessor` for a migration increase only when every added
   migration is marked and the production predecessor's source declares both
-  the tolerant runner and the tolerant indexer.
+  the tolerant runner and the tolerant indexer. Anything else is forward-only
+  and ships only through the breaking-migration lane above.
 
 The first release with the tolerant runner and indexer has to reach production before any
 marked migration can be rolled back past.

@@ -9,8 +9,13 @@
 # (ops classifies the exact production predecessor separately at deploy).
 #
 # Writes run_proof=true|false and predecessor=<sha> to $GITHUB_OUTPUT when set.
-# Exits non-zero only for a new migration that is misnamed or not numbered
-# after every existing one.
+# Exits non-zero for a new migration that is misnamed or not numbered after
+# every existing one, and for a forward-only change (an unmarked new migration,
+# an edited or removed existing one, or new migrations the previous release
+# cannot tolerate) unless every pull request that made it carries the
+# forward-only-approved label. A pull_request run reads the label from its
+# event; a merge_group run reads each responsible pull request's labels with
+# GH_TOKEN. Anything else, including a local run, cannot see the label.
 set -euo pipefail
 
 [[ $# == 2 ]] || { echo 'usage: provider-migration-rollback-gate BASE HEAD' >&2; exit 2; }
@@ -25,10 +30,82 @@ tolerances=(
 predecessor=$(git merge-base "$1" "$2")
 head=$(git rev-parse "$2^{commit}")
 summary=${GITHUB_STEP_SUMMARY:-/dev/null}
+approval=forward-only-approved
 
 output() {
   [[ -z ${GITHUB_OUTPUT:-} ]] || printf 'run_proof=%s\npredecessor=%s\n' "$1" "$predecessor" >>"$GITHUB_OUTPUT"
 }
+# The pull request numbers that changed the given migration paths in this
+# merge-queue entry. The queue commits each pull request as one squash commit
+# whose subject ends "(#N)"; the entry's own head commit is also named by its
+# head ref. A commit that names no pull request fails closed.
+merge_group_pull_requests() {
+  local head_ref commit subject number
+  head_ref=$(jq -r '.merge_group.head_ref // empty' "$GITHUB_EVENT_PATH")
+  git log --format=%H "$predecessor..$head" -- "$@" | while read -r commit; do
+    subject=$(git log -1 --format=%s "$commit")
+    if [[ $subject =~ \(#([0-9]+)\)$ ]]; then
+      number=${BASH_REMATCH[1]}
+    elif [[ $commit == "$head" && $head_ref =~ /pr-([0-9]+)- ]]; then
+      number=${BASH_REMATCH[1]}
+    else
+      echo "::error::Cannot tell which pull request made merge-queue commit $commit." >&2
+      echo invalid
+      continue
+    fi
+    echo "$number"
+  done | sort -u
+}
+
+# Is this forward-only change approved? Arguments are the migration paths that
+# make it forward-only.
+approved() {
+  local numbers number labels
+  case ${GITHUB_EVENT_NAME:-} in
+    pull_request)
+      jq -e --arg label "$approval" 'any(.pull_request.labels[]?; .name == $label)' \
+        "$GITHUB_EVENT_PATH" >/dev/null
+      ;;
+    merge_group)
+      numbers=$(merge_group_pull_requests "$@")
+      [[ -n $numbers ]] || return 1
+      while read -r number; do
+        [[ $number =~ ^[0-9]+$ ]] || return 1
+        labels=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$number" --jq '.labels[].name') || {
+          echo "::error::Could not read the labels of pull request #$number." >&2
+          return 1
+        }
+        grep -qxF "$approval" <<<"$labels" || {
+          echo "Pull request #$number does not carry the $approval label." >&2
+          return 1
+        }
+      done <<<"$numbers"
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+# Fail a forward-only change unless it is approved. Arguments are the migration
+# paths that make it forward-only.
+require_approval() {
+  if approved "$@"; then
+    echo "::notice::FORWARD-ONLY change approved with the $approval label. Ops ships it alone, after a fresh complete production recovery archive."
+    {
+      echo
+      echo "Approved with the \`$approval\` label: ops continuous deployment ships this release alone, after taking a complete production recovery archive."
+    } >>"$summary"
+    output false
+    exit 0
+  fi
+  echo "::error::FORWARD-ONLY: this pull request needs the $approval label before it can merge. Breaking migrations need Callum's yes: the release supervisor checks that the change cannot be made rollback-compatible (expand, then contract), asks Callum, and applies the label on his yes. Do not apply it yourself. See docs/hosted-provider-migrations.md."
+  {
+    echo
+    echo "**Not approved.** A forward-only change needs the \`$approval\` label. The release supervisor gets Callum's yes and applies it; see docs/hosted-provider-migrations.md."
+  } >>"$summary"
+  output false
+  exit 1
+}
+
 # The marker counts only in the leading comment header: the run of lines that
 # start with "--" at the top of the file (it may follow -- no-transaction).
 declares_compatible() {
@@ -41,8 +118,8 @@ declares_compatible() {
 
 changes=$(git diff --no-renames --name-status "$predecessor" "$head" -- "$dir")
 added=()
+existing=()
 invalid=0
-changed_existing=0
 latest=$(git ls-tree --name-only "$predecessor" "$dir/" | sed -n 's|.*/\([0-9]\{4\}\)_[^/]*\.sql$|\1|p' | sort | tail -1)
 while IFS=$'\t' read -r status path; do
   [[ -n ${status:-} ]] || continue
@@ -50,7 +127,7 @@ while IFS=$'\t' read -r status path; do
     # Reverting an unreleased migration is legitimate; anything else breaks
     # every database that applied the old file. Never a rollback candidate.
     echo "::warning file=$path::FORWARD-ONLY: this change edits or removes the existing migration $path. A database that applied it will refuse builds without the same file."
-    changed_existing=1
+    existing+=("$path")
   elif [[ ! $(basename "$path") =~ ^([0-9]{4})_[A-Za-z0-9_.-]+\.sql$ ]]; then
     echo "::error file=$path::$path is not a hosted-provider migration name (NNNN_description.sql)."
     invalid=1
@@ -66,10 +143,9 @@ if ((invalid)); then
   exit 1
 fi
 
-if ((changed_existing)); then
+if ((${#existing[@]})); then
   echo '### Hosted-provider migrations: existing migrations changed (forward-only)' >>"$summary"
-  output false
-  exit 0
+  require_approval "${existing[@]}" ${added[@]+"${added[@]}"}
 fi
 if ((${#added[@]} == 0)); then
   echo 'No new hosted-provider migrations; the rollback gate does not apply.' | tee -a "$summary"
@@ -83,17 +159,16 @@ for path in "${added[@]}"; do
 done
 if ((${#unmarked[@]})); then
   for path in "${unmarked[@]}"; do
-    echo "::warning file=$path,line=1::FORWARD-ONLY: $path is not marked '$marker' in its leading comment header. The release that ships it cannot roll back to the previous provider, and ops continuous deployment refuses forward-only releases."
+    echo "::warning file=$path,line=1::FORWARD-ONLY: $path is not marked '$marker' in its leading comment header. The release that ships it cannot roll back to the previous provider."
   done
   {
     echo '### Hosted-provider migrations: forward-only'
     echo
-    echo "These new migrations are not marked \`$marker\`, so the release that ships them is **forward-only**: the previous provider will refuse to start against the migrated database, and ops CD will not deploy it. Mark a migration only if it follows the rules in docs/hosted-provider-migrations.md."
+    echo "These new migrations are not marked \`$marker\`, so the release that ships them is **forward-only**: the previous provider will refuse to start against the migrated database. Mark a migration only if it follows the rules in docs/hosted-provider-migrations.md."
     echo
     printf -- '- `%s`\n' "${unmarked[@]}"
   } >>"$summary"
-  output false
-  exit 0
+  require_approval "${unmarked[@]}"
 fi
 
 tolerant=1
@@ -107,8 +182,7 @@ if ((!tolerant)); then
     echo
     echo "The new migrations are marked rollback-compatible, but the previous release (\`$predecessor\`) does not declare both a tolerant migration runner and a tolerant projection indexer, so the release is still **forward-only**."
   } >>"$summary"
-  output false
-  exit 0
+  require_approval "${added[@]}"
 fi
 # The previous release must also carry the test hook and shared test list the
 # proof runs; they shipped with the tolerant runner.
