@@ -261,11 +261,10 @@ pub fn parse_one(raw: &str) -> Option<Link> {
     (links.len() == 1 && links[0].raw == raw).then(|| links.remove(0))
 }
 
-/// Links in a Markdown body, in order of appearance: wikilinks and Markdown
-/// links (embeds included, flagged). Fenced code blocks and inline code spans
-/// are skipped (spec 08).
-pub fn parse_body(body: &str) -> Vec<Link> {
-    let mut out = Vec::new();
+/// Calls `f` with every body line outside a fenced code block, and the line's
+/// byte offset in `body` (spec 08 "Code In The Body"). Link and tag extraction
+/// share this, so both skip exactly the same lines.
+fn for_each_text_line<'a>(body: &'a str, mut f: impl FnMut(&'a str, usize)) {
     let mut fence: Option<(u8, usize)> = None;
     let mut line_start = 0usize;
     for line in body.split_inclusive('\n') {
@@ -289,10 +288,32 @@ pub fn parse_body(body: &str) -> Vec<Link> {
                     fence = Some((c, run));
                 }
             }
-            None => scan_line(line, line_start, &mut out),
+            None => f(line, line_start),
         }
         line_start += line.len();
     }
+}
+
+/// The byte length of the inline code span that opens with the backtick run at
+/// `at`, or of the run alone when no later run on the line closes it.
+fn code_span_len(line: &str, at: usize) -> usize {
+    let run = line.as_bytes()[at..]
+        .iter()
+        .take_while(|b| **b == b'`')
+        .count();
+    let ticks = &line[at..at + run];
+    match line[at + run..].find(ticks) {
+        Some(j) => run + j + run,
+        None => run,
+    }
+}
+
+/// Links in a Markdown body, in order of appearance: wikilinks and Markdown
+/// links (embeds included, flagged). Fenced code blocks and inline code spans
+/// are skipped (spec 08).
+pub fn parse_body(body: &str) -> Vec<Link> {
+    let mut out = Vec::new();
+    for_each_text_line(body, |line, offset| scan_line(line, offset, &mut out));
     out
 }
 
@@ -301,15 +322,7 @@ fn scan_line(line: &str, offset: usize, out: &mut Vec<Link>) {
     let mut i = 0;
     while i < bytes.len() {
         match bytes[i] {
-            b'`' => {
-                let run = bytes[i..].iter().take_while(|b| **b == b'`').count();
-                let ticks = &line[i..i + run];
-                // Skip to the matching closing run, if any.
-                match line[i + run..].find(ticks) {
-                    Some(j) => i += run + j + run,
-                    None => i += run,
-                }
-            }
+            b'`' => i += code_span_len(line, i),
             b'\\' => i += 2,
             b'!' | b'[' => {
                 let found = wikilink_at(line, i).or_else(|| markdown_link_at(line, i));
@@ -965,43 +978,48 @@ pub fn link_value(link: &Link) -> String {
 }
 
 /// Inline body tags (spec 08): `#tag` at the start of a line or after
-/// whitespace, outside code; returned without `#`, in order.
+/// whitespace, outside code; returned without `#`, in order. Code is skipped
+/// exactly as [`parse_body`] skips it.
 pub fn parse_tags(body: &str) -> Vec<String> {
     let mut out = Vec::new();
-    let mut fence = false;
-    for line in body.lines() {
-        let t = line.trim_start();
-        if t.starts_with("```") || t.starts_with("~~~") {
-            fence = !fence;
-            continue;
-        }
-        if fence {
-            continue;
-        }
-        let mut in_code = false;
-        let mut prev_ws = true;
-        let chars: Vec<(usize, char)> = line.char_indices().collect();
-        let mut i = 0;
-        while i < chars.len() {
-            let (pos, c) = chars[i];
-            if c == '`' {
-                in_code = !in_code;
-            } else if c == '#' && prev_ws && !in_code {
-                let rest = &line[pos + 1..];
-                let tag: String = rest
+    for_each_text_line(body, |line, _| scan_tags(line, &mut out));
+    out
+}
+
+fn scan_tags(line: &str, out: &mut Vec<String>) {
+    let mut after_ws = true;
+    let mut i = 0;
+    while let Some(c) = line[i..].chars().next() {
+        match c {
+            '`' => {
+                i += code_span_len(line, i);
+                after_ws = false;
+            }
+            '\\' => {
+                // The escaped character is ordinary text.
+                i += 1;
+                let escaped = line[i..].chars().next();
+                i += escaped.map_or(0, char::len_utf8);
+                after_ws = escaped.is_some_and(char::is_whitespace);
+            }
+            '#' if after_ws => {
+                i += 1;
+                let tag: String = line[i..]
                     .chars()
                     .take_while(|c| c.is_alphanumeric() || matches!(c, '_' | '-' | '/'))
                     .collect();
                 if !tag.is_empty() && !tag.chars().all(|c| c.is_ascii_digit()) {
-                    i += tag.chars().count();
+                    i += tag.len();
                     out.push(tag);
                 }
+                after_ws = false;
             }
-            prev_ws = c.is_whitespace();
-            i += 1;
+            _ => {
+                i += c.len_utf8();
+                after_ws = c.is_whitespace();
+            }
         }
     }
-    out
 }
 
 /// `file.tags` (spec 08): frontmatter `tags` (a string or a list of strings,
@@ -1269,6 +1287,13 @@ mod tests {
         assert_eq!(
             parse_tags("a #x and #y/z\n`#no` url#frag #1\n"),
             ["x", "y/z"]
+        );
+        // Code is skipped as link extraction skips it (spec 08).
+        assert_eq!(
+            parse_tags(
+                "``a ` #no`` #yes \\#esc\n~~~~\n```\n#fenced\n~~~~\n    #indented\n#2026-plan #café_日本\n"
+            ),
+            ["yes", "indented", "2026-plan", "café_日本"]
         );
         let l = parse_value("[notes](plan.md#goals)", false).unwrap();
         assert_eq!(link_value(&l), "./plan.md");

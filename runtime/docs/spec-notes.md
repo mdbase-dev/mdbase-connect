@@ -12,6 +12,38 @@ and what the core does. Where the model and the prose disagree, the core follows
 the prose, as the model's own docstring says. Items marked **(spec change?)**
 probably deserve normative text before 0.3.0 stable.
 
+## The rc.6 draft
+
+The vendored fixtures come from the rc.6 draft on mdbase-spec `main`
+(mdbase-spec #68), which moves text without changing most rules:
+
+- Chapter 12A is gone. Record identity is in Chapter 03, writer format
+  fidelity in Chapter 12, and three-way merge and move detection in the
+  companion profile `concurrent-edits/0.1`. "12A" in the notes below and in
+  code comments means those places.
+- Claim profile ids changed: `merge` is `merge/0.1`, move detection left
+  `watch` for `move_detection/0.1`, `type_packs` is `type_packs/0.1`, and
+  `path_equivalence` moved from `core_read` to `collection_semantics`.
+- The regex profile and the merge line alignment are defined in the spec's
+  own text, without naming `regex-lite` or the executable model. The alignment
+  it defines is the one in N20.
+
+rc.6 also defines eight rules that tools had to guess. The core already
+followed six of them (the `slugify` steps, link targets compared by path key,
+the closing frontmatter delimiter, Markdown link destinations, the create
+write order with its provisional membership path, and the `order_by` kind
+order; the path tie-break is under "Query ordering" below). It changed for the
+other two:
+
+- **Inline tags and code (chapter 08).** `links::parse_tags` used a simpler
+  rule than `links::parse_body` for code: any line starting with three
+  backticks or tildes toggled a fence, and every backtick toggled inline code.
+  Both now read the body through one scanner, so a tag is skipped exactly
+  where a link is: fences close only on a run of the same character at least
+  as long as the opening one, inline code ends at the next run of the same
+  length, and a backslash makes the next character ordinary text.
+- **`path_value_normalized` (chapter 07).** See the next section.
+
 ## Path-stored fields (rc.6, chapters 07/12)
 
 The canonical persisted-value boundary is `Catalog::record_values`: decide
@@ -60,6 +92,18 @@ occurrences that together lack YYYY, MM or DD, is `invalid_type` at load (spec 0
 so every decodable date names all three components. Normalization is idempotent:
 whitespace becomes a space, the listed characters are removed, runs of spaces
 collapse, then edge dots and spaces are trimmed.
+
+When normalization changes a value that an `api` create, update or document
+write set, or that lifecycle set during it, the plan carries a
+`path_value_normalized` warning with the field and `details.written` /
+`details.stored`. It is reported at submit at every validation level, `off`
+included, because it is not a validation issue. Replays at head, external
+observations, resurrection and reference rewrites report nothing: none of them
+has a caller to tell. An update whose value normalizes to the current one
+changes nothing and still reports the warning. A document write normalizes
+its stored keys when it projects them to a path version, before the merge, so
+that value is reported when it is still the record's value after merge and
+lifecycle.
 
 SEM advances from [1,1] to [1,2], a minor. A major would ratchet every log on its
 first entry from a new build, whether or not the collection uses path storage, and
@@ -218,13 +262,12 @@ fail. The model raises an exception. *Core:* the field merges with the
 `conflict` strategy, which never loses a value. Reading the record reports the
 `type_conflict` as chapter 05 requires.
 
-**N20. LCS choice. (spec change?)** 12A leaves the choice between several
-longest common subsequences open and recommends Myers, but Myers variants
-(greedy forward, linear-space bisection) choose differently too, and the
-model uses a dynamic-programming LCS with its own tie-break. *Core:*
-linear-space Myers with the middle-snake bisection of diff-match-patch. Pinning
-one alignment (for example "the greedy forward Myers path") would make body
-merges reproducible across engines.
+**N20. LCS choice. (rc.6: fixed)** rc.5 left the choice between several
+longest common subsequences open and recommended Myers, whose variants
+(greedy forward, linear-space bisection) choose differently. *Core:*
+linear-space Myers with the middle-snake bisection of diff-match-patch. The
+rc.6 companion profile defines exactly that procedure ("Line alignment"), and
+the executable model implements it.
 
 **N21. Append-append when the base has no final line break. (errata: fixed)**
 Read literally, base `a`, first `a\nb`, second `a\nc` merge to `a\nb\n\nc`:

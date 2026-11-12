@@ -1046,3 +1046,67 @@ fn invalid_segment_reports_the_field_in_that_segment() {
     assert_eq!(e.code(), "path_value_invalid");
     assert_eq!(e.field(), Some("title"));
 }
+
+fn normalized(p: &mdbn_core::plan::Planned) -> Vec<(String, String, String)> {
+    p.issues
+        .iter()
+        .filter(|i| i.issue.code == "path_value_normalized")
+        .map(|i| {
+            assert_eq!(i.issue.severity, mdbn_core::validate::Severity::Warning);
+            let Some(Value::Map(d)) = &i.issue.details else {
+                panic!("details are a map");
+            };
+            let text = |k: &str| d.get(k).and_then(Value::as_str).unwrap().to_owned();
+            (
+                i.issue.location.clone().unwrap(),
+                text("written"),
+                text("stored"),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn normalized_assignments_warn_once_per_api_submit() {
+    let s = state();
+    let warning = |written: &str, stored: &str| {
+        vec![("/title".to_owned(), written.to_owned(), stored.to_owned())]
+    };
+    // Create, update and document writes each report the value they changed.
+    let p = plan(&s, create("Plan: Q3/Q4")).unwrap();
+    assert_eq!(normalized(&p), warning("Plan: Q3/Q4", "Plan Q3Q4"));
+    let update = |title: &str| {
+        Op::Update(Update {
+            id: id(1),
+            patch: patch("title", title),
+            ..Default::default()
+        })
+    };
+    // The value normalizes to the current one: nothing is written, the
+    // caller is still told.
+    let p = plan(&s, update("Old?")).unwrap();
+    assert!(p.effects.is_empty());
+    assert_eq!(normalized(&p), warning("Old?", "Old"));
+    let document = Op::Document(DocumentOp {
+        id: id(1),
+        new: Some(DocVersion {
+            path: "tasks/Old.md".into(),
+            doc: "---\ntitle: 'New: one'\n---\n".into(),
+        }),
+        ..Default::default()
+    });
+    let p = plan(&s, document.clone()).unwrap();
+    assert_eq!(normalized(&p), warning("New: one", "New one"));
+    // A value that is already path-safe reports nothing.
+    assert!(normalized(&plan(&s, update("New")).unwrap()).is_empty());
+    // It is not a validation issue: level `off` reports it too.
+    let off = PlanOptions {
+        stage: Stage::Submit { level: Level::Off },
+    };
+    let p = mdbn_core::plan(&mutation(update("Old?")), &s, &off).unwrap();
+    assert_eq!(normalized(&p), warning("Old?", "Old"));
+    // The replay at head has no caller to tell.
+    let head = PlanOptions { stage: Stage::Head };
+    let p = mdbn_core::plan(&mutation(document), &s, &head).unwrap();
+    assert!(normalized(&p).is_empty());
+}

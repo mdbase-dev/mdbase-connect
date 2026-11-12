@@ -8,6 +8,15 @@ cel_match.nondeterministic_match_warning pass
 cel_match.match_deterministic_ok pass
 cel_match.query_today_allowed pass
 
+# v0.3/cel/query-order.yaml
+query.order_kinds_ascending pass
+query.order_kinds_descending pass
+query.order_date_time_instants pass
+query.order_invalid_date_is_string pass
+query.order_untyped_strings pass
+query.order_path_tiebreak_ascending pass
+query.order_path_tiebreak_descending pass
+
 # v0.3/cel/regex-profile.yaml
 regex.word_ascii_only pass
 regex.word_ascii_letter pass
@@ -71,6 +80,12 @@ collection.display_metadata pass
 collection.independent_multi_type_validation pass
 collection.path_pattern pass
 collection.path_traversal pass
+core_read.frontmatter_closed_at_eof pass
+core_read.frontmatter_body_start pass
+core_read.frontmatter_unclosed pass
+core_read.frontmatter_document_end pass
+core_read.frontmatter_opening_space pass
+core_read.frontmatter_blank_first pass
 
 # v0.3/core/core-write.yaml
 core_write.patch_null_persists pass
@@ -90,6 +105,8 @@ core_write.validation_error_read pass
 core_write.non_mapping_update pass
 lifecycle.guard_preserves_supplied_value pass
 lifecycle.set_overwrites_and_snapshots pass
+core_write.create_provisional_path pass
+core_write.create_no_membership_path pass
 
 # v0.3/core/link-ambiguity.yaml
 links.no_default_id_field pass
@@ -108,6 +125,12 @@ links.backlinks pass
 links.configured_id_resolution pass
 links.duplicate_id_valid pass
 links.duplicate_id_ambiguous pass
+links.filename_case_insensitive pass
+links.path_case_insensitive pass
+links.markdown_destinations pass
+links.markdown_destinations_resolve pass
+links.inline_tags pass
+links.body_code_links pass
 
 # v0.3/core/list-ops-and-fidelity.yaml
 core_write.add_flow_style pass
@@ -186,6 +209,9 @@ path_fields.document_equal_value pass
 path_fields.document_moves pass
 path_fields.rename_decodes pass
 path_fields.rename_not_decodable pass
+path_fields.create_normalized_warning pass
+path_fields.update_normalized_warning pass
+path_fields.unchanged_value_no_warning pass
 path_fields.zettel_create pass
 path_fields.zettel_update_span pass
 path_fields.create_after_lifecycle pass
@@ -278,6 +304,9 @@ v0.3/lifecycle/lifecycle.yaml@g1.t0 pass
 v0.3/lifecycle/lifecycle.yaml@g1.t1 pass
 v0.3/lifecycle/lifecycle.yaml@g1.t2 pass
 lifecycle.guard_timestamps pass
+lifecycle.slugify_accents pass
+lifecycle.slugify_no_transliteration pass
+lifecycle.slugify_empty pass
 
 # v0.3/merge/body-edits.yaml
 body_edits.direct_replace pass
@@ -353,6 +382,7 @@ seed-upgrade-origin-survives-preserve pass
 seed-upgrade-unlisted-origin-preserved pass
 seed-upgrade-edited-after-upgrade-preserved pass
 seed-upgrade-unknown-origin-preserved pass
+seed-upgrade-unknown-origin-inferred pass
 seed-upgrade-invalid-duplicate-baseline pass
 seed-upgrade-invalid-self-baseline pass
 seed-upgrade-invalid-version-mismatch pass

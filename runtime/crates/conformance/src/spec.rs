@@ -380,7 +380,7 @@ pub fn summary(run: &Run) -> String {
         .fold([0; 3], |a, r| [a[0] + r[0], a[1] + r[1], a[2] + r[2]]);
     let all = total.iter().sum::<u32>();
     let mut s = String::new();
-    let _ = writeln!(s, "## Spec conformance (rc.5 fixtures)\n");
+    let _ = writeln!(s, "## Spec conformance (rc.6 draft fixtures)\n");
     let _ = writeln!(
         s,
         "**{} / {} passing**, {} pending, {} skipped. Ratchet violations: {}.\n",

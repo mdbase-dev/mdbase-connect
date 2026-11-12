@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Vendor the selected rc.5/rc.6 fixtures this repo runs into conformance/spec/,
+# Vendor the selected spec fixtures this repo runs into conformance/spec/,
 # recording the spec commit they came from in conformance/spec/SOURCE.
 #
 # Usage: scripts/sync-spec-fixtures.sh <mdbase-spec checkout> [--working-tree]
@@ -42,6 +42,7 @@ FILES=(
   tests/v0.3/core/body-edits-update.yaml
   tests/v0.3/core/yaml-document-records.yaml
   tests/v0.3/cel/match-determinism.yaml
+  tests/v0.3/cel/query-order.yaml
   tests/v0.3/lifecycle/lifecycle.yaml
   tests/v0.3/data-contracts/data-contracts.yaml
   tests/v0.3/type-packs/type-packs.yaml

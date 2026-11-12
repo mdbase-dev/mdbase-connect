@@ -14,8 +14,8 @@ Read `README.md` (crate map, checks) first. These rules apply to every change.
   legacy engine. It is not a specification and not an authority for anything here;
   never cite its docs, conformance corpora or behaviour. The spec, this workspace's
   Core and `docs/spec-notes.md` are the authorities.
-- The rc.5 spec draft is local only. Read it in place and **never push it**.
-  Vendor its fixtures with `scripts/sync-spec-fixtures.sh`.
+- The spec is `mdbase-dev/mdbase-spec`. Change it there by pull request, then
+  vendor the fixtures of the merged commit with `scripts/sync-spec-fixtures.sh`.
 
 ## Before you push
 

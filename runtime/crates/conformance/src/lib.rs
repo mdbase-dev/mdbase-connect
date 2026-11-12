@@ -1,7 +1,7 @@
 //! # mdbn-conformance: conformance harnesses
 //!
 //! **Responsibility.** Native harnesses that run shared fixtures against the core:
-//! - [`spec`]: the spec conformance runner over the vendored rc.5 fixtures in
+//! - [`spec`]: the spec conformance runner over the vendored rc.6 draft fixtures in
 //!   `conformance/spec/`, with a pending/pass ratchet in
 //!   `conformance/spec-expectations.txt`;
 //! - the `replay` binary: the native side of the native-vs-WASM determinism check
