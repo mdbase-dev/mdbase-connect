@@ -352,12 +352,12 @@ describe("SDK storage and Private states", () => {
   });
 
   it("shows only the SDK save warning and removes it on confirmation", () => {
-    const { entry, set } = fakeMdbase({ kind: "ready", collectionId: A, collection: { collectionId: A, displayName: "Alpha", role: "owner" }, connection: {} as never, rechecking: false, problem: null, unavailableTypes: [] }, { saveWarning: null });
+    const { entry, set } = fakeMdbase({ kind: "ready", collectionId: A, collection: { collectionId: A, displayName: "Alpha", role: "owner" }, connection: {} as never, rechecking: false, problem: null, unavailableTypes: [] }, { sync: { attention: [] } as never });
     render(<CollectionGate mdbase={entry} app={app}>{() => <CollectionSaveWarning />}</CollectionGate>);
     expect(container.querySelector(".mdbase-collections-save-warning")).toBeNull();
-    act(() => set({ saveWarning: "storage_may_be_evicted" }));
+    act(() => set({ sync: { attention: ["storage_may_be_evicted"] } as never }));
     expect(container.querySelector(".mdbase-collections-save-warning")?.textContent).toBe(describeError("storage_may_be_evicted")?.message);
-    act(() => set({ saveWarning: null }));
+    act(() => set({ sync: { attention: [] } as never }));
     expect(container.querySelector(".mdbase-collections-save-warning")).toBeNull();
   });
 
