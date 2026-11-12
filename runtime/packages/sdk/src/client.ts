@@ -165,6 +165,9 @@ export interface ChangesWatch {
   subscribe(listener: (state: ChangesWatchState, error: MdbaseError | null) => void): () => void;
 }
 
+/** Changes asked for at a time while a watch catches up from its cursor. */
+const CHANGES_PAGE = 1000;
+
 /** A spec 11 query object. Plain objects are converted to data maps. */
 export type Query = {
   types?: string[];
@@ -1678,10 +1681,18 @@ export class MdbaseClient {
       publish("starting");
       if (!current()) return;
       try {
-        const first = await s.request("changes", params([[0, last ?? null], [2, true]]), { codec: changesResult, signal });
-        if (!current()) return;
-        last = first.cursor;
-        if (first.changes.length || first.reset) deliver(first);
+        let page = await s.request("changes", params([[0, last ?? null], [1, CHANGES_PAGE], [2, true]]), { codec: changesResult, signal });
+        for (;;) {
+          if (!current()) return;
+          last = page.cursor;
+          if (page.changes.length || page.reset) deliver(page);
+          if (!current()) return;
+          if (page.changes.length < CHANGES_PAGE) break;
+          // A full page may not be the last one. Every push held so far was sent
+          // before this next request, so its reply (or a later page) repeats it.
+          clearEarly();
+          page = await s.request("changes", params([[0, last], [1, CHANGES_PAGE]]), { codec: changesResult, signal });
+        }
         while (early.length && current()) deliver(early.shift()!);
         clearEarly(); initial = false;
         if (!current()) return;
