@@ -14,6 +14,7 @@ import type {
   WebhookDeliveryTransport
 } from "./notifications.js";
 import { tokenHash } from "../../security.js";
+import { MAX_ACTIVE_PUSH_CHANNELS_PER_GRANT } from "./routes.js";
 
 class RecordingPushTransport implements PushTransport {
   readonly deliveries: Array<{ target: PushSubscriptionTarget; payload: string }> = [];
@@ -256,6 +257,41 @@ describe("Web Push notifications", () => {
       cursor: "77"
     });
   });
+
+  it("bounds the active push channels of one grant", async () => {
+    const fixture = await notificationFixture();
+    const register = (index: number) => fixture.app.inject({
+      method: "POST",
+      url: "/v1/notifications/channels",
+      headers: { authorization: `Bearer ${fixture.applicationToken}` },
+      payload: {
+        installation_id: `installation_${String(index).padStart(12, "0")}`,
+        criteria: ["task.ready"],
+        subscription: {
+          endpoint: `https://push.example/subscription/${index}`,
+          keys: {
+            p256dh: "p256dh_012345678901234567890123456789",
+            auth: "auth_0123456789012345"
+          }
+        }
+      }
+    });
+    for (let index = 0; index < MAX_ACTIVE_PUSH_CHANNELS_PER_GRANT; index += 1) {
+      expect((await register(index)).statusCode).toBe(201);
+    }
+    const over = await register(MAX_ACTIVE_PUSH_CHANNELS_PER_GRANT);
+    expect(over.statusCode).toBe(413);
+    expect(over.json().error).toMatchObject({
+      code: "too_large",
+      details: { limit: MAX_ACTIVE_PUSH_CHANNELS_PER_GRANT }
+    });
+    expect((await register(0)).statusCode).toBe(201);
+
+    await fixture.db.query("UPDATE push_channels SET disabled_at = now() WHERE installation_id = $1", [
+      `installation_${String(1).padStart(12, "0")}`
+    ]);
+    expect((await register(MAX_ACTIVE_PUSH_CHANNELS_PER_GRANT)).statusCode).toBe(201);
+  }, 30_000);
 
   it("registers a managed FCM installation against the manifest project", async () => {
     const fixture = await notificationFixture(false, {
