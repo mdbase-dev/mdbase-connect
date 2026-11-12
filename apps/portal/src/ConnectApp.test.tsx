@@ -48,6 +48,17 @@ describe("ConnectApp", () => {
     await screen.findByText("Collection copies");
     expect(!!screen.queryByText("Copies sync between your computers. App access is managed separately.")).toBe(computerIds.length > 0);
   });
+  it("counts the computer's own native collections on the Computers page", async () => {
+    history.replaceState(null, "", "/computers");
+    const access = { relationship: "owner" as const, role: "owner" as const, can_manage_members: true };
+    Object.assign(overview, { collections: [], native_collections: [
+      { id: "cloud", display_name: "Cloud notes", sync: "cloud_copy", computer_ids: ["computer"], access },
+      { id: "private", display_name: "Private notes", sync: "private", computer_ids: ["computer"], access },
+      { id: "elsewhere", display_name: "Elsewhere", sync: "cloud_copy", computer_ids: [], access }
+    ] });
+    render(<ConnectApp />);
+    expect(await screen.findByText(/^2 collections ·/)).toBeInTheDocument();
+  });
   it("keeps an unchanged background load error mounted but announces a Retry result", async () => {
     vi.mocked(fetch).mockImplementation(async () => Response.json({ error: { message: "diagnostic" } }, { status: 503 }));
     render(<ConnectApp />);
