@@ -9,10 +9,12 @@ import type {WriteLedgerSnapshot} from "../src/write-ledger.js";
 const origin="https://app.test",id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 afterEach(()=>{vi.useRealTimers();vi.unstubAllGlobals();});
 
-function open(){
+function open(scope:"page"|"worker"="page"){
   vi.useFakeTimers({toFake:["setTimeout","clearTimeout","performance"]});
   const page=Object.assign(new EventTarget(),{location:{origin,href:`${origin}/`},history:{state:null,pushState(){},replaceState(){}}});
-  vi.stubGlobal("window",page);vi.stubGlobal("location",page.location);vi.stubGlobal("Worker",class{});
+  // A service worker has no `window`: its events arrive on the global scope.
+  if(scope==="page")vi.stubGlobal("window",page);else vi.stubGlobal("addEventListener",page.addEventListener.bind(page));
+  vi.stubGlobal("location",page.location);vi.stubGlobal("Worker",class{});
   const browser:{onLine?:boolean;storage:unknown}={storage:{persisted:async()=>true}};
   vi.stubGlobal("navigator",browser);
   const entry=new MdbaseConnect({id:"org.example.app",name:"Example",origin,environment:"lab",manifest:{manifest_version:1,id:"org.example.app",name:"Example",homepage:origin,
@@ -66,6 +68,15 @@ it("tells subscribers when a save stops being brief and when it becomes long, wi
   t.writes({pending:[],saveState:"saved"});t.status({pending:0});expect(t.sync()).toMatchObject({state:"saved",pendingFor:null});
   t.status({pending:1});expect(t.sync().pendingFor).toBe("moment");
   await t.app.close();expect(vi.getTimerCount()).toBe(0);
+});
+
+it("hears the browser go offline where there is no window",async()=>{
+  const t=open("worker"),states:string[]=[];
+  t.app.subscribe(()=>states.push(t.sync().state));
+  t.browser.onLine=false;t.page.dispatchEvent(new Event("offline"));
+  expect(states).toEqual(["offline"]);expect(t.sync().connection).toBe("offline");
+  expect(t.setTransportDeferred).toHaveBeenLastCalledWith(true);
+  await t.app.close();
 });
 
 it("goes offline when the browser does, and holds pending writes on the device meanwhile",async()=>{

@@ -914,10 +914,11 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
   }
   /** `sync.connection` says offline as soon as the browser does, not at the next failed request. */
   private followNetwork():void{
-    const win=typeof window==="undefined"?undefined:window;
-    if(!win||typeof win.addEventListener!=="function")return;
+    // `window` in a page; a service worker hears the same events on its own global scope.
+    const scope=typeof window==="undefined"?globalThis:window;
+    if(typeof scope.addEventListener!=="function")return;
     const changed=()=>{if(this.closed)return;this.revision++;this.notify(false);};
-    win.addEventListener("online",changed,{signal:this.lifetime.signal});win.addEventListener("offline",changed,{signal:this.lifetime.signal});
+    scope.addEventListener("online",changed,{signal:this.lifetime.signal});scope.addEventListener("offline",changed,{signal:this.lifetime.signal});
   }
   /** Back/forward cache: a page parked there is frozen with its Worker, which
    * would keep holding the collection lease and block the next document of
