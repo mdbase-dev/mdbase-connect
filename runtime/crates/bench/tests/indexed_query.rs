@@ -1139,9 +1139,10 @@ fn a_substring_search_parses_only_the_records_that_can_match() {
 
 /// A budgeted host charges the records the store returns, not the rows it
 /// rejects: a selective search over more notes than the budget covers is
-/// answered, and a search every note can match is still refused.
+/// answered whole, and a search every note can match is answered a page at a
+/// time.
 #[test]
-fn a_budgeted_host_answers_a_selective_search_and_refuses_a_broad_one() {
+fn a_budgeted_host_answers_a_selective_search_and_pages_a_broad_one() {
     let svc = FakeLogService::new();
     let mut node = open(&svc, store("substring_search_budget"));
     seed_notes(&mut node, 1000, search_note);
@@ -1154,10 +1155,11 @@ fn a_budgeted_host_answers_a_selective_search_and_refuses_a_broad_one() {
             ("limit", Value::Int(48)),
         ])
     };
-    let refused = |answer: Result<QueryResult, mdbn_replica::api::ApiError>| {
-        let e = answer.unwrap_err();
-        assert_eq!(e.code(), Some(mdbn_replica::ErrorCode::TooLarge));
-        assert_eq!(e.problem().reason.as_deref(), Some("query_budget_exceeded"));
+    let paged = |answer: Result<QueryResult, mdbn_replica::api::ApiError>| {
+        let page = answer.unwrap();
+        assert_eq!(page.records.len(), 48);
+        assert_eq!(page.has_more, Some(true));
+        assert!(page.cursor.is_some());
     };
     // 286 of 1,000 notes can match: 572 source copies of the 1,000 allowed.
     let selective = tasknotes_search("café");
@@ -1171,13 +1173,13 @@ fn a_budgeted_host_answers_a_selective_search_and_refuses_a_broad_one() {
     // The store reads 512 rows at a time and returns 32 candidates a page, so
     // rows after a page's last candidate are decoded again for the next page.
     assert_eq!(ran(&log, SCAN).1, 3656, "rows decoded");
-    // Without the candidate the same search is over budget, as it was.
-    refused(
+    // Without the candidate the whole answer is over budget, so it is paged.
+    paged(
         node.r
             .query(node.s, completion(unpruned(&selective)), none()),
     );
-    // Every path holds ".md", so every note is returned and charged.
-    refused(
+    // Every path holds ".md", so every note matches and the answer is paged.
+    paged(
         node.r
             .query(node.s, completion(tasknotes_search(".md")), none()),
     );
@@ -1440,15 +1442,106 @@ fn constrained_host_answers_negated_filters_from_the_index() {
         .expect("answered, not refused");
     assert_eq!(page.records.len(), 100);
     assert_eq!(node.r.query_stats().indexed, before.indexed + 1);
-    // The same query without the index's help (a body search) still refuses
-    // explicitly on this host: the budget stands.
+    // A `where` the index cannot express (a body search) pages over the
+    // index's selection instead of refusing the whole query.
     let scan = vec![
         types,
         ("where", Value::Text("file.body.contains(\"Task\")".into())),
         ("limit", Value::Int(100)),
     ];
-    let err = node.r.query(node.s, q(&scan), none()).unwrap_err();
-    assert_eq!(err.problem().code, "too_large");
+    let page = node.r.query(node.s, q(&scan), none()).expect("a page");
+    assert_eq!(page.records.len(), 100);
+    assert_eq!(page.has_more, Some(true));
+    assert!(page.cursor.is_some());
+}
+
+/// Every page of `query`, following cursors as the SDK's `pages()` does.
+fn all_pages(node: &mut Node, query: &[(&str, Value)]) -> Vec<mdbn_wire::client::QueryResult> {
+    let mut pages: Vec<mdbn_wire::client::QueryResult> = Vec::new();
+    loop {
+        let mut request = query.to_vec();
+        match pages.last() {
+            Some(page) => match &page.cursor {
+                Some(cursor) => request.push(("cursor", Value::Text(cursor.clone()))),
+                None => return pages,
+            },
+            None => {}
+        }
+        let page = node.r.query(node.s, q(&request), none()).expect("a page");
+        assert!(page.complete);
+        assert_eq!(page.has_more, Some(page.cursor.is_some()));
+        pages.push(page);
+    }
+}
+
+fn paths(pages: &[mdbn_wire::client::QueryResult]) -> Vec<String> {
+    pages
+        .iter()
+        .flat_map(|p| p.records.iter().map(|r| r.path.clone()))
+        .collect()
+}
+
+/// TaskNotes' search (tasknotes-app#418): a body search over 2,000 tasks in a
+/// 4,000-record collection, more than one request's source budget on a
+/// memory-constrained host. It pages in the query's own order and returns
+/// exactly what the unbudgeted per-record answer returns.
+#[test]
+fn constrained_host_pages_a_body_search_in_query_order() {
+    let svc = FakeLogService::new();
+    let mut node = open(&svc, store("indexed_query_body_search"));
+    seed_notes(&mut node, 4000, |i| {
+        if i % 2 == 0 {
+            (format!("notes/n{i:05}.md"), format!("Note {i}: Needle.\n"))
+        } else {
+            let word = if i % 20 == 1 { "Needle" } else { "hay" };
+            (
+                format!("tasks/t{i:05}.md"),
+                format!("---\nstatus: open\npriority: {}\n---\nTask {i}, {word}.\n", i % 7),
+            )
+        }
+    });
+    let search = |word: &str, limit: i64, ordered: bool| {
+        let mut query = vec![
+            ("types", Value::List(vec![Value::Text("task".into())])),
+            (
+                "where",
+                Value::Text(format!("file.body.lower().contains(\"{word}\")")),
+            ),
+            ("limit", Value::Int(limit)),
+        ];
+        if ordered {
+            query.push(("order_by", order("priority", "desc")));
+        }
+        query
+    };
+    // The whole answer, where the per-record scan has no request budget.
+    node.r
+        .set_query_execution_profile(mdbn_replica::QueryExecutionProfile::Desktop);
+    let whole = |node: &mut Node, ordered| {
+        let page = node
+            .r
+            .query(node.s, q(&search("needle", 1000, ordered)), none())
+            .unwrap();
+        assert_eq!(page.has_more, Some(false));
+        page.records.into_iter().map(|r| r.path).collect::<Vec<_>>()
+    };
+    let unordered = whole(&mut node, false);
+    let ordered = whole(&mut node, true);
+    assert_eq!(unordered.len(), 200);
+    assert_ne!(unordered, ordered);
+
+    node.r
+        .set_query_execution_profile(mdbn_replica::QueryExecutionProfile::MemoryConstrained);
+    let pages = all_pages(&mut node, &search("needle", 1000, false));
+    assert!(pages.len() > 1, "{} page(s)", pages.len());
+    assert_eq!(paths(&pages), unordered);
+    let pages = all_pages(&mut node, &search("needle", 7, false));
+    assert!(pages.iter().all(|p| p.records.len() <= 7));
+    assert_eq!(paths(&pages), unordered);
+    assert_eq!(paths(&all_pages(&mut node, &search("needle", 1000, true))), ordered);
+    // No match anywhere: pages that still advance, then the end.
+    let pages = all_pages(&mut node, &search("zzzznomatch", 1000, false));
+    assert!(pages.len() > 1 && paths(&pages).is_empty());
 }
 
 /// A memory-constrained host streams every match of TaskNotes' open-tasks query
