@@ -242,6 +242,8 @@ export class AppWebSignInSession<Connection> {
   private receiptRead: ReceiptRead | null = null;
   private foregroundRead: ReceiptRead | null = null;
   private attested = false;
+  /** start() resumed a request sent before a restart: an expired or cancelled one ends quietly. */
+  private restoredPending = false;
   private acknowledged = false;
   private consentPending = false;
   private listCached = false;
@@ -412,7 +414,14 @@ export class AppWebSignInSession<Connection> {
           try { kept = this.flow.cachedApprovedCollections(this.installation!); } catch { kept = null; }
           await this.refreshCollections(kept);
         }
-      } else this.publish({status: view.state === "pending" ? "signed_out" : "authorizing"});
+      } else {
+        // A restart (a reload, or a mobile page frozen in the background and
+        // resumed) must not drop a sign-in the person may be approving right
+        // now: keep reading the SAME request a gesture sent, until it is
+        // approved, cancelled or expires. An unsent request stays unsent.
+        this.restoredPending = view.state === "pending" && this.flow.requestSent();
+        this.publish({status: view.state === "pending" && !this.restoredPending ? "signed_out" : "authorizing"});
+      }
       return this.getSnapshot();
     });
   }
@@ -438,6 +447,7 @@ export class AppWebSignInSession<Connection> {
   private beginAuthorization(portal: AppWebSignInPortal, options: {readonly collectionHint?: string | null}): Promise<AppWebSignInSnapshot> {
     const hint = {collectionHint: options.collectionHint ?? null};
     const view = this.flow!.view();
+    this.restoredPending = false;
     this.authorizationStartedAt = performance.now();
     this.publish({timing: Object.freeze({firstScreenMs: null, readyMs: null}), approval: null});
     return this.operation(async () => {
@@ -576,7 +586,15 @@ export class AppWebSignInSession<Connection> {
       } else { await this.prepareNativeChoice(); this.publish({status: "authorizing", problem: null}); }
       return;
     }
-    let view = await this.exchangeReceipt(() => this.flow!.exchange()); this.check();
+    let view: AppInstallationSignInView | null;
+    try { view = await this.exchangeReceipt(() => this.flow!.exchange()); }
+    catch (error) {
+      // A resumed request that expired or was cancelled meanwhile ends as the
+      // signed-out view it showed before; the next sign-in gesture renews it.
+      if (!this.restoredPending || !(error instanceof AppInstallationSignInError) || (error.reason !== "expired" && error.reason !== "refused")) throw error;
+      this.check(); this.restoredPending = false; this.publish({status: "signed_out", problem: null}); return;
+    }
+    this.check();
     if (!view) return;
     if (view.state === "account_selected") {
       // This consumes only the current SDK-owned, portal-confirmed selection.

@@ -51,7 +51,7 @@ async function fixture(requestedCreateCollections = false, extra: {installationK
   const custody = {...pk, envelope: new Uint8Array([6, 7])};
   const runtime = {deviceCustodyCurrent: (_pin: unknown, c: unknown) => c === custody, signCpEnrol: vi.fn(() => {trace.push("native-fixed-sign"); return {...pk, signature: new Uint8Array(64).fill(8)};}), acknowledgeDeviceRegistration: vi.fn(() => {trace.push("native-ack"); expect(read().token).toMatch(/^idev_/);})} as unknown as AppWasmRuntime;
   const persistence = {pending: vi.fn(async () => {trace.push("protected-noise-pending");}), registered: vi.fn(async () => {trace.push("protected-receipt");})};
-  return {flow, options, installation, custody, runtime, persistence, trace, requests, read, request, editSaved:(change:(s:Record<string,unknown>)=>void)=>{const s=read();change(s);saved=new TextEncoder().encode(JSON.stringify(s));}, setSelected: () => {selected = true;}, setApproved: () => {approved = true;}, setFailHttp: () => {failHttp = true;}, setCommitFailure: () => {commitFailure = true;}, setOversized: () => {oversized = true;}, change: (fn: typeof change) => {change = fn;}};
+  return {flow, options, installation, custody, runtime, persistence, trace, requests, read, request, editSaved:(change:(s:Record<string,unknown>)=>void)=>{const s=read();change(s);saved=new TextEncoder().encode(JSON.stringify(s));}, setSelected: () => {selected = true;}, setApproved: () => {approved = true;}, setFailHttp: () => {failHttp = true;}, setCommitFailure: () => {commitFailure = true;}, clearCommitFailure: () => {commitFailure = false;}, setOversized: () => {oversized = true;}, change: (fn: typeof change) => {change = fn;}};
 }
 const expiredReply = () => new Response(JSON.stringify({error:{code:"installation_pairing_expired",message:"expired"}}),{status:404});
 describe("installation kind", () => {
@@ -140,8 +140,9 @@ describe("explicit expired-window retry preserves original actor", () => {
     if(mode==='abort') parent.abort(); else await flow.close();
     expect(ram.secret).toBe(''); expect(retainedParent.secret).toBe(''); expect(ram.renewal).toBeNull();
     expect(f.read()).toEqual(durable); expect(f.trace.filter(v=>v==='protected-commit')).toHaveLength(commits);
-    const reopened=await AppProtectedInstallationSignIn.open({...f.options,mode:'existing'});
-    expect((await reopened.start()).requestId).toBe(durable.requestId); expect(f.read()).toEqual(durable); await reopened.close();
+    // A working store again: the reopened START records only that Connect accepted the durable successor.
+    f.clearCommitFailure(); const reopened=await AppProtectedInstallationSignIn.open({...f.options,mode:'existing'});
+    expect((await reopened.start()).requestId).toBe(durable.requestId); expect(f.read()).toEqual({...durable, requestSent: durable.requestId}); await reopened.close();
   });
   it("retains original confirmed selection, keys, challenge and proof on expiry",async()=>{
     const f=await fixture();await confirmed(f);await f.flow.attest(f);const original=f.read(), signs=vi.mocked(f.runtime.signCpEnrol).mock.calls.length;
@@ -534,7 +535,9 @@ describe("fresh scoped recovery receipt constraints", () => {
     expect((await f.flow.start()).state).toBe("pending");
     expect(f.requests[0]!.body).toMatchObject({installation: {recovery_collection_id: collection, requested_create_collections: false}});
     expect((await f.flow.exchange()).state).toBe("pending");
-    expect(f.read()).toEqual(original); expect(f.runtime.signCpEnrol).not.toHaveBeenCalled(); await f.flow.close();
+    // The only durable change: which request Connect accepted (a restart keeps reading it).
+    expect(f.read()).toEqual({...original, requestSent: original.requestId}); expect(f.flow.requestSent()).toBe(true);
+    expect(f.runtime.signCpEnrol).not.toHaveBeenCalled(); await f.flow.close();
   });
   it.each(["missing", "wrong"])("refuses a %s START target echo without unconstrained fallback", async mode => {
     const f = await fixture(false, {owner: "bundle:notes:scope:original-local-reference", recoveryFor}), original = f.read();
@@ -543,8 +546,8 @@ describe("fresh scoped recovery receipt constraints", () => {
     expect(f.requests).toHaveLength(1); expect(f.read()).toEqual(original); expect(f.runtime.signCpEnrol).not.toHaveBeenCalled(); await f.flow.close();
   });
   it.each(["missing", "wrong"])("refuses a %s selected target echo before confirmation or native authority", async mode => {
-    const f = await fixture(false, {owner: "bundle:notes:scope:original-local-reference", recoveryFor}), original = f.read();
-    await f.flow.start(); f.setSelected();
+    const f = await fixture(false, {owner: "bundle:notes:scope:original-local-reference", recoveryFor});
+    await f.flow.start(); f.setSelected(); const original = f.read(); f.trace.length = 0;
     f.change(v => {if (mode === "missing") delete v.recovery_collection_id; else v.recovery_collection_id = connector;});
     await expect(f.flow.exchange()).rejects.toBeInstanceOf(AppInstallationSignInError);
     expect(f.read()).toEqual(original); expect(f.trace).not.toContain("protected-commit"); expect(f.persistence.pending).not.toHaveBeenCalled();
