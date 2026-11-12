@@ -100,7 +100,13 @@ struct ConnOut {
     outbox: Mutex<Outbox>,
     wake: tokio::sync::Notify,
     closed: AtomicBool,
+    /// The hello token expired: the writer closes with [`CLOSE_EXPIRED`].
+    expired: AtomicBool,
 }
+
+/// The socket's hello token expired (the Durable Object's close code). The client
+/// reconnects with a fresh token.
+const CLOSE_EXPIRED: u16 = 4401;
 
 /// A gateway: the service plus connection state.
 pub struct Gateway {
@@ -303,15 +309,27 @@ async fn ws_upgrade(State(gw): State<Arc<Gateway>>, ws: WebSocketUpgrade) -> Res
 }
 
 async fn conn_loop(gw: Arc<Gateway>, socket: WebSocket, nonce: [u8; 32]) {
+    let (sink, stream) = socket.split();
+    conn_io(gw, sink, stream, nonce).await;
+}
+
+/// One connection. It lasts as long as its hello token: at the token's expiry the
+/// socket is closed with [`CLOSE_EXPIRED`], so no frame or push outlives it. A
+/// re-hello with a fresh token moves the expiry.
+async fn conn_io<W, R>(gw: Arc<Gateway>, mut sink: W, mut stream: R, nonce: [u8; 32])
+where
+    W: futures_util::Sink<Message> + Unpin + Send + 'static,
+    R: futures_util::Stream<Item = Result<Message, axum::Error>> + Unpin,
+{
     let id = gw.next.fetch_add(1, Ordering::Relaxed);
     let out = Arc::new(ConnOut {
         outbox: Mutex::new(Outbox::default()),
         wake: tokio::sync::Notify::new(),
         closed: AtomicBool::new(false),
+        expired: AtomicBool::new(false),
     });
     gw.conns.lock().unwrap().insert(id, out.clone());
     gw.metrics.connections.fetch_add(1, Ordering::Relaxed);
-    let (mut sink, mut stream) = socket.split();
     let w = out.clone();
     let writer = tokio::spawn(async move {
         loop {
@@ -326,19 +344,40 @@ async fn conn_loop(gw: Arc<Gateway>, socket: WebSocket, nonce: [u8; 32]) {
                 None => w.wake.notified().await,
             }
         }
+        if w.expired.load(Ordering::Acquire) {
+            let frame = axum::extract::ws::CloseFrame {
+                code: CLOSE_EXPIRED,
+                reason: "expired".into(),
+            };
+            let _ = sink.send(Message::Close(Some(frame))).await;
+        }
         let _ = sink.close().await;
     });
     let mut sess = Session::new(id, nonce);
-    while let Some(Ok(msg)) = stream.next().await {
+    // Kept across a failed re-hello, which keeps the earlier principal.
+    let mut expires_at: Option<i64> = None;
+    loop {
+        let left = expires_at.map(|e| Duration::from_millis((e - now_ms()).max(0) as u64));
+        let msg = tokio::select! {
+            biased;
+            _ = tokio::time::sleep(left.unwrap_or_default()), if left.is_some() => {
+                out.expired.store(true, Ordering::Release);
+                break;
+            }
+            m = stream.next() => m,
+        };
         match msg {
-            Message::Binary(b) => {
+            Some(Ok(Message::Binary(b))) => {
                 if let Some(r) = gw.handle(&mut sess, &b).await {
                     out.outbox.lock().unwrap().response(r);
                     out.wake.notify_one();
                 }
+                if let Some(caller) = sess.verified_caller() {
+                    expires_at = Some(caller.expires_at());
+                }
             }
-            Message::Close(_) => break,
-            _ => {}
+            Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
+            Some(Ok(_)) => {}
         }
     }
     session::close(&*gw, &sess);
@@ -712,4 +751,86 @@ pub async fn serve(gw: Arc<Gateway>, listener: tokio::net::TcpListener) -> std::
         }
     });
     axum::serve(listener, router(gw)).await
+}
+
+#[cfg(test)]
+mod conn_tests {
+    use super::*;
+    use mdbn_log_service::testkit::{ControlPlane, Device, id16};
+    use mdbn_wire::common::Version;
+    use mdbn_wire::log_service::LsHelloParams;
+    use mdbn_wire::schema::Wire;
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+
+    /// A peer that reads everything it is sent.
+    #[derive(Clone, Default)]
+    struct Recorded(Arc<Mutex<Vec<Message>>>);
+    impl futures_util::Sink<Message> for Recorded {
+        type Error = axum::Error;
+        fn poll_ready(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+        fn start_send(self: Pin<&mut Self>, m: Message) -> Result<(), Self::Error> {
+            self.0.lock().unwrap().push(m);
+            Ok(())
+        }
+        fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+        fn poll_close(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    #[tokio::test]
+    async fn a_socket_is_closed_when_its_hello_token_expires() {
+        let label = "conn-expiry";
+        let svc = Service::new(
+            MemBackend::default(),
+            MemObjects::default(),
+            testkit_config(label, "http://127.0.0.1"),
+        );
+        let gw = Gateway::new(AnyService::Mem(svc), false);
+        let cp = ControlPlane::new(label);
+        let device = Device::new("conn-expiry/device", id16("conn-expiry/owner"));
+        let nonce = [5; 32];
+        let token = cp.device_token(&device, now_ms() + 300);
+        let hello = LsFrame::Request(LsRequest {
+            id: 1,
+            method: "hello".into(),
+            params: LsHelloParams {
+                version: Version { major: 1, minor: 0 },
+                sig: device.hello_sig(&nonce, &token),
+                token,
+                device: Some(device.id),
+            }
+            .to_cbor(),
+        })
+        .to_bytes()
+        .unwrap();
+        // The peer says hello, then only listens.
+        let frames = futures_util::stream::iter([Ok(Message::Binary(hello.into()))])
+            .chain(futures_util::stream::pending());
+        let sent = Recorded::default();
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            conn_io(gw.clone(), sent.clone(), frames, nonce),
+        )
+        .await
+        .expect("the connection outlived its token");
+        let sent = sent.0.lock().unwrap();
+        let Some(Message::Binary(first)) = sent.first() else {
+            panic!("no hello response")
+        };
+        let Ok(LsFrame::Response(r)) = LsFrame::from_bytes(first) else {
+            panic!("hello response")
+        };
+        assert!(r.error.is_none(), "hello accepted: {:?}", r.error);
+        assert!(matches!(
+            sent.last(),
+            Some(Message::Close(Some(f))) if f.code == CLOSE_EXPIRED && f.reason == "expired"
+        ));
+        assert!(gw.conns.lock().unwrap().is_empty());
+    }
 }
