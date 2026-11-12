@@ -8,7 +8,8 @@
  */
 import type { ChangesWatch, MdbaseClient } from "./client.js";
 import { isMdbaseError, MdbaseError, mdbaseError } from "./errors.js";
-import type { ChangesResult, Include, Problem, RecordView, Uuid } from "./wire.js";
+import type { RecordView } from "./plain.js";
+import type { ChangesResult, Include, Problem, Uuid } from "./wire.js";
 
 export interface RecordSetOptions {
   /** Only records with one of these types. Default: every record. */

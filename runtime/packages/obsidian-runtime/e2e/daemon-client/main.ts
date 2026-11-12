@@ -110,7 +110,7 @@ export default class LabDaemonClient extends Plugin {
     if (!file || !("extension" in file)) throw new Error("file_missing");
     const disk = await this.app.vault.read(file as any);
     const fm = parseYaml(disk.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1] ?? "");
-    this.result.readBack = record.path === path && toPlain(record.frontmatter.get("status")) === "done" && fm.status === "done";
+    this.result.readBack = record.path === path && record.frontmatter.status === "done" && fm.status === "done";
     if (!this.result.readBack) throw new Error("readback_mismatch");
   }
 }

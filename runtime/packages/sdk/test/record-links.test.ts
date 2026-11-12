@@ -38,10 +38,7 @@ async function fixture() {
             records: [
                 {
                     ...source,
-                    values: new Map([
-                        ["raw", raw],
-                        ["paths", paths],
-                    ]) as QueryResult["records"][number]["values"],
+                    values: { raw, paths } as QueryResult["records"][number]["values"],
                 },
             ],
             complete: true,
@@ -152,10 +149,7 @@ it.each([
         records: [
             {
                 ...r.records[0]!,
-                values: new Map([
-                    ["raw", ["[[Alex]]"]],
-                    ["paths", []],
-                ]),
+                values: { raw: ["[[Alex]]"], paths: [] },
             },
         ],
     }),
@@ -164,10 +158,7 @@ it.each([
         records: [
             {
                 ...r.records[0]!,
-                values: new Map([
-                    ["raw", [42]],
-                    ["paths", [null]],
-                ]),
+                values: { raw: [42], paths: [null] },
             },
         ],
     }),

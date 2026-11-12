@@ -15,6 +15,7 @@
 import { registrationRefusal, registrationRefusalMessage } from "./application/registration-refusal.js";
 import { ACCOUNT_COLLECTION_QUOTA_MESSAGE } from "./collection-quota-copy.generated.js";
 import { isCollectionUnavailableReason, type CollectionUnavailableReason } from "./collection-availability.js";
+import { fieldOf } from "./plain.js";
 import { DEFAULT_UPDATE_URL, MAX_SERVER_RETRY_MS, MIN_SERVER_RETRY_MS, sanitizeAppServerProblem, trustedUpdateUrl } from "./app-host/cp-problem.js";
 
 export type MdbaseErrorAction =
@@ -391,8 +392,8 @@ export function problemCodeOf(code: string): ProblemCode | null {
 interface Found { codes: string[]; retryAfterMs: number | null; updateUrl: string | null; refusal?: ReturnType<typeof registrationRefusal>; hasServer?: boolean }
 
 function availabilityReason(o: Record<string, unknown>): CollectionUnavailableReason | null {
-  const details = o.details;
-  if (details instanceof Map && isCollectionUnavailableReason(details.get("availability"))) return details.get("availability") as CollectionUnavailableReason;
+  const availability = fieldOf(o.details, "availability");
+  if (isCollectionUnavailableReason(availability)) return availability;
   const value = obj(o.availability) ?? (o.state === "unavailable" ? o : null);
   return value && value.state === "unavailable" && isCollectionUnavailableReason(value.reason) ? value.reason : null;
 }

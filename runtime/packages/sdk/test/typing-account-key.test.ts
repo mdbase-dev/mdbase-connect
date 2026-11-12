@@ -39,7 +39,7 @@ describe("account key ops (AK1 §6)", () => {
     expect(await c.accountKey.status()).toEqual({ state: "idle" });
   });
   it("status codec round-trips with the allocated enum values", () => {
-    const refused = { state: "refused" as const, problem: { code: "forbidden" as const, recovery: "reauthorize" as const, message: "no", details: new Map([["reason", "not_keyed"]]) } };
+    const refused = { state: "refused" as const, problem: { code: "forbidden" as const, recovery: "reauthorize" as const, message: "no", details: { reason: "not_keyed" } } };
     const bytes = encode(accountKeyStatus.enc(refused));
     expect(accountKeyStatus.dec(decode(bytes))).toEqual(refused);
     expect((decode(bytes) as Map<number, unknown>).get(0)).toBe(4);

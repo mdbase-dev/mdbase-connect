@@ -5,7 +5,7 @@ const ID = "11111111-1111-1111-1111-111111111111", MID = "22222222-2222-2222-222
 const DOC = "# Original café\r\nviews:\r\n  - type: opaqueHost\r\n    filters: note.open\r\n    options: {custom: preserve}\r\n";
 function record(): RecordView {
   return {id: ID, path: "Views/saved.custom", revision: revisionOf(DOC), document: DOC,
-    frontmatter: new Map(), types: ["manifest-view"], state: {state: "pending", confirmedSeq: 3}};
+    frontmatter: {}, types: ["manifest-view"], state: {state: "pending", confirmedSeq: 3}};
 }
 function pending() {return new Write({mutation: MID, state: "pending", records: [record()]});}
 describe("shared source helpers use genuine SDK writes and exact caller identities", () => {

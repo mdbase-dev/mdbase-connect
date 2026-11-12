@@ -3,6 +3,7 @@ import type { MdbaseClient } from "./client.js";
 import { uuidToBytes } from "./codec.js";
 import { mdbaseError, isMdbaseError } from "./errors.js";
 import type { ContractProjection } from "./contract-query.js";
+import { fieldOf } from "./plain.js";
 import type { Session } from "./session.js";
 
 export const PERSON_CONTRACT = Object.freeze({ id: "mdbase.person", version: "2.0.0" });
@@ -60,17 +61,14 @@ export function sameIdentity(a: AccountIdentity, b: AccountIdentity): boolean { 
 function identities(value: unknown): AccountIdentity[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap(entry => {
-    if (!(entry instanceof Map)) return [];
-    const issuer: unknown = entry.get("issuer"), subject: unknown = entry.get("subject");
+    const issuer = fieldOf(entry, "issuer"), subject = fieldOf(entry, "subject");
     if (typeof issuer !== "string" || typeof subject !== "string") return [];
     return [{ issuer, subject }];
   });
 }
 type Inspection = { claims: AccountIdentity[] } & ({ reason: string } | { name: string; identities: AccountIdentity[] });
 function inspect(projection: ContractProjection): Inspection {
-  const data = projection.fields;
-  if (!(data instanceof Map)) throw responseError();
-  const name = data.get("name"), canonicalIdentities = data.get("identities");
+  const name = fieldOf(projection.fields, "name"), canonicalIdentities = fieldOf(projection.fields, "identities");
   const claims = identities(canonicalIdentities);
   const error = projection.issues.find(issue => issue.severity === "error");
   if (error) return { reason: error.message, claims };

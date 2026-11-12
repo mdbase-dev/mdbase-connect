@@ -15,7 +15,7 @@
  * definitions. */
 import type {CreateInput, MdbaseClient} from "../client.js";
 import {isMdbaseError, mdbaseError} from "../errors.js";
-import type {RecordView} from "../wire.js";
+import type { RecordView } from "../plain.js";
 
 /** Map one source record to what to create, or null to leave it out. The
  * default keeps the record's path and complete source. */

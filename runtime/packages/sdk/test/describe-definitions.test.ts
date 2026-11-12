@@ -54,7 +54,7 @@ describe("describe", () => {
   it("carries definitions and schemas when asked", async () => {
     const client = await connect({ connector: seeded().connector(), app });
     const [note] = (await client.describe({ definitions: true })).types;
-    expect((note!.definition as Map<string, unknown>).get("name")).toBe("note");
+    expect(note!.definition).toMatchObject({ name: "note" });
     expect(note!.schema).toBeDefined();
     client.close();
   });

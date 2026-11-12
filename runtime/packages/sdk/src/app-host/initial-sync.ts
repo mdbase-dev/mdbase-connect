@@ -2,6 +2,7 @@
  * log at least once, distinct from "current" (open, owned and readable). An app
  * that assesses setup or shows an empty state before this holds stale data. */
 import type { SyncStatus } from "../wire.js";
+import { fieldOf } from "../plain.js";
 
 /** Why the first catch-up has not finished yet. */
 export type AppInitialSyncWait =
@@ -40,13 +41,12 @@ export function keyWaitDetail(status: SyncStatus): Record<string, string | numbe
   const found = status.incidents.find(incident => incident.kind === "waiting_for_key");
   if (!found) return null;
   const out: Record<string, string | number> = {through: status.confirmedThrough, head: status.headKnown};
-  const d = found.details as unknown;
-  const get = (k: string): unknown => d instanceof Map ? d.get(k) : d && typeof d === "object" ? (d as Record<string, unknown>)[k] : undefined;
+  const get = (k: string) => fieldOf(found.details, k);
   const reason = get("reason");
   if (typeof reason === "string" && /^[a-z_]{1,32}$/.test(reason)) out.key = reason;
   for (const k of ["position", "at"]) {
     const v = get(k);
-    if (typeof v === "number" || typeof v === "bigint") out[k] = Number(v);
+    if (typeof v === "number") out[k] = v;
   }
   return out;
 }

@@ -18,7 +18,7 @@
  */
 import { LOCAL_APPLICATION_BUILD, localApplicationWebSocketUrl } from "../local-build.js";
 import { mdbaseError, MdbaseError, type ErrorCode } from "../errors.js";
-import type { Value } from "../wire.js";
+import type { JsonObject } from "../plain.js";
 import { relayCloseDiagnostic } from "./relay-close.js";
 import { toHex } from "../cbor.js";
 import type { MessageCarrier, WebSocketFactory, WebSocketLike } from "./noise-session.js";
@@ -43,7 +43,7 @@ export function pipeCloseError(code?: number, reason?: string): MdbaseError {
   // Only fixed protocol reasons survive: arbitrary close text can contain secrets.
   const r = typeof reason === "string" && CLOSE_REASONS.has(reason) ? reason : undefined;
   const close = relayCloseDiagnostic(code);
-  const details = new Map<string, Value>([["relayCloseCode", close.closeCode], ["relayCloseClass", close.closeClass]]);
+  const details: JsonObject = { relayCloseCode: close.closeCode, relayCloseClass: close.closeClass };
   const error = (c: ErrorCode, message: string, why: string, retryAfterMs?: number) =>
     mdbaseError(c, message, { reason: why, details, ...(retryAfterMs === undefined ? {} : { retryAfterMs }) });
   switch (close.closeCode) {
@@ -52,7 +52,7 @@ export function pipeCloseError(code?: number, reason?: string): MdbaseError {
     case 4403:
       return error("forbidden", r ?? "relay: grant inactive", r ?? "grant_inactive");
     case 4404:
-      if (r) details.set("relay", r);
+      if (r) details.relay = r;
       return error("unavailable", "no device of this collection is online", "no_device_online");
     case 4429:
       return error("rate_limited", r ?? "relay: busy", r ?? "connector_busy", 5000);

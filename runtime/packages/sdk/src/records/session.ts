@@ -1,14 +1,9 @@
 import { decode, encode, type CborValue } from "../cbor.js";
 import type { MdbaseClient, UpdateInput } from "../client.js";
 import { MdbaseError, mdbaseError } from "../errors.js";
-import { toValue, uuidv7, type PlainValue } from "../values.js";
-import {
-    receipt as receiptCodec,
-    type FmMap,
-    type Problem,
-    type Receipt,
-    type RecordView,
-} from "../wire.js";
+import { toPlain, toValue, uuidv7, type PlainValue } from "../values.js";
+import type { JsonValue, Receipt, RecordView } from "../plain.js";
+import type { Problem } from "../wire.js";
 import {
     complete,
     confirmed,
@@ -16,7 +11,7 @@ import {
     include,
     problem,
     isProtected,
-    recordBytes,
+    retainedBytes,
     refusal,
     textBytes,
     timeout,
@@ -166,7 +161,9 @@ export class RecordSessionImpl {
                 input === undefined
                     ? undefined
                     : decode(encode(toValue(input)));
-            const before = this.base.frontmatter.get(key);
+            const before = Object.hasOwn(this.base.frontmatter, key)
+                ? toValue(this.base.frontmatter[key])
+                : undefined;
             if (
                 !this.captured?.patch.has(key) &&
                 ((value === undefined && before === undefined) ||
@@ -202,12 +199,12 @@ export class RecordSessionImpl {
         captured = this.captured,
     ): void {
         let bytes =
-            recordBytes(base) +
+            retainedBytes(base) +
             textBytes(body) +
             encode(new Map([...patch].map(([k, v]) => [k, v ?? null])))
                 .byteLength *
                 2;
-        if (remote) bytes += recordBytes(remote);
+        if (remote) bytes += retainedBytes(remote);
         if (captured)
             bytes +=
                 textBytes(captured.body) +
@@ -217,29 +214,27 @@ export class RecordSessionImpl {
                     ),
                 ).byteLength *
                     2;
-        if (receipt) bytes += encode(receiptCodec.enc(receipt)).byteLength * 2;
+        if (receipt) bytes += retainedBytes(receipt);
         this.reserve(bytes);
     }
     private publish(): void {
         this.charge();
-        const fm: FmMap = new Map(this.base.frontmatter);
+        const fm = new Map<string, JsonValue>(
+            Object.entries(this.base.frontmatter),
+        );
         for (const [k, v] of this.patch) {
             if (v === undefined) fm.delete(k);
-            else fm.set(k, v);
+            else fm.set(k, toPlain(v));
         }
         this.snapshot = Object.freeze({
             state: this.state,
             body: this.body,
-            frontmatter: decode(encode(fm)) as FmMap,
+            frontmatter: structuredClone(Object.fromEntries(fm)),
             record: copy(this.base),
             remote: this.remote ? copy(this.remote) : null,
             dirty: this.dirty,
             problem: this.why,
-            lastReceipt: this.lastReceipt
-                ? receiptCodec.dec(
-                      decode(encode(receiptCodec.enc(this.lastReceipt))),
-                  )
-                : null,
+            lastReceipt: this.lastReceipt ? copy(this.lastReceipt) : null,
             recovery: this.captured
                 ? Object.freeze({ ...this.captured.recovery })
                 : null,

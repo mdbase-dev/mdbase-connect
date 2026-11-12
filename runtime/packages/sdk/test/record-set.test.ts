@@ -52,7 +52,7 @@ describe("a record set", () => {
     await vi.waitFor(() => expect(paths(set)).toEqual(["notes/a.md", "notes/b.md"]));
     expect(set.getSnapshot()).not.toBe(before);
     replica.editElsewhere(a.id, { frontmatter: { title: "changed" } });
-    await vi.waitFor(() => expect(set.get(a.id)?.frontmatter.get("title")).toBe("changed"));
+    await vi.waitFor(() => expect(set.get(a.id)?.frontmatter.title).toBe("changed"));
     replica.renameElsewhere(a.id, "notes/moved.md");
     await vi.waitFor(() => expect(paths(set)).toEqual(["notes/b.md", "notes/moved.md"]));
     replica.deleteElsewhere(a.id);

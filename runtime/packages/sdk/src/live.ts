@@ -3,7 +3,8 @@
  * `diff`s; `reset` means "a new snapshot follows". Because updates describe state,
  * applying them in order always gives the replica's current result.
  */
-import type { QueryMetadata, QueryUpdate, RecordView, Uuid } from "./wire.js";
+import type { Uuid } from "./wire.js";
+import type { QueryMetadata, QueryUpdate, RecordView } from "./plain.js";
 
 export interface LiveQueryState {
   /** The current result, in result order. */

@@ -238,7 +238,7 @@ describe("shared native record leases", () => {
             body: "Original body\n",
             dirty: false,
         });
-        expect(lease.session.getSnapshot().frontmatter.get("title")).toBe(
+        expect(lease.session.getSnapshot().frontmatter.title).toBe(
             "Original",
         );
         lease.release();
@@ -347,9 +347,10 @@ describe("shared native record leases", () => {
             lease = await f.client.records.open(f.record.id),
             snap = lease.session.getSnapshot();
         expect(lease.session.getSnapshot()).toBe(snap);
-        snap.record.frontmatter.set("title", "tampered");
+        snap.record.frontmatter.title = "tampered";
+        snap.frontmatter.title = "tampered";
         lease.session.setBody("changed");
-        expect(lease.session.getSnapshot().frontmatter.get("title")).toBe(
+        expect(lease.session.getSnapshot().frontmatter.title).toBe(
             "Original",
         );
         lease.release();

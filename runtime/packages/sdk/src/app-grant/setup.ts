@@ -4,7 +4,7 @@ import { MdbaseError, isMdbaseError, mdbaseError } from "../errors.js";
 import { uuidToBytes } from "../codec.js";
 import type { CborValue } from "../cbor.js";
 import {isReplicaResponseProblem, type Session} from "../session.js";
-import type { Receipt } from "../wire.js";
+import type { Receipt } from "../plain.js";
 import { resourceDecisions } from "../app-host/collection-control.js";
 import { setupPlan, setupRecords, type MdbaseSetupPlan, type MdbaseSetupPlanOptions } from "../application/setup.js";
 import { manifestDigest } from "../application/registration.js";

@@ -45,11 +45,9 @@ import {
   AccountKeyStatus,
 } from "./private.js";
 import {
-  BacklinksResult,
   backlinksResult,
   ResolveLinksResult,
   resolveLinksResult,
-  DescribeResult,
   describeResult,
   newTypeFile,
   DescribeTypingResult,
@@ -58,21 +56,22 @@ import {
   DESCRIBE_TYPING_MAX_TYPES,
   listPendingResult,
   listResourcesResult,
-  PendingMutation,
   Preflight,
   ResourceView,
   resourceView,
   ViewSourceDocument,
 } from "./wire.js";
 import { memoryWriteLedgerStore, WriteLedger, type WriteLedgerStore, type WriteLedgerView } from "./write-ledger.js";
-import type { Problem } from "./wire.js";
+import { decodePlain, plainAnswer, type Codec } from "./codec.js";
+import type { Plain } from "./plain.js";
+import type { BacklinksResult, ConflictEntry, DescribeResult, PendingMutation, QueryResult, QueryUpdate, Receipt, RecordView } from "./plain.js";
+import type { HelloResult, Hold, Problem, SyncStatus } from "./wire.js";
 import {
   BaseField,
   BodyEdit,
   changesResult,
   ChangesResult,
   conflictEntry,
-  ConflictEntry,
   ConflictMode,
   fenceApply,
   FenceApply,
@@ -81,27 +80,20 @@ import {
   fenceResult,
   FmMap,
   hold,
-  Hold,
   HoldResolution,
   holdResolution,
-  HelloResult,
   include as includeCodec,
   Include,
   Op,
   queryResult,
-  QueryResult,
   queryUpdate,
-  QueryUpdate,
   receipt as receiptCodec,
-  Receipt,
   recordView,
-  RecordView,
   submitParams,
   SubmitParams,
   ValidationLevel,
   submitResult,
   syncStatus,
-  SyncStatus,
   appliedPrefix as appliedPrefixCodec,
   appliedPrefixParams,
   AppliedPrefix,
@@ -822,12 +814,18 @@ export class MdbaseClient {
   /**
    * Advanced: run a request on the current session; on a dropped link, wait for the
    * reconnect and retry when `retry` (idempotent requests only).
+   *
+   * With a `codec` the answer is decoded and its values are plain JSON, as from
+   * every other method. Without one it is the exact CBOR answer: decode that
+   * with a `wire` codec to keep `Map` order, `Float64` and `bigint`.
    */
-  async call<T = CborValue>(
+  call(method: string, p: CborValue, o?: { signal?: AbortSignal; retry?: boolean }): Promise<CborValue>;
+  call<T>(method: string, p: CborValue, o: { signal?: AbortSignal; codec: Codec<T>; retry?: boolean }): Promise<Plain<T>>;
+  async call<T>(
     method: string,
     p: CborValue,
-    o: { signal?: AbortSignal; codec?: import("./codec.js").Codec<T>; retry?: boolean } = {},
-  ): Promise<T> {
+    o: { signal?: AbortSignal; codec?: Codec<T>; retry?: boolean } = {},
+  ): Promise<CborValue | Plain<T>> {
     // Pin the decoder before any route/request await. Observation must use the
     // SAME codec passed to dispatch, not caller options mutated while pending.
     const codec = o.codec;
@@ -835,7 +833,10 @@ export class MdbaseClient {
     for (;;) {
       const s = read ? await this.readyForRead(o.signal, !o.retry) : o.retry ? await this.ready(o.signal) : this.currentSession();
       try {
-        const r = await s.request(method, p, { ...(o.signal ? { signal: o.signal } : {}), ...(codec ? { codec } : {}) });
+        const r = await s.request<CborValue | Plain<T>>(method, p, {
+          ...(o.signal ? { signal: o.signal } : {}),
+          ...(codec ? { codec: plainAnswer(codec) } : {}),
+        });
         if (read && (s !== this.session || s.closed || this.closing)) {
           if (o.retry && !this.closing) continue;
           throw mdbaseError("unavailable", "the session changed during the read", { reason: "reconnecting" });
@@ -887,7 +888,7 @@ export class MdbaseClient {
       if (this.fenceReads && this.session !== s) return;
       let u: QueryUpdate;
       try {
-        u = queryUpdate.dec(p);
+        u = decodePlain(queryUpdate, p);
       } catch {
         return;
       }
@@ -905,7 +906,7 @@ export class MdbaseClient {
     });
     s.onPush("receipt", (p) => {
       try {
-        const r = receiptCodec.dec(p);
+        const r = decodePlain(receiptCodec, p);
         if (this.session === s) this.noteReceipt(r);
         const w = this.writes.get(r.mutation);
         if (w) {
@@ -938,7 +939,7 @@ export class MdbaseClient {
     });
     s.onPush("conflicts", (p) => {
       try {
-        this.emitConflicts(list(conflictEntry).dec(p));
+        this.emitConflicts(decodePlain(list(conflictEntry), p));
       } catch {
         // ignore
       }
@@ -1207,7 +1208,7 @@ export class MdbaseClient {
   async getContract(ref: RecordRef, contract: ContractSelector, signal?: AbortSignal): Promise<ContractRecordView> {
     const r = await this.contractCall("get_contract_v1", params([
       [0, 1], [1, refValue(ref)], [2, contract.id], [3, contract.version], [4, contract.type],
-    ]), contractRecordWire, signal);
+    ]), (answer) => decodePlain(contractRecordWire, answer), signal);
     if (r.version !== 1) throw mdbaseError("upgrade_required", "unsupported contract record", "contract_records_unsupported");
     return {
       id: r.id, path: r.path, revision: r.revision, fields: r.fields,
@@ -1228,18 +1229,23 @@ export class MdbaseClient {
       [0, 1], [1, contract.id], [2, contract.version], [3, contract.type],
       [4, target === undefined ? undefined : refValue(target)], [5, fields], [6, unset?.length ? unset : undefined],
       [7, promote ? true : undefined],
-    ]), contractWritePlan, signal);
+      // Exact: the plan's patch and base go back in an op unchanged.
+    ]), contractWritePlan.dec, signal);
     if (plan.version !== 1) throw mdbaseError("upgrade_required", "unsupported contract write plan", "contract_records_unsupported");
     return plan;
   }
 
-  private contractCall<T>(method: string, p: CborValue, codec: import("./codec.js").Codec<T>, signal?: AbortSignal): Promise<T> {
-    return this.call(method, p, { codec, retry: true, ...(signal ? { signal } : {}) }).catch((e: unknown) => {
+  private async contractCall<T>(method: string, p: CborValue, decode: (answer: CborValue) => T, signal?: AbortSignal): Promise<T> {
+    let answer: CborValue;
+    try {
+      answer = await this.call(method, p, { retry: true, ...(signal ? { signal } : {}) });
+    } catch (e) {
       if (isMdbaseError(e, "invalid_request") && e.reason === "unknown_method") {
         throw mdbaseError("upgrade_required", "this replica does not serve contract-scoped records", "contract_records_unsupported");
       }
       throw e;
-    });
+    }
+    try { return decode(answer); } catch (e) { throw schemaToError(e, `${method} result`); }
   }
 
   /** Bounded ordered ordinary gets. Missing/refused reads fail the batch;
@@ -1934,8 +1940,10 @@ export class MdbaseClient {
       const base: BaseField[] = [];
       const touched = [...(op.patch?.keys() ?? []), ...(op.unset ?? [])];
       for (const k of new Set(touched)) {
-        const v = seen.frontmatter.get(k);
-        base.push(v === undefined ? { key: k } : { key: k, observed: v });
+        // Core compares `observed` by value (`1` is `1.0`, key order is free), so
+        // the plain value read is the value seen.
+        const v = Object.hasOwn(seen.frontmatter, k) ? seen.frontmatter[k] : undefined;
+        base.push(v === undefined ? { key: k } : { key: k, observed: toValue(v) });
       }
       if (base.length) op.base = base;
     }
@@ -1943,8 +1951,8 @@ export class MdbaseClient {
     // should not create conflicts.
     if (seen && op.patch) {
       for (const [k, v] of [...op.patch]) {
-        const cur = seen.frontmatter.get(k);
-        if (cur !== undefined && valueEquals(cur, v)) {
+        const cur = Object.hasOwn(seen.frontmatter, k) ? seen.frontmatter[k] : undefined;
+        if (cur !== undefined && valueEquals(toValue(cur), v)) {
           op.patch.delete(k);
           op.base = op.base?.filter((b) => b.key !== k);
         }

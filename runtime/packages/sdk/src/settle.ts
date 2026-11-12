@@ -6,7 +6,8 @@
 import { isMdbaseError, MdbaseError } from "./errors.js";
 import type { MdbaseClient, RecordRef, Write } from "./client.js";
 import type { ContractRecordView, ContractSelector } from "./contract-records.js";
-import type { Conflict, Include, Problem, Receipt, RecordView, Uuid } from "./wire.js";
+import type { Conflict, Receipt, RecordView } from "./plain.js";
+import type { Include, Problem, Uuid } from "./wire.js";
 
 /** Which record to read back once the write is kept, and how. */
 export interface SettleRead {
