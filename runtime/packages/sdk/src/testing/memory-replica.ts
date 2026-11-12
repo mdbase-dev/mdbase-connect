@@ -78,6 +78,8 @@ export interface MemoryReplicaOptions {
    * field, which is what `seedType` and the replica itself write. Pass the
    * app's YAML parser when the app writes type files or `document`s. */
   parse?: (document: string) => { frontmatter: Record<string, PlainValue>; body: string };
+  /** The collection settings `describe` reports (default: none). */
+  settings?: Record<string, PlainValue>;
 }
 
 /** A request `failNextRead` and `pauseReads` can target, by the client
@@ -806,7 +808,7 @@ export class MemoryReplica {
         return w.describeResult.enc({
           specVersion: "0.3.0-rc.5",
           types: summaries,
-          settings: new Map(),
+          settings: new Map(Object.entries(this.opts.settings ?? {}).map(([k, v]) => [k, toValue(v)])),
           inclusion: { include: ["image", "audio", "video", "pdf", "other"] },
           issues: [],
           contracts: this.contractSummaries(summaries),

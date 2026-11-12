@@ -86,9 +86,19 @@ change reads as `while`.
   `summarizeSync({ status, problem, transport, live })`.
 - `StatusSummary.kind`: `synced` is `state: "saved"`; `local` is
   `connection: "local"`; `catching_up` and `installing` are
-  `state: "catching_up"`; `offline` is `connection`, split into `offline` and
-  `reconnecting`; a refusal is in `attention`.
-- `StatusSummary.text` is removed. No app read it.
+  `state: "catching_up"`; a refusal is in `attention`.
+- `kind === "offline"` meant no network or a service that did not answer. That
+  is exactly `sync.connection === "offline" || sync.health === "unreachable"`.
+  `connection === "reconnecting"` is wider: it also covers a busy or
+  rate-limited service, a replica that is still connecting, and a closed link.
+  An app that showed "Offline" for the old kind and wants the same moments
+  uses the expression above, not `connection !== "online"`.
+- A first download no longer has its own kind. An app that words it
+  differently from catching up reads `client.status.installing`, which is set
+  (with `done` and `total`) while the collection is first loaded.
+- `StatusSummary.text` is removed. The words are the app's: choose them from
+  `sync.state`. For a refusal by the service, `phase.problem` has the title and
+  message.
 - `snapshot.writes` is `snapshot.sync.writes`.
 - `snapshot.saveWarning` still exists for app-ui's `CollectionSaveWarning` and
   goes once that reads `sync.attention`.

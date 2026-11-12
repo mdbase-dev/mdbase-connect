@@ -131,7 +131,7 @@ export interface TypeCreation {
 export interface DescribeOptions {
   /** Include type definitions/schemas and contract schemas. */
   definitions?: boolean;
-  signal?: AbortSignal;
+  signal?: AbortSignal | undefined;
 }
 
 /** The link between this client and its replica (not the replica's sync state). */
@@ -282,9 +282,10 @@ export interface UpdateInput {
   promote?: boolean;
 }
 
-/** What every read takes. */
+/** What every read takes. `signal` may be passed as `undefined`, so a caller's
+ * own optional signal goes straight in under `exactOptionalPropertyTypes`. */
 export interface ReadOptions {
-  signal?: AbortSignal;
+  signal?: AbortSignal | undefined;
 }
 
 /** A read that returns records. */
@@ -2091,7 +2092,7 @@ export class MdbaseClient {
 
   /** Resolves when the receipt leaves `pending`, or at `o.timeoutMs` with the
    * pending receipt. `o.signal` cancels the wait. */
-  awaitReceipt(mutation: Uuid, o: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<Receipt> {
+  awaitReceipt(mutation: Uuid, o: { timeoutMs?: number | undefined; signal?: AbortSignal | undefined } = {}): Promise<Receipt> {
     return this.call(
       "await",
       params([
