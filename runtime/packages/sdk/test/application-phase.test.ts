@@ -24,6 +24,18 @@ it("a scoped wrong-account refusal names only the original account and offers th
   expect(phase.problem.message).not.toContain("recovery_account_mismatch");expect(phase.problem.message).not.toContain(A);
 });
 
+it("takes the person's language for every described problem and notice",()=>{
+  const messages={access_removed:{title:"Accès retiré",message:"Demandez à nouveau l'accès."},recovery_account_mismatch:{title:"Autre compte"},unlock_failed:{message:"Réessayez."},refused:{title:"Connexion refusée"}};
+  expect(applicationPhase(snap({status:"blocked",problem:"access_removed"}),{messages})).toMatchObject({kind:"problem",problem:{key:"access_removed",title:"Accès retiré",message:"Demandez à nouveau l'accès."}});
+  // The account label still fills the untranslated message.
+  expect(applicationPhase(snap({status:"blocked",problem:"recovery_account_mismatch",recoveryAccountLabel:"a@example.test"}),{messages}))
+    .toMatchObject({kind:"problem",problem:{title:"Autre compte",message:"This collection belongs to a@example.test. Sign in as a@example.test to continue."}});
+  const signedOut=applicationPhase(snap({status:"signed_out",selectedCollectionId:null,problem:"refused"}),{messages});
+  expect(signedOut).toMatchObject({kind:"signed_out",notice:{title:"Connexion refusée"}});
+  // The SDK's own module, with no options, is unchanged.
+  expect(applicationPhase(snap({status:"blocked",problem:"access_removed"}))).not.toMatchObject({problem:{title:"Accès retiré"}});
+});
+
 it("ready holds through re-checks and transient results; a settled non-ready outcome replaces it",()=>{
   const ready=applicationPhase(snap({}),{connection});
   expect(ready).toMatchObject({kind:"ready",collectionId:A,rechecking:false,problem:null});
