@@ -4604,6 +4604,8 @@ MdbaseConnectOptions@application/entry.ts
   readonly readiness?: { readonly typeIssues?: 'block' | 'degrade'; } | undefined
   readonly signIn?: MdbaseSignInOpener | undefined
   readonly unsynced?: boolean | undefined
+  readonly urlSelection?: boolean | undefined
+  readonly worker?: ((url: string) => Worker) | undefined
 
 MdbaseError@errors.ts
   cause?: unknown

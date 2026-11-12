@@ -569,6 +569,35 @@ extension popup) resumes it on the next `start()`. Run extension sign-in from a
 side panel or tab page where possible. Without `followVisibility`, call
 `application().setForeground(active)` from the shell's resume/pause events.
 
+### Running inside another app's document
+
+A host app that runs the SDK in a document without a URL of its own (a `blob:`
+iframe inside a mobile WebView, for example) passes two options:
+
+```ts
+const workerScript = await (await fetch(sdkWorkerUrl)).text(); // the SDK's own worker.js
+const workerBlob = URL.createObjectURL(new Blob([workerScript], { type: "text/javascript" }));
+const mdbase = createMdbase(declaration, {
+  urlSelection: false,                                        // select with select()/approve()
+  worker: url => new Worker(workerBlob, { type: "module" }), // url: where worker.js is served
+});
+```
+
+- `urlSelection: false`: the SDK never reads or writes the page URL. A link or
+  Back/forward no longer selects a collection, and the app selects with
+  `select`, `approve` and `clearSelection`. The last-used collection is still
+  remembered on the device. Without it, a `blob:` document reports
+  `application_selection_binding`.
+- `worker`: the SDK calls it with the URL it would load its module Worker from
+  (`worker.js` beside the SDK's entry module). Return a module Worker running
+  that script's exact bytes. The Worker loads `runtime.wasm`, `sqlite3.wasm`
+  and `sqlite3.js` from `../native/` beside that URL, so serve the SDK's
+  `dist/application` and `dist/native` files there; their bytes are still
+  checked against the SDK's pins. A factory that throws or returns no Worker
+  fails with `application_worker_unavailable`.
+
+Both default to the ordinary behaviour, and a bundler-built app needs neither.
+
 ## Multiple vaults on one origin
 
 Give each vault a stable, distinct `storage.applicationNamespace` (different

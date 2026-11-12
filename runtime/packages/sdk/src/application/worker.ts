@@ -20,13 +20,17 @@ async function initialize(event:MessageEvent<unknown>):Promise<void> {
   const port=event.ports[0],value=event.data;
   let binding:string|null=null;
   try{
-    if(!port||event.ports.length!==1||!Array.isArray(value)||(value.length!==3&&value.length!==4)||value[0]!==APPLICATION_WORKER_PROTOCOL||!applicationWorkerBinding(value[1]))throw new ApplicationWorkerError("application_worker_binding");
+    // [protocol, binding, declaration, namespace?] from the SDK's own Worker;
+    // a Worker the host constructed (the `worker` option) also gets the URL it
+    // stands for, as [protocol, binding, declaration, namespace|null, url].
+    if(!port||event.ports.length!==1||!Array.isArray(value)||value.length<3||value.length>5||value[0]!==APPLICATION_WORKER_PROTOCOL||!applicationWorkerBinding(value[1]))throw new ApplicationWorkerError("application_worker_binding");
     binding=value[1];
     const declaration=applicationDeclaration(value[2]);
-    const storageNamespace=value.length===4?value[3]:null;
+    const storageNamespace=value.length>=4?value[3]:null,anchor=value.length===5?value[4]:undefined;
     if(storageNamespace!==null&&(typeof storageNamespace!=="string"||storageNamespace!==declaration.storage.applicationNamespace))throw new ApplicationWorkerError("application_worker_binding");
+    if(anchor!==undefined&&typeof anchor!=="string")throw new ApplicationWorkerError("application_worker_binding");
     if(declaration.origin!==currentAppOrigin())throw new ApplicationWorkerError("application_worker_binding");
-    const packaged=packagedApplicationAssets(declaration.environment,declaration.origin);
+    const packaged=packagedApplicationAssets(declaration.environment,declaration.origin,anchor);
     // All startup requests remain queued on the SAME unstarted MessagePort.
     // No profile, journal, key or native actor exists until this original
     // bootstrap has validated its immutable declaration and asset selection.
