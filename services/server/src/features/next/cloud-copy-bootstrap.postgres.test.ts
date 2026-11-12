@@ -1053,8 +1053,6 @@ describePg("cloud-copy bootstrap", () => {
     const root = Buffer.from(config.policyCert.root_key_id, "hex");
     await expect(inTransaction(db, client => registerNextCollection(client, { collectionId: collection, ownerUserId: who.connector.user_id, runtime: "next", sync: "cloud_copy", rootKeyId: root,
       ops: [{ op: "genesis", owner: who.connector.user_id, root, state: "cloud-copy" }, { op: "member-set", account: who.connector.user_id, role: "owner" }] }))).rejects.toMatchObject({ code: "collection_exists" });
-    await expect(db.query("INSERT INTO next_collections(collection_id,owner_user_id,runtime,sync,root_key_id) VALUES($1,$2,'next','cloud_copy',$3)", [collection, who.connector.user_id, root]))
-      .rejects.toMatchObject({ code: "23514" });
     expect(await registered(collection)).toBe(false);
     // The owner's own hosted collection becomes native under the same ID.
     const options = { db, next: config, emitter, log: client, fetchImpl: deployments.fetch };

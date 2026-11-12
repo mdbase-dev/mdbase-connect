@@ -25,8 +25,7 @@ export class CreateError extends Error {
 }
 
 /** Refuse a collection ID that another account holds in any collection table; the
- * same account's hosted or local collection may become native. Migration 0104's
- * insert trigger holds the same predicate. */
+ * same account's hosted or local collection may become native. */
 export async function refuseCollectionIdOfOther(client: DatabaseQueryable, collection: string, owner: string): Promise<void> {
   const held = await client.query(
     `SELECT 1 FROM hosted_collections WHERE id = $1 AND user_id <> $2
