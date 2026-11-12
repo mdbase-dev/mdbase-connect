@@ -1,3 +1,5 @@
+use crate::provider::migration_compat;
+
 const PRODUCTION_MIGRATION_BASELINE: u64 = 34;
 const MAX_INDEX_INVENTORY_PAGE: u32 = 1_000;
 const MAX_DERIVED_VERIFICATION_PAGE: i64 = 16;
@@ -19,22 +21,28 @@ impl HostedProvider {
                 .ok_or_else(|| ApiError::internal("Embedded hosted migration inventory is empty."))?,
             "embedded hosted migration target",
         )?;
-        let applied_migrations =
-            sqlx::query("SELECT version, checksum, success FROM _sqlx_migrations")
-                .fetch_all(&self.pool)
-                .await?;
+        let applied_migrations: Vec<migration_compat::AppliedMigration> = sqlx::query_as(
+            "SELECT version, success, checksum FROM _sqlx_migrations ORDER BY version",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        let compatible_migrations = {
+            let mut connection = self.pool.acquire().await?;
+            migration_compat::recorded_compatible_migrations(&mut connection)
+                .await
+                .map_err(|_| {
+                    ApiError::internal("Hosted rollback-compatible migrations could not be read.")
+                })?
+        };
         // Current index verification requires exactly this binary's inventory,
         // independently of the migrator's historical ignore_missing policy.
-        let migration_ledger_valid = !expected_migrations.migrations.is_empty()
-            && applied_migrations.len() == expected_migrations.migrations.len()
-            && expected_migrations.migrations.iter().all(|migration| {
-                applied_migrations.iter().any(|row| {
-                    row.get::<i64, _>("version") == migration.version
-                        && row.get::<bool, _>("success")
-                        && row.get::<Vec<u8>, _>("checksum").as_slice()
-                            == migration.checksum.as_ref()
-                })
-            });
+        // Newer migrations are accepted only when recorded rollback-compatible
+        // with their applied checksum, as for provider startup.
+        let migration_ledger_valid = migration_compat::catalog_fully_applied(
+            &expected_migrations,
+            &applied_migrations,
+            &compatible_migrations,
+        );
         let schema_valid: bool = sqlx::query_scalar(
             r#"SELECT to_regclass('public.hosted_provider_projection_generations') IS NOT NULL
                     AND to_regclass('public.hosted_provider_record_projections') IS NOT NULL

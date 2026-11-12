@@ -127,7 +127,9 @@ test("same-configuration Rust checks run once and remain required for qualificat
   }
   // The ignored PostgreSQL provider tests run in the same required job.
   assert.match(rust, /image: postgres:18-alpine/);
-  assert.match(rust, /--test mutation_abandon --test lifecycle_diagnostics --test sync_stored_errors\s+--test file_control_stored_errors --test file_upload_retries\s+-- --ignored/);
+  assert.match(rust, /run: scripts\/ci\/hosted-provider-postgres-tests\n/);
+  const postgresTests = readFileSync(new URL("../ci/hosted-provider-postgres-tests", import.meta.url), "utf8");
+  assert.match(postgresTests, /--test mutation_abandon --test lifecycle_diagnostics --test sync_stored_errors\s+\\\s+--test file_control_stored_errors --test file_upload_retries\s+\\\s+--test migration_rollback_compat\s+\\\s+"\$@" -- --ignored/);
   for (const block of [rust, shards]) {
     assert.ok(block.includes("cp deploy/docker/Cargo.lock.hosted-provider Cargo.lock"));
     assert.ok(block.includes("cargo build --locked --workspace"));
@@ -199,7 +201,9 @@ test("Rust caches are restored by CI jobs and written only by rust-caches.yml fr
       assert.ok(warmed.has(key), `${name} restores ${key}, which rust-caches.yml does not write`);
     }
   }
-  assert.equal(consumers, 5);
+  // hosted-provider-rust, the migration rollback gate's previous release,
+  // and the system, desktop and flake-stress consumers.
+  assert.equal(consumers, 6);
 });
 
 test("Windows headless smoke reuses the Store package job's daemon build", () => {

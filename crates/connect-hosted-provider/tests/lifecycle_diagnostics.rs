@@ -11,6 +11,9 @@ use uuid::Uuid;
 
 #[allow(dead_code, unused_imports)]
 mod support;
+#[allow(dead_code)]
+#[path = "support/test_postgres.rs"]
+mod test_postgres;
 use support::FileLifecycleFixture;
 
 const DATABASE_ENV: &str = "MDBASE_CONNECT_PROVIDER_DIAGNOSTICS_TEST_DATABASE_URL";
@@ -47,6 +50,7 @@ async fn provider_lifecycle_aggregates_use_production_sql() {
         .expect("create isolated schema");
     url.query_pairs_mut()
         .append_pair("options", &format!("-csearch_path={schema}"));
+    test_postgres::apply_newer_hosted_migrations(url.as_str()).await;
 
     let observed = AssertUnwindSafe(async {
         let fixture = FileLifecycleFixture::new(url.as_str()).await;

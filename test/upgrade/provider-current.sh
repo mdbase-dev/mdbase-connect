@@ -39,20 +39,32 @@ current_provider_upgrade() {
   # Always try the actual published predecessor against the candidate database.
   # A known schema refusal is evidence of *incompatibility*, not rollback success.
   # Other failures (timeouts, R2, corrupted ledgers, crashes) fail this test.
+  # A predecessor with the tolerant runner must instead serve beside newer
+  # migrations that are all recorded rollback-compatible
+  # (docs/hosted-provider-migrations.md).
+  local tolerant_newer=false
+  if ((candidate_max > predecessor_max)) &&
+    git -C "$repo_root" show "$MDBASE_CONNECT_PREVIOUS_RELEASE_COMMIT:crates/connect-hosted-provider/src/provider.rs" |
+      grep -xF 'pub const MIGRATION_ROLLBACK_TOLERANCE: &str = "marked-v1";' >/dev/null &&
+    [[ $(rollback_sql "SELECT count(*) FROM _sqlx_migrations m WHERE m.version > $predecessor_max AND NOT (m.success AND EXISTS (SELECT 1 FROM hosted_provider_rollback_compatible_migrations r WHERE r.version = m.version AND r.checksum = m.checksum))") == 0 ]]
+  then
+    tolerant_newer=true
+  fi
   CANDIDATE_IMAGE=$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE
   start_candidate_provider "$previous"
-  if ((candidate_max > predecessor_max)); then
+  if ((candidate_max > predecessor_max)) && [[ $tolerant_newer != true ]]; then
     [[ $(timeout 45s docker wait "$previous") == 1 ]]
     docker logs "$previous" >"$work/predecessor-refusal.private.log" 2>&1
     grep -Fq "hosted migration ledger is not an exact successful catalog prefix at $((predecessor_max + 1))" \
       "$work/predecessor-refusal.private.log"
     rollback_result=refused-unknown-migration
   else
-    upgrade_wait_http "$UPGRADE_PROVIDER_URL/ready" 'same-schema predecessor' 30 2
+    upgrade_wait_http "$UPGRADE_PROVIDER_URL/ready" 'same-schema or compatible-schema predecessor' 30 2
     probe replay
     probe enforce
     probe cancel-import-retry
     rollback_result=fixture-compatible
+    [[ $tolerant_newer != true ]] || rollback_result=compatible-newer-migration
   fi
   [[ $(inventory) == "$baseline" ]]
   upgrade_remove_container "$previous"

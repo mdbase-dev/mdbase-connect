@@ -8,7 +8,7 @@ use uuid::Uuid;
 use crate::{
     error::{ApiError, ApiResult},
     key_wrapping::{KeyWrapErrorKind, KeyWrapInspection, KeyWrappingRuntime},
-    provider::hosted_migrator,
+    provider::run_hosted_migrator,
     ProviderCrypto,
 };
 
@@ -81,7 +81,7 @@ impl HostedKeyAdmin {
             })
             .connect(database_url)
             .await?;
-        hosted_migrator().run(&pool).await.map_err(|error| {
+        run_hosted_migrator(&pool).await.map_err(|error| {
             tracing::error!(%error, "hosted key administration migration check failed");
             ApiError::internal("The hosted provider database migration check failed.")
         })?;
@@ -355,7 +355,7 @@ mod tests {
             .connect(&database_url)
             .await
             .unwrap();
-        hosted_migrator().run(&pool).await.unwrap();
+        run_hosted_migrator(&pool).await.unwrap();
         let legacy = ProviderCrypto::with_key_wrapping(
             KeyWrappingRuntime::legacy(LegacyKeyWrapper::from_base64(legacy_value).unwrap()),
             "staging",

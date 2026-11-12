@@ -7,6 +7,12 @@ use uuid::Uuid;
 
 const APPROVAL_ENV: &str = "MDBASE_APPROVE_DESTRUCTIVE_HOSTED_TESTS";
 const EXACT_APPROVAL: &str = "operation_dispatch_uuid_schema_v1";
+/// Connect CI's rollback gate sets this to a newer release's hosted-provider
+/// migrations directory. Every disposable schema then starts with that
+/// release's whole migration ledger applied, as if it had been deployed, so
+/// this (older) build's tests run against the newer schema through its own
+/// tolerant startup. See docs/hosted-provider-migrations.md.
+const NEWER_MIGRATIONS_ENV: &str = "MDBASE_TEST_NEWER_HOSTED_MIGRATIONS";
 
 static SERIAL_TESTS: OnceLock<Arc<Mutex<()>>> = OnceLock::new();
 
@@ -72,9 +78,11 @@ impl DisposablePostgres {
 
         url.query_pairs_mut()
             .append_pair("options", &format!("-csearch_path={schema}"));
+        let scoped_url: String = url.into();
+        apply_newer_hosted_migrations(&scoped_url).await;
         Self {
             base_url,
-            scoped_url: url.into(),
+            scoped_url,
             schema,
             _serial: serial,
         }
@@ -82,6 +90,19 @@ impl DisposablePostgres {
 
     pub fn url(&self) -> &str {
         &self.scoped_url
+    }
+}
+
+/// Apply the rollback gate's newer migrations to a fresh disposable schema,
+/// when the gate asked for them; otherwise do nothing.
+pub async fn apply_newer_hosted_migrations(scoped_url: &str) {
+    if let Some(migrations) = std::env::var_os(NEWER_MIGRATIONS_ENV) {
+        mdbase_connect_hosted_provider::apply_newer_migrations_for_rollback_gate(
+            scoped_url,
+            std::path::Path::new(&migrations),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("newer hosted migrations apply: {error}"));
     }
 }
 

@@ -29,6 +29,8 @@ const nativeFiles = new Set([
   "runtime/Cargo.lock",
   "runtime/rust-toolchain.toml",
   "scripts/check-cargo-features",
+  "scripts/ci/hosted-provider-postgres-tests",
+  "scripts/ci/provider-migration-rollback-gate",
   ".github/previous-release.env",
   ".github/retained-v2-predecessor.env",
   ".github/workflows/server-ci.yml",

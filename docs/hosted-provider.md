@@ -16,7 +16,9 @@ store, and key hierarchy are ready. Startup also attempts one bounded
 notification recovery pass, but the reverse callback into the Connect control
 plane is durable background work rather than a startup or readiness dependency.
 This keeps readiness acyclic because Connect itself checks the provider before
-advertising its own readiness.
+advertising its own readiness. How migrations are written, and when an older
+provider may start beside newer ones, is in
+[hosted-provider-migrations.md](hosted-provider-migrations.md).
 
 `/ready` includes the current notification recovery state. `pending` and
 `degraded` remain HTTP 200 core-readiness responses: deployment health checks
