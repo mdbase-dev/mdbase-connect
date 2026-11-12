@@ -308,7 +308,7 @@ export const INTERNAL_PROBLEM_CODES = [
   "too_long", "trailing_bytes", "tstr", "uint", "unencodable", "unexpected_end", "unsorted_keys", "utf8", "uuid", "value",
   "unknown_method", "unknown_variant", "unsupported", "storage", "noise", "declared_setup_codec",
   // In-memory test replica and contracts.
-  "body", "data_contract_ambiguous", "data_contract_field_conflict", "data_contract_field_unmapped", "data_contract_not_found",
+  "body", "cursor_stale", "data_contract_ambiguous", "data_contract_field_conflict", "data_contract_field_unmapped", "data_contract_not_found",
   "data_contract_not_implemented", "data_contract_promote_typed", "digest_mismatch", "invalid_type_definition", "path_taken",
   "revision", "size_mismatch", "transfer_expired", "type_conflict",
   // Developer misuse (invalid_request / invalid_record carry the copy).

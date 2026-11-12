@@ -27,6 +27,7 @@ import {createViewSource, updateViewSource, readViewSourceRecord, type ViewSourc
 import { contractRecordWire, contractWritePlan, type ContractRecordView, type ContractSelector, type ContractWritePlan } from "./contract-records.js";
 import { contractQueryResult, type ContractQueryOptions, type ContractQueryResult, type ContractRef } from "./contract-query.js";
 import { LiveListener, LiveQueryState, LiveResult } from "./live.js";
+import { RecordSet, type RecordSetOptions } from "./record-set.js";
 import { PresenceApi } from "./presence.js";
 import { rememberWitness, witnessesFor } from "./witness.js";
 import { API_VERSIONS, problemCodec, schemaToError, Session, withMutation } from "./session.js";
@@ -1522,8 +1523,19 @@ export class MdbaseClient {
   }
 
   /**
-   * A live query. Subscribe for pushes; keep lists cheap with a `limit` window and no
-   * bodies, and widen the window with `setQuery`.
+   * Every record of the chosen types (default: all), read completely and then
+   * kept current: the set an app lists, searches and renders from. Close it
+   * when done.
+   */
+  recordSet(options: RecordSetOptions = {}): RecordSet {
+    return new RecordSet(this, options);
+  }
+
+  /**
+   * A live query: one window of at most 1,000 records and 1 MiB, with the
+   * replica's order and counts. Subscribe for pushes; keep lists cheap with a
+   * `limit` window and no bodies, and widen the window with `setQuery`. For a
+   * whole collection use `recordSet`.
    */
   live(query: Query, include?: Include): LiveQuery {
     const l = new LiveQuery(this, query, include);

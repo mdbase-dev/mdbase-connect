@@ -601,11 +601,11 @@ export class MemoryReplica {
             .filter((x) => !where || this.opts.where!(where, { ...r, frontmatter: x.fields })),
         }))
         .filter((x) => x.implementations.length);
-      const start = Number(m.get(4) ?? 0);
+      const start = this.pageStart(m.get(4));
       const limit = (m.get(3) as number | undefined) ?? 128;
       const slice = rows.slice(start, start + limit);
       const page: w.QueryResult = { records: slice.map((x) => this.view(x.r)), complete: true, asOf: this.viewVersion };
-      if (start + limit < rows.length) page.cursor = String(start + limit);
+      if (start + limit < rows.length) page.cursor = this.pageCursor(start + limit);
       return contractQueryResult.enc({
         version: 1, page, contractDigest: contractDigest(impls[0]!),
         records: slice.map((x) => ({ id: x.r.id, implementations: x.implementations })),
@@ -671,7 +671,10 @@ export class MemoryReplica {
   private evalQuery(q: Map<string, CborValue>): MemoryRecord[] {
     const types = q.get("types") as string[] | undefined;
     const where = q.get("where") as string | undefined;
-    let rows = [...this.records.values()].filter((r) => !types?.length || types.some((t) => r.types.includes(t)));
+    // Core compares type names without ASCII case.
+    const fold = (t: string) => t.replace(/[A-Z]/g, (c) => c.toLowerCase());
+    const wanted = types?.map(fold);
+    let rows = [...this.records.values()].filter((r) => !wanted?.length || r.types.some((t) => wanted.includes(fold(t))));
     if (where) {
       if (!this.opts.where) throw mdbaseError("invalid_request", "MemoryReplica: pass a `where` evaluator to use where");
       rows = rows.filter((r) => this.opts.where!(where, r));
@@ -702,11 +705,23 @@ export class MemoryReplica {
 
   private page(q: Map<string, CborValue>): { rows: MemoryRecord[]; cursor?: string } {
     const all = this.evalQuery(q);
-    const start = Number(q.get("cursor") ?? 0);
+    const start = this.pageStart(q.get("cursor"));
     const limit = q.get("limit") as number | undefined;
     const rows = limit === undefined ? all.slice(start) : all.slice(start, start + limit);
     const next = start + rows.length;
-    return next < all.length && limit !== undefined ? { rows, cursor: String(next) } : { rows };
+    return next < all.length && limit !== undefined ? { rows, cursor: this.pageCursor(next) } : { rows };
+  }
+
+  /** A paging cursor belongs to the view it was issued at (§4): any change in
+   * between refuses the next page, and the caller starts again. */
+  private pageCursor(next: number): string {
+    return `${this.viewVersion}:${next}`;
+  }
+  private pageStart(cursor: CborValue | undefined): number {
+    if (cursor === undefined || cursor === null) return 0;
+    const [version, start] = String(cursor).split(":").map(Number);
+    if (version !== this.viewVersion) throw mdbaseError("invalid_request", "restart from the first query page", "cursor_stale");
+    return start!;
   }
 
   private async dispatch(c: Conn, method: string, p: CborValue): Promise<CborValue | undefined> {
