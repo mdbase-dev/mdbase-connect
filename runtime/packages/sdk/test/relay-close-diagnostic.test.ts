@@ -25,26 +25,25 @@ describe("bounded relay close diagnostics", () => {
   it.each(classes)("keeps numeric close code %i and fixed class %s without raw text", (code, closeClass) => {
     const raw = "PRIVATE_UNKNOWN_CLOSE_TEXT_/some/path?token=do-not-retain";
     const error = pipeCloseError(code, raw);
-    expect(error.details).toBeInstanceOf(Map);
-    expect(error.details).toEqual(new Map<string, unknown>([["relayCloseCode", code], ["relayCloseClass", closeClass]]));
-    expect(JSON.stringify({ message: error.message, problem: error.toProblem(), details: [...error.details as Map<string, unknown>] })).not.toContain(raw);
+    expect(error.details).toEqual({ relayCloseCode: code, relayCloseClass: closeClass });
+    expect(JSON.stringify({ message: error.message, problem: error.toProblem() })).not.toContain(raw);
     if (code < 4000 || code === 4999) expect(error).toMatchObject({ code: "unavailable", reason: "relay_closed" });
   });
 
   it.each([undefined, null, "1006", -1, 0, 999, 5000, 65535, NaN, Infinity, 1000.5])("does not retain an invalid code %s", code => {
     const error = pipeCloseError(code as number, "untrusted text");
-    expect(error.details).toEqual(new Map([["relayCloseCode", null], ["relayCloseClass", "unknown"]]));
+    expect(error.details).toEqual({ relayCloseCode: null, relayCloseClass: "unknown" });
     expect(error.message).not.toContain("untrusted text");
   });
 
   it("reconstructs the class from numeric data and drops every unrelated detail", () => {
     const raw = "PRIVATE_UNKNOWN_CLASS_OR_EXTRA_FIELD";
-    const details = new Map<string, unknown>([["relayCloseCode", 4001], ["relayCloseClass", raw], ["extra", raw]]);
+    const details = { relayCloseCode: 4001, relayCloseClass: raw, extra: raw };
     expect(relayCloseFromDetails(details)).toEqual({ closeCode: 4001, closeClass: "other" });
     expect(Object.isFrozen(relayCloseFromDetails(details))).toBe(true);
-    expect(relayCloseFromDetails({ relayCloseCode: 1006 })).toBeUndefined();
-    expect(relayCloseFromDetails(new Map([["extra", raw]]))).toBeUndefined();
-    expect(relayCloseFromDetails(new Map([["relayCloseCode", raw]]))).toEqual({ closeCode: null, closeClass: "unknown" });
+    expect(relayCloseFromDetails(new Map([["relayCloseCode", 1006]]))).toBeUndefined();
+    expect(relayCloseFromDetails({ extra: raw })).toBeUndefined();
+    expect(relayCloseFromDetails({ relayCloseCode: raw })).toEqual({ closeCode: null, closeClass: "unknown" });
   });
 
   it.each([

@@ -8,7 +8,9 @@
  * pending count falls. Nothing here polls.
  */
 import { isMdbaseError } from "./errors.js";
-import type { PendingMutation, Problem, Receipt, Uuid } from "./wire.js";
+import type { Uuid } from "./wire.js";
+import type { PendingMutation, Receipt } from "./plain.js";
+import type { Problem } from "./wire.js";
 
 export interface WriteLedgerEntry {
   readonly mutationId: Uuid;

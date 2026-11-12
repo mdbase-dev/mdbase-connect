@@ -1,7 +1,8 @@
 import type { MdbaseClient, PagesOptions, Query, RecordRef } from "./client.js";
 import { uuid } from "./codec.js";
 import { mdbaseError } from "./errors.js";
-import type { Include, QueryResult, RecordView } from "./wire.js";
+import type { Include } from "./wire.js";
+import { fieldOf, type QueryResult, type RecordView } from "./plain.js";
 
 export const READ_MANY_MAX_REFS = 1000;
 export const READ_MANY_MAX_CONCURRENCY = 16;
@@ -239,15 +240,14 @@ export async function resolveRecordLinks(
             "record_links_unsupported",
         );
     }
+    const original = fieldOf(values, "raw"),
+        resolved = fieldOf(values, "paths");
     if (
-        !(values instanceof Map) ||
-        values.size !== 2 ||
-        !values.has("raw") ||
-        !values.has("paths")
+        Object.keys(values).length !== 2 ||
+        original === undefined ||
+        resolved === undefined
     )
         throw invalid();
-    const original = values.get("raw"),
-        resolved = values.get("paths");
     const links =
         original === null
             ? []

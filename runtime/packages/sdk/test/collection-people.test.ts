@@ -5,7 +5,6 @@ import type { Session } from "../src/session.js";
 import type { ContractQueryResult } from "../src/contract-query.js";
 import { mdbaseError, MdbaseError } from "../src/errors.js";
 import type { PeopleAuthority } from "../src/people.js";
-import { toFmMap } from "../src/values.js";
 import { AppCollectionSetupJournal } from "../src/app-host/collection-setup-journal.js";
 import { appCollectionControlClient, attachAppCollectionControl } from "../src/app-host/collection-control.js";
 import { collectionPeopleDto, collectionPeopleError, createAppCollectionPeople } from "../src/app-host/collection-people.js";
@@ -18,8 +17,8 @@ const cleanup: Array<() => Promise<void>> = [];
 beforeEach(() => vi.stubGlobal("indexedDB", new IDBFactory()));
 afterEach(async () => {for (const close of cleanup.splice(0)) await close(); vi.restoreAllMocks(); vi.unstubAllGlobals();});
 function page(n: number, name: string, cursor?: string): ContractQueryResult {
-  return {version: 1, contractDigest: "a".repeat(64), records: [{id: id(n), implementations: [{typeName: "custom_person", fields: toFmMap({name, identities: [{issuer: identity.issuer, subject: identity.subject}]}), issues: []}]}],
-    page: {records: [{id: id(n), path: `Contacts/mapped-${n}.md`, revision: "b".repeat(64), types: ["custom_person"], frontmatter: new Map(), state: {state: "confirmed", confirmedSeq: 1}}], complete: true, asOf: 7, hasMore: !!cursor, ...(cursor ? {cursor} : {})}};
+  return {version: 1, contractDigest: "a".repeat(64), records: [{id: id(n), implementations: [{typeName: "custom_person", fields: {name, identities: [{issuer: identity.issuer, subject: identity.subject}]}, issues: []}]}],
+    page: {records: [{id: id(n), path: `Contacts/mapped-${n}.md`, revision: "b".repeat(64), types: ["custom_person"], frontmatter: {}, state: {state: "confirmed", confirmedSeq: 1}}], complete: true, asOf: 7, hasMore: !!cursor, ...(cursor ? {cursor} : {})}};
 }
 function fixture(options: {enabled?: boolean; worker?: boolean} = {}) {
   const parent = new AbortController(), ui = new AbortController(), channel = new MessageChannel();

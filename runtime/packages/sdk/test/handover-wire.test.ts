@@ -44,7 +44,7 @@ describe("authenticated-session facade (no switching or attestation)", () => {
 
   it.each([{ appliedThrough: 9, seq: 6 }, { appliedThrough: 3, seq: 5, chain: head.chain }])("rejects inconsistent echo/behind chain %#", async (proof) => {
     const c = await client();
-    try { vi.spyOn(c, "call").mockResolvedValue(proof); await expect(c.appliedPrefix(5)).rejects.toMatchObject({ reason: "prefix_response" }); }
+    try { vi.spyOn(c, "call").mockResolvedValue(proof as never); await expect(c.appliedPrefix(5)).rejects.toMatchObject({ reason: "prefix_response" }); }
     finally { c.close(); }
   });
   it("leaves absence/errors unchanged and refuses zero-position chain", async () => {

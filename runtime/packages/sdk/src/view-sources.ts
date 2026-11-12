@@ -4,7 +4,8 @@ import type {CreateInput, MdbaseClient, RecordRef, Write, WriteOptions} from "./
 import {hash, uuid} from "./codec.js";
 import {mdbaseError} from "./errors.js";
 import {revisionOf} from "./values.js";
-import type {Include, RecordView, Uuid} from "./wire.js";
+import type { Include, Uuid } from "./wire.js";
+import type { RecordView } from "./plain.js";
 
 /** Capture identities once, before the first submission; retain them on unknown.
  * The helper never generates a replacement record or mutation identity. */

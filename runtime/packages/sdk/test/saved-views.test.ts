@@ -1,18 +1,16 @@
 import {describe, expect, it, vi} from "vitest";
 import {MdbaseError} from "../src/errors.js";
 import {executeSavedView, listSavedViews} from "../src/saved-views.js";
-import {toValue} from "../src/values.js";
-import type {CborValue} from "../src/cbor.js";
 
 const ID = "018f0000-0000-7000-8000-000000000001";
 const REV = "sha256:" + "ab".repeat(32);
-const fields = toValue({
+const fields = {
   id: "reader.library", name: "Library",
   query: {types: ["source"], where: "status != 'archived'", projections: {age: {expr: "today() - added"}}, context: {this: {on_missing: "null"}}},
   properties: {title: {label: "Title"}},
   views: [{id: "recent", name: "Recent", where: "added > today() - 7", select: ["title", "projection.age"], order_by: [{field: "added", direction: "desc"}], limit: 20, presentation: {type: "reader.list"}}],
-}) as Map<string, CborValue>;
-const record = {id: ID, path: "Views/library.md", revision: REV, frontmatter: new Map(), types: ["view"], state: {state: "confirmed", confirmedSeq: 1}};
+};
+const record = {id: ID, path: "Views/library.md", revision: REV, frontmatter: {}, types: ["view"], state: {state: "confirmed", confirmedSeq: 1}};
 
 function client() {
   return {
@@ -32,13 +30,13 @@ describe("saved views over served native methods", () => {
 
     const result = await executeSavedView(c as never, {path: record.path}, "recent", {limit: 5, timezone: "UTC"});
     expect(result.view).toEqual({path: record.path, view: "recent"});
-    const [query] = c.query.mock.calls[0] as unknown as [Map<string, CborValue>];
-    expect(Object.fromEntries(query)).toEqual({
+    const [query] = c.query.mock.calls[0] as unknown as [object];
+    expect(query).toEqual({
       types: ["source"],
       where: "(status != 'archived') && (added > today() - 7)",
-      projections: new Map([["age", new Map([["expr", "today() - added"]])]]),
+      projections: {age: {expr: "today() - added"}},
       select: ["title", "projection.age"],
-      order_by: [new Map([["field", "added"], ["direction", "desc"]])],
+      order_by: [{field: "added", direction: "desc"}],
       limit: 5,
       timezone: "UTC",
     });

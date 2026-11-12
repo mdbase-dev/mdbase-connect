@@ -23,9 +23,6 @@ export type {
   BlobRef,
   Change,
   ConfirmedHead,
-  Conflict,
-  ConflictEntry,
-  ConflictValue,
   FileContentProfile,
   FileView,
   GrantInfo,
@@ -38,15 +35,8 @@ export type {
   Issue,
   Materialization,
   Op,
-  Peer,
   Problem,
   PublishState,
-  QueryGroup,
-  QueryMetadata,
-  QueryResult,
-  QueryUpdate,
-  Receipt,
-  RecordView,
   Recovery,
   Resyncing,
   ResyncPhase,
@@ -103,7 +93,31 @@ export { Session, API_VERSIONS } from "./session.js";
 export { framedPort, portPair, RecordReader } from "./transport/port.js";
 export type { ByteChannel, Connector, FramePort, OpenedPort } from "./transport/port.js";
 export { diffEdits, revisionOf, toPlain, toValue, uuidv7, valueEquals } from "./values.js";
-export type { JsonLike, PlainValue } from "./values.js";
+export type { JsonObject, JsonValue, PlainValue } from "./values.js";
+// What a client method answers: values as plain JSON, data maps as objects.
+// The same names under `wire` are the exact forms the wire codecs decode.
+export type {
+  Backlink,
+  BacklinksResult,
+  Conflict,
+  ConflictEntry,
+  ConflictValue,
+  ContractImplementation,
+  ContractSummary,
+  DescribeResult,
+  Peer,
+  PendingMutation,
+  Plain,
+  QueryGroup,
+  QueryMetadata,
+  QueryResult,
+  QueryUpdate,
+  Receipt,
+  RecordView,
+  TypeSummary,
+  ViewDescriptor,
+  ViewSource,
+} from "./plain.js";
 export { relayConnector } from "./transport/relay.js";
 export { duplexCarrier, nextRelayConnector, orderTargets } from "./transport/next-relay.js";
 export type {

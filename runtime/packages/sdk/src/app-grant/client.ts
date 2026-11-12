@@ -34,6 +34,7 @@ import {
   type CollectionAvailability,
 } from "../collection-availability.js";
 import { isMdbaseError, mdbaseError } from "../errors.js";
+import { fieldOf } from "../plain.js";
 import { orderTargets, type NextRouteResponse, type NextRouteTarget } from "../transport/next-relay.js";
 import { clientPrologue, type StaticKey } from "../transport/noise.js";
 import { noiseConnector, type WebSocketFactory } from "../transport/noise-session.js";
@@ -752,8 +753,9 @@ export class MdbaseAppGrants {
     const id = collection.toLowerCase();
     try { return (await this.route(id, options.signal)).availability; }
     catch (e) {
-      if (isMdbaseError(e) && e.details instanceof Map && typeof e.details.get("availability") === "string") {
-        return parseCollectionAvailability({ state: "unavailable", reason: e.details.get("availability") })!;
+      const reason = isMdbaseError(e) ? fieldOf(e.details, "availability") : undefined;
+      if (typeof reason === "string") {
+        return parseCollectionAvailability({ state: "unavailable", reason })!;
       }
       throw e;
     }

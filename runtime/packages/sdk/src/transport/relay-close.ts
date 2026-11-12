@@ -19,9 +19,12 @@ export function relayCloseDiagnostic(code: unknown): RelayCloseDiagnostic {
 }
 
 /** Reconstruct only our bounded fields; arbitrary map values never reach snapshots. */
+import { fieldOf } from "../plain.js";
+
 export function relayCloseFromDetails(details: unknown): RelayCloseDiagnostic | undefined {
   try {
-    if (details instanceof Map && details.has("relayCloseCode")) return relayCloseDiagnostic(details.get("relayCloseCode"));
+    const code = fieldOf(details, "relayCloseCode");
+    if (code !== undefined) return relayCloseDiagnostic(code);
   } catch { /* Untrusted adapter details are not diagnostics. */ }
   return undefined;
 }

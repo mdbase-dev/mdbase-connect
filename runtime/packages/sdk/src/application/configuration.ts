@@ -1,6 +1,7 @@
 import type { MdbaseClient } from "../client.js";
 import type { Session } from "../session.js";
-import type { Op, Receipt } from "../wire.js";
+import type { Op } from "../wire.js";
+import type { Receipt } from "../plain.js";
 import { MdbaseError, isMdbaseError, mdbaseError } from "../errors.js";
 import { decode, modelResourcePlan } from "../app-host/collection-setup-journal.js";
 import type { ModelResourceSetupJournal, ModelSetupIntent } from "../app-host/collection-setup-types.js";

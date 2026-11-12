@@ -95,10 +95,10 @@ describe("unsynced transfer",()=>{
 
   it("applies the app's map, which may leave records out but not change their IDs",async()=>{
     const {source,destination}=await pair();
-    const plan=await planUnsyncedTransfer(source,destination,{map:record=>record.path==="scratch.md"?null:{path:record.path,frontmatter:{...Object.fromEntries([...record.frontmatter].map(([k,v])=>[k,v as never])),moved:true},body:record.body ?? ""}});
+    const plan=await planUnsyncedTransfer(source,destination,{map:record=>record.path==="scratch.md"?null:{path:record.path,frontmatter:{...record.frontmatter,moved:true},body:record.body ?? ""}});
     expect(plan.counts).toEqual({create:2,present:0,skipped:1,renamed:0,changed:0});
     await runUnsyncedTransfer(plan,destination);
-    expect((await destination.get(B)).frontmatter.get("moved")).toBe(true);
+    expect((await destination.get(B)).frontmatter.moved).toBe(true);
     await expect(planUnsyncedTransfer(source,destination,{map:record=>({path:record.path,id:A})})).rejects.toSatisfy(e=>isMdbaseError(e,"invalid_request"));
   });
 

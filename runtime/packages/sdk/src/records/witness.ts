@@ -1,7 +1,8 @@
-import { decode, encode } from "../cbor.js";
+import { toHex } from "../cbor.js";
 import { MdbaseError, mdbaseError } from "../errors.js";
 import { revisionOf } from "../values.js";
-import { recordView, type Problem, type RecordView } from "../wire.js";
+import type { Receipt, RecordView } from "../plain.js";
+import type { Problem } from "../wire.js";
 export const include = { body: true, document: true, effective: true };
 export const MAX_BYTES = 8 * 1024 * 1024;
 export function complete(record: RecordView, id?: string): void {
@@ -37,8 +38,8 @@ export function confirmed(record: RecordView): boolean {
     return record.state.state === "confirmed" && !protectedRecord(record);
 }
 /** Clone native data, never reconstruct source or invent confirmed metadata. */
-export function copy(record: RecordView): RecordView {
-    return recordView.dec(decode(encode(recordView.enc(record))));
+export function copy<T extends RecordView | Receipt>(data: T): T {
+    return structuredClone(data);
 }
 export function problem(error: unknown): Problem {
     if (error instanceof MdbaseError) return error.toProblem();
@@ -70,8 +71,16 @@ export function refusal(
     });
 }
 /** Serialized retained-data accounting, not a measured heap/custody claim. */
-export function recordBytes(record: RecordView): number {
-    return encode(recordView.enc(record)).byteLength * 2;
+export function retainedBytes(data: RecordView | Receipt): number {
+    return (
+        JSON.stringify(data, (_key, v: unknown) =>
+            typeof v === "bigint"
+                ? v.toString()
+                : v instanceof Uint8Array
+                  ? toHex(v)
+                  : v,
+        ).length * 2
+    );
 }
 export function textBytes(text: string): number {
     if (text.length > MAX_BYTES)

@@ -19,6 +19,8 @@ AttachmentContentV1 -> AttachmentContentV1@attachment-wire.ts
 AttachmentHoldContent -> AttachmentHoldContent@wire.ts
 AttachmentRefV1 -> AttachmentRefV1@attachment-wire.ts
 AuthenticatedRelayByteDuplex -> AuthenticatedRelayByteDuplex@transport/next-relay.ts
+Backlink -> Backlink@plain.ts
+BacklinksResult -> BacklinksResult@plain.ts
 BlobRef -> BlobRef@wire.ts
 ByteChannel -> ByteChannel@transport/port.ts
 bytesEqual -> bytesEqual@cbor.ts
@@ -41,12 +43,13 @@ collectionUnavailableError -> collectionUnavailableError@collection-availability
 CollectionUnavailableReason -> CollectionUnavailableReason@collection-availability.ts
 compareVersions -> compareVersions@semver.ts
 ConfirmedHead -> ConfirmedHead@wire.ts
-Conflict -> Conflict@wire.ts
-ConflictEntry -> ConflictEntry@wire.ts
-ConflictValue -> ConflictValue@wire.ts
+Conflict -> Conflict@plain.ts
+ConflictEntry -> ConflictEntry@plain.ts
+ConflictValue -> ConflictValue@plain.ts
 connect -> connect@client.ts
 Connector -> Connector@transport/port.ts
 ContractIdentity -> ContractIdentity@contract-records.ts
+ContractImplementation -> ContractImplementation@plain.ts
 ContractProjection -> ContractProjection@contract-query.ts
 ContractQueryOptions -> ContractQueryOptions@contract-query.ts
 ContractQueryRecord -> ContractQueryRecord@contract-query.ts
@@ -54,6 +57,7 @@ ContractQueryResult -> ContractQueryResult@contract-query.ts
 ContractRecordView -> ContractRecordView@contract-records.ts
 ContractRef -> ContractRef@contract-query.ts
 ContractSelector -> ContractSelector@contract-records.ts
+ContractSummary -> ContractSummary@plain.ts
 ControlRouteOptions -> ControlRouteOptions@transport/control-route.ts
 controlRouteResolver -> controlRouteResolver@transport/control-route.ts
 ControlRouteResponse -> ControlRouteResponse@transport/control-route.ts
@@ -71,6 +75,7 @@ DescribeErrorOptions -> DescribeErrorOptions@describe-error.ts
 describeHold -> describeHold@holds.ts
 DescribeHoldOptions -> DescribeHoldOptions@holds.ts
 DescribeOptions -> DescribeOptions@client.ts
+DescribeResult -> DescribeResult@plain.ts
 DescribeTypingResult -> DescribeTypingResult@wire.ts
 DesiredTimer -> DesiredTimer@timers.ts
 DEVICE_KINDS -> DEVICE_KINDS@private.ts
@@ -133,7 +138,8 @@ isMdbaseError -> isMdbaseError@errors.ts
 isReadyPhase -> isReadyPhase@application/phase.ts
 Issue -> Issue@wire.ts
 isValid -> isValid@cbor.ts
-JsonLike -> JsonLike@values.ts
+JsonObject -> JsonObject@plain.ts
+JsonValue -> JsonValue@plain.ts
 KeyPair -> KeyPair@transport/noise.ts
 keyPairFromSecret -> keyPairFromSecret@transport/noise.ts
 KeyStorage -> KeyStorage@keys.ts
@@ -242,8 +248,9 @@ parseHoldCompareLink -> parseHoldCompareLink@holds.ts
 parseMdbaseNativeNotification -> parseMdbaseNativeNotification@notifications.ts
 parseMdbasePush -> parseMdbasePush@notifications.ts
 parseVersion -> parseVersion@semver.ts
-Peer -> Peer@wire.ts
+Peer -> Peer@plain.ts
 PendingDevice -> PendingDevice@private.ts
+PendingMutation -> PendingMutation@plain.ts
 PeopleAuthority -> PeopleAuthority@people.ts
 PeopleDirectory -> PeopleDirectory@people.ts
 PeopleDirectoryOptions -> PeopleDirectoryOptions@people.ts
@@ -253,7 +260,8 @@ PersonRecord -> PersonRecord@people.ts
 PersonResolution -> PersonResolution@people.ts
 PipeAuth -> PipeAuth@transport/relay-pipe.ts
 pipeCloseError -> pipeCloseError@transport/relay-pipe.ts
-PlainValue -> PlainValue@values.ts
+Plain -> Plain@plain.ts
+PlainValue -> PlainValue@plain.ts
 portPair -> portPair@transport/port.ts
 PresenceApi -> PresenceApi@presence.ts
 Problem -> Problem@wire.ts
@@ -263,18 +271,18 @@ problemCodeOf -> problemCodeOf@describe-error.ts
 PublishState -> PublishState@wire.ts
 Query -> Query@client.ts
 QueryExecutionProfile -> QueryExecutionProfile@runtime/wasm.ts
-QueryGroup -> QueryGroup@wire.ts
-QueryMetadata -> QueryMetadata@wire.ts
+QueryGroup -> QueryGroup@plain.ts
+QueryMetadata -> QueryMetadata@plain.ts
 queryPages -> queryPages@read-helpers.ts
-QueryResult -> QueryResult@wire.ts
-QueryUpdate -> QueryUpdate@wire.ts
+QueryResult -> QueryResult@plain.ts
+QueryUpdate -> QueryUpdate@plain.ts
 READ_MANY_MAX_CONCURRENCY -> READ_MANY_MAX_CONCURRENCY@read-helpers.ts
 READ_MANY_MAX_REFS -> READ_MANY_MAX_REFS@read-helpers.ts
 readMany -> readMany@read-helpers.ts
 ReadManyOptions -> ReadManyOptions@read-helpers.ts
 readMdbaseNotificationData -> readMdbaseNotificationData@notifications.ts
 readViewSourceRecord -> readViewSourceRecord@view-sources.ts
-Receipt -> Receipt@wire.ts
+Receipt -> Receipt@plain.ts
 RecordFlushOptions -> RecordFlushOptions@records/types.ts
 RecordFlushResult -> RecordFlushResult@records/types.ts
 RecordLease -> RecordLease@records/types.ts
@@ -289,7 +297,7 @@ RecordSession -> RecordSession@records/types.ts
 RecordSessionSnapshot -> RecordSessionSnapshot@records/types.ts
 RecordSessionState -> RecordSessionState@records/types.ts
 RecordValidation -> RecordValidation@validation.ts
-RecordView -> RecordView@wire.ts
+RecordView -> RecordView@plain.ts
 RecordWrite -> RecordWrite@client.ts
 Recovery -> Recovery@wire.ts
 recoveryFor -> recoveryFor@errors.ts
@@ -339,8 +347,8 @@ TimerRecoverableReconcileInput -> TimerRecoverableReconcileInput@timers.ts
 TimerRequestOptions -> TimerRequestOptions@timers.ts
 TimersApi -> TimersApi@timers.ts
 toHex -> toHex@cbor.ts
-toPlain -> toPlain@values.ts
-toValue -> toValue@values.ts
+toPlain -> toPlain@plain.ts
+toValue -> toValue@plain.ts
 TransferProgress -> TransferProgress@wire.ts
 TransportHealth -> TransportHealth@status.ts
 TransportHealthKind -> TransportHealthKind@status.ts
@@ -356,6 +364,7 @@ TypePackRefusalCode -> TypePackRefusalCode@type-packs.ts
 TypePackResource -> TypePackResource@type-packs.ts
 TypePackResourceKind -> TypePackResourceKind@type-packs.ts
 TypePackStatus -> TypePackStatus@type-packs.ts
+TypeSummary -> TypeSummary@plain.ts
 TypingEntry -> TypingEntry@wire.ts
 UpdateInput -> UpdateInput@client.ts
 updateViewSource -> updateViewSource@view-sources.ts
@@ -368,6 +377,8 @@ ValidationLevel -> ValidationLevel@wire.ts
 Value -> Value@wire.ts
 valueEquals -> valueEquals@values.ts
 versionRelation -> versionRelation@semver.ts
+ViewDescriptor -> ViewDescriptor@plain.ts
+ViewSource -> ViewSource@plain.ts
 ViewSourceCreateInput -> ViewSourceCreateInput@view-sources.ts
 ViewSourceReadOptions -> ViewSourceReadOptions@view-sources.ts
 ViewSourceWriteOptions -> ViewSourceWriteOptions@view-sources.ts
@@ -397,6 +408,8 @@ AttachmentContentV1 -> AttachmentContentV1@attachment-wire.ts
 AttachmentHoldContent -> AttachmentHoldContent@wire.ts
 AttachmentRefV1 -> AttachmentRefV1@attachment-wire.ts
 AuthenticatedRelayByteDuplex -> AuthenticatedRelayByteDuplex@transport/next-relay.ts
+Backlink -> Backlink@plain.ts
+BacklinksResult -> BacklinksResult@plain.ts
 BlobRef -> BlobRef@wire.ts
 ByteChannel -> ByteChannel@transport/port.ts
 bytesEqual -> bytesEqual@cbor.ts
@@ -417,12 +430,13 @@ CollectionAvailability -> CollectionAvailability@collection-availability.ts
 collectionUnavailableError -> collectionUnavailableError@collection-availability.ts
 CollectionUnavailableReason -> CollectionUnavailableReason@collection-availability.ts
 ConfirmedHead -> ConfirmedHead@wire.ts
-Conflict -> Conflict@wire.ts
-ConflictEntry -> ConflictEntry@wire.ts
-ConflictValue -> ConflictValue@wire.ts
+Conflict -> Conflict@plain.ts
+ConflictEntry -> ConflictEntry@plain.ts
+ConflictValue -> ConflictValue@plain.ts
 connect -> connect@client.ts
 Connector -> Connector@transport/port.ts
 ContractIdentity -> ContractIdentity@contract-records.ts
+ContractImplementation -> ContractImplementation@plain.ts
 ContractProjection -> ContractProjection@contract-query.ts
 ContractQueryOptions -> ContractQueryOptions@contract-query.ts
 ContractQueryRecord -> ContractQueryRecord@contract-query.ts
@@ -430,6 +444,7 @@ ContractQueryResult -> ContractQueryResult@contract-query.ts
 ContractRecordView -> ContractRecordView@contract-records.ts
 ContractRef -> ContractRef@contract-query.ts
 ContractSelector -> ContractSelector@contract-records.ts
+ContractSummary -> ContractSummary@plain.ts
 ControlRouteOptions -> ControlRouteOptions@transport/control-route.ts
 controlRouteResolver -> controlRouteResolver@transport/control-route.ts
 ControlRouteResponse -> ControlRouteResponse@transport/control-route.ts
@@ -440,6 +455,7 @@ decode -> decode@cbor.ts
 DESCRIBE_TYPING_MAX_PATHS -> DESCRIBE_TYPING_MAX_PATHS@wire.ts
 DESCRIBE_TYPING_MAX_TYPES -> DESCRIBE_TYPING_MAX_TYPES@wire.ts
 DescribeOptions -> DescribeOptions@client.ts
+DescribeResult -> DescribeResult@plain.ts
 DescribeTypingResult -> DescribeTypingResult@wire.ts
 DEVICE_KINDS -> DEVICE_KINDS@private.ts
 DeviceKind -> DeviceKind@private.ts
@@ -483,7 +499,8 @@ isErrorCode -> isErrorCode@errors.ts
 isMdbaseError -> isMdbaseError@errors.ts
 Issue -> Issue@wire.ts
 isValid -> isValid@cbor.ts
-JsonLike -> JsonLike@values.ts
+JsonObject -> JsonObject@plain.ts
+JsonValue -> JsonValue@plain.ts
 KeyPair -> KeyPair@transport/noise.ts
 keyPairFromSecret -> keyPairFromSecret@transport/noise.ts
 KeyStorage -> KeyStorage@keys.ts
@@ -524,27 +541,29 @@ orderTargets -> orderTargets@transport/next-relay.ts
 PagesOptions -> PagesOptions@client.ts
 PagesReset -> PagesReset@client.ts
 parseCollectionAvailability -> parseCollectionAvailability@collection-availability.ts
-Peer -> Peer@wire.ts
+Peer -> Peer@plain.ts
 PendingDevice -> PendingDevice@private.ts
+PendingMutation -> PendingMutation@plain.ts
 PipeAuth -> PipeAuth@transport/relay-pipe.ts
 pipeCloseError -> pipeCloseError@transport/relay-pipe.ts
-PlainValue -> PlainValue@values.ts
+Plain -> Plain@plain.ts
+PlainValue -> PlainValue@plain.ts
 portPair -> portPair@transport/port.ts
 PresenceApi -> PresenceApi@presence.ts
 Problem -> Problem@wire.ts
 PublishState -> PublishState@wire.ts
 Query -> Query@client.ts
-QueryGroup -> QueryGroup@wire.ts
-QueryMetadata -> QueryMetadata@wire.ts
+QueryGroup -> QueryGroup@plain.ts
+QueryMetadata -> QueryMetadata@plain.ts
 queryPages -> queryPages@read-helpers.ts
-QueryResult -> QueryResult@wire.ts
-QueryUpdate -> QueryUpdate@wire.ts
+QueryResult -> QueryResult@plain.ts
+QueryUpdate -> QueryUpdate@plain.ts
 READ_MANY_MAX_CONCURRENCY -> READ_MANY_MAX_CONCURRENCY@read-helpers.ts
 READ_MANY_MAX_REFS -> READ_MANY_MAX_REFS@read-helpers.ts
 readMany -> readMany@read-helpers.ts
 ReadManyOptions -> ReadManyOptions@read-helpers.ts
 readViewSourceRecord -> readViewSourceRecord@view-sources.ts
-Receipt -> Receipt@wire.ts
+Receipt -> Receipt@plain.ts
 RecordFlushOptions -> RecordFlushOptions@records/types.ts
 RecordFlushResult -> RecordFlushResult@records/types.ts
 RecordLease -> RecordLease@records/types.ts
@@ -559,7 +578,7 @@ RecordSession -> RecordSession@records/types.ts
 RecordSessionSnapshot -> RecordSessionSnapshot@records/types.ts
 RecordSessionState -> RecordSessionState@records/types.ts
 RecordValidation -> RecordValidation@validation.ts
-RecordView -> RecordView@wire.ts
+RecordView -> RecordView@plain.ts
 RecordWrite -> RecordWrite@client.ts
 Recovery -> Recovery@wire.ts
 recoveryFor -> recoveryFor@errors.ts
@@ -592,8 +611,8 @@ TEMPORAL_HINTS -> TEMPORAL_HINTS@wire.ts
 TemporalHint -> TemporalHint@wire.ts
 TextOrBlob -> TextOrBlob@wire.ts
 toHex -> toHex@cbor.ts
-toPlain -> toPlain@values.ts
-toValue -> toValue@values.ts
+toPlain -> toPlain@plain.ts
+toValue -> toValue@plain.ts
 TransferProgress -> TransferProgress@wire.ts
 TransportHealth -> TransportHealth@status.ts
 TransportHealthKind -> TransportHealthKind@status.ts
@@ -609,6 +628,7 @@ TypePackRefusalCode -> TypePackRefusalCode@type-packs.ts
 TypePackResource -> TypePackResource@type-packs.ts
 TypePackResourceKind -> TypePackResourceKind@type-packs.ts
 TypePackStatus -> TypePackStatus@type-packs.ts
+TypeSummary -> TypeSummary@plain.ts
 TypingEntry -> TypingEntry@wire.ts
 UpdateInput -> UpdateInput@client.ts
 updateViewSource -> updateViewSource@view-sources.ts
@@ -620,6 +640,8 @@ ValidationIssue -> ValidationIssue@validation.ts
 ValidationLevel -> ValidationLevel@wire.ts
 Value -> Value@wire.ts
 valueEquals -> valueEquals@values.ts
+ViewDescriptor -> ViewDescriptor@plain.ts
+ViewSource -> ViewSource@plain.ts
 ViewSourceCreateInput -> ViewSourceCreateInput@view-sources.ts
 ViewSourceReadOptions -> ViewSourceReadOptions@view-sources.ts
 ViewSourceWriteOptions -> ViewSourceWriteOptions@view-sources.ts
@@ -654,6 +676,8 @@ AttachmentContentV1 -> AttachmentContentV1@attachment-wire.ts
 AttachmentHoldContent -> AttachmentHoldContent@wire.ts
 AttachmentRefV1 -> AttachmentRefV1@attachment-wire.ts
 AuthenticatedRelayByteDuplex -> AuthenticatedRelayByteDuplex@transport/next-relay.ts
+Backlink -> Backlink@plain.ts
+BacklinksResult -> BacklinksResult@plain.ts
 BlobRef -> BlobRef@wire.ts
 ByteChannel -> ByteChannel@transport/port.ts
 bytesEqual -> bytesEqual@cbor.ts
@@ -677,12 +701,13 @@ collectionUnavailableError -> collectionUnavailableError@collection-availability
 CollectionUnavailableReason -> CollectionUnavailableReason@collection-availability.ts
 compareVersions -> compareVersions@semver.ts
 ConfirmedHead -> ConfirmedHead@wire.ts
-Conflict -> Conflict@wire.ts
-ConflictEntry -> ConflictEntry@wire.ts
-ConflictValue -> ConflictValue@wire.ts
+Conflict -> Conflict@plain.ts
+ConflictEntry -> ConflictEntry@plain.ts
+ConflictValue -> ConflictValue@plain.ts
 connect -> connect@client.ts
 Connector -> Connector@transport/port.ts
 ContractIdentity -> ContractIdentity@contract-records.ts
+ContractImplementation -> ContractImplementation@plain.ts
 ContractProjection -> ContractProjection@contract-query.ts
 ContractQueryOptions -> ContractQueryOptions@contract-query.ts
 ContractQueryRecord -> ContractQueryRecord@contract-query.ts
@@ -690,6 +715,7 @@ ContractQueryResult -> ContractQueryResult@contract-query.ts
 ContractRecordView -> ContractRecordView@contract-records.ts
 ContractRef -> ContractRef@contract-query.ts
 ContractSelector -> ContractSelector@contract-records.ts
+ContractSummary -> ContractSummary@plain.ts
 ControlRouteOptions -> ControlRouteOptions@transport/control-route.ts
 controlRouteResolver -> controlRouteResolver@transport/control-route.ts
 ControlRouteResponse -> ControlRouteResponse@transport/control-route.ts
@@ -707,6 +733,7 @@ DescribeErrorOptions -> DescribeErrorOptions@describe-error.ts
 describeHold -> describeHold@holds.ts
 DescribeHoldOptions -> DescribeHoldOptions@holds.ts
 DescribeOptions -> DescribeOptions@client.ts
+DescribeResult -> DescribeResult@plain.ts
 DescribeTypingResult -> DescribeTypingResult@wire.ts
 DesiredTimer -> DesiredTimer@timers.ts
 DEVICE_KINDS -> DEVICE_KINDS@private.ts
@@ -769,7 +796,8 @@ isMdbaseError -> isMdbaseError@errors.ts
 isReadyPhase -> isReadyPhase@application/phase.ts
 Issue -> Issue@wire.ts
 isValid -> isValid@cbor.ts
-JsonLike -> JsonLike@values.ts
+JsonObject -> JsonObject@plain.ts
+JsonValue -> JsonValue@plain.ts
 KeyPair -> KeyPair@transport/noise.ts
 keyPairFromSecret -> keyPairFromSecret@transport/noise.ts
 KeyStorage -> KeyStorage@keys.ts
@@ -878,8 +906,9 @@ parseHoldCompareLink -> parseHoldCompareLink@holds.ts
 parseMdbaseNativeNotification -> parseMdbaseNativeNotification@notifications.ts
 parseMdbasePush -> parseMdbasePush@notifications.ts
 parseVersion -> parseVersion@semver.ts
-Peer -> Peer@wire.ts
+Peer -> Peer@plain.ts
 PendingDevice -> PendingDevice@private.ts
+PendingMutation -> PendingMutation@plain.ts
 PeopleAuthority -> PeopleAuthority@people.ts
 PeopleDirectory -> PeopleDirectory@people.ts
 PeopleDirectoryOptions -> PeopleDirectoryOptions@people.ts
@@ -889,7 +918,8 @@ PersonRecord -> PersonRecord@people.ts
 PersonResolution -> PersonResolution@people.ts
 PipeAuth -> PipeAuth@transport/relay-pipe.ts
 pipeCloseError -> pipeCloseError@transport/relay-pipe.ts
-PlainValue -> PlainValue@values.ts
+Plain -> Plain@plain.ts
+PlainValue -> PlainValue@plain.ts
 portPair -> portPair@transport/port.ts
 PresenceApi -> PresenceApi@presence.ts
 Problem -> Problem@wire.ts
@@ -899,18 +929,18 @@ problemCodeOf -> problemCodeOf@describe-error.ts
 PublishState -> PublishState@wire.ts
 Query -> Query@client.ts
 QueryExecutionProfile -> QueryExecutionProfile@runtime/wasm.ts
-QueryGroup -> QueryGroup@wire.ts
-QueryMetadata -> QueryMetadata@wire.ts
+QueryGroup -> QueryGroup@plain.ts
+QueryMetadata -> QueryMetadata@plain.ts
 queryPages -> queryPages@read-helpers.ts
-QueryResult -> QueryResult@wire.ts
-QueryUpdate -> QueryUpdate@wire.ts
+QueryResult -> QueryResult@plain.ts
+QueryUpdate -> QueryUpdate@plain.ts
 READ_MANY_MAX_CONCURRENCY -> READ_MANY_MAX_CONCURRENCY@read-helpers.ts
 READ_MANY_MAX_REFS -> READ_MANY_MAX_REFS@read-helpers.ts
 readMany -> readMany@read-helpers.ts
 ReadManyOptions -> ReadManyOptions@read-helpers.ts
 readMdbaseNotificationData -> readMdbaseNotificationData@notifications.ts
 readViewSourceRecord -> readViewSourceRecord@view-sources.ts
-Receipt -> Receipt@wire.ts
+Receipt -> Receipt@plain.ts
 RecordFlushOptions -> RecordFlushOptions@records/types.ts
 RecordFlushResult -> RecordFlushResult@records/types.ts
 RecordLease -> RecordLease@records/types.ts
@@ -925,7 +955,7 @@ RecordSession -> RecordSession@records/types.ts
 RecordSessionSnapshot -> RecordSessionSnapshot@records/types.ts
 RecordSessionState -> RecordSessionState@records/types.ts
 RecordValidation -> RecordValidation@validation.ts
-RecordView -> RecordView@wire.ts
+RecordView -> RecordView@plain.ts
 RecordWrite -> RecordWrite@client.ts
 Recovery -> Recovery@wire.ts
 recoveryFor -> recoveryFor@errors.ts
@@ -975,8 +1005,8 @@ TimerRecoverableReconcileInput -> TimerRecoverableReconcileInput@timers.ts
 TimerRequestOptions -> TimerRequestOptions@timers.ts
 TimersApi -> TimersApi@timers.ts
 toHex -> toHex@cbor.ts
-toPlain -> toPlain@values.ts
-toValue -> toValue@values.ts
+toPlain -> toPlain@plain.ts
+toValue -> toValue@plain.ts
 TransferProgress -> TransferProgress@wire.ts
 TransportHealth -> TransportHealth@status.ts
 TransportHealthKind -> TransportHealthKind@status.ts
@@ -992,6 +1022,7 @@ TypePackRefusalCode -> TypePackRefusalCode@type-packs.ts
 TypePackResource -> TypePackResource@type-packs.ts
 TypePackResourceKind -> TypePackResourceKind@type-packs.ts
 TypePackStatus -> TypePackStatus@type-packs.ts
+TypeSummary -> TypeSummary@plain.ts
 TypingEntry -> TypingEntry@wire.ts
 UpdateInput -> UpdateInput@client.ts
 updateViewSource -> updateViewSource@view-sources.ts
@@ -1004,6 +1035,8 @@ ValidationLevel -> ValidationLevel@wire.ts
 Value -> Value@wire.ts
 valueEquals -> valueEquals@values.ts
 versionRelation -> versionRelation@semver.ts
+ViewDescriptor -> ViewDescriptor@plain.ts
+ViewSource -> ViewSource@plain.ts
 ViewSourceCreateInput -> ViewSourceCreateInput@view-sources.ts
 ViewSourceReadOptions -> ViewSourceReadOptions@view-sources.ts
 ViewSourceWriteOptions -> ViewSourceWriteOptions@view-sources.ts
@@ -2096,7 +2129,7 @@ AppCloudCopyBootstrapError@app-host/cloud-copy-bootstrap.ts
   cause?: unknown
   message: string
   name: string
-  readonly reason: 'refused' | 'unavailable' | 'outcome_unknown' | 'binding' | 'fenced' | 'response' | AppServerOutcome
+  readonly reason: 'refused' | 'unavailable' | 'binding' | 'outcome_unknown' | 'fenced' | 'response' | AppServerOutcome
   readonly retryable: boolean
   readonly server?: AppServerProblem | undefined
   stack?: string | undefined
@@ -2122,13 +2155,13 @@ AppCloudCopyCollectionPin@app-host/wasm-runtime.ts
   readonly deviceId: string
   readonly installationId: string
   isCurrent: () => boolean
-  readonly purpose: 'create' | 'join'
+  readonly purpose: 'join' | 'create'
 
 AppCloudCopyHostError@app-host/cloud-copy-host.ts
   cause?: unknown
   message: string
   name: string
-  readonly reason: 'unavailable' | 'recovery_required' | 'private_device_limit' | 'binding' | 'fenced' | 'sync_stalled'
+  readonly reason: 'unavailable' | 'binding' | 'recovery_required' | 'private_device_limit' | 'fenced' | 'sync_stalled'
   stack?: string | undefined
   static new (reason: 'binding' | 'fenced' | 'recovery_required' | 'unavailable' | 'sync_stalled' | 'private_device_limit'): AppCloudCopyHostError
   static captureStackTrace: (targetObject: object, constructorOpt?: Function) => void
@@ -2163,7 +2196,7 @@ AppCloudCopyOperation@app-host/cloud-copy-bootstrap.ts
   readonly kemPublicKey: Uint8Array<ArrayBufferLike>
   readonly logOrigin: string
   readonly noisePublicKey: Uint8Array<ArrayBufferLike>
-  readonly purpose: 'create' | 'join'
+  readonly purpose: 'join' | 'create'
   readonly signPublicKey: Uint8Array<ArrayBufferLike>
 
 AppCloudCopyOutcome@app-host/cloud-copy-bootstrap.ts
@@ -2189,7 +2222,7 @@ AppCollectionControlError@app-host/collection-control.ts
   cause?: unknown
   message: string
   name: string
-  readonly reason: 'outcome_unknown' | 'recovery_required' | 'busy' | 'binding' | 'fenced'
+  readonly reason: 'binding' | 'outcome_unknown' | 'recovery_required' | 'busy' | 'fenced'
   stack?: string | undefined
   static new (reason: AppCollectionSetupError['reason'] | 'busy'): AppCollectionControlError
   static captureStackTrace: (targetObject: object, constructorOpt?: Function) => void
@@ -2204,7 +2237,7 @@ AppCollectionJoinError@app-host/collection-join-ledger.ts
   cause?: unknown
   message: string
   name: string
-  readonly reason: 'recovery_required' | 'busy' | 'binding' | 'fenced'
+  readonly reason: 'binding' | 'recovery_required' | 'busy' | 'fenced'
   stack?: string | undefined
   static new (reason: 'binding' | 'fenced' | 'busy' | 'recovery_required'): AppCollectionJoinError
   static captureStackTrace: (targetObject: object, constructorOpt?: Function) => void
@@ -2227,7 +2260,7 @@ AppCollectionSetupError@app-host/collection-setup-journal.ts
   cause?: unknown
   message: string
   name: string
-  readonly reason: 'outcome_unknown' | 'recovery_required' | 'binding' | 'fenced'
+  readonly reason: 'binding' | 'outcome_unknown' | 'recovery_required' | 'fenced'
   stack?: string | undefined
   static new (reason: 'binding' | 'fenced' | 'recovery_required' | 'outcome_unknown'): AppCollectionSetupError
   static captureStackTrace: (targetObject: object, constructorOpt?: Function) => void
@@ -2262,7 +2295,7 @@ AppCollectionSqlError@app-storage/collection-sql.ts
   cause?: unknown
   message: string
   name: string
-  readonly reason: 'unavailable' | 'unsupported' | 'binding' | 'fenced'
+  readonly reason: 'unavailable' | 'binding' | 'unsupported' | 'fenced'
   stack?: string | undefined
   static new (reason: 'binding' | 'unsupported' | 'fenced' | 'unavailable'): AppCollectionSqlError
   static captureStackTrace: (targetObject: object, constructorOpt?: Function) => void
@@ -2316,7 +2349,7 @@ AppCpCloudCopySession@app-host/cloud-copy-bootstrap.ts
   installationOwned: () => boolean
   isCurrent: () => boolean
   readonly logOrigin: string
-  readonly purpose: 'create' | 'join'
+  readonly purpose: 'join' | 'create'
 
 AppCpConnectorPin@app-host/wasm-runtime.ts
   readonly collection: string
@@ -2532,7 +2565,7 @@ AppHttpLogError@app-host/http-log.ts
   cause?: unknown
   message: string
   name: string
-  readonly reason: 'unavailable' | 'integrity' | 'binding' | 'fenced' | AppServerOutcome | 'shape'
+  readonly reason: 'unavailable' | 'binding' | 'integrity' | 'fenced' | AppServerOutcome | 'shape'
   readonly server?: AppServerProblem | undefined
   stack?: string | undefined
   static new (reason: 'binding' | 'fenced' | 'shape' | 'unavailable' | 'integrity' | AppServerOutcome, server?: AppServerProblem | undefined): AppHttpLogError
@@ -2639,7 +2672,7 @@ AppInstallationSignInError@app-host/installation-sign-in.ts
   cause?: unknown
   message: string
   name: string
-  readonly reason: 'refused' | 'unavailable' | 'outcome_unknown' | 'expired' | 'account_confirmation_required' | 'recovery_required' | 'busy' | 'open_in_another_tab' | 'recovery_account_mismatch' | 'binding' | 'fenced' | 'response' | AppServerOutcome
+  readonly reason: 'refused' | 'unavailable' | 'binding' | 'outcome_unknown' | 'expired' | 'account_confirmation_required' | 'recovery_required' | 'busy' | 'open_in_another_tab' | 'recovery_account_mismatch' | 'fenced' | 'response' | AppServerOutcome
   readonly server?: AppServerProblem | undefined
   stack?: string | undefined
   static new (reason: 'binding' | 'fenced' | 'busy' | 'open_in_another_tab' | 'account_confirmation_required' | 'recovery_account_mismatch' | 'outcome_unknown' | 'unavailable' | 'response' | 'refused' | 'expired' | 'recovery_required' | AppServerOutcome, server?: AppServerProblem | undefined): AppInstallationSignInError
@@ -3397,7 +3430,7 @@ AppWebSignOutResult@app-host/web-sign-in-session.ts
 ApplicationApprovalOutcome@application/collection-selection.ts
   readonly collectionId: string | null
   readonly kind: 'add' | 'collection'
-  readonly outcome: 'closed' | 'declined' | 'unchanged' | 'added'
+  readonly outcome: 'closed' | 'added' | 'declined' | 'unchanged'
 
 ApplicationCollectionSelectionSnapshot@application/collection-selection.ts
   readonly approval?: Readonly<{ kind: 'add' | 'collection'; collectionId: string | null; reopenable: boolean; }> | null | undefined
@@ -3408,7 +3441,7 @@ ApplicationCollectionSelectionSnapshot@application/collection-selection.ts
   readonly usable: AppInstallationCollection | null
 
 ApplicationCollectionSelectionState@application/collection-selection.ts
-  = 'approval_required' | 'opening' | 'none' | 'pending' | 'usable' | 'approving' | 'invalid' | 'blocked'
+  = 'invalid' | 'approval_required' | 'opening' | 'none' | 'pending' | 'usable' | 'approving' | 'blocked'
 
 ApplicationFixture@testing/application.ts
   readonly controls: ApplicationFixtureControls
@@ -3510,11 +3543,11 @@ AuthorRef@wire.ts
 BUNDLE_VERSION@account-key.ts
   : 1
 
-Backlink@wire.ts
-  links: LinkView[]
+Backlink@plain.ts
+  links: { raw: string; embed: boolean; resolution: { kind: LinkTargetKind; target?: Uuid | undefined; path?: string | undefined; candidates?: string[] | undefined; }; field?: string | undefined; }[]
   record: RecordView
 
-BacklinksResult@wire.ts
+BacklinksResult@plain.ts
   asOf: number
   backlinks: Backlink[]
   complete: boolean
@@ -3584,7 +3617,7 @@ CborMap@cbor.ts
   = Map<string, CborValue> | Map<number, CborValue>
 
 CborValue@cbor.ts
-  = string | number | bigint | boolean | CborMap | Float64 | Uint8Array<ArrayBufferLike> | CborValue[] | null
+  = string | number | bigint | boolean | Float64 | Uint8Array<ArrayBufferLike> | CborValue[] | CborMap | null
 
 Change@wire.ts
   author?: AuthorRef | undefined
@@ -3658,6 +3691,14 @@ ConfirmedHead@wire.ts
   policyGeneration: string
   seq: number
 
+Conflict@plain.ts
+  base?: { form: 'missing'; } | { form: 'value'; value: JsonValue; } | { form: 'text'; text: string; } | { form: 'blob'; blob: { plainHash: w.Hash; size: number; blobId: Uint8Array; idEpoch: number; partSize: number; }; } | { form: 'deleted'; } | undefined
+  field?: string | undefined
+  id: string
+  kept: { form: 'missing'; } | { form: 'value'; value: JsonValue; } | { form: 'text'; text: string; } | { form: 'blob'; blob: { plainHash: w.Hash; size: number; blobId: Uint8Array; idEpoch: number; partSize: number; }; } | { form: 'deleted'; }
+  kind: ConflictKind
+  lost: { form: 'missing'; } | { form: 'value'; value: JsonValue; } | { form: 'text'; text: string; } | { form: 'blob'; blob: { plainHash: w.Hash; size: number; blobId: Uint8Array; idEpoch: number; partSize: number; }; } | { form: 'deleted'; }
+
 Conflict@wire.ts
   base?: ConflictValue | undefined
   field?: string | undefined
@@ -3666,13 +3707,21 @@ Conflict@wire.ts
   kind: ConflictKind
   lost: ConflictValue
 
+ConflictEntry@plain.ts
+  conflict: Conflict
+  mutation: string
+  seq: number
+
 ConflictEntry@wire.ts
   conflict: Conflict
   mutation: string
   seq: number
 
 ConflictKind@wire.ts
-  = 'file' | 'field' | 'frontmatter' | 'body' | 'path' | 'delete'
+  = 'field' | 'path' | 'file' | 'frontmatter' | 'body' | 'delete'
+
+ConflictValue@plain.ts
+  = { form: 'missing'; } | { form: 'value'; value: JsonValue; } | { form: 'text'; text: string; } | { form: 'blob'; blob: { plainHash: w.Hash; size: number; blobId: Uint8Array; idEpoch: number; partSize: number; }; } | { form: 'deleted'; }
 
 ConflictValue@wire.ts
   = { form: 'missing'; } | { form: 'value'; value: Value; } | { form: 'text'; text: string; } | { form: 'blob'; blob: BlobRef; } | { form: 'deleted'; }
@@ -3705,15 +3754,15 @@ ContractIdentity@contract-records.ts
   type: string
   version: string
 
-ContractImplementation@wire.ts
-  binding?: CborValue | undefined
+ContractImplementation@plain.ts
+  binding?: JsonValue | undefined
   contract: string
   digest?: string | undefined
-  fields: Map<string, string>
+  fields: { [key: string]: string; }
   version: string
 
 ContractProjection@contract-query.ts
-  fields: FmMap
+  fields: JsonObject
   issues: Issue[]
   typeName: string
 
@@ -3735,7 +3784,7 @@ ContractQueryResult@contract-query.ts
 
 ContractRecordView@contract-records.ts
   contract: ContractIdentity
-  fields: FmMap
+  fields: JsonObject
   id: string
   path: string
   revision: string
@@ -3749,13 +3798,13 @@ ContractSelector@contract-records.ts
   type?: string | undefined
   version: string
 
-ContractSummary@wire.ts
+ContractSummary@plain.ts
   contractType: string
   digest: string
   id: string
   implementedBy: string[]
   path: string
-  schemas?: Map<string, CborValue> | undefined
+  schemas?: { [key: string]: JsonValue; } | undefined
   version: string
 
 ControlRouteOptions@transport/control-route.ts
@@ -3812,7 +3861,7 @@ DaemonIdentity@node.ts
 
 DescribeErrorOptions@describe-error.ts
   readonly cpOrigin?: string | undefined
-  readonly messages?: Readonly<Partial<Record<'refused' | 'device_offline' | 'desktop_update_required' | 'old_connector_running' | 'approval_required' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'collection_migrating' | 'collection_not_yet_migrated' | 'collection_deleted' | 'unavailable' | 'read_only' | 'capability_missing' | 'collection_unavailable' | 'moved_to_next_runtime' | 'device_approval_required' | 'account_suspended' | 'update_required' | 'account_collection_quota_exceeded' | 'invalid_request' | 'invalid_record' | 'not_found' | 'conflict' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'expired' | 'approval_window_closed' | 'account_confirmation_required' | 'recovery_required' | 'open_failed' | 'busy' | 'open_in_another_tab' | 'not_authorized' | 'sign_out_pending_writes' | 'sign_out_failed' | 'application_popup_blocked' | 'sign_in_window' | 'application_not_yet_available' | 'application_failed' | 'application_worker_unavailable' | 'browser_unsupported' | 'application_storage_unavailable' | 'storage_may_be_evicted' | 'application_registration_unsupported' | 'application_registration_refused' | 'application_selection_not_approved' | 'application_selection_invalid' | 'installation_scope_removed' | 'recovery_account_mismatch' | 'assets' | 'setup_required' | 'incompatible' | 'contract_mismatch' | 'contract_missing' | 'implementation_missing' | 'catalog_invalid' | 'catalog_response' | 'type_invalid' | 'readiness_budget' | 'readiness_unsupported' | 'notifications_consent_required' | 'timer_channel_reapproval_required' | 'notifications_unsupported' | 'people_unsupported' | 'people_permission_declined' | 'people_access' | 'configuration_conflict' | 'configuration_unavailable' | 'configuration_unsupported' | 'configuration_busy_timeout' | 'readiness_busy_timeout' | 'setup_forbidden' | 'setup_conflict' | 'setup_unresolved' | 'collection_setup_conflict' | 'setup_records_forbidden' | 'setup_changed' | 'installed_newer' | 'type_pack_conflict' | 'invalid_type_pack' | 'access_required' | 'access_declined' | 'access_undeclared' | 'files_access_missing' | 'files_scope_missing' | 'file_read_failed' | 'file_read_idle' | 'collection_delete_name_mismatch' | 'collection_delete_not_owner' | 'collection_delete_not_found' | 'collection_delete_frozen' | 'collection_delete_busy' | 'collection_delete_not_approved' | 'collection_delete_sign_in' | 'collection_delete_invalid' | 'collection_delete_outcome_unknown' | 'collection_delete_failed' | 'wrong_secret' | 'locked' | 'weak_password' | 'already_set_up' | 'no_account_key' | 'invalid_recovery_key' | 'unlock_strict' | 'unlock_unavailable' | 'unlock_failed' | 'private_device_limit' | 'private_device_not_allowed' | 'unknown', MdbaseProblemMessages>>> | undefined
+  readonly messages?: Readonly<Partial<Record<'refused' | 'not_found' | 'device_offline' | 'desktop_update_required' | 'old_connector_running' | 'approval_required' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'collection_migrating' | 'collection_not_yet_migrated' | 'collection_deleted' | 'unavailable' | 'conflict' | 'read_only' | 'capability_missing' | 'collection_unavailable' | 'moved_to_next_runtime' | 'device_approval_required' | 'account_suspended' | 'update_required' | 'account_collection_quota_exceeded' | 'invalid_request' | 'invalid_record' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'expired' | 'approval_window_closed' | 'account_confirmation_required' | 'recovery_required' | 'open_failed' | 'busy' | 'open_in_another_tab' | 'not_authorized' | 'sign_out_pending_writes' | 'sign_out_failed' | 'application_popup_blocked' | 'sign_in_window' | 'application_not_yet_available' | 'application_failed' | 'application_worker_unavailable' | 'browser_unsupported' | 'application_storage_unavailable' | 'storage_may_be_evicted' | 'application_registration_unsupported' | 'application_registration_refused' | 'application_selection_not_approved' | 'application_selection_invalid' | 'installation_scope_removed' | 'recovery_account_mismatch' | 'assets' | 'setup_required' | 'incompatible' | 'contract_mismatch' | 'contract_missing' | 'implementation_missing' | 'catalog_invalid' | 'catalog_response' | 'type_invalid' | 'readiness_budget' | 'readiness_unsupported' | 'notifications_consent_required' | 'timer_channel_reapproval_required' | 'notifications_unsupported' | 'people_unsupported' | 'people_permission_declined' | 'people_access' | 'configuration_conflict' | 'configuration_unavailable' | 'configuration_unsupported' | 'configuration_busy_timeout' | 'readiness_busy_timeout' | 'setup_forbidden' | 'setup_conflict' | 'setup_unresolved' | 'collection_setup_conflict' | 'setup_records_forbidden' | 'setup_changed' | 'installed_newer' | 'type_pack_conflict' | 'invalid_type_pack' | 'access_required' | 'access_declined' | 'access_undeclared' | 'files_access_missing' | 'files_scope_missing' | 'file_read_failed' | 'file_read_idle' | 'collection_delete_name_mismatch' | 'collection_delete_not_owner' | 'collection_delete_not_found' | 'collection_delete_frozen' | 'collection_delete_busy' | 'collection_delete_not_approved' | 'collection_delete_sign_in' | 'collection_delete_invalid' | 'collection_delete_outcome_unknown' | 'collection_delete_failed' | 'wrong_secret' | 'locked' | 'weak_password' | 'already_set_up' | 'no_account_key' | 'invalid_recovery_key' | 'unlock_strict' | 'unlock_unavailable' | 'unlock_failed' | 'private_device_limit' | 'private_device_not_allowed' | 'unknown', MdbaseProblemMessages>>> | undefined
   readonly recoveryAccountLabel?: string | undefined
 
 DescribeHoldOptions@holds.ts
@@ -3825,11 +3874,11 @@ DescribeOptions@client.ts
   definitions?: boolean | undefined
   signal?: AbortSignal | undefined
 
-DescribeResult@wire.ts
+DescribeResult@plain.ts
   contracts: ContractSummary[]
-  inclusion: FileInclusion
-  issues: Issue[]
-  settings: CborValue
+  inclusion: { include: MediaClass[]; exclude?: string[] | undefined; maxSize?: number | undefined; }
+  issues: { code: string; severity: 'warning' | 'error'; message: string; details?: JsonValue | undefined; }[]
+  settings: JsonValue
   specVersion: string
   types: TypeSummary[]
 
@@ -3855,7 +3904,7 @@ Entropy@account-key.ts
   = (n: number) => Uint8Array
 
 ErrorCode@errors.ts
-  = 'unavailable' | 'invalid_request' | 'invalid_record' | 'not_found' | 'conflict' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'upgrade_required' | 'cancelled'
+  = 'not_found' | 'unavailable' | 'conflict' | 'invalid_request' | 'invalid_record' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'upgrade_required' | 'cancelled'
 
 ExecuteViewOptions@saved-views.ts
   context?: RecordRef | undefined
@@ -4026,7 +4075,7 @@ Hold@wire.ts
   id: string
   mine: TextOrBlob
   path: string
-  reason: 'read_only' | 'conflict' | 'unknown_provenance' | 'deleted_elsewhere' | 'editor_busy' | 'suspect_write'
+  reason: 'conflict' | 'read_only' | 'unknown_provenance' | 'deleted_elsewhere' | 'editor_busy' | 'suspect_write'
   saves: number
   since: number
   theirs?: TextOrBlob | undefined
@@ -4050,7 +4099,7 @@ HoldPresentation@holds.ts
   hasTheirs: boolean
   id: string
   path: string
-  reason: 'read_only' | 'conflict' | 'unknown_provenance' | 'deleted_elsewhere' | 'editor_busy' | 'suspect_write'
+  reason: 'conflict' | 'read_only' | 'unknown_provenance' | 'deleted_elsewhere' | 'editor_busy' | 'suspect_write'
   reversible: boolean
   reversibleNote: string
   saves: number
@@ -4058,11 +4107,11 @@ HoldPresentation@holds.ts
   title: 'mdbase protected your edit'
 
 HoldReason@wire.ts
-  = 'read_only' | 'conflict' | 'unknown_provenance' | 'deleted_elsewhere' | 'editor_busy' | 'suspect_write'
+  = 'conflict' | 'read_only' | 'unknown_provenance' | 'deleted_elsewhere' | 'editor_busy' | 'suspect_write'
 
 HoldRef@wire.ts
   id: string
-  reason: 'read_only' | 'conflict' | 'unknown_provenance' | 'deleted_elsewhere' | 'editor_busy' | 'suspect_write'
+  reason: 'conflict' | 'read_only' | 'unknown_provenance' | 'deleted_elsewhere' | 'editor_busy' | 'suspect_write'
 
 HoldResolution@wire.ts
   = 'delete' | 'keep_mine' | 'take_theirs' | 'use' | 'keep_both'
@@ -4088,7 +4137,7 @@ InProcessRuntime@transport/inprocess.ts
   connect: (options: InProcessConnectOptions) => FramePort
 
 Incident@wire.ts
-  details?: CborValue | undefined
+  details?: JsonValue | undefined
   kind: 'read_only' | 'quota_exceeded' | 'upgrade_required' | 'waiting_for_key' | 'integrity' | 'access_revoked' | 'verification_mismatch' | 'voided_items' | 'key_inconsistent' | 'foreign_sync_tool' | 'gone' | 'lost_entries' | 'log_regressed'
 
 Include@wire.ts
@@ -4150,12 +4199,15 @@ IpcConnectorOptions@node.ts
 
 Issue@wire.ts
   code: string
-  details?: CborValue | undefined
+  details?: JsonValue | undefined
   message: string
   severity: 'warning' | 'error'
 
-JsonLike@values.ts
-  = string | number | boolean | JsonLike[] | { [key: string]: JsonLike; } | null
+JsonObject@plain.ts
+  = { [key: string]: JsonValue; }
+
+JsonValue@plain.ts
+  = string | number | boolean | JsonValue[] | { [key: string]: JsonValue; } | null
 
 KdfParams@account-key.ts
   mKib: number
@@ -4197,23 +4249,12 @@ LinkState@client.ts
   = 'closed' | 'open' | 'reconnecting'
 
 LinkTargetKind@wire.ts
-  = 'record' | 'file' | 'not_found' | 'invalid' | 'ambiguous'
-
-LinkView@wire.ts
-  embed: boolean
-  field?: string | undefined
-  raw: string
-  resolution: LinkResolution
+  = 'record' | 'file' | 'ambiguous' | 'not_found' | 'invalid'
 
 ListFilesResult@wire.ts
   complete: boolean
   cursor?: string | undefined
   files: FileView[]
-
-ListResourcesResult@wire.ts
-  complete: boolean
-  cursor?: string | undefined
-  resources: ResourceView[]
 
 ListViewsResult@saved-views.ts
   complete: boolean
@@ -4236,7 +4277,7 @@ LiveQuery@client.ts
   readonly complete: boolean
   error: MdbaseError | null
   get: (id: Uuid) => RecordView | undefined
-  readonly metadata: import("src/wire").QueryMetadata | undefined
+  readonly metadata: import("src/plain").QueryMetadata | undefined
   readonly ready: Promise<void>
   readonly records: readonly RecordView[]
   setQuery: (query: Query, include?: Include | undefined) => Promise<void>
@@ -4423,7 +4464,7 @@ MdbaseApplicationEntry@application/entry.ts
   connection: (collectionId: string) => MdbaseApplicationConnection | null
 
 MdbaseApplicationFacet@application/entry.ts
-  = 'capabilities' | 'contracts' | 'configuration' | 'files' | 'people' | 'notifications'
+  = 'contracts' | 'capabilities' | 'configuration' | 'files' | 'people' | 'notifications'
 
 MdbaseApplicationFacetSnapshot@application/entry.ts
   readonly assessment: MdbaseApplicationAssessment | null
@@ -4432,7 +4473,7 @@ MdbaseApplicationFacetSnapshot@application/entry.ts
 
 MdbaseApplicationProblem@application/entry.ts
   readonly code: string
-  readonly detail?: 'binding_invalid' | 'binding_aborted' | 'binding_not_current' | 'readiness_closed' | 'read_aborted' | 'session_closed' | 'session_replaced' | 'session_collection_mismatch' | 'read_unauthenticated' | 'read_cancelled' | 'scope_aborted' | 'scope_closed' | 'observer_not_current' | 'connection_not_current' | 'collection_mismatch' | 'currentness_check_failed' | 'native_witness_collection_mismatch' | 'native_witness_generation_mismatch' | 'caller_aborted' | 'capabilities_facet' | 'contracts_facet' | 'configuration_facet' | 'files_facet' | 'people_facet' | 'notifications_facet' | undefined
+  readonly detail?: 'binding_invalid' | 'binding_aborted' | 'binding_not_current' | 'readiness_closed' | 'read_aborted' | 'session_closed' | 'session_replaced' | 'session_collection_mismatch' | 'read_unauthenticated' | 'read_cancelled' | 'scope_aborted' | 'scope_closed' | 'observer_not_current' | 'connection_not_current' | 'collection_mismatch' | 'currentness_check_failed' | 'native_witness_collection_mismatch' | 'native_witness_generation_mismatch' | 'caller_aborted' | 'contracts_facet' | 'capabilities_facet' | 'configuration_facet' | 'files_facet' | 'people_facet' | 'notifications_facet' | undefined
 
 MdbaseApplicationReadinessSnapshot@application/entry.ts
   readonly assessment: MdbaseApplicationAssessment | null
@@ -4505,7 +4546,7 @@ MdbaseClient@client.ts
   readonly authenticatedDevice: string | undefined
   awaitReceipt: (mutation: Uuid, timeoutMs?: number, signal?: AbortSignal) => Promise<Receipt>
   backlinks: (target: RecordRef, o?: { include?: Include; limit?: number; cursor?: string; signal?: AbortSignal; }) => Promise<BacklinksResult>
-  call: <T = CborValue>(method: string, p: CborValue, o?: { signal?: AbortSignal; codec?: import("./codec.js").Codec<T>; retry?: boolean; }) => Promise<T>
+  call: { (method: string, p: CborValue, o?: { signal?: AbortSignal; retry?: boolean; }): Promise<CborValue>; <T>(method: string, p: CborValue, o: { signal?: AbortSignal; codec: Codec<T>; retry?: boolean; }): Promise<Plain<T>>; }
   changes: (cursor?: string, limit?: number, signal?: AbortSignal) => Promise<ChangesResult>
   close: () => void
   readonly collection: string
@@ -4563,7 +4604,7 @@ MdbaseClient@client.ts
   resolveConflict: (entry: ConflictEntry, field: string, chosen: PlainValue, o?: WriteOptions) => Promise<Write>
   resolveHold: (id: Uuid, how: HoldResolution, use?: string) => Promise<Write>
   resolveLinks: (from: string, links: readonly string[], o?: { signal?: AbortSignal; }) => Promise<ResolveLinksResult>
-  readonly resources: { get: (path: string, signal?: AbortSignal) => Promise<ResourceView>; list: (o?: { folder?: string; text?: boolean; cursor?: string; limit?: number; signal?: AbortSignal; }) => Promise<import("src/wire").ListResourcesResult>; put: (path: string, doc: string, o?: WriteOptions & { baseRevision?: string; mustNotExist?: boolean; }) => Promise<Write>; delete: (path: string, o?: WriteOptions & { baseRevision?: string; }) => Promise<Write>; }
+  readonly resources: { get: (path: string, signal?: AbortSignal) => Promise<ResourceView>; list: (o?: { folder?: string; text?: boolean; cursor?: string; limit?: number; signal?: AbortSignal; }) => Promise<{ resources: { path: string; revision: import("src/wire").Hash; size: number; state: 'confirmed' | 'pending'; text?: string | undefined; }[]; complete: boolean; cursor?: string | undefined; }>; put: (path: string, doc: string, o?: WriteOptions & { baseRevision?: string; mustNotExist?: boolean; }) => Promise<Write>; delete: (path: string, o?: WriteOptions & { baseRevision?: string; }) => Promise<Write>; }
   save: (write: Write | Promise<Write>, o?: { readBack?: boolean; timeoutMs?: number; signal?: AbortSignal; }) => Promise<SaveResult>
   setTransportDeferred: (deferred: boolean) => void
   readonly status: SyncStatus
@@ -4610,8 +4651,8 @@ MdbaseConnectOptions@application/entry.ts
 
 MdbaseError@errors.ts
   cause?: unknown
-  readonly code: 'unavailable' | 'invalid_request' | 'invalid_record' | 'not_found' | 'conflict' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'upgrade_required' | 'cancelled'
-  readonly details?: unknown
+  readonly code: 'not_found' | 'unavailable' | 'conflict' | 'invalid_request' | 'invalid_record' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'upgrade_required' | 'cancelled'
+  readonly details?: JsonValue | undefined
   readonly issues?: Issue[] | undefined
   message: string
   readonly mutationId?: string | undefined
@@ -4785,7 +4826,7 @@ MdbaseSetupRefusalCode@application/setup.ts
   = 'setup_forbidden' | 'setup_conflict' | 'setup_unresolved' | 'setup_records_forbidden' | 'installed_newer' | 'setup_downgrade'
 
 MdbaseSetupResult@application/front-door.ts
-  readonly outcome: 'unknown' | 'applied' | 'changed'
+  readonly outcome: 'unknown' | 'changed' | 'applied'
   readonly snapshot: MdbaseSnapshot
 
 MdbaseSignInOpener@application/entry.ts
@@ -5147,12 +5188,12 @@ PagesReset@client.ts
   reason: 'cursor_expired' | 'cursor_stale'
   signal?: AbortSignal | undefined
 
-Peer@wire.ts
+Peer@plain.ts
   account?: string | undefined
   app?: string | undefined
   lastSeen: number
   session: Uint8Array<ArrayBufferLike>
-  state: CborValue
+  state: JsonValue
 
 PendingDevice@private.ts
   account: string
@@ -5161,9 +5202,9 @@ PendingDevice@private.ts
   kind: string
   sas?: string | undefined
 
-PendingMutation@wire.ts
+PendingMutation@plain.ts
   captured: number
-  ops: RuntimeOp[]
+  ops: ({ kind: 'create'; id: Uuid; path?: string | undefined; type?: string | undefined; frontmatter?: { [key: string]: JsonValue; } | undefined; body?: string | undefined; document?: string | undefined; } | { kind: 'update'; id: Uuid; patch?: { [key: string]: JsonValue; } | undefined; unset?: string[] | undefined; add?: { [key: string]: JsonValue[]; } | undefined; remove?: { [key: string]: JsonValue[]; } | undefined; body?: string | undefined; bodyEdits?: BodyEdit[] | undefined; bodyBase?: Hash | undefined; bodyBaseText?: string | undefined; base?: { key: string; observed?: JsonValue | undefined; }[] | undefined; ifRevision?: Hash | undefined; updateRefs?: boolean | undefined; } | { kind: 'document'; id: Uuid; base?: { path: string; doc: string; } | undefined; new?: { path: string; doc: string; } | undefined; ifRevision?: Hash | undefined; } | { kind: 'delete'; id: Uuid; baseRevision?: Hash | undefined; ifRevision?: Hash | undefined; } | { kind: 'rename'; id: Uuid; from: string; to: string; updateRefs: boolean; ifRevision?: Hash | undefined; } | { kind: 'resource_put'; path: string; doc: string; baseRevision?: Hash | undefined; mustNotExist?: boolean | undefined; } | { kind: 'resource_delete'; path: string; baseRevision?: Hash | undefined; } | { kind: 'file_put'; id: Uuid; path: string; blob: { plainHash: Hash; size: number; blobId: Uint8Array; idEpoch: number; partSize: number; }; ifRevision?: Hash | undefined; base?: Hash | undefined; } | { kind: 'file_delete'; id: Uuid; ifRevision?: Hash | undefined; base?: Hash | undefined; } | { kind: 'file_move'; id: Uuid; from: string; to: string; updateRefs: boolean; ifRevision?: Hash | undefined; } | { kind: 'conflict_dismiss'; mutation: Uuid; record: Uuid; } | { kind: 'sync_settings'; inclusion: { include: MediaClass[]; exclude?: string[] | undefined; maxSize?: number | undefined; }; } | { kind: 'ordinary_attachment_continuation'; id: Uuid; path: string; content: { reference: { collection: Uuid; keyEpoch: number | bigint; attachmentId: Uint8Array; manifestCipherHash: Hash; }; wholePlainHash: Hash; totalPlainBytes: number | bigint; }; prior: { form: 'blob'; blob: { plainHash: Hash; size: number; blobId: Uint8Array; idEpoch: number; partSize: number; }; } | { form: 'attachment'; content: { reference: { collection: Uuid; keyEpoch: number | bigint; attachmentId: Uint8Array; manifestCipherHash: Hash; }; wholePlainHash: Hash; totalPlainBytes: number | bigint; }; }; } | { kind: 'file_attach'; id: Uuid; path: string; content: { reference: { collection: Uuid; keyEpoch: number | bigint; attachmentId: Uint8Array; manifestCipherHash: Hash; }; wholePlainHash: Hash; totalPlainBytes: number | bigint; }; ifRevision?: Hash | undefined; base?: Hash | undefined; } | { kind: 'unindexed_markdown_put'; id: Uuid; path: string; payload: { content: { form: 'blob'; blob: { plainHash: Hash; size: number; blobId: Uint8Array; idEpoch: number; partSize: number; }; } | { form: 'attachment'; content: { reference: { collection: Uuid; keyEpoch: number | bigint; attachmentId: Uint8Array; manifestCipherHash: Hash; }; wholePlainHash: Hash; totalPlainBytes: number | bigint; }; }; }; expected?: { content: { form: 'blob'; blob: { plainHash: Hash; size: number; blobId: Uint8Array; idEpoch: number; partSize: number; }; } | { form: 'attachment'; content: { reference: { collection: Uuid; keyEpoch: number | bigint; attachmentId: Uint8Array; manifestCipherHash: Hash; }; wholePlainHash: Hash; totalPlainBytes: number | bigint; }; }; } | undefined; } | { kind: 'record_to_unindexed_markdown'; id: Uuid; path: string; payload: { content: { form: 'blob'; blob: { plainHash: Hash; size: number; blobId: Uint8Array; idEpoch: number; partSize: number; }; } | { form: 'attachment'; content: { reference: { collection: Uuid; keyEpoch: number | bigint; attachmentId: Uint8Array; manifestCipherHash: Hash; }; wholePlainHash: Hash; totalPlainBytes: number | bigint; }; }; }; priorRevision: Hash; } | { kind: 'unindexed_markdown_to_record'; id: Uuid; path: string; doc: import("src/runtime-wire").RuntimeText; prior: { content: { form: 'blob'; blob: { plainHash: Hash; size: number; blobId: Uint8Array; idEpoch: number; partSize: number; }; } | { form: 'attachment'; content: { reference: { collection: Uuid; keyEpoch: number | bigint; attachmentId: Uint8Array; manifestCipherHash: Hash; }; wholePlainHash: Hash; totalPlainBytes: number | bigint; }; }; }; } | { kind: 'ordinary_file_to_record'; id: Uuid; path: string; doc: import("src/runtime-wire").RuntimeText; prior: { form: 'blob'; blob: { plainHash: Hash; size: number; blobId: Uint8Array; idEpoch: number; partSize: number; }; } | { form: 'attachment'; content: { reference: { collection: Uuid; keyEpoch: number | bigint; attachmentId: Uint8Array; manifestCipherHash: Hash; }; wholePlainHash: Hash; totalPlainBytes: number | bigint; }; }; })[]
   receipt: Receipt
 
 PeopleAuthority@people.ts
@@ -5211,7 +5252,10 @@ PipeAuth@transport/relay-pipe.ts
   devicePublicKey: Uint8Array<ArrayBufferLike>
   grant: string
 
-PlainValue@values.ts
+Plain@plain.ts
+  = [T] extends [JsonValue | undefined] ? T : [CborValue] extends [T] ? JsonValue : T extends Uint8Array<ArrayBufferLike> ? T : T extends ReadonlyMap<string, infer V> ? { [key: string]: Plain<V>; } : T extends object ? { [K in keyof T]: Plain<T[K]>; } : T
+
+PlainValue@plain.ts
   = string | number | bigint | boolean | Float64 | PlainValue[] | Map<string, PlainValue> | { [key: string]: PlainValue | undefined; } | null
 
 Preflight@wire.ts
@@ -5270,7 +5314,7 @@ ProbeSyncHandle@app-host/storage-probe.ts
 
 Problem@wire.ts
   code: string
-  details?: CborValue | undefined
+  details?: JsonValue | undefined
   issues?: Issue[] | undefined
   message: string
   reason?: string | undefined
@@ -5279,7 +5323,7 @@ Problem@wire.ts
   traceId?: string | undefined
 
 ProblemCode@describe-error.ts
-  = 'refused' | 'device_offline' | 'desktop_update_required' | 'old_connector_running' | 'approval_required' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'collection_migrating' | 'collection_not_yet_migrated' | 'collection_deleted' | 'unavailable' | 'read_only' | 'capability_missing' | 'collection_unavailable' | 'moved_to_next_runtime' | 'device_approval_required' | 'account_suspended' | 'update_required' | 'account_collection_quota_exceeded' | 'invalid_request' | 'invalid_record' | 'not_found' | 'conflict' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'expired' | 'approval_window_closed' | 'account_confirmation_required' | 'recovery_required' | 'open_failed' | 'busy' | 'open_in_another_tab' | 'not_authorized' | 'sign_out_pending_writes' | 'sign_out_failed' | 'application_popup_blocked' | 'sign_in_window' | 'application_not_yet_available' | 'application_failed' | 'application_worker_unavailable' | 'browser_unsupported' | 'application_storage_unavailable' | 'storage_may_be_evicted' | 'application_registration_unsupported' | 'application_registration_refused' | 'application_selection_not_approved' | 'application_selection_invalid' | 'installation_scope_removed' | 'recovery_account_mismatch' | 'assets' | 'setup_required' | 'incompatible' | 'contract_mismatch' | 'contract_missing' | 'implementation_missing' | 'catalog_invalid' | 'catalog_response' | 'type_invalid' | 'readiness_budget' | 'readiness_unsupported' | 'notifications_consent_required' | 'timer_channel_reapproval_required' | 'notifications_unsupported' | 'people_unsupported' | 'people_permission_declined' | 'people_access' | 'configuration_conflict' | 'configuration_unavailable' | 'configuration_unsupported' | 'configuration_busy_timeout' | 'readiness_busy_timeout' | 'setup_forbidden' | 'setup_conflict' | 'setup_unresolved' | 'collection_setup_conflict' | 'setup_records_forbidden' | 'setup_changed' | 'installed_newer' | 'type_pack_conflict' | 'invalid_type_pack' | 'access_required' | 'access_declined' | 'access_undeclared' | 'files_access_missing' | 'files_scope_missing' | 'file_read_failed' | 'file_read_idle' | 'collection_delete_name_mismatch' | 'collection_delete_not_owner' | 'collection_delete_not_found' | 'collection_delete_frozen' | 'collection_delete_busy' | 'collection_delete_not_approved' | 'collection_delete_sign_in' | 'collection_delete_invalid' | 'collection_delete_outcome_unknown' | 'collection_delete_failed' | 'wrong_secret' | 'locked' | 'weak_password' | 'already_set_up' | 'no_account_key' | 'invalid_recovery_key' | 'unlock_strict' | 'unlock_unavailable' | 'unlock_failed' | 'private_device_limit' | 'private_device_not_allowed'
+  = 'refused' | 'not_found' | 'device_offline' | 'desktop_update_required' | 'old_connector_running' | 'approval_required' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'collection_migrating' | 'collection_not_yet_migrated' | 'collection_deleted' | 'unavailable' | 'conflict' | 'read_only' | 'capability_missing' | 'collection_unavailable' | 'moved_to_next_runtime' | 'device_approval_required' | 'account_suspended' | 'update_required' | 'account_collection_quota_exceeded' | 'invalid_request' | 'invalid_record' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'expired' | 'approval_window_closed' | 'account_confirmation_required' | 'recovery_required' | 'open_failed' | 'busy' | 'open_in_another_tab' | 'not_authorized' | 'sign_out_pending_writes' | 'sign_out_failed' | 'application_popup_blocked' | 'sign_in_window' | 'application_not_yet_available' | 'application_failed' | 'application_worker_unavailable' | 'browser_unsupported' | 'application_storage_unavailable' | 'storage_may_be_evicted' | 'application_registration_unsupported' | 'application_registration_refused' | 'application_selection_not_approved' | 'application_selection_invalid' | 'installation_scope_removed' | 'recovery_account_mismatch' | 'assets' | 'setup_required' | 'incompatible' | 'contract_mismatch' | 'contract_missing' | 'implementation_missing' | 'catalog_invalid' | 'catalog_response' | 'type_invalid' | 'readiness_budget' | 'readiness_unsupported' | 'notifications_consent_required' | 'timer_channel_reapproval_required' | 'notifications_unsupported' | 'people_unsupported' | 'people_permission_declined' | 'people_access' | 'configuration_conflict' | 'configuration_unavailable' | 'configuration_unsupported' | 'configuration_busy_timeout' | 'readiness_busy_timeout' | 'setup_forbidden' | 'setup_conflict' | 'setup_unresolved' | 'collection_setup_conflict' | 'setup_records_forbidden' | 'setup_changed' | 'installed_newer' | 'type_pack_conflict' | 'invalid_type_pack' | 'access_required' | 'access_declined' | 'access_undeclared' | 'files_access_missing' | 'files_scope_missing' | 'file_read_failed' | 'file_read_idle' | 'collection_delete_name_mismatch' | 'collection_delete_not_owner' | 'collection_delete_not_found' | 'collection_delete_frozen' | 'collection_delete_busy' | 'collection_delete_not_approved' | 'collection_delete_sign_in' | 'collection_delete_invalid' | 'collection_delete_outcome_unknown' | 'collection_delete_failed' | 'wrong_secret' | 'locked' | 'weak_password' | 'already_set_up' | 'no_account_key' | 'invalid_recovery_key' | 'unlock_strict' | 'unlock_unavailable' | 'unlock_failed' | 'private_device_limit' | 'private_device_not_allowed'
 
 Progress@wire.ts
   done: number
@@ -5292,7 +5336,7 @@ Proof@app-host/installation-sign-in.ts
   sign_pk: string
 
 PublishState@wire.ts
-  = 'publishing' | 'published' | 'not_published'
+  = 'published' | 'publishing' | 'not_published'
 
 PushHandler@session.ts
   = (payload: CborValue) => void
@@ -5303,32 +5347,32 @@ Query@client.ts
 QueryExecutionProfile@runtime/wasm.ts
   = 'desktop' | 'memory_constrained'
 
-QueryGroup@wire.ts
+QueryGroup@plain.ts
   count: number
-  summaries?: FmMap | undefined
-  values: FmMap
+  summaries?: { [key: string]: JsonValue; } | undefined
+  values: { [key: string]: JsonValue; }
 
-QueryMetadata@wire.ts
+QueryMetadata@plain.ts
   columns?: string[] | undefined
-  diagnostics?: Issue[] | undefined
+  diagnostics?: { code: string; severity: 'warning' | 'error'; message: string; details?: JsonValue | undefined; }[] | undefined
   groups?: QueryGroup[] | undefined
   hasMore?: boolean | undefined
   totalCount?: number | undefined
-  view?: ViewRef | undefined
+  view?: { path: string; view: string; } | undefined
 
-QueryResult@wire.ts
+QueryResult@plain.ts
   asOf: number
   columns?: string[] | undefined
   complete: boolean
   cursor?: string | undefined
-  diagnostics?: Issue[] | undefined
+  diagnostics?: { code: string; severity: 'warning' | 'error'; message: string; details?: JsonValue | undefined; }[] | undefined
   groups?: QueryGroup[] | undefined
   hasMore?: boolean | undefined
   records: RecordView[]
   totalCount?: number | undefined
-  view?: ViewRef | undefined
+  view?: { path: string; view: string; } | undefined
 
-QueryUpdate@wire.ts
+QueryUpdate@plain.ts
   added?: RecordView[] | undefined
   asOf: number
   changed?: RecordView[] | undefined
@@ -5348,11 +5392,11 @@ READ_MANY_MAX_REFS@read-helpers.ts
 ReadManyOptions@read-helpers.ts
   concurrency?: number | undefined
 
-Receipt@wire.ts
+Receipt@plain.ts
   conflicts?: Conflict[] | undefined
   mutation: string
-  preflight?: Preflight | undefined
-  problem?: Problem | undefined
+  preflight?: { rewrites: { record: Uuid; path: string; from: string; to: string; field?: string | undefined; }[]; broken: { record: Uuid; path: string; raw: string; target: Uuid; field?: string | undefined; }[]; } | undefined
+  problem?: { code: string; recovery: Recovery; message: string; reason?: string | undefined; details?: JsonValue | undefined; retryAfterMs?: number | undefined; issues?: { code: string; severity: 'warning' | 'error'; message: string; details?: JsonValue | undefined; }[] | undefined; traceId?: string | undefined; } | undefined
   published?: PublishState | undefined
   records?: RecordView[] | undefined
   relocatedFrom?: number | undefined
@@ -5400,7 +5444,7 @@ RecordRecoveryRef@records/types.ts
   readonly recordId: string
 
 RecordRef@client.ts
-  = string | ContractRecordView | { path: string; } | RecordView
+  = string | RecordView | ContractRecordView | { path: string; }
 
 RecordResolution@records/types.ts
   = { readonly keep: 'mine' | 'theirs'; } | { readonly body: string; }
@@ -5416,7 +5460,7 @@ RecordSession@records/types.ts
 RecordSessionSnapshot@records/types.ts
   readonly body: string
   readonly dirty: boolean
-  readonly frontmatter: ReadonlyMap<string, CborValue>
+  readonly frontmatter: JsonObject
   readonly lastReceipt: Receipt | null
   readonly problem: Problem | null
   readonly record: RecordView
@@ -5425,13 +5469,7 @@ RecordSessionSnapshot@records/types.ts
   readonly state: RecordSessionState
 
 RecordSessionState@records/types.ts
-  = 'deleted' | 'conflict' | 'recovery' | 'error' | 'saved' | 'saved_on_device' | 'unsaved' | 'saving'
-
-RecordState@wire.ts
-  confirmedSeq: number
-  hold?: HoldRef | undefined
-  state: 'pending' | 'confirmed'
-  unresolved?: number | undefined
+  = 'deleted' | 'conflict' | 'error' | 'recovery' | 'saved' | 'saved_on_device' | 'unsaved' | 'saving'
 
 RecordValidation@validation.ts
   id: string
@@ -5439,22 +5477,22 @@ RecordValidation@validation.ts
   path: string
   revision: string
 
-RecordView@wire.ts
+RecordView@plain.ts
   body?: string | undefined
-  createdBy?: AuthorRef | undefined
-  diagnostics?: Issue[] | undefined
+  createdBy?: { account: Uuid; device: Uuid; grant?: Uuid | undefined; grantAccount?: Uuid | undefined; } | undefined
+  diagnostics?: { code: string; severity: 'warning' | 'error'; message: string; details?: JsonValue | undefined; }[] | undefined
   document?: string | undefined
-  effective?: FmMap | undefined
-  frontmatter: FmMap
+  effective?: { [key: string]: JsonValue; } | undefined
+  frontmatter: { [key: string]: JsonValue; }
   id: string
-  links?: LinkView[] | undefined
-  modifiedBy?: AuthorRef | undefined
+  links?: { raw: string; embed: boolean; resolution: { kind: LinkTargetKind; target?: Uuid | undefined; path?: string | undefined; candidates?: string[] | undefined; }; field?: string | undefined; }[] | undefined
+  modifiedBy?: { account: Uuid; device: Uuid; grant?: Uuid | undefined; grantAccount?: Uuid | undefined; } | undefined
   mtime?: number | undefined
   path: string
   revision: string
-  state: RecordState
+  state: { state: 'confirmed' | 'pending'; confirmedSeq: number; hold?: { id: Uuid; reason: HoldReason; } | undefined; unresolved?: number | undefined; }
   types: string[]
-  values?: FmMap | undefined
+  values?: { [key: string]: JsonValue; } | undefined
 
 RecordWrite@client.ts
   readonly confirmed: Promise<Receipt>
@@ -5546,8 +5584,8 @@ RuntimeInfo@runtime/wasm.ts
   sem: { major: number; minor: number; }
   serves: { major: number; minor: number; }[]
 
-RuntimeOp@runtime-wire.ts
-  = Op | ExtendedOp
+RuntimeText@runtime-wire.ts
+  = string | number
 
 SESSION_LIFETIME_MS@transport/noise-session.ts
   : number
@@ -5749,7 +5787,7 @@ SubmitParams@wire.ts
   ops: Op[]
   timezone?: string | undefined
   validation?: ValidationLevel | undefined
-  wait?: 'pending' | 'confirmed' | 'published' | undefined
+  wait?: 'published' | 'pending' | 'confirmed' | undefined
 
 SyncMode@wire.ts
   = 'local_only' | 'synced'
@@ -5933,7 +5971,7 @@ TypeCreation@client.ts
   write: Write
 
 TypePackAction@type-packs.ts
-  = 'delete' | 'create' | 'conflict' | 'update' | 'adopt' | 'unchanged' | 'preserve'
+  = 'delete' | 'conflict' | 'create' | 'update' | 'adopt' | 'unchanged' | 'preserve'
 
 TypePackApplyResult@type-packs.ts
   outcome: 'pending' | 'applied' | 'preview' | 'already_current'
@@ -6004,13 +6042,13 @@ TypePackResourceKind@type-packs.ts
 TypePackStatus@type-packs.ts
   = 'conflict' | 'upgrade' | 'current' | 'install' | 'downgrade' | 'reconfigure'
 
-TypeSummary@wire.ts
-  definition?: CborValue | undefined
+TypeSummary@plain.ts
+  definition?: JsonValue | undefined
   implements: ContractImplementation[]
   name: string
   path: string
   revision?: string | undefined
-  schema?: CborValue | undefined
+  schema?: JsonValue | undefined
   version?: number | undefined
 
 TypingEntry@wire.ts
@@ -6055,7 +6093,7 @@ Uuid@wire.ts
 
 ValidationIssue@validation.ts
   code: string
-  details?: CborValue | undefined
+  details?: JsonValue | undefined
   location?: string | undefined
   message: string
   severity: 'warning' | 'error'
@@ -6066,30 +6104,19 @@ ValidationLevel@wire.ts
   = 'error' | 'off' | 'warn'
 
 Value@wire.ts
-  = string | number | bigint | boolean | import("src/cbor").CborMap | import("src/cbor").Float64 | Uint8Array<ArrayBufferLike> | CborValue[] | null
+  = string | number | bigint | boolean | import("src/cbor").Float64 | Uint8Array<ArrayBufferLike> | CborValue[] | import("src/cbor").CborMap | null
 
 Version@wire.ts
   major: number
   minor: number
 
-ViewDescriptor@wire.ts
+ViewDescriptor@plain.ts
   id: string
   name: string
-  presentation?: CborValue | undefined
-  properties: ViewProperty[]
+  presentation?: JsonValue | undefined
+  properties: { key: string; label?: string | undefined; description?: string | undefined; format?: string | undefined; hidden?: boolean | undefined; }[]
 
-ViewProperty@wire.ts
-  description?: string | undefined
-  format?: string | undefined
-  hidden?: boolean | undefined
-  key: string
-  label?: string | undefined
-
-ViewRef@wire.ts
-  path: string
-  view: string
-
-ViewSource@wire.ts
+ViewSource@plain.ts
   id: string
   name: string
   record: string
@@ -6122,7 +6149,7 @@ ViewSourceWriteOptions@view-sources.ts
   signal?: AbortSignal | undefined
   timezone?: string | undefined
   validation?: ValidationLevel | undefined
-  wait?: 'pending' | 'confirmed' | 'published' | undefined
+  wait?: 'published' | 'pending' | 'confirmed' | undefined
 
 WasmRuntime@runtime/wasm.ts
   connect: (o?: InProcessConnectOptions & { clientKey?: Uint8Array; }) => FramePort
@@ -6201,7 +6228,7 @@ WriteOptions@client.ts
   signal?: AbortSignal | undefined
   timezone?: string | undefined
   validation?: ValidationLevel | undefined
-  wait?: 'pending' | 'confirmed' | 'published' | undefined
+  wait?: 'published' | 'pending' | 'confirmed' | undefined
 
 accountKeyRewrapDigest@account-key.ts
   : (account: string, bundleBytes: Uint8Array, expectedVersion: number) => Uint8Array
@@ -6638,10 +6665,10 @@ syncStatusText@holds.ts
 toHex@cbor.ts
   : (b: Uint8Array) => string
 
-toPlain@values.ts
-  : (v: CborValue) => JsonLike
+toPlain@plain.ts
+  : (v: CborValue) => JsonValue
 
-toValue@values.ts
+toValue@plain.ts
   : (v: PlainValue | undefined) => CborValue
 
 unlockPrivateDevice@app-host/account-key-host.ts

@@ -4,12 +4,13 @@ import {
     uuid,
     hash,
     tstr,
-    value,
+    json,
     SchemaError,
     type Codec,
 } from "./codec.js";
 import { encode, type CborValue } from "./cbor.js";
-import { type Issue, severity } from "./wire.js";
+import { severity } from "./wire.js";
+import type { Issue } from "./wire.js";
 import type { RecordRef } from "./client.js";
 import { mdbaseError } from "./errors.js";
 
@@ -44,7 +45,7 @@ const validationIssue = struct<ValidationIssue>("validation-issue", [
     [0, "code", tstr],
     [1, "severity", severity],
     [2, "message", tstr],
-    [3, "details", value, "opt"],
+    [3, "details", json, "opt"],
     [4, "location", tstr, "opt"],
     [5, "typeName", tstr, "opt"],
     [6, "tier", tier],

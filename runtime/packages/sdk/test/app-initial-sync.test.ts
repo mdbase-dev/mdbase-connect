@@ -8,7 +8,7 @@ const status = (incidents: SyncStatus["incidents"]): SyncStatus => ({
 
 describe("key wait detail", () => {
   it("names the replica's read-ahead reason and positions", () => {
-    const s = status([{kind: "waiting_for_key", details: new Map<string, unknown>([["position", 3n], ["reason", "no_grant"], ["at", 5]]) as never}]);
+    const s = status([{kind: "waiting_for_key", details: {position: 3, reason: "no_grant", at: 5}}]);
     expect(initialSyncWait(s)).toBe("waiting_for_key");
     expect(keyWaitDetail(s)).toEqual({through: 2, head: 5, key: "no_grant", position: 3, at: 5});
   });

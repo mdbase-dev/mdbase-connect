@@ -691,7 +691,7 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
       // A browser below the SDK's feature floor fails here, once, with a typed
       // problem — before any registration, Worker, key or storage allocation.
       const capabilities=await this.timing.time("capabilities",()=>probeBrowserCapabilities());this.check();
-      if(!capabilities.ok)throw mdbaseError("unavailable","This browser can't run mdbase",{reason:capabilities.problem,details:new Map([["missing",capabilities.missing.join(",")]])});
+      if(!capabilities.ok)throw mdbaseError("unavailable","This browser can't run mdbase",{reason:capabilities.problem,details:{missing:capabilities.missing.join(",")}});
       // Registration resolves BEFORE any Worker, key, profile or DB allocation.
       // A first visit registers over the network. Work before connecting opens
       // right after, so the Worker's verified public assets are fetched during

@@ -56,7 +56,7 @@ export function parseCollectionAvailability(value: unknown): CollectionAvailabil
  * an action on the serving computer (`unavailable`, retried).
  */
 export function collectionUnavailableError(reason: CollectionUnavailableReason): MdbaseError {
-  const details = new Map([["availability", reason]]);
+  const details = { availability: reason };
   if (reason === "collection_deleted") {
     return new MdbaseError({ code: "forbidden", message: "this collection was deleted", reason, recovery: "none", details });
   }

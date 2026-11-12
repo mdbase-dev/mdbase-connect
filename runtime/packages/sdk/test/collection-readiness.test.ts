@@ -185,7 +185,7 @@ describe("original selected collection semantic readiness", () => {
   it.each(["unauthenticated", "cancelled"] as const)("identifies a READ rejected as %s", async code => {
     const f = await fixture(), assessor = f.make();
     try {
-      f.refuse({code, recovery: code === "cancelled" ? "none" : "reauthorize", message: "secret server message", details: new Map([["condition", "secret server detail"]])});
+      f.refuse({code, recovery: code === "cancelled" ? "none" : "reauthorize", message: "secret server message", details: {condition: "secret server detail"}});
       await expect(assessor.start()).rejects.toMatchObject({code});
       expect(assessor.getSnapshot().problem).toEqual({reason: "fenced", detail: `read_${code}`});
     } finally { await assessor.close(); f.client.close(); }
@@ -214,7 +214,7 @@ describe("original selected collection semantic readiness", () => {
   it("identifies an invalid binding in the error detail", async () => {
     const f = await fixture();
     try {
-      expect(() => createAppCollectionReadiness(f.client, declared, {collection: "invalid-secret", generation, signal: f.scope.signal, isCurrent: () => true})).toThrow(expect.objectContaining({reason: "readiness_fenced", details: new Map([["condition", "binding_invalid"]])}));
+      expect(() => createAppCollectionReadiness(f.client, declared, {collection: "invalid-secret", generation, signal: f.scope.signal, isCurrent: () => true})).toThrow(expect.objectContaining({reason: "readiness_fenced", details: {condition: "binding_invalid"}}));
     } finally { f.client.close(); }
   });
   it("identifies caller abort during an original READ", async () => {
@@ -340,7 +340,7 @@ describe("original selected collection semantic readiness", () => {
             code: "type_invalid",
             severity: "error",
             message: "PRIVATE",
-            details: new Map([["path", path]]),
+            details: {path},
           },
         ],
       });

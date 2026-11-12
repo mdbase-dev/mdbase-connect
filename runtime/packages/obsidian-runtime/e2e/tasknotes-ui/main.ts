@@ -172,7 +172,7 @@ export default class LabTaskNotesUI extends TaskNotesPlugin {
     const disk = await this.app.vault.read(file);
     const fm = parseYaml(disk.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1] ?? "");
     const statusKey = this.settings.fieldMapping.status;
-    this.result.readBack = toPlain(record.frontmatter.get(statusKey)) === "done" && fm[statusKey] === "done";
+    this.result.readBack = record.frontmatter[statusKey] === "done" && fm[statusKey] === "done";
     if (!this.result.readBack || !this.result.serviceUpdated || !this.result.editModalRendered || this.result.recordPublished < 2) throw new Error("readback_incomplete");
   }
 

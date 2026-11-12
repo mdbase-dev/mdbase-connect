@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { decode, encode, toHex, type CborValue } from "../src/cbor.js";
-import { SchemaError } from "../src/codec.js";
+import { decodePlain, SchemaError } from "../src/codec.js";
 import { incident, receipt, resyncing, syncStatus } from "../src/wire.js";
 import { Write, type ResyncPhase, type Resyncing } from "../src/index.js";
 
@@ -47,7 +47,7 @@ describe("allocated lost-tail repair codecs", () => {
     const mutation = "0192f3a4-6000-7abc-8def-0123456789ab";
     const write = new Write({ mutation, state: "confirmed", seq: 12 });
     const next = { mutation, state: "confirmed" as const, seq: 15, relocatedFrom: 12 };
-    write.update(receipt.dec(decode(encode(receipt.enc(next)))));
+    write.update(decodePlain(receipt, decode(encode(receipt.enc(next)))));
     expect(write.receipt).toEqual(next);
     expect((await write.confirmed).seq).toBe(12);
     // Already-resolved promises aren't a second confirmation; consumers inspect

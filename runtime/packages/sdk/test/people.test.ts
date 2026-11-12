@@ -3,13 +3,13 @@ import { MdbasePeopleClient, PERSON_CONTRACT, sameIdentity, type PeopleAuthority
 import { mdbaseError } from "../src/errors.js";
 import type { ContractQueryResult } from "../src/contract-query.js";
 import type { Session } from "../src/session.js";
-import { toFmMap, type PlainValue } from "../src/values.js";
+import type { JsonValue } from "../src/plain.js";
 
 const identity = { issuer: "https://id.example", subject: "acct_exact" };
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
-function page(names: Array<{name: string; claims?: PlainValue; error?: boolean; duplicate?: string}>, cursor?: string, asOf = 7): ContractQueryResult {
-  const records = names.map((row, i) => ({ id: id(i+1), implementations: [{ typeName: "arbitrary", fields: toFmMap({name:row.name, identities:row.claims ?? [identity]}), issues: row.error ? [{ code:"data_contract_record_invalid",severity:"error" as const,message:"invalid name" }] : [] }, ...(row.duplicate ? [{typeName:"other",fields:toFmMap({name:row.duplicate,identities:[identity]}),issues:[]}] : [])] }));
-  return { version:1, contractDigest:"a".repeat(64), records, page:{ records:records.map(row=>({id:row.id,path:`people/${row.id}.md`,revision:"b".repeat(64),frontmatter:new Map(),types:["arbitrary"],state:{state:"confirmed",confirmedSeq:1}})),complete:true,asOf,hasMore:!!cursor,...(cursor?{cursor}:{}) } };
+function page(names: Array<{name: string; claims?: JsonValue; error?: boolean; duplicate?: string}>, cursor?: string, asOf = 7): ContractQueryResult {
+  const records = names.map((row, i) => ({ id: id(i+1), implementations: [{ typeName: "arbitrary", fields: {name:row.name, identities:row.claims ?? [identity]}, issues: row.error ? [{ code:"data_contract_record_invalid",severity:"error" as const,message:"invalid name" }] : [] }, ...(row.duplicate ? [{typeName:"other",fields:{name:row.duplicate,identities:[identity]},issues:[]}] : [])] }));
+  return { version:1, contractDigest:"a".repeat(64), records, page:{ records:records.map(row=>({id:row.id,path:`people/${row.id}.md`,revision:"b".repeat(64),frontmatter:{},types:["arbitrary"],state:{state:"confirmed",confirmedSeq:1}})),complete:true,asOf,hasMore:!!cursor,...(cursor?{cursor}:{}) } };
 }
 function fixture(pages = [page([{name:"Alice"}])]) {
   const newSession = () => ({closed:false,hello:{collection:id(100)}} as Session);
@@ -63,8 +63,8 @@ describe("native Person directory",()=>{
   });
   it("requires canonical map name rather than unrelated display entries",async()=>{
     const result=page([{name:"Alice"}]);
-    result.records[0]!.implementations[0]!.fields.delete("name");
-    result.records[0]!.implementations[0]!.fields.set("displayName","Alice");
+    delete result.records[0]!.implementations[0]!.fields.name;
+    result.records[0]!.implementations[0]!.fields.displayName="Alice";
     const directory=await fixture([result]).people.directory();
     expect(directory.people).toHaveLength(0);
     expect(directory.me.status).toBe("invalid");

@@ -877,7 +877,7 @@ export class MemoryReplica {
         if (!(secret instanceof Uint8Array) || secret.length !== 32) throw mdbaseError("invalid_request", "the account secret is 32 bytes");
         const refused = (reason: string): AccountKeyStatus => ({
           state: "refused",
-          problem: { code: "forbidden", recovery: "reauthorize", message: `account key refused: ${reason}`, details: new Map([["reason", reason]]) },
+          problem: { code: "forbidden", recovery: "reauthorize", message: `account key refused: ${reason}`, details: { reason } },
         });
         const enrolled = this.accountKeySecret;
         this.accountKey = !enrolled ? refused("device_missing")
@@ -1312,7 +1312,7 @@ export class MemoryReplica {
           if (op.ifRevision && op.ifRevision !== revision(r0)) {
             throw new MdbaseError({
               ...problem("conflict", "the record changed since if_revision", "revision"),
-              details: new Map([["current", revision(r0)]]),
+              details: { current: revision(r0) },
             });
           }
           const r = { ...r0, frontmatter: new Map(r0.frontmatter), pending: true };

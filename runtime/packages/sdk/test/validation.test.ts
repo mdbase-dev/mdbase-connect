@@ -109,7 +109,7 @@ const diagnostic: RecordValidation["issues"][number] = {
     location: "/done",
     typeName: "Task",
     tier: "single_record",
-    details: new Map([["schema_location", "/properties/done/type"]]),
+    details: { schema_location: "/properties/done/type" },
 };
 describe("public current-record validation", () => {
     it("decodes complete native witnesses/diagnostics and preserves selection order/duplicates/signal", async () => {

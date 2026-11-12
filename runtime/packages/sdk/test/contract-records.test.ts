@@ -55,15 +55,15 @@ describe("contract-scoped records", () => {
     const created = await client.create({ path: "cards/a.md", contract, frontmatter: { name: "A" } });
     const a = await client.get({ path: "cards/a.md" });
     target = { id: a.id, path: a.path };
-    expect(a.frontmatter.get("label")).toBe("A");
+    expect(a.frontmatter.label).toBe("A");
     expect(created.mutationId).toBeDefined();
     expect(seen[0]![1].get(5)).toEqual(new Map([["name", "A"]]));
 
     const view = await client.getContract({ path: "cards/a.md" }, contract);
-    expect(view).toMatchObject({ id: a.id, path: "cards/a.md", fields: new Map([["name", "A"]]), contract: { ...contract, type: "card" } });
+    expect(view).toMatchObject({ id: a.id, path: "cards/a.md", fields: { name: "A" }, contract: { ...contract, type: "card" } });
 
     await client.update(view, { contract, patch: { name: "B" } });
-    expect((await client.get(a.id)).frontmatter.get("label")).toBe("B");
+    expect((await client.get(a.id)).frontmatter.label).toBe("B");
     await client.rename(view, "cards/b.md", { contract });
     expect((await client.get(a.id)).path).toBe("cards/b.md");
     target = { id: a.id, path: "cards/b.md" };
@@ -81,12 +81,12 @@ describe("contract-scoped records", () => {
     const client = await connect({ connector: replica.connector(), app });
     await client.create({ path: "cards/a.md", contract, frontmatter: { name: "A", label: "x" }, body: "draft" });
     const view = await client.getContract({ path: "cards/a.md" }, contract);
-    expect(view.fields).toEqual(new Map([["name", "A"], ["label", "x"]]));
+    expect(view.fields).toEqual({ name: "A", label: "x" });
     expect(view.contract.type).toBe("card");
 
     const w = await client.update(view, { contract, patch: { label: "y" }, body: "final" });
     const record = await client.get(view.id, { body: true });
-    expect(record.frontmatter.get("meta")).toEqual(new Map([["label", "y"]]));
+    expect(record.frontmatter.meta).toEqual({ label: "y" });
     expect(record.body).toBe("final");
     expect(w.mutationId).toBeDefined();
     const unmapped = await client.update(view, { contract, patch: { other: 1 } }).catch((e: unknown) => e);
@@ -108,9 +108,9 @@ describe("contract-scoped records", () => {
     await client.update(draft, { contract, promote: true, patch: { name: "M" }, ifRevision: draft.revision });
     const promoted = await client.get(draft.id, { body: true });
     expect([promoted.id, promoted.body, promoted.types]).toEqual([draft.id, "text", ["card"]]);
-    expect(promoted.frontmatter).toEqual(new Map<string, unknown>([["custom", 1], ["title", "M"], ["type", "card"]]));
+    expect(promoted.frontmatter).toEqual({ custom: 1, title: "M", type: "card" });
     const view = await client.getContract(draft.id, contract);
-    expect([view.fields.get("name"), view.contract.digest]).toEqual(["M", `sha256:${"ab".repeat(32)}`]);
+    expect([view.fields.name, view.contract.digest]).toEqual(["M", `sha256:${"ab".repeat(32)}`]);
     client.close();
   });
 

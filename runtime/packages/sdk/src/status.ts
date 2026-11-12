@@ -8,7 +8,8 @@
  *   head_known`, plus "k changes waiting" when `pending > 0`.
  * Holds and conflicts are counted separately so edits never look silently stuck.
  */
-import type { Receipt, SyncStatus } from "./wire.js";
+import type { Receipt } from "./plain.js";
+import type { SyncStatus } from "./wire.js";
 
 export type StatusKind = "local" | "synced" | "catching_up" | "offline" | "installing"
   | "collection_not_yet_migrated" | "collection_migrating" | "update_required" | "account_suspended";

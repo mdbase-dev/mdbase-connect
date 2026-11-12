@@ -40,7 +40,7 @@ describe("bounded web sign-in diagnostic vocabulary", () => {
     expect(webSignInProblem(Object.assign(new Error("secret"), {reason: "sync_stalled"})).problem).toBe("open_failed");
   });
   it("exports only a known replica code, not its reason/body/custody", () => {
-    expect(webSignInProblem(new MdbaseError({code: "unavailable", recovery: "retry", message: "secret", reason: "secret", details: new Map([["bearer", "secret"]])}))).toEqual({problem: "open_failed", detail: {name: "MdbaseError", code: "unavailable"}});
+    expect(webSignInProblem(new MdbaseError({code: "unavailable", recovery: "retry", message: "secret", reason: "secret", details: {bearer: "secret"}}))).toEqual({problem: "open_failed", detail: {name: "MdbaseError", code: "unavailable"}});
   });
   it("bounds DOM exception codes and survives hostile getters/proxies", () => {
     expect(webSignInProblem(new DOMException("secret", "QuotaExceededError"))).toEqual({problem: "open_failed", detail: {name: "DOMException", code: "QuotaExceededError"}});

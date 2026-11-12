@@ -32,7 +32,7 @@ describe("MemoryReplica fault parity", () => {
     const c = await client(replica);
     const start = (await c.changes()).cursor;
     replica.editElsewhere(r.id, { frontmatter: { done: true } });
-    expect((await c.get(r.id)).frontmatter.get("done")).toBe(true);
+    expect((await c.get(r.id)).frontmatter.done).toBe(true);
     replica.renameElsewhere(r.id, "u.md");
     expect((await c.get(r.id)).path).toBe("u.md");
     replica.deleteElsewhere(r.id);
@@ -54,8 +54,9 @@ describe("MemoryReplica fault parity", () => {
     await c.resolveHold(holdId, "take_theirs");
     expect(await c.listHolds()).toEqual([]);
     expect((await c.get(r.id, { body: true })).body).toBe("theirs");
-    expect(await c.listConflicts(r.id)).toEqual([entry]);
-    await c.dismissConflict(entry);
+    const listed = await c.listConflicts(r.id);
+    expect(listed).toEqual([entry]);
+    await c.dismissConflict(listed[0]!);
     expect(await c.listConflicts()).toEqual([]);
     expect((await c.describe()).types.map((t) => t.name)).toContain("note");
 

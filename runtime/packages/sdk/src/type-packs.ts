@@ -4,7 +4,8 @@ import type { MdbaseClient, Write, WriteOptions } from "./client.js";
 import { bool, hash, list, struct, tstr, uint, value } from "./codec.js";
 import type { CborValue } from "./cbor.js";
 import { isMdbaseError, MdbaseError, mdbaseError } from "./errors.js";
-import { toPlain, toValue, type JsonLike, type PlainValue } from "./values.js";
+import { toValue, type JsonValue, type PlainValue } from "./values.js";
+import type { Plain } from "./plain.js";
 import type { Op } from "./wire.js";
 
 /** A pack: its manifest and the exact bytes of every manifest source. */
@@ -124,14 +125,14 @@ const planWire = struct<PlanWire>("type-pack-plan-v1", [
 
 const ACTIONS: readonly TypePackAction[] = ["create", "update", "delete", "adopt", "unchanged", "preserve", "conflict"];
 
-type Obj = { [k: string]: JsonLike };
-const obj = (v: JsonLike | undefined): Obj => (v && typeof v === "object" && !Array.isArray(v) ? v : {});
-const str = (v: JsonLike | undefined): string | undefined => (typeof v === "string" ? v : undefined);
+type Obj = { [k: string]: JsonValue };
+const obj = (v: JsonValue | undefined): Obj => (v && typeof v === "object" && !Array.isArray(v) ? v : {});
+const str = (v: JsonValue | undefined): string | undefined => (typeof v === "string" ? v : undefined);
 function opt<K extends string, V>(key: K, v: V | undefined): { [P in K]?: V } {
   return (v === undefined ? {} : { [key]: v }) as { [P in K]?: V };
 }
 
-function receipt(v: JsonLike | undefined): TypePackReceipt {
+function receipt(v: JsonValue | undefined): TypePackReceipt {
   const r = obj(v);
   return {
     id: str(r.id)!, version: str(r.version)!, digest: str(r.digest)!, installedBy: str(r.installed_by)!,
@@ -145,7 +146,7 @@ function receipt(v: JsonLike | undefined): TypePackReceipt {
   };
 }
 
-function resource(v: JsonLike): TypePackResource {
+function resource(v: JsonValue): TypePackResource {
   const e = obj(v);
   const b = e.upgrade_baseline === undefined ? undefined : obj(e.upgrade_baseline);
   const version = b && (typeof b.version === "number" ? b.version : typeof b.version === "string" ? Number(b.version) : undefined);
@@ -165,8 +166,8 @@ function conflictMessage(r: TypePackResource, adoptable: boolean): string {
 }
 
 /** The plan from the replica's assessment. */
-function toPlan(raw: CborValue, pack: TypePackProvision, options: TypePackOptions): TypePackPlan {
-  const a = obj(toPlain(raw));
+function toPlan(assessment: JsonValue, pack: TypePackProvision, options: TypePackOptions): TypePackPlan {
+  const a = obj(assessment);
   const resources = (Array.isArray(a.resources) ? a.resources : []).map(resource);
   const summary = Object.fromEntries(ACTIONS.map((k) => [k, resources.filter((r) => r.action === k).map((r) => r.target)])) as Record<TypePackAction, string[]>;
   const adoptable: Record<string, string> = {};
@@ -218,7 +219,7 @@ function contractSetupsRequested(input: unknown): boolean {
   return typeof input === "object" && Object.keys(input).length > 0;
 }
 
-async function call(client: MdbaseClient, pack: TypePackProvision, o: TypePackOptions, expected?: string): Promise<PlanWire> {
+async function call(client: MdbaseClient, pack: TypePackProvision, o: TypePackOptions, expected?: string): Promise<Plain<PlanWire>> {
   if (contractSetupsRequested((o as { contractSetups?: unknown }).contractSetups)) {
     throw mdbaseError("invalid_request", "Contract setup during type pack install is not supported yet.", "type_pack_contract_setups_unsupported");
   }

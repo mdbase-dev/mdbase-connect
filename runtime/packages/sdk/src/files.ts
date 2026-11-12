@@ -6,7 +6,7 @@
  */
 import { sha256 } from "@noble/hashes/sha2.js";
 import type { CborValue } from "./cbor.js";
-import { hash as hashCodec, hashFromBytes, list, uint, uuid as uuidCodec } from "./codec.js";
+import { hash as hashCodec, hashFromBytes, list, plainAnswer, uint, uuid as uuidCodec } from "./codec.js";
 import type { ChangesWatch, MdbaseClient, Write, WriteOptions } from "./client.js";
 import { isMdbaseError, MdbaseError, mdbaseError } from "./errors.js";
 import { withMutation, type Session } from "./session.js";
@@ -31,29 +31,8 @@ function regionPause(e: MdbaseError, what: string, signal?: AbortSignal): Promis
     signal?.addEventListener("abort", stop, { once: true });
   });
 }
-import {
-  ChangesResult,
-  FileChunk,
-  fileChunk,
-  fileStreamFailure,
-  HelloResult,
-  FileView,
-  fileView,
-  listFilesResult,
-  ListFilesResult,
-  Materialization,
-  materialization,
-  MediaClass,
-  mediaClass,
-  openUploadParams,
-  OpenUploadParams,
-  openUploadResult,
-  receipt as receiptCodec,
-  transferProgress,
-  TransferProgress,
-  uploadChunkParams,
-  Uuid,
-} from "./wire.js";
+import { ChangesResult, FileChunk, fileChunk, fileStreamFailure, FileView, fileView, listFilesResult, ListFilesResult, Materialization, materialization, MediaClass, mediaClass, openUploadParams, OpenUploadParams, openUploadResult, receipt as receiptCodec, transferProgress, TransferProgress, uploadChunkParams, Uuid } from "./wire.js";
+import type { HelloResult } from "./wire.js";
 
 /** Convenience reads that return whole bytes are capped, as today (§10.2). */
 export const MAX_CONVENIENCE_BYTES = 64 * 1024 * 1024;
@@ -385,7 +364,7 @@ export class FilesApi {
     }
     await Promise.all(inflight);
     const r = await s.request("commit_upload", m([[0, uuidCodec.enc(open.transfer)]]), {
-      codec: receiptCodec,
+      codec: plainAnswer(receiptCodec),
       ...sig,
     });
     const w = Object.assign(this.client._track(r), { fileId: opened.fileId });
@@ -562,7 +541,7 @@ export class FilesApi {
     const view = typeof f === "object" && "size" in f ? f : await this.get(f, o.signal);
     if (view.size > MAX_CONVENIENCE_BYTES) {
       throw mdbaseError("too_large", `file is ${view.size} bytes; use downloadStream`, {
-        details: new Map([["limit", MAX_CONVENIENCE_BYTES]]),
+        details: { limit: MAX_CONVENIENCE_BYTES },
       });
     }
     const out = new Uint8Array(view.size);
