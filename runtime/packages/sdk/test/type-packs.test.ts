@@ -115,8 +115,8 @@ describe("type packs", () => {
     client.submit = async (...args) => { const w = await submit(...args); writes.push(w); return w; };
     const error = await client.typePacks.apply(plan).catch((e: unknown) => e);
     expect(writes).toHaveLength(1);
-    expect(writes[0]![0]!.state).toBe("rejected");
-    expect(error).toSatisfy((e) => isMdbaseError(e, "conflict") && e.mutationId === writes[0]![0]!.mutationId);
+    expect(writes[0]!.state).toBe("rejected");
+    expect(error).toSatisfy((e) => isMdbaseError(e, "conflict") && e.mutationId === writes[0]!.mutationId);
     expect((await client.resources.get("mdbase.lock.yaml")).text).toBe("theirs\n");
     // A dry run that would be rejected is refused too, never shown as installable.
     await expect(client.typePacks.apply(plan, { dryRun: true })).rejects.toSatisfy((e) => isMdbaseError(e, "conflict"));

@@ -159,7 +159,5 @@ describe("settle over receipts", () => {
   it("passes through a failure that is not a write's outcome", async () => {
     const client = stub({});
     await expect(settle(client, Promise.reject(new TypeError("bug")))).rejects.toBeInstanceOf(TypeError);
-    const partial = Object.assign(mdbaseError("unavailable", "busy"), { mutationIds: [uuidv7(), uuidv7()] });
-    await expect(settle(client, Promise.reject(partial))).rejects.toBe(partial);
   });
 });

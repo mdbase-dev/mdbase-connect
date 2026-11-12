@@ -11,8 +11,6 @@ import type { Issue, Problem, Recovery, Uuid } from "./wire.js";
 export interface MdbaseErrorContext {
   /** The original mutation this failure belongs to. */
   mutationId?: Uuid;
-  /** A partial batch: one original mutation per item, in op order. */
-  mutationIds?: readonly Uuid[];
   cause?: unknown;
 }
 
@@ -65,8 +63,6 @@ export class MdbaseError extends Error {
    * dry runs, which capture nothing. Not part of {@link toProblem}.
    */
   readonly mutationId?: Uuid;
-  /** Every original mutation of a failed partial batch, in op order. */
-  readonly mutationIds?: readonly Uuid[];
 
   constructor(problem: Problem, context: MdbaseErrorContext = {}) {
     super(problem.message, context.cause === undefined ? undefined : { cause: context.cause });
@@ -79,10 +75,7 @@ export class MdbaseError extends Error {
     if (problem.retryAfterMs !== undefined) this.retryAfterMs = problem.retryAfterMs;
     if (problem.issues !== undefined) this.issues = problem.issues;
     if (problem.traceId !== undefined) this.traceId = problem.traceId;
-    const ids = context.mutationIds ? Object.freeze([...context.mutationIds]) : undefined;
-    const id = context.mutationId ?? ids?.[0];
-    if (id !== undefined) this.mutationId = id;
-    if (ids !== undefined) this.mutationIds = ids;
+    if (context.mutationId !== undefined) this.mutationId = context.mutationId;
   }
 
   toProblem(): Problem {

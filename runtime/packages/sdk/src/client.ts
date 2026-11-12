@@ -1416,19 +1416,19 @@ export class MdbaseClient {
       if (o.baseRevision && o.mustNotExist) {
         return Promise.reject(mdbaseError("invalid_request", "baseRevision and mustNotExist are exclusive"));
       }
-      return this.one(
-        {
+      return this.submit(
+        [{
           kind: "resource_put",
           path,
           doc,
           ...(o.baseRevision ? { baseRevision: o.baseRevision } : {}),
           ...(o.mustNotExist ? { mustNotExist: true } : {}),
-        },
+        }],
         o,
       );
     },
     delete: (path: string, o: WriteOptions & { baseRevision?: string } = {}): Promise<Write> =>
-      this.one({ kind: "resource_delete", path, ...(o.baseRevision ? { baseRevision: o.baseRevision } : {}) }, o),
+      this.submit([{ kind: "resource_delete", path, ...(o.baseRevision ? { baseRevision: o.baseRevision } : {}) }], o),
   };
 
   /** Type packs: `plan` (writes nothing), review, then `apply(plan)` as one
@@ -1501,8 +1501,7 @@ export class MdbaseClient {
   }
 
   private async preflight(op: Op): Promise<Preflight> {
-    const [w] = await this.submit([op], { dryRun: true });
-    const r = w!.receipt;
+    const r = (await this.submit([op], { dryRun: true })).receipt;
     if (r.state === "rejected") throw new MdbaseError(r.problem!);
     return r.preflight ?? { rewrites: [], broken: [] };
   }
@@ -1839,15 +1838,12 @@ export class MdbaseClient {
 
   // ---------------------------------------------------------------- writes (§5, §6)
 
-  /** Submit operations as one mutation (or one per op with `allowPartial`). */
-  async submit(ops: Op[], o: WriteOptions & { allowPartial?: boolean } = {}): Promise<Write[]> {
+  /** Submit operations as one mutation: they apply together or not at all. */
+  async submit(ops: Op[], o: WriteOptions = {}): Promise<Write> {
     if (this.hello.version.minor >= 3 && this.hello.grant.role === "viewer") throw mdbaseError("forbidden", "You have view access, so changes can't be saved.", "read_only");
     if (o.intent !== undefined && o.mutationId === undefined) o = { ...o, mutationId: (await intentIds(this.collectionId, o.intent))[0] };
-    const p: SubmitParams = { ops, mutationId: o.mutationId ?? uuidv7() };
-    if (o.allowPartial) {
-      p.allowPartial = true;
-      p.mutationIds = ops.map((_, i) => (i === 0 ? p.mutationId! : uuidv7()));
-    }
+    const mutationId = o.mutationId ?? uuidv7();
+    const p: SubmitParams = { ops, mutationId };
     if (o.conflictMode) p.conflictMode = o.conflictMode;
     if (o.timezone) p.timezone = o.timezone;
     if (o.dryRun) p.dryRun = true;
@@ -1857,33 +1853,31 @@ export class MdbaseClient {
     // The ledger holds the intent before the replica can capture it.
     if (!o.dryRun) {
       this.startLedger();
-      await this.writeLedger.begin(p.mutationIds ?? [p.mutationId!], ops);
+      await this.writeLedger.begin(mutationId, ops);
     }
     // Idempotent by mutation ID: safe to resubmit after a dropped link.
-    let receipts: Receipt[];
+    let receipt: Receipt;
     try {
-      receipts = await this.call("submit", submitParams.enc(p), {
+      const receipts = await this.call("submit", submitParams.enc(p), {
         codec: submitResult,
         retry: true,
         ...(o.signal ? { signal: o.signal } : {}),
       });
+      // One mutation has one receipt.
+      if (receipts.length !== 1) throw mdbaseError("internal", "submit answered without exactly one receipt", "invalid_submit_response");
+      receipt = receipts[0]!;
     } catch (e) {
       // A dry run captures nothing. Otherwise the request may have been captured
       // whatever the code says: report the original identity, never a new one.
       if (o.dryRun) throw e;
-      void this.writeLedger.settleAll(p.mutationIds ?? [p.mutationId!]);
-      throw withMutation(e, "submit", p.mutationIds ? { mutationIds: p.mutationIds } : { mutationId: p.mutationId! });
+      void this.writeLedger.settle(mutationId);
+      throw withMutation(e, "submit", { mutationId });
     }
-    return receipts.map((r) => (o.dryRun ? new Write(r) : this._track(r)));
-  }
-
-  private async one(op: Op, o: WriteOptions): Promise<Write> {
-    const [w] = await this.submit([op], o);
-    return w!;
+    return o.dryRun ? new Write(receipt) : this._track(receipt);
   }
 
   private async record(op: Op & { id: Uuid }, o: WriteOptions): Promise<RecordWrite> {
-    return Object.assign(await this.one(op, o), { recordId: op.id });
+    return Object.assign(await this.submit([op], o), { recordId: op.id });
   }
 
   /** Create a record. The ID is minted here, so the app can use it before confirmation. */
@@ -2177,19 +2171,18 @@ export class MdbaseClient {
 
   /** Accept what the record kept. */
   dismissConflict(entry: ConflictEntry, o: WriteOptions = {}): Promise<Write> {
-    return this.one({ kind: "conflict_dismiss", mutation: entry.mutation, record: entry.conflict.id }, o);
+    return this.submit([{ kind: "conflict_dismiss", mutation: entry.mutation, record: entry.conflict.id }], o);
   }
 
   /** Resolve a field conflict with a chosen value, dismissing it in the same mutation. */
-  async resolveConflict(entry: ConflictEntry, field: string, chosen: PlainValue, o: WriteOptions = {}): Promise<Write> {
-    const [w] = await this.submit(
+  resolveConflict(entry: ConflictEntry, field: string, chosen: PlainValue, o: WriteOptions = {}): Promise<Write> {
+    return this.submit(
       [
         { kind: "update", id: entry.conflict.id, patch: new Map([[field, toValue(chosen)]]) },
         { kind: "conflict_dismiss", mutation: entry.mutation, record: entry.conflict.id },
       ],
       o,
     );
-    return w!;
   }
 
   // ---------------------------------------------------------------- private collections (§8.3)
