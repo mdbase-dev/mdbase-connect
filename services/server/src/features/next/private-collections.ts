@@ -28,7 +28,7 @@ import { requireConnector, requireInstallationDeviceConnector } from "../../plat
 import { privateDevicesEnabled, requirePrivateDeviceScope } from "./installation-scope.js";
 import {
   authenticate, CreateError, currentIdentity, currentMember, ENROLMENT, enrolmentKey, enrolOp, exactEnrolment, inTransaction, joinedDisplayName, lock, NIL,
-  refuse, refuseRevoked, type Device, type Proof
+  refuse, refuseCollectionIdOfOther, refuseRevoked, type Device, type Proof
 } from "./bootstrap-common.js";
 import { LOG_TOKEN_LIFETIME_MS, type LogServiceClient } from "./log-service-client.js";
 import type { NextControlPlaneConfig } from "./policy-keys.js";
@@ -82,11 +82,7 @@ async function existing(client: DatabaseConnection, collection: string, owner: s
     "SELECT owner_user_id, sync, runtime, left_sync_at IS NOT NULL AS left FROM next_collections WHERE collection_id = $1 FOR UPDATE", [collection]
   )).rows[0];
   if (row && (row.owner_user_id !== owner || row.sync !== "private" || row.runtime !== "next" || row.left)) throw new CreateError(409, "collection_exists");
-  if (!row) {
-    // A local collection with this logical ID that belongs to someone else is never adopted.
-    const other = await client.query("SELECT 1 FROM collections WHERE local_id = $1 AND user_id <> $2 AND removed_at IS NULL", [collection, owner]);
-    if (other.rows.length) throw new CreateError(409, "collection_exists");
-  }
+  if (!row) await refuseCollectionIdOfOther(client, collection, owner);
   return Boolean(row);
 }
 

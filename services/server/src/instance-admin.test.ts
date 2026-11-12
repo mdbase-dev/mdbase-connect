@@ -304,6 +304,47 @@ describe("instance administration", () => {
     });
   });
 
+  it("revokes the account's replicas on other accounts' hosted collections", async () => {
+    const db = await fixture();
+    const ownerId = "10000000-0000-4000-8000-000000000030";
+    const memberId = "10000000-0000-4000-8000-000000000031";
+    const collectionId = "20000000-0000-4000-8000-000000000030";
+    const memberMirror = "40000000-0000-4000-8000-000000000030";
+    const ownerMirror = "40000000-0000-4000-8000-000000000031";
+    await seedUser(db, ownerId, "owner@example.com", "Owner");
+    await seedUser(db, memberId, "member@example.com", "Member");
+    await db.query(
+      `INSERT INTO hosted_collections
+         (id, user_id, display_name, template, provider_url)
+       VALUES ($1, $2, 'Shared notes', 'blank', 'https://provider.example')`,
+      [collectionId, ownerId]
+    );
+    await db.query(
+      `INSERT INTO hosted_replicas
+         (id, collection_id, authorized_user_id, name, purpose, mode, token_hash)
+       VALUES ($1, $3, $4, 'Member mirror', 'mirror', 'read_write', $5),
+              ($2, $3, $6, 'Owner mirror', 'mirror', 'read_write', $7)`,
+      [memberMirror, ownerMirror, collectionId, memberId, tokenHash("member"), ownerId, tokenHash("owner")]
+    );
+    const revokeReplica = vi.fn(async () => {});
+    const service = new InstanceAdminService(db, { revokeReplica });
+
+    const suspended = await service.suspendUser(memberId, {
+      operationId: randomUUID(),
+      actor: "operator:callum",
+      reason: "Contain a member account"
+    });
+    expect(suspended.revoked.hosted_replicas).toBe(1);
+    expect(revokeReplica.mock.calls).toEqual([[memberMirror]]);
+    const replicas = await db.query<{ id: string; revoked: boolean; token_hash: string | null }>(
+      "SELECT id, revoked_at IS NOT NULL AS revoked, token_hash FROM hosted_replicas ORDER BY id"
+    );
+    expect(replicas.rows).toEqual([
+      { id: memberMirror, revoked: true, token_hash: null },
+      { id: ownerMirror, revoked: false, token_hash: tokenHash("owner") }
+    ]);
+  });
+
   it("rolls back local suspension if hosted credential revocation fails", async () => {
     const db = await fixture();
     const userId = "10000000-0000-4000-8000-000000000020";

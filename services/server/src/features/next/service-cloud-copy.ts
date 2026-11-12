@@ -4,7 +4,7 @@
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 import { migrationDeployments } from "./migration-routing.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
-import { CreateError, enrolOp, inTransaction, lock, SERVICE_ACCOUNT } from "./bootstrap-common.js";
+import { CreateError, enrolOp, inTransaction, lock, refuseCollectionIdOfOther, SERVICE_ACCOUNT } from "./bootstrap-common.js";
 import { requireCollectionNotDeleted } from "./collection-deletion.js";
 import { requireNextAccountNotMigrationFrozen } from "./migration-topology.js";
 import type { LogPlacement, LogServiceClient } from "./log-service-client.js";
@@ -38,10 +38,7 @@ export async function existingCloudCopy(client: DatabaseConnection, collection: 
   if (isolated && (owner !== pitr!.owner || (row && (!(row.created_at instanceof Date)
       || !Number.isFinite(row.created_at.getTime()) || row.created_at.getTime() < pitr!.createdAfter || row.display_name !== pitrLabel(pitr!, collection))))) throw new CreateError(409, "collection_exists");
   if (row && (row.owner_user_id !== owner || row.sync !== "cloud_copy" || row.left)) throw new CreateError(409, "collection_exists");
-  if (!row) {
-    const other = await client.query("SELECT 1 FROM collections WHERE local_id = $1 AND user_id <> $2 AND removed_at IS NULL", [collection, owner]);
-    if (other.rows.length) throw new CreateError(409, "collection_exists");
-  }
+  if (!row) await refuseCollectionIdOfOther(client, collection, owner);
   return Boolean(row);
 }
 

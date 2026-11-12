@@ -336,11 +336,12 @@ suite("managed two-phase driver through postgresLabConnect and the real CP route
     expect(await migrationDeployments(db, normal, routing, local!)).toBe(normal);
     expect(await migrationDeployments(db, normal, routing, f.collections[0]!)).toEqual({ ...normal, hosted: routing.hosted });
     // Transferred history still counts as authoritative ownership for the ambiguity guard.
+    // Native creation refuses another account's ID, so the legacy row comes second.
     const other = randomUUID(), history = randomUUID();
     await db.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Synthetic other')", [other, `${other}@example.test`]);
-    await db.query("INSERT INTO hosted_collections(id,user_id,display_name,template,authority_state) VALUES($1,$2,'History','mdbase','transferred')", [history, f.account]);
     await ensureDevelopmentEntitlement(db, other);
     await cloudCopy(history, other);
+    await db.query("INSERT INTO hosted_collections(id,user_id,display_name,template,authority_state) VALUES($1,$2,'History','mdbase','transferred')", [history, f.account]);
     await expect(migrationRoute(db, routing, history)).rejects.toThrow("ambiguous_collection_owner");
   });
 

@@ -24,6 +24,16 @@ export class CreateError extends Error {
   constructor(readonly status: number, readonly code: string) { super(code); }
 }
 
+/** Refuse a collection ID that another account holds in any collection table; the
+ * same account's hosted or local collection may become native. */
+export async function refuseCollectionIdOfOther(client: DatabaseQueryable, collection: string, owner: string): Promise<void> {
+  const held = await client.query(
+    `SELECT 1 FROM hosted_collections WHERE id = $1 AND user_id <> $2
+     UNION ALL SELECT 1 FROM collection_identities WHERE id = $1 AND owner_user_id <> $2
+     UNION ALL SELECT 1 FROM collections WHERE local_id = $1 AND user_id <> $2 AND removed_at IS NULL`, [collection, owner]);
+  if (held.rows.length) throw new CreateError(409, "collection_exists");
+}
+
 /** The collection's account name for a joining device; `null` when none was set. */
 export async function joinedDisplayName(client: DatabaseQueryable, collection: string): Promise<string | null> {
   return (await client.query<{ display_name: string | null }>("SELECT display_name FROM next_collections WHERE collection_id = $1", [collection])).rows[0]?.display_name ?? null;

@@ -19,7 +19,7 @@ import { createServiceCloudCopy } from "./service-cloud-copy.js";
 import { createAccountCollection } from "../account/collection-creation.js";
 import { registerAccountCollectionCreationRoutes } from "../account/collection-creation-routes.js";
 import { registerMigrationProviderRoutes } from "./migration-provider.js";
-import { currentAccount } from "./bootstrap-common.js";
+import { currentAccount, inTransaction } from "./bootstrap-common.js";
 import { createCohort, addToCohort, acceptCohortArchive, cohortArchiveBinding, flipAccountBackend, flipEvidenceDigest, releaseCohort, setCohortFrozen, setPaused, startAccountMigration } from "./migration-rollout.js";
 import { ZERO_HOSTED_ARCHIVE_SCHEMA } from "./migration-archive-profile.js";
 import { clientFingerprint, deviceRegistrationDigest, issueDeviceChallenge, registerDevice } from "./devices.js";
@@ -1039,6 +1039,27 @@ describePg("cloud-copy bootstrap", () => {
     await db.query("UPDATE next_collections SET root_key_id=$2 WHERE collection_id=$1", [collection, Buffer.alloc(32, 9)]);
     await expect(createServiceCloudCopy(options, input)).rejects.toMatchObject({ code: "collection_exists" });
     expect(deployments.calls).toBe(calls);
+  });
+  it.each(["hosted", "identity"] as const)("refuses a native collection under another account's %s collection ID, and keeps it for its owner", async (held) => {
+    const owner = await identity(), who = await identity(), collection = randomUUID();
+    if (held === "hosted") await db.query("INSERT INTO hosted_collections(id,user_id,display_name,template) VALUES($1,$2,'Theirs','mdbase')", [collection, owner.connector.user_id]);
+    else await db.query("INSERT INTO collection_identities(id,owner_user_id) VALUES($1,$2)", [collection, owner.connector.user_id]);
+    const calls = deployments.calls;
+    const service = await serviceCreate(await session(who.connector.user_id), collection);
+    expect(service.statusCode, service.body).toBe(409); expect(service.json().error.code).toBe("collection_exists");
+    const device = await create(who, await proof(who, collection));
+    expect(device.statusCode, device.body).toBe(409); expect(device.json().error.code).toBe("collection_exists");
+    expect(deployments.calls).toBe(calls);
+    const root = Buffer.from(config.policyCert.root_key_id, "hex");
+    await expect(inTransaction(db, client => registerNextCollection(client, { collectionId: collection, ownerUserId: who.connector.user_id, runtime: "next", sync: "cloud_copy", rootKeyId: root,
+      ops: [{ op: "genesis", owner: who.connector.user_id, root, state: "cloud-copy" }, { op: "member-set", account: who.connector.user_id, role: "owner" }] }))).rejects.toMatchObject({ code: "collection_exists" });
+    expect(await registered(collection)).toBe(false);
+    // The owner's own hosted collection becomes native under the same ID.
+    const options = { db, next: config, emitter, log: client, fetchImpl: deployments.fetch };
+    const own = owner.connector.user_id;
+    const migrated = await createServiceCloudCopy(options, { collection, owner: own, runtime: "shadow", displayName: "Own hosted", current: c => currentAccount(c, own) });
+    expect(migrated.owner_account).toBe(own);
+    expect(await registered(collection)).toBe(true);
   });
   it("denies new service creation before completion, then permits a completed migrated account without thawing", async () => {
     const who = await identity(), owner = who.connector.user_id, cohort = `bootstrap-${randomUUID().slice(0, 8)}`;

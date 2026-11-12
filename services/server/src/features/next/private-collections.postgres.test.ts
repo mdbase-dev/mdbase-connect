@@ -492,6 +492,13 @@ describePg("private collections", () => {
     expect((await create(who, await createProof(who, collection))).statusCode).toBe(409);
   });
 
+  it("refuses another account's hosted collection ID", async () => {
+    const owner = await identity(), who = await identity(), collection = randomUUID();
+    await db.query("INSERT INTO hosted_collections(id,user_id,display_name,template) VALUES($1,$2,'Theirs','mdbase')", [collection, owner.connector.user_id]);
+    expect((await create(who, await createProof(who, collection))).json().error.code).toBe("collection_exists");
+    expect((await db.query("SELECT 1 FROM next_collections WHERE collection_id=$1", [collection])).rows).toEqual([]);
+  });
+
   it("needs a fresh proof under its own domain, and refuses nil identifiers", async () => {
     const who = await identity(); const collection = randomUUID();
     const payload = await createProof(who, collection);
