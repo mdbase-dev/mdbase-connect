@@ -45,7 +45,8 @@ impl OpenOptions {
     }
 
     /// Where to keep this host's index and identity. Default:
-    /// `<root>/.mdbase/library`.
+    /// `<root>/.mdbase/library`, which must be a real directory you own and
+    /// hold no symlink; opening refuses it otherwise.
     pub fn state_dir(mut self, dir: impl Into<PathBuf>) -> OpenOptions {
         self.state_dir = Some(dir.into());
         self

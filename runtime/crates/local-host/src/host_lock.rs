@@ -210,7 +210,7 @@ fn reject_symlink(p: &Path, shown: &Path) -> Result<(), LockError> {
 /// The private dir under `root`, checked: a plain directory (created if
 /// missing), not a symlink, not escaping the root.
 /// A private dir name is one plain path segment.
-fn check_private_name(root: &Path, private: &str) -> Result<PathBuf, LockError> {
+pub(crate) fn check_private_name(root: &Path, private: &str) -> Result<PathBuf, LockError> {
     if private.is_empty() || private.contains(['/', '\\']) || private == "." || private == ".." {
         return Err(LockError::Unsafe(private.into()));
     }

@@ -30,7 +30,8 @@ const STALE_MS: u64 = 60_000;
 #[derive(Debug, Clone)]
 pub struct FolderOptions {
     /// Where to keep this host's index and identity. `None` means
-    /// `<root>/.mdbase/library`.
+    /// `<root>/.mdbase/library`, which must be a real directory owned by this
+    /// user and hold no symlink.
     pub state_dir: Option<PathBuf>,
     /// Desktop resource limits rather than the constrained (mobile) profile.
     pub desktop: bool,
@@ -73,8 +74,9 @@ pub enum FolderError {
         /// Whether that announcement's heartbeat is old.
         stale: bool,
     },
-    /// The lock or private dir is a symlink or escapes the collection. The
-    /// path is named from the collection root.
+    /// The lock, the private dir or the default state dir is (or holds) a
+    /// symlink or escapes the collection. The path is named from the
+    /// collection root.
     Unsafe(PathBuf),
     /// Composing the folder failed.
     Host(Error),
@@ -147,8 +149,10 @@ pub fn open_folder(root: &Path, o: &FolderOptions) -> Result<OpenFolder, FolderE
         Err(LockError::Unsafe(p)) => return Err(FolderError::Unsafe(p)),
         Err(LockError::Io(e)) => return Err(e.into()),
     };
-    let state_dir = store_opts.state_dir(&root);
-    std::fs::create_dir_all(&state_dir)?;
+    let state_dir = store_opts.ensure_state_dir(&root).map_err(|e| match e {
+        Error::Lock(LockError::Unsafe(p)) => FolderError::Unsafe(p),
+        e => FolderError::Host(e),
+    })?;
     let identity = Identity::load_or_create(&state_dir.join("identity.json"), now, &mut OsEntropy)?;
     let store = open_store(&root, &store_opts, Box::new(SystemClock))?;
     let zone = o.timezone.clone().or_else(|| {

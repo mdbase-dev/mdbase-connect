@@ -388,3 +388,89 @@ fn native_host_answers_per_record_queries_over_the_constrained_budget() {
         mdbn_replica::QueryExecutionProfile::Desktop
     );
 }
+
+#[cfg(unix)]
+fn open_folder_at(
+    root: &std::path::Path,
+    state_dir: Option<PathBuf>,
+) -> Result<mdbn_local_host::OpenFolder, mdbn_local_host::FolderError> {
+    mdbn_local_host::open_folder(
+        root,
+        &mdbn_local_host::FolderOptions {
+            state_dir,
+            desktop: true,
+            timezone: None,
+            take_over: false,
+            client: ("test".into(), "0".into()),
+        },
+    )
+}
+
+/// The default state dir lives inside the folder, so the folder's contents
+/// decide where it points: a symlinked `library` is refused and nothing is
+/// written where it leads.
+#[cfg(unix)]
+#[test]
+fn a_symlinked_default_state_dir_is_refused() {
+    let dir = test_dir("state-symlink");
+    let (root, outside) = (dir.join("folder"), dir.join("outside"));
+    std::fs::create_dir_all(root.join(".mdbase")).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(root.join("mdbase.yaml"), "spec_version: \"0.3.0\"\n").unwrap();
+    std::os::unix::fs::symlink(&outside, root.join(".mdbase/library")).unwrap();
+    match open_folder_at(&root, None) {
+        Err(mdbn_local_host::FolderError::Unsafe(p)) => {
+            assert!(p.ends_with(".mdbase/library"), "{p:?}")
+        }
+        other => panic!("{:?}", other.map(|f| f.root)),
+    }
+    assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 0);
+}
+
+/// Nothing in the default state dir may be a symlink: the index, its WAL and
+/// the identity are only ever opened as files in that directory.
+#[cfg(unix)]
+#[test]
+fn a_symlink_inside_the_default_state_dir_is_refused() {
+    for name in ["index.sqlite", "index.sqlite-wal", "identity.json"] {
+        let dir = test_dir(&format!("state-entry-{name}"));
+        let (root, outside) = (dir.join("folder"), dir.join("outside"));
+        std::fs::create_dir_all(root.join(".mdbase/library")).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(root.join("mdbase.yaml"), "spec_version: \"0.3.0\"\n").unwrap();
+        std::fs::write(outside.join("kept"), b"unchanged").unwrap();
+        std::os::unix::fs::symlink(
+            outside.join("target"),
+            root.join(".mdbase/library").join(name),
+        )
+        .unwrap();
+        match open_folder_at(&root, None) {
+            Err(mdbn_local_host::FolderError::Unsafe(p)) => {
+                assert!(p.ends_with(format!(".mdbase/library/{name}")), "{p:?}")
+            }
+            other => panic!("{name}: {:?}", other.map(|f| f.root)),
+        }
+        assert!(!outside.join("target").exists(), "{name}");
+        assert_eq!(std::fs::read(outside.join("kept")).unwrap(), b"unchanged");
+    }
+}
+
+/// Symlinks the user chose are left alone: a collection opened through a
+/// symlinked path, and an explicit state dir that is itself a symlink.
+#[cfg(unix)]
+#[test]
+fn symlinks_above_the_collection_and_explicit_state_dirs_open() {
+    let dir = test_dir("state-chosen-links");
+    let real = dir.join("real");
+    std::fs::create_dir_all(&real).unwrap();
+    std::fs::write(real.join("mdbase.yaml"), "spec_version: \"0.3.0\"\n").unwrap();
+    std::os::unix::fs::symlink(&real, dir.join("via")).unwrap();
+    drop(open_folder_at(&dir.join("via").join(".").join(""), None).unwrap());
+    assert!(real.join(".mdbase/library/index.sqlite").is_file());
+
+    let state = dir.join("state");
+    std::fs::create_dir_all(&state).unwrap();
+    std::os::unix::fs::symlink(&state, dir.join("state-link")).unwrap();
+    drop(open_folder_at(&real, Some(dir.join("state-link"))).unwrap());
+    assert!(state.join("index.sqlite").is_file());
+}
