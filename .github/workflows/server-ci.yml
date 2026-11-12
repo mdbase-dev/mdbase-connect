@@ -789,9 +789,6 @@ jobs:
           PROVIDER_SYSTEM: ${{ needs.hosted-provider-system.result }}
           MIGRATION_ROLLBACK: ${{ needs.provider-migration-rollback.result }}
         run: |
-          # The migration rollback gate runs at every depth; it is a no-op
-          # without new provider migrations.
-          [[ "$GITHUB_EVENT_NAME" == push || "$MIGRATION_ROLLBACK" == success ]]
           if [[ "$RUN_FULL" == true ]]; then
             [[ "$GITHUB_EVENT_NAME" != merge_group || "$RUNTIME_NATIVE" == success ]]
             for result in "$NODE" "$CONTAINER" \
@@ -803,6 +800,9 @@ jobs:
           elif [[ -z "$UPSTREAM_RUN_ID" ]]; then
             [[ "$NODE" == success ]]
           fi
+          # The migration rollback gate runs at every depth; it is a no-op
+          # without new provider migrations.
+          [[ "$GITHUB_EVENT_NAME" == push || "$MIGRATION_ROLLBACK" == success ]]
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

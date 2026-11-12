@@ -316,10 +316,14 @@ test("rollback read compatibility evidence is exact-pair, dispatch-only and boun
   for (const field of ["schema_version: 1", 'scenario: "provider-predecessor-read"', "candidate_commit: $candidate",
     "candidate_provider_image: $candidate_image", "predecessor_release: $release", "predecessor_commit: $predecessor",
     "predecessor_provider_image: $predecessor_image", "predecessor_migration, candidate_migration",
-    'result: (if .rollback_result == "fixture-compatible" then "compatible" else "incompatible" end)']) {
+    'result: (if .rollback_result == "refused-unknown-migration" then "incompatible" else "compatible" end)']) {
     assert.ok(workflow.includes(field), `bounded evidence field ${field}`);
   }
   const harness = await readFile(resolve(repoRoot, "test/upgrade/provider-current.sh"), "utf8");
   assert.match(harness, /rollback_result=refused-unknown-migration/);
   assert.match(harness, /rollback_result=fixture-compatible/);
+  // A tolerant predecessor serving beside recorded newer migrations is the
+  // only compatible outcome after a migration increase.
+  assert.match(harness, /rollback_result=compatible-newer-migration/);
+  assert.match(workflow, /\.rollback_result == "compatible-newer-migration" and \.candidate_migration > \.predecessor_migration/);
 });
