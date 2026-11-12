@@ -46,7 +46,8 @@ pub struct Session {
     pub principal: Option<Principal>,
     /// The nonce the client must sign in its next `hello`.
     pub nonce: [u8; 32],
-    /// Collections with hub state for this session.
+    /// Collections with hub state for this session: only ones it was authorized
+    /// for (`subscribe`, `stream_join`). Every later hub access is limited to them.
     pub collections: BTreeSet<Uuid>,
     // RAM-only actual hello proof. Never reconstructed from host attachments,
     // restored SQL, a public Principal, or a current-authority point response.
@@ -241,7 +242,11 @@ async fn dispatch<B: Backend, O: ObjectStore, H: HubHost>(
                 _ => None,
             }
             .ok_or_else(|| ServiceError::invalid("shape"))?;
-            host.with_hub(&c, |hub| hub.unsubscribe(sess.id));
+            // Hub state is reached only through a collection this session was
+            // authorized for; there is nothing to remove anywhere else.
+            if sess.collections.contains(&c) {
+                host.with_hub(&c, |hub| hub.unsubscribe(sess.id));
+            }
             Ok(map(vec![]))
         }
         "stream_join" => {
@@ -260,12 +265,17 @@ async fn dispatch<B: Backend, O: ObjectStore, H: HubHost>(
         }
         "stream_leave" => {
             let p = StreamRef::from_cbor(params).map_err(bad)?;
-            let pushes = host.with_hub(&p.collection, |hub| hub.leave(sess.id, &p.stream));
-            host.deliver(pushes);
+            if sess.collections.contains(&p.collection) {
+                let pushes = host.with_hub(&p.collection, |hub| hub.leave(sess.id, &p.stream));
+                host.deliver(pushes);
+            }
             Ok(map(vec![]))
         }
         "stream_send" => {
             let p = StreamSendParams::from_cbor(params).map_err(bad)?;
+            if !sess.collections.contains(&p.collection) {
+                return Err(ServiceError::reason(Code::Forbidden, "not_joined"));
+            }
             let (n, pushes) = host.with_hub(&p.collection, |hub| {
                 hub.send_with_budget(sess.id, p.stream, p.message.0, now, budget)
             })?;

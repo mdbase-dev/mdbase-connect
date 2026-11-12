@@ -19,11 +19,12 @@ export const PROLOGUE_TAG = new TextEncoder().encode("mdbase/v1/client");
 export const MAX_PLAINTEXT = 65_519;
 /** Largest frame an app may send the hosted replica. */
 export const MAX_APP_FRAME = 1 << 20;
-/** App sessions per DO (handshaking or open). */
+/** App sessions per DO that completed hello. */
 export const MAX_APP_SESSIONS = 32;
 /** Reassembly bytes held across all of a DO's app sessions. */
 export const MAX_APP_BUFFERED = 8 << 20;
-/** App WebSockets per DO, including ones still before their prologue. */
+/** App WebSockets per DO. At the cap a new socket replaces the oldest one without a
+ * session, so it must stay above MAX_APP_SESSIONS. */
 export const MAX_APP_SOCKETS = 64;
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
