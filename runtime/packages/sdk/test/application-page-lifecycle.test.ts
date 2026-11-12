@@ -14,6 +14,9 @@ vi.mock("../src/app-host/app-origin.js",async original=>{
   return {...actual,urlOrigin:(url:URL)=>url.protocol==="file:"?"https://app.test":actual.urlOrigin(url)};
 });
 const {MdbaseConnect}=await import("../src/application/entry.js");
+// start() loads this module lazily. Cold, that takes longer than vi.waitFor's
+// one second, so the first test would time out on a busy machine.
+await import("../src/application/runtime.js");
 
 const origin="https://app.test";
 const declaration={id:"org.example.app",name:"Example",origin,environment:"lab" as const,manifest:{manifest_version:1,id:"org.example.app",name:"Example",homepage:origin,

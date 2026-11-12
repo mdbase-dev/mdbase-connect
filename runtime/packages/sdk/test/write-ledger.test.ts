@@ -1,4 +1,4 @@
-// The write ledger over MemoryReplica: persistence across a reload and save().
+// The write ledger over MemoryReplica: persistence across a reload and settle().
 import { afterEach, describe, expect, it } from "vitest";
 import { connect, memoryWriteLedgerStore, type MdbaseClient, type WriteLedgerStore } from "../src/index.js";
 import { MemoryReplica } from "../src/testing/index.js";
@@ -63,15 +63,15 @@ describe("write ledger", () => {
     expect(paths).toEqual(["notes/draft.md", "notes/other.md"]);
   });
 
-  it("save() reports a write that outlives its wait as saved on the device, never as unknown", async () => {
+  it("settle() reports a write that outlives its wait as saved on the device, never as unknown", async () => {
     const replica = new MemoryReplica({ confirmDelayMs: null });
     const client = await open(replica, memoryWriteLedgerStore());
-    const slow = await client.save(client.create({ path: "notes/slow.md", body: "a" }), { timeoutMs: 20, readBack: true });
+    const slow = await client.settle(client.create({ path: "notes/slow.md", body: "a" }), { timeoutMs: 20, read: true });
     expect(slow).toMatchObject({ outcome: "saved_on_device", record: { path: "notes/slow.md" } });
     replica.confirmAll();
     await until(() => client.ledger.getSnapshot().pending.length === 0);
     const fast = new MemoryReplica({ confirmDelayMs: 0 });
     const other = await open(fast, memoryWriteLedgerStore());
-    expect(await other.save(other.create({ path: "notes/fast.md", body: "b" }))).toMatchObject({ outcome: "confirmed" });
+    expect(await other.settle(other.create({ path: "notes/fast.md", body: "b" }))).toMatchObject({ outcome: "confirmed" });
   });
 });

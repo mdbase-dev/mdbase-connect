@@ -15,7 +15,7 @@ import {
     copy,
     include,
     problem,
-    protectedRecord,
+    isProtected,
     recordBytes,
     refusal,
     textBytes,
@@ -69,7 +69,7 @@ export class RecordSessionImpl {
         complete(record);
         this.base = copy(record);
         this.body = record.body!;
-        this.state = protectedRecord(record) ? "conflict" : resting(record);
+        this.state = isProtected(record) ? "conflict" : resting(record);
         this.publish();
     }
     async restore(
@@ -303,13 +303,13 @@ export class RecordSessionImpl {
                         this.base = copy(current);
                         this.body = current.body!;
                         this.remote = null;
-                        this.state = protectedRecord(current)
+                        this.state = isProtected(current)
                             ? "conflict"
                             : resting(current);
                         this.why = null;
                     } else if (
                         current.revision !== this.base.revision ||
-                        protectedRecord(current)
+                        isProtected(current)
                     ) {
                         this.remote = copy(current);
                         this.state = "conflict";
@@ -409,7 +409,7 @@ export class RecordSessionImpl {
                               saved: "on_device",
                           };
                 const current = await this.read(signal);
-                if (protectedRecord(current)) {
+                if (isProtected(current)) {
                     this.charge(this.body, this.patch, this.base, current);
                     this.remote = copy(current);
                     throw refusal(
@@ -577,7 +577,7 @@ export class RecordSessionImpl {
         // Still pending after the wait: the write is kept on this device and the
         // ledger settles it. Not a failure, and nothing is resubmitted.
         const kept = receipt.state === "pending";
-        if (kept ? protectedRecord(current) : !confirmed(current))
+        if (kept ? isProtected(current) : !confirmed(current))
             throw refusal(
                 "outcome_unknown",
                 "confirmed receipt has pending/protected current readback",

@@ -27,14 +27,16 @@ export function complete(record: RecordView, id?: string): void {
         );
     }
 }
-export function protectedRecord(record: RecordView): boolean {
+/** True when a record is held or has unresolved conflicts: what it reads as
+ * here is not yet what the collection agrees on. */
+export function isProtected(record: RecordView): boolean {
     return (
         record.state.hold !== undefined ||
         (record.state.unresolved !== undefined && record.state.unresolved !== 0)
     );
 }
 export function confirmed(record: RecordView): boolean {
-    return record.state.state === "confirmed" && !protectedRecord(record);
+    return record.state.state === "confirmed" && !isProtected(record);
 }
 /** Clone native data, never reconstruct source or invent confirmed metadata. */
 export function copy(record: RecordView): RecordView {

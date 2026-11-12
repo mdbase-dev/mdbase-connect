@@ -130,6 +130,7 @@ isCollectionUnavailableReason -> isCollectionUnavailableReason@collection-availa
 isConfirmed -> isConfirmed@status.ts
 isErrorCode -> isErrorCode@errors.ts
 isMdbaseError -> isMdbaseError@errors.ts
+isProtected -> isProtected@records/witness.ts
 isReadyPhase -> isReadyPhase@application/phase.ts
 Issue -> Issue@wire.ts
 isValid -> isValid@cbor.ts
@@ -305,11 +306,13 @@ revisionOf -> revisionOf@values.ts
 routeFromControl -> routeFromControl@transport/control-route.ts
 RuntimeInfo -> RuntimeInfo@runtime/wasm.ts
 sameIdentity -> sameIdentity@people.ts
-SaveResult -> SaveResult@client.ts
 SaveState -> SaveState@write-ledger.ts
 SchemaError -> SchemaError@codec.ts
 Session -> Session@session.ts
 SESSION_LIFETIME_MS -> SESSION_LIFETIME_MS@transport/noise-session.ts
+Settlement -> Settlement@settle.ts
+SettleOptions -> SettleOptions@settle.ts
+SettleRead -> SettleRead@settle.ts
 showMdbaseNotification -> showMdbaseNotification@notifications.ts
 SLOW_OPENING_MS -> SLOW_OPENING_MS@application/phase.ts
 StaticKey -> StaticKey@transport/noise.ts
@@ -481,6 +484,7 @@ isCollectionUnavailableReason -> isCollectionUnavailableReason@collection-availa
 isConfirmed -> isConfirmed@status.ts
 isErrorCode -> isErrorCode@errors.ts
 isMdbaseError -> isMdbaseError@errors.ts
+isProtected -> isProtected@records/witness.ts
 Issue -> Issue@wire.ts
 isValid -> isValid@cbor.ts
 JsonLike -> JsonLike@values.ts
@@ -573,11 +577,13 @@ Resyncing -> Resyncing@wire.ts
 ResyncPhase -> ResyncPhase@wire.ts
 revisionOf -> revisionOf@values.ts
 routeFromControl -> routeFromControl@transport/control-route.ts
-SaveResult -> SaveResult@client.ts
 SaveState -> SaveState@write-ledger.ts
 SchemaError -> SchemaError@codec.ts
 Session -> Session@session.ts
 SESSION_LIFETIME_MS -> SESSION_LIFETIME_MS@transport/noise-session.ts
+Settlement -> Settlement@settle.ts
+SettleOptions -> SettleOptions@settle.ts
+SettleRead -> SettleRead@settle.ts
 StaticKey -> StaticKey@transport/noise.ts
 staticKeyOf -> staticKeyOf@transport/noise.ts
 StatusKind -> StatusKind@status.ts
@@ -766,6 +772,7 @@ isCollectionUnavailableReason -> isCollectionUnavailableReason@collection-availa
 isConfirmed -> isConfirmed@status.ts
 isErrorCode -> isErrorCode@errors.ts
 isMdbaseError -> isMdbaseError@errors.ts
+isProtected -> isProtected@records/witness.ts
 isReadyPhase -> isReadyPhase@application/phase.ts
 Issue -> Issue@wire.ts
 isValid -> isValid@cbor.ts
@@ -941,11 +948,13 @@ revisionOf -> revisionOf@values.ts
 routeFromControl -> routeFromControl@transport/control-route.ts
 RuntimeInfo -> RuntimeInfo@runtime/wasm.ts
 sameIdentity -> sameIdentity@people.ts
-SaveResult -> SaveResult@client.ts
 SaveState -> SaveState@write-ledger.ts
 SchemaError -> SchemaError@codec.ts
 Session -> Session@session.ts
 SESSION_LIFETIME_MS -> SESSION_LIFETIME_MS@transport/noise-session.ts
+Settlement -> Settlement@settle.ts
+SettleOptions -> SettleOptions@settle.ts
+SettleRead -> SettleRead@settle.ts
 showMdbaseNotification -> showMdbaseNotification@notifications.ts
 SLOW_OPENING_MS -> SLOW_OPENING_MS@application/phase.ts
 StaticKey -> StaticKey@transport/noise.ts
@@ -1606,7 +1615,6 @@ problemCodeOf -> problemCodeOf@describe-error.ts
 "src/client"@client.ts
   export connect
   export ClientOptions
-  export SaveResult
   export TypeCreation
   export DescribeOptions
   export LinkState
@@ -3936,6 +3944,7 @@ FileWrite@files.ts
   onReceipt: (fn: ReceiptListener) => () => void
   readonly published: Promise<Receipt>
   receipt: Receipt
+  recordId?: string | undefined
   readonly records: RecordView[]
   readonly state: import("src/wire").ReceiptState
   update: (r: Receipt) => void
@@ -4564,7 +4573,7 @@ MdbaseClient@client.ts
   resolveHold: (id: Uuid, how: HoldResolution, use?: string) => Promise<Write>
   resolveLinks: (from: string, links: readonly string[], o?: { signal?: AbortSignal; }) => Promise<ResolveLinksResult>
   readonly resources: { get: (path: string, signal?: AbortSignal) => Promise<ResourceView>; list: (o?: { folder?: string; text?: boolean; cursor?: string; limit?: number; signal?: AbortSignal; }) => Promise<import("src/wire").ListResourcesResult>; put: (path: string, doc: string, o?: WriteOptions & { baseRevision?: string; mustNotExist?: boolean; }) => Promise<Write>; delete: (path: string, o?: WriteOptions & { baseRevision?: string; }) => Promise<Write>; }
-  save: (write: Write | Promise<Write>, o?: { readBack?: boolean; timeoutMs?: number; signal?: AbortSignal; }) => Promise<SaveResult>
+  settle: (write: Write | Promise<Write> | Uuid, options?: SettleOptions) => Promise<Settlement>
   setTransportDeferred: (deferred: boolean) => void
   readonly status: SyncStatus
   submit: (ops: Op[], o?: WriteOptions & { allowPartial?: boolean; }) => Promise<Write[]>
@@ -5555,13 +5564,6 @@ SESSION_LIFETIME_MS@transport/noise-session.ts
 SLOW_OPENING_MS@application/phase.ts
   : 15000
 
-SaveResult@client.ts
-  readonly mutationId: string
-  readonly outcome: 'confirmed' | 'rejected' | 'saved_on_device'
-  readonly problem?: Problem | undefined
-  readonly record?: RecordView | undefined
-  readonly records: readonly RecordView[]
-
 SaveState@write-ledger.ts
   = 'rejected' | 'saved' | 'saved_on_device' | 'saving'
 
@@ -5615,6 +5617,19 @@ Session@session.ts
   request: <T = CborValue>(method: string, params: CborValue, opts?: { signal?: AbortSignal; codec?: Codec<T>; }) => Promise<T>
   static new (port: FramePort, hello: HelloResult): Session
   static open: (connector: Connector, params: HelloParams, signal?: AbortSignal) => Promise<Session>
+
+SettleOptions@settle.ts
+  read?: boolean | SettleRead | undefined
+  signal?: AbortSignal | undefined
+  timeoutMs?: number | undefined
+
+SettleRead@settle.ts
+  contract?: ContractSelector | undefined
+  include?: Include | undefined
+  record?: RecordRef | undefined
+
+Settlement@settle.ts
+  = (Kept & { readonly outcome: 'confirmed' | 'saved_on_device'; }) | (Kept & { readonly outcome: 'conflicted'; readonly conflicts: readonly Conflict[]; }) | { readonly outcome: 'rejected'; readonly mutationId?: Uuid; readonly receipt?: Receipt; readonly problem: Problem; } | { readonly outcome: 'unknown'; readonly mutationId: Uuid; readonly receipt?: Receipt; readonly problem: Problem; }
 
 SetupResult@private-account.ts
   incomplete?: string[] | undefined
@@ -6163,6 +6178,7 @@ Write@client.ts
   onReceipt: (fn: ReceiptListener) => () => void
   readonly published: Promise<Receipt>
   receipt: Receipt
+  recordId?: string | undefined
   readonly records: RecordView[]
   readonly state: import("src/wire").ReceiptState
   update: (r: Receipt) => void
@@ -6451,6 +6467,9 @@ isErrorCode@errors.ts
 
 isMdbaseError@errors.ts
   : (e: unknown, code?: ErrorCode) => e is MdbaseError
+
+isProtected@records/witness.ts
+  : (record: RecordView) => boolean
 
 isReadyPhase@application/phase.ts
   : (phase: MdbasePhase | null | undefined, collectionId?: string) => phase is Extract<MdbasePhase, { kind: 'ready'; }>
