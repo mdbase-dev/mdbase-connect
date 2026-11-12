@@ -16,7 +16,12 @@ set -euo pipefail
 [[ $# == 2 ]] || { echo 'usage: provider-migration-rollback-gate BASE HEAD' >&2; exit 2; }
 dir=crates/connect-hosted-provider/migrations
 marker='-- mdbase: rollback-compatible'
-tolerance='pub const MIGRATION_ROLLBACK_TOLERANCE: &str = "marked-v1";'
+# A rollback restores the previous provider and projection indexer together,
+# so the previous release must declare both tolerant.
+tolerances=(
+  'pub const MIGRATION_ROLLBACK_TOLERANCE: &str = "marked-v1";'
+  'pub const PROJECTION_INDEXER_MIGRATION_TOLERANCE: &str = "marked-v1";'
+)
 predecessor=$(git merge-base "$1" "$2")
 head=$(git rev-parse "$2^{commit}")
 summary=${GITHUB_STEP_SUMMARY:-/dev/null}
@@ -91,12 +96,16 @@ if ((${#unmarked[@]})); then
   exit 0
 fi
 
-if [[ $(git show "$predecessor:crates/connect-hosted-provider/src/provider.rs" | grep -cxF "$tolerance") != 1 ]]; then
-  echo "::warning::FORWARD-ONLY: the previous release ($predecessor) predates the tolerant migration runner, so it refuses any newer migration, marked or not."
+tolerant=1
+for tolerance in "${tolerances[@]}"; do
+  [[ $(git show "$predecessor:crates/connect-hosted-provider/src/provider.rs" | grep -cxF "$tolerance") == 1 ]] || tolerant=0
+done
+if ((!tolerant)); then
+  echo "::warning::FORWARD-ONLY: the previous release ($predecessor) predates the tolerant migration runner or projection indexer, so it refuses any newer migration, marked or not."
   {
     echo '### Hosted-provider migrations: forward-only'
     echo
-    echo "The new migrations are marked rollback-compatible, but the previous release (\`$predecessor\`) has no tolerant migration runner, so the release is still **forward-only**."
+    echo "The new migrations are marked rollback-compatible, but the previous release (\`$predecessor\`) does not declare both a tolerant migration runner and a tolerant projection indexer, so the release is still **forward-only**."
   } >>"$summary"
   output false
   exit 0

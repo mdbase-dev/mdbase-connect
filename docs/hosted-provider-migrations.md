@@ -66,6 +66,13 @@ safe but needs the breaking-migration process instead of ordinary CD.
   stops startup with `hosted migration ledger is not an exact successful
   catalog prefix at N`. The behaviour is declared in source as
   `MIGRATION_ROLLBACK_TOLERANCE = "marked-v1"`.
+- **Projection indexer.** The indexer applies migrations through the same
+  runner, then its index plan requires the ledger to hold the whole catalog,
+  followed only by newer migrations recorded as compatible with the same
+  checksum. Anything else marks the ledger invalid and the indexer refuses. A
+  rollback restores the older indexer with the older provider, so this is
+  declared separately as `PROJECTION_INDEXER_MIGRATION_TOLERANCE = "marked-v1"`,
+  and the CI gate and ops both require the previous release to declare both.
 - **CI gate.** Server CI's *Hosted-provider migration rollback gate* job
   (`scripts/ci/provider-migration-rollback-gate`) looks at new migration files.
   The previous release is the base commit the tested merge sits on: the base
@@ -75,17 +82,25 @@ safe but needs the breaking-migration process instead of ordinary CD.
   - No new migrations: nothing to do.
   - Any new migration unmarked, or an existing migration changed: the job warns
     that the release is forward-only and passes.
-  - All new migrations marked, and the previous release has the tolerant
-    runner: the job checks out the previous release and runs its
+  - All new migrations marked, and the previous release declares both the
+    tolerant runner and the tolerant indexer: the job checks out the previous release and runs its
     `scripts/ci/hosted-provider-postgres-tests` with
     `MDBASE_TEST_NEWER_HOSTED_MIGRATIONS` pointing at this branch's migrations.
     Every disposable test schema then starts with this branch's migrations
     applied and recorded, and the previous release's tests run against it
-    through its own tolerant startup. The job fails if they fail.
+    through its own tolerant startup and index plan. The job fails if they
+    fail.
 - **Ops.** `mdbase-cloud-ops/bin/provider-migration-capability` reports
   `recovery_mode: predecessor` for a migration increase only when every added
-  migration is marked and the production predecessor's source declares the
-  tolerant runner.
+  migration is marked and the production predecessor's source declares both
+  the tolerant runner and the tolerant indexer.
 
-The first release with the tolerant runner has to reach production before any
+The first release with the tolerant runner and indexer has to reach production before any
 marked migration can be rolled back past.
+
+Other checks of the migration ledger are not part of this: the historical
+cutover and rollback scripts in `deploy/postgres/` (beta69 cutover, final
+legacy rollback, and `attest-hosted-provider-migration-ledger.sql`) still
+require an exact ledger, because they only apply to the legacy cutover and
+never run in a predecessor rollback. Provider diagnostics report the newest
+applied version, which can be newer than the running build.

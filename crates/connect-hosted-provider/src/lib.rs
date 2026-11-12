@@ -46,7 +46,7 @@ pub use provider::run_hosted_cutover_migrations;
 pub use provider::PROJECTION_ENGINE_UPGRADE;
 pub use provider::{
     apply_newer_migrations_for_rollback_gate, MIGRATION_ROLLBACK_TOLERANCE,
-    ROLLBACK_COMPATIBLE_MIGRATION_MARKER,
+    PROJECTION_INDEXER_MIGRATION_TOLERANCE, ROLLBACK_COMPATIBLE_MIGRATION_MARKER,
 };
 pub use provider::{
     DiagnosticSection, DrainStateDiagnostic, HostedDiagnostics, HostedLifecycleWorkDiagnostic,

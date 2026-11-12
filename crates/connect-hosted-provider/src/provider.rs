@@ -63,6 +63,14 @@ pub const PROJECTION_ENGINE_UPGRADE: &str = "online-v1";
 /// migration refuses startup. Release tooling reads this line from source to
 /// decide whether a release can roll back to a build with this runner.
 pub const MIGRATION_ROLLBACK_TOLERANCE: &str = "marked-v1";
+
+/// The projection indexer's counterpart to [`MIGRATION_ROLLBACK_TOLERANCE`].
+/// `marked-v1`: `projection_index_plan` accepts a ledger that holds this
+/// build's whole catalog followed only by newer migrations recorded
+/// rollback-compatible with their ledger checksum; anything else is an invalid
+/// ledger and the indexer refuses. A rollback restores the older indexer
+/// together with the older provider, so release tooling requires both lines.
+pub const PROJECTION_INDEXER_MIGRATION_TOLERANCE: &str = "marked-v1";
 pub use migration_compat::{
     apply_newer_migrations_for_rollback_gate, ROLLBACK_COMPATIBLE_MIGRATION_MARKER,
 };

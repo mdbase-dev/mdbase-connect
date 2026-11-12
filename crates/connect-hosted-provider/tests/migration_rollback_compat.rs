@@ -1,9 +1,10 @@
-#![allow(dead_code)]
+#![allow(dead_code, unused_imports)]
 
 //! The tolerant migration runner: a provider starts beside newer migrations
 //! only when each one is recorded as rollback-compatible with the ledger's
 //! checksum. See docs/hosted-provider-migrations.md.
 
+mod support;
 #[path = "support/test_postgres.rs"]
 mod test_postgres;
 
@@ -15,6 +16,7 @@ use mdbase_connect_hosted_provider::{
     ROLLBACK_COMPATIBLE_MIGRATION_MARKER,
 };
 use sqlx::{Connection, PgConnection};
+use support::FileLifecycleFixture;
 use test_postgres::DisposablePostgres;
 
 const CUTOVER_LOCK_NAME: &str = "mdbase-candidate-b-cutover-v1";
@@ -203,4 +205,70 @@ async fn unmarked_newer_migration_is_refused() {
     let mut connection = locked(&db).await;
     let error = start(&mut connection).await.unwrap_err();
     assert!(error.starts_with(&format!("{REFUSAL}{version}")), "{error}");
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn projection_indexer_accepts_recorded_newer_migrations_only() {
+    let db = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(db.url()).await;
+    let ledger_valid = || async {
+        fixture
+            .provider
+            .projection_index_plan(None, 1)
+            .await
+            .unwrap()
+            .migration_ledger_valid
+    };
+    // Under the rollback gate this schema already carries the newer release's
+    // marked migrations; either way this build's indexer accepts it.
+    assert!(ledger_valid().await);
+
+    let (catalog, version) = newer_catalog(&format!(
+        "{ROLLBACK_COMPATIBLE_MIGRATION_MARKER}\nCREATE TABLE rollback_gate_fixture (id integer);\n"
+    ));
+    apply_newer_migrations_for_rollback_gate(db.url(), catalog.path())
+        .await
+        .unwrap();
+    assert!(ledger_valid().await);
+
+    // Recorded with another checksum: refused, as for provider startup.
+    let mut connection = PgConnection::connect(db.url()).await.unwrap();
+    let recorded: Vec<u8> = sqlx::query_scalar(
+        "SELECT checksum FROM hosted_provider_rollback_compatible_migrations WHERE version = $1",
+    )
+    .bind(version)
+    .fetch_one(&mut connection)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE hosted_provider_rollback_compatible_migrations SET checksum = $2 WHERE version = $1",
+    )
+    .bind(version)
+    .bind(vec![0x00_u8; 48])
+    .execute(&mut connection)
+    .await
+    .unwrap();
+    assert!(!ledger_valid().await);
+    sqlx::query(
+        "UPDATE hosted_provider_rollback_compatible_migrations SET checksum = $2 WHERE version = $1",
+    )
+    .bind(version)
+    .bind(&recorded)
+    .execute(&mut connection)
+    .await
+    .unwrap();
+    assert!(ledger_valid().await);
+
+    // An unrecorded newer migration: refused.
+    sqlx::query(
+        "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time) \
+         VALUES ($1, 'newer forward-only release', true, $2, 0)",
+    )
+    .bind(version + 1)
+    .bind(vec![0x5a_u8; 48])
+    .execute(&mut connection)
+    .await
+    .unwrap();
+    assert!(!ledger_valid().await);
 }

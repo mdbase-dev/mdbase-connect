@@ -87,6 +87,24 @@ pub(crate) fn classify_ledger(
     Ok(newer)
 }
 
+/// Whether the ledger holds this build's whole catalog, followed only by
+/// newer migrations recorded as rollback-compatible. The projection indexer
+/// requires this; provider startup also accepts a shorter prefix, which it
+/// then migrates forward.
+pub(crate) fn catalog_fully_applied(
+    catalog: &Migrator,
+    applied: &[AppliedMigration],
+    compatible: &[CompatibleMigration],
+) -> bool {
+    let known = catalog
+        .iter()
+        .filter(|migration| !migration.migration_type.is_down_migration())
+        .count();
+    known > 0
+        && classify_ledger(catalog, applied, compatible)
+            .is_ok_and(|newer| applied.len() - newer.len() == known)
+}
+
 pub(crate) async fn recorded_compatible_migrations(
     connection: &mut PgConnection,
 ) -> Result<Vec<CompatibleMigration>, String> {
@@ -323,5 +341,33 @@ mod tests {
             &[]
         )
         .is_err());
+    }
+
+    #[test]
+    fn indexer_requires_the_whole_catalog_then_recorded_newer_migrations() {
+        let one = migration(1, "CREATE TABLE a (x int);");
+        let two = migration(2, "CREATE TABLE b (x int);");
+        let three = migration(
+            3,
+            "-- mdbase: rollback-compatible\nCREATE INDEX c ON a (x);",
+        );
+        let old = catalog(vec![one.clone(), two.clone()]);
+        let recorded = vec![(3, three.checksum.to_vec())];
+        let whole = [applied(&one), applied(&two)];
+        let newer = [applied(&one), applied(&two), applied(&three)];
+
+        assert!(catalog_fully_applied(&old, &whole, &[]));
+        assert!(catalog_fully_applied(&old, &newer, &recorded));
+        // A prefix is enough to migrate forward, never to index.
+        assert!(!catalog_fully_applied(&old, &[applied(&one)], &recorded));
+        assert!(!catalog_fully_applied(&old, &[], &[]));
+        assert!(!catalog_fully_applied(&catalog(vec![]), &[], &[]));
+        // Unrecorded or checksum-mismatched newer migrations refuse.
+        assert!(!catalog_fully_applied(&old, &newer, &[]));
+        assert!(!catalog_fully_applied(
+            &old,
+            &newer,
+            &[(3, one.checksum.to_vec())]
+        ));
     }
 }
