@@ -226,9 +226,12 @@ pub(super) fn authorize_file_access(
             match (&capability.scope, path) {
                 (FileScope::Collection, _) | (_, None) => Ok(()),
                 (FileScope::SelectedFolders { folders }, Some(path))
-                    if folders
-                        .iter()
-                        .any(|folder| file_path_below_folder(path, folder)) =>
+                    if folders.iter().any(|folder| {
+                        file_path_below_folder(
+                            &portable_file_path_key(path),
+                            &portable_file_path_key(folder),
+                        )
+                    }) =>
                 {
                     Ok(())
                 }

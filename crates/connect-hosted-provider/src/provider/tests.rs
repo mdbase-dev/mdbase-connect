@@ -1680,7 +1680,21 @@ fn file_capabilities_are_independent_scoped_and_mode_checked() {
             Some("https://assets.example"),
         )
         .unwrap();
-        for denied in ["Assets", "Assets-old/photo.png"] {
+        // Scope containment uses the same case and Unicode folding as file identity.
+        for alias in [
+            "assets/photo.png",
+            "ASSETS/Photo.png",
+            "Assets/cafe\u{301}.png",
+        ] {
+            authorize_file_access(
+                &scoped_replica,
+                action,
+                Some(alias),
+                Some("https://assets.example"),
+            )
+            .unwrap();
+        }
+        for denied in ["Assets", "assets", "Assets-old/photo.png"] {
             assert_eq!(
                 authorize_file_access(
                     &scoped_replica,
