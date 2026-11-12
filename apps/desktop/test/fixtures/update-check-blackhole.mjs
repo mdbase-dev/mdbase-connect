@@ -34,14 +34,10 @@ const backend = {
       trustCacheDirectory: join(workerData.directory, "sigstore"),
       signal,
       async fetchImpl(url) {
-        const body = url.includes("api.github.com") ? [{
-          draft: false, prerelease: true, tag_name: tag, html_url: releaseUrl,
-          assets: [
-            { name: "mdbase-connect-channel-v1.json", browser_download_url: "https://example.com/manifest", size: 1000 },
-            { name: "mdbase-connect-channel-v1.json.sigstore.json", browser_download_url: "https://example.com/bundle", size: 1000 }
-          ]
-        }] : url.endsWith("/manifest") ? manifest : {};
-        const response = new Response(JSON.stringify(body));
+        const body = url.endsWith(".git/git-upload-pack")
+          ? `0045${"a".repeat(40)} refs/tags/${tag}\n0000`
+          : JSON.stringify(url.endsWith("/mdbase-connect-channel-v1.json") ? manifest : {});
+        const response = new Response(body);
         Object.defineProperty(response, "url", { value: url });
         return response;
       }

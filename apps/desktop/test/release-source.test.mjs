@@ -9,16 +9,22 @@ const require = createRequire(import.meta.url);
 const {
   findLatestRelease,
   isRecoverableTrustCacheError,
+  parsePktLines,
   recoverTrustCache
 } = require("../dist/main/release-source.js");
 
-const indexUrl =
-  "https://api.github.com/repos/mdbase-dev/mdbase-connect/releases?per_page=10&page=1";
+const tagIndexUrl = "https://github.com/mdbase-dev/mdbase-connect.git/git-upload-pack";
+const manifestUrl = (tag) =>
+  `https://github.com/mdbase-dev/mdbase-connect/releases/download/${tag}/mdbase-connect-channel-v1.json`;
+const bundleUrl = (tag) => `${manifestUrl(tag)}.sigstore.json`;
 
-function pageUrl(page) {
-  const url = new URL(indexUrl);
-  url.searchParams.set("page", String(page));
-  return url.href;
+function pkt(line) {
+  return (Buffer.byteLength(line) + 4).toString(16).padStart(4, "0") + line;
+}
+
+/** A protocol-v2 `ls-refs` response listing `tags`. */
+function tagIndex(tags) {
+  return tags.map((tag) => pkt(`${"a".repeat(40)} refs/tags/${tag}\n`)).join("") + "0000";
 }
 
 function manifest(version = "0.1.0-beta.9") {
@@ -27,7 +33,7 @@ function manifest(version = "0.1.0-beta.9") {
     schema_version: 1,
     version,
     tag,
-    channel: "beta",
+    channel: version.includes("-") ? "beta" : "stable",
     published_at: "2026-07-28T00:00:00.000Z",
     release_url: `https://github.com/mdbase-dev/mdbase-connect/releases/tag/${tag}`,
     notes: "Verified notes.",
@@ -52,33 +58,29 @@ function manifest(version = "0.1.0-beta.9") {
   };
 }
 
-function release(version) {
-  const tag = `v${version}`;
-  return {
-    draft: false,
-    prerelease: true,
-    tag_name: tag,
-    html_url: `https://github.com/mdbase-dev/mdbase-connect/releases/tag/${tag}`,
-    assets: [
-      {
-        name: "mdbase-connect-channel-v1.json",
-        browser_download_url: `https://downloads.example/${tag}/manifest`,
-        size: 1000
-      },
-      {
-        name: "mdbase-connect-channel-v1.json.sigstore.json",
-        browser_download_url: `https://downloads.example/${tag}/bundle`,
-        size: 1000
-      }
-    ]
-  };
+/** The tag index plus a published release (manifest and bundle) for each of `released`. */
+function releases(tags, released, overrides = {}) {
+  const entries = { [tagIndexUrl]: tagIndex(tags) };
+  for (const version of released) {
+    entries[manifestUrl(`v${version}`)] = manifest(version);
+    entries[bundleUrl(`v${version}`)] = {};
+  }
+  return { ...entries, ...overrides };
 }
 
-function fetchMap(entries) {
-  return async (url) => {
+/** Serves `entries`; any other release download is a 404, as for a tag with no release. */
+function fetchMap(entries, calls = []) {
+  return async (url, init) => {
     const key = String(url);
-    if (!(key in entries)) throw new Error(`Unexpected URL ${key}`);
+    calls.push(key);
+    if (!(key in entries)) {
+      if (key.startsWith("https://github.com/mdbase-dev/mdbase-connect/releases/download/")) {
+        return new Response("Not Found", { status: 404 });
+      }
+      throw new Error(`Unexpected URL ${key}`);
+    }
     const value = entries[key];
+    if (typeof value === "number") return new Response(null, { status: value });
     const body = typeof value === "string" ? value : JSON.stringify(value);
     const response = new Response(body, {
       status: 200,
@@ -91,14 +93,14 @@ function fetchMap(entries) {
 
 for (const stalled of ["headers", "index-body", "manifest-body", "bundle-body"]) {
   test(`check cancellation aborts stalled ${stalled} without trusting metadata`, { timeout: 2_000 }, async () => {
-    const candidate = release("0.1.0-beta.9");
     const controller = new AbortController();
     const started = Promise.withResolvers();
-    const responses = fetchMap({
-      [indexUrl]: [candidate],
-      [candidate.assets[0].browser_download_url]: manifest(),
-      [candidate.assets[1].browser_download_url]: {}
-    });
+    const responses = fetchMap(releases(["v0.1.0-beta.9"], ["0.1.0-beta.9"]));
+    const stalledUrl = {
+      "index-body": tagIndexUrl,
+      "manifest-body": manifestUrl("v0.1.0-beta.9"),
+      "bundle-body": bundleUrl("v0.1.0-beta.9")
+    }[stalled];
     const pending = findLatestRelease({
       channel: "beta",
       trustCacheDirectory: "/tmp/not-used",
@@ -110,8 +112,7 @@ for (const stalled of ["headers", "index-body", "manifest-body", "bundle-body"])
             signal.addEventListener("abort", () => reject(signal.reason), { once: true });
           });
         }
-        const isStalled = stalled === "index-body" ? url === indexUrl : url.endsWith(stalled.split("-")[0]);
-        if (!isStalled) return responses(url);
+        if (url !== stalledUrl) return responses(url);
         const body = new ReadableStream({
           start(stream) {
             stream.enqueue(Buffer.from("{"));
@@ -133,7 +134,6 @@ for (const stalled of ["headers", "index-body", "manifest-body", "bundle-body"])
 }
 
 test("cancelled verification cannot trust a late result or try another release", async () => {
-  const candidate = release("0.1.0-beta.9");
   const controller = new AbortController();
   const started = Promise.withResolvers();
   const verification = Promise.withResolvers();
@@ -141,11 +141,7 @@ test("cancelled verification cannot trust a late result or try another release",
     channel: "beta",
     trustCacheDirectory: "/tmp/not-used",
     signal: controller.signal,
-    fetchImpl: fetchMap({
-      [indexUrl]: [candidate, release("0.1.0-beta.10")],
-      [candidate.assets[0].browser_download_url]: manifest(),
-      [candidate.assets[1].browser_download_url]: {}
-    }),
+    fetchImpl: fetchMap(releases(["v0.1.0-beta.9", "v0.1.0-beta.10"], ["0.1.0-beta.9", "0.1.0-beta.10"])),
     async verifyBundle() {
       started.resolve();
       await verification.promise;
@@ -158,146 +154,148 @@ test("cancelled verification cannot trust a late result or try another release",
   await rejected;
 });
 
-test("release discovery verifies the exact workflow-and-tag identity", async () => {
-  const candidate = release("0.1.0-beta.9");
+test("release discovery lists tags with one ls-refs request and verifies the exact workflow-and-tag identity", async () => {
   const calls = [];
+  const requests = [];
+  const responses = fetchMap(releases(["v0.1.0-beta.9"], ["0.1.0-beta.9"], {
+    [bundleUrl("v0.1.0-beta.9")]: { mediaType: "application/vnd.dev.sigstore.bundle+json;version=0.3" }
+  }));
   const result = await findLatestRelease({
     channel: "beta",
     trustCacheDirectory: "/tmp/not-used",
-    fetchImpl: fetchMap({
-      [indexUrl]: [candidate],
-      [candidate.assets[0].browser_download_url]: manifest(),
-      [candidate.assets[1].browser_download_url]: { mediaType: "application/vnd.dev.sigstore.bundle+json;version=0.3" }
-    }),
+    fetchImpl: async (url, init) => {
+      requests.push({ url, method: init.method, headers: init.headers, body: init.body });
+      return responses(url, init);
+    },
     async verifyBundle(bundle, payload, identity, cache) {
       calls.push({ bundle, payload: JSON.parse(payload), identity, cache });
     }
   });
   assert.equal(result.manifest.version, "0.1.0-beta.9");
+  assert.deepEqual(result.release, {
+    tag: "v0.1.0-beta.9",
+    url: "https://github.com/mdbase-dev/mdbase-connect/releases/tag/v0.1.0-beta.9"
+  });
   assert.equal(
     calls[0].identity,
     "https://github.com/mdbase-dev/mdbase-connect/.github/workflows/desktop-release.yml@refs/tags/v0.1.0-beta.9"
   );
   assert.equal(calls[0].cache, "/tmp/not-used");
+  assert.deepEqual(requests[0], {
+    url: tagIndexUrl,
+    method: "POST",
+    headers: {
+      accept: "application/x-git-upload-pack-result",
+      "content-type": "application/x-git-upload-pack-request",
+      "git-protocol": "version=2",
+      "user-agent": "mdbase-connect-updater"
+    },
+    body: "0014command=ls-refs\n0017object-format=sha1\n0001001bref-prefix refs/tags/v\n0000"
+  });
 });
 
-test("the highest verified semantic version wins even when API order is hostile", async () => {
-  const beta9 = release("0.1.0-beta.9");
-  const beta10 = release("0.1.0-beta.10");
-  const result = await findLatestRelease({
+test("a check never spends GitHub's REST API quota", async () => {
+  const calls = [];
+  const tags = Array.from({ length: 200 }, (_, i) => `v0.1.0-beta.${i + 1}`);
+  await findLatestRelease({
     channel: "beta",
     trustCacheDirectory: "/tmp/not-used",
-    fetchImpl: fetchMap({
-      [indexUrl]: [beta9, beta10],
-      [beta9.assets[0].browser_download_url]: manifest("0.1.0-beta.9"),
-      [beta9.assets[1].browser_download_url]: {},
-      [beta10.assets[0].browser_download_url]: manifest("0.1.0-beta.10"),
-      [beta10.assets[1].browser_download_url]: {}
-    }),
+    fetchImpl: fetchMap(releases(tags, ["0.1.0-beta.150"]), calls),
     async verifyBundle() {}
   });
-  assert.equal(result.manifest.version, "0.1.0-beta.10");
+  assert.equal(calls.filter((url) => url === tagIndexUrl).length, 1);
+  assert.ok(calls.every((url) => url.startsWith("https://github.com/mdbase-dev/mdbase-connect")), calls.join("\n"));
 });
 
-test("release discovery handles an index larger than 2 MiB across bounded pages", async () => {
-  const older = release("0.1.0-beta.9");
-  const latest = release("0.1.0-beta.100");
-  const pages = Array.from({ length: 3 }, (_, page) =>
-    Array.from({ length: 10 }, (_, offset) => ({
-      ...release(`0.1.0-beta.${page * 10 + offset + 1}`),
-      assets: [],
-      body: "x".repeat(90_000)
-    }))
-  );
-  pages[0][0] = { ...pages[0][0], ...older };
-  pages[2][9] = { ...pages[2][9], ...latest };
-  assert.ok(Buffer.byteLength(JSON.stringify(pages.flat())) > 2 * 1024 * 1024);
-  const entries = Object.fromEntries(pages.map((page, i) => {
-    assert.ok(Buffer.byteLength(JSON.stringify(page)) < 2 * 1024 * 1024);
-    return [pageUrl(i + 1), page];
-  }));
-  entries[pageUrl(4)] = []; // A full final page needs an empty-page probe.
-  for (const candidate of [older, latest]) {
-    entries[candidate.assets[0].browser_download_url] = manifest(candidate.tag_name.slice(1));
-    entries[candidate.assets[1].browser_download_url] = {};
-  }
-  const calls = [];
+test("only the highest released version is verified, whatever the ref order", async () => {
   const verified = [];
-  const fetchImpl = fetchMap(entries);
+  const tags = ["v0.1.0-beta.9", "v0.1.0-beta.100", "v0.1.0-beta.10", "v0.1.0-beta.2"];
   const result = await findLatestRelease({
     channel: "beta",
     trustCacheDirectory: "/tmp/not-used",
-    fetchImpl: async (url, options) => {
-      calls.push(String(url));
-      return fetchImpl(url, options);
-    },
+    fetchImpl: fetchMap(releases(tags, ["0.1.0-beta.9", "0.1.0-beta.100", "0.1.0-beta.10", "0.1.0-beta.2"])),
     async verifyBundle(_bundle, payload) {
       verified.push(JSON.parse(payload).version);
     }
   });
   assert.equal(result.manifest.version, "0.1.0-beta.100");
-  assert.deepEqual(calls.filter((url) => url.startsWith("https://api.github.com/")),
-    [1, 2, 3, 4].map(pageUrl));
-  assert.deepEqual(verified, ["0.1.0-beta.9", "0.1.0-beta.100"]);
+  assert.deepEqual(verified, ["0.1.0-beta.100"]);
 });
 
-test("discovery reaches a stable release behind a full page of prereleases", async () => {
-  const stable = { ...release("0.1.0"), prerelease: false };
+test("tags without a published release are skipped across probe batches", async () => {
+  const calls = [];
+  const tags = [
+    ...Array.from({ length: 40 }, (_, i) => `v0.1.0-beta.${i + 1}`),
+    "v0.1.0", "v1", "vnext", "v0.1.0+build", "v0.1.0-beta.01x."
+  ];
+  const result = await findLatestRelease({
+    channel: "beta",
+    trustCacheDirectory: "/tmp/not-used",
+    fetchImpl: fetchMap(releases(tags, ["0.1.0-beta.3", "0.1.0-beta.21"]), calls),
+    async verifyBundle() {}
+  });
+  assert.equal(result.manifest.version, "0.1.0-beta.21");
+  const probed = calls.filter((url) => url.endsWith("/mdbase-connect-channel-v1.json"));
+  // Newest first, in batches of eight: beta.40 through beta.17. Nothing older.
+  assert.deepEqual(probed, Array.from({ length: 24 }, (_, i) => manifestUrl(`v0.1.0-beta.${40 - i}`)));
+});
+
+test("discovery reaches a stable release behind newer prerelease tags", async () => {
+  const calls = [];
+  const tags = [...Array.from({ length: 30 }, (_, i) => `v0.1.0-beta.${i + 1}`), "v0.1.0", "v0.2.0-beta.1"];
   const result = await findLatestRelease({
     channel: "stable",
     trustCacheDirectory: "/tmp/not-used",
-    fetchImpl: fetchMap({
-      [indexUrl]: Array.from({ length: 10 }, (_, i) => release(`0.1.0-beta.${i + 1}`)),
-      [pageUrl(2)]: [stable],
-      [stable.assets[0].browser_download_url]: { ...manifest("0.1.0"), channel: "stable" },
-      [stable.assets[1].browser_download_url]: {}
-    }),
+    fetchImpl: fetchMap(releases(tags, ["0.1.0", "0.2.0-beta.1"]), calls),
     async verifyBundle() {}
   });
   assert.equal(result.manifest.version, "0.1.0");
+  assert.deepEqual(calls, [tagIndexUrl, manifestUrl("v0.1.0"), bundleUrl("v0.1.0")]);
 });
 
-test("a later index-page failure cannot return a partial latest-release result", async () => {
-  const firstPage = Array.from({ length: 10 }, () => release("0.1.0-beta.9"));
-  const fetchImpl = fetchMap({ [indexUrl]: firstPage });
-  await assert.rejects(findLatestRelease({
+test("a channel with no published release finds nothing", async () => {
+  const result = await findLatestRelease({
     channel: "beta",
     trustCacheDirectory: "/tmp/not-used",
-    fetchImpl: async (url) => {
-      if (String(url) === pageUrl(2)) return new Response(null, { status: 503 });
-      return fetchImpl(url);
-    },
-    async verifyBundle() { assert.fail("partial index must not be used"); }
-  }), /HTTP 503/);
+    fetchImpl: fetchMap(releases(["v0.1.0-beta.1", "v0.1.0-beta.2"], [])),
+    async verifyBundle() { assert.fail("nothing to verify"); }
+  });
+  assert.equal(result, null);
 });
 
-test("release pagination is bounded and fails rather than trusting an incomplete index", async () => {
-  let calls = 0;
-  const fullPage = Array.from({ length: 10 }, () => release("0.1.0-beta.9"));
-  await assert.rejects(findLatestRelease({
-    channel: "beta",
-    trustCacheDirectory: "/tmp/not-used",
-    fetchImpl: async (url) => {
-      calls += 1;
-      assert.equal(String(url), pageUrl(calls));
-      return fetchMap({ [String(url)]: fullPage })(url);
-    },
-    async verifyBundle() { assert.fail("incomplete index must not be used"); }
-  }), /page limit/);
-  assert.equal(calls, 100);
+test("a tag index failure fails the check rather than reporting no update", async () => {
+  for (const [body, pattern] of [
+    [503, /HTTP 503/],
+    [`${pkt("ERR upload-pack: not our ref\n")}`, /refused the tag index: upload-pack: not our ref/],
+    [`${pkt("not a ref line\n")}0000`, /invalid tag index/],
+    [tagIndex(["v0.1.0-beta.9"]).slice(0, -4), /invalid tag index/],
+    [`${tagIndex(["v0.1.0-beta.9"])}0000`, /invalid tag index/]
+  ]) {
+    await assert.rejects(findLatestRelease({
+      channel: "beta",
+      trustCacheDirectory: "/tmp/not-used",
+      fetchImpl: fetchMap(releases([], ["0.1.0-beta.9"], { [tagIndexUrl]: body })),
+      async verifyBundle() { assert.fail("an unreadable index must not be used"); }
+    }), pattern);
+  }
+});
+
+test("pkt-line parsing accepts delimiters only as framing", () => {
+  assert.deepEqual(parsePktLines(Buffer.from(`${pkt("one\n")}${pkt("two")}0000`)), ["one", "two"]);
+  assert.deepEqual(parsePktLines(Buffer.from("0000")), []);
+  for (const bad of ["", "0001", "0004", "000", "zzzz0000", `${pkt("one\n")}`]) {
+    assert.throws(() => parsePktLines(Buffer.from(bad)), /invalid tag index/);
+  }
 });
 
 test("a manifest is not parsed or trusted when signature verification fails", async () => {
-  const candidate = release("0.1.0-beta.9");
   await assert.rejects(
     findLatestRelease({
       channel: "beta",
       trustCacheDirectory: "/tmp/not-used",
-      fetchImpl: fetchMap({
-        [indexUrl]: [candidate],
-        [candidate.assets[0].browser_download_url]: "{not valid json",
-        [candidate.assets[1].browser_download_url]: {}
-      }),
+      fetchImpl: fetchMap(releases(["v0.1.0-beta.9"], ["0.1.0-beta.9"], {
+        [manifestUrl("v0.1.0-beta.9")]: "{not valid json"
+      })),
       async verifyBundle() {
         throw new Error("untrusted signer");
       }
@@ -306,19 +304,16 @@ test("a manifest is not parsed or trusted when signature verification fails", as
   );
 });
 
-test("a malformed release cannot strand the updater when another signed release is valid", async () => {
-  const broken = release("0.1.0-beta.10");
-  const valid = release("0.1.0-beta.9");
+test("a malformed or unreachable release cannot strand the updater when an older signed release is valid", async () => {
+  const tags = ["v0.1.0-beta.9", "v0.1.0-beta.10", "v0.1.0-beta.11", "v0.1.0-beta.12"];
   const result = await findLatestRelease({
     channel: "beta",
     trustCacheDirectory: "/tmp/not-used",
-    fetchImpl: fetchMap({
-      [indexUrl]: [broken, valid],
-      [broken.assets[0].browser_download_url]: manifest("0.1.0-beta.10"),
-      [broken.assets[1].browser_download_url]: {},
-      [valid.assets[0].browser_download_url]: manifest("0.1.0-beta.9"),
-      [valid.assets[1].browser_download_url]: {}
-    }),
+    fetchImpl: fetchMap(releases(tags, ["0.1.0-beta.9", "0.1.0-beta.10"], {
+      [manifestUrl("v0.1.0-beta.12")]: 503,
+      [manifestUrl("v0.1.0-beta.11")]: manifest("0.1.0-beta.11"),
+      [bundleUrl("v0.1.0-beta.11")]: 404
+    })),
     async verifyBundle(_bundle, payload) {
       if (JSON.parse(payload).version === "0.1.0-beta.10") {
         throw new Error("untrusted signer");
@@ -329,7 +324,6 @@ test("a malformed release cannot strand the updater when another signed release 
 });
 
 test("signed metadata cannot claim a different GitHub release", async () => {
-  const candidate = release("0.1.0-beta.9");
   const wrong = manifest();
   wrong.release_url =
     "https://github.com/mdbase-dev/mdbase-connect/releases/tag/v0.1.0-beta.10";
@@ -337,43 +331,46 @@ test("signed metadata cannot claim a different GitHub release", async () => {
     findLatestRelease({
       channel: "beta",
       trustCacheDirectory: "/tmp/not-used",
-      fetchImpl: fetchMap({
-        [indexUrl]: [candidate],
-        [candidate.assets[0].browser_download_url]: wrong,
-        [candidate.assets[1].browser_download_url]: {}
-      }),
+      fetchImpl: fetchMap(releases(["v0.1.0-beta.9"], ["0.1.0-beta.9"], { [manifestUrl("v0.1.0-beta.9")]: wrong })),
       async verifyBundle() {}
     }),
     /does not match its release page/
   );
 });
 
-test("oversized release metadata is rejected before parsing", async () => {
-  const response = new Response("[]", {
-    status: 200,
-    headers: { "content-length": String(3 * 1024 * 1024) }
-  });
-  Object.defineProperty(response, "url", { value: indexUrl });
+test("signed metadata cannot be served under another release's tag", async () => {
   await assert.rejects(
     findLatestRelease({
       channel: "beta",
       trustCacheDirectory: "/tmp/not-used",
-      fetchImpl: async () => response,
+      fetchImpl: fetchMap(releases(["v0.1.0-beta.10"], [], {
+        [manifestUrl("v0.1.0-beta.10")]: manifest("0.1.0-beta.9"),
+        [bundleUrl("v0.1.0-beta.10")]: {}
+      })),
       async verifyBundle() {}
     }),
-    /size limit/
+    /does not match its release tag/
   );
 });
 
-test("oversized streamed index pages are rejected without a content-length header", async () => {
-  const response = new Response("x".repeat(2 * 1024 * 1024 + 1));
-  Object.defineProperty(response, "url", { value: indexUrl });
-  await assert.rejects(findLatestRelease({
-    channel: "beta",
-    trustCacheDirectory: "/tmp/not-used",
-    fetchImpl: async () => response,
-    async verifyBundle() { assert.fail("oversized index must not be used"); }
-  }), /size limit/);
+test("an oversized tag index is rejected before parsing", async () => {
+  const declared = new Response("0000", {
+    status: 200,
+    headers: { "content-length": String(2 * 1024 * 1024) }
+  });
+  const streamed = new Response("0".repeat(1024 * 1024 + 1));
+  for (const response of [declared, streamed]) {
+    Object.defineProperty(response, "url", { value: tagIndexUrl });
+    await assert.rejects(
+      findLatestRelease({
+        channel: "beta",
+        trustCacheDirectory: "/tmp/not-used",
+        fetchImpl: async () => response,
+        async verifyBundle() { assert.fail("oversized index must not be used"); }
+      }),
+      /size limit/
+    );
+  }
 });
 
 test("a threshold failure is classified as a recoverable trust-cache error", () => {
