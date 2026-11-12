@@ -316,8 +316,8 @@ it("keeps a permanent typed 400's code and manifest paths, bounded, without retr
     }, { status: 400 }));
     const error = await resolveApplicationRegistration(f.input).catch((e) => e);
     expect(error).toMatchObject({ code: "forbidden", reason: "application_registration_refused" });
-    expect(error.details).toEqual(new Map<string, unknown>([["code", "invalid_application_manifest"], ["paths", ["/homepage", "/icon", "/redirect_uris/0", "/redirect_uris/1", "/redirect_uris/2"]]]));
-    expect(JSON.stringify([...error.details])).not.toContain("evil");
+    expect(error.details).toEqual({ code: "invalid_application_manifest", paths: ["/homepage", "/icon", "/redirect_uris/0", "/redirect_uris/1", "/redirect_uris/2"] });
+    expect(JSON.stringify(error.details)).not.toContain("evil");
     expect(error.message).not.toContain("evil");
     expect(f.fetch).toHaveBeenCalledOnce();
     expect(describeError(error)).toMatchObject({

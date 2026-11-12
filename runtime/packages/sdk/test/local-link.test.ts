@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { CborValue, decode, encode, toHex } from "../src/cbor.js";
 import { uuidToBytes } from "../src/codec.js";
-import { connect } from "../src/index.js";
+import { connect } from "../src/thin-client.js";
 import { readLocalLink } from "../src/node.js";
 import { localLinkConnector } from "../src/transport/local-link.js";
 import { clientPrologue, generateKeyPair, IkResponder } from "../src/transport/noise.js";

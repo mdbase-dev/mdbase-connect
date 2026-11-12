@@ -5,13 +5,8 @@ import { readFileSync } from "node:fs";
 import { afterEach, expect, it, vi } from "vitest";
 import { decode, fromHex } from "../src/cbor.js";
 import { toPlain } from "../src/values.js";
-import {
-    connect,
-    resolveRecordLinks,
-    MdbaseError,
-    type MdbaseClient,
-    type QueryResult,
-} from "../src/index.js";
+import { resolveRecordLinks, MdbaseError, type MdbaseClient, type QueryResult } from "../src/index.js";
+import { connect } from "../src/thin-client.js";
 import { MemoryReplica } from "../src/testing/index.js";
 const clients: MdbaseClient[] = [];
 afterEach(() => {
@@ -38,10 +33,7 @@ async function fixture() {
             records: [
                 {
                     ...source,
-                    values: new Map([
-                        ["raw", raw],
-                        ["paths", paths],
-                    ]) as QueryResult["records"][number]["values"],
+                    values: { raw, paths } as QueryResult["records"][number]["values"],
                 },
             ],
             complete: true,
@@ -119,7 +111,7 @@ it("one original ordinary query preserves raw links, aliases, nulls, duplicates 
     expect(select.map((s) => s.name)).toEqual(["raw", "paths"]);
     expect(select[0]?.expr).toContain('raw["Crew Links"]');
     expect(select[1]?.expr).toContain(".asFile()");
-    expect(query.mock.calls[0]?.[1]).toBeUndefined();
+    expect(query.mock.calls[0]?.[1]?.include).toBeUndefined();
 });
 it.each([
     [
@@ -152,10 +144,7 @@ it.each([
         records: [
             {
                 ...r.records[0]!,
-                values: new Map([
-                    ["raw", ["[[Alex]]"]],
-                    ["paths", []],
-                ]),
+                values: { raw: ["[[Alex]]"], paths: [] },
             },
         ],
     }),
@@ -164,10 +153,7 @@ it.each([
         records: [
             {
                 ...r.records[0]!,
-                values: new Map([
-                    ["raw", [42]],
-                    ["paths", [null]],
-                ]),
+                values: { raw: [42], paths: [null] },
             },
         ],
     }),

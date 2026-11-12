@@ -1,7 +1,8 @@
 /** `describe_typing` and the AK1 §6 account-key operations. */
 import { describe, expect, it } from "vitest";
 import { decode, encode } from "../src/cbor.js";
-import { connect, wire } from "../src/index.js";
+import { wire } from "../src/index.js";
+import { connect } from "../src/thin-client.js";
 import { accountKeyStatus } from "../src/private.js";
 import { MemoryReplica } from "../src/testing/index.js";
 
@@ -39,7 +40,7 @@ describe("account key ops (AK1 §6)", () => {
     expect(await c.accountKey.status()).toEqual({ state: "idle" });
   });
   it("status codec round-trips with the allocated enum values", () => {
-    const refused = { state: "refused" as const, problem: { code: "forbidden" as const, recovery: "reauthorize" as const, message: "no", details: new Map([["reason", "not_keyed"]]) } };
+    const refused = { state: "refused" as const, problem: { code: "forbidden" as const, recovery: "reauthorize" as const, message: "no", details: { reason: "not_keyed" } } };
     const bytes = encode(accountKeyStatus.enc(refused));
     expect(accountKeyStatus.dec(decode(bytes))).toEqual(refused);
     expect((decode(bytes) as Map<number, unknown>).get(0)).toBe(4);

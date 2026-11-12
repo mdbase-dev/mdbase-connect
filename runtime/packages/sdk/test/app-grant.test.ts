@@ -238,6 +238,15 @@ it("refreshes once for concurrent callers and forgets a refused grant", async ()
   await expect(f.grants.availability(COLLECTION)).resolves.toEqual({ state: "unavailable", reason: "sync_required" });
 });
 
+it("sends every control-plane request without ambient credentials", async () => {
+  // An extension's host permissions attach the person's Connect cookies to a
+  // default fetch; the grant client authorizes by signature and bearer only.
+  const f = await authorized();
+  await f.grants.availability(COLLECTION);
+  expect(f.fetch.mock.calls.length).toBeGreaterThan(2);
+  expect(f.fetch.mock.calls.filter(([, init]) => init?.credentials !== "omit").map(([url]) => String(url))).toEqual([]);
+});
+
 it("signs each refresh with the grant signing key registered at consent", async () => {
   const f = await authorized();
   const binding = (JSON.parse(f.requests.find((r) => r.path === "/oauth/authorization_request")!.body!.get("application_authorization")!) as { binding: { grant_signing_public_key: string } }).binding;

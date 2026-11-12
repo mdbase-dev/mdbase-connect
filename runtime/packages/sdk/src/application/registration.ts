@@ -398,10 +398,7 @@ export async function resolveApplicationRegistration(
                         refusal
                             ? {
                                   reason: "application_registration_refused",
-                                  details: new Map<string, CborValue>([
-                                      ["code", refusal.code],
-                                      ["paths", [...refusal.paths]],
-                                  ]),
+                                  details: {code: refusal.code, paths: [...refusal.paths]},
                               }
                             : "application_registration_refused",
                     );

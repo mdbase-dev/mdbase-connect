@@ -5,7 +5,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { connect, inProcessConnector } from "../src/index.js";
+import { connect, Float64, inProcessConnector } from "../src/thin-client.js";
 import { WasmRuntime } from "../src/runtime/wasm.js";
 import { uuidv7 } from "../src/values.js";
 
@@ -49,15 +49,41 @@ collection:
 `);
       const created = await c.create({type: "task", frontmatter: {title: "Old?"}});
       expect(created.records).toHaveLength(1);
-      const seen = await c.get(created.records[0]!.id, {document: true});
+      const seen = await c.get(created.records[0]!.id, {include: {document: true}});
       expect(seen.path).toBe("tasks/Old.md");
-      expect(seen.frontmatter.get("title")).toBe("Old");
+      expect(seen.frontmatter.title).toBe("Old");
       expect(seen.document).not.toContain("title:");
       const updated = await c.update(seen, {patch: {title: "New"}, updateRefs: false});
       expect(updated.records[0]!.path).toBe("tasks/New.md");
-      const after = await c.get(seen.id, {document: true});
-      expect(after.frontmatter.get("title")).toBe("New");
+      const after = await c.get(seen.id, {include: {document: true}});
+      expect(after.frontmatter.title).toBe("New");
       expect(after.document).not.toContain("title:");
+    } finally {c.close(); rt.dispose();}
+  });
+
+  it("accepts a write based on the plain reading of exact stored values", async () => {
+    const rt = await WasmRuntime.instantiate(readFileSync(path));
+    rt.open({collection: uuidv7(), replicaId: uuidv7(), deviceId: uuidv7(), mode: "local_only", signSecretKey: crypto.getRandomValues(new Uint8Array(32)), kemSecretKey: crypto.getRandomValues(new Uint8Array(32))});
+    const c = await connect({app: {name: "plain-base", version: "1"}, connector: inProcessConnector(rt), reconnect: false});
+    try {
+      const created = await c.create({path: "notes/a.md", frontmatter: {rating: new Float64(1), nested: {z: new Float64(2), a: [new Float64(3)]}, keep: new Float64(4)}});
+      const seen = await c.get(created.records[0]!.id, {include: {document: true}});
+      // The store holds floats; the app reads numbers and writes from that reading.
+      expect(seen.document).toContain("rating: 1.0");
+      expect(seen.frontmatter).toEqual({rating: 1, nested: {z: 2, a: [3]}, keep: 4});
+      const op = c.updateOp(seen, {patch: {rating: 2}, unset: ["nested"]});
+      expect(op.base).toEqual([{key: "rating", observed: 1}, {key: "nested", observed: new Map<string, unknown>([["z", 2], ["a", [3]]])}]);
+      const write = await c.update(seen, {patch: {rating: 2}, unset: ["nested"]});
+      expect(write.receipt.problem).toBeUndefined();
+      expect(write.receipt.conflicts ?? []).toEqual([]);
+      const after = await c.get(seen.id, {include: {document: true}});
+      expect(after.frontmatter).toEqual({rating: 2, keep: 4});
+      // The field nobody wrote keeps its exact form.
+      expect(after.document).toContain("keep: 4.0");
+      // The base is really compared: the same write from the stale reading loses.
+      const stale = await c.update(seen, {patch: {rating: 5}});
+      expect(stale.receipt.conflicts).toEqual([{kind: "field", id: seen.id, field: "rating", base: {form: "value", value: 1}, kept: {form: "value", value: 2}, lost: {form: "value", value: 5}}]);
+      expect((await c.get(seen.id)).frontmatter.rating).toBe(2);
     } finally {c.close(); rt.dispose();}
   });
 
@@ -83,7 +109,7 @@ collection:
       expect(result.version).toBe(1); expect(result.page.complete).toBe(true);
       expect(result.records).toHaveLength(1); expect(result.records[0]!.id).toBe(write.records[0]!.id);
       expect(result.records[0]!.implementations[0]).toMatchObject({ typeName: "aliasContact", issues: [] });
-      expect(result.records[0]!.implementations[0]!.fields.get("name")).toBe("Projected");
+      expect(result.records[0]!.implementations[0]!.fields.name).toBe("Projected");
       const terminal = await c.queryContract(contract, { pageSize: 1 });
       expect(terminal.records).toEqual(result.records);
       expect(terminal.page.hasMore).toBe(false);
@@ -119,7 +145,7 @@ collection:
     expect(w.state).toBe("confirmed");
     expect((await w.confirmed).state).toBe("confirmed");
     expect(w.records).toHaveLength(1);
-    const record = await c.get(w.records[0]!.id, { body: true });
+    const record = await c.get(w.records[0]!.id, { include: { body: true } });
     expect(record.path).toBe("a.md");
     expect(record.body).toBe("hi");
     c.close();

@@ -31,7 +31,7 @@ const pinnedAdapter = execFileSync("git", ["show", `${writeHead}:packages/obsidi
 if (!pinnedAdapter.equals(readFileSync(adapter))) throw new Error("write adapter does not match pinned blob");
 const out = process.env.LAB_UI_OUT ? resolve(process.env.LAB_UI_OUT) : join(here, "../.work/tasknotes-ui-bundle");
 const source = rel => join(tn, rel);
-for (const file of [join(sdk, "index.js"), join(sdk, "node.js"), fixture, status, source("src/main.ts"), source("styles.css"), source("manifest.json")]) {
+for (const file of [join(sdk, "thin-client.js"), join(sdk, "node.js"), fixture, status, source("src/main.ts"), source("styles.css"), source("manifest.json")]) {
   if (!statSync(file).isFile()) throw new Error("missing build input");
 }
 mkdirSync(out, { recursive: true, mode: 0o700 });
@@ -39,7 +39,7 @@ await build({ entryPoints: [join(here, "main.ts")], bundle: true, outfile: join(
   format: "cjs", platform: "node", target: "es2022", charset: "utf8", treeShaking: true,
   external: ["obsidian", "electron", "@codemirror/*", "@lezer/*", ...builtinModules, "node:*"],
   loader: { ".md": "text" },
-  alias: { "@mdbase-lab/sdk/node": join(sdk, "node.js"), "@mdbase-lab/sdk": join(sdk, "index.js"),
+  alias: { "@mdbase-lab/sdk/node": join(sdk, "node.js"), "@mdbase-lab/sdk/thin-client": join(sdk, "thin-client.js"),
     "@mdbase-lab/write-client": adapter,
     "@mdbase-lab/tasknotes-main": source("src/main.ts"),
     "@mdbase-lab/tasknotes-create-modal": source("src/modals/TaskCreationModal.ts"),

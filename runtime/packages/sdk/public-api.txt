@@ -6,47 +6,30 @@ AccountIdentity -> AccountIdentity@people.ts
 AccountKeyState -> AccountKeyState@private.ts
 AccountKeyStatus -> AccountKeyStatus@private.ts
 AccountProfile -> AccountProfile@people.ts
-API_VERSIONS -> API_VERSIONS@session.ts
 ApplicationJson -> ApplicationJson@application/declaration.ts
 applicationPhase -> applicationPhase@application/phase.ts
 ApplicationStorageDeclaration -> ApplicationStorageDeclaration@application/declaration.ts
 AppliedPrefix -> AppliedPrefix@wire.ts
-AppliedPrefixParams -> AppliedPrefixParams@wire.ts
 approvalReadiness -> approvalReadiness@private.ts
 ApprovalReadiness -> ApprovalReadiness@private.ts
 AppTimersPort -> AppTimersPort@timers.ts
-AttachmentContentV1 -> AttachmentContentV1@attachment-wire.ts
 AttachmentHoldContent -> AttachmentHoldContent@wire.ts
-AttachmentRefV1 -> AttachmentRefV1@attachment-wire.ts
-AuthenticatedRelayByteDuplex -> AuthenticatedRelayByteDuplex@transport/next-relay.ts
+Backlink -> Backlink@plain.ts
+BacklinksResult -> BacklinksResult@plain.ts
 BlobRef -> BlobRef@wire.ts
-ByteChannel -> ByteChannel@transport/port.ts
-bytesEqual -> bytesEqual@cbor.ts
-ByteStream -> ByteStream@transport/noise-session.ts
-CborError -> CborError@cbor.ts
-CborErrorKind -> CborErrorKind@cbor.ts
 CborMap -> CborMap@cbor.ts
 CborValue -> CborValue@cbor.ts
 Change -> Change@wire.ts
 ChangesWatch -> ChangesWatch@client.ts
 ChangesWatchState -> ChangesWatchState@client.ts
-ClientKey -> ClientKey@keys.ts
-ClientOptions -> ClientOptions@client.ts
-clientPrologue -> clientPrologue@transport/noise.ts
-Codec -> Codec@codec.ts
-COLLECTION_UNAVAILABLE_REASONS -> COLLECTION_UNAVAILABLE_REASONS@collection-availability.ts
-CollectionAvailability -> CollectionAvailability@collection-availability.ts
 CollectionMemberProfile -> CollectionMemberProfile@people.ts
-collectionUnavailableError -> collectionUnavailableError@collection-availability.ts
-CollectionUnavailableReason -> CollectionUnavailableReason@collection-availability.ts
 compareVersions -> compareVersions@semver.ts
 ConfirmedHead -> ConfirmedHead@wire.ts
-Conflict -> Conflict@wire.ts
-ConflictEntry -> ConflictEntry@wire.ts
-ConflictValue -> ConflictValue@wire.ts
-connect -> connect@client.ts
-Connector -> Connector@transport/port.ts
+Conflict -> Conflict@plain.ts
+ConflictEntry -> ConflictEntry@plain.ts
+ConflictValue -> ConflictValue@plain.ts
 ContractIdentity -> ContractIdentity@contract-records.ts
+ContractImplementation -> ContractImplementation@plain.ts
 ContractProjection -> ContractProjection@contract-query.ts
 ContractQueryOptions -> ContractQueryOptions@contract-query.ts
 ContractQueryRecord -> ContractQueryRecord@contract-query.ts
@@ -54,15 +37,11 @@ ContractQueryResult -> ContractQueryResult@contract-query.ts
 ContractRecordView -> ContractRecordView@contract-records.ts
 ContractRef -> ContractRef@contract-query.ts
 ContractSelector -> ContractSelector@contract-records.ts
-ControlRouteOptions -> ControlRouteOptions@transport/control-route.ts
-controlRouteResolver -> controlRouteResolver@transport/control-route.ts
-ControlRouteResponse -> ControlRouteResponse@transport/control-route.ts
-ControlRouteTarget -> ControlRouteTarget@transport/control-route.ts
+ContractSummary -> ContractSummary@plain.ts
 CreateInput -> CreateInput@client.ts
 createMdbase -> createMdbase@application/front-door.ts
 createViewSource -> createViewSource@view-sources.ts
 CurrentAccount -> CurrentAccount@people.ts
-decode -> decode@cbor.ts
 DESCRIBE_TYPING_MAX_PATHS -> DESCRIBE_TYPING_MAX_PATHS@wire.ts
 DESCRIBE_TYPING_MAX_TYPES -> DESCRIBE_TYPING_MAX_TYPES@wire.ts
 describeDiagnostic -> describeDiagnostic@describe-error.ts
@@ -71,15 +50,13 @@ DescribeErrorOptions -> DescribeErrorOptions@describe-error.ts
 describeHold -> describeHold@holds.ts
 DescribeHoldOptions -> DescribeHoldOptions@holds.ts
 DescribeOptions -> DescribeOptions@client.ts
+DescribeResult -> DescribeResult@plain.ts
 DescribeTypingResult -> DescribeTypingResult@wire.ts
 DesiredTimer -> DesiredTimer@timers.ts
 DEVICE_KINDS -> DEVICE_KINDS@private.ts
 DeviceKind -> DeviceKind@private.ts
 diffEdits -> diffEdits@values.ts
-duplexCarrier -> duplexCarrier@transport/next-relay.ts
 effectiveCapabilities -> effectiveCapabilities@application/capabilities.ts
-encode -> encode@cbor.ts
-encodeSecret -> encodeSecret@cbor.ts
 ERROR_CODES -> ERROR_CODES@errors.ts
 ErrorCode -> ErrorCode@errors.ts
 ExecuteViewOptions -> ExecuteViewOptions@saved-views.ts
@@ -96,10 +73,6 @@ FileView -> FileView@wire.ts
 FileWrite -> FileWrite@files.ts
 Float64 -> Float64@cbor.ts
 formatSas -> formatSas@private.ts
-framedPort -> framedPort@transport/port.ts
-FramePort -> FramePort@transport/port.ts
-fromHex -> fromHex@cbor.ts
-generateKeyPair -> generateKeyPair@transport/noise.ts
 GrantInfo -> GrantInfo@wire.ts
 handleMdbaseNotificationClick -> handleMdbaseNotificationClick@notifications.ts
 HandleMdbaseNotificationClickOptions -> HandleMdbaseNotificationClickOptions@notifications.ts
@@ -117,52 +90,34 @@ holdNotice -> holdNotice@holds.ts
 HoldPresentation -> HoldPresentation@holds.ts
 HoldReason -> HoldReason@wire.ts
 HoldResolution -> HoldResolution@wire.ts
-IkInitiator -> IkInitiator@transport/noise.ts
-IkResponder -> IkResponder@transport/noise.ts
 Incident -> Incident@wire.ts
 Include -> Include@wire.ts
-indexedDbKeyStorage -> indexedDbKeyStorage@keys.ts
-InProcessConnectOptions -> InProcessConnectOptions@transport/inprocess.ts
-inProcessConnector -> inProcessConnector@transport/inprocess.ts
-InProcessRuntime -> InProcessRuntime@transport/inprocess.ts
 InvalidPersonRecord -> InvalidPersonRecord@people.ts
-isCollectionUnavailableReason -> isCollectionUnavailableReason@collection-availability.ts
 isConfirmed -> isConfirmed@status.ts
 isErrorCode -> isErrorCode@errors.ts
 isMdbaseError -> isMdbaseError@errors.ts
+isProtected -> isProtected@records/witness.ts
 isReadyPhase -> isReadyPhase@application/phase.ts
 Issue -> Issue@wire.ts
-isValid -> isValid@cbor.ts
-JsonLike -> JsonLike@values.ts
-KeyPair -> KeyPair@transport/noise.ts
-keyPairFromSecret -> keyPairFromSecret@transport/noise.ts
-KeyStorage -> KeyStorage@keys.ts
+JsonObject -> JsonObject@plain.ts
+JsonValue -> JsonValue@plain.ts
 LinkState -> LinkState@client.ts
 ListViewsResult -> ListViewsResult@saved-views.ts
 LiveQuery -> LiveQuery@client.ts
 LiveQueryState -> LiveQueryState@live.ts
-LoadKeyOptions -> LoadKeyOptions@keys.ts
-loadOrCreateClientKey -> loadOrCreateClientKey@keys.ts
-LocalLink -> LocalLink@transport/local-link.ts
-localLinkConnector -> localLinkConnector@transport/local-link.ts
-LocalLinkConnectorOptions -> LocalLinkConnectorOptions@transport/local-link.ts
-localLinkFirstPayload -> localLinkFirstPayload@transport/local-link.ts
 Materialization -> Materialization@wire.ts
 MAX_CONVENIENCE_BYTES -> MAX_CONVENIENCE_BYTES@files.ts
-MAX_DEPTH -> MAX_DEPTH@cbor.ts
 Mdbase -> Mdbase@application/front-door.ts
 MDBASE_NOTIFICATION_CLICK -> MDBASE_NOTIFICATION_CLICK@notifications.ts
 MDBASE_NOTIFICATION_TYPE -> MDBASE_NOTIFICATION_TYPE@notifications.ts
 MdbaseAccessRequest -> MdbaseAccessRequest@application/file-access.ts
 MdbaseAccessRequestOptions -> MdbaseAccessRequestOptions@application/file-access.ts
 MdbaseAccessResult -> MdbaseAccessResult@application/file-access.ts
-MdbaseApplication -> MdbaseApplication@application/entry.ts
 MdbaseApplicationAssessment -> MdbaseApplicationAssessment@application/entry.ts
 MdbaseApplicationCapabilities -> MdbaseApplicationCapabilities@application/capabilities.ts
 MdbaseApplicationCapability -> MdbaseApplicationCapability@application/capabilities.ts
 MdbaseApplicationConnection -> MdbaseApplicationConnection@application/entry.ts
 MdbaseApplicationDeclaration -> MdbaseApplicationDeclaration@application/declaration.ts
-MdbaseApplicationEntry -> MdbaseApplicationEntry@application/entry.ts
 MdbaseApplicationFacet -> MdbaseApplicationFacet@application/entry.ts
 MdbaseApplicationFacetSnapshot -> MdbaseApplicationFacetSnapshot@application/entry.ts
 MdbaseApplicationProblem -> MdbaseApplicationProblem@application/entry.ts
@@ -170,15 +125,10 @@ MdbaseApplicationReadinessSnapshot -> MdbaseApplicationReadinessSnapshot@applica
 MdbaseApplicationRequestOptions -> MdbaseApplicationRequestOptions@application/entry.ts
 MdbaseApplicationSelectionSnapshot -> ApplicationCollectionSelectionSnapshot@application/collection-selection.ts
 MdbaseApplicationSelectionState -> ApplicationCollectionSelectionState@application/collection-selection.ts
-MdbaseApplicationSetup -> MdbaseApplicationSetup@application/setup.ts
-MdbaseApplicationSnapshot -> MdbaseApplicationSnapshot@application/entry.ts
-MdbaseApplicationUnavailableError -> MdbaseApplicationUnavailableError@application/entry.ts
 MdbaseApprovalOutcome -> MdbaseApprovalOutcome@application/phase.ts
 MdbaseClient -> MdbaseClient@client.ts
 MdbaseCollectionDeleteOptions -> MdbaseCollectionDeleteOptions@application/entry.ts
 MdbaseCollectionSummary -> MdbaseCollectionSummary@application/phase.ts
-MdbaseConnect -> MdbaseConnect@application/entry.ts
-MdbaseConnectOptions -> MdbaseConnectOptions@application/entry.ts
 mdbaseError -> mdbaseError@errors.ts
 MdbaseError -> MdbaseError@errors.ts
 MdbaseErrorAction -> MdbaseErrorAction@describe-error.ts
@@ -189,6 +139,7 @@ MdbaseNotification -> MdbaseNotification@notifications.ts
 MdbaseNotificationClickMessage -> MdbaseNotificationClickMessage@notifications.ts
 MdbaseNotificationDisplayOptions -> MdbaseNotificationDisplayOptions@notifications.ts
 MdbaseNotificationPresentation -> MdbaseNotificationPresentation@notifications.ts
+MdbaseOptions -> MdbaseOptions@application/entry.ts
 MdbasePeopleClient -> MdbasePeopleClient@people.ts
 MdbasePhase -> MdbasePhase@application/phase.ts
 MdbasePhaseKind -> MdbasePhaseKind@application/phase.ts
@@ -206,6 +157,7 @@ MdbaseSetupResult -> MdbaseSetupResult@application/front-door.ts
 MdbaseSignInOpener -> MdbaseSignInOpener@application/entry.ts
 MdbaseSignOutOptions -> MdbaseSignOutOptions@application/entry.ts
 MdbaseSnapshot -> MdbaseSnapshot@application/front-door.ts
+MdbaseSync -> MdbaseSync@status.ts
 MdbaseTransferItem -> MdbaseTransferItem@application/unsynced-transfer.ts
 MdbaseTransferMap -> MdbaseTransferMap@application/unsynced-transfer.ts
 MdbaseTransferOptions -> MdbaseTransferOptions@application/entry.ts
@@ -217,33 +169,17 @@ MdbaseUnavailableType -> MdbaseUnavailableType@application/entry.ts
 MdbaseUnlockSecret -> MdbaseUnlockSecret@application/entry.ts
 MdbaseVersion -> MdbaseVersion@semver.ts
 MdbaseVersionRelation -> MdbaseVersionRelation@semver.ts
-memoryKeyStorage -> memoryKeyStorage@keys.ts
 memoryWriteLedgerStore -> memoryWriteLedgerStore@write-ledger.ts
-MessageCarrier -> MessageCarrier@transport/noise-session.ts
-NextBridge -> NextBridge@transport/next-relay.ts
-nextRelayConnector -> nextRelayConnector@transport/next-relay.ts
-NextRelayConnectorOptions -> NextRelayConnectorOptions@transport/next-relay.ts
-NextRouteResponse -> NextRouteResponse@transport/next-relay.ts
-NextRouteTarget -> NextRouteTarget@transport/next-relay.ts
-noiseChannel -> noiseChannel@transport/noise-session.ts
-noiseConnector -> noiseConnector@transport/noise-session.ts
-NoiseConnectorOptions -> NoiseConnectorOptions@transport/noise-session.ts
-NoiseError -> NoiseError@transport/noise.ts
-NoiseTarget -> NoiseTarget@transport/noise-session.ts
-NoiseTransport -> NoiseTransport@transport/noise.ts
 Op -> Op@wire.ts
-OpenConfig -> OpenConfig@runtime/wasm.ts
-OpenedPort -> OpenedPort@transport/port.ts
-orderTargets -> orderTargets@transport/next-relay.ts
 PagesOptions -> PagesOptions@client.ts
 PagesReset -> PagesReset@client.ts
-parseCollectionAvailability -> parseCollectionAvailability@collection-availability.ts
 parseHoldCompareLink -> parseHoldCompareLink@holds.ts
 parseMdbaseNativeNotification -> parseMdbaseNativeNotification@notifications.ts
 parseMdbasePush -> parseMdbasePush@notifications.ts
 parseVersion -> parseVersion@semver.ts
-Peer -> Peer@wire.ts
+Peer -> Peer@plain.ts
 PendingDevice -> PendingDevice@private.ts
+PendingMutation -> PendingMutation@plain.ts
 PeopleAuthority -> PeopleAuthority@people.ts
 PeopleDirectory -> PeopleDirectory@people.ts
 PeopleDirectoryOptions -> PeopleDirectoryOptions@people.ts
@@ -251,10 +187,8 @@ PeopleRequestOptions -> PeopleRequestOptions@people.ts
 PERSON_CONTRACT -> PERSON_CONTRACT@people.ts
 PersonRecord -> PersonRecord@people.ts
 PersonResolution -> PersonResolution@people.ts
-PipeAuth -> PipeAuth@transport/relay-pipe.ts
-pipeCloseError -> pipeCloseError@transport/relay-pipe.ts
-PlainValue -> PlainValue@values.ts
-portPair -> portPair@transport/port.ts
+Plain -> Plain@plain.ts
+PlainValue -> PlainValue@plain.ts
 PresenceApi -> PresenceApi@presence.ts
 Problem -> Problem@wire.ts
 PROBLEM_CODES -> PROBLEM_CODES@describe-error.ts
@@ -262,24 +196,24 @@ ProblemCode -> ProblemCode@describe-error.ts
 problemCodeOf -> problemCodeOf@describe-error.ts
 PublishState -> PublishState@wire.ts
 Query -> Query@client.ts
-QueryExecutionProfile -> QueryExecutionProfile@runtime/wasm.ts
-QueryGroup -> QueryGroup@wire.ts
-QueryMetadata -> QueryMetadata@wire.ts
+QueryGroup -> QueryGroup@plain.ts
+QueryMetadata -> QueryMetadata@plain.ts
 queryPages -> queryPages@read-helpers.ts
-QueryResult -> QueryResult@wire.ts
-QueryUpdate -> QueryUpdate@wire.ts
+QueryResult -> QueryResult@plain.ts
+QueryUpdate -> QueryUpdate@plain.ts
 READ_MANY_MAX_CONCURRENCY -> READ_MANY_MAX_CONCURRENCY@read-helpers.ts
 READ_MANY_MAX_REFS -> READ_MANY_MAX_REFS@read-helpers.ts
 readMany -> readMany@read-helpers.ts
 ReadManyOptions -> ReadManyOptions@read-helpers.ts
 readMdbaseNotificationData -> readMdbaseNotificationData@notifications.ts
+ReadOptions -> ReadOptions@client.ts
 readViewSourceRecord -> readViewSourceRecord@view-sources.ts
-Receipt -> Receipt@wire.ts
+Receipt -> Receipt@plain.ts
 RecordFlushOptions -> RecordFlushOptions@records/types.ts
 RecordFlushResult -> RecordFlushResult@records/types.ts
 RecordLease -> RecordLease@records/types.ts
 RecordOpenOptions -> RecordOpenOptions@records/types.ts
-RecordReader -> RecordReader@transport/port.ts
+RecordReadOptions -> RecordReadOptions@client.ts
 RecordRecovery -> RecordRecovery@records/types.ts
 RecordRecoveryRef -> RecordRecoveryRef@records/types.ts
 RecordRef -> RecordRef@client.ts
@@ -288,39 +222,33 @@ Records -> Records@records/types.ts
 RecordSession -> RecordSession@records/types.ts
 RecordSessionSnapshot -> RecordSessionSnapshot@records/types.ts
 RecordSessionState -> RecordSessionState@records/types.ts
+RecordSet -> RecordSet@record-set.ts
+RecordSetChange -> RecordSetChange@record-set.ts
+RecordSetListener -> RecordSetListener@record-set.ts
+RecordSetOptions -> RecordSetOptions@record-set.ts
+RecordSetSnapshot -> RecordSetSnapshot@record-set.ts
+RecordSetState -> RecordSetState@record-set.ts
 RecordValidation -> RecordValidation@validation.ts
-RecordView -> RecordView@wire.ts
+RecordView -> RecordView@plain.ts
 RecordWrite -> RecordWrite@client.ts
 Recovery -> Recovery@wire.ts
 recoveryFor -> recoveryFor@errors.ts
 RecoveryKeyStatus -> RecoveryKeyStatus@private.ts
-relayConnector -> relayConnector@transport/relay.ts
-RelayConnectorOptions -> RelayConnectorOptions@transport/relay.ts
-relayPipeCarrier -> relayPipeCarrier@transport/relay-pipe.ts
-RelayRoute -> RelayRoute@transport/relay.ts
 resolveRecordLinks -> resolveRecordLinks@read-helpers.ts
 Resyncing -> Resyncing@wire.ts
 ResyncPhase -> ResyncPhase@wire.ts
 revisionOf -> revisionOf@values.ts
-routeFromControl -> routeFromControl@transport/control-route.ts
-RuntimeInfo -> RuntimeInfo@runtime/wasm.ts
 sameIdentity -> sameIdentity@people.ts
-SaveResult -> SaveResult@client.ts
 SaveState -> SaveState@write-ledger.ts
-SchemaError -> SchemaError@codec.ts
-Session -> Session@session.ts
-SESSION_LIFETIME_MS -> SESSION_LIFETIME_MS@transport/noise-session.ts
+Settlement -> Settlement@settle.ts
+SettleOptions -> SettleOptions@settle.ts
+SettleRead -> SettleRead@settle.ts
 showMdbaseNotification -> showMdbaseNotification@notifications.ts
 SLOW_OPENING_MS -> SLOW_OPENING_MS@application/phase.ts
-StaticKey -> StaticKey@transport/noise.ts
-staticKeyOf -> staticKeyOf@transport/noise.ts
-StatusKind -> StatusKind@status.ts
-StatusSummary -> StatusSummary@status.ts
-StoredKey -> StoredKey@keys.ts
-streamCarrier -> streamCarrier@transport/noise-session.ts
-structMap -> structMap@cbor.ts
-SubmitParams -> SubmitParams@wire.ts
-summarizeStatus -> summarizeStatus@status.ts
+summarizeSync -> summarizeSync@status.ts
+SyncAttention -> SyncAttention@status.ts
+SyncInput -> SyncInput@status.ts
+SyncState -> SyncState@status.ts
 SyncStatus -> SyncStatus@wire.ts
 syncStatusText -> syncStatusText@holds.ts
 TEMPORAL_HINTS -> TEMPORAL_HINTS@wire.ts
@@ -338,9 +266,8 @@ TimerReconciliation -> TimerReconciliation@timers.ts
 TimerRecoverableReconcileInput -> TimerRecoverableReconcileInput@timers.ts
 TimerRequestOptions -> TimerRequestOptions@timers.ts
 TimersApi -> TimersApi@timers.ts
-toHex -> toHex@cbor.ts
-toPlain -> toPlain@values.ts
-toValue -> toValue@values.ts
+toPlain -> toPlain@plain.ts
+toValue -> toValue@plain.ts
 TransferProgress -> TransferProgress@wire.ts
 TransportHealth -> TransportHealth@status.ts
 TransportHealthKind -> TransportHealthKind@status.ts
@@ -356,6 +283,7 @@ TypePackRefusalCode -> TypePackRefusalCode@type-packs.ts
 TypePackResource -> TypePackResource@type-packs.ts
 TypePackResourceKind -> TypePackResourceKind@type-packs.ts
 TypePackStatus -> TypePackStatus@type-packs.ts
+TypeSummary -> TypeSummary@plain.ts
 TypingEntry -> TypingEntry@wire.ts
 UpdateInput -> UpdateInput@client.ts
 updateViewSource -> updateViewSource@view-sources.ts
@@ -368,14 +296,12 @@ ValidationLevel -> ValidationLevel@wire.ts
 Value -> Value@wire.ts
 valueEquals -> valueEquals@values.ts
 versionRelation -> versionRelation@semver.ts
+ViewDescriptor -> ViewDescriptor@plain.ts
+ViewSource -> ViewSource@plain.ts
 ViewSourceCreateInput -> ViewSourceCreateInput@view-sources.ts
 ViewSourceReadOptions -> ViewSourceReadOptions@view-sources.ts
 ViewSourceWriteOptions -> ViewSourceWriteOptions@view-sources.ts
-WasmRuntime -> WasmRuntime@runtime/wasm.ts
 WebPushChannelOptions -> WebPushChannelOptions@timers.ts
-webSocketCarrier -> webSocketCarrier@transport/noise-session.ts
-WebSocketFactory -> WebSocketFactory@transport/noise-session.ts
-WebSocketLike -> WebSocketLike@transport/noise-session.ts
 wire -> "src/wire"@wire.ts
 Write -> Write@client.ts
 WriteLedgerEntry -> WriteLedgerEntry@write-ledger.ts
@@ -397,6 +323,8 @@ AttachmentContentV1 -> AttachmentContentV1@attachment-wire.ts
 AttachmentHoldContent -> AttachmentHoldContent@wire.ts
 AttachmentRefV1 -> AttachmentRefV1@attachment-wire.ts
 AuthenticatedRelayByteDuplex -> AuthenticatedRelayByteDuplex@transport/next-relay.ts
+Backlink -> Backlink@plain.ts
+BacklinksResult -> BacklinksResult@plain.ts
 BlobRef -> BlobRef@wire.ts
 ByteChannel -> ByteChannel@transport/port.ts
 bytesEqual -> bytesEqual@cbor.ts
@@ -417,12 +345,13 @@ CollectionAvailability -> CollectionAvailability@collection-availability.ts
 collectionUnavailableError -> collectionUnavailableError@collection-availability.ts
 CollectionUnavailableReason -> CollectionUnavailableReason@collection-availability.ts
 ConfirmedHead -> ConfirmedHead@wire.ts
-Conflict -> Conflict@wire.ts
-ConflictEntry -> ConflictEntry@wire.ts
-ConflictValue -> ConflictValue@wire.ts
+Conflict -> Conflict@plain.ts
+ConflictEntry -> ConflictEntry@plain.ts
+ConflictValue -> ConflictValue@plain.ts
 connect -> connect@client.ts
 Connector -> Connector@transport/port.ts
 ContractIdentity -> ContractIdentity@contract-records.ts
+ContractImplementation -> ContractImplementation@plain.ts
 ContractProjection -> ContractProjection@contract-query.ts
 ContractQueryOptions -> ContractQueryOptions@contract-query.ts
 ContractQueryRecord -> ContractQueryRecord@contract-query.ts
@@ -430,6 +359,7 @@ ContractQueryResult -> ContractQueryResult@contract-query.ts
 ContractRecordView -> ContractRecordView@contract-records.ts
 ContractRef -> ContractRef@contract-query.ts
 ContractSelector -> ContractSelector@contract-records.ts
+ContractSummary -> ContractSummary@plain.ts
 ControlRouteOptions -> ControlRouteOptions@transport/control-route.ts
 controlRouteResolver -> controlRouteResolver@transport/control-route.ts
 ControlRouteResponse -> ControlRouteResponse@transport/control-route.ts
@@ -440,6 +370,7 @@ decode -> decode@cbor.ts
 DESCRIBE_TYPING_MAX_PATHS -> DESCRIBE_TYPING_MAX_PATHS@wire.ts
 DESCRIBE_TYPING_MAX_TYPES -> DESCRIBE_TYPING_MAX_TYPES@wire.ts
 DescribeOptions -> DescribeOptions@client.ts
+DescribeResult -> DescribeResult@plain.ts
 DescribeTypingResult -> DescribeTypingResult@wire.ts
 DEVICE_KINDS -> DEVICE_KINDS@private.ts
 DeviceKind -> DeviceKind@private.ts
@@ -477,13 +408,18 @@ IkResponder -> IkResponder@transport/noise.ts
 Incident -> Incident@wire.ts
 Include -> Include@wire.ts
 indexedDbKeyStorage -> indexedDbKeyStorage@keys.ts
+InProcessConnectOptions -> InProcessConnectOptions@transport/inprocess.ts
+inProcessConnector -> inProcessConnector@transport/inprocess.ts
+InProcessRuntime -> InProcessRuntime@transport/inprocess.ts
 isCollectionUnavailableReason -> isCollectionUnavailableReason@collection-availability.ts
 isConfirmed -> isConfirmed@status.ts
 isErrorCode -> isErrorCode@errors.ts
 isMdbaseError -> isMdbaseError@errors.ts
+isProtected -> isProtected@records/witness.ts
 Issue -> Issue@wire.ts
 isValid -> isValid@cbor.ts
-JsonLike -> JsonLike@values.ts
+JsonObject -> JsonObject@plain.ts
+JsonValue -> JsonValue@plain.ts
 KeyPair -> KeyPair@transport/noise.ts
 keyPairFromSecret -> keyPairFromSecret@transport/noise.ts
 KeyStorage -> KeyStorage@keys.ts
@@ -504,6 +440,7 @@ MdbaseClient -> MdbaseClient@client.ts
 mdbaseError -> mdbaseError@errors.ts
 MdbaseError -> MdbaseError@errors.ts
 MdbaseErrorContext -> MdbaseErrorContext@errors.ts
+MdbaseSync -> MdbaseSync@status.ts
 memoryKeyStorage -> memoryKeyStorage@keys.ts
 memoryWriteLedgerStore -> memoryWriteLedgerStore@write-ledger.ts
 MessageCarrier -> MessageCarrier@transport/noise-session.ts
@@ -519,37 +456,43 @@ NoiseError -> NoiseError@transport/noise.ts
 NoiseTarget -> NoiseTarget@transport/noise-session.ts
 NoiseTransport -> NoiseTransport@transport/noise.ts
 Op -> Op@wire.ts
+OpenConfig -> OpenConfig@runtime/wasm.ts
 OpenedPort -> OpenedPort@transport/port.ts
 orderTargets -> orderTargets@transport/next-relay.ts
 PagesOptions -> PagesOptions@client.ts
 PagesReset -> PagesReset@client.ts
 parseCollectionAvailability -> parseCollectionAvailability@collection-availability.ts
-Peer -> Peer@wire.ts
+Peer -> Peer@plain.ts
 PendingDevice -> PendingDevice@private.ts
+PendingMutation -> PendingMutation@plain.ts
 PipeAuth -> PipeAuth@transport/relay-pipe.ts
 pipeCloseError -> pipeCloseError@transport/relay-pipe.ts
-PlainValue -> PlainValue@values.ts
+Plain -> Plain@plain.ts
+PlainValue -> PlainValue@plain.ts
 portPair -> portPair@transport/port.ts
 PresenceApi -> PresenceApi@presence.ts
 Problem -> Problem@wire.ts
 PublishState -> PublishState@wire.ts
 Query -> Query@client.ts
-QueryGroup -> QueryGroup@wire.ts
-QueryMetadata -> QueryMetadata@wire.ts
+QueryExecutionProfile -> QueryExecutionProfile@runtime/wasm.ts
+QueryGroup -> QueryGroup@plain.ts
+QueryMetadata -> QueryMetadata@plain.ts
 queryPages -> queryPages@read-helpers.ts
-QueryResult -> QueryResult@wire.ts
-QueryUpdate -> QueryUpdate@wire.ts
+QueryResult -> QueryResult@plain.ts
+QueryUpdate -> QueryUpdate@plain.ts
 READ_MANY_MAX_CONCURRENCY -> READ_MANY_MAX_CONCURRENCY@read-helpers.ts
 READ_MANY_MAX_REFS -> READ_MANY_MAX_REFS@read-helpers.ts
 readMany -> readMany@read-helpers.ts
 ReadManyOptions -> ReadManyOptions@read-helpers.ts
+ReadOptions -> ReadOptions@client.ts
 readViewSourceRecord -> readViewSourceRecord@view-sources.ts
-Receipt -> Receipt@wire.ts
+Receipt -> Receipt@plain.ts
 RecordFlushOptions -> RecordFlushOptions@records/types.ts
 RecordFlushResult -> RecordFlushResult@records/types.ts
 RecordLease -> RecordLease@records/types.ts
 RecordOpenOptions -> RecordOpenOptions@records/types.ts
 RecordReader -> RecordReader@transport/port.ts
+RecordReadOptions -> RecordReadOptions@client.ts
 RecordRecovery -> RecordRecovery@records/types.ts
 RecordRecoveryRef -> RecordRecoveryRef@records/types.ts
 RecordRef -> RecordRef@client.ts
@@ -558,8 +501,14 @@ Records -> Records@records/types.ts
 RecordSession -> RecordSession@records/types.ts
 RecordSessionSnapshot -> RecordSessionSnapshot@records/types.ts
 RecordSessionState -> RecordSessionState@records/types.ts
+RecordSet -> RecordSet@record-set.ts
+RecordSetChange -> RecordSetChange@record-set.ts
+RecordSetListener -> RecordSetListener@record-set.ts
+RecordSetOptions -> RecordSetOptions@record-set.ts
+RecordSetSnapshot -> RecordSetSnapshot@record-set.ts
+RecordSetState -> RecordSetState@record-set.ts
 RecordValidation -> RecordValidation@validation.ts
-RecordView -> RecordView@wire.ts
+RecordView -> RecordView@plain.ts
 RecordWrite -> RecordWrite@client.ts
 Recovery -> Recovery@wire.ts
 recoveryFor -> recoveryFor@errors.ts
@@ -573,27 +522,31 @@ Resyncing -> Resyncing@wire.ts
 ResyncPhase -> ResyncPhase@wire.ts
 revisionOf -> revisionOf@values.ts
 routeFromControl -> routeFromControl@transport/control-route.ts
-SaveResult -> SaveResult@client.ts
+RuntimeInfo -> RuntimeInfo@runtime/wasm.ts
 SaveState -> SaveState@write-ledger.ts
 SchemaError -> SchemaError@codec.ts
 Session -> Session@session.ts
 SESSION_LIFETIME_MS -> SESSION_LIFETIME_MS@transport/noise-session.ts
+Settlement -> Settlement@settle.ts
+SettleOptions -> SettleOptions@settle.ts
+SettleRead -> SettleRead@settle.ts
 StaticKey -> StaticKey@transport/noise.ts
 staticKeyOf -> staticKeyOf@transport/noise.ts
-StatusKind -> StatusKind@status.ts
-StatusSummary -> StatusSummary@status.ts
 StoredKey -> StoredKey@keys.ts
 streamCarrier -> streamCarrier@transport/noise-session.ts
 structMap -> structMap@cbor.ts
 SubmitParams -> SubmitParams@wire.ts
-summarizeStatus -> summarizeStatus@status.ts
+summarizeSync -> summarizeSync@status.ts
+SyncAttention -> SyncAttention@status.ts
+SyncInput -> SyncInput@status.ts
+SyncState -> SyncState@status.ts
 SyncStatus -> SyncStatus@wire.ts
 TEMPORAL_HINTS -> TEMPORAL_HINTS@wire.ts
 TemporalHint -> TemporalHint@wire.ts
 TextOrBlob -> TextOrBlob@wire.ts
 toHex -> toHex@cbor.ts
-toPlain -> toPlain@values.ts
-toValue -> toValue@values.ts
+toPlain -> toPlain@plain.ts
+toValue -> toValue@plain.ts
 TransferProgress -> TransferProgress@wire.ts
 TransportHealth -> TransportHealth@status.ts
 TransportHealthKind -> TransportHealthKind@status.ts
@@ -609,6 +562,7 @@ TypePackRefusalCode -> TypePackRefusalCode@type-packs.ts
 TypePackResource -> TypePackResource@type-packs.ts
 TypePackResourceKind -> TypePackResourceKind@type-packs.ts
 TypePackStatus -> TypePackStatus@type-packs.ts
+TypeSummary -> TypeSummary@plain.ts
 TypingEntry -> TypingEntry@wire.ts
 UpdateInput -> UpdateInput@client.ts
 updateViewSource -> updateViewSource@view-sources.ts
@@ -620,9 +574,12 @@ ValidationIssue -> ValidationIssue@validation.ts
 ValidationLevel -> ValidationLevel@wire.ts
 Value -> Value@wire.ts
 valueEquals -> valueEquals@values.ts
+ViewDescriptor -> ViewDescriptor@plain.ts
+ViewSource -> ViewSource@plain.ts
 ViewSourceCreateInput -> ViewSourceCreateInput@view-sources.ts
 ViewSourceReadOptions -> ViewSourceReadOptions@view-sources.ts
 ViewSourceWriteOptions -> ViewSourceWriteOptions@view-sources.ts
+WasmRuntime -> WasmRuntime@runtime/wasm.ts
 webSocketCarrier -> webSocketCarrier@transport/noise-session.ts
 WebSocketFactory -> WebSocketFactory@transport/noise-session.ts
 WebSocketLike -> WebSocketLike@transport/noise-session.ts
@@ -654,6 +611,8 @@ AttachmentContentV1 -> AttachmentContentV1@attachment-wire.ts
 AttachmentHoldContent -> AttachmentHoldContent@wire.ts
 AttachmentRefV1 -> AttachmentRefV1@attachment-wire.ts
 AuthenticatedRelayByteDuplex -> AuthenticatedRelayByteDuplex@transport/next-relay.ts
+Backlink -> Backlink@plain.ts
+BacklinksResult -> BacklinksResult@plain.ts
 BlobRef -> BlobRef@wire.ts
 ByteChannel -> ByteChannel@transport/port.ts
 bytesEqual -> bytesEqual@cbor.ts
@@ -677,12 +636,13 @@ collectionUnavailableError -> collectionUnavailableError@collection-availability
 CollectionUnavailableReason -> CollectionUnavailableReason@collection-availability.ts
 compareVersions -> compareVersions@semver.ts
 ConfirmedHead -> ConfirmedHead@wire.ts
-Conflict -> Conflict@wire.ts
-ConflictEntry -> ConflictEntry@wire.ts
-ConflictValue -> ConflictValue@wire.ts
+Conflict -> Conflict@plain.ts
+ConflictEntry -> ConflictEntry@plain.ts
+ConflictValue -> ConflictValue@plain.ts
 connect -> connect@client.ts
 Connector -> Connector@transport/port.ts
 ContractIdentity -> ContractIdentity@contract-records.ts
+ContractImplementation -> ContractImplementation@plain.ts
 ContractProjection -> ContractProjection@contract-query.ts
 ContractQueryOptions -> ContractQueryOptions@contract-query.ts
 ContractQueryRecord -> ContractQueryRecord@contract-query.ts
@@ -690,6 +650,7 @@ ContractQueryResult -> ContractQueryResult@contract-query.ts
 ContractRecordView -> ContractRecordView@contract-records.ts
 ContractRef -> ContractRef@contract-query.ts
 ContractSelector -> ContractSelector@contract-records.ts
+ContractSummary -> ContractSummary@plain.ts
 ControlRouteOptions -> ControlRouteOptions@transport/control-route.ts
 controlRouteResolver -> controlRouteResolver@transport/control-route.ts
 ControlRouteResponse -> ControlRouteResponse@transport/control-route.ts
@@ -707,6 +668,7 @@ DescribeErrorOptions -> DescribeErrorOptions@describe-error.ts
 describeHold -> describeHold@holds.ts
 DescribeHoldOptions -> DescribeHoldOptions@holds.ts
 DescribeOptions -> DescribeOptions@client.ts
+DescribeResult -> DescribeResult@plain.ts
 DescribeTypingResult -> DescribeTypingResult@wire.ts
 DesiredTimer -> DesiredTimer@timers.ts
 DEVICE_KINDS -> DEVICE_KINDS@private.ts
@@ -766,10 +728,12 @@ isCollectionUnavailableReason -> isCollectionUnavailableReason@collection-availa
 isConfirmed -> isConfirmed@status.ts
 isErrorCode -> isErrorCode@errors.ts
 isMdbaseError -> isMdbaseError@errors.ts
+isProtected -> isProtected@records/witness.ts
 isReadyPhase -> isReadyPhase@application/phase.ts
 Issue -> Issue@wire.ts
 isValid -> isValid@cbor.ts
-JsonLike -> JsonLike@values.ts
+JsonObject -> JsonObject@plain.ts
+JsonValue -> JsonValue@plain.ts
 KeyPair -> KeyPair@transport/noise.ts
 keyPairFromSecret -> keyPairFromSecret@transport/noise.ts
 KeyStorage -> KeyStorage@keys.ts
@@ -792,13 +756,11 @@ MDBASE_NOTIFICATION_TYPE -> MDBASE_NOTIFICATION_TYPE@notifications.ts
 MdbaseAccessRequest -> MdbaseAccessRequest@application/file-access.ts
 MdbaseAccessRequestOptions -> MdbaseAccessRequestOptions@application/file-access.ts
 MdbaseAccessResult -> MdbaseAccessResult@application/file-access.ts
-MdbaseApplication -> MdbaseApplication@application/entry.ts
 MdbaseApplicationAssessment -> MdbaseApplicationAssessment@application/entry.ts
 MdbaseApplicationCapabilities -> MdbaseApplicationCapabilities@application/capabilities.ts
 MdbaseApplicationCapability -> MdbaseApplicationCapability@application/capabilities.ts
 MdbaseApplicationConnection -> MdbaseApplicationConnection@application/entry.ts
 MdbaseApplicationDeclaration -> MdbaseApplicationDeclaration@application/declaration.ts
-MdbaseApplicationEntry -> MdbaseApplicationEntry@application/entry.ts
 MdbaseApplicationFacet -> MdbaseApplicationFacet@application/entry.ts
 MdbaseApplicationFacetSnapshot -> MdbaseApplicationFacetSnapshot@application/entry.ts
 MdbaseApplicationProblem -> MdbaseApplicationProblem@application/entry.ts
@@ -806,15 +768,10 @@ MdbaseApplicationReadinessSnapshot -> MdbaseApplicationReadinessSnapshot@applica
 MdbaseApplicationRequestOptions -> MdbaseApplicationRequestOptions@application/entry.ts
 MdbaseApplicationSelectionSnapshot -> ApplicationCollectionSelectionSnapshot@application/collection-selection.ts
 MdbaseApplicationSelectionState -> ApplicationCollectionSelectionState@application/collection-selection.ts
-MdbaseApplicationSetup -> MdbaseApplicationSetup@application/setup.ts
-MdbaseApplicationSnapshot -> MdbaseApplicationSnapshot@application/entry.ts
-MdbaseApplicationUnavailableError -> MdbaseApplicationUnavailableError@application/entry.ts
 MdbaseApprovalOutcome -> MdbaseApprovalOutcome@application/phase.ts
 MdbaseClient -> MdbaseClient@client.ts
 MdbaseCollectionDeleteOptions -> MdbaseCollectionDeleteOptions@application/entry.ts
 MdbaseCollectionSummary -> MdbaseCollectionSummary@application/phase.ts
-MdbaseConnect -> MdbaseConnect@application/entry.ts
-MdbaseConnectOptions -> MdbaseConnectOptions@application/entry.ts
 mdbaseError -> mdbaseError@errors.ts
 MdbaseError -> MdbaseError@errors.ts
 MdbaseErrorAction -> MdbaseErrorAction@describe-error.ts
@@ -825,6 +782,7 @@ MdbaseNotification -> MdbaseNotification@notifications.ts
 MdbaseNotificationClickMessage -> MdbaseNotificationClickMessage@notifications.ts
 MdbaseNotificationDisplayOptions -> MdbaseNotificationDisplayOptions@notifications.ts
 MdbaseNotificationPresentation -> MdbaseNotificationPresentation@notifications.ts
+MdbaseOptions -> MdbaseOptions@application/entry.ts
 MdbasePeopleClient -> MdbasePeopleClient@people.ts
 MdbasePhase -> MdbasePhase@application/phase.ts
 MdbasePhaseKind -> MdbasePhaseKind@application/phase.ts
@@ -842,6 +800,7 @@ MdbaseSetupResult -> MdbaseSetupResult@application/front-door.ts
 MdbaseSignInOpener -> MdbaseSignInOpener@application/entry.ts
 MdbaseSignOutOptions -> MdbaseSignOutOptions@application/entry.ts
 MdbaseSnapshot -> MdbaseSnapshot@application/front-door.ts
+MdbaseSync -> MdbaseSync@status.ts
 MdbaseTransferItem -> MdbaseTransferItem@application/unsynced-transfer.ts
 MdbaseTransferMap -> MdbaseTransferMap@application/unsynced-transfer.ts
 MdbaseTransferOptions -> MdbaseTransferOptions@application/entry.ts
@@ -878,8 +837,9 @@ parseHoldCompareLink -> parseHoldCompareLink@holds.ts
 parseMdbaseNativeNotification -> parseMdbaseNativeNotification@notifications.ts
 parseMdbasePush -> parseMdbasePush@notifications.ts
 parseVersion -> parseVersion@semver.ts
-Peer -> Peer@wire.ts
+Peer -> Peer@plain.ts
 PendingDevice -> PendingDevice@private.ts
+PendingMutation -> PendingMutation@plain.ts
 PeopleAuthority -> PeopleAuthority@people.ts
 PeopleDirectory -> PeopleDirectory@people.ts
 PeopleDirectoryOptions -> PeopleDirectoryOptions@people.ts
@@ -889,7 +849,8 @@ PersonRecord -> PersonRecord@people.ts
 PersonResolution -> PersonResolution@people.ts
 PipeAuth -> PipeAuth@transport/relay-pipe.ts
 pipeCloseError -> pipeCloseError@transport/relay-pipe.ts
-PlainValue -> PlainValue@values.ts
+Plain -> Plain@plain.ts
+PlainValue -> PlainValue@plain.ts
 portPair -> portPair@transport/port.ts
 PresenceApi -> PresenceApi@presence.ts
 Problem -> Problem@wire.ts
@@ -899,23 +860,25 @@ problemCodeOf -> problemCodeOf@describe-error.ts
 PublishState -> PublishState@wire.ts
 Query -> Query@client.ts
 QueryExecutionProfile -> QueryExecutionProfile@runtime/wasm.ts
-QueryGroup -> QueryGroup@wire.ts
-QueryMetadata -> QueryMetadata@wire.ts
+QueryGroup -> QueryGroup@plain.ts
+QueryMetadata -> QueryMetadata@plain.ts
 queryPages -> queryPages@read-helpers.ts
-QueryResult -> QueryResult@wire.ts
-QueryUpdate -> QueryUpdate@wire.ts
+QueryResult -> QueryResult@plain.ts
+QueryUpdate -> QueryUpdate@plain.ts
 READ_MANY_MAX_CONCURRENCY -> READ_MANY_MAX_CONCURRENCY@read-helpers.ts
 READ_MANY_MAX_REFS -> READ_MANY_MAX_REFS@read-helpers.ts
 readMany -> readMany@read-helpers.ts
 ReadManyOptions -> ReadManyOptions@read-helpers.ts
 readMdbaseNotificationData -> readMdbaseNotificationData@notifications.ts
+ReadOptions -> ReadOptions@client.ts
 readViewSourceRecord -> readViewSourceRecord@view-sources.ts
-Receipt -> Receipt@wire.ts
+Receipt -> Receipt@plain.ts
 RecordFlushOptions -> RecordFlushOptions@records/types.ts
 RecordFlushResult -> RecordFlushResult@records/types.ts
 RecordLease -> RecordLease@records/types.ts
 RecordOpenOptions -> RecordOpenOptions@records/types.ts
 RecordReader -> RecordReader@transport/port.ts
+RecordReadOptions -> RecordReadOptions@client.ts
 RecordRecovery -> RecordRecovery@records/types.ts
 RecordRecoveryRef -> RecordRecoveryRef@records/types.ts
 RecordRef -> RecordRef@client.ts
@@ -924,8 +887,14 @@ Records -> Records@records/types.ts
 RecordSession -> RecordSession@records/types.ts
 RecordSessionSnapshot -> RecordSessionSnapshot@records/types.ts
 RecordSessionState -> RecordSessionState@records/types.ts
+RecordSet -> RecordSet@record-set.ts
+RecordSetChange -> RecordSetChange@record-set.ts
+RecordSetListener -> RecordSetListener@record-set.ts
+RecordSetOptions -> RecordSetOptions@record-set.ts
+RecordSetSnapshot -> RecordSetSnapshot@record-set.ts
+RecordSetState -> RecordSetState@record-set.ts
 RecordValidation -> RecordValidation@validation.ts
-RecordView -> RecordView@wire.ts
+RecordView -> RecordView@plain.ts
 RecordWrite -> RecordWrite@client.ts
 Recovery -> Recovery@wire.ts
 recoveryFor -> recoveryFor@errors.ts
@@ -941,22 +910,25 @@ revisionOf -> revisionOf@values.ts
 routeFromControl -> routeFromControl@transport/control-route.ts
 RuntimeInfo -> RuntimeInfo@runtime/wasm.ts
 sameIdentity -> sameIdentity@people.ts
-SaveResult -> SaveResult@client.ts
 SaveState -> SaveState@write-ledger.ts
 SchemaError -> SchemaError@codec.ts
 Session -> Session@session.ts
 SESSION_LIFETIME_MS -> SESSION_LIFETIME_MS@transport/noise-session.ts
+Settlement -> Settlement@settle.ts
+SettleOptions -> SettleOptions@settle.ts
+SettleRead -> SettleRead@settle.ts
 showMdbaseNotification -> showMdbaseNotification@notifications.ts
 SLOW_OPENING_MS -> SLOW_OPENING_MS@application/phase.ts
 StaticKey -> StaticKey@transport/noise.ts
 staticKeyOf -> staticKeyOf@transport/noise.ts
-StatusKind -> StatusKind@status.ts
-StatusSummary -> StatusSummary@status.ts
 StoredKey -> StoredKey@keys.ts
 streamCarrier -> streamCarrier@transport/noise-session.ts
 structMap -> structMap@cbor.ts
 SubmitParams -> SubmitParams@wire.ts
-summarizeStatus -> summarizeStatus@status.ts
+summarizeSync -> summarizeSync@status.ts
+SyncAttention -> SyncAttention@status.ts
+SyncInput -> SyncInput@status.ts
+SyncState -> SyncState@status.ts
 SyncStatus -> SyncStatus@wire.ts
 syncStatusText -> syncStatusText@holds.ts
 TEMPORAL_HINTS -> TEMPORAL_HINTS@wire.ts
@@ -975,8 +947,8 @@ TimerRecoverableReconcileInput -> TimerRecoverableReconcileInput@timers.ts
 TimerRequestOptions -> TimerRequestOptions@timers.ts
 TimersApi -> TimersApi@timers.ts
 toHex -> toHex@cbor.ts
-toPlain -> toPlain@values.ts
-toValue -> toValue@values.ts
+toPlain -> toPlain@plain.ts
+toValue -> toValue@plain.ts
 TransferProgress -> TransferProgress@wire.ts
 TransportHealth -> TransportHealth@status.ts
 TransportHealthKind -> TransportHealthKind@status.ts
@@ -992,6 +964,7 @@ TypePackRefusalCode -> TypePackRefusalCode@type-packs.ts
 TypePackResource -> TypePackResource@type-packs.ts
 TypePackResourceKind -> TypePackResourceKind@type-packs.ts
 TypePackStatus -> TypePackStatus@type-packs.ts
+TypeSummary -> TypeSummary@plain.ts
 TypingEntry -> TypingEntry@wire.ts
 UpdateInput -> UpdateInput@client.ts
 updateViewSource -> updateViewSource@view-sources.ts
@@ -1004,6 +977,8 @@ ValidationLevel -> ValidationLevel@wire.ts
 Value -> Value@wire.ts
 valueEquals -> valueEquals@values.ts
 versionRelation -> versionRelation@semver.ts
+ViewDescriptor -> ViewDescriptor@plain.ts
+ViewSource -> ViewSource@plain.ts
 ViewSourceCreateInput -> ViewSourceCreateInput@view-sources.ts
 ViewSourceReadOptions -> ViewSourceReadOptions@view-sources.ts
 ViewSourceWriteOptions -> ViewSourceWriteOptions@view-sources.ts
@@ -1245,6 +1220,7 @@ ApplicationFixtureCall -> ApplicationFixtureCall@testing/application.ts
 ApplicationFixtureControls -> ApplicationFixtureControls@testing/application.ts
 ApplicationFixtureHandler -> ApplicationFixtureHandler@testing/application.ts
 ApplicationFixtureOptions -> ApplicationFixtureOptions@testing/application.ts
+ApplicationFixtureSnapshot -> ApplicationFixtureSnapshot@testing/application.ts
 createApplicationFixture -> createApplicationFixture@testing/application.ts
 createTestApp -> createTestApp@testing/test-app.ts
 createTestMdbase -> createTestMdbase@testing/test-app.ts
@@ -1252,6 +1228,7 @@ MemoryContract -> MemoryContract@testing/memory-contracts.ts
 MemoryRecord -> MemoryRecord@testing/memory-replica.ts
 MemoryReplica -> MemoryReplica@testing/memory-replica.ts
 MemoryReplicaOptions -> MemoryReplicaOptions@testing/memory-replica.ts
+MemoryReplicaRead -> MemoryReplicaRead@testing/memory-replica.ts
 serveNoise -> serveNoise@testing/noise-server.ts
 ServeNoiseOptions -> ServeNoiseOptions@testing/noise-server.ts
 TestApp -> TestApp@testing/test-app.ts
@@ -1606,7 +1583,6 @@ problemCodeOf -> problemCodeOf@describe-error.ts
 "src/client"@client.ts
   export connect
   export ClientOptions
-  export SaveResult
   export TypeCreation
   export DescribeOptions
   export LinkState
@@ -1618,6 +1594,8 @@ problemCodeOf -> problemCodeOf@describe-error.ts
   export RecordRef
   export CreateInput
   export UpdateInput
+  export ReadOptions
+  export RecordReadOptions
   export WriteOptions
   export Write
   export RecordWrite
@@ -1869,7 +1847,7 @@ AccountKeyError@account-key.ts
   static stackTraceLimit: number
 
 AccountKeyErrorCode@account-key.ts
-  = 'unavailable' | 'conflict' | 'rate_limited' | 'internal' | 'wrong_secret' | 'locked' | 'weak_password' | 'already_set_up' | 'no_account_key' | 'invalid_recovery_key' | 'cancelled' | 'params' | 'encoding' | 'strict_mode'
+  = 'conflict' | 'unavailable' | 'rate_limited' | 'internal' | 'wrong_secret' | 'locked' | 'weak_password' | 'already_set_up' | 'no_account_key' | 'invalid_recovery_key' | 'cancelled' | 'params' | 'encoding' | 'strict_mode'
 
 AccountKeyMode@private-account.ts
   = 'none' | 'password' | 'strict'
@@ -2096,7 +2074,7 @@ AppCloudCopyBootstrapError@app-host/cloud-copy-bootstrap.ts
   cause?: unknown
   message: string
   name: string
-  readonly reason: 'refused' | 'unavailable' | 'outcome_unknown' | 'binding' | 'fenced' | 'response' | AppServerOutcome
+  readonly reason: 'refused' | 'binding' | 'unavailable' | 'outcome_unknown' | 'fenced' | 'response' | AppServerOutcome
   readonly retryable: boolean
   readonly server?: AppServerProblem | undefined
   stack?: string | undefined
@@ -2122,13 +2100,13 @@ AppCloudCopyCollectionPin@app-host/wasm-runtime.ts
   readonly deviceId: string
   readonly installationId: string
   isCurrent: () => boolean
-  readonly purpose: 'create' | 'join'
+  readonly purpose: 'join' | 'create'
 
 AppCloudCopyHostError@app-host/cloud-copy-host.ts
   cause?: unknown
   message: string
   name: string
-  readonly reason: 'unavailable' | 'recovery_required' | 'private_device_limit' | 'binding' | 'fenced' | 'sync_stalled'
+  readonly reason: 'binding' | 'unavailable' | 'recovery_required' | 'private_device_limit' | 'fenced' | 'sync_stalled'
   stack?: string | undefined
   static new (reason: 'binding' | 'fenced' | 'recovery_required' | 'unavailable' | 'sync_stalled' | 'private_device_limit'): AppCloudCopyHostError
   static captureStackTrace: (targetObject: object, constructorOpt?: Function) => void
@@ -2163,7 +2141,7 @@ AppCloudCopyOperation@app-host/cloud-copy-bootstrap.ts
   readonly kemPublicKey: Uint8Array<ArrayBufferLike>
   readonly logOrigin: string
   readonly noisePublicKey: Uint8Array<ArrayBufferLike>
-  readonly purpose: 'create' | 'join'
+  readonly purpose: 'join' | 'create'
   readonly signPublicKey: Uint8Array<ArrayBufferLike>
 
 AppCloudCopyOutcome@app-host/cloud-copy-bootstrap.ts
@@ -2189,7 +2167,7 @@ AppCollectionControlError@app-host/collection-control.ts
   cause?: unknown
   message: string
   name: string
-  readonly reason: 'outcome_unknown' | 'recovery_required' | 'busy' | 'binding' | 'fenced'
+  readonly reason: 'binding' | 'outcome_unknown' | 'recovery_required' | 'busy' | 'fenced'
   stack?: string | undefined
   static new (reason: AppCollectionSetupError['reason'] | 'busy'): AppCollectionControlError
   static captureStackTrace: (targetObject: object, constructorOpt?: Function) => void
@@ -2204,7 +2182,7 @@ AppCollectionJoinError@app-host/collection-join-ledger.ts
   cause?: unknown
   message: string
   name: string
-  readonly reason: 'recovery_required' | 'busy' | 'binding' | 'fenced'
+  readonly reason: 'binding' | 'recovery_required' | 'busy' | 'fenced'
   stack?: string | undefined
   static new (reason: 'binding' | 'fenced' | 'busy' | 'recovery_required'): AppCollectionJoinError
   static captureStackTrace: (targetObject: object, constructorOpt?: Function) => void
@@ -2227,7 +2205,7 @@ AppCollectionSetupError@app-host/collection-setup-journal.ts
   cause?: unknown
   message: string
   name: string
-  readonly reason: 'outcome_unknown' | 'recovery_required' | 'binding' | 'fenced'
+  readonly reason: 'binding' | 'outcome_unknown' | 'recovery_required' | 'fenced'
   stack?: string | undefined
   static new (reason: 'binding' | 'fenced' | 'recovery_required' | 'outcome_unknown'): AppCollectionSetupError
   static captureStackTrace: (targetObject: object, constructorOpt?: Function) => void
@@ -2262,7 +2240,7 @@ AppCollectionSqlError@app-storage/collection-sql.ts
   cause?: unknown
   message: string
   name: string
-  readonly reason: 'unavailable' | 'unsupported' | 'binding' | 'fenced'
+  readonly reason: 'binding' | 'unavailable' | 'unsupported' | 'fenced'
   stack?: string | undefined
   static new (reason: 'binding' | 'unsupported' | 'fenced' | 'unavailable'): AppCollectionSqlError
   static captureStackTrace: (targetObject: object, constructorOpt?: Function) => void
@@ -2290,7 +2268,7 @@ AppCpAuthorityError@app-host/cp-authority.ts
   cause?: unknown
   message: string
   name: string
-  readonly reason: 'unavailable' | 'binding' | 'fenced' | 'response' | AppServerOutcome
+  readonly reason: 'binding' | 'unavailable' | 'fenced' | 'response' | AppServerOutcome
   readonly server?: AppServerProblem | undefined
   stack?: string | undefined
   static new (reason: 'binding' | 'fenced' | 'unavailable' | 'response' | AppServerOutcome, server?: AppServerProblem | undefined): AppCpAuthorityError
@@ -2316,7 +2294,7 @@ AppCpCloudCopySession@app-host/cloud-copy-bootstrap.ts
   installationOwned: () => boolean
   isCurrent: () => boolean
   readonly logOrigin: string
-  readonly purpose: 'create' | 'join'
+  readonly purpose: 'join' | 'create'
 
 AppCpConnectorPin@app-host/wasm-runtime.ts
   readonly collection: string
@@ -2416,7 +2394,7 @@ AppDeviceRegistrationError@app-host/device-registration.ts
   cause?: unknown
   message: string
   name: string
-  readonly reason: 'unavailable' | 'binding' | 'fenced' | 'response'
+  readonly reason: 'binding' | 'unavailable' | 'fenced' | 'response'
   stack?: string | undefined
   static new (reason: 'binding' | 'fenced' | 'unavailable' | 'response'): AppDeviceRegistrationError
   static captureStackTrace: (targetObject: object, constructorOpt?: Function) => void
@@ -2532,7 +2510,7 @@ AppHttpLogError@app-host/http-log.ts
   cause?: unknown
   message: string
   name: string
-  readonly reason: 'unavailable' | 'integrity' | 'binding' | 'fenced' | AppServerOutcome | 'shape'
+  readonly reason: 'binding' | 'unavailable' | 'integrity' | 'fenced' | AppServerOutcome | 'shape'
   readonly server?: AppServerProblem | undefined
   stack?: string | undefined
   static new (reason: 'binding' | 'fenced' | 'shape' | 'unavailable' | 'integrity' | AppServerOutcome, server?: AppServerProblem | undefined): AppHttpLogError
@@ -2587,7 +2565,7 @@ AppIndexedDbNoiseProtectedStore@app-host/noise-idb.ts
   static open: (options: AppIndexedDbNoiseOptions) => Promise<AppIndexedDbNoiseProtectedStore>
 
 AppInitialSyncWait@app-host/initial-sync.ts
-  = 'unavailable' | 'waiting_for_key' | 'offline' | 'installing' | 'first_turn' | 'resyncing' | 'head_unknown' | 'behind'
+  = 'unavailable' | 'waiting_for_key' | 'offline' | 'first_turn' | 'installing' | 'resyncing' | 'head_unknown' | 'behind'
 
 AppInstallationCollection@app-host/installation-sign-in.ts
   readonly availability?: CollectionAvailability | undefined
@@ -2639,7 +2617,7 @@ AppInstallationSignInError@app-host/installation-sign-in.ts
   cause?: unknown
   message: string
   name: string
-  readonly reason: 'refused' | 'unavailable' | 'outcome_unknown' | 'expired' | 'account_confirmation_required' | 'recovery_required' | 'busy' | 'open_in_another_tab' | 'recovery_account_mismatch' | 'binding' | 'fenced' | 'response' | AppServerOutcome
+  readonly reason: 'refused' | 'binding' | 'unavailable' | 'outcome_unknown' | 'expired' | 'account_confirmation_required' | 'recovery_required' | 'busy' | 'open_in_another_tab' | 'recovery_account_mismatch' | 'fenced' | 'response' | AppServerOutcome
   readonly server?: AppServerProblem | undefined
   stack?: string | undefined
   static new (reason: 'binding' | 'fenced' | 'busy' | 'open_in_another_tab' | 'account_confirmation_required' | 'recovery_account_mismatch' | 'outcome_unknown' | 'unavailable' | 'response' | 'refused' | 'expired' | 'recovery_required' | AppServerOutcome, server?: AppServerProblem | undefined): AppInstallationSignInError
@@ -3241,7 +3219,7 @@ AppWebCollectionError@app-host/web-collection.ts
   cause?: unknown
   message: string
   name: string
-  readonly reason: 'unavailable' | 'binding' | 'fenced'
+  readonly reason: 'binding' | 'unavailable' | 'fenced'
   stack?: string | undefined
   static new (reason: 'binding' | 'fenced' | 'unavailable'): AppWebCollectionError
   static captureStackTrace: (targetObject: object, constructorOpt?: Function) => void
@@ -3268,7 +3246,7 @@ AppWebCollectionView@app-host/web-sign-in-session.ts
   readonly openingProgress?: import("src/app-host/opening-progress").AppOpeningProgress | null | undefined
   readonly problem: string | null
   readonly problemDetail?: AppWebSignInProblemDetail | undefined
-  readonly status: 'opening' | 'setup_required' | 'ready' | 'needs_unlock' | 'blocked' | 'unselected'
+  readonly status: 'setup_required' | 'ready' | 'opening' | 'needs_unlock' | 'blocked' | 'unselected'
   readonly transport: AppLogHealth | null
   readonly unlock?: Readonly<{ mode: 'password' | 'strict' | 'none'; unlocking: boolean; problem: string | null; }> | null | undefined
 
@@ -3381,7 +3359,7 @@ AppWebSignInSnapshot@app-host/web-sign-in-session.ts
   readonly selectedCollectionId: string | null
   readonly signIn: AppInstallationSignInView | null
   readonly signOutResult?: AppWebSignOutResult | null | undefined
-  readonly status: 'starting' | 'closed' | 'opening' | 'setup_required' | 'ready' | 'signed_out' | 'authorizing' | 'needs_unlock' | 'blocked' | 'not_started' | 'unselected'
+  readonly status: 'starting' | 'closed' | 'setup_required' | 'ready' | 'signed_out' | 'authorizing' | 'opening' | 'needs_unlock' | 'blocked' | 'not_started' | 'unselected'
   readonly timing: Readonly<{ firstScreenMs: number | null; readyMs: number | null; }> | null
   readonly transport?: AppLogHealth | null | undefined
   readonly unlock?: Readonly<{ mode: 'password' | 'strict' | 'none'; unlocking: boolean; problem: string | null; }> | null | undefined
@@ -3397,7 +3375,7 @@ AppWebSignOutResult@app-host/web-sign-in-session.ts
 ApplicationApprovalOutcome@application/collection-selection.ts
   readonly collectionId: string | null
   readonly kind: 'add' | 'collection'
-  readonly outcome: 'closed' | 'declined' | 'unchanged' | 'added'
+  readonly outcome: 'closed' | 'added' | 'declined' | 'unchanged'
 
 ApplicationCollectionSelectionSnapshot@application/collection-selection.ts
   readonly approval?: Readonly<{ kind: 'add' | 'collection'; collectionId: string | null; reopenable: boolean; }> | null | undefined
@@ -3408,14 +3386,14 @@ ApplicationCollectionSelectionSnapshot@application/collection-selection.ts
   readonly usable: AppInstallationCollection | null
 
 ApplicationCollectionSelectionState@application/collection-selection.ts
-  = 'approval_required' | 'opening' | 'none' | 'pending' | 'usable' | 'approving' | 'invalid' | 'blocked'
+  = 'invalid' | 'approval_required' | 'none' | 'pending' | 'opening' | 'usable' | 'approving' | 'blocked'
 
 ApplicationFixture@testing/application.ts
   readonly controls: ApplicationFixtureControls
-  readonly entry: MdbaseApplicationEntry
+  readonly mdbase: Mdbase
 
 ApplicationFixtureAction@testing/application.ts
-  = 'unlock' | 'reauthorize' | 'approve' | 'assess' | 'start' | 'authorize' | 'refreshCollectionList' | 'select' | 'clearSelection' | 'chooseAnother' | 'forget' | 'deleteCollection' | 'requestAccess' | 'configure' | 'planSetup' | 'applySetup' | 'signOut' | 'openUnsynced' | 'planUnsyncedTransfer' | 'transferUnsynced' | 'discardUnsynced' | 'close'
+  = 'unlock' | 'reauthorize' | 'approve' | 'assess' | 'start' | 'authorize' | 'refreshCollectionList' | 'select' | 'chooseAnother' | 'forget' | 'deleteCollection' | 'requestAccess' | 'configure' | 'planSetup' | 'applySetup' | 'signOut' | 'openUnsynced' | 'planUnsyncedTransfer' | 'transferUnsynced' | 'discardUnsynced' | 'close'
 
 ApplicationFixtureCall@testing/application.ts
   readonly action: ApplicationFixtureAction | 'setForeground'
@@ -3432,20 +3410,24 @@ ApplicationFixtureControls@testing/application.ts
   close: () => void
   readonly declaration: MdbaseApplicationDeclaration
   observedActions: () => readonly ApplicationFixtureCall[]
-  publishSnapshot: (snapshot: MdbaseApplicationSnapshot) => void
+  publishSnapshot: (snapshot: ApplicationFixtureSnapshot) => void
   setAccessResult: (result: MdbaseAccessResult | null) => void
   setConnections: (connections: readonly MdbaseApplicationConnection[]) => void
   setHandler: (action: ApplicationFixtureAction, handler: ApplicationFixtureHandler) => () => void
   setSetupPlan: (plan: MdbaseSetupPlan | null) => void
 
 ApplicationFixtureHandler@testing/application.ts
-  = (call: ApplicationFixtureCall) => void | MdbaseApplicationSnapshot | Promise<void | MdbaseApplicationSnapshot>
+  = (call: ApplicationFixtureCall) => void | ApplicationFixtureSnapshot | Promise<void | ApplicationFixtureSnapshot>
 
 ApplicationFixtureOptions@testing/application.ts
   readonly connections: readonly MdbaseApplicationConnection[]
   readonly declaration: MdbaseApplicationDeclaration
   readonly initialSnapshot: MdbaseApplicationSnapshot
+  readonly messages?: Readonly<Partial<Record<'refused' | 'not_found' | 'conflict' | 'device_offline' | 'desktop_update_required' | 'old_connector_running' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'read_only' | 'capability_missing' | 'collection_deleted' | 'collection_unavailable' | 'moved_to_next_runtime' | 'device_approval_required' | 'collection_migrating' | 'collection_not_yet_migrated' | 'account_suspended' | 'update_required' | 'account_collection_quota_exceeded' | 'invalid_request' | 'invalid_record' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'unavailable' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'expired' | 'approval_window_closed' | 'account_confirmation_required' | 'recovery_required' | 'open_failed' | 'busy' | 'open_in_another_tab' | 'not_authorized' | 'sign_out_pending_writes' | 'sign_out_failed' | 'application_popup_blocked' | 'sign_in_window' | 'application_not_yet_available' | 'application_failed' | 'application_worker_unavailable' | 'browser_unsupported' | 'application_storage_unavailable' | 'storage_may_be_evicted' | 'application_registration_unsupported' | 'application_registration_refused' | 'application_selection_not_approved' | 'application_selection_invalid' | 'installation_scope_removed' | 'recovery_account_mismatch' | 'assets' | 'setup_required' | 'incompatible' | 'approval_required' | 'contract_mismatch' | 'contract_missing' | 'implementation_missing' | 'catalog_invalid' | 'catalog_response' | 'type_invalid' | 'readiness_budget' | 'readiness_unsupported' | 'notifications_consent_required' | 'timer_channel_reapproval_required' | 'notifications_unsupported' | 'people_unsupported' | 'people_permission_declined' | 'people_access' | 'configuration_conflict' | 'configuration_unavailable' | 'configuration_unsupported' | 'configuration_busy_timeout' | 'readiness_busy_timeout' | 'setup_forbidden' | 'setup_conflict' | 'setup_unresolved' | 'collection_setup_conflict' | 'setup_records_forbidden' | 'setup_changed' | 'installed_newer' | 'type_pack_conflict' | 'invalid_type_pack' | 'access_required' | 'access_declined' | 'access_undeclared' | 'files_access_missing' | 'files_scope_missing' | 'file_read_failed' | 'file_read_idle' | 'collection_delete_name_mismatch' | 'collection_delete_not_owner' | 'collection_delete_not_found' | 'collection_delete_frozen' | 'collection_delete_busy' | 'collection_delete_not_approved' | 'collection_delete_sign_in' | 'collection_delete_invalid' | 'collection_delete_outcome_unknown' | 'collection_delete_failed' | 'wrong_secret' | 'locked' | 'weak_password' | 'already_set_up' | 'no_account_key' | 'invalid_recovery_key' | 'unlock_strict' | 'unlock_unavailable' | 'unlock_failed' | 'private_device_limit' | 'private_device_not_allowed' | 'unknown', import("src/describe-error").MdbaseProblemMessages>>> | undefined
   readonly unsynced?: MdbaseApplicationConnection | undefined
+
+ApplicationFixtureSnapshot@testing/application.ts
+  = MdbaseApplicationSnapshot
 
 ApplicationJson@application/declaration.ts
   = string | number | boolean | readonly ApplicationJson[] | { readonly [key: string]: ApplicationJson; } | null
@@ -3453,6 +3435,7 @@ ApplicationJson@application/declaration.ts
 ApplicationPhaseOptions@application/phase.ts
   readonly connection?: MdbaseApplicationConnection | null | undefined
   readonly cpOrigin?: string | undefined
+  readonly messages?: Readonly<Partial<Record<'refused' | 'not_found' | 'conflict' | 'device_offline' | 'desktop_update_required' | 'old_connector_running' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'read_only' | 'capability_missing' | 'collection_deleted' | 'collection_unavailable' | 'moved_to_next_runtime' | 'device_approval_required' | 'collection_migrating' | 'collection_not_yet_migrated' | 'account_suspended' | 'update_required' | 'account_collection_quota_exceeded' | 'invalid_request' | 'invalid_record' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'unavailable' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'expired' | 'approval_window_closed' | 'account_confirmation_required' | 'recovery_required' | 'open_failed' | 'busy' | 'open_in_another_tab' | 'not_authorized' | 'sign_out_pending_writes' | 'sign_out_failed' | 'application_popup_blocked' | 'sign_in_window' | 'application_not_yet_available' | 'application_failed' | 'application_worker_unavailable' | 'browser_unsupported' | 'application_storage_unavailable' | 'storage_may_be_evicted' | 'application_registration_unsupported' | 'application_registration_refused' | 'application_selection_not_approved' | 'application_selection_invalid' | 'installation_scope_removed' | 'recovery_account_mismatch' | 'assets' | 'setup_required' | 'incompatible' | 'approval_required' | 'contract_mismatch' | 'contract_missing' | 'implementation_missing' | 'catalog_invalid' | 'catalog_response' | 'type_invalid' | 'readiness_budget' | 'readiness_unsupported' | 'notifications_consent_required' | 'timer_channel_reapproval_required' | 'notifications_unsupported' | 'people_unsupported' | 'people_permission_declined' | 'people_access' | 'configuration_conflict' | 'configuration_unavailable' | 'configuration_unsupported' | 'configuration_busy_timeout' | 'readiness_busy_timeout' | 'setup_forbidden' | 'setup_conflict' | 'setup_unresolved' | 'collection_setup_conflict' | 'setup_records_forbidden' | 'setup_changed' | 'installed_newer' | 'type_pack_conflict' | 'invalid_type_pack' | 'access_required' | 'access_declined' | 'access_undeclared' | 'files_access_missing' | 'files_scope_missing' | 'file_read_failed' | 'file_read_idle' | 'collection_delete_name_mismatch' | 'collection_delete_not_owner' | 'collection_delete_not_found' | 'collection_delete_frozen' | 'collection_delete_busy' | 'collection_delete_not_approved' | 'collection_delete_sign_in' | 'collection_delete_invalid' | 'collection_delete_outcome_unknown' | 'collection_delete_failed' | 'wrong_secret' | 'locked' | 'weak_password' | 'already_set_up' | 'no_account_key' | 'invalid_recovery_key' | 'unlock_strict' | 'unlock_unavailable' | 'unlock_failed' | 'private_device_limit' | 'private_device_not_allowed' | 'unknown', import("src/describe-error").MdbaseProblemMessages>>> | undefined
   readonly openingUnsynced?: boolean | undefined
   readonly previous?: MdbasePhase | null | undefined
   readonly slow?: boolean | undefined
@@ -3510,11 +3493,11 @@ AuthorRef@wire.ts
 BUNDLE_VERSION@account-key.ts
   : 1
 
-Backlink@wire.ts
-  links: LinkView[]
+Backlink@plain.ts
+  links: { raw: string; embed: boolean; resolution: { kind: LinkTargetKind; target?: Uuid | undefined; path?: string | undefined; candidates?: string[] | undefined; }; field?: string | undefined; }[]
   record: RecordView
 
-BacklinksResult@wire.ts
+BacklinksResult@plain.ts
   asOf: number
   backlinks: Backlink[]
   complete: boolean
@@ -3584,7 +3567,7 @@ CborMap@cbor.ts
   = Map<string, CborValue> | Map<number, CborValue>
 
 CborValue@cbor.ts
-  = string | number | bigint | boolean | CborMap | Float64 | Uint8Array<ArrayBufferLike> | CborValue[] | null
+  = string | number | bigint | boolean | Float64 | Uint8Array<ArrayBufferLike> | CborValue[] | CborMap | null
 
 Change@wire.ts
   author?: AuthorRef | undefined
@@ -3650,13 +3633,21 @@ CollectionMemberProfile@people.ts
   subject: string
 
 CollectionUnavailableReason@collection-availability.ts
-  = 'device_offline' | 'desktop_update_required' | 'old_connector_running' | 'approval_required' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'collection_migrating' | 'collection_not_yet_migrated' | 'collection_deleted'
+  = 'device_offline' | 'desktop_update_required' | 'old_connector_running' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'collection_deleted' | 'collection_migrating' | 'collection_not_yet_migrated' | 'approval_required'
 
 ConfirmedHead@wire.ts
   catalogGeneration: string
   chain: string
   policyGeneration: string
   seq: number
+
+Conflict@plain.ts
+  base?: { form: 'missing'; } | { form: 'value'; value: JsonValue; } | { form: 'text'; text: string; } | { form: 'blob'; blob: { plainHash: w.Hash; size: number; blobId: Uint8Array; idEpoch: number; partSize: number; }; } | { form: 'deleted'; } | undefined
+  field?: string | undefined
+  id: string
+  kept: { form: 'missing'; } | { form: 'value'; value: JsonValue; } | { form: 'text'; text: string; } | { form: 'blob'; blob: { plainHash: w.Hash; size: number; blobId: Uint8Array; idEpoch: number; partSize: number; }; } | { form: 'deleted'; }
+  kind: ConflictKind
+  lost: { form: 'missing'; } | { form: 'value'; value: JsonValue; } | { form: 'text'; text: string; } | { form: 'blob'; blob: { plainHash: w.Hash; size: number; blobId: Uint8Array; idEpoch: number; partSize: number; }; } | { form: 'deleted'; }
 
 Conflict@wire.ts
   base?: ConflictValue | undefined
@@ -3666,13 +3657,21 @@ Conflict@wire.ts
   kind: ConflictKind
   lost: ConflictValue
 
+ConflictEntry@plain.ts
+  conflict: Conflict
+  mutation: string
+  seq: number
+
 ConflictEntry@wire.ts
   conflict: Conflict
   mutation: string
   seq: number
 
 ConflictKind@wire.ts
-  = 'file' | 'field' | 'frontmatter' | 'body' | 'path' | 'delete'
+  = 'field' | 'path' | 'file' | 'frontmatter' | 'body' | 'delete'
+
+ConflictValue@plain.ts
+  = { form: 'missing'; } | { form: 'value'; value: JsonValue; } | { form: 'text'; text: string; } | { form: 'blob'; blob: { plainHash: w.Hash; size: number; blobId: Uint8Array; idEpoch: number; partSize: number; }; } | { form: 'deleted'; }
 
 ConflictValue@wire.ts
   = { form: 'missing'; } | { form: 'value'; value: Value; } | { form: 'text'; text: string; } | { form: 'blob'; blob: BlobRef; } | { form: 'deleted'; }
@@ -3705,15 +3704,15 @@ ContractIdentity@contract-records.ts
   type: string
   version: string
 
-ContractImplementation@wire.ts
-  binding?: CborValue | undefined
+ContractImplementation@plain.ts
+  binding?: JsonValue | undefined
   contract: string
   digest?: string | undefined
-  fields: Map<string, string>
+  fields: { [key: string]: string; }
   version: string
 
 ContractProjection@contract-query.ts
-  fields: FmMap
+  fields: JsonObject
   issues: Issue[]
   typeName: string
 
@@ -3735,7 +3734,7 @@ ContractQueryResult@contract-query.ts
 
 ContractRecordView@contract-records.ts
   contract: ContractIdentity
-  fields: FmMap
+  fields: JsonObject
   id: string
   path: string
   revision: string
@@ -3749,13 +3748,13 @@ ContractSelector@contract-records.ts
   type?: string | undefined
   version: string
 
-ContractSummary@wire.ts
+ContractSummary@plain.ts
   contractType: string
   digest: string
   id: string
   implementedBy: string[]
   path: string
-  schemas?: Map<string, CborValue> | undefined
+  schemas?: { [key: string]: JsonValue; } | undefined
   version: string
 
 ControlRouteOptions@transport/control-route.ts
@@ -3812,7 +3811,7 @@ DaemonIdentity@node.ts
 
 DescribeErrorOptions@describe-error.ts
   readonly cpOrigin?: string | undefined
-  readonly messages?: Readonly<Partial<Record<'refused' | 'device_offline' | 'desktop_update_required' | 'old_connector_running' | 'approval_required' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'collection_migrating' | 'collection_not_yet_migrated' | 'collection_deleted' | 'unavailable' | 'read_only' | 'capability_missing' | 'collection_unavailable' | 'moved_to_next_runtime' | 'device_approval_required' | 'account_suspended' | 'update_required' | 'account_collection_quota_exceeded' | 'invalid_request' | 'invalid_record' | 'not_found' | 'conflict' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'expired' | 'approval_window_closed' | 'account_confirmation_required' | 'recovery_required' | 'open_failed' | 'busy' | 'open_in_another_tab' | 'not_authorized' | 'sign_out_pending_writes' | 'sign_out_failed' | 'application_popup_blocked' | 'sign_in_window' | 'application_not_yet_available' | 'application_failed' | 'application_worker_unavailable' | 'browser_unsupported' | 'application_storage_unavailable' | 'storage_may_be_evicted' | 'application_registration_unsupported' | 'application_registration_refused' | 'application_selection_not_approved' | 'application_selection_invalid' | 'installation_scope_removed' | 'recovery_account_mismatch' | 'assets' | 'setup_required' | 'incompatible' | 'contract_mismatch' | 'contract_missing' | 'implementation_missing' | 'catalog_invalid' | 'catalog_response' | 'type_invalid' | 'readiness_budget' | 'readiness_unsupported' | 'notifications_consent_required' | 'timer_channel_reapproval_required' | 'notifications_unsupported' | 'people_unsupported' | 'people_permission_declined' | 'people_access' | 'configuration_conflict' | 'configuration_unavailable' | 'configuration_unsupported' | 'configuration_busy_timeout' | 'readiness_busy_timeout' | 'setup_forbidden' | 'setup_conflict' | 'setup_unresolved' | 'collection_setup_conflict' | 'setup_records_forbidden' | 'setup_changed' | 'installed_newer' | 'type_pack_conflict' | 'invalid_type_pack' | 'access_required' | 'access_declined' | 'access_undeclared' | 'files_access_missing' | 'files_scope_missing' | 'file_read_failed' | 'file_read_idle' | 'collection_delete_name_mismatch' | 'collection_delete_not_owner' | 'collection_delete_not_found' | 'collection_delete_frozen' | 'collection_delete_busy' | 'collection_delete_not_approved' | 'collection_delete_sign_in' | 'collection_delete_invalid' | 'collection_delete_outcome_unknown' | 'collection_delete_failed' | 'wrong_secret' | 'locked' | 'weak_password' | 'already_set_up' | 'no_account_key' | 'invalid_recovery_key' | 'unlock_strict' | 'unlock_unavailable' | 'unlock_failed' | 'private_device_limit' | 'private_device_not_allowed' | 'unknown', MdbaseProblemMessages>>> | undefined
+  readonly messages?: Readonly<Partial<Record<'refused' | 'not_found' | 'conflict' | 'device_offline' | 'desktop_update_required' | 'old_connector_running' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'read_only' | 'capability_missing' | 'collection_deleted' | 'collection_unavailable' | 'moved_to_next_runtime' | 'device_approval_required' | 'collection_migrating' | 'collection_not_yet_migrated' | 'account_suspended' | 'update_required' | 'account_collection_quota_exceeded' | 'invalid_request' | 'invalid_record' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'unavailable' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'expired' | 'approval_window_closed' | 'account_confirmation_required' | 'recovery_required' | 'open_failed' | 'busy' | 'open_in_another_tab' | 'not_authorized' | 'sign_out_pending_writes' | 'sign_out_failed' | 'application_popup_blocked' | 'sign_in_window' | 'application_not_yet_available' | 'application_failed' | 'application_worker_unavailable' | 'browser_unsupported' | 'application_storage_unavailable' | 'storage_may_be_evicted' | 'application_registration_unsupported' | 'application_registration_refused' | 'application_selection_not_approved' | 'application_selection_invalid' | 'installation_scope_removed' | 'recovery_account_mismatch' | 'assets' | 'setup_required' | 'incompatible' | 'approval_required' | 'contract_mismatch' | 'contract_missing' | 'implementation_missing' | 'catalog_invalid' | 'catalog_response' | 'type_invalid' | 'readiness_budget' | 'readiness_unsupported' | 'notifications_consent_required' | 'timer_channel_reapproval_required' | 'notifications_unsupported' | 'people_unsupported' | 'people_permission_declined' | 'people_access' | 'configuration_conflict' | 'configuration_unavailable' | 'configuration_unsupported' | 'configuration_busy_timeout' | 'readiness_busy_timeout' | 'setup_forbidden' | 'setup_conflict' | 'setup_unresolved' | 'collection_setup_conflict' | 'setup_records_forbidden' | 'setup_changed' | 'installed_newer' | 'type_pack_conflict' | 'invalid_type_pack' | 'access_required' | 'access_declined' | 'access_undeclared' | 'files_access_missing' | 'files_scope_missing' | 'file_read_failed' | 'file_read_idle' | 'collection_delete_name_mismatch' | 'collection_delete_not_owner' | 'collection_delete_not_found' | 'collection_delete_frozen' | 'collection_delete_busy' | 'collection_delete_not_approved' | 'collection_delete_sign_in' | 'collection_delete_invalid' | 'collection_delete_outcome_unknown' | 'collection_delete_failed' | 'wrong_secret' | 'locked' | 'weak_password' | 'already_set_up' | 'no_account_key' | 'invalid_recovery_key' | 'unlock_strict' | 'unlock_unavailable' | 'unlock_failed' | 'private_device_limit' | 'private_device_not_allowed' | 'unknown', MdbaseProblemMessages>>> | undefined
   readonly recoveryAccountLabel?: string | undefined
 
 DescribeHoldOptions@holds.ts
@@ -3825,11 +3824,11 @@ DescribeOptions@client.ts
   definitions?: boolean | undefined
   signal?: AbortSignal | undefined
 
-DescribeResult@wire.ts
+DescribeResult@plain.ts
   contracts: ContractSummary[]
-  inclusion: FileInclusion
-  issues: Issue[]
-  settings: CborValue
+  inclusion: { include: MediaClass[]; exclude?: string[] | undefined; maxSize?: number | undefined; }
+  issues: { code: string; severity: 'warning' | 'error'; message: string; details?: JsonValue | undefined; }[]
+  settings: JsonValue
   specVersion: string
   types: TypeSummary[]
 
@@ -3855,7 +3854,7 @@ Entropy@account-key.ts
   = (n: number) => Uint8Array
 
 ErrorCode@errors.ts
-  = 'unavailable' | 'invalid_request' | 'invalid_record' | 'not_found' | 'conflict' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'upgrade_required' | 'cancelled'
+  = 'not_found' | 'conflict' | 'invalid_request' | 'invalid_record' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'unavailable' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'upgrade_required' | 'cancelled'
 
 ExecuteViewOptions@saved-views.ts
   context?: RecordRef | undefined
@@ -3936,6 +3935,7 @@ FileWrite@files.ts
   onReceipt: (fn: ReceiptListener) => () => void
   readonly published: Promise<Receipt>
   receipt: Receipt
+  recordId?: string | undefined
   readonly records: RecordView[]
   readonly state: import("src/wire").ReceiptState
   update: (r: Receipt) => void
@@ -3946,8 +3946,8 @@ FilesApi@files.ts
   download: (f: FileRef, o?: { signal?: AbortSignal; onProgress?: (p: TransferProgress) => void; }) => Promise<Uint8Array>
   downloadStream: (f: FileRef, o?: { signal?: AbortSignal; onProgress?: (p: TransferProgress) => void; range?: [offset: number, length: number]; revision?: string; }) => ReadableStream<Uint8Array> & { file: Promise<FileView>; }
   evict: (f: FileRef) => Promise<void>
-  fetch: (f: FileRef, signal?: AbortSignal) => Promise<void>
-  get: (f: FileRef, signal?: AbortSignal) => Promise<FileView>
+  fetch: (f: FileRef, o?: ReadOptions) => Promise<void>
+  get: (f: FileRef, o?: ReadOptions) => Promise<FileView>
   getMaterialization: () => Promise<Materialization>
   readonly grant: FileGrant | null
   list: (o?: { folder?: string; media?: MediaClass[]; pageSize?: number; signal?: AbortSignal; }) => AsyncGenerator<FileView>
@@ -4026,7 +4026,7 @@ Hold@wire.ts
   id: string
   mine: TextOrBlob
   path: string
-  reason: 'read_only' | 'conflict' | 'unknown_provenance' | 'deleted_elsewhere' | 'editor_busy' | 'suspect_write'
+  reason: 'conflict' | 'read_only' | 'unknown_provenance' | 'deleted_elsewhere' | 'editor_busy' | 'suspect_write'
   saves: number
   since: number
   theirs?: TextOrBlob | undefined
@@ -4050,7 +4050,7 @@ HoldPresentation@holds.ts
   hasTheirs: boolean
   id: string
   path: string
-  reason: 'read_only' | 'conflict' | 'unknown_provenance' | 'deleted_elsewhere' | 'editor_busy' | 'suspect_write'
+  reason: 'conflict' | 'read_only' | 'unknown_provenance' | 'deleted_elsewhere' | 'editor_busy' | 'suspect_write'
   reversible: boolean
   reversibleNote: string
   saves: number
@@ -4058,17 +4058,17 @@ HoldPresentation@holds.ts
   title: 'mdbase protected your edit'
 
 HoldReason@wire.ts
-  = 'read_only' | 'conflict' | 'unknown_provenance' | 'deleted_elsewhere' | 'editor_busy' | 'suspect_write'
+  = 'conflict' | 'read_only' | 'unknown_provenance' | 'deleted_elsewhere' | 'editor_busy' | 'suspect_write'
 
 HoldRef@wire.ts
   id: string
-  reason: 'read_only' | 'conflict' | 'unknown_provenance' | 'deleted_elsewhere' | 'editor_busy' | 'suspect_write'
+  reason: 'conflict' | 'read_only' | 'unknown_provenance' | 'deleted_elsewhere' | 'editor_busy' | 'suspect_write'
 
 HoldResolution@wire.ts
   = 'delete' | 'keep_mine' | 'take_theirs' | 'use' | 'keep_both'
 
 INTERNAL_PROBLEM_CODES@describe-error.ts
-  : readonly ['duplicate_key', 'float', 'hash', 'indefinite', 'int', 'mixed_map_keys', 'non_canonical_head', 'simple', 'tag', 'too_deep', 'too_long', 'trailing_bytes', 'tstr', 'uint', 'unencodable', 'unexpected_end', 'unsorted_keys', 'utf8', 'uuid', 'value', 'unknown_method', 'unknown_variant', 'unsupported', 'storage', 'noise', 'declared_setup_codec', 'body', 'data_contract_ambiguous', 'data_contract_field_conflict', 'data_contract_field_unmapped', 'data_contract_not_found', 'data_contract_not_implemented', 'data_contract_promote_typed', 'digest_mismatch', 'invalid_type_definition', 'path_taken', 'revision', 'size_mismatch', 'transfer_expired', 'type_conflict', 'account_secret_length', 'access_invalid', 'access_no_collection', 'application_sign_in_opener', 'change_entity_unsupported', 'click_target_cross_origin', 'context_required', 'context_type_mismatch', 'cursor_expired', 'file_upload_identity_mismatch', 'invalid_autosave', 'invalid_binding', 'invalid_call', 'invalid_push_payload', 'invalid_sas', 'invalid_scope', 'invalid_timeout', 'invalid_timer_response', 'invalid_typing_response', 'invalid_validation_result', 'invalid_view', 'key_id_changed', 'query_cursor_required', 'read_many_bounds', 'read_many_identity_mismatch', 'read_many_selection', 'record_identity_mismatch', 'record_lease_policy', 'record_links_bounds', 'record_links_missing', 'record_links_response', 'record_links_unsupported', 'record_recovery_mismatch', 'record_session_budget', 'record_validation_stale', 'record_witness_required', 'strength', 'strict_mode', 'typing_bounds', 'unsupported_push_version', 'validation_bounds', 'validation_selection', 'unsynced_transfer_needs_collection', 'unsynced_transfer_plan_stale', 'unlock_not_locked', 'unlock_secret_invalid', 'application_registration_binding', 'view_not_found', 'view_source_changed', 'view_source_witness_required', 'bases_read_backpressure', 'backlinks_unsupported', 'resolve_links_unsupported', 'contract_query_response', 'contract_query_version', 'contract_records_unsupported', 'describe_definitions_unsupported', 'prefix_response', 'type_pack_contract_setups_unsupported', 'type_packs_unsupported', 'resource_setup_unavailable', 'resource_setup_unsupported', 'timer_operation_recovery_unavailable', 'declared_setup_unsupported', 'setup_outcome_unknown', 'cleanup_failed', 'opfs_unavailable', 'probe_failed', 'sync_handle_unavailable', 'worker_required', 'shutdown_failed', 'sync_stalled', 'authorization_binding', 'authorization_callback', 'authorization_cancelled', 'authorization_denied', 'authorization_signature', 'authorization_start', 'authorization_timed_out', 'client_key_required', 'collection_mismatch', 'control_error', 'control_unreachable', 'daemon_not_running', 'grant_invalid', 'grant_storage', 'key_storage', 'redirect_uri', 'relay_insecure', 'relay_unauthenticated', 'relay_unavailable', 'relay_url', 'route_mismatch', 'token_error', 'token_response', 'untrusted_identity']
+  : readonly ['duplicate_key', 'float', 'hash', 'indefinite', 'int', 'mixed_map_keys', 'non_canonical_head', 'simple', 'tag', 'too_deep', 'too_long', 'trailing_bytes', 'tstr', 'uint', 'unencodable', 'unexpected_end', 'unsorted_keys', 'utf8', 'uuid', 'value', 'unknown_method', 'unknown_variant', 'unsupported', 'storage', 'noise', 'declared_setup_codec', 'body', 'cursor_stale', 'data_contract_ambiguous', 'data_contract_field_conflict', 'data_contract_field_unmapped', 'data_contract_not_found', 'data_contract_not_implemented', 'data_contract_promote_typed', 'digest_mismatch', 'invalid_type_definition', 'path_taken', 'revision', 'size_mismatch', 'transfer_expired', 'type_conflict', 'account_secret_length', 'access_invalid', 'access_no_collection', 'application_sign_in_opener', 'change_entity_unsupported', 'click_target_cross_origin', 'context_required', 'context_type_mismatch', 'cursor_expired', 'file_upload_identity_mismatch', 'invalid_autosave', 'invalid_binding', 'invalid_call', 'invalid_push_payload', 'invalid_sas', 'invalid_scope', 'invalid_submit_response', 'invalid_timeout', 'invalid_timer_response', 'invalid_typing_response', 'invalid_validation_result', 'invalid_view', 'key_id_changed', 'query_cursor_required', 'read_many_bounds', 'read_many_identity_mismatch', 'read_many_selection', 'record_identity_mismatch', 'record_lease_policy', 'record_links_bounds', 'record_links_missing', 'record_links_response', 'record_links_unsupported', 'record_recovery_mismatch', 'record_session_budget', 'record_validation_stale', 'record_witness_required', 'strength', 'strict_mode', 'typing_bounds', 'unsupported_push_version', 'validation_bounds', 'validation_selection', 'unsynced_transfer_needs_collection', 'unsynced_transfer_plan_stale', 'unlock_not_locked', 'unlock_secret_invalid', 'application_registration_binding', 'view_not_found', 'view_source_changed', 'view_source_witness_required', 'bases_read_backpressure', 'backlinks_unsupported', 'resolve_links_unsupported', 'contract_query_response', 'contract_query_version', 'contract_records_unsupported', 'describe_definitions_unsupported', 'prefix_response', 'type_pack_contract_setups_unsupported', 'type_packs_unsupported', 'resource_setup_unavailable', 'resource_setup_unsupported', 'timer_operation_recovery_unavailable', 'declared_setup_unsupported', 'setup_outcome_unknown', 'cleanup_failed', 'opfs_unavailable', 'probe_failed', 'sync_handle_unavailable', 'worker_required', 'shutdown_failed', 'sync_stalled', 'authorization_binding', 'authorization_callback', 'authorization_cancelled', 'authorization_denied', 'authorization_signature', 'authorization_start', 'authorization_timed_out', 'client_key_required', 'collection_mismatch', 'control_error', 'control_unreachable', 'daemon_not_running', 'grant_invalid', 'grant_storage', 'key_storage', 'redirect_uri', 'relay_insecure', 'relay_unauthenticated', 'relay_unavailable', 'relay_url', 'route_mismatch', 'token_error', 'token_response', 'untrusted_identity']
 
 IkInitiator@transport/noise.ts
   readMessage2: (msg: Uint8Array) => Promise<{ payload: Uint8Array; transport: NoiseTransport; }>
@@ -4088,7 +4088,7 @@ InProcessRuntime@transport/inprocess.ts
   connect: (options: InProcessConnectOptions) => FramePort
 
 Incident@wire.ts
-  details?: CborValue | undefined
+  details?: JsonValue | undefined
   kind: 'read_only' | 'quota_exceeded' | 'upgrade_required' | 'waiting_for_key' | 'integrity' | 'access_revoked' | 'verification_mismatch' | 'voided_items' | 'key_inconsistent' | 'foreign_sync_tool' | 'gone' | 'lost_entries' | 'log_regressed'
 
 Include@wire.ts
@@ -4150,12 +4150,15 @@ IpcConnectorOptions@node.ts
 
 Issue@wire.ts
   code: string
-  details?: CborValue | undefined
+  details?: JsonValue | undefined
   message: string
   severity: 'warning' | 'error'
 
-JsonLike@values.ts
-  = string | number | boolean | JsonLike[] | { [key: string]: JsonLike; } | null
+JsonObject@plain.ts
+  = { [key: string]: JsonValue; }
+
+JsonValue@plain.ts
+  = string | number | boolean | JsonValue[] | { [key: string]: JsonValue; } | null
 
 KdfParams@account-key.ts
   mKib: number
@@ -4197,23 +4200,12 @@ LinkState@client.ts
   = 'closed' | 'open' | 'reconnecting'
 
 LinkTargetKind@wire.ts
-  = 'record' | 'file' | 'not_found' | 'invalid' | 'ambiguous'
-
-LinkView@wire.ts
-  embed: boolean
-  field?: string | undefined
-  raw: string
-  resolution: LinkResolution
+  = 'record' | 'file' | 'ambiguous' | 'not_found' | 'invalid'
 
 ListFilesResult@wire.ts
   complete: boolean
   cursor?: string | undefined
   files: FileView[]
-
-ListResourcesResult@wire.ts
-  complete: boolean
-  cursor?: string | undefined
-  resources: ResourceView[]
 
 ListViewsResult@saved-views.ts
   complete: boolean
@@ -4236,10 +4228,10 @@ LiveQuery@client.ts
   readonly complete: boolean
   error: MdbaseError | null
   get: (id: Uuid) => RecordView | undefined
-  readonly metadata: import("src/wire").QueryMetadata | undefined
+  readonly metadata: import("src/plain").QueryMetadata | undefined
   readonly ready: Promise<void>
   readonly records: readonly RecordView[]
-  setQuery: (query: Query, include?: Include | undefined) => Promise<void>
+  setQuery: (query: Query, o?: { include?: Include; }) => Promise<void>
   readonly stale: boolean
   subscribe: (fn: LiveListener) => () => void
   static new (client: MdbaseClient, query: Query, include: Include | undefined): LiveQuery
@@ -4300,8 +4292,6 @@ Materialization@wire.ts
 
 Mdbase@application/front-door.ts
   addCollection: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
-  addPrivateCollection: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
-  readonly application: MdbaseApplication
   approve: (collectionId?: string | null, options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
   assess: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationReadinessSnapshot>
   chooseAnother: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
@@ -4356,33 +4346,6 @@ MdbaseAppGrantsOptions@app-grant/client.ts
   readonly store?: AppGrantStore | undefined
   readonly webSocket?: WebSocketFactory | undefined
 
-MdbaseApplication@application/entry.ts
-  addPrivateCollection?: ((options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>) | undefined
-  approve: (collectionId?: string | null, options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>
-  assess: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationReadinessSnapshot>
-  authorize: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>
-  chooseAnother: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>
-  clearSelection: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>
-  close: () => Promise<void>
-  configure: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>
-  deleteCollection: (collectionId: string, options: MdbaseCollectionDeleteOptions) => Promise<MdbaseApplicationSnapshot>
-  discardUnsynced?: ((options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>) | undefined
-  forget: (collectionId: string, options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>
-  getSnapshot: () => MdbaseApplicationSnapshot
-  openUnsynced?: ((options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>) | undefined
-  planUnsyncedTransfer?: ((options?: MdbaseTransferPlanOptions) => Promise<MdbaseTransferPlan>) | undefined
-  reauthorize: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>
-  refreshCollectionList?: ((options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>) | undefined
-  requestAccess: (request: MdbaseAccessRequest, options: MdbaseAccessRequestOptions) => Promise<MdbaseAccessResult>
-  select: (collectionId: string, options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>
-  setForeground: (active: boolean) => void
-  readonly setup: MdbaseApplicationSetup
-  signOut?: ((options?: MdbaseSignOutOptions) => Promise<MdbaseApplicationSnapshot>) | undefined
-  start: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>
-  subscribe: (listener: () => void) => () => void
-  transferUnsynced?: ((plan: MdbaseTransferPlan, options?: MdbaseTransferOptions) => Promise<MdbaseTransferResult>) | undefined
-  unlock?: ((collectionId: string, secret: MdbaseUnlockSecret, options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>) | undefined
-
 MdbaseApplicationAssessment@application/entry.ts
   readonly problem: MdbaseApplicationProblem | null
   readonly status: 'setup_required' | 'incompatible' | 'ready'
@@ -4396,7 +4359,7 @@ MdbaseApplicationCapabilities@application/capabilities.ts
 MdbaseApplicationCapability@application/capabilities.ts
   readonly id: string
   readonly requirement: 'required' | 'optional'
-  readonly state: 'available' | 'missing'
+  readonly state: 'missing' | 'available'
 
 MdbaseApplicationConnection@application/entry.ts
   readonly displayName: string
@@ -4418,12 +4381,8 @@ MdbaseApplicationDeclaration@application/declaration.ts
   readonly origin: string
   readonly storage?: ApplicationStorageDeclaration | undefined
 
-MdbaseApplicationEntry@application/entry.ts
-  application: () => MdbaseApplication
-  connection: (collectionId: string) => MdbaseApplicationConnection | null
-
 MdbaseApplicationFacet@application/entry.ts
-  = 'capabilities' | 'contracts' | 'configuration' | 'files' | 'people' | 'notifications'
+  = 'contracts' | 'capabilities' | 'configuration' | 'files' | 'people' | 'notifications'
 
 MdbaseApplicationFacetSnapshot@application/entry.ts
   readonly assessment: MdbaseApplicationAssessment | null
@@ -4432,7 +4391,7 @@ MdbaseApplicationFacetSnapshot@application/entry.ts
 
 MdbaseApplicationProblem@application/entry.ts
   readonly code: string
-  readonly detail?: 'binding_invalid' | 'binding_aborted' | 'binding_not_current' | 'readiness_closed' | 'read_aborted' | 'session_closed' | 'session_replaced' | 'session_collection_mismatch' | 'read_unauthenticated' | 'read_cancelled' | 'scope_aborted' | 'scope_closed' | 'observer_not_current' | 'connection_not_current' | 'collection_mismatch' | 'currentness_check_failed' | 'native_witness_collection_mismatch' | 'native_witness_generation_mismatch' | 'caller_aborted' | 'capabilities_facet' | 'contracts_facet' | 'configuration_facet' | 'files_facet' | 'people_facet' | 'notifications_facet' | undefined
+  readonly detail?: 'binding_invalid' | 'binding_aborted' | 'binding_not_current' | 'readiness_closed' | 'read_aborted' | 'session_closed' | 'session_replaced' | 'session_collection_mismatch' | 'read_unauthenticated' | 'read_cancelled' | 'scope_aborted' | 'scope_closed' | 'observer_not_current' | 'connection_not_current' | 'collection_mismatch' | 'currentness_check_failed' | 'native_witness_collection_mismatch' | 'native_witness_generation_mismatch' | 'caller_aborted' | 'contracts_facet' | 'capabilities_facet' | 'configuration_facet' | 'files_facet' | 'people_facet' | 'notifications_facet' | undefined
 
 MdbaseApplicationReadinessSnapshot@application/entry.ts
   readonly assessment: MdbaseApplicationAssessment | null
@@ -4442,10 +4401,6 @@ MdbaseApplicationReadinessSnapshot@application/entry.ts
 
 MdbaseApplicationRequestOptions@application/entry.ts
   readonly signal?: AbortSignal | undefined
-
-MdbaseApplicationSetup@application/setup.ts
-  apply: (plan: MdbaseSetupPlan, options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationSnapshot>
-  plan: (options?: MdbaseSetupPlanOptions) => Promise<MdbaseSetupPlan>
 
 MdbaseApplicationSnapshot@application/entry.ts
   readonly approval?: Readonly<{ outcome: 'closed' | 'cancelled'; }> | null | undefined
@@ -4465,26 +4420,14 @@ MdbaseApplicationSnapshot@application/entry.ts
   readonly selection: ApplicationCollectionSelectionSnapshot
   readonly signIn: AppInstallationSignInView | null
   readonly signOutResult?: AppWebSignOutResult | null | undefined
-  readonly status: 'starting' | 'closed' | 'opening' | 'setup_required' | 'ready' | 'signed_out' | 'authorizing' | 'needs_unlock' | 'blocked' | 'not_started' | 'unselected'
+  readonly status: 'starting' | 'closed' | 'setup_required' | 'ready' | 'signed_out' | 'authorizing' | 'opening' | 'needs_unlock' | 'blocked' | 'not_started' | 'unselected'
   readonly storage?: AppStoragePolicy | null | undefined
-  readonly sync?: StatusSummary | null | undefined
+  readonly sync?: MdbaseSync | null | undefined
   readonly timing: Readonly<{ firstScreenMs: number | null; readyMs: number | null; }> | null
   readonly transport?: AppLogHealth | null | undefined
   readonly unlock?: Readonly<{ mode: 'password' | 'strict' | 'none'; unlocking: boolean; problem: string | null; }> | null | undefined
   readonly unsynced?: Readonly<{ collectionId: string; sessionStatus: AppWebSignInSnapshot['status']; }> | null | undefined
   readonly unsyncedWork?: Readonly<{ since: number; }> | null | undefined
-  readonly writes?: WriteLedgerSnapshot | null | undefined
-
-MdbaseApplicationUnavailableError@application/entry.ts
-  cause?: unknown
-  readonly code: 'application_not_yet_available'
-  message: string
-  name: string
-  stack?: string | undefined
-  static new (): MdbaseApplicationUnavailableError
-  static captureStackTrace: (targetObject: object, constructorOpt?: Function) => void
-  static prepareStackTrace: (err: Error, stackTraces: NodeJS.CallSite[]) => any
-  static stackTraceLimit: number
 
 MdbaseApprovalOutcome@application/phase.ts
   = ApplicationApprovalOutcome
@@ -4499,62 +4442,63 @@ MdbaseClient@client.ts
   _closeLive: (l: LiveQuery) => void
   _resubscribeLive: (l: LiveQuery, first?: boolean, forSession?: Session) => Promise<void>
   _track: (r: Receipt) => Write
-  readonly accountKey: { setup: (secret: Uint8Array) => Promise<Write>; unlock: (secret: Uint8Array) => Promise<void>; status: (signal?: AbortSignal) => Promise<AccountKeyStatus>; }
-  appliedPrefix: (seq: number, signal?: AbortSignal) => Promise<AppliedPrefix>
+  readonly accountKey: { setup: (secret: Uint8Array) => Promise<Write>; unlock: (secret: Uint8Array) => Promise<void>; status: (o?: ReadOptions) => Promise<AccountKeyStatus>; }
+  appliedPrefix: (seq: number, o?: ReadOptions) => Promise<AppliedPrefix>
   approveDevice: (device: Uuid, sas: string) => Promise<void>
   readonly authenticatedDevice: string | undefined
-  awaitReceipt: (mutation: Uuid, timeoutMs?: number, signal?: AbortSignal) => Promise<Receipt>
+  awaitReceipt: (mutation: Uuid, o?: { timeoutMs?: number; signal?: AbortSignal; }) => Promise<Receipt>
   backlinks: (target: RecordRef, o?: { include?: Include; limit?: number; cursor?: string; signal?: AbortSignal; }) => Promise<BacklinksResult>
-  call: <T = CborValue>(method: string, p: CborValue, o?: { signal?: AbortSignal; codec?: import("./codec.js").Codec<T>; retry?: boolean; }) => Promise<T>
-  changes: (cursor?: string, limit?: number, signal?: AbortSignal) => Promise<ChangesResult>
+  call: { (method: string, p: CborValue, o?: { signal?: AbortSignal; retry?: boolean; }): Promise<CborValue>; <T>(method: string, p: CborValue, o: { signal?: AbortSignal; codec: Codec<T>; retry?: boolean; }): Promise<Plain<T>>; }
+  changes: (o?: { cursor?: string; limit?: number; signal?: AbortSignal; }) => Promise<ChangesResult>
   close: () => void
   readonly collection: string
   create: (input: CreateInput, o?: WriteOptions) => Promise<RecordWrite>
   createType: (document: string, o?: WriteOptions) => Promise<TypeCreation>
   currentSession: () => Session
   delete: (target: RecordRef, o?: WriteOptions & { ifRevision?: string; contract?: ContractSelector; }) => Promise<Write>
-  describe: (options?: AbortSignal | DescribeOptions) => Promise<DescribeResult>
-  describeTyping: (types: readonly string[], paths: readonly string[], signal?: AbortSignal) => Promise<DescribeTypingResult>
+  describe: (o?: DescribeOptions) => Promise<DescribeResult>
+  describeTyping: (types: readonly string[], paths: readonly string[], o?: ReadOptions) => Promise<DescribeTypingResult>
   dismissConflict: (entry: ConflictEntry, o?: WriteOptions) => Promise<Write>
-  executeAppBases: (request: AppBasesRequest, signal?: AbortSignal) => Promise<AppBasesResult>
+  executeAppBases: (request: AppBasesRequest, o?: ReadOptions) => Promise<AppBasesResult>
   executeAppBasesPages: (request: AppBasesRequest, options?: AppBasesPagesOptions) => AsyncGenerator<{ kind: 'refusal'; problem: Problem; } | import("src/app-host/bases-pages").AppBasesPage, any, any>
   readonly files: FilesApi
-  find: (ref: RecordRef, include?: Include, signal?: AbortSignal) => Promise<RecordView | null>
-  get: (ref: RecordRef, include?: Include, signal?: AbortSignal) => Promise<RecordView>
-  getContract: (ref: RecordRef, contract: ContractSelector, signal?: AbortSignal) => Promise<ContractRecordView>
+  find: (ref: RecordRef, o?: RecordReadOptions) => Promise<RecordView | null>
+  get: (ref: RecordRef, o?: RecordReadOptions) => Promise<RecordView>
+  getContract: (ref: RecordRef, contract: ContractSelector, o?: ReadOptions) => Promise<ContractRecordView>
   getStatus: () => Promise<SyncStatus>
   readonly headWitness: Uint8Array<ArrayBufferLike> | undefined
   readonly hello: HelloResult
   readonly ledger: WriteLedgerView
   readonly link: LinkState
   readonly linkProblem: MdbaseError | null
-  listAppBasesViews: (request: AppBasesDiscoveryRequest, signal?: AbortSignal) => Promise<AppBasesDiscoveryResult>
-  listConflicts: (record?: Uuid, signal?: AbortSignal) => Promise<ConflictEntry[]>
-  listHolds: (signal?: AbortSignal) => Promise<Hold[]>
-  live: (query: Query, include?: Include) => LiveQuery
+  listAppBasesViews: (request: AppBasesDiscoveryRequest, o?: ReadOptions) => Promise<AppBasesDiscoveryResult>
+  listConflicts: (o?: { record?: Uuid; signal?: AbortSignal; }) => Promise<ConflictEntry[]>
+  listHolds: (o?: ReadOptions) => Promise<Hold[]>
+  live: (query: Query, o?: { include?: Include; }) => LiveQuery
   offerFence: (handler: FenceHandler) => void
   onConflicts: (fn: (c: ConflictEntry[]) => void) => () => void
   onHolds: (fn: (h: Hold[]) => void) => () => void
   onLink: (fn: (s: LinkState, why: MdbaseError | null) => void) => () => void
   onSession: (fn: (s: Session) => Promise<void> | void) => void
   onStatus: (fn: (s: SyncStatus) => void) => () => void
-  pages: (query: Query, include?: Include, signal?: AbortSignal, options?: PagesOptions) => AsyncGenerator<QueryResult>
-  pendingDevices: (signal?: AbortSignal) => Promise<PendingDevice[]>
-  pendingWrites: (signal?: AbortSignal) => Promise<PendingMutation[]>
+  pages: (query: Query, o?: RecordReadOptions & PagesOptions) => AsyncGenerator<QueryResult>
+  pendingDevices: (o?: ReadOptions) => Promise<PendingDevice[]>
+  pendingWrites: (o?: ReadOptions) => Promise<PendingMutation[]>
   preflightDelete: (target: RecordRef) => Promise<Preflight>
   preflightRename: (target: RecordView, to: string, o?: { updateRefs?: boolean; }) => Promise<Preflight>
   readonly presence: PresenceApi
-  query: (query: Query, include?: Include, signal?: AbortSignal, opts?: { contract?: string; }) => Promise<QueryResult>
+  query: (query: Query, o?: RecordReadOptions & { contract?: string; }) => Promise<QueryResult>
   queryContract: (contract: ContractRef, options?: ContractQueryOptions) => Promise<ContractQueryResult>
-  queryPages: (query: Query, include?: Include, signal?: AbortSignal, options?: PagesOptions) => AsyncGenerator<QueryResult>
-  readAppBasesViewSource: (request: AppBasesSourceRequest, signal?: AbortSignal) => Promise<AppBasesSourceResult>
+  queryPages: (query: Query, o?: RecordReadOptions & PagesOptions) => AsyncGenerator<QueryResult>
+  readAppBasesViewSource: (request: AppBasesSourceRequest, o?: ReadOptions) => Promise<AppBasesSourceResult>
   readFence: (signal?: AbortSignal) => Promise<void>
   readonly readFenced: boolean
-  readMany: (refs: readonly RecordRef[], include?: Include, signal?: AbortSignal, options?: ReadManyOptions) => Promise<RecordView[]>
-  ready: (signal?: AbortSignal) => Promise<Session>
+  readMany: (refs: readonly RecordRef[], o?: RecordReadOptions & ReadManyOptions) => Promise<RecordView[]>
+  ready: (o?: ReadOptions) => Promise<Session>
   readyForRead: (signal?: AbortSignal, immediate?: boolean) => Promise<Session>
-  receipt: (mutation: Uuid, signal?: AbortSignal) => Promise<Receipt>
+  receipt: (mutation: Uuid, o?: ReadOptions) => Promise<Receipt>
   readonly records: Records
+  recordSet: (options?: RecordSetOptions) => RecordSet
   readonly recoveryKey: { status: () => Promise<RecoveryKeyStatus>; create: () => Promise<{ phrase: string; device: Uuid; }>; import: (phrase: string) => Promise<void>; }
   rejectDevice: (device: Uuid) => Promise<void>
   rename: (target: RecordView | ContractRecordView, to: string, o?: WriteOptions & { updateRefs?: boolean; ifRevision?: string; contract?: ContractSelector; }) => Promise<Write>
@@ -4563,17 +4507,17 @@ MdbaseClient@client.ts
   resolveConflict: (entry: ConflictEntry, field: string, chosen: PlainValue, o?: WriteOptions) => Promise<Write>
   resolveHold: (id: Uuid, how: HoldResolution, use?: string) => Promise<Write>
   resolveLinks: (from: string, links: readonly string[], o?: { signal?: AbortSignal; }) => Promise<ResolveLinksResult>
-  readonly resources: { get: (path: string, signal?: AbortSignal) => Promise<ResourceView>; list: (o?: { folder?: string; text?: boolean; cursor?: string; limit?: number; signal?: AbortSignal; }) => Promise<import("src/wire").ListResourcesResult>; put: (path: string, doc: string, o?: WriteOptions & { baseRevision?: string; mustNotExist?: boolean; }) => Promise<Write>; delete: (path: string, o?: WriteOptions & { baseRevision?: string; }) => Promise<Write>; }
-  save: (write: Write | Promise<Write>, o?: { readBack?: boolean; timeoutMs?: number; signal?: AbortSignal; }) => Promise<SaveResult>
+  readonly resources: { get: (path: string, o?: ReadOptions) => Promise<ResourceView>; list: (o?: { folder?: string; text?: boolean; cursor?: string; limit?: number; signal?: AbortSignal; }) => Promise<{ resources: { path: string; revision: import("src/wire").Hash; size: number; state: 'confirmed' | 'pending'; text?: string | undefined; }[]; complete: boolean; cursor?: string | undefined; }>; put: (path: string, doc: string, o?: WriteOptions & { baseRevision?: string; mustNotExist?: boolean; }) => Promise<Write>; delete: (path: string, o?: WriteOptions & { baseRevision?: string; }) => Promise<Write>; }
+  settle: (write: Write | Promise<Write> | Uuid, options?: SettleOptions) => Promise<Settlement>
   setTransportDeferred: (deferred: boolean) => void
   readonly status: SyncStatus
-  submit: (ops: Op[], o?: WriteOptions & { allowPartial?: boolean; }) => Promise<Write[]>
+  submit: (ops: Op[], o?: WriteOptions) => Promise<Write>
   readonly typePacks: Readonly<{ plan: (pack: TypePackProvision, options: TypePackOptions) => Promise<TypePackPlan>; apply: (plan: TypePackPlan, o?: WriteOptions) => Promise<TypePackApplyResult>; }>
   update: (target: RecordRef, changes: UpdateInput, o?: WriteOptions) => Promise<Write>
   updateOp: (target: RecordRef, c: UpdateInput) => Op & { kind: 'update'; }
-  validate: (refs?: readonly RecordRef[], signal?: AbortSignal) => Promise<RecordValidation[]>
-  readonly views: { createSource: (input: ViewSourceCreateInput, options: ViewSourceWriteOptions) => Promise<Write>; updateSource: (seen: RecordView, document: string, options: ViewSourceWriteOptions) => Promise<Write>; getSourceRecord: (source: RecordRef, options?: ViewSourceReadOptions) => Promise<RecordView>; list: (folder?: string, signal?: AbortSignal) => Promise<ListViewsResult>; execute: (source: RecordRef, view: string, o?: ExecuteViewOptions) => Promise<QueryResult>; readSource: (source: RecordRef, signal?: AbortSignal) => Promise<ViewSourceDocument>; }
-  watchChanges: (cursor: string | undefined, onChanges: (batch: ChangesResult) => void) => ChangesWatch
+  validate: (o?: { refs?: readonly RecordRef[]; signal?: AbortSignal; }) => Promise<RecordValidation[]>
+  readonly views: { createSource: (input: ViewSourceCreateInput, options: ViewSourceWriteOptions) => Promise<Write>; updateSource: (seen: RecordView, document: string, options: ViewSourceWriteOptions) => Promise<Write>; getSourceRecord: (source: RecordRef, options?: ViewSourceReadOptions) => Promise<RecordView>; list: (o?: { folder?: string; signal?: AbortSignal; }) => Promise<ListViewsResult>; execute: (source: RecordRef, view: string, o?: ExecuteViewOptions) => Promise<QueryResult>; readSource: (source: RecordRef, o?: ReadOptions) => Promise<ViewSourceDocument>; }
+  watchChanges: (onChanges: (batch: ChangesResult) => void, o?: { cursor?: string; }) => ChangesWatch
   static new (opts: ClientOptions, session: Session): MdbaseClient
   static connect: (opts: ClientOptions) => Promise<MdbaseClient>
 
@@ -4594,28 +4538,13 @@ MdbaseCollectionRole@app-grant/client.ts
 MdbaseCollectionSummary@application/phase.ts
   = AppInstallationCollection
 
-MdbaseConnect@application/entry.ts
-  application: () => MdbaseApplication
-  connection: (collectionId: string) => MdbaseApplicationConnection | null
-  static new (declaration: MdbaseApplicationDeclaration, options?: MdbaseConnectOptions): MdbaseConnect
-
-MdbaseConnectOptions@application/entry.ts
-  readonly followVisibility?: boolean | undefined
-  readonly privateCollections?: boolean | undefined
-  readonly readiness?: { readonly typeIssues?: 'block' | 'degrade'; } | undefined
-  readonly signIn?: MdbaseSignInOpener | undefined
-  readonly unsynced?: boolean | undefined
-  readonly urlSelection?: boolean | undefined
-  readonly worker?: ((url: string) => Worker) | undefined
-
 MdbaseError@errors.ts
   cause?: unknown
-  readonly code: 'unavailable' | 'invalid_request' | 'invalid_record' | 'not_found' | 'conflict' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'upgrade_required' | 'cancelled'
-  readonly details?: unknown
+  readonly code: 'not_found' | 'conflict' | 'invalid_request' | 'invalid_record' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'unavailable' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'upgrade_required' | 'cancelled'
+  readonly details?: JsonValue | undefined
   readonly issues?: Issue[] | undefined
   message: string
   readonly mutationId?: string | undefined
-  readonly mutationIds?: readonly string[] | undefined
   name: string
   readonly reason?: string | undefined
   readonly recovery: 'fix_request' | 'refresh' | 'resolve_conflict' | 'reauthorize' | 'repair_collection' | 'retry' | 'free_space' | 'upgrade' | 'resolve_outcome' | 'none' | 'contact_support'
@@ -4634,7 +4563,6 @@ MdbaseErrorAction@describe-error.ts
 MdbaseErrorContext@errors.ts
   cause?: unknown
   mutationId?: string | undefined
-  mutationIds?: readonly string[] | undefined
 
 MdbaseErrorDescription@describe-error.ts
   readonly action: MdbaseErrorAction
@@ -4685,6 +4613,17 @@ MdbaseNotificationRegistration@notifications.ts
   readonly scope?: string | undefined
   showNotification: (title: string, options?: NotificationOptions) => Promise<void>
 
+MdbaseOptions@application/entry.ts
+  readonly followVisibility?: boolean | undefined
+  readonly messages?: Readonly<Partial<Record<'refused' | 'not_found' | 'conflict' | 'device_offline' | 'desktop_update_required' | 'old_connector_running' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'read_only' | 'capability_missing' | 'collection_deleted' | 'collection_unavailable' | 'moved_to_next_runtime' | 'device_approval_required' | 'collection_migrating' | 'collection_not_yet_migrated' | 'account_suspended' | 'update_required' | 'account_collection_quota_exceeded' | 'invalid_request' | 'invalid_record' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'unavailable' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'expired' | 'approval_window_closed' | 'account_confirmation_required' | 'recovery_required' | 'open_failed' | 'busy' | 'open_in_another_tab' | 'not_authorized' | 'sign_out_pending_writes' | 'sign_out_failed' | 'application_popup_blocked' | 'sign_in_window' | 'application_not_yet_available' | 'application_failed' | 'application_worker_unavailable' | 'browser_unsupported' | 'application_storage_unavailable' | 'storage_may_be_evicted' | 'application_registration_unsupported' | 'application_registration_refused' | 'application_selection_not_approved' | 'application_selection_invalid' | 'installation_scope_removed' | 'recovery_account_mismatch' | 'assets' | 'setup_required' | 'incompatible' | 'approval_required' | 'contract_mismatch' | 'contract_missing' | 'implementation_missing' | 'catalog_invalid' | 'catalog_response' | 'type_invalid' | 'readiness_budget' | 'readiness_unsupported' | 'notifications_consent_required' | 'timer_channel_reapproval_required' | 'notifications_unsupported' | 'people_unsupported' | 'people_permission_declined' | 'people_access' | 'configuration_conflict' | 'configuration_unavailable' | 'configuration_unsupported' | 'configuration_busy_timeout' | 'readiness_busy_timeout' | 'setup_forbidden' | 'setup_conflict' | 'setup_unresolved' | 'collection_setup_conflict' | 'setup_records_forbidden' | 'setup_changed' | 'installed_newer' | 'type_pack_conflict' | 'invalid_type_pack' | 'access_required' | 'access_declined' | 'access_undeclared' | 'files_access_missing' | 'files_scope_missing' | 'file_read_failed' | 'file_read_idle' | 'collection_delete_name_mismatch' | 'collection_delete_not_owner' | 'collection_delete_not_found' | 'collection_delete_frozen' | 'collection_delete_busy' | 'collection_delete_not_approved' | 'collection_delete_sign_in' | 'collection_delete_invalid' | 'collection_delete_outcome_unknown' | 'collection_delete_failed' | 'wrong_secret' | 'locked' | 'weak_password' | 'already_set_up' | 'no_account_key' | 'invalid_recovery_key' | 'unlock_strict' | 'unlock_unavailable' | 'unlock_failed' | 'private_device_limit' | 'private_device_not_allowed' | 'unknown', import("src/describe-error").MdbaseProblemMessages>>> | undefined
+  readonly privateCollections?: boolean | undefined
+  readonly readiness?: { readonly typeIssues?: 'block' | 'degrade'; } | undefined
+  readonly session?: { readonly build: string; readonly host?: boolean; } | undefined
+  readonly signIn?: MdbaseSignInOpener | undefined
+  readonly unsynced?: boolean | undefined
+  readonly urlSelection?: boolean | undefined
+  readonly worker?: ((url: string) => Worker) | undefined
+
 MdbasePeopleClient@people.ts
   current: (options?: PeopleRequestOptions) => Promise<CurrentAccount>
   directory: (options?: PeopleDirectoryOptions) => Promise<PeopleDirectory>
@@ -4695,7 +4634,7 @@ MdbasePhase@application/phase.ts
   = { readonly kind: 'starting'; } | { readonly kind: 'signed_out'; readonly notice: MdbaseProblem | null; } | { readonly kind: 'authorizing'; readonly purpose: 'sign_in' | 'add' | 'approve'; readonly collectionId: string | null; } | { readonly kind: 'choosing'; readonly lastApproval: MdbaseApprovalOutcome | null; } | { readonly kind: 'opening'; readonly collectionId: string; readonly displayName: string | null; readonly slow: boolean; readonly progress?: import("../app-host/opening-progress.js").AppOpeningProgress | null; } | { readonly kind: 'needs_approval'; readonly collectionId: string; readonly displayName: string | null; readonly declined: boolean; } | { readonly kind: 'needs_unlock'; readonly collectionId: string; readonly displayName: string | null; readonly mode: 'password' | 'strict' | 'none'; readonly unlocking: boolean; readonly problem: MdbaseProblem | null; } | { readonly kind: 'needs_setup'; readonly collectionId: string; readonly collection: MdbaseCollectionSummary; } | { readonly kind: 'ready'; readonly collectionId: string; readonly collection: MdbaseCollectionSummary; readonly connection: MdbaseApplicationConnection; readonly rechecking: boolean; readonly problem: MdbaseProblem | null; readonly unavailableTypes: readonly MdbaseUnavailableType[]; } | { readonly kind: 'unsynced'; readonly collectionId: string; readonly connection: MdbaseApplicationConnection; readonly rechecking: boolean; } | { readonly kind: 'problem'; readonly collectionId: string | null; readonly problem: MdbaseProblem; } | { readonly kind: 'unavailable'; readonly problem: MdbaseProblem; } | { readonly kind: 'closed'; }
 
 MdbasePhaseKind@application/phase.ts
-  = 'problem' | 'unsynced' | 'starting' | 'closed' | 'opening' | 'unavailable' | 'ready' | 'signed_out' | 'authorizing' | 'choosing' | 'needs_approval' | 'needs_unlock' | 'needs_setup'
+  = 'problem' | 'unsynced' | 'starting' | 'closed' | 'unavailable' | 'ready' | 'signed_out' | 'authorizing' | 'choosing' | 'opening' | 'needs_approval' | 'needs_unlock' | 'needs_setup'
 
 MdbasePrepareAuthorizationOptions@app-grant/client.ts
   readonly authorizationNonce?: string | undefined
@@ -4785,7 +4724,7 @@ MdbaseSetupRefusalCode@application/setup.ts
   = 'setup_forbidden' | 'setup_conflict' | 'setup_unresolved' | 'setup_records_forbidden' | 'installed_newer' | 'setup_downgrade'
 
 MdbaseSetupResult@application/front-door.ts
-  readonly outcome: 'unknown' | 'applied' | 'changed'
+  readonly outcome: 'unknown' | 'changed' | 'applied'
   readonly snapshot: MdbaseSnapshot
 
 MdbaseSignInOpener@application/entry.ts
@@ -4815,15 +4754,27 @@ MdbaseSnapshot@application/front-door.ts
   readonly selection: ApplicationCollectionSelectionSnapshot
   readonly signIn: AppInstallationSignInView | null
   readonly signOutResult?: AppWebSignOutResult | null | undefined
-  readonly status: 'starting' | 'closed' | 'opening' | 'setup_required' | 'ready' | 'signed_out' | 'authorizing' | 'needs_unlock' | 'blocked' | 'not_started' | 'unselected'
+  readonly status: 'starting' | 'closed' | 'setup_required' | 'ready' | 'signed_out' | 'authorizing' | 'opening' | 'needs_unlock' | 'blocked' | 'not_started' | 'unselected'
   readonly storage?: AppStoragePolicy | null | undefined
-  readonly sync: StatusSummary | null
+  readonly sync: MdbaseSync | null
   readonly timing: Readonly<{ firstScreenMs: number | null; readyMs: number | null; }> | null
   readonly transport?: AppLogHealth | null | undefined
   readonly unlock?: Readonly<{ mode: 'password' | 'strict' | 'none'; unlocking: boolean; problem: string | null; }> | null | undefined
   readonly unsynced?: Readonly<{ collectionId: string; sessionStatus: AppWebSignInSnapshot['status']; }> | null | undefined
   readonly unsyncedWork?: Readonly<{ since: number; }> | null | undefined
-  readonly writes?: WriteLedgerSnapshot | null | undefined
+
+MdbaseSync@status.ts
+  readonly attention: readonly SyncAttention[]
+  readonly conflicts: number
+  readonly connection: 'reconnecting' | 'local' | 'offline' | 'online'
+  readonly health: TransportHealthKind | null
+  readonly holds: number
+  readonly incidents: readonly Incident[]
+  readonly live: boolean | null
+  readonly pending: number
+  readonly pendingFor: 'moment' | 'while' | 'long' | null
+  readonly state: SyncState
+  readonly writes: WriteLedgerSnapshot | null
 
 MdbaseTransferItem@application/unsynced-transfer.ts
   readonly copyId?: string | undefined
@@ -4900,10 +4851,12 @@ MemoryBaseView@testing/memory-replica.ts
   types: string[]
 
 MemoryContract@testing/memory-contracts.ts
+  binding?: Record<string, PlainValue> | undefined
   contractDigest?: string | undefined
   fields: Record<string, string>
   id: string
   implementationDigest?: string | undefined
+  path?: string | undefined
   type: string
   version: string
 
@@ -4920,19 +4873,22 @@ MemoryRecord@testing/memory-replica.ts
 
 MemoryReplica@testing/memory-replica.ts
   readonly allRecords: MemoryRecord[]
+  client: (o?: Partial<Omit<ClientOptions, 'connector'>>) => Promise<MdbaseClient>
   readonly collection: string
   confirmAll: () => void
   conflict: (ref: string, o: { field: string; kept: PlainValue; lost: PlainValue; }) => w.ConflictEntry
   connector: () => Connector
   deleteElsewhere: (ref: string) => void
   dropConnections: () => void
-  editElsewhere: (ref: string, change: { body?: string; frontmatter?: Record<string, CborValue | null>; }) => void
+  editElsewhere: (ref: string, change: { body?: string; frontmatter?: Record<string, PlainValue>; }) => void
+  failNextRead: (method: MemoryReplicaRead, p?: w.Problem) => void
   failNextWrite: (p?: w.Problem) => void
   hold: (ref: string, o?: { reason?: w.HoldReason; mine?: string; theirs?: string; }) => w.Uuid
   loseNextResponse: () => void
+  pauseReads: (method: MemoryReplicaRead) => () => void
   reject: (mutation: w.Uuid, p?: w.Problem) => void
   renameElsewhere: (ref: string, to: string) => void
-  seed: (r: { id?: w.Uuid; path: string; types?: string[]; frontmatter?: Record<string, CborValue>; body?: string; }) => MemoryRecord
+  seed: (r: { id?: w.Uuid; path: string; types?: string[]; frontmatter?: Record<string, PlainValue>; body?: string; }) => MemoryRecord
   seedBaseView: (view: MemoryBaseView) => { record: w.Uuid; sourceRevision: string; ordinal: number; }
   seedResource: (path: string, text: string) => void
   seedType: (name: string, definition?: Record<string, PlainValue>) => string
@@ -4950,11 +4906,15 @@ MemoryReplicaOptions@testing/memory-replica.ts
   features?: string[] | undefined
   fileFolders?: string[] | undefined
   grant?: string | undefined
+  parse?: ((document: string) => { frontmatter: Record<string, PlainValue>; body: string; }) | undefined
   refuse?: w.Problem | undefined
   role?: 'owner' | 'editor' | 'viewer' | undefined
   runtimeVersion?: string | undefined
   typing?: ((types: string[], path: string) => w.TemporalHint) | undefined
   where?: ((expr: string, record: MemoryRecord) => boolean) | undefined
+
+MemoryReplicaRead@testing/memory-replica.ts
+  = 'backlinks' | 'get' | 'list_resources' | 'receipt' | 'query' | 'describe' | 'changes' | 'get_resource' | 'get_file' | 'list_files' | 'await' | 'list_holds' | 'list_conflicts' | 'get_contract_v1' | 'query_contract_v1'
 
 MessageCarrier@transport/noise-session.ts
   close: () => void
@@ -5147,12 +5107,12 @@ PagesReset@client.ts
   reason: 'cursor_expired' | 'cursor_stale'
   signal?: AbortSignal | undefined
 
-Peer@wire.ts
+Peer@plain.ts
   account?: string | undefined
   app?: string | undefined
   lastSeen: number
   session: Uint8Array<ArrayBufferLike>
-  state: CborValue
+  state: JsonValue
 
 PendingDevice@private.ts
   account: string
@@ -5161,9 +5121,9 @@ PendingDevice@private.ts
   kind: string
   sas?: string | undefined
 
-PendingMutation@wire.ts
+PendingMutation@plain.ts
   captured: number
-  ops: RuntimeOp[]
+  ops: ({ kind: 'create'; id: Uuid; path?: string | undefined; type?: string | undefined; frontmatter?: { [key: string]: JsonValue; } | undefined; body?: string | undefined; document?: string | undefined; } | { kind: 'update'; id: Uuid; patch?: { [key: string]: JsonValue; } | undefined; unset?: string[] | undefined; add?: { [key: string]: JsonValue[]; } | undefined; remove?: { [key: string]: JsonValue[]; } | undefined; body?: string | undefined; bodyEdits?: BodyEdit[] | undefined; bodyBase?: Hash | undefined; bodyBaseText?: string | undefined; base?: { key: string; observed?: JsonValue | undefined; }[] | undefined; ifRevision?: Hash | undefined; updateRefs?: boolean | undefined; } | { kind: 'document'; id: Uuid; base?: { path: string; doc: string; } | undefined; new?: { path: string; doc: string; } | undefined; ifRevision?: Hash | undefined; } | { kind: 'delete'; id: Uuid; baseRevision?: Hash | undefined; ifRevision?: Hash | undefined; } | { kind: 'rename'; id: Uuid; from: string; to: string; updateRefs: boolean; ifRevision?: Hash | undefined; } | { kind: 'resource_put'; path: string; doc: string; baseRevision?: Hash | undefined; mustNotExist?: boolean | undefined; } | { kind: 'resource_delete'; path: string; baseRevision?: Hash | undefined; } | { kind: 'file_put'; id: Uuid; path: string; blob: { plainHash: Hash; size: number; blobId: Uint8Array; idEpoch: number; partSize: number; }; ifRevision?: Hash | undefined; base?: Hash | undefined; } | { kind: 'file_delete'; id: Uuid; ifRevision?: Hash | undefined; base?: Hash | undefined; } | { kind: 'file_move'; id: Uuid; from: string; to: string; updateRefs: boolean; ifRevision?: Hash | undefined; } | { kind: 'conflict_dismiss'; mutation: Uuid; record: Uuid; } | { kind: 'sync_settings'; inclusion: { include: MediaClass[]; exclude?: string[] | undefined; maxSize?: number | undefined; }; } | { kind: 'ordinary_attachment_continuation'; id: Uuid; path: string; content: { reference: { collection: Uuid; keyEpoch: number | bigint; attachmentId: Uint8Array; manifestCipherHash: Hash; }; wholePlainHash: Hash; totalPlainBytes: number | bigint; }; prior: { form: 'blob'; blob: { plainHash: Hash; size: number; blobId: Uint8Array; idEpoch: number; partSize: number; }; } | { form: 'attachment'; content: { reference: { collection: Uuid; keyEpoch: number | bigint; attachmentId: Uint8Array; manifestCipherHash: Hash; }; wholePlainHash: Hash; totalPlainBytes: number | bigint; }; }; } | { kind: 'file_attach'; id: Uuid; path: string; content: { reference: { collection: Uuid; keyEpoch: number | bigint; attachmentId: Uint8Array; manifestCipherHash: Hash; }; wholePlainHash: Hash; totalPlainBytes: number | bigint; }; ifRevision?: Hash | undefined; base?: Hash | undefined; } | { kind: 'unindexed_markdown_put'; id: Uuid; path: string; payload: { content: { form: 'blob'; blob: { plainHash: Hash; size: number; blobId: Uint8Array; idEpoch: number; partSize: number; }; } | { form: 'attachment'; content: { reference: { collection: Uuid; keyEpoch: number | bigint; attachmentId: Uint8Array; manifestCipherHash: Hash; }; wholePlainHash: Hash; totalPlainBytes: number | bigint; }; }; }; expected?: { content: { form: 'blob'; blob: { plainHash: Hash; size: number; blobId: Uint8Array; idEpoch: number; partSize: number; }; } | { form: 'attachment'; content: { reference: { collection: Uuid; keyEpoch: number | bigint; attachmentId: Uint8Array; manifestCipherHash: Hash; }; wholePlainHash: Hash; totalPlainBytes: number | bigint; }; }; } | undefined; } | { kind: 'record_to_unindexed_markdown'; id: Uuid; path: string; payload: { content: { form: 'blob'; blob: { plainHash: Hash; size: number; blobId: Uint8Array; idEpoch: number; partSize: number; }; } | { form: 'attachment'; content: { reference: { collection: Uuid; keyEpoch: number | bigint; attachmentId: Uint8Array; manifestCipherHash: Hash; }; wholePlainHash: Hash; totalPlainBytes: number | bigint; }; }; }; priorRevision: Hash; } | { kind: 'unindexed_markdown_to_record'; id: Uuid; path: string; doc: import("src/runtime-wire").RuntimeText; prior: { content: { form: 'blob'; blob: { plainHash: Hash; size: number; blobId: Uint8Array; idEpoch: number; partSize: number; }; } | { form: 'attachment'; content: { reference: { collection: Uuid; keyEpoch: number | bigint; attachmentId: Uint8Array; manifestCipherHash: Hash; }; wholePlainHash: Hash; totalPlainBytes: number | bigint; }; }; }; } | { kind: 'ordinary_file_to_record'; id: Uuid; path: string; doc: import("src/runtime-wire").RuntimeText; prior: { form: 'blob'; blob: { plainHash: Hash; size: number; blobId: Uint8Array; idEpoch: number; partSize: number; }; } | { form: 'attachment'; content: { reference: { collection: Uuid; keyEpoch: number | bigint; attachmentId: Uint8Array; manifestCipherHash: Hash; }; wholePlainHash: Hash; totalPlainBytes: number | bigint; }; }; })[]
   receipt: Receipt
 
 PeopleAuthority@people.ts
@@ -5211,7 +5171,10 @@ PipeAuth@transport/relay-pipe.ts
   devicePublicKey: Uint8Array<ArrayBufferLike>
   grant: string
 
-PlainValue@values.ts
+Plain@plain.ts
+  = [T] extends [JsonValue | undefined] ? T : [CborValue] extends [T] ? JsonValue : T extends Uint8Array<ArrayBufferLike> ? T : T extends ReadonlyMap<string, infer V> ? { [key: string]: Plain<V>; } : T extends object ? { [K in keyof T]: Plain<T[K]>; } : T
+
+PlainValue@plain.ts
   = string | number | bigint | boolean | Float64 | PlainValue[] | Map<string, PlainValue> | { [key: string]: PlainValue | undefined; } | null
 
 Preflight@wire.ts
@@ -5270,7 +5233,7 @@ ProbeSyncHandle@app-host/storage-probe.ts
 
 Problem@wire.ts
   code: string
-  details?: CborValue | undefined
+  details?: JsonValue | undefined
   issues?: Issue[] | undefined
   message: string
   reason?: string | undefined
@@ -5279,7 +5242,7 @@ Problem@wire.ts
   traceId?: string | undefined
 
 ProblemCode@describe-error.ts
-  = 'refused' | 'device_offline' | 'desktop_update_required' | 'old_connector_running' | 'approval_required' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'collection_migrating' | 'collection_not_yet_migrated' | 'collection_deleted' | 'unavailable' | 'read_only' | 'capability_missing' | 'collection_unavailable' | 'moved_to_next_runtime' | 'device_approval_required' | 'account_suspended' | 'update_required' | 'account_collection_quota_exceeded' | 'invalid_request' | 'invalid_record' | 'not_found' | 'conflict' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'expired' | 'approval_window_closed' | 'account_confirmation_required' | 'recovery_required' | 'open_failed' | 'busy' | 'open_in_another_tab' | 'not_authorized' | 'sign_out_pending_writes' | 'sign_out_failed' | 'application_popup_blocked' | 'sign_in_window' | 'application_not_yet_available' | 'application_failed' | 'application_worker_unavailable' | 'browser_unsupported' | 'application_storage_unavailable' | 'storage_may_be_evicted' | 'application_registration_unsupported' | 'application_registration_refused' | 'application_selection_not_approved' | 'application_selection_invalid' | 'installation_scope_removed' | 'recovery_account_mismatch' | 'assets' | 'setup_required' | 'incompatible' | 'contract_mismatch' | 'contract_missing' | 'implementation_missing' | 'catalog_invalid' | 'catalog_response' | 'type_invalid' | 'readiness_budget' | 'readiness_unsupported' | 'notifications_consent_required' | 'timer_channel_reapproval_required' | 'notifications_unsupported' | 'people_unsupported' | 'people_permission_declined' | 'people_access' | 'configuration_conflict' | 'configuration_unavailable' | 'configuration_unsupported' | 'configuration_busy_timeout' | 'readiness_busy_timeout' | 'setup_forbidden' | 'setup_conflict' | 'setup_unresolved' | 'collection_setup_conflict' | 'setup_records_forbidden' | 'setup_changed' | 'installed_newer' | 'type_pack_conflict' | 'invalid_type_pack' | 'access_required' | 'access_declined' | 'access_undeclared' | 'files_access_missing' | 'files_scope_missing' | 'file_read_failed' | 'file_read_idle' | 'collection_delete_name_mismatch' | 'collection_delete_not_owner' | 'collection_delete_not_found' | 'collection_delete_frozen' | 'collection_delete_busy' | 'collection_delete_not_approved' | 'collection_delete_sign_in' | 'collection_delete_invalid' | 'collection_delete_outcome_unknown' | 'collection_delete_failed' | 'wrong_secret' | 'locked' | 'weak_password' | 'already_set_up' | 'no_account_key' | 'invalid_recovery_key' | 'unlock_strict' | 'unlock_unavailable' | 'unlock_failed' | 'private_device_limit' | 'private_device_not_allowed'
+  = 'refused' | 'not_found' | 'conflict' | 'device_offline' | 'desktop_update_required' | 'old_connector_running' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'read_only' | 'capability_missing' | 'collection_deleted' | 'collection_unavailable' | 'moved_to_next_runtime' | 'device_approval_required' | 'collection_migrating' | 'collection_not_yet_migrated' | 'account_suspended' | 'update_required' | 'account_collection_quota_exceeded' | 'invalid_request' | 'invalid_record' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'unavailable' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'expired' | 'approval_window_closed' | 'account_confirmation_required' | 'recovery_required' | 'open_failed' | 'busy' | 'open_in_another_tab' | 'not_authorized' | 'sign_out_pending_writes' | 'sign_out_failed' | 'application_popup_blocked' | 'sign_in_window' | 'application_not_yet_available' | 'application_failed' | 'application_worker_unavailable' | 'browser_unsupported' | 'application_storage_unavailable' | 'storage_may_be_evicted' | 'application_registration_unsupported' | 'application_registration_refused' | 'application_selection_not_approved' | 'application_selection_invalid' | 'installation_scope_removed' | 'recovery_account_mismatch' | 'assets' | 'setup_required' | 'incompatible' | 'approval_required' | 'contract_mismatch' | 'contract_missing' | 'implementation_missing' | 'catalog_invalid' | 'catalog_response' | 'type_invalid' | 'readiness_budget' | 'readiness_unsupported' | 'notifications_consent_required' | 'timer_channel_reapproval_required' | 'notifications_unsupported' | 'people_unsupported' | 'people_permission_declined' | 'people_access' | 'configuration_conflict' | 'configuration_unavailable' | 'configuration_unsupported' | 'configuration_busy_timeout' | 'readiness_busy_timeout' | 'setup_forbidden' | 'setup_conflict' | 'setup_unresolved' | 'collection_setup_conflict' | 'setup_records_forbidden' | 'setup_changed' | 'installed_newer' | 'type_pack_conflict' | 'invalid_type_pack' | 'access_required' | 'access_declined' | 'access_undeclared' | 'files_access_missing' | 'files_scope_missing' | 'file_read_failed' | 'file_read_idle' | 'collection_delete_name_mismatch' | 'collection_delete_not_owner' | 'collection_delete_not_found' | 'collection_delete_frozen' | 'collection_delete_busy' | 'collection_delete_not_approved' | 'collection_delete_sign_in' | 'collection_delete_invalid' | 'collection_delete_outcome_unknown' | 'collection_delete_failed' | 'wrong_secret' | 'locked' | 'weak_password' | 'already_set_up' | 'no_account_key' | 'invalid_recovery_key' | 'unlock_strict' | 'unlock_unavailable' | 'unlock_failed' | 'private_device_limit' | 'private_device_not_allowed'
 
 Progress@wire.ts
   done: number
@@ -5292,7 +5255,7 @@ Proof@app-host/installation-sign-in.ts
   sign_pk: string
 
 PublishState@wire.ts
-  = 'publishing' | 'published' | 'not_published'
+  = 'published' | 'publishing' | 'not_published'
 
 PushHandler@session.ts
   = (payload: CborValue) => void
@@ -5303,32 +5266,32 @@ Query@client.ts
 QueryExecutionProfile@runtime/wasm.ts
   = 'desktop' | 'memory_constrained'
 
-QueryGroup@wire.ts
+QueryGroup@plain.ts
   count: number
-  summaries?: FmMap | undefined
-  values: FmMap
+  summaries?: { [key: string]: JsonValue; } | undefined
+  values: { [key: string]: JsonValue; }
 
-QueryMetadata@wire.ts
+QueryMetadata@plain.ts
   columns?: string[] | undefined
-  diagnostics?: Issue[] | undefined
+  diagnostics?: { code: string; severity: 'warning' | 'error'; message: string; details?: JsonValue | undefined; }[] | undefined
   groups?: QueryGroup[] | undefined
   hasMore?: boolean | undefined
   totalCount?: number | undefined
-  view?: ViewRef | undefined
+  view?: { path: string; view: string; } | undefined
 
-QueryResult@wire.ts
+QueryResult@plain.ts
   asOf: number
   columns?: string[] | undefined
   complete: boolean
   cursor?: string | undefined
-  diagnostics?: Issue[] | undefined
+  diagnostics?: { code: string; severity: 'warning' | 'error'; message: string; details?: JsonValue | undefined; }[] | undefined
   groups?: QueryGroup[] | undefined
   hasMore?: boolean | undefined
   records: RecordView[]
   totalCount?: number | undefined
-  view?: ViewRef | undefined
+  view?: { path: string; view: string; } | undefined
 
-QueryUpdate@wire.ts
+QueryUpdate@plain.ts
   added?: RecordView[] | undefined
   asOf: number
   changed?: RecordView[] | undefined
@@ -5348,11 +5311,14 @@ READ_MANY_MAX_REFS@read-helpers.ts
 ReadManyOptions@read-helpers.ts
   concurrency?: number | undefined
 
-Receipt@wire.ts
+ReadOptions@client.ts
+  signal?: AbortSignal | undefined
+
+Receipt@plain.ts
   conflicts?: Conflict[] | undefined
   mutation: string
-  preflight?: Preflight | undefined
-  problem?: Problem | undefined
+  preflight?: { rewrites: { record: Uuid; path: string; from: string; to: string; field?: string | undefined; }[]; broken: { record: Uuid; path: string; raw: string; target: Uuid; field?: string | undefined; }[]; } | undefined
+  problem?: { code: string; recovery: Recovery; message: string; reason?: string | undefined; details?: JsonValue | undefined; retryAfterMs?: number | undefined; issues?: { code: string; severity: 'warning' | 'error'; message: string; details?: JsonValue | undefined; }[] | undefined; traceId?: string | undefined; } | undefined
   published?: PublishState | undefined
   records?: RecordView[] | undefined
   relocatedFrom?: number | undefined
@@ -5383,6 +5349,10 @@ RecordOpenOptions@records/types.ts
   signal?: AbortSignal | undefined
   timeoutMs?: number | undefined
 
+RecordReadOptions@client.ts
+  include?: Include | undefined
+  signal?: AbortSignal | undefined
+
 RecordReader@transport/port.ts
   push: (chunk: Uint8Array) => Uint8Array[]
   static new (): RecordReader
@@ -5400,7 +5370,7 @@ RecordRecoveryRef@records/types.ts
   readonly recordId: string
 
 RecordRef@client.ts
-  = string | ContractRecordView | { path: string; } | RecordView
+  = string | RecordView | ContractRecordView | { path: string; }
 
 RecordResolution@records/types.ts
   = { readonly keep: 'mine' | 'theirs'; } | { readonly body: string; }
@@ -5416,7 +5386,7 @@ RecordSession@records/types.ts
 RecordSessionSnapshot@records/types.ts
   readonly body: string
   readonly dirty: boolean
-  readonly frontmatter: ReadonlyMap<string, CborValue>
+  readonly frontmatter: JsonObject
   readonly lastReceipt: Receipt | null
   readonly problem: Problem | null
   readonly record: RecordView
@@ -5425,13 +5395,35 @@ RecordSessionSnapshot@records/types.ts
   readonly state: RecordSessionState
 
 RecordSessionState@records/types.ts
-  = 'deleted' | 'conflict' | 'recovery' | 'error' | 'saved' | 'saved_on_device' | 'unsaved' | 'saving'
+  = 'deleted' | 'conflict' | 'error' | 'recovery' | 'saved_on_device' | 'saving' | 'saved' | 'unsaved'
 
-RecordState@wire.ts
-  confirmedSeq: number
-  hold?: HoldRef | undefined
-  state: 'pending' | 'confirmed'
-  unresolved?: number | undefined
+RecordSet@record-set.ts
+  close: () => void
+  get: (id: Uuid) => RecordView | undefined
+  getSnapshot: () => RecordSetSnapshot
+  readonly ready: Promise<void>
+  reload: () => Promise<void>
+  subscribe: (listener: RecordSetListener) => (() => void)
+  static new (client: SetClient, options?: RecordSetOptions): RecordSet
+
+RecordSetChange@record-set.ts
+  = { readonly kind: 'put'; readonly record: RecordView; readonly previous?: RecordView; } | { readonly kind: 'remove'; readonly previous: RecordView; }
+
+RecordSetListener@record-set.ts
+  = (changes: readonly RecordSetChange[]) => void
+
+RecordSetOptions@record-set.ts
+  include?: Include | undefined
+  signal?: AbortSignal | undefined
+  types?: readonly string[] | undefined
+
+RecordSetSnapshot@record-set.ts
+  readonly problem: Problem | null
+  readonly records: readonly RecordView[]
+  readonly state: RecordSetState
+
+RecordSetState@record-set.ts
+  = 'stale' | 'failed' | 'closed' | 'current' | 'loading'
 
 RecordValidation@validation.ts
   id: string
@@ -5439,22 +5431,22 @@ RecordValidation@validation.ts
   path: string
   revision: string
 
-RecordView@wire.ts
+RecordView@plain.ts
   body?: string | undefined
-  createdBy?: AuthorRef | undefined
-  diagnostics?: Issue[] | undefined
+  createdBy?: { account: Uuid; device: Uuid; grant?: Uuid | undefined; grantAccount?: Uuid | undefined; } | undefined
+  diagnostics?: { code: string; severity: 'warning' | 'error'; message: string; details?: JsonValue | undefined; }[] | undefined
   document?: string | undefined
-  effective?: FmMap | undefined
-  frontmatter: FmMap
+  effective?: { [key: string]: JsonValue; } | undefined
+  frontmatter: { [key: string]: JsonValue; }
   id: string
-  links?: LinkView[] | undefined
-  modifiedBy?: AuthorRef | undefined
+  links?: { raw: string; embed: boolean; resolution: { kind: LinkTargetKind; target?: Uuid | undefined; path?: string | undefined; candidates?: string[] | undefined; }; field?: string | undefined; }[] | undefined
+  modifiedBy?: { account: Uuid; device: Uuid; grant?: Uuid | undefined; grantAccount?: Uuid | undefined; } | undefined
   mtime?: number | undefined
   path: string
   revision: string
-  state: RecordState
+  state: { state: 'confirmed' | 'pending'; confirmedSeq: number; hold?: { id: Uuid; reason: HoldReason; } | undefined; unresolved?: number | undefined; }
   types: string[]
-  values?: FmMap | undefined
+  values?: { [key: string]: JsonValue; } | undefined
 
 RecordWrite@client.ts
   readonly confirmed: Promise<Receipt>
@@ -5546,8 +5538,8 @@ RuntimeInfo@runtime/wasm.ts
   sem: { major: number; minor: number; }
   serves: { major: number; minor: number; }[]
 
-RuntimeOp@runtime-wire.ts
-  = Op | ExtendedOp
+RuntimeText@runtime-wire.ts
+  = string | number
 
 SESSION_LIFETIME_MS@transport/noise-session.ts
   : number
@@ -5555,15 +5547,8 @@ SESSION_LIFETIME_MS@transport/noise-session.ts
 SLOW_OPENING_MS@application/phase.ts
   : 15000
 
-SaveResult@client.ts
-  readonly mutationId: string
-  readonly outcome: 'confirmed' | 'rejected' | 'saved_on_device'
-  readonly problem?: Problem | undefined
-  readonly record?: RecordView | undefined
-  readonly records: readonly RecordView[]
-
 SaveState@write-ledger.ts
-  = 'rejected' | 'saved' | 'saved_on_device' | 'saving'
+  = 'rejected' | 'saved_on_device' | 'saving' | 'saved'
 
 SchemaError@codec.ts
   cause?: unknown
@@ -5615,6 +5600,22 @@ Session@session.ts
   request: <T = CborValue>(method: string, params: CborValue, opts?: { signal?: AbortSignal; codec?: Codec<T>; }) => Promise<T>
   static new (port: FramePort, hello: HelloResult): Session
   static open: (connector: Connector, params: HelloParams, signal?: AbortSignal) => Promise<Session>
+
+SetClient@record-set.ts
+  = { readonly status: import("src/wire").SyncStatus; find: (ref: import("src/client").RecordRef, o?: import("src/client").RecordReadOptions) => Promise<RecordView | null>; pages: (query: import("src/client").Query, o?: import("src/client").RecordReadOptions & import("src/client").PagesOptions) => AsyncGenerator<import("src/plain").QueryResult>; watchChanges: (onChanges: (batch: ChangesResult) => void, o?: { cursor?: string; }) => ChangesWatch; onStatus: (fn: (s: import("src/wire").SyncStatus) => void) => () => void; readonly link: import("src/client").LinkState; }
+
+SettleOptions@settle.ts
+  read?: boolean | SettleRead | undefined
+  signal?: AbortSignal | undefined
+  timeoutMs?: number | undefined
+
+SettleRead@settle.ts
+  contract?: ContractSelector | undefined
+  include?: Include | undefined
+  record?: RecordRef | undefined
+
+Settlement@settle.ts
+  = (Kept & { readonly outcome: 'confirmed' | 'saved_on_device'; }) | (Kept & { readonly outcome: 'conflicted'; readonly conflicts: readonly Conflict[]; }) | { readonly outcome: 'rejected'; readonly mutationId?: Uuid; readonly receipt?: Receipt; readonly problem: Problem; } | { readonly outcome: 'unknown'; readonly mutationId: Uuid; readonly receipt?: Receipt; readonly problem: Problem; }
 
 SetupResult@private-account.ts
   incomplete?: string[] | undefined
@@ -5677,19 +5678,6 @@ StaticKey@transport/noise.ts
   dh: (remotePublic: Uint8Array) => Uint8Array | Promise<Uint8Array>
   publicKey: Uint8Array<ArrayBufferLike>
 
-StatusKind@status.ts
-  = 'collection_migrating' | 'collection_not_yet_migrated' | 'account_suspended' | 'update_required' | 'local' | 'offline' | 'synced' | 'catching_up' | 'installing'
-
-StatusSummary@status.ts
-  confirmedThrough: number | null
-  conflicts: number
-  health: TransportHealthKind | null
-  holds: number
-  kind: StatusKind
-  live: boolean | null
-  pending: number
-  text: string
-
 Stmt@app-storage/sqlite-index.ts
   readonly params: readonly SqlValue[]
   readonly sql: string
@@ -5724,7 +5712,7 @@ Strength@strength.ts
   acceptable: boolean
   bits: number
   feedback: string[]
-  score: 0 | 1 | 3 | 2 | 4
+  score: 0 | 1 | 2 | 3 | 4
 
 StrictPendingTarget@private-account.ts
   collectionId: string
@@ -5749,10 +5737,27 @@ SubmitParams@wire.ts
   ops: Op[]
   timezone?: string | undefined
   validation?: ValidationLevel | undefined
-  wait?: 'pending' | 'confirmed' | 'published' | undefined
+  wait?: 'published' | 'pending' | 'confirmed' | undefined
+
+SyncAttention@status.ts
+  = 'collection_migrating' | 'collection_not_yet_migrated' | 'account_suspended' | 'update_required' | 'storage_may_be_evicted' | 'conflicts' | 'rejected' | 'held' | 'incident'
+
+SyncInput@status.ts
+  readonly link?: 'closed' | 'open' | 'reconnecting' | undefined
+  readonly live?: boolean | null | undefined
+  readonly online?: boolean | undefined
+  readonly pendingForMs?: number | undefined
+  readonly problem?: string | null | undefined
+  readonly status: SyncStatus
+  readonly storageWarning?: boolean | undefined
+  readonly transport?: TransportHealth | null | undefined
+  readonly writes?: WriteLedgerSnapshot | null | undefined
 
 SyncMode@wire.ts
   = 'local_only' | 'synced'
+
+SyncState@status.ts
+  = 'reconnecting' | 'offline' | 'attention' | 'saved_on_device' | 'saving' | 'catching_up' | 'saved'
 
 SyncStatus@wire.ts
   confirmedHead?: ConfirmedHead | undefined
@@ -5776,11 +5781,9 @@ TemporalHint@wire.ts
   = 'none' | 'date' | 'date_time'
 
 TestApp@testing/test-app.ts
-  readonly application: MdbaseApplication
   client: (collectionId?: string) => MdbaseClient
   close: () => Promise<void>
   readonly controls: ApplicationFixtureControls
-  readonly entry: MdbaseApplicationEntry
   fail: (fault: TestAppFault) => void
   readonly mdbase: Mdbase
   replica: (collectionId?: string) => MemoryReplica
@@ -5790,7 +5793,7 @@ TestAppCollection@testing/test-app.ts
   readonly contracts?: MemoryContract[] | undefined
   readonly id?: string | undefined
   readonly name?: string | undefined
-  readonly records?: readonly { readonly path: string; readonly types?: string[]; readonly frontmatter?: Record<string, CborValue>; readonly body?: string; }[] | undefined
+  readonly records?: readonly { readonly path: string; readonly types?: string[]; readonly frontmatter?: Record<string, PlainValue>; readonly body?: string; }[] | undefined
   readonly role?: 'owner' | 'editor' | 'viewer' | undefined
 
 TestAppFault@testing/test-app.ts
@@ -5799,16 +5802,15 @@ TestAppFault@testing/test-app.ts
 TestAppOptions@testing/test-app.ts
   readonly collections?: readonly TestAppCollection[] | undefined
   readonly declaration?: MdbaseApplicationDeclaration | undefined
+  readonly messages?: Readonly<Partial<Record<'refused' | 'not_found' | 'conflict' | 'device_offline' | 'desktop_update_required' | 'old_connector_running' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'read_only' | 'capability_missing' | 'collection_deleted' | 'collection_unavailable' | 'moved_to_next_runtime' | 'device_approval_required' | 'collection_migrating' | 'collection_not_yet_migrated' | 'account_suspended' | 'update_required' | 'account_collection_quota_exceeded' | 'invalid_request' | 'invalid_record' | 'unauthenticated' | 'forbidden' | 'collection_invalid' | 'unavailable' | 'rate_limited' | 'quota_exceeded' | 'too_large' | 'outcome_unknown' | 'internal' | 'expired' | 'approval_window_closed' | 'account_confirmation_required' | 'recovery_required' | 'open_failed' | 'busy' | 'open_in_another_tab' | 'not_authorized' | 'sign_out_pending_writes' | 'sign_out_failed' | 'application_popup_blocked' | 'sign_in_window' | 'application_not_yet_available' | 'application_failed' | 'application_worker_unavailable' | 'browser_unsupported' | 'application_storage_unavailable' | 'storage_may_be_evicted' | 'application_registration_unsupported' | 'application_registration_refused' | 'application_selection_not_approved' | 'application_selection_invalid' | 'installation_scope_removed' | 'recovery_account_mismatch' | 'assets' | 'setup_required' | 'incompatible' | 'approval_required' | 'contract_mismatch' | 'contract_missing' | 'implementation_missing' | 'catalog_invalid' | 'catalog_response' | 'type_invalid' | 'readiness_budget' | 'readiness_unsupported' | 'notifications_consent_required' | 'timer_channel_reapproval_required' | 'notifications_unsupported' | 'people_unsupported' | 'people_permission_declined' | 'people_access' | 'configuration_conflict' | 'configuration_unavailable' | 'configuration_unsupported' | 'configuration_busy_timeout' | 'readiness_busy_timeout' | 'setup_forbidden' | 'setup_conflict' | 'setup_unresolved' | 'collection_setup_conflict' | 'setup_records_forbidden' | 'setup_changed' | 'installed_newer' | 'type_pack_conflict' | 'invalid_type_pack' | 'access_required' | 'access_declined' | 'access_undeclared' | 'files_access_missing' | 'files_scope_missing' | 'file_read_failed' | 'file_read_idle' | 'collection_delete_name_mismatch' | 'collection_delete_not_owner' | 'collection_delete_not_found' | 'collection_delete_frozen' | 'collection_delete_busy' | 'collection_delete_not_approved' | 'collection_delete_sign_in' | 'collection_delete_invalid' | 'collection_delete_outcome_unknown' | 'collection_delete_failed' | 'wrong_secret' | 'locked' | 'weak_password' | 'already_set_up' | 'no_account_key' | 'invalid_recovery_key' | 'unlock_strict' | 'unlock_unavailable' | 'unlock_failed' | 'private_device_limit' | 'private_device_not_allowed' | 'unknown', import("src/describe-error").MdbaseProblemMessages>>> | undefined
   readonly people?: readonly { readonly name: string; readonly role?: AppInstallationCollection['role']; }[] | undefined
   readonly phase?: TestAppPreset | undefined
 
 TestAppPreset@testing/test-app.ts
-  = 'opening' | 'ready' | 'signed_out' | 'choosing' | 'needs_setup' | 'second_tab' | { readonly problem: ProblemCode; } | { readonly needsUnlock: 'password' | 'strict' | 'none'; }
+  = 'ready' | 'signed_out' | 'choosing' | 'opening' | 'needs_setup' | 'second_tab' | { readonly problem: ProblemCode; } | { readonly needsUnlock: 'password' | 'strict' | 'none'; }
 
 TestMdbase@testing/test-app.ts
   addCollection: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
-  addPrivateCollection: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
-  readonly application: MdbaseApplication
   approve: (collectionId?: string | null, options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
   assess: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationReadinessSnapshot>
   chooseAnother: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
@@ -5933,7 +5935,7 @@ TypeCreation@client.ts
   write: Write
 
 TypePackAction@type-packs.ts
-  = 'delete' | 'create' | 'conflict' | 'update' | 'adopt' | 'unchanged' | 'preserve'
+  = 'delete' | 'conflict' | 'create' | 'update' | 'adopt' | 'unchanged' | 'preserve'
 
 TypePackApplyResult@type-packs.ts
   outcome: 'pending' | 'applied' | 'preview' | 'already_current'
@@ -6004,13 +6006,13 @@ TypePackResourceKind@type-packs.ts
 TypePackStatus@type-packs.ts
   = 'conflict' | 'upgrade' | 'current' | 'install' | 'downgrade' | 'reconfigure'
 
-TypeSummary@wire.ts
-  definition?: CborValue | undefined
+TypeSummary@plain.ts
+  definition?: JsonValue | undefined
   implements: ContractImplementation[]
   name: string
   path: string
   revision?: string | undefined
-  schema?: CborValue | undefined
+  schema?: JsonValue | undefined
   version?: number | undefined
 
 TypingEntry@wire.ts
@@ -6055,7 +6057,7 @@ Uuid@wire.ts
 
 ValidationIssue@validation.ts
   code: string
-  details?: CborValue | undefined
+  details?: JsonValue | undefined
   location?: string | undefined
   message: string
   severity: 'warning' | 'error'
@@ -6066,30 +6068,19 @@ ValidationLevel@wire.ts
   = 'error' | 'off' | 'warn'
 
 Value@wire.ts
-  = string | number | bigint | boolean | import("src/cbor").CborMap | import("src/cbor").Float64 | Uint8Array<ArrayBufferLike> | CborValue[] | null
+  = string | number | bigint | boolean | import("src/cbor").Float64 | Uint8Array<ArrayBufferLike> | CborValue[] | import("src/cbor").CborMap | null
 
 Version@wire.ts
   major: number
   minor: number
 
-ViewDescriptor@wire.ts
+ViewDescriptor@plain.ts
   id: string
   name: string
-  presentation?: CborValue | undefined
-  properties: ViewProperty[]
+  presentation?: JsonValue | undefined
+  properties: { key: string; label?: string | undefined; description?: string | undefined; format?: string | undefined; hidden?: boolean | undefined; }[]
 
-ViewProperty@wire.ts
-  description?: string | undefined
-  format?: string | undefined
-  hidden?: boolean | undefined
-  key: string
-  label?: string | undefined
-
-ViewRef@wire.ts
-  path: string
-  view: string
-
-ViewSource@wire.ts
+ViewSource@plain.ts
   id: string
   name: string
   record: string
@@ -6122,7 +6113,7 @@ ViewSourceWriteOptions@view-sources.ts
   signal?: AbortSignal | undefined
   timezone?: string | undefined
   validation?: ValidationLevel | undefined
-  wait?: 'pending' | 'confirmed' | 'published' | undefined
+  wait?: 'published' | 'pending' | 'confirmed' | undefined
 
 WasmRuntime@runtime/wasm.ts
   connect: (o?: InProcessConnectOptions & { clientKey?: Uint8Array; }) => FramePort
@@ -6163,6 +6154,7 @@ Write@client.ts
   onReceipt: (fn: ReceiptListener) => () => void
   readonly published: Promise<Receipt>
   receipt: Receipt
+  recordId?: string | undefined
   readonly records: RecordView[]
   readonly state: import("src/wire").ReceiptState
   update: (r: Receipt) => void
@@ -6201,7 +6193,7 @@ WriteOptions@client.ts
   signal?: AbortSignal | undefined
   timezone?: string | undefined
   validation?: ValidationLevel | undefined
-  wait?: 'pending' | 'confirmed' | 'published' | undefined
+  wait?: 'published' | 'pending' | 'confirmed' | undefined
 
 accountKeyRewrapDigest@account-key.ts
   : (account: string, bundleBytes: Uint8Array, expectedVersion: number) => Uint8Array
@@ -6303,7 +6295,7 @@ createApplicationFixture@testing/application.ts
   : (options: ApplicationFixtureOptions) => ApplicationFixture
 
 createMdbase@application/front-door.ts
-  : (declaration: MdbaseApplicationDeclaration, options?: MdbaseConnectOptions) => Mdbase
+  : (declaration: MdbaseApplicationDeclaration, options?: MdbaseOptions) => Mdbase
 
 createTestApp@testing/test-app.ts
   : (options?: TestAppOptions) => Promise<TestApp>
@@ -6452,6 +6444,9 @@ isErrorCode@errors.ts
 isMdbaseError@errors.ts
   : (e: unknown, code?: ErrorCode) => e is MdbaseError
 
+isProtected@records/witness.ts
+  : (record: RecordView) => boolean
+
 isReadyPhase@application/phase.ts
   : (phase: MdbasePhase | null | undefined, collectionId?: string) => phase is Extract<MdbasePhase, { kind: 'ready'; }>
 
@@ -6561,7 +6556,7 @@ problemCodeOf@describe-error.ts
   : (code: string) => ProblemCode | null
 
 queryPages@read-helpers.ts
-  : (client: Pick<MdbaseClient, 'pages'>, query: Query, include?: Include, signal?: AbortSignal, options?: PagesOptions) => AsyncGenerator<QueryResult>
+  : (client: Pick<MdbaseClient, 'pages'>, query: Query, o?: RecordReadOptions & PagesOptions) => AsyncGenerator<QueryResult>
 
 readAccountKeyMode@app-host/account-key-host.ts
   : (session: AppAccountKeySession, options: AppAccountKeyHostOptions & { signal: AbortSignal; }) => Promise<AccountKeyMode>
@@ -6573,7 +6568,7 @@ readLocalLink@node.ts
   : (stateDir?: string) => Promise<LocalLink>
 
 readMany@read-helpers.ts
-  : (client: Pick<MdbaseClient, 'get'>, refs: readonly RecordRef[], include?: Include, signal?: AbortSignal, options?: ReadManyOptions) => Promise<RecordView[]>
+  : (client: Pick<MdbaseClient, 'get'>, refs: readonly RecordRef[], o?: RecordReadOptions & ReadManyOptions) => Promise<RecordView[]>
 
 readMdbaseNotificationData@notifications.ts
   : (data: unknown) => MdbaseNotification | null
@@ -6629,8 +6624,8 @@ streamCarrier@transport/noise-session.ts
 structMap@cbor.ts
   : (entries: [number, CborValue | undefined][]) => Map<number, CborValue>
 
-summarizeStatus@status.ts
-  : (s: SyncStatus, problem?: string | null, transport?: TransportHealth | null, live?: boolean | null) => StatusSummary
+summarizeSync@status.ts
+  : (input: SyncInput) => MdbaseSync
 
 syncStatusText@holds.ts
   : (s: SyncStatus) => string
@@ -6638,10 +6633,10 @@ syncStatusText@holds.ts
 toHex@cbor.ts
   : (b: Uint8Array) => string
 
-toPlain@values.ts
-  : (v: CborValue) => JsonLike
+toPlain@plain.ts
+  : (v: CborValue) => JsonValue
 
-toValue@values.ts
+toValue@plain.ts
   : (v: PlainValue | undefined) => CborValue
 
 unlockPrivateDevice@app-host/account-key-host.ts

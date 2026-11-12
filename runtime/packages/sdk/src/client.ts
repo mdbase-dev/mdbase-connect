@@ -19,6 +19,7 @@ import { list, uint, uuid as uuidCodec, uuidFromBytes } from "./codec.js";
 import {recordValidations, captureValidation, bindValidation, type RecordValidation} from "./validation.js";
 import { isMdbaseError, mdbaseError, MdbaseError } from "./errors.js";
 import { FilesApi } from "./files.js";
+import { settleWrite, type Settlement, type SettleOptions } from "./settle.js";
 import { readMany as readManyRecords, queryPages as readQueryPages, type ReadManyOptions } from "./read-helpers.js";
 import {RecordsApi, type Records, type RecordOpenOptions, type RecordLease} from "./records.js";
 import {executeSavedView, listSavedViews, readSavedViewSource, type ExecuteViewOptions, type ListViewsResult} from "./saved-views.js";
@@ -26,6 +27,7 @@ import {createViewSource, updateViewSource, readViewSourceRecord, type ViewSourc
 import { contractRecordWire, contractWritePlan, type ContractRecordView, type ContractSelector, type ContractWritePlan } from "./contract-records.js";
 import { contractQueryResult, type ContractQueryOptions, type ContractQueryResult, type ContractRef } from "./contract-query.js";
 import { LiveListener, LiveQueryState, LiveResult } from "./live.js";
+import { RecordSet, type RecordSetOptions } from "./record-set.js";
 import { PresenceApi } from "./presence.js";
 import { rememberWitness, witnessesFor } from "./witness.js";
 import { API_VERSIONS, problemCodec, schemaToError, Session, withMutation } from "./session.js";
@@ -43,11 +45,9 @@ import {
   AccountKeyStatus,
 } from "./private.js";
 import {
-  BacklinksResult,
   backlinksResult,
   ResolveLinksResult,
   resolveLinksResult,
-  DescribeResult,
   describeResult,
   newTypeFile,
   DescribeTypingResult,
@@ -56,21 +56,22 @@ import {
   DESCRIBE_TYPING_MAX_TYPES,
   listPendingResult,
   listResourcesResult,
-  PendingMutation,
   Preflight,
   ResourceView,
   resourceView,
   ViewSourceDocument,
 } from "./wire.js";
 import { memoryWriteLedgerStore, WriteLedger, type WriteLedgerStore, type WriteLedgerView } from "./write-ledger.js";
-import type { Problem } from "./wire.js";
+import { decodePlain, plainAnswer, type Codec } from "./codec.js";
+import type { Plain } from "./plain.js";
+import type { BacklinksResult, ConflictEntry, DescribeResult, PendingMutation, QueryResult, QueryUpdate, Receipt, RecordView } from "./plain.js";
+import type { HelloResult, Hold, Problem, SyncStatus } from "./wire.js";
 import {
   BaseField,
   BodyEdit,
   changesResult,
   ChangesResult,
   conflictEntry,
-  ConflictEntry,
   ConflictMode,
   fenceApply,
   FenceApply,
@@ -79,27 +80,20 @@ import {
   fenceResult,
   FmMap,
   hold,
-  Hold,
   HoldResolution,
   holdResolution,
-  HelloResult,
   include as includeCodec,
   Include,
   Op,
   queryResult,
-  QueryResult,
   queryUpdate,
-  QueryUpdate,
   receipt as receiptCodec,
-  Receipt,
   recordView,
-  RecordView,
   submitParams,
   SubmitParams,
   ValidationLevel,
   submitResult,
   syncStatus,
-  SyncStatus,
   appliedPrefix as appliedPrefixCodec,
   appliedPrefixParams,
   AppliedPrefix,
@@ -126,16 +120,6 @@ export interface ClientOptions {
   signal?: AbortSignal;
 }
 
-/** What {@link MdbaseClient.save} settled to. */
-export interface SaveResult {
-  readonly outcome: "confirmed" | "saved_on_device" | "rejected";
-  readonly mutationId: Uuid;
-  readonly records: readonly RecordView[];
-  /** The first record, read back when asked. */
-  readonly record?: RecordView;
-  readonly problem?: Problem;
-}
-
 /** A type created by {@link MdbaseClient.createType}. */
 export interface TypeCreation {
   name: string;
@@ -155,7 +139,6 @@ export type LinkState = "open" | "reconnecting" | "closed";
 
 /** Local subscription state, not cache completeness or fresh authority. */
 export type ChangesWatchState = "starting" | "active" | "stale" | "failed" | "closed";
-/** Callable for compatibility with the former stop-only return value. */
 export interface ChangesWatch {
   (): void;
   /** First current-session watch ACK; rejects initial failure or stop. */
@@ -164,6 +147,9 @@ export interface ChangesWatch {
   readonly error: MdbaseError | null;
   subscribe(listener: (state: ChangesWatchState, error: MdbaseError | null) => void): () => void;
 }
+
+/** Changes asked for at a time while a watch catches up from its cursor. */
+const CHANGES_PAGE = 1000;
 
 /** A spec 11 query object. Plain objects are converted to data maps. */
 export type Query = {
@@ -296,6 +282,17 @@ export interface UpdateInput {
   promote?: boolean;
 }
 
+/** What every read takes. */
+export interface ReadOptions {
+  signal?: AbortSignal;
+}
+
+/** A read that returns records. */
+export interface RecordReadOptions extends ReadOptions {
+  /** What each record carries beyond its path, type and frontmatter. */
+  include?: Include;
+}
+
 export interface WriteOptions {
   mutationId?: Uuid;
   /**
@@ -359,6 +356,9 @@ export class Write {
    * Rejects rejected/unknown outcomes; not a native custody/durable ACK gate. */
   readonly published: Promise<Receipt>;
 
+  /** The record a single-record write targets (create, update, replace, rename, delete). */
+  recordId?: Uuid;
+
   constructor(public receipt: Receipt) {
     this.confirmed = new Promise((resolve, reject) => (this.settle = { resolve, reject }));
     this.published = new Promise((resolve, reject) => (this.settlePublished = { resolve, reject }));
@@ -412,8 +412,8 @@ export class Write {
   }
 }
 
-/** A create receipt with the record identity minted by the SDK, even when the
- * replica omits optimistic records from its response. */
+/** A create, with the record ID the SDK minted: known even when the replica
+ * omits optimistic records from its response. */
 export interface RecordWrite extends Write {
   readonly recordId: Uuid;
 }
@@ -471,8 +471,11 @@ export class LiveQuery implements LiveQueryState {
     return () => this.listeners.delete(fn);
   }
 
-  /** Change the query (for example a larger `limit` window). Re-subscribes. */
-  async setQuery(query: Query, include = this.include): Promise<void> {
+  /** Change the query (for example a larger `limit` window). Re-subscribes.
+   * `o.include` replaces what each record carries; without it the current
+   * include is kept. */
+  async setQuery(query: Query, o: { include?: Include } = {}): Promise<void> {
+    const { include = this.include } = o;
     this.query = query;
     this.include = include;
     this.result.markStale();
@@ -774,9 +777,9 @@ export class MdbaseClient {
 
   /** Recheck session identity after waiting for catch-up (SDK-internal use). */
   async readyForRead(signal?: AbortSignal, immediate = false): Promise<Session> {
-    if (!this.fenceReads) return immediate ? this.currentSession() : this.ready(signal);
+    if (!this.fenceReads) return immediate ? this.currentSession() : this.ready({ signal });
     for (;;) {
-      const s = immediate ? this.currentSession() : await this.ready(signal);
+      const s = immediate ? this.currentSession() : await this.ready({ signal });
       await this.readFence(signal);
       if (s === this.session && !s.closed && this.readFencedAt === null) return s;
       if (immediate) this.currentSession();
@@ -808,8 +811,9 @@ export class MdbaseClient {
     return this.session;
   }
 
-  /** @internal Wait until a session is open (or the client closes). */
-  async ready(signal?: AbortSignal): Promise<Session> {
+  /** @internal Wait until a session is open (or the client closes); `o.signal` cancels the wait. */
+  async ready(o: ReadOptions = {}): Promise<Session> {
+    const signal = o.signal;
     for (;;) {
       if (this.linkState === "closed") throw this.linkError ?? mdbaseError("unavailable", "client closed");
       if (this.session && !this.session.closed) return this.session;
@@ -824,20 +828,29 @@ export class MdbaseClient {
   /**
    * Advanced: run a request on the current session; on a dropped link, wait for the
    * reconnect and retry when `retry` (idempotent requests only).
+   *
+   * With a `codec` the answer is decoded and its values are plain JSON, as from
+   * every other method. Without one it is the exact CBOR answer: decode that
+   * with a `wire` codec to keep `Map` order, `Float64` and `bigint`.
    */
-  async call<T = CborValue>(
+  call(method: string, p: CborValue, o?: { signal?: AbortSignal; retry?: boolean }): Promise<CborValue>;
+  call<T>(method: string, p: CborValue, o: { signal?: AbortSignal; codec: Codec<T>; retry?: boolean }): Promise<Plain<T>>;
+  async call<T>(
     method: string,
     p: CborValue,
-    o: { signal?: AbortSignal; codec?: import("./codec.js").Codec<T>; retry?: boolean } = {},
-  ): Promise<T> {
+    o: { signal?: AbortSignal; codec?: Codec<T>; retry?: boolean } = {},
+  ): Promise<CborValue | Plain<T>> {
     // Pin the decoder before any route/request await. Observation must use the
     // SAME codec passed to dispatch, not caller options mutated while pending.
     const codec = o.codec;
     const read = this.fenceReads && READ_METHODS.has(method);
     for (;;) {
-      const s = read ? await this.readyForRead(o.signal, !o.retry) : o.retry ? await this.ready(o.signal) : this.currentSession();
+      const s = read ? await this.readyForRead(o.signal, !o.retry) : o.retry ? await this.ready({ signal: o.signal }) : this.currentSession();
       try {
-        const r = await s.request(method, p, { ...(o.signal ? { signal: o.signal } : {}), ...(codec ? { codec } : {}) });
+        const r = await s.request<CborValue | Plain<T>>(method, p, {
+          ...(o.signal ? { signal: o.signal } : {}),
+          ...(codec ? { codec: plainAnswer(codec) } : {}),
+        });
         if (read && (s !== this.session || s.closed || this.closing)) {
           if (o.retry && !this.closing) continue;
           throw mdbaseError("unavailable", "the session changed during the read", { reason: "reconnecting" });
@@ -889,7 +902,7 @@ export class MdbaseClient {
       if (this.fenceReads && this.session !== s) return;
       let u: QueryUpdate;
       try {
-        u = queryUpdate.dec(p);
+        u = decodePlain(queryUpdate, p);
       } catch {
         return;
       }
@@ -907,7 +920,7 @@ export class MdbaseClient {
     });
     s.onPush("receipt", (p) => {
       try {
-        const r = receiptCodec.dec(p);
+        const r = decodePlain(receiptCodec, p);
         if (this.session === s) this.noteReceipt(r);
         const w = this.writes.get(r.mutation);
         if (w) {
@@ -940,7 +953,7 @@ export class MdbaseClient {
     });
     s.onPush("conflicts", (p) => {
       try {
-        this.emitConflicts(list(conflictEntry).dec(p));
+        this.emitConflicts(decodePlain(list(conflictEntry), p));
       } catch {
         // ignore
       }
@@ -1090,11 +1103,12 @@ export class MdbaseClient {
    * revalidate the authenticated session and all readiness gates after any await.
    * Missing chain or any error means remain hosted; never substitute asOf or the
    * current head/generations. Decoding does not authenticate a witness or switch.
+   * `o.signal` cancels the read.
    */
-  async appliedPrefix(seq: number, signal?: AbortSignal): Promise<AppliedPrefix> {
+  async appliedPrefix(seq: number, o: ReadOptions = {}): Promise<AppliedPrefix> {
     const p = appliedPrefixParams.enc({ seq });
     const r = await this.call("applied_prefix", p, {
-      codec: appliedPrefixCodec, retry: false, ...(signal ? { signal } : {}),
+      codec: appliedPrefixCodec, retry: false, ...(o.signal ? { signal: o.signal } : {}),
     });
     if (r.seq !== seq || (r.chain !== undefined && (seq === 0 || r.appliedThrough < seq))) {
       throw mdbaseError("invalid_request", "applied_prefix: inconsistent historical proof", "prefix_response");
@@ -1130,9 +1144,9 @@ export class MdbaseClient {
    * definition and schema and each contract's schemas, bounded by the replica
    * (`too_large` when over budget; read them with `resources.get` instead).
    * A producer that cannot describe definitions fails `upgrade_required`.
+   * `o.signal` cancels the read.
    */
-  async describe(options: AbortSignal | DescribeOptions = {}): Promise<DescribeResult> {
-    const o: DescribeOptions = options instanceof AbortSignal ? { signal: options } : options;
+  async describe(o: DescribeOptions = {}): Promise<DescribeResult> {
     const result = await this.call("describe", o.definitions ? params([[0, true]]) : null, {
       codec: describeResult,
       retry: true,
@@ -1169,15 +1183,16 @@ export class MdbaseClient {
    * Core's temporal typing for top-level fields under a query's exact `types` OR list
    * (`date` / `date_time` only when every type agrees; otherwise `none`). The answer is
    * bound to a catalog generation; nested paths are `none`. The SDK never infers typing.
+   * `o.signal` cancels the read.
    */
-  describeTyping(types: readonly string[], paths: readonly string[], signal?: AbortSignal): Promise<DescribeTypingResult> {
+  describeTyping(types: readonly string[], paths: readonly string[], o: ReadOptions = {}): Promise<DescribeTypingResult> {
     const strings = (a: readonly string[], max: number) =>
       Array.isArray(a) && a.length <= max && a.every((s) => typeof s === "string" && s.length > 0 && s.length <= 1024);
     if (!strings(types, DESCRIBE_TYPING_MAX_TYPES) || !strings(paths, DESCRIBE_TYPING_MAX_PATHS)) {
       return Promise.reject(mdbaseError("invalid_request", "describe_typing: at most 64 types and 256 non-empty paths", "typing_bounds"));
     }
     return this.call("describe_typing", params([[0, [...types]], [1, [...paths]]]), {
-      codec: describeTypingResult, retry: true, ...(signal ? { signal } : {}),
+      codec: describeTypingResult, retry: true, ...(o.signal ? { signal: o.signal } : {}),
     }).then((r) => {
       if (r.fields.length !== paths.length || r.fields.some((f, i) => f.path !== paths[i])) {
         throw mdbaseError("internal", "describe_typing answered for different paths", "invalid_typing_response");
@@ -1186,15 +1201,16 @@ export class MdbaseClient {
     });
   }
 
-  /** One record by ID or path. Throws `not_found`. */
-  get(ref: RecordRef, include?: Include, signal?: AbortSignal): Promise<RecordView> {
+  /** One record by ID or path. Throws `not_found`. `o.include` adds the body
+   * and other parts to the record; `o.signal` cancels the read. */
+  get(ref: RecordRef, o: RecordReadOptions = {}): Promise<RecordView> {
     return this.call(
       "get",
       params([
         [0, refValue(ref)],
-        [1, includeValue(include)],
+        [1, includeValue(o.include)],
       ]),
-      { codec: recordView, retry: true, ...(signal ? { signal } : {}) },
+      { codec: recordView, retry: true, ...(o.signal ? { signal: o.signal } : {}) },
     );
   }
 
@@ -1205,11 +1221,12 @@ export class MdbaseClient {
    * `invalid_request`/`data_contract_ambiguous` (select `type`; details: the types),
    * `invalid_record`/`data_contract_record_invalid` (with issues), and
    * `upgrade_required`/`contract_records_unsupported` from an older replica.
+   * `o.signal` cancels the read.
    */
-  async getContract(ref: RecordRef, contract: ContractSelector, signal?: AbortSignal): Promise<ContractRecordView> {
+  async getContract(ref: RecordRef, contract: ContractSelector, o: ReadOptions = {}): Promise<ContractRecordView> {
     const r = await this.contractCall("get_contract_v1", params([
       [0, 1], [1, refValue(ref)], [2, contract.id], [3, contract.version], [4, contract.type],
-    ]), contractRecordWire, signal);
+    ]), (answer) => decodePlain(contractRecordWire, answer), o.signal);
     if (r.version !== 1) throw mdbaseError("upgrade_required", "unsupported contract record", "contract_records_unsupported");
     return {
       id: r.id, path: r.path, revision: r.revision, fields: r.fields,
@@ -1230,35 +1247,37 @@ export class MdbaseClient {
       [0, 1], [1, contract.id], [2, contract.version], [3, contract.type],
       [4, target === undefined ? undefined : refValue(target)], [5, fields], [6, unset?.length ? unset : undefined],
       [7, promote ? true : undefined],
-    ]), contractWritePlan, signal);
+      // Exact: the plan's patch and base go back in an op unchanged.
+    ]), contractWritePlan.dec, signal);
     if (plan.version !== 1) throw mdbaseError("upgrade_required", "unsupported contract write plan", "contract_records_unsupported");
     return plan;
   }
 
-  private contractCall<T>(method: string, p: CborValue, codec: import("./codec.js").Codec<T>, signal?: AbortSignal): Promise<T> {
-    return this.call(method, p, { codec, retry: true, ...(signal ? { signal } : {}) }).catch((e: unknown) => {
+  private async contractCall<T>(method: string, p: CborValue, decode: (answer: CborValue) => T, signal?: AbortSignal): Promise<T> {
+    let answer: CborValue;
+    try {
+      answer = await this.call(method, p, { retry: true, ...(signal ? { signal } : {}) });
+    } catch (e) {
       if (isMdbaseError(e, "invalid_request") && e.reason === "unknown_method") {
         throw mdbaseError("upgrade_required", "this replica does not serve contract-scoped records", "contract_records_unsupported");
       }
       throw e;
-    });
+    }
+    try { return decode(answer); } catch (e) { throw schemaToError(e, `${method} result`); }
   }
 
   /** Bounded ordered ordinary gets. Missing/refused reads fail the batch;
-   * duplicate slots and the original signal are retained, not a snapshot. */
-  readMany(
-    refs: readonly RecordRef[],
-    include?: Include,
-    signal?: AbortSignal,
-    options: ReadManyOptions = {},
-  ): Promise<RecordView[]> {
-    return readManyRecords(this, refs, include, signal, options);
+   * duplicate slots and the original signal are retained, not a snapshot.
+   * `o.include` and `o.signal` apply to every get; `o.concurrency` bounds the
+   * gets in flight. */
+  readMany(refs: readonly RecordRef[], o: RecordReadOptions & ReadManyOptions = {}): Promise<RecordView[]> {
+    return readManyRecords(this, refs, o);
   }
 
-  /** One record, or `null` when there is none. */
-  async find(ref: RecordRef, include?: Include, signal?: AbortSignal): Promise<RecordView | null> {
+  /** One record, or `null` when there is none. `o` is as for {@link get}. */
+  async find(ref: RecordRef, o: RecordReadOptions = {}): Promise<RecordView | null> {
     try {
-      return await this.get(ref, include, signal);
+      return await this.get(ref, o);
     } catch (e) {
       if (isMdbaseError(e, "not_found")) return null;
       throw e;
@@ -1268,19 +1287,21 @@ export class MdbaseClient {
   /**
    * One page of a query, evaluated by the replica (body predicates and links
    * included, §4). Pass `result.cursor` back as `query.cursor` for the next.
-   * `opts.contract` is not supported by the live replica dispatch. Supplying it
+   * `o.include` adds the body and other parts to each record; `o.signal`
+   * cancels the read.
+   * `o.contract` is not supported by the live replica dispatch. Supplying it
    * returns `invalid_request` with reason `unknown_param`; no contract filter
    * is applied. The option remains encoded unchanged for API compatibility.
    */
-  query(query: Query, include?: Include, signal?: AbortSignal, opts: { contract?: string } = {}): Promise<QueryResult> {
+  query(query: Query, o: RecordReadOptions & { contract?: string } = {}): Promise<QueryResult> {
     return this.call(
       "query",
       params([
         [0, toValue(query)],
-        [1, includeValue(include)],
-        [2, opts.contract],
+        [1, includeValue(o.include)],
+        [2, o.contract],
       ]),
-      { codec: queryResult, retry: true, ...(signal ? { signal } : {}) },
+      { codec: queryResult, retry: true, ...(o.signal ? { signal: o.signal } : {}) },
     );
   }
 
@@ -1365,8 +1386,9 @@ export class MdbaseClient {
 
   /** Definitions: `mdbase.yaml`, type files, contract files (§4.1). */
   readonly resources = {
-    get: (path: string, signal?: AbortSignal): Promise<ResourceView> =>
-      this.call("get_resource", params([[0, path]]), { codec: resourceView, retry: true, ...(signal ? { signal } : {}) }),
+    /** One definition by path. `o.signal` cancels the read. */
+    get: (path: string, o: ReadOptions = {}): Promise<ResourceView> =>
+      this.call("get_resource", params([[0, path]]), { codec: resourceView, retry: true, ...(o.signal ? { signal: o.signal } : {}) }),
     /** One bounded resource inventory page. Text defaults to false; limit defaults
      * to 64 (maximum 128). Preserve folder/text/limit on continuation. Collect all
      * pages before assessing a complete snapshot; stale/expired cursors require
@@ -1394,19 +1416,19 @@ export class MdbaseClient {
       if (o.baseRevision && o.mustNotExist) {
         return Promise.reject(mdbaseError("invalid_request", "baseRevision and mustNotExist are exclusive"));
       }
-      return this.one(
-        {
+      return this.submit(
+        [{
           kind: "resource_put",
           path,
           doc,
           ...(o.baseRevision ? { baseRevision: o.baseRevision } : {}),
           ...(o.mustNotExist ? { mustNotExist: true } : {}),
-        },
+        }],
         o,
       );
     },
     delete: (path: string, o: WriteOptions & { baseRevision?: string } = {}): Promise<Write> =>
-      this.one({ kind: "resource_delete", path, ...(o.baseRevision ? { baseRevision: o.baseRevision } : {}) }, o),
+      this.submit([{ kind: "resource_delete", path, ...(o.baseRevision ? { baseRevision: o.baseRevision } : {}) }], o),
   };
 
   /** Type packs: `plan` (writes nothing), review, then `apply(plan)` as one
@@ -1430,22 +1452,27 @@ export class MdbaseClient {
     getSourceRecord: (source: RecordRef, options: ViewSourceReadOptions = {}): Promise<RecordView> =>
       readViewSourceRecord(this, source, options),
     /** `mdbase.view` sources (spec 12 `list_views` shape), resolved over served
-     * contract queries: the native runtime has no `list_views` RPC. */
-    list: (folder?: string, signal?: AbortSignal): Promise<ListViewsResult> => listSavedViews(this, folder, signal),
+     * contract queries: the native runtime has no `list_views` RPC. `o.folder`
+     * keeps the sources under one folder; `o.signal` cancels the read. */
+    list: (o: { folder?: string; signal?: AbortSignal } = {}): Promise<ListViewsResult> => listSavedViews(this, o),
     /** Spec 11 named-view resolution, executed as one ordinary native query. */
     execute: (source: RecordRef, view: string, o: ExecuteViewOptions = {}): Promise<QueryResult> =>
       executeSavedView(this, source, view, o),
-    readSource: (source: RecordRef, signal?: AbortSignal): Promise<ViewSourceDocument> =>
-      readSavedViewSource(this, source, signal),
+    /** The current source document of one `mdbase.view` record. `o.signal`
+     * cancels the read. */
+    readSource: (source: RecordRef, o: ReadOptions = {}): Promise<ViewSourceDocument> =>
+      readSavedViewSource(this, source, o),
   };
 
   /**
    * Pending mutations of this session's owner (its grant, or the device), oldest
    * first (§6): a new session after a reload sees writes made before it. Follow
    * each with `awaitReceipt`, or keep the `mutationId` you chose and call
-   * `receipt(id)` / `awaitReceipt(id)`. Pages through everything.
+   * `receipt(id)` / `awaitReceipt(id)`. Pages through everything; `o.signal`
+   * cancels the read.
    */
-  async pendingWrites(signal?: AbortSignal): Promise<PendingMutation[]> {
+  async pendingWrites(o: ReadOptions = {}): Promise<PendingMutation[]> {
+    const signal = o.signal;
     const out: PendingMutation[] = [];
     let after: string | undefined;
     for (;;) {
@@ -1474,29 +1501,32 @@ export class MdbaseClient {
   }
 
   private async preflight(op: Op): Promise<Preflight> {
-    const [w] = await this.submit([op], { dryRun: true });
-    const r = w!.receipt;
+    const r = (await this.submit([op], { dryRun: true })).receipt;
     if (r.state === "rejected") throw new MdbaseError(r.problem!);
     return r.preflight ?? { rewrites: [], broken: [] };
   }
 
-  /** Every page of a query. Cursor resets require explicit caller clearing;
-   * otherwise cursor_expired/cursor_stale is thrown unchanged. */
-  async *pages(query: Query, include?: Include, signal?: AbortSignal, options: PagesOptions = {}): AsyncGenerator<QueryResult> {
+  /** Every page of a query. `o.include` and `o.signal` apply to every page.
+   * Cursor resets require explicit caller clearing through `o.onReset`;
+   * otherwise cursor_expired/cursor_stale is thrown unchanged. The query and
+   * `o` are captured when iteration starts. */
+  async *pages(query: Query, o: RecordReadOptions & PagesOptions = {}): AsyncGenerator<QueryResult> {
+    const { include, signal, onReset } = o;
     const original = snapshotQueryValue(query) as Query;
     const originalInclude = include ? { ...include } : undefined;
+    const read: RecordReadOptions = { ...(originalInclude ? { include: originalInclude } : {}), ...(signal ? { signal } : {}) };
     let cursor = original.cursor, restarted = false, pagesYielded = 0;
     delete original.cursor;
     for (;;) {
       signal?.throwIfAborted();
       let page: QueryResult;
       try {
-        page = await this.query(cursor !== undefined ? { ...original, cursor } : { ...original }, originalInclude, signal);
+        page = await this.query(cursor !== undefined ? { ...original, cursor } : { ...original }, read);
       } catch (error) {
-        if (!options.onReset || restarted || !isMdbaseError(error, "invalid_request") || error.recovery !== "fix_request" ||
+        if (!onReset || restarted || !isMdbaseError(error, "invalid_request") || error.recovery !== "fix_request" ||
             (error.reason !== "cursor_expired" && error.reason !== "cursor_stale")) throw error;
         signal?.throwIfAborted();
-        await options.onReset({ reason: error.reason, error, pagesYielded, ...(signal ? { signal } : {}) });
+        await onReset({ reason: error.reason, error, pagesYielded, ...(signal ? { signal } : {}) });
         signal?.throwIfAborted();
         restarted = true;
         cursor = undefined;
@@ -1514,22 +1544,31 @@ export class MdbaseClient {
     }
   }
 
-  /** Shared alias of pages(): whole native pages, no implicit cursor reset. */
-  queryPages(
-    query: Query,
-    include?: Include,
-    signal?: AbortSignal,
-    options: PagesOptions = {},
-  ): AsyncGenerator<QueryResult> {
-    return readQueryPages(this, query, include, signal, options);
+  /** Shared alias of pages(): whole native pages, no implicit cursor reset.
+   * `o.include` and `o.signal` apply to every page; `o.onReset` opts in to one
+   * first-page restart. */
+  queryPages(query: Query, o: RecordReadOptions & PagesOptions = {}): AsyncGenerator<QueryResult> {
+    return readQueryPages(this, query, o);
   }
 
   /**
-   * A live query. Subscribe for pushes; keep lists cheap with a `limit` window and no
-   * bodies, and widen the window with `setQuery`.
+   * Every record of the chosen types (default: all), read completely and then
+   * kept current: the set an app lists, searches and renders from. Close it
+   * when done.
    */
-  live(query: Query, include?: Include): LiveQuery {
-    const l = new LiveQuery(this, query, include);
+  recordSet(options: RecordSetOptions = {}): RecordSet {
+    return new RecordSet(this, options);
+  }
+
+  /**
+   * A live query: one window of at most 1,000 records and 1 MiB, with the
+   * replica's order and counts. Subscribe for pushes; keep lists cheap with a
+   * `limit` window and no bodies, and widen the window with `setQuery`. For a
+   * whole collection use `recordSet`. `o.include` adds the body and other
+   * parts to each record.
+   */
+  live(query: Query, o: { include?: Include } = {}): LiveQuery {
+    const l = new LiveQuery(this, query, o.include);
     this.lives.add(l);
     void this._resubscribeLive(l, true);
     return l;
@@ -1581,33 +1620,36 @@ export class MdbaseClient {
     }
   }
 
-  /** One page of the change feed. A `reset: true` result means "re-read what you cache". */
-  changes(cursor?: string, limit?: number, signal?: AbortSignal): Promise<ChangesResult> {
+  /** One page of the change feed, from `o.cursor` (default: the start) and of
+   * at most `o.limit` changes. A `reset: true` result means "re-read what you
+   * cache". `o.signal` cancels the read. */
+  changes(o: { cursor?: string; limit?: number; signal?: AbortSignal } = {}): Promise<ChangesResult> {
     return this.call(
       "changes",
       params([
-        [0, cursor ?? null],
-        [1, limit],
+        [0, o.cursor ?? null],
+        [1, o.limit],
       ]),
-      { codec: changesResult, retry: true, ...(signal ? { signal } : {}) },
+      { codec: changesResult, retry: true, ...(o.signal ? { signal: o.signal } : {}) },
     );
   }
 
   /**
-   * Follow the change feed from `cursor`. `onChanges` gets every batch; `reset: true`
-   * means the app must re-read what it caches. Survives reconnects.
+   * Follow the change feed from `o.cursor` (default: the start). `onChanges` gets
+   * every batch; `reset: true` means the app must re-read what it caches. Survives
+   * reconnects.
    * `ready` confirms the first watch ACK, not a complete/current collection cache.
    * After reconnect, observe `state`; an already-resolved promise is not freshness.
    */
-  watchChanges(cursor: string | undefined, onChanges: (batch: ChangesResult) => void): ChangesWatch {
-    let last = cursor, stopped = false, epoch = 0;
+  watchChanges(onChanges: (batch: ChangesResult) => void, o: { cursor?: string } = {}): ChangesWatch {
+    let last = o.cursor, stopped = false, epoch = 0;
     let state: ChangesWatchState = "starting", error: MdbaseError | null = null;
     let active: Session | null = null, controller: AbortController | null = null;
     let offPush: (() => void) | null = null, offClose: (() => void) | null = null;
     let clearEarly = () => {};
     let resolveReady!: () => void, rejectReady!: (e: MdbaseError) => void;
     const ready = new Promise<void>((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
-    // Legacy callers may use only the callable stop function.
+    // A caller that never awaits `ready` must not get an unhandled rejection.
     ready.catch(() => {});
     const listeners = new Set<(state: ChangesWatchState, error: MdbaseError | null) => void>();
     const notify = (listener: (state: ChangesWatchState, error: MdbaseError | null) => void) => {
@@ -1678,10 +1720,18 @@ export class MdbaseClient {
       publish("starting");
       if (!current()) return;
       try {
-        const first = await s.request("changes", params([[0, last ?? null], [2, true]]), { codec: changesResult, signal });
-        if (!current()) return;
-        last = first.cursor;
-        if (first.changes.length || first.reset) deliver(first);
+        let page = await s.request("changes", params([[0, last ?? null], [1, CHANGES_PAGE], [2, true]]), { codec: changesResult, signal });
+        for (;;) {
+          if (!current()) return;
+          last = page.cursor;
+          if (page.changes.length || page.reset) deliver(page);
+          if (!current()) return;
+          if (page.changes.length < CHANGES_PAGE) break;
+          // A full page may not be the last one. Every push held so far was sent
+          // before this next request, so its reply (or a later page) repeats it.
+          clearEarly();
+          page = await s.request("changes", params([[0, last], [1, CHANGES_PAGE]]), { codec: changesResult, signal });
+        }
         while (early.length && current()) deliver(early.shift()!);
         clearEarly(); initial = false;
         if (!current()) return;
@@ -1707,13 +1757,15 @@ export class MdbaseClient {
     return Object.freeze(watch) as ChangesWatch;
   }
 
-  /** Validate these records, or every record. Every record is validated a
+  /** Validate `o.refs`, or every record without them. Every record is validated a
    * page at a time when the replica grants `validate-page-v1`; each page is an
    * independent READ, so records changed meanwhile may be missed or repeated.
-   * Older replicas validate every record in one bounded request. */
-  async validate(refs?: readonly RecordRef[], signal?: AbortSignal): Promise<RecordValidation[]> {
+   * Older replicas validate every record in one bounded request. `o.signal`
+   * cancels the read. */
+  async validate(o: { refs?: readonly RecordRef[]; signal?: AbortSignal } = {}): Promise<RecordValidation[]> {
+    const signal = o.signal;
     signal?.throwIfAborted();
-    const {targets,expected}=captureValidation(refs);
+    const {targets,expected}=captureValidation(o.refs);
     const call = (p: Map<number, CborValue>) => this.call("validate", p, {
       codec: recordValidations, retry: true, ...(signal ? { signal } : {}),
     });
@@ -1734,8 +1786,10 @@ export class MdbaseClient {
   }
 
   /** Independent native app-host Bases READ, exact original held session.
-   * Unsupported transports refuse: no generic execute_view/data fallback. */
-  async executeAppBases(request: AppBasesRequest, signal?: AbortSignal): Promise<AppBasesResult> {
+   * Unsupported transports refuse: no generic execute_view/data fallback.
+   * `o.signal` cancels the read. */
+  async executeAppBases(request: AppBasesRequest, o: ReadOptions = {}): Promise<AppBasesResult> {
+    const signal = o.signal;
     const window = request.window === undefined ? null : {...request.window};
     const bytes = encodeAppBasesRequest({...request, ...(window === null ? {} : {window})});
     const session = await this.readyForRead(signal);
@@ -1749,12 +1803,14 @@ export class MdbaseClient {
    * `executeViewPages`). Each page is an independent READ; `changedSinceFirst`
    * marks pages taken after the collection changed. */
   executeAppBasesPages(request: AppBasesRequest, options: AppBasesPagesOptions = {}) {
-    return appBasesPages((r, signal) => this.executeAppBases(r, signal), request, options);
+    return appBasesPages((r, signal) => this.executeAppBases(r, signal ? { signal } : {}), request, options);
   }
 
   /** One bounded native discovery page. Empty views do not mean EOF when a
-   * continuation is present. Supplied handles never silently restart/retry. */
-  async listAppBasesViews(request: AppBasesDiscoveryRequest, signal?: AbortSignal): Promise<AppBasesDiscoveryResult> {
+   * continuation is present. Supplied handles never silently restart/retry.
+   * `o.signal` cancels the read. */
+  async listAppBasesViews(request: AppBasesDiscoveryRequest, o: ReadOptions = {}): Promise<AppBasesDiscoveryResult> {
+    const signal = o.signal;
     const limit = request.limit, bytes = encodeAppBasesDiscoveryRequest(request);
     const session = await this.readyForRead(signal);
     const reply = await session.readAppBasesDiscovery("list-views",bytes,signal);
@@ -1766,8 +1822,10 @@ export class MdbaseClient {
   }
 
   /** Exact current source for one native UUID/SHA/original ordinal, never path
-   * aliases, inferred catalog entries, generic RPC or cached document fallback. */
-  async readAppBasesViewSource(request: AppBasesSourceRequest, signal?: AbortSignal): Promise<AppBasesSourceResult> {
+   * aliases, inferred catalog entries, generic RPC or cached document fallback.
+   * `o.signal` cancels the read. */
+  async readAppBasesViewSource(request: AppBasesSourceRequest, o: ReadOptions = {}): Promise<AppBasesSourceResult> {
+    const signal = o.signal;
     const original = {...request}, bytes = encodeAppBasesSourceRequest(original);
     const session = await this.readyForRead(signal);
     const reply = await session.readAppBasesDiscovery("read-view-source",bytes,signal);
@@ -1780,15 +1838,12 @@ export class MdbaseClient {
 
   // ---------------------------------------------------------------- writes (§5, §6)
 
-  /** Submit operations as one mutation (or one per op with `allowPartial`). */
-  async submit(ops: Op[], o: WriteOptions & { allowPartial?: boolean } = {}): Promise<Write[]> {
+  /** Submit operations as one mutation: they apply together or not at all. */
+  async submit(ops: Op[], o: WriteOptions = {}): Promise<Write> {
     if (this.hello.version.minor >= 3 && this.hello.grant.role === "viewer") throw mdbaseError("forbidden", "You have view access, so changes can't be saved.", "read_only");
     if (o.intent !== undefined && o.mutationId === undefined) o = { ...o, mutationId: (await intentIds(this.collectionId, o.intent))[0] };
-    const p: SubmitParams = { ops, mutationId: o.mutationId ?? uuidv7() };
-    if (o.allowPartial) {
-      p.allowPartial = true;
-      p.mutationIds = ops.map((_, i) => (i === 0 ? p.mutationId! : uuidv7()));
-    }
+    const mutationId = o.mutationId ?? uuidv7();
+    const p: SubmitParams = { ops, mutationId };
     if (o.conflictMode) p.conflictMode = o.conflictMode;
     if (o.timezone) p.timezone = o.timezone;
     if (o.dryRun) p.dryRun = true;
@@ -1798,29 +1853,31 @@ export class MdbaseClient {
     // The ledger holds the intent before the replica can capture it.
     if (!o.dryRun) {
       this.startLedger();
-      await this.writeLedger.begin(p.mutationIds ?? [p.mutationId!], ops);
+      await this.writeLedger.begin(mutationId, ops);
     }
     // Idempotent by mutation ID: safe to resubmit after a dropped link.
-    let receipts: Receipt[];
+    let receipt: Receipt;
     try {
-      receipts = await this.call("submit", submitParams.enc(p), {
+      const receipts = await this.call("submit", submitParams.enc(p), {
         codec: submitResult,
         retry: true,
         ...(o.signal ? { signal: o.signal } : {}),
       });
+      // One mutation has one receipt.
+      if (receipts.length !== 1) throw mdbaseError("internal", "submit answered without exactly one receipt", "invalid_submit_response");
+      receipt = receipts[0]!;
     } catch (e) {
       // A dry run captures nothing. Otherwise the request may have been captured
       // whatever the code says: report the original identity, never a new one.
       if (o.dryRun) throw e;
-      void this.writeLedger.settleAll(p.mutationIds ?? [p.mutationId!]);
-      throw withMutation(e, "submit", p.mutationIds ? { mutationIds: p.mutationIds } : { mutationId: p.mutationId! });
+      void this.writeLedger.settle(mutationId);
+      throw withMutation(e, "submit", { mutationId });
     }
-    return receipts.map((r) => (o.dryRun ? new Write(r) : this._track(r)));
+    return o.dryRun ? new Write(receipt) : this._track(receipt);
   }
 
-  private async one(op: Op, o: WriteOptions): Promise<Write> {
-    const [w] = await this.submit([op], o);
-    return w!;
+  private async record(op: Op & { id: Uuid }, o: WriteOptions): Promise<RecordWrite> {
+    return Object.assign(await this.submit([op], o), { recordId: op.id });
   }
 
   /** Create a record. The ID is minted here, so the app can use it before confirmation. */
@@ -1834,7 +1891,7 @@ export class MdbaseClient {
     if (input.frontmatter !== undefined) op.frontmatter = toFmMap(input.frontmatter);
     if (input.body !== undefined) op.body = input.body;
     if (input.document !== undefined) op.document = input.document;
-    return this.one(op, o).then(write => Object.assign(write, { recordId: op.id }));
+    return this.record(op, o);
   }
 
   private async createThroughContract(input: CreateInput, contract: ContractSelector, o: WriteOptions): Promise<RecordWrite> {
@@ -1847,7 +1904,7 @@ export class MdbaseClient {
     const op: Op = { kind: "create", id: input.id ?? uuidv7(), type: plan.type, frontmatter: plan.patch };
     if (input.path !== undefined) op.path = input.path;
     if (input.body !== undefined) op.body = input.body;
-    return Object.assign(await this.one(op, o), { recordId: op.id });
+    return this.record(op, o);
   }
 
   /**
@@ -1857,7 +1914,7 @@ export class MdbaseClient {
    */
   update(target: RecordRef, changes: UpdateInput, o: WriteOptions = {}): Promise<Write> {
     if (changes.contract) return this.updateThroughContract(target, changes, changes.contract, o);
-    return this.one(this.updateOp(target, changes), o);
+    return this.record(this.updateOp(target, changes), o);
   }
 
   private async updateThroughContract(target: RecordRef, c: UpdateInput, contract: ContractSelector, o: WriteOptions): Promise<Write> {
@@ -1877,7 +1934,7 @@ export class MdbaseClient {
     if (plan.base.length) op.base = plan.base;
     if (c.updateRefs !== undefined) op.updateRefs = c.updateRefs;
     if (c.ifRevision) op.ifRevision = c.ifRevision;
-    return this.one(op, o);
+    return this.record(op, o);
   }
 
   /** Build an `update` op (exposed for batching with `submit`). */
@@ -1913,8 +1970,10 @@ export class MdbaseClient {
       const base: BaseField[] = [];
       const touched = [...(op.patch?.keys() ?? []), ...(op.unset ?? [])];
       for (const k of new Set(touched)) {
-        const v = seen.frontmatter.get(k);
-        base.push(v === undefined ? { key: k } : { key: k, observed: v });
+        // Core compares `observed` by value (`1` is `1.0`, key order is free), so
+        // the plain value read is the value seen.
+        const v = Object.hasOwn(seen.frontmatter, k) ? seen.frontmatter[k] : undefined;
+        base.push(v === undefined ? { key: k } : { key: k, observed: toValue(v) });
       }
       if (base.length) op.base = base;
     }
@@ -1922,8 +1981,8 @@ export class MdbaseClient {
     // should not create conflicts.
     if (seen && op.patch) {
       for (const [k, v] of [...op.patch]) {
-        const cur = seen.frontmatter.get(k);
-        if (cur !== undefined && valueEquals(cur, v)) {
+        const cur = Object.hasOwn(seen.frontmatter, k) ? seen.frontmatter[k] : undefined;
+        if (cur !== undefined && valueEquals(toValue(cur), v)) {
           op.patch.delete(k);
           op.base = op.base?.filter((b) => b.key !== k);
         }
@@ -1941,7 +2000,7 @@ export class MdbaseClient {
     if (!seen) throw mdbaseError("invalid_request", "replaceDocument needs the RecordView it was edited from");
     if (seen.document !== undefined) op.base = { path: seen.path, doc: seen.document };
     if (o.ifRevision) op.ifRevision = o.ifRevision;
-    return this.one(op, o);
+    return this.record(op, o);
   }
 
   /**
@@ -1955,13 +2014,13 @@ export class MdbaseClient {
       return this.contractPlan(contract, target, undefined, undefined, o.signal).then((plan) => {
         const op: Op = { kind: "delete", id: plan.id!, baseRevision: plan.revision! };
         if (rest.ifRevision) op.ifRevision = rest.ifRevision;
-        return this.one(op, rest);
+        return this.record(op, rest);
       });
     }
     const op: Op = { kind: "delete", id: refId(target) };
     if (typeof target === "object" && "revision" in target) op.baseRevision = (target as RecordView).revision;
     if (o.ifRevision) op.ifRevision = o.ifRevision;
-    return this.one(op, o);
+    return this.record(op, o);
   }
 
   /** Rename (move) a record; `updateRefs` rewrites links to it (default true).
@@ -1978,7 +2037,7 @@ export class MdbaseClient {
     }
     const op: Op = { kind: "rename", id: target.id, from: target.path, to, updateRefs: o.updateRefs ?? true };
     if (o.ifRevision) op.ifRevision = o.ifRevision;
-    return this.one(op, o);
+    return this.record(op, o);
   }
 
   /** @internal Track a receipt the replica returned outside `submit`. */
@@ -2006,65 +2065,48 @@ export class MdbaseClient {
   }
 
   /**
-   * Settle a write for the UI: waits up to `timeoutMs` (default 3 s) for the log
-   * to confirm it. Still pending then is `saved_on_device`, not a failure: the
-   * write is kept on this device and the ledger settles it later. With
-   * `readBack`, `record` is the record as it now reads here.
+   * Settle a write: wait for the sync service to confirm it (3 s by default),
+   * and with `read`, read the record back as it now reads here.
+   *
+   * Pass the write, the promise of one, or the mutation ID of an earlier write
+   * whose result was `unknown`. The answer is a {@link Settlement}; the only
+   * rejections are cancellation and a call that cannot be settled as asked.
+   * Nothing is ever submitted again.
+   *
+   *     const saved = await db.settle(db.update(record, { patch }), { read: true });
+   *     if (saved.outcome === "rejected") show(describeError(saved.problem));
    */
-  async save(write: Write | Promise<Write>, o: { readBack?: boolean; timeoutMs?: number; signal?: AbortSignal } = {}): Promise<SaveResult> {
-    const w = await write;
-    let r = w.receipt;
-    if (r.state === "pending") {
-      try {
-        r = await this.awaitReceipt(w.mutationId, o.timeoutMs ?? 3000, o.signal);
-        w.update(r);
-      } catch (e) {
-        if (isMdbaseError(e, "cancelled")) throw e;
-        // The wait failing says nothing about the write: it is on this device.
-        r = w.receipt;
-      }
-    }
-    const outcome: SaveResult["outcome"] = r.state === "confirmed" ? "confirmed"
-      : r.state === "pending" ? "saved_on_device" : "rejected";
-    const records = w.records;
-    let record: RecordView | undefined = records[0];
-    if (o.readBack && outcome !== "rejected" && record) {
-      record = (await this.find(record.id, undefined, o.signal).catch(() => null)) ?? record;
-    }
-    return Object.freeze({
-      outcome,
-      mutationId: w.mutationId,
-      records,
-      ...(record ? { record } : {}),
-      ...(outcome === "rejected" && r.problem ? { problem: r.problem } : {}),
-    });
+  settle(write: Write | Promise<Write> | Uuid, options: SettleOptions = {}): Promise<Settlement> {
+    return settleWrite(this, write, options);
   }
 
-  /** The current receipt of a mutation. Failures carry `mutationId`. */
-  receipt(mutation: Uuid, signal?: AbortSignal): Promise<Receipt> {
+  /** The current receipt of a mutation. Failures carry `mutationId`. `o.signal` cancels the read. */
+  receipt(mutation: Uuid, o: ReadOptions = {}): Promise<Receipt> {
     return this.call("receipt", params([[0, uuidCodec.enc(mutation)]]), {
       codec: receiptCodec,
       retry: true,
-      ...(signal ? { signal } : {}),
+      ...(o.signal ? { signal: o.signal } : {}),
     }).catch((e: unknown) => { throw withMutation(e, "receipt", { mutationId: mutation }); });
   }
 
-  /** Resolves when the receipt leaves `pending`, or at `timeoutMs` with the pending receipt. */
-  awaitReceipt(mutation: Uuid, timeoutMs?: number, signal?: AbortSignal): Promise<Receipt> {
+  /** Resolves when the receipt leaves `pending`, or at `o.timeoutMs` with the
+   * pending receipt. `o.signal` cancels the wait. */
+  awaitReceipt(mutation: Uuid, o: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<Receipt> {
     return this.call(
       "await",
       params([
         [0, uuidCodec.enc(mutation)],
-        [1, timeoutMs],
+        [1, o.timeoutMs],
       ]),
-      { codec: receiptCodec, retry: true, ...(signal ? { signal } : {}) },
+      { codec: receiptCodec, retry: true, ...(o.signal ? { signal: o.signal } : {}) },
     ).catch((e: unknown) => { throw withMutation(e, "await", { mutationId: mutation }); });
   }
 
   // ---------------------------------------------------------------- holds and conflicts (§8)
 
-  listHolds(signal?: AbortSignal): Promise<Hold[]> {
-    return this.call("list_holds", null, { codec: list(hold), retry: true, ...(signal ? { signal } : {}) });
+  /** The current holds. `o.signal` cancels the read. */
+  listHolds(o: ReadOptions = {}): Promise<Hold[]> {
+    return this.call("list_holds", null, { codec: list(hold), retry: true, ...(o.signal ? { signal: o.signal } : {}) });
   }
 
   /** Call `fn` with the holds now and on every change. */
@@ -2100,11 +2142,12 @@ export class MdbaseClient {
     return this._track(r);
   }
 
-  listConflicts(record?: Uuid, signal?: AbortSignal): Promise<ConflictEntry[]> {
-    return this.call("list_conflicts", record ? params([[0, uuidCodec.enc(record)]]) : null, {
+  /** The current conflicts, of `o.record` only when given. `o.signal` cancels the read. */
+  listConflicts(o: { record?: Uuid; signal?: AbortSignal } = {}): Promise<ConflictEntry[]> {
+    return this.call("list_conflicts", o.record ? params([[0, uuidCodec.enc(o.record)]]) : null, {
       codec: list(conflictEntry),
       retry: true,
-      ...(signal ? { signal } : {}),
+      ...(o.signal ? { signal: o.signal } : {}),
     });
   }
 
@@ -2128,19 +2171,18 @@ export class MdbaseClient {
 
   /** Accept what the record kept. */
   dismissConflict(entry: ConflictEntry, o: WriteOptions = {}): Promise<Write> {
-    return this.one({ kind: "conflict_dismiss", mutation: entry.mutation, record: entry.conflict.id }, o);
+    return this.submit([{ kind: "conflict_dismiss", mutation: entry.mutation, record: entry.conflict.id }], o);
   }
 
   /** Resolve a field conflict with a chosen value, dismissing it in the same mutation. */
-  async resolveConflict(entry: ConflictEntry, field: string, chosen: PlainValue, o: WriteOptions = {}): Promise<Write> {
-    const [w] = await this.submit(
+  resolveConflict(entry: ConflictEntry, field: string, chosen: PlainValue, o: WriteOptions = {}): Promise<Write> {
+    return this.submit(
       [
         { kind: "update", id: entry.conflict.id, patch: new Map([[field, toValue(chosen)]]) },
         { kind: "conflict_dismiss", mutation: entry.mutation, record: entry.conflict.id },
       ],
       o,
     );
-    return w!;
   }
 
   // ---------------------------------------------------------------- private collections (§8.3)
@@ -2150,9 +2192,10 @@ export class MdbaseClient {
    * hosting the replica (no grant). `exchangeReady` is challenge/reveal readiness,
    * NOT approval/key delivery. Once ready, `sas` is the host-only comparison code
    * to display beside Allow; the user must check it matches on the other computer.
+   * `o.signal` cancels the read.
    */
-  pendingDevices(signal?: AbortSignal): Promise<PendingDevice[]> {
-    return this.call("pending_devices", null, { codec: list(pendingDevice), retry: true, ...(signal ? { signal } : {}) });
+  pendingDevices(o: ReadOptions = {}): Promise<PendingDevice[]> {
+    return this.call("pending_devices", null, { codec: list(pendingDevice), retry: true, ...(o.signal ? { signal: o.signal } : {}) });
   }
 
   /**
@@ -2196,8 +2239,10 @@ export class MdbaseClient {
       accountSecret(secret);
       await this.call("account_key_unlock", params([[0, secret]]));
     },
-    status: (signal?: AbortSignal): Promise<AccountKeyStatus> =>
-      this.call("account_key_status", null, { codec: accountKeyStatus, retry: true, ...(signal ? { signal } : {}) }),
+    /** Where an account-key unlock stands on this replica. `o.signal` cancels
+     * the read. */
+    status: (o: ReadOptions = {}): Promise<AccountKeyStatus> =>
+      this.call("account_key_status", null, { codec: accountKeyStatus, retry: true, ...(o.signal ? { signal: o.signal } : {}) }),
   };
 
   /** Recovery key for a private collection (hosting app only). */

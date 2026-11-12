@@ -3,12 +3,13 @@
  * selection, "editing"), relayed by the replica. Never touches the log.
  */
 import type { CborValue } from "./cbor.js";
-import { uuid as uuidCodec } from "./codec.js";
+import { decodePlain, uuid as uuidCodec } from "./codec.js";
 import type { MdbaseClient } from "./client.js";
 import { mdbaseError } from "./errors.js";
 import type { Session } from "./session.js";
 import { PlainValue, toValue } from "./values.js";
-import { Peer, presencePush, Uuid } from "./wire.js";
+import type { Peer } from "./plain.js";
+import { presencePush, Uuid } from "./wire.js";
 
 /** Presence state limit (§11). */
 export const MAX_PRESENCE_STATE = 4096;
@@ -40,7 +41,7 @@ export class PresenceApi {
     this.wired.add(s);
     s.onPush("presence", (p) => {
       try {
-        const v = presencePush.dec(p);
+        const v = decodePlain(presencePush, p);
         for (const fn of this.watchers.get(v.record) ?? []) fn(v.peers);
       } catch {
         // ignore
@@ -59,7 +60,7 @@ export class PresenceApi {
     // A cheap size bound; the replica enforces the exact limit.
     const n = JSON.stringify(state, (_k, v) => (typeof v === "bigint" ? v.toString() : v instanceof Map ? [...v] : v)).length;
     if (n > MAX_PRESENCE_STATE) {
-      throw mdbaseError("too_large", "presence state over 4 KiB", { details: new Map([["limit", MAX_PRESENCE_STATE]]) });
+      throw mdbaseError("too_large", "presence state over 4 KiB", { details: { limit: MAX_PRESENCE_STATE } });
     }
   }
 

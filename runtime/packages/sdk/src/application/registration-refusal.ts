@@ -15,11 +15,10 @@ const obj = (v: unknown): Record<string, unknown> | null =>
   v !== null && typeof v === "object" && !Array.isArray(v) ? v as Record<string, unknown> : null;
 
 /** `{error: {code, details: {issues: [{path}]}}}` (CP `apiError`), or an already
- * sanitized refusal (object, or the `MdbaseError.details` map); null for anything
+ * sanitized refusal (object, or the `MdbaseError.details` object); null for anything
  * else. Never throws. */
 export function registrationRefusal(value: unknown): RegistrationRefusal | null {
   try {
-    if (value instanceof Map) value = { code: value.get("code"), paths: value.get("paths") };
     const o = obj(value), error = obj(o?.error) ?? o;
     const code = error?.code;
     if (typeof code !== "string" || !CODE.test(code)) return null;

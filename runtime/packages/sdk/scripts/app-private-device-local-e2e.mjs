@@ -136,7 +136,7 @@ try {
     start: async () => { await mdbase.start(); return view(); },
     select: async id => { try { await mdbase.select(id); } catch (e) { return { ...view(), error: failure(e) }; } return view(); },
     unlock: async (id, secret) => { try { await mdbase.unlock(id, secret); } catch (e) { return { ...view(), error: failure(e) }; } return view(); },
-    read: async (id, path) => { const r = await records(id).get({ path }, { document: true }); return { id: r.id, path: r.path, document: r.document }; },
+    read: async (id, path) => { const r = await records(id).get({ path }, { include: { document: true } }); return { id: r.id, path: r.path, document: r.document }; },
     create: async (id, input) => { const w = await records(id).create(input); return { recordId: w.recordId }; },
     close: () => mdbase.close(),
   };

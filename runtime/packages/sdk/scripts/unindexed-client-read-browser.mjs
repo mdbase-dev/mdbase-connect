@@ -251,9 +251,9 @@ async function windowProgram() {
         throw Error('genuine SDK FileView identity/path/size/hash/contentProfile differs');
       return {id: file.id, path: file.path, size: file.size, digest: file.digest, contentProfile: file.contentProfile};
     };
-    const records = await timeout(client.query({limit: 1}, undefined, AbortSignal.timeout(120000)));
+    const records = await timeout(client.query({limit: 1}, {signal: AbortSignal.timeout(120000)}));
     if (records.records.length !== 0) throw Error('unindexed Markdown unexpectedly became query records');
-    const metadata = checkFile(await timeout(client.files.get(expected.id, AbortSignal.timeout(120000))));
+    const metadata = checkFile(await timeout(client.files.get(expected.id, {signal: AbortSignal.timeout(120000)})));
     result = {typedSdkMetadata: true, metadata, indexedRecordsBefore: 0};
     const baseline = (await rpc('baseline')).value;
     result.baseline = baseline.stages.at(-1);
@@ -282,7 +282,7 @@ async function windowProgram() {
     const measured = (await rpc('after-read')).value;
     if (measured.native.last !== 1 || measured.native.bytes !== expected.size || measured.native.requests.read_file !== 1)
       throw Error('native full-source finish/last missing or duplicate read');
-    const after = await timeout(client.query({limit: 1}, undefined, AbortSignal.timeout(120000)));
+    const after = await timeout(client.query({limit: 1}, {signal: AbortSignal.timeout(120000)}));
     if (after.records.length !== 0) throw Error('read unexpectedly indexed source');
     result = {...result, completedFile, bytes, sha256: digest, chunks: chunk, maxChunkBytes,
       indexedRecordsAfter: 0, sdkFilePromiseSucceeded: true, sdkStreamDone: true, nativeLastObserved: true, ...measured};

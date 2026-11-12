@@ -1,5 +1,5 @@
 // Packs the built SDK and builds a minimal, default-configured Vite consumer of
-// the public `MdbaseConnect` entry. Asserts that the consumer emits the SDK
+// the public `createMdbase` entry. Asserts that the consumer emits the SDK
 // Worker plus the pinned native assets byte-exactly, with no unresolved or
 // unused promiser Worker reference. Requires `npm run build` with the packaged
 // application inputs first. Local check (heavy.sh), not part of `npm test`.
@@ -25,7 +25,7 @@ try {
   execFileSync("tar",["-xzf",join(root,filename),"-C",installed,"--strip-components=1"]);
   writeFileSync(join(root,"package.json"),JSON.stringify({name:"vite-consumer",private:true,type:"module"}));
   writeFileSync(join(root,"index.html"),`<!doctype html><script type="module" src="./main.js"></script>`);
-  writeFileSync(join(root,"main.js"),`import {MdbaseConnect} from "@mdbase-dev/sdk";\nglobalThis.connect=MdbaseConnect;\n`);
+  writeFileSync(join(root,"main.js"),`import {createMdbase} from "@mdbase-dev/sdk";\nglobalThis.createMdbase=createMdbase;\n`);
   await build({root,configFile:false,logLevel:"warn",build:{outDir:"out",emptyOutDir:true}});
   const assets=join(root,"out/assets"),names=readdirSync(assets),read=name=>readFileSync(join(assets,name));
   const one=(pattern,label)=>{const found=names.filter(name=>pattern.test(name));assert.equal(found.length,1,`${label}: ${names.join(", ")}`);return found[0];};

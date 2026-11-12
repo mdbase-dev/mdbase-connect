@@ -7,7 +7,7 @@ import {applicationWorkerProblem} from "../src/application/worker-protocol.js";
 import {webSignInProblem} from "../src/app-host/web-sign-in-problem.js";
 import {parseCollectionAvailability,collectionUnavailableError} from "../src/collection-availability.js";
 import {describeError} from "../src/describe-error.js";
-import {summarizeStatus} from "../src/status.js";
+import {summarizeSync} from "../src/status.js";
 
 it.each(["code","reason"])("retains the exact CP %s through sanitized SDK diagnostics and plain copy",field=>{
   const server=appServerProblem(409,{error:{code:field==="code"?"collection_not_yet_migrated":"collection_unavailable",
@@ -39,7 +39,7 @@ it("carries the bounded outcome across the SDK Worker without server bodies",()=
   expect(applicationWorkerProblem({reason:"collection_not_yet_migrated",message:"private"})).toEqual({code:"application_worker_unavailable"});
 });
 it("keeps live typed sync status and pending edits distinct from offline",()=>{
-  expect(summarizeStatus({mode:"synced",confirmedThrough:5,headKnown:5,pending:1,holds:0,unresolved:0,connection:"offline",incidents:[]},"collection_not_yet_migrated")).toMatchObject({
-    kind:"collection_not_yet_migrated",pending:1,
+  expect(summarizeSync({status:{mode:"synced",confirmedThrough:5,headKnown:5,pending:1,holds:0,unresolved:0,connection:"offline",incidents:[]},problem:"collection_not_yet_migrated"})).toMatchObject({
+    state:"attention",attention:["collection_not_yet_migrated"],pending:1,
   });
 });

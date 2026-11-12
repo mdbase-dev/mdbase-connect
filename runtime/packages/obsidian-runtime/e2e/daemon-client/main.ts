@@ -2,7 +2,7 @@
 import { Plugin, parseYaml } from "obsidian";
 import { readFile, realpath } from "node:fs/promises";
 import { dirname, relative, sep } from "node:path";
-import { connect, toPlain, revisionOf } from "@mdbase-lab/sdk";
+import { connect, toPlain, revisionOf } from "@mdbase-lab/sdk/thin-client";
 import { connectDaemonLocalhost } from "@mdbase-lab/sdk/node";
 import { SdkWriteClient, obsidianIndexed } from "@mdbase-lab/write-client";
 import { MdbaseMutationBackend } from "@mdbase-lab/tasknotes-backend";
@@ -83,11 +83,11 @@ export default class LabDaemonClient extends Plugin {
     };
     // Actual SDK API. No custom conversion, frame encoding, confirmation fallback or direct vault write.
     const port = {
-      find: (ref: any, include: any) => delegate.find(ref, include),
+      find: (ref: any, include: any) => delegate.find(ref, { include }),
       create: async (input: any, options: any) => observe(await delegate.create(input, options)),
       update: async (target: any, changes: any, options: any) => observe(await delegate.update(target, changes, options)),
       replaceDocument: async (target: any, doc: any, options: any) => observe(await delegate.replaceDocument(target, doc, options)),
-      submit: async (ops: any, options: any) => (await delegate.submit(ops, options)).map(observe),
+      submit: async (ops: any, options: any) => [observe(await delegate.submit(ops, options))],
     };
     const adapter = new SdkWriteClient(port, { root: "", toPlain, revisionOf, includeDocument: { document: true },
       indexed: obsidianIndexed(this.app.vault, 15_000), isRecordPath: (p: string) => p === path, isResourcePath: () => false });
@@ -105,12 +105,12 @@ export default class LabDaemonClient extends Plugin {
     if (!updated.handled) throw new Error("backend_did_not_update");
     this.result.backendUpdated = true;
     this.result.stage = "sdk_and_vault_readback";
-    const record = await delegate.get({ path }, { body: true });
+    const record = await delegate.get({ path }, { include: { body: true } });
     const file = this.app.vault.getAbstractFileByPath(path);
     if (!file || !("extension" in file)) throw new Error("file_missing");
     const disk = await this.app.vault.read(file as any);
     const fm = parseYaml(disk.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1] ?? "");
-    this.result.readBack = record.path === path && toPlain(record.frontmatter.get("status")) === "done" && fm.status === "done";
+    this.result.readBack = record.path === path && record.frontmatter.status === "done" && fm.status === "done";
     if (!this.result.readBack) throw new Error("readback_mismatch");
   }
 }

@@ -6,6 +6,7 @@
  * `conformance/wire/client/` and `conformance/wire/mutation/` check both sides agree.
  */
 import type { CborValue } from "./cbor.js";
+import type { JsonValue } from "./plain.js";
 import { runtimeOp, type RuntimeOp } from "./runtime-wire.js";
 import { attachmentContentV1, type AttachmentContentV1 } from "./attachment-wire.js";
 import {
@@ -21,6 +22,7 @@ import {
   Field,
   hash,
   int,
+  json,
   list,
   mapped,
   SchemaError,
@@ -76,14 +78,15 @@ export interface Issue {
   code: string;
   severity: "warning" | "error";
   message: string;
-  details?: Value;
+  /** Plain JSON. */
+  details?: JsonValue;
 }
 
 export const issue = struct<Issue>("issue", [
   [0, "code", tstr],
   [1, "severity", severity],
   [2, "message", tstr],
-  [3, "details", value, "opt"],
+  [3, "details", json, "opt"],
 ]);
 
 export interface Problem {
@@ -91,7 +94,8 @@ export interface Problem {
   recovery: Recovery;
   message: string;
   reason?: string;
-  details?: Value;
+  /** Plain JSON. */
+  details?: JsonValue;
   retryAfterMs?: number;
   issues?: Issue[];
   traceId?: string;
@@ -102,7 +106,7 @@ export const problem = struct<Problem>("problem", [
   [1, "recovery", recovery],
   [2, "message", tstr],
   [3, "reason", tstr, "opt"],
-  [4, "details", value, "opt"],
+  [4, "details", json, "opt"],
   [5, "retryAfterMs", uint, "opt"],
   [6, "issues", list(issue), "opt"],
   [7, "traceId", tstr, "opt"],
@@ -202,12 +206,13 @@ export type IncidentKind = (typeof INCIDENT_KINDS)[number];
 
 export interface Incident {
   kind: IncidentKind;
-  details?: Value;
+  /** Plain JSON. */
+  details?: JsonValue;
 }
 
 export const incident = struct<Incident>("incident", [
   [0, "kind", enumOf<IncidentKind>("incident-kind", INCIDENT_KINDS)],
-  [1, "details", value, "opt"],
+  [1, "details", json, "opt"],
 ]);
 
 export interface Progress {

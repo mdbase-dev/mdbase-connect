@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { LiveResult } from "../src/live.js";
 import { LiveQuery, type MdbaseClient } from "../src/client.js";
-import type { QueryMetadata, QueryUpdate } from "../src/wire.js";
+import type { QueryMetadata, QueryUpdate } from "../src/plain.js";
 const update = (kind: QueryUpdate["kind"], asOf: number, metadata?: QueryMetadata): QueryUpdate =>
   ({ sub: 1, kind, complete: true, asOf, ...(metadata === undefined ? {} : { metadata }) });
 const first: QueryMetadata = { columns: ["label"], totalCount: 12, groups: [], hasMore: true };

@@ -12,7 +12,7 @@ vi.mock("../src/app-host/app-origin.js",async original=>{
   const actual=await original<typeof import("../src/app-host/app-origin.js")>();
   return {...actual,urlOrigin:(url:URL)=>url.protocol==="file:"?"https://app.test":actual.urlOrigin(url)};
 });
-const {MdbaseConnect}=await import("../src/application/entry.js");
+const {createMdbase}=await import("../src/application/front-door.js");
 
 const origin="https://app.test",A="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",B="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const declaration={id:"org.example.app",name:"Example",origin,environment:"lab" as const,manifest:{manifest_version:1,id:"org.example.app",name:"Example",homepage:origin,
@@ -43,7 +43,7 @@ const actions=()=>FakeWorker.all.flatMap(w=>w.requests.map(r=>r[3]));
 const reload=()=>{
   const next=Object.assign(new EventTarget(),{location:{origin,href:`${origin}/`},history:{state:null,pushState(){},replaceState(){}}});
   page=next;vi.stubGlobal("window",next);vi.stubGlobal("location",next.location);
-  return new MdbaseConnect(declaration).application();
+  return createMdbase(declaration);
 };
 beforeEach(()=>{
   FakeWorker.all=[];FakeWorker.snapshot=paired;store.clear();

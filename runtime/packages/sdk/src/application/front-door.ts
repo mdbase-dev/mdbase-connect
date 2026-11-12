@@ -1,26 +1,24 @@
 /**
  * D1: the front door. `createMdbase(declaration)` is the one entry an app
  * needs: subscribe to one snapshot whose `phase` says what to show, call
- * gesture-safe actions, and use `phase.connection` once ready. `MdbaseConnect`
- * is the same entry under its previous name, kept for one cut.
+ * gesture-safe actions, and use `phase.connection` once ready.
  */
-import { isMdbaseError, mdbaseError } from "../errors.js";
 import type { MdbaseApplicationDeclaration } from "./declaration.js";
 import {
-  MdbaseConnect, type MdbaseApplication, type MdbaseApplicationConnection, type MdbaseApplicationReadinessSnapshot,
-  type MdbaseApplicationRequestOptions, type MdbaseApplicationSnapshot, type MdbaseCollectionDeleteOptions, type MdbaseConnectOptions, type MdbaseLinks,
+  MdbaseEntry, type MdbaseApplicationConnection, type MdbaseApplicationReadinessSnapshot,
+  type MdbaseApplicationRequestOptions, type MdbaseApplicationSnapshot, type MdbaseCollectionDeleteOptions, type MdbaseLinks, type MdbaseOptions,
   type MdbaseSignOutOptions, type MdbaseTransferOptions, type MdbaseTransferPlanOptions, type MdbaseUnlockSecret,
 } from "./entry.js";
 import type { MdbaseTransferPlan, MdbaseTransferResult } from "./unsynced-transfer.js";
 import type { MdbasePhase } from "./phase.js";
-import type { StatusSummary } from "../status.js";
+import type { MdbaseSync } from "../status.js";
 import type { MdbaseSetupPlan, MdbaseSetupPlanOptions } from "./setup.js";
 import type { MdbaseAccessRequest, MdbaseAccessRequestOptions, MdbaseAccessResult } from "./file-access.js";
 
 /** The application snapshot with the derived fields always present. */
 export interface MdbaseSnapshot extends MdbaseApplicationSnapshot {
   readonly phase: MdbasePhase;
-  readonly sync: StatusSummary | null;
+  readonly sync: MdbaseSync | null;
   readonly links: MdbaseLinks | null;
 }
 /** SDK-8: how `setup.apply` ended. `changed`: the collection changed since the
@@ -40,9 +38,6 @@ export interface Mdbase {
   /** Call from the user gesture: choose a Cloud copy or Private collection,
    * or create a collection in Connect. No current collection is preselected. */
   addCollection(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>;
-  /** @deprecated Use `addCollection`. This is the same unified chooser,
-   * with the same options and no preselected collection. */
-  addPrivateCollection(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>;
   /** Re-read the approved collection list now (for example when a switcher opens). */
   refreshCollectionList(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>;
   /** Call from the user gesture: re-approve the open (or requested) collection,
@@ -58,7 +53,18 @@ export interface Mdbase {
   chooseAnother(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>;
   /** Hide a collection on this device (does not revoke access or delete anything). */
   forget(collectionId: string, options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>;
+  /** Owner only, from an explicit confirmation: delete a collection for
+   * everyone, on every device and app. `confirmName` is the name the person
+   * typed; it must equal the collection's current name. A refusal rejects
+   * with a `collection_delete_*` code for `describeError` and changes nothing
+   * locally. On success the collection leaves `collections`. */
   deleteCollection(collectionId: string, options: MdbaseCollectionDeleteOptions): Promise<MdbaseSnapshot>;
+  /** Call from the user gesture the first time the app needs an optional file
+   * action (for example adding an image). Resolves `granted` at once when it
+   * is already allowed; otherwise opens Connect for the open collection with
+   * your one-line reason. No reload: the connection and app state stay. An
+   * action the manifest does not declare rejects with `access_undeclared`.
+   * File writes the person has not allowed reject with `access_required`. */
   requestAccess(request: MdbaseAccessRequest, options: MdbaseAccessRequestOptions): Promise<MdbaseAccessResult>;
   /** Unlock the open Private collection (`phase.kind === "needs_unlock"` with
    * `mode: "password"`) with the encryption password or the recovery key.
@@ -68,15 +74,22 @@ export interface Mdbase {
   /** Re-check the open collection now. */
   assess(options?: MdbaseApplicationRequestOptions): Promise<MdbaseApplicationReadinessSnapshot>;
   readonly setup: {
+    /** Plan setup of the open collection. Changes no collection data (it may
+     * settle the local journal of an earlier apply); call again after any decision. */
     plan(options?: MdbaseSetupPlanOptions): Promise<MdbaseSetupPlan>;
+    /** Apply a plan from `plan` unchanged, as one guarded mutation. */
     apply(plan: MdbaseSetupPlan, options?: MdbaseApplicationRequestOptions): Promise<MdbaseSetupResult>;
   };
   /** The open collection's connection (also `phase.connection` when ready). */
   connection(collectionId: string): MdbaseApplicationConnection | null;
   setForeground(active: boolean): void;
-  /** Sign out of mdbase on this device (see `MdbaseApplication.signOut`).
-   * Rejects with `sign_out_pending_writes` while changes are still saving,
-   * unless `{discard: true}`. */
+  /** Sign out of mdbase on this device: ends the server session and removes
+   * this browser's sign-in data, keys and cached collections for the account.
+   * Rejects with `sign_out_pending_writes` (a `conflict`) while changes have not
+   * reached mdbase, unless `{discard: true}`. Resolves signed out; Sign in works
+   * again without a reload, and a reload stays signed out. A server sign-out
+   * that could not complete (offline) still signs this device out; it shows
+   * in `signOutResult`. */
   signOut(options?: MdbaseSignOutOptions): Promise<MdbaseSnapshot>;
   close(): Promise<void>;
   /** Work before connecting (the `unsynced` option). */
@@ -97,81 +110,9 @@ export interface Mdbase {
      * empty one. */
     discard(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>;
   };
-  /** The underlying application, for code written against `MdbaseConnect`. */
-  readonly application: MdbaseApplication;
 }
-
-const strict = (s: MdbaseApplicationSnapshot): MdbaseSnapshot => s as MdbaseSnapshot;
 
 /** Create the app's mdbase entry. Construction does no IO; `start()` begins. */
-export function createMdbase(declaration: MdbaseApplicationDeclaration, options: MdbaseConnectOptions = {}): Mdbase {
-  return mdbaseFront(new MdbaseConnect(declaration, options));
-}
-
-/** @internal The front door over any entry (the real one, or the testing fixture's). */
-export function mdbaseFront(entry: Pick<MdbaseConnect, "application" | "connection">): Mdbase {
-  const app = entry.application();
-  const view = () => strict(app.getSnapshot());
-  const addCollection = async (o?: MdbaseApplicationRequestOptions) => strict(await app.approve(null, o));
-  return Object.freeze({
-    getSnapshot: view,
-    subscribe: (listener: () => void) => app.subscribe(listener),
-    start: async (o?: MdbaseApplicationRequestOptions) => strict(await app.start(o)),
-    signIn: async (o?: MdbaseApplicationRequestOptions) => strict(await app.authorize(o)),
-    addCollection,
-    addPrivateCollection: addCollection,
-    approve: async (id?: string | null, o?: MdbaseApplicationRequestOptions) => strict(await app.approve(id, o)),
-    refreshCollectionList: async (o?: MdbaseApplicationRequestOptions) => {
-      if (!app.refreshCollectionList) throw mdbaseError("unavailable", "Refreshing the collection list isn't available here.", "application_not_yet_available");
-      return strict(await app.refreshCollectionList(o));
-    },
-    reauthorize: async (o?: MdbaseApplicationRequestOptions) => strict(await app.reauthorize(o)),
-    configure: async (o?: MdbaseApplicationRequestOptions) => strict(await app.configure(o)),
-    select: async (id: string, o?: MdbaseApplicationRequestOptions) => strict(await app.select(id, o)),
-    chooseAnother: async (o?: MdbaseApplicationRequestOptions) => strict(await app.chooseAnother(o)),
-    forget: async (id: string, o?: MdbaseApplicationRequestOptions) => strict(await app.forget(id, o)),
-    deleteCollection: async (id: string, o: MdbaseCollectionDeleteOptions) => strict(await app.deleteCollection(id, o)),
-    requestAccess: (request: MdbaseAccessRequest, o: MdbaseAccessRequestOptions) => app.requestAccess(request, o),
-    unlock: async (id: string, secret: MdbaseUnlockSecret, o?: MdbaseApplicationRequestOptions) => {
-      if (!app.unlock) throw mdbaseError("unavailable", "Unlocking a Private collection isn't available here.", "application_not_yet_available");
-      return strict(await app.unlock(id, secret, o));
-    },
-    assess: (o?: MdbaseApplicationRequestOptions) => app.assess(o),
-    setup: Object.freeze({
-      plan: (o?: MdbaseSetupPlanOptions) => app.setup.plan(o),
-      async apply(plan: MdbaseSetupPlan, o?: MdbaseApplicationRequestOptions): Promise<MdbaseSetupResult> {
-        try { return Object.freeze({ outcome: "applied" as const, snapshot: strict(await app.setup.apply(plan, o)) }); } catch (error) {
-          if (isMdbaseError(error, "conflict") && error.reason === "setup_changed") return Object.freeze({ outcome: "changed" as const, snapshot: view() });
-          if (isMdbaseError(error, "outcome_unknown")) return Object.freeze({ outcome: "unknown" as const, snapshot: view() });
-          throw error;
-        }
-      },
-    }),
-    connection: (id: string) => entry.connection(id),
-    setForeground: (active: boolean) => app.setForeground(active),
-    signOut: async (o?: MdbaseSignOutOptions) => {
-      if (!app.signOut) throw mdbaseError("unavailable", "Sign out isn't available here.", "application_not_yet_available");
-      return strict(await app.signOut(o));
-    },
-    close: () => app.close(),
-    unsynced: Object.freeze({
-      open: async (o?: MdbaseApplicationRequestOptions) => {
-        if (!app.openUnsynced) throw mdbaseError("unavailable", "Working before connecting isn't available here.", "application_not_yet_available");
-        return strict(await app.openUnsynced(o));
-      },
-      planTransfer: (o?: MdbaseTransferPlanOptions) => {
-        if (!app.planUnsyncedTransfer) throw mdbaseError("unavailable", "Bringing in work isn't available here.", "application_not_yet_available");
-        return app.planUnsyncedTransfer(o);
-      },
-      transfer: (plan: MdbaseTransferPlan, o?: MdbaseTransferOptions) => {
-        if (!app.transferUnsynced) throw mdbaseError("unavailable", "Bringing in work isn't available here.", "application_not_yet_available");
-        return app.transferUnsynced(plan, o);
-      },
-      discard: async (o?: MdbaseApplicationRequestOptions) => {
-        if (!app.discardUnsynced) throw mdbaseError("unavailable", "Discarding work isn't available here.", "application_not_yet_available");
-        return strict(await app.discardUnsynced(o));
-      },
-    }),
-    application: app,
-  });
+export function createMdbase(declaration: MdbaseApplicationDeclaration, options: MdbaseOptions = {}): Mdbase {
+  return new MdbaseEntry(declaration, options).mdbase;
 }

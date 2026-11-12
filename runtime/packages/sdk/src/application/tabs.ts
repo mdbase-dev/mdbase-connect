@@ -11,7 +11,12 @@
  * the leader page tunnels each port as a numbered stream: any port inside a
  * message becomes a stream marker on one side and a fresh local port on the
  * other. Each follower holds a presence lock; the leader waits on it, so a tab
- * that vanishes without a goodbye is detached all the same. No timers. */
+ * that vanishes without a goodbye is detached all the same. No timers.
+ *
+ * A context that cannot run the Worker (a service worker), or that the app
+ * keeps from running it, never leads: it joins whichever context does and
+ * waits while there is none. Its `join` says so, and an idle context that can
+ * lead starts when it hears one. */
 
 const PROTOCOL = "mdbn-app-tabs/1";
 const MARK = "\u0000mdbn-port";
@@ -44,7 +49,7 @@ export interface ApplicationLeaderWorker {
   detach(binding: string): void;
 }
 type Message =
-  | {readonly k: "join"; readonly tab: string}
+  | {readonly k: "join"; readonly tab: string; readonly needsLeader?: true}
   | {readonly k: "joined"; readonly tab: string; readonly binding: string; readonly leader: string}
   | {readonly k: "leader"; readonly leader: string}
   | {readonly k: "bye"; readonly leader: string; readonly signedOut?: true}
@@ -117,6 +122,12 @@ class Tunnel {
   }
 }
 
+export interface ApplicationTabRole {
+  /** False: never run the Worker; join the context that does. Default true. */
+  readonly lead?: boolean;
+  /** A context that never leads is waiting and none leads: start, if idle. */
+  readonly wanted?: () => void;
+}
 /** This page's membership in its app's tab group. */
 export class ApplicationTabs {
   readonly tab = crypto.randomUUID();
@@ -133,7 +144,7 @@ export class ApplicationTabs {
   private announced = false;
   private joining: {readonly resolve: (link: {readonly binding: string; readonly leader: string}) => void; readonly reject: (error: unknown) => void} | null = null;
   constructor(scope: ApplicationTabsScope, private readonly env: ApplicationTabsEnvironment, private readonly lost: (signedOut: boolean) => void,
-    private readonly signedInElsewhere: () => void = () => {}) {
+    private readonly signedInElsewhere: () => void = () => {}, private readonly role: ApplicationTabRole = {}) {
     this.base = scope.storageNamespace===undefined?`${PROTOCOL}/${scope.cpOrigin}/${scope.appId}/${scope.build}`
       : `${PROTOCOL}/namespace/${JSON.stringify([scope.cpOrigin,scope.appId,scope.build,scope.storageNamespace])}`;
   }
@@ -164,7 +175,8 @@ export class ApplicationTabs {
     this.open();
     this.presence ??= await this.hold(`${this.base}/tab/${this.tab}`, true);
     signal.throwIfAborted();
-    if (!this.leading) this.leading = await this.hold(`${this.base}/leader`, true);
+    const lead = this.role.lead !== false;
+    if (lead && !this.leading) this.leading = await this.hold(`${this.base}/leader`, true);
     if (this.leading) {
       if (signal.aborted) { this.resign(); signal.throwIfAborted(); }
       return {kind: "leader"};
@@ -173,14 +185,16 @@ export class ApplicationTabs {
     // is just leaving, the lock comes first and this tab leads instead.
     const wait = new AbortController(), stopWaiting = () => wait.abort();
     signal.addEventListener("abort", stopWaiting, {once: true});
-    const lock = this.hold(`${this.base}/leader`, false, wait.signal);
+    // A context that never leads asks for the lock once it has joined: getting
+    // it then only means the leader went.
+    const lock = lead ? this.hold(`${this.base}/leader`, false, wait.signal) : null;
     let outcome: {readonly release: () => void} | {readonly binding: string; readonly leader: string};
     try {
       outcome = await new Promise((resolve, reject) => {
-        lock.then(release => { if (release) resolve({release}); }, () => { /* aborted */ });
+        lock?.then(release => { if (release) resolve({release}); }, () => { /* aborted */ });
         this.joining = {resolve, reject};
         signal.addEventListener("abort", () => reject(signal.reason), {once: true});
-        this.post({k: "join", tab: this.tab});
+        this.join();
       });
     } catch (error) { this.joining = null; wait.abort(); throw error; }
     finally { signal.removeEventListener("abort", stopWaiting); }
@@ -197,12 +211,17 @@ export class ApplicationTabs {
     const follower = {leader: outcome.leader, tunnel, wait, port: local.port1, left: false, signedOut: false};
     this.follower = follower;
     // Take over when the leader goes. The lock is kept: this tab leads next.
-    void lock.then(release => {
+    // A context that never leads lets it go, for the context that will.
+    void (lock ?? this.hold(`${this.base}/leader`, false, wait.signal)).then(release => {
       if (!release) return;
-      if (this.follower !== follower || follower.left) { release(); return; }
-      this.leading = release; this.departed(follower);
+      const current = this.follower === follower && !follower.left;
+      if (current && lead) this.leading = release; else release();
+      if (current) this.departed(follower);
     }, () => { /* left first */ });
     return {kind: "follower", port: local.port1, binding: outcome.binding, leave: () => this.leave(follower)};
+  }
+  private join(): void {
+    this.post({k: "join", tab: this.tab, ...(this.role.lead === false ? {needsLeader: true as const} : {})});
   }
   /** Leader: forward follower tabs onto this tab's Worker. */
   lead(worker: ApplicationLeaderWorker): void {
@@ -267,6 +286,10 @@ export class ApplicationTabs {
     const hub = this.hub, follower = this.follower;
     switch (m.k) {
       case "join": {
+        // The asking context cannot lead. If nobody does (the lock is free) and
+        // this context is idle, it starts.
+        if (!hub && m.needsLeader === true && this.role.lead !== false && !this.leading && !follower && !this.joining)
+          void this.hold(`${this.base}/leader`, true).then(free => { if (free) { free(); this.role.wanted?.(); } }, () => { /* no locks: stay idle */ });
         if (!hub || hub.followers.has(m.tab) || m.tab === this.tab) return;
         const binding = crypto.randomUUID(), channel = new MessageChannel(), tab = m.tab;
         const tunnel = new Tunnel((s, d) => this.post({k: "m", tab, up: false, s, d}), false);
@@ -286,7 +309,7 @@ export class ApplicationTabs {
         return;
       case "leader":
         // A new leader is ready: a tab still waiting to join asks again.
-        if (this.joining) this.post({k: "join", tab: this.tab});
+        if (this.joining) this.join();
         return;
       case "bye":
         if (follower && follower.leader === m.leader) this.departed(follower, m.signedOut === true);

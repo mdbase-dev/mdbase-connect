@@ -5,20 +5,20 @@
  * that fail exactly as production does (same error codes and snapshots).
  * Not runtime, registration or readiness evidence.
  */
-import { connect, type MdbaseClient } from "../client.js";
+import type { MdbaseClient } from "../client.js";
+import type { PlainValue } from "../values.js";
 import { mdbaseError, type ErrorCode } from "../errors.js";
 import { MdbasePeopleClient } from "../people.js";
-import type { CborValue } from "../cbor.js";
-import type { ProblemCode } from "../describe-error.js";
+import type { DescribeErrorOptions, ProblemCode } from "../describe-error.js";
 import type { MdbaseApplicationDeclaration } from "../application/declaration.js";
-import type { MdbaseApplication, MdbaseApplicationConnection, MdbaseApplicationEntry, MdbaseApplicationSnapshot } from "../application/entry.js";
+import type { MdbaseApplicationConnection, MdbaseApplicationSnapshot } from "../application/entry.js";
 import type { ApplicationApprovalOutcome, ApplicationCollectionSelectionSnapshot } from "../application/collection-selection.js";
 import type { AppInstallationCollection, AppInstallationSignInView } from "../app-host/installation-sign-in.js";
 import { MemoryReplica } from "./memory-replica.js";
 import type { MemoryContract } from "./memory-contracts.js";
 import { createApplicationFixture, signedOut, type ApplicationFixtureAction, type ApplicationFixtureControls } from "./application.js";
 import { pendingWrites, signOutPendingWritesError } from "../application/sign-out.js";
-import { mdbaseFront, type Mdbase } from "../application/front-door.js";
+import type { Mdbase } from "../application/front-door.js";
 
 /** The screen to start on (or switch to with `set`). */
 export type TestAppPreset = "signed_out" | "choosing" | "opening" | "needs_setup" | "ready" | "second_tab" | { readonly problem: ProblemCode }
@@ -28,7 +28,7 @@ export interface TestAppCollection {
   readonly id?: string;
   readonly name?: string;
   readonly role?: AppInstallationCollection["role"];
-  readonly records?: readonly { readonly path: string; readonly types?: string[]; readonly frontmatter?: Record<string, CborValue>; readonly body?: string }[];
+  readonly records?: readonly { readonly path: string; readonly types?: string[]; readonly frontmatter?: Record<string, PlainValue>; readonly body?: string }[];
   readonly contracts?: MemoryContract[];
 }
 export interface TestAppOptions {
@@ -37,6 +37,8 @@ export interface TestAppOptions {
   readonly collections?: readonly TestAppCollection[];
   /** Default: "ready" in the first collection. */
   readonly phase?: TestAppPreset;
+  /** The app's wording for problems, as `createMdbase` takes it. */
+  readonly messages?: DescribeErrorOptions["messages"];
   /** Members returned by `connection.people` (the first is the signed-in person). */
   readonly people?: readonly { readonly name: string; readonly role?: AppInstallationCollection["role"] }[];
 }
@@ -48,14 +50,12 @@ export type TestAppFault =
   | { readonly action: "select"; readonly problem: ProblemCode }
   /** The unlock fails (e.g. `wrong_secret`): still `needs_unlock`, with this problem. */
   | { readonly action: "unlock"; readonly problem: ProblemCode }
-  /** `setup.apply` rejects: the collection changed since review, or the result is unknown. */
+  /** `setup.apply` resolves `changed` (the collection changed since review) or `unknown`. */
   | { readonly action: "applySetup"; readonly reason: "setup_changed" | "outcome_unknown" }
   /** Any action rejects with an `MdbaseError` of this code and reason. */
   | { readonly action: ApplicationFixtureAction; readonly error: { readonly code: ErrorCode; readonly reason: string } };
 export interface TestApp {
-  readonly entry: MdbaseApplicationEntry;
-  readonly application: MdbaseApplication;
-  /** The same front door `createMdbase` returns, over this fixture. */
+  /** What `createMdbase` returns in the app, as this fixture. */
   readonly mdbase: Mdbase;
   /** The replica behind a collection (default: the first), to seed or change records. */
   replica(collectionId?: string): MemoryReplica;
@@ -81,7 +81,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
   const opened = await Promise.all(specs.map(async (spec, i) => {
     const replica = new MemoryReplica({ confirmDelayMs: 0, ...(spec.id ? { collection: spec.id } : {}), ...(spec.contracts ? { contracts: spec.contracts } : {}) });
     for (const record of spec.records ?? []) replica.seed({ ...record });
-    const client = await connect({ connector: replica.connector(), app: { name: "test-app", version: "test" }, reconnect: false });
+    const client = await replica.client({ app: { name: "test-app", version: "test" } });
     const people = options.people ?? [{ name: "Test Person", role: "owner" as const }];
     const profile = (name: string, n: number) => ({ issuer: "https://connect.test", subject: `person-${n}`, name, ...(n === 0 ? { account_id: ACCOUNT } : {}) });
     const peopleClient = new MdbasePeopleClient(client, { collection: client.collection, isCurrent: () => true,
@@ -117,9 +117,9 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     return { ...base, status: ready ? "ready" : "setup_required", selectedCollectionId: id, readiness: readiness(ready ? "ready" : "setup_required"), selection: selection("usable", id, true) };
   }
 
-  const { entry, controls } = createApplicationFixture({ declaration: options.declaration ?? DECLARATION,
-    connections: opened.map(o => o.connection), initialSnapshot: snapshotFor(options.phase ?? "ready") });
-  const application = entry.application();
+  const { mdbase, controls } = createApplicationFixture({ declaration: options.declaration ?? DECLARATION,
+    connections: opened.map(o => o.connection), initialSnapshot: snapshotFor(options.phase ?? "ready"),
+    ...(options.messages ? { messages: options.messages } : {}) });
   const faults: TestAppFault[] = [];
   const take = (action: ApplicationFixtureAction) => {
     const i = faults.findIndex(f => f.action === action);
@@ -130,8 +130,8 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     if (fault && "error" in fault) throw mdbaseError(fault.error.code, `Test fault: ${fault.error.reason}`, fault.error.reason);
     return fault;
   };
-  const current = () => application.getSnapshot();
-  for (const action of ["start", "reauthorize", "refreshCollectionList", "clearSelection", "chooseAnother", "forget", "deleteCollection", "assess", "configure", "planSetup", "close"] as const)
+  const current = () => mdbase.getSnapshot();
+  for (const action of ["start", "reauthorize", "refreshCollectionList", "chooseAnother", "forget", "deleteCollection", "assess", "configure", "planSetup", "close"] as const)
     controls.setHandler(action, () => { errorFault(action); });
   for (const action of ["authorize", "approve"] as const) controls.setHandler(action, call => {
     const fault = errorFault(action), s = current();
@@ -160,7 +160,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
   controls.setHandler("signOut", call => {
     errorFault("signOut");
     const id = current().selectedCollectionId;
-    const pending = !call.discard && id ? pendingWrites(entry.connection(id)) : 0;
+    const pending = !call.discard && id ? pendingWrites(mdbase.connection(id)) : 0;
     if (pending) throw signOutPendingWritesError(pending);
     return signedOut(current());
   });
@@ -179,7 +179,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
   };
   let closing: Promise<void> | null = null;
   return Object.freeze({
-    entry, application, controls, mdbase: mdbaseFront(entry),
+    mdbase, controls,
     replica: (id?: string) => find(id).replica,
     client: (id?: string) => find(id).client,
     set(preset: TestAppPreset, id?: string) { controls.publishSnapshot(snapshotFor(preset, id ?? current().selectedCollectionId ?? collections[0]!.collectionId)); },

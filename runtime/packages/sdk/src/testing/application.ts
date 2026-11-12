@@ -1,21 +1,26 @@
 /** Application UI fixtures, NOT registration/runtime/readiness/physical-close evidence.
- * Supplies the public structural entry and unchanged borrowed native clients.
+ * Supplies the public `Mdbase` entry and unchanged borrowed native clients.
  * Only test metadata and action outcomes are controlled here; no production IO.
  */
 import {applicationDeclaration, type MdbaseApplicationDeclaration} from "../application/declaration.js";
 import type {
-  MdbaseApplication, MdbaseApplicationConnection, MdbaseApplicationEntry,
+  MdbaseApplicationConnection,
   MdbaseApplicationRequestOptions, MdbaseApplicationSnapshot, MdbaseCollectionDeleteOptions, MdbaseSignOutOptions, MdbaseUnlockSecret,
   MdbaseTransferOptions, MdbaseTransferPlanOptions,
 } from "../application/entry.js";
 import {planUnsyncedTransfer, runUnsyncedTransfer, unsyncedTransferComplete, type MdbaseTransferLedger, type MdbaseTransferPlan} from "../application/unsynced-transfer.js";
-import type {MdbaseSetupPlan} from "../application/setup.js";
+import {setupResult, type MdbaseSetupPlan} from "../application/setup.js";
+import type {Mdbase, MdbaseSnapshot} from "../application/front-door.js";
 import type {MdbaseAccessRequest, MdbaseAccessRequestOptions, MdbaseAccessResult} from "../application/file-access.js";
 import type {FileAction} from "../files.js";
 import {applicationPhase} from "../application/phase.js";
-import {summarizeStatus} from "../status.js";
+import type {DescribeErrorOptions} from "../describe-error.js";
+import {summarizeSync} from "../status.js";
 
-export type ApplicationFixtureAction = "start" | "authorize" | "approve" | "reauthorize" | "refreshCollectionList" | "select" | "clearSelection" | "chooseAnother" | "forget" | "deleteCollection" | "requestAccess" | "assess" | "configure" | "planSetup" | "applySetup" | "signOut" | "openUnsynced" | "planUnsyncedTransfer" | "transferUnsynced" | "discardUnsynced" | "unlock" | "close";
+export type ApplicationFixtureAction = "start" | "authorize" | "approve" | "reauthorize" | "refreshCollectionList" | "select" | "chooseAnother" | "forget" | "deleteCollection" | "requestAccess" | "assess" | "configure" | "planSetup" | "applySetup" | "signOut" | "openUnsynced" | "planUnsyncedTransfer" | "transferUnsynced" | "discardUnsynced" | "unlock" | "close";
+/** The snapshot a fixture is given. `phase`, `sync` and `links` are derived
+ * from it, as the SDK derives them, so tests leave them out. */
+export type ApplicationFixtureSnapshot = MdbaseApplicationSnapshot;
 export interface ApplicationFixtureCall {
   readonly action: ApplicationFixtureAction | "setForeground";
   readonly collectionId?: string;
@@ -33,20 +38,22 @@ export interface ApplicationFixtureCall {
   readonly active?: boolean;
 }
 export type ApplicationFixtureHandler = (call: ApplicationFixtureCall) =>
-  void | MdbaseApplicationSnapshot | Promise<void | MdbaseApplicationSnapshot>;
+  void | ApplicationFixtureSnapshot | Promise<void | ApplicationFixtureSnapshot>;
 export interface ApplicationFixtureOptions {
   readonly declaration: MdbaseApplicationDeclaration;
   readonly connections: readonly MdbaseApplicationConnection[];
-  readonly initialSnapshot: MdbaseApplicationSnapshot;
+  readonly initialSnapshot: ApplicationFixtureSnapshot;
   /** The app's unsynced collection (work before connecting), for apps created
    * with `{unsynced: true}`: `openUnsynced` shows it, and transfers read it.
    * Any client works, such as one over a `MemoryReplica`. Not in `collections`. */
   readonly unsynced?: MdbaseApplicationConnection;
+  /** The app's wording for problems, as `createMdbase` takes it: `phase.problem` uses it. */
+  readonly messages?: DescribeErrorOptions["messages"];
 }
 export interface ApplicationFixtureControls {
   readonly declaration: MdbaseApplicationDeclaration;
   /** Defensive frozen copies: fixture metadata is never production evidence. */
-  publishSnapshot(snapshot: MdbaseApplicationSnapshot): void;
+  publishSnapshot(snapshot: ApplicationFixtureSnapshot): void;
   /** Replace fixture lookup bindings without closing any supplied client. */
   setConnections(connections: readonly MdbaseApplicationConnection[]): void;
   /** Custom outcomes/delays/refusals, including blocked authorization/failed close.
@@ -54,14 +61,14 @@ export interface ApplicationFixtureControls {
   setHandler(action: ApplicationFixtureAction, handler: ApplicationFixtureHandler): () => void;
   /** What `requestAccess` resolves with. Default (null): granted with the requested actions. */
   setAccessResult(result: MdbaseAccessResult | null): void;
-  /** The plan `application.setup.plan` returns (a plain object); none refuses. */
+  /** The plan `mdbase.setup.plan` returns (a plain object); none refuses. */
   setSetupPlan(plan: MdbaseSetupPlan | null): void;
   observedActions(): readonly ApplicationFixtureCall[];
   /** Release fixture-owned notifications/currentness, not borrowed clients. */
   close(): void;
 }
 export interface ApplicationFixture {
-  readonly entry: MdbaseApplicationEntry;
+  readonly mdbase: Mdbase;
   readonly controls: ApplicationFixtureControls;
 }
 
@@ -138,7 +145,7 @@ export function createApplicationFixture(options: ApplicationFixtureOptions): Ap
     listeners.clear();
     handlers.clear();
   }
-  async function run(action: ApplicationFixtureAction, request: MdbaseApplicationRequestOptions = {}, collectionId?: string, confirmName?: string, discard?: boolean, secret?: "password" | "recoveryKey"): Promise<MdbaseApplicationSnapshot> {
+  async function run(action: ApplicationFixtureAction, request: MdbaseApplicationRequestOptions = {}, collectionId?: string, confirmName?: string, discard?: boolean, secret?: "password" | "recoveryKey"): Promise<MdbaseSnapshot> {
     request.signal?.throwIfAborted();
     if (closed || closeJob) throw new Error("Application fixture is closed or closing");
     const generation = ++actionGeneration;
@@ -156,7 +163,7 @@ export function createApplicationFixture(options: ApplicationFixtureOptions): Ap
     if (action === "close") {closeFixture(); return view();}
     if (outcome) publish(outcome);
     else if (action === "select") publish({...snapshot, selectedCollectionId: collectionId ?? null});
-    else if (action === "clearSelection" || action === "chooseAnother") publish({...snapshot, selectedCollectionId: null});
+    else if (action === "chooseAnother") publish({...snapshot, selectedCollectionId: null});
     else if (action === "signOut") publish(signedOut(snapshot));
     // Default: the unlock succeeds and the collection opens.
     else if (action === "unlock" && snapshot.status === "needs_unlock" && snapshot.selectedCollectionId === collectionId) {
@@ -170,18 +177,18 @@ export function createApplicationFixture(options: ApplicationFixtureOptions): Ap
     return view();
   }
   // Derived like the SDK entry: phase (held through re-checks), sync and links.
-  let derived: {source: MdbaseApplicationSnapshot; connection: MdbaseApplicationConnection | null; value: MdbaseApplicationSnapshot} | undefined;
-  function view(): MdbaseApplicationSnapshot {
-    const id = snapshot.selectedCollectionId, connection = id ? entry.connection(id) : null;
+  let derived: {source: MdbaseApplicationSnapshot; connection: MdbaseApplicationConnection | null; value: MdbaseSnapshot} | undefined;
+  function view(): MdbaseSnapshot {
+    const id = snapshot.selectedCollectionId, connection = id ? mdbase.connection(id) : null;
     if (derived && derived.source === snapshot && derived.connection === connection) return derived.value;
-    const phase = applicationPhase(snapshot, {connection, previous: derived?.value.phase ?? null});
+    const phase = applicationPhase(snapshot, {connection, previous: derived?.value.phase ?? null, ...(options.messages ? {messages: options.messages} : {})});
     let sync = null;
-    if (phase.kind === "ready") try {sync = summarizeStatus(phase.connection.records.status, snapshot.problem);} catch {/* status not known yet */}
+    if (phase.kind === "ready") try {{const records = phase.connection.records; sync = summarizeSync({status: records.status, writes: records.ledger.getSnapshot(), link: records.link, problem: snapshot.problem});}} catch {/* status not known yet */}
     const value = Object.freeze({...snapshot, phase, sync, links: snapshot.links ?? null});
     derived = {source: snapshot, connection, value};
     return value;
   }
-  const application: MdbaseApplication = Object.freeze({
+  const mdbase: Mdbase = Object.freeze({
     getSnapshot: view,
     subscribe(listener: () => void) {
       if (closed) return () => {};
@@ -190,12 +197,12 @@ export function createApplicationFixture(options: ApplicationFixtureOptions): Ap
       return () => {listeners.delete(subscription);};
     },
     start: (request?: MdbaseApplicationRequestOptions) => run("start", request),
-    authorize: (request?: MdbaseApplicationRequestOptions) => run("authorize", request),
+    signIn: (request?: MdbaseApplicationRequestOptions) => run("authorize", request),
+    addCollection: (request?: MdbaseApplicationRequestOptions) => run("approve", request),
     select: (id: string, request?: MdbaseApplicationRequestOptions) => run("select", request, id),
     approve: (id?: string | null, request?: MdbaseApplicationRequestOptions) => run("approve", request, id ?? undefined),
     reauthorize: (request?: MdbaseApplicationRequestOptions) => run("reauthorize", request),
     refreshCollectionList: (request?: MdbaseApplicationRequestOptions) => run("refreshCollectionList", request),
-    clearSelection: (request?: MdbaseApplicationRequestOptions) => run("clearSelection", request),
     chooseAnother: (request?: MdbaseApplicationRequestOptions) => run("chooseAnother", request),
     forget: (id: string, request?: MdbaseApplicationRequestOptions) => run("forget", request, id),
     deleteCollection: (id: string, {confirmName, ...request}: MdbaseCollectionDeleteOptions) => run("deleteCollection", request, id, confirmName),
@@ -213,29 +220,31 @@ export function createApplicationFixture(options: ApplicationFixtureOptions): Ap
         if (!setupPlan) throw new Error("No fixture setup plan; call controls.setSetupPlan");
         return setupPlan;
       },
-      apply: (_plan: MdbaseSetupPlan, request?: MdbaseApplicationRequestOptions) => run("applySetup", request),
+      apply: (_plan: MdbaseSetupPlan, request?: MdbaseApplicationRequestOptions) => setupResult(run("applySetup", request), view),
     }),
     signOut: ({discard, ...request}: MdbaseSignOutOptions = {}) => run("signOut", request, undefined, undefined, discard),
     unlock: (id: string, secret: MdbaseUnlockSecret, request?: MdbaseApplicationRequestOptions) => run("unlock", request, id, undefined, undefined, "recoveryKey" in secret ? "recoveryKey" : "password"),
-    openUnsynced: (request?: MdbaseApplicationRequestOptions) => run("openUnsynced", request),
-    async planUnsyncedTransfer({map, addTypes, ...request}: MdbaseTransferPlanOptions = {}) {
-      await run("planUnsyncedTransfer", request);
-      return planUnsyncedTransfer(transferSource().records, transferDestination().records, {...(map ? {map} : {}), ...(addTypes ? {addTypes} : {}), ledger, ...(request.signal ? {signal: request.signal} : {})});
-    },
-    async transferUnsynced(plan: MdbaseTransferPlan, {onProgress, ...request}: MdbaseTransferOptions = {}) {
-      await run("transferUnsynced", request);
-      const destination = transferDestination().records, signal = request.signal ? {signal: request.signal} : {};
-      const result = await runUnsyncedTransfer(plan, destination, {...(onProgress ? {onProgress} : {}), ...signal});
-      if (result.failed.length || result.failedTypes.length || !await unsyncedTransferComplete(plan, transferSource().records, destination, request.signal)) return result;
-      // As the SDK does: the work is kept aside and the marker clears.
-      publish({...snapshot, unsyncedWork: null});
-      return Object.freeze({...result, retired: true});
-    },
-    discardUnsynced: async (request?: MdbaseApplicationRequestOptions) => {
-      await run("discardUnsynced", request);
-      if (!closed) publish({...snapshot, unsyncedWork: null});
-      return view();
-    },
+    unsynced: Object.freeze({
+      open: (request?: MdbaseApplicationRequestOptions) => run("openUnsynced", request),
+      async planTransfer({map, addTypes, ...request}: MdbaseTransferPlanOptions = {}) {
+        await run("planUnsyncedTransfer", request);
+        return planUnsyncedTransfer(transferSource().records, transferDestination().records, {...(map ? {map} : {}), ...(addTypes ? {addTypes} : {}), ledger, ...(request.signal ? {signal: request.signal} : {})});
+      },
+      async transfer(plan: MdbaseTransferPlan, {onProgress, ...request}: MdbaseTransferOptions = {}) {
+        await run("transferUnsynced", request);
+        const destination = transferDestination().records, signal = request.signal ? {signal: request.signal} : {};
+        const result = await runUnsyncedTransfer(plan, destination, {...(onProgress ? {onProgress} : {}), ...signal});
+        if (result.failed.length || result.failedTypes.length || !await unsyncedTransferComplete(plan, transferSource().records, destination, request.signal)) return result;
+        // As the SDK does: the work is kept aside and the marker clears.
+        publish({...snapshot, unsyncedWork: null});
+        return Object.freeze({...result, retired: true});
+      },
+      discard: async (request?: MdbaseApplicationRequestOptions) => {
+        await run("discardUnsynced", request);
+        if (!closed) publish({...snapshot, unsyncedWork: null});
+        return view();
+      },
+    }),
     setForeground(active: boolean) {calls.push(Object.freeze({action: "setForeground", active}));},
     close() {
       if (closed) return Promise.resolve();
@@ -245,18 +254,6 @@ export function createApplicationFixture(options: ApplicationFixtureOptions): Ap
       void job.then(() => {closeJob = undefined;}, () => {closeJob = undefined;});
       return job;
     },
-  });
-  function transferSource(): MdbaseApplicationConnection {
-    if (!unsynced) throw new Error("No fixture unsynced collection; pass options.unsynced");
-    return unsynced;
-  }
-  function transferDestination(): MdbaseApplicationConnection {
-    const phase = view().phase;
-    if (phase?.kind !== "ready") throw new Error("Open the collection to transfer into first");
-    return phase.connection;
-  }
-  const entry: MdbaseApplicationEntry = Object.freeze({
-    application: () => application,
     connection(id: string) {
       if (closed || snapshot.selectedCollectionId !== id) return null;
       const source = connections.get(id);
@@ -272,6 +269,15 @@ export function createApplicationFixture(options: ApplicationFixtureOptions): Ap
       return view;
     },
   });
+  function transferSource(): MdbaseApplicationConnection {
+    if (!unsynced) throw new Error("No fixture unsynced collection; pass options.unsynced");
+    return unsynced;
+  }
+  function transferDestination(): MdbaseApplicationConnection {
+    const phase = view().phase;
+    if (phase.kind !== "ready") throw new Error("Open the collection to transfer into first");
+    return phase.connection;
+  }
   const controls: ApplicationFixtureControls = Object.freeze({
     declaration,
     publishSnapshot(next: MdbaseApplicationSnapshot) {
@@ -295,5 +301,5 @@ export function createApplicationFixture(options: ApplicationFixtureOptions): Ap
     observedActions: () => Object.freeze([...calls]),
     close: closeFixture,
   });
-  return Object.freeze({entry, controls});
+  return Object.freeze({mdbase, controls});
 }

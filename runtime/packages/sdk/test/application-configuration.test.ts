@@ -72,8 +72,8 @@ async function retirementFixture() {
 async function retainedRetirement() {
   const f = await retirementFixture(), prepared = await f.journal.prepareResources(f.retirement, f.controller.signal);
   await f.journal.recordResourceAttempt(prepared.mutationId, f.controller.signal);
-  const writes = await f.client.submit([...f.retirement.resourceOps], {mutationId: prepared.mutationId, wait: "confirmed"});
-  await writes[0]!.confirmed;
+  const write = await f.client.submit([...f.retirement.resourceOps], {mutationId: prepared.mutationId, wait: "confirmed"});
+  await write.confirmed;
   await f.journal.recordResourceConfirmed(prepared.mutationId, f.controller.signal);
   f.status("current");
   return {...f, prepared};
@@ -99,12 +99,12 @@ describe("scoped application configuration phase", () => {
       f.helper.subscribe(() => { const code = f.helper.getSnapshot().problem?.code; if (code) problems.push(code); });
       // P1: a record-only change keeps the assessment without re-assessing.
       const assessed = vi.mocked(f.port.assess).mock.calls.length;
-      await (await f.client.submit([{ kind: "create", id: crypto.randomUUID(), path: "notes/record-only.md", document: "r" }], { wait: "confirmed" }))[0]!.confirmed;
+      await (await f.client.submit([{ kind: "create", id: crypto.randomUUID(), path: "notes/record-only.md", document: "r" }], { wait: "confirmed" })).confirmed;
       await new Promise(resolve => setTimeout(resolve, 60));
       expect(vi.mocked(f.port.assess).mock.calls.length).toBe(assessed);
       f.status("provision"); f.catalogChanged(); // e.g. another device removed a definition
-      const writes = await f.client.submit([{ kind: "create", id: crypto.randomUUID(), path: "notes/other-device.md", document: "x" }], { wait: "confirmed" });
-      await writes[0]!.confirmed;
+      const write = await f.client.submit([{ kind: "create", id: crypto.randomUUID(), path: "notes/other-device.md", document: "x" }], { wait: "confirmed" });
+      await write.confirmed;
       await vi.waitFor(() => expect(f.helper.getSnapshot().assessment?.status).toBe("setup_required"), { timeout: 3000 });
       expect(problems).toEqual([]);
       // A caller's assessment during the background one waits for it, not busy.
@@ -140,8 +140,8 @@ describe("scoped application configuration phase", () => {
       f.helper.subscribe(() => { const code = f.helper.getSnapshot().problem?.code; if (code) problems.push(code); });
       vi.mocked(f.port.assess).mockRejectedValueOnce(mdbaseError("unavailable", "replica unreachable"));
       f.catalogChanged();
-      const writes = await f.client.submit([{ kind: "create", id: crypto.randomUUID(), path: "notes/after-setup.md", document: "x" }], { wait: "confirmed" });
-      await writes[0]!.confirmed;
+      const write = await f.client.submit([{ kind: "create", id: crypto.randomUUID(), path: "notes/after-setup.md", document: "x" }], { wait: "confirmed" });
+      await write.confirmed;
       await vi.waitFor(() => expect(vi.mocked(f.port.assess).mock.calls.length).toBeGreaterThanOrEqual(3), { timeout: 3000 });
       await vi.waitFor(() => expect(f.helper.getSnapshot().assessment?.status).toBe("ready"), { timeout: 3000 });
       expect(problems).toEqual([]);
@@ -161,7 +161,7 @@ describe("scoped application configuration phase", () => {
       expect((await f.journal.load(f.controller.signal))?.phase).toBe("verified");
       const before = await f.client.resources.get("mdbase.lock.yaml");
       const other = await f.client.submit([{ kind: "resource_put", path: "mdbase.lock.yaml", doc: lock + "  - org.example.other\n", baseRevision: before.revision }], { wait: "confirmed" });
-      await other[0]!.confirmed;
+      await other.confirmed;
       expect((await f.helper.assess()).assessment?.status).toBe("ready");
       expect(f.helper.getSnapshot().problem).toBeNull();
     } finally { await f.close(); }
@@ -324,8 +324,8 @@ describe("scoped application configuration phase", () => {
   it.each(["attempted", "confirmed"] as const)("%s recovery uses only original receipt/readback and no resubmit", async phase => {
     const f = await fixture("reconcile-original"); const prepared = await f.journal.prepareResources(plan, f.controller.signal);
     await f.journal.recordResourceAttempt(prepared.mutationId, f.controller.signal);
-    const writes = await f.client.submit([...plan.resourceOps], { mutationId: prepared.mutationId, wait: "confirmed" });
-    await writes[0]!.confirmed;
+    const write = await f.client.submit([...plan.resourceOps], { mutationId: prepared.mutationId, wait: "confirmed" });
+    await write.confirmed;
     if (phase === "confirmed") await f.journal.recordResourceConfirmed(prepared.mutationId, f.controller.signal);
     const submit = vi.spyOn(f.client, "submit");
     try {
@@ -495,8 +495,8 @@ describe("reviewable setup plan/apply", () => {
       expect(f.port.apply).toHaveBeenCalledWith(expect.anything(), adopted, expect.anything(), { adopt: { [target]: live } });
       expect(submit).toHaveBeenCalledTimes(1);
       expect(submit.mock.calls[0]![0].map(op => op.kind)).toEqual(["resource_put", "create"]);
-      expect((await f.client.get({ path: "Welcome.md" }, { body: true })).body).toBe("Start here.\n");
-      expect((await f.client.get({ path: "Taken.md" }, { body: true })).body).toBe("mine");
+      expect((await f.client.get({ path: "Welcome.md" }, { include: { body: true } })).body).toBe("Start here.\n");
+      expect((await f.client.get({ path: "Taken.md" }, { include: { body: true } })).body).toBe("mine");
       expect(f.helper.getSnapshot().assessment?.status).toBe("ready");
       expect((await f.journal.load(f.controller.signal))?.phase).toBe("verified");
     } finally { await f.close(); }

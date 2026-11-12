@@ -15,6 +15,7 @@
 import { registrationRefusal, registrationRefusalMessage } from "./application/registration-refusal.js";
 import { ACCOUNT_COLLECTION_QUOTA_MESSAGE } from "./collection-quota-copy.generated.js";
 import { isCollectionUnavailableReason, type CollectionUnavailableReason } from "./collection-availability.js";
+import { fieldOf } from "./plain.js";
 import { DEFAULT_UPDATE_URL, MAX_SERVER_RETRY_MS, MIN_SERVER_RETRY_MS, sanitizeAppServerProblem, trustedUpdateUrl } from "./app-host/cp-problem.js";
 
 export type MdbaseErrorAction =
@@ -308,13 +309,13 @@ export const INTERNAL_PROBLEM_CODES = [
   "too_long", "trailing_bytes", "tstr", "uint", "unencodable", "unexpected_end", "unsorted_keys", "utf8", "uuid", "value",
   "unknown_method", "unknown_variant", "unsupported", "storage", "noise", "declared_setup_codec",
   // In-memory test replica and contracts.
-  "body", "data_contract_ambiguous", "data_contract_field_conflict", "data_contract_field_unmapped", "data_contract_not_found",
+  "body", "cursor_stale", "data_contract_ambiguous", "data_contract_field_conflict", "data_contract_field_unmapped", "data_contract_not_found",
   "data_contract_not_implemented", "data_contract_promote_typed", "digest_mismatch", "invalid_type_definition", "path_taken",
   "revision", "size_mismatch", "transfer_expired", "type_conflict",
   // Developer misuse (invalid_request / invalid_record carry the copy).
   "account_secret_length", "access_invalid", "access_no_collection", "application_sign_in_opener", "change_entity_unsupported",
   "click_target_cross_origin", "context_required", "context_type_mismatch", "cursor_expired", "file_upload_identity_mismatch",
-  "invalid_autosave", "invalid_binding", "invalid_call", "invalid_push_payload", "invalid_sas", "invalid_scope",
+  "invalid_autosave", "invalid_binding", "invalid_call", "invalid_push_payload", "invalid_sas", "invalid_scope", "invalid_submit_response",
   "invalid_timeout", "invalid_timer_response", "invalid_typing_response", "invalid_validation_result", "invalid_view",
   "key_id_changed", "query_cursor_required", "read_many_bounds", "read_many_identity_mismatch", "read_many_selection", "record_identity_mismatch",
   "record_lease_policy", "record_links_bounds", "record_links_missing", "record_links_response", "record_links_unsupported",
@@ -362,7 +363,7 @@ const DEVELOPER: Readonly<Record<string, string>> = Object.assign(Object.create(
   application_worker_unavailable: "application_worker_unavailable: this page cannot construct the SDK's module Worker (no Worker/MessageChannel, or a non-web origin).",
   browser_unsupported: "browser_unsupported: the SDK's upfront capability probe found a required browser feature missing (Web Crypto/X25519, AbortSignal.any, Web Locks, BroadcastChannel, IndexedDB, Worker/MessageChannel or crypto.randomUUID); see the MdbaseError details for the missing tokens.",
   application_storage_unavailable: "application_storage_unavailable: navigator.storage.getDirectory() (OPFS) is absent or rejected, as in private browsing; the local replica cannot be kept on this device.",
-  storage_may_be_evicted: "storage_may_be_evicted: replica edits are pending for at least 30 seconds or while disconnected on nonpersistent storage (snapshot.saveWarning); only a log-confirmed receipt counts as saved.",
+  storage_may_be_evicted: "storage_may_be_evicted: replica edits are pending for at least 30 seconds or while disconnected on nonpersistent storage (`storage_may_be_evicted` in snapshot.sync.attention); only a log-confirmed receipt counts as saved.",
   sign_out_pending_writes: "sign_out_pending_writes: unconfirmed writes are still queued on this device; signOut({discard: true}) discards them.",
 });
 
@@ -391,8 +392,8 @@ export function problemCodeOf(code: string): ProblemCode | null {
 interface Found { codes: string[]; retryAfterMs: number | null; updateUrl: string | null; refusal?: ReturnType<typeof registrationRefusal>; hasServer?: boolean }
 
 function availabilityReason(o: Record<string, unknown>): CollectionUnavailableReason | null {
-  const details = o.details;
-  if (details instanceof Map && isCollectionUnavailableReason(details.get("availability"))) return details.get("availability") as CollectionUnavailableReason;
+  const availability = fieldOf(o.details, "availability");
+  if (isCollectionUnavailableReason(availability)) return availability;
   const value = obj(o.availability) ?? (o.state === "unavailable" ? o : null);
   return value && value.state === "unavailable" && isCollectionUnavailableReason(value.reason) ? value.reason : null;
 }

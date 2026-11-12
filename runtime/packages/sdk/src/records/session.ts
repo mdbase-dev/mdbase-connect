@@ -1,22 +1,17 @@
 import { decode, encode, type CborValue } from "../cbor.js";
 import type { MdbaseClient, UpdateInput } from "../client.js";
 import { MdbaseError, mdbaseError } from "../errors.js";
-import { toValue, uuidv7, type PlainValue } from "../values.js";
-import {
-    receipt as receiptCodec,
-    type FmMap,
-    type Problem,
-    type Receipt,
-    type RecordView,
-} from "../wire.js";
+import { toPlain, toValue, uuidv7, type PlainValue } from "../values.js";
+import type { JsonValue, Receipt, RecordView } from "../plain.js";
+import type { Problem } from "../wire.js";
 import {
     complete,
     confirmed,
     copy,
     include,
     problem,
-    protectedRecord,
-    recordBytes,
+    isProtected,
+    retainedBytes,
     refusal,
     textBytes,
     timeout,
@@ -69,7 +64,7 @@ export class RecordSessionImpl {
         complete(record);
         this.base = copy(record);
         this.body = record.body!;
-        this.state = protectedRecord(record) ? "conflict" : resting(record);
+        this.state = isProtected(record) ? "conflict" : resting(record);
         this.publish();
     }
     async restore(
@@ -166,7 +161,9 @@ export class RecordSessionImpl {
                 input === undefined
                     ? undefined
                     : decode(encode(toValue(input)));
-            const before = this.base.frontmatter.get(key);
+            const before = Object.hasOwn(this.base.frontmatter, key)
+                ? toValue(this.base.frontmatter[key])
+                : undefined;
             if (
                 !this.captured?.patch.has(key) &&
                 ((value === undefined && before === undefined) ||
@@ -202,12 +199,12 @@ export class RecordSessionImpl {
         captured = this.captured,
     ): void {
         let bytes =
-            recordBytes(base) +
+            retainedBytes(base) +
             textBytes(body) +
             encode(new Map([...patch].map(([k, v]) => [k, v ?? null])))
                 .byteLength *
                 2;
-        if (remote) bytes += recordBytes(remote);
+        if (remote) bytes += retainedBytes(remote);
         if (captured)
             bytes +=
                 textBytes(captured.body) +
@@ -217,29 +214,27 @@ export class RecordSessionImpl {
                     ),
                 ).byteLength *
                     2;
-        if (receipt) bytes += encode(receiptCodec.enc(receipt)).byteLength * 2;
+        if (receipt) bytes += retainedBytes(receipt);
         this.reserve(bytes);
     }
     private publish(): void {
         this.charge();
-        const fm: FmMap = new Map(this.base.frontmatter);
+        const fm = new Map<string, JsonValue>(
+            Object.entries(this.base.frontmatter),
+        );
         for (const [k, v] of this.patch) {
             if (v === undefined) fm.delete(k);
-            else fm.set(k, v);
+            else fm.set(k, toPlain(v));
         }
         this.snapshot = Object.freeze({
             state: this.state,
             body: this.body,
-            frontmatter: decode(encode(fm)) as FmMap,
+            frontmatter: structuredClone(Object.fromEntries(fm)),
             record: copy(this.base),
             remote: this.remote ? copy(this.remote) : null,
             dirty: this.dirty,
             problem: this.why,
-            lastReceipt: this.lastReceipt
-                ? receiptCodec.dec(
-                      decode(encode(receiptCodec.enc(this.lastReceipt))),
-                  )
-                : null,
+            lastReceipt: this.lastReceipt ? copy(this.lastReceipt) : null,
             recovery: this.captured
                 ? Object.freeze({ ...this.captured.recovery })
                 : null,
@@ -272,7 +267,7 @@ export class RecordSessionImpl {
         }
     }
     private async read(signal: AbortSignal): Promise<RecordView> {
-        const record = await this.client.get(this.id, include, signal);
+        const record = await this.client.get(this.id, { include, signal });
         signal.throwIfAborted();
         complete(record, this.id);
         return record;
@@ -303,13 +298,13 @@ export class RecordSessionImpl {
                         this.base = copy(current);
                         this.body = current.body!;
                         this.remote = null;
-                        this.state = protectedRecord(current)
+                        this.state = isProtected(current)
                             ? "conflict"
                             : resting(current);
                         this.why = null;
                     } else if (
                         current.revision !== this.base.revision ||
-                        protectedRecord(current)
+                        isProtected(current)
                     ) {
                         this.remote = copy(current);
                         this.state = "conflict";
@@ -409,7 +404,7 @@ export class RecordSessionImpl {
                               saved: "on_device",
                           };
                 const current = await this.read(signal);
-                if (protectedRecord(current)) {
+                if (isProtected(current)) {
                     this.charge(this.body, this.patch, this.base, current);
                     this.remote = copy(current);
                     throw refusal(
@@ -524,11 +519,13 @@ export class RecordSessionImpl {
     private async settle(signal: AbortSignal, budget: Budget): Promise<void> {
         const captured = this.captured!,
             original = captured.recovery;
-        const receipt = await this.client.awaitReceipt(
-            original.mutationId,
-            Math.max(1, budget.until - Date.now() - budget.margin),
+        const receipt = await this.client.awaitReceipt(original.mutationId, {
+            timeoutMs: Math.max(
+                1,
+                budget.until - Date.now() - budget.margin,
+            ),
             signal,
-        );
+        });
         signal.throwIfAborted();
         if (receipt.mutation !== original.mutationId)
             throw refusal(
@@ -577,7 +574,7 @@ export class RecordSessionImpl {
         // Still pending after the wait: the write is kept on this device and the
         // ledger settles it. Not a failure, and nothing is resubmitted.
         const kept = receipt.state === "pending";
-        if (kept ? protectedRecord(current) : !confirmed(current))
+        if (kept ? isProtected(current) : !confirmed(current))
             throw refusal(
                 "outcome_unknown",
                 "confirmed receipt has pending/protected current readback",

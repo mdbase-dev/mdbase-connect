@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { connect, MdbaseClient, MdbaseError, Float64, type QueryResult, type PagesReset } from "../src/index.js";
+import { MdbaseClient, MdbaseError, type QueryResult, type PagesReset } from "../src/index.js";
+import { connect, Float64 } from "../src/thin-client.js";
 import { MemoryReplica } from "../src/testing/index.js";
 
 const clients: MdbaseClient[] = [];
@@ -55,13 +56,13 @@ describe("pages cursor lifecycle (query responses mocked, not native cursor qual
       // Caller changes cannot alter the captured invocation on restart.
       original.offset = 0; original.limit = 999; original.types[0] = "other"; include.effective = false;
     });
-    const pages = client.pages(original, include, undefined, { onReset });
+    const pages = client.pages(original, { include, onReset });
     accumulated.push((await pages.next()).value!);
     const next = pages.next(); await callbackEntered;
     expect(query).toHaveBeenCalledTimes(2); expect(accumulated).toHaveLength(1);
     release(); accumulated.push((await next).value!);
     expect(accumulated).toEqual([page(asOf, "new-token")]);
-    expect(query.mock.calls[2]).toEqual([{ offset: 100, limit: 50, types: ["task"] }, { effective: true }, undefined]);
+    expect(query.mock.calls[2]).toEqual([{ offset: 100, limit: 50, types: ["task"] }, { include: { effective: true } }]);
     expect((await pages.next()).value).toEqual(page(asOf));
     expect(await pages.next()).toEqual({ done: true, value: undefined });
     expect(query).toHaveBeenCalledTimes(4); expect(onReset).toHaveBeenCalledOnce();
@@ -73,7 +74,7 @@ describe("pages cursor lifecycle (query responses mocked, not native cursor qual
       ["1", new Float64(-0)], ["0", new Float64(1)], ["large", 9007199254740993n],
     ]);
     query.mockRejectedValueOnce(problem("cursor_stale")).mockResolvedValueOnce(page(1));
-    const pages = client.pages({ context, cursor: "old" }, undefined, undefined, {
+    const pages = client.pages({ context, cursor: "old" }, {
       onReset: () => { context.clear(); },
     });
     await pages.next();
@@ -89,7 +90,7 @@ describe("pages cursor lifecycle (query responses mocked, not native cursor qual
     const { client, query } = await fixture();
     query.mockRejectedValueOnce(problem("cursor_stale")).mockResolvedValueOnce(page(2));
     const onReset = vi.fn();
-    const pages = client.pages({ offset: 10, limit: 5, cursor: "supplied" }, undefined, undefined, { onReset });
+    const pages = client.pages({ offset: 10, limit: 5, cursor: "supplied" }, { onReset });
     expect((await pages.next()).value).toEqual(page(2));
     expect(query.mock.calls.map(call => call[0])).toEqual([
       { offset: 10, limit: 5, cursor: "supplied" }, { offset: 10, limit: 5 },
@@ -101,7 +102,7 @@ describe("pages cursor lifecycle (query responses mocked, not native cursor qual
     const { client, query } = await fixture(), final = problem("cursor_stale");
     query.mockResolvedValueOnce(page(1, "old")).mockRejectedValueOnce(problem("cursor_expired"))
       .mockResolvedValueOnce(page(2, "new")).mockRejectedValueOnce(final);
-    const onReset = vi.fn(), pages = client.pages({}, undefined, undefined, { onReset });
+    const onReset = vi.fn(), pages = client.pages({}, { onReset });
     await pages.next(); await pages.next(); await expect(pages.next()).rejects.toBe(final);
     expect(onReset).toHaveBeenCalledOnce(); expect(query).toHaveBeenCalledTimes(4);
   });
@@ -111,7 +112,7 @@ describe("pages cursor lifecycle (query responses mocked, not native cursor qual
   ])("does not reset for malformed/conflicting cursors, authority denial or other errors", async error => {
     const { client, query } = await fixture(); query.mockRejectedValueOnce(error);
     const onReset = vi.fn();
-    await expect(client.pages({}, undefined, undefined, { onReset }).next()).rejects.toBe(error);
+    await expect(client.pages({}, { onReset }).next()).rejects.toBe(error);
     expect(onReset).not.toHaveBeenCalled(); expect(query).toHaveBeenCalledOnce();
   });
 
@@ -119,7 +120,7 @@ describe("pages cursor lifecycle (query responses mocked, not native cursor qual
     const { client, query } = await fixture(), failure = new Error("clear failed");
     query.mockRejectedValueOnce(problem("cursor_expired"));
     const onReset = vi.fn(async () => { throw failure; });
-    await expect(client.pages({}, undefined, undefined, { onReset }).next()).rejects.toBe(failure);
+    await expect(client.pages({}, { onReset }).next()).rejects.toBe(failure);
     expect(query).toHaveBeenCalledOnce();
   });
 
@@ -127,13 +128,13 @@ describe("pages cursor lifecycle (query responses mocked, not native cursor qual
     const { client, query } = await fixture(), controller = new AbortController();
     query.mockRejectedValueOnce(problem("cursor_expired"));
     const onReset = vi.fn(async (reset: PagesReset) => { expect(reset.signal).toBe(controller.signal); controller.abort(); });
-    await expect(client.pages({}, undefined, controller.signal, { onReset }).next()).rejects.toMatchObject({ name: "AbortError" });
+    await expect(client.pages({}, { signal: controller.signal, onReset }).next()).rejects.toMatchObject({ name: "AbortError" });
     expect(query).toHaveBeenCalledOnce(); expect(onReset).toHaveBeenCalledOnce();
   });
 
   it("does no query when pre-aborted and preserves EOF without offset fallback", async () => {
     const { client, query } = await fixture();
-    await expect(client.pages({}, undefined, AbortSignal.abort()).next()).rejects.toMatchObject({ name: "AbortError" });
+    await expect(client.pages({}, { signal: AbortSignal.abort() }).next()).rejects.toMatchObject({ name: "AbortError" });
     expect(query).not.toHaveBeenCalled();
     query.mockResolvedValueOnce(page(1));
     const pages = client.pages({ limit: 10 });

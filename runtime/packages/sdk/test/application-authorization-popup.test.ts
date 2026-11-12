@@ -12,7 +12,7 @@ vi.mock("../src/app-host/app-origin.js",async original=>{
   const actual=await original<typeof import("../src/app-host/app-origin.js")>();
   return {...actual,urlOrigin:(url:URL)=>url.protocol==="file:"?"https://app.test":actual.urlOrigin(url)};
 });
-const {MdbaseConnect}=await import("../src/application/entry.js");
+const {createMdbase}=await import("../src/application/front-door.js");
 const origin="https://app.test",A="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const declaration={id:"org.example.app",name:"Example",origin,environment:"lab" as const,manifest:{manifest_version:1,id:"org.example.app",name:"Example",homepage:origin,
   redirect_uris:[`${origin}/callback`],requirements:{access:"full_collection",contracts:[]}}};
@@ -62,44 +62,44 @@ afterEach(()=>{page.dispatchEvent(Object.assign(new Event("pagehide"),{persisted
 
 describe("approval window from the original gesture",()=>{
   it("open again focuses the handed-off window, without replacing the portal or sending a busy second approval",async()=>{
-    const app=new MdbaseConnect(declaration,{privateCollections:false}).application();await app.start();await app.authorize();
+    const app=createMdbase(declaration,{privateCollections:false});await app.start();await app.signIn();
     expect(popups[0]!.location.href).toBe("https://cp.test/pair/original");
-    await expect(app.authorize()).resolves.toMatchObject({status:"authorizing",problem:null});
+    await expect(app.signIn()).resolves.toMatchObject({status:"authorizing",problem:null});
     expect(open).toHaveBeenCalledOnce();expect(popups[0]!.focus).toHaveBeenCalledOnce();expect(popups[0]!.closed).toBe(false);
     expect(authorizations()).toHaveLength(1);
     await expect(app.approve(A)).rejects.toMatchObject({code:"application_selection_busy"});
     expect(open).toHaveBeenCalledOnce();expect(popups[0]!.closed).toBe(false);expect(authorizations()).toHaveLength(1);
   });
   it("focus during handoff leaves the original request pending and its single-flight guard intact",async()=>{
-    const app=new MdbaseConnect(declaration,{privateCollections:false}).application();await app.start();FakeWorker.hold=true;
-    let finished=false;const original=app.authorize().then(s=>{finished=true;return s;});void original.catch(()=>{});
+    const app=createMdbase(declaration,{privateCollections:false});await app.start();FakeWorker.hold=true;
+    let finished=false;const original=app.signIn().then(s=>{finished=true;return s;});void original.catch(()=>{});
     await vi.waitFor(()=>expect(FakeWorker.all[0]!.held).not.toBeNull());
-    await expect(app.authorize()).resolves.toBeDefined();
+    await expect(app.signIn()).resolves.toBeDefined();
     expect(finished).toBe(false);expect(open).toHaveBeenCalledOnce();expect(popups[0]!.focus).toHaveBeenCalledOnce();
     await expect(app.approve(A)).rejects.toMatchObject({code:"application_selection_busy"});
     const w=FakeWorker.all[0]!;w.reply(w.held!,authorizing);await original;expect(authorizations()).toHaveLength(1);
   });
   it("reauthorize and approve share the original collection-bound window",async()=>{
-    const app=new MdbaseConnect(declaration,{privateCollections:false}).application();await app.start();await app.approve(A);
+    const app=createMdbase(declaration,{privateCollections:false});await app.start();await app.approve(A);
     await expect(app.reauthorize()).resolves.toMatchObject({status:"authorizing"});await expect(app.approve(A)).resolves.toMatchObject({status:"authorizing"});
     expect(popups[0]!.focus).toHaveBeenCalledTimes(2);expect(open).toHaveBeenCalledOnce();expect(authorizations().map(r=>r[4])).toEqual([A]);
   });
   it("an aborted repeat gesture cannot focus or cancel the original approval",async()=>{
-    const app=new MdbaseConnect(declaration,{privateCollections:false}).application();await app.start();const owner=new AbortController();await app.authorize({signal:owner.signal});
-    const repeat=new AbortController();repeat.abort();await expect(app.authorize({signal:repeat.signal})).rejects.toMatchObject({code:"cancelled"});
+    const app=createMdbase(declaration,{privateCollections:false});await app.start();const owner=new AbortController();await app.signIn({signal:owner.signal});
+    const repeat=new AbortController();repeat.abort();await expect(app.signIn({signal:repeat.signal})).rejects.toMatchObject({code:"cancelled"});
     expect(popups[0]!.focus).not.toHaveBeenCalled();expect(popups[0]!.closed).toBe(false);expect(owner.signal.aborted).toBe(false);expect(authorizations()).toHaveLength(1);
   });
   it("pagehide fences the retained UI handle instead of focusing a retired window",async()=>{
-    const app=new MdbaseConnect(declaration,{privateCollections:false}).application();await app.start();await app.authorize();
+    const app=createMdbase(declaration,{privateCollections:false});await app.start();await app.signIn();
     page.dispatchEvent(Object.assign(new Event("pagehide"),{persisted:true}));
-    await expect(app.authorize()).rejects.toMatchObject({reason:"application_entry_fenced"});
+    await expect(app.signIn()).rejects.toMatchObject({reason:"application_entry_fenced"});
     expect(popups[0]!.focus).not.toHaveBeenCalled();expect(popups[0]!.closed).toBe(true);expect(open).toHaveBeenCalledOnce();
   });
   it("a closed window waits for the original receipt outcome; only then can a new gesture restart",async()=>{
-    const app=new MdbaseConnect(declaration,{privateCollections:false}).application();await app.start();await app.authorize();popups[0]!.closed=true;
+    const app=createMdbase(declaration,{privateCollections:false});await app.start();await app.signIn();popups[0]!.closed=true;
     // Closed is not a receipt, cancellation certificate or replacement permit.
-    await expect(app.authorize()).resolves.toMatchObject({status:"authorizing"});expect(open).toHaveBeenCalledOnce();expect(authorizations()).toHaveLength(1);
+    await expect(app.signIn()).resolves.toMatchObject({status:"authorizing"});expect(open).toHaveBeenCalledOnce();expect(authorizations()).toHaveLength(1);
     FakeWorker.all[0]!.closedReceipt();await vi.waitFor(()=>expect(app.getSnapshot().selection?.approval).toBeNull());
-    await app.authorize();expect(open).toHaveBeenCalledTimes(2);expect(authorizations()).toHaveLength(2);expect(popups[1]!.closed).toBe(false);
+    await app.signIn();expect(open).toHaveBeenCalledTimes(2);expect(authorizations()).toHaveLength(2);expect(popups[1]!.closed).toBe(false);
   });
 });

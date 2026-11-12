@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { MessageChannel } from "node:worker_threads";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { connect } from "../src/index.js";
+import { connect } from "../src/thin-client.js";
 import { MemoryReplica } from "../src/testing/index.js";
 import { fromHex } from "../src/cbor.js";
 import { appLocalConnector, attachAppLocalFacade, type AppLocalScope } from "../src/app-host/local-facade.js";
@@ -62,9 +62,9 @@ describe("Bases READ bridge stand-ins (not native authority/execution/render pro
  });
  it("rejects already-aborted reads before transport work and abort after reply",async()=>{
   const read=vi.fn(async()=>fromHex(fullFixture.success_hex)),client=await clientFixture(read);
-  await expect(client.executeAppBases(request,AbortSignal.abort())).rejects.toMatchObject({code:"cancelled"});expect(read).not.toHaveBeenCalled();
+  await expect(client.executeAppBases(request,{signal:AbortSignal.abort()})).rejects.toMatchObject({code:"cancelled"});expect(read).not.toHaveBeenCalled();
   const abort=new AbortController(),other=await clientFixture(async()=>{abort.abort();return fromHex(fullFixture.success_hex);});
-  await expect(other.executeAppBases(request,abort.signal)).rejects.toMatchObject({code:"cancelled"});
+  await expect(other.executeAppBases(request,{signal:abort.signal})).rejects.toMatchObject({code:"cancelled"});
  });
  it("captures window echo before await, rejects wrong response and oversized output",async()=>{
   const window={offset:0,limit:200},client=await clientFixture(async()=>{window.offset=1;return fromHex(windowFixture.cases[0]!.success_hex);});

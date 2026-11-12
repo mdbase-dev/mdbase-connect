@@ -15,7 +15,7 @@ vi.mock("../src/app-host/app-origin.js",async original=>{
   const actual=await original<typeof import("../src/app-host/app-origin.js")>();
   return {...actual,urlOrigin:(url:URL)=>url.protocol==="file:"?"https://app.test":actual.urlOrigin(url)};
 });
-const {MdbaseConnect}=await import("../src/application/entry.js");
+const {createMdbase}=await import("../src/application/front-door.js");
 
 const origin="https://app.test",id="11111111-1111-4111-8111-111111111111";
 const declaration={id:"org.example.app",name:"Example",origin,environment:"lab" as const,manifest:{manifest_version:1,id:"org.example.app",name:"Example",homepage:origin,
@@ -55,7 +55,7 @@ afterEach(()=>{vi.unstubAllGlobals();});
 
 describe("worker option",()=>{
   it("by default the SDK constructs its own module Worker and does not name its URL to it",async()=>{
-    const app=new MdbaseConnect(declaration).application();await app.start();
+    const app=createMdbase(declaration);await app.start();
     expect(FakeWorker.all).toHaveLength(1);
     const worker=FakeWorker.all[0]!;
     expect(String(worker.url)).toBe(workerUrl);expect(worker.options).toEqual({type:"module"});
@@ -66,7 +66,7 @@ describe("worker option",()=>{
     // The SDK's own construction is not used.
     vi.stubGlobal("Worker",class {constructor(){throw new Error("SDK-constructed Worker");}});
     const factory=vi.fn((url:string)=>new FakeWorker(url) as unknown as Worker);
-    const app=new MdbaseConnect(declaration,{worker:factory}).application();
+    const app=createMdbase(declaration,{worker:factory});
     await app.start();
     expect(factory).toHaveBeenCalledOnce();expect(factory).toHaveBeenCalledWith(workerUrl);
     const worker=FakeWorker.all[0]!,[protocol,binding,sent,namespace,anchor]=worker.bootstrap;
@@ -77,8 +77,21 @@ describe("worker option",()=>{
 
   it("passes the declared storage namespace beside the URL",async()=>{
     const factory=(url:string)=>new FakeWorker(url) as unknown as Worker;
-    await new MdbaseConnect({...declaration,storage:{applicationNamespace:"vault-a"}},{worker:factory}).application().start();
+    await createMdbase({...declaration,storage:{applicationNamespace:"vault-a"}},{worker:factory}).start();
     expect(FakeWorker.all[0]!.bootstrap.slice(3)).toEqual(["vault-a",workerUrl]);
+  });
+
+  it("describes a problem in the app's own words, and keeps the English copy for what it leaves out",async()=>{
+    const messages={application_worker_unavailable:{title:"Impossible de démarrer"}};
+    const app=createMdbase(declaration,{messages,worker:()=>{throw new Error("no blob Worker here");}});
+    await expect(app.start()).rejects.toMatchObject({reason:"application_worker_unavailable"});
+    const phase=app.getSnapshot().phase!;
+    expect(phase).toMatchObject({kind:"unavailable",problem:{key:"application_worker_unavailable",title:"Impossible de démarrer"}});
+    const english=createMdbase(declaration,{worker:()=>{throw new Error("no blob Worker here");}});
+    await expect(english.start()).rejects.toThrow();
+    const plain=english.getSnapshot().phase!;
+    if(phase.kind!=="unavailable"||plain.kind!=="unavailable")throw Error("expected the unavailable phase");
+    expect(plain.problem.title).not.toBe(phase.problem.title);expect(phase.problem.message).toBe(plain.problem.message);
   });
 
   it.each([
@@ -86,7 +99,7 @@ describe("worker option",()=>{
     ["returns no Worker",()=>({postMessage(){}})],
     ["returns nothing",()=>undefined],
   ])("a factory that %s fails start with application_worker_unavailable",async(_name,factory)=>{
-    const app=new MdbaseConnect(declaration,{worker:factory as unknown as (url:string)=>Worker}).application();
+    const app=createMdbase(declaration,{worker:factory as unknown as (url:string)=>Worker});
     await expect(app.start()).rejects.toMatchObject({code:"unavailable",reason:"application_worker_unavailable"});
     expect(app.getSnapshot()).toMatchObject({status:"blocked",problem:"application_worker_unavailable"});
     expect(FakeWorker.all).toHaveLength(0);
@@ -94,44 +107,44 @@ describe("worker option",()=>{
 
   it("refuses a factory that is not a function at construction",()=>{
     for(const worker of [null,"./worker.js",new URL(workerUrl),{}])
-      expect(()=>new MdbaseConnect(declaration,{worker:worker as unknown as (url:string)=>Worker})).toThrow(new TypeError("worker must be a function"));
+      expect(()=>createMdbase(declaration,{worker:worker as unknown as (url:string)=>Worker})).toThrow(new TypeError("worker must be a function"));
   });
 });
 
 describe("urlSelection option",()=>{
   it("by default reads the requested collection from the page URL and writes the selection back",async()=>{
     open(`${origin}/?collection=${id}`);
-    const app=new MdbaseConnect(declaration).application();await app.start();
+    const app=createMdbase(declaration);await app.start();
     expect(app.getSnapshot().selection.requested).toMatchObject({collectionId:id,source:"url"});
-    await app.clearSelection();
-    expect(page.history.replaceState).toHaveBeenCalledWith(null,"",`${origin}/`);
+    await app.chooseAnother();
+    expect(page.history.pushState).toHaveBeenCalledWith(null,"",`${origin}/`);
   });
 
   it("by default a blob: document cannot bind its selection",async()=>{
     open(`blob:${origin}/7b0c6a1e-2b52-4a8e-9f3c-2c6e1f0d9a11`);
-    const app=new MdbaseConnect(declaration).application();await app.start();
+    const app=createMdbase(declaration);await app.start();
     expect(app.getSnapshot().selection).toMatchObject({problem:"application_selection_binding"});
   });
 
   it("false never reads or writes the URL: a blob: document selects through the API",async()=>{
     open(`blob:${origin}/7b0c6a1e-2b52-4a8e-9f3c-2c6e1f0d9a11`);
-    const app=new MdbaseConnect(declaration,{urlSelection:false}).application();await app.start();
+    const app=createMdbase(declaration,{urlSelection:false});await app.start();
     expect(app.getSnapshot().selection).toMatchObject({problem:null,requested:{collectionId:null,source:"none"}});
     await app.select(id);
     expect(app.getSnapshot().selection.requested).toMatchObject({collectionId:id,source:"user"});
-    await app.clearSelection();
+    await app.chooseAnother();
     expect(app.getSnapshot().selection.requested).toMatchObject({collectionId:null,source:"none"});
     expect(page.history.pushState).not.toHaveBeenCalled();expect(page.history.replaceState).not.toHaveBeenCalled();
   });
 
   it("false ignores a collection named in the page URL",async()=>{
     open(`${origin}/?collection=${id}`);
-    const app=new MdbaseConnect(declaration,{urlSelection:false}).application();await app.start();
+    const app=createMdbase(declaration,{urlSelection:false});await app.start();
     expect(app.getSnapshot().selection.requested).toMatchObject({collectionId:null,source:"none"});
   });
 
   it("refuses a value that is not a boolean at construction",()=>{
     for(const urlSelection of [null,0,"false",{}])
-      expect(()=>new MdbaseConnect(declaration,{urlSelection:urlSelection as unknown as boolean})).toThrow(new TypeError("urlSelection must be a boolean"));
+      expect(()=>createMdbase(declaration,{urlSelection:urlSelection as unknown as boolean})).toThrow(new TypeError("urlSelection must be a boolean"));
   });
 });

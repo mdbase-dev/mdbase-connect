@@ -15,6 +15,7 @@
  * - unions carry their variant name in `kind`.
  */
 import { CborValue, Float64, fromHex, toHex } from "./cbor.js";
+import { toPlain, toValue, type JsonValue, type Plain } from "./plain.js";
 
 export class SchemaError extends Error {
   constructor(
@@ -32,6 +33,36 @@ export interface Codec<T> {
   readonly name: string;
   enc(v: T): CborValue;
   dec(c: CborValue): T;
+}
+
+// Decoding is synchronous, so one flag scoped by `decodePlain` reaches every
+// `value` and data map in an answer, hand-written codecs included.
+let plainMode = false;
+
+/**
+ * Decode an answer for an app: as `codec.dec`, except that every `value` is
+ * plain JSON and every data map an object (`Plain<T>`). Everything else,
+ * such as an exact 64-bit size, decodes as it always does.
+ */
+export function decodePlain<T>(codec: Codec<T>, c: CborValue): Plain<T> {
+  const was = plainMode;
+  plainMode = true;
+  try {
+    return codec.dec(c) as Plain<T>;
+  } finally {
+    plainMode = was;
+  }
+}
+
+/** `codec` for an answer an app reads: it decodes plain and never encodes. */
+export function plainAnswer<T>(codec: Codec<T>): Codec<Plain<T>> {
+  return {
+    name: codec.name,
+    enc: () => {
+      throw new SchemaError(codec.name, "an answer is decoded, never encoded");
+    },
+    dec: (c) => decodePlain(codec, c),
+  };
 }
 
 function kindOf(c: CborValue): string {
@@ -173,7 +204,21 @@ export const value: Codec<CborValue> = {
   },
   dec: (c) => {
     checkValue(c);
-    return c;
+    return plainMode ? (toPlain(c) as CborValue) : c;
+  },
+};
+
+/**
+ * A value that is JSON on both sides: details of a problem, issue or incident.
+ * They describe a failure and never return in a write, so nothing needs their
+ * exact form. Encodes plain or exact data; decodes to plain data.
+ */
+export const json: Codec<JsonValue> = {
+  name: "value",
+  enc: (v) => value.enc(toValue(v)),
+  dec: (c) => {
+    checkValue(c);
+    return toPlain(c);
   },
 };
 
@@ -229,7 +274,7 @@ export function dataMap<T>(item: Codec<T>): Codec<Map<string, T>> {
         if (typeof k !== "string") throw new SchemaError(name, "data map keys must be text");
         m.set(k, item.dec(x));
       }
-      return m;
+      return plainMode ? (Object.fromEntries(m) as unknown as Map<string, T>) : m;
     },
   };
 }

@@ -1,7 +1,9 @@
 /** Reviewable collection setup: one plan for one review screen, then one
  * guarded all-or-nothing apply. Native Core plans; the SDK only words it. */
 import type { AppResourceAssessment, AppResourceReview } from "../app-host/collection-control.js";
-import type { MdbaseApplicationReadinessSnapshot, MdbaseApplicationRequestOptions, MdbaseApplicationSnapshot } from "./entry.js";
+import type { MdbaseApplicationReadinessSnapshot, MdbaseApplicationRequestOptions } from "./entry.js";
+import type { MdbaseSetupResult, MdbaseSnapshot } from "./front-door.js";
+import { isMdbaseError } from "../errors.js";
 import { versionRelation, type MdbaseVersionRelation } from "../semver.js";
 import type { NewerPacks } from "./configuration.js";
 
@@ -69,13 +71,15 @@ export interface MdbaseSetupPlan {
   readonly records: readonly { readonly path: string; readonly action: "create" | "skip" }[];
   readonly refusal?: { readonly code: MdbaseSetupRefusalCode; readonly message: string };
 }
-export interface MdbaseApplicationSetup {
-  /** Plan setup of the open collection. Changes no collection data (it may
-   * settle the local journal of an earlier apply); call again after any decision. */
-  plan(options?: MdbaseSetupPlanOptions): Promise<MdbaseSetupPlan>;
-  /** Apply a plan from `plan` unchanged, as one guarded mutation. Refuses
-   * `setup_changed` if the collection changed since it was reviewed. */
-  apply(plan: MdbaseSetupPlan, options?: MdbaseApplicationRequestOptions): Promise<MdbaseApplicationSnapshot>;
+/** SDK-8: how an apply ended. The collection changing since the review and an
+ * unknown result are outcomes, with the snapshot as it is then; any other
+ * failure rejects. */
+export async function setupResult(applying: Promise<MdbaseSnapshot>, current: () => MdbaseSnapshot): Promise<MdbaseSetupResult> {
+  try { return Object.freeze({ outcome: "applied" as const, snapshot: await applying }); } catch (error) {
+    if (isMdbaseError(error, "conflict") && error.reason === "setup_changed") return Object.freeze({ outcome: "changed" as const, snapshot: current() });
+    if (isMdbaseError(error, "outcome_unknown")) return Object.freeze({ outcome: "unknown" as const, snapshot: current() });
+    throw error;
+  }
 }
 
 const MAX_RECORDS = 32, MAX_RECORD_BYTES = 256 * 1024;

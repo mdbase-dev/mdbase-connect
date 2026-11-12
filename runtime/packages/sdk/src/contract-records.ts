@@ -2,6 +2,7 @@
  * replica's Core maps fields; the SDK never projects or maps on its own. */
 import { hash, list, struct, tstr, uint, uuid } from "./codec.js";
 import { baseField, fmMap, type BaseField, type FmMap, type Uuid } from "./wire.js";
+import type { JsonObject } from "./plain.js";
 
 /** An exact registered record contract; `type` picks the implementing type
  * when several implement it. */
@@ -16,7 +17,7 @@ export interface ContractRecordView {
   path: string;
   revision: string;
   /** Contract fields, keyed by contract field name. */
-  fields: FmMap;
+  fields: JsonObject;
   contract: ContractIdentity;
 }
 

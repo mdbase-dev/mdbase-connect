@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { toHex } from "../src/cbor.js";
 import { uuidToBytes } from "../src/codec.js";
-import { connect } from "../src/index.js";
+import { connect } from "../src/thin-client.js";
 import { memoryKeyStorage, loadOrCreateClientKey } from "../src/keys.js";
 import { daemonIdentityFile, defaultDaemonStateDir, ipcConnector, readDaemonIdentity } from "../src/node.js";
 import { inProcessConnector } from "../src/transport/inprocess.js";
@@ -76,7 +76,7 @@ describe("relay transport (Noise over WebSocket)", () => {
     });
     const w = await c.create({ path: "a.md", body: "x".repeat(200_000) }); // spans many Noise messages
     await w.confirmed;
-    expect((await c.get({ path: "a.md" }, { body: true })).body).toHaveLength(200_000);
+    expect((await c.get({ path: "a.md" }, { include: { body: true } })).body).toHaveLength(200_000);
     c.close();
   });
 
@@ -139,7 +139,7 @@ describe("relay transport (Noise over WebSocket)", () => {
     expect(toHex(first[0]!)).toBe(toHex(prologue));
     const w = await c.create({ path: "a.md", body: "hosted" });
     await w.confirmed;
-    expect((await c.get({ path: "a.md" }, { body: true })).body).toBe("hosted");
+    expect((await c.get({ path: "a.md" }, { include: { body: true } })).body).toBe("hosted");
     c.close();
   });
 

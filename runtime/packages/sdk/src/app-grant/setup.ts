@@ -4,7 +4,7 @@ import { MdbaseError, isMdbaseError, mdbaseError } from "../errors.js";
 import { uuidToBytes } from "../codec.js";
 import type { CborValue } from "../cbor.js";
 import {isReplicaResponseProblem, type Session} from "../session.js";
-import type { Receipt } from "../wire.js";
+import type { Receipt } from "../plain.js";
 import { resourceDecisions } from "../app-host/collection-control.js";
 import { setupPlan, setupRecords, type MdbaseSetupPlan, type MdbaseSetupPlanOptions } from "../application/setup.js";
 import { manifestDigest } from "../application/registration.js";
@@ -65,7 +65,7 @@ export function privateCollectionSetup(input:PrivateSetupInput):MdbasePrivateSet
   }
   async function reconcile(signal?:AbortSignal){
     await fence(undefined,signal);const mid=await journal.load();await fence(undefined,signal);if(!mid)return;
-    let r:Receipt;try{r=await client.receipt(mid,signal);}catch(e){throw unknown(mid,e);}
+    let r:Receipt;try{r=await client.receipt(mid,{signal});}catch(e){throw unknown(mid,e);}
     await fence(undefined,signal);
     if(r.mutation!==mid || (r.state!=="confirmed"&&r.state!=="rejected"))throw unknown(mid);
     await journal.clear(mid);
@@ -108,7 +108,7 @@ export function privateCollectionSetup(input:PrivateSetupInput):MdbasePrivateSet
           await fence(bound.session,options.signal);dispatched=true;
           const reply=await setupRequest(bound.session,"apply",[[2,bound.review.ticket],[3,uuidToBytes(mid)],[4,bound.review.revision],[5,hashBytes(bound.review.assessment.assessmentDigest)]],options.signal);
           await input.assertCurrent();if(reply.kind!=="receipt"||reply.receipt.mutation!==mid)throw unknown(mid);
-          const r=reply.receipt.state==="pending"?await client.awaitReceipt(mid,30_000,options.signal):reply.receipt;
+          const r=reply.receipt.state==="pending"?await client.awaitReceipt(mid,{timeoutMs:30_000,signal:options.signal}):reply.receipt;
           await input.assertCurrent();
           if(r.mutation!==mid || (r.state!=="confirmed"&&r.state!=="rejected"))throw unknown(mid);
           terminal=true;await journal.clear(mid);

@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { GrantInfo, SyncStatus } from "../src/wire.js";
-import { connect, isMdbaseError, LiveQuery, MdbaseClient, MdbaseError } from "../src/index.js";
+import { isMdbaseError, LiveQuery, MdbaseClient, MdbaseError } from "../src/index.js";
+import { connect } from "../src/thin-client.js";
 import { MemoryReplica } from "../src/testing/index.js";
 import { clientFrame, problem } from "../src/wire.js";
-import { toPlain } from "../src/values.js";
 import { mdbaseError } from "../src/errors.js";
 import type { FramePort } from "../src/transport/port.js";
 
@@ -138,15 +138,15 @@ describe("writes", () => {
       expect(write.mutationId).toBe(mid);
       expect(write.state).toBe("pending");
       expect(write.records[0]).toMatchObject({ id, path: "notes/source.md", body: "First body\n", document, types: ["note"] });
-      expect(toPlain(write.records[0]!.frontmatter)).toEqual({ title: "Original", rank: 2, active: true, labels: ["a", "b"] });
-      const seen = await c.get(id, { body: true, document: true });
+      expect(write.records[0]!.frontmatter).toEqual({ title: "Original", rank: 2, active: true, labels: ["a", "b"] });
+      const seen = await c.get(id, { include: { body: true, document: true } });
       expect(seen.document).toBe(document);
       await c.create({ id, path: "notes/source.md", document: "Never a replacement" }, { mutationId: mid });
-      expect((await c.get(id, { body: true })).body).toBe("First body\n");
+      expect((await c.get(id, { include: { body: true } })).body).toBe("First body\n");
       const replacement = '---\ntitle: "Replacement"\nrank: 3\n---\nSecond body\n';
       const next = await c.replaceDocument(seen, replacement, { include: { body: true, document: true } });
       expect(next.records[0]).toMatchObject({ id, path: seen.path, body: "Second body\n", document: replacement });
-      expect(toPlain(next.records[0]!.frontmatter)).toEqual({ title: "Replacement", rank: 3 });
+      expect(next.records[0]!.frontmatter).toEqual({ title: "Replacement", rank: 3 });
       replica.confirmAll();
       await expect(write.confirmed).resolves.toMatchObject({ mutation: mid, state: "confirmed" });
       await expect(next.confirmed).resolves.toMatchObject({ state: "confirmed" });
@@ -161,7 +161,7 @@ describe("writes", () => {
       const write = await c.create({ path: "source.md", document }, { include: { body: true, document: true } });
       expect(write.records[0]!.body).toBe(document);
       expect(write.records[0]!.document).toBe(document);
-      expect(write.records[0]!.frontmatter.size).toBe(0);
+      expect(write.records[0]!.frontmatter).toEqual({});
       expect(replica.allRecords[0]!.body).toBe(document);
     } finally { c.close(); }
   });
@@ -180,7 +180,7 @@ describe("writes", () => {
     const { replica, client } = setup();
     const rec = replica.seed({ path: "n.md", frontmatter: { status: "open", n: 1 }, body: "hello world" });
     const c = await client();
-    const seen = await c.get(rec.id, { body: true });
+    const seen = await c.get(rec.id, { include: { body: true } });
     const op = c.updateOp(seen, { patch: { status: "done", n: 1 }, body: "hello brave world", updateRefs: false });
     expect(op.updateRefs).toBe(false);
     expect(c.updateOp(seen, {patch: {status: "done"}}).updateRefs).toBeUndefined();
@@ -189,7 +189,7 @@ describe("writes", () => {
     expect(op.bodyEdits).toEqual([[6, 6, "brave "]]);
     const w = await c.update(seen, { patch: { status: "done" }, body: "hello brave world" });
     expect(w.records[0]!.state.state).toBe("pending");
-    const after = await c.get(rec.id, { body: true });
+    const after = await c.get(rec.id, { include: { body: true } });
     expect(after.body).toBe("hello brave world");
     c.close();
   });
@@ -318,7 +318,7 @@ describe("presence", () => {
     const a = await client();
     const b = await client();
     let peers: unknown[] = [];
-    b.presence.subscribe(rec.id, (p) => (peers = p.map((x) => toPlain(x.state))));
+    b.presence.subscribe(rec.id, (p) => (peers = p.map((x) => x.state)));
     await a.presence.join(rec.id, { cursor: 3 });
     await until(() => peers.length === 1);
     expect(peers).toEqual([{ cursor: 3 }]);
@@ -369,31 +369,17 @@ describe("head witnesses", () => {
   });;
 });
 
-import { summarizeStatus } from "../src/status.js";
 import { receipt as receiptCodec } from "../src/wire.js";
+import { decodePlain } from "../src/codec.js";
 import { decode as cborDecode, encode as cborEncode } from "../src/cbor.js";
 describe("local-only collection behavior", () => {
   it("a confirmed receipt without seq decodes and settles `confirmed`", async () => {
-    const r = receiptCodec.dec(cborDecode(cborEncode(receiptCodec.enc({ mutation: "0192f3a4-6000-7abc-8def-0123456789ab", state: "confirmed", status: "applied" }))));
+    const r = decodePlain(receiptCodec, cborDecode(cborEncode(receiptCodec.enc({ mutation: "0192f3a4-6000-7abc-8def-0123456789ab", state: "confirmed", status: "applied" }))));
     expect(r.seq).toBeUndefined();
     const { Write } = await import("../src/client.js");
     const w = new Write({ ...r, state: "pending" });
     w.update(r);
     await expect(w.confirmed).resolves.toMatchObject({ state: "confirmed" });
-  });
-  it("status: saved on this device, never 'synced through 0'", () => {
-    const s = summarizeStatus({ mode: "local_only", confirmedThrough: 0, headKnown: 0, pending: 0, holds: 0, unresolved: 0, connection: "offline", incidents: [] });
-    expect(s).toMatchObject({ kind: "local", text: "Saved on this device", confirmedThrough: null });
-    expect(summarizeStatus({ mode: "synced", confirmedThrough: 5, headKnown: 9, pending: 2, holds: 0, unresolved: 0, connection: "online", incidents: [] }).kind).toBe("catching_up");
-    expect(summarizeStatus({ mode: "synced", confirmedThrough: 5, headKnown: 5, pending: 1, holds: 0, unresolved: 0, connection: "offline", incidents: [] }, "collection_migrating").kind).toBe("collection_migrating");
-  });
-  it("status: an unreachable log reads as saved on this device, never as stuck saving", () => {
-    const st = { mode: "synced" as const, confirmedThrough: 5, headKnown: 5, pending: 2, holds: 0, unresolved: 0, connection: "online" as const, incidents: [] };
-    expect(summarizeStatus(st, null, { kind: "offline" })).toEqual(expect.objectContaining({ kind: "offline", health: "offline",
-      text: "You're offline. 2 changes are saved on this device and will sync later" }));
-    expect(summarizeStatus(st, null, { kind: "server_busy", retryAfterMs: 30_000 })).toMatchObject({ kind: "synced", health: "server_busy" });
-    expect(summarizeStatus(st, "collection_migrating", { kind: "rate_limited" }).kind).toBe("collection_migrating");
-    expect(summarizeStatus(st).health).toBeNull();
   });
 });
 

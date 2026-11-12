@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { connect, Write, type Connector, type FramePort, type FileWrite, type wire } from "../src/index.js";
+import { Write, type FileWrite, type wire } from "../src/index.js";
+import { connect, type Connector, type FramePort } from "../src/thin-client.js";
 import { MemoryReplica } from "../src/testing/index.js";
 import { clientFrame, helloResult, openUploadParams } from "../src/wire.js";
 import { uuid as uuidCodec } from "../src/codec.js";

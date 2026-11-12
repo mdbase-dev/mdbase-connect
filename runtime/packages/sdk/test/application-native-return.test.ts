@@ -1,5 +1,5 @@
 import {describe,expect,it} from "vitest";
-import {MdbaseConnect,type MdbaseApplicationDeclaration} from "../src/index.js";
+import {createMdbase,type MdbaseApplicationDeclaration} from "../src/index.js";
 import {parseAppManifest} from "@mdbase-dev/connect-protocol/manifest";
 const origin="https://app.test",native="dev.tasknotes.entry://auth/mdbase/callback";
 /** `legacyRedirects` are appended after parsing, as a declaration stored before
@@ -13,11 +13,11 @@ function declaration(redirects:string[]=[`${origin}/callback`,native],legacyRedi
 const opener=(returnUrl:string)=>({signIn:{open(){},returnUrl}});
 describe("sign-in opener return URL (RFC 8252 native redirect)",()=>{
   it("accepts a return URL that exactly equals a declared native or web redirect",()=>{
-    expect(()=>new MdbaseConnect(declaration(),opener(native))).not.toThrow();
-    expect(()=>new MdbaseConnect(declaration(),opener(`${origin}/callback`))).not.toThrow();
+    expect(()=>createMdbase(declaration(),opener(native))).not.toThrow();
+    expect(()=>createMdbase(declaration(),opener(`${origin}/callback`))).not.toThrow();
   });
   it("keeps an opener without a return URL valid (extension and popup-less hosts)",()=>{
-    expect(()=>new MdbaseConnect(declaration(),{signIn:{open(){}}})).not.toThrow();
+    expect(()=>createMdbase(declaration(),{signIn:{open(){}}})).not.toThrow();
   });
   it.each([
     ["another scheme","dev.tasknotes.other://auth/mdbase/callback"],
@@ -30,16 +30,16 @@ describe("sign-in opener return URL (RFC 8252 native redirect)",()=>{
     ["an undeclared https URL",`${origin}/elsewhere`],
     ["a fragment","dev.tasknotes.entry://auth/mdbase/callback#x"],
   ])("refuses %s",(_case,returnUrl)=>{
-    expect(()=>new MdbaseConnect(declaration(),opener(returnUrl))).toThrow(expect.objectContaining({reason:"application_sign_in_opener"}));
+    expect(()=>createMdbase(declaration(),opener(returnUrl))).toThrow(expect.objectContaining({reason:"application_sign_in_opener"}));
   });
   it("never honours a wildcard listed in a legacy declaration, literal or expanded",()=>{
-    const app=(returnUrl:string)=>new MdbaseConnect(declaration(undefined,["dev.tasknotes.entry://auth/*"]),opener(returnUrl));
+    const app=(returnUrl:string)=>createMdbase(declaration(undefined,["dev.tasknotes.entry://auth/*"]),opener(returnUrl));
     // The current canonical parser rejects the entire corrupt declaration,
     // even when the selected return URL itself is an exact safe entry.
     for(const returnUrl of [native,"dev.tasknotes.entry://auth/*","dev.tasknotes.entry://auth/anything"])
       expect(()=>app(returnUrl)).toThrow();
   });
   it("refuses a native return URL the app did not declare",()=>{
-    expect(()=>new MdbaseConnect(declaration([`${origin}/callback`]),opener(native))).toThrow(expect.objectContaining({reason:"application_sign_in_opener"}));
+    expect(()=>createMdbase(declaration([`${origin}/callback`]),opener(native))).toThrow(expect.objectContaining({reason:"application_sign_in_opener"}));
   });
 });

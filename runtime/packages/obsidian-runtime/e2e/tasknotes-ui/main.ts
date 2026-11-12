@@ -9,7 +9,7 @@ import { TaskCreationModal } from "@mdbase-lab/tasknotes-create-modal";
 import { TaskEditModal } from "@mdbase-lab/tasknotes-edit-modal";
 import { setMdbaseMutationBackend } from "@mdbase-lab/tasknotes-vault-service";
 import { MdbaseMutationBackend } from "@mdbase-lab/tasknotes-backend";
-import { connect, toPlain, revisionOf } from "@mdbase-lab/sdk";
+import { connect, toPlain, revisionOf } from "@mdbase-lab/sdk/thin-client";
 import { connectDaemonLocalhost } from "@mdbase-lab/sdk/node";
 import { SdkWriteClient, obsidianIndexed } from "@mdbase-lab/write-client";
 
@@ -66,7 +66,7 @@ export default class LabTaskNotesUI extends TaskNotesPlugin {
         return write;
       };
       const port = {
-        find: (ref: any, include: any) => delegate.find(ref, include),
+        find: (ref: any, include: any) => delegate.find(ref, { include }),
         create: async (input: any, options: any) => {
           this.result.createdFixtures.push(input.path);
           try { return observe(await delegate.create(input, options)); }
@@ -80,7 +80,7 @@ export default class LabTaskNotesUI extends TaskNotesPlugin {
         submit: async (ops: any[], options: any) => {
           this.result.attemptedResources.push(...ops.map(op => op.path));
           try {
-            return (await delegate.submit(ops, options)).map((w: any) => observe(w, true));
+            return [observe(await delegate.submit(ops, options), true)];
           } catch (error) {
             appendDiagnostic(this.result.diagnostics, "resource_submit", "throw", errorSummary(error));
             throw error;
@@ -166,13 +166,13 @@ export default class LabTaskNotesUI extends TaskNotesPlugin {
     this.result.editModalRendered = this.modal.containerEl.isConnected && editSave.offsetParent !== null;
     this.modal.close();
     this.result.stage = "sdk_and_vault_readback";
-    const record = await this.client.get({ path: task.path }, { body: true });
+    const record = await this.client.get({ path: task.path }, { include: { body: true } });
     const file = this.app.vault.getAbstractFileByPath(task.path);
     if (!(file instanceof TFile)) throw new Error("file_missing");
     const disk = await this.app.vault.read(file);
     const fm = parseYaml(disk.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1] ?? "");
     const statusKey = this.settings.fieldMapping.status;
-    this.result.readBack = toPlain(record.frontmatter.get(statusKey)) === "done" && fm[statusKey] === "done";
+    this.result.readBack = record.frontmatter[statusKey] === "done" && fm[statusKey] === "done";
     if (!this.result.readBack || !this.result.serviceUpdated || !this.result.editModalRendered || this.result.recordPublished < 2) throw new Error("readback_incomplete");
   }
 

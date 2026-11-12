@@ -102,7 +102,10 @@ export class RecordsApi implements Records {
         if (this.closed)
             throw mdbaseError("unavailable", "record sessions client closed");
         options.signal?.throwIfAborted();
-        const current = await this.client.get(ref, include, options.signal);
+        const current = await this.client.get(ref, {
+            include,
+            signal: options.signal,
+        });
         options.signal?.throwIfAborted();
         if (this.closed)
             throw mdbaseError("unavailable", "record sessions client closed");
@@ -237,7 +240,7 @@ export class RecordsApi implements Records {
     }
     private startWatch(): void {
         if (this.watch) return;
-        const watch = this.client.watchChanges(undefined, (batch) => {
+        const watch = this.client.watchChanges((batch) => {
             for (const [id, slot] of this.slots)
                 if (
                     slot.leases > 0 &&

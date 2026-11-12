@@ -85,7 +85,7 @@ export function controlRouteResolver(o: ControlRouteOptions): () => Promise<Rela
     const token = await o.accessToken();
     let res: Response;
     try {
-      res = await f(url, { headers: { authorization: `Bearer ${token}` }, redirect: "error" });
+      res = await f(url, { headers: { authorization: `Bearer ${token}` }, redirect: "error", credentials: "omit" });
     } catch {
       throw mdbaseError("unavailable", "cannot reach the control plane", "control_unreachable");
     }

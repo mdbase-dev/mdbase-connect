@@ -2,8 +2,10 @@
  * The factory composes other manifest facets and ORIGINAL setup recovery. */
 import type { MdbaseClient, ChangesWatch } from "../client.js";
 import type { Session } from "../session.js";
-import type { DescribeResult, ResourceView, SyncStatus } from "../wire.js";
+import type { ResourceView, SyncStatus } from "../wire.js";
+import type { DescribeResult } from "../plain.js";
 import { mdbaseError, isMdbaseError } from "../errors.js";
+import { fieldOf } from "../plain.js";
 
 export interface AppCollectionReadinessRequirements {
   /** Factory projects only the canonical VALIDATED v2 required groups. */
@@ -107,7 +109,7 @@ const error = (
     "collection readiness unavailable",
     {
       reason: `readiness_${reason}`,
-      ...(detail ? {details: new Map([["condition", detail]])} : {}),
+      ...(detail ? {details: {condition: detail}} : {}),
     },
   );
 function requirements(
@@ -162,10 +164,7 @@ function requirements(
 }
 /** The definition path an issue is attached to, when it names one. */
 function issuePath(details: unknown): string | null {
-  const path =
-    details instanceof Map
-      ? (details as Map<unknown, unknown>).get("path")
-      : null;
+  const path = fieldOf(details, "path");
   return typeof path === "string" && path ? path : null;
 }
 function problem(
@@ -176,7 +175,7 @@ function problem(
 }
 function fenceDetailOf(value: unknown): AppCollectionReadinessFenceDetail | undefined {
   if (!isMdbaseError(value)) return;
-  const condition = value.details instanceof Map ? value.details.get("condition") : undefined;
+  const condition = fieldOf(value.details, "condition");
   const detail = fenceConditions.find(candidate => candidate === condition);
   if (detail) return detail;
   if (value.code === "unauthenticated") return "read_unauthenticated";
@@ -238,9 +237,8 @@ export function localCommitSignal(status: SyncStatus): boolean {
 export function catalogFingerprint(catalog: unknown): string {
   return JSON.stringify(catalog, (_key, value: unknown) =>
     typeof value === "bigint" ? `${value}n`
-      : value instanceof Map ? [...value.entries()]
-        : value instanceof Uint8Array ? [...value]
-          : value);
+      : value instanceof Uint8Array ? [...value]
+        : value);
 }
 export class AppCollectionReadiness {
   private readonly declared: AppCollectionReadinessRequirements;
@@ -366,7 +364,7 @@ export class AppCollectionReadiness {
     }
     if (this.probing) { this.probeAgain = true; return; }
     const assessed = this.snapshotValue.assessment, catalog = this.assessedCatalog;
-    const probe = this.client.describe(this.readSignal).then(
+    const probe = this.client.describe({ signal: this.readSignal }).then(
       (next) => {
         if (this.closed || this.snapshotValue.assessment !== assessed) return;
         if (catalogFingerprint(next) !== catalog) this.recheck();
@@ -438,7 +436,7 @@ export class AppCollectionReadiness {
   }
   private attach(): void {
     if (this.watch) return;
-    this.watch = this.client.watchChanges(undefined, this.invalidate);
+    this.watch = this.client.watchChanges(this.invalidate);
     this.stops.push(
       this.watch.subscribe(this.invalidate),
       this.client.onLink(this.invalidate),
@@ -483,14 +481,14 @@ export class AppCollectionReadiness {
         const before = await this.inventory(signal, session, epoch);
         // A caller abort fences delivery without cancelling/removing the
         // original Session.call waiter before its reply. Keep that READ occupied.
-        const catalog = await this.client.describe(this.readSignal);
+        const catalog = await this.client.describe({ signal: this.readSignal });
         this.check(signal, session, epoch);
         const evaluation = this.evaluate(catalog, session);
         const fingerprint = catalogFingerprint(catalog);
         for (const path of evaluation.paths) {
           const expected = before.find((row) => row.path === path);
           if (!expected) throw error("changed");
-          const actual = await this.client.resources.get(path, this.readSignal);
+          const actual = await this.client.resources.get(path, { signal: this.readSignal });
           this.check(signal, session, epoch);
           if (
             actual.path !== expected.path ||

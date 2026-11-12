@@ -1,7 +1,8 @@
-import type { CborValue } from "../cbor.js";
 import type { RecordRef, Write } from "../client.js";
 import type { PlainValue } from "../values.js";
-import type { Problem, Receipt, RecordView, Uuid } from "../wire.js";
+import type { Uuid } from "../wire.js";
+import type { JsonObject, Receipt, RecordView } from "../plain.js";
+import type { Problem } from "../wire.js";
 
 export type RecordSessionState =
     | "saved"
@@ -27,7 +28,8 @@ export interface RecordRecovery extends RecordRecoveryRef {
 export interface RecordSessionSnapshot {
     readonly state: RecordSessionState;
     readonly body: string;
-    readonly frontmatter: ReadonlyMap<string, CborValue>;
+    /** The record's frontmatter with this session's unsaved changes applied. */
+    readonly frontmatter: JsonObject;
     readonly record: RecordView;
     readonly remote: RecordView | null;
     readonly dirty: boolean;

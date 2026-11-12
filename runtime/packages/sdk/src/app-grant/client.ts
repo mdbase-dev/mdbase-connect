@@ -34,6 +34,7 @@ import {
   type CollectionAvailability,
 } from "../collection-availability.js";
 import { isMdbaseError, mdbaseError } from "../errors.js";
+import { fieldOf } from "../plain.js";
 import { orderTargets, type NextRouteResponse, type NextRouteTarget } from "../transport/next-relay.js";
 import { clientPrologue, type StaticKey } from "../transport/noise.js";
 import { noiseConnector, type WebSocketFactory } from "../transport/noise-session.js";
@@ -359,7 +360,9 @@ export class MdbaseAppGrants {
     try {
       let res: Response;
       try {
-        res = await this.fetcher(`${this.cpOrigin}${path}`, { ...init, redirect: "error", signal: budget.signal });
+        // Signed requests only: a browser extension's host permissions would otherwise attach the
+        // person's Connect cookies to a request from this origin.
+        res = await this.fetcher(`${this.cpOrigin}${path}`, { ...init, redirect: "error", credentials: "omit", signal: budget.signal });
       } catch {
         if (signal?.aborted) throw mdbaseError("cancelled", "request cancelled");
         throw mdbaseError("unavailable", "cannot reach the control plane", "control_unreachable");
@@ -752,8 +755,9 @@ export class MdbaseAppGrants {
     const id = collection.toLowerCase();
     try { return (await this.route(id, options.signal)).availability; }
     catch (e) {
-      if (isMdbaseError(e) && e.details instanceof Map && typeof e.details.get("availability") === "string") {
-        return parseCollectionAvailability({ state: "unavailable", reason: e.details.get("availability") })!;
+      const reason = isMdbaseError(e) ? fieldOf(e.details, "availability") : undefined;
+      if (typeof reason === "string") {
+        return parseCollectionAvailability({ state: "unavailable", reason })!;
       }
       throw e;
     }

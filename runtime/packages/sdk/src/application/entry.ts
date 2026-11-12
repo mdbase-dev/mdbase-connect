@@ -1,5 +1,5 @@
 import {applicationDeclaration,rebindApplicationDeclaration,type ApplicationDeclarationSnapshot,type MdbaseApplicationDeclaration} from "./declaration.js";
-import {describeDiagnostic} from "../describe-error.js";
+import {describeDiagnostic,type DescribeErrorOptions} from "../describe-error.js";
 import {currentAppOrigin,isAppOrigin,urlOrigin} from "../app-host/app-origin.js";
 import {compileApplicationManifest} from "./manifest.js";
 import {declaredReturnUrl} from "./return-url.js";
@@ -17,7 +17,7 @@ import {APPLICATION_WORKER_PROTOCOL} from "./worker-protocol.js";
 import {browserApplicationPortalHost,openerApplicationPortalHost,reserveApplicationPortal,type ApplicationPortalHost} from "./portal-reservation.js";
 import {MdbaseError,mdbaseError} from "../errors.js";
 import {appUnsyncedMoved,noteAppUnsyncedMoved} from "../app-host/unsynced-collection.js";
-import {planUnsyncedTransfer,runUnsyncedTransfer,unsyncedTransferComplete,type MdbaseTransferLedger,type MdbaseTransferMap,type MdbaseTransferPlan,type MdbaseTransferProgress,type MdbaseTransferResult} from "./unsynced-transfer.js";
+import {planUnsyncedTransfer,runUnsyncedTransfer,unsyncedTransferComplete,type MdbaseTransferLedger,type MdbaseTransferMap,type MdbaseTransferPlan,type MdbaseTransferProgress} from "./unsynced-transfer.js";
 import {awaitFileAccess,consentedFileActions,fileAccessDeclaration,grantedResult,missingFileActions,type MdbaseAccessRequest,type MdbaseAccessRequestOptions,type MdbaseAccessResult} from "./file-access.js";
 import {registrationRefusal} from "./registration-refusal.js";
 import type {MdbaseClient} from "../client.js";
@@ -39,9 +39,10 @@ function whenVisible(signal:AbortSignal):Promise<void>{
     doc.addEventListener("visibilitychange",done);signal.addEventListener("abort",stop,{once:true});
   });
 }
-import {unresolvedSetup,type MdbaseApplicationSetup,type MdbaseSetupPlan,type MdbaseSetupPlanOptions} from "./setup.js";
+import {setupResult,unresolvedSetup,type MdbaseSetupPlan,type MdbaseSetupPlanOptions} from "./setup.js";
+import type {Mdbase,MdbaseSnapshot} from "./front-door.js";
 import {applicationPhase,SLOW_OPENING_MS,type MdbasePhase} from "./phase.js";
-import {summarizeStatus,type StatusSummary,type TransportHealth} from "../status.js";
+import {BRIEF_PENDING_MS,LONG_PENDING_MS,summarizeSync,type MdbaseSync,type TransportHealth} from "../status.js";
 import type {WriteLedgerSnapshot} from "../write-ledger.js";
 import {applicationForgotten,type ApplicationForgottenStore} from "./forgotten.js";
 import {applicationSessionHint,type ApplicationSessionHint,type ApplicationSessionHintStore} from "./session-hint.js";
@@ -83,18 +84,21 @@ export interface MdbaseApplicationSnapshot extends AppWebSignInSnapshot {
   /** R1: the one derived state for UI. Switch on `phase.kind`; never hand-roll
    * a ready check from `status`/`readiness`. Always set by the SDK entry. */
   readonly phase?:MdbasePhase;
-  /** Sync of the open collection (null until it is ready). */
-  readonly sync?:StatusSummary|null;
-  /** R2: unconfirmed and refused writes of the open collection, and the save
-   * state to show (null until it is ready). Survives a reload. */
-  readonly writes?:WriteLedgerSnapshot|null;
+  /** The one status to show for the open collection (null until it is ready):
+   * whether changes reach the cloud copy, what is waiting, including each
+   * unconfirmed and refused write (`sync.writes`, which survives a reload), and
+   * what needs the person. */
+  readonly sync?:MdbaseSync|null;
   /** On-device storage policy for this origin, read by the SDK (null where the
    * SDK cannot tell). `persistent` is the browser's answer, never a durability
    * claim: only a log-confirmed receipt counts as saved. */
   readonly storage?:AppStoragePolicy|null;
   /** Pending replica edits on nonpersistent storage: set after 30 seconds
    * continuously pending, or immediately while disconnected. Normal online
-   * edits do not flash a warning. Null at zero pending or with persistence. */
+   * edits do not flash a warning. Null at zero pending or with persistence.
+   * The same fact as `storage_may_be_evicted` in `sync.attention`; kept for
+   * app-ui's `CollectionSaveWarning`, which pins a published SDK, and removed
+   * once that reads `sync.attention`. */
   readonly saveWarning?:"storage_may_be_evicted"|null;
   /** Connect pages for this account (SDK-4). Null where the SDK cannot run. */
   readonly links?:MdbaseLinks|null;
@@ -142,13 +146,17 @@ export interface MdbaseSignInOpener {
    * `dev.example.app://auth/mdbase/callback` for ID `dev.example.app`. */
   readonly returnUrl?:string;
 }
-export interface MdbaseConnectOptions {
+export interface MdbaseOptions {
   readonly signIn?:MdbaseSignInOpener;
   /** Drive `setForeground` from `document.visibilityState`, and sync at once
    * when the page regains focus or the network comes back. A hidden page only
    * finishes sending pending writes (for at most two minutes). Default true;
    * false leaves `setForeground` to the app. */
   readonly followVisibility?:boolean;
+  /** Copy for `phase.problem` and the signed-out notice in the person's
+   * language: replacement `title`, `message` and `actionLabel` by problem key,
+   * as `describeError` takes them. A key left out keeps the English copy. */
+  readonly messages?:DescribeErrorOptions["messages"];
   /** Readiness policy. `typeIssues: "degrade"` keeps the collection ready when
    * one of the app's own types has an error-level definition issue, and lists
    * it in `readiness.assessment.unavailableTypes`; the app must then treat
@@ -168,7 +176,7 @@ export interface MdbaseConnectOptions {
    * link or reload opens it, and Back/forward switch collections. Default
    * true; false for a page with no URL of its own, such as a `blob:` document
    * embedded in another app. The URL is then never read or written, and the
-   * app chooses with `select`, `approve` and `clearSelection`. */
+   * app chooses with `select`, `approve` and `chooseAnother`. */
   readonly urlSelection?:boolean;
   /** Construct the SDK's module Worker yourself, where the page cannot load
    * it by URL as a secure context (for example a `blob:` document inside a
@@ -179,6 +187,15 @@ export interface MdbaseConnectOptions {
    * returns no Worker fails with `application_worker_unavailable`. Default:
    * `new Worker(url, {type: "module"})`. */
   readonly worker?:(url:string)=>Worker;
+  /** One session for contexts of this app that are built separately, such as
+   * a browser extension's pages, offscreen document and service worker. By
+   * default only contexts loading the same SDK module file share a session.
+   * `build` names this build of the app instead: every context of the origin
+   * that passes the same `build` and the same declaration uses one sign-in and
+   * one Worker. `host: false` is for a context that cannot run that Worker (a
+   * service worker) or should leave it to another: it joins the context that
+   * runs it and waits while there is none. Default: `host: true`. */
+  readonly session?:{readonly build:string;readonly host?:boolean};
 }
 export interface MdbaseApplicationConnection {
   readonly id:string;
@@ -193,84 +210,6 @@ export interface MdbaseApplicationConnection {
   readonly timers?:TimersApi;
   isCurrent():boolean;
 }
-export interface MdbaseApplication {
-  getSnapshot():MdbaseApplicationSnapshot;
-  subscribe(listener:()=>void):()=>void;
-  start(options?:MdbaseApplicationRequestOptions):Promise<MdbaseApplicationSnapshot>;
-  /** Call from the user gesture (reserves the Connect popup synchronously):
-   * sign in, or approve the requested collection. Same as approve(). */
-  authorize(options?:MdbaseApplicationRequestOptions):Promise<MdbaseApplicationSnapshot>;
-  select(collectionId:string,options?:MdbaseApplicationRequestOptions):Promise<MdbaseApplicationSnapshot>;
-  /** Call from the user gesture: approve one named collection (default: the requested one; none: choose in Connect). */
-  approve(collectionId?:string|null,options?:MdbaseApplicationRequestOptions):Promise<MdbaseApplicationSnapshot>;
-  /** Call from the user gesture the first time the app needs an optional file
-   * action (for example adding an image). Resolves `granted` at once when it
-   * is already allowed; otherwise opens Connect for the open collection with
-   * your one-line reason. No reload: the connection and app state stay. An
-   * action the manifest does not declare rejects with `access_undeclared`.
-   * File writes the person has not allowed reject with `access_required`. */
-  requestAccess(request:MdbaseAccessRequest,options:MdbaseAccessRequestOptions):Promise<MdbaseAccessResult>;
-  /** Call from the user gesture: re-approve the open/requested collection. */
-  reauthorize(options?:MdbaseApplicationRequestOptions):Promise<MdbaseApplicationSnapshot>;
-  /** Re-read the approved collection list now (for example when a switcher
-   * opens). Focus and visibility already refresh it. */
-  refreshCollectionList?(options?:MdbaseApplicationRequestOptions):Promise<MdbaseApplicationSnapshot>;
-  /** Close the current collection and return to the chooser; Back restores it. */
-  chooseAnother(options?:MdbaseApplicationRequestOptions):Promise<MdbaseApplicationSnapshot>;
-  /** Refresh current aggregate evidence; checking/read errors never become READY. */
-  assess(options?:MdbaseApplicationRequestOptions):Promise<MdbaseApplicationReadinessSnapshot>;
-  /** Explicitly configure the current scope from its canonical declaration.
-   * No caller operations/plan/SQL; original recovery and consent stay SDK-owned. */
-  configure(options?:MdbaseApplicationRequestOptions):Promise<MdbaseApplicationSnapshot>;
-  /** Reviewable setup of the open collection: `plan` for one review screen,
-   * then `apply` that plan. `configure` is plan+apply with nothing to review. */
-  readonly setup:MdbaseApplicationSetup;
-  clearSelection(options?:MdbaseApplicationRequestOptions):Promise<MdbaseApplicationSnapshot>;
-  /** Local presentation/selection only; never revoke consent or delete records. */
-  forget(collectionId:string,options?:MdbaseApplicationRequestOptions):Promise<MdbaseApplicationSnapshot>;
-  /** Owner only, from an explicit confirmation: delete a collection for
-   * everyone, on every device and app. `confirmName` is the name the person
-   * typed; it must equal the collection's current name. A refusal rejects
-   * with a `collection_delete_*` code for `describeError` and changes nothing
-   * locally. On success the collection leaves `collections`. */
-  deleteCollection(collectionId:string,options:MdbaseCollectionDeleteOptions):Promise<MdbaseApplicationSnapshot>;
-  /** Unlock the open Private collection (`phase.kind === "needs_unlock"`,
-   * `mode: "password"`) with the account's encryption password or recovery
-   * key. Resolves when the attempt settled: opened (`ready` or `needs_setup`),
-   * or still `needs_unlock` with `phase.problem` set (wrong password, service
-   * unreachable). Rejects with `invalid_request` when that collection is not
-   * waiting to be unlocked in this tab. No reload is needed either way.
-   * Optional for other implementations of this interface. */
-  unlock?(collectionId:string,secret:MdbaseUnlockSecret,options?:MdbaseApplicationRequestOptions):Promise<MdbaseApplicationSnapshot>;
-  setForeground(active:boolean):void;
-  close():Promise<void>;
-  /** Sign out of mdbase on this device: ends the server session and removes
-   * this browser's sign-in data, keys and cached collections for the account.
-   * Rejects with `sign_out_pending_writes` (a `conflict`) while changes have not
-   * reached mdbase, unless `{discard: true}`. Resolves signed out; Sign in works
-   * again without a reload, and a reload stays signed out. A server sign-out
-   * that could not complete (offline) still signs this device out; it shows
-   * in `signOutResult`. Optional for other implementations of this interface. */
-  signOut?(options?:MdbaseSignOutOptions):Promise<MdbaseApplicationSnapshot>;
-  /** Open this app's unsynced collection in this tab (work before
-   * connecting), creating it on first use. Optional for other implementations. */
-  openUnsynced?(options?:MdbaseApplicationRequestOptions):Promise<MdbaseApplicationSnapshot>;
-  /** Compare the unsynced collection with this tab's open (ready) collection,
-   * mapping each record with `map`. Nothing is written. Optional for other
-   * implementations. */
-  planUnsyncedTransfer?(options?:MdbaseTransferPlanOptions):Promise<MdbaseTransferPlan>;
-  /** Create a reviewed plan's records in this tab's open collection. Safe to
-   * plan and run again after an interruption. Optional for other implementations. */
-  transferUnsynced?(plan:MdbaseTransferPlan,options?:MdbaseTransferOptions):Promise<MdbaseTransferResult>;
-  /** Erase the unsynced collection from this browser, after the person
-   * confirmed it. A tab showing it continues in a new, empty one. Optional for
-   * other implementations. */
-  discardUnsynced?(options?:MdbaseApplicationRequestOptions):Promise<MdbaseApplicationSnapshot>;
-  /** @deprecated Use `createMdbase(...).addCollection(options)` or
-   * `approve(null, options)`: the same unified chooser, without a current hint.
-   * Optional for other implementations of this interface. */
-  addPrivateCollection?(options?:MdbaseApplicationRequestOptions):Promise<MdbaseApplicationSnapshot>;
-}
 /** The session as the URL selection sees it: no collection open while a tab
  * shows its unsynced collection. Stable per snapshot. */
 const hiddenUnsynced=new WeakMap<object,AppWebSignInSnapshot>();
@@ -280,15 +219,9 @@ function withoutUnsynced<T extends AppWebSignInSnapshot>(raw:T):T{
   if(!value){value=Object.freeze({...raw,status:shown.sessionStatus,selectedCollectionId:null,unsynced:null});hiddenUnsynced.set(raw,value);}
   return value as T;
 }
-/** Structural public consumer port; production uses MdbaseConnect. Explicit
- * SDK testing fixtures may implement this without private fields or casts. */
-export interface MdbaseApplicationEntry {
-  application():MdbaseApplication;
-  connection(collectionId:string):MdbaseApplicationConnection|null;
-}
 export class MdbaseApplicationUnavailableError extends Error {
   readonly code="application_not_yet_available";
-  constructor(){super("MdbaseConnect application runtime is not yet available");this.name="MdbaseApplicationUnavailableError";}
+  constructor(){super("mdbase cannot run in this context");this.name="MdbaseApplicationUnavailableError";}
 }
 const problem=Object.freeze({code:"application_not_yet_available"});
 const facet=Object.freeze({checking:false,assessment:null,problem});
@@ -303,18 +236,25 @@ const noSelection:ApplicationCollectionSelectionSnapshot=Object.freeze({state:"n
 /** Honest shell where the SDK cannot host its own module Worker (SSR, Node,
  * non-browser tests, non-web origins). Performs no registration, key, Worker,
  * storage, network or popup IO and never returns a fake client/READY state. */
-function unavailableApplication():MdbaseApplication{
+function unavailableApplication(messages:DescribeErrorOptions["messages"]):Mdbase{
   const base={status:"blocked" as const,signIn:null,collections:Object.freeze([]),selectedCollectionId:null,problem:problem.code,timing:null,readiness,selection:noSelection};
-  const snapshot:MdbaseApplicationSnapshot=Object.freeze({...base,phase:applicationPhase(base),sync:null,writes:null,links:null});
+  const snapshot:MdbaseSnapshot=Object.freeze({...base,phase:applicationPhase(base,messages?{messages}:{}),sync:null,writes:null,links:null});
   const refuse=()=>Promise.reject(unavailable());
-  return Object.freeze({getSnapshot:()=>snapshot,subscribe:()=>()=>{},start:refuse,authorize:refuse,select:refuse,approve:refuse,reauthorize:refuse,refreshCollectionList:refuse,requestAccess:refuse,chooseAnother:refuse,
-    assess:refuse,configure:refuse,setup:Object.freeze({plan:refuse,apply:refuse}),clearSelection:refuse,forget:refuse,deleteCollection:refuse,unlock:refuse,setForeground(){throw unavailable();},close:refuse,signOut:refuse});
+  return Object.freeze({getSnapshot:()=>snapshot,subscribe:()=>()=>{},start:refuse,signIn:refuse,addCollection:refuse,select:refuse,approve:refuse,reauthorize:refuse,refreshCollectionList:refuse,requestAccess:refuse,chooseAnother:refuse,
+    assess:refuse,configure:refuse,setup:Object.freeze({plan:refuse,apply:refuse}),forget:refuse,deleteCollection:refuse,unlock:refuse,connection:()=>null,setForeground(){throw unavailable();},close:refuse,signOut:refuse,
+    unsynced:Object.freeze({open:refuse,planTransfer:refuse,transfer:refuse,discard:refuse})});
 }
 /** A host factory's Worker may come from another realm (a parent document's
  * `Worker`), so it is checked by shape rather than `instanceof`. */
 const isWorker=(value:unknown):value is Worker=>typeof value==="object"&&value!==null&&
   ["postMessage","terminate","addEventListener","removeEventListener"].every(name=>typeof (value as Record<string,unknown>)[name]==="function");
-const browserHost=(origin:string)=>typeof Worker==="function"&&typeof MessageChannel==="function"&&currentAppOrigin()!==null&&isAppOrigin(origin);
+const browserHost=(origin:string,runsWorker:boolean)=>(!runsWorker||typeof Worker==="function")&&typeof MessageChannel==="function"&&currentAppOrigin()!==null&&isAppOrigin(origin);
+function sessionOption(value:MdbaseOptions["session"]):{readonly build:string|null;readonly host:boolean}{
+  if(value===undefined)return {build:null,host:true};
+  if(!value||typeof value!=="object"||typeof value.build!=="string"||!value.build||value.build.length>128||/[\u0000-\u001f\u007f]/.test(value.build))throw new TypeError("session.build must be a short non-empty string");
+  if(value.host!==undefined&&typeof value.host!=="boolean")throw new TypeError("session.host must be a boolean");
+  return {build:value.build,host:value.host!==false};
+}
 function signInOpener(value:MdbaseSignInOpener|undefined,declaration:ApplicationDeclarationSnapshot):MdbaseSignInOpener|null{
   if(value===undefined)return null;
   const fail=():never=>{throw mdbaseError("invalid_request","Invalid sign-in opener","application_sign_in_opener");};
@@ -349,16 +289,15 @@ function selectionMemory(namespace:string):ApplicationSelectionMemory{
   return Object.freeze({read:()=>{try{return globalThis.localStorage?.getItem(key)??null;}catch{return null;}},
     write:(id:string|null)=>{try{if(id===null)globalThis.localStorage?.removeItem(key);else globalThis.localStorage?.setItem(key,id);}catch{/* hint storage is optional */}}});
 }
-/** The application entry. New code: `createMdbase(declaration)`, the same
- * entry with a strict snapshot; `MdbaseConnect` keeps its name for one cut.
- * Declaration-only public entry. Construction is IO-free; SDK registration,
+/** The entry behind `createMdbase(declaration)`: internal, apps hold its
+ * `mdbase`. Declaration-only. Construction is IO-free; SDK registration,
  * same-artifact Worker and original profile/SQL start lazily on the first
  * action. The URL names the requested collection; sign-in approval decides what
  * opens. No private authority hooks, replacement actors or transport-only
  * READY: a host's `worker` factory only constructs the SDK's own Worker, which
  * checks its bootstrap and assets as always. */
-export class MdbaseConnect implements MdbaseApplicationEntry {
-  private readonly app:MdbaseApplication;private readonly declaration:Readonly<ApplicationDeclarationSnapshot>;
+export class MdbaseEntry {
+  readonly mdbase:Mdbase;private readonly declaration:Readonly<ApplicationDeclarationSnapshot>;
   private readonly compiled:ReturnType<typeof compileApplicationManifest>;
   private readonly lifetime=new AbortController();private readonly listeners=new Set<()=>void>();private readonly nativeListeners=new Set<()=>void>();
   private readonly selection:ApplicationCollectionSelection|null=null;private readonly memory:ApplicationSelectionMemory|null=null;
@@ -369,7 +308,7 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
   /** This page's tab group (leader or follower), and the current election. */
   private tabs:ApplicationTabs|null=null;private election:AbortController|null=null;private signingOut=false;
   private snapshot:RuntimeSnapshot=Object.freeze({status:"not_started",signIn:null,collections:Object.freeze([]),selectedCollectionId:null,problem:null,timing:null,readiness:emptyReadiness});
-  private composed:{base:RuntimeSnapshot;selection:ApplicationCollectionSelectionSnapshot;revision:number;hint:ApplicationSessionHint|null;value:MdbaseApplicationSnapshot}|null=null;
+  private composed:{base:RuntimeSnapshot;selection:ApplicationCollectionSelectionSnapshot;revision:number;hint:ApplicationSessionHint|null;value:MdbaseSnapshot}|null=null;
   private readonly hint:ApplicationSessionHintStore|null=null;private readonly forgotten:ApplicationForgottenStore|null=null;
   private handledApproval:unknown=null;private refreshing:Promise<unknown>|null=null;private refreshedAt=0;
   /** Non-owning UI handle: the original Worker request still owns its lifetime. */
@@ -377,13 +316,16 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
   /** Bumped by state outside base/selection: the slow-opening timer and sync. */
   private revision=0;
   private readonly links:MdbaseLinks|null=null;private readonly cpOrigin:string|null=null;
+  private readonly messages:DescribeErrorOptions["messages"];
   private opening:{readonly id:string;slow:boolean;timer:ReturnType<typeof setTimeout>}|null=null;
-  private syncing:{readonly id:string;readonly stop:()=>void;status:SyncStatus|null;writes:()=>WriteLedgerSnapshot|null}|null=null;
+  private syncing:{readonly id:string;readonly stop:()=>void;status:SyncStatus|null;writes:()=>WriteLedgerSnapshot|null;link:()=>"open"|"reconnecting"|"closed"|undefined}|null=null;
   /** On-device storage policy for this origin; null where it cannot be read. */
   private storagePolicy:AppStoragePolicy|null=null;
   private pendingSave:{readonly id:string;readonly since:number;timer:ReturnType<typeof setTimeout>|null}|null=null;
   private readonly signIn:MdbaseSignInOpener|null;private readonly typeIssues:"block"|"degrade";
   private readonly createWorker:((url:string)=>Worker)|null;
+  /** The `session` option: the app's own build name, and whether this context may run the Worker. */
+  private readonly session:{readonly build:string|null;readonly host:boolean};
   /** SDK-10: this tab's Private collections (page-side thin clients, never the Worker). */
   private readonly privates:ApplicationPrivateCollections|null=null;
   /** Open the unsynced collection when started signed out; tried once per start. */
@@ -392,26 +334,27 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
   private unsyncedOpening=0;
   private readonly timing=new ApplicationStartupTiming();
   private readonly overlaid=new WeakMap<object,{revision:number;value:object}>();
-  constructor(declaration:MdbaseApplicationDeclaration,options:MdbaseConnectOptions={}){
+  constructor(declaration:MdbaseApplicationDeclaration,options:MdbaseOptions={}){
     this.declaration=applicationDeclaration(declaration);this.compiled=compileApplicationManifest(this.declaration);
     const typeIssues=options.readiness?.typeIssues??"block";
     if(typeIssues!=="block"&&typeIssues!=="degrade")throw new TypeError('readiness.typeIssues must be "block" or "degrade"');
     this.typeIssues=typeIssues;this.unsyncedFirst=options.unsynced===true;
     if(options.urlSelection!==undefined&&typeof options.urlSelection!=="boolean")throw new TypeError("urlSelection must be a boolean");
     if(options.worker!==undefined&&typeof options.worker!=="function")throw new TypeError("worker must be a function");
-    this.createWorker=options.worker??null;
+    this.createWorker=options.worker??null;this.messages=options.messages;this.session=sessionOption(options.session);
+    if(!this.session.host&&this.createWorker)throw new TypeError("worker has no effect with session.host: false");
     this.signIn=signInOpener(options.signIn,this.declaration);
-    if(!browserHost(this.declaration.origin)){this.app=unavailableApplication();return;}
+    if(!browserHost(this.declaration.origin,this.session.host)){this.mdbase=unavailableApplication(options.messages);return;}
     try{const cp=this.environment().cpOrigin;this.cpOrigin=cp;this.hint=applicationSessionHint(this.declaration.storage.applicationNamespace,cp);this.forgotten=applicationForgotten(this.declaration.storage.applicationNamespace,cp);this.links=Object.freeze({account:`${cp}/account`,manageAccess:`${cp}/account/applications`});}catch{/* no links where the environment is unknown */}
     if(options.followVisibility!==false)this.followVisibility();
-    this.followPageLifecycle();this.followFocus();this.followStoragePolicy();
+    this.followPageLifecycle();this.followFocus();this.followStoragePolicy();this.followNetwork();
     this.memory=selectionMemory(this.declaration.storage.applicationNamespace);
     if(options.privateCollections!==false)this.privates=new ApplicationPrivateCollections({declaration:this.declaration,onChange:()=>{this.revision++;this.notify();}});
     this.selection=new ApplicationCollectionSelection({browser:new ApplicationBrowserSelection(this.declaration.origin,{},options.urlSelection===false?null:browserApplicationSelectionPort()),
       session:this.selectionSession(),memory:this.memory});
     this.selection.subscribe(()=>{this.unforgetApproved();this.notify(false);});
     const view=()=>this.getSnapshot();
-    this.app=Object.freeze({getSnapshot:view,subscribe:(listener:()=>void)=>{this.listeners.add(listener);return()=>{this.listeners.delete(listener);};},
+    this.mdbase=Object.freeze({getSnapshot:view,subscribe:(listener:()=>void)=>{this.listeners.add(listener);return()=>{this.listeners.delete(listener);};},
       start:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>{
        // Until this start settles, signed out is a step towards work before
        // connecting, so the sign-in screen is not shown and then replaced.
@@ -438,20 +381,19 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
         if((error as {code?:unknown})?.code==="open_in_another_tab"&&native?.status==="blocked"&&native.problem==="open_in_another_tab")return;
         throw error;
       }).finally(()=>{if(opens){this.unsyncedOpening--;this.revision++;this.notify(false);}});}),
-      authorize:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>this.approve(undefined,options)),
+      signIn:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>this.approve(undefined,options)),
       approve:(id?:string|null,options?:MdbaseApplicationRequestOptions)=>this.track(()=>this.approve(id,options)),
       reauthorize:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>{
         const selection=this.choose(),snapshot=selection.getSnapshot();
         const id=this.privates?.state()?.collectionId??snapshot.usable?.collectionId??snapshot.requested.collectionId;
         return id?this.approve(id,options):selection.reauthorize(options);
       }),
-      addPrivateCollection:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>this.approve(null,options)),
+      addCollection:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>this.approve(null,options)),
       refreshCollectionList:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>Promise.all([this.call(runtime=>runtime.queue(()=>runtime.refreshCollections(options))),this.privates?.refresh(this.account()).catch(()=>{})])),
       requestAccess:(request:MdbaseAccessRequest,options:MdbaseAccessRequestOptions)=>this.requestAccess(request,options),
       // The person switching collections: a pushed history entry, so Back
       // returns to the previous one. SDK corrections replace the entry.
       select:(id:string,options?:MdbaseApplicationRequestOptions)=>this.track(()=>this.choose().select(id,{...options,history:"push"})),
-      clearSelection:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>this.choose().select(null,options)),
       chooseAnother:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>this.choose().chooseAnother(options)),
       forget:(id:string,options?:MdbaseApplicationRequestOptions)=>this.track(async()=>{
         // SDK-3: hidden on this device for this account, across reloads; a later
@@ -484,31 +426,33 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
       setup:Object.freeze({
         plan:(options?:MdbaseSetupPlanOptions)=>(this.privates?.isOpen()?this.privates.plan(options):this.call(runtime=>runtime.queue(()=>runtime.planSetup(options))))
           .then(plan=>unresolvedSetup(plan,this.getSnapshot().readiness)),
-        apply:(plan:MdbaseSetupPlan,options?:MdbaseApplicationRequestOptions)=>this.track(()=>this.privates?.isOpen()?this.privates.apply(plan,options):this.call(runtime=>runtime.queue(()=>runtime.applySetup(plan,options)))),
+        apply:(plan:MdbaseSetupPlan,options?:MdbaseApplicationRequestOptions)=>setupResult(this.track(()=>this.privates?.isOpen()?this.privates.apply(plan,options):this.call(runtime=>runtime.queue(()=>runtime.applySetup(plan,options)))),view),
       }),
+      connection:(id:string)=>this.connection(id),
       setForeground:(active:boolean)=>this.setForeground(active),close:()=>this.close(),
       signOut:(options?:MdbaseSignOutOptions)=>this.signOut(options),
-      planUnsyncedTransfer:(options:MdbaseTransferPlanOptions={})=>this.call(runtime=>{
-        const destination=this.transferDestination(null);
-        return runtime.withUnsyncedSource((source,signal)=>planUnsyncedTransfer(source.records,destination.records,{...(options.map?{map:options.map}:{}),...(options.addTypes?{addTypes:true}:{}),ledger:this.transferLedger(),signal}),options);
-      }),
-      transferUnsynced:(plan:MdbaseTransferPlan,options:MdbaseTransferOptions={})=>this.call(async runtime=>{
-        const destination=this.transferDestination(plan?.destination??null);
-        const result=await runUnsyncedTransfer(plan,destination.records,{...(options.signal?{signal:options.signal}:{}),...(options.onProgress?{onProgress:options.onProgress}:{})});
-        // A type that could not be added stays only in the unsynced collection's definitions.
-        if(result.failed.length||result.failedTypes.length)return result;
-        // Retire only when planning again finds nothing left: work saved after
-        // the plan (here or in another tab) is not left behind.
-        const request=options.signal?{signal:options.signal}:{};
-        if(!await runtime.withUnsyncedSource((source,signal)=>unsyncedTransferComplete(plan,source.records,destination.records,signal),request))return result;
-        return Object.freeze({...result,retired:await runtime.retireUnsynced(plan.source,plan.destination,request)});
-      }),
-      discardUnsynced:(options?:MdbaseApplicationRequestOptions)=>this.track(async()=>{await this.call(async runtime=>{await this.started(runtime,options);return runtime.queue(()=>runtime.discardUnsynced(options));});}),
-      openUnsynced:(options?:MdbaseApplicationRequestOptions)=>this.track(async()=>{
-        const selection=this.choose();this.privates?.close();
-        if(selection.getSnapshot().requested.collectionId!==null)await selection.select(null,{...options,history:"replace"});
-        await this.call(async runtime=>{await this.started(runtime,options);return runtime.queue(()=>runtime.openUnsynced(options));});
-      })});
+      unsynced:Object.freeze({
+        planTransfer:(options:MdbaseTransferPlanOptions={})=>this.call(runtime=>{
+          const destination=this.transferDestination(null);
+          return runtime.withUnsyncedSource((source,signal)=>planUnsyncedTransfer(source.records,destination.records,{...(options.map?{map:options.map}:{}),...(options.addTypes?{addTypes:true}:{}),ledger:this.transferLedger(),signal}),options);
+        }),
+        transfer:(plan:MdbaseTransferPlan,options:MdbaseTransferOptions={})=>this.call(async runtime=>{
+          const destination=this.transferDestination(plan?.destination??null);
+          const result=await runUnsyncedTransfer(plan,destination.records,{...(options.signal?{signal:options.signal}:{}),...(options.onProgress?{onProgress:options.onProgress}:{})});
+          // A type that could not be added stays only in the unsynced collection's definitions.
+          if(result.failed.length||result.failedTypes.length)return result;
+          // Retire only when planning again finds nothing left: work saved after
+          // the plan (here or in another tab) is not left behind.
+          const request=options.signal?{signal:options.signal}:{};
+          if(!await runtime.withUnsyncedSource((source,signal)=>unsyncedTransferComplete(plan,source.records,destination.records,signal),request))return result;
+          return Object.freeze({...result,retired:await runtime.retireUnsynced(plan.source,plan.destination,request)});
+        }),
+        discard:(options?:MdbaseApplicationRequestOptions)=>this.track(async()=>{await this.call(async runtime=>{await this.started(runtime,options);return runtime.queue(()=>runtime.discardUnsynced(options));});}),
+        open:(options?:MdbaseApplicationRequestOptions)=>this.track(async()=>{
+          const selection=this.choose();this.privates?.close();
+          if(selection.getSnapshot().requested.collectionId!==null)await selection.select(null,{...options,history:"replace"});
+          await this.call(async runtime=>{await this.started(runtime,options);return runtime.queue(()=>runtime.openUnsynced(options));});
+        })})});
   }
   /** SDK-10: the session's snapshot with this tab's Private collections listed
    * and, while one is open, as the selected collection. Stable per change. */
@@ -518,7 +462,7 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
     const value=withPrivateCollections(raw,privates.entries(),privates.state());
     this.overlaid.set(raw,{revision:privates.revision,value});return value;
   }
-  private getSnapshot():MdbaseApplicationSnapshot{
+  private getSnapshot():MdbaseSnapshot{
     const raw=this.withPrivate(this.runtime?.getSnapshot()??this.snapshot),selection=this.selection?.getSnapshot()??noSelection,last=this.composed;
     // While starting, and in a second tab, show the last paired session from this browser (P4).
     const hint=raw.signIn===null&&(raw.status==="starting"||(raw.status==="blocked"&&raw.problem==="open_in_another_tab"))?this.hint?.read()??null:null;
@@ -530,28 +474,37 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
       ?Object.freeze({...shown,collections:Object.freeze(shown.collections.filter(c=>!hidden.has(c.collectionId)||c.collectionId===shown.selectedCollectionId))}):shown;
     const id=base.selectedCollectionId,connection=id&&!this.closed?this.privates?.connection(id)??this.runtime?.connection(id)??null:null;
     const openingUnsynced=this.unsyncedOpening>0&&!base.unsynced&&!base.signOutResult&&selection.requested.collectionId===null;
-    let phase=applicationPhase({...base,selection},{connection,previous:last?.value.phase??null,openingUnsynced,startPending:this.selection?.startPending()??false,...(this.cpOrigin?{cpOrigin:this.cpOrigin}:{})});
+    let phase=applicationPhase({...base,selection},{connection,previous:last?.value.phase??null,openingUnsynced,startPending:this.selection?.startPending()??false,...(this.cpOrigin?{cpOrigin:this.cpOrigin}:{}),...(this.messages?{messages:this.messages}:{})});
     phase=this.trackOpening(phase);this.timing.observe(phase);
-    const sync=this.trackSync(phase,base.problem,base.transport??null,base.live??null);
+    const transport=base.transport??null,online=globalThis.navigator?.onLine;
+    const status=this.trackSync(phase,transport!==null||online===false);
     const writes=this.syncing?.writes()??null;
-    const saveWarning=this.trackSaveWarning();
-    const value:MdbaseApplicationSnapshot=Object.freeze({...base,selection,phase,sync,writes,storage:this.storagePolicy,saveWarning,links:this.linksFor(id)});
+    const pendingForMs=this.trackPending(Math.max(status?.pending??0,writes?.pending.length??0));
+    const saveWarning=status&&pendingForMs!==null
+      ?appSaveState(status.pending,this.storagePolicy??{persistent:false,installed:false},{pendingForMs,connection:status.connection}).warning:null;
+    const link=this.syncing?.link();
+    const sync=status?Object.freeze(summarizeSync({status,writes,problem:base.problem,transport,live:base.live??null,storageWarning:saveWarning!==null,
+      ...(link===undefined?{}:{link}),...(typeof online==="boolean"?{online}:{}),...(pendingForMs===null?{}:{pendingForMs})})):null;
+    const value:MdbaseSnapshot=Object.freeze({...base,selection,phase,sync,storage:this.storagePolicy,saveWarning,links:this.linksFor(id)});
     this.composed={base:raw,selection,revision:this.revision,hint,value};return value;
   }
   private linksFor(id:string|null):MdbaseLinks|null{
     return this.links&&id?Object.freeze({...this.links,manageAccess:`${this.cpOrigin}/access?collection=${encodeURIComponent(id)}`}):this.links;
   }
-  /** One grace window per continuously pending replica, not per edit or request. */
-  private trackSaveWarning():"storage_may_be_evicted"|null{
-    const syncing=this.syncing,status=syncing?.status,count=status?.pending??0;
+  /** How long changes have been pending without a break, or null with none:
+   * one clock per continuously pending replica, not per edit or request. It
+   * wakes the snapshot when a save stops being brief and when it becomes long. */
+  private trackPending(count:number):number|null{
+    const syncing=this.syncing;
     if(this.pendingSave&&(this.closed||this.hidden||!count||this.pendingSave.id!==syncing?.id))this.clearPendingSave();
-    if(this.closed||this.hidden||!syncing||!status||!count)return null;
+    if(this.closed||this.hidden||!syncing||!count)return null;
     if(!this.pendingSave){
       const pending={id:syncing.id,since:performance.now(),timer:null as ReturnType<typeof setTimeout>|null};
-      pending.timer=setTimeout(()=>{if(this.pendingSave!==pending)return;pending.timer=null;this.revision++;this.notify(false);},30_000);
+      const wake=(next:number|null)=>()=>{if(this.pendingSave!==pending)return;pending.timer=next===null?null:setTimeout(wake(null),next);this.revision++;this.notify(false);};
+      pending.timer=setTimeout(wake(LONG_PENDING_MS-BRIEF_PENDING_MS),BRIEF_PENDING_MS);
       this.pendingSave=pending;
     }
-    return appSaveState(count,this.storagePolicy??{persistent:false,installed:false},{pendingForMs:performance.now()-this.pendingSave.since,connection:status.connection}).warning;
+    return performance.now()-this.pendingSave.since;
   }
   private clearPendingSave():void{
     if(this.pendingSave?.timer!==null&&this.pendingSave?.timer!==undefined)clearTimeout(this.pendingSave.timer);
@@ -568,25 +521,26 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
     }
     return phase.kind==="opening"&&this.opening.slow?{...phase,slow:true}:phase;
   }
-  /** Follow the open collection's sync status while it is ready. */
-  private trackSync(phase:MdbasePhase,problem:string|null,transport:TransportHealth|null,live:boolean|null):StatusSummary|null{
+  /** Follow the open collection's status, write ledger and link while it is ready. */
+  private trackSync(phase:MdbasePhase,deferred:boolean):SyncStatus|null{
     const id=phase.kind==="ready"?phase.collectionId:null;
     if(this.syncing&&this.syncing.id!==id){try{this.syncing.stop();}catch{/* observer only */}this.syncing=null;}
     if(phase.kind!=="ready"||this.closed)return null;
     if(!this.syncing){
       const records=phase.connection.records;
       let status:SyncStatus|null=null;try{status=records.status;}catch{/* not yet known */}
-      const syncing:{readonly id:string;stop:()=>void;status:SyncStatus|null;writes:()=>WriteLedgerSnapshot|null}={id:phase.collectionId,stop:()=>{},status,writes:()=>null};
+      const syncing:NonNullable<MdbaseEntry["syncing"]>&{stop:()=>void}={id:phase.collectionId,stop:()=>{},status,writes:()=>null,link:()=>undefined};
       const changed=()=>{if(this.syncing!==syncing)return;this.revision++;this.getSnapshot();this.notify(false);};
-      let offStatus=()=>{},offWrites=()=>{};
+      let offStatus=()=>{},offWrites=()=>{},offLink=()=>{};
       try{offStatus=records.onStatus(next=>{syncing.status=next;changed();});}catch{/* status stays as read */}
       try{const ledger=records.ledger;offWrites=ledger.subscribe(changed);syncing.writes=()=>{try{return ledger.getSnapshot();}catch{return null;}};}catch{/* no ledger */}
-      syncing.stop=()=>{offStatus();offWrites();};
+      try{offLink=records.onLink(changed);syncing.link=()=>{try{return records.link;}catch{return undefined;}};}catch{/* link not observable */}
+      syncing.stop=()=>{offStatus();offWrites();offLink();};
       this.syncing=syncing;
     }
     // A transport that cannot deliver writes makes pending ones "saved on this device".
-    try{phase.connection.records.setTransportDeferred(transport!==null);}catch{/* observer only */}
-    return this.syncing.status?summarizeStatus(this.syncing.status,problem,transport,live):null;
+    try{phase.connection.records.setTransportDeferred(deferred);}catch{/* observer only */}
+    return this.syncing.status;
   }
   private nativeAuthorization(call:import("./native-authorization-rpc.js").NativeAuthorizationCall,portal:import("../app-host/web-sign-in-session.js").AppWebSignInPortal,signal:AbortSignal):Promise<import("./native-authorization-rpc.js").NativeAuthorizationResult>{
     if(!this.privates || this.closed || this.hidden)return Promise.reject(mdbaseError("unavailable","Native authorization unavailable"));
@@ -649,7 +603,7 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
   /** Selection starts with the first action: it reads the URL request and
    * follows Back/forward. Explicit actions still call the session themselves. */
   private choose():ApplicationCollectionSelection{this.check();const selection=this.selection!;selection.start();return selection;}
-  private async track(action:()=>Promise<unknown>):Promise<MdbaseApplicationSnapshot>{await action();return this.getSnapshot();}
+  private async track(action:()=>Promise<unknown>):Promise<MdbaseSnapshot>{await action();return this.getSnapshot();}
   /** SDK-private port over the ONE runtime. Retire-before-switch and the
    * same-scope fast path live in runtime.select; the popup is reserved here
    * synchronously, before lazy registration/Worker startup awaits. */
@@ -690,8 +644,8 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
       const environment=this.environment(),packaged=packagedApplicationAssets(this.declaration.environment,this.declaration.origin);
       // A browser below the SDK's feature floor fails here, once, with a typed
       // problem — before any registration, Worker, key or storage allocation.
-      const capabilities=await this.timing.time("capabilities",()=>probeBrowserCapabilities());this.check();
-      if(!capabilities.ok)throw mdbaseError("unavailable","This browser can't run mdbase",{reason:capabilities.problem,details:new Map([["missing",capabilities.missing.join(",")]])});
+      const capabilities=await this.timing.time("capabilities",()=>probeBrowserCapabilities(undefined,this.session.host));this.check();
+      if(!capabilities.ok)throw mdbaseError("unavailable","This browser can't run mdbase",{reason:capabilities.problem,details:{missing:capabilities.missing.join(",")}});
       // Registration resolves BEFORE any Worker, key, profile or DB allocation.
       // A first visit registers over the network. Work before connecting opens
       // right after, so the Worker's verified public assets are fetched during
@@ -721,9 +675,9 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
       };
       // One session per app per browser: lead (run the Worker) or join the leader.
       const tabs=this.tabsFor(signInScope),election=new AbortController();this.election?.abort();this.election=election;
-      const role=tabs?await this.timing.time("election",()=>tabs.elect(AbortSignal.any([this.lifetime.signal,election.signal]))):{kind:"leader" as const};
+      const role=await this.timing.time("election",()=>tabs.elect(AbortSignal.any([this.lifetime.signal,election.signal])));
       if(this.closed||this.hidden||incarnation!==this.incarnation||election.signal.aborted){
-        if(role.kind==="follower")role.leave();else tabs?.resign();
+        if(role.kind==="follower")role.leave();else tabs.resign();
         throw mdbaseError("cancelled","Application entry fenced","application_entry_fenced");
       }
       if(role.kind==="follower")return install(new ApplicationRuntime({declaration,compiledManifest:this.compiled,typeIssues:this.typeIssues,cpOrigin:environment.cpOrigin,port:role.port,binding:role.binding,releaseWorker:()=>role.leave(),nativeAuthorization:(call,portal,signal)=>this.nativeAuthorization(call,portal,signal)}));
@@ -735,15 +689,15 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
       try{
         if(!create)worker=new Worker(new URL("./worker.js",import.meta.url),{type:"module"});
         else{worker=create(hosted!);if(!isWorker(worker))throw new TypeError("not a Worker");}
-      }catch{tabs?.resign();channel.port1.close();channel.port2.close();throw mdbaseError("unavailable","Application Worker construction unavailable","application_worker_unavailable");}
-      const failed=(event:Event)=>{event.preventDefault();channel.port1.dispatchEvent(new MessageEvent("messageerror"));tabs?.fault();};worker.addEventListener("error",failed);
-      const runtime=new ApplicationRuntime({declaration,compiledManifest:this.compiled,typeIssues:this.typeIssues,cpOrigin:environment.cpOrigin,port:channel.port1,binding,releaseWorker:()=>{worker.removeEventListener("error",failed);worker.terminate();tabs?.resign();},nativeAuthorization:(call,portal,signal)=>this.nativeAuthorization(call,portal,signal)});
+      }catch{tabs.resign();channel.port1.close();channel.port2.close();throw mdbaseError("unavailable","Application Worker construction unavailable","application_worker_unavailable");}
+      const failed=(event:Event)=>{event.preventDefault();channel.port1.dispatchEvent(new MessageEvent("messageerror"));tabs.fault();};worker.addEventListener("error",failed);
+      const runtime=new ApplicationRuntime({declaration,compiledManifest:this.compiled,typeIssues:this.typeIssues,cpOrigin:environment.cpOrigin,port:channel.port1,binding,releaseWorker:()=>{worker.removeEventListener("error",failed);worker.terminate();tabs.resign();},nativeAuthorization:(call,portal,signal)=>this.nativeAuthorization(call,portal,signal)});
       try{worker.postMessage([APPLICATION_WORKER_PROTOCOL,binding,declaration,...(hosted!==null?[storageNamespace,hosted]:storageNamespace===null?[]:[storageNamespace])],[channel.port2]);}catch{
         // No startup request was accepted; the original bootstrap transfer failed.
-        worker.removeEventListener("error",failed);worker.terminate();tabs?.resign();channel.port1.close();channel.port2.close();throw mdbaseError("unavailable","Application bootstrap unavailable","application_worker_binding");
+        worker.removeEventListener("error",failed);worker.terminate();tabs.resign();channel.port1.close();channel.port2.close();throw mdbaseError("unavailable","Application bootstrap unavailable","application_worker_binding");
       }
       // Other tabs of this app attach to this Worker through this page.
-      tabs?.lead({attach:(port,id)=>worker.postMessage([APPLICATION_WORKER_PROTOCOL,binding,"attach",id],[port]),detach:id=>worker.postMessage([APPLICATION_WORKER_PROTOCOL,binding,"detach",id])});
+      tabs.lead({attach:(port,id)=>worker.postMessage([APPLICATION_WORKER_PROTOCOL,binding,"attach",id],[port]),detach:id=>worker.postMessage([APPLICATION_WORKER_PROTOCOL,binding,"detach",id])});
       return install(runtime);
     }).catch(error=>{
       // Nothing native was allocated (no runtime installed), so a later explicit
@@ -813,7 +767,7 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
    * initialization), so the next action starts a fresh Worker and a fresh
    * pairing, and clears its own page storage (session hint, last collection,
    * forgotten collections). */
-  private async signOut(options:MdbaseSignOutOptions={}):Promise<MdbaseApplicationSnapshot>{
+  private async signOut(options:MdbaseSignOutOptions={}):Promise<MdbaseSnapshot>{
     const runtime=await this.call(async runtime=>{await this.started(runtime,options);return runtime;});
     this.signingOut=true;
     try{await runtime.queue(()=>runtime.signOut(options));}finally{this.signingOut=false;}
@@ -854,13 +808,14 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
     if(!result||this.signingOut||this.closed||this.runtime!==runtime)return;
     void this.signedOut(runtime,result);
   }
-  private tabsFor(scope:Readonly<{cpOrigin:string;appId:string;storageNamespace?:string}>):ApplicationTabs|null{
-    if(this.tabs)return this.tabs;
-    const locks=globalThis.navigator?.locks as ApplicationTabLocks|undefined,Channel=globalThis.BroadcastChannel;
-    if(!locks||typeof locks.request!=="function"||typeof Channel!=="function")return null;
-    // The SDK module URL is per build: tabs on different builds never share a Worker.
-    this.tabs=new ApplicationTabs({...scope,build:import.meta.url},{locks,BroadcastChannel:Channel},this.leaderLost,this.signedInElsewhere);
-    return this.tabs;
+  /** This context's tab group. The capability probe has already required Web
+   * Locks and BroadcastChannel. */
+  private tabsFor(scope:Readonly<{cpOrigin:string;appId:string;storageNamespace?:string}>):ApplicationTabs{
+    // The SDK module URL is per build: tabs on different builds never share a
+    // Worker. Contexts built separately share one under the app's own build name.
+    return this.tabs??=new ApplicationTabs({...scope,build:this.session.build===null?import.meta.url:`app-build/${this.session.build}`},
+      {locks:globalThis.navigator.locks as ApplicationTabLocks,BroadcastChannel:globalThis.BroadcastChannel},
+      this.leaderLost,this.signedInElsewhere,{lead:this.session.host,wanted:this.hostWanted});
   }
   /** The leader tab went away: start again, as the new leader or a follower of it.
    * If it went because the session signed out, this tab is signed out too: it
@@ -879,25 +834,40 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
     this.snapshot=Object.freeze({...previous,status:"starting",problem:null,selectedCollectionId:null,readiness:emptyReadiness});
     this.notify();
     this.selection?.resync();
-    void this.app.start().catch(()=>{/* the snapshot reports the typed problem */});
+    void this.mdbase.start().catch(()=>{/* the snapshot reports the typed problem */});
+  };
+  /** A context that cannot run the Worker is waiting, and none runs it: start
+   * as this context would on load, unless it is already starting or running. */
+  private readonly hostWanted=():void=>{
+    if(this.closed||this.hidden||this.signingOut||this.runtime!==null||this.initialization!==null)return;
+    this.selection?.resync();
+    void this.mdbase.start().catch(()=>{/* the snapshot reports the typed problem */});
   };
   /** Every tab signed out, then another tab signed in again: follow that
    * session as this tab would on load (no second sign-in or approval). */
   private readonly signedInElsewhere=():void=>{
     if(this.closed||this.hidden||this.signingOut||this.runtime!==null||this.initialization!==null||this.snapshot.status!=="signed_out")return;
     this.selection?.resync();
-    void this.app.start().catch(()=>{/* the snapshot reports the typed problem */});
+    void this.mdbase.start().catch(()=>{/* the snapshot reports the typed problem */});
   };
   private setForeground(active:boolean):void{this.foreground=active;this.runtime?.setForeground(active);}
   private followVisibility():void{
     const doc=globalThis.document;if(!doc||typeof doc.addEventListener!=="function")return;
-    // Not through this.app: this runs from the constructor, before it exists.
+    // Not through this.mdbase: this runs from the constructor, before it exists.
     const sync=()=>{if(!this.closed)this.setForeground(doc.visibilityState!=="hidden");};
     const wake=()=>{if(doc.visibilityState!=="hidden")sync();};
     doc.addEventListener("visibilitychange",sync,{signal:this.lifetime.signal});
     const win=typeof window==="undefined"?undefined:window;
     if(win&&typeof win.addEventListener==="function"){win.addEventListener("focus",wake,{signal:this.lifetime.signal});win.addEventListener("online",wake,{signal:this.lifetime.signal});}
     sync();
+  }
+  /** `sync.connection` says offline as soon as the browser does, not at the next failed request. */
+  private followNetwork():void{
+    // `window` in a page; a service worker hears the same events on its own global scope.
+    const scope=typeof window==="undefined"?globalThis:window;
+    if(typeof scope.addEventListener!=="function")return;
+    const changed=()=>{if(this.closed)return;this.revision++;this.notify(false);};
+    scope.addEventListener("online",changed,{signal:this.lifetime.signal});scope.addEventListener("offline",changed,{signal:this.lifetime.signal});
   }
   /** Back/forward cache: a page parked there is frozen with its Worker, which
    * would keep holding the collection lease and block the next document of
@@ -939,7 +909,7 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
     // Same path as the app's first start: fresh registration check, Worker and
     // session; selection then reopens the requested collection.
     this.selection?.resync();
-    void this.app.start().catch(()=>{/* the snapshot reports the typed problem */});
+    void this.mdbase.start().catch(()=>{/* the snapshot reports the typed problem */});
   };
   /** Fallback when tabs cannot share one Worker: another tab of this app on a
    * different build (or one still letting go during a leader handover) holds the
@@ -956,7 +926,7 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
     void waitForAppSignInRelease(locks,scope,signal).then(()=>whenVisible(signal)).then(()=>{
       this.awaitingOtherTab=false;if(!current())return;
       this.selection?.resync();
-      void this.app.start().catch(()=>{/* the snapshot reports the typed problem; a lost race waits again */});
+      void this.mdbase.start().catch(()=>{/* the snapshot reports the typed problem; a lost race waits again */});
     },()=>{this.awaitingOtherTab=false;});
   }
   private close():Promise<void>{
@@ -972,7 +942,6 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
       {const {problemDetail:_stale,...previous}=this.snapshot;this.snapshot=Object.freeze({...previous,status:"closed",problem:null,selectedCollectionId:null});}this.runtime=null;this.notify();this.listeners.clear();this.nativeListeners.clear();
     });return this.closing;
   }
-  application():MdbaseApplication{return this.app;}
   /** Which revisions of the unsynced collection's records are already in a
    * destination, shared by this browser's tabs. */
   private transferLedger():MdbaseTransferLedger{
@@ -983,7 +952,7 @@ export class MdbaseConnect implements MdbaseApplicationEntry {
   /** The tab's open, ready collection: where an unsynced transfer goes. */
   private transferDestination(expected:string|null):MdbaseApplicationConnection{
     const phase=this.getSnapshot().phase;
-    if(phase?.kind!=="ready")throw mdbaseError("invalid_request","Open the collection to bring this work into first.","unsynced_transfer_needs_collection");
+    if(phase.kind!=="ready")throw mdbaseError("invalid_request","Open the collection to bring this work into first.","unsynced_transfer_needs_collection");
     if(expected!==null&&phase.collectionId!==expected)throw mdbaseError("invalid_request","This plan is for another collection. Plan the transfer again.","unsynced_transfer_plan_stale");
     return phase.connection;
   }

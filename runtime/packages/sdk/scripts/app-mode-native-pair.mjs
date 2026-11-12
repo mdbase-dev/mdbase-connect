@@ -17,7 +17,7 @@ let busy=false,error=null;
 const timer=setInterval(()=>{if(busy)return;busy=true;native.drive().catch(e=>{error=e;}).finally(()=>{busy=false;});},40);
 let api;
 async function until(work){const end=Date.now()+45000;for(;;){if(error)throw error;try{return await work();}catch(e){if(Date.now()>end)throw e;await pause(100);}}}
-async function stage(name,path){await until(async()=>{const records=(await api.query({limit:100},undefined,AbortSignal.timeout(3000))).records;assert(records.some(r=>r.path===path),`SDK must read ${path}`);});const write=await api.create({path:`sdk-${name}.md`,document:`written by SDK in ${name}\n`});await write.confirmed;await writeFile(f.stage, name);}
+async function stage(name,path){await until(async()=>{const records=(await api.query({limit:100},{signal:AbortSignal.timeout(3000)})).records;assert(records.some(r=>r.path===path),`SDK must read ${path}`);});const write=await api.create({path:`sdk-${name}.md`,document:`written by SDK in ${name}\n`});await write.confirmed;await writeFile(f.stage, name);}
 try{
  api=await client.connect({connector:client.inProcessConnector(native.runtime),app:{name:'public-mode-fixture',version:'1'},reconnect:false,signal:AbortSignal.timeout(15000)});
  await stage('cloud','cloud.md');

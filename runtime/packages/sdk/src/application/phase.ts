@@ -11,7 +11,7 @@
  *   Only a settled non-ready outcome (setup needed, incompatible, approval
  *   lost), a durable problem, or a different/cleared selection replaces it.
  */
-import { describeError, type MdbaseErrorDescription } from "../describe-error.js";
+import { describeError, type DescribeErrorOptions, type MdbaseErrorDescription } from "../describe-error.js";
 import type { ApplicationApprovalOutcome } from "./collection-selection.js";
 import type { AppInstallationCollection } from "../app-host/installation-sign-in.js";
 import type { MdbaseApplicationConnection, MdbaseApplicationSnapshot, MdbaseUnavailableType } from "./entry.js";
@@ -73,6 +73,9 @@ export interface ApplicationPhaseOptions {
   /** Set when the current opening has lasted SLOW_OPENING_MS. */
   readonly slow?: boolean;
   readonly cpOrigin?: string;
+  /** The person's language for `phase.problem` and the signed-out `notice`:
+   * replacement copy by problem key, as `describeError` takes it. */
+  readonly messages?: DescribeErrorOptions["messages"];
   /** This start opens work before connecting next: signed out is a step on the
    * way, not a screen to show. */
   readonly openingUnsynced?: boolean;
@@ -86,8 +89,9 @@ type Snapshot = Pick<MdbaseApplicationSnapshot, "status" | "signIn" | "collectio
 const current = (c: MdbaseApplicationConnection | null | undefined, id: string): c is MdbaseApplicationConnection => {
   try { return !!c && c.id === id && c.isCurrent(); } catch { return false; }
 };
-const describe = (input: unknown, cpOrigin?: string): MdbaseProblem | null => describeError(input, cpOrigin ? { cpOrigin } : {});
-const fallback = (code: string, cpOrigin?: string): MdbaseProblem => describe(code, cpOrigin)!;
+type Copy = Pick<DescribeErrorOptions, "cpOrigin" | "messages">;
+const describe = (input: unknown, copy: Copy): MdbaseProblem | null => describeError(input, copy);
+const fallback = (code: string, copy: Copy): MdbaseProblem => describe(code, copy)!;
 
 /** Derive the phase of a public application snapshot. */
 export function applicationPhase(s: Snapshot, options: ApplicationPhaseOptions = {}): MdbasePhase {
@@ -98,7 +102,8 @@ export function applicationPhase(s: Snapshot, options: ApplicationPhaseOptions =
 }
 
 function derive(s: Snapshot, o: ApplicationPhaseOptions): MdbasePhase {
-  const cp = o.cpOrigin, sel = s.selection, requested = sel?.requested ?? null;
+  const cp: Copy = { ...(o.cpOrigin ? { cpOrigin: o.cpOrigin } : {}), ...(o.messages ? { messages: o.messages } : {}) };
+  const sel = s.selection, requested = sel?.requested ?? null;
   if (s.status === "closed") return { kind: "closed" };
   if (s.problem === "application_not_yet_available" || s.problem === "application_worker_unavailable" || s.problem === "browser_unsupported" || s.problem === "application_storage_unavailable") return { kind: "unavailable", problem: fallback(s.problem, cp) };
   if (sel?.state === "invalid") return { kind: "problem", collectionId: null, problem: fallback(sel.problem ?? "application_selection_invalid", cp) };
@@ -127,7 +132,7 @@ function derive(s: Snapshot, o: ApplicationPhaseOptions): MdbasePhase {
   if (s.status === "signed_out") return o.openingUnsynced && !s.problem ? { kind: "starting" } : { kind: "signed_out", notice: s.problem ? describe(s, cp) : null };
   if (s.status === "blocked") {
     const id = s.selectedCollectionId ?? requested?.collectionId ?? null;
-    if (s.problem === "recovery_account_mismatch") return {kind: "problem", collectionId: id, problem: describeError(s, {cpOrigin: cp, recoveryAccountLabel: s.recoveryAccountLabel})!};
+    if (s.problem === "recovery_account_mismatch") return {kind: "problem", collectionId: id, problem: describeError(s, {...cp, recoveryAccountLabel: s.recoveryAccountLabel})!};
     return { kind: "problem", collectionId: id, problem: id && s.removedScopeIds?.includes(id) ? fallback("installation_scope_removed", cp) : describe(s, cp) ?? fallback("open_failed", cp) };
   }
   if (s.status === "needs_unlock" && s.selectedCollectionId) {

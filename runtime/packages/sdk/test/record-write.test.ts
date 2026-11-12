@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { connect, Write, type Connector, type FramePort, type RecordWrite } from "../src/index.js";
+import { Write, type RecordWrite } from "../src/index.js";
+import { connect, type Connector, type FramePort } from "../src/thin-client.js";
 import { MemoryReplica } from "../src/testing/index.js";
 import { clientFrame } from "../src/wire.js";
 import type { CborValue } from "../src/cbor.js";

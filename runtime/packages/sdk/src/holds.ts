@@ -6,7 +6,8 @@
  * the same vocabulary (wire `HoldReason` / `HoldResolution` values verbatim, no parallel
  * enum) and the same compare hand-off link.
  */
-import type { Hold, HoldReason, HoldResolution, SyncStatus } from "./wire.js";
+import type { HoldReason, HoldResolution } from "./wire.js";
+import type { Hold, SyncStatus } from "./wire.js";
 
 export const HOLD_TITLE = "mdbase protected your edit";
 

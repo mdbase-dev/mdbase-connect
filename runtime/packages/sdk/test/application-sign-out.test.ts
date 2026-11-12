@@ -12,7 +12,7 @@ vi.mock("../src/app-host/app-origin.js",async original=>{
   const actual=await original<typeof import("../src/app-host/app-origin.js")>();
   return {...actual,urlOrigin:(url:URL)=>url.protocol==="file:"?"https://app.test":actual.urlOrigin(url)};
 });
-const {MdbaseConnect}=await import("../src/application/entry.js");
+const {MdbaseEntry}=await import("../src/application/entry.js");
 const {createMdbase}=await import("../src/application/front-door.js");
 
 const origin="https://app.test",A="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",B="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -44,7 +44,7 @@ const actions=()=>FakeWorker.all.flatMap(w=>w.requests.map(r=>r[3]));
 const page=(href=`${origin}/`,storage?:{applicationNamespace:string})=>{
   const next=Object.assign(new EventTarget(),{location:{origin,href},history:{state:null,pushState(){},replaceState(){}}});
   vi.stubGlobal("window",next);vi.stubGlobal("location",next.location);
-  const entry=new MdbaseConnect({...declaration,...(storage?{storage}:{})});return {entry,app:entry.application()};
+  const entry=new MdbaseEntry({...declaration,...(storage?{storage}:{})});return {entry,app:entry.mdbase};
 };
 beforeEach(()=>{FakeWorker.all=[];FakeWorker.snapshot=paired;store.clear();vi.stubGlobal("Worker",FakeWorker);vi.stubGlobal("localStorage",localStorage);
   // A browser page also has locks, storage and IndexedDB (entry capability probe).

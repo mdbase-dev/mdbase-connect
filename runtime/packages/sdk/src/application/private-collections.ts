@@ -24,6 +24,7 @@ import { isMdbaseError, mdbaseError } from "../errors.js";
 import type { MdbaseApplicationDeclaration } from "./declaration.js";
 import type { MdbaseApplicationConnection, MdbaseApplicationReadinessSnapshot } from "./entry.js";
 import type { MdbaseSetupPlan, MdbaseSetupPlanOptions } from "./setup.js";
+import { fieldOf } from "../plain.js";
 
 /** The grant operations this controller uses (a fake in tests). */
 export type ApplicationPrivateGrants = Pick<MdbaseAppGrants, "collections" | "availability" | "waitForAvailable" | "connector" | "people" | "setup" | "forget" | "forgetAllGrants" | "authorize"> & Partial<Pick<MdbaseAppGrants,"prepareAuthorization" | "verifiedStoredNativeGrant">>;
@@ -80,7 +81,7 @@ const availabilityProblem = (reason: CollectionUnavailableReason): string => rea
 const waitable = (a: CollectionAvailability) => a.state === "opening" || (a.state === "unavailable" && a.reason !== "sync_required" && a.reason !== "access_removed" && a.reason !== "collection_deleted");
 const problemOf = (error: unknown): string => {
   if (isMdbaseError(error)) {
-    const availability = error.details instanceof Map ? error.details.get("availability") : undefined;
+    const availability = fieldOf(error.details, "availability");
     if (typeof availability === "string") return availabilityProblem(availability as CollectionUnavailableReason);
     return error.reason ?? error.code;
   }

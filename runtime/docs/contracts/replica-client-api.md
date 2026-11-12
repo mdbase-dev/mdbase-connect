@@ -672,7 +672,7 @@ SDK `records.open` composes ordinary reads, observation, updates and receipts in
 one shared editor draft/session per UUID/client. Its lease is a local lifetime
 reference, not a replica-issued exclusive lock, token or renewable remote lease.
 Writer's open/edit/autosave/conflict/recovery/release uses map to that existing
-[SDK session contract](../../packages/sdk/README.md#writer-lease-mapping).
+[SDK session contract](../../../docs/sdk-record-editing.md#writer-lease-mapping).
 
 Saves explicitly use the actual full record base/revision CAS and captured
 mutation identity. Unknown outcomes retain the original receipt recovery rather

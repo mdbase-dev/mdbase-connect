@@ -1,5 +1,5 @@
 import {afterEach,expect,it,vi} from "vitest";
-import {MdbaseConnect} from "../src/application/entry.js";
+import {MdbaseEntry} from "../src/application/entry.js";
 import type {ApplicationRuntime} from "../src/application/runtime.js";
 import type {SyncStatus} from "../src/wire.js";
 import {describeError} from "../src/describe-error.js";
@@ -14,7 +14,7 @@ it("never flashes for fast online/connecting edits; warns at 30s or offline and 
   vi.stubGlobal("window",page);vi.stubGlobal("location",page.location);vi.stubGlobal("Worker",class{});
   const persist=vi.fn(async()=>false);
   vi.stubGlobal("navigator",{storage:{persisted:async()=>false,persist}});
-  const entry=new MdbaseConnect({id:"org.example.app",name:"Example",origin,environment:"lab",manifest:{manifest_version:1,id:"org.example.app",name:"Example",homepage:origin,
+  const entry=new MdbaseEntry({id:"org.example.app",name:"Example",origin,environment:"lab",manifest:{manifest_version:1,id:"org.example.app",name:"Example",homepage:origin,
     redirect_uris:[`${origin}/callback`],requirements:{access:"full_collection",contracts:[]}}},{privateCollections:false});
   // Stand-in runtime/replica IO; the entry, subscriptions, clock, timer and copy are real.
   let status:SyncStatus={mode:"synced",confirmedThrough:1,headKnown:1,pending:0,holds:0,unresolved:0,connection:"online",incidents:[]};
@@ -27,7 +27,7 @@ it("never flashes for fast online/connecting edits; warns at 30s or offline and 
   const connection={id,isCurrent:()=>true,records};
   const runtime={getSnapshot:()=>raw,getNativeSnapshot:()=>raw,connection:()=>connection,close:async()=>{}};
   (entry as unknown as {runtime:ApplicationRuntime}).runtime=runtime as unknown as ApplicationRuntime;
-  const app=entry.application(),warning=()=>app.getSnapshot().saveWarning;
+  const app=entry.mdbase,warning=()=>app.getSnapshot().saveWarning;
   const change=(pending:number,connection:SyncStatus["connection"]="online")=>{status={...status,pending,connection};onStatus(status);};
   expect(warning()).toBeNull();
   await Promise.resolve();await Promise.resolve();expect(persist).toHaveBeenCalledOnce();

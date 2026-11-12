@@ -1030,7 +1030,7 @@ describe("owned cloud-copy outcome composition (IDB/native/CP stand-ins, actual 
         let done = 0, complete = false;
         c.f.runtime.observations.mockImplementation(() => ({...observation, status: {
             ...observation.status, mode: "synced", confirmedThrough: complete ? 10 : 0, headKnown: 10,
-            incidents: !complete && kind === "key_scan" ? [{kind: "waiting_for_key", details: new Map<string, CborValue>([["position", 1], ["reason", "reading"]])}] : [],
+            incidents: !complete && kind === "key_scan" ? [{kind: "waiting_for_key", details: {position: 1, reason: "reading"}}] : [],
             ...(!complete && kind === "snapshot" ? {installing: {done, total: 4}} : {}),
         }}));
         vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"]});
@@ -1071,7 +1071,7 @@ describe("owned cloud-copy outcome composition (IDB/native/CP stand-ins, actual 
         let keyed = false, outcome = "waiting";
         const observation = c.f.runtime.observations();
         c.f.runtime.observations.mockImplementation(() => ({...observation, status: {
-            ...observation.status, incidents: keyed ? [] : [{kind: "waiting_for_key", details: new Map()}],
+            ...observation.status, incidents: keyed ? [] : [{kind: "waiting_for_key", details: {}}],
         }}));
         c.reader.query.mockImplementation(async () => {
             if (!keyed) throw mdbaseError("unavailable", "verified prefix warming");

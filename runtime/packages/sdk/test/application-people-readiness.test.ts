@@ -1,13 +1,8 @@
 // Actual public SDK/MdbasePeopleClient with controlled metadata authority;
 // not native Person, browser consent or production authority acceptance.
 import { afterEach, expect, it, vi } from "vitest";
-import {
-    connect,
-    MdbasePeopleClient,
-    MdbaseError,
-    type MdbaseClient,
-    type PeopleAuthority,
-} from "../src/index.js";
+import { MdbasePeopleClient, MdbaseError, type MdbaseClient, type PeopleAuthority } from "../src/index.js";
+import { connect } from "../src/thin-client.js";
 import { MemoryReplica } from "../src/testing/index.js";
 import {
     createApplicationPeopleReadiness,

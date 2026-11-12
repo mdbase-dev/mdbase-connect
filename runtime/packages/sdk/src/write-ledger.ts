@@ -8,7 +8,9 @@
  * pending count falls. Nothing here polls.
  */
 import { isMdbaseError } from "./errors.js";
-import type { PendingMutation, Problem, Receipt, Uuid } from "./wire.js";
+import type { Uuid } from "./wire.js";
+import type { PendingMutation, Receipt } from "./plain.js";
+import type { Problem } from "./wire.js";
 
 export interface WriteLedgerEntry {
   readonly mutationId: Uuid;
@@ -124,8 +126,8 @@ export class WriteLedger implements WriteLedgerView {
   }
 
   /** @internal Persist intent BEFORE the write is submitted. */
-  begin(mutationIds: readonly Uuid[], ops: readonly object[]): Promise<unknown> {
-    return Promise.all(mutationIds.map((id, i) => this.set(entry(id, targets(mutationIds.length === 1 ? ops : [ops[i]!]), "pending"))));
+  begin(mutationId: Uuid, ops: readonly object[]): Promise<unknown> {
+    return this.set(entry(mutationId, targets(ops), "pending"));
   }
 
   /** @internal Apply a receipt from any source. */
@@ -177,12 +179,8 @@ export class WriteLedger implements WriteLedgerView {
     if (added) this.changed();
   }
 
-  /** @internal A submit call failed: ask the replica whether it captured these. */
-  settleAll(ids: readonly Uuid[]): Promise<unknown> {
-    return Promise.all(ids.map((id) => this.settle(id)));
-  }
-
-  private async settle(id: Uuid): Promise<void> {
+  /** @internal A submit call failed: ask the replica whether it captured the write. */
+  async settle(id: Uuid): Promise<void> {
     try { this.observe(await this.native.receipt(id)); }
     catch (error) {
       // The replica has no record of it: it never captured the write.
