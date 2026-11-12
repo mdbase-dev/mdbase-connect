@@ -165,7 +165,7 @@ describe("control route (Connect #600)", () => {
     expect(requests).toBe(0);
   });
 
-  it("snapshots the HTTPS destination and refuses redirects", async () => {
+  it("snapshots the HTTPS destination, refuses redirects and sends no ambient credentials", async () => {
     const { controlRouteResolver } = await import("../src/transport/control-route.js");
     let seen: { url: string; init: RequestInit | undefined } | undefined;
     const options = {
@@ -181,6 +181,7 @@ describe("control route (Connect #600)", () => {
     await resolve();
     expect(seen?.url).toBe("https://cp/v1/next/collections/c/route");
     expect(seen?.init?.redirect).toBe("error");
+    expect(seen?.init?.credentials).toBe("omit");
   });
 
   it("uses the original native GlobalScope receiver without copying transport error text", async () => {
