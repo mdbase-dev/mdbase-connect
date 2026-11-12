@@ -870,6 +870,10 @@ msgctxt "Connect interface"
 msgid "Cancel invitation"
 msgstr "Annulla invito"
 
+#: src/authority-workflows.tsx
+msgid "Cancel sign-in"
+msgstr "Annulla accesso"
+
 #: src/ConnectApp.tsx
 msgid "Cancel this collection invitation?"
 msgstr "Annullare questo invito alla raccolta?"
@@ -2864,6 +2868,10 @@ msgid "Return to sign in"
 msgstr "Torna alla pagina di accesso"
 
 #: src/authority-workflows.tsx
+msgid "Return to the app."
+msgstr "Torna all’app."
+
+#: src/authority-workflows.tsx
 msgid "Return to your account"
 msgstr "Torna all'account"
 
@@ -3227,6 +3235,10 @@ msgstr "L'accesso è stato annullato. Puoi riprovare o scegliere un altro metodo
 #: src/AccountManagement.tsx
 msgid "Signed in <0>{0}</0>"
 msgstr "Accesso effettuato il <0>{0}</0>"
+
+#: src/authority-workflows.tsx
+msgid "Signed in to a different account"
+msgstr "Accesso con un altro account"
 
 #. placeholder {0}: session.client_name
 #: src/AccountManagement.tsx
@@ -3636,6 +3648,10 @@ msgstr "La richiesta rimane aperta mentre si connette il computer o si aggiunge 
 #: src/auth-view.tsx
 msgid "This reset link can’t be opened"
 msgstr "Impossibile aprire questo link di reimpostazione"
+
+#: src/authority-workflows.tsx
+msgid "This sign-in was started with a different mdbase account. To continue, switch back to that account, then check again. Or cancel the sign-in, and the app stops waiting."
+msgstr "Questo accesso è stato avviato con un altro account mdbase. Per continuare, torna a quell’account e controlla di nuovo. Oppure annulla l’accesso, così l’app smette di attendere."
 
 #: src/auth-view.tsx
 msgid "This unsubscribe link can’t be opened"

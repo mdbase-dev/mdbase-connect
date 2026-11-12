@@ -870,6 +870,10 @@ msgctxt "Connect interface"
 msgid "Cancel invitation"
 msgstr "Cancelar convite"
 
+#: src/authority-workflows.tsx
+msgid "Cancel sign-in"
+msgstr "Cancelar entrada"
+
 #: src/ConnectApp.tsx
 msgid "Cancel this collection invitation?"
 msgstr "Cancelar este convite para a coleção?"
@@ -2864,6 +2868,10 @@ msgid "Return to sign in"
 msgstr "Voltar para entrar"
 
 #: src/authority-workflows.tsx
+msgid "Return to the app."
+msgstr "Volte para o app."
+
+#: src/authority-workflows.tsx
 msgid "Return to your account"
 msgstr "Voltar para sua conta"
 
@@ -3227,6 +3235,10 @@ msgstr "A entrada foi cancelada. Você pode tentar novamente ou escolher outro m
 #: src/AccountManagement.tsx
 msgid "Signed in <0>{0}</0>"
 msgstr "Conectado em <0>{0}</0>"
+
+#: src/authority-workflows.tsx
+msgid "Signed in to a different account"
+msgstr "Conectado com outra conta"
 
 #. placeholder {0}: session.client_name
 #: src/AccountManagement.tsx
@@ -3636,6 +3648,10 @@ msgstr "Esta solicitação permanece aberta enquanto você conecta o computador 
 #: src/auth-view.tsx
 msgid "This reset link can’t be opened"
 msgstr "Não é possível abrir este link de redefinição"
+
+#: src/authority-workflows.tsx
+msgid "This sign-in was started with a different mdbase account. To continue, switch back to that account, then check again. Or cancel the sign-in, and the app stops waiting."
+msgstr "Esta entrada foi iniciada com outra conta do mdbase. Para continuar, volte para essa conta e verifique novamente. Ou cancele a entrada para que o app pare de esperar."
 
 #: src/auth-view.tsx
 msgid "This unsubscribe link can’t be opened"

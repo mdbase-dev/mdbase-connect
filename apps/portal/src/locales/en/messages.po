@@ -870,6 +870,10 @@ msgctxt "Connect interface"
 msgid "Cancel invitation"
 msgstr "Cancel invitation"
 
+#: src/authority-workflows.tsx
+msgid "Cancel sign-in"
+msgstr "Cancel sign-in"
+
 #: src/ConnectApp.tsx
 msgid "Cancel this collection invitation?"
 msgstr "Cancel this collection invitation?"
@@ -2864,6 +2868,10 @@ msgid "Return to sign in"
 msgstr "Return to sign in"
 
 #: src/authority-workflows.tsx
+msgid "Return to the app."
+msgstr "Return to the app."
+
+#: src/authority-workflows.tsx
 msgid "Return to your account"
 msgstr "Return to your account"
 
@@ -3227,6 +3235,10 @@ msgstr "Sign-in was cancelled. You can try again or choose another method."
 #: src/AccountManagement.tsx
 msgid "Signed in <0>{0}</0>"
 msgstr "Signed in <0>{0}</0>"
+
+#: src/authority-workflows.tsx
+msgid "Signed in to a different account"
+msgstr "Signed in to a different account"
 
 #. placeholder {0}: session.client_name
 #: src/AccountManagement.tsx
@@ -3636,6 +3648,10 @@ msgstr "This request remains open while you connect the computer or add a collec
 #: src/auth-view.tsx
 msgid "This reset link can’t be opened"
 msgstr "This reset link can’t be opened"
+
+#: src/authority-workflows.tsx
+msgid "This sign-in was started with a different mdbase account. To continue, switch back to that account, then check again. Or cancel the sign-in, and the app stops waiting."
+msgstr "This sign-in was started with a different mdbase account. To continue, switch back to that account, then check again. Or cancel the sign-in, and the app stops waiting."
 
 #: src/auth-view.tsx
 msgid "This unsubscribe link can’t be opened"

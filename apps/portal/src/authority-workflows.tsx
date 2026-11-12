@@ -45,6 +45,8 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   const [removingId,setRemovingId] = useState("");
   const [revokingId,setRevokingId] = useState("");
   const [declined,setDeclined] = useState(false);
+  // The request was started with another account than the one signed in here.
+  const [otherAccount,setOtherAccount] = useState(false);
   const generation = useRef(0);
   const dispatching = useRef(false);
   const accountSelectionSucceeded = useRef(false);
@@ -80,6 +82,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     setOutcome(null);
     setBusy(false);
     setDeclined(false);
+    setOtherAccount(false);
     accountSelectionSucceeded.current = false;
     dispatching.current = false;
     api<{ pairing: DevicePairing }>(inspectionPath)
@@ -88,6 +91,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
         if (current !== generation.current) return;
         if (reason instanceof ApiError && reason.status === 401)
           location.href = `/login?return_to=${encodeURIComponent(location.href)}`;
+        else if (reason instanceof ApiError && reason.code === "installation_account_changed") setOtherAccount(true);
         else setError(message(reason));
       });
     return () => {
@@ -274,6 +278,51 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     }
   }
 
+  /** Cancel a request this account cannot see, so the app stops waiting on it.
+   * The server allows it while no account has been selected in this window. */
+  async function cancelOtherAccount() {
+    if (dispatching.current) return;
+    const current = generation.current;
+    dispatching.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      await api(`/v1/pairing-requests/${pairingId}/deny`, { method: "POST" });
+      if (current !== generation.current) return;
+      if (finishDeniedPairing({ installation_device: true }, window) === "cancelled") setOutcome("cancelled");
+    } catch (reason) {
+      if (current === generation.current) setError(message(reason));
+    } finally {
+      if (current === generation.current) {
+        dispatching.current = false;
+        setBusy(false);
+      }
+    }
+  }
+
+  if (!pairing && otherAccount)
+    return (
+      <RequestShell busy={busy}>
+        {outcome === "cancelled" ? (
+          <>
+            <h1><Trans>Sign-in cancelled</Trans></h1>
+            <p className="mdbase-connect-lead"><Trans>Return to the app.</Trans></p>
+          </>
+        ) : (
+          <>
+            <h1><Trans>Signed in to a different account</Trans></h1>
+            <p className="mdbase-connect-lead" role="alert"><Trans>This sign-in was started with a different mdbase account. To continue, switch back to that account, then check again. Or cancel the sign-in, and the app stops waiting.</Trans></p>
+            {error && <p role="alert">{error}</p>}
+            <footer className="approval-footer">
+              <div className="approval-actions">
+                <button className="mdbase-button is-secondary" disabled={busy} onClick={() => void cancelOtherAccount()}><Trans>Cancel sign-in</Trans></button>
+                <button className="mdbase-button is-primary" disabled={busy} onClick={() => setAttempt(value => value + 1)}><Trans>Check again</Trans></button>
+              </div>
+            </footer>
+          </>
+        )}
+      </RequestShell>
+    );
   if (!pairing)
     return (
       <RequestShell busy={!error}>
