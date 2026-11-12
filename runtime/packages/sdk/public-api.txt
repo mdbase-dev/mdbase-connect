@@ -4446,7 +4446,7 @@ MdbaseClient@client.ts
   appliedPrefix: (seq: number, o?: ReadOptions) => Promise<AppliedPrefix>
   approveDevice: (device: Uuid, sas: string) => Promise<void>
   readonly authenticatedDevice: string | undefined
-  awaitReceipt: (mutation: Uuid, o?: { timeoutMs?: number; signal?: AbortSignal; }) => Promise<Receipt>
+  awaitReceipt: (mutation: Uuid, o?: { timeoutMs?: number | undefined; signal?: AbortSignal | undefined; }) => Promise<Receipt>
   backlinks: (target: RecordRef, o?: { include?: Include; limit?: number; cursor?: string; signal?: AbortSignal; }) => Promise<BacklinksResult>
   call: { (method: string, p: CborValue, o?: { signal?: AbortSignal; retry?: boolean; }): Promise<CborValue>; <T>(method: string, p: CborValue, o: { signal?: AbortSignal; codec: Codec<T>; retry?: boolean; }): Promise<Plain<T>>; }
   changes: (o?: { cursor?: string; limit?: number; signal?: AbortSignal; }) => Promise<ChangesResult>
@@ -4910,6 +4910,7 @@ MemoryReplicaOptions@testing/memory-replica.ts
   refuse?: w.Problem | undefined
   role?: 'owner' | 'editor' | 'viewer' | undefined
   runtimeVersion?: string | undefined
+  settings?: Record<string, PlainValue> | undefined
   typing?: ((types: string[], path: string) => w.TemporalHint) | undefined
   where?: ((expr: string, record: MemoryRecord) => boolean) | undefined
 

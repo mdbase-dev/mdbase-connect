@@ -183,7 +183,9 @@ export function createApplicationFixture(options: ApplicationFixtureOptions): Ap
     if (derived && derived.source === snapshot && derived.connection === connection) return derived.value;
     const phase = applicationPhase(snapshot, {connection, previous: derived?.value.phase ?? null, ...(options.messages ? {messages: options.messages} : {})});
     let sync = null;
-    if (phase.kind === "ready") try {{const records = phase.connection.records; sync = summarizeSync({status: records.status, writes: records.ledger.getSnapshot(), link: records.link, problem: snapshot.problem});}} catch {/* status not known yet */}
+    if (phase.kind === "ready") try {{const records = phase.connection.records;
+      sync = summarizeSync({status: records.status, writes: records.ledger.getSnapshot(), link: records.link, problem: snapshot.problem,
+        transport: snapshot.transport ?? null, live: snapshot.live ?? null});}} catch {/* status not known yet */}
     const value = Object.freeze({...snapshot, phase, sync, links: snapshot.links ?? null});
     derived = {source: snapshot, connection, value};
     return value;

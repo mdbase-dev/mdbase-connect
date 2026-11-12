@@ -132,6 +132,12 @@ The replica reads frontmatter as one `key: JSON` line per field, which is what
 new MemoryReplica({ parse: document => parseFrontmatter(document) });  // { frontmatter, body }
 ```
 
+`describe` reports no collection settings unless the test gives some:
+
+```ts
+new MemoryReplica({ settings: { validation: "error" } });
+```
+
 ## Queries
 
 `where` is not evaluated unless the test passes an evaluator for the

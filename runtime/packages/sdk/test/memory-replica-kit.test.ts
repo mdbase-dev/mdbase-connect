@@ -45,6 +45,12 @@ describe("MemoryReplica describe", () => {
     }]);
   });
 
+  it("reports the collection settings it is given, and none by default", async () => {
+    const settings = { validation: "error", archive: { folder: "Archive" } };
+    expect((await (await client(new MemoryReplica({ settings }))).describe()).settings).toEqual(settings);
+    expect((await (await client(new MemoryReplica())).describe()).settings).toEqual({});
+  });
+
   it("names every implementing type once per contract version", async () => {
     const c = await client(new MemoryReplica({ contracts: [TASK, { ...TASK, type: "chore", binding: undefined }, { ...TASK, version: "2.0.0", type: "task" }] }));
     const { contracts, types } = await c.describe();

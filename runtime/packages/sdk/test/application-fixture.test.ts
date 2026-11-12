@@ -36,6 +36,18 @@ function deferred<T>() {
 }
 
 describe("public application fixture (metadata stand-in, not runtime evidence)", () => {
+  it("reports the snapshot's transport health and live state in sync", async () => {
+    const {connection, records} = await native();
+    const ready = (patch: Partial<ApplicationFixtureSnapshot> = {}) => snapshot({status: "ready", selectedCollectionId: records.collection,
+      collections: [{collectionId: records.collection, displayName: "Notes", role: "owner"}], ...patch});
+    const fixture = createApplicationFixture({declaration, connections: [connection], initialSnapshot: ready()});
+    expect(fixture.mdbase.getSnapshot().sync).toMatchObject({connection: "online", health: null});
+    fixture.controls.publishSnapshot(ready({transport: {kind: "unreachable"}}));
+    expect(fixture.mdbase.getSnapshot().sync).toMatchObject({connection: "reconnecting", health: "unreachable"});
+    fixture.controls.publishSnapshot(ready({transport: {kind: "offline"}, live: false}));
+    expect(fixture.mdbase.getSnapshot().sync).toMatchObject({connection: "offline", health: "offline"});
+  });
+
   it("opens the unsynced collection and brings its work into the open collection", async () => {
     const local = await native("0192f3a4-6000-7abc-8def-0000000000f1"), synced = await native("0192f3a4-6000-7abc-8def-0000000000f2");
     const fixture = createApplicationFixture({declaration, connections: [synced.connection], unsynced: local.connection, initialSnapshot: snapshot()});
