@@ -144,6 +144,23 @@ impl<I: IndexStorage> Store for LogCache<I> {
     fn candidates(&self, q: &Candidate, p: Page) -> StoreResult<Vec<RecordRow>> {
         self.0.candidates(q, p)
     }
+    // `select`, projections and CEL link reads take the bounded source path; the
+    // trait defaults refuse it, so the hosted replica answered them `unavailable`.
+    fn query_record_sizes_at(
+        &self,
+        page: Page,
+        head: Head,
+    ) -> StoreResult<Vec<mdbn_replica::store_query::QueryRecordSize>> {
+        self.0.query_record_sizes_at(page, head)
+    }
+    fn hydrate_query_at(
+        &self,
+        ids: &[Uuid],
+        head: Head,
+        budget: &mut mdbn_replica::store_query::QueryBudget,
+    ) -> StoreResult<Vec<RecordRow>> {
+        self.0.hydrate_query_at(ids, head, budget)
+    }
     fn pending(&self, after_order: Option<u64>, limit: u32) -> StoreResult<Vec<PendingRow>> {
         self.0.pending(after_order, limit)
     }

@@ -5,6 +5,7 @@ mod attachment_streams;
 mod attachments;
 mod mode_lifecycle;
 mod original_app;
+mod projected_queries;
 mod signed_control_plain;
 use signed_control_plain::SignedControlPlain;
 
@@ -17,7 +18,7 @@ use mdbn_replica::mem::MemStore;
 use mdbn_replica::policy::key_id;
 use mdbn_replica::seal::PlainSealer;
 use mdbn_replica::testkit::{TEST_OWNER, TestControlPlane, TestDevice, signed_root};
-use mdbn_replica::{Host, HostedProfile, UtcOnly};
+use mdbn_replica::{Host, HostedProfile, Store, UtcOnly};
 use mdbn_wire::cbor::{self, Cbor};
 use mdbn_wire::client::{
     ClientFrame, ClientRequest, HelloParams, Receipt, ReceiptState, SubmitParams,
@@ -148,8 +149,8 @@ fn config(svc: &FakeLogService) -> OpenConfig {
     OpenConfig::decode(&cbor::encode(&config_value(svc)).unwrap()).unwrap()
 }
 
-struct Hosted {
-    e: Engine<MemStore>,
+struct Hosted<S: Store = MemStore> {
+    e: Engine<S>,
     log: FakeLog,
     clock: Rc<Cell<u64>>,
 }
@@ -159,6 +160,11 @@ fn open(svc: &FakeLogService) -> Hosted {
 }
 
 fn open_with_entropy(svc: &FakeLogService, seed: u8) -> Hosted {
+    open_store(svc, MemStore::new(), seed)
+}
+
+/// Like [`open`], over `store` (the Worker runs `LogCache` over DO SQLite).
+fn open_store<S: Store>(svc: &FakeLogService, store: S, seed: u8) -> Hosted<S> {
     let clock = Rc::new(Cell::new(1_700_000_000_000));
     let host = Host {
         clock: Box::new(TestClock(clock.clone())),
@@ -167,7 +173,7 @@ fn open_with_entropy(svc: &FakeLogService, seed: u8) -> Hosted {
     };
     let mut e = Engine::open_with(
         config(svc),
-        MemStore::new(),
+        store,
         Box::new(SignedControlPlain::for_device(HOSTED_DEV)),
         host,
         HostedProfile::default(),
@@ -182,7 +188,7 @@ fn open_with_entropy(svc: &FakeLogService, seed: u8) -> Hosted {
     }
 }
 
-impl Hosted {
+impl<S: Store> Hosted<S> {
     /// Move log calls and pushes until quiet; `lose_appends` loses append requests
     /// on the way (the outcome is unknown to the replica).
     fn pump(&mut self, lose_appends: bool) {
