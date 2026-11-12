@@ -53,12 +53,13 @@ manifest-payload = {
   4: uint,                 ; bucket_bits: 0..16; bucketed sections have 2^bucket_bits buckets
   5: [+ section],          ; sections, in section-kind order
   6: horizon,              ; the receipts and tombstone horizon this snapshot applied (§6)
-  7: sem,                  ; the builder's semantics version (informational)
+  7: sem,                  ; the builder's semantics version: not installed by a lower major (§8)
   8: uint,                  ; record_count
   9: uint,                  ; file_count
   ? 10: hash,              ; previous: address of the manifest this one was built from
   11: hash,                ; control_chain: ctl(seq), the control-item accumulator (§8.1)
   ? 12: [+ hash],          ; ref_indices: the ref-index objects among the envelope refs (fmt 2 only)
+  ? 13: uint,              ; sem_ratchet: the log's semantics major at seq (00-overview.md §6.3)
 }
 
 section = {
@@ -100,6 +101,15 @@ horizon = {
 - **The manifest is sealed and signed** (`sealed-envelope.md` §2, kind `manifest`).
   Its `refs` list every chunk address and every blob address the state references, so
   the log service can collect garbage without reading it (`log-service-api.md` §6.2).
+- **Semantics.** `sem` is the version of the build that wrote the snapshot.
+  `sem_ratchet` is the log's semantics major at `seq`: the highest `sem.major` of any
+  entry applied through `seq` (`00-overview.md` §6.3). The two differ: a builder that
+  has upgraded and not yet appended has not raised the log's major, and a replica
+  that took the builder's version for the ratchet would void entries that every
+  replaying replica applies. An installer takes its ratchet from `sem_ratchet` (§8
+  step 7). The key is additive (`00-overview.md` §6.2): `fmt` does not change, a
+  reader that predates it ignores it, and a manifest without it leaves the
+  installer's ratchet as it was. A base manifest (§7) does not carry it.
 
 ### 2.1 Ref-index objects
 
@@ -343,16 +353,20 @@ The digest is what makes a snapshot checkable:
 - **`entry` items** with `seq > C`, where `C` is the **compaction point**:
 
   ```text
-  C = min( S_e − 10,000,  last position appended more than 7 days ago )
+  C = min( S_o,  S_e − 10,000,  last position appended more than 7 days ago )
   ```
 
   `S_e` is the latest *endorsed* snapshot (§5.2). The grace region lets a replica
-  that is slightly behind catch up from the log instead of reinstalling.
+  that is slightly behind catch up from the log instead of reinstalling. `S_o` is the
+  older of the two retained snapshots, endorsed or not: a replica that refuses the
+  newest installs the older one and replays the log from it (§8 step 2), so the log
+  stays readable from there. While fewer than two snapshots are retained there is
+  none to fall back to and `S_o` is 0: nothing is compacted.
 - **The two latest snapshots** and the objects they reference, plus every object
   referenced by a retained item.
 
-So the retained tail is bounded: entries since the latest endorsed snapshot, plus the
-grace region.
+So the retained tail is bounded: entries since the older retained snapshot, or since
+the grace region before the latest endorsed one if that is earlier.
 
 ### 5.2 Endorsement
 
@@ -361,9 +375,9 @@ of a bogus snapshot would lose data. So a snapshot only becomes a compaction poi
 once it is **endorsed**.
 
 A replica endorses a snapshot when it has itself applied the log through `seq`, its
-own state digest and `ctl(seq)` equal the manifest's, and the manifest passes the
-install's check of its signer, signature and chain (§8 step 2), under the policy at
-`seq`. An endorsed snapshot is one an install accepts and that equals the endorser's
+own state digest, `ctl(seq)` and semantics ratchet equal the manifest's (the ratchet
+where the manifest states one, §2), and the manifest passes the install's check of
+its signer, signature and chain (§8 step 2), under the policy at `seq`. An endorsed snapshot is one an install accepts and that equals the endorser's
 state, so the endorser also reads the chunks:
 
 - It fetches **every** chunk the manifest references, one at a time. A chunk it
@@ -435,6 +449,19 @@ Such a replica may build one when all of these hold:
 The hosted replica, where present, uses no delay and so usually builds first. The log
 service accepts the first `put_snapshot` for a newer position and refuses older ones.
 A replica that loses wastes one build.
+
+**A build that does not register.** A rebuild seals and uploads its chunks again, so
+a build that ends without a pointer is not repeated on the next tick:
+- **Refused.** The service answers an upload or `put_snapshot` with an error other
+  than those below, or answers that it already holds a snapshot at or past this
+  position. The answer will not change at this head: the replica counts its next
+  period from the position it built at, as if the snapshot had been registered.
+- **Unanswered.** No response, no route, or `unavailable`, `rate_limited` or
+  `unauthenticated`. The replica waits before it builds again: one second, then twice
+  as long after each further failure, up to an hour, and never less than the
+  service's `retry_after_ms`. Any answer from the service ends the wait.
+
+Both are kept in memory only: a replica that restarts may build once more.
 
 **Incremental build.**
 - A bucket whose rows are unchanged since the previous manifest has the same
@@ -560,18 +587,37 @@ the index.
    keyring:
    - this device's `key_grant` or `rekey` wrap;
    - then every older epoch, through the key history.
-2. **The pointer.** `get_snapshot`, then fetch and open the manifest. Check:
+2. **The pointer.** `get_snapshot` returns the retained pointers, newest first
+   (`log-service-api.md` §7). Fetch and open the newest manifest. Check:
    - the signature, and that the signer had write authority at `seq` (§5.3), using
      the policy from step 1 as it stood at `seq`, not as it stands now;
    - that `chain` equals the `prev` of the item at `seq + 1`, or the head's chain hash
      if no item follows yet.
 
    - that `control_chain` equals the accumulator recomputed over the control items read
-     in step 1 with `seq ≤` the manifest's `seq` (§8.1).
+     in step 1 with `seq ≤` the manifest's `seq` (§8.1);
+   - that the builder's `sem.major` is not above this build's: its state may hold
+     what this build cannot plan against (`00-overview.md` §6.3);
+   - that `sem_ratchet`, where present, is not below the replica's own. The ratchet
+     only rises, and the replica's is the log's at its own head, below `seq`.
 
-   A failed check falls back to the older retained snapshot, or reports an incident.
-   An accumulator mismatch is an `integrity` incident: the service withheld or altered
-   control items.
+   **Fallback.** A snapshot that fails a check here, or at any later step, is
+   refused: what was staged is dropped and the replica's state and head stay as they
+   were. The replica then tries the older retained pointer in the same way. The log
+   is retained from that snapshot (§5.1), so the tail it replays in step 7 reaches
+   the head. When the older one installs, nothing is reported. When there is no older
+   pointer, or it is refused too, the replica reports one incident that names each
+   failure, and does not fetch these snapshots again while the newest pointer is the
+   one it refused (until it restarts). The incident is `integrity`: an accumulator
+   mismatch, for one, means the service withheld or altered control items. A snapshot
+   refused only for needing a newer build (an unknown `fmt` or codec, or a newer
+   semantics major) is `upgrade_required`.
+
+   **A missing object.** When the service answers `not_found` for an object of the
+   snapshot (its manifest, a ref-index object, a chunk, or a source object its refs
+   name), the answer will not change, and the snapshot is refused as above. A fetch
+   that gets no answer, or `unavailable`, `rate_limited` or `unauthenticated`, is
+   repeated; it refuses nothing.
 3. **Resources.** The catalog is now known.
 4. **Index.** All buckets, in order. The replica can now:
    - list every path;
@@ -588,9 +634,10 @@ the index.
    (`replica-client-api.md` §4).
 6. **Tombstones, aliases, conflicts, receipts.**
 7. **Finish.** Compare the computed state digest with the manifest's. On a mismatch,
-   discard the install and fall back as in step 2. Then drop pending mutations found in
-   receipts (now confirmed), apply the tail `(seq, head]`, rebase pending work, and
-   start appending.
+   discard the install and fall back as in step 2. Set the semantics ratchet to the
+   manifest's `sem_ratchet`; a manifest without one leaves the replica's as it was.
+   Then drop pending mutations found in receipts (now confirmed), apply the tail
+   `(seq, head]`, rebase pending work, and start appending.
 
 Until step 7 finishes, the replica serves reads only and does not append: a writer must
 have applied every item up to the head it plans at.

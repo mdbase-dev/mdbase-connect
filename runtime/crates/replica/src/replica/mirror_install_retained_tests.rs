@@ -140,6 +140,7 @@ fn manifest() -> ManifestPayload {
         file_count: 0,
         previous: None,
         control_chain: B32([0; 32]),
+        sem_ratchet: None,
     }
     .into()
 }

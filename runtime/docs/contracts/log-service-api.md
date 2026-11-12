@@ -643,9 +643,9 @@ Both candidates implement the same contract.
   streams are local to the actor.
 - **Objects** live in R2 under `c/<collection>/<address>`, with pre-signed URLs for
   large transfers.
-- **Size.** Item storage per object is bounded by compaction. The 10,000-entry grace
-  plus the tail since the last endorsed snapshot is far below the per-object storage
-  limit.
+- **Size.** Item storage per object is bounded by compaction. The tail since the older
+  retained snapshot, or since the 10,000-entry grace before the last endorsed one, is
+  far below the per-object storage limit.
 
 **Conformance suite** (`conformance/log-service/`, a Phase 0 deliverable that may start
 empty). One test group per invariant I1–I13, plus:

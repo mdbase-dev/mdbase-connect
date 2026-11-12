@@ -29,7 +29,8 @@ pub fn encode_segment(c: &Uuid, seg: &[StoredItem]) -> Vec<u8> {
 
 impl<B: Backend, O: ObjectStore> Service<B, O> {
     /// Compaction (`snapshot.md` §5.1): deletes `entry` items at or below
-    /// `C = min(S_e − 10,000, last position appended more than 7 days ago)`.
+    /// `C = min(S_o, S_e − 10,000, last position appended more than 7 days ago)`,
+    /// where `S_o` is the older of the two retained snapshots.
     /// Returns the new `retained_from`.
     ///
     /// The archive uploads hold no write lock, so they never stall appends.
@@ -86,11 +87,15 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
             .map(|s| s.seq)
             .max()
             .unwrap_or(0);
+        // A replica that refuses the newest snapshot installs the older one and
+        // replays from it (§8): the log stays readable from there. With fewer
+        // than two snapshots there is none to fall back to, and nothing goes.
+        let s_o = snaps.get(RETAINED_SNAPSHOTS - 1).map_or(0, |s| s.seq);
         let c1 = s_e.saturating_sub(COMPACTION_GRACE_ENTRIES);
         let c2 = tx
             .last_seq_at_or_before(now - COMPACTION_MIN_AGE_MS)
             .await?;
-        Ok(c1.min(c2))
+        Ok(s_o.min(c1).min(c2))
     }
 
     /// Write the `entry` items in `(retained_from − 1, cp]` to the archive, in

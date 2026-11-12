@@ -300,6 +300,28 @@ fn a_base_with_a_wrong_state_digest_fails_closed() {
     assert!(b.r.store.record(&recs(5)[0].id).unwrap().is_none());
 }
 
+/// The service does not have the base's manifest, and says so. The install
+/// fails closed, and the manifest is not asked for on every tick.
+#[test]
+fn a_base_whose_manifest_the_service_lacks_fails_closed() {
+    let (svc, mut a) = fresh();
+    let (p, _, _) = write_gen0(&svc, &mut a, vec![], recs(5), 0, &[], false);
+    let (manifest, _) = svc
+        .objects(&COL)
+        .into_iter()
+        .find(|(_, b)| Item::from_bytes(b).is_ok_and(|i| i.kind == ItemKind::Manifest))
+        .unwrap();
+    svc.forget_object(&COL, &manifest);
+    let mut b = node(&svc, 2, MemStore::new());
+    read_to(&mut b, p);
+    read_to(&mut b, p);
+    assert_eq!(b.r.head().seq, p - 1, "nothing installed");
+    assert_eq!(b.r.stalled, Some((IncidentKind::Integrity, p)));
+    let gets = svc.object_gets(&COL).len();
+    read_to(&mut b, p);
+    assert_eq!(svc.object_gets(&COL).len(), gets);
+}
+
 #[test]
 fn a_base_install_needs_a_staging_store_in_a_shipped_build() {
     let (svc, mut a) = fresh();

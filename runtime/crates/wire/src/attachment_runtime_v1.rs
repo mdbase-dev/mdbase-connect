@@ -325,6 +325,9 @@ wire_struct! {
         10 opt previous: Hash,
         /// Control chain.
         11 req control_chain: Hash,
+        /// The log's semantics ratchet at `seq` (key 12 is the fmt-2 ref-index
+        /// list).
+        13 opt sem_ratchet: u64,
     }
 }
 wire_tuple! {
@@ -523,6 +526,7 @@ impl From<snapshot::ManifestPayload> for ManifestPayload {
             file_count: v.file_count,
             previous: v.previous,
             control_chain: v.control_chain,
+            sem_ratchet: v.sem_ratchet,
         }
     }
 }

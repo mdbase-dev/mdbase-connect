@@ -398,6 +398,42 @@ fn source_corruption_cleans_staging_and_keeps_confirmed_prefix_and_cache() {
             .is_none()
     );
 }
+/// A source object the service cannot serve now is asked for again; one it
+/// does not have refuses the snapshot.
+#[test]
+fn a_source_object_the_service_lacks_refuses_the_snapshot() {
+    let (a, m, h, objects) = build(false);
+    let mut b = receiver(&a, &m, h);
+    let old = b.r.store.head().unwrap();
+    b.r.test_on_native_snapshot_reply(Ok(LogResponse::GetObject {
+        bytes: objects[&h].clone(),
+        size: objects[&h].len() as u64,
+        checksum: h,
+    }));
+    let source = reach_sources(&mut b, &objects);
+    b.r.inflight.remove(&source.id).unwrap();
+    b.r.on_native_install_reply(source.id, Err(LogError::code(LogErrorCode::Unavailable)));
+    b.r.retry_install();
+    assert!(b.r.installing(), "asked again later");
+    b.clock.set(b.clock.get() + 60_000);
+    b.r.retry_install();
+    let source = reach_sources(&mut b, &objects);
+    b.r.inflight.remove(&source.id).unwrap();
+    b.r.on_native_install_reply(source.id, Err(LogError::code(LogErrorCode::NotFound)));
+    b.r.retry_install();
+    assert!(!b.r.installing());
+    assert_eq!(b.r.stats.snapshots_installed, 0);
+    assert_eq!(b.r.store.head().unwrap(), old);
+    assert!(b.r.store.file(&B16([61; 16])).unwrap().is_none());
+    assert!(b.r.sync_status().incidents.iter().any(|i| {
+        i.kind == mdbn_wire::client::IncidentKind::Integrity
+            && i.details
+                == Some(mdbn_wire::common::Value::Text(
+                    "snapshot install: native source: Corrupt(\"the service does not have a source object\")"
+                        .into(),
+                ))
+    }));
+}
 #[test]
 fn signed_manifest_missing_source_ref_is_refused_before_plain_source_fetch() {
     let (mut a, m, h, mut objects) = build(false);

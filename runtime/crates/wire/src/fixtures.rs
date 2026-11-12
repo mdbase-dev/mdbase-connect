@@ -661,6 +661,17 @@ pub fn all() -> Vec<Fixture> {
             file_count: 1_234,
             previous: Some(b32(0x06)),
             control_chain: b32(0x07),
+            sem_ratchet: None,
+        },
+    ));
+    v.push(fx(
+        "manifest",
+        "sem-ratchet",
+        ManifestPayload {
+            seq: 20_000,
+            chain: b32(0xc6),
+            sem_ratchet: Some(1),
+            ..manifest_min()
         },
     ));
     let rows = vec![
@@ -2128,6 +2139,7 @@ fn manifest_min() -> ManifestPayload {
         file_count: 0,
         previous: None,
         control_chain: b32(0x07),
+        sem_ratchet: None,
     }
 }
 

@@ -106,6 +106,7 @@ update = {
   ? 9: text,                        ; body_base_text: that body, when the writer may not retain it
   ? 10: [+ base-field],             ; base: observed values of the touched keys
   ? 11: hash,                       ; if_revision: opt-in CAS on the whole document
+  ? 12: bool,                       ; update_refs: rewrite inbound links on path-stored moves (default true)
 }
 body-edit = [start: uint, end: uint, insert: tstr]   ; offsets in Unicode scalar values of the base body
 
@@ -433,12 +434,13 @@ manifest-payload = {
   4: uint,                 ; bucket_bits: 0..16; bucketed sections have 2^bucket_bits buckets
   5: [+ section],          ; sections, in section-kind order
   6: horizon,              ; the receipts and tombstone horizon this snapshot applied (§6)
-  7: sem,                  ; the builder's semantics version (informational)
+  7: sem,                  ; the builder's semantics version: not installed by a lower major (§8)
   8: uint,                  ; record_count
   9: uint,                  ; file_count
   ? 10: hash,              ; previous: address of the manifest this one was built from
   11: hash,                ; control_chain: ctl(seq), the control-item accumulator (§8.1)
   ? 12: [+ hash],          ; ref_indices: the ref-index objects among the envelope refs (fmt 2 only)
+  ? 13: uint,              ; sem_ratchet: the log's semantics major at seq (00-overview.md §6.3)
 }
 
 section = {
@@ -848,7 +850,7 @@ record-view = {
   0: uuid,               ; id
   1: path,
   2: hash,               ; revision of the exact bytes
-  3: fm-map,             ; frontmatter (persisted)
+  3: fm-map,             ; frontmatter (persisted logical values, including decoded path fields)
   ? 4: fm-map,           ; effective_frontmatter (spec 03; on request)
   ? 5: tstr,             ; body (on request)
   ? 6: tstr,             ; document: exact source (on request)
@@ -902,7 +904,7 @@ query-result = {
   ? 6: [* issue],        ; query diagnostics
   ? 7: view-ref,         ; resolved execute_view source
   ? 8: [* query-group],  ; complete filtered groups/summaries BEFORE pagination
-  ? 9: bool,             ; has_more: flat matches AFTER the requested window
+  ? 9: bool,             ; has_more: flat matches AFTER the returned records
 }
 view-ref = { 0: path, 1: tstr }   ; path, named view
 query-group = {
@@ -1192,6 +1194,10 @@ transfer-progress = {
         fetching: 5, streaming: 6, done: 7 ),
   2: uint,               ; bytes done
   3: uint,               ; bytes total
+}
+file-stream-failed = {   ; push, only with the granted `file-stream-failure-v1`
+  0: uint,               ; stream ID
+  1: problem,            ; why; no `last` chunk will follow
 }
 
 ; from docs/contracts/replica-client-api.md

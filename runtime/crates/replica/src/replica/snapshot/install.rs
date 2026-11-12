@@ -105,13 +105,7 @@ impl<S: Store> Replica<S> {
             created_at: 0,
             endorsed: false,
         };
-        let id = self.queue(LogRequest::GetObject {
-            collection: self.cfg.collection,
-            address: p.manifest,
-            range: None,
-        });
-        self.inflight.insert(id, Inflight::Install);
-        self.install = Some(Install::Manifest(p));
+        self.request_manifest(p);
         self.status_dirty = true;
     }
 
@@ -251,19 +245,52 @@ impl<S: Store> Replica<S> {
         self.install.as_ref().map(|_| self.install_progress)
     }
 
-    /// Abandon the install. Nothing was written: the staged rows are dropped and the
-    /// previous confirmed state and head stay as they were.
+    /// The snapshot being installed is refused. Nothing was written: the staged
+    /// rows are dropped and the previous confirmed state and head stay as they
+    /// were. The older retained snapshot is tried next (`snapshot.md` §8); the
+    /// install is abandoned when there is none, or it is refused too.
     pub(in crate::replica) fn install_fail(&mut self, why: &str) {
         self.install_fail_as(IncidentKind::Integrity, why);
     }
 
-    fn install_fail_as(&mut self, mut kind: IncidentKind, why: &str) {
+    fn install_fail_as(&mut self, kind: IncidentKind, why: &str) {
+        let older = self.install_offer.as_mut().and_then(|o| o.older.take());
+        if let Some(older) = older
+            && self.install_reset().is_ok()
+        {
+            if let Some(o) = self.install_offer.as_mut() {
+                o.refused = Some((kind, why.to_string()));
+            }
+            self.stats.snapshot_fallbacks += 1;
+            self.install_refs = None;
+            self.status_dirty = true;
+            return self.request_manifest(older);
+        }
+        // Every snapshot offered is refused. Fetching them again would end the
+        // same way: wait for a newer one.
+        let offer = self.install_offer.take();
+        if let Some(o) = &offer {
+            self.install_refused = Some(o.newest);
+        }
+        match offer.and_then(|o| o.refused) {
+            Some((kind, newest)) => {
+                self.install_abort(kind, &format!("{newest}; older snapshot: {why}"));
+            }
+            None => self.install_abort(kind, why),
+        }
+    }
+
+    /// Abandon the install and report why: no snapshot is left to try, or the
+    /// failure is this replica's (its store), not a snapshot's.
+    fn install_abort(&mut self, mut kind: IncidentKind, why: &str) {
         self.install = None;
+        self.install_offer = None;
         if let Some(b) = self.install_base.take() {
             self.base_install_failed = Some(b.seq);
         }
         self.install_refs = None;
         let cleanup = self.install_reset();
+        self.install_points.clear();
         let detail = match cleanup {
             Ok(()) => format!("snapshot install: {why}"),
             Err(e) => {
@@ -275,6 +302,17 @@ impl<S: Store> Replica<S> {
         self.incident(kind, Some(Value::Text(detail)));
     }
 
+    /// Fetch the manifest `p` names.
+    fn request_manifest(&mut self, p: SnapshotPointer) {
+        let id = self.queue(LogRequest::GetObject {
+            collection: self.cfg.collection,
+            address: p.manifest,
+            range: None,
+        });
+        self.inflight.insert(id, Inflight::Install);
+        self.install = Some(Install::Manifest(p));
+    }
+
     /// Drop everything staged: in memory, and in the store's staging area.
     fn install_reset(&mut self) -> Result<(), StoreError> {
         // A control-read failure may have an unknown committed outcome. Do not
@@ -283,7 +321,6 @@ impl<S: Store> Replica<S> {
         if self.apply_fault {
             return Err(StoreError::Io("apply_reopen_required".into()));
         }
-        self.install_points.clear();
         self.install_staged = Tx::default();
         self.install_native_roots = Default::default();
         self.install_native_auth = Default::default();
@@ -339,7 +376,12 @@ impl<S: Store> Replica<S> {
         };
         let resp = match reply {
             Ok(r) => r,
-            Err(_) => {
+            Err(e) => {
+                // The service does not have an object of this snapshot, and
+                // asking again gets the same answer: the snapshot is refused.
+                if let Some(object) = state.object().filter(|_| e.object_missing()) {
+                    return self.install_fail(&format!("the service does not have {object}"));
+                }
                 // Transient: keep everything staged and retry this step on the next
                 // tick. An install is never left half-applied.
                 self.install = Some(state);
@@ -373,16 +415,24 @@ impl<S: Store> Replica<S> {
                 self.inflight.insert(id, Inflight::Install);
             }
             (Install::Pointer, LogResponse::GetSnapshot(ptrs)) => {
-                let Some(p) = ptrs.into_iter().next() else {
+                // The retained pointers, newest first: the newest, and the older
+                // one to fall back to if the newest is refused.
+                let mut ptrs = ptrs.into_iter();
+                let Some(p) = ptrs.next() else {
                     return self.install_fail("no snapshot to install");
                 };
-                let id = self.queue(LogRequest::GetObject {
-                    collection: self.cfg.collection,
-                    address: p.manifest,
-                    range: None,
+                if self.install_refused == Some(p.manifest) {
+                    // Refused already, and still the newest: its incident stands.
+                    self.install_points.clear();
+                    self.status_dirty = true;
+                    return;
+                }
+                self.install_offer = Some(Offer {
+                    newest: p.manifest,
+                    older: ptrs.next(),
+                    refused: None,
                 });
-                self.inflight.insert(id, Inflight::Install);
-                self.install = Some(Install::Manifest(p));
+                self.request_manifest(p);
             }
             (Install::Manifest(p), LogResponse::GetObject { bytes, .. }) => {
                 if mdbn_wire::hash::sha256(&bytes) != p.manifest {
@@ -426,6 +476,22 @@ impl<S: Store> Replica<S> {
                 }
                 if m.seq != p.seq {
                     return self.install_fail("manifest position differs from its pointer");
+                }
+                if self.install_base.is_none() {
+                    // State planned under a semantics major this build does not
+                    // have (`00-overview.md` §6.3).
+                    if m.sem.major > mdbn_core::semantics::SEM.major {
+                        return self.install_fail_as(
+                            IncidentKind::UpgradeRequired,
+                            "snapshot was built by newer semantics than this build has",
+                        );
+                    }
+                    // The ratchet only rises, and this replica's is the log's at
+                    // its own head, below the manifest's position.
+                    if m.sem_ratchet.is_some_and(|r| r < self.sem_ratchet) {
+                        return self
+                            .install_fail("manifest semantics ratchet is below this replica's");
+                    }
                 }
                 let verdict = match (&self.install_base, self.policy_at(m.seq)) {
                     (Some(base), _) => self.verify_base_manifest(&bytes, &item, &m, base),
@@ -616,7 +682,7 @@ impl<S: Store> Replica<S> {
             }
             super::unindexed_snapshot::Check::Ready(meta) => meta,
             super::unindexed_snapshot::Check::StoreFailed(e) => {
-                return self.install_fail(&format!("source store: {e}"));
+                return self.install_abort(IncidentKind::Integrity, &format!("source store: {e}"));
             }
             super::unindexed_snapshot::Check::Failed(crate::attachments::StreamError::NoKey) => {
                 self.native_install_wait_key();
@@ -652,6 +718,12 @@ impl<S: Store> Replica<S> {
             Some(_) => self.log_time,
             None => manifest.horizon.time_floor.saturating_add(HORIZON_MS),
         };
+        // The log's semantics ratchet at the snapshot, as its builder held it. A
+        // manifest that predates the field leaves this replica's own.
+        let sem_ratchet = match (&base, manifest.sem_ratchet) {
+            (None, Some(r)) => r,
+            _ => self.sem_ratchet,
+        };
         // A base: its policy effect (content seen, control chain) and its retained
         // item commit in the same transaction as the swap.
         let policy_before = self.policy.clone();
@@ -678,7 +750,7 @@ impl<S: Store> Replica<S> {
         staged.meta.extend(source_meta);
         staged.meta.push((
             meta_keys::LOG_STATE.into(),
-            log_state(log_time, self.sem_ratchet),
+            log_state(log_time, sem_ratchet),
         ));
         staged
             .meta
@@ -688,8 +760,11 @@ impl<S: Store> Replica<S> {
             if !matches!(e, StoreError::CommitAborted(_)) {
                 self.committed_read_fault();
             }
-            return self.install_fail(&format!("store: {e}"));
+            return self.install_abort(IncidentKind::Integrity, &format!("store: {e}"));
         }
+        // Swapped in: nothing after this is a reason to try another snapshot.
+        self.install_offer = None;
+        self.install_refused = None;
         if base.is_some() {
             self.stats.applied += 1;
             self.tail_stats_dirty = true;
@@ -711,6 +786,7 @@ impl<S: Store> Replica<S> {
                 .carry_over_base(self.store_generation - 1, self.store_generation);
         }
         self.log_time = log_time;
+        self.sem_ratchet = sem_ratchet;
         // The accumulator must be recomputed from the control items read
         // from position 1 and compared with the manifest's; that check lands with
         // policy wiring (the control-item read happens there). Until then the
@@ -725,7 +801,7 @@ impl<S: Store> Replica<S> {
                 // Invalidate the cached query context after snapshot install.
                 self.query_context = None;
             }
-            Err(e) => return self.install_fail(&format!("store: {e}")),
+            Err(e) => return self.install_abort(IncidentKind::Integrity, &format!("store: {e}")),
         }
         // The install replaced confirmed state; the derived query index follows.
         // A failure leaves it unready (queries use the per-record path) and is
@@ -745,7 +821,7 @@ impl<S: Store> Replica<S> {
         let mut ids = super::live::ids_from_keys(&all);
         match self.rebuild_local_view(&all) {
             Ok(more) => ids.extend(more),
-            Err(e) => return self.install_fail(&format!("store: {e}")),
+            Err(e) => return self.install_abort(IncidentKind::Integrity, &format!("store: {e}")),
         }
         // The folder is made to match the installed view from what the store knows
         // is on disk, never by assuming what was there.
