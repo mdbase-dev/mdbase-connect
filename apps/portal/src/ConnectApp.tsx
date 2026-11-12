@@ -721,10 +721,11 @@ function Computers({ error, data, busy, perform }: {
         const upgradeRequired = connector.compatibility === "upgrade_required";
         const updateRecommended = connector.update_recommended === true;
         const online = !upgradeRequired && isConnectorOnline(connector.last_seen_at);
-        const collections = data.collections.filter((collection) => collection.connector_id === connector.id);
+        const collectionCount = data.collections.filter((collection) => collection.connector_id === connector.id).length
+          + (data.native_collections ?? []).filter((collection) => collection.computer_ids?.includes(connector.id)).length;
         return <div className="connect-collection-row connect-computer-row" key={connector.id} data-list-item data-command={`computer:${connector.id}`} tabIndex={-1}>
           <span className="connect-location-glyph"><Computer aria-hidden="true" /></span>
-          <div className="connect-collection-name"><strong>{connector.name}</strong><small>{countLabel(collections.length, "collection")} · {connector.last_seen_at ? t(i18n)`Seen ${relativeTime(connector.last_seen_at)}` : t(i18n)({ message: "Not connected yet", context: "Connect interface" })}</small></div>
+          <div className="connect-collection-name"><strong>{connector.name}</strong><small>{countLabel(collectionCount, "collection")} · {connector.last_seen_at ? t(i18n)`Seen ${relativeTime(connector.last_seen_at)}` : t(i18n)({ message: "Not connected yet", context: "Connect interface" })}</small></div>
           <span className="connect-status"><StatusGlyph state={upgradeRequired ? "attention" : online ? "online" : connector.last_seen_at ? "offline" : "idle"} />{upgradeRequired ? t(i18n)({ message: "Update required", context: "Connect interface" }) : online ? t(i18n)({ message: "Connected", context: "Connect interface" }) : connector.last_seen_at ? t(i18n)({ message: "Offline", context: "Connect interface" }) : t(i18n)({ message: "Not connected yet", context: "Connect interface" })}</span>
           {upgradeRequired && <a href={connector.update_url ?? desktopReleaseUrl} target="_blank" rel="noreferrer"><Trans>Install {connector.minimum_connector_version ? t(i18n)`version ${connector.minimum_connector_version} or later` : t(i18n)({ message: "the latest release", context: "Connect interface" })}</Trans></a>}
           {!upgradeRequired && updateRecommended && <a href={connector.update_url ?? desktopReleaseUrl} target="_blank" rel="noreferrer"><Trans>Update recommended for current policy protection</Trans></a>}
