@@ -184,7 +184,7 @@ export class NativeEditorGateway implements CollectionGateway {
     if (phase?.kind === "unsynced" && phase.collectionId === this.connection.id) return "unsynced";
     if (this.client.ledger.getSnapshot().saveState === "saved_on_device") return "saved_on_device";
     const sync = phase?.kind === "ready" && phase.collectionId === this.connection.id ? this.application.getSnapshot?.().sync : null;
-    return sync?.connection === "offline" || sync?.connection === "reconnecting" || this.client.status.connection === "offline" || this.client.link !== "open" ? "offline" : "synced";
+    return sync?.connection === "offline" || sync?.health === "unreachable" || this.client.status.connection === "offline" || this.client.link !== "open" ? "offline" : "synced";
   }
 
   onSyncState(listener: () => void): () => void {
