@@ -60,10 +60,13 @@ export function newNoteEditorKey(note: Pick<NewNote, "id">): string {
 
 /**
  * Where a new note starts from the list being looked at: its folder, tag or
- * type, and the type that claims the folder when there is one.
+ * type, and the type that claims the folder or the tag when there is one.
  */
 export function newNoteContext(filter: NoteFilter | undefined, types: CollectionTypeDescriptor[]): NewNoteContext {
-  if (filter?.kind === "tag") return { tag: filter.value };
+  if (filter?.kind === "tag") {
+    const claiming = types.find((type) => typeTag(type) === filter.value);
+    return { tag: filter.value, ...(claiming ? { type: claiming.name } : {}) };
+  }
   if (filter?.kind === "type") return { type: filter.value };
   if (filter?.kind !== "folder") return {};
   const claiming = types
@@ -207,6 +210,23 @@ function typeFolder(type?: CollectionTypeDescriptor): string | undefined {
   if (typeof glob !== "string") return undefined;
   const prefix = glob.split(/[?*[{]/, 1)[0].replace(/\/+$/g, "");
   return prefix && !prefix.includes(".") ? prefix : undefined;
+}
+
+/**
+ * The tag that alone puts a note under the type: a `match` that asks only for
+ * `tags` to contain it. The runtime gives a note with that tag the type
+ * whatever the editor calls it, so the note has to start as one.
+ */
+function typeTag(type: CollectionTypeDescriptor): string | undefined {
+  const match = type.definition?.match;
+  if (!isObject(match) || Object.keys(match).length !== 1 || !isObject(match.where)) return undefined;
+  const tags = match.where.tags;
+  if (Object.keys(match.where).length !== 1 || !isObject(tags) || Object.keys(tags).length !== 1) return undefined;
+  return typeof tags.contains === "string" ? tags.contains : undefined;
+}
+
+function isObject(value: unknown): value is JsonObject {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 /** The runtime persists no read defaults, so a new note carries its type's defaults itself. */

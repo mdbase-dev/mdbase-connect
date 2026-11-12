@@ -27,11 +27,30 @@ const meeting: CollectionTypeDescriptor = {
   }
 };
 
+/** A type a tag alone puts a note under, as TaskNotes' task type does. */
+const idea: CollectionTypeDescriptor = {
+  name: "idea",
+  extensions: {},
+  definition: { match: { where: { tags: { contains: "ideas" } } } },
+  schema: {
+    type: "object",
+    required: ["source"],
+    properties: { source: { type: "string" }, tags: { type: "array", items: { type: "string" } } }
+  }
+};
+
 /** The demo collection with a type that asks for a field before a note of it can be written. */
 class MeetingsGateway extends DemoCollectionGateway {
   async describe(): Promise<CollectionDescription> {
     const description = await super.describe();
     return { ...description, types: [...description.types, meeting] };
+  }
+}
+
+class IdeasGateway extends DemoCollectionGateway {
+  async describe(): Promise<CollectionDescription> {
+    const description = await super.describe();
+    return { ...description, types: [...description.types, idea] };
   }
 }
 
@@ -162,6 +181,29 @@ describe("a new note", () => {
     const created = await gateway.read("Meetings/Planning.md");
     expect(created.types).toEqual(["meeting"]);
     expect(created.frontmatter).toEqual({ type: "meeting", status: "planned", agenda: "Budget" });
+  });
+
+  it("asks for the required fields of the type a tag list's tag puts the note under", async () => {
+    const gateway = new IdeasGateway(12);
+    const create = vi.spyOn(gateway, "create");
+    const user = await openEditor(gateway);
+    await user.type(screen.getByRole("combobox", { name: "Search notes and files" }), "#ideas{Enter}");
+    expect(screen.getByRole("heading", { name: "#ideas" })).toBeInTheDocument();
+
+    await startNote(user);
+    await user.type(noteTitle(), "Shared drafts");
+    await user.tab();
+    // The runtime would refuse this note as an idea without a source: it waits for one instead of failing.
+    const required = await screen.findByRole("region", { name: "Required properties" });
+    expect(screen.getByText("Fill in the required properties.")).toBeInTheDocument();
+    expect(create).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Retry save" })).not.toBeInTheDocument();
+
+    await user.type(within(required).getByRole("textbox", { name: "source value" }), "Standup");
+    await user.click(noteBody());
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    expect(create.mock.calls[0][0]).toMatchObject({ type: "idea", path: "Shared drafts.md", properties: { tags: ["ideas"], source: "Standup" } });
+    await waitFor(() => expect(unsavedNotes()).not.toBeInTheDocument());
   });
 
   it("stays in the list as a draft while it can't be saved, and is discarded only on request", async () => {
