@@ -2963,6 +2963,7 @@ AppProtectedInstallationSignIn@app-host/installation-sign-in.ts
   prepareOriginalDevice: (installation: AppInstallationCustodyAuthority) => Promise<Readonly<{ mode: 'fresh' | 'existing'; pin: AppDeviceKeyCustodyPin; }>>
   renameApprovedCollection: (installation: AppInstallationCustodyAuthority, collectionId: string, displayName: string) => Promise<Readonly<{ collectionId: string; displayName: string; }>>
   renewExpiredPairing: () => Promise<AppInstallationSignInView>
+  requestSent: () => boolean
   retainTimerChannel: (grantId: string, value: AppInstallationTimerChannel | null) => Promise<void>
   retireCollectionScope: (installation: AppInstallationCustodyAuthority, collection: string, expectedReplacement?: string | null) => Promise<void>
   session: (logOrigin: string) => AppCloudCopyHostSession
@@ -5662,6 +5663,7 @@ State@app-host/installation-sign-in.ts
   requestedCreateCollections: boolean
   requestedPrivateDevice?: true | undefined
   requestId: string
+  requestSent?: string | undefined
   secret: string
   selection: Selection | null
   timerChannel?: AppInstallationTimerChannel | undefined

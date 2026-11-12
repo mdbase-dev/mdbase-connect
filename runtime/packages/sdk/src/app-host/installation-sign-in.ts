@@ -152,6 +152,9 @@ function collectionListing(value: unknown): readonly AppInstallationCollection[]
 interface State {
   version: 3; requestId: string; installationId: string; deviceId: string; secret: string;
   renewal: {requestId: string; secret: string} | null;
+  /** The requestId whose START Connect accepted. Absent until the first
+   * sign-in gesture; dropped when an expired window is renewed. */
+  requestSent?: string;
   requestedCreateCollections: boolean; collectionIds: string[]; createCollections: boolean;
   consentRequest: ConsentRequest | null;
   /** Present (true) only when the ORIGINAL request asked for Private device access. */
@@ -349,7 +352,7 @@ export class AppProtectedInstallationSignIn {
     const fields = `${base},requestedCreateCollections,collectionIds,createCollections,consentRequest`;
     const r = legacy ? {...object(parsed, base), version: 3, renewal: null, requestedCreateCollections: false, collectionIds: [], createCollections: false, consentRequest: null}
       : parsed?.version === 2 ? {...object(parsed, fields), version: 3, renewal: null}
-      : object(parsed, `${fields},renewal${Object.hasOwn(parsed, "collectionSelection") ? ",collectionSelection" : ""}${Object.hasOwn(parsed,"timerConsent") ? ",timerConsent" : ""}${Object.hasOwn(parsed,"timerChannel") ? ",timerChannel" : ""}${Object.hasOwn(parsed,"owner") ? ",owner" : ""}${Object.hasOwn(parsed,"collectionListing") ? ",collectionListing" : ""}${Object.hasOwn(parsed,"collectionRecoveries") ? ",collectionRecoveries" : ""}${Object.hasOwn(parsed,"recoveryFor") ? ",recoveryFor" : ""}${Object.hasOwn(parsed,"nativeAuthorization") ? ",nativeAuthorization" : ""}${Object.hasOwn(parsed,"nativeSelection") ? ",nativeSelection" : ""}${Object.hasOwn(parsed,"nativeGrants") ? ",nativeGrants" : ""}${Object.hasOwn(parsed,"requestedPrivateDevice") ? ",requestedPrivateDevice" : ""}${Object.hasOwn(parsed,"privateDeviceCollectionIds") ? ",privateDeviceCollectionIds" : ""}`);
+      : object(parsed, `${fields},renewal${Object.hasOwn(parsed, "collectionSelection") ? ",collectionSelection" : ""}${Object.hasOwn(parsed,"timerConsent") ? ",timerConsent" : ""}${Object.hasOwn(parsed,"timerChannel") ? ",timerChannel" : ""}${Object.hasOwn(parsed,"owner") ? ",owner" : ""}${Object.hasOwn(parsed,"collectionListing") ? ",collectionListing" : ""}${Object.hasOwn(parsed,"collectionRecoveries") ? ",collectionRecoveries" : ""}${Object.hasOwn(parsed,"recoveryFor") ? ",recoveryFor" : ""}${Object.hasOwn(parsed,"nativeAuthorization") ? ",nativeAuthorization" : ""}${Object.hasOwn(parsed,"nativeSelection") ? ",nativeSelection" : ""}${Object.hasOwn(parsed,"nativeGrants") ? ",nativeGrants" : ""}${Object.hasOwn(parsed,"requestedPrivateDevice") ? ",requestedPrivateDevice" : ""}${Object.hasOwn(parsed,"privateDeviceCollectionIds") ? ",privateDeviceCollectionIds" : ""}${Object.hasOwn(parsed,"requestSent") ? ",requestSent" : ""}`);
     if (r.version !== 3 || r.appId !== p.appId || (r as {owner?: unknown}).owner !== p.owner || r.kind !== (p.installationKind ?? "app-runtime") || r.origin !== p.origin || r.cpOrigin !== p.cpOrigin || r.environment !== p.environment || typeof r.confirmed !== "boolean" || typeof r.nativeStarted !== "boolean") throw fail("recovery_required");
     const s = r as unknown as State;
     if (typeof s.requestedCreateCollections !== "boolean" || typeof s.createCollections !== "boolean" ||
@@ -388,6 +391,7 @@ export class AppProtectedInstallationSignIn {
       const r = object(s.renewal, "requestId,secret"); id(r.requestId); text(r.secret, /^pair_[A-Za-z0-9_-]{43}$/);
       if (r.requestId === s.requestId || r.secret === s.secret) throw fail("recovery_required");
     }
+    if (s.requestSent !== undefined && s.requestSent !== s.requestId) throw fail("recovery_required");
     if(s.timerChannel!==undefined) {
       if(!s.token || !s.selection)throw fail("recovery_required");
       try{s.timerChannel=timerChannel(s.timerChannel);}catch{throw fail("recovery_required");}
@@ -537,7 +541,8 @@ export class AppProtectedInstallationSignIn {
       try {
         const requestId = crypto.randomUUID(), secret = `pair_${btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
         if (requestId === s.requestId || requestId === s.renewal?.requestId || secret === s.secret) throw fail("binding");
-        await this.save({...s, requestId, secret, renewal: {requestId:s.requestId, secret:s.secret}});
+        const {requestSent: _sent, ...unsent} = s;
+        await this.save({...unsent, requestId, secret, renewal: {requestId:s.requestId, secret:s.secret}});
         this.expiredRequestId = null;
         return await this.startRequest();
       } finally { bytes.fill(0); }
@@ -564,6 +569,8 @@ export class AppProtectedInstallationSignIn {
       const uri = verificationUri(v.verification_uri, `${s.cpOrigin}/pair/${s.requestId}`, hint);
       if (v.pairing_id !== s.requestId || v.pairing_secret !== s.secret || uri === null || v.installation_device !== true || v.app_id !== s.appId || v.app_origin !== s.origin || v.app_name !== this.options.appName || !Number.isSafeInteger(v.expires_in) || (v.expires_in as number) < 0 || (v.expires_in as number) > 600) throw fail("response");
       this.expiredRequestId = null;
+      // One commit per accepted START: a restarted session keeps reading this request.
+      if (this.state.requestSent !== s.requestId) await this.save({...this.state, requestSent: s.requestId});
       return Object.freeze({...this.view(), verificationUri: uri});
   }
   /** Scoped replies must echo the immutable protected CID. Legacy normal
@@ -1002,6 +1009,9 @@ export class AppProtectedInstallationSignIn {
       }
     });
   }
+  /** A sign-in gesture sent this pending request and Connect accepted it: a
+   * restarted session may keep reading it. False once signed in. */
+  requestSent(): boolean { this.check(); return !this.state.token && this.state.requestSent === this.state.requestId; }
   /** True when this installation registered a Web Push channel (so a browser
    * push subscription exists for the app). Metadata only. */
   hasWebPushChannel(): boolean { this.check(); return this.state.timerChannel?.kind === "web_push"; }

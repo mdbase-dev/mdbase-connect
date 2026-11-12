@@ -37,6 +37,7 @@ function fixture(initial: AppInstallationSignInView["state"] = "pending", autoSe
     close: vi.fn(async () => {trace.push("flow-close");}),
     signOutInstallation: vi.fn(async (): Promise<"revoked" | "already_signed_out"> => {trace.push("cp-sign-out"); return "revoked";}),
     hasWebPushChannel: vi.fn(() => false),
+    requestSent: vi.fn(() => false),
   };
   const flowOpen = vi.spyOn(AppProtectedInstallationSignIn, "open").mockImplementation(async p => {
     flowSignal = p.signal; expect(p.mode).toBe("open"); expect(p.appId).toBe("independent-app"); expect(p.origin).toBe("https://notes.example.test"); return flow as unknown as AppProtectedInstallationSignIn;
@@ -334,6 +335,25 @@ describe("shared first-party web sign-in", () => {
     // The pairing request is created by the sign-in gesture, not by every page load.
     expect(f.flow.start).not.toHaveBeenCalled();
     expect(f.flow.exchange).not.toHaveBeenCalled(); expect(f.hostOpen).not.toHaveBeenCalled(); expect(f.openPortal).not.toHaveBeenCalled(); expect(listener).toHaveBeenCalled(); stop(); await f.session.close();
+  });
+  it("a restart keeps reading the request a sign-in gesture sent, and completes it without another gesture", async () => {
+    // Mobile: the OS froze the page and its Worker while the person approved in the browser.
+    vi.useFakeTimers(); const f = fixture(); f.flow.requestSent.mockReturnValue(true);
+    await f.session.start(); expect(f.session.snapshot().status).toBe("authorizing");
+    expect(f.flow.start).not.toHaveBeenCalled(); expect(f.openPortal).not.toHaveBeenCalled();
+    f.selectOnPortal(); await vi.advanceTimersByTimeAsync(1000);
+    expect(f.flow.confirmPortalSelectedAccount).toHaveBeenCalledOnce(); expect(f.host.attestInstallation).toHaveBeenCalledOnce();
+    f.approve(); await vi.advanceTimersByTimeAsync(1000);
+    expect(f.session.snapshot().status).toBe("ready"); expect(f.flow.start).not.toHaveBeenCalled(); await f.session.close();
+  });
+  it.each(["refused","expired"] as const)("a request %s before the restart read it ends signed out, and the next sign-in renews it", async reason => {
+    vi.useFakeTimers(); const f = fixture(); f.flow.requestSent.mockReturnValue(true);
+    f.flow.exchange.mockRejectedValueOnce(new AppInstallationSignInError(reason));
+    await f.session.start(); await vi.advanceTimersByTimeAsync(1000);
+    expect(f.session.snapshot()).toMatchObject({status: "signed_out", problem: null});
+    await vi.advanceTimersByTimeAsync(20000); expect(f.flow.exchange).toHaveBeenCalledOnce();
+    f.flow.start.mockRejectedValueOnce(new AppInstallationSignInError(reason)); await f.session.authorize();
+    expect(f.flow.renewExpiredPairing).toHaveBeenCalledOnce(); expect(f.session.snapshot().status).toBe("authorizing"); await f.session.close();
   });
   it("one authorize opens Connect synchronously, automatically confirms the portal choice and attests, then opens the approved collection", async () => {
     vi.useFakeTimers(); const f = fixture(); await f.session.start(); f.selectOnPortal();
