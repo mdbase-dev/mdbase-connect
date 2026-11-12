@@ -960,6 +960,43 @@ describe("owned cloud-copy outcome composition (IDB/native/CP stand-ins, actual 
             expect(vi.getTimerCount()).toBe(0);
         } finally {vi.useRealTimers(); await c.host.close();}
     });
+    it.each([
+        {reason: "no_grant", grantAt: 60_000, expected: "readable"},
+        {reason: "reading", grantAt: 60_000, expected: "readable"},
+        {reason: "no_grant", grantAt: null, expected: "sync_stalled"},
+        {reason: "grant_void", grantAt: 60_000, expected: "sync_stalled"},
+    ])("a cold replica waits for its key grant ($reason), bounded by the grant budget", async ({reason, grantAt, expected}) => {
+        // #1434: a device that joined a new cloud copy waits for the hosted
+        // service (or, after 120 s, the escrow) to write its key grant.
+        const c = await readableFixture();
+        await c.host.startCollectionLog({signal: c.options.signal});
+        const observation = c.f.runtime.observations();
+        let keyed = false;
+        c.f.runtime.observations.mockImplementation(() => ({...observation, status: {...observation.status, mode: "synced",
+            confirmedThrough: keyed ? 10 : 2, headKnown: 10,
+            incidents: keyed ? [] : [{kind: "waiting_for_key", details: new Map<string, CborValue>([["position", 3], ["reason", reason]])}]}}));
+        c.pump.pump.mockImplementation(async () => ({quiet: true}));
+        vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"]});
+        let outcome = "opening";
+        const work = c.host.waitForVerifiedRead({signal: c.options.signal, cold: true}).then(
+            () => {outcome = "readable";}, error => {outcome = error.reason;});
+        try {
+            await vi.advanceTimersByTimeAsync(20_000);
+            if (reason === "grant_void") { await work; expect(outcome).toBe("sync_stalled"); return; }
+            expect(outcome).toBe("opening");
+            expect(c.reader.query).not.toHaveBeenCalled();
+            if (grantAt !== null) {
+                await vi.advanceTimersByTimeAsync(grantAt - 20_000); keyed = true;
+                await vi.advanceTimersByTimeAsync(2_000); await work;
+            } else {
+                await vi.advanceTimersByTimeAsync(129_000);
+                expect(outcome).toBe("opening");
+                await vi.advanceTimersByTimeAsync(1_500); await work;
+            }
+            expect(outcome).toBe(expected);
+            expect(c.reader.query).toHaveBeenCalledTimes(expected === "readable" ? 1 : 0);
+        } finally {vi.useRealTimers(); await work; await c.host.close();}
+    });
     it("cold head growth without accepted prefix progress cannot hide a stalled replica", async () => {
         const c = await readableFixture();
         await c.host.startCollectionLog({signal: c.options.signal});
