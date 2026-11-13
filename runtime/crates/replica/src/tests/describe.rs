@@ -385,16 +385,17 @@ fn contract_query_refuses_unindexed_full_windows_and_checks_session_and_selectio
     );
 }
 
-#[test]
-fn contract_query_projection_budget_is_charged_before_wide_mapping_clones() {
-    let properties = (0..128)
-        .map(|i| format!("      value{i}: {{type: boolean}}\n"))
+/// A type mapping `mappings` contract fields, each from its `source` field of
+/// JSON Schema type `kind`.
+fn wide(mappings: usize, source: &str, kind: &str) -> Vec<(String, String)> {
+    let properties = (0..mappings)
+        .map(|i| format!("      value{i}: {{type: {kind}}}\n"))
         .collect::<String>();
-    let fields = (0..128)
-        .map(|i| format!("'/value{i}': '/completed'"))
+    let fields = (0..mappings)
+        .map(|i| format!("'/value{i}': '/{source}'"))
         .collect::<Vec<_>>()
         .join(", ");
-    let (_, mut a) = configured(vec![
+    vec![
         ("mdbase.yaml".into(), "spec_version: '0.3.0'\n".into()),
         (
             "_contracts/wide.md".into(),
@@ -405,16 +406,22 @@ fn contract_query_projection_budget_is_charged_before_wide_mapping_clones() {
         (
             "_types/wide.md".into(),
             format!(
-                "---\nkind: mdbase.type\nname: wide\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    properties:\n      completed: {{type: boolean}}\nimplements:\n  - contract: acme.task\n    version: 1.0.0\n    fields: {{{fields}}}\n---\n"
+                "---\nkind: mdbase.type\nname: wide\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    properties:\n      completed: {{type: boolean}}\n      large: {{type: string}}\nimplements:\n  - contract: acme.task\n    version: 1.0.0\n    fields: {{{fields}}}\n---\n"
             ),
         ),
-    ]);
+    ]
+}
+
+#[test]
+fn contract_query_projection_budget_is_charged_before_wide_mapping_clones() {
+    // 128 mappings of one 12 KB value would copy 1.5 MB: refused before the copy.
+    let (_, mut a) = configured(wide(128, "large", "string"));
     assert!(a.r.catalog.is_valid(), "{:?}", a.r.catalog.issues());
     a.create(
         1,
         "rows/wide.md",
         &format!(
-            "---\ntype: wide\ncompleted: true\nunmapped: {}\n---\n",
+            "---\ntype: wide\ncompleted: true\nlarge: {}\n---\n",
             "x".repeat(12000)
         ),
     );
@@ -425,6 +432,37 @@ fn contract_query_projection_budget_is_charged_before_wide_mapping_clones() {
         error.problem().reason.as_deref(),
         Some("contract_projection_budget")
     );
+}
+
+#[test]
+fn contract_query_projection_budget_charges_mapped_values_not_the_whole_record() {
+    // Each record carries 4 KB the contract never maps. Charging the whole
+    // record once per mapping (14 x 4 KB x 60 records = 3 MB) refused every
+    // page of an ordinary library; the projection itself is 14 booleans a record.
+    let (_, mut a) = configured(wide(14, "completed", "boolean"));
+    assert!(a.r.catalog.is_valid(), "{:?}", a.r.catalog.issues());
+    for i in 0..60u8 {
+        a.create(
+            i + 1,
+            &format!("rows/{i:03}.md"),
+            &format!(
+                "---\ntype: wide\ncompleted: true\nunmapped: {}\n---\n",
+                "x".repeat(4000)
+            ),
+        );
+    }
+    settle(&mut [&mut a]);
+    let result = contract_page(&mut a, "1.0.0", None).unwrap();
+    assert_eq!(result.records.len(), 60);
+    assert!(result.records.iter().all(|r| {
+        r.implementations.len() == 1
+            && r.implementations[0].fields.0.len() == 14
+            && r.implementations[0]
+                .fields
+                .0
+                .iter()
+                .all(|(_, v)| *v == Value::Bool(true))
+    }));
 }
 
 #[test]

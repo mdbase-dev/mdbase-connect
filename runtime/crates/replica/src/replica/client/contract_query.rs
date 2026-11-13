@@ -10,6 +10,7 @@ use crate::{Store, convert};
 use mdbn_core::state::StateView;
 use mdbn_wire::client::{Include, Issue, QueryResult, Severity};
 use mdbn_wire::common::Value;
+use std::collections::BTreeMap;
 
 const PROJECTION_BYTES: usize = 1024 * 1024;
 
@@ -180,25 +181,29 @@ impl<S: Store> Replica<S> {
                 unreachable!("frontmatter is a map")
             };
             let effective = catalog.effective_values(&record.path, &record.types, &raw);
-            let bytes = mdbn_core::value::Value::Map(effective.clone())
-                .to_json()
-                .len();
+            // Each record field's size is measured once, however many contract
+            // fields map it.
+            let mut sizes: BTreeMap<&str, usize> = BTreeMap::new();
             let mut projections = Vec::new();
             for implementation in implementations
                 .iter()
                 .filter(|i| record.types.contains(&i.type_name))
             {
-                // Charge a conservative clone bound before Core copies mapped values.
-                let charge = bytes
-                    .checked_mul(implementation.fields.len().max(1))
-                    .and_then(|n| {
-                        n.checked_add(
-                            implementation
-                                .fields
-                                .iter()
-                                .map(|(a, b)| a.len() + b.len())
-                                .sum::<usize>(),
-                        )
+                // Charge what Core is about to copy, before it copies: every
+                // mapping clones the one value it selects. Unmapped fields are
+                // never copied, so they cost nothing here.
+                let charge = implementation
+                    .fields
+                    .iter()
+                    .try_fold(0usize, |total, (a, b)| {
+                        let value = *sizes.entry(b.as_str()).or_insert_with(|| {
+                            mdbn_core::types::select_one(&effective, b)
+                                .map_or(0, |v| v.to_json().len())
+                        });
+                        total
+                            .checked_add(value)?
+                            .checked_add(a.len())?
+                            .checked_add(b.len())
                     });
                 remaining = charge
                     .and_then(|n| remaining.checked_sub(n))
