@@ -146,11 +146,21 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     refreshSdkRuntimePin(join(root, "runtime/target/wasm/app-runtime.wasm"), join(sdk, "src/application/asset-pins.json"), source);
     execFileSync("node", ["scripts/runtime-methods.mjs", "--write"], { cwd: sdk, stdio: "inherit" });
   }
+  else if (command === "check-runtime-pin") {
+    const file = join(root, "runtime/target/wasm/app-runtime.wasm");
+    try {
+      checkedSdkAsset(file, readJson(join(sdk, "src/application/asset-pins.json")).runtime);
+    } catch (error) {
+      console.error("The SDK runtime pin does not match app-runtime.wasm built from this commit, so SDK publication would refuse it.\n"
+        + "Download this run's runtime-wasm artifact into runtime/target/wasm/, then run `node scripts/sdk-publication.mjs pin-runtime` and commit the result.");
+      throw error;
+    }
+  }
   else if (command === "pack-all") await packAllSdks(resolve(environment));
   else if (command === "verify-npm") verifySdkArchive(resolve(environment), "production",
     readJson(join(root, "package.json")).version, process.env.GITHUB_SHA, publication());
   else if (command === "production-version") console.log(exactSdkVersion(environment));
   else if (command === "verify") await verifySdkDirectory(resolve(directory), environment, commit);
   else if (command === "legacy-archive") checkLegacyArchive(environment);
-  else throw new Error("Expected check, ready, pin-runtime, pack-all, verify-npm, production-version, verify or legacy-archive");
+  else throw new Error("Expected check, ready, pin-runtime, check-runtime-pin, pack-all, verify-npm, production-version, verify or legacy-archive");
 }
