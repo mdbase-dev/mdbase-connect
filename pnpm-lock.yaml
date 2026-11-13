@@ -199,11 +199,11 @@ importers:
         specifier: workspace:*
         version: link:../../packages/i18n
       '@mdbase-dev/sdk':
-        specifier: file:vendor/sdk-4562e7b9-production-beta200.tgz
-        version: file:apps/editor/vendor/sdk-4562e7b9-production-beta200.tgz
+        specifier: file:vendor/sdk-ea1275ab-production-beta202.tgz
+        version: file:apps/editor/vendor/sdk-ea1275ab-production-beta202.tgz
       '@mdbase-dev/ui':
         specifier: 0.1.0-beta.167
-        version: 0.1.0-beta.167(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-4562e7b9-production-beta200.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        version: 0.1.0-beta.167(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-ea1275ab-production-beta202.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@mdbase/connect-ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -2305,9 +2305,9 @@ packages:
     bundledDependencies:
       - '@mdbase-dev/connect-protocol'
 
-  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-4562e7b9-production-beta200.tgz':
-    resolution: {integrity: sha512-ejMOMXNBAMsXlQNR7y/WfxBdHR7vJCtUx5HDwtwoB4uakuhvFyYu5C/61fwVIvT/S1AdRG7sZf3st6hgq6ndDw==, tarball: file:apps/editor/vendor/sdk-4562e7b9-production-beta200.tgz}
-    version: 0.1.0-beta.200
+  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-ea1275ab-production-beta202.tgz':
+    resolution: {integrity: sha512-uNBCVCbXZnyu0aG4YkIk16L7kOkE5mAHpJG2OBgJe5vv4S71pgNcGH/GoN2pKpI9C/N72I6G0WmJMRNrwykEIQ==, tarball: file:apps/editor/vendor/sdk-ea1275ab-production-beta202.tgz}
+    version: 0.1.0-beta.202
     engines: {node: '>=20'}
     bundledDependencies:
       - '@mdbase-dev/connect-protocol'
@@ -8157,13 +8157,13 @@ snapshots:
       '@noble/curves': 2.4.0
       '@noble/hashes': 2.4.0
 
-  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-4562e7b9-production-beta200.tgz':
+  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-ea1275ab-production-beta202.tgz':
     dependencies:
       '@noble/ciphers': 2.4.0
       '@noble/curves': 2.4.0
       '@noble/hashes': 2.4.0
 
-  '@mdbase-dev/ui@0.1.0-beta.167(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-4562e7b9-production-beta200.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@mdbase-dev/ui@0.1.0-beta.167(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-ea1275ab-production-beta202.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@fontsource/azeret-mono': 5.3.0
       '@fontsource/ibm-plex-sans': 5.3.0
@@ -8177,7 +8177,7 @@ snapshots:
       '@codemirror/state': 6.7.5
       '@codemirror/view': 6.43.12
       '@lezer/common': 1.5.2
-      '@mdbase-dev/sdk': file:apps/editor/vendor/sdk-4562e7b9-production-beta200.tgz
+      '@mdbase-dev/sdk': file:apps/editor/vendor/sdk-ea1275ab-production-beta202.tgz
       react-dom: 19.3.0(react@19.3.0)
 
   '@messageformat/date-skeleton@1.1.0': {}
