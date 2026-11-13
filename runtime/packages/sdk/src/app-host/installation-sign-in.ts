@@ -695,6 +695,25 @@ export class AppProtectedInstallationSignIn {
       await this.save({...s,nativeGrants:[...(s.nativeGrants ?? []).filter(c=>c.collection_id!==n.collectionId),verified]}); check();
     });
   }
+  /** Connect's receipt stores a Private pick; its grant is stored only after the
+   * SAME window returned it to the page that prepared the keys. A window closed,
+   * a page reloaded or an exchange that failed in between leaves a pick that
+   * nothing can finish. Forget that pick and its preparation only: the
+   * installation, its collections and its stored grants stay, and the person
+   * picks the collection again in a new window with new keys. A recovery slot
+   * holds nothing but its one collection, so it is never rewritten here.
+   * Resolves true when a pick was forgotten. */
+  abandonNativeSelection(installation: AppInstallationCustodyAuthority): Promise<boolean> {
+    const callback=installation.isCurrent;
+    return this.exclusive(async()=>{
+      this.owned(installation); const s=this.state,n=s.nativeSelection;
+      if(!n || s.nativeGrants?.some(c=>c.authorization_request_id===n.authorizationRequestId && c.collection_id===n.collectionId))return false;
+      if(s.recoveryFor)throw fail("recovery_required");
+      const {nativeSelection:_pick,nativeAuthorization:_preparation,...kept}=s;
+      await this.save(kept); this.owned(installation); if(installation.isCurrent!==callback)throw fail("fenced");
+      return true;
+    });
+  }
   private collectionSelection(v: Record<string, unknown>, approved: readonly string[], requestId: string): AppInstallationCollectionSelection {
     const selectedCollectionId = id(v.selected_collection_id), createdCollectionIds = AppProtectedInstallationSignIn.collectionIds(v.created_collection_ids);
     if (!approved.includes(selectedCollectionId) || createdCollectionIds.some(value => !approved.includes(value))) throw fail("response");

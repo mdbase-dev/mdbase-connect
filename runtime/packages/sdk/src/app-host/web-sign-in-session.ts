@@ -399,11 +399,12 @@ export class AppWebSignInSession<Connection> {
       // gesture (authorize), never by a page load.
       const view = this.flow.view();
       if (view.state === "paired") {
-        if(this.flow.pendingNativeSelection?.() && !view.nativeSelection)throw failure("recovery_required");
         // Restored scoped actors load only their OWN protected metadata here.
         // Their ordinary native receipt/ACK/custody opens when selected; never
         // initialize one native engine per restored recovery reference.
         await this.openDevice(false, this.options.recoveryFor !== undefined);
+        // A Private pick an earlier page stored but could not finish.
+        await this.abandonUnfinishedNativeChoice();
         if (this.flow.collectionConsentView()?.state === "pending") {
           this.consentPending = true; this.publish({status: "authorizing"});
         } else {
@@ -453,8 +454,8 @@ export class AppWebSignInSession<Connection> {
     return this.operation(async () => {
       try {
         if (view.state === "paired") {
-          if(this.flow!.pendingNativeSelection?.() && !view.nativeSelection)throw failure("recovery_required");
           await this.openDevice(); this.check();
+          await this.abandonUnfinishedNativeChoice();
           const consent = await this.flow!.startCollectionConsent(this.installation!, this.options.requestedCreateCollections ?? this.options.freshRequestedCreateCollections ?? false, hint, this.options.freshRequestedPrivateDevice === true); this.check();
           this.consentPending = true; portal.navigate(consent.verificationUri);
         } else {
@@ -579,7 +580,13 @@ export class AppWebSignInSession<Connection> {
       if (consent.state === "scope_updated") {
         if (consent.accountSelectionConfirmed !== true) throw failure("account_confirmation_required");
         const native=this.flow!.pendingNativeSelection?.();
-        if(native?.requestId===consent.requestId)await this.finishNativeChoice(native);
+        if(native?.requestId===consent.requestId){
+          if(!await this.settleNativeChoice(native)){
+            // Still signed in, nothing added: the same end as a closed window.
+            this.consentPending = false; this.closeApprovalWindow();
+            this.publish({status: "unselected", problem: null, approval: Object.freeze({outcome: "closed" as const})}); await this.refreshCollections(); return;
+          }
+        }
         else if (this.flow!.view().collectionSelection?.requestId !== consent.requestId && !this.deviceAccessWithoutPick(consent.requestedPrivateDevice === true ? consent.addedCollectionIds : [])) throw failure("response");
         this.consentPending = false; this.freshApproval = true; this.closeApprovalWindow();
         await this.refreshCollections();
@@ -608,10 +615,13 @@ export class AppWebSignInSession<Connection> {
     }
     if (view.state === "paired") {
       const native=this.flow!.pendingNativeSelection?.();
-      if(native?.requestId===view.requestId)await this.finishNativeChoice(native);
-      else if (view.collectionSelection?.requestId !== view.requestId && !this.deviceAccessWithoutPick(view.privateDeviceCollectionIds ?? [])) throw failure("response");
+      // Signed in either way: a pick that could not be finished adds nothing.
+      const unfinished=native?.requestId===view.requestId && !await this.settleNativeChoice(native);
+      if (native?.requestId!==view.requestId && view.collectionSelection?.requestId !== view.requestId && !this.deviceAccessWithoutPick(view.privateDeviceCollectionIds ?? [])) throw failure("response");
       this.freshApproval = true; this.closeApprovalWindow();
-      await this.openDevice(); this.check(); await this.refreshCollections();
+      await this.openDevice(); this.check();
+      if (unfinished) this.publish({approval: Object.freeze({outcome: "closed" as const})});
+      await this.refreshCollections();
     } else this.publish({status: "authorizing", problem: null});
   }
   /** A receipt with no collection pick is complete only for device access:
@@ -657,6 +667,35 @@ export class AppWebSignInSession<Connection> {
     const completion=await slot.port.finish(selection,AbortSignal.any([this.lifetime.signal,this.flowLifetime.signal,slot.life.signal]));this.check();
     if(this.nativePending!==slot || !this.acknowledged || !this.installation)throw failure("fenced");
     await this.flow!.completeNativeAuthorization(this.installation,completion);this.check();
+  }
+  /** Finish the Private pick, or forget it when it can no longer be finished:
+   * its window closed before the grant returned, its keys went with a reload,
+   * or the grant exchange failed. The grant is consumed once and its keys live
+   * only in the page that prepared them, so a failed finish is never repeated.
+   * Resolves false when the pick was forgotten; the sign-in itself is intact.
+   * A closing session, or a pick that could not be forgotten, still rejects. */
+  private async settleNativeChoice(selection: import("./native-sign-in.js").AppNativeSelection): Promise<boolean> {
+    try { await this.finishNativeChoice(selection); return true; }
+    catch (error) {
+      this.check();
+      let abandoned = false;
+      try { abandoned = this.installation !== null && await this.flow!.abandonNativeSelection?.(this.installation) === true; } catch { abandoned = false; }
+      this.check();
+      if (!abandoned) throw error;
+      try { console.warn("mdbase: a Private collection pick was not finished", webSignInProblem(error).detail.code); }
+      catch { /* Diagnostics must never replace the recovery. */ }
+      return false;
+    }
+  }
+  /** A stored Private pick with no grant, found outside the turn that received
+   * it: nothing here holds its keys. Forget the pick (never the installation)
+   * so the session starts; one that cannot be forgotten stays a refusal. */
+  private async abandonUnfinishedNativeChoice(): Promise<void> {
+    const flow = this.flow!;
+    if (!flow.pendingNativeSelection?.() || flow.view().nativeSelection) return;
+    if (!this.installation || !flow.abandonNativeSelection) throw failure("recovery_required");
+    const abandoned = await flow.abandonNativeSelection(this.installation); this.check();
+    if (!abandoned) throw failure("recovery_required");
   }
   private holdApprovalWindow(portal: AppWebSignInPortal): void {
     if (this.approvalWindow !== portal) this.closeApprovalWindow();

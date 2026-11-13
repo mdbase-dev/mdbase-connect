@@ -375,6 +375,67 @@ describe("original protected Native companion", () => {
     await f.flow.close();const restored=await AppProtectedInstallationSignIn.open({...f.options,mode:"existing"});
     expect(restored.view().nativeGrants).toEqual([completion]);expect(restored.view().collectionIds).toEqual([]);await restored.close();
   });
+  it("forgets a Private pick whose grant never arrived, keeping the installation, and restores afterwards", async () => {
+    const f = await attested(), context = f.flow.nativeAuthorizationContext(f.installation)!;
+    vi.mocked(f.request).mockResolvedValueOnce(Response.json({ request_id: context.requestId, authorization_request_id: authorizationId, account_id: account }));
+    await f.flow.attachNativeAuthorization(f.installation, context, { authorizationId, applicationId: context.appId, manifestDigest: "cc".repeat(32) });
+    f.setApproved(); f.change(v => { if (v.status === "paired") Object.assign(v, { account_email: "owner@example.test", account_selection_confirmed: true, collection_ids: [], create_collections: false, native_selection: { authorization_request_id: authorizationId, collection_id: collection } }); });
+    await f.flow.exchange(); await f.flow.acknowledge(f);
+    // The window closed before the grant returned: a pick with no grant.
+    expect(f.flow.pendingNativeSelection()).not.toBeNull(); expect(f.flow.view().nativeSelection).toBeNull();
+    const before = f.read();
+    await expect(f.flow.abandonNativeSelection({ ...f.installation, isCurrent: () => false })).rejects.toMatchObject({ reason: "fenced" });
+    expect(f.flow.pendingNativeSelection()).not.toBeNull();
+    expect(await f.flow.abandonNativeSelection(f.installation)).toBe(true);
+    expect(f.flow.pendingNativeSelection()).toBeNull(); expect(f.flow.view().state).toBe("paired");
+    const after = f.read();
+    expect(after.nativeSelection).toBeUndefined(); expect(after.nativeAuthorization).toBeUndefined();
+    for (const key of ["token", "installationId", "deviceId", "proof", "selection", "collectionIds", "createCollections"]) expect(after[key]).toEqual(before[key]);
+    expect(await f.flow.abandonNativeSelection(f.installation)).toBe(false);
+    await f.flow.close(); const restored = await AppProtectedInstallationSignIn.open({ ...f.options, mode: "existing" });
+    expect(restored.view().state).toBe("paired"); expect(restored.pendingNativeSelection()).toBeNull(); await restored.close();
+  });
+  it("never forgets a Private pick whose grant is stored", async () => {
+    const f = await attested(), context = f.flow.nativeAuthorizationContext(f.installation)!;
+    vi.mocked(f.request).mockResolvedValueOnce(Response.json({ request_id: context.requestId, authorization_request_id: authorizationId, account_id: account }));
+    await f.flow.attachNativeAuthorization(f.installation, context, { authorizationId, applicationId: context.appId, manifestDigest: "cc".repeat(32) });
+    f.setApproved(); f.change(v => { if (v.status === "paired") Object.assign(v, { account_email: "owner@example.test", account_selection_confirmed: true, collection_ids: [], create_collections: false, native_selection: { authorization_request_id: authorizationId, collection_id: collection } }); });
+    await f.flow.exchange(); await f.flow.acknowledge(f);
+    const b64=(bytes:Uint8Array)=>btoa(String.fromCharCode(...bytes)).replaceAll("+","-").replaceAll("/","_").replace(/=+$/u,"");
+    const completion={version:1 as const,account_id:account,authorization_request_id:authorizationId,application_id:context.appId,application_declaration_id:"dev.example.web",application_manifest_digest:"cc".repeat(32),application_installation_id:connector,application_origin:origin,collection_id:collection,grant_id:authorizationId,grant_signing_public_key:b64(Uint8Array.from({length:65},(_,i)=>i===0?4:1)),client_noise_public_key:b64(new Uint8Array(32).fill(9))};
+    await f.flow.completeNativeAuthorization(f.installation, completion);
+    expect(await f.flow.abandonNativeSelection(f.installation)).toBe(false);
+    expect(f.flow.view().nativeSelection).toMatchObject({ collectionId: collection }); expect(f.flow.view().nativeGrants).toEqual([completion]);
+    await f.flow.close();
+  });
+  it("forgets an unfinished additive Private pick without touching the collections already approved", async () => {
+    const f=await fixture();await confirmed(f);await f.flow.attest(f);f.setApproved();
+    f.change(v=>{if(v.status==="paired")Object.assign(v,{collection_ids:[collection],create_collections:false,selected_collection_id:collection,created_collection_ids:[]});});
+    await f.flow.exchange();await f.flow.acknowledge(f);const before=f.read();
+    consentStart(f);await f.flow.startCollectionConsent(f.installation);
+    consentExchange(f,v=>Object.assign(v,{account_email:"owner@example.test",account_selection_confirmed:true}),true);
+    await f.flow.exchangeCollectionConsent(f.installation);const context=f.flow.nativeAuthorizationContext(f.installation)!;
+    vi.mocked(f.request).mockResolvedValueOnce(Response.json({request_id:context.requestId,authorization_request_id:authorizationId,account_id:account}));
+    await f.flow.attachNativeAuthorization(f.installation,context,{authorizationId,applicationId:context.appId,manifestDigest:"cc".repeat(32)});
+    consentExchange(f,v=>Object.assign(v,{account_email:"owner@example.test",account_selection_confirmed:true,added_collection_ids:[],approved_create_collections:false,native_selection:{authorization_request_id:authorizationId,collection_id:connector}}));
+    await f.flow.exchangeCollectionConsent(f.installation);
+    expect(await f.flow.abandonNativeSelection(f.installation)).toBe(true);
+    for(const key of ["token","installationId","deviceId","proof","collectionIds","createCollections"])expect(f.read()[key]).toEqual(before[key]);
+    expect(f.flow.pendingNativeSelection()).toBeNull();expect(f.flow.collectionConsentView()?.state).toBe("scope_updated");
+    await f.flow.close();const restored=await AppProtectedInstallationSignIn.open({...f.options,mode:"existing"});
+    expect(restored.view().collectionIds).toEqual([collection]);await restored.close();
+  });
+  it("leaves a recovery slot's unfinished Private pick as a refusal: the slot holds nothing else",async()=>{
+    const f=await fixture(false,{owner:"bundle:notes:scope:native-original",recoveryFor:{accountId:account,collectionId:collection}});
+    f.change(v=>{if(v.status==="account_selected"||v.status==="awaiting_approval")Object.assign(v,{account_email:"owner@example.test",account_selection_confirmed:true});});
+    await confirmed(f);await f.flow.attest(f);const context=f.flow.nativeAuthorizationContext(f.installation)!;
+    vi.mocked(f.request).mockResolvedValueOnce(Response.json({request_id:context.requestId,authorization_request_id:authorizationId,account_id:account}));
+    await f.flow.attachNativeAuthorization(f.installation,context,{authorizationId,applicationId:context.appId,manifestDigest:"cc".repeat(32)});
+    f.setApproved();f.change(v=>{if(v.status==="paired")Object.assign(v,{account_email:"owner@example.test",account_selection_confirmed:true,collection_ids:[],create_collections:false,native_selection:{authorization_request_id:authorizationId,collection_id:collection}});});
+    await f.flow.exchange();
+    await expect(f.flow.abandonNativeSelection(f.installation)).rejects.toMatchObject({reason:"recovery_required"});
+    expect(f.flow.pendingNativeSelection()?.collectionId).toBe(collection);await f.flow.close();
+  });
   it("scoped Native recovery accepts ONLY its exact explicit target with zero Hosted scope",async()=>{
     const f=await fixture(false,{owner:"bundle:notes:scope:native-original",recoveryFor:{accountId:account,collectionId:collection}});
     f.change(v=>{if(v.status==="account_selected"||v.status==="awaiting_approval")Object.assign(v,{account_email:"owner@example.test",account_selection_confirmed:true});});
