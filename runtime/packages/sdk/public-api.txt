@@ -2914,6 +2914,7 @@ AppPrivateEnrolOperationMarker@app-host/wasm-runtime.ts
   readonly signPublicKey: Uint8Array<ArrayBufferLike>
 
 AppProtectedInstallationSignIn@app-host/installation-sign-in.ts
+  abandonNativeSelection: (installation: AppInstallationCustodyAuthority) => Promise<boolean>
   acknowledge: (options: { runtime: AppWasmRuntime; custody: AppNoiseCustodyResult; persistence: AppDeviceCustodyPersistence; installation: AppInstallationCustodyAuthority; }) => Promise<AppDeviceRegistrationReceipt>
   attachNativeAuthorization: (installation: AppInstallationCustodyAuthority, context: AppNativeAuthorizationContext, prepared: AppNativePreparation) => Promise<void>
   attest: (options: { runtime: AppWasmRuntime; custody: AppNoiseCustodyResult; persistence: AppDeviceCustodyPersistence; installation: AppInstallationCustodyAuthority; }) => Promise<AppInstallationSignInView>

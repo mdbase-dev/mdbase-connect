@@ -26,7 +26,7 @@ Additive Private approval preserves held Hosted actors and scopes; it adds no Ho
 
 ## Failure and qualification
 
-Unknown approval/code/write effects are not replayed or reconstructed. Lost preparation or original custody fails closed. Native requirement guards are not upgraded from unsigned catalog metadata or legacy declarations.
+Unknown approval/code/write effects are not replayed or reconstructed. Lost preparation or original custody fails closed for that pick only: a committed Native selection whose grant never reached the installation ledger (its window closed before the callback, the page reloaded, or the code exchange failed) is forgotten together with its preparation, and nothing is added. The installation, its Hosted scopes and its stored Native grants are untouched and it starts normally; the person picks the collection again in a new window with new keys. A recovery slot, which holds only its one collection, is not rewritten and stays `recovery_required`. Native requirement guards are not upgraded from unsigned catalog metadata or legacy declarations.
 
 Apps must ship the new SDK before migration. An old loaded Hosted-only SDK cannot acquire this protocol from a control-plane deploy. Record that old context as blocked; load the new app before a separately recorded proof, retaining the same profile/account/Native/bytes. Thereafter prove Sign in, Private selection and approval, FIRSTREADY without reload, reads, confirmed/published edit and one reload.
 

@@ -9,7 +9,7 @@ import { AppWebSignInSession, type AppWebSignInPortal } from "../src/app-host/we
 import { AppProtectedInstallationSignIn, AppInstallationSignInError, type AppInstallationSignInView } from "../src/app-host/installation-sign-in.js";
 import { AppCollectionSetupError } from "../src/app-host/collection-setup-journal.js";
 import { AppCloudCopyHostError } from "../src/app-host/cloud-copy-host.js";
-import { MdbaseError } from "../src/errors.js";
+import { MdbaseError, mdbaseError } from "../src/errors.js";
 import { AppWebCloudCopyHost } from "../src/app-host/cloud-copy-host.js";
 import * as ownership from "../src/app-host/owner.js";
 import * as erasure from "../src/app-host/sign-out-erase.js";
@@ -175,6 +175,69 @@ describe("unified Native choice lifecycle", () => {
     expect(f.closePortal).not.toHaveBeenCalled();expect(f.openCollection).not.toHaveBeenCalled();
     finishReply({} as never);await vi.waitFor(()=>expect(complete).toHaveBeenCalledOnce());
     expect(complete).toHaveBeenCalledOnce();expect(f.closePortal).toHaveBeenCalledOnce();expect(f.openPortal).toHaveBeenCalledOnce();
+    await f.session.close();
+  });
+  /** A Private pick the flow stored; `abandon` forgets it as the real ledger does. */
+  function nativePick(f: ReturnType<typeof fixture>, requestId: string) {
+    const authorizationId="77777777-7777-4777-8777-777777777777";
+    const state={choice:null as {requestId:string;authorizationRequestId:string;collectionId:string}|null,verified:false};
+    const abandon=vi.fn(async()=>{if(!state.choice||state.verified)return false;state.choice=null;return true;});
+    const attach=vi.fn(async()=>{}), complete=vi.fn(async()=>{state.verified=true;});
+    Object.assign(f.flow,{nativeAuthorizationContext:()=>({requestId,appId:"independent-app",accountId:account,challenge:"ab".repeat(32)}),attachNativeAuthorization:attach,pendingNativeSelection:()=>state.choice,completeNativeAuthorization:complete,abandonNativeSelection:abandon});
+    const prepare=vi.fn(async()=>({authorizationId,applicationId:"independent-app",manifestDigest:"cc".repeat(32)}));
+    const finish=vi.fn(async():Promise<never>=>{throw mdbaseError("cancelled","the authorization window was closed","authorization_cancelled");});
+    const cancel=vi.fn();f.openPortal.mockReturnValue({navigate:f.navigatePortal,close:f.closePortal,nativeAuthorization:{prepare,finish,cancel}} as AppWebSignInPortal);
+    return {state,abandon,attach,complete,prepare,finish,cancel,pick:()=>{state.choice={requestId,authorizationRequestId:authorizationId,collectionId};}};
+  }
+  it("a first sign-in whose Private pick lost its window stays signed in with nothing added, and starts again", async () => {
+    const f=fixture("pending","never"), n=nativePick(f,f.flow.view().requestId);
+    const originalView=f.flow.view;
+    f.flow.view=()=>({...originalView(),collectionSelection:null,collectionIds:[],nativeSelection:n.state.verified?n.state.choice:null});
+    const originalExchange=f.flow.exchange.getMockImplementation()!;
+    f.flow.exchange.mockImplementation(async()=>{await originalExchange();return f.flow.view();});
+    f.flow.listApprovedCollections.mockResolvedValue([]);
+    await f.session.start();f.selectOnPortal();await f.session.authorize();
+    await Promise.resolve(); await approvalTick(f.session);
+    expect(n.attach).toHaveBeenCalledOnce();
+    n.pick();f.approve();await approvalTick(f.session);
+    expect(n.finish).toHaveBeenCalledOnce();expect(n.abandon).toHaveBeenCalledOnce();expect(n.complete).not.toHaveBeenCalled();
+    expect(f.session.getSnapshot()).toMatchObject({status:"unselected",problem:null,approval:{outcome:"closed"},signIn:{state:"paired"}});
+    expect(f.closePortal).toHaveBeenCalledOnce();expect(n.cancel).toHaveBeenCalledOnce();
+    await f.session.close();
+    // The next page load of the same installation is an ordinary signed-in start.
+    const next=new AppWebSignInSession(f.options);await next.start();
+    expect(next.getSnapshot()).toMatchObject({status:"unselected",problem:null});await next.close();
+  });
+  it("an added Private pick whose window closed returns to the collections, still signed in", async () => {
+    const f=fixture("paired","never"), n=nativePick(f,"66666666-6666-4666-8666-666666666666");
+    await f.session.start();await f.session.authorize();
+    await approvalTick(f.session);await Promise.resolve();await approvalTick(f.session);
+    expect(n.attach).toHaveBeenCalledOnce();
+    const consent=f.flow.collectionConsentView.getMockImplementation()!;
+    n.pick();f.approveConsent();f.flow.collectionConsentView.mockImplementation(()=>{const v=consent();return v?{...v,addedCollectionIds:[]}:v;});
+    await approvalTick(f.session);
+    expect(n.finish).toHaveBeenCalledOnce();expect(n.abandon).toHaveBeenCalledOnce();
+    expect(f.session.getSnapshot()).toMatchObject({status:"unselected",problem:null,approval:{outcome:"closed"},signIn:{state:"paired"}});
+    expect(f.session.getSnapshot().collections.map(c=>c.collectionId)).toEqual([collectionId]);
+    // The same session can ask again: a new window, not a refusal.
+    await f.session.authorize();expect(f.flow.startCollectionConsent).toHaveBeenCalledTimes(2);expect(f.openPortal).toHaveBeenCalledTimes(2);
+    expect(f.session.getSnapshot()).toMatchObject({problem:null,signIn:{state:"paired"}});
+    await f.session.close();
+  });
+  it("starts past a Private pick an earlier page stored without its grant, instead of blocking every reload", async () => {
+    const f=fixture("paired","never"), n=nativePick(f,f.flow.view().requestId);
+    n.pick();
+    await f.session.start();
+    expect(n.abandon).toHaveBeenCalledOnce();expect(n.finish).not.toHaveBeenCalled();
+    expect(f.session.getSnapshot()).toMatchObject({status:"unselected",problem:null,signIn:{state:"paired"}});
+    await f.session.select(collectionId);expect(f.session.getSnapshot().status).toBe("ready");
+    await f.session.close();
+  });
+  it("keeps the refusal when the unfinished Private pick cannot be forgotten", async () => {
+    const f=fixture("paired","never"), n=nativePick(f,f.flow.view().requestId);
+    n.pick();n.abandon.mockRejectedValue(new AppInstallationSignInError("recovery_required"));
+    await expect(f.session.start()).rejects.toMatchObject({reason:"recovery_required"});
+    expect(f.session.getSnapshot()).toMatchObject({status:"blocked",problem:"recovery_required"});
     await f.session.close();
   });
   it("genuine Hosted approval survives optional Native preparation failure, without Private fallback", async()=>{
