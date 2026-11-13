@@ -124,7 +124,11 @@ it('derives the staging frozen install without changing any other dependency',as
   const pkg=JSON.parse(await readFile(join(f.app,'package.json'),'utf8'));
   assert.equal(pkg.dependencies['@mdbase-dev/sdk'],'file:vendor/sdk-staging.tgz');
   const lock=await readFile(join(f.root,'pnpm-lock.yaml'),'utf8');
-  assert.ok(lock.includes('sha512-staging'));assert.ok(!lock.includes(plan.sdkTrust.production.sri));
+  assert.ok(lock.includes('sha512-staging'));
+  const parsed=parse(lock),vendored=parsed.packages['@mdbase-dev/sdk-staging@file:apps/editor/vendor/sdk-staging.tgz'];
+  assert.equal(vendored.resolution.integrity,'sha512-staging');
+  for(const [key,entry] of Object.entries(parsed.packages))if(key!=='@mdbase-dev/sdk-staging@file:apps/editor/vendor/sdk-staging.tgz')
+   assert.notEqual(entry.resolution.integrity,'sha512-staging',key);
   const stagingPath='file:apps/editor/vendor/sdk-staging.tgz',alias='@mdbase-dev/sdk-staging@'+stagingPath;
   assert.equal(parse(lock).importers['apps/editor'].dependencies['@mdbase-dev/sdk'].version,alias);
   const restored=lock.replaceAll("version: '"+alias+"'",'version: '+stagingPath)
@@ -136,6 +140,40 @@ it('derives the staging frozen install without changing any other dependency',as
   pkg.dependencies['@mdbase-dev/sdk']=originalPackage.dependencies['@mdbase-dev/sdk'];
   assert.deepEqual(pkg,originalPackage);
  }finally{await rm(f.root,{recursive:true,force:true});}
+});
+it('rewrites only the vendored SDK entry when a registry SDK shares its integrity',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'editor-shared-sri-'));
+ try {
+  const productionSri='sha512-shared',file='file:apps/editor/vendor/sdk-production.tgz';
+  await mkdir(join(root,'apps/editor/vendor'),{recursive:true});
+  await writeFile(join(root,'apps/editor/package.json'),JSON.stringify({dependencies:{'@mdbase-dev/sdk':'file:vendor/sdk-production.tgz'}}));
+  const lock=["lockfileVersion: '9.0'",'','importers:','','  apps/editor:','    dependencies:',"      '@mdbase-dev/sdk':",
+   '        specifier: file:vendor/sdk-production.tgz','        version: '+file,'','  packages/app-ui:','    dependencies:',
+   "      '@mdbase-dev/sdk':",'        specifier: 0.1.0-beta.188','        version: 0.1.0-beta.188','','packages:','',
+   "  '@mdbase-dev/sdk@0.1.0-beta.188':",`    resolution: {integrity: ${productionSri}}`,'',
+   `  '@mdbase-dev/sdk@${file}':`,`    resolution: {integrity: ${productionSri}, tarball: ${file}}`,'    version: 0.1.0-beta.188','',
+   'snapshots:','',"  '@mdbase-dev/sdk@0.1.0-beta.188': {}",'',`  '@mdbase-dev/sdk@${file}': {}`,''].join('\n');
+  await writeFile(join(root,'pnpm-lock.yaml'),lock);
+  const bytes=Buffer.from('authenticated staging archive');
+  const plan={target:'staging',sdkTrust:{lockSha256:sha(lock),production:{path:'apps/editor/vendor/sdk-production.tgz',sri:productionSri},
+   archives:{sdk:{path:'https://example.invalid/sdk-staging.tgz',sha256:sha(bytes),sri:'sha512-staging'}}}};
+  await prepareInstall(plan,root,async()=>new Response(bytes));
+  const staged=parse(await readFile(join(root,'pnpm-lock.yaml'),'utf8'));
+  const alias='@mdbase-dev/sdk-staging@file:apps/editor/vendor/sdk-staging.tgz';
+  assert.deepEqual(staged.packages,{
+   '@mdbase-dev/sdk@0.1.0-beta.188':{resolution:{integrity:productionSri}},
+   [alias]:{resolution:{integrity:'sha512-staging',tarball:'file:apps/editor/vendor/sdk-staging.tgz'},version:'0.1.0-beta.188'}});
+  assert.equal(staged.importers['packages/app-ui'].dependencies['@mdbase-dev/sdk'].version,'0.1.0-beta.188');
+  assert.equal(staged.importers['apps/editor'].dependencies['@mdbase-dev/sdk'].version,alias);
+  for(const broken of [lock.replace(`integrity: ${productionSri}, tarball`,'integrity: sha512-other, tarball'),
+   lock+`\n  '@mdbase-dev/sdk@${file}':\n    resolution: {integrity: ${productionSri}, tarball: ${file}}\n`]) {
+   await writeFile(join(root,'pnpm-lock.yaml'),broken);
+   await writeFile(join(root,'apps/editor/package.json'),JSON.stringify({dependencies:{'@mdbase-dev/sdk':'file:vendor/sdk-production.tgz'}}));
+   await assert.rejects(prepareInstall({...plan,sdkTrust:{...plan.sdkTrust,lockSha256:sha(broken)}},root,async()=>new Response(bytes)),
+    /Vendored SDK lock entry not found exactly once/);
+   assert.equal(await readFile(join(root,'pnpm-lock.yaml'),'utf8'),broken);
+  }
+ }finally{await rm(root,{recursive:true,force:true});}
 });
 it('uses authenticated assets for staging installation and installed-byte comparison',async context=>{
  const fixture=await originalsFixture(),previous=process.env.GITHUB_TOKEN;
