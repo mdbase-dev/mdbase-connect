@@ -143,6 +143,10 @@ export function inputChanged(path, item, kind, from, to, runGit = git) {
 // reserves an immutable annotated tag v<version> at the selected production
 // commit and dispatches this workflow on it. The tag is the run's ref and commit,
 // so standard provenance and every consumer's refs/tags/v<version> rule hold.
+// A reservation names a version for a production commit, not a line: both lines
+// allocate from one namespace, so whichever coordinator reserves first creates
+// the tag and the other publishes from it. Each line's packages, provenance
+// identity (its own workflow file) and GitHub release (`sdk-v*`) stay disjoint.
 const reservationSchema = "mdbase-npm-release/1";
 const releaseTag = /^v0\.1\.0-beta\.([1-9][0-9]*)$/;
 const betaNumber = version => BigInt(/^0\.1\.0-beta\.([1-9][0-9]*)$/.exec(version)?.[1] ?? 0);
@@ -158,8 +162,8 @@ export function publicationTag(env) {
   return tag;
 }
 
-// The remote, protected tag is authoritative: annotated, at this commit, for this line.
-export function readReservation(tag, kind, commit, readApi = api) {
+// The remote, protected tag is authoritative: annotated and at this exact commit.
+export function readReservation(tag, commit, readApi = api) {
   assert.match(tag, releaseTag);
   const reference = readApi(`git/ref/tags/${tag}`);
   assert.equal(reference.object?.type, "tag", "Publication tags must be annotated reservations.");
@@ -168,21 +172,21 @@ export function readReservation(tag, kind, commit, readApi = api) {
   assert.equal(object.object.sha, commit, "The publication tag must identify this exact commit.");
   const record = JSON.parse(object.message);
   assert.equal(record.schema, reservationSchema);
-  assert.equal(record.kind, kind);
+  assert(["source", "workspace"].includes(record.kind));
   assert.equal(record.commit, commit);
   return record;
 }
 
 // Every release tag (Desktop's, retired server trains' and these reservations)
 // shares the v0.1.0-beta.N namespace, so allocation stays above all of them.
-export function listReservations(kind, commit, runGit = git) {
+export function listReservations(commit, kinds, runGit = git) {
   runGit("fetch", "--no-tags", "origin", "refs/tags/v*:refs/tags/v*");
   const tags = runGit("for-each-ref", "--format=%(refname:short)%00%(objecttype)%00%(contents:subject)%00%(*objectname)", "refs/tags/v*")
     .split("\n").filter(Boolean).map(line => line.split("\0")).filter(([tag]) => releaseTag.test(tag));
   const reserved = tags.flatMap(([tag, type, subject, peeled]) => {
     if (type !== "tag" || !subject.startsWith(`{"schema":"${reservationSchema}"`)) return [];
     const record = JSON.parse(subject);
-    return record.kind === kind && record.commit === commit && peeled === commit ? [tag] : [];
+    return kinds.includes(record.kind) && record.commit === commit && peeled === commit ? [tag] : [];
   });
   return { versions: tags.map(([tag]) => tag.slice(1)),
     reserved: reserved.sort((left, right) => above(left.slice(1), right.slice(1)) ? -1 : 1) };
@@ -194,6 +198,14 @@ export function listReservations(kind, commit, runGit = git) {
 export function tagPublisher(kind, commit, runGit = git) {
   return runGit("show", `${commit}:.github/workflows/${publisherFile(kind)}`)
     .includes("github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v0.1.0-beta.')");
+}
+
+// A tag run executes the planner committed at its tag, which before shared
+// reservations required a tag of its own line. Transition guard: until
+// production contains shared reservations, never publish from the other line's
+// tag. Remove once production contains them.
+export function sharesReservations(commit, runGit = git) {
+  return runGit("show", `${commit}:scripts/continuous-sdk-release.mjs`).includes("export function readReservation(tag, commit, ");
 }
 
 // One read: the coordinator reserves only commits whose exact Runtime CI passed.
@@ -252,6 +264,7 @@ function checkPriorAttempts(kind, env) {
 export async function plan(kind, output, env = process.env, {
   selectProduction = checkoutProductionCommit, qualify = requireGreenMain, readPublished = published,
   reservation = readReservation, reservations = listReservations, runtimeCi = runtimeQualified, publisherAt = tagPublisher,
+  sharedAt = sharesReservations,
   checkAttempts = checkPriorAttempts, verify = verifyCompatibility
 } = {}) {
   assert(["source", "workspace"].includes(kind));
@@ -263,7 +276,7 @@ export async function plan(kind, output, env = process.env, {
   const live = env.LIVE_PUBLICATION === "true";
   let commit = run;
   if (tag) {
-    reservation(tag, kind, commit);
+    reservation(tag, commit);
     // Exact Server CI qualification; its step output names the artifacts packed.
     qualify(commit, env);
   } else {
@@ -303,9 +316,10 @@ export async function plan(kind, output, env = process.env, {
   const lineVersions = inventory.flatMap(item => [...item.baseline.versions, item.manifest.version]);
   let reserving;
   if (!tag && chosen.length) {
-    const { versions, reserved } = reservations(kind, commit);
+    const shared = sharedAt(commit);
+    const { versions, reserved } = reservations(commit, shared ? ["source", "workspace"] : [kind]);
     const reuse = reserved.find(item => !lineVersions.some(version => above(version, item.slice(1))));
-    reserving = reuse ? { tag: reuse, existing: true } : { tag: `v${nextBetaVersion([...lineVersions, ...versions])}`, existing: false };
+    reserving = { ...(reuse ? { tag: reuse, existing: true } : { tag: `v${nextBetaVersion([...lineVersions, ...versions])}`, existing: false }), shared };
   }
   const version = (tag ?? reserving?.tag)?.slice(1);
   const superseded = tag && chosen.find(item => item.baseline.versions.some(value => above(value, version)));
@@ -341,8 +355,11 @@ export async function plan(kind, output, env = process.env, {
 }
 
 // The coordinator's only mutations: create the reserved annotated tag (protected
-// against update and deletion) and dispatch this workflow on it. A reserved tag
-// whose run is in flight is left alone; one whose run ended unpublished is
+// against update and deletion) and dispatch this workflow on it. Creating the ref
+// is the reservation's compare-and-set: when the other line's coordinator planned
+// concurrently and created the same tag first, a tag at this exact commit is this
+// reservation too; a tag anywhere else refuses. A reserved tag whose run of this
+// workflow is in flight is left alone; one whose run ended unpublished is
 // redispatched, unless that run succeeded, which needs review.
 export function reserve(planFile, env = process.env, { readApi = api, writeApi = postApi,
   dispatch = (workflow, tag) => gh("workflow", "run", workflow, "--repo", repository, "--ref", tag, "-f", "dry_run=false") } = {}) {
@@ -354,25 +371,37 @@ export function reserve(planFile, env = process.env, { readApi = api, writeApi =
   assert(["source", "workspace"].includes(record.kind));
   assert.match(record.commit, /^[a-f0-9]{40}$/);
   assert(record.packages.length > 0);
-  const { tag, existing } = record.reservation;
+  const { tag } = record.reservation;
+  let { existing } = record.reservation;
   assert.match(tag, releaseTag);
   assert(record.packages.every(item => `v${item.version}` === tag));
   const workflow = publisherFile(record.kind);
   assert.equal(readApi(`actions/workflows/${workflow}`).state, "active", "Client publication workflow has been stopped.");
+  if (!existing) {
+    const object = writeApi("git/tags", { tag, object: record.commit, type: "commit",
+      message: JSON.stringify({ schema: reservationSchema, kind: record.kind, commit: record.commit,
+        reserved_at: new Date().toISOString(), run_id: env.GITHUB_RUN_ID }) });
+    try {
+      writeApi("git/refs", { ref: `refs/tags/${tag}`, sha: object.sha });
+    } catch (error) {
+      let found;
+      try { found = readReservation(tag, record.commit, readApi); }
+      catch (mismatch) { throw new Error(`${tag} was not created and is not a reservation of ${record.commit}: ${mismatch.message}`, { cause: error }); }
+      if (found.kind !== record.kind && record.reservation.shared !== true) {
+        throw new Error(`${tag} is the ${found.kind} line's reservation and ${record.commit} predates shared reservations.`, { cause: error });
+      }
+      existing = true;
+    }
+  }
   if (existing) {
-    readReservation(tag, record.kind, record.commit, readApi);
+    readReservation(tag, record.commit, readApi);
     const runs = readApi(`actions/workflows/${workflow}/runs?branch=${tag}&event=workflow_dispatch&per_page=100`).workflow_runs
       .filter(run => run.head_branch === tag && run.path === `.github/workflows/${workflow}`);
     if (runs.some(run => run.status !== "completed")) return reported(env, `${tag}: publication in progress; nothing dispatched.`);
     if (runs.some(run => run.conclusion === "success")) throw new Error("publication-reservation-unconsumed");
-  } else {
-    const object = writeApi("git/tags", { tag, object: record.commit, type: "commit",
-      message: JSON.stringify({ schema: reservationSchema, kind: record.kind, commit: record.commit,
-        reserved_at: new Date().toISOString(), run_id: env.GITHUB_RUN_ID }) });
-    writeApi("git/refs", { ref: `refs/tags/${tag}`, sha: object.sha });
   }
   dispatch(workflow, tag);
-  return reported(env, `${tag}: ${existing ? "redispatched" : "reserved and dispatched"} ${workflow} at ${record.commit}.`);
+  return reported(env, `${tag}: ${!existing ? "reserved and dispatched" : record.reservation.existing ? "redispatched" : "joined the existing reservation and dispatched"} ${workflow} at ${record.commit}.`);
 }
 
 function reported(env, line) {

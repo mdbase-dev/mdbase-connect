@@ -61,7 +61,21 @@ created.
 
 The tag message is a one-line JSON record
 `{"schema":"mdbase-npm-release/1","kind":"workspace"|"source","commit":...,"reserved_at":...,"run_id":...}`.
-A tag run requires an annotated tag of its own line at its own commit. The
+`kind` records which line's coordinator created the tag. A reservation names a
+version for a production commit, not for a line: a tag run requires an annotated
+reservation at its own commit, made by either line. Both coordinators allocate
+from the same namespace, so after a promotion both usually choose the same
+`v0.1.0-beta.N` for the same commit. Whichever creates the ref first makes the
+reservation. The other coordinator finds that tag among the commit's
+reservations, or loses the ref creation to it, and dispatches its own publisher
+on the same tag. A tag at any other commit, or one that is not an annotated
+reservation, still refuses. A tag run executes the planner committed at its tag,
+so until production contains shared reservations, a coordinator uses only its
+own line's tags (transition guard; remove once production contains them).
+Sharing is safe because the lines publish disjoint
+packages, each line's npm provenance names its own workflow file at
+`refs/tags/v<version>`, the SDK's GitHub prerelease uses its own `sdk-v<version>`
+tag, and run history and "already published" checks are per workflow. The
 `Protect release tags` ruleset forbids updating or deleting `v*` tags.
 
 For workspace packages, exact full Server CI qualification supplies the already
@@ -171,8 +185,9 @@ An attempted publisher in a failed/cancelled prior main or tag run latches its
 line; a tag run still in flight is not an outcome yet. Tag runs share one
 non-cancelling concurrency group per workflow and so publish in reservation
 order. Coordinators use a separate group and never displace a pending tag run.
-A coordinator that finds its production commit already reserved reuses that tag:
-it dispatches nothing while the tag's run is in flight, redispatches it if the
+A coordinator that finds its production commit already reserved, by either
+line, reuses that tag: it dispatches nothing while its own workflow's run on the
+tag is in flight, redispatches it if the
 run ended without publishing, and fails with `publication-reservation-unconsumed`
 if that run succeeded yet the change is still unpublished. Existing Actions run/job history is the attempt journal; there is no new
 release database. Authorization failures and timeouts are not absence proof. An
