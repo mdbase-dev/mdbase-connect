@@ -83,7 +83,11 @@ updated; CI must not auto-bless its output. When updating pins, match the
 workflow's Rust path remapping as well as its pinned tools and optimizer flags:
 map the compiler host's checkout root to `/source` and Cargo home to `/cargo`.
 Source paths can survive WASM stripping, so builds without these mappings do not
-produce publication-compatible bytes. Verify the corrected pins with the actual
+produce publication-compatible bytes. A toolchain with the `rust-src`
+component embeds its own source path for the standard library where the
+workflow's minimal toolchain keeps `/rustc/<commit>`: map
+`~/.rustup/toolchains/<toolchain>/lib/rustlib/src/rust` to the `/rustc/<commit>`
+of `rustc -vV` as well, and check that the built WASM contains no `/home/` path. Verify the corrected pins with the actual
 `scripts/sdk-publication.mjs pack-all` cold-consumer and archive checks.
 After committing runtime changes and rebuilding `cargo xtask wasm-app` with
 those mappings, run `node scripts/sdk-publication.mjs pin-runtime` to regenerate
