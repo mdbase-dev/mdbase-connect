@@ -48,7 +48,7 @@
     "@mdbase-dev/connect": "workspace:*",
     "@mdbase-dev/connect-protocol": "file:vendor/mdbase-dev-connect-protocol-0.1.0-beta.145-e6e66bcd172f.tgz",
     "@mdbase-dev/i18n": "workspace:*",
-    "@mdbase-dev/sdk": "file:vendor/sdk-9e973241-production-beta197.tgz",
+    "@mdbase-dev/sdk": "file:vendor/sdk-051245a2-production-beta198.tgz",
     "@mdbase-dev/ui": "0.1.0-beta.167",
     "@mdbase/connect-ui": "workspace:*",
     "@phosphor-icons/react": "^2.1.10",
