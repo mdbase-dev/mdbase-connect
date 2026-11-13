@@ -30,6 +30,7 @@ import {
 import { requireSameOrigin } from "../../platform/request-security.js";
 import { clearSessionCookies } from "../../platform/session-cookies.js";
 import { readAccountBackend, registerAccountBackendRoute } from "./backend-routes.js";
+import { listAccountComputers } from "./computers.js";
 
 interface AccountManagementRoutesOptions {
   db: DatabasePool;
@@ -85,6 +86,7 @@ export function registerAccountManagementRoutes(
       passwordEmail,
       hostedCollections,
       counts,
+      computers,
       settings,
       emailPreferences
     ] =
@@ -112,12 +114,10 @@ export function registerAccountManagementRoutes(
           [user.id]
         ),
         options.db.query<{
-          connectors: string | number;
           local_collections: string | number;
           owned_collections: string | number;
         }>(
           `SELECT
-             (SELECT count(*) FROM connectors WHERE user_id = $1 AND revoked_at IS NULL) AS connectors,
              (SELECT count(*) FROM collections WHERE user_id = $1 AND present = true) AS local_collections,
              (SELECT count(*) FROM (
                SELECT id FROM hosted_collections WHERE user_id = $1
@@ -126,6 +126,7 @@ export function registerAccountManagementRoutes(
              ) owned) AS owned_collections`,
           [user.id]
         ),
+        listAccountComputers(options.db, user.id),
         options.authenticationPolicy.current(),
         readEmailPreferences(options.db, user.id)
       ]);
@@ -188,7 +189,7 @@ export function registerAccountManagementRoutes(
         owned_collections: Number(counts.rows[0]!.owned_collections),
         hosted_collections: hostedCollections.rows.length,
         local_collections: Number(counts.rows[0]?.local_collections ?? 0),
-        computers: Number(counts.rows[0]?.connectors ?? 0),
+        computers: computers.length,
         development_confirmation: options.developmentAuth === true
       }
     };
