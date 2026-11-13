@@ -24,8 +24,14 @@ export async function prepareInstall(plan,root=process.cwd(),fetchImpl=fetch) {
  const alias='@mdbase-dev/sdk-staging@'+stagingPath;
  // pnpm's file alias must name the actual archive package, including UI peers.
  // Keep the application import name @mdbase-dev/sdk, not the production identity.
- const staged=lock.replaceAll(basename(plan.sdkTrust.production.path),'sdk-staging.tgz')
-  .replaceAll(plan.sdkTrust.production.sri,archive.sri)
+ // Other workspace packages may resolve the byte-identical registry SDK with the same
+ // integrity, so change only the vendored entry's own resolution, never the SRI globally.
+ const productionFile='file:apps/editor/vendor/'+basename(plan.sdkTrust.production.path);
+ const resolution=(sri,file)=>`\n  '@mdbase-dev/sdk@${file}':\n    resolution: {integrity: ${sri}, tarball: ${file}}\n`;
+ const vendored=resolution(plan.sdkTrust.production.sri,productionFile);
+ if(lock.split(vendored).length!==2)throw Error('Vendored SDK lock entry not found exactly once');
+ const staged=lock.replace(vendored,()=>resolution(archive.sri,productionFile))
+  .replaceAll(basename(plan.sdkTrust.production.path),'sdk-staging.tgz')
   .replaceAll('@mdbase-dev/sdk@'+stagingPath,alias)
   .replaceAll('version: '+stagingPath,"version: '"+alias+"'")
   .replaceAll("'@mdbase-dev/sdk': "+stagingPath,"'@mdbase-dev/sdk': '"+alias+"'");
