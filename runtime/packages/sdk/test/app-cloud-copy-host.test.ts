@@ -974,7 +974,7 @@ describe("owned cloud-copy outcome composition (IDB/native/CP stand-ins, actual 
         let keyed = false;
         c.f.runtime.observations.mockImplementation(() => ({...observation, status: {...observation.status, mode: "synced",
             confirmedThrough: keyed ? 10 : 2, headKnown: 10,
-            incidents: keyed ? [] : [{kind: "waiting_for_key", details: new Map<string, CborValue>([["position", 3], ["reason", reason]])}]}}));
+            incidents: keyed ? [] : [{kind: "waiting_for_key", details: {position: 3, reason}}]}}));
         c.pump.pump.mockImplementation(async () => ({quiet: true}));
         vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"]});
         let outcome = "opening";
