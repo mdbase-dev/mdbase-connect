@@ -35,14 +35,17 @@ fn source(n: usize, description_bytes: usize) -> String {
     format!("---\ntitle: Source {n}\ndescription: {description}\n---\nBody {n}\n")
 }
 
-/// `reader-source` records (description bytes per record) confirmed in a real
-/// SQLite store.
-fn seed(dir: &std::path::Path, descriptions: &[usize]) {
+/// `resources` and their `sources/` records (description bytes per record),
+/// confirmed in a real SQLite store.
+fn seed_with(dir: &std::path::Path, resources: &[(&str, &str)], descriptions: &[usize]) {
     let mut store = sql(dir);
-    let catalog = mdbn_core::types::Catalog::load([(TYPE_PATH, TYPE)]);
+    let catalog = mdbn_core::types::Catalog::load(resources.iter().copied());
     store
         .commit(Tx {
-            resources_put: vec![(TYPE_PATH.into(), TYPE.into())],
+            resources_put: resources
+                .iter()
+                .map(|(p, s)| ((*p).into(), (*s).into()))
+                .collect(),
             records_put: descriptions
                 .iter()
                 .enumerate()
@@ -136,8 +139,15 @@ fn open(dir: &std::path::Path, svc: &r::fake::FakeLogService) -> (App, r::api::S
     (replica, session)
 }
 fn world(name: &str, descriptions: &[usize]) -> (PathBuf, r::fake::FakeLogService) {
+    world_with(name, &[(TYPE_PATH, TYPE)], descriptions)
+}
+fn world_with(
+    name: &str,
+    resources: &[(&str, &str)],
+    descriptions: &[usize],
+) -> (PathBuf, r::fake::FakeLogService) {
     let dir = scratch(name);
-    seed(&dir, descriptions);
+    seed_with(&dir, resources, descriptions);
     let svc = r::fake::FakeLogService::new();
     r::testkit::TestControlPlane::signed(COL).genesis_with_keys(
         &svc,
@@ -286,4 +296,172 @@ fn a_reopen_reuses_the_index_built_without_the_long_field() {
     assert_eq!(reused.generation, built.generation);
     assert_eq!(reused.fields, built.fields);
     assert!(reused.ready);
+}
+
+const CONTRACT_PATH: &str = "_contracts/reader-source.md";
+const CONTRACT: &str = "---\nkind: mdbase.contract\ncontract_type: record\nid: reader.source\nversion: 1.0.0\nrecord_schema:\n  dialect: json-schema-2020-12\n  value: {type: object, properties: {title: {type: string}}}\n---\n";
+const MAPPED_TYPE: &str = "---\nkind: mdbase.type\nname: reader-source\nmatch: {path_glob: 'sources/*.md'}\nschema:\n  dialect: json-schema-2020-12\n  value: {type: object, properties: {title: {type: string}, description: {type: string}}}\nimplements:\n  - contract: reader.source\n    version: '1.0.0'\n    fields: {'/title': '/title'}\n---\n";
+
+fn contract_page(
+    replica: &mut App,
+    session: r::api::SessionId,
+    cursor: Option<String>,
+) -> Result<r::api::ContractQueryResult, r::api::ApiError> {
+    replica.query_contract(
+        session,
+        r::api::ContractQuery {
+            where_: None,
+            contract: "reader.source".into(),
+            version: "1.0.0".into(),
+            limit: 128,
+            cursor,
+        },
+    )
+}
+/// Every record of a contract inventory, page by page; ids in page order.
+fn contract_inventory(replica: &mut App, session: r::api::SessionId) -> Vec<B16> {
+    let mut ids = Vec::new();
+    let mut cursor = None;
+    loop {
+        let page = contract_page(replica, session, cursor).unwrap_or_else(|e| {
+            panic!("contract page refused: {e:?}; {:?}", replica.query_stats())
+        });
+        assert!(!page.records.is_empty());
+        ids.extend(page.records.iter().map(|r| r.id));
+        match page.page.cursor {
+            Some(next) => cursor = Some(next),
+            None => return ids,
+        }
+    }
+}
+fn titles(replica: &mut App, session: r::api::SessionId) -> Vec<String> {
+    let mut titles = Vec::new();
+    let mut cursor = None;
+    loop {
+        let page = contract_page(replica, session, cursor).unwrap();
+        titles.extend(
+            page.records
+                .iter()
+                .map(|r| match &r.implementations[0].fields.0[0].1 {
+                    Value::Text(t) => t.clone(),
+                    other => panic!("{other:?}"),
+                }),
+        );
+        match page.page.cursor {
+            Some(next) => cursor = Some(next),
+            None => return titles,
+        }
+    }
+}
+fn submit(replica: &mut App, session: r::api::SessionId, mutation: u8, op: w::intent::Op) {
+    replica
+        .submit(
+            session,
+            w::client::SubmitParams {
+                ops: vec![op],
+                mutation_id: Some(B16([mutation; 16])),
+                conflict_mode: None,
+                timezone: None,
+                allow_partial: None,
+                mutation_ids: None,
+                dry_run: None,
+                include: None,
+                wait: None,
+                validation: None,
+            },
+        )
+        .unwrap();
+}
+fn create(n: u8, path: &str) -> w::intent::Op {
+    w::intent::Op::Create(w::intent::Create {
+        id: B16([n; 16]),
+        path: Some(path.into()),
+        type_name: None,
+        frontmatter: None,
+        body: None,
+        document: Some(w::common::Text::Inline(source(900 + usize::from(n), 1400))),
+    })
+}
+fn id(n: usize) -> B16 {
+    B16((n as u128 + 1).to_be_bytes())
+}
+
+/// Issue #1502: pending local writes must not make a contract inventory
+/// larger than one page unanswerable. The browser keeps a write in its local
+/// layer until the log acknowledges it; contract pages page through it.
+#[test]
+fn pending_local_writes_keep_a_multi_page_contract_inventory_answerable() {
+    let (dir, svc) = world_with(
+        "large-metadata-contract-after-write",
+        &[
+            ("mdbase.yaml", "spec_version: '0.3.0'\n"),
+            (CONTRACT_PATH, CONTRACT),
+            (TYPE_PATH, MAPPED_TYPE),
+        ],
+        &[1400; 140],
+    );
+    let (mut replica, session) = open(&dir, &svc);
+    assert_eq!(contract_inventory(&mut replica, session).len(), 140);
+    // An edit of a record on the first page, as Writer and Reader save.
+    submit(
+        &mut replica,
+        session,
+        0xE1,
+        w::intent::Op::Update(w::intent::Update {
+            id: id(5),
+            patch: Some(w::common::DataMap(vec![(
+                "title".into(),
+                Value::Text("Edited".into()),
+            )])),
+            unset: None,
+            add: None,
+            remove: None,
+            body: None,
+            body_edits: None,
+            body_base: None,
+            body_base_text: None,
+            base: None,
+            if_revision: None,
+            update_refs: None,
+        }),
+    );
+    let ids = contract_inventory(&mut replica, session);
+    assert_eq!(ids.len(), 140);
+    assert_eq!(
+        ids.iter().collect::<std::collections::BTreeSet<_>>().len(),
+        140
+    );
+    let edited = titles(&mut replica, session);
+    assert_eq!(edited[5], "Edited");
+    assert_eq!(edited.iter().filter(|t| *t == "Edited").count(), 1);
+    // Creates inside each page and a delete, all still pending.
+    submit(&mut replica, session, 0xE2, create(0xA1, "sources/0705.md"));
+    submit(&mut replica, session, 0xE3, create(0xA2, "sources/zzz.md"));
+    submit(
+        &mut replica,
+        session,
+        0xE4,
+        w::intent::Op::Delete(w::intent::Delete {
+            id: id(130),
+            base_revision: None,
+            if_revision: None,
+        }),
+    );
+    let ids = contract_inventory(&mut replica, session);
+    let mut expected: Vec<B16> = (0..140).filter(|n| *n != 130).map(id).collect();
+    expected.insert(71, B16([0xA1; 16]));
+    expected.push(B16([0xA2; 16]));
+    assert_eq!(ids, expected);
+    // A continuation over one layer ends when the layer changes.
+    let first = contract_page(&mut replica, session, None).unwrap();
+    submit(&mut replica, session, 0xE5, create(0xA3, "sources/zzzz.md"));
+    let stale = contract_page(&mut replica, session, first.page.cursor).unwrap_err();
+    assert_eq!(stale.problem().reason.as_deref(), Some("cursor_stale"));
+    // Once the log acknowledges the writes, the confirmed index answers.
+    let mut log = svc.client(DEV);
+    for _ in 0..40 {
+        r::log::pump(&mut replica, &mut log, 200);
+        replica.tick();
+    }
+    assert_eq!(contract_inventory(&mut replica, session).len(), 142);
 }

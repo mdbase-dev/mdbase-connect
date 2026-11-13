@@ -375,12 +375,10 @@ impl<S: Store> Replica<S> {
             trace(_phase);
         }
     }
+    /// Pending record edits are part of the view: `as_of` (the view version)
+    /// changes with each, so a continuation never spans two layers.
     fn cursor_stamp(&self, session: SessionId) -> ApiResult<Stamp> {
-        if self.install.is_some()
-            || self.apply_fault
-            || !self.layer.touched_ids().is_empty()
-            || self.layer.catalog().is_some()
-        {
+        if self.install.is_some() || self.apply_fault || self.layer.catalog().is_some() {
             return Err(stale());
         }
         let context = self.ready_context()?.map_err(|_| stale())?;
@@ -616,7 +614,6 @@ impl<S: Store> Replica<S> {
         })?;
         if saved.is_none()
             && (self.install.is_some()
-                || !self.layer.touched_ids().is_empty()
                 || self.layer.catalog().is_some()
                 || q.limit.is_none_or(|n| n == 0 || n > MAX_SELECTED)
                 || !q.projections.is_empty()
@@ -675,6 +672,15 @@ impl<S: Store> Replica<S> {
         let plan = mdbn_core::query::compile(&q, &self.catalog).map_err(|e| {
             ErrorCode::InvalidRequest.err_with_reason("invalid_query", format!("{e:?}"))
         })?;
+        // Pending edits merge into a keyset page only in path order, over a
+        // `where` the index expresses. Anything else is answered whole.
+        if saved.is_none()
+            && !self.layer.touched_ids().is_empty()
+            && (!plan.order.is_empty()
+                || mdbn_core::query::profile::lower(&plan, &self.catalog).is_err())
+        {
+            return self.run_query(query, include);
+        }
         // A `where` the index cannot express (a body search) is decided record
         // by record. Where that whole answer exceeds this host's request
         // budget, it pages over the index's selection of the query's types.

@@ -368,8 +368,11 @@ All modes use one request-wide hydration budget of at most 1000 records AND 1 Mi
 source, including paging, retries and restarts. A keyset page that would exceed
 it ends at the last record that fits and returns `has_more: true` with a cursor,
 so `limit` is a maximum: fewer records than `limit` never means the end, only an
-absent cursor does. A first record that alone exceeds the budget, and windows
-answered without a cursor (pending edits merged into the window), still refuse
+absent cursor does. A path-ordered keyset page (no `order_by`) merges pending
+local edits into its page and still returns a cursor; any further local change
+ends that continuation with `cursor_stale`. A first record that alone exceeds
+the budget, a merged page that would exceed it, and windows answered without a
+cursor (pending edits merged into an ordered window) still refuse
 `too_large / query_budget_exceeded`. Group/summary/CEL allocations need
 separate real bounds. An exact indexed aggregate is permitted only with qualified
 Core parity and current catalogue/generation/head coverage. Unsupported semantics
@@ -601,6 +604,7 @@ Producers before key 5 refuse the envelope (`invalid_request`), never ignore it.
 
 The contract/version/digest (and filter) are included in the ordinary cursor fingerprint;
 all existing session, catalog, head and view-version invalidation rules apply.
+Its pages are path-ordered, so pending local edits never take away its cursor.
 The method selects every type implementing that exact record contract, with a
 128-implementation/128-mapping cap and a fixed 1 MiB projection/response budget.
 A valid registered contract with no implementations returns a complete empty
