@@ -10,23 +10,34 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 /// Deliberately bounded initial profile, not an ALL-field feature declaration.
-fn capture(resources: &[(String, String)]) -> Option<Arc<QueryProjectionContext>> {
+/// `excluded` fields are left out: a record's value of each is longer than an
+/// index key, so the index cannot cover it (queries naming it use the
+/// per-record path) but still serves every other query.
+fn capture(
+    resources: &[(String, String)],
+    excluded: &[FieldRef],
+) -> Option<Arc<QueryProjectionContext>> {
     let sem = mdbn_core::semantics::SEM;
+    let sem = Sem {
+        major: sem.major,
+        minor: sem.minor,
+    };
     let preferred = [
         FieldRef::Effective(vec!["priority".into()]),
         FieldRef::Effective(vec!["points".into()]),
     ];
-    let context = QueryProjectionContext::capture_declared(
-        resources,
-        Sem {
-            major: sem.major,
-            minor: sem.minor,
-        },
-        &preferred,
-        16,
-        8192,
-    )
-    .ok()?;
+    let mut context =
+        QueryProjectionContext::capture_declared(resources, sem, &preferred, 16, MAX_KEY_BYTES)
+            .ok()?;
+    if context.field_refs().iter().any(|f| excluded.contains(f)) {
+        let kept: Vec<FieldRef> = context
+            .field_refs()
+            .iter()
+            .filter(|f| !excluded.contains(f))
+            .cloned()
+            .collect();
+        context = QueryProjectionContext::capture(resources, sem, &kept, MAX_KEY_BYTES).ok()?;
+    }
     // Type-match expressions need clock/dependency eligibility qualification.
     // Conservatively disable this optional profile rather than label ClockNone
     // membership as complete/current for arbitrary expressions.
@@ -40,6 +51,8 @@ fn capture(resources: &[(String, String)]) -> Option<Arc<QueryProjectionContext>
     }
     Some(Arc::new(context))
 }
+/// Longest sort key one indexed field value may have.
+const MAX_KEY_BYTES: usize = 8192;
 impl<S: Store> Replica<S> {
     /// Prepare the exact post-resource-effect context and rows for SAME-Tx
     /// maintenance. Publish the returned context only after commit succeeds.
@@ -61,7 +74,10 @@ impl<S: Store> Replica<S> {
             for (path, doc) in &tx.resources_put {
                 resources.insert(path.clone(), doc.clone());
             }
-            capture(&resources.into_iter().collect::<Vec<_>>())
+            capture(
+                &resources.into_iter().collect::<Vec<_>>(),
+                &self.query_index_excluded,
+            )
         } else {
             self.query_context.clone()
         };
@@ -165,12 +181,36 @@ impl<S: Store> Replica<S> {
             return Ok(());
         }
         let resources = self.store.resources()?;
-        let Some(context) = capture(&resources) else {
+        let Some(mut context) = capture(&resources, &self.query_index_excluded) else {
             self.query_context = None;
             return Ok(());
         };
         let head = self.store.head()?;
-        let fields_ready = self.store.query_index_state()?.is_some_and(|s| {
+        let state = self.store.query_index_state()?;
+        // A ready index built without some declared fields (a value too long
+        // for an index key) is reused on reopen, not rebuilt to find them again.
+        if let Some(s) = state
+            .as_ref()
+            .filter(|s| s.ready && s.head == head && s.generation != context.generation())
+        {
+            let missing: Vec<FieldRef> = context
+                .field_refs()
+                .iter()
+                .zip(context.fields())
+                .filter(|(_, declared)| !s.fields.contains(declared))
+                .map(|(field, _)| field.clone())
+                .collect();
+            if !missing.is_empty() {
+                let excluded = [self.query_index_excluded.clone(), missing].concat();
+                if let Some(narrower) = capture(&resources, &excluded)
+                    && narrower.generation() == s.generation
+                {
+                    self.query_index_excluded = excluded;
+                    context = narrower;
+                }
+            }
+        }
+        let fields_ready = state.is_some_and(|s| {
             s.ready
                 && s.generation == context.generation()
                 && s.fields == context.fields()
@@ -187,14 +227,28 @@ impl<S: Store> Replica<S> {
             return Ok(());
         }
         self.query_cursors.clear();
-        self.with_deferred_durability(|r| r.backfill_pass(&context, head))?;
+        // Each pass that meets a too-long value leaves that field out and starts
+        // again; every restart drops at least one of the bounded declared fields.
+        while let Some(wide) = self.with_deferred_durability(|r| r.backfill_pass(&context, head))? {
+            self.query_index_excluded.extend(wide);
+            let Some(narrower) = capture(&resources, &self.query_index_excluded) else {
+                self.query_context = None;
+                return Ok(());
+            };
+            context = narrower;
+        }
         self.query_context = Some(context);
         Ok(())
     }
 
     /// One full backfill pass. Returns early, leaving the index unready, when a
-    /// record cannot be projected for the field index.
-    fn backfill_pass(&mut self, context: &QueryProjectionContext, head: Head) -> StoreResult<()> {
+    /// record cannot be projected for the field index: with the fields whose
+    /// value is too long for a key, so the caller can leave them out, else none.
+    fn backfill_pass(
+        &mut self,
+        context: &QueryProjectionContext,
+        head: Head,
+    ) -> StoreResult<Option<Vec<FieldRef>>> {
         let mut after = None;
         let mut first = true;
         loop {
@@ -212,7 +266,10 @@ impl<S: Store> Replica<S> {
                     match context.project_row(row) {
                         Ok(r) => rows.push(r),
                         // Optional: stays unready; the per-record path answers.
-                        Err(_) => return Ok(()),
+                        Err(_) => {
+                            let wide = context.too_wide_fields(row);
+                            return Ok((!wide.is_empty()).then_some(wide));
+                        }
                     }
                 }
                 let completes = done && at == last;
@@ -229,7 +286,7 @@ impl<S: Store> Replica<S> {
                 first = false;
             }
             if done {
-                return Ok(());
+                return Ok(None);
             }
         }
     }

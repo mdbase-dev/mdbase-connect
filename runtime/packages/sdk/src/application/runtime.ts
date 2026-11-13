@@ -46,6 +46,22 @@ export class ApplicationRuntimeError extends Error {
     super("SDK application runtime unavailable");this.name="ApplicationRuntimeError";
   }
 }
+/** One bounded console token for a native blocked problem's typed detail:
+ * error class, typed code, host stage, cause class and HTTP status. Each part
+ * is a fixed-shape name or number; anything else is left out. */
+const NAME=/^[A-Za-z][A-Za-z0-9_]{0,63}$/;
+function nativeCause(detail:AppWebSignInSnapshot["problemDetail"]):string|undefined{
+  try{
+    if(!detail||!NAME.test(String(detail.name)))return undefined;
+    const name=(value:unknown)=>typeof value==="string"&&NAME.test(value)?value:"-";
+    let token=`${detail.name}:${name(detail.code)}`;
+    if(typeof detail.stage==="string"&&NAME.test(detail.stage))token+=`@${detail.stage}`;
+    if(detail.cause&&NAME.test(String(detail.cause.name)))token+=` cause=${detail.cause.name}:${name(detail.cause.code)}`;
+    const status=detail.server?.status;
+    if(Number.isInteger(status)&&status!>=100&&status!<=599)token+=` http=${status}${detail.server!.code&&NAME.test(detail.server!.code)?`:${detail.server!.code}`:""}`;
+    return token;
+  }catch{return undefined;}
+}
 const emptyReadiness=():MdbaseApplicationReadinessSnapshot=>{
   const facet=Object.freeze({checking:false,assessment:null,problem:null});
   return Object.freeze({checking:false,assessment:null,problem:null,facets:Object.freeze({capabilities:facet,contracts:facet,configuration:facet,files:facet,people:facet,notifications:facet})});
@@ -120,7 +136,7 @@ export class ApplicationRuntime {
   private publish():void {
     if(this.closed){this.snapshot=Object.freeze({...this.raw,status:this.stopped?"closed":"blocked",problem:this.stopped?null:this.stopFailed?"application_stop_failed":"application_closing",selectedCollectionId:null,unlock:null,readiness:emptyReadiness()});}
     else {
-      const readiness=this.scope.getReadiness()??emptyReadiness();let status=this.raw.status,problem=this.raw.problem,detail:MdbaseApplicationProblem["detail"];
+      const readiness=this.scope.getReadiness()??emptyReadiness();let status=this.raw.status,problem=this.raw.problem,detail:MdbaseApplicationProblem["detail"],native=this.raw.problemDetail;
       const id=this.raw.selectedCollectionId;
       // Open in the session, and this tab's own ports to it are on the way.
       // A scope this tab's own action is letting go of reads fenced: that is the
@@ -134,13 +150,14 @@ export class ApplicationRuntime {
         // evidence when it settles, and only that can read as blocked.
         const unassessed=this.assessing&&!readiness.assessment&&readiness.problem?.code!=="readiness_fenced";
         status=readiness.checking||unassessed?"opening":readiness.assessment?.status==="ready"?"ready":readiness.assessment?.status==="setup_required"?"setup_required":"blocked";
-        if(status==="blocked"){const blocked=readiness.problem??readiness.assessment?.problem;problem=blocked?.code??"application_readiness_unavailable";detail=blocked?.detail;}
+        if(status==="blocked"){const blocked=readiness.problem??readiness.assessment?.problem;problem=blocked?.code??"application_readiness_unavailable";detail=blocked?.detail;native=undefined;}
       }
       // A blocked app names its typed code once in the console; the UI shows only copy.
-      const diagnostic=`${problem}:${detail??""}`;
-      if(status==="blocked"&&problem&&diagnostic!==this.loggedProblem){this.loggedProblem=diagnostic;try{if(detail)console.error("mdbase application blocked:",problem,detail);else console.error("mdbase application blocked:",problem);}catch{/* no console */}}
+      const diagnostic=`${problem}:${detail??nativeCause(native)??""}`;
+      if(status==="blocked"&&problem&&diagnostic!==this.loggedProblem){this.loggedProblem=diagnostic;try{const cause=detail??nativeCause(native);if(cause)console.error("mdbase application blocked:",problem,cause);else console.error("mdbase application blocked:",problem);}catch{/* no console */}}
       else if(status!=="blocked")this.loggedProblem=null;
-      this.snapshot=Object.freeze({...this.raw,status,problem,openingProgress:status==="opening"?(readiness.checking?"checking_setup":this.raw.openingProgress??null):null,collections:Object.freeze(this.raw.collections.map(value=>Object.freeze({...value}))),readiness});
+      const {problemDetail:_native,...raw}=this.raw;
+      this.snapshot=Object.freeze({...raw,...(native?{problemDetail:native}:{}),status,problem,openingProgress:status==="opening"?(readiness.checking?"checking_setup":this.raw.openingProgress??null):null,collections:Object.freeze(this.raw.collections.map(value=>Object.freeze({...value}))),readiness});
     }
     for(const listener of [...this.listeners])try{listener();}catch{/* observers do not own lifecycle */}
   }

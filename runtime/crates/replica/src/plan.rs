@@ -513,6 +513,35 @@ impl QueryProjectionContext {
             self.max_key_bytes,
         )
     }
+
+    /// The configured fields whose value in `row` is longer than an index key.
+    /// Empty when the row fails for any other reason, or projects.
+    pub fn too_wide_fields(&self, row: &RecordRow) -> Vec<FieldRef> {
+        let parsed = mdbn_core::doc::Document::parse_at(&row.path, &row.doc);
+        let frontmatter = parsed.frontmatter();
+        let membership = self.catalog.membership(&row.path, frontmatter);
+        let record = QueryRecord {
+            path: &row.path,
+            types: &membership.types,
+            frontmatter,
+            body: None,
+        };
+        self.fields
+            .iter()
+            .filter(|field| {
+                matches!(
+                    mdbn_core::query::indexed::project_index_fields(
+                        &self.catalog,
+                        &record,
+                        std::slice::from_ref(*field),
+                        self.max_key_bytes,
+                    ),
+                    Err(IndexKeyError::TooWide)
+                )
+            })
+            .cloned()
+            .collect()
+    }
 }
 
 /// Confirmed state in a [`Store`], as a core `StateView`.
