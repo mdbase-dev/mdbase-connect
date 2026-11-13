@@ -195,6 +195,10 @@ interface CollectionSlot<Connection> {
 }
 const closedView: AppWebCollectionView = Object.freeze({status: "unselected", problem: null, transport: null, live: null});
 const failure = (reason: AppInstallationSignInError["reason"]) => new AppInstallationSignInError(reason);
+/** An update without its own detail keeps the previous one only while the
+ * problem it describes stands; a different problem must not borrow it. */
+const keptDetail = (update: {problem?: string | null}, previous: string | null | undefined, detail: AppWebSignInProblemDetail | undefined) =>
+  update.problem === undefined || update.problem === previous ? detail : undefined;
 const liveOutcomes = new Set(["collection_not_yet_migrated", "collection_migrating", "account_suspended", "update_required"]);
 // Private one-shot READ intent, never a queue for mutations or another flow.
 type ReceiptRead = Readonly<{
@@ -314,7 +318,7 @@ export class AppWebSignInSession<Connection> {
   }
   private setBase(update: Partial<AppWebSignInSnapshot>): void {
     const {problemDetail: previousDetail, ...previous} = this.base;
-    const detail = update.problem === null ? undefined : update.problemDetail ?? previousDetail;
+    const detail = update.problemDetail ?? keptDetail(update, previous.problem, previousDetail);
     this.base = Object.freeze({...previous, ...update, selectedCollectionId: null, signIn: this.flow?.view() ?? null, ...(detail ? {problemDetail: detail} : {})});
   }
   /** One open collection's status, problem and transport. */
@@ -329,7 +333,7 @@ export class AppWebSignInSession<Connection> {
     this.setBase({timing});
     const {problemDetail: previousDetail, unlock: previousLock, ...previous} = slot.view;
     const {unlock: nextLock, ...rest} = update;
-    const detail = update.problem === null ? undefined : update.problemDetail ?? previousDetail;
+    const detail = update.problemDetail ?? keptDetail(update, previous.problem, previousDetail);
     const openingProgress = (update.status ?? previous.status) === "opening" ? ("openingProgress" in update ? update.openingProgress ?? null : previous.openingProgress ?? null) : null;
     // The lock display lives only on a needs_unlock view.
     const lock = (update.status ?? previous.status) === "needs_unlock" ? nextLock ?? previousLock ?? null : null;

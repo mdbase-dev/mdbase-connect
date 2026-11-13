@@ -15,6 +15,7 @@ mod handover;
 mod handover_verify;
 mod hosted;
 mod join_ahead;
+mod large_metadata_open;
 mod link_where;
 mod mirror_admission;
 mod pending_inventory;

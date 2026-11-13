@@ -22,6 +22,26 @@ describe("SDK singleton original lifecycle",()=>{
   app.raw={...snapshot,status:"blocked",problem:"collection_migrating",selectedCollectionId:"secret-collection"};app.publish();
   expect(error).toHaveBeenCalledExactlyOnceWith("mdbase application blocked:","collection_migrating");
  });
+ it("names a native blocked problem's bounded detail in the console",()=>{
+  const f=fixture(),app=f.app as unknown as {scope:Record<string,unknown>;raw:unknown;publish():void},error=vi.spyOn(console,"error").mockImplementation(()=>{});
+  app.scope.getReadiness=()=>null;
+  app.raw={...snapshot,status:"blocked",problem:"unavailable",problemDetail:{name:"AppCloudCopyHostError",code:"sync_stalled",stage:"read_catch_up"}};app.publish();
+  expect(error).toHaveBeenLastCalledWith("mdbase application blocked:","unavailable","AppCloudCopyHostError:sync_stalled@read_catch_up");
+  app.raw={...snapshot,status:"blocked",problem:"unavailable",problemDetail:{name:"AppCloudCopyHostError",code:"unavailable",stage:"device_open",cause:{name:"MdbaseError",code:"too_large"}}};app.publish();
+  expect(error).toHaveBeenLastCalledWith("mdbase application blocked:","unavailable","AppCloudCopyHostError:unavailable@device_open cause=MdbaseError:too_large");
+  app.raw={...snapshot,status:"blocked",problem:"unavailable",problemDetail:{name:"AppCpAuthorityError",code:"unavailable",server:{status:503,code:"unavailable",reason:null,retryAfterMs:null,updateUrl:null}}};app.publish();
+  expect(error).toHaveBeenLastCalledWith("mdbase application blocked:","unavailable","AppCpAuthorityError:unavailable http=503:unavailable");
+  app.raw={...snapshot,status:"blocked",problem:"unavailable",problemDetail:{name:"AppCloudCopyHostError",code:"secret value",stage:"secret/path"}};app.publish();
+  expect(error).toHaveBeenLastCalledWith("mdbase application blocked:","unavailable","AppCloudCopyHostError:-");
+  expect(error).toHaveBeenCalledTimes(4);
+ });
+ it("drops the native detail when readiness supplies the blocked problem",()=>{
+  const f=fixture(),app=f.app as unknown as {scope:Record<string,unknown>;raw:unknown;publish():void},error=vi.spyOn(console,"error").mockImplementation(()=>{});
+  app.scope.getReadiness=()=>({checking:false,assessment:null,problem:{code:"configuration_unavailable"},facets:f.app.getSnapshot().readiness.facets});
+  app.raw={...snapshot,status:"ready",selectedCollectionId:"secret-collection",problemDetail:{name:"AppCloudCopyHostError",code:"sync_stalled"}};app.publish();
+  expect(error).toHaveBeenCalledExactlyOnceWith("mdbase application blocked:","configuration_unavailable");
+  expect(f.app.getSnapshot().problemDetail).toBeUndefined();
+ });
  it("logs the selected readiness problem without borrowing the assessment detail",()=>{
   const f=fixture(),app=f.app as unknown as {scope:Record<string,unknown>;raw:unknown;publish():void},error=vi.spyOn(console,"error").mockImplementation(()=>{});
   app.scope.getReadiness=()=>({checking:false,assessment:{status:"incompatible",problem:{code:"readiness_fenced",detail:"session_closed"}},problem:{code:"configuration_unavailable"},facets:f.app.getSnapshot().readiness.facets});

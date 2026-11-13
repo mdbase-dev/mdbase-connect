@@ -81,17 +81,38 @@ export class AppCloudCopyHostError extends Error {
             /** This installation device is already enrolled in another Private
              * collection: its custody holds one enrol marker. */
             | "private_device_limit",
+        /** Which step refused, so an `unavailable` names its cause. */
+        readonly stage?: AppCloudCopyHostStage,
+        options?: { cause?: unknown },
     ) {
-        super(`app cloud copy host: ${reason}`);
+        super(`app cloud copy host: ${reason}`, options);
         this.name = "AppCloudCopyHostError";
     }
 }
+/** Bounded step names for an `unavailable` or `sync_stalled` host refusal. */
+export type AppCloudCopyHostStage =
+    /** Opening the device replica failed; `cause` names the error class. */
+    | "device_open"
+    /** The log push channel's nonce reply was not usable. */
+    | "push_nonce"
+    /** A local read with no log held by this tab. */
+    | "local_read_without_log"
+    /** The verified read ran out of time connecting its client. */
+    | "read_connect"
+    /** The verified read ran out of time while the replica caught up. */
+    | "read_catch_up"
+    /** The verified read ran out of time on a query the replica kept refusing `unavailable`. */
+    | "read_query"
+    /** The log is unreachable while waiting for the account key. */
+    | "key_wait_offline"
+    /** Closing could not fence the replica's storage. */
+    | "close_fence";
 /** Attached tabs per replica: the leader plus followers. */
 const MAX_FACADES = 32;
 /** Bounded back-to-back turns in one foreground drive. */
 const DRIVE_TURNS = 8;
-const fail = (r: AppCloudCopyHostError["reason"]) =>
-    new AppCloudCopyHostError(r);
+const fail = (r: AppCloudCopyHostError["reason"], stage?: AppCloudCopyHostStage) =>
+    new AppCloudCopyHostError(r, stage);
 const equal = (a: Uint8Array, b: Uint8Array) =>
     a.length === b.length && a.every((v, i) => v === b[i]);
 /** Owns nonexported KEK and ciphertext handles for SAME original installation.
@@ -346,7 +367,7 @@ export class AppWebCloudCopyHost {
                 e instanceof AppStrictDeviceApprovalError
             )
                 throw e;
-            throw fail("unavailable");
+            throw new AppCloudCopyHostError("unavailable", "device_open", { cause: e });
         }
     }
     /** SAME protected installation flow -> SAME original native lifetime. No
@@ -994,7 +1015,7 @@ export class AppWebCloudCopyHost {
             nonce: async ({ signal }) => {
                 const r = await request(`${origin}/v1/nonce`, { signal, cache: "no-store", credentials: "omit", redirect: "error", referrerPolicy: "no-referrer" });
                 const text = (await r.text()).trim();
-                if (!r.ok || !/^[0-9a-f]{64}$/.test(text)) throw fail("unavailable");
+                if (!r.ok || !/^[0-9a-f]{64}$/.test(text)) throw fail("unavailable", "push_nonce");
                 return Uint8Array.from(text.match(/../g)!.map(v => parseInt(v, 16)));
             },
             signHello: (nonce, token) => current() ? native.signLogHello(nonce, token) : null,
@@ -1070,7 +1091,7 @@ export class AppWebCloudCopyHost {
         )
             throw fail("binding");
         // An empty replica would answer a read with no records at all.
-        if (local && !this.holdsLog()) return Promise.reject(fail("unavailable"));
+        if (local && !this.holdsLog()) return Promise.reject(fail("unavailable", "local_read_without_log"));
         if (this.readWork)
             return this.readWork.then(() => {
                 this.checkCollection(signal);
@@ -1098,10 +1119,13 @@ export class AppWebCloudCopyHost {
         this.readAbort = ctrl;
         signal.addEventListener("abort", abort, { once: true });
         let timer: ReturnType<typeof setTimeout> | null = null;
-        let stopError: unknown = fail(cold ? "sync_stalled" : "unavailable");
+        // The step in progress names a timed-out read.
+        let stage: AppCloudCopyHostStage = "read_connect";
+        let stopError: unknown = null;
+        const stopped = () => stopError ??= fail(cold ? "sync_stalled" : "unavailable", stage);
         let rejectAbort!: () => void;
         const aborted = new Promise<never>((_resolve, reject) => {
-            rejectAbort = () => reject(stopError);
+            rejectAbort = () => reject(stopped());
             ctrl.signal.addEventListener("abort", rejectAbort, { once: true });
         });
         void aborted.catch(() => {});
@@ -1183,7 +1207,7 @@ export class AppWebCloudCopyHost {
                 }).then(client => {
                     // A connect that ignored cancellation still belongs to this
                     // probe, never to a later open or a data facade.
-                    if (ctrl.signal.aborted) { client.close(); throw fail("unavailable"); }
+                    if (ctrl.signal.aborted) { client.close(); throw stopped(); }
                     return client;
                 }),
                 aborted,
@@ -1191,6 +1215,7 @@ export class AppWebCloudCopyHost {
             this.checkCollection(signal);
             let delay = 250;
             while (!ctrl.signal.aborted) {
+                stage = "read_catch_up";
                 this.native!.tick();
                 const turn = pump();
                 if (turn) await Promise.race([turn.pump(), aborted]);
@@ -1204,13 +1229,14 @@ export class AppWebCloudCopyHost {
                     delay = Math.min(1_000, delay * 2);
                     continue;
                 }
+                stage = "read_query";
                 try {
                     await Promise.race([
                         this.readClient.query({ limit: 1 }, { signal: ctrl.signal }),
                         aborted,
                     ]);
                     this.checkCollection(signal);
-                    if (ctrl.signal.aborted) throw fail("unavailable");
+                    if (ctrl.signal.aborted) throw stopped();
                     this.readVerified = true;
                     return;
                 } catch (error) {
@@ -1230,10 +1256,10 @@ export class AppWebCloudCopyHost {
                 await waitForOpenRetry(delay, ctrl.signal);
                 delay = Math.min(1_000, delay * 2);
             }
-            throw fail("unavailable");
+            throw stopped();
         } catch (error) {
             this.checkCollection(signal);
-            if (ctrl.signal.aborted) throw stopError;
+            if (ctrl.signal.aborted) throw stopped();
             throw error;
         } finally {
             if (timer !== null) clearTimeout(timer);
@@ -1289,7 +1315,7 @@ export class AppWebCloudCopyHost {
             if (observation.requiresReopen || observation.keyringRebuildFailed) throw fail("recovery_required");
             const wait = initialSyncWait(observation.status);
             // Unreachable log: neither keyed nor locked can be told apart.
-            if (wait === "offline" || this.pump?.transportHealth?.kind === "offline") throw fail("unavailable");
+            if (wait === "offline" || this.pump?.transportHealth?.kind === "offline") throw fail("unavailable", "key_wait_offline");
             const reason = wait === "waiting_for_key" ? keyWaitDetail(observation.status)?.key : undefined;
             if (wait === null || (reason !== undefined && reason !== "reading")) {
                 if (await locked()) return "locked";
@@ -1448,7 +1474,7 @@ export class AppWebCloudCopyHost {
                     this.collectionSql.fence();
                 this.authority?.close();
                 await this.sqlClose?.();
-                if (fenceFailed) throw fail("unavailable");
+                if (fenceFailed) throw fail("unavailable", "close_fence");
             } finally {
                 this.key = null;
                 this.noise = null;

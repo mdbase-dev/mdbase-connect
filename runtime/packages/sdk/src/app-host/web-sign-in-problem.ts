@@ -1,8 +1,10 @@
 /** Public diagnostic vocabulary only. Never inspect messages, stacks, causes,
- * response details or arbitrary name/reason properties on adapter exceptions. */
+ * response details or arbitrary name/reason properties on adapter exceptions.
+ * The one cause read is the SDK's own device-open refusal, and only through
+ * this same classifier. */
 import { MdbaseError, isErrorCode } from "../errors.js";
 import { AppInstallationSignInError } from "./installation-sign-in.js";
-import { AppCloudCopyHostError } from "./cloud-copy-host.js";
+import { AppCloudCopyHostError, type AppCloudCopyHostStage } from "./cloud-copy-host.js";
 import { AppCloudCopyBootstrapError } from "./cloud-copy-bootstrap.js";
 import { AppCollectionSetupError } from "./collection-setup-journal.js";
 import { AppCollectionControlError } from "./collection-control.js";
@@ -25,10 +27,23 @@ export interface AppWebSignInProblemDetail {
   readonly registration?: RegistrationRefusal;
   /** Bounded socket observation only; never raw close text or admission evidence. */
   readonly relay?: RelayCloseDiagnostic;
+  /** The host step that refused `unavailable` or `sync_stalled`. */
+  readonly stage?: AppCloudCopyHostStage;
+  /** The error class and typed code under a `device_open` refusal. */
+  readonly cause?: Readonly<{name: string; code: string | null}>;
 }
 const reasons = new Set(["binding", "fenced", "busy", "open_in_another_tab", "account_confirmation_required", "recovery_account_mismatch", "outcome_unknown", "response", "refused", "expired", "recovery_required", "unavailable", "collection_migrating", "collection_not_yet_migrated", "account_suspended", "update_required", "private_device_limit", "private_device_not_allowed"]);
 const domCodes = new Set(["AbortError", "ConstraintError", "DataCloneError", "InvalidStateError", "NotAllowedError", "NotFoundError", "NotReadableError", "OperationError", "QuotaExceededError", "SecurityError", "TimeoutError", "TransactionInactiveError", "UnknownError", "VersionError"]);
-const result = (problem: string, name: string, code: string | null, server?: AppServerProblem) => Object.freeze({problem, detail: Object.freeze({name, code, ...(server ? {server} : {})})});
+const stages = new Set<AppCloudCopyHostStage>(["device_open", "push_nonce", "local_read_without_log", "read_connect", "read_catch_up", "read_query", "key_wait_offline", "close_fence"]);
+type Extra = Pick<AppWebSignInProblemDetail, "server" | "stage" | "cause">;
+const result = (problem: string, name: string, code: string | null, extra: Extra = {}) => Object.freeze({problem, detail: Object.freeze({name, code, ...Object.fromEntries(Object.entries(extra).filter(([, v]) => v !== undefined))})});
+/** A host refusal's own bounded stage, and for `device_open` the class of what failed. */
+function hostExtra(error: AppCloudCopyHostError): Pick<Extra, "stage" | "cause"> {
+  const stage = stages.has(error.stage as AppCloudCopyHostStage) ? error.stage : undefined;
+  if (stage !== "device_open" || error.cause instanceof AppCloudCopyHostError) return {stage};
+  const {name, code} = webSignInProblem(error.cause).detail;
+  return {stage, cause: Object.freeze({name, code})};
+}
 
 export function webSignInProblem(error: unknown): Readonly<{problem: string; detail: AppWebSignInProblemDetail}> {
   try {
@@ -51,8 +66,9 @@ export function webSignInProblem(error: unknown): Readonly<{problem: string; det
         const server = ("server" in error ? sanitizeAppServerProblem(error.server) : null) ?? undefined;
         // A cold catch-up stall is diagnostic detail, not a new app-facing
         // problem/copy key or permission to retry any other refusal.
-        if (code === "sync_stalled") return result("unavailable", name, code, server);
-        return reasons.has(code) ? result(code, name, code, server) : result("open_failed", name, null, server);
+        const extra: Extra = {server, ...(error instanceof AppCloudCopyHostError ? hostExtra(error) : {})};
+        if (code === "sync_stalled") return result("unavailable", name, code, extra);
+        return reasons.has(code) ? result(code, name, code, extra) : result("open_failed", name, null, extra);
       }
     }
     // Another tab of this app owns the collection's replica (Web Lock held).

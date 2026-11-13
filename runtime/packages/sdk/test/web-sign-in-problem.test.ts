@@ -39,6 +39,19 @@ describe("bounded web sign-in diagnostic vocabulary", () => {
     expect(webSignInProblem(new AppCloudCopyHostError("sync_stalled"))).toEqual({problem: "unavailable", detail: {name: "AppCloudCopyHostError", code: "sync_stalled"}});
     expect(webSignInProblem(Object.assign(new Error("secret"), {reason: "sync_stalled"})).problem).toBe("open_failed");
   });
+  it("names the host step behind an unavailable, and the class under a device open", () => {
+    expect(webSignInProblem(new AppCloudCopyHostError("sync_stalled", "read_catch_up"))).toEqual({problem: "unavailable", detail: {name: "AppCloudCopyHostError", code: "sync_stalled", stage: "read_catch_up"}});
+    expect(webSignInProblem(new AppCloudCopyHostError("unavailable", "read_query")).detail).toEqual({name: "AppCloudCopyHostError", code: "unavailable", stage: "read_query"});
+    const tooLarge = new MdbaseError({code: "too_large", recovery: "fix_request", message: "secret", reason: "secret", details: {path: "secret"}});
+    const opened = webSignInProblem(new AppCloudCopyHostError("unavailable", "device_open", {cause: tooLarge}));
+    expect(opened).toEqual({problem: "unavailable", detail: {name: "AppCloudCopyHostError", code: "unavailable", stage: "device_open", cause: {name: "MdbaseError", code: "too_large"}}});
+    expect(webSignInProblem(new AppCloudCopyHostError("unavailable", "device_open", {cause: Object.assign(new Error("secret"), {name: "secret"})})).detail.cause).toEqual({name: "Error", code: null});
+    expect(JSON.stringify(opened)).not.toContain("secret");
+  });
+  it("drops a stage outside the vocabulary", () => {
+    const forged = new AppCloudCopyHostError("unavailable", "secret" as never, {cause: new TypeError("secret")});
+    expect(webSignInProblem(forged).detail).toEqual({name: "AppCloudCopyHostError", code: "unavailable"});
+  });
   it("exports only a known replica code, not its reason/body/custody", () => {
     expect(webSignInProblem(new MdbaseError({code: "unavailable", recovery: "retry", message: "secret", reason: "secret", details: {bearer: "secret"}}))).toEqual({problem: "open_failed", detail: {name: "MdbaseError", code: "unavailable"}});
   });

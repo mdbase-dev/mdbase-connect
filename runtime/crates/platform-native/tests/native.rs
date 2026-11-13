@@ -7,6 +7,8 @@
 mod apply_window;
 #[path = "native/file_reopen.rs"]
 mod file_reopen;
+#[path = "native/large_metadata.rs"]
+mod large_metadata;
 #[path = "native/mirror_candidate.rs"]
 mod mirror_candidate;
 #[path = "native/native_activation.rs"]

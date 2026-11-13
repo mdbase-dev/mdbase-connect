@@ -467,6 +467,9 @@ pub struct Replica<S: Store> {
     pub(crate) conflict_label: Option<String>,
     /// Committed trusted derived-profile capture, never a serving permission.
     pub(crate) query_context: Option<Arc<crate::plan::QueryProjectionContext>>,
+    /// Declared fields left out of the maintained index because a record's value
+    /// is longer than an index key. Queries naming one use the per-record path.
+    pub(crate) query_index_excluded: Vec<mdbn_core::query::FieldRef>,
     pub(crate) query_stats: std::cell::Cell<query_driver::QueryStats>,
     query_cursors: query_cursor::Cursors,
     #[cfg(feature = "testing")]
@@ -831,6 +834,7 @@ impl<S: Store> Replica<S> {
             query_execution_profile: QueryExecutionProfile::default(),
             conflict_label: None,
             query_context: None,
+            query_index_excluded: Vec::new(),
             query_stats: std::cell::Cell::default(),
             query_cursors: query_cursor::Cursors::default(),
             #[cfg(feature = "testing")]

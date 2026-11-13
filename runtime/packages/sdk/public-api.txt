@@ -1037,6 +1037,7 @@ AppCloudCopyCollectionPin -> AppCloudCopyCollectionPin@app-host/wasm-runtime.ts
 AppCloudCopyHostError -> AppCloudCopyHostError@app-host/cloud-copy-host.ts
 AppCloudCopyHostRelease -> AppCloudCopyHostRelease@app-host/cloud-copy-host.ts
 AppCloudCopyHostSession -> AppCloudCopyHostSession@app-host/cloud-copy-host.ts
+AppCloudCopyHostStage -> AppCloudCopyHostStage@app-host/cloud-copy-host.ts
 AppCloudCopyOperation -> AppCloudCopyOperation@app-host/cloud-copy-bootstrap.ts
 AppCloudCopyOutcome -> AppCloudCopyOutcome@app-host/cloud-copy-bootstrap.ts
 AppCollectionBootstrap -> AppCollectionBootstrap@app-host/wasm-runtime.ts
@@ -1577,6 +1578,7 @@ problemCodeOf -> problemCodeOf@describe-error.ts
   export AppAccountKeyHostOptions
   export AppWebCloudCopyHost
   export AppCloudCopyHostError
+  export AppCloudCopyHostStage
   export AppCloudCopyHostSession
   export AppCloudCopyHostRelease
 
@@ -2108,7 +2110,8 @@ AppCloudCopyHostError@app-host/cloud-copy-host.ts
   name: string
   readonly reason: 'binding' | 'unavailable' | 'recovery_required' | 'private_device_limit' | 'fenced' | 'sync_stalled'
   stack?: string | undefined
-  static new (reason: 'binding' | 'fenced' | 'recovery_required' | 'unavailable' | 'sync_stalled' | 'private_device_limit'): AppCloudCopyHostError
+  readonly stage?: AppCloudCopyHostStage | undefined
+  static new (reason: 'binding' | 'fenced' | 'recovery_required' | 'unavailable' | 'sync_stalled' | 'private_device_limit', stage?: AppCloudCopyHostStage | undefined, options?: { cause?: unknown; }): AppCloudCopyHostError
   static captureStackTrace: (targetObject: object, constructorOpt?: Function) => void
   static prepareStackTrace: (err: Error, stackTraces: NodeJS.CallSite[]) => any
   static stackTraceLimit: number
@@ -2128,6 +2131,9 @@ AppCloudCopyHostSession@app-host/cloud-copy-host.ts
   readonly kind: 'mobile' | 'app-runtime'
   readonly logOrigin: string
   timerConsent?: (() => AppInstallationTimerConsent | null) | undefined
+
+AppCloudCopyHostStage@app-host/cloud-copy-host.ts
+  = 'device_open' | 'push_nonce' | 'local_read_without_log' | 'read_connect' | 'read_catch_up' | 'read_query' | 'key_wait_offline' | 'close_fence'
 
 AppCloudCopyOperation@app-host/cloud-copy-bootstrap.ts
   readonly accountId: string
@@ -3278,11 +3284,13 @@ AppWebSignInPortal@app-host/web-sign-in-session.ts
   navigate: (uri: string) => void
 
 AppWebSignInProblemDetail@app-host/web-sign-in-problem.ts
+  readonly cause?: Readonly<{ name: string; code: string | null; }> | undefined
   readonly code: string | null
   readonly name: string
   readonly registration?: RegistrationRefusal | undefined
   readonly relay?: RelayCloseDiagnostic | undefined
   readonly server?: AppServerProblem | undefined
+  readonly stage?: AppCloudCopyHostStage | undefined
 
 AppWebSignInSession@app-host/web-sign-in-session.ts
   <Connection>

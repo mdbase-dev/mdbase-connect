@@ -97,6 +97,19 @@ describe("explicit startup recovery", () => {
     expect(f.flowOpen).toHaveBeenCalledOnce();
     await f.session.close();
   });
+  it("keeps a problem's detail only while that problem stands",async()=>{
+    const f=fixture("paired","never");await f.session.start();
+    f.openCollection.mockRejectedValueOnce(new AppCloudCopyHostError("sync_stalled","read_catch_up"));
+    await expect(f.session.select(collectionId)).rejects.toMatchObject({reason:"sync_stalled"});
+    expect(f.session.getSnapshot()).toMatchObject({status:"blocked",problem:"unavailable",problemDetail:{code:"sync_stalled",stage:"read_catch_up"}});
+    const session=f.session as unknown as {slots:Map<string,unknown>;publishSlot(slot:unknown,update:object):void};
+    const slot=session.slots.get(collectionId);expect(slot).toBeDefined();
+    session.publishSlot(slot,{status:"blocked"});
+    expect(f.session.getSnapshot().problemDetail).toMatchObject({stage:"read_catch_up"});
+    session.publishSlot(slot,{status:"blocked",problem:"recovery_required"});
+    expect(f.session.getSnapshot().problemDetail).toBeUndefined();
+    await f.session.close();
+  });
   it.each(["host", "collections"] as const)("resumes after one %s startup failure using the original sign-in flow",async stage=>{
     const f=fixture("paired","never");
     if(stage==="host")f.hostOpen.mockRejectedValueOnce(new AppCloudCopyHostError("unavailable"));

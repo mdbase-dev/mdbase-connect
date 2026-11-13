@@ -76,5 +76,5 @@ export { AppWebSignInSession } from "./web-sign-in-session.js";
 export type { AppWebSignInSessionOptions, AppWebSignInSnapshot, AppWebSignOutResult, AppWebCollectionConnection, AppWebCollectionLock, AppWebSignInPortal } from "./web-sign-in-session.js";
 export { AppAccountKeySealedBundle, AppCpAccountKeyControl, AppAccountKeyUnlockError, readAccountKeyMode, unlockPrivateDevice } from "./account-key-host.js";
 export type { AppAccountKeySecret, AppAccountKeyUnlockProblem, AppAccountKeySession, AppAccountKeyNative, AppAccountKeyHostOptions } from "./account-key-host.js";
-export { AppWebCloudCopyHost, AppCloudCopyHostError } from "./cloud-copy-host.js";
+export { AppWebCloudCopyHost, AppCloudCopyHostError, type AppCloudCopyHostStage } from "./cloud-copy-host.js";
 export type { AppCloudCopyHostSession, AppCloudCopyHostRelease } from "./cloud-copy-host.js";
