@@ -598,7 +598,10 @@ impl<S: Store> Replica<S> {
         // Without pending edits the index order is final: the store skips
         // `offset` matches by key (no source reads) and selects only the page, so
         // a deep page costs its own rows. With pending edits the layered records
-        // merge into the confirmed order, so the whole window is selected.
+        // merge into the confirmed order, so the whole window is selected. A
+        // keyset page in path order (no order terms) still pages: a layered
+        // record's frontier is its path, as a confirmed row's is, and the cursor
+        // stamp's view version ends the continuation at any local change.
         if q.offset > MAX_CONSTRAINED_OFFSET && self.fallback_budget().is_some() {
             return Err(ErrorCode::TooLarge.err_with_reason(
                 "query_budget_exceeded",
@@ -608,12 +611,18 @@ impl<S: Store> Replica<S> {
                 ),
             ));
         }
-        let paged = touched.is_empty();
+        let merged = !touched.is_empty()
+            && profile.order.is_empty()
+            && window_mode == Window::BudgetBounded
+            && (after.is_some() || q.offset == 0);
+        let paged = touched.is_empty() || merged;
         if after.is_some() && !paged {
             return Ok(Err(Decline::Window));
         }
-        let (skip, need) = if paged {
+        let (skip, need) = if touched.is_empty() {
             (q.offset, limit)
+        } else if merged {
+            (0, limit.saturating_add(touched.len() as u64))
         } else {
             (0, window.saturating_add(touched.len() as u64))
         };
@@ -671,12 +680,14 @@ impl<S: Store> Replica<S> {
                 validate_keyset_page(request, &page)?;
             }
             has_more = page.has_more;
-            confirmed.extend(
-                page.rows
-                    .into_iter()
-                    .filter(|r| !touched.contains(&r.id))
-                    .take(usize::try_from(window).unwrap_or(usize::MAX)),
-            );
+            confirmed.extend(page.rows.into_iter().filter(|r| !touched.contains(&r.id)));
+        }
+        // Pending edits removed `touched` from the store's selection; a merged
+        // page has more when its selection still exceeds the page.
+        let candidates = confirmed.len();
+        confirmed.truncate(usize::try_from(window).unwrap_or(usize::MAX));
+        if merged && candidates > confirmed.len() {
+            has_more = true;
         }
 
         // Layered: the layered documents, charged before they are parsed and
@@ -686,6 +697,11 @@ impl<S: Store> Replica<S> {
             let Some(rec) = lv.record(&convert::uuid(id)) else {
                 continue;
             };
+            // Order is path only: a layered record before the frontier was
+            // on an earlier page of this same view.
+            if after.is_some_and(|a| rec.path.as_str() <= a.path.as_str()) {
+                continue;
+            }
             budget
                 .charge(1, rec.source.len() as u64)
                 .map_err(|e| indexed_err(e, "the pending records"))?;
@@ -706,6 +722,7 @@ impl<S: Store> Replica<S> {
             }
         }
 
+        let layered_len = layered.len();
         // The store already skipped `offset` when paged.
         let (offset, end) = if paged {
             (0, usize::try_from(limit).unwrap_or(usize::MAX))
@@ -731,7 +748,7 @@ impl<S: Store> Replica<S> {
         let fits = fitting_prefix(&hydrate, budget.bytes_left(), budget.records_left());
         let short = fits < hydrate.len();
         if short {
-            if window_mode != Window::BudgetBounded || !paged || fits == 0 {
+            if window_mode != Window::BudgetBounded || !paged || fits == 0 || !layered.is_empty() {
                 return Err(budget_error("the matching records"));
             }
             hydrate.truncate(fits);
@@ -764,6 +781,8 @@ impl<S: Store> Replica<S> {
             )
         };
         self.trace_query("project_start");
+        // A merged keyset page ends at its last record, confirmed or layered.
+        let mut merged_frontier = None;
         let records: Vec<RecordView> = if layered.is_empty() {
             ids.iter()
                 .filter_map(|id| by_id.remove(id))
@@ -807,10 +826,27 @@ impl<S: Store> Replica<S> {
                     },
                 )
             });
-            keyed
+            let page: Vec<_> = keyed
                 .into_iter()
                 .skip(offset)
                 .take(end - offset.min(end))
+                .collect();
+            if merged {
+                // Every candidate after the frontier was selected (the store's
+                // rest is beyond its last row), so more remain exactly when the
+                // store has more or this page left candidates out.
+                has_more = has_more || candidates + layered_len > page.len();
+                merged_frontier = page.last().map(|(id, path, _, _, src)| QueryKeyedId {
+                    id: *id,
+                    keys: Vec::new(),
+                    path: path.clone(),
+                    encoded_bytes: match src {
+                        Source::Confirmed(r) => r.doc.len() as u64,
+                        Source::Layered(rec) => rec.source.len() as u64,
+                    },
+                });
+            }
+            page.into_iter()
                 .map(|(id, _, _, _, src)| match src {
                     Source::Confirmed(r) => Ok(confirmed_view(&r)),
                     // Already charged above; no second read.
@@ -831,7 +867,7 @@ impl<S: Store> Replica<S> {
             // Paged: the hydrated rows are exactly this prefix of `confirmed`.
             confirmed.truncate(fits);
         }
-        let frontier = paged.then(|| confirmed.pop()).flatten();
+        let frontier = merged_frontier.or_else(|| paged.then(|| confirmed.pop()).flatten());
         Ok(Ok(IndexedQueryPage {
             frontier,
             result: QueryResult {
