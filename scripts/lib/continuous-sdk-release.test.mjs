@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, wr
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { baselineHistory, contentChanged, dependentPackages, failedPublisherRuns, inputChanged, listReservations, packageInputs, publicationBaseline, publicationState, publicationTag, provenanceSource, qualifyWorkspace, readReservation, reserve, runtimeQualified, tagPublisher } from "../continuous-sdk-release.mjs";
+import { baselineHistory, contentChanged, dependentPackages, failedPublisherRuns, inputChanged, listReservations, packageInputs, publicationBaseline, publicationState, publicationTag, provenanceSource, qualifyWorkspace, readReservation, reserve, runtimeQualified, sharesReservations, tagPublisher } from "../continuous-sdk-release.mjs";
 import { publicPackages } from "../public-packages.mjs";
 
 const name = "@mdbase-dev/sdk";
@@ -117,13 +117,14 @@ const reservationApi = ({ type = "tag", target = commit, record = {} } = {}) => 
   throw new Error(`unexpected read ${path}`);
 };
 
-test("a publisher runs only on an annotated reservation of its own line at its own commit", () => {
-  assert.equal(readReservation("v0.1.0-beta.170", "workspace", commit, reservationApi()).commit, commit);
-  assert.throws(() => readReservation("v0.1.0-beta.170", "workspace", commit, reservationApi({ type: "commit" })), /annotated/);
-  assert.throws(() => readReservation("v0.1.0-beta.170", "workspace", commit, reservationApi({ target: "b".repeat(40) })), /exact commit/);
-  assert.throws(() => readReservation("v0.1.0-beta.170", "source", commit, reservationApi()));
-  assert.throws(() => readReservation("v0.1.0-beta.170", "workspace", commit, reservationApi({ record: { commit: "b".repeat(40) } })));
-  assert.throws(() => readReservation("v0.1.0-beta.170", "workspace", commit, reservationApi({ record: { schema: "mdbase-desktop-release/1" } })));
+test("a publisher runs only on an annotated reservation, by either line, at its own commit", () => {
+  assert.equal(readReservation("v0.1.0-beta.170", commit, reservationApi()).commit, commit);
+  assert.equal(readReservation("v0.1.0-beta.170", commit, reservationApi({ record: { kind: "source" } })).commit, commit);
+  assert.throws(() => readReservation("v0.1.0-beta.170", commit, reservationApi({ type: "commit" })), /annotated/);
+  assert.throws(() => readReservation("v0.1.0-beta.170", commit, reservationApi({ target: "b".repeat(40) })), /exact commit/);
+  assert.throws(() => readReservation("v0.1.0-beta.170", commit, reservationApi({ record: { kind: "desktop" } })));
+  assert.throws(() => readReservation("v0.1.0-beta.170", commit, reservationApi({ record: { commit: "b".repeat(40) } })));
+  assert.throws(() => readReservation("v0.1.0-beta.170", commit, reservationApi({ record: { schema: "mdbase-desktop-release/1" } })));
 });
 
 test("reservations are read from protected annotated tags and allocation sees every release tag", context => {
@@ -147,11 +148,13 @@ test("reservations are read from protected annotated tags and allocation sees ev
   real("tag", "-a", "sdk-v0.1.0-beta.174", "-m", record("workspace", second), second);
   const fetched = [];
   const runGit = (...args) => args[0] === "fetch" ? (fetched.push(args), "") : real(...args);
-  const found = listReservations("workspace", second, runGit);
+  const found = listReservations(second, ["source", "workspace"], runGit);
   assert.deepEqual(fetched, [["fetch", "--no-tags", "origin", "refs/tags/v*:refs/tags/v*"]]);
-  assert.deepEqual(found.reserved, ["v0.1.0-beta.172", "v0.1.0-beta.170"], "highest first; other lines, commits and mismatched peels excluded");
+  assert.deepEqual(found.reserved, ["v0.1.0-beta.172", "v0.1.0-beta.171", "v0.1.0-beta.170"],
+    "highest first; both lines' reservations of this commit, never other commits, mismatched peels or other schemas");
   assert.deepEqual(found.versions.sort(), ["0.1.0-beta.160", "0.1.0-beta.161", "0.1.0-beta.170", "0.1.0-beta.171", "0.1.0-beta.172", "0.1.0-beta.173"]);
-  assert.deepEqual(listReservations("source", second, runGit).reserved, ["v0.1.0-beta.171"]);
+  assert.deepEqual(listReservations(first, ["source", "workspace"], runGit).reserved, [], "a tag record naming another commit than its peel is no reservation");
+  assert.deepEqual(listReservations(second, ["source"], runGit).reserved, ["v0.1.0-beta.171"], "a commit that predates shared reservations reuses only its own line's tags");
 });
 
 test("tag publication starts once the production commit's own publisher accepts tag runs", () => {
@@ -164,6 +167,16 @@ test("tag publication starts once the production commit's own publisher accepts 
     const current = readFileSync(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), "utf8");
     assert.equal(tagPublisher(name === "publish-npm" ? "workspace" : "source", commit, () => current), true, name);
   }
+});
+
+test("the other line's tag is shared once the production commit's own planner accepts it", () => {
+  const show = text => (...args) => {
+    assert.deepEqual(args, ["show", `${commit}:scripts/continuous-sdk-release.mjs`]);
+    return text;
+  };
+  assert.equal(sharesReservations(commit, show("export function readReservation(tag, kind, commit, readApi = api) {\n")), false);
+  const current = readFileSync(new URL("../continuous-sdk-release.mjs", import.meta.url), "utf8");
+  assert.equal(sharesReservations(commit, show(current)), true);
 });
 
 test("the coordinator reserves only commits whose exact Runtime CI passed", () => {
@@ -228,6 +241,59 @@ test("the coordinator creates the protected tag, then dispatches the publisher o
   write(false, { packages: [] });
   assert.throws(() => reserve(planFile, env, harness().options));
 });
+
+for (const [kind, workflow, other] of [["source", "publish-sdk-npm.yml", "workspace"], ["workspace", "publish-npm.yml", "source"]]) {
+  test(`a ${kind} coordinator that loses the tag race to the ${other} line at the same commit publishes from that tag`, context => {
+    const directory = mkdtempSync(join(tmpdir(), "publication-race-"));
+    context.after(() => rmSync(directory, { recursive: true, force: true }));
+    const planFile = join(directory, "plan.json");
+    writeFileSync(planFile, JSON.stringify({ schema: 1, kind, commit,
+      packages: [{ name: "@mdbase-dev/sdk", directory: "runtime/packages/sdk", version: "0.1.0-beta.170" }],
+      reservation: { tag: "v0.1.0-beta.170", existing: false, shared: true } }));
+    const env = { GITHUB_REPOSITORY: "mdbase-dev/mdbase-connect", GITHUB_REF: "refs/heads/main", GITHUB_RUN_ID: "77", SDK_RELEASE_STOPPED: "false" };
+    const lost = ({ existing, runs = [] }) => {
+      const calls = [];
+      const reservations = existing ? reservationApi({ ...existing, record: { kind: other, ...existing.record } }) : () => { throw new Error("HTTP 404"); };
+      return { calls, options: {
+        readApi: path => {
+          if (path === `actions/workflows/${workflow}`) return { state: "active" };
+          if (path.startsWith(`actions/workflows/${workflow}/runs?branch=v0.1.0-beta.170&`)) return { workflow_runs: runs };
+          return reservations(path);
+        },
+        writeApi: (path, body) => {
+          calls.push(["write", path]);
+          if (path === "git/refs") throw new Error("gh: Reference already exists (HTTP 422)");
+          return { sha: "e".repeat(40) };
+        },
+        dispatch: (name, tag) => calls.push(["dispatch", name, tag])
+      } };
+    };
+    const joined = lost({ existing: {} });
+    assert.match(reserve(planFile, env, joined.options), /joined the existing reservation and dispatched/);
+    assert.deepEqual(joined.calls, [["write", "git/tags"], ["write", "git/refs"], ["dispatch", workflow, "v0.1.0-beta.170"]]);
+    const inFlight = lost({ existing: {}, runs: [{ head_branch: "v0.1.0-beta.170", path: `.github/workflows/${workflow}`, status: "queued", conclusion: null }] });
+    assert.match(reserve(planFile, env, inFlight.options), /in progress/);
+    assert.deepEqual(inFlight.calls.filter(call => call[0] === "dispatch"), []);
+    assert.throws(() => reserve(planFile, env, lost({ existing: { target: "b".repeat(40) } }).options), /not a reservation of .*exact commit/,
+      "a tag at another commit is never adopted");
+    assert.throws(() => reserve(planFile, env, lost({ existing: { type: "commit" } }).options), /not a reservation of .*annotated/,
+      "a lightweight tag is never adopted");
+    assert.throws(() => reserve(planFile, env, lost({ existing: { record: { commit: "b".repeat(40) } } }).options), /not a reservation of/);
+    const plan = JSON.parse(readFileSync(planFile, "utf8"));
+    writeFileSync(planFile, JSON.stringify({ ...plan, reservation: { ...plan.reservation, shared: false } }));
+    const predates = lost({ existing: {} });
+    assert.throws(() => reserve(planFile, env, predates.options), new RegExp(`${other} line's reservation and .* predates shared reservations`),
+      "a production commit whose own planner requires its line's tag never publishes from the other line's tag");
+    assert.deepEqual(predates.calls.filter(call => call[0] === "dispatch"), []);
+    const own = lost({ existing: { record: { kind } } });
+    assert.match(reserve(planFile, env, own.options), /joined the existing reservation/, "its own line's tag is always this reservation");
+    writeFileSync(planFile, JSON.stringify(plan));
+    const absent = lost({});
+    assert.throws(() => reserve(planFile, env, absent.options), error => error.cause?.message.includes("Reference already exists"),
+      "a ref failure without a matching tag keeps its cause and dispatches nothing");
+    assert.deepEqual(absent.calls.filter(call => call[0] === "dispatch"), []);
+  });
+}
 
 test("every workspace package, including UI, locales and unknown packages, requires production proof", async context => {
   const directory = mkdtempSync(join(tmpdir(), "workspace-compatibility-test-"));
@@ -491,7 +557,7 @@ function plannerFixture(context) {
   // tag: plan as the publisher dispatched on that reservation; otherwise as the
   // main coordinator whose own (main tip) commit is run.
   const execute = ({ kind, baselineCommit = production, run = production, selected = production, tag, published = [version],
-    tags = ["0.1.0-beta.161"], reserved = [], runtime = true, tagReady = true, reservation = true, compatibility = true, live = "true", aheadUi = false, priorFailure = false }) => {
+    tags = ["0.1.0-beta.161"], reserved = [], runtime = true, tagReady = true, reservation = true, shared = true, compatibility = true, live = "true", aheadUi = false, priorFailure = false }) => {
     git("checkout", "--detach", run);
     const summary = join(directory, "summary.md");
     const output = join(directory, "outputs");
@@ -508,11 +574,13 @@ await plan(${JSON.stringify(kind)}, ${JSON.stringify(planFile)}, process.env, {
   qualify: sha => { if (sha !== process.env.GITHUB_SHA && sha !== selected) throw new Error('wrong qualification'); },
   readPublished: async item => ({ version: ${JSON.stringify(published.at(-1))}, versions: ${JSON.stringify(published)},
     commit: ${JSON.stringify(aheadUi)} && item.name === '@mdbase-dev/ui' ? ${JSON.stringify(future)} : ${JSON.stringify(baselineCommit)} }),
-  reservation: (tag, kind, sha) => {
-    if (!${JSON.stringify(reservation)} || tag !== ${JSON.stringify(tag ?? null)} || kind !== ${JSON.stringify(kind)} || sha !== process.env.GITHUB_SHA) throw new Error('RAW-RESERVATION');
+  reservation: (tag, sha) => {
+    if (!${JSON.stringify(reservation)} || tag !== ${JSON.stringify(tag ?? null)} || sha !== process.env.GITHUB_SHA) throw new Error('RAW-RESERVATION');
   },
-  reservations: (kind, sha) => {
+  sharedAt: sha => { if (sha !== selected) throw new Error('wrong shared-reservation commit'); return ${JSON.stringify(shared)}; },
+  reservations: (sha, kinds) => {
     if (sha !== selected) throw new Error('reservations read for the wrong commit');
+    if (JSON.stringify(kinds) !== ${JSON.stringify(JSON.stringify(shared ? ["source", "workspace"] : [kind]))}) throw new Error('wrong reservation lines');
     return { versions: ${JSON.stringify(tags)}, reserved: ${JSON.stringify(reserved)} };
   },
   runtimeCi: sha => { if (sha !== selected) throw new Error('wrong runtime commit'); return ${JSON.stringify(runtime)}; },
@@ -550,7 +618,7 @@ for (const kind of ["source", "workspace"]) {
     const reserving = execute({ kind, baselineCommit: base, run: successor });
     assert.equal(reserving.status, 0, reserving.stderr);
     assert.equal(reserving.plan.commit, production);
-    assert.deepEqual(reserving.plan.reservation, { tag: "v0.1.0-beta.162", existing: false }, "above every package and release tag version");
+    assert.deepEqual(reserving.plan.reservation, { tag: "v0.1.0-beta.162", existing: false, shared: true }, "above every package and release tag version");
     assert.deepEqual(reserving.plan.packages.map(item => [item.name, item.version]), names.map(item => [item, "0.1.0-beta.162"]));
     assert.equal(reserving.plan.tag, undefined);
     assert.match(reserving.output, /^commit=[a-f0-9]{40}\nchanged=false\npublish=false\nreserve=true\nversion=0\.1\.0-beta\.162\n$/);
@@ -558,15 +626,19 @@ for (const kind of ["source", "workspace"]) {
     check(reserving, new RegExp(`reserving v0\\.1\\.0-beta\\.162 at ${production} to publish 0\\.1\\.0-beta\\.162`));
 
     const above = execute({ kind, baselineCommit: base, run: successor, tags: ["0.1.0-beta.170"], published: ["0.1.0-beta.9", "0.1.0-beta.180"] });
-    assert.deepEqual(above.plan.reservation, { tag: "v0.1.0-beta.181", existing: false });
+    assert.deepEqual(above.plan.reservation, { tag: "v0.1.0-beta.181", existing: false, shared: true });
     const tagged = execute({ kind, baselineCommit: base, run: successor, tags: ["0.1.0-beta.190"] });
-    assert.deepEqual(tagged.plan.reservation, { tag: "v0.1.0-beta.191", existing: false }, "Desktop and retired server tags share the namespace");
+    assert.deepEqual(tagged.plan.reservation, { tag: "v0.1.0-beta.191", existing: false, shared: true }, "Desktop and retired server tags share the namespace");
 
     const reuse = execute({ kind, baselineCommit: base, run: successor, tags: ["0.1.0-beta.200"], reserved: ["v0.1.0-beta.200", "v0.1.0-beta.170"] });
-    assert.deepEqual(reuse.plan.reservation, { tag: "v0.1.0-beta.200", existing: true });
+    assert.deepEqual(reuse.plan.reservation, { tag: "v0.1.0-beta.200", existing: true, shared: true });
+    const predatesShared = execute({ kind, baselineCommit: base, run: successor, shared: false, tags: ["0.1.0-beta.200"], reserved: ["v0.1.0-beta.200"] });
+    assert.equal(predatesShared.status, 0, predatesShared.stderr);
+    assert.deepEqual(predatesShared.plan.reservation, { tag: "v0.1.0-beta.200", existing: true, shared: false },
+      "a commit that predates shared reservations reads only its own line's tags");
     check(reuse, /dispatching reserved v0\.1\.0-beta\.200 at /);
     const stale = execute({ kind, baselineCommit: base, run: successor, published: ["0.1.0-beta.201"], tags: ["0.1.0-beta.200"], reserved: ["v0.1.0-beta.200"] });
-    assert.deepEqual(stale.plan.reservation, { tag: "v0.1.0-beta.202", existing: false }, "a reservation below a published version is never reused");
+    assert.deepEqual(stale.plan.reservation, { tag: "v0.1.0-beta.202", existing: false, shared: true }, "a reservation below a published version is never reused");
 
     const dry = execute({ kind, baselineCommit: base, run: successor, live: "false", priorFailure: true });
     assert.equal(dry.status, 0, dry.stderr);
