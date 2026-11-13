@@ -75,6 +75,10 @@ jobs:
       - name: determinism (native vs WASM replay)
         run: cargo xtask determinism
       - name: dedicated app runtime (feature tests, wasm32 clippy, size report, real SQLite ABI)
+        # Same path remapping as publish-sdk-npm.yml, so this build is byte-identical
+        # to the WASM the SDK publisher packs and can be checked against the SDK pin.
+        env:
+          RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=/source --remap-path-prefix=/home/runner/.cargo=/cargo
         run: cargo xtask wasm-app
       - name: Install isolated browser smoke tooling
         run: |
@@ -98,6 +102,9 @@ jobs:
             runtime/target/wasm/runtime.wasm
             runtime/target/wasm/app-runtime.wasm
           retention-days: 7
+      - name: SDK runtime pin matches this build
+        working-directory: .
+        run: node scripts/sdk-publication.mjs check-runtime-pin
 
   sdk:
     name: sdk execution
