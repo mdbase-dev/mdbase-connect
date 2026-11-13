@@ -52,6 +52,8 @@ it("lists real installation consent as app access and preserves unknown/legacy c
     const empty = await connector(owner, "app-runtime");
     const foreign = await connector(other, "app-runtime");
     const device = await connector(owner, "app-runtime");
+    const revoked = await connector();
+    await db.query("UPDATE connectors SET revoked_at=now() WHERE id=$1", [revoked.id]);
     await db.query("INSERT INTO installation_collection_scopes(connector_id,collection_id,file_actions) VALUES($1,$2,'{add}')", [scoped.id, collection]);
     await db.query("INSERT INTO installation_collection_scopes(connector_id,collection_id) VALUES($1,$2),($3,$2)", [scoped.id, hidden, foreign.id]);
     await db.query("INSERT INTO installation_collection_scopes(connector_id,collection_id,private_device) VALUES($1,$2,true)", [device.id, collection]);
@@ -62,6 +64,11 @@ it("lists real installation consent as app access and preserves unknown/legacy c
     expect(nativeDevicesByCollection).toHaveBeenCalledExactlyOnceWith(db, [collection], owner);
     expect(overview.connectors.map((row: { id: string }) => row.id).sort()).toEqual([legacy.id, mobile.id, unknown.id].sort());
     expect(overview.installation_access).toHaveLength(5);
+    // The delete-account dialog counts exactly the computers listed above:
+    // not app installation devices (shown as app access) or revoked rows.
+    const account = await app.inject({ url: "/v1/account", headers: { cookie } });
+    expect(account.statusCode, account.body).toBe(200);
+    expect(account.json().deletion.computers).toBe(overview.connectors.length);
     expect(overview.installation_access).toContainEqual(expect.objectContaining({ connector_id: mobileApp.id, device_kind: "mobile", collection_id: null }));
     expect(overview.installation_access).toContainEqual(expect.objectContaining({ connector_id: scoped.id, installation_id: scoped.installation, application_name: "Reader", collection_id: collection, collection_name: "Own collection", role: "owner", available: true, approved_optional_file_actions: ["add"], private_device: false }));
     // Device access is reported, so the portal can say the app may have had the account's encryption key.

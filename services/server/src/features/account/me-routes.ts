@@ -8,6 +8,7 @@ import {
   accountCollectionCreation
 } from "../collections/collection-catalog.js";
 import type { DatabasePool } from "../../db.js";
+import { listAccountComputers } from "./computers.js";
 import { effectiveEntitlement } from "./entitlements.js";
 import {
   contractRequirements,
@@ -47,19 +48,6 @@ interface AccountOverviewRouteOptions {
   hostedReference?: HostedAuthorityRegistry;
 }
 
-interface AccountConnectorRow {
-  id: string;
-  name: string;
-  last_seen_at: string | null;
-  created_at: string;
-  connector_version: string | null;
-  last_incompatible_at: string | null;
-  incompatibility_code: string | null;
-  minimum_connector_version: string | null;
-  connector_update_url: string | null;
-  latest_policy_ack_mode: "lease_v1" | "legacy_ack_v0" | null;
-}
-
 export function registerAccountOverviewRoute(
   app: FastifyInstance,
   options: AccountOverviewRouteOptions
@@ -85,21 +73,7 @@ export function registerAccountOverviewRoute(
          AND d.kind IN ('desktop', 'cli') LIMIT 1`,
       [user.id]
     );
-    const connectors = await options.db.query<AccountConnectorRow>(
-      `SELECT c.id, c.name, c.last_seen_at, c.created_at,
-              c.connector_version, c.last_incompatible_at,
-              c.incompatibility_code, c.minimum_connector_version,
-              c.connector_update_url, c.latest_policy_ack_mode
-       FROM connectors c
-       LEFT JOIN installation_device_credentials installation
-         ON installation.connector_id = c.id
-       LEFT JOIN applications installed_app ON installed_app.id::text = installation.app_id
-         AND installed_app.family_identity IS NOT NULL
-       WHERE c.user_id = $1 AND c.revoked_at IS NULL
-         AND installed_app.id IS NULL
-       ORDER BY c.created_at`,
-      [user.id]
-    );
+    const connectors = await listAccountComputers(options.db, user.id);
     const localCatalog = await listLocalCollectionsVisibleToUser(
       options.db,
       user.id
@@ -351,7 +325,7 @@ export function registerAccountOverviewRoute(
         provider: authenticationProvider ?? (options.tailscaleAuth ? "tailscale" : "session"),
         registration: authenticationSettings.registrationMode
       },
-      connectors: connectors.rows.map((connector) => ({
+      connectors: connectors.map((connector) => ({
         id: connector.id,
         name: connector.name,
         last_seen_at: connector.last_seen_at,
