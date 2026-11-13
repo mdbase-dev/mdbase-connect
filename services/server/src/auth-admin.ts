@@ -45,6 +45,7 @@ interface AuthAdminContext {
   defaultRegistrationMode: RegistrationMode;
   runtimeRevision?: string;
   publicUrl?: string;
+  nextLabBackup?: (argv: string[]) => Promise<unknown>;
   emailTransport?: EmailTransport;
   hostedReplicaRevoker?: HostedReplicaRevoker;
   connectorSessionFencer?: ConnectorSessionFencer;
@@ -68,6 +69,7 @@ async function runCommand(
     requireNoArguments(rest);
     return runCommand(decodeRequestEnvelope(action), context, false);
   }
+  if (area === "next" && action === "lab-backup" && context.nextLabBackup) return context.nextLabBackup(rest);
   if (area === "archive" && action === "drain-deletions") {
     const flags = parseFlags(rest, new Set(["cohort", "expected-revision", "operation-id", "actor", "reason"]));
     return drainArchiveErasures(context.db, context.hostedProvider, context.runtimeRevision,
@@ -177,7 +179,6 @@ async function runCommand(
   }
   throw new AuthAdminUsageError(usage());
 }
-
 async function showEntitlements(
   argv: string[],
   context: AuthAdminContext
