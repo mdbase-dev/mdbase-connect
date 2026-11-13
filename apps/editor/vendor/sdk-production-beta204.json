@@ -1,0 +1,48 @@
+{
+  "schema": "tnapp/production-sdk-original/1",
+  "artifact": "sdk-6f79bdb3-production-beta204.tgz",
+  "version": "0.1.0-beta.204",
+  "sourceCommit": "6f79bdb323240c6d7c7d16c3dc8229102ffb4849",
+  "environment": "production",
+  "bytes": 4832411,
+  "sha256": "2f014c52f4f04a3402864553ad6556a2b6b0ae88b27161845748dde3837e431a",
+  "sri": "sha512-/Yik8gh+0RbszoATRLvQB91YQxqh8YJRUoKQv4qCCKJaZrvbvRe+hTEYZ6mU7S4ISaudbpEHC6M7s6mqoLkGXQ==",
+  "publication": {
+    "repository": "mdbase-dev/mdbase-connect",
+    "workflow": ".github/workflows/publish-sdk-npm.yml",
+    "ref": "refs/tags/v0.1.0-beta.204",
+    "npm": "@mdbase-dev/sdk@0.1.0-beta.204",
+    "integrity": "sha512-/Yik8gh+0RbszoATRLvQB91YQxqh8YJRUoKQv4qCCKJaZrvbvRe+hTEYZ6mU7S4ISaudbpEHC6M7s6mqoLkGXQ==",
+    "tarball": "https://registry.npmjs.org/@mdbase-dev/sdk/-/sdk-0.1.0-beta.204.tgz",
+    "attestations": "https://registry.npmjs.org/-/npm/v1/attestations/@mdbase-dev%2fsdk@0.1.0-beta.204"
+  },
+  "trust": {
+    "package": "@mdbase-dev/sdk",
+    "sha256": "7912e40838213e60b65848350d319a48019021317b112e3326429b250f0133d7",
+    "bytes": 840,
+    "cpOrigin": "https://connect.mdbase.dev",
+    "logOrigin": "https://log.mdbase.dev",
+    "sourceCommit": "36abd4b065be9495a7f5ae0808865a1f2279af04",
+    "sourceVersion": "0.1.0-beta.141"
+  },
+  "runtime": {
+    "sha256": "4809422ebf7a9fde097879ea9675648e4df3414bc4aff2c9ef699882f4560708",
+    "bytes": 3886727,
+    "maxBytes": 3886727,
+    "source": {
+      "repository": "mdbase-dev/mdbase-connect",
+      "commit": "3513c3aa888c6d08e8300d7802f249089d0d5061"
+    }
+  },
+  "packagedTrustModuleSha256": "cf9690968d68b3c1eed2356ccfa2c72198b2f8cf07b9b24b1bb7be499b05bffb",
+  "bundledDependencies": [
+    {
+      "name": "@mdbase-dev/connect-protocol",
+      "member": "package/vendor/mdbase-dev-connect-protocol-0.1.0-beta.145-e6e66bcd172f.tgz",
+      "bytes": 106404,
+      "sha256": "e901144b8d93dc96fcf71d9d8f85dddbf647e9908913be21191c484e9224bb98"
+    }
+  ],
+  "artifactFacts": "sdk-6f79bdb3-production-beta204.facts.json",
+  "artifactFactsSha256": "6fe7cef40f1aab1bbccefbce1771c8335b2d72d8c0ce8c5ae6ad22dba6321670"
+}
