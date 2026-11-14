@@ -12,6 +12,10 @@ plugin directory. It uses the portable
 | `skills/mdbase-frontends` | How to build pages and apps on a collection |
 | `assets/` | Copies of `assets/mdbase-app-icon-512.png` and `-120.png` |
 
+The same directory holds the [Claude plugin](./claude-plugin.md)'s manifest,
+connector file and README. The package command below leaves all three out of
+the ZIP.
+
 The plugin adds no server code. Authentication, tools and the trust boundary
 are the [hosted MCP gateway](./mcp-gateway.md)'s. The review cases must also
 pass with the gateway added on its own, without the skills: the gateway's
@@ -51,10 +55,11 @@ same change that adds, renames or removes a gateway tool.
 ## Package
 
 ```bash
-cd plugins/mdbase && zip -r -X ../../mdbase-plugin.zip . -x '.*'
+cd plugins/mdbase && zip -r -X ../../mdbase-plugin.zip . -x '.*' README.md
 ```
 
-Bump `version` in `plugin.json` for every corrected upload. Gateway changes
+Bump `version` in `plugin.json` and `.claude-plugin/plugin.json` together for
+every corrected upload. Gateway changes
 need no new package upload: eligible hosted-server updates are picked up
 automatically after automated checks. Do not promise a publication deadline.
 Use the gateway's release process for changes, not a manual deployment.

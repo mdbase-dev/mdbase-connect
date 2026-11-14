@@ -1,0 +1,16 @@
+{
+  "name": "mdbase",
+  "displayName": "mdbase",
+  "version": "0.1.1",
+  "description": "Connect Claude to the markdown collections you approve in mdbase connect.",
+  "author": { "name": "mdbase", "url": "https://mdbase.dev" },
+  "homepage": "https://mdbase.dev",
+  "repository": "https://github.com/mdbase-dev/mdbase-connect",
+  "license": "MIT",
+  "keywords": ["markdown", "frontmatter", "notes", "database", "mdbase"],
+  "icon": "./assets/logo.png",
+  "documentationUrl": "https://mdbase.dev/apps/mcp/",
+  "supportUrl": "https://mdbase.dev/support/",
+  "privacyPolicyUrl": "https://mdbase.dev/privacy/",
+  "termsOfServiceUrl": "https://mdbase.dev/terms/"
+}

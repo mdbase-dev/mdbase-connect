@@ -86,8 +86,9 @@ See the [MCP gateway guide](docs/mcp-gateway.md) for supported tools and the
 gateway's trust boundary.
 
 The mdbase plugin package bundles this endpoint with collection skills for
-ChatGPT and Codex. For local testing and directory submission, see
-[ChatGPT and Codex plugin](docs/chatgpt-plugin.md).
+ChatGPT, Codex and Claude. For local testing and directory submission, see
+[ChatGPT and Codex plugin](docs/chatgpt-plugin.md) and
+[Claude plugin](docs/claude-plugin.md).
 
 ## Release notes
 

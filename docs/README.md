@@ -37,6 +37,7 @@ Git history is the archive for finished phases, campaigns and superseded designs
 - [device-approval-peer-metadata.md](device-approval-peer-metadata.md) — signed device-approval candidate metadata.
 - [portable-apps.md](portable-apps.md) — portable HTML applications.
 - [chatgpt-plugin.md](chatgpt-plugin.md) — ChatGPT and Codex plugin.
+- [claude-plugin.md](claude-plugin.md) — Claude plugin.
 - [mcp-gateway.md](mcp-gateway.md) — hosted MCP gateway.
 
 ## SDK
