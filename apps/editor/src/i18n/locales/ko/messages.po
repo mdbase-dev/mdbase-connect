@@ -2976,14 +2976,6 @@ msgstr "필수 계약 필드 {0}을(를) 매핑하세요."
 msgid "Mapping ready"
 msgstr "매핑 준비 완료"
 
-#: src/CodeEditor.tsx
-msgid "Mark task complete"
-msgstr "작업 완료로 표시"
-
-#: src/CodeEditor.tsx
-msgid "Mark task incomplete"
-msgstr "작업 미완료로 표시"
-
 #: src/editor-commands.ts
 msgid "Markdown commands"
 msgstr "Markdown 명령"
@@ -3398,9 +3390,7 @@ msgid "No nested fields yet."
 msgstr "아직 중첩 필드가 없습니다."
 
 #. placeholder {0}: reference.target
-#. placeholder {0}: this.target
 #: src/code-editor-reference-diagnostics.ts
-#: src/CodeEditor.tsx
 msgid "No note or file matches “{0}”."
 msgstr "“{0}”과(와) 일치하는 노트나 파일이 없습니다."
 

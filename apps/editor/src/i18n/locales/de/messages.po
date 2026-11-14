@@ -2976,14 +2976,6 @@ msgstr "Ordnen Sie das erforderliche Vertragsfeld {0} zu."
 msgid "Mapping ready"
 msgstr "Zuordnung bereit"
 
-#: src/CodeEditor.tsx
-msgid "Mark task complete"
-msgstr "Aufgabe abschließen"
-
-#: src/CodeEditor.tsx
-msgid "Mark task incomplete"
-msgstr "Aufgabe als unvollständig markieren"
-
 #: src/editor-commands.ts
 msgid "Markdown commands"
 msgstr "Markdown-Befehle"
@@ -3398,9 +3390,7 @@ msgid "No nested fields yet."
 msgstr "Noch keine verschachtelten Felder."
 
 #. placeholder {0}: reference.target
-#. placeholder {0}: this.target
 #: src/code-editor-reference-diagnostics.ts
-#: src/CodeEditor.tsx
 msgid "No note or file matches “{0}”."
 msgstr "Keine Notiz oder Datei passt zu „{0}“."
 

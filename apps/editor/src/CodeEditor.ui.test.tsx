@@ -89,9 +89,10 @@ describe("writer presentation", () => {
     expect(body).toHaveAttribute("spellcheck", "true");
   });
 
-  it("parses GitHub-flavoured strikethrough and quiets its markers", () => {
+  it("parses GitHub-flavoured strikethrough and hides its markers away from the caret", () => {
     const { container } = render(<CodeEditor value={"Start.\nThis is ~~gone~~ now."} label="Note body" language="markdown" variant="writer" quietMarkdown />);
-    expect([...container.querySelectorAll(".cm-markdown-mark")].map((mark) => mark.textContent)).toEqual(["~~", "~~"]);
+    expect([...container.querySelectorAll(".cm-lp-strike")].map((text) => text.textContent)).toEqual(["gone"]);
+    expect(container.querySelector(".cm-content")).not.toHaveTextContent("~~");
   });
 
   it("shows a link to a missing note differently from a working one", async () => {
@@ -99,9 +100,9 @@ describe("writer presentation", () => {
       linkSuggestions={[{ path: "Known.md", title: "Known" }]}
       linkTargets={linkTargets("Today.md", { "[[Known]]": { kind: "note", path: "Known.md" } })} />);
     const missing = await screen.findByRole("link", { name: "Missing" });
-    await vi.waitFor(() => expect(missing.ownerDocument.querySelector(".cm-rendered-link-missing")).not.toBeNull(), { timeout: 3_000 });
-    expect(screen.getByRole("link", { name: "Missing" })).toHaveClass("cm-rendered-link-missing");
-    expect(screen.getByRole("link", { name: "Known" })).not.toHaveClass("cm-rendered-link-missing");
+    await vi.waitFor(() => expect(missing.ownerDocument.querySelector(".cm-lp-link-missing")).not.toBeNull(), { timeout: 3_000 });
+    expect(screen.getByRole("link", { name: "Missing" })).toHaveClass("cm-lp-link-missing");
+    expect(screen.getByRole("link", { name: "Known" })).not.toHaveClass("cm-lp-link-missing");
   });
 });
 

@@ -2976,14 +2976,6 @@ msgstr "Mapeie o campo obrigatório do contrato {0}."
 msgid "Mapping ready"
 msgstr "Mapeamento pronto"
 
-#: src/CodeEditor.tsx
-msgid "Mark task complete"
-msgstr "Marcar tarefa como concluída"
-
-#: src/CodeEditor.tsx
-msgid "Mark task incomplete"
-msgstr "Marcar tarefa como não concluída"
-
 #: src/editor-commands.ts
 msgid "Markdown commands"
 msgstr "Comandos Markdown"
@@ -3398,9 +3390,7 @@ msgid "No nested fields yet."
 msgstr "Ainda não há campos aninhados."
 
 #. placeholder {0}: reference.target
-#. placeholder {0}: this.target
 #: src/code-editor-reference-diagnostics.ts
-#: src/CodeEditor.tsx
 msgid "No note or file matches “{0}”."
 msgstr "Nenhuma nota ou arquivo corresponde a “{0}”."
 

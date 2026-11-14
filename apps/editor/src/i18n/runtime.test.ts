@@ -50,7 +50,6 @@ describe("editor catalogue composition", () => {
 
   it("does not catalogue CSS classes or sidebar behavior identifiers", () => {
     const messages = Object.values(editorEnglish.messages);
-    expect(messages).not.toContain("cm-task-checkbox mdbase-checkbox");
     expect(messages).not.toContain("show");
     expect(messages).not.toContain("hide");
   });
