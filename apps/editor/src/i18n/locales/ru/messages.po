@@ -1190,6 +1190,7 @@ msgstr "Блок · {0}"
 msgid "Body differences"
 msgstr "Различия в тексте"
 
+#: src/CodeEditor.tsx
 #: src/editor-commands.ts
 msgid "Bold"
 msgstr "Полужирный"
@@ -1203,6 +1204,7 @@ msgid "Browse ready-made types"
 msgstr "Просмотреть готовые типы"
 
 #: src/code-editor-completions.ts
+#: src/CodeEditor.tsx
 msgid "Bulleted list"
 msgstr "Маркированный список"
 
@@ -1890,6 +1892,10 @@ msgstr "Не удалось загрузить {name}. Файлы с расши�
 msgid "Create a note for yourself, starting from your account name."
 msgstr "Создайте заметку о себе, начав с имени в вашей учётной записи."
 
+#: src/App.tsx
+msgid "Create a note from what was shared?"
+msgstr "Создать заметку из того, чем поделились?"
+
 #: src/TypeBrowser.tsx
 msgid "Create fields that already match an installed contract. You can rename and remap them later."
 msgstr "Создайте поля, уже соответствующие установленному контракту. Позже их можно переименовать и сопоставить заново."
@@ -1897,6 +1903,10 @@ msgstr "Создайте поля, уже соответствующие уст�
 #: src/YourPersonPanel.tsx
 msgid "Create my person record"
 msgstr "Создать мою запись о пользователе"
+
+#: src/App.tsx
+msgid "Create note"
+msgstr "Создать заметку"
 
 #. placeholder {0}: query.trim()
 #: src/QuickOpen.tsx
@@ -2129,7 +2139,9 @@ msgstr "Структура документа"
 msgid "Documentation"
 msgstr "Документация"
 
+#: src/App.tsx
 #: src/FolderChangeDialog.tsx
+#: src/writing-toolbar.tsx
 msgid "Done"
 msgstr "Готово"
 
@@ -2507,6 +2519,10 @@ msgstr "Забыть в этом браузере"
 msgid "Format"
 msgstr "Формат"
 
+#: src/writing-toolbar.tsx
+msgid "Formatting"
+msgstr "Форматирование"
+
 #: src/editor-commands.ts
 msgid "Forward"
 msgstr "Вперёд"
@@ -2570,6 +2586,10 @@ msgstr "Перейти к заголовку заметки"
 msgid "Guide compatible tools when they create or rename records of this type."
 msgstr "Укажите совместимым инструментам, как создавать и переименовывать записи этого типа."
 
+#: src/CodeEditor.tsx
+msgid "Heading"
+msgstr "Заголовок"
+
 #: src/code-editor-completions.ts
 msgid "Heading 1"
 msgstr "Заголовок 1"
@@ -2630,6 +2650,10 @@ msgstr "в списке"
 #: src/type-contracts.ts
 msgid "Incompatible"
 msgstr "Несовместимо"
+
+#: src/CodeEditor.tsx
+msgid "Indent"
+msgstr "Увеличить отступ"
 
 #: src/editor-commands.ts
 msgid "Inline code"
@@ -2699,6 +2723,7 @@ msgstr "Недопустимый JSON."
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
 msgstr "С момента добавления запись не редактировалась, поэтому она будет заменена новой начальной записью."
 
+#: src/CodeEditor.tsx
 #: src/editor-commands.ts
 msgid "Italic"
 msgstr "Курсив"
@@ -2809,6 +2834,10 @@ msgstr "Связать эту запись со мной"
 #: src/code-editor-reference-diagnostics.ts
 msgid "Link to {title}"
 msgstr "Сослаться на «{title}»"
+
+#: src/CodeEditor.tsx
+msgid "Link to note"
+msgstr "Ссылка на заметку"
 
 #: src/code-editor-completions.ts
 msgid "Link to note or file"
@@ -3764,6 +3793,10 @@ msgstr "Другие правила коллекции"
 msgid "Other fields are allowed"
 msgstr "Другие поля разрешены"
 
+#: src/CodeEditor.tsx
+msgid "Outdent"
+msgstr "Уменьшить отступ"
+
 #: src/editor-commands.ts
 msgid "outside text inputs"
 msgstr "вне текстовых полей"
@@ -4574,6 +4607,10 @@ msgstr "Заголовок раздела"
 msgid "Section in note"
 msgstr "Раздел в заметке"
 
+#: src/NoteList.tsx
+msgid "Select"
+msgstr "Выбрать"
+
 #: src/WorkspaceChrome.tsx
 msgid "Select a note, or start a new one."
 msgstr "Выберите заметку или создайте новую."
@@ -4833,6 +4870,7 @@ msgid "Tags must be text or a list of text before they can be changed together."
 msgstr "Теги должны быть текстом или списком текстовых значений, чтобы их можно было изменить вместе."
 
 #: src/code-editor-completions.ts
+#: src/CodeEditor.tsx
 msgid "Task"
 msgstr "Задача"
 

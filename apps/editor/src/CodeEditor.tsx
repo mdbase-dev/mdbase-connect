@@ -4,7 +4,7 @@ import { englishCodeMirrorPhrases, loadCodeMirrorPhrases } from "@mdbase-dev/i18
 import { t } from "@lingui/core/macro";
 import { commandDefinitions } from "./editor-commands";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
-import { defaultKeymap, history, historyField, historyKeymap } from "@codemirror/commands";
+import { defaultKeymap, history, historyField, historyKeymap, indentLess, indentMore } from "@codemirror/commands";
 import { markdown, markdownKeymap, markdownLanguage, pasteURLAsLink } from "@codemirror/lang-markdown";
 import {
   bracketMatching,
@@ -29,15 +29,19 @@ import {
   type DecorationSet
 } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { cycleHeading, insertNoteLink, toggleBulletList, toggleTask } from "./writing-commands";
+import { WritingToolbar, type WritingAction } from "./writing-toolbar";
+import { LinkIcon, ListBulletsIcon, ListChecksIcon, TextBIcon, TextHTwoIcon, TextIndentIcon, TextItalicIcon, TextOutdentIcon } from "./icons";
 import { createPortal } from "react-dom";
 import { parseDocument as parseYamlDocument } from "yaml";
 import type { FileAssetSnapshot } from "./file-asset-store";
 import type { ResolvedFileReference } from "./use-file-assets";
 import { writerAutocomplete } from "./code-editor-completions";
-import { attachmentCapture, blockAttachmentInsertion, fileEmbedPresentation } from "./code-editor-file-embeds";
+import { attachmentCapture, blockAttachmentInsertion, fileEmbedPresentation, parsedFileEmbeds } from "./code-editor-file-embeds";
 import type { AttachmentUploader } from "./AttachmentUpload";
-import { noteEmbedPresentation } from "./code-editor-note-embeds";
+import { noteEmbedPresentation, parsedNoteEmbeds } from "./code-editor-note-embeds";
+import type { ParsedEmbeds } from "./code-editor-embed-positions";
 import { MISSING_REFERENCE_CLASS, referenceDiagnostics } from "./code-editor-reference-diagnostics";
 import { writerInteractions } from "./code-editor-writer-interactions";
 import type { LinkTargets } from "./collection-links";
@@ -79,8 +83,8 @@ interface CodeEditorProps {
   onCreateLink?: (target: string, label: string | undefined, format: "wikilink" | "markdown") => void;
   onPreviewLink?: (path: string, anchor: NotePreviewAnchor, source: NotePreviewSource) => void;
   onDismissLinkPreview?: () => void;
-  embeddedFiles?: ResolvedFileReference[];
-  embeddedNotes?: ResolvedNoteEmbed[];
+  embeddedFiles?: ParsedEmbeds<ResolvedFileReference>;
+  embeddedNotes?: ParsedEmbeds<ResolvedNoteEmbed>;
   onOpenFile?: (asset: Extract<FileAssetSnapshot, { status: "ready" }>) => void;
   files?: CollectionFile[];
   notes?: NoteSummary[];
@@ -118,8 +122,6 @@ interface MarkdownEdit {
 
 const EMPTY_STRINGS: string[] = [];
 const EMPTY_SUGGESTIONS: LinkSuggestion[] = [];
-const EMPTY_FILE_EMBEDS: ResolvedFileReference[] = [];
-const EMPTY_NOTE_EMBEDS: ResolvedNoteEmbed[] = [];
 const EMPTY_FILES: CollectionFile[] = [];
 const EMPTY_NOTES: NoteSummary[] = [];
 const EMPTY_ANCHORS: readonly CommentAnchor[] = [];
@@ -162,8 +164,8 @@ export function CodeEditor({
   onCreateLink,
   onPreviewLink,
   onDismissLinkPreview,
-  embeddedFiles = EMPTY_FILE_EMBEDS,
-  embeddedNotes = EMPTY_NOTE_EMBEDS,
+  embeddedFiles,
+  embeddedNotes,
   onOpenFile,
   files = EMPTY_FILES,
   notes = EMPTY_NOTES,
@@ -219,13 +221,22 @@ export function CodeEditor({
   const onCreateLinkRef = useRef(onCreateLink);
   const onPreviewLinkRef = useRef(onPreviewLink);
   const onDismissLinkPreviewRef = useRef(onDismissLinkPreview);
-  const embeddedFilesRef = useRef(embeddedFiles);
-  const embeddedNotesRef = useRef(embeddedNotes);
   const onOpenFileRef = useRef(onOpenFile);
   // Widgets capture callbacks during decoration creation; retained DOM must
   // forward to the latest prop rather than capture that render's callback.
   const openEmbeddedNote = useRef((path: string) => onOpenLinkRef.current?.(path)).current;
   const openEmbeddedFile = useRef((asset: Extract<FileAssetSnapshot, { status: "ready" }>) => onOpenFileRef.current?.(asset)).current;
+  const writingActions = useMemo((): WritingAction[] => [
+    { label: t`Heading`, icon: TextHTwoIcon, run: cycleHeading },
+    { label: t`Bold`, icon: TextBIcon, run: markdownFormatCommand("bold") },
+    { label: t`Italic`, icon: TextItalicIcon, run: markdownFormatCommand("italic") },
+    { label: t`Link to note`, icon: LinkIcon, run: insertNoteLink },
+    { label: t`Bulleted list`, icon: ListBulletsIcon, run: toggleBulletList },
+    { label: t`Task`, icon: ListChecksIcon, run: toggleTask },
+    { label: t`Outdent`, icon: TextOutdentIcon, run: (view) => outdentListItem(view) || indentLess(view) },
+    { label: t`Indent`, icon: TextIndentIcon, run: (view) => indentListItem(view) || indentMore(view) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- labels follow the locale
+  ], [i18n.locale]);
   const canOpenEmbeddedNote = Boolean(onOpenLink);
   const canOpenEmbeddedFile = Boolean(onOpenFile);
   const filesRef = useRef(files);
@@ -243,6 +254,15 @@ export function CodeEditor({
   const onUploadAttachmentRef = useRef(onUploadAttachment);
   onUploadAttachmentRef.current = variant === "writer" && language === "markdown" ? onUploadAttachment : undefined;
   const lineSeparator = useRef(lineSeparatorFor(value));
+  const [focused, setFocused] = useState(false);
+  const [touch] = useState(() => typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches);
+  // The bottom of the screen the touch formatting bar and keyboard cover; the caret scrolls clear of it.
+  const covered = useRef(0);
+  const reserve = useCallback((bottom: number) => {
+    covered.current = bottom;
+    // Let the end of the note scroll up past the bar too.
+    viewRef.current?.scrollDOM.style.setProperty("padding-bottom", bottom ? `${bottom}px` : "");
+  }, []);
 
   linkSuggestionsRef.current = linkSuggestions;
   linkTypesRef.current = linkTypes;
@@ -253,8 +273,6 @@ export function CodeEditor({
   onCreateLinkRef.current = onCreateLink;
   onPreviewLinkRef.current = onPreviewLink;
   onDismissLinkPreviewRef.current = onDismissLinkPreview;
-  embeddedFilesRef.current = embeddedFiles;
-  embeddedNotesRef.current = embeddedNotes;
   onOpenFileRef.current = onOpenFile;
   filesRef.current = files;
   notesRef.current = notes;
@@ -301,12 +319,10 @@ export function CodeEditor({
       ) : []),
       writerPresentation.current.of(writerPresentationFor(variant, quietMarkdown)),
       fileEmbeds.current.of(variant === "writer" && language === "markdown" ? fileEmbedPresentation(
-        () => embeddedFilesRef.current,
         () => onOpenFileRef.current ? openEmbeddedFile : undefined,
         () => onVisibleFileEmbedsRef.current
       ) : []),
       noteEmbeds.current.of(variant === "writer" && language === "markdown" ? noteEmbedPresentation(
-        () => embeddedNotesRef.current,
         () => onOpenLinkRef.current ? openEmbeddedNote : undefined,
         () => onVisibleNoteEmbedsRef.current
       ) : []),
@@ -327,7 +343,9 @@ export function CodeEditor({
       editorAttributes.current.of(EditorView.contentAttributes.of(contentAttributes(label, variant, language))),
       placeholderMode.current.of(placeholder ? editorPlaceholder(placeholder) : []),
       phraseMode.current.of(EditorState.phrases.of(englishCodeMirrorPhrases)),
+      EditorView.scrollMargins.of(() => ({ bottom: covered.current })),
       EditorView.updateListener.of((update) => {
+        if (update.focusChanged) setFocused(update.view.hasFocus);
         if (update.docChanged && !syncing.current) {
           onChangeRef.current?.(restoreLineSeparators(update.state.doc.toString(), lineSeparator.current));
         }
@@ -468,13 +486,12 @@ export function CodeEditor({
     view.dispatch({
       effects: fileEmbeds.current.reconfigure(
         variant === "writer" && language === "markdown" ? fileEmbedPresentation(
-          () => embeddedFilesRef.current,
           () => onOpenFileRef.current ? openEmbeddedFile : undefined,
           () => onVisibleFileEmbedsRef.current
         ) : []
       )
     });
-  }, [embeddedFiles, language, canOpenEmbeddedFile, variant, i18n.locale]);
+  }, [language, canOpenEmbeddedFile, variant, i18n.locale]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -482,13 +499,22 @@ export function CodeEditor({
     view.dispatch({
       effects: noteEmbeds.current.reconfigure(
         variant === "writer" && language === "markdown" ? noteEmbedPresentation(
-          () => embeddedNotesRef.current,
           () => onOpenLinkRef.current ? openEmbeddedNote : undefined,
           () => onVisibleNoteEmbedsRef.current
         ) : []
       )
     });
-  }, [embeddedNotes, language, canOpenEmbeddedNote, variant, i18n.locale]);
+  }, [language, canOpenEmbeddedNote, variant, i18n.locale]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    const effects = [
+      ...(embeddedFiles ? [parsedFileEmbeds.of(embeddedFiles)] : []),
+      ...(embeddedNotes ? [parsedNoteEmbeds.of(embeddedNotes)] : [])
+    ];
+    if (effects.length) view.dispatch({ effects });
+  }, [embeddedFiles, embeddedNotes, language, variant]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -613,7 +639,10 @@ export function CodeEditor({
       if (next instanceof Node && event.currentTarget.contains(next)) return;
       onBlur?.();
     }}
-  >{headerHost && createPortal(header, headerHost)}{footerHost && footer && createPortal(footer, footerHost)}</div>;
+  >{headerHost && createPortal(header, headerHost)}{footerHost && footer && createPortal(footer, footerHost)}
+    {touch && focused && variant === "writer" && language === "markdown" && !readOnly && viewRef.current
+      && <WritingToolbar view={viewRef.current} actions={writingActions} reserve={reserve} />}
+  </div>;
 }
 
 export function lineSeparatorFor(value: string): "\n" | "\r\n" {

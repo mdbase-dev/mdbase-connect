@@ -1190,6 +1190,7 @@ msgstr "Bloque · {0}"
 msgid "Body differences"
 msgstr "Diferencias en el cuerpo"
 
+#: src/CodeEditor.tsx
 #: src/editor-commands.ts
 msgid "Bold"
 msgstr "Negrita"
@@ -1203,6 +1204,7 @@ msgid "Browse ready-made types"
 msgstr "Explorar tipos listos para usar"
 
 #: src/code-editor-completions.ts
+#: src/CodeEditor.tsx
 msgid "Bulleted list"
 msgstr "Lista con viñetas"
 
@@ -1890,6 +1892,10 @@ msgstr "No se pudo subir {name}. Los archivos que terminan en .md son notas, as�
 msgid "Create a note for yourself, starting from your account name."
 msgstr "Crea una nota que te represente, a partir del nombre de tu cuenta."
 
+#: src/App.tsx
+msgid "Create a note from what was shared?"
+msgstr "¿Crear una nota con lo que se ha compartido?"
+
 #: src/TypeBrowser.tsx
 msgid "Create fields that already match an installed contract. You can rename and remap them later."
 msgstr "Crea campos que ya coincidan con un contrato instalado. Puedes cambiarles el nombre y reasignarlos más adelante."
@@ -1897,6 +1903,10 @@ msgstr "Crea campos que ya coincidan con un contrato instalado. Puedes cambiarle
 #: src/YourPersonPanel.tsx
 msgid "Create my person record"
 msgstr "Crear mi registro de persona"
+
+#: src/App.tsx
+msgid "Create note"
+msgstr "Crear nota"
 
 #. placeholder {0}: query.trim()
 #: src/QuickOpen.tsx
@@ -2129,7 +2139,9 @@ msgstr "Esquema del documento"
 msgid "Documentation"
 msgstr "Documentación"
 
+#: src/App.tsx
 #: src/FolderChangeDialog.tsx
+#: src/writing-toolbar.tsx
 msgid "Done"
 msgstr "Listo"
 
@@ -2507,6 +2519,10 @@ msgstr "Olvidar en este navegador"
 msgid "Format"
 msgstr "Formato"
 
+#: src/writing-toolbar.tsx
+msgid "Formatting"
+msgstr "Formato"
+
 #: src/editor-commands.ts
 msgid "Forward"
 msgstr "Adelante"
@@ -2570,6 +2586,10 @@ msgstr "Ir al título de la nota"
 msgid "Guide compatible tools when they create or rename records of this type."
 msgstr "Orienta a las herramientas compatibles cuando crean registros de este tipo o les cambian el nombre."
 
+#: src/CodeEditor.tsx
+msgid "Heading"
+msgstr "Encabezado"
+
 #: src/code-editor-completions.ts
 msgid "Heading 1"
 msgstr "Encabezado 1"
@@ -2630,6 +2650,10 @@ msgstr "en la lista"
 #: src/type-contracts.ts
 msgid "Incompatible"
 msgstr "No compatible"
+
+#: src/CodeEditor.tsx
+msgid "Indent"
+msgstr "Aumentar sangría"
 
 #: src/editor-commands.ts
 msgid "Inline code"
@@ -2699,6 +2723,7 @@ msgstr "JSON no válido."
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
 msgstr "No se ha editado desde que se añadió, así que se reemplazará por el nuevo tipo inicial."
 
+#: src/CodeEditor.tsx
 #: src/editor-commands.ts
 msgid "Italic"
 msgstr "Cursiva"
@@ -2809,6 +2834,10 @@ msgstr "Vincular este registro conmigo"
 #: src/code-editor-reference-diagnostics.ts
 msgid "Link to {title}"
 msgstr "Enlazar a {title}"
+
+#: src/CodeEditor.tsx
+msgid "Link to note"
+msgstr "Enlazar a nota"
 
 #: src/code-editor-completions.ts
 msgid "Link to note or file"
@@ -3764,6 +3793,10 @@ msgstr "Otras reglas de la colección"
 msgid "Other fields are allowed"
 msgstr "Se permiten otros campos"
 
+#: src/CodeEditor.tsx
+msgid "Outdent"
+msgstr "Reducir sangría"
+
 #: src/editor-commands.ts
 msgid "outside text inputs"
 msgstr "fuera de los campos de texto"
@@ -4574,6 +4607,10 @@ msgstr "Encabezado de sección"
 msgid "Section in note"
 msgstr "Sección de la nota"
 
+#: src/NoteList.tsx
+msgid "Select"
+msgstr "Seleccionar"
+
 #: src/WorkspaceChrome.tsx
 msgid "Select a note, or start a new one."
 msgstr "Selecciona una nota o crea una nueva."
@@ -4833,6 +4870,7 @@ msgid "Tags must be text or a list of text before they can be changed together."
 msgstr "Las etiquetas deben ser texto o una lista de textos para poder cambiarlas a la vez."
 
 #: src/code-editor-completions.ts
+#: src/CodeEditor.tsx
 msgid "Task"
 msgstr "Tarea"
 

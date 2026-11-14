@@ -1190,6 +1190,7 @@ msgstr "块 · {0}"
 msgid "Body differences"
 msgstr "正文差异"
 
+#: src/CodeEditor.tsx
 #: src/editor-commands.ts
 msgid "Bold"
 msgstr "粗体"
@@ -1203,6 +1204,7 @@ msgid "Browse ready-made types"
 msgstr "浏览现成类型"
 
 #: src/code-editor-completions.ts
+#: src/CodeEditor.tsx
 msgid "Bulleted list"
 msgstr "无序列表"
 
@@ -1890,6 +1892,10 @@ msgstr "无法上传 {name}。以 .md 结尾的文件是笔记，不能作为附
 msgid "Create a note for yourself, starting from your account name."
 msgstr "以你的账户名为初始名称，为自己创建一篇笔记。"
 
+#: src/App.tsx
+msgid "Create a note from what was shared?"
+msgstr "要用分享的内容创建笔记吗？"
+
 #: src/TypeBrowser.tsx
 msgid "Create fields that already match an installed contract. You can rename and remap them later."
 msgstr "创建与已安装契约匹配的字段。你可以稍后重命名并重新映射这些字段。"
@@ -1897,6 +1903,10 @@ msgstr "创建与已安装契约匹配的字段。你可以稍后重命名并重
 #: src/YourPersonPanel.tsx
 msgid "Create my person record"
 msgstr "创建我的人员记录"
+
+#: src/App.tsx
+msgid "Create note"
+msgstr "创建笔记"
 
 #. placeholder {0}: query.trim()
 #: src/QuickOpen.tsx
@@ -2129,7 +2139,9 @@ msgstr "文档大纲"
 msgid "Documentation"
 msgstr "文档"
 
+#: src/App.tsx
 #: src/FolderChangeDialog.tsx
+#: src/writing-toolbar.tsx
 msgid "Done"
 msgstr "完成"
 
@@ -2507,6 +2519,10 @@ msgstr "从此浏览器中移除"
 msgid "Format"
 msgstr "格式"
 
+#: src/writing-toolbar.tsx
+msgid "Formatting"
+msgstr "格式"
+
 #: src/editor-commands.ts
 msgid "Forward"
 msgstr "前进"
@@ -2570,6 +2586,10 @@ msgstr "转到笔记标题"
 msgid "Guide compatible tools when they create or rename records of this type."
 msgstr "为兼容工具创建或重命名此类型的记录提供指引。"
 
+#: src/CodeEditor.tsx
+msgid "Heading"
+msgstr "标题"
+
 #: src/code-editor-completions.ts
 msgid "Heading 1"
 msgstr "一级标题"
@@ -2630,6 +2650,10 @@ msgstr "在列表中"
 #: src/type-contracts.ts
 msgid "Incompatible"
 msgstr "不兼容"
+
+#: src/CodeEditor.tsx
+msgid "Indent"
+msgstr "增加缩进"
 
 #: src/editor-commands.ts
 msgid "Inline code"
@@ -2699,6 +2723,7 @@ msgstr "JSON 无效。"
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
 msgstr "此类型自添加后未被编辑过，因此会被新的初始模板替换。"
 
+#: src/CodeEditor.tsx
 #: src/editor-commands.ts
 msgid "Italic"
 msgstr "斜体"
@@ -2809,6 +2834,10 @@ msgstr "将此记录关联到我"
 #: src/code-editor-reference-diagnostics.ts
 msgid "Link to {title}"
 msgstr "链接到 {title}"
+
+#: src/CodeEditor.tsx
+msgid "Link to note"
+msgstr "链接到笔记"
 
 #: src/code-editor-completions.ts
 msgid "Link to note or file"
@@ -3764,6 +3793,10 @@ msgstr "其他集合规则"
 msgid "Other fields are allowed"
 msgstr "允许其他字段"
 
+#: src/CodeEditor.tsx
+msgid "Outdent"
+msgstr "减少缩进"
+
 #: src/editor-commands.ts
 msgid "outside text inputs"
 msgstr "在文本输入框外"
@@ -4574,6 +4607,10 @@ msgstr "章节标题"
 msgid "Section in note"
 msgstr "笔记中的章节"
 
+#: src/NoteList.tsx
+msgid "Select"
+msgstr "选择"
+
 #: src/WorkspaceChrome.tsx
 msgid "Select a note, or start a new one."
 msgstr "选择一篇笔记，或新建一篇。"
@@ -4833,6 +4870,7 @@ msgid "Tags must be text or a list of text before they can be changed together."
 msgstr "标签必须是文本或文本列表，才能批量更改。"
 
 #: src/code-editor-completions.ts
+#: src/CodeEditor.tsx
 msgid "Task"
 msgstr "任务"
 

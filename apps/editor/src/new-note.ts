@@ -34,6 +34,8 @@ export interface NewNote {
 
 export interface NewNoteContext {
   title?: string;
+  /** Opening text, from a capture link or the share sheet. */
+  body?: string;
   folder?: string;
   tag?: string;
   type?: string;
@@ -86,7 +88,7 @@ export function beginNewNote(context: NewNoteContext, types: CollectionTypeDescr
     ...(type ? { type: type.name } : {}),
     ...(context.folder === undefined ? {} : { folder: context.folder }),
     title: context.title ?? "",
-    body: "",
+    body: context.body ?? "",
     properties,
     initialProperties: properties,
     propertiesValid: true

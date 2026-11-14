@@ -13,6 +13,7 @@ import type { NotePreviewAnchor, NotePreviewSource } from "./NotePreview";
 import type { EditorPreferences } from "./preferences";
 import type { ResolvedFileReference } from "./use-file-assets";
 import type { AttachmentUploader } from "./AttachmentUpload";
+import type { ParsedEmbeds } from "./code-editor-embed-positions";
 
 const CodeEditor = lazy(() => import("./CodeEditor").then((module) => ({ default: module.CodeEditor })));
 
@@ -27,8 +28,8 @@ interface MarkdownNoteEditorProps {
   recentPaths: string[];
   linkSuggestions: LinkSuggestion[];
   linkTypes: string[];
-  embeddedFiles: ResolvedFileReference[];
-  embeddedNotes: ResolvedNoteEmbed[];
+  embeddedFiles: ParsedEmbeds<ResolvedFileReference>;
+  embeddedNotes: ParsedEmbeds<ResolvedNoteEmbed>;
   files: CollectionFile[];
   notes: NoteSummary[];
   insertion?: { id: number; text: string; block?: boolean };

@@ -7,7 +7,7 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { useOverlay } from "@mdbase-dev/ui/overlay";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
-import { CaretDownIcon as CaretDown, FilePlusIcon as FilePlus2, SidebarSimpleIcon as PanelLeft } from "./icons";
+import { CaretDownIcon as CaretDown, CheckCircleIcon, FilePlusIcon as FilePlus2, SidebarSimpleIcon as PanelLeft } from "./icons";
 import { ContextMenu, type ActionMenuItem } from "./ContextMenu";
 import { NoteSearchField } from "./NoteSearchField";
 import type { CollectionFile } from "./model";
@@ -26,10 +26,13 @@ const listNavigationKeys: Record<string, true> = { ArrowDown: true, ArrowUp: tru
 
 import { matchesCommandShortcut } from "./editor-commands";
 
-export function NoteList({ entries, selection, onSelection, selectionBar, pinnedPaths = [], noteCount, fileCount, types, selectedPath, selectedFilePath, pendingPath, pendingFilePath, statuses, arrivingPath, search, searchQuery, searchContexts, sort, sortFields, scopeLabel, collectionName, loading, structureLoading, structureError, filesLoading, fileError, contentIndexing, contentLoaded, contentError, total, contentTotal, leadingActions, trailingActions, onSearch, onSort, onClearScope, onQuickOpen, onRetryStructure, onRetryContent, onRetryFiles, onSelect, onSelectFile, filter, tags = [], filterTypes = [], onFilter, noteActions, onRename, onDelete, onPeek, peek, peekTitle, onClosePeek, onCreate, onCreateOfType, drafts = [], onOpenDraft, onCollections, compact = false, onCompact }: {
+export function NoteList({ entries, selection, onSelection, selecting = false, onStartSelecting, selectionBar, pinnedPaths = [], noteCount, fileCount, types, selectedPath, selectedFilePath, pendingPath, pendingFilePath, statuses, arrivingPath, search, searchQuery, searchContexts, sort, sortFields, scopeLabel, collectionName, loading, structureLoading, structureError, filesLoading, fileError, contentIndexing, contentLoaded, contentError, total, contentTotal, leadingActions, trailingActions, onSearch, onSort, onClearScope, onQuickOpen, onRetryStructure, onRetryContent, onRetryFiles, onSelect, onSelectFile, filter, tags = [], filterTypes = [], onFilter, noteActions, onRename, onDelete, onPeek, peek, peekTitle, onClosePeek, onCreate, onCreateOfType, drafts = [], onOpenDraft, onCollections, compact = false, onCompact }: {
   entries: CollectionBrowserEntry[];
   selection?: NoteSelection;
   onSelection?: (selection: NoteSelection) => void;
+  /** Touch selection mode: a tap adds or removes a note instead of opening it. */
+  selecting?: boolean;
+  onStartSelecting?: () => void;
   selectionBar?: ReactNode;
   pinnedPaths?: string[];
   noteCount: number;
@@ -126,6 +129,15 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
     onSelection?.(next);
     if (mode === "single" || !currentSelection.anchor || !selectablePaths.includes(currentSelection.anchor)) onSelect(next.anchor!, { keyboard });
     if (mode !== "single" || keyboard) scrollRef.current?.focus({ preventScroll: true });
+  };
+  // Touch has no modifier keys; holding a note offers Select, which starts a selection with it.
+  const rowActions = (path: string): ActionMenuItem[] => {
+    const actions = noteActions?.(path) ?? [];
+    if (!onStartSelecting || selecting || !coarsePointer()) return actions;
+    return [{ label: t`Select`, icon: <CheckCircleIcon aria-hidden="true" />, onSelect: () => {
+      onSelection?.({ paths: [path], anchor: path, focus: path });
+      onStartSelecting();
+    } }, ...actions];
   };
   const rowSecondLine = useCallback((entry: CollectionBrowserEntry): { kind: "excerpt" | NoteSearchContext["kind"]; text: string; ranges: SearchTextRange[] } | undefined => {
     if (entry.kind !== "note") return undefined;
@@ -305,7 +317,11 @@ export function NoteList({ entries, selection, onSelection, selectionBar, pinned
         const title = noteTitle(note, types);
         const noteFolder = folder(note.path);
         const icon = typeIcons ? noteTypeIcon(note, types) : undefined;
-        return <ContextMenu key={note.path} className="note-row-context" showTrigger={false} label={t`${title} note actions`} items={noteActions?.(note.path) ?? []} style={{ transform: `translateY(${virtualRow.start}px)`, height: virtualRow.size }}><button id={`note-entry-${virtualRow.index}`} tabIndex={-1} role="option" aria-selected={selectedPaths.has(note.path)} aria-busy={status?.busy || undefined} aria-disabled={status?.disabled || undefined} aria-describedby={!compact && secondLine?.kind === "excerpt" ? `note-excerpt-${virtualRow.index}` : undefined} className={`note-row${note.path === arrivingPath ? " note-row-arrival" : ""}${selectedPaths.has(note.path) ? " selected" : ""}${note.path === focusedPath ? " list-focused" : ""}${status ? ` ${status.tone}` : ""}`} draggable={!status?.disabled && !coarsePointer()} onDragStart={(event) => { event.dataTransfer.setData(NOTE_PATHS_MIME, JSON.stringify(selectedPaths.has(note.path) ? currentSelection.paths : [note.path])); event.dataTransfer.effectAllowed = "move"; }} onClick={(event) => { if (!status?.disabled) chooseNote(note.path, event.shiftKey ? "range" : event.metaKey || event.ctrlKey ? "toggle" : "single"); }}>
+        return <ContextMenu key={note.path} className="note-row-context" showTrigger={false} label={t`${title} note actions`} items={rowActions(note.path)} style={{ transform: `translateY(${virtualRow.start}px)`, height: virtualRow.size }}><button id={`note-entry-${virtualRow.index}`} tabIndex={-1} role="option" aria-selected={selectedPaths.has(note.path)} aria-busy={status?.busy || undefined} aria-disabled={status?.disabled || undefined} aria-describedby={!compact && secondLine?.kind === "excerpt" ? `note-excerpt-${virtualRow.index}` : undefined} className={`note-row${note.path === arrivingPath ? " note-row-arrival" : ""}${selectedPaths.has(note.path) ? " selected" : ""}${note.path === focusedPath ? " list-focused" : ""}${status ? ` ${status.tone}` : ""}`} draggable={!status?.disabled && !coarsePointer()} onDragStart={(event) => { event.dataTransfer.setData(NOTE_PATHS_MIME, JSON.stringify(selectedPaths.has(note.path) ? currentSelection.paths : [note.path])); event.dataTransfer.effectAllowed = "move"; }} onClick={(event) => {
+            if (status?.disabled) return;
+            if (selecting) onSelection?.(selectNote(currentSelection, note.path, selectablePaths, "toggle"));
+            else chooseNote(note.path, event.shiftKey ? "range" : event.metaKey || event.ctrlKey ? "toggle" : "single");
+          }}>
           <span className="note-title-line">{typeIcons && <span className="note-type-icon" aria-hidden="true">{icon && <Suspense fallback={null}><PhosphorIcon name={icon} /></Suspense>}</span>}<span className="note-title"><SearchMatchText text={title} ranges={searchQuery ? searchTextRanges(title, searchQuery) : []} /></span>{compact && status?.label && <span className="note-transition">{status.label}</span>}</span>
           {!compact && <>
             {secondLine
