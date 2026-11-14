@@ -2,7 +2,7 @@
  * and where the links written in it lead. The editor resolves nothing itself. */
 import { useLingui } from "@lingui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import type { CollectionTypeDescriptor } from "./editor-types";
 import { gatewayError } from "./gateway";
 import type { CollectionFile, CollectionGateway, LinkTarget, NoteSummary } from "./model";
 import { noteTitle } from "./note";

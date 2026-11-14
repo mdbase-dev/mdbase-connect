@@ -1,24 +1,7 @@
-import type {
-  CollectionDescription,
-  DescribeOptions,
-  CollectionFileDescriptor,
-  CollectionTypeDocument,
-  MdbaseFileProgress,
-  MdbaseFileSource,
-  JsonObject,
-  MdbaseDiagnostic,
-  MutationProgress,
-  MdbaseUnavailableReason,
-  RenamePreflightResult,
-  DeletePreflightResult,
-  DirectAccessStatus,
-  RecordDocument,
-  QueryRecord,
-  TypePackProvision,
-  TypePackAssessment
-} from "@mdbase-dev/connect";
+import type { JsonObject, UploadSource } from "@mdbase-dev/sdk";
+import type { CollectionDescription, DescribeOptions, CollectionFileDescriptor, CollectionTypeDocument, MdbaseFileProgress, MdbaseDiagnostic, MutationProgress, MdbaseUnavailableReason, RenamePreflightResult, DeletePreflightResult, DirectAccessStatus, RecordDocument, QueryRecord, TypePackProvision, TypePackAssessment } from "./editor-types";
 
-export type TypePackApplyResult = import("@mdbase-dev/connect").TypePackApplyResult;
+export type TypePackApplyResult = import("./editor-types").TypePackApplyResult;
 
 export type NoteFrontmatter = JsonObject;
 
@@ -173,7 +156,7 @@ export type LinkTarget =
   | { kind: "invalid" };
 
 export interface CollectionGateway {
-  pendingNoteMutations(): readonly import("@mdbase-dev/connect").PendingMutationSummary[];
+  pendingNoteMutations(): readonly import("./editor-types").PendingMutationSummary[];
   /** Undefined only when the exact recovered operation was a confirmed delete. */
   recoverNoteMutation(requestId: string): Promise<NoteDocument | undefined>;
   sessionSnapshot(): CollectionSessionSnapshot;
@@ -189,12 +172,12 @@ export interface CollectionGateway {
   forgetConnection(collectionId: string): void | Promise<void>;
   describe(options?: DescribeOptions): Promise<CollectionDescription>;
   /** Demo collections have no authenticated account. Members are never read here. */
-  peopleDirectory?(options?: { signal?: AbortSignal }): Promise<import("@mdbase-dev/connect").PeopleDirectory>;
+  peopleDirectory?(options?: { signal?: AbortSignal }): Promise<import("@mdbase-dev/sdk").PeopleDirectory>;
   /** Every page of one contract/type projection. */
   queryContract?(
-    contract: import("@mdbase-dev/connect").DataContractSelector,
+    contract: import("./editor-types").DataContractSelector,
     options?: { signal?: AbortSignal }
-  ): Promise<Array<{ path: string; values: import("@mdbase-dev/connect").JsonObject }>>;
+  ): Promise<Array<{ path: string; values: import("@mdbase-dev/sdk").JsonObject }>>;
   /** Absent where sync is not the gateway's to report (demo, Connect). */
   syncState?(): import("./app-state-types").EditorSyncState;
   onSyncState?(listener: () => void): () => void;
@@ -209,13 +192,13 @@ export interface CollectionGateway {
   read(path: string): Promise<NoteDocument>;
   listFiles(options?: FileListRequest): Promise<CollectionFile[]>;
   readFile(file: CollectionFile, options?: FileReadRequest): Promise<Blob>;
-  uploadFile(path: string, source: MdbaseFileSource, options?: FileUploadRequest): Promise<CollectionFile>;
+  uploadFile(path: string, source: UploadSource, options?: FileUploadRequest): Promise<CollectionFile>;
   create(input: CreateNoteInput): Promise<NoteDocument>;
   /** `id` names this one restore (the record ID and write intent): reuse it when
    * the same restore is retried, so it lands once. */
   restore(document: NoteDocument, id?: string): Promise<NoteDocument>;
   /** Revision-checked write of only the changed parts, against `base`. */
-  update(base: NoteDocument, change: import("@mdbase-dev/connect/advanced").MdbaseRecordChange): Promise<NoteDocument>;
+  update(base: NoteDocument, change: import("./editor-types").NoteChange): Promise<NoteDocument>;
   updateProperties(path: string, patch: JsonObject, revision: string): Promise<NoteDocument>;
   updateDocument(path: string, document: string, revision: string): Promise<NoteDocument>;
   preflightRename(from: string, to: string, revision: string): Promise<RenamePreflight>;

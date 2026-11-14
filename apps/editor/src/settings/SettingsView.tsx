@@ -2,7 +2,7 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { formatters } from "@mdbase-dev/i18n";
 import { LanguageSetting } from "../i18n/LanguageSetting";
 import { ArrowLeftIcon as ArrowLeft, CaretRightIcon as ChevronRight, TrashIcon as Trash2 } from "../icons";
-import type { CollectionDescription } from "@mdbase-dev/connect";
+import type { CollectionDescription } from "../editor-types";
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import type { CollectionGateway, ConnectionSummary } from "../model";
 import type { EditorPreferences } from "../preferences";

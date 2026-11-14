@@ -1,12 +1,13 @@
 import { t } from "@lingui/core/macro";
-import type { CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
+import type { JsonObject, JsonValue } from "@mdbase-dev/sdk";
+import type { CollectionTypeDescriptor } from "./editor-types";
 import { declaredFields } from "./field-reference";
 import type { NoteDocument, NoteSummary } from "./model";
 import { pendingNoteRequestId } from "./pending-note-mutation";
 
 export type BulkPropertyChange =
   | { kind: "add-tag" | "remove-tag"; tag: string }
-  | { kind: "property"; field: string; value: unknown };
+  | { kind: "property"; field: string; value: JsonValue };
 
 export interface BulkField {
   name: string;

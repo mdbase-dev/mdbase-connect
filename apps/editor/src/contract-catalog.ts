@@ -1,5 +1,5 @@
 import { t } from "@lingui/core/macro";
-import type { TypePackProvision } from "@mdbase-dev/connect";
+import type { TypePackProvision } from "./editor-types";
 
 export const DEFAULT_CONTRACT_CATALOG_URL = import.meta.env.VITE_MDBASE_CONTRACT_CATALOG_URL
   ?? "https://mdbase.dev/contracts/catalog.json";

@@ -1,5 +1,5 @@
 import { t } from "@lingui/core/macro";
-import type { JsonObject } from "@mdbase-dev/connect";
+import type { JsonObject } from "@mdbase-dev/sdk";
 import { Document, isMap, isScalar, parseDocument } from "yaml";
 
 export interface ParsedRecordSource {

@@ -3,7 +3,7 @@ import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Dialog } from "@mdbase-dev/ui/dialog";
-import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import type { CollectionTypeDescriptor } from "./editor-types";
 import {
   ArrowLeftIcon as ArrowLeft,
   ArrowLineLeftIcon as ArrowLineLeft,

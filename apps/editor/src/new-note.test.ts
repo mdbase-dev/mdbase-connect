@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import type { CollectionTypeDescriptor } from "./editor-types";
 import {
   beginNewNote,
   changedNewNote,
@@ -56,7 +56,7 @@ describe("where a new note starts", () => {
   });
 
   it("uses the type a tag alone puts a note under", () => {
-    const tagged = (match: CollectionTypeDescriptor["definition"]): CollectionTypeDescriptor => ({ name: "task", extensions: {}, definition: { match }, schema: {} });
+    const tagged = (match: NonNullable<CollectionTypeDescriptor["definition"]>): CollectionTypeDescriptor => ({ name: "task", extensions: {}, definition: { match }, schema: {} });
     const task = tagged({ where: { tags: { contains: "task" } } });
     expect(newNoteContext({ kind: "tag", value: "task" }, [...types, task])).toEqual({ tag: "task", type: "task" });
     expect(newNoteContext({ kind: "tag", value: "idea" }, [...types, task])).toEqual({ tag: "idea" });

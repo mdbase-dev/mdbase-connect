@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { act, render, screen, waitFor, within } from "./test/locale";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { CollectionDescription, CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import type { CollectionDescription, CollectionTypeDescriptor } from "./editor-types";
 import type { LeaveIntent } from "@mdbase-dev/ui/collections";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";

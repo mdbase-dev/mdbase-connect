@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { CollectionDescription, PeopleDirectory, PersonRecord } from "@mdbase-dev/connect";
+import type { PeopleDirectory, PersonRecord } from "@mdbase-dev/sdk";
+import type { CollectionDescription } from "./editor-types";
 import { claimedByAnotherAccount, contactCandidates, contactPersonPatch, identityPatch, newPersonProperties, writablePersonImplementation } from "./person-records";
 
 const implementation = { typeName: "contact", typeVersion: 1, digest: "digest", fields: { name: "/profile/name", identities: "/profile/accounts" } };
 const description = { contracts: [{ id: "mdbase.person", version: "2.0.0", implementations: [implementation] }] } as unknown as CollectionDescription;
 const identity = { issuer: "https://connect.example", subject: "Account_A" };
-const person = (path: string, identities = [identity], typeNames = ["contact"]): PersonRecord => ({ path, name: "Callum", identities, typeNames });
+const person = (path: string, identities = [identity], typeNames = ["contact"]): PersonRecord => ({ id: crypto.randomUUID(), path, name: "Callum", identities, typeNames });
 const directory = (people: PersonRecord[] = [], invalid: PeopleDirectory["invalid"] = []): PeopleDirectory =>
   ({ account: { ...identity, name: "Callum" }, me: { status: "unlinked" }, people, invalid });
 
@@ -23,7 +24,7 @@ describe("portable person records", () => {
   it("offers only individual, Contact-only records through the contract", async () => {
     const source = { ...implementation, typeName: "legacy", fields: {} };
     const contacts = { ...description, contracts: [...description.contracts, { id: "mdbase.contact", version: "1.0.0", implementations: [source, { ...source, typeName: "extra" }] }] } as unknown as CollectionDescription;
-    const queryContract = async ({ type }: { type?: string }) => type === "legacy"
+    const queryContract = async ({ type }: { type?: string }): Promise<Array<{ path: string; values: import("@mdbase-dev/sdk").JsonObject }>> => type === "legacy"
       ? [{ path: "b.md", values: { name: "Bea" } }, { path: "org.md", values: { name: "Org", kind: "organisation" } },
         { path: "person.md", values: { name: "Already a person" } }, { path: "both.md", values: { name: "Two types" } }, { path: "a.md", values: { name: "Ann", kind: "individual" } }]
       : [{ path: "both.md", values: { name: "Two types" } }];

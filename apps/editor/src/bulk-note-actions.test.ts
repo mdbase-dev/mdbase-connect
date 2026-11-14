@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { MdbaseConnectError, type CollectionTypeDescriptor } from "@mdbase-dev/connect";
-import { connectProblem } from "@mdbase-dev/connect/advanced";
+import { type CollectionTypeDescriptor } from "./editor-types";
+import { MdbaseError } from "@mdbase-dev/sdk";
+import { mdbaseError } from "@mdbase-dev/sdk";
 import { bulkFields, runNoteBatch } from "./bulk-note-actions";
 
 const types: CollectionTypeDescriptor[] = [
@@ -25,7 +26,7 @@ it("stops on an uncertain outcome and reports unattempted notes instead of issui
   const seen: string[] = [];
   const result = await runNoteBatch(["a", "b", "c"], async (path) => {
     seen.push(path);
-    throw new MdbaseConnectError(connectProblem("operation_outcome_unknown", "Needs recovery", { details: { request_id: "test-request" } }));
+    throw new MdbaseError(mdbaseError("outcome_unknown", "Needs recovery").toProblem(), { mutationId: "test-request" });
   });
   expect(seen).toEqual(["a"]);
   expect(result.failed.map(({ path }) => path)).toEqual(["a", "b", "c"]);

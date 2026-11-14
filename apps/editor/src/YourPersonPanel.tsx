@@ -4,7 +4,9 @@ import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { literal } from "./i18n/literal";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { MdbaseConnectError, type CollectionDescription, type CollectionTypeDescriptor, type JsonObject, type PeopleDirectory, type PersonResolution, type TypePackAssessment, type TypePackProvision } from "@mdbase-dev/connect";
+import { type JsonObject, type PeopleDirectory, type PersonResolution } from "@mdbase-dev/sdk";
+import { type CollectionDescription, type CollectionTypeDescriptor, type TypePackAssessment, type TypePackProvision } from "./editor-types";
+import { MdbaseError } from "@mdbase-dev/sdk";
 import type { CollectionGateway, CreateNoteInput } from "./model";
 import { beginNewNote, changedNewNote, newNoteBlocker, newNoteForm, newNoteInput, occupiedPaths } from "./new-note";
 import { StructuredPropertiesEditor } from "./StructuredPropertiesEditor";
@@ -75,7 +77,7 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
         setDirectory(next); setContacts(candidates);
       } catch (reason) {
         if (controller.signal.aborted) return;
-        if (reason instanceof MdbaseConnectError && reason.code === "access_denied") setIdentityDenied(true);
+        if (reason instanceof MdbaseError && reason.code === "forbidden") setIdentityDenied(true);
         else setError(reason instanceof Error ? reason.message : t`Could not load people.`);
       }
     })();

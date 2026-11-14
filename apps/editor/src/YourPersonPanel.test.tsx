@@ -1,7 +1,8 @@
 import userEvent from "@testing-library/user-event";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "./test/locale";
 import { afterEach, expect, it, vi } from "vitest";
-import { MdbaseConnectError, type CollectionDescription } from "@mdbase-dev/connect";
+import { type CollectionDescription } from "./editor-types";
+import { MdbaseError } from "@mdbase-dev/sdk";
 import type { CollectionGateway, NoteSummary } from "./model";
 import { YourPersonPanel } from "./YourPersonPanel";
 import { peopleGateway } from "./test/people-gateway";
@@ -126,7 +127,7 @@ it("offers to review access when the grant does not include the account identity
   const gateway = {
     ...f.gateway,
     peopleDirectory: vi.fn(async (options?: { signal?: AbortSignal }) => {
-      if (!approved) throw new MdbaseConnectError({ code: "access_denied", message: "This application was not approved to read this identity information.", category: "authorization", recovery: "reauthorize" } as never);
+      if (!approved) throw new MdbaseError({ code: "forbidden", message: "This application was not approved to read this identity information.", recovery: "reauthorize" });
       return allowed(options);
     }),
     authorize: vi.fn(async () => { approved = true; })

@@ -1,4 +1,5 @@
-import type { CollectionContractDescriptor, JsonObject } from "@mdbase-dev/connect";
+import type { JsonObject } from "@mdbase-dev/sdk";
+import type { CollectionContractDescriptor } from "./editor-types";
 import { Validator } from "@cfworker/json-schema";
 import { parse } from "yaml";
 import { describe, expect, it, vi } from "vitest";

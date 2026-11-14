@@ -1,3 +1,4 @@
+import type { JsonValue } from "@mdbase-dev/sdk";
 import { Trans } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
@@ -17,7 +18,7 @@ export function BulkNoteProperties({ kind, fields, busy, onApply, onClose }: {
 }) {
   useLingui();
   const [fieldName, setFieldName] = useState(fields.find((field) => field.shared)?.name ?? "");
-  const [value, setValue] = useState<unknown>();
+  const [value, setValue] = useState<JsonValue>();
   const [tag, setTag] = useState("");
   const [valid, setValid] = useState(true);
   const field = fields.find((field) => field.name === fieldName);
@@ -26,7 +27,10 @@ export function BulkNoteProperties({ kind, fields, busy, onApply, onClose }: {
   return <form className="bulk-properties" aria-label={kind === "property" ? t`Set property` : kind === "add-tag" ? t`Add tag` : t`Remove tag`} onSubmit={(event) => {
     event.preventDefault();
     if (!canApply || busy) return;
-    void onApply(kind === "property" ? { kind, field: fieldName, value } : { kind, tag }).then(onClose);
+    if (kind === "property") {
+      if (value === undefined) return;
+      void onApply({ kind, field: fieldName, value }).then(onClose);
+    } else void onApply({ kind, tag }).then(onClose);
   }}>
     {kind === "property" ? <>
       <label><Trans>Property</Trans><Select aria-label={t`Property`} value={fieldName} disabled={busy} options={fields.map((field) => ({ value: field.name, label: field.shared ? field.name : t`${field.name} (not shared)`, disabled: !field.shared }))} onChange={(name) => { setFieldName(name); setValue(undefined); setValid(true); }} /></label>

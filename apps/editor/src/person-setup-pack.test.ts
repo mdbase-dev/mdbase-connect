@@ -1,6 +1,6 @@
 import document from "./person-setup.pack.json?raw";
 import { afterEach, expect, it, vi } from "vitest";
-import type { CollectionDescription } from "@mdbase-dev/connect";
+import type { CollectionDescription } from "./editor-types";
 import { loadPersonSetup, outdatedPersonStarter } from "./person-setup";
 
 const bytes = new TextEncoder().encode(document);

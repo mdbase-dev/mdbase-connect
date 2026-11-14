@@ -1,5 +1,5 @@
 import { t } from "@lingui/core/macro";
-import { MdbaseConnectError } from "@mdbase-dev/connect";
+import { MdbaseError } from "@mdbase-dev/sdk";
 import { i18n } from "@lingui/core";
 import type { CommentAnchor, CommentAnchorCard } from "@mdbase-dev/ui/comment-anchors";
 import {
@@ -146,7 +146,7 @@ export function useNoteComments({ gateway, description, notes, path, draft, inde
         // Without the account, person names are unknown and comments go unsigned.
         setPeople({
           names: new Map(),
-          signing: error instanceof MdbaseConnectError && error.code === "access_denied"
+          signing: error instanceof MdbaseError && error.code === "forbidden"
             ? { kind: "not-approved" }
             : { kind: "unavailable", reason: error instanceof Error ? error.message : String(error) },
         });

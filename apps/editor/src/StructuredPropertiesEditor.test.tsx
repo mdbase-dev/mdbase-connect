@@ -1,6 +1,6 @@
 import { render, screen, within } from "./test/locale";
 import userEvent from "@testing-library/user-event";
-import type { JsonObject } from "@mdbase-dev/connect";
+import type { JsonObject } from "@mdbase-dev/sdk";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import { StructuredPropertiesEditor } from "./StructuredPropertiesEditor";

@@ -1,8 +1,7 @@
 import { act, renderHook } from "./test/locale";
 import { describe, expect, it, vi } from "vitest";
 import { attachmentUploadFailure, availableAttachmentPath, useAttachmentUpload } from "./AttachmentUpload";
-import { MdbaseConnectError } from "@mdbase-dev/connect";
-import { connectProblem } from "@mdbase-dev/connect/advanced";
+import { MdbaseError, mdbaseError } from "@mdbase-dev/sdk";
 import { CollectionMutationScope } from "./collection-mutation-scope";
 import { DemoCollectionGateway } from "./demo-gateway";
 import { FileInventoryController } from "./file-inventory-controller";
@@ -27,7 +26,7 @@ describe("attachment failure copy and recovery", () => {
     [new Error("Gateway file exceeds the 25 MB limit."), "scan.pdf is larger than the 25 MB limit."],
     [new Error("File exceeds limit: 26214400 bytes."), "scan.pdf is larger than the 26214400 bytes limit."],
     [new Error("Unsupported media type in gateway validation"), "scan.pdf is a file type that can’t be uploaded."],
-    [new MdbaseConnectError(connectProblem("not_authorized", "Relay grant does not authorize add"), { status: 403 }), "You don’t have permission to upload scan.pdf."],
+    [mdbaseError("forbidden", "Relay grant does not authorize add"), "You don’t have permission to upload scan.pdf."],
     [new Error("Object upload failed with HTTP 403."), "You don’t have permission to upload scan.pdf."],
     [new Error("Object upload failed with HTTP 415."), "scan.pdf is a file type that can’t be uploaded."],
     [new Error("Object upload failed with HTTP 413."), "scan.pdf is too large to upload."],
@@ -43,9 +42,9 @@ describe("attachment failure copy and recovery", () => {
     new Error("Network request failed at gateway"),
     new DOMException("Request timed out at gateway", "TimeoutError"),
     new Error("Object upload failed with HTTP 503."),
-    new MdbaseConnectError(connectProblem("timeout", "Relay deadline exceeded")),
-    new MdbaseConnectError(connectProblem("temporarily_unavailable", "The file transfer could not be completed."), { cause: new TypeError("Failed to fetch") }),
-    new MdbaseConnectError(connectProblem("hosted_provider_unavailable", "Provider response failed"), { status: 502 })
+    mdbaseError("unavailable", "Relay deadline exceeded", "timeout"),
+    new MdbaseError(mdbaseError("unavailable", "The file transfer could not be completed.").toProblem(), { cause: new TypeError("Failed to fetch") }),
+    mdbaseError("unavailable", "Provider response failed")
   ])("offers Retry for transient errors (%s)", (error) => {
     const failure = attachmentUploadFailure("scan.pdf", error);
     expect(failure.retryable).toBe(true);
@@ -54,7 +53,7 @@ describe("attachment failure copy and recovery", () => {
   });
 
   it("never retries an ambiguous write even with a 5xx status", () => {
-    const error = new MdbaseConnectError(connectProblem("temporarily_unavailable", "Commit interrupted", { operationOutcome: "unknown" }), { status: 503 });
+    const error = mdbaseError("outcome_unknown", "Commit interrupted");
     expect(attachmentUploadFailure("scan.pdf", error)).toEqual({
       message: "Couldn’t confirm whether scan.pdf was uploaded. Check the collection’s files before uploading again.", retryable: false
     });

@@ -1,15 +1,29 @@
 import { fireEvent, render, screen, within } from "./test/locale";
 import userEvent from "@testing-library/user-event";
-import type { JsonObject } from "@mdbase-dev/connect";
+import type { JsonObject } from "@mdbase-dev/sdk";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { SchemaValueEditor, schemaInitialValue, schemaValueComplete } from "./SchemaValueEditor";
 import { chooseOption } from "./test/select";
 
 describe("recursive schema values", () => {
+  it("keeps a cleared object property absent rather than storing undefined", () => {
+    const onChange = vi.fn();
+    render(<SchemaValueEditor name="settings" schema={{ type: "object", properties: { count: { type: "number" } } }} value={{ count: 1 }} onChange={onChange} />);
+    fireEvent.change(screen.getByRole("spinbutton", { name: "count" }), { target: { value: "" } });
+    expect(onChange).toHaveBeenLastCalledWith({});
+  });
+
+  it("keeps a cleared array slot as JSON null rather than undefined", () => {
+    const onChange = vi.fn();
+    render(<SchemaValueEditor name="counts" schema={{ type: "array", items: { type: "number" } }} value={[1]} onChange={onChange} />);
+    fireEvent.change(screen.getByRole("spinbutton", { name: "counts item 1" }), { target: { value: "" } });
+    expect(onChange).toHaveBeenLastCalledWith([null]);
+  });
+
   it("keeps a numeric control and focus when entering a decimal for an integer field", () => {
     function IntegerField() {
-      const [value, setValue] = useState<unknown>(1);
+      const [value, setValue] = useState<import("@mdbase-dev/sdk").JsonValue | undefined>(1);
       return <SchemaValueEditor name="rating" schema={{ type: "integer" }} value={value} onChange={setValue} />;
     }
     render(<IntegerField />);
@@ -170,7 +184,7 @@ describe("recursive schema values", () => {
 });
 
 function ValueHarness() {
-  const [value, setValue] = useState<unknown>({
+  const [value, setValue] = useState<import("@mdbase-dev/sdk").JsonValue | undefined>({
     profile: { display_name: "Callum", visibility: "team" },
     contacts: [{ kind: "email", value: "callum@example.com" }]
   });
@@ -181,7 +195,7 @@ function ValueHarness() {
 }
 
 function BindingHarness() {
-  const [value, setValue] = useState<unknown>(() => schemaInitialValue(bindingSchema));
+  const [value, setValue] = useState<import("@mdbase-dev/sdk").JsonValue | undefined>(() => schemaInitialValue(bindingSchema));
   return <>
     <SchemaValueEditor name="settings" schema={bindingSchema} rootSchema={bindingSchema} value={value} required onChange={setValue} />
     <output data-testid="binding-value">{JSON.stringify(value)}</output>
@@ -189,7 +203,7 @@ function BindingHarness() {
 }
 
 function FieldOrderHarness() {
-  const [value, setValue] = useState<unknown>({ required_middle: "" });
+  const [value, setValue] = useState<import("@mdbase-dev/sdk").JsonValue | undefined>({ required_middle: "" });
   return <>
     <SchemaValueEditor name="settings" schema={fieldOrderSchema} value={value} required onChange={setValue} />
     <output data-testid="field-order-value">{JSON.stringify(value)}</output>
@@ -197,7 +211,7 @@ function FieldOrderHarness() {
 }
 
 function MapValueHarness() {
-  const [value, setValue] = useState<unknown>({});
+  const [value, setValue] = useState<import("@mdbase-dev/sdk").JsonValue | undefined>({});
   return <>
     <SchemaValueEditor name="organizations" schema={organizationMapSchema} value={value} onChange={setValue} />
     <output data-testid="map-value">{JSON.stringify(value)}</output>

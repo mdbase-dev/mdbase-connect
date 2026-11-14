@@ -1,6 +1,8 @@
 import { t } from "@lingui/core/macro";
-import { MdbaseConnectError, MdbaseRecordSession, type CollectionTypeDescriptor, type ConnectOutcome } from "@mdbase-dev/connect";
+import { MdbaseConnectError, MdbaseRecordSession, type ConnectOutcome } from "@mdbase-dev/connect";
 import { connectFailure, connectProblem, connectSuccess, type MdbaseRecordSessionAdapter } from "@mdbase-dev/connect/advanced";
+import type { CollectionTypeDescriptor, NoteChange } from "./editor-types";
+import type { JsonObject } from "@mdbase-dev/sdk";
 import type { CollectionGateway, NoteDocument, TitleSource } from "./model";
 import { editableNote, persistedBody, titlePatch } from "./note";
 import type { RecoveryDraft } from "./draft-recovery";
@@ -69,7 +71,7 @@ export class NoteSession {
   edit(draft: Draft): void {
     this.draft = draft;
     this.record.setBody(persistedBody(draft.title, draft.body, draft.source));
-    const patch = titlePatch(draft.title, draft.source, this.record.snapshot.frontmatter);
+    const patch = titlePatch(draft.title, draft.source, this.record.snapshot.frontmatter as JsonObject);
     if (!this.projects(this.draft)) this.record.patchFrontmatter(patch);
   }
 
@@ -80,7 +82,7 @@ export class NoteSession {
   reproject(): boolean {
     if (this.projects(this.draft)) return false;
     const snapshot = this.record.snapshot;
-    this.draft = editableNote({ ...snapshot.record, body: snapshot.body, frontmatter: snapshot.frontmatter }, this.types());
+    this.draft = editableNote({ ...snapshot.record, body: snapshot.body, frontmatter: snapshot.frontmatter as JsonObject }, this.types());
     return true;
   }
 
@@ -88,7 +90,7 @@ export class NoteSession {
   private projects(draft: Draft): boolean {
     const snapshot = this.record.snapshot;
     if (persistedBody(draft.title, draft.body, draft.source) !== snapshot.body) return false;
-    return Object.entries(titlePatch(draft.title, draft.source, snapshot.frontmatter))
+    return Object.entries(titlePatch(draft.title, draft.source, snapshot.frontmatter as JsonObject))
       .every(([key, value]) => JSON.stringify(snapshot.frontmatter[key]) === JSON.stringify(value));
   }
 }
@@ -102,7 +104,7 @@ export function noteRecordAdapter(
     revision: (note) => note.revision,
     body: (note) => note.body ?? "",
     frontmatter: (note) => note.frontmatter,
-    write: (base, change) => outcome(() => guard(() => gateway.update(base, change))),
+    write: (base, change) => outcome(() => guard(() => gateway.update(base, change as NoteChange))),
     read: (base) => outcome(() => gateway.read(base.path)),
     recover: (requestId) => outcome(() => guard(() => recoveredNote(gateway, requestId))),
     isPending: (requestId) => gateway.pendingNoteMutations().some((pending) => pending.requestId === requestId)

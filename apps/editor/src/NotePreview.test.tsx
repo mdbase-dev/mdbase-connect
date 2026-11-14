@@ -1,5 +1,5 @@
 import { act, render, renderHook, screen, waitFor } from "./test/locale";
-import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import type { CollectionTypeDescriptor } from "./editor-types";
 import { describe, expect, it, vi } from "vitest";
 import type { CollectionGateway, NoteSummary } from "./model";
 import { NotePeekBody, notePreviewExcerpt, previewProperties, useNotePreview } from "./NotePreview";

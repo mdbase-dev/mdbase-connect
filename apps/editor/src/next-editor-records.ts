@@ -1,7 +1,7 @@
 import { t } from "@lingui/core/macro";
 import { isMdbaseError, MdbaseError, revisionOf, type MdbaseClient, type PlainValue, type RecordView, type Write, type wire } from "@mdbase-dev/sdk";
-import type { JsonObject } from "@mdbase-dev/connect";
-import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
+import type { JsonObject } from "@mdbase-dev/sdk";
+import type { NoteChange } from "./editor-types";
 import type { CreateNoteInput, NoteDocument } from "./model";
 import { createdBody } from "./note";
 
@@ -81,7 +81,7 @@ export class NextEditorRecords {
     return this.write("create", id, current => this.client.create({ id, path: document.path, document: document.document }, current), signal, requestedId) as Promise<NoteDocument>;
   }
 
-  async update(base: NoteDocument, change: MdbaseRecordChange, signal?: AbortSignal): Promise<NoteDocument> {
+  async update(base: NoteDocument, change: NoteChange, signal?: AbortSignal): Promise<NoteDocument> {
     const current = this.signal(signal);
     const record = await this.base(base.path, base.revision, current);
     return this.write("update", record.id, options => this.client.update(record, {

@@ -1,4 +1,5 @@
-import type { CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
+import type { JsonObject } from "@mdbase-dev/sdk";
+import type { CollectionTypeDescriptor } from "./editor-types";
 
 type DisplayField = "name_field" | "description_field" | "color_field" | "icon";
 

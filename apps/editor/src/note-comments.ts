@@ -2,7 +2,8 @@
 // implement mdbase.comment. The contract's own reading (threads, anchors,
 // fields) is shared in @mdbase-dev/ui/comments; this maps it onto the
 // collection's field names and the Editor's index.
-import type { CollectionContractImplementationDescriptor, CollectionDescription, JsonObject, PeopleDirectory } from "@mdbase-dev/connect";
+import type { JsonObject, PeopleDirectory } from "@mdbase-dev/sdk";
+import type { CollectionContractImplementationDescriptor, CollectionDescription } from "./editor-types";
 import { COMMENT_CONTRACT, commentFromRecord, personKey, recordLink, type CommentFields, type CommentPeople, type CommentRecord } from "@mdbase-dev/ui/comments";
 import { readFieldReference, writeFieldReference } from "./field-reference";
 import type { NoteSummary } from "./model";

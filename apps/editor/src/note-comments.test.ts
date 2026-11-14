@@ -1,4 +1,4 @@
-import type { CollectionContractImplementationDescriptor, CollectionDescription } from "@mdbase-dev/connect";
+import type { CollectionContractImplementationDescriptor, CollectionDescription } from "./editor-types";
 import { RecordPaths, placeThreads, recordThreads } from "@mdbase-dev/ui/comments";
 import { describe, expect, it } from "vitest";
 import type { NoteSummary } from "./model";
