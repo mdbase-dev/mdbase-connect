@@ -18,12 +18,18 @@ React composition (App, feature views)
         ├── note session store            ├── narrow gateway contracts
         └── operation coordinator ────────┘
                                               │
-                                  @mdbase-dev/connect or demo adapter
+                                  NativeEditorGateway / demo gateway
+                                              │
+                                  @mdbase-dev/sdk (production access)
 
 Open Connect command ── collection-context link ── Connect portal (account APIs only)
 ```
 
-The route entry point lazy-loads `App`. Connect links open the canonical server
+The route entry point mounts `SdkEditorRoot`, which owns `createMdbase` and
+borrows its current connection for `NativeEditorGateway`. It lazy-loads `App`.
+The demo gateway is selected only by a development build or an explicit
+`VITE_MDBASE_EDITOR_DEMO=1` build plus a positive `?demo=` count.
+Connect links open the canonical server
 origin with `?collection=<id>`; the portal remembers valid collection context
 without selecting an arbitrary collection. **Open editor** returns to the
 Editor with collection context, where the SDK reuses an existing authorization
@@ -33,6 +39,47 @@ Views may depend on model types and pure domain helpers. They do not own remote
 request generations, snapshot tokens, mutation queues, or authoritative note
 documents. Infrastructure implements `CollectionGateway`; it does not reach
 into React.
+
+## Remaining legacy dependencies
+
+The retired `ConnectCollectionGateway` has no production or demo constructor:
+`main.tsx` creates only the demo gateway, and `SdkEditorRoot.tsx` creates only
+`NativeEditorGateway`. Its injected connection/session tests and the old
+`note-recovery.test.ts` exercised that retired path. Native transport and exact
+mutation recovery remain covered by `native-gateway.test.ts` and
+`next-editor-records.test.ts`, using the SDK's `MemoryReplica`.
+
+The Editor still requires `@mdbase-dev/connect` for its live record session,
+error/outcome handling, model vocabulary, and demo observer. Removing the package
+is unfinished. In particular, the pinned SDK's public `RecordSession` has no
+exclusive-operation callback corresponding to the session's `run`, nor a
+base-aware draft restore corresponding to `restore`. `App.tsx` uses those for
+note operations and browser draft recovery. Replacing them needs a coordinated
+session migration; copying the old session or adding an adapter that recreates
+its methods would preserve the mechanism this cleanup is meant to remove.
+`demo-observe.ts` also still runs `MdbaseQueryObserver`; the demo and its test
+fixtures have not yet been ported to the SDK testing kit.
+
+`@mdbase-dev/connect-dev` and the separate `@mdbase-dev/connect-testing` package
+are no longer Editor dependencies. The remaining legacy test problem constructors
+come from the retained client's advanced entry; they do not constitute an SDK
+fixture migration. Shared Person identity constants and identity types come
+from `@mdbase-dev/sdk`.
+
+The direct `@mdbase-dev/connect-protocol` file pin is intentional. Manifest checks
+still import it, and cloud-ops `tools/sdk-repin/archive.mjs` opts `apps/editor`
+into `protocolImporters` and requires its existing direct file pin before planning
+a repin. `config/client-apps.json` also names both server/MCP Dockerfiles as
+replacement references. The native publisher verifies that the direct protocol
+archive is byte-identical to the authenticated SDK's bundled archive. Removing
+this pin requires coordinated changes to those owners. Vendor files and native
+publisher verification are unchanged here.
+
+Other direct workspace consumers of `@mdbase-dev/connect` are
+`packages/devkit`, `packages/testing`, and `services/mcp`. The protocol additionally
+serves `packages/client`, `packages/sync`, `packages/webhooks`, `apps/portal`,
+`apps/desktop`, `services/server`, and the SDK's bundled dependency. No workspace
+package is removed by this Editor cleanup.
 
 ## Collection index
 
@@ -53,7 +100,7 @@ that mutation; otherwise an old local value could hide a later remote edit.
 
 Structure and content are intentionally separate. The complete folder and
 metadata index becomes usable first, while note bodies hydrate in the
-background for full-text search and backlinks. Both the connect and demo
+background for full-text search and backlinks. Both the native SDK and demo
 gateways implement these semantics. Hydration requires an explicit successful
 structure-completion state; a stopped or failed list request is not treated as
 complete.
@@ -98,7 +145,8 @@ session contains the authoritative remote document, persisted draft, live
 draft, save state, conflict state, and mutation activity. React state mirrors
 the active session only for rendering; it is not a second source of truth.
 
-`NoteOperationCoordinator` serializes writes per session. Autosave, explicit
+The retained `MdbaseRecordSession` in `note-session.ts` serializes writes per
+session, including the `runNoteOperation` callback in `App.tsx`. Autosave, explicit
 flushes, property updates, rename, and delete cannot race each other. A change
 made during an active save schedules exactly one follow-up save. Navigation and
 collection switching flush through the same coordinator.

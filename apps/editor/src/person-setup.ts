@@ -1,5 +1,5 @@
 import { t } from "@lingui/core/macro";
-import { PERSON_CONTRACT } from "@mdbase-dev/connect";
+import { PERSON_CONTRACT } from "@mdbase-dev/sdk";
 import type { TypePackAssessment, TypePackProvision, TypePackResourceDiff } from "@mdbase-dev/connect";
 import provisionUrl from "./person-setup.pack.json?url";
 import { loadTypePackProvision } from "./contract-catalog";

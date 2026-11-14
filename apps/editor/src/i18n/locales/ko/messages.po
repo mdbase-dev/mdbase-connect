@@ -486,7 +486,6 @@ msgid "{label} is needed to save this note."
 msgstr "이 노트를 저장하려면 ‘{label}’ 항목이 필요합니다."
 
 #: src/contract-catalog.ts
-#: src/gateway.ts
 msgid "{label} is not supported."
 msgstr "{label}은(는) 지원되지 않습니다."
 
@@ -1337,10 +1336,6 @@ msgstr "선택"
 #: src/ConnectionScreens.tsx
 msgid "Choose a collection"
 msgstr "컬렉션 선택"
-
-#: src/gateway.ts
-msgid "Choose a collection before editing notes."
-msgstr "노트를 편집하기 전에 컬렉션을 선택하세요."
 
 #: src/use-note-actions.ts
 msgid "Choose a collection-relative folder."
@@ -4100,10 +4095,6 @@ msgstr "레코드 링크"
 msgid "Record source"
 msgstr "레코드 원본"
 
-#: src/gateway.ts
-msgid "Recover the interrupted note operation before making another change. No new write was attempted."
-msgstr "다른 변경을 하기 전에 중단된 노트 작업을 복구하세요. 새 쓰기 작업은 시도하지 않았습니다."
-
 #. placeholder {0}: move.from
 #: src/App.tsx
 msgid "Recover the unsaved edits in “{0}” before moving this folder."
@@ -5115,7 +5106,6 @@ msgstr "편집기가 승인되지 않았습니다."
 msgid "The editor will replace these reviewed files and record their exact source, version, and digest in <0>mdbase.lock.yaml</0>. Future upgrades stop instead of overwriting an unexpected edit."
 msgstr "편집기는 검토된 파일을 대체하고 정확한 소스, 버전 및 다이제스트를 <0>mdbase.lock.yaml</0>에 기록합니다. 이후 업그레이드는 예상치 못한 편집 내용을 덮어쓰지 않고 중단됩니다."
 
-#: src/gateway.ts
 #: src/next-editor-records.ts
 msgid "The exact interrupted note operation is unavailable. No new write was attempted."
 msgstr "중단된 정확한 노트 작업을 사용할 수 없습니다. 새 쓰기 작업은 시도하지 않았습니다."
@@ -5242,7 +5232,6 @@ msgstr "스키마 경로가 객체 필드를 가리키지 않습니다."
 msgid "The selected collection changed. Open its person settings again."
 msgstr "선택한 컬렉션이 변경되었습니다. 사람 설정을 다시 여세요."
 
-#: src/gateway.ts
 #: src/native-gateway.ts
 msgid "The selected collection is not ready."
 msgstr "선택한 컬렉션이 준비되지 않았습니다."
@@ -5478,7 +5467,6 @@ msgstr "이 편집기 세션이 종료되었습니다."
 msgid "This exact contract is not available in the collection. Restore it or remove the implementation before saving."
 msgstr "이 정확한 계약은 컬렉션에서 사용할 수 없습니다. 저장하기 전에 복원하거나 구현에서 제거하세요."
 
-#: src/gateway.ts
 #: src/native-file-download.ts
 msgid "This file changed. Reload its preview."
 msgstr "이 파일이 변경되었습니다. 미리보기를 새로고침하세요."
@@ -5490,10 +5478,6 @@ msgstr "이 파일은 다운로드 제한을 초과합니다."
 #: src/native-gateway.ts
 msgid "This file has no native confirmation metadata. Reload its preview."
 msgstr "이 파일에는 네이티브 확인 메타데이터가 없습니다. 미리보기를 새로고침하세요."
-
-#: src/gateway.ts
-msgid "This file no longer exists."
-msgstr "이 파일은 더 이상 존재하지 않습니다."
 
 #: src/native-file-download.ts
 #: src/native-gateway.ts

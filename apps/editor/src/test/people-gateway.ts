@@ -1,4 +1,5 @@
-import { MdbaseConnectError, MdbasePeopleClient, type AccountProfile, type CollectionDescription, type DataContractSelector, type JsonObject } from "@mdbase-dev/connect";
+import type { AccountProfile } from "@mdbase-dev/sdk";
+import { MdbaseConnectError, MdbasePeopleClient, type CollectionDescription, type DataContractSelector, type JsonObject } from "@mdbase-dev/connect";
 import { connectSuccess } from "@mdbase-dev/connect/advanced";
 import { readFieldReference } from "../field-reference";
 import type { NoteSummary } from "../model";
