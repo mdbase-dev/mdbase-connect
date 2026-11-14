@@ -6,8 +6,7 @@ import { createDatabase, type DatabasePool } from "../../db.js";
 import {
   nextOpsMetricsSlot,
   OpsMetricsPushWorker,
-  parseOpsMetricsPushEnv,
-  validateOpsMetricsPushConfig
+  opsMetricsPushSetting
 } from "./ops-metrics-push.js";
 
 const TOKEN = "test-ingest-bearer-value";
@@ -39,41 +38,44 @@ describe("ops metrics push schedule", () => {
 });
 
 describe("ops metrics push configuration", () => {
-  it("is off unless configured", () => {
-    expect(parseOpsMetricsPushEnv({})).toBeNull();
-    expect(parseOpsMetricsPushEnv({ OPS_METRICS_INGEST_URL: " ", OPS_METRICS_INGEST_TOKEN: "" })).toBeNull();
+  const url = "https://ingest.example.test/v1/snapshots";
+  const setting = (env: NodeJS.ProcessEnv, environment = "production") =>
+    opsMetricsPushSetting(env, environment);
+
+  it("is off without a reason unless configured", () => {
+    expect(setting({})).toEqual({ enabled: false, reason: null });
+    expect(setting({ OPS_METRICS_INGEST_URL: " ", OPS_METRICS_INGEST_TOKEN: "" }))
+      .toEqual({ enabled: false, reason: null });
   });
 
-  it("requires both values together", () => {
-    expect(() => parseOpsMetricsPushEnv({ OPS_METRICS_INGEST_TOKEN: TOKEN })).toThrow(/configured together/);
-    expect(() => parseOpsMetricsPushEnv({ OPS_METRICS_INGEST_URL: "https://ingest.example.test/v1/snapshots" }))
-      .toThrow(/configured together/);
-    expect(parseOpsMetricsPushEnv({
-      OPS_METRICS_INGEST_URL: "https://ingest.example.test/v1/snapshots",
-      OPS_METRICS_INGEST_TOKEN: TOKEN
-    })).toEqual({ url: "https://ingest.example.test/v1/snapshots", token: TOKEN });
+  it("is on in production with both values", () => {
+    expect(setting({ OPS_METRICS_INGEST_URL: url, OPS_METRICS_INGEST_TOKEN: TOKEN }))
+      .toEqual({ enabled: true, config: { url, token: TOKEN } });
   });
 
-  it("requires HTTPS, production, and never echoes the values", () => {
-    const valid = { url: "https://ingest.example.test/v1/snapshots", token: TOKEN };
-    expect(() => validateOpsMetricsPushConfig(valid, "production")).not.toThrow();
-    for (const url of ["http://ingest.example.test/v1/snapshots", "https://user:pass@ingest.example.test/", "not a url"]) {
-      let message = "";
-      try {
-        validateOpsMetricsPushConfig({ url, token: TOKEN }, "production");
-      } catch (error) {
-        message = (error as Error).message;
-      }
-      expect(message).toMatch(/OPS_METRICS_INGEST_URL/);
-      expect(message).not.toContain("ingest.example.test");
-      expect(message).not.toContain(TOKEN);
+  it("stays off with a reason, never refusing startup or echoing values", () => {
+    const cases: Array<[NodeJS.ProcessEnv, string, RegExp]> = [
+      [{ OPS_METRICS_INGEST_TOKEN: TOKEN }, "production", /OPS_METRICS_INGEST_URL is not set/],
+      [{ OPS_METRICS_INGEST_URL: url }, "production", /OPS_METRICS_INGEST_TOKEN is not set/],
+      [{ OPS_METRICS_INGEST_URL: "http://ingest.example.test/v1/snapshots", OPS_METRICS_INGEST_TOKEN: TOKEN }, "production", /HTTPS/],
+      [{ OPS_METRICS_INGEST_URL: "https://user:pass@ingest.example.test/", OPS_METRICS_INGEST_TOKEN: TOKEN }, "production", /credentials/],
+      [{ OPS_METRICS_INGEST_URL: "not a url", OPS_METRICS_INGEST_TOKEN: TOKEN }, "production", /HTTPS/],
+      [{ OPS_METRICS_INGEST_URL: url, OPS_METRICS_INGEST_TOKEN: TOKEN }, "staging", /not production/]
+    ];
+    for (const [env, environment, reason] of cases) {
+      const result = setting(env, environment);
+      expect(result.enabled).toBe(false);
+      const text = result.enabled ? "" : result.reason ?? "";
+      expect(text).toMatch(reason);
+      expect(text).not.toContain("ingest.example.test");
+      expect(text).not.toContain("user:pass");
+      expect(text).not.toContain(TOKEN);
     }
-    expect(() => validateOpsMetricsPushConfig(valid, "staging")).toThrow(/production/);
   });
 });
 
 describe("ops metrics push", () => {
-  it("posts the operator usage report for each window with the bearer", async () => {
+  it("posts the operator usage report less recent_signups for each window with the bearer", async () => {
     vi.useFakeTimers({ toFake: ["Date"], now: Date.parse("2026-11-15T06:40:00.000Z") });
     const db = await database();
     const ingest = await mockIngest(() => 201);
@@ -87,10 +89,15 @@ describe("ops metrics push", () => {
       expect(request.method).toBe("POST");
       expect(request.headers.authorization).toBe(`Bearer ${TOKEN}`);
       expect(request.headers["content-type"]).toBe("application/json");
-      expect(JSON.parse(request.body)).toEqual(await runAuthAdminCommand(
+      const report = await runAuthAdminCommand(
         ["usage", "report", "--days", String(days)],
         { db, defaultRegistrationMode: "closed" }
-      ));
+      ) as { beta: Record<string, unknown> };
+      expect(report.beta).toHaveProperty("recent_signups");
+      const { recent_signups: _recentSignups, ...beta } = report.beta;
+      const pushed = JSON.parse(request.body);
+      expect(pushed.beta).not.toHaveProperty("recent_signups");
+      expect(pushed).toEqual({ ...report, beta });
     }
     expect(logs.map((entry) => entry.details)).toEqual(
       [1, 7, 30, 90].map((days) => ({ window_days: days, status: 201 }))

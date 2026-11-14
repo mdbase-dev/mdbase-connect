@@ -11,9 +11,8 @@ import type { AccountBackend } from "../features/next/account-backend-flip.js";
 import { DEFAULT_CLIENT_UPDATE_POLICY, type ClientUpdatePolicy } from "../features/next/cutover-problems.js";
 import { parsePasswordSignupIpMaxAttempts, passwordSignupIpRule } from "../features/auth/password-signup-limit.js";
 import {
-  parseOpsMetricsPushEnv,
-  validateOpsMetricsPushConfig,
-  type OpsMetricsPushConfig
+  opsMetricsPushSetting,
+  type OpsMetricsPushSetting
 } from "../features/usage/ops-metrics-push.js";
 
 export type RegistrationMode = "closed" | "invite" | "open";
@@ -71,8 +70,8 @@ export interface RuntimeConfig {
   clientUpdate?: ClientUpdatePolicy;
   /** Backend of newly created accounts (MDBASE_NEW_ACCOUNT_BACKEND); next when absent. */
   newAccountBackend?: AccountBackend;
-  /** Usage report push to the operations ingest; null or absent when off. */
-  opsMetricsPush?: OpsMetricsPushConfig | null;
+  /** Usage report push to the operations ingest; never refuses startup. */
+  opsMetricsPush?: OpsMetricsPushSetting;
 }
 
 export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
@@ -218,7 +217,6 @@ export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
     }
   }
   if (config.nextControlPlane) loadPolicySigner(config.nextControlPlane, Date.now());
-  if (config.opsMetricsPush) validateOpsMetricsPushConfig(config.opsMetricsPush, environment);
   if (config.webhookSigning) {
     if (!/^[A-Za-z0-9._-]{1,100}$/.test(config.webhookSigning.keyId)) {
       throw new Error("MDBASE_CONNECT_WEBHOOK_SIGNING_KEY_ID is invalid.");
@@ -376,11 +374,12 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
     );
   }
   const nextControlPlane = parseNextControlPlaneEnv(env);
+  const environment = env.MDBASE_CONNECT_ENVIRONMENT?.trim() || "unspecified";
   return validateRuntimeConfig({
     host,
     publicUrl: env.PUBLIC_URL ?? `http://${host}:${port}`,
     identityIssuer: env.MDBASE_CONNECT_IDENTITY_ISSUER?.trim() ?? "",
-    environment: env.MDBASE_CONNECT_ENVIRONMENT?.trim() || "unspecified",
+    environment,
     devAuth: env.MDBASE_CONNECT_DEV_AUTH === "1",
     tailscaleAuth: env.MDBASE_CONNECT_TAILSCALE_AUTH === "1",
     githubAuth: githubConfigured ? { clientId, clientSecret, allowedUserIds } : null,
@@ -424,7 +423,7 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
     pushTargetSeal: parsePushTargetSealerEnv(env),
     clientUpdate: parseClientUpdateEnv(env),
     newAccountBackend: parseNewAccountBackendEnv(env, nextControlPlane),
-    opsMetricsPush: parseOpsMetricsPushEnv(env)
+    opsMetricsPush: opsMetricsPushSetting(env, environment)
   });
 }
 

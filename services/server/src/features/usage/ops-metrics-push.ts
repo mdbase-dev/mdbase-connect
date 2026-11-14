@@ -4,8 +4,8 @@ import { usageReport } from "./usage-report.js";
 
 // Pushes the operator usage report (docs/usage-report.md) to the operations
 // metrics ingest, replacing the cloud-ops job that ran `usage report` through
-// Render every six hours. The body is exactly what `usage report --days N`
-// prints. Each snapshot writes hundreds of rollup rows, so the cadence stays
+// Render every six hours. The body is what `usage report --days N` prints,
+// less the per-signup list. Each snapshot writes hundreds of rollup rows, so the cadence stays
 // at four fixed UTC slots.
 
 export interface OpsMetricsPushConfig {
@@ -41,38 +41,55 @@ export function nextOpsMetricsSlot(afterMs: number): number {
     + SLOT_OFFSET_MS + SLOT_PERIOD_MS;
 }
 
-/** Shape checks for the configured target; the values are never echoed. */
-export function validateOpsMetricsPushConfig(
-  config: OpsMetricsPushConfig,
+/**
+ * The push is best effort, so its configuration never stops the server: a
+ * value it cannot use leaves it off with a reason naming the variable, never
+ * its value.
+ */
+export type OpsMetricsPushSetting =
+  | { enabled: true; config: OpsMetricsPushConfig }
+  | { enabled: false; reason: string | null };
+
+export function opsMetricsPushSetting(
+  env: NodeJS.ProcessEnv,
   environment: string
-): void {
-  let url: URL;
+): OpsMetricsPushSetting {
+  const url = env.OPS_METRICS_INGEST_URL?.trim() ?? "";
+  const token = env.OPS_METRICS_INGEST_TOKEN?.trim() ?? "";
+  if (!url && !token) return { enabled: false, reason: null };
+  if (!url) return { enabled: false, reason: "OPS_METRICS_INGEST_URL is not set" };
+  if (!token) return { enabled: false, reason: "OPS_METRICS_INGEST_TOKEN is not set" };
+  let parsed: URL | null = null;
   try {
-    url = new URL(config.url);
+    parsed = new URL(url);
   } catch {
-    throw new Error("OPS_METRICS_INGEST_URL must be an absolute HTTPS URL.");
+    // Reported below.
   }
-  if (url.protocol !== "https:" || url.username || url.password || url.hash) {
-    throw new Error("OPS_METRICS_INGEST_URL must be an HTTPS URL without credentials or a fragment.");
+  if (!parsed || parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.hash) {
+    return {
+      enabled: false,
+      reason: "OPS_METRICS_INGEST_URL must be an HTTPS URL without credentials or a fragment"
+    };
   }
-  if (/\s/u.test(config.token)) {
-    throw new Error("OPS_METRICS_INGEST_TOKEN is invalid.");
+  if (/\s/u.test(token)) {
+    return { enabled: false, reason: "OPS_METRICS_INGEST_TOKEN contains whitespace" };
   }
   // The report carries no environment, and the ingest files such snapshots
   // under production. Another environment would overwrite production's rows.
   if (environment !== "production") {
-    throw new Error("OPS_METRICS_INGEST_URL is supported only when MDBASE_CONNECT_ENVIRONMENT=production.");
+    return { enabled: false, reason: "MDBASE_CONNECT_ENVIRONMENT is not production" };
   }
+  return { enabled: true, config: { url, token } };
 }
 
-export function parseOpsMetricsPushEnv(env: NodeJS.ProcessEnv): OpsMetricsPushConfig | null {
-  const url = env.OPS_METRICS_INGEST_URL?.trim() ?? "";
-  const token = env.OPS_METRICS_INGEST_TOKEN?.trim() ?? "";
-  if (!url && !token) return null;
-  if (!url || !token) {
-    throw new Error("OPS_METRICS_INGEST_URL and OPS_METRICS_INGEST_TOKEN must be configured together.");
-  }
-  return { url, token };
+/**
+ * The pushed body: the operator report without `beta.recent_signups`, the one
+ * per-signup list, which the ingest discards.
+ */
+export function opsMetricsSnapshot(report: unknown): unknown {
+  const snapshot = report as { beta?: { recent_signups?: unknown } };
+  if (snapshot.beta) delete snapshot.beta.recent_signups;
+  return snapshot;
 }
 
 interface OpsMetricsPushOptions {
@@ -166,11 +183,11 @@ export class OpsMetricsPushWorker {
   private async pushWindow(days: number): Promise<void> {
     let body: string;
     try {
-      body = JSON.stringify(await usageReport(
+      body = JSON.stringify(opsMetricsSnapshot(await usageReport(
         ["--days", String(days)],
         { db: this.options.db, hostedProvider: this.options.hostedProvider },
         (message) => { throw new Error(message); }
-      ));
+      )));
     } catch (error) {
       this.options.log.warn({ window_days: days, error_class: errorClass(error) }, "ops metrics report failed");
       return;

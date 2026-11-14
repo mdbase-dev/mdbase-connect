@@ -17,7 +17,7 @@ import { registerResendWebhookRoute } from "./features/email/email-provider-webh
 import { renderScheduledEmail } from "./features/email/beta-welcome-email.js";
 import { ScheduledEmailWorker } from "./features/email/scheduled-email.js";
 import { UsageRetentionWorker } from "./features/usage/usage-report.js";
-import { OpsMetricsPushWorker, type OpsMetricsPushConfig } from "./features/usage/ops-metrics-push.js";
+import { OpsMetricsPushWorker, type OpsMetricsPushSetting } from "./features/usage/ops-metrics-push.js";
 import type { GitHubAuthConfig } from "./features/auth/github-auth.js";
 import type { GoogleAuthConfig } from "./features/auth/google-auth.js";
 import { HostedAuthorityRegistry } from "./features/hosted/hosted.js";
@@ -159,7 +159,7 @@ interface BuildOptions {
     resolver?: TimerGrantResolver;
   };
   /** Pushes the usage report to the operations ingest (OPS_METRICS_INGEST_URL). */
-  opsMetricsPush?: OpsMetricsPushConfig;
+  opsMetricsPush?: OpsMetricsPushSetting;
 }
 
 export async function buildApp(options: BuildOptions) {
@@ -244,21 +244,28 @@ export async function buildApp(options: BuildOptions) {
     options.db,
     (error) => app.log.error({ err: error }, "usage retention worker failed")
   );
-  const opsMetricsPush = options.opsMetricsPush
+  const opsMetricsPush = options.opsMetricsPush?.enabled
     ? new OpsMetricsPushWorker({
         db: options.db,
         hostedProvider: options.hostedProvider,
-        config: options.opsMetricsPush,
+        config: options.opsMetricsPush.config,
         log: app.log
       })
     : undefined;
   // The host only: the token and any query string stay out of logs.
-  app.log.info(
-    options.opsMetricsPush
-      ? { ops_metrics_push: "enabled", host: new URL(options.opsMetricsPush.url).host }
-      : { ops_metrics_push: "disabled" },
-    "ops metrics push configuration"
-  );
+  if (options.opsMetricsPush?.enabled) {
+    app.log.info(
+      { ops_metrics_push: "enabled", host: new URL(options.opsMetricsPush.config.url).host },
+      "ops metrics push configuration"
+    );
+  } else if (options.opsMetricsPush?.reason) {
+    app.log.warn(
+      { ops_metrics_push: "disabled", reason: options.opsMetricsPush.reason },
+      "ops metrics push configuration"
+    );
+  } else {
+    app.log.info({ ops_metrics_push: "disabled" }, "ops metrics push configuration");
+  }
   const objectGc = options.nextControlPlane?.objectGc
     ? new ObjectGcWorker(
         options.db,
