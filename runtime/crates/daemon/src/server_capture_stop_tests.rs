@@ -58,7 +58,8 @@ async fn capture_fixture(tag: &str) -> CaptureFixture {
             crate::cloud::CloudConfig {
                 schema_version: 1,
                 account_epoch: epoch,
-                connector_id: Some("connector".into()),
+                // A UUID, as Connect issues, so a create can be proven.
+                connector_id: Some("22222222-2222-4222-8222-222222222222".into()),
                 server_url: origin,
                 ..Default::default()
             },
@@ -354,7 +355,7 @@ async fn source_recapture_checks_current_files_without_replacing_identity() {
         .unwrap_err();
     assert_eq!(refusal.reason.as_deref(), Some("source_capture_incomplete"));
     assert_retained_capture(&fixture, &original).await;
-    fixture
+    let paused_retry = fixture
         .daemon
         .enable_sync(EnableSync {
             collection: fixture.id.clone(),
@@ -363,6 +364,7 @@ async fn source_recapture_checks_current_files_without_replacing_identity() {
         })
         .await
         .expect_err("sync setup must not reopen the paused source");
+    assert_eq!(paused_retry.reason.as_deref(), Some("collection_paused"));
     assert_retained_capture(&fixture, &original).await;
 
     let unchanged = fixture.daemon.set_paused(&fixture.id, false).await.unwrap();
@@ -519,3 +521,150 @@ async fn capture_stop_registry_save_failure_fences_memory_and_original_writers()
 // - Add a successful captured-Frozen/holds-only refusal positive control with
 //   known original outcomes to preserve safe ordinary resume semantics.
 // - No assertions may be weakened to accommodate a pre-freeze fixture refusal.
+
+/// Answer the control plane like Connect: a device challenge, and each
+/// collection create with the next of `creates` (status line, error code).
+fn fake_connect(
+    listener: &std::net::TcpListener,
+    creates: Vec<(&'static str, &'static str)>,
+) -> (
+    Arc<std::sync::atomic::AtomicUsize>,
+    tokio::task::JoinHandle<()>,
+) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::from_std(listener.try_clone().unwrap()).unwrap();
+    let seen = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = seen.clone();
+    let task = tokio::spawn(async move {
+        loop {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0; 8192];
+            let line = loop {
+                let n = socket.read(&mut buffer).await.unwrap();
+                if n == 0 {
+                    break String::new();
+                }
+                request.extend_from_slice(&buffer[..n]);
+                let text = String::from_utf8_lossy(&request).to_string();
+                if let Some(end) = text.find("\r\n\r\n") {
+                    let length = text[..end]
+                        .lines()
+                        .find_map(|l| {
+                            l.to_ascii_lowercase()
+                                .strip_prefix("content-length: ")
+                                .map(|v| v.trim().parse::<usize>().unwrap())
+                        })
+                        .unwrap_or(0);
+                    if request.len() >= end + 4 + length {
+                        break text.lines().next().unwrap().to_owned();
+                    }
+                }
+            };
+            let (status, body) = if line.contains("/v1/next/devices/challenge") {
+                (
+                    "200 OK",
+                    json!({ "challenge": crate::secrets::hex(&[7; 32]) }),
+                )
+            } else if line.starts_with("POST /v1/next/collections/cloud-copy ")
+                || line.starts_with("POST /v1/next/collections/private ")
+            {
+                let n = count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let (status, code) = creates[n.min(creates.len() - 1)];
+                (status, json!({ "error": { "code": code } }))
+            } else {
+                // Background account calls are not what this test is about.
+                ("404 Not Found", json!({ "error": { "code": "not_found" } }))
+            };
+            let body = body.to_string();
+            let _ = socket
+                .write_all(
+                    format!(
+                        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .as_bytes(),
+                )
+                .await;
+        }
+    });
+    (seen, task)
+}
+
+async fn wait_serving(f: &CaptureFixture) {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while f.daemon.serving(&f.id).await.is_err() {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "collection did not serve again"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// mdbase-connect#1522: turning sync on at the synced-collection limit left
+/// the folder paused, and every retry failed with `registration_mismatch`,
+/// even once a slot was free. An uncertain failure keeps it paused with its
+/// journal and a retry finishes it; a quota refusal puts it back serving.
+#[tokio::test]
+async fn sync_enable_retries_after_an_interrupted_or_refused_create() {
+    let fixture = capture_fixture("enable-refused-create").await;
+    let journal = crate::adopt::Journal::path(
+        &fixture.daemon.profile.state_dir.join("collections"),
+        &fixture.id,
+    );
+    let (creates, server) = fake_connect(
+        &fixture.bootstrap,
+        vec![
+            ("503 Service Unavailable", "unavailable"),
+            ("429 Too Many Requests", "account_collection_quota_exceeded"),
+        ],
+    );
+    let enable = || {
+        fixture.daemon.enable_sync(EnableSync {
+            collection: fixture.id.clone(),
+            mode: None,
+            accept_takeover_holds: false,
+        })
+    };
+    let paused = |daemon: &Arc<Daemon>| {
+        let daemon = daemon.clone();
+        let id = fixture.id.clone();
+        async move { daemon.inner.lock().await.registry.get(&id).unwrap().paused }
+    };
+
+    // Uncertain: Connect may have created it. Paused, journal kept.
+    let uncertain = enable().await.unwrap_err();
+    assert_eq!(uncertain.reason.as_deref(), Some("sync_refused"));
+    assert!(paused(&fixture.daemon).await);
+    assert!(journal.exists());
+
+    // The retry reaches Connect (no registration_mismatch). Refused at the
+    // limit, the folder serves locally again and the journal is gone.
+    let refused = enable().await.unwrap_err();
+    assert_eq!(
+        refused.reason.as_deref(),
+        Some("account_collection_quota_exceeded")
+    );
+    assert!(!paused(&fixture.daemon).await);
+    assert!(!journal.exists());
+    wait_serving(&fixture).await;
+
+    // From serving, a quota refusal also leaves it serving.
+    let refused = enable().await.unwrap_err();
+    assert_eq!(
+        refused.reason.as_deref(),
+        Some("account_collection_quota_exceeded")
+    );
+    assert!(!paused(&fixture.daemon).await);
+    assert!(!journal.exists());
+    wait_serving(&fixture).await;
+    assert_eq!(creates.load(std::sync::atomic::Ordering::SeqCst), 3);
+    assert_eq!(
+        std::fs::read(fixture.folder.path().join("original.md")).unwrap(),
+        fixture.note
+    );
+
+    server.abort();
+    close_fixture(&fixture).await;
+}

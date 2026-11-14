@@ -311,8 +311,12 @@ impl CollectionAuthority {
             .ok_or(Deny::RegistrationMismatch)
     }
     fn owner(&self, state: &State) -> Result<OwnerIdentity, Deny> {
-        let paired = self.paired(state)?;
+        self.paired(state)?;
         let entry = self.entry(state)?;
+        self.owner_of(state, entry)
+    }
+    fn owner_of(&self, state: &State, entry: &Entry) -> Result<OwnerIdentity, Deny> {
+        let paired = self.paired(state)?;
         if entry.mode != SyncMode::Local {
             return Err(Deny::PolicyRequired);
         }
@@ -373,6 +377,17 @@ impl CollectionAuthority {
     pub fn owner_identity(&self) -> Option<OwnerIdentity> {
         let state = self.authority.0.read().ok()?;
         self.owner(&state).ok()
+    }
+    /// The local-only registration's owner even while it is paused. Only for
+    /// finishing an interrupted `sync enable`, which pauses the collection
+    /// durably before it asks Connect to create it (mdbase-connect#1522).
+    /// Never serving authority: every other check still refuses a paused one.
+    pub fn paused_owner_identity(&self) -> Option<OwnerIdentity> {
+        let state = self.authority.0.read().ok()?;
+        let entry = state
+            .entries
+            .get(&crate::secrets::uuid_string(&self.collection.0))?;
+        self.owner_of(&state, entry).ok()
     }
     /// Select collection authority by state. `policy` MUST be the replica's current
     /// verified signed-policy state, paired with that replica's collection ID;

@@ -417,3 +417,24 @@ fn native_replica_adapter_poison_and_different_account_deny_hooks() {
     assert_eq!(fresh.authority_epoch(), None);
     assert_eq!(fresh.device_noise_pk(), None);
 }
+
+/// mdbase-connect#1522: finishing an interrupted sync enable needs the owner
+/// of a paused local registration; nothing else may treat it as serving.
+#[test]
+fn paused_owner_identity_is_the_owner_check_without_the_pause() {
+    let (authority, source, _) = fixture();
+    let owner = source.owner_identity().unwrap();
+    assert_eq!(source.paused_owner_identity(), Some(owner));
+    let mut paused = registration();
+    paused.paused = true;
+    authority.publish_registry(&registry(paused.clone()));
+    assert_eq!(source.owner_identity(), None);
+    assert_eq!(source.authorize(None), Err(Deny::RegistrationMismatch));
+    assert_eq!(source.paused_owner_identity(), Some(owner));
+    let mut other_device = paused;
+    other_device.device = Some(BOB.into());
+    authority.publish_registry(&registry(other_device));
+    assert_eq!(source.paused_owner_identity(), None);
+    authority.invalidate(2);
+    assert_eq!(source.paused_owner_identity(), None);
+}

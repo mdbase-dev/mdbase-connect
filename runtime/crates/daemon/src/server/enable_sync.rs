@@ -102,7 +102,26 @@ impl Daemon {
                 .map(|_| ())
                 .ok_or_else(|| "account_changed".to_string())
         };
-        if source.owner_identity().is_none() {
+        // A paused collection with an adopt journal was stopped by an
+        // interrupted sync enable (which pauses durably before asking Connect
+        // to create it); this run finishes it. Any other paused collection
+        // must be resumed first (mdbase-connect#1522).
+        let owner_identity = if entry.paused {
+            if journal.is_none() {
+                return Err(ControlError::invalid(
+                    "collection_paused",
+                    format!(
+                        "this collection is paused; resume it with `mdbase collection resume {}`, \
+                         then turn on sync",
+                        entry.name
+                    ),
+                ));
+            }
+            source.paused_owner_identity()
+        } else {
+            source.owner_identity()
+        };
+        if owner_identity.is_none() {
             return Err(ControlError::new(
                 "unauthenticated",
                 "registration_mismatch",
@@ -308,8 +327,17 @@ impl Daemon {
                             &current,
                         )
                         .await
-                }
-                .map_err(cloud_refusal)?;
+                };
+                let created = match created {
+                    Ok(created) => created,
+                    Err(refusal) => {
+                        if refused_before_create(&refusal) {
+                            self.restore_after_refused_create(&entry.id, &journal_path)
+                                .await?;
+                        }
+                        return Err(cloud_refusal(refusal));
+                    }
+                };
                 current().map_err(|_| {
                     ControlError::new(
                         "unauthenticated",
@@ -393,6 +421,52 @@ impl Daemon {
         self.bump();
         tracing::info!(collection = %status.id, e2e, adopting, "sync enabled");
         to_value(&status)
+    }
+
+    /// Connect refused to create the collection, so nothing exists remotely:
+    /// put it back as `collection resume` would. The adopt journal (nothing
+    /// was created) is dropped and the folder serves locally again, instead of
+    /// staying paused until someone resumes it (mdbase-connect#1522).
+    async fn restore_after_refused_create(
+        &self,
+        id: &str,
+        journal: &std::path::Path,
+    ) -> Result<(), ControlError> {
+        crate::adopt::Journal::remove(journal)
+            .map_err(|e| ControlError::internal(format!("adopt journal: {e}")))?;
+        let mut inner = self.inner.lock().await;
+        let mut next = inner.registry.clone();
+        let entry = next
+            .get_mut(id)
+            .ok_or_else(|| ControlError::internal("registry changed"))?;
+        entry.paused = false;
+        let entry = entry.clone();
+        self.save_registry(&next)?;
+        inner.registry = next;
+        self.authority.publish_registry(&inner.registry);
+        inner
+            .hosts
+            .iter_mut()
+            .find(|h| h.entry().id == id)
+            .ok_or_else(|| ControlError::internal("registry and hosts disagree"))?
+            .set_entry(entry);
+        drop(inner);
+        self.bump();
+        tracing::info!(collection = %id, "sync not turned on: Connect refused to create the collection; serving locally again");
+        Ok(())
+    }
+}
+
+/// Whether Connect refused to create a collection without creating it: the
+/// synced-collection quota, a rate limit or a rejected credential. Anything
+/// else (a network failure, a 5xx, a conflict) leaves the outcome uncertain,
+/// and the collection stays paused with its journal for a retry to finish.
+fn refused_before_create(refusal: &crate::cloud::CloudError) -> bool {
+    use crate::cloud::CloudError;
+    match refusal {
+        CloudError::Server(429, code) => code == "account_collection_quota_exceeded",
+        CloudError::RateLimited(_) | CloudError::Unauthenticated => true,
+        _ => false,
     }
 }
 
