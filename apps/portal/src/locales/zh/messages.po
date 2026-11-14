@@ -327,6 +327,14 @@ msgid "{label} turned on."
 msgstr "已开启{label}。"
 
 #: src/AccountManagement.tsx
+msgid "{monthly} a month"
+msgstr "每月 {monthly}"
+
+#: src/AccountManagement.tsx
+msgid "{seats, plural, one {# person} other {# people}}"
+msgstr "{seats, plural, other {# 人}}"
+
+#: src/AccountManagement.tsx
 msgid "{tier} hosted storage"
 msgstr "{tier} 托管存储空间"
 
@@ -369,6 +377,10 @@ msgstr "{value, plural, other {# 条记录}}"
 #: src/count-label.ts
 msgid "{value, plural, one {# synced folder} other {# synced folders}}"
 msgstr "{value, plural, other {# 个同步文件夹}}"
+
+#: src/AccountManagement.tsx
+msgid "{yearly} a year"
+msgstr "每年 {yearly}"
 
 #: src/authorization-view.tsx
 msgid "<0/>Already connected"
@@ -544,6 +556,10 @@ msgstr "操作"
 #: src/ConnectApp.tsx
 msgid "Actions for {0}"
 msgstr "{0} 的操作"
+
+#: src/AccountManagement.tsx
+msgid "Activating Plus…"
+msgstr "正在激活 Plus…"
 
 #: src/AccountManagement.tsx
 msgid "Add a collection to get started."
@@ -956,6 +972,14 @@ msgstr "正在检查活动会话…"
 msgctxt "Application access approval"
 msgid "Checking…"
 msgstr "正在检查…"
+
+#: src/AccountManagement.tsx
+msgid "Checkout cancelled. You haven't been charged."
+msgstr "已取消结账。您未被扣款。"
+
+#: src/AccountManagement.tsx
+msgid "Checkout finished, but Plus hasn't appeared yet. Reload this page in a minute."
+msgstr "结账已完成，但 Plus 尚未显示。请在一分钟后重新加载此页面。"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
@@ -1583,6 +1607,10 @@ msgid "Email and password"
 msgstr "电子邮箱和密码"
 
 #: src/AccountManagement.tsx
+msgid "Ends {endDate}"
+msgstr "{endDate} 结束"
+
+#: src/AccountManagement.tsx
 msgid "Ends {trialEnd}"
 msgstr "{trialEnd} 结束"
 
@@ -1730,6 +1758,11 @@ msgstr "文件夹同步"
 #: src/auth-view.tsx
 msgid "Forgot your password?"
 msgstr "忘记密码？"
+
+#: src/AccountManagement.tsx
+msgctxt "Account plan"
+msgid "Free"
+msgstr "Free"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -2041,6 +2074,11 @@ msgstr "主副本位于 {mirrorName}"
 msgctxt "Application access approval"
 msgid "Manage and delete files"
 msgstr "管理和删除文件"
+
+#: src/AccountManagement.tsx
+msgctxt "Account plan"
+msgid "Manage billing"
+msgstr "管理账单"
 
 #: src/AccountManagement.tsx
 msgid "Manage collections, sign-in methods, and browser sessions."
@@ -2526,6 +2564,11 @@ msgctxt "Connect interface"
 msgid "Opening mdbase Connect…"
 msgstr "正在打开 mdbase Connect…"
 
+#: src/AccountManagement.tsx
+msgctxt "Account plan"
+msgid "Opening…"
+msgstr "正在打开…"
+
 #: src/auth-view.tsx
 msgid "or"
 msgstr "或"
@@ -2574,6 +2617,10 @@ msgstr "两次输入的密码不一致。"
 msgctxt "Connect interface"
 msgid "Paused"
 msgstr "已暂停"
+
+#: src/AccountManagement.tsx
+msgid "Payment failed. Plus continues until {endDate}. Update your payment method in Manage billing."
+msgstr "付款失败。Plus 将持续到 {endDate}。请在“管理账单”中更新付款方式。"
 
 #: src/ConnectApp.tsx
 msgid "Pending"
@@ -2624,6 +2671,20 @@ msgstr "权限"
 msgctxt "Connect interface"
 msgid "person@example.com"
 msgstr "user@example.com"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Plan"
+msgstr "套餐"
+
+#: src/AccountManagement.tsx
+msgctxt "Account plan"
+msgid "Plus"
+msgstr "Plus"
+
+#: src/AccountManagement.tsx
+msgid "Plus is active."
+msgstr "Plus 已激活。"
 
 #: src/AccountManagement.tsx
 msgid "Preferences"
@@ -2781,6 +2842,10 @@ msgstr "重命名 {0}"
 #: src/ConnectApp.tsx
 msgid "Renamed {0} to {1}"
 msgstr "已将 {0} 重命名为 {1}"
+
+#: src/AccountManagement.tsx
+msgid "Renews {renewal}"
+msgstr "{renewal} 续订"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
@@ -3782,6 +3847,14 @@ msgstr "已更新 {0} 对 {1} 的访问权限"
 msgctxt "Connect interface"
 msgid "Updating access…"
 msgstr "正在更新访问权限…"
+
+#: src/AccountManagement.tsx
+msgid "Upgrade to Plus for {storage} of storage, {collections}, files up to {fileSize} and {people} per collection."
+msgstr "升级到 Plus，可获得 {storage} 存储空间、{collections}、单个文件最大 {fileSize}，每个集合可有 {people}。"
+
+#: src/AccountManagement.tsx
+msgid "Upgrade to Plus for more storage, collections and people."
+msgstr "升级到 Plus，获得更多存储空间、集合和成员。"
 
 #: src/authorization-view.tsx
 msgid "Upgrades starter types this app added earlier while keeping your customizations and notes. Types it cannot trace to one of those starters are left unchanged. Conflicts, or other types still using the old contract, stop the whole upgrade."

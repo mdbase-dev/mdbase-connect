@@ -7,6 +7,7 @@ import type { WebhookSigningConfig } from "../features/notifications/webhook.js"
 import { parsePushTargetSealerEnv, type PushTargetSealerConfig } from "../features/next/push-target-seal.js";
 import { loadPolicySigner, parseNextControlPlaneEnv, type NextControlPlaneConfig } from "../features/next/policy-keys.js";
 import type { AccountBackend } from "../features/next/account-backend-flip.js";
+import type { BillingConfig } from "../features/billing/billing.js";
 
 import { DEFAULT_CLIENT_UPDATE_POLICY, type ClientUpdatePolicy } from "../features/next/cutover-problems.js";
 import { parsePasswordSignupIpMaxAttempts, passwordSignupIpRule } from "../features/auth/password-signup-limit.js";
@@ -72,6 +73,8 @@ export interface RuntimeConfig {
   newAccountBackend?: AccountBackend;
   /** Usage report push to the operations ingest; never refuses startup. */
   opsMetricsPush?: OpsMetricsPushSetting;
+  /** Plus checkout through Stripe; null when the deployment doesn't sell plans. */
+  billing?: BillingConfig | null;
 }
 
 export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
@@ -423,8 +426,42 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
     pushTargetSeal: parsePushTargetSealerEnv(env),
     clientUpdate: parseClientUpdateEnv(env),
     newAccountBackend: parseNewAccountBackendEnv(env, nextControlPlane),
-    opsMetricsPush: opsMetricsPushSetting(env, environment)
+    opsMetricsPush: opsMetricsPushSetting(env, environment),
+    billing: parseBillingEnv(env)
   });
+}
+
+const BILLING_ENV = {
+  secretKey: ["MDBASE_CONNECT_STRIPE_SECRET_KEY", /^(?:sk|rk)_(?:live|test)_[A-Za-z0-9]+$/u],
+  webhookSecret: ["MDBASE_CONNECT_STRIPE_WEBHOOK_SECRET", /^whsec_[A-Za-z0-9+/=_-]{16,}$/u],
+  month: ["MDBASE_CONNECT_STRIPE_PLUS_MONTHLY_PRICE_ID", /^price_[A-Za-z0-9]+$/u],
+  year: ["MDBASE_CONNECT_STRIPE_PLUS_YEARLY_PRICE_ID", /^price_[A-Za-z0-9]+$/u]
+} as const;
+
+/**
+ * Billing is on only with all four Stripe settings: self-hosted and development
+ * deployments sell nothing. Some but not all of them is a configuration mistake.
+ */
+export function parseBillingEnv(env: NodeJS.ProcessEnv): BillingConfig | null {
+  const values = Object.fromEntries(Object.entries(BILLING_ENV).map(
+    ([key, [name]]) => [key, env[name]?.trim() ?? ""]
+  )) as Record<keyof typeof BILLING_ENV, string>;
+  const set = Object.values(values).filter(Boolean).length;
+  if (set === 0) return null;
+  if (set < 4) {
+    throw new Error(`${Object.values(BILLING_ENV).map(([name]) => name).join(", ")} must be configured together.`);
+  }
+  for (const [key, [name, pattern]] of Object.entries(BILLING_ENV)) {
+    if (!pattern.test(values[key as keyof typeof BILLING_ENV])) throw new Error(`${name} is invalid.`);
+  }
+  if (values.month === values.year) {
+    throw new Error("The monthly and yearly Plus prices must be different Stripe prices.");
+  }
+  return {
+    secretKey: values.secretKey,
+    webhookSecret: values.webhookSecret,
+    prices: { month: values.month, year: values.year }
+  };
 }
 
 function parseClientUpdateEnv(env: NodeJS.ProcessEnv): ClientUpdatePolicy {

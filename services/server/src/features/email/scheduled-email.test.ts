@@ -2,12 +2,15 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DatabasePool } from "../../database-types.js";
 import { createDatabase } from "../../db.js";
+import { materializePublicSignupEntitlement } from "../account/entitlements.js";
+import { scheduleSignupEmails } from "./beta-welcome-email.js";
 import { EmailDeliveryError, type EmailTransport } from "./email.js";
 import {
   readEmailPreferences,
   redeemUnsubscribeToken,
   scheduleEmail,
   ScheduledEmailWorker,
+  STORAGE_TRIAL_NOTICES,
   type EmailCategory
 } from "./scheduled-email.js";
 
@@ -230,6 +233,78 @@ describe("scheduled account email", () => {
     const { db } = await fixture();
     expect(await redeemUnsubscribeToken(db, "not-a-token")).toBeNull();
     expect(await redeemUnsubscribeToken(db, `uns_${"a".repeat(43)}`)).toBeNull();
+  });
+});
+
+describe("storage trial notices", () => {
+  const DAY_MS = 24 * 60 * 60 * 1_000;
+
+  /** A signup whose trial ends in six days, so the week-before notice is due now. */
+  async function trialEndingSoon() {
+    const { db, userId, emailIdentityId } = await fixture();
+    await materializePublicSignupEntitlement(db, userId);
+    const trialEndsAt = new Date(Date.now() + 6 * DAY_MS);
+    await db.query(
+      "UPDATE account_entitlement_grants SET ends_at = $2 WHERE user_id = $1 AND profile_code = 'trial_v1'",
+      [userId, trialEndsAt]
+    );
+    await scheduleSignupEmails(db, { userId, emailIdentityId, trialEndsAt });
+    const send = vi.fn<EmailTransport["send"]>(async () => ({ provider: "test", messageId: "message-1" }));
+    const worker = new ScheduledEmailWorker(db, { send }, ({ email, messageKind }) => ({
+      to: email, subject: messageKind, text: messageKind, html: `<p>${messageKind}</p>`
+    }), PUBLIC_URL);
+    const notice = async () => {
+      const job = (await db.query(
+        `SELECT id, state, last_error_code FROM email_jobs
+         WHERE user_id = $1 AND message_kind = 'storage_trial_ending'`,
+        [userId]
+      )).rows[0];
+      const attempts = await db.query("SELECT 1 FROM email_delivery_attempts WHERE job_id = $1", [job.id]);
+      return { state: job.state, last_error_code: job.last_error_code, attempts: attempts.rows.length };
+    };
+    return { db, userId, trialEndsAt, send, worker, notice };
+  }
+
+  it("sends while the trial still ends then and the account falls back to Free", async () => {
+    expect(STORAGE_TRIAL_NOTICES.storage_trial_ending).toBe(7 * DAY_MS);
+    const { send, worker, notice } = await trialEndingSoon();
+    expect(await worker.drainOnce()).toBe(1);
+    expect(send).toHaveBeenCalledOnce();
+    expect(await notice()).toMatchObject({ state: "accepted", attempts: 1 });
+  });
+
+  it("skips, without failing, once the account keeps more than Free's storage after the trial", async () => {
+    const { db, userId, trialEndsAt, send, worker, notice } = await trialEndingSoon();
+    await db.query(
+      `INSERT INTO account_entitlement_grants (id, user_id, profile_code, source, source_reference, ends_at)
+       VALUES ($1, $2, 'plus_v1', 'subscription', 'sub_plus', $3)`,
+      [randomUUID(), userId, new Date(trialEndsAt.getTime() + 30 * DAY_MS)]
+    );
+    expect(await worker.drainOnce()).toBe(1);
+    expect(send).not.toHaveBeenCalled();
+    expect(await notice()).toEqual({ state: "cancelled", last_error_code: "skipped_not_applicable", attempts: 0 });
+  });
+
+  it("still sends when the larger grant lapses before the trial does", async () => {
+    const { db, userId, send, worker } = await trialEndingSoon();
+    await db.query(
+      `INSERT INTO account_entitlement_grants (id, user_id, profile_code, source, source_reference, ends_at)
+       VALUES ($1, $2, 'plus_v1', 'subscription', 'sub_plus', now() + interval '1 day')`,
+      [randomUUID(), userId]
+    );
+    expect(await worker.drainOnce()).toBe(1);
+    expect(send).toHaveBeenCalledOnce();
+  });
+
+  it("skips when the trial no longer ends when the notice was scheduled for", async () => {
+    const { db, userId, send, worker, notice } = await trialEndingSoon();
+    await db.query(
+      "UPDATE account_entitlement_grants SET ends_at = ends_at + interval '14 days' WHERE user_id = $1 AND profile_code = 'trial_v1'",
+      [userId]
+    );
+    expect(await worker.drainOnce()).toBe(1);
+    expect(send).not.toHaveBeenCalled();
+    expect(await notice()).toMatchObject({ state: "cancelled", last_error_code: "skipped_not_applicable" });
   });
 });
 

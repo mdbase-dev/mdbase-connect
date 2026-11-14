@@ -14,7 +14,7 @@ export const OPEN_BETA_ENTITLEMENT_PROFILE = "open_beta_v1";
 /** The free plan every account holds once backfilled (pricing §6). */
 export const FREE_ENTITLEMENT_PROFILE = "free_v1";
 /** The storage-only trial a public signup holds for its first month. */
-const TRIAL_ENTITLEMENT_PROFILE = "trial_v1";
+export const TRIAL_ENTITLEMENT_PROFILE = "trial_v1";
 const TRIAL_DURATION = "30 days";
 
 export interface EffectiveEntitlement {
@@ -421,34 +421,11 @@ export async function grantOperatorEntitlement(
       );
       changed = Boolean(inserted.rows[0]);
     }
-    const existingAccount = await connection.query<{
-      entitlement_revision: string | number;
-    }>(
-      `SELECT entitlement_revision FROM account_storage_accounts
-       WHERE user_id = $1 FOR UPDATE`,
-      [input.userId]
+    const entitlementRevision = await recordEntitlementChange(
+      connection,
+      input.userId,
+      changed
     );
-    let entitlementRevision = existingAccount.rows[0]
-      ? safeNumber(
-          existingAccount.rows[0].entitlement_revision,
-          "entitlement revision"
-        )
-      : 1;
-    if (!existingAccount.rows[0]) {
-      await connection.query(
-        `INSERT INTO account_storage_accounts (user_id, provider_account_id)
-         VALUES ($1, $2)`,
-        [input.userId, randomUUID()]
-      );
-    } else if (changed) {
-      entitlementRevision += 1;
-      await connection.query(
-        `UPDATE account_storage_accounts SET
-           entitlement_revision = $2, updated_at = now()
-         WHERE user_id = $1`,
-        [input.userId, entitlementRevision]
-      );
-    }
     await connection.query(
       `INSERT INTO account_email_preferences (user_id)
        VALUES ($1) ON CONFLICT (user_id) DO NOTHING`,
@@ -480,6 +457,43 @@ export async function grantOperatorEntitlement(
   } finally {
     connection.release();
   }
+}
+
+/**
+ * Moves an account's entitlement revision past a grant change, so the hosted
+ * provider reconciles the new limits, and returns the revision. An account without
+ * a storage account gets one at revision 1. The caller holds the account's users
+ * row lock.
+ */
+export async function recordEntitlementChange(
+  connection: DatabaseQueryable,
+  userId: string,
+  changed: boolean
+): Promise<number> {
+  const existing = await connection.query<{
+    entitlement_revision: string | number;
+  }>(
+    `SELECT entitlement_revision FROM account_storage_accounts
+     WHERE user_id = $1 FOR UPDATE`,
+    [userId]
+  );
+  if (!existing.rows[0]) {
+    await connection.query(
+      `INSERT INTO account_storage_accounts (user_id, provider_account_id)
+       VALUES ($1, $2)`,
+      [userId, randomUUID()]
+    );
+    return 1;
+  }
+  const revision = safeNumber(existing.rows[0].entitlement_revision, "entitlement revision");
+  if (!changed) return revision;
+  await connection.query(
+    `UPDATE account_storage_accounts SET
+       entitlement_revision = $2, updated_at = now()
+     WHERE user_id = $1`,
+    [userId, revision + 1]
+  );
+  return revision + 1;
 }
 
 function maximum(

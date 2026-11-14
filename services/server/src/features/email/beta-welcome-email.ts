@@ -2,6 +2,7 @@ import type { DatabaseQueryable } from "../../database-types.js";
 import type { TransactionalEmail } from "./email.js";
 import {
   scheduleEmail,
+  STORAGE_TRIAL_NOTICES,
   type EmailRenderContext
 } from "./scheduled-email.js";
 
@@ -19,7 +20,6 @@ const STORAGE_TRIAL_ENDED_MESSAGE_KIND = "storage_trial_ended";
 const STORAGE_TRIAL_TEMPLATE_VERSION = 1;
 const DAY_MS = 24 * 60 * 60 * 1_000;
 const BETA_WELCOME_DELAY_MS = DAY_MS;
-const STORAGE_TRIAL_REMINDER_LEAD_MS = 7 * DAY_MS;
 
 const SUBJECT = "Welcome to mdbase Connect";
 
@@ -48,9 +48,8 @@ export async function scheduleBetaWelcomeEmail(
 /**
  * Schedules a public signup's emails: the welcome a day after signup, and the
  * storage-trial notices a week before the trial ends and when it ends. Each is
- * deduplicated per account, so it is sent at most once. The notices are not
- * re-checked at send time; that must change before a paid plan can be bought
- * during a trial.
+ * deduplicated per account, so it is sent at most once. The worker skips a
+ * notice that no longer applies when it is due (`STORAGE_TRIAL_NOTICES`).
  */
 export async function scheduleSignupEmails(
   db: DatabaseQueryable,
@@ -70,11 +69,7 @@ export async function scheduleSignupEmails(
       `${SIGNUP_WELCOME_MESSAGE_KIND}:${input.userId}:v${SIGNUP_WELCOME_TEMPLATE_VERSION}`,
     scheduledFor: new Date(Date.now() + BETA_WELCOME_DELAY_MS)
   });
-  const notices = [
-    [STORAGE_TRIAL_ENDING_MESSAGE_KIND, STORAGE_TRIAL_REMINDER_LEAD_MS],
-    [STORAGE_TRIAL_ENDED_MESSAGE_KIND, 0]
-  ] as const;
-  for (const [messageKind, leadMs] of notices) {
+  for (const [messageKind, leadMs] of Object.entries(STORAGE_TRIAL_NOTICES)) {
     await scheduleEmail(db, {
       userId: input.userId,
       emailIdentityId: input.emailIdentityId,

@@ -11,7 +11,8 @@ import {
   type AccountSession,
   type ConnectManagementClient,
   type EmailPreferences,
-  type ManagementOverview
+  type ManagementOverview,
+  type PlusInterval
 } from "@mdbase/connect-management";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import {
@@ -28,6 +29,15 @@ import { clearOverviewPreview } from "./overview-cache";
 import { toast } from "@mdbase-dev/ui/toast";
 import { ThemeMenu } from "./portal-ui";
 import { clearPagePrefetch, takeAccountPrefetch } from "./page-prefetch";
+
+/**
+ * The upgrade buttons' prices, kept here so the page needn't ask Stripe on
+ * load. Provisional: they must match the configured Stripe prices.
+ */
+const PLUS_PRICE_LABELS: Record<PlusInterval, string> = { month: "US$10", year: "US$96" };
+/** After checkout, how often and how many times to look for the webhook's Plus grant. */
+const PLUS_ACTIVATION_POLL_MS = 2_000;
+const PLUS_ACTIVATION_POLLS = 15;
 
 export function AccountManagement({ client, overview, sessions, onOverviewRefresh, onDeleted, onSignedOut }: {
   client: ConnectManagementClient;
@@ -63,6 +73,11 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
     code: string;
     expiresAt: string;
   }>();
+  const [plusActivation, setPlusActivation] = useState<"waiting" | "delayed" | null>(() =>
+    new URLSearchParams(location.search).get("checkout") === "success" ? "waiting" : null);
+  const refreshOverview = useRef(onOverviewRefresh);
+  refreshOverview.current = onOverviewRefresh;
+  const plusActive = Boolean(overview.billing?.plus);
 
   const handleError = useCallback((reason: unknown) => {
     if (reason instanceof ManagementApiError && reason.status === 401) {
@@ -100,6 +115,37 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
     url.searchParams.delete("linked");
     history.replaceState(history.state, "", `${url.pathname}${url.search}${url.hash}`);
   }, []);
+
+  useEffect(() => {
+    const checkout = new URLSearchParams(location.search).get("checkout");
+    if (checkout !== "success" && checkout !== "cancelled") return;
+    if (checkout === "cancelled") toast(t(i18n)`Checkout cancelled. You haven't been charged.`);
+    const url = new URL(location.href);
+    url.searchParams.delete("checkout");
+    history.replaceState(history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+
+  // Stripe's webhook grants Plus moments after checkout returns here, so look for it a few times.
+  useEffect(() => {
+    if (!plusActivation) return;
+    if (plusActive) {
+      if (plusActivation === "waiting") toast(t(i18n)`Plus is active.`);
+      setPlusActivation(null);
+      return;
+    }
+    if (plusActivation !== "waiting") return;
+    let polls = 0;
+    const timer = setInterval(() => {
+      polls += 1;
+      if (polls > PLUS_ACTIVATION_POLLS) {
+        clearInterval(timer);
+        setPlusActivation("delayed");
+        return;
+      }
+      void refreshOverview.current().catch(() => undefined);
+    }, PLUS_ACTIVATION_POLL_MS);
+    return () => clearInterval(timer);
+  }, [plusActivation, plusActive]);
 
   async function run(id: string, action: () => Promise<void>, success?: string): Promise<boolean> {
     if (!beginOperation(id)) return false;
@@ -194,6 +240,18 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
     }
   }
 
+  /** Leaves for a Stripe page; the button stays busy until the browser navigates. */
+  async function openStripe(id: string, session: () => Promise<{ url: string }>) {
+    if (!beginOperation(id)) return;
+    setError("");
+    try {
+      location.assign((await session()).url);
+    } catch (reason) {
+      handleError(reason);
+      finishOperation(id);
+    }
+  }
+
   async function deleteAccount() {
     if (!beginOperation("delete")) return;
     setError("");
@@ -238,6 +296,16 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
   return <Page title={t(i18n)({ message: "Account", context: "Account management" })} intro={t(i18n)({ message: "Manage collections, sign-in methods, and browser sessions." })}>
     {error && !deletionOpen && <div className="mdbase-message is-boxed is-error" role="alert">{error}</div>}
 
+    {account.backend === "next" && overview.billing?.available && <section>
+      <SectionTitle title={t(i18n)({ message: "Plan", context: "Account management" })} />
+      <PlanRow
+        billing={overview.billing}
+        activation={plusActivation}
+        busy={busy}
+        onUpgrade={(interval) => void openStripe("checkout", () => client.startPlusCheckout(interval))}
+        onManage={() => void openStripe("billing-portal", () => client.openBillingPortal())}
+      />
+    </section>}
     {account.backend === "next" && <section>
       <SectionTitle title={t(i18n)({ message: "Collections", context: "Connect interface" })} count={ownedCollections.length} note={t(i18n)({ message: "Collections you own. Local files remain on your devices." })} />
       {overview.subscription && <SubscriptionStorage subscription={{ ...overview.subscription, usage: null }} fallbackStorage={null} />}
@@ -411,6 +479,75 @@ function StorageRow({ collection }: { collection: AccountData["storage"]["collec
   </div>;
 }
 
+function PlanRow({ billing, activation, busy, onUpgrade, onManage }: {
+  billing: NonNullable<ManagementOverview["billing"]>;
+  activation: "waiting" | "delayed" | null;
+  busy: ReadonlySet<string>;
+  onUpgrade(interval: PlusInterval): void;
+  onManage(): void;
+}) {
+  useLocaleRevision();
+  const plus = billing.plus;
+  const date = (value: string) => formatters(i18n.locale).date(new Date(value), { dateStyle: "medium" });
+  const leaving = busy.has("checkout") || busy.has("billing-portal");
+  const canUpgrade = !plus || plus.status === "canceled";
+  const monthly = PLUS_PRICE_LABELS.month;
+  const yearly = PLUS_PRICE_LABELS.year;
+  let name: string;
+  let detail: string;
+  if (plus && plus.status === "canceled") {
+    const endDate = date(plus.access_ends_at);
+    name = t(i18n)({ message: "Plus", context: "Account plan" });
+    detail = t(i18n)`Ends ${endDate}`;
+  } else if (plus && (plus.status === "past_due" || plus.status === "unpaid")) {
+    const endDate = date(plus.access_ends_at);
+    name = t(i18n)({ message: "Plus", context: "Account plan" });
+    detail = t(i18n)`Payment failed. Plus continues until ${endDate}. Update your payment method in Manage billing.`;
+  } else if (plus && plus.cancels_at) {
+    const endDate = date(plus.cancels_at);
+    name = t(i18n)({ message: "Plus", context: "Account plan" });
+    detail = t(i18n)`Ends ${endDate}`;
+  } else if (plus) {
+    const renewal = date(plus.current_period_end);
+    name = t(i18n)({ message: "Plus", context: "Account plan" });
+    detail = t(i18n)`Renews ${renewal}`;
+  } else if (activation === "waiting") {
+    name = t(i18n)({ message: "Plus", context: "Account plan" });
+    detail = t(i18n)`Activating Plus…`;
+  } else if (activation === "delayed") {
+    name = t(i18n)({ message: "Free", context: "Account plan" });
+    detail = t(i18n)`Checkout finished, but Plus hasn't appeared yet. Reload this page in a minute.`;
+  } else {
+    const limits = billing.plus_limits;
+    name = t(i18n)({ message: "Free", context: "Account plan" });
+    if (limits) {
+      const storage = formatBytes(limits.hosted_storage_bytes);
+      const collections = countLabel(limits.max_hosted_collections, "collection");
+      const fileSize = formatBytes(limits.max_single_file_bytes);
+      const seats = limits.max_collection_member_seats;
+      const people = t(i18n)`${plural(seats, { one: "# person", other: "# people" })}`;
+      detail = t(i18n)`Upgrade to Plus for ${storage} of storage, ${collections}, files up to ${fileSize} and ${people} per collection.`;
+    } else {
+      detail = t(i18n)`Upgrade to Plus for more storage, collections and people.`;
+    }
+  }
+  return <div className="connect-account-list">
+    <div className="connect-account-row">
+      <div>
+        <strong>{name}</strong>
+        <small role={activation ? "status" : undefined}>{detail}</small>
+      </div>
+      <div className="connect-account-actions">
+        {plus && <button className="mdbase-button" disabled={leaving} onClick={onManage}>{busy.has("billing-portal") ? t(i18n)({ message: "Opening…", context: "Account plan" }) : t(i18n)({ message: "Manage billing", context: "Account plan" })}</button>}
+        {canUpgrade && activation !== "waiting" && <>
+          <button className="mdbase-button is-primary" disabled={leaving} onClick={() => onUpgrade("month")}>{t(i18n)`${monthly} a month`}</button>
+          <button className="mdbase-button" disabled={leaving} onClick={() => onUpgrade("year")}>{t(i18n)`${yearly} a year`}</button>
+        </>}
+      </div>
+    </div>
+  </div>;
+}
+
 function SubscriptionStorage({ subscription, fallbackStorage }: {
   subscription: NonNullable<ManagementOverview["subscription"]>;
   fallbackStorage: AccountData["storage"] | null;
@@ -428,6 +565,7 @@ function SubscriptionStorage({ subscription, fallbackStorage }: {
   const trialEnd = trial && formatters(i18n.locale).date(new Date(trial.ends_at), { dateStyle: "medium" });
   const tier = trial
     ? t(i18n)({ message: "Storage trial", context: "Account management" })
+    : subscription.profiles.includes("plus_v1") ? t(i18n)({ message: "Plus", context: "Account plan" })
     : subscription.kind === "beta" ? t(i18n)({ message: "Beta", context: "Account management" }) : t(i18n)({ message: "Included storage", context: "Account management" });
   const permanence = trial
     ? t(i18n)`Ends ${trialEnd}`

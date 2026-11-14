@@ -370,6 +370,31 @@ describe("public runtime configuration", () => {
     })).toThrow(/invalid/);
   });
 
+  it("turns billing on only with all four Stripe settings", () => {
+    const local = { PUBLIC_URL: "http://localhost:8787", MDBASE_CONNECT_DEV_AUTH: "1" };
+    const stripe = {
+      MDBASE_CONNECT_STRIPE_SECRET_KEY: "sk_test_51Abc",
+      MDBASE_CONNECT_STRIPE_WEBHOOK_SECRET: "whsec_0123456789abcdefABCDEF",
+      MDBASE_CONNECT_STRIPE_PLUS_MONTHLY_PRICE_ID: "price_month1",
+      MDBASE_CONNECT_STRIPE_PLUS_YEARLY_PRICE_ID: "price_year1"
+    };
+    expect(legacyConfigFromEnv(local).billing).toBeNull();
+    expect(legacyConfigFromEnv({ ...local, ...stripe }).billing).toEqual({
+      secretKey: "sk_test_51Abc",
+      webhookSecret: "whsec_0123456789abcdefABCDEF",
+      prices: { month: "price_month1", year: "price_year1" }
+    });
+    expect(() => legacyConfigFromEnv({
+      ...local, ...stripe, MDBASE_CONNECT_STRIPE_PLUS_YEARLY_PRICE_ID: " "
+    })).toThrow(/configured together/);
+    expect(() => legacyConfigFromEnv({
+      ...local, ...stripe, MDBASE_CONNECT_STRIPE_SECRET_KEY: "pk_test_51Abc"
+    })).toThrow("MDBASE_CONNECT_STRIPE_SECRET_KEY is invalid.");
+    expect(() => legacyConfigFromEnv({
+      ...local, ...stripe, MDBASE_CONNECT_STRIPE_PLUS_YEARLY_PRICE_ID: "price_month1"
+    })).toThrow(/different Stripe prices/);
+  });
+
   it("rejects public URLs containing path or credential components", () => {
     expect(() => validateRuntimeConfig(config({
       publicUrl: "https://connect.example/control",

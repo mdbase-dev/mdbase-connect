@@ -469,6 +469,131 @@ describe("ConnectApp", () => {
     expect(collections.queryByText("Permanent allowance")).not.toBeInTheDocument();
   });
 
+  describe("Plus plan", () => {
+    const plusLimits = {
+      hosted_storage_bytes: 100 * 1024 ** 3,
+      max_hosted_collections: 10,
+      max_single_file_bytes: 250 * 1024 ** 2,
+      max_collection_member_seats: 5
+    };
+    const plusFor = (plus: Partial<NonNullable<NonNullable<ManagementOverview["billing"]>["plus"]>> = {}) => ({
+      status: "active",
+      current_period_end: "2026-12-15T12:00:00.000Z",
+      cancels_at: null,
+      access_ends_at: "2026-12-22T12:00:00.000Z",
+      ...plus
+    });
+
+    function renderPlan(billing: ManagementOverview["billing"], onOverviewRefresh = vi.fn(async () => {})) {
+      const account = accountFixture();
+      account.backend = "next";
+      account.storage.collections = [];
+      overview.billing = billing;
+      const client = new ConnectManagementClient(location.origin);
+      vi.spyOn(client, "account").mockResolvedValue(account);
+      const element = (value: ManagementOverview) => <><AccountManagement client={client} overview={value} onOverviewRefresh={onOverviewRefresh} onSignedOut={() => {}} onDeleted={() => {}} /><Toaster /></>;
+      const view = render(element(overview));
+      const plan = async () => within((await screen.findByRole("heading", { name: "Plan" })).closest("section")!);
+      return { client, plan, onOverviewRefresh, unmount: view.unmount, rerender: (value: ManagementOverview) => view.rerender(element(value)) };
+    }
+
+    function stubNavigation() {
+      const assign = vi.fn();
+      vi.stubGlobal("location", { href: `${location.origin}/account`, origin: location.origin, search: "", hash: "", assign });
+      return assign;
+    }
+
+    it("offers Plus monthly or yearly on Free and leaves for Stripe Checkout", async () => {
+      const { client, plan } = renderPlan({ available: true, plus_limits: plusLimits, plus: null });
+      const assign = stubNavigation();
+      const checkout = vi.spyOn(client, "startPlusCheckout").mockResolvedValue({ url: "https://checkout.stripe.com/c/pay/cs_test" });
+      const card = await plan();
+      expect(card.getByText("Free")).toBeInTheDocument();
+      expect(card.getByText("Upgrade to Plus for 100 GB of storage, 10 collections, files up to 250 MB and 5 people per collection.")).toBeInTheDocument();
+      expect(card.queryByRole("button", { name: "Manage billing" })).not.toBeInTheDocument();
+      expect(card.getByRole("button", { name: "US$10 a month" })).toBeEnabled();
+      await userEvent.setup().click(card.getByRole("button", { name: "US$96 a year" }));
+      expect(checkout).toHaveBeenCalledWith("year");
+      expect(assign).toHaveBeenCalledWith("https://checkout.stripe.com/c/pay/cs_test");
+      expect(card.getByRole("button", { name: "US$10 a month" })).toBeDisabled();
+    });
+
+    it("hides the plan where Plus isn't sold", async () => {
+      for (const billing of [undefined, { available: false, plus_limits: null, plus: null }]) {
+        const { unmount } = renderPlan(billing);
+        await screen.findByRole("heading", { name: "Collections" });
+        expect(screen.queryByRole("heading", { name: "Plan" })).not.toBeInTheDocument();
+        unmount();
+      }
+    });
+
+    it("shows when Plus renews and opens the customer portal", async () => {
+      overview.subscription = { ...overview.subscription!, kind: "entitled", profiles: ["free_v1", "plus_v1"] };
+      const { client, plan } = renderPlan({ available: true, plus_limits: plusLimits, plus: plusFor() });
+      const assign = stubNavigation();
+      const portal = vi.spyOn(client, "openBillingPortal").mockResolvedValue({ url: "https://billing.stripe.com/p/session/test" });
+      const card = await plan();
+      expect(card.getByText("Plus")).toBeInTheDocument();
+      expect(card.getByText("Renews Dec 15, 2026")).toBeInTheDocument();
+      expect(card.queryByRole("button", { name: /a month/ })).not.toBeInTheDocument();
+      await userEvent.setup().click(card.getByRole("button", { name: "Manage billing" }));
+      expect(portal).toHaveBeenCalledOnce();
+      expect(assign).toHaveBeenCalledWith("https://billing.stripe.com/p/session/test");
+      const collections = within(screen.getByRole("heading", { name: "Collections" }).closest("section")!);
+      expect(collections.getByText("Plus")).toBeInTheDocument();
+    });
+
+    it("shows a scheduled cancellation, a failed payment and a cancelled subscription's last day", async () => {
+      const states = [
+        [plusFor({ cancels_at: "2026-12-15T12:00:00.000Z" }), "Ends Dec 15, 2026", false],
+        [plusFor({ status: "past_due" }), "Payment failed. Plus continues until Dec 22, 2026. Update your payment method in Manage billing.", false],
+        [plusFor({ status: "canceled" }), "Ends Dec 22, 2026", true]
+      ] as const;
+      for (const [plus, detail, offered] of states) {
+        const { plan, unmount } = renderPlan({ available: true, plus_limits: plusLimits, plus });
+        const card = await plan();
+        expect(card.getByText(detail)).toBeInTheDocument();
+        expect(card.getByRole("button", { name: "Manage billing" })).toBeInTheDocument();
+        expect(Boolean(card.queryByRole("button", { name: "US$10 a month" }))).toBe(offered);
+        unmount();
+      }
+    });
+
+    it("waits for the webhook after checkout and says when Plus is active", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      history.replaceState(null, "", "/account?checkout=success");
+      const { plan, onOverviewRefresh, rerender } = renderPlan({ available: true, plus_limits: plusLimits, plus: null });
+      const card = await plan();
+      expect(card.getByRole("status")).toHaveTextContent("Activating Plus…");
+      expect(card.queryByRole("button", { name: "US$10 a month" })).not.toBeInTheDocument();
+      expect(location.search).toBe("");
+      await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+      expect(onOverviewRefresh).toHaveBeenCalled();
+      rerender({ ...overview, billing: { available: true, plus_limits: plusLimits, plus: plusFor() } });
+      expect(await screen.findByText("Plus is active.")).toBeInTheDocument();
+      expect(card.getByText("Renews Dec 15, 2026")).toBeInTheDocument();
+    });
+
+    it("stops waiting after a while and says how to check", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      history.replaceState(null, "", "/account?checkout=success");
+      const { plan, onOverviewRefresh } = renderPlan({ available: true, plus_limits: plusLimits, plus: null });
+      const card = await plan();
+      await act(async () => { await vi.advanceTimersByTimeAsync(40_000); });
+      expect(onOverviewRefresh).toHaveBeenCalledTimes(15);
+      expect(card.getByText("Checkout finished, but Plus hasn't appeared yet. Reload this page in a minute.")).toBeInTheDocument();
+      expect(card.getByRole("button", { name: "US$10 a month" })).toBeInTheDocument();
+    });
+
+    it("says nothing was charged when checkout is cancelled", async () => {
+      history.replaceState(null, "", "/account?checkout=cancelled");
+      const { plan } = renderPlan({ available: true, plus_limits: plusLimits, plus: null });
+      await plan();
+      expect(await screen.findByText("Checkout cancelled. You haven't been charged.")).toBeInTheDocument();
+      expect(location.search).toBe("");
+    });
+  });
+
   it("counts native collections without legacy shadow rows or content authorization", async () => {
     overview.collections = [];
     overview.hosted_collections = [];
