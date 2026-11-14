@@ -134,7 +134,10 @@ jobs:
     needs: native-dispatch
     runs-on: ubuntu-24.04
     timeout-minutes: 3
-    environment: editor-${{ inputs.target }}
+    # Environment for variables and branch policy only; the record job names the source.
+    environment:
+      name: editor-${{ inputs.target }}
+      deployment: false
     outputs:
       trust: ${{ steps.hashes.outputs.trust }}
     steps:
@@ -244,9 +247,10 @@ jobs:
       group: editor-native-upload-${{ inputs.target }}
       cancel-in-progress: false
     # External environment policy admits main without per-publish approval.
+    # An implicit deployment would name this run's main head, not SOURCE_SHA.
     environment:
       name: editor-${{ inputs.target }}
-      url: ${{ inputs.target == 'production' && 'https://editor.mdbase.dev/' || 'https://editor-staging.mdbase.dev/' }}
+      deployment: false
     env:
       TARGET: ${{ inputs.target }}
       SOURCE_SHA: ${{ inputs.source_sha }}
@@ -414,7 +418,9 @@ jobs:
     if: always() && inputs.target == 'production' && needs.native-deploy.result != 'skipped' && needs.smoke.result != 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    environment: editor-production
+    environment:
+      name: editor-production
+      deployment: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -463,3 +469,45 @@ jobs:
           path: ${{ runner.temp }}/editor-recovery/
           if-no-files-found: warn
           retention-days: 90
+
+  deployment-record:
+    name: GitHub deployment record for the published source
+    needs: [native-deploy, smoke, production-recovery]
+    # One record per publication attempt, keyed to the built source rather than
+    # this run's main head. Success means publication and smoke passed, so
+    # production was not restored; otherwise the record fails and the previous
+    # success stays active (a staging smoke failure leaves its bytes served).
+    if: always() && github.event_name == 'workflow_dispatch' && needs.native-deploy.result != 'skipped'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      deployments: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET: ${{ inputs.target }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      PUBLISHED: ${{ needs.native-deploy.result == 'success' && needs.smoke.result == 'success' }}
+    steps:
+      - name: Record the built source commit and its entry asset suffix
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          case "$TARGET" in
+            production) origin=https://editor.mdbase.dev/ production=true ;;
+            staging) origin=https://editor-staging.mdbase.dev/ production=false ;;
+            *) exit 1 ;;
+          esac
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          id=$(jq -n --arg sha "$SOURCE_SHA" --arg env "editor-$TARGET" --argjson production "$production" \
+              --arg suffix "-${SOURCE_SHA:0:12}.js" --arg run "$GITHUB_RUN_ID" '{
+                ref: $sha, environment: $env, auto_merge: false, required_contexts: [],
+                production_environment: $production, transient_environment: false,
+                description: "Editor build of \($sha[0:12])",
+                payload: {source_sha: $sha, entry_asset_suffix: $suffix, workflow_run_id: $run}}' |
+            gh api --method POST "repos/$GITHUB_REPOSITORY/deployments" --input - --jq .id)
+          [[ "$id" =~ ^[0-9]+$ ]]
+          if [ "$PUBLISHED" = true ]; then
+            jq -n --arg log "$run_url" --arg url "$origin" '{state: "success", log_url: $log, environment_url: $url, auto_inactive: true}'
+          else
+            jq -n --arg log "$run_url" '{state: "failure", log_url: $log, auto_inactive: false}'
+          fi | gh api --method POST "repos/$GITHUB_REPOSITORY/deployments/$id/statuses" --input - --jq .state
