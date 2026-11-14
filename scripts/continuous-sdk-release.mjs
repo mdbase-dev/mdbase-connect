@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { join, resolve } from "node:path";
+import { join, posix, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { publicPackages } from "./public-packages.mjs";
 import { api, checkoutProductionCommit, gh, git, nextBetaVersion, repository, requireGreenMain, requireRunning, verifyCompatibility } from "./lib/continuous-client-release.mjs";
@@ -127,15 +127,137 @@ export function packageInputs(path, item, kind) {
 }
 
 // Whether a path changed between two commits as an input of a published package.
-// Tests and version-only manifest edits never count.
+// Tests and version-only manifest edits never count; a pnpm lockfile counts only
+// where it resolves the package differently.
 export function inputChanged(path, item, kind, from, to, runGit = git) {
   if (!packageInputs(path, item, kind)) return false;
-  if (!/(?:^|\/)package(?:-lock)?\.json$/.test(path)) return contentChanged(path);
+  const lockfile = path === "pnpm-lock.yaml";
+  if (!lockfile && !/(?:^|\/)package(?:-lock)?\.json$/.test(path)) return contentChanged(path);
   const readAt = commit => {
     try { return runGit("show", `${commit}:${path}`); }
     catch (error) { if (error.status === 128) return undefined; throw error; }
   };
+  if (lockfile) return lockfileChanged(readAt(from), readAt(to), item.directory);
   return contentChanged(path, readAt(from), readAt(to));
+}
+
+// The part of a pnpm v9 lockfile that resolves one importer: every section other
+// than importers/packages/snapshots (settings, overrides, patches), the importer,
+// the workspace importers it links and the packages and snapshots in that
+// closure. It follows the importer's own dependencies, devDependencies (they
+// build its tarball) and optionalDependencies, and only runtime edges beyond it.
+// Edits confined to other importers and their exclusive dependencies, such as
+// an app repinning a vendored SDK, leave it unchanged. A directory that is not
+// an importer (the source-built SDK installs with npm from its own lock) has
+// none. Only the layout pnpm generates is read: any other lockfile version,
+// YAML aliases, layout or unresolved reference throws.
+export function lockfileClosure(text, importer) {
+  assert(typeof text === "string" && text.startsWith("lockfileVersion: '9.0'\n"), "lockfile-version-unsupported");
+  assert(!/(?:^|[\s:[{,])[&*][\w-]+/m.test(text) && !/^\s*["!?|>]/m.test(text), "lockfile-layout-unsupported");
+  const sections = new Map();
+  let lines;
+  for (const line of text.split("\n")) {
+    if (line.trim() === "") continue;
+    const top = /^([A-Za-z]+):(?: (\S.*))?$/.exec(line);
+    if (top) {
+      assert(!sections.has(top[1]), "lockfile-layout-unsupported");
+      sections.set(top[1], lines = [line]);
+    } else {
+      assert(lines && line.startsWith("  "), "lockfile-layout-unsupported");
+      lines.push(line);
+    }
+  }
+  const entries = name => {
+    const result = new Map();
+    let body;
+    for (const line of (sections.get(name) ?? assert.fail("lockfile-layout-unsupported")).slice(1)) {
+      if (line.startsWith("    ")) { assert(body, "lockfile-layout-unsupported"); body.push(line); continue; }
+      const head = /^ {2}(\S.*?):( \{\})?$/.exec(line);
+      assert(head, "lockfile-layout-unsupported");
+      const key = lockScalar(head[1]);
+      assert(!result.has(key), "lockfile-layout-unsupported");
+      result.set(key, body = [line]);
+      if (head[2]) body = undefined;
+    }
+    return result;
+  };
+  const importers = entries("importers");
+  const packages = entries("packages");
+  const snapshots = entries("snapshots");
+  if (!importers.has(importer)) return null;
+  // Unknown fields could carry dependency edges this reader does not follow.
+  const fields = (entry, known) => {
+    for (const line of entry.slice(1)) assert(!/^ {4}\S/.test(line) || known.includes(/^ {4}(\w+):/.exec(line)?.[1]), "lockfile-layout-unsupported");
+  };
+  // Lines under a four-space field such as "    dependencies:".
+  const field = (entry, name) => {
+    const start = entry.indexOf(`    ${name}:`);
+    if (start < 0) return [];
+    const end = entry.findIndex((line, index) => index > start && !line.startsWith("      "));
+    return entry.slice(start + 1, end < 0 ? undefined : end);
+  };
+  const closure = { global: [...sections].filter(([name]) => !["importers", "packages", "snapshots"].includes(name)),
+    importers: {}, packages: {}, snapshots: {} };
+  const visitSnapshot = key => {
+    if (key in closure.snapshots) return;
+    const entry = snapshots.get(key) ?? assert.fail("lockfile-reference-unresolved");
+    fields(entry, ["dependencies", "optionalDependencies", "transitivePeerDependencies", "optional"]);
+    const resolved = key.slice(0, key.includes("(", 1) ? key.indexOf("(", 1) : undefined);
+    closure.snapshots[key] = entry;
+    closure.packages[resolved] = packages.get(resolved) ?? assert.fail("lockfile-reference-unresolved");
+    for (const line of ["dependencies", "optionalDependencies"].flatMap(name => field(entry, name))) {
+      const [name, reference] = lockPair(line, 6);
+      visit(name, reference, ".");
+    }
+  };
+  const visitImporter = (path, own) => {
+    if (path in closure.importers) return;
+    const entry = importers.get(path) ?? assert.fail("lockfile-reference-unresolved");
+    fields(entry, ["dependencies", "devDependencies", "optionalDependencies", "dependenciesMeta", "publishDirectory"]);
+    closure.importers[path] = entry;
+    for (const kind of own ? ["dependencies", "devDependencies", "optionalDependencies"] : ["dependencies", "optionalDependencies"]) {
+      let name;
+      for (const line of field(entry, kind)) {
+        if (/^ {6}\S/.test(line)) {
+          assert(/:$/.test(line), "lockfile-layout-unsupported");
+          name = lockScalar(line.slice(6, -1));
+        } else if (line.startsWith("        version: ")) {
+          visit(name, lockPair(line, 8)[1], path);
+        } else assert(/^ {8}specifier: /.test(line), "lockfile-layout-unsupported");
+      }
+    }
+  };
+  // Links are relative to their importer, or to the root inside snapshots.
+  const visit = (name, reference, from) => {
+    assert(name !== undefined && reference, "lockfile-layout-unsupported");
+    if (reference.startsWith("link:")) return visitImporter(posix.join(from, reference.slice(5)) || ".", false);
+    visitSnapshot(snapshots.has(`${name}@${reference}`) ? `${name}@${reference}` : reference);
+  };
+  visitImporter(importer, true);
+  const sorted = value => Object.fromEntries(Object.entries(value).sort(([left], [right]) => left < right ? -1 : 1));
+  return JSON.stringify({ ...closure, importers: sorted(closure.importers), packages: sorted(closure.packages), snapshots: sorted(closure.snapshots) });
+}
+
+// Unclassifiable lockfiles (missing, malformed or another format) select.
+export function lockfileChanged(before, after, importer) {
+  try { return lockfileClosure(before, importer) !== lockfileClosure(after, importer); }
+  catch { return true; }
+}
+
+function lockScalar(text) {
+  if (!text.startsWith("'")) {
+    assert(/^[^\s'"#{}[\],&*!|>%@`]/.test(text), "lockfile-layout-unsupported");
+    return text;
+  }
+  const quoted = /^'((?:[^']|'')*)'$/.exec(text);
+  assert(quoted, "lockfile-layout-unsupported");
+  return quoted[1].replaceAll("''", "'");
+}
+
+function lockPair(line, indent) {
+  const match = new RegExp(`^ {${indent}}('(?:[^']|'')*'|[^'\\s][^:]*?): (\\S.*)$`).exec(line);
+  assert(match, "lockfile-layout-unsupported");
+  return [lockScalar(match[1]), lockScalar(match[2])];
 }
 
 // npm provenance names the commit its workflow run checked out. So a publisher

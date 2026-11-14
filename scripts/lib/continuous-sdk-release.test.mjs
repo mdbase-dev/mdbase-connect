@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { baselineHistory, contentChanged, dependentPackages, failedPublisherRuns, inputChanged, listReservations, packageInputs, publicationBaseline, publicationState, publicationTag, provenanceSource, qualifyWorkspace, readReservation, reserve, runtimeQualified, sharesReservations, tagPublisher } from "../continuous-sdk-release.mjs";
-import { publicPackages } from "../public-packages.mjs";
+import { gunzipSync } from "node:zlib";
+import { baselineHistory, contentChanged, dependentPackages, failedPublisherRuns, inputChanged, listReservations, lockfileChanged, lockfileClosure, packageInputs, publicationBaseline, publicationState, publicationTag, provenanceSource, qualifyWorkspace, readReservation, reserve, runtimeQualified, sharesReservations, tagPublisher } from "../continuous-sdk-release.mjs";
+import { publicPackageDirectories, publicPackages } from "../public-packages.mjs";
 
 const name = "@mdbase-dev/sdk";
 const commit = "a".repeat(40);
@@ -477,6 +479,187 @@ test("version-only manifest edits are not input changes when deciding what to pu
   assert.equal(inputChanged("apps/editor/src/a.ts", item, "workspace", "a", "b", fakeGit()), false);
 });
 
+// A pnpm v9 lockfile in the generated layout: the Editor vendors an SDK
+// tarball, protocol reaches "shared" through "wrapper" and client links protocol.
+const lock = `lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+overrides:
+  tar@<7.5.21: 7.5.21
+
+importers:
+
+  apps/editor:
+    dependencies:
+      '@mdbase-dev/sdk':
+        specifier: file:vendor/sdk-a.tgz
+        version: file:apps/editor/vendor/sdk-a.tgz
+      left-pad:
+        specifier: ^1.0.0
+        version: 1.0.0
+      shared:
+        specifier: ^2.0.0
+        version: 2.0.0
+
+  packages/client:
+    dependencies:
+      '@mdbase-dev/connect-protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      noble:
+        specifier: 2.4.0
+        version: 2.4.0
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+
+  packages/protocol:
+    dependencies:
+      wrapper:
+        specifier: ^1.0.0
+        version: 1.0.0(peer@1.0.0)
+
+packages:
+
+  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-a.tgz':
+    resolution: {integrity: sha512-AAAA, tarball: file:apps/editor/vendor/sdk-a.tgz}
+    version: 0.1.0-beta.1
+
+  left-pad@1.0.0:
+    resolution: {integrity: sha512-left}
+
+  noble@2.4.0:
+    resolution: {integrity: sha512-noble}
+
+  peer@1.0.0:
+    resolution: {integrity: sha512-peer}
+
+  shared@2.0.0:
+    resolution: {integrity: sha512-shared}
+
+  typescript@5.9.3:
+    resolution: {integrity: sha512-ts}
+    hasBin: true
+
+  wrapper@1.0.0:
+    resolution: {integrity: sha512-wrapper}
+    peerDependencies:
+      peer: ^1
+
+snapshots:
+
+  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-a.tgz':
+    dependencies:
+      noble: 2.4.0
+
+  left-pad@1.0.0: {}
+
+  noble@2.4.0: {}
+
+  peer@1.0.0: {}
+
+  shared@2.0.0: {}
+
+  typescript@5.9.3: {}
+
+  wrapper@1.0.0(peer@1.0.0):
+    dependencies:
+      peer: 1.0.0
+      shared: 2.0.0
+`;
+const bump = (text, from, to) => text.replaceAll(from, to);
+const selects = (before, after) => Object.fromEntries(["apps/editor", "packages/client", "packages/protocol", "runtime/packages/sdk"]
+  .map(directory => [directory, lockfileChanged(before, after, directory)]));
+
+test("an Editor-only SDK repin in the lockfile selects no published package", () => {
+  const repin = bump(bump(bump(lock, "sdk-a.tgz", "sdk-b.tgz"), "sha512-AAAA", "sha512-BBBB"), "0.1.0-beta.1", "0.1.0-beta.2");
+  // The Editor's exclusive dependencies may move with it.
+  const exclusive = bump(repin, "left-pad@1.0.0", "left-pad@1.0.1").replace("        version: 1.0.0\n      shared", "        version: 1.0.1\n      shared");
+  for (const after of [repin, exclusive]) {
+    assert.deepEqual(selects(lock, after),
+      { "apps/editor": true, "packages/client": false, "packages/protocol": false, "runtime/packages/sdk": false });
+  }
+  const files = { "a:pnpm-lock.yaml": lock, "b:pnpm-lock.yaml": repin };
+  for (const [item, kind] of [[{ name: "@mdbase-dev/client", directory: "packages/client" }, "workspace"], [{ name, directory: "runtime/packages/sdk" }, "source"]]) {
+    assert.equal(inputChanged("pnpm-lock.yaml", item, kind, "a", "b", fakeGit({ files })), false);
+  }
+});
+
+test("a lockfile change in a package's own dependency closure selects it", () => {
+  // Direct runtime dependency, shared with the Editor's vendored SDK.
+  assert.deepEqual(selects(lock, bump(lock, "2.4.0", "2.5.0")),
+    { "apps/editor": true, "packages/client": true, "packages/protocol": false, "runtime/packages/sdk": false });
+  // Build tooling of the package itself, but not of the packages it links.
+  assert.deepEqual(selects(lock, bump(lock, "5.9.3", "5.9.4")),
+    { "apps/editor": false, "packages/client": true, "packages/protocol": false, "runtime/packages/sdk": false });
+  // Shared transitive dependency, reached through a peer-suffixed snapshot and,
+  // for client, through its workspace link to protocol.
+  assert.deepEqual(selects(lock, bump(lock, "2.0.0", "2.0.1")),
+    { "apps/editor": true, "packages/client": true, "packages/protocol": true, "runtime/packages/sdk": false });
+  // Resolution settings such as overrides apply to every importer.
+  assert.deepEqual(selects(lock, bump(lock, "tar@<7.5.21: 7.5.21", "tar@<7.5.22: 7.5.22")),
+    { "apps/editor": true, "packages/client": true, "packages/protocol": true, "runtime/packages/sdk": false });
+  // A package newly resolved by the lockfile.
+  assert.deepEqual(selects(lock.replace("\n  packages/protocol:", "\n  packages/protocol-old:"), lock),
+    { "apps/editor": false, "packages/client": true, "packages/protocol": true, "runtime/packages/sdk": false });
+});
+
+test("an unclassifiable lockfile fails closed by selecting", () => {
+  // Unreadable files, other formats and YAML outside the generated layout.
+  const unreadable = [
+    undefined,
+    "",
+    "production\n",
+    lock.replace("lockfileVersion: '9.0'", "lockfileVersion: '10.0'"),
+    lock.slice(0, lock.indexOf("snapshots:")),
+    lock.replace("settings:\n", "settings: &defaults\n"),
+    lock.replace("  noble@2.4.0: {}", "  \"noble@2.4.0\": {}"),
+    lock.replace("\nimporters:\n", "\nimporters:\n  - broken\n")
+  ];
+  // Entries in the package's closure with references that resolve to nothing
+  // or fields that could carry dependency edges this reader does not follow.
+  const unresolved = [
+    lock.replace("    dependencies:\n      peer: 1.0.0", "    bundledDependencies:\n      peer: 1.0.0"),
+    lock.replace("      shared: 2.0.0\n", "      shared: 2.0.9\n"),
+    lock.replace("        version: 1.0.0(peer@1.0.0)", "        version: 1.0.0(peer@9.0.0)"),
+    lock.replace("        version: link:../protocol", "        version: link:../missing"),
+    lock.replace("  wrapper@1.0.0:\n    resolution", "  wrapper@1.0.1:\n    resolution")
+  ];
+  for (const after of [...unreadable, ...unresolved]) {
+    assert.equal(lockfileChanged(lock, after, "packages/client"), true);
+    assert.equal(lockfileChanged(after, lock, "packages/client"), true);
+  }
+  // A directory that is not an importer follows no references, but still
+  // needs a lockfile it can read.
+  for (const after of unreadable) assert.equal(lockfileChanged(lock, after, "runtime/packages/sdk"), true);
+  assert.throws(() => lockfileClosure("production\n", "packages/client"), /lockfile-version-unsupported/);
+  const item = { name: "@mdbase-dev/client", directory: "packages/client" };
+  assert.equal(inputChanged("pnpm-lock.yaml", item, "workspace", "a", "b", fakeGit({ files: { "b:pnpm-lock.yaml": lock } })), true);
+});
+
+test("the production SDK repin between 6f79bdb3 and 9c564466 selects no published package", async () => {
+  const blob = text => createHash("sha1").update(`blob ${Buffer.byteLength(text)}\0`).update(text).digest("hex");
+  const before = gunzipSync(readFileSync(new URL("fixtures/pnpm-lock-6f79bdb3.yaml.gz", import.meta.url))).toString("utf8");
+  assert.equal(blob(before), "e4165b41c10f01955631bf4d0e2ad057c56edd2d");
+  // The complete lockfile diff of #1509 and #1510 (chore: vendor verified production SDK).
+  const after = before.replaceAll("ea1275ab-production-beta202", "6f79bdb3-production-beta204")
+    .replace("sha512-uNBCVCbXZnyu0aG4YkIk16L7kOkE5mAHpJG2OBgJe5vv4S71pgNcGH/GoN2pKpI9C/N72I6G0WmJMRNrwykEIQ==",
+      "sha512-/Yik8gh+0RbszoATRLvQB91YQxqh8YJRUoKQv4qCCKJaZrvbvRe+hTEYZ6mU7S4ISaudbpEHC6M7s6mqoLkGXQ==")
+    .replace("\n    version: 0.1.0-beta.202\n", "\n    version: 0.1.0-beta.204\n");
+  assert.equal(blob(after), "c708b6c0ff22ab223e5ca9b14626833087e95bac");
+  for (const directory of publicPackageDirectories) {
+    assert.notEqual(lockfileClosure(before, directory), null);
+    assert.equal(lockfileChanged(before, after, directory), false, directory);
+  }
+  assert.equal(lockfileClosure(before, "runtime/packages/sdk"), null);
+  assert.equal(lockfileChanged(before, after, "runtime/packages/sdk"), false);
+  assert.equal(lockfileChanged(before, after, "apps/editor"), true);
+});
+
 test("automatic publishers keep isolated OIDC, source qualification and explicit dry-run dispatches", () => {
   const publisher = readFileSync(new URL("../continuous-sdk-release.mjs", import.meta.url), "utf8");
   assert.match(publisher, /if \(selected.length && kind === "workspace"\) result.compatibility = await qualifyWorkspace\(output, env, verify\)/);
@@ -543,7 +726,7 @@ function plannerFixture(context) {
   }
   const save = () => { git("add", "."); git("commit", "-qm", "fixture"); return git("rev-parse", "HEAD"); };
   const base = save();
-  // Shared inputs exercise every workspace package and source-SDK dependency.
+  // An unclassifiable lockfile fails closed, selecting every workspace package and the source SDK.
   writeFileSync(join(directory, "pnpm-lock.yaml"), "production\n");
   const production = save();
   writeFileSync(join(directory, "pnpm-lock.yaml"), "future\n");

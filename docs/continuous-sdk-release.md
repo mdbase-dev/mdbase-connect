@@ -27,7 +27,7 @@ tag or `production_verified_commit` is accepted.
 
 ## Package selection and versions
 
-Workspace publication covers the nine packages in `scripts/public-packages.mjs`.
+Workspace publication covers the packages listed in `scripts/public-packages.mjs`.
 Each package is compared with **its own highest published npm version**, not a
 dist-tag, server release or global release counter. The planner verifies the
 baseline npm Sigstore/SLSA provenance, publisher workflow, fixed repository,
@@ -46,6 +46,31 @@ affected packages. A changed workspace dependency also selects its transitive
 runtime dependants because their shipped exact dependency will change. Unrelated
 packages do not publish. The source-built SDK similarly tracks its own package,
 shared runtime/Cargo/build inputs, committed asset/trust pins and packer.
+
+`pnpm-lock.yaml` is classified by content, for both lines. It selects a package
+only when the part of the lockfile that resolves that package changed: the
+lockfile's global sections (settings, overrides, patched dependencies), the
+package's importer entry, the workspace importers it links, and the `packages`
+and `snapshots` entries in that closure. The package's own dependencies,
+devDependencies (they build its tarball) and optionalDependencies are followed,
+then runtime edges (dependencies and optionalDependencies) transitively. Edits
+confined to other importers and their exclusive dependencies select nothing.
+So the release automation's "vendor verified production SDK" repin, which
+changes only the Editor importer and the vendored tarball's entries, no longer
+republishes the SDK and workspace packages and so no longer feeds itself. The
+source-built SDK is not a pnpm importer (it installs with `npm ci` from its own
+`package-lock.json`, an input already), so the root lockfile selects it only
+when it cannot be read. The planner reads only the pnpm v9 layout pnpm
+generates; another lockfile version, a missing file, YAML aliases or other
+unexpected layout, an unknown dependency field or an unresolved reference
+selects the package, as every lockfile change did before.
+
+Root `package.json` and `pnpm-workspace.yaml` remain conservative: any change
+other than the root manifest's version selects every package of both lines.
+Their settings (scripts, package manager, linker, build permissions, overrides)
+change installs and builds without a per-package projection, and neither file
+is edited by SDK repins. Effective dependency changes they cause also appear in
+the lockfile.
 
 Every package a tag publishes carries that tag's version, so a package version
 always names the tag it was built from. The coordinator allocates
