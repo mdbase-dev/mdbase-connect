@@ -2976,14 +2976,6 @@ msgstr "映射必需的契约字段 {0}。"
 msgid "Mapping ready"
 msgstr "映射已就绪"
 
-#: src/CodeEditor.tsx
-msgid "Mark task complete"
-msgstr "将任务标记为已完成"
-
-#: src/CodeEditor.tsx
-msgid "Mark task incomplete"
-msgstr "将任务标记为未完成"
-
 #: src/editor-commands.ts
 msgid "Markdown commands"
 msgstr "Markdown 命令"
@@ -3398,9 +3390,7 @@ msgid "No nested fields yet."
 msgstr "暂无嵌套字段。"
 
 #. placeholder {0}: reference.target
-#. placeholder {0}: this.target
 #: src/code-editor-reference-diagnostics.ts
-#: src/CodeEditor.tsx
 msgid "No note or file matches “{0}”."
 msgstr "没有与“{0}”匹配的笔记或文件。"
 

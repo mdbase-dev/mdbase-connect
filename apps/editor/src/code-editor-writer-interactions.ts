@@ -26,24 +26,17 @@ export function writerInteractions(
     onDismissLinkPreview()?.();
   };
   return EditorView.domEventHandlers({
-    mousedown(event, view) {
-      const task = taskTarget(event);
-      if (task && event.button === 0) return toggleTask(view, task, event);
+    mousedown(event) {
       const renderedLink = event.target instanceof Element
-        ? event.target.closest(".cm-rendered-link")
+        ? event.target.closest(".cm-lp-link")
         : null;
       if (!renderedLink || event.button !== 0) return false;
       event.preventDefault();
       return true;
     },
-    keydown(event, view) {
-      const task = taskTarget(event);
-      if (!task || (event.key !== "Enter" && event.key !== " ")) return false;
-      return toggleTask(view, task, event);
-    },
     click(event, view) {
       const rendered = event.target instanceof Element
-        ? event.target.closest<HTMLElement>(".cm-rendered-link")
+        ? event.target.closest<HTMLElement>(".cm-lp-link")
         : null;
       if (!rendered && !event.metaKey && !event.ctrlKey) return false;
       const renderedFrom = rendered ? Number(rendered.dataset.linkFrom) : undefined;
@@ -115,25 +108,6 @@ export function writerInteractions(
       return false;
     }
   });
-}
-
-function taskTarget(event: Event): HTMLElement | null {
-  return event.target instanceof Element ? event.target.closest<HTMLElement>(".cm-task-checkbox") : null;
-}
-
-function toggleTask(view: EditorView, target: HTMLElement, event: Event): boolean {
-  const from = Number(target.dataset.taskFrom);
-  if (!Number.isFinite(from)) return false;
-  const source = view.state.sliceDoc(from, from + 3);
-  if (!/^\[[ xX]\]$/.test(source)) return false;
-  event.preventDefault();
-  view.dispatch({
-    changes: { from: from + 1, to: from + 2, insert: source[1].toLocaleLowerCase() === "x" ? " " : "x" },
-    scrollIntoView: true,
-    userEvent: "input"
-  });
-  view.focus();
-  return true;
 }
 
 /** The internal link at `position`, as written in the note: what the hover

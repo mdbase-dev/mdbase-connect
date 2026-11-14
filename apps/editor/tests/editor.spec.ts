@@ -550,7 +550,7 @@ test("formats, finds, and checks Markdown without adding permanent editor chrome
   await page.keyboard.press("Enter");
   await page.keyboard.type("Next thought");
 
-  const task = page.locator(".body-editor .cm-task-checkbox");
+  const task = page.locator(".body-editor .cm-line").filter({ hasText: "Finish the polish" }).locator(".cm-lp-task");
   await expect(task).toHaveAttribute("aria-checked", "false");
   await task.click();
   await expect(task).toHaveAttribute("aria-checked", "true");
@@ -560,9 +560,28 @@ test("formats, finds, and checks Markdown without adding permanent editor chrome
   await task.click();
   await expect(task).toHaveAttribute("aria-checked", "true");
   await page.locator(".body-editor .cm-line").filter({ hasText: "Finish the polish" }).click();
+  // Home goes to the item's text, then to the line start, where the item's Markdown shows.
+  await page.keyboard.press("Home");
+  await expect(body).not.toContainText("- [x]");
+  await page.keyboard.press("Home");
   await expect(body).toContainText("- [x] Finish the polish");
-  await expect(page.locator(".body-editor .cm-markdown-mark").first()).toBeVisible();
   await expect(page.locator(".body-editor .cm-gutters")).toHaveCount(0);
+});
+
+test("edits a Markdown table in place as a grid", async ({ page }) => {
+  await page.goto("?demo=12");
+  const body = page.getByRole("textbox", { name: "Note body" });
+  await replaceOpeningNoteBody(body, "| Plant | Bed |");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("Basil");
+  await page.keyboard.press("Tab");
+  await page.keyboard.type("North");
+
+  await expect(page.locator(".body-editor .cm-lp-table-frame")).toBeVisible();
+  await expect(page.locator(".body-editor .cm-lp-th")).toHaveText(["Plant", "Bed"]);
+  await expect(page.locator(".body-editor .cm-lp-td:not(.cm-lp-th)")).toHaveText(["Basil", "North"]);
+  await expect(body).not.toContainText("|");
+  await expect(page.getByRole("main", { name: "Note editor" })).toHaveAttribute("data-save-state", "saved");
 });
 
 test("restores each note's caret and undo history", async ({ page }) => {

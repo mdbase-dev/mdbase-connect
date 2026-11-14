@@ -2976,14 +2976,6 @@ msgstr "必須の契約フィールド {0} を対応付けてください。"
 msgid "Mapping ready"
 msgstr "対応付けの準備完了"
 
-#: src/CodeEditor.tsx
-msgid "Mark task complete"
-msgstr "タスクを完了にする"
-
-#: src/CodeEditor.tsx
-msgid "Mark task incomplete"
-msgstr "タスクを未完了にする"
-
 #: src/editor-commands.ts
 msgid "Markdown commands"
 msgstr "Markdown コマンド"
@@ -3398,9 +3390,7 @@ msgid "No nested fields yet."
 msgstr "入れ子のフィールドはまだありません。"
 
 #. placeholder {0}: reference.target
-#. placeholder {0}: this.target
 #: src/code-editor-reference-diagnostics.ts
-#: src/CodeEditor.tsx
 msgid "No note or file matches “{0}”."
 msgstr "「{0}」に一致するノートまたはファイルはありません。"
 

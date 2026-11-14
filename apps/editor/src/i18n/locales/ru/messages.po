@@ -2976,14 +2976,6 @@ msgstr "Сопоставьте обязательное поле контрак�
 msgid "Mapping ready"
 msgstr "Сопоставление готово"
 
-#: src/CodeEditor.tsx
-msgid "Mark task complete"
-msgstr "Отметить задачу выполненной"
-
-#: src/CodeEditor.tsx
-msgid "Mark task incomplete"
-msgstr "Отметить задачу невыполненной"
-
 #: src/editor-commands.ts
 msgid "Markdown commands"
 msgstr "Команды Markdown"
@@ -3398,9 +3390,7 @@ msgid "No nested fields yet."
 msgstr "Пока нет вложенных полей."
 
 #. placeholder {0}: reference.target
-#. placeholder {0}: this.target
 #: src/code-editor-reference-diagnostics.ts
-#: src/CodeEditor.tsx
 msgid "No note or file matches “{0}”."
 msgstr "Для «{0}» не найдено ни заметок, ни файлов."
 

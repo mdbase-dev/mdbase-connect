@@ -1,4 +1,5 @@
 import { t } from "@lingui/core/macro";
+import { isRevealed, livePreviewReveal } from "@mdbase-dev/ui/live-preview";
 import { i18n } from "@lingui/core";
 import type { Extension, Range } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, type ViewUpdate } from "@codemirror/view";
@@ -82,12 +83,11 @@ export function noteEmbedPresentation(
   onVisible: () => ((keys: string[]) => void) | undefined
 ): Extension {
   return [
-    EditorView.decorations.compute(["doc", "selection"], (state) => {
-      const activeLines = new Set(state.selection.ranges.map((range) => state.doc.lineAt(range.head).from));
+    EditorView.decorations.compute(["doc", livePreviewReveal], (state) => {
       const ranges = references().flatMap((reference): Range<Decoration>[] => {
         if (reference.to > state.doc.length) return [];
         const line = state.doc.lineAt(reference.from);
-        if (activeLines.has(line.from)) return [];
+        if (isRevealed(state, line.from, line.to)) return [];
         return [Decoration.replace({
           block: true,
           widget: new NoteEmbedWidget(reference, onOpen())

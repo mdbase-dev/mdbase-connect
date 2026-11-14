@@ -1,11 +1,10 @@
 import { useLingui } from "@lingui/react";
-import { i18n as editorI18n } from "@lingui/core";
 import { isLocale } from "@mdbase-dev/i18n";
 import { englishCodeMirrorPhrases, loadCodeMirrorPhrases } from "@mdbase-dev/i18n/codemirror";
 import { t } from "@lingui/core/macro";
 import { commandDefinitions } from "./editor-commands";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
-import { defaultKeymap, history, historyField, historyKeymap, indentLess, indentMore } from "@codemirror/commands";
+import { defaultKeymap, history, historyField, historyKeymap } from "@codemirror/commands";
 import { markdown, markdownKeymap, markdownLanguage, pasteURLAsLink } from "@codemirror/lang-markdown";
 import {
   bracketMatching,
@@ -13,13 +12,12 @@ import {
   HighlightStyle,
   indentOnInput,
   LanguageDescription,
-  syntaxHighlighting,
-  syntaxTree
+  syntaxHighlighting
 } from "@codemirror/language";
 import { forEachDiagnostic, lintGutter, setDiagnosticsEffect, linter, lintKeymap, type Diagnostic } from "@codemirror/lint";
 import { closeSearchPanel, highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
 import { registerActiveEditor, unregisterActiveEditor } from "./code-editor-reveal";
-import { Compartment, EditorSelection, EditorState, Prec, StateEffect, StateField, Transaction, type Extension, type Range } from "@codemirror/state";
+import { Compartment, EditorSelection, EditorState, Prec, StateEffect, StateField, Transaction, type Extension } from "@codemirror/state";
 import {
   Decoration,
   EditorView,
@@ -28,10 +26,7 @@ import {
   lineNumbers,
   placeholder as editorPlaceholder,
   scrollPastEnd,
-  ViewPlugin,
-  WidgetType,
-  type DecorationSet,
-  type ViewUpdate
+  type DecorationSet
 } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
@@ -47,13 +42,13 @@ import { MISSING_REFERENCE_CLASS, referenceDiagnostics } from "./code-editor-ref
 import { writerInteractions } from "./code-editor-writer-interactions";
 import type { LinkTargets } from "./collection-links";
 import type { LinkSuggestion } from "./links";
-import { markdownReferences } from "./markdown-references";
 import type { ResolvedNoteEmbed } from "./note-embeds";
 import type { NotePreviewAnchor, NotePreviewSource } from "./NotePreview";
 import type { CollectionFile, NoteSummary } from "./model";
 import { typewriterScrolling } from "./code-editor-typewriter";
 import { commentAnchorRange, commentAnchors, showCommentAnchors, type CommentAnchor, type CommentAnchorCard } from "@mdbase-dev/ui/comment-anchors";
 import { mdbasePopupTheme } from "@mdbase-dev/ui/codemirror";
+import { indentListItem, livePreview, outdentListItem } from "@mdbase-dev/ui/live-preview";
 
 type EditorLanguage = "markdown" | "json" | "yaml" | "yaml-frontmatter" | "plain";
 type EditorVariant = "writer" | "source";
@@ -287,7 +282,6 @@ export function CodeEditor({
       }) : [],
       syntaxHighlighting(mdbaseHighlightStyle),
       mdbasePopupTheme,
-      variant === "writer" ? syntaxHighlighting(writerHighlightStyle) : [],
       languageMode.current.of(language === "markdown" ? markdownSupport() : []),
       wrapping.current.of(lineWrapping ? EditorView.lineWrapping : []),
       typewriterMode.current.of([]),
@@ -305,7 +299,7 @@ export function CodeEditor({
         () => linkSuggestionsRef.current,
         () => notesRef.current
       ) : []),
-      writerPresentation.current.of(variant === "writer" && quietMarkdown ? quietMarkdownPresentation : []),
+      writerPresentation.current.of(writerPresentationFor(variant, quietMarkdown)),
       fileEmbeds.current.of(variant === "writer" && language === "markdown" ? fileEmbedPresentation(
         () => embeddedFilesRef.current,
         () => onOpenFileRef.current ? openEmbeddedFile : undefined,
@@ -464,9 +458,7 @@ export function CodeEditor({
     const view = viewRef.current;
     if (!view) return;
     view.dispatch({
-      effects: writerPresentation.current.reconfigure(
-        variant === "writer" && quietMarkdown ? quietMarkdownPresentation : []
-      )
+      effects: writerPresentation.current.reconfigure(writerPresentationFor(variant, quietMarkdown))
     });
   }, [quietMarkdown, variant, i18n.locale]);
 
@@ -558,15 +550,15 @@ export function CodeEditor({
     }
     if (!externalReset && restoreLineSeparators(view.state.doc.toString(), lineSeparator.current) === value) return;
     const before = view.state.doc.toString().split("\n");
-    const after = value.split("\n");
+    const after = value.replace(/\r\n?/g, "\n").split("\n");
     let first = 0;
     let last = after.length;
     while (first < Math.min(before.length, after.length) && before[first] === after[first]) first++;
     while (last > first && before[before.length - (after.length - last) - 1] === after[last - 1]) last--;
     syncing.current = true;
+    // Replace only the changed span, so the selection, folds and rendering elsewhere map through it.
     view.dispatch({
-      changes: { from: 0, to: view.state.doc.length, insert: value },
-      selection: EditorSelection.cursor(Math.min(view.state.selection.main.head, value.length)),
+      changes: changedSpan(view.state.doc.toString(), after.join("\n")),
       effects: externalReset ? historyMode.current.reconfigure([history(), historyField.init(() => EMPTY_HISTORY_STATE)]) : undefined,
       annotations: externalReset ? Transaction.addToHistory.of(false) : undefined
     });
@@ -720,24 +712,10 @@ const writerKeymap = [
     key: commandDefinitions[id].shortcut.toLowerCase().replace("mod", "Mod").replace("shift", "Shift").replaceAll("+", "-"),
     run: markdownFormatCommand(format)
   })),
-  { key: "Tab", run: indentMarkdownList },
-  { key: "Shift-Tab", run: outdentMarkdownList },
+  { key: "Tab", run: indentListItem },
+  { key: "Shift-Tab", run: outdentListItem },
   ...markdownKeymap
 ];
-
-function indentMarkdownList(view: EditorView): boolean {
-  return selectionIsMarkdownList(view) ? indentMore(view) : false;
-}
-
-function outdentMarkdownList(view: EditorView): boolean {
-  return selectionIsMarkdownList(view) ? indentLess(view) : false;
-}
-
-function selectionIsMarkdownList(view: EditorView): boolean {
-  return view.state.selection.ranges.every((range) => (
-    /^\s*(?:[-+*]|\d+[.)])\s+/.test(view.state.doc.lineAt(range.head).text)
-  ));
-}
 
 const mdbaseHighlightStyle = HighlightStyle.define([
   { tag: [tags.comment, tags.meta], color: "var(--syntax-comment)" },
@@ -752,6 +730,20 @@ const mdbaseHighlightStyle = HighlightStyle.define([
   { tag: tags.monospace, fontFamily: "var(--mono)", fontSize: "0.9em" },
   { tag: tags.invalid, color: "var(--danger)" }
 ]);
+
+function changedSpan(before: string, after: string) {
+  let start = 0;
+  const shortest = Math.min(before.length, after.length);
+  while (start < shortest && before.charCodeAt(start) === after.charCodeAt(start)) start++;
+  let end = 0;
+  while (end < shortest - start && before.charCodeAt(before.length - 1 - end) === after.charCodeAt(after.length - 1 - end)) end++;
+  return { from: start, to: before.length - end, insert: after.slice(start, after.length - end) };
+}
+
+function writerPresentationFor(variant: EditorVariant, quietMarkdown: boolean): Extension {
+  if (variant !== "writer") return [];
+  return quietMarkdown ? livePreviewPresentation : syntaxHighlighting(writerHighlightStyle);
+}
 
 const writerHighlightStyle = HighlightStyle.define([
   { tag: tags.heading1, fontSize: "1.42em" },
@@ -780,144 +772,25 @@ function markdownFormatCommand(format: MarkdownFormat) {
   };
 }
 
-const quietMarkdownPresentation = ViewPlugin.fromClass(class {
-  decorations: DecorationSet;
+/** Live preview; missing links reuse the reference linter's verdict. */
+const livePreviewPresentation = [
+  livePreview({
+    linkMissing: (state, link) => missingReferenceStarts(state).has(link.from),
+    refresh: (update) => update.transactions.some((transaction) => transaction.effects.some((effect) => effect.is(setDiagnosticsEffect)))
+  }),
+  syntaxHighlighting(writerHighlightStyle)
+];
 
-  constructor(view: EditorView) {
-    this.decorations = markdownDecorations(view);
+const missingReferences = new WeakMap<EditorState, Set<number>>();
+function missingReferenceStarts(state: EditorState): Set<number> {
+  let starts = missingReferences.get(state);
+  if (!starts) {
+    const found = new Set<number>();
+    forEachDiagnostic(state, (diagnostic, from) => { if (diagnostic.markClass === MISSING_REFERENCE_CLASS) found.add(from); });
+    missingReferences.set(state, starts = found);
   }
-
-  update(update: ViewUpdate) {
-    if (update.docChanged || update.selectionSet || update.viewportChanged
-      || update.transactions.some((transaction) => transaction.reconfigured || transaction.effects.some((effect) => effect.is(setDiagnosticsEffect)))) {
-      this.decorations = markdownDecorations(update.view);
-    }
-  }
-}, {
-  decorations: (value) => value.decorations
-});
-
-class TaskCheckboxWidget extends WidgetType {
-  readonly locale = editorI18n.locale;
-  constructor(readonly from: number, readonly checked: boolean) {
-    super();
-  }
-
-  eq(other: TaskCheckboxWidget) {
-    return this.from === other.from && this.checked === other.checked && this.locale === other.locale;
-  }
-
-  toDOM() {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "cm-task-checkbox mdbase-checkbox";
-    button.dataset.taskFrom = String(this.from);
-    button.setAttribute("role", "checkbox");
-    button.setAttribute("aria-checked", String(this.checked));
-    button.setAttribute("aria-label", this.checked ? t`Mark task incomplete` : t`Mark task complete`);
-    button.title = this.checked ? t`Mark task incomplete` : t`Mark task complete`;
-    return button;
-  }
-
-  ignoreEvent() {
-    return false;
-  }
+  return starts;
 }
-
-class MarkdownLinkWidget extends WidgetType {
-  constructor(readonly from: number, readonly label: string, readonly target: string, readonly missing: boolean) {
-    super();
-  }
-
-  eq(other: MarkdownLinkWidget) {
-    return this.from === other.from && this.label === other.label && this.target === other.target && this.missing === other.missing;
-  }
-
-  toDOM() {
-    const link = document.createElement("a");
-    link.className = this.missing ? "cm-rendered-link cm-rendered-link-missing" : "cm-rendered-link";
-    if (this.missing) link.title = t`No note or file matches “${this.target}”.`;
-    link.dataset.linkFrom = String(this.from);
-    link.href = /^https?:\/\//i.test(this.target) ? this.target : "#";
-    if (/^https?:\/\//i.test(this.target)) {
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-    }
-    link.textContent = this.label;
-    return link;
-  }
-
-  ignoreEvent() {
-    return false;
-  }
-}
-
-function markdownDecorations(view: EditorView): DecorationSet {
-  const ranges: Range<Decoration>[] = [];
-  const activeLines = new Set(view.state.selection.ranges.map((range) => view.state.doc.lineAt(range.head).from));
-  const renderedLinks: Array<{ from: number; to: number }> = [];
-  const source = view.state.doc.toString();
-  const references = markdownReferences(source, syntaxTree(view.state));
-  // The reference linter already resolves every link; reuse its verdict.
-  const missing = new Set<number>();
-  forEachDiagnostic(view.state, (diagnostic, from) => { if (diagnostic.markClass === MISSING_REFERENCE_CLASS) missing.add(from); });
-  for (const reference of references) {
-    if (reference.kind !== "link") continue;
-    if (!view.visibleRanges.some((visible) => reference.from <= visible.to && reference.to >= visible.from)) continue;
-    if (activeLines.has(view.state.doc.lineAt(reference.from).from)) continue;
-    const target = `${reference.target}${reference.anchor ? `#${reference.anchor}` : ""}`;
-    renderedLinks.push({ from: reference.from, to: reference.to });
-    ranges.push(Decoration.replace({
-      widget: new MarkdownLinkWidget(reference.from, reference.label ?? target, target, missing.has(reference.from))
-    }).range(reference.from, reference.to));
-  }
-
-  const visibleLines = new Set<number>();
-  for (const visible of view.visibleRanges) {
-    let line = view.state.doc.lineAt(visible.from);
-    while (line.from <= visible.to) {
-      if (!visibleLines.has(line.from)) {
-        visibleLines.add(line.from);
-        const marker = /^\s*(?:[-+*]|\d+[.)])\s+(?:\[[ xX]\]\s+)?/.exec(line.text);
-        if (marker && view.lineWrapping) {
-          // The marker box is exactly as wide as the indent, so wrapped text lines up in any font.
-          const style = `--list-indent: ${marker[0].length}ch`;
-          ranges.push(Decoration.line({ class: "cm-list-line", attributes: { style } }).range(line.from));
-          ranges.push(Decoration.mark({ class: "cm-list-prefix" }).range(line.from, line.from + marker[0].length));
-        }
-        const task = /^(\s*(?:[-+*]|\d+[.)])\s+)\[([ xX])\](?=\s|$)/.exec(line.text);
-        if (task && !activeLines.has(line.from)) {
-          const from = line.from + task[1].length;
-          ranges.push(Decoration.replace({
-            widget: new TaskCheckboxWidget(from, task[2].toLocaleLowerCase() === "x")
-          }).range(from, from + 3));
-        }
-      }
-      if (line.to >= view.state.doc.length || line.to >= visible.to) break;
-      line = view.state.doc.line(line.number + 1);
-    }
-    syntaxTree(view.state).iterate({
-      from: visible.from,
-      to: visible.to,
-      enter(node) {
-        if (!markdownMarkerNames.has(node.name) || activeLines.has(view.state.doc.lineAt(node.from).from)) return;
-        if (renderedLinks.some((link) => node.from < link.to && node.to > link.from)) return;
-        ranges.push(Decoration.mark({ class: "cm-markdown-mark" }).range(node.from, node.to));
-      }
-    });
-  }
-  return Decoration.set(ranges, true);
-}
-
-const markdownMarkerNames = new Set([
-  "HeaderMark",
-  "EmphasisMark",
-  "CodeMark",
-  "QuoteMark",
-  "ListMark",
-  "LinkMark",
-  "StrikethroughMark"
-]);
 
 function yamlLinter(view: EditorView): readonly Diagnostic[] {
   const source = view.state.doc.toString();

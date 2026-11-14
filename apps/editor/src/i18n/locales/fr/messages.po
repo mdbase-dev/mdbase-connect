@@ -2976,14 +2976,6 @@ msgstr "Associez le champ de contrat obligatoire {0}."
 msgid "Mapping ready"
 msgstr "Association prête"
 
-#: src/CodeEditor.tsx
-msgid "Mark task complete"
-msgstr "Marquer la tâche comme terminée"
-
-#: src/CodeEditor.tsx
-msgid "Mark task incomplete"
-msgstr "Marquer la tâche comme non terminée"
-
 #: src/editor-commands.ts
 msgid "Markdown commands"
 msgstr "Commandes Markdown"
@@ -3398,9 +3390,7 @@ msgid "No nested fields yet."
 msgstr "Aucun champ imbriqué pour le moment."
 
 #. placeholder {0}: reference.target
-#. placeholder {0}: this.target
 #: src/code-editor-reference-diagnostics.ts
-#: src/CodeEditor.tsx
 msgid "No note or file matches “{0}”."
 msgstr "Aucune note ni aucun fichier ne correspond à « {0} »."
 
