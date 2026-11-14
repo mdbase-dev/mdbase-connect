@@ -1,4 +1,4 @@
-FROM node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS build
+FROM node:25-bookworm-slim@sha256:81db02c4b671288a03915da9534dbd54f96d0e7c24d80ccc54f5b36b2e684370 AS build
 
 RUN corepack enable
 WORKDIR /app
@@ -43,7 +43,7 @@ RUN pnpm --filter @mdbase-dev/i18n build \
  && pnpm --filter @mdbase/connect-portal build \
  && pnpm --filter @mdbase/connect-server build
 
-FROM node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS runtime
+FROM node:25-bookworm-slim@sha256:81db02c4b671288a03915da9534dbd54f96d0e7c24d80ccc54f5b36b2e684370 AS runtime
 
 ARG MDBASE_CONNECT_REVISION
 ARG MDBASE_NEXT_COLLECTION_MODE_EXECUTION=0
