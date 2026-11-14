@@ -105,6 +105,14 @@ describe("describeError", () => {
     }
   });
 
+  it("explains a setup path held by a file without leaking its contents", () => {
+    const described = describeError(new MdbaseError({code: "invalid_request", recovery: "none",
+      message: "Rename _schemas/tasknotes/tasknotes-task.schema.json before setup: this resource path is held by a file or record",
+      reason: "collection_setup_namespace_conflict"}))!;
+    expect(described).toMatchObject({key: "collection_setup_namespace_conflict", title: "A file is in the way", action: "retry", severity: "warning"});
+    expect(described.message).not.toMatch(/Something went wrong|_schemas/);
+  });
+
   it.each([
     "declared_setup_unsupported", "resource_setup_unsupported", "type_packs_unsupported",
     "describe_definitions_unsupported", "contract_records_unsupported", "record_links_unsupported", "backlinks_unsupported", "resolve_links_unsupported",

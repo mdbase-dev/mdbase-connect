@@ -144,7 +144,7 @@ pub fn assess_collection_resources(
         mut operations,
         applicable,
         ..
-    } = stage_resource_provisions(state, setup, adopt)?;
+    } = stage_resource_provisions(state, setup, adopt, false)?;
     let provision_digest = setup.input_digest();
     let prior = state.resource(PROVISION_LOCK_PATH);
     let mut ledger = prior

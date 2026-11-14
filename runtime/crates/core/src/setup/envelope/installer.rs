@@ -1,6 +1,11 @@
 //! Shared installer target resolution. No source IO, authorization or publication.
-use super::{CollectionSetup, assess_collection_resources};
-use crate::{packs::folder_target_overrides, state::StateView, validate::Issue};
+use super::CollectionSetup;
+use crate::{
+    packs::{Lock, folder_target_overrides},
+    state::StateView,
+    types::LOCK_PATH,
+    validate::Issue,
+};
 
 impl CollectionSetup {
     /// Resolve not-yet-installed packs into the collection's configured folders;
@@ -11,9 +16,14 @@ impl CollectionSetup {
         if self.type_packs.is_empty() {
             return Ok(());
         }
-        let initial = assess_collection_resources(state, self, &Default::default())?;
-        for (entry, assessed) in self.type_packs.iter_mut().zip(&initial.type_packs) {
-            entry.options.target_overrides = match &assessed.current {
+        // Only the installed receipts are read here; the setup assessment that
+        // follows stages, checks and refuses the resources themselves.
+        let lock = match state.resource(LOCK_PATH) {
+            Some(source) => Lock::parse(&source).map_err(Box::new)?,
+            None => Lock::default(),
+        };
+        for entry in &mut self.type_packs {
+            entry.options.target_overrides = match lock.receipt(&entry.pack.id) {
                 None => folder_target_overrides(state, &entry.pack),
                 Some(receipt) => entry
                     .pack

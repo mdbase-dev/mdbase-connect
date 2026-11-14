@@ -257,6 +257,7 @@ fn run(args: &Map) -> Result<Value, Box<Issue>> {
                 Op::ResourcePut(_) => "resource_put",
                 Op::ResourceDelete(_) => "resource_delete",
                 Op::OrdinaryFileToRecord(_) => "ordinary_file_to_record",
+                Op::FileDelete(_) => "file_delete",
                 _ => "unexpected_operation",
             })
         })

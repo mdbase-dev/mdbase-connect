@@ -362,6 +362,83 @@ fn setup_resources_do_not_shadow_file_or_record_holders() {
     }
 }
 
+const NOTE_SCHEMA: &str = "{\"type\":\"object\"}\n";
+fn schema_pack(application: &str) -> mdbn_core::setup::envelope::CollectionSetupTypePack {
+    let doc = "---\nkind: mdbase.type\nname: note\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value: {type: object}\n---\n";
+    let manifest = format!(
+        "kind: mdbase.type-pack\nid: example.notes\nversion: 1.0.0\nresources:\n  - kind: type\n    mode: managed\n    source: note.md\n    target: _types/note.md\n    digest: {}\n  - kind: schema\n    mode: managed\n    source: note.schema.json\n    target: _schemas/note.schema.json\n    digest: {}\n",
+        revision(doc),
+        revision(NOTE_SCHEMA),
+    );
+    mdbn_core::setup::envelope::CollectionSetupTypePack {
+        pack: mdbn_core::packs::load_pack(&manifest, &|source| match source {
+            "note.md" => Some(doc.into()),
+            "note.schema.json" => Some(NOTE_SCHEMA.into()),
+            _ => None,
+        })
+        .unwrap(),
+        options: mdbn_core::packs::AssessOptions {
+            installed_by: application.into(),
+            ..Default::default()
+        },
+    }
+}
+
+/// An ordinary file already holding exactly the bytes a managed resource
+/// writes (a schema another tool exported) is replaced in the same setup
+/// mutation instead of blocking setup (#436).
+#[test]
+fn setup_replaces_an_ordinary_file_holding_the_exact_resource_bytes() {
+    let mut f = Fixture::new();
+    f.file(10, "_schemas/note.schema.json", NOTE_SCHEMA);
+    let mut s = setup();
+    s.type_packs.push(schema_pack(&s.application_id));
+    let c = clock();
+    let a = assess_collection_setup(&f, &s, &c).unwrap();
+    assert!(a.applicable);
+    let (_, ops) =
+        apply_collection_setup(&f, &s, &c, a.collection_revision, a.assessment_digest).unwrap();
+    let delete = ops
+        .iter()
+        .position(|op| matches!(op, Op::FileDelete(d) if d.id == id(10) && d.if_revision == Some(revision(NOTE_SCHEMA))))
+        .expect("the identical file is deleted");
+    let put = ops
+        .iter()
+        .position(|op| matches!(op, Op::ResourcePut(r) if r.path == "_schemas/note.schema.json"))
+        .expect("the managed schema is written");
+    assert!(delete < put);
+    apply_ops(&mut f, ops, &c);
+    assert!(f.state.file(&id(10)).is_none());
+    assert_eq!(
+        f.state.resource("_schemas/note.schema.json").as_deref(),
+        Some(NOTE_SCHEMA)
+    );
+    let again = assess_collection_setup(&f, &s, &c).unwrap();
+    let (_, ops) = apply_collection_setup(
+        &f,
+        &s,
+        &c,
+        again.collection_revision,
+        again.assessment_digest,
+    )
+    .unwrap();
+    assert!(ops.is_empty());
+}
+
+#[test]
+fn setup_keeps_refusing_a_file_whose_bytes_differ_from_the_resource() {
+    for held in ["{\"type\": \"object\"}\n", "{\"type\":\"object\"}"] {
+        let mut f = Fixture::new();
+        f.file(10, "_schemas/note.schema.json", held);
+        let mut s = setup();
+        s.type_packs.push(schema_pack(&s.application_id));
+        let e = assess_collection_setup(&f, &s, &clock()).unwrap_err();
+        assert_eq!(e.code, "collection_setup_namespace_conflict");
+        assert!(e.message.contains("_schemas/note.schema.json"));
+        assert!(f.state.file(&id(10)).is_some());
+    }
+}
+
 #[test]
 fn later_pack_assessments_are_not_omitted_after_a_conflicting_pack() {
     let mut f = Fixture::new();
