@@ -467,3 +467,66 @@ fn declared_setup_prepared_plan_does_not_survive_replace_and_restore() {
     source.borrow_mut().as_mut().unwrap().setup = setup();
     assert!(a.r.recheck_prepared_collection_setup(&plan).is_err());
 }
+/// #436: an Ordinary file already holding a managed schema's exact bytes is
+/// deleted and replaced by the resource in the one declared setup mutation.
+#[test]
+fn declared_setup_replaces_an_ordinary_file_holding_the_exact_resource_bytes() {
+    const SCHEMA: &str = "{\"type\":\"object\"}\n";
+    const PATH: &str = "_schemas/note.schema.json";
+    let doc = "---\nkind: mdbase.type\nname: note\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value: {type: object}\n---\n";
+    let manifest = format!(
+        "kind: mdbase.type-pack\nid: example.notes\nversion: 1.0.0\nresources:\n  - kind: type\n    mode: managed\n    source: note.md\n    target: _types/note.md\n    digest: {}\n  - kind: schema\n    mode: managed\n    source: note.schema.json\n    target: {PATH}\n    digest: {}\n",
+        mdbn_core::ids::revision(doc),
+        mdbn_core::ids::revision(SCHEMA),
+    );
+    let pack = mdbn_core::setup::envelope::CollectionSetupTypePack {
+        pack: mdbn_core::packs::load_pack(&manifest, &|source| match source {
+            "note.md" => Some(doc.into()),
+            "note.schema.json" => Some(SCHEMA.into()),
+            _ => None,
+        })
+        .unwrap(),
+        options: mdbn_core::packs::AssessOptions {
+            installed_by: "app.tasks".into(),
+            ..Default::default()
+        },
+    };
+    let (svc, mut a, source) = declared_node();
+    source
+        .borrow_mut()
+        .as_mut()
+        .unwrap()
+        .setup
+        .type_packs
+        .push(pack);
+    super::capture::upload(&mut a, 9, PATH, SCHEMA.as_bytes());
+    let client = app_session(&mut a);
+    let mut session =
+        a.r.begin_app_collection_setup_session(client, None)
+            .unwrap();
+    super::session::drive(&a, &mut session, &svc);
+    let review = a.r.finish_collection_setup_session(session).unwrap();
+    let revision = review.assessment().collection_revision;
+    let digest = review.assessment().assessment_digest;
+    let plan =
+        a.r.prepare_reviewed_collection_setup(review, revision, digest)
+            .unwrap();
+    assert!(
+        plan.operations()
+            .iter()
+            .any(|op| matches!(op, mdbn_core::intent::Op::FileDelete(_)))
+    );
+    let id = B16([0x68; 16]);
+    a.r.capture_prepared_collection_setup(client, plan, id)
+        .unwrap();
+    settle(&mut [&mut a]);
+    assert_eq!(
+        a.r.receipt(client, id).unwrap().state,
+        mdbn_wire::client::ReceiptState::Confirmed,
+        "status={:?}",
+        a.r.sync_status()
+    );
+    assert!(a.r.store.file(&B16([9; 16])).unwrap().is_none());
+    assert_eq!(a.r.store.resource(PATH).unwrap().as_deref(), Some(SCHEMA));
+    assert!(a.r.store.resource("_types/note.md").unwrap().is_some());
+}

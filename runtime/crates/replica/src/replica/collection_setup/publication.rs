@@ -44,6 +44,11 @@ fn operation(op: &mdbn_core::intent::Op) -> ApiResult<rt::Op> {
             path: r.path.clone(),
             base_revision: r.base_revision.as_ref().map(convert::whash),
         })),
+        Op::FileDelete(f) => rt::Op::Legacy(wi::Op::FileDelete(wi::FileDelete {
+            id: convert::wuuid(&f.id),
+            if_revision: f.if_revision.as_ref().map(convert::whash),
+            base: f.base.as_ref().map(convert::whash),
+        })),
         Op::OrdinaryFileToRecord(r) => {
             rt::Op::OrdinaryFileToRecord(mdbn_wire::ordinary_file_promotion::OrdinaryFileToRecord {
                 id: convert::wuuid(&r.id),

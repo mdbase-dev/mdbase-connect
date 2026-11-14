@@ -9,12 +9,12 @@ use super::receipts::{Contributor, PROVISION_LOCK_PATH, ProvisionLock};
 use crate::contracts::jcs_digest;
 use crate::ids::{Hash, Uuid, revision};
 use crate::intent::{
-    ConflictMode, FileKind, Mutation, Op, OpClock, OrdinaryFileToRecord, RECORD_SOURCE_CAP_BYTES,
-    ResourcePut, Source,
+    ConflictMode, FileDelete, FileKind, Mutation, Op, OpClock, OrdinaryFileToRecord,
+    RECORD_SOURCE_CAP_BYTES, ResourcePut, Source,
 };
 use crate::packs::{self, AssessOptions, Assessment, Pack};
 use crate::plan::{Effect, PlanOptions, Stage};
-use crate::state::{Overlay, StateView, StoredFile};
+use crate::state::{Overlay, PathHolder, StateView, StoredFile};
 use crate::types::{CONFIG_PATH, LOCK_PATH};
 use crate::validate::{Issue, Severity, Tier};
 use crate::value::Value;
@@ -303,22 +303,48 @@ impl CollectionSetup {
         ]))
     }
 }
-fn stage_resources(overlay: &mut Overlay<'_>, operations: &[Op]) -> Result<(), Box<Issue>> {
+/// Stage resource operations over the prospective overlay and return them as
+/// published. A path held by a file or record refuses setup, except an
+/// Ordinary file holding exactly the bytes a resource put writes: setup
+/// deletes it in the same atomic mutation, guarded by its revision, so the
+/// collection keeps the same bytes and nothing the file held is lost. Only
+/// the full setup inventory replaces files (`replace_files`); resource-only
+/// assessment keeps refusing.
+fn stage_resources(
+    overlay: &mut Overlay<'_>,
+    operations: Vec<Op>,
+    replace_files: bool,
+) -> Result<Vec<Op>, Box<Issue>> {
+    let mut staged = Vec::with_capacity(operations.len());
     for op in operations {
-        let path = match op {
-            Op::ResourcePut(r) => &r.path,
-            Op::ResourceDelete(r) => &r.path,
+        let path = match &op {
+            Op::ResourcePut(r) => r.path.clone(),
+            Op::ResourceDelete(r) => r.path.clone(),
             _ => return Err(invalid()),
         };
-        if overlay.at_path_key(&crate::paths::path_key(path)).is_some() {
-            return Err(issue(
-                "collection_setup_namespace_conflict",
-                format!(
-                    "Rename {path} before setup: this resource path is held by a file or record"
-                ),
-            ));
+        match overlay.at_path_key(&crate::paths::path_key(&path)) {
+            None => {}
+            Some(PathHolder::File(id)) if replace_files => {
+                let identical = match (&op, overlay.file(&id)) {
+                    (Op::ResourcePut(r), Some(file)) => identical_ordinary(&file, &r.doc),
+                    _ => None,
+                };
+                let Some(file) = identical else {
+                    return Err(namespace_conflict(&path));
+                };
+                overlay.apply_effect(&Effect::RemoveFile {
+                    id: file.id,
+                    path: file.path.clone(),
+                });
+                staged.push(Op::FileDelete(FileDelete {
+                    id: file.id,
+                    if_revision: Some(file.content.plain_hash()),
+                    base: None,
+                }));
+            }
+            Some(_) => return Err(namespace_conflict(&path)),
         }
-        match op {
+        match &op {
             Op::ResourcePut(r) => overlay.apply_effect(&Effect::PutResource {
                 path: r.path.clone(),
                 doc: r.doc.clone(),
@@ -328,8 +354,22 @@ fn stage_resources(overlay: &mut Overlay<'_>, operations: &[Op]) -> Result<(), B
             }),
             _ => return Err(invalid()),
         }
+        staged.push(op);
     }
-    Ok(())
+    Ok(staged)
+}
+/// The file, when it is an Ordinary file holding exactly `doc`'s bytes.
+fn identical_ordinary(file: &StoredFile, doc: &str) -> Option<StoredFile> {
+    (file.kind == FileKind::Ordinary
+        && file.content.size() == doc.len() as u64
+        && file.content.plain_hash() == revision(doc))
+    .then(|| file.clone())
+}
+fn namespace_conflict(path: &str) -> Box<Issue> {
+    issue(
+        "collection_setup_namespace_conflict",
+        format!("Rename {path} before setup: this resource path is held by a file or record"),
+    )
 }
 fn descriptor_value(file: &StoredFile) -> Value {
     use crate::intent::FileContent;
@@ -526,7 +566,7 @@ fn stage_provisions<'a>(
     if clock.tz.len() > 128 || clock.local_date.len() > 32 {
         return Err(limit());
     }
-    stage_resource_provisions(state, setup, adopt)
+    stage_resource_provisions(state, setup, adopt, true)
 }
 /// Reviewed adoptions join each pack's options for its own targets only here,
 /// so they bind the pack assessments but never the provision identity.
@@ -534,6 +574,7 @@ fn stage_resource_provisions<'a>(
     state: &'a dyn StateView,
     setup: &CollectionSetup,
     adopt: &BTreeMap<String, Hash>,
+    replace_files: bool,
 ) -> Result<StagedProvisions<'a>, Box<Issue>> {
     setup.validate()?;
     if state
@@ -558,8 +599,7 @@ fn stage_resource_provisions<'a>(
                 base_revision: configuration.source_digest,
                 must_not_exist: configuration.source_digest.is_none(),
             };
-            operations.push(Op::ResourcePut(r));
-            stage_resources(&mut overlay, &operations)?;
+            operations = stage_resources(&mut overlay, vec![Op::ResourcePut(r)], replace_files)?;
         }
         for pack in &setup.type_packs {
             let mut options = pack.options.clone();
@@ -581,8 +621,7 @@ fn stage_resource_provisions<'a>(
             let (_, ops) =
                 packs::apply_type_pack(&overlay, &pack.pack, &options, &a.assessment_digest)
                     .map_err(Box::new)?;
-            stage_resources(&mut overlay, &ops)?;
-            operations.extend(ops);
+            operations.extend(stage_resources(&mut overlay, ops, replace_files)?);
             type_packs.push(a);
         }
     }
