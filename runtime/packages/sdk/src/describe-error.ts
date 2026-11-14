@@ -206,8 +206,10 @@ const COPY = {
   setup_forbidden: ["You can't set up this collection", "Your access to this collection doesn't allow setting it up. Ask its owner to open it in this app first.", "choose_collection", "warning"],
   setup_conflict: ["Setup needs your decision", "Some things in this collection differ from what this app needs. Review them to continue.", "set_up", "warning", false, "Review setup"],
   setup_unresolved: ["Setup can't finish", "This collection is missing something this app needs, and setup can't add it. A note type this app set up may have been changed or removed. Restore it, then try again.", "retry", "warning"],
-  collection_setup_conflict: ["Collection setup conflicts", "This collection's definitions conflict with what this app requires. Ask its owner to review them, or choose a different collection. Setup cannot continue while these conflicts remain.", "choose_collection", "warning"],
-  // A file or note holds a path setup writes; the path is in developerMessage.
+  // Setup would leave something already in the collection invalid; the API
+  // problem's message names the cause and the definition's path.
+  collection_setup_conflict: ["Collection setup conflicts", "Setting up this app would conflict with definitions already in this collection, so nothing was changed. A note type may have been renamed or customised and still use an older definition. Update or remove it, then try again.", "retry", "warning"],
+  // A file or note holds a path setup writes; the API problem's message names the path.
   collection_setup_namespace_conflict: ["A file is in the way", "A file in this collection is stored where this app needs to save part of its setup, and its contents differ. Move or rename that file, then try again. Nothing was changed.", "retry", "warning"],
   setup_records_forbidden: ["You can't add notes to this collection", "Your access to this collection doesn't allow creating notes, which this app's setup needs. Ask its owner for more access.", "choose_collection", "warning"],
   setup_changed: ["This collection changed", "The collection changed while you were reviewing its setup. Review the setup again; nothing was changed yet.", "set_up", "info", false, "Review again"],
