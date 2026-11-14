@@ -61,7 +61,7 @@ function fakeMdbase(phase: MdbasePhase, extra: Partial<MdbaseSnapshot> = {}) {
     assess: vi.fn(pending),
     forget: vi.fn(pending),
     deleteCollection: vi.fn(pending),
-    setup: { plan: vi.fn(pending), apply: vi.fn(pending) },
+    setup: { plan: vi.fn(pending), apply: vi.fn((_plan: Parameters<Mdbase["setup"]["apply"]>[0]) => pending()) },
   };
   const set = (next: Partial<MdbaseSnapshot>) => { value = { ...value, ...next }; for (const listener of listeners) listener(); };
   return { mdbase, entry: mdbase as unknown as Mdbase, set };
@@ -95,7 +95,7 @@ const switcherTrigger = (collection: string) => {
 const key = (element: Element, value: string) => act(() => { element.dispatchEvent(new KeyboardEvent("keydown", { key: value, bubbles: true })); });
 
 it("replaces Add with one quota notice and clears it when collection count changes", async () => {
-  const { mdbase, entry, set } = fakeMdbase({ kind: "choosing" });
+  const { mdbase, entry, set } = fakeMdbase({ kind: "choosing", lastApproval: null });
   mdbase.addCollection.mockRejectedValue(Object.assign(new Error("quota"), { code: "account_collection_quota_exceeded" }));
   await act(async () => root.render(<CollectionGate mdbase={entry} app={app}>{() => null}</CollectionGate>));
   await act(async () => button("Add a collection…").click());
@@ -109,7 +109,7 @@ it("replaces Add with one quota notice and clears it when collection count chang
 });
 
 it("does not clear unrelated action errors when collection count changes", async () => {
-  const { mdbase, entry, set } = fakeMdbase({ kind: "choosing" });
+  const { mdbase, entry, set } = fakeMdbase({ kind: "choosing", lastApproval: null });
   mdbase.addCollection.mockRejectedValue(Object.assign(new Error("offline"), { code: "unavailable" }));
   await act(async () => root.render(<CollectionGate mdbase={entry} app={app}>{() => null}</CollectionGate>));
   await act(async () => button("Add a collection…").click());
@@ -294,7 +294,7 @@ describe("SDK storage and Private states", () => {
       act(() => button("Tracked add").click());
       act(() => button("Cancel add").click());
       expect(abort).toHaveBeenCalledOnce();
-      expect(abort.mock.contexts[0]!.signal.aborted).toBe(true);
+      expect((abort.mock.contexts[0] as AbortController).signal.aborted).toBe(true);
       expect(container.querySelector("output")?.textContent).toBe("add_private");
       await act(async () => { finish(); });
       expect(container.querySelector("output")?.textContent).toBe("idle");
@@ -424,7 +424,7 @@ describe("setup review", () => {
     expect(container.querySelector(".mdbase-collections-spinner")).toBeNull();
     expect(container.querySelector(".mdbase-collections-notice")).not.toBeNull();
     await act(async () => { button("Set up").click(); await Promise.resolve(); });
-    expect(mdbase.setup.apply.mock.calls.map(([p]) => (p as { digest: string }).digest)).toEqual(["first", "second"]);
+    expect(mdbase.setup.apply.mock.calls.map(([p]) => p.digest)).toEqual(["first", "second"]);
   });
 });
 
@@ -753,7 +753,7 @@ describe("delete outcome", () => {
     mdbase.deleteCollection.mockImplementationOnce(() => Promise.reject(Object.assign(new Error("no"), { code: "forbidden" })));
     render(<Host entry={entry} onClose={onClose} />);
     expect(document.activeElement).toBe(document.querySelector("dialog input"));
-    expect(button("Delete collection").disabled).toBe(true);
+    expect((button("Delete collection") as HTMLButtonElement).disabled).toBe(true);
     typeName();
     await act(async () => { button("Delete collection").click(); });
     act(() => button("Cancel").click());

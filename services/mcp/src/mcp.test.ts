@@ -7,7 +7,7 @@ import type { OAuthService } from "./oauth.js";
 
 // Hosts and directory review read these without the plugin's skill, so the
 // safety guidance has to live in the server metadata itself.
-async function connect(scopes: string[]) {
+async function connect(scopes: Parameters<typeof createMcpServer>[0]["scopes"]) {
   const server = createMcpServer(
     { clientId: "metadata-test", connectionSetId: "metadata-test", scopes },
     {} as ConnectGateway,
@@ -69,7 +69,7 @@ describe("MCP server metadata", () => {
   });
 
   it("advertises server instructions to read-only and writable connections", async () => {
-    for (const scopes of [["mdbase:read"], ["mdbase:read", "mdbase:write"]]) {
+    for (const scopes of [["mdbase:read"], ["mdbase:read", "mdbase:write"]] satisfies Parameters<typeof createMcpServer>[0]["scopes"][]) {
       const { instructions } = await connect(scopes);
       expect(instructions?.trim()).toBeTruthy();
       expect(instructions).toContain("list_connections");

@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CollectionGate, CollectionPanel, useUnsyncedSavedLabel } from "../collections.js";
 import { collectionView } from "./model.js";
-import { planNeedsReview, unsyncedApi } from "./unsynced.js";
+import { planNeedsReview, unsyncedApi, type UnsyncedResult } from "./unsynced.js";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -46,7 +46,7 @@ function fakeMdbase(phase: MdbasePhase, extra: Partial<MdbaseSnapshot> = {}, sig
     unsynced: {
       open: vi.fn(async () => value),
       planTransfer: vi.fn(async (_options?: object) => plan()),
-      transfer: vi.fn(async (_plan: object, _options?: object) => { set({ unsyncedWork: null } as never); return { failed: [], failedTypes: [], retired: true }; }),
+      transfer: vi.fn(async (_plan: object, _options?: object): Promise<UnsyncedResult> => { set({ unsyncedWork: null } as never); return { failed: [], failedTypes: [], retired: true }; }),
       discard: vi.fn(async () => { set({ unsyncedWork: null } as never); return value; }),
     },
   };
@@ -163,7 +163,7 @@ describe("working before connecting", () => {
 
   it("shows where the work is kept in a settings panel", async () => {
     const { mdbase, entry } = fakeMdbase(unsyncedPhase, {}, false);
-    await render(<CollectionPanel mdbase={entry} app={app} autoStart={false} unsynced>{() => null}</CollectionPanel>);
+    await render(<CollectionPanel mdbase={entry} app={app} autoStart={false} unsynced />);
     expect(container.textContent).toContain("Saved only in this browser");
     await click(button("Connect to sync your work"));
     expect(mdbase.signIn).toHaveBeenCalled();
@@ -257,7 +257,7 @@ describe("bringing work in", () => {
 
   it("discards only after the person confirms, naming the app", async () => {
     const { mdbase, entry } = fakeMdbase(readyPhase, work);
-    await render(<CollectionPanel mdbase={entry} app={app} autoStart={false} unsynced>{() => null}</CollectionPanel>);
+    await render(<CollectionPanel mdbase={entry} app={app} autoStart={false} unsynced />);
     await click(button("Discard…"));
     const open = dialog()!;
     expect(open.textContent).toContain("Discard work that isn't in a collection?");
