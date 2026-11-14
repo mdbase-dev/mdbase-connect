@@ -20,6 +20,7 @@ import { createAccountCollection } from "../account/collection-creation.js";
 import { registerAccountCollectionCreationRoutes } from "../account/collection-creation-routes.js";
 import { registerMigrationProviderRoutes } from "./migration-provider.js";
 import { currentAccount, inTransaction } from "./bootstrap-common.js";
+import { installationCollections } from "./installation-scope.js";
 import { createCohort, addToCohort, acceptCohortArchive, cohortArchiveBinding, flipAccountBackend, flipEvidenceDigest, releaseCohort, setCohortFrozen, setPaused, startAccountMigration } from "./migration-rollout.js";
 import { ZERO_HOSTED_ARCHIVE_SCHEMA } from "./migration-archive-profile.js";
 import { clientFingerprint, deviceRegistrationDigest, issueDeviceChallenge, registerDevice } from "./devices.js";
@@ -935,6 +936,32 @@ describePg("cloud-copy bootstrap", () => {
     await db.query("DELETE FROM installation_collection_scopes WHERE connector_id=$1",[who.connector.id]);
     expect((await people(who,collection)).statusCode).toBe(403);expect((await refresh(who,collection)).statusCode).toBe(403);expect((await join(who,collection,await joinProof(who,collection))).statusCode).toBe(403);
     expect((await listed(who)).json().collections).toEqual([]); // historical enrolment never widens scope
+  });
+  it.each(["cp-intent", "native-registry"] as const)("omits a %s deleted collection with a retained scope from app and pairing choices", async authority => {
+    const who = await installation(randomUUID(), true), deleted = randomUUID(), live = randomUUID();
+    for (const collection of [deleted, live]) {
+      expect((await create(who, await proof(who, collection))).statusCode).toBe(200);
+    }
+    const choices = [deleted, live].sort().map(collection_id => ({collection_id, display_name: "New collection", role: "owner"}));
+    expect((await listed(who)).json().collections).toEqual(choices);
+    // A reconciled deletion floor can coexist with retained catalog metadata,
+    // membership and installation scope. Bootstrap already denies that UUID.
+    await db.query("INSERT INTO next_collection_deletion_facts(collection_id,deletion_id,lifecycle_epoch,authority) VALUES($1,$2,1,$3)", [deleted, randomUUID(), authority]);
+    const refused = await join(who, deleted, await joinProof(who, deleted));
+    expect(refused.statusCode, refused.body).toBe(409);
+    expect(refused.json().error.code).toBe("collection_deleted");
+    expect((await db.query("SELECT collection_id FROM installation_collection_scopes WHERE connector_id=$1 ORDER BY collection_id", [who.connector.id])).rows)
+      .toEqual([deleted, live].sort().map(collection_id => ({collection_id})));
+    for (const suffix of ["", "?include=file_actions", "?include=file_actions,mode"]) {
+      const result = await app.inject({method: "GET", url: `/v1/next/collections${suffix}`, headers: who.headers});
+      expect(result.statusCode, result.body).toBe(200);
+      expect(result.json().collections).toEqual([{collection_id: live, display_name: "New collection", role: "owner",
+        ...(suffix ? {file_actions: []} : {}), ...(suffix.endsWith(",mode") ? {mode: "cloud_copy"} : {})}]);
+    }
+    // Pairing uses the same query before any installation scope is approved.
+    expect(await inTransaction(db, client => installationCollections(client, who.connector.user_id, undefined, who.device)))
+      .toEqual([{collection_id: live, display_name: "New collection", role: "owner"}]);
+    expect((await join(who, live, await joinProof(who, live))).statusCode).toBe(200);
   });
   it("owner deletion refuses log tokens, bootstrap and catalog for every member installation",async()=>{
     const owner=await installation(randomUUID(),true),member=await installation(),collection=randomUUID();
