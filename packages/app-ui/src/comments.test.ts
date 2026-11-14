@@ -174,6 +174,8 @@ describe("the threads on a record", () => {
     expect(recordThreads("chapters/method.md", [withdrawn], paths)).toEqual([]);
     const reply = comment("comments/b.md", { in_reply_to: "[[comments/a]]" });
     expect(recordThreads("chapters/method.md", [withdrawn, reply], paths)).toHaveLength(1);
+    const withdrawnReply = comment("comments/b.md", { in_reply_to: "[[comments/a]]", deleted_at: "2026-09-30T11:00:00Z" }, "");
+    expect(recordThreads("chapters/method.md", [withdrawn, withdrawnReply], paths)).toEqual([]);
   });
 
   it("finds a quote stored with CRLF line breaks in an editor's LF text", () => {
