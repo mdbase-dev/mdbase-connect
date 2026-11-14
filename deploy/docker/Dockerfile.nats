@@ -1,4 +1,4 @@
-FROM nats:2.12.7-alpine@sha256:e602ceca19bddc3dd7197b4b1afde53a16cd9d31a5500a8ae5620f36cb01963c
+FROM nats:2.15.2-alpine@sha256:afae2fdbe2e326c65e1246cb83b9d05d319188734f3bd577ac8072daae78a10f
 
 COPY deploy/nats/nats.conf /etc/nats/mdbase-connect.conf
 COPY deploy/nats/start-nats.sh /usr/local/bin/start-mdbase-connect-nats
