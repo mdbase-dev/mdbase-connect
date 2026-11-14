@@ -1,5 +1,4 @@
 .mdbase-feedback-app { display: contents; }
-.mdbase-feedback-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
 .mdbase-feedback-trigger { display: inline-flex; align-items: center; gap: 8px; padding: 8px 10px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-soft); font: var(--font-size-caption)/1.4 var(--sans); cursor: pointer; }
 .mdbase-feedback-trigger:hover { background: var(--color-selected); color: var(--color-text); }
 .mdbase-feedback-bug { width: 22px; height: 22px; flex-shrink: 0; }

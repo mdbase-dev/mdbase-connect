@@ -104,7 +104,7 @@ export function FeedbackMarkup({ open, screenshot, onApply, onClose }: { open: b
         paint();
       }} /></div>
     <p id={instructions} className="mdbase-feedback-help">{t({ message: "Drag to mark. Keyboard: arrows move; Space starts or finishes. Blackout removes pixels." })}</p>
-    <span className="mdbase-feedback-sr-only" role="status">{plural(count, { one: "# mark applied.", other: "# marks applied." })}</span>
+    <span className="mdbase-visually-hidden" role="status">{plural(count, { one: "# mark applied.", other: "# marks applied." })}</span>
     {error && <p role="alert">{error}</p>}
     <div className="mdbase-feedback-actions"><button type="button" disabled={busy} onClick={onClose}>{t({ message: "Cancel" })}</button><button type="button" className="mdbase-feedback-primary" disabled={!ready || busy} onClick={() => {
       if (!canvas.current) return;
