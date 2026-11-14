@@ -72,7 +72,7 @@ if [ -z "$deb" ]; then
   name="mdbase-connect-$version-linux-x64.deb"
   base="https://github.com/$REPOSITORY/releases/download/v$version"
   say "Downloading mdbase connect $version..."
-  curl -fSL --proto '=https' -o "$work/$name" "$base/$name" || fail "$base/$name could not be downloaded."
+  curl -fL --progress-bar --proto '=https' -o "$work/$name" "$base/$name" || fail "$base/$name could not be downloaded."
   curl -fsSL --proto '=https' -o "$work/SHA256SUMS" "$base/SHA256SUMS-linux-x64" \
     || fail "the release's checksums could not be downloaded."
   grep " \*\{0,1\}$name\$" "$work/SHA256SUMS" | sed 's/ \*/  /' > "$work/SHA256SUMS.$name"

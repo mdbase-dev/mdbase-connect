@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { copyFile, lstat, mkdir, mkdtemp, readFile, readlink, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, lstat, mkdir, mkdtemp, readFile, readlink, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -47,7 +47,7 @@ async function deb(directory, label, state, executable) {
     `#!/bin/sh\necho '{"target":"installed_service","state_dir":"${state}","control":null}'\n`, { mode: 0o755 });
   await writeFile(join(app, "VERSION"), label);
   await writeFile(join(root, "usr/share/pixmaps/mdbase-connect.png"), "png");
-  const data = zstdCompressSync(execFileSync("tar", ["-c", "-C", root, "."]));
+  const data = zstdCompressSync(execFileSync("tar", ["-c", "-C", root, "."], { maxBuffer: 256 * 1024 * 1024 }));
   const path = join(directory, `${label}.deb`);
   // An odd-length first member exercises the archive's padding.
   await writeFile(path, Buffer.concat([
@@ -108,10 +108,13 @@ test("the install script leaves a running app alone", { skip: !runnable }, async
   const directory = await mkdtemp(join(tmpdir(), "mdbase-install-running-"));
   const prefix = join(directory, "local");
   const state = join(directory, "state");
-  const sleep = execFileSync("sh", ["-c", "command -v sleep"], { encoding: "utf8" }).trim();
-  const first = install(prefix, "--no-update", "--deb", await deb(directory, "one", state, sleep));
+  // A real executable stands in for the app, so the process's /proc exe is the
+  // app's path (a script's would be its interpreter). A shell runs under any name.
+  const shell = await realpath("/bin/sh");
+  const first = install(prefix, "--no-update", "--deb", await deb(directory, "one", state, shell));
   assert.equal(first.status, 0, first.stderr);
-  const running = spawn(join(prefix, "opt/mdbase-connect/mdbase-connect"), ["30"]);
+  // `; :` keeps the shell from exec-ing sleep in its place.
+  const running = spawn(join(prefix, "opt/mdbase-connect/mdbase-connect"), ["-c", "sleep 30; :"]);
   try {
     await new Promise((resolve) => running.once("spawn", resolve));
     const second = install(prefix, "--no-update", "--deb", await deb(directory, "two", state));
