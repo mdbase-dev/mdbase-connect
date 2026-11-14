@@ -244,12 +244,6 @@ importers:
       '@lingui/vite-plugin':
         specifier: 6.9.0
         version: 6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(@lingui/babel-plugin-lingui-macro@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@rolldown/plugin-babel@0.2.4(@babel/core@7.29.7(supports-color@10.2.2))(@babel/runtime@7.29.7)(rolldown@1.2.14)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.1)(yaml@2.9.1)))(esbuild@0.28.1)(rolldown@1.2.14)(supports-color@10.2.2)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.1)(yaml@2.9.1))
-      '@mdbase-dev/connect-dev':
-        specifier: workspace:*
-        version: link:../../packages/devkit
-      '@mdbase-dev/connect-testing':
-        specifier: workspace:*
-        version: link:../../packages/testing
       '@playwright/test':
         specifier: ^1.61.1
         version: 1.61.1

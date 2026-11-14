@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { fireEvent, render, screen, waitFor } from "./test/locale";
 import { expect, it, vi } from "vitest";
 import { MdbaseConnectError } from "@mdbase-dev/connect";
-import { connectProblem } from "@mdbase-dev/connect-testing";
+import { connectProblem } from "@mdbase-dev/connect/advanced";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
 

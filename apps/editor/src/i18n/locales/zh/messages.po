@@ -486,7 +486,6 @@ msgid "{label} is needed to save this note."
 msgstr "需要填写“{label}”才能保存此笔记。"
 
 #: src/contract-catalog.ts
-#: src/gateway.ts
 msgid "{label} is not supported."
 msgstr "不支持 {label}。"
 
@@ -1337,10 +1336,6 @@ msgstr "选择"
 #: src/ConnectionScreens.tsx
 msgid "Choose a collection"
 msgstr "选择集合"
-
-#: src/gateway.ts
-msgid "Choose a collection before editing notes."
-msgstr "请先选择集合，再编辑笔记。"
 
 #: src/use-note-actions.ts
 msgid "Choose a collection-relative folder."
@@ -4100,10 +4095,6 @@ msgstr "记录链接"
 msgid "Record source"
 msgstr "记录源码"
 
-#: src/gateway.ts
-msgid "Recover the interrupted note operation before making another change. No new write was attempted."
-msgstr "再次更改前，请先恢复中断的笔记操作。未尝试任何新的写入。"
-
 #. placeholder {0}: move.from
 #: src/App.tsx
 msgid "Recover the unsaved edits in “{0}” before moving this folder."
@@ -5115,7 +5106,6 @@ msgstr "Editor 未获批准。"
 msgid "The editor will replace these reviewed files and record their exact source, version, and digest in <0>mdbase.lock.yaml</0>. Future upgrades stop instead of overwriting an unexpected edit."
 msgstr "编辑器将替换这些已检查的文件，并在 <0>mdbase.lock.yaml</0> 中记录其确切来源、版本和摘要。今后升级遇到意外编辑时会停止，而不会覆盖。"
 
-#: src/gateway.ts
 #: src/next-editor-records.ts
 msgid "The exact interrupted note operation is unavailable. No new write was attempted."
 msgstr "无法获取中断的笔记操作的确切信息。未尝试新的写入。"
@@ -5242,7 +5232,6 @@ msgstr "架构路径未指向对象字段。"
 msgid "The selected collection changed. Open its person settings again."
 msgstr "所选集合已更改。请重新打开其人员设置。"
 
-#: src/gateway.ts
 #: src/native-gateway.ts
 msgid "The selected collection is not ready."
 msgstr "所选集合尚未就绪。"
@@ -5478,7 +5467,6 @@ msgstr "此编辑器会话已关闭。"
 msgid "This exact contract is not available in the collection. Restore it or remove the implementation before saving."
 msgstr "此集合中没有这一确切的契约。请在保存前恢复该契约或移除其实现。"
 
-#: src/gateway.ts
 #: src/native-file-download.ts
 msgid "This file changed. Reload its preview."
 msgstr "此文件已更改。请重新加载预览。"
@@ -5490,10 +5478,6 @@ msgstr "此文件超出了下载大小限制。"
 #: src/native-gateway.ts
 msgid "This file has no native confirmation metadata. Reload its preview."
 msgstr "此文件没有原生确认元数据。请重新加载预览。"
-
-#: src/gateway.ts
-msgid "This file no longer exists."
-msgstr "此文件已不存在。"
 
 #: src/native-file-download.ts
 #: src/native-gateway.ts

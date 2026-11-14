@@ -486,7 +486,6 @@ msgid "{label} is needed to save this note."
 msgstr "„{label}“ wird benötigt, um diese Notiz zu speichern."
 
 #: src/contract-catalog.ts
-#: src/gateway.ts
 msgid "{label} is not supported."
 msgstr "{label} wird nicht unterstützt."
 
@@ -1337,10 +1336,6 @@ msgstr "Auswählen"
 #: src/ConnectionScreens.tsx
 msgid "Choose a collection"
 msgstr "Sammlung auswählen"
-
-#: src/gateway.ts
-msgid "Choose a collection before editing notes."
-msgstr "Wählen Sie vor der Bearbeitung von Notizen eine Sammlung aus."
 
 #: src/use-note-actions.ts
 msgid "Choose a collection-relative folder."
@@ -4100,10 +4095,6 @@ msgstr "Datensatzlink"
 msgid "Record source"
 msgstr "Datensatzquelltext"
 
-#: src/gateway.ts
-msgid "Recover the interrupted note operation before making another change. No new write was attempted."
-msgstr "Stellen Sie den unterbrochenen Notizvorgang wieder her, bevor Sie eine weitere Änderung vornehmen. Es wurde kein neuer Schreibversuch unternommen."
-
 #. placeholder {0}: move.from
 #: src/App.tsx
 msgid "Recover the unsaved edits in “{0}” before moving this folder."
@@ -5115,7 +5106,6 @@ msgstr "Der Editor wurde nicht genehmigt."
 msgid "The editor will replace these reviewed files and record their exact source, version, and digest in <0>mdbase.lock.yaml</0>. Future upgrades stop instead of overwriting an unexpected edit."
 msgstr "Der Editor ersetzt diese geprüften Dateien und hält ihren genauen Quelltext, ihre Version und ihren Hashwert in <0>mdbase.lock.yaml</0> fest. Künftige Aktualisierungen werden angehalten, statt eine unerwartete Änderung zu überschreiben."
 
-#: src/gateway.ts
 #: src/next-editor-records.ts
 msgid "The exact interrupted note operation is unavailable. No new write was attempted."
 msgstr "Der genaue unterbrochene Notizvorgang ist nicht verfügbar. Es wurde kein neuer Schreibversuch unternommen."
@@ -5242,7 +5232,6 @@ msgstr "Der Schemapfad bezeichnet kein Objektfeld."
 msgid "The selected collection changed. Open its person settings again."
 msgstr "Die ausgewählte Sammlung wurde geändert. Öffnen Sie ihre Personeneinstellungen erneut."
 
-#: src/gateway.ts
 #: src/native-gateway.ts
 msgid "The selected collection is not ready."
 msgstr "Die ausgewählte Sammlung ist nicht bereit."
@@ -5478,7 +5467,6 @@ msgstr "Diese Editorsitzung wurde geschlossen."
 msgid "This exact contract is not available in the collection. Restore it or remove the implementation before saving."
 msgstr "Genau dieser Vertrag ist in der Sammlung nicht verfügbar. Stellen Sie ihn wieder her oder entfernen Sie die Implementierung vor dem Speichern."
 
-#: src/gateway.ts
 #: src/native-file-download.ts
 msgid "This file changed. Reload its preview."
 msgstr "Diese Datei wurde geändert. Laden Sie ihre Vorschau neu."
@@ -5490,10 +5478,6 @@ msgstr "Diese Datei überschreitet die Downloadgrenze."
 #: src/native-gateway.ts
 msgid "This file has no native confirmation metadata. Reload its preview."
 msgstr "Für diese Datei fehlen native Bestätigungsmetadaten. Laden Sie ihre Vorschau neu."
-
-#: src/gateway.ts
-msgid "This file no longer exists."
-msgstr "Diese Datei existiert nicht mehr."
 
 #: src/native-file-download.ts
 #: src/native-gateway.ts

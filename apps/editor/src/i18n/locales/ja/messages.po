@@ -486,7 +486,6 @@ msgid "{label} is needed to save this note."
 msgstr "このノートを保存するには「{label}」が必要です。"
 
 #: src/contract-catalog.ts
-#: src/gateway.ts
 msgid "{label} is not supported."
 msgstr "{label}には対応していません。"
 
@@ -1337,10 +1336,6 @@ msgstr "選択"
 #: src/ConnectionScreens.tsx
 msgid "Choose a collection"
 msgstr "コレクションを選択"
-
-#: src/gateway.ts
-msgid "Choose a collection before editing notes."
-msgstr "ノートを編集する前にコレクションを選択してください。"
 
 #: src/use-note-actions.ts
 msgid "Choose a collection-relative folder."
@@ -4100,10 +4095,6 @@ msgstr "レコードへのリンク"
 msgid "Record source"
 msgstr "レコードのソース"
 
-#: src/gateway.ts
-msgid "Recover the interrupted note operation before making another change. No new write was attempted."
-msgstr "別の変更を加える前に中断されたノート操作を復元してください。新たな書き込みは試行されていません。"
-
 #. placeholder {0}: move.from
 #: src/App.tsx
 msgid "Recover the unsaved edits in “{0}” before moving this folder."
@@ -5115,7 +5106,6 @@ msgstr "エディターは承認されませんでした。"
 msgid "The editor will replace these reviewed files and record their exact source, version, and digest in <0>mdbase.lock.yaml</0>. Future upgrades stop instead of overwriting an unexpected edit."
 msgstr "エディターは確認済みのこれらのファイルを置き換え、正確なソース、バージョン、ダイジェストを<0>mdbase.lock.yaml</0>に記録します。今後のアップグレードは、予期しない編集を上書きせずに停止します。"
 
-#: src/gateway.ts
 #: src/next-editor-records.ts
 msgid "The exact interrupted note operation is unavailable. No new write was attempted."
 msgstr "中断されたノート操作の正確な内容を利用できません。新たな書き込みは試行されていません。"
@@ -5242,7 +5232,6 @@ msgstr "スキーマのパスはオブジェクトフィールドを指してい
 msgid "The selected collection changed. Open its person settings again."
 msgstr "選択したコレクションが変わりました。人物の設定をもう一度開いてください。"
 
-#: src/gateway.ts
 #: src/native-gateway.ts
 msgid "The selected collection is not ready."
 msgstr "選択したコレクションは準備ができていません。"
@@ -5478,7 +5467,6 @@ msgstr "このエディターのセッションは終了しました。"
 msgid "This exact contract is not available in the collection. Restore it or remove the implementation before saving."
 msgstr "このコレクションには、指定された正確な契約がありません。保存する前に契約を復元するか、実装を削除してください。"
 
-#: src/gateway.ts
 #: src/native-file-download.ts
 msgid "This file changed. Reload its preview."
 msgstr "このファイルが変更されました。プレビューを再読み込みしてください。"
@@ -5490,10 +5478,6 @@ msgstr "このファイルはダウンロードの上限を超えています。
 #: src/native-gateway.ts
 msgid "This file has no native confirmation metadata. Reload its preview."
 msgstr "このファイルにはネイティブの確認メタデータがありません。プレビューを再読み込みしてください。"
-
-#: src/gateway.ts
-msgid "This file no longer exists."
-msgstr "このファイルはもう存在しません。"
 
 #: src/native-file-download.ts
 #: src/native-gateway.ts

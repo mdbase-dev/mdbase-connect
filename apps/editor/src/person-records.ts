@@ -1,6 +1,6 @@
 import { t } from "@lingui/core/macro";
-import { PERSON_CONTRACT, sameIdentity } from "@mdbase-dev/connect";
-import type { AccountIdentity, CollectionDescription, CollectionContractImplementationDescriptor, JsonObject, PeopleDirectory, PersonRecord } from "@mdbase-dev/connect";
+import { PERSON_CONTRACT, sameIdentity, type AccountIdentity } from "@mdbase-dev/sdk";
+import type { CollectionDescription, CollectionContractImplementationDescriptor, JsonObject, PeopleDirectory, PersonRecord } from "@mdbase-dev/connect";
 import { readFieldReference, fieldReferencePatch, writeFieldReference } from "./field-reference";
 import type { CollectionGateway } from "./model";
 
