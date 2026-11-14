@@ -112,11 +112,6 @@ msgstr "{0, plural, one {# erforderliches Feld nicht zugeordnet} other {# erford
 msgid "{0, plural, one {Also updated links in # note.} other {Also updated links in # notes.}}"
 msgstr "{0, plural, one {Links in # Notiz ebenfalls aktualisiert.} other {Links in # Notizen ebenfalls aktualisiert.}}"
 
-#. placeholder {0}: error.params.limit
-#: src/type-contracts.ts
-#~ msgid "{0, plural, one {Binding setting{field} needs at least # item for {contractId}.} other {Binding setting{field} needs at least # items for {contractId}.}}"
-#~ msgstr "{0, plural, one {Für die Bindungseinstellung{field} ist mindestens # Eintrag für {contractId} erforderlich.} other {Für die Bindungseinstellung{field} sind mindestens # Einträge für {contractId} erforderlich.}}"
-
 #. placeholder {0}: plan.moves.length
 #: src/FolderChangeDialog.tsx
 msgid "{0, plural, one {Move # note?} other {Move # notes?}}"
@@ -1173,24 +1168,10 @@ msgstr "Zurück zu Notizen und Dateien"
 msgid "Back to types"
 msgstr "Zurück zu den Typen"
 
-#. placeholder {0}: segments.join(".")
-#: src/type-contracts.ts
-#~ msgid "Binding setting {0} is required by {contractId}."
-#~ msgstr "Die Bindungseinstellung {0} ist für {contractId} erforderlich."
-
-#. placeholder {0}: error.message ?? "is invalid"
-#: src/type-contracts.ts
-#~ msgid "Binding setting{field} {0} for {contractId}."
-#~ msgstr "Bindungseinstellung{field} {0} für {contractId}."
-
 #. placeholder {0}: error.error
 #: src/type-contracts.ts
 msgid "Binding setting{field} for {contractId}: {0}"
 msgstr "Bindungseinstellung{field} für {contractId}: {0}"
-
-#: src/type-contracts.ts
-#~ msgid "Binding setting{field} must not be empty for {contractId}."
-#~ msgstr "Die Bindungseinstellung{field} darf für {contractId} nicht leer sein."
 
 #: src/type-contracts.ts
 msgid "Binding settings do not satisfy {contractId}."

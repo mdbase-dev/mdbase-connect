@@ -112,11 +112,6 @@ msgstr "{0, plural, one {Не сопоставлено # обязательно�
 msgid "{0, plural, one {Also updated links in # note.} other {Also updated links in # notes.}}"
 msgstr "{0, plural, one {Также обновлены ссылки в # заметке.} few {Также обновлены ссылки в # заметках.} many {Также обновлены ссылки в # заметках.} other {Также обновлены ссылки в # заметках.}}"
 
-#. placeholder {0}: error.params.limit
-#: src/type-contracts.ts
-#~ msgid "{0, plural, one {Binding setting{field} needs at least # item for {contractId}.} other {Binding setting{field} needs at least # items for {contractId}.}}"
-#~ msgstr "{0, plural, one {Для параметра привязки{field} в {contractId} требуется не менее # элемента.} few {Для параметра привязки{field} в {contractId} требуется не менее # элементов.} many {Для параметра привязки{field} в {contractId} требуется не менее # элементов.} other {Для параметра привязки{field} в {contractId} требуется не менее # элемента.}}"
-
 #. placeholder {0}: plan.moves.length
 #: src/FolderChangeDialog.tsx
 msgid "{0, plural, one {Move # note?} other {Move # notes?}}"
@@ -1173,24 +1168,10 @@ msgstr "Назад к заметкам и файлам"
 msgid "Back to types"
 msgstr "Назад к типам"
 
-#. placeholder {0}: segments.join(".")
-#: src/type-contracts.ts
-#~ msgid "Binding setting {0} is required by {contractId}."
-#~ msgstr "Для {contractId} обязателен параметр привязки {0}."
-
-#. placeholder {0}: error.message ?? "is invalid"
-#: src/type-contracts.ts
-#~ msgid "Binding setting{field} {0} for {contractId}."
-#~ msgstr "Параметр привязки{field} {0} для {contractId}."
-
 #. placeholder {0}: error.error
 #: src/type-contracts.ts
 msgid "Binding setting{field} for {contractId}: {0}"
 msgstr "Параметр привязки{field} для {contractId}: {0}"
-
-#: src/type-contracts.ts
-#~ msgid "Binding setting{field} must not be empty for {contractId}."
-#~ msgstr "Параметр привязки{field} для {contractId} не должен быть пустым."
 
 #: src/type-contracts.ts
 msgid "Binding settings do not satisfy {contractId}."
