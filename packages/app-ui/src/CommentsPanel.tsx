@@ -344,7 +344,7 @@ const Thread = memo(function Thread({ placed, people, drafts, isNew, active, onS
           {onReply && <button type="button" className="mdbase-thread-action" onClick={() => setReplying(true)}>{t({ message: "Reply" })}</button>}
           {open && !suggestion && onChange && <button type="button" className="mdbase-thread-action" disabled={busy} onClick={() => void run(() => onChange(root, { kind: "resolve" }))}>{t({ message: "Resolve" })}</button>}
           {!open && onChange && <button type="button" className="mdbase-thread-action" disabled={busy} onClick={() => void run(() => onChange(root, { kind: "reopen" }))}>{t({ message: "Reopen" })}</button>}
-          {!thread.replies.length && withdraw(root)}
+          {thread.replies.every((r) => r.deletedAt) && withdraw(root)}
           {onOpenRecord && <button type="button" className="mdbase-thread-action is-quiet" onClick={() => onOpenRecord(root.path)}>{t({ message: "Open file" })}</button>}
         </div>
       )}

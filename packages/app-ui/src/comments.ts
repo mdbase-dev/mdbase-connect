@@ -316,7 +316,7 @@ export interface PlacedThread {
   readonly at: Located | "whole" | null;
 }
 
-/** A thread shows unless its first comment was withdrawn and nobody replied. */
+/** A thread shows unless its first comment was withdrawn and no reply still stands. */
 const shown = (t: CommentThread) => !t.root.deletedAt || t.replies.some((r) => !r.deletedAt);
 
 /** The threads whose first comment is on `record`. */

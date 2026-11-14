@@ -64,3 +64,23 @@ it("keeps a reply in progress in the app's drafts when the panel is closed and r
   first.unmount();
   expect(show(props).host.querySelector("textarea")!.value).toBe("Half a thought");
 });
+
+it("offers to withdraw the first comment only while no reply to it stands", () => {
+  const mine = (path: string, extra: Record<string, unknown> = {}) =>
+    commentFromRecord(path, { document: "[[chapters/method]]", created_by: "[[people/Sam Okafor]]", created_at: "2026-10-02T10:00:00Z", ...extra }, extra.deleted_at ? "" : "text") as CommentRecord;
+  const thread = (...replies: CommentRecord[]): PlacedThread => ({ thread: { root: mine("comments/a.md"), replies }, record: "chapters/method.md", at: "whole" });
+  const live = mine("comments/b.md", { in_reply_to: "[[comments/a]]" });
+  const withdrawn = mine("comments/b.md", { in_reply_to: "[[comments/a]]", deleted_at: "2026-10-02T11:00:00Z" });
+  const later = mine("comments/c.md", { in_reply_to: "[[comments/a]]", created_at: "2026-10-02T12:00:00Z" });
+  const { host, render } = show({ threads: [thread()], onChange: async () => ({ ok: true as const }) });
+  const rootWithdraw = () => [...host.querySelectorAll(".mdbase-thread-actions button")].some((button) => button.textContent === "Withdraw");
+
+  expect(rootWithdraw()).toBe(true);
+  render({ threads: [thread(live)] });
+  expect(rootWithdraw()).toBe(false);
+  render({ threads: [thread(withdrawn)] });
+  expect(rootWithdraw()).toBe(true);
+  expect(host.querySelector(".mdbase-comment.is-reply .mdbase-comment-withdrawn")!.textContent).toBe("Withdrawn.");
+  render({ threads: [thread(withdrawn, later)] });
+  expect(rootWithdraw()).toBe(false);
+});
