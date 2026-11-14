@@ -382,6 +382,25 @@ fn create(n: u8, path: &str) -> w::intent::Op {
         document: Some(w::common::Text::Inline(source(900 + usize::from(n), 1400))),
     })
 }
+fn retitle(n: usize) -> w::intent::Op {
+    w::intent::Op::Update(w::intent::Update {
+        id: id(n),
+        patch: Some(w::common::DataMap(vec![(
+            "title".into(),
+            Value::Text("Edited".into()),
+        )])),
+        unset: None,
+        add: None,
+        remove: None,
+        body: None,
+        body_edits: None,
+        body_base: None,
+        body_base_text: None,
+        base: None,
+        if_revision: None,
+        update_refs: None,
+    })
+}
 fn id(n: usize) -> B16 {
     B16((n as u128 + 1).to_be_bytes())
 }
@@ -403,28 +422,7 @@ fn pending_local_writes_keep_a_multi_page_contract_inventory_answerable() {
     let (mut replica, session) = open(&dir, &svc);
     assert_eq!(contract_inventory(&mut replica, session).len(), 140);
     // An edit of a record on the first page, as Writer and Reader save.
-    submit(
-        &mut replica,
-        session,
-        0xE1,
-        w::intent::Op::Update(w::intent::Update {
-            id: id(5),
-            patch: Some(w::common::DataMap(vec![(
-                "title".into(),
-                Value::Text("Edited".into()),
-            )])),
-            unset: None,
-            add: None,
-            remove: None,
-            body: None,
-            body_edits: None,
-            body_base: None,
-            body_base_text: None,
-            base: None,
-            if_revision: None,
-            update_refs: None,
-        }),
-    );
+    submit(&mut replica, session, 0xE1, retitle(5));
     let ids = contract_inventory(&mut replica, session);
     assert_eq!(ids.len(), 140);
     assert_eq!(
@@ -464,4 +462,39 @@ fn pending_local_writes_keep_a_multi_page_contract_inventory_answerable() {
         replica.tick();
     }
     assert_eq!(contract_inventory(&mut replica, session).len(), 142);
+}
+
+/// Issue #1502: with a write pending, a page larger than the source budget
+/// (Writer reads every record in pages of 500) ends early with a cursor, as it
+/// does without one, instead of refusing `too_large`.
+#[test]
+fn a_merged_page_over_the_source_budget_ends_early() {
+    let (dir, svc) = world("large-metadata-merged-budget", &[WIDE; SHAPE]);
+    let (mut replica, session) = open(&dir, &svc);
+    submit(&mut replica, session, 0xE1, retitle(5));
+    submit(&mut replica, session, 0xE2, retitle(140));
+    let mut paths = Vec::new();
+    let mut cursor = None;
+    loop {
+        let mut fields = vec![("limit", Value::Int(500))];
+        if let Some(c) = cursor.take() {
+            fields.push(("cursor", Value::Text(c)));
+        }
+        let page = query(&mut replica, session, fields)
+            .unwrap_or_else(|e| panic!("page refused: {e:?}; {:?}", replica.query_stats()));
+        assert!(!page.records.is_empty());
+        let bytes: usize = page
+            .records
+            .iter()
+            .map(|r| r.document.as_ref().map_or(0, |d| d.len()))
+            .sum();
+        assert!(bytes <= 1 << 20, "{bytes}");
+        paths.extend(page.records.iter().map(|r| r.path.clone()));
+        match page.cursor {
+            Some(next) => cursor = Some(next),
+            None => break,
+        }
+    }
+    let expected: Vec<String> = (0..SHAPE).map(|n| format!("sources/{n:03}.md")).collect();
+    assert_eq!(paths, expected);
 }

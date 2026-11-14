@@ -370,9 +370,9 @@ it ends at the last record that fits and returns `has_more: true` with a cursor,
 so `limit` is a maximum: fewer records than `limit` never means the end, only an
 absent cursor does. A path-ordered keyset page (no `order_by`) merges pending
 local edits into its page and still returns a cursor; any further local change
-ends that continuation with `cursor_stale`. A first record that alone exceeds
-the budget, a merged page that would exceed it, and windows answered without a
-cursor (pending edits merged into an ordered window) still refuse
+ends that continuation with `cursor_stale`; it ends at the budget like any
+keyset page. A first record that alone exceeds the budget, and windows answered
+without a cursor (pending edits merged into an ordered window), still refuse
 `too_large / query_budget_exceeded`. Group/summary/CEL allocations need
 separate real bounds. An exact indexed aggregate is permitted only with qualified
 Core parity and current catalogue/generation/head coverage. Unsupported semantics
