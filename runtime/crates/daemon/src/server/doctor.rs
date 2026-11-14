@@ -352,7 +352,11 @@ impl Daemon {
                     action: None,
                 }),
         );
-        checks.push(crate::update::doctor_check(&r.binary_version));
+        checks.push(crate::update::doctor_check(
+            &r.binary_version,
+            &self.profile.state_dir,
+            time::OffsetDateTime::now_utc(),
+        ));
         if self.profile.target == crate::paths::Target::InstalledService {
             use crate::takeover::record::Record;
             let fenced = Record::load(&self.takeover_paths().record)

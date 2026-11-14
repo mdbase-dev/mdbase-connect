@@ -133,3 +133,41 @@ test("CLI runner removes isolated profile environment and parses failures withou
   assert.equal(environment.MDBASE_HOME, "/isolated");
   assert.deepEqual(await nextDaemonRunner(join(directory, "missing"))([]), { exitCode: 1, value: null });
 });
+
+test("a bundled daemon that does not start is rolled back, held back on later launches, and cleared by the next app's", async () => {
+  const { ensureBundledDaemon } = require("../dist/main/next-daemon.js");
+  const { UpdateStateStore } = require("../dist/main/update-state.js");
+  const root = await mkdtemp(join(tmpdir(), "mdbase-held-back-"));
+  const stateDir = join(root, "state");
+  await mkdir(join(stateDir, "runtime"), { recursive: true });
+  const installed = join(root, "installed");
+  // A fake `mdbase`: status reports the installed version; install swaps this one
+  // in and reports ready only when `ready` says so.
+  const fake = async (path, own, ready) => {
+    await writeFile(path, `#!/usr/bin/env node
+const fs = require("node:fs");
+const report = (v, ok) => console.log(JSON.stringify({ registration: "installed", binary_version: v, readiness: ok ? { ready: true, binary_version: v } : null }));
+if (process.argv.includes("status")) { const v = fs.readFileSync(${JSON.stringify(installed)}, "utf8"); report(v, true); }
+else { fs.writeFileSync(${JSON.stringify(installed)}, ${JSON.stringify(own)}); report(${JSON.stringify(own)}, ${ready}); process.exit(${ready ? 0 : 3}); }
+`);
+    await chmod(path, 0o700);
+  };
+  await writeFile(installed, "0.2.0-beta.1");
+  await fake(join(stateDir, "runtime", "mdbase.previous"), "0.2.0-beta.1", true);
+  await fake(join(root, "broken"), "0.2.0-beta.2", false);
+  const store = new UpdateStateStore(join(root, "updates", "state.json"));
+
+  const broken = { binary: join(root, "broken"), version: "0.2.0-beta.2" };
+  const first = await ensureBundledDaemon(store, broken, stateDir);
+  assert.equal(first.result.outcome, "rolled_back");
+  assert.equal(first.holding, true);
+  assert.equal((await store.load()).daemon_held_back.version, "0.2.0-beta.2");
+
+  const again = await ensureBundledDaemon(store, broken, stateDir);
+  assert.deepEqual(again, { result: { outcome: "already_installed", version: "0.2.0-beta.1", started: false }, holding: true });
+
+  await fake(join(root, "fixed"), "0.2.0-beta.3", true);
+  const fixed = await ensureBundledDaemon(store, { binary: join(root, "fixed"), version: "0.2.0-beta.3" }, stateDir);
+  assert.deepEqual(fixed, { result: { outcome: "installed", version: "0.2.0-beta.3" }, holding: false });
+  assert.equal((await store.load()).daemon_held_back, undefined);
+});

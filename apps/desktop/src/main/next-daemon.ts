@@ -2,7 +2,9 @@ import { execFile as execFileCallback } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { previousRuntimeBinary } from "./daemon-cli";
 import { compareVersions } from "./update-policy";
+import type { UpdateStateStore } from "./update-state";
 
 /**
  * Keeping the installed mdbase daemon at the version this app bundles.
@@ -141,6 +143,36 @@ async function installBundled(run: CliRunner, bundledVersion: string): Promise<N
     throw new Error("The mdbase daemon did not report a healthy installation of the bundled version.");
   }
   return { outcome: "installed", version: bundledVersion };
+}
+
+/**
+ * [`ensureNextDaemon`] for the installed profile, with the held-back version kept
+ * in the app's update state. `holding` is true while the bundled version is held
+ * back and `result.version` (an older one) keeps running.
+ */
+export async function ensureBundledDaemon(
+  store: UpdateStateStore,
+  bundled: BundledNextDaemon,
+  stateDir: string
+): Promise<{ result: NextDaemonOutcome; holding: boolean }> {
+  const held = (await store.load()).daemon_held_back;
+  const previous = previousRuntimeBinary(stateDir);
+  const result = await ensureNextDaemon(nextDaemonRunner(bundled.binary), bundled.version, {
+    heldBack: held?.version,
+    rollback: existsSync(previous) ? nextDaemonRunner(previous) : null
+  });
+  if (result.outcome === "rolled_back") {
+    await store.update((state) => {
+      state.daemon_held_back = { version: result.failed, reason: result.reason };
+    });
+  } else if (held && result.version === bundled.version) {
+    await store.update((state) => {
+      delete state.daemon_held_back;
+    });
+  }
+  const holding = result.outcome === "rolled_back" ||
+    (held?.version === bundled.version && result.version !== bundled.version);
+  return { result, holding };
 }
 
 /** The bundled daemon, next to (never over) the old connector binary. */

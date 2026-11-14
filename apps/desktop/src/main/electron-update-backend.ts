@@ -23,6 +23,24 @@ export interface ElectronUpdateBackendOptions {
   arch: string;
   userDataDirectory: string;
   executablePath: string;
+  /**
+   * After a Linux app folder is swapped: relaunch the app (a window asked for the
+   * update) or return to the caller (the background update, which has no window).
+   */
+  afterLinuxSwap: "relaunch" | "return";
+}
+
+/** The backend for this running app. */
+export function appUpdateBackend(afterLinuxSwap: ElectronUpdateBackendOptions["afterLinuxSwap"]): ElectronUpdateBackend {
+  return new ElectronUpdateBackend({
+    currentVersion: app.getVersion(),
+    packaged: app.isPackaged,
+    platform: process.platform,
+    arch: process.arch,
+    userDataDirectory: app.getPath("userData"),
+    executablePath: process.execPath,
+    afterLinuxSwap
+  });
 }
 
 /** The app's release channel; see update-coordinator.ts. */
@@ -33,7 +51,7 @@ export class ElectronUpdateBackend implements UpdateBackend {
   readonly packaged: boolean;
   private readonly options: ElectronUpdateBackendOptions;
   /** A Linux app unpacked into a folder the user owns, which replaces itself. */
-  private readonly linuxAppDirectory: string | null;
+  readonly linuxAppDirectory: string | null;
 
   constructor(options: ElectronUpdateBackendOptions) {
     this.options = options;
@@ -126,6 +144,7 @@ export class ElectronUpdateBackend implements UpdateBackend {
       return;
     }
     await swapStagedApp(this.linuxAppDirectory);
+    if (this.options.afterLinuxSwap === "return") return;
     // The same path now holds the new app. A window was asked for, so not --hidden.
     app.relaunch({ args: process.argv.slice(1).filter((argument) => argument !== "--hidden") });
     app.quit();

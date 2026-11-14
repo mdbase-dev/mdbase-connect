@@ -3,13 +3,15 @@
 //! This module does not download, extract, install, or run an artifact. Production
 //! key provisioning, durable owner-only state, fresh HTTPS recovery checks, archive
 //! validation and crash-safe installation must land before a caller can apply an
-//! update. No updater timer or CLI is wired yet.
+//! update. The desktop app updates this daemon today (`docs/desktop-updates.md`);
+//! `doctor` reports what it last found (`desktop`).
 //!
 //! Signatures cover `SHA256(u8(tag.len()) || tag || exact_bytes)`, using distinct
 //! domains for manifests and recovery statements. Recovery can change CI keys but
 //! cannot sign a manifest. Callers must durably persist policy state before treating
 //! an observation as accepted; a failed save must never authorize installation.
 
+mod desktop;
 mod model;
 mod policy;
 mod signature;
@@ -43,16 +45,7 @@ impl std::fmt::Display for UpdateError {
 }
 impl std::error::Error for UpdateError {}
 
-/// The `doctor` `update` check. Until an apply path and production key custody
-/// land, this build never updates itself; say so instead of implying it does.
-pub fn doctor_check(version: &str) -> crate::control::Check {
-    crate::control::Check {
-        id: "update".into(),
-        status: "warn".into(),
-        detail: format!("version {version}; automatic updates are not available in this build"),
-        action: Some("Install new releases manually until automatic updates ship.".into()),
-    }
-}
+pub use desktop::doctor_check;
 
 #[cfg(test)]
 mod tests;

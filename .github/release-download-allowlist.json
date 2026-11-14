@@ -28,5 +28,15 @@
     "path": "scripts/generate-update-manifest.mjs",
     "line": "const downloadRoot = `https://github.com/${repository}/releases/download/${tag}`;",
     "reason": "Published update-manifest URL for product clients; this script does not download it."
+  },
+  {
+    "path": "apps/desktop/scripts/install-linux.sh",
+    "line": "| sed -n 's|.*\"browser_download_url\": *\"[^\"]*/releases/download/v\\([^/\"]*\\)/mdbase-connect-[^/\"]*-linux-x64\\.deb\".*|\\1|p' \\",
+    "reason": "Parses the newest release's Linux package URL from one unauthenticated REST response on the user's machine; no download from this line."
+  },
+  {
+    "path": "apps/desktop/scripts/install-linux.sh",
+    "line": "base=\"https://github.com/$REPOSITORY/releases/download/v$version\"",
+    "reason": "End-user Linux install script: runs once on a user's machine without a GitHub token, like the desktop app's own unauthenticated release downloads; the downloaded .deb is checked against SHA256SUMS and, with cosign, its Sigstore bundle."
   }
 ]
