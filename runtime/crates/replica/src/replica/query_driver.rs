@@ -112,6 +112,47 @@ fn fitting_prefix(rows: &[&QueryKeyedId], bytes: u64, records: u32) -> usize {
         .count()
 }
 
+/// A merged keyset page in path order: the confirmed rows and the (already
+/// charged) layered records it holds, cut where the next confirmed row would
+/// exceed the source budget, as an unlayered keyset page ends. Path order is
+/// known before hydration, so nothing beyond the page is read.
+fn merged_prefix(
+    confirmed: &mut Vec<QueryKeyedId>,
+    layered: &mut Vec<(Uuid, mdbn_core::state::StoredRecord)>,
+    limit: usize,
+    bytes: u64,
+    records: u32,
+) -> ApiResult<()> {
+    layered.sort_by(|a, b| a.1.path.cmp(&b.1.path));
+    let (mut c, mut l, mut used, mut count) = (0, 0, 0u64, 0u32);
+    while c + l < limit {
+        let next_confirmed = match (confirmed.get(c), layered.get(l)) {
+            (Some(row), Some((_, rec))) => row.path < rec.path,
+            (Some(_), None) => true,
+            (None, Some(_)) => false,
+            (None, None) => break,
+        };
+        if next_confirmed {
+            match used.checked_add(confirmed[c].encoded_bytes) {
+                Some(n) if n <= bytes && count < records => {
+                    used = n;
+                    count += 1;
+                    c += 1;
+                }
+                _ => break,
+            }
+        } else {
+            l += 1;
+        }
+    }
+    if c + l == 0 {
+        return Err(budget_error("the matching records"));
+    }
+    confirmed.truncate(c);
+    layered.truncate(l);
+    Ok(())
+}
+
 fn budget_error(what: &str) -> ApiError {
     ErrorCode::TooLarge.err_with_reason(
         "query_budget_exceeded",
@@ -723,6 +764,19 @@ impl<S: Store> Replica<S> {
         }
 
         let layered_len = layered.len();
+        if merged && !layered.is_empty() {
+            merged_prefix(
+                &mut confirmed,
+                &mut layered,
+                usize::try_from(limit).unwrap_or(usize::MAX),
+                budget.bytes_left(),
+                budget.records_left(),
+            )?;
+            // Every candidate after the frontier was selected (the store's
+            // rest is beyond its last row), so more remain exactly when the
+            // store has more or this page left candidates out.
+            has_more = has_more || confirmed.len() + layered.len() < candidates + layered_len;
+        }
         // The store already skipped `offset` when paged.
         let (offset, end) = if paged {
             (0, usize::try_from(limit).unwrap_or(usize::MAX))
@@ -743,8 +797,9 @@ impl<S: Store> Replica<S> {
             confirmed.iter().collect()
         };
         // A keyset page ends at the last record that fits the source budget; its
-        // frontier continues from there. Whole windows, merged pending edits and
-        // a first record beyond the budget on its own still refuse explicitly.
+        // frontier continues from there (a merged page was cut above). Whole
+        // windows and a first record beyond the budget on its own still refuse
+        // explicitly.
         let fits = fitting_prefix(&hydrate, budget.bytes_left(), budget.records_left());
         let short = fits < hydrate.len();
         if short {
@@ -832,10 +887,6 @@ impl<S: Store> Replica<S> {
                 .take(end - offset.min(end))
                 .collect();
             if merged {
-                // Every candidate after the frontier was selected (the store's
-                // rest is beyond its last row), so more remain exactly when the
-                // store has more or this page left candidates out.
-                has_more = has_more || candidates + layered_len > page.len();
                 merged_frontier = page.last().map(|(id, path, _, _, src)| QueryKeyedId {
                     id: *id,
                     keys: Vec::new(),
