@@ -112,11 +112,6 @@ msgstr "{0, plural, one {# campo obrigatório sem mapeamento} other {# campos ob
 msgid "{0, plural, one {Also updated links in # note.} other {Also updated links in # notes.}}"
 msgstr "{0, plural, one {Os links em # nota também foram atualizados.} other {Os links em # notas também foram atualizados.}}"
 
-#. placeholder {0}: error.params.limit
-#: src/type-contracts.ts
-msgid "{0, plural, one {Binding setting{field} needs at least # item for {contractId}.} other {Binding setting{field} needs at least # items for {contractId}.}}"
-msgstr "{0, plural, one {A configuração de vinculação{field} exige pelo menos # item para {contractId}.} other {A configuração de vinculação{field} exige pelo menos # itens para {contractId}.}}"
-
 #. placeholder {0}: plan.moves.length
 #: src/FolderChangeDialog.tsx
 msgid "{0, plural, one {Move # note?} other {Move # notes?}}"
@@ -1173,19 +1168,10 @@ msgstr "Voltar às notas e arquivos"
 msgid "Back to types"
 msgstr "Voltar aos tipos"
 
-#. placeholder {0}: segments.join(".")
+#. placeholder {0}: error.error
 #: src/type-contracts.ts
-msgid "Binding setting {0} is required by {contractId}."
-msgstr "A configuração de vinculação {0} é obrigatória para {contractId}."
-
-#. placeholder {0}: error.message ?? "is invalid"
-#: src/type-contracts.ts
-msgid "Binding setting{field} {0} for {contractId}."
-msgstr "Configuração de vinculação{field} {0} para {contractId}."
-
-#: src/type-contracts.ts
-msgid "Binding setting{field} must not be empty for {contractId}."
-msgstr "A configuração de vinculação{field} não pode ficar vazia para {contractId}."
+msgid "Binding setting{field} for {contractId}: {0}"
+msgstr "Configuração de vinculação{field} para {contractId}: {0}"
 
 #: src/type-contracts.ts
 msgid "Binding settings do not satisfy {contractId}."

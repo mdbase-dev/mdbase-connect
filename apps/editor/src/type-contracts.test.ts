@@ -1,6 +1,9 @@
-import type { CollectionContractDescriptor } from "@mdbase-dev/connect";
+import type { CollectionContractDescriptor, JsonObject } from "@mdbase-dev/connect";
+import { Validator } from "@cfworker/json-schema";
 import { parse } from "yaml";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import tasknotesTypeSource from "./test/fixtures/tasknotes-task.md?raw";
+import tasknotesContractSource from "./test/fixtures/tasknotes-task-contract.md?raw";
 import { NEW_TYPE_SOURCE } from "./type-presentation";
 import {
   addTypeContractImplementation,
@@ -17,6 +20,43 @@ import {
 import { readVisualType } from "./type-schema";
 
 describe("type contract authoring", () => {
+  it("validates the installed TaskNotes task binding without dynamic code evaluation", () => {
+    const definition = parse(tasknotesContractSource.split("---")[1]!);
+    const contract: CollectionContractDescriptor = {
+      contractType: "record",
+      id: definition.id,
+      version: definition.version,
+      digest: "tasknotes-fixture",
+      schema: definition.record_schema.value,
+      bindingSchema: definition.binding_schema.value,
+      implementations: []
+    };
+    const consoleError = vi.spyOn(console, "error");
+    const dynamicCode = vi.fn(function () { throw new EvalError("CSP blocks unsafe-eval"); });
+    vi.stubGlobal("Function", dynamicCode);
+    try {
+      const typeDefinition = parse(tasknotesTypeSource.split("---")[1]!);
+      expect(new Validator(structuredClone(typeDefinition.schema.value), "2020-12")
+        .validate({ title: "TaskNotes regression", status: "open", dateCreated: "2026-11-14T00:00:00Z" }).valid).toBe(true);
+      const originalSchema = structuredClone(contract.bindingSchema);
+      expect(validateTypeContractImplementations(tasknotesTypeSource, [contract])
+        .filter((issue) => issue.level === "error")).toEqual([]);
+      const binding = readTypeContractImplementations(tasknotesTypeSource)[0]!.binding!;
+      const invalid = setTypeContractBinding(tasknotesTypeSource, contract.id, contract.version, {
+        ...binding,
+        status: { ...binding.status as JsonObject, completed_values: [""] }
+      });
+      expect(validateTypeContractImplementations(invalid, [contract])).toContainEqual(
+        expect.objectContaining({ level: "error", contract: "tasknotes.task", message: 'Binding setting status.completed_values.0 for tasknotes.task: String is too short (0 < 1).' })
+      );
+      expect(contract.bindingSchema).toEqual(originalSchema);
+      expect(dynamicCode).not.toHaveBeenCalled();
+      expect(consoleError).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("creates a one-to-one type from an installed contract", () => {
     const source = createTypeSourceFromContract(NEW_TYPE_SOURCE, contactContract, ["card"]);
     const definition = readVisualType(source);
@@ -120,14 +160,14 @@ describe("type contract authoring", () => {
     };
     const withContract = addTypeContractImplementation(personSource, configurable);
     expect(validateTypeContractImplementations(withContract, [configurable])).toContainEqual(
-      expect.objectContaining({ message: "Binding setting status is required by example.person." })
+      expect.objectContaining({ level: "error", message: 'Binding setting for example.person: Instance does not have required property "status".' })
     );
 
     const empty = setTypeContractBinding(withContract, configurable.id, configurable.version, {
       status: { completed_values: [] }
     });
     expect(validateTypeContractImplementations(empty, [configurable])).toContainEqual(
-      expect.objectContaining({ message: expect.stringContaining("needs at least 1 item") })
+      expect.objectContaining({ level: "error", message: 'Binding setting status.completed_values for example.person: Array has too few items (0 < 1).' })
     );
 
     const valid = setTypeContractBinding(empty, configurable.id, configurable.version, {

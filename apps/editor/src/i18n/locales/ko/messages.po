@@ -112,11 +112,6 @@ msgstr "{0, plural, other {매핑되지 않은 필수 필드 #개}}"
 msgid "{0, plural, one {Also updated links in # note.} other {Also updated links in # notes.}}"
 msgstr "{0, plural, other {노트 #개의 링크도 업데이트했습니다.}}"
 
-#. placeholder {0}: error.params.limit
-#: src/type-contracts.ts
-msgid "{0, plural, one {Binding setting{field} needs at least # item for {contractId}.} other {Binding setting{field} needs at least # items for {contractId}.}}"
-msgstr "{0, plural, other {{contractId}의 바인딩 설정{field}에 항목이 최소 #개 필요합니다.}}"
-
 #. placeholder {0}: plan.moves.length
 #: src/FolderChangeDialog.tsx
 msgid "{0, plural, one {Move # note?} other {Move # notes?}}"
@@ -1173,19 +1168,10 @@ msgstr "노트 및 파일로 돌아가기"
 msgid "Back to types"
 msgstr "유형으로 돌아가기"
 
-#. placeholder {0}: segments.join(".")
+#. placeholder {0}: error.error
 #: src/type-contracts.ts
-msgid "Binding setting {0} is required by {contractId}."
-msgstr "{contractId}에 바인딩 설정 {0}이(가) 필요합니다."
-
-#. placeholder {0}: error.message ?? "is invalid"
-#: src/type-contracts.ts
-msgid "Binding setting{field} {0} for {contractId}."
-msgstr "{contractId}의 바인딩 설정{field} {0}."
-
-#: src/type-contracts.ts
-msgid "Binding setting{field} must not be empty for {contractId}."
-msgstr "{contractId}의 바인딩 설정{field}은(는) 비워 둘 수 없습니다."
+msgid "Binding setting{field} for {contractId}: {0}"
+msgstr "{contractId}의 바인딩 설정{field}: {0}"
 
 #: src/type-contracts.ts
 msgid "Binding settings do not satisfy {contractId}."

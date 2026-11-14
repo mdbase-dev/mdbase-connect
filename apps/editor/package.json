@@ -30,6 +30,7 @@
     "manifest:validate": "node scripts/validate-manifest.mjs"
   },
   "dependencies": {
+    "@cfworker/json-schema": "^4.1.6",
     "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/commands": "^6.11.1",
     "@codemirror/lang-json": "^6.0.2",
@@ -55,7 +56,6 @@
     "@phosphor-icons/web": "^2.1.2",
     "@replit/codemirror-vim": "^6.3.0",
     "@tanstack/react-virtual": "^3.14.13",
-    "ajv": "^8.20.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "yaml": "^2.9.1"

@@ -427,7 +427,7 @@ schema:
 
     await user.click(screen.getByRole("button", { name: "Connect application contract" }));
     expect(screen.getByText("Setup required")).toBeInTheDocument();
-    expect(screen.getByText("Binding setting status is required by example.workflow-person.")).toBeInTheDocument();
+    expect(screen.getByText('Binding setting for example.workflow-person: Instance does not have required property "status".')).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Configure settings" }));
     expect(screen.getByText("Application behavior")).toBeInTheDocument();

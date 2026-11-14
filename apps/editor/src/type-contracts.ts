@@ -1,6 +1,6 @@
-import { t, plural } from "@lingui/core/macro";
+import { t } from "@lingui/core/macro";
 import type { CollectionContractDescriptor, JsonObject } from "@mdbase-dev/connect";
-import Ajv2020, { type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
+import { Validator, type OutputUnit } from "@cfworker/json-schema";
 import { isMap, isSeq, parseDocument, type Document } from "yaml";
 import type { TypeFieldKind } from "./type-schema";
 
@@ -633,46 +633,33 @@ function schemaAllowedValues(schema: Record<string, unknown>): Set<string> | und
   return undefined;
 }
 
-const bindingValidators = new WeakMap<JsonObject, ValidateFunction>();
+const bindingValidators = new WeakMap<JsonObject, Validator>();
 
 function validateBinding(schema: JsonObject, binding: Record<string, unknown>, contractId: string): string | undefined {
-  let validate = bindingValidators.get(schema);
+  let validator = bindingValidators.get(schema);
   try {
-    if (!validate) {
-      validate = new Ajv2020({
-        allErrors: true,
-        strict: false,
-        validateFormats: false
-      }).compile(schema);
-      bindingValidators.set(schema, validate);
+    if (!validator) {
+      // Interpret schemas: Ajv's Function constructor is blocked by the Editor's
+      // CSP. The validator annotates references, so keep descriptors untouched.
+      validator = new Validator(structuredClone(schema), "2020-12", false);
+      bindingValidators.set(schema, validator);
     }
+    const result = validator.validate(binding);
+    if (result.valid) return undefined;
+    // Parent summaries precede leaf errors; show the concrete failing value.
+    const detail = result.errors.at(-1);
+    return detail ? bindingErrorMessage(detail, contractId) : t`Binding settings do not satisfy ${contractId}.`;
   } catch (error) {
     const detail = error instanceof Error ? error.message : t`invalid JSON Schema`;
     return t`Binding settings for ${contractId} cannot be edited because its schema is invalid: ${detail}`;
   }
-  if (validate(binding)) return undefined;
-  const errors = validate.errors ?? [];
-  const first = errors[0];
-  if (!first) return t`Binding settings do not satisfy ${contractId}.`;
-  const message = bindingErrorMessage(first, contractId);
-  return errors.length > 1 ? `${message} ${errors.length - 1} more ${errors.length === 2 ? "setting needs" : "settings need"} attention.` : message;
 }
 
-function bindingErrorMessage(error: ErrorObject, contractId: string): string {
-  const segments = error.instancePath.slice(1).split("/").filter(Boolean)
-    .map((segment) => segment.replaceAll("~1", "/").replaceAll("~0", "~"));
-  if (error.keyword === "required" && typeof error.params.missingProperty === "string") {
-    segments.push(error.params.missingProperty);
-    return t`Binding setting ${segments.join(".")} is required by ${contractId}.`;
-  }
+function bindingErrorMessage(error: OutputUnit, contractId: string): string {
+  const segments = error.instanceLocation.slice(1).split("/").filter(Boolean)
+    .map((segment) => decodeURIComponent(segment).replaceAll("~1", "/").replaceAll("~0", "~"));
   const field = segments.length ? ` ${segments.join(".")}` : "";
-  if (error.keyword === "minLength" && error.params.limit === 1) {
-    return t`Binding setting${field} must not be empty for ${contractId}.`;
-  }
-  if (error.keyword === "minItems" && typeof error.params.limit === "number") {
-    return plural(error.params.limit, { one: `Binding setting${field} needs at least # item for ${contractId}.`, other: `Binding setting${field} needs at least # items for ${contractId}.` });
-  }
-  return t`Binding setting${field} ${error.message ?? "is invalid"} for ${contractId}.`;
+  return t`Binding setting${field} for ${contractId}: ${error.error}`;
 }
 
 function stableValue(value: unknown): string {

@@ -112,11 +112,6 @@ msgstr "{0, plural, other {対応付けのない必須フィールド # 件}}"
 msgid "{0, plural, one {Also updated links in # note.} other {Also updated links in # notes.}}"
 msgstr "{0, plural, other {# 件のノート内のリンクも更新しました。}}"
 
-#. placeholder {0}: error.params.limit
-#: src/type-contracts.ts
-msgid "{0, plural, one {Binding setting{field} needs at least # item for {contractId}.} other {Binding setting{field} needs at least # items for {contractId}.}}"
-msgstr "{0, plural, other {バインディング設定{field}には、{contractId}用の項目が少なくとも#件必要です。}}"
-
 #. placeholder {0}: plan.moves.length
 #: src/FolderChangeDialog.tsx
 msgid "{0, plural, one {Move # note?} other {Move # notes?}}"
@@ -1173,19 +1168,10 @@ msgstr "ノートとファイルに戻る"
 msgid "Back to types"
 msgstr "型に戻る"
 
-#. placeholder {0}: segments.join(".")
+#. placeholder {0}: error.error
 #: src/type-contracts.ts
-msgid "Binding setting {0} is required by {contractId}."
-msgstr "{contractId}にはバインディング設定 {0} が必要です。"
-
-#. placeholder {0}: error.message ?? "is invalid"
-#: src/type-contracts.ts
-msgid "Binding setting{field} {0} for {contractId}."
-msgstr "{contractId}のバインディング設定{field} {0}。"
-
-#: src/type-contracts.ts
-msgid "Binding setting{field} must not be empty for {contractId}."
-msgstr "{contractId}のバインディング設定{field}を空にすることはできません。"
+msgid "Binding setting{field} for {contractId}: {0}"
+msgstr "{contractId} のバインディング設定{field}: {0}"
 
 #: src/type-contracts.ts
 msgid "Binding settings do not satisfy {contractId}."
