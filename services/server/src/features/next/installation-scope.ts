@@ -107,6 +107,7 @@ export async function installationCollections(client: DatabaseConnection, accoun
      ) member
      WHERE n.runtime='next' AND n.sync=$4::text AND n.left_sync_at IS NULL
        AND owner.suspended_at IS NULL AND member.op='member-set'
+       AND NOT EXISTS (SELECT 1 FROM next_collection_deletion_facts d WHERE d.collection_id=n.collection_id)
        AND ($2::uuid IS NULL OR EXISTS (SELECT 1 FROM installation_collection_scopes s WHERE s.connector_id=$2 AND s.collection_id=n.collection_id AND s.private_device=($4::text='private')))
        AND ($3::uuid IS NULL OR NOT EXISTS (SELECT 1 FROM next_policy_outbox o WHERE o.collection_id=n.collection_id AND o.ops->'ops' @> jsonb_build_array(jsonb_build_object('op','device-revoke','device',$3::uuid::text))))
      ORDER BY n.collection_id LIMIT 1001`, [account,connector??null,device??null,mode]
