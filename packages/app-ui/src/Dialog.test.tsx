@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import "../test/dialog.js";
+import { finishingAnimation } from "../test/dialog.js";
 import { act, StrictMode, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
@@ -15,7 +15,7 @@ afterEach(async () => { await act(async () => root.render(null)); vi.useRealTime
 
 it("releases modal ownership immediately while its visual exit is inert", async () => {
   let finish!: () => void;
-  vi.spyOn(HTMLElement.prototype, "getAnimations").mockReturnValue([{ finished: new Promise<void>(resolve => { finish = resolve; }) }] as Animation[]);
+  vi.spyOn(HTMLElement.prototype, "getAnimations").mockReturnValue([finishingAnimation(new Promise<void>(resolve => { finish = resolve; }))]);
   const draw = (open: boolean) => <><button data-invoker>Open</button><Dialog open={open} title="Details" onClose={vi.fn()}><input data-autofocus /></Dialog></>;
   await act(async () => root.render(draw(false)));
   const invoker = host.querySelector<HTMLButtonElement>("[data-invoker]")!;
@@ -109,7 +109,7 @@ it("closes a palette before running its action and does not steal the action's f
 
 it("returns focus and app shortcuts as soon as a palette command closes it", () => {
   Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
-  vi.spyOn(HTMLElement.prototype, "getAnimations").mockReturnValue([{ finished: new Promise<void>(() => {}) }] as Animation[]);
+  vi.spyOn(HTMLElement.prototype, "getAnimations").mockReturnValue([finishingAnimation(new Promise<void>(() => {}))]);
   const shortcut = vi.fn();
   window.addEventListener("keydown", shortcut);
   let openPalette: () => void;
@@ -137,7 +137,7 @@ it("returns focus and app shortcuts as soon as a palette command closes it", () 
 it("focuses Cancel, keeps the dialog through exit, reverses, and returns focus", async () => {
   let finish!: () => void;
   const animations = vi.spyOn(HTMLElement.prototype, "getAnimations");
-  animations.mockReturnValue([{ finished: new Promise<void>(resolve => { finish = resolve; }) }] as Animation[]);
+  animations.mockReturnValue([finishingAnimation(new Promise<void>(resolve => { finish = resolve; }))]);
   let changeOpen: (open: boolean) => void;
   function Host() {
     const [open, setOpen] = useState(false);
@@ -160,7 +160,7 @@ it("focuses Cancel, keeps the dialog through exit, reverses, and returns focus",
   act(() => changeOpen!(true));
   await act(async () => finish());
   expect(document.querySelector("dialog")).toBe(dialog);
-  animations.mockReturnValue([{ finished: new Promise<void>(resolve => { finish = resolve; }) }] as Animation[]);
+  animations.mockReturnValue([finishingAnimation(new Promise<void>(resolve => { finish = resolve; }))]);
   act(() => changeOpen!(false));
   expect(document.querySelector("dialog")).toBe(dialog);
   await act(async () => finish());
