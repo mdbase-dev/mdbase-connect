@@ -87,7 +87,10 @@ plugin skills, so the server also sends MCP `instructions` and tool
 descriptions that carry the same rules: start with `list_connections`, use
 `add_connection` for an unlisted collection, use collection-relative paths only,
 confirm deletions, bulk changes and type changes first, and report saved paths.
-`services/mcp/src/mcp.test.ts` checks the hints and instructions.
+Each tool also repeats its `title` as `annotations.title`, ends its
+description with a link to its entry on https://mdbase.dev/apps/mcp/tools/,
+and gives every parameter a JSON type; Anthropic's directory checks all three.
+`services/mcp/src/mcp.test.ts` checks the hints, metadata and instructions.
 
 The Connect grant may be narrower than the MCP OAuth scope. In that case the
 gateway rejects an unavailable operation and tells the user to reconnect with

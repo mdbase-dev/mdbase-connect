@@ -36,6 +36,20 @@ describe("MCP server metadata", () => {
     }
   });
 
+  // Anthropic's directory checks these on the live server before a submission.
+  it("gives every tool a title annotation, a reference link and typed parameters", async () => {
+    const { tools } = await connect(["mdbase:read", "mdbase:write"]);
+    const typed = (schema: { type?: unknown; anyOf?: Array<{ type?: unknown }> }) =>
+      typeof schema.type === "string" || (schema.anyOf?.length ?? 0) > 0 && schema.anyOf!.every(typed);
+    for (const tool of tools) {
+      expect(tool.annotations?.title, tool.name).toBe(tool.title);
+      expect(tool.description, tool.name).toMatch(new RegExp(`\\. Reference: https://mdbase\\.dev/apps/mcp/tools/#${tool.name}$`));
+      for (const [parameter, schema] of Object.entries(tool.inputSchema.properties ?? {})) {
+        expect(typed(schema as Parameters<typeof typed>[0]), `${tool.name}.${parameter}`).toBe(true);
+      }
+    }
+  });
+
   it("marks every tool that overwrites or removes data as destructive", async () => {
     const { tools } = await connect(["mdbase:read", "mdbase:write"]);
     const hints = Object.fromEntries(tools.map(({ name, annotations }) => [
