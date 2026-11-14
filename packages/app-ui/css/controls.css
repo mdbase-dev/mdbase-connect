@@ -17,10 +17,13 @@
   :root { --control-height: 40px; }
 }
 
+/* The negative margin keeps the box inside its static position: left in normal
+   flow at the end of a full-height shell, it made the document 1px taller. */
 .mdbase-visually-hidden {
   position: absolute;
   width: 1px;
   height: 1px;
+  margin: -1px;
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;

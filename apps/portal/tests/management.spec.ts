@@ -324,9 +324,13 @@ for (const width of [834, 900]) {
     const layout = await page.evaluate(() => ({
       viewport: window.innerWidth,
       documentWidth: document.documentElement.scrollWidth,
+      viewportHeight: window.innerHeight,
+      documentHeight: document.documentElement.scrollHeight,
       mainWidth: document.querySelector(".connect-main")?.getBoundingClientRect().width ?? 0
     }));
     expect(layout.documentWidth).toBeLessThanOrEqual(layout.viewport);
+    // Only the main pane scrolls: a taller document shows a second scrollbar.
+    expect(layout.documentHeight).toBe(layout.viewportHeight);
     expect(layout.mainWidth).toBeGreaterThan(360);
   });
 }
