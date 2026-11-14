@@ -2450,7 +2450,10 @@ fn an_attachment_rename_pairs_as_a_move_without_reading_it_whole() {
 /// Two acknowledged files under `dir`: an attachment-class one and a note.
 fn known_folder(w: &World, s: &mut Fs, dir: &str) -> [(String, mdbn_wire::common::Hash); 2] {
     let files = [
-        (format!("{dir}/task.schema.json"), b"{\"title\":\"task\"}".to_vec()),
+        (
+            format!("{dir}/task.schema.json"),
+            b"{\"title\":\"task\"}".to_vec(),
+        ),
         (format!("{dir}/notes/a.md"), b"a note\n".to_vec()),
     ];
     for (path, bytes) in &files {

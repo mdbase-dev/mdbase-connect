@@ -11,7 +11,10 @@
 //!   matches the absolute paths `notify` reports), and its canonical form is
 //!   accepted too (FSEvents reports resolved paths, e.g. `/private/var`).
 //!   Anything else is dropped. Directory, unknown, lost-event and error notifications
-//!   become one full rescan (with a wake). Renames mark both paths dirty.
+//!   become one full rescan (with a wake). Renames mark both paths dirty. A folder
+//!   renamed, or moved into or out of the root, is reported once for the folder's
+//!   path (inotify) and queued as that path: the file store expands it to the files
+//!   beneath it.
 //! - **Bounded.** At most [`MAX_QUEUED`] distinct paths wait for the runtime;
 //!   beyond that the batch collapses into one rescan request.
 //! - **Coalesced wake.** The runtime is woken once per batch (empty -> non-empty), not
@@ -334,6 +337,32 @@ mod tests {
         }
         drop(w);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// What #1530 depends on: inotify reports a folder moved out of the root
+    /// once, as a rename of the folder's path, and nothing for its files. The
+    /// watcher queues that path (not a rescan); the store expands it.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_folder_moved_out_is_queued_as_its_path() {
+        let root = scratch("folder-out");
+        let outside = scratch("folder-out-dest");
+        std::fs::create_dir_all(root.join("_schemas/tasknotes")).unwrap();
+        std::fs::write(root.join("_schemas/tasknotes/a.schema.json"), "{}").unwrap();
+        let w = Watcher::start(&root, Box::new(|| {})).unwrap();
+        std::fs::rename(root.join("_schemas/tasknotes"), outside.join("tasknotes")).unwrap();
+        let mut seen = wait_for(&w, "_schemas/tasknotes");
+        std::thread::sleep(Duration::from_millis(200));
+        seen.extend(w.take());
+        assert!(
+            seen.iter().all(
+                |e| e.path.as_str() == "_schemas/tasknotes" && e.kind == FileEventKind::Changed
+            ),
+            "{seen:?}"
+        );
+        drop(w);
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&outside);
     }
 
     #[test]
