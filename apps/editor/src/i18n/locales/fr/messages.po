@@ -5029,10 +5029,6 @@ msgstr "Impossible d’enregistrer le commentaire."
 msgid "The complete note source does not match its native revision. No source was reconstructed or submitted."
 msgstr "La source complète de la note ne correspond pas à sa révision native. Aucune source n’a été reconstituée ni envoyée."
 
-#: src/gateway.ts
-#~ msgid "The computer holding this collection is offline."
-#~ msgstr "L’ordinateur qui héberge cette collection est hors ligne."
-
 #: src/person-records.ts
 msgid "The contact needs a display name."
 msgstr "Le contact doit avoir un nom d’affichage."
