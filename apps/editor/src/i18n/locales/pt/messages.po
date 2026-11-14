@@ -5030,8 +5030,8 @@ msgid "The complete note source does not match its native revision. No source wa
 msgstr "O código-fonte completo da nota não corresponde à revisão nativa. Nenhum código-fonte foi reconstruído ou enviado."
 
 #: src/gateway.ts
-msgid "The computer holding this collection is offline."
-msgstr "O computador que contém esta coleção está offline."
+#~ msgid "The computer holding this collection is offline."
+#~ msgstr "O computador que contém esta coleção está offline."
 
 #: src/person-records.ts
 msgid "The contact needs a display name."

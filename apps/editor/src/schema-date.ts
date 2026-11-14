@@ -1,4 +1,4 @@
-import type { JsonObject } from "@mdbase-dev/connect";
+import type { JsonObject } from "@mdbase-dev/sdk";
 
 export type SchemaDateFormat = "date" | "date-time";
 

@@ -1,6 +1,5 @@
 import { t } from "@lingui/core/macro";
-import { MdbaseConnectError } from "@mdbase-dev/connect";
-import { isMdbaseError } from "@mdbase-dev/sdk";
+import { describeError, isMdbaseError } from "@mdbase-dev/sdk";
 import type { ConnectionSummary } from "./model";
 
 // Readiness supports legacy release declarations and explicit v2 fixtures.
@@ -40,15 +39,11 @@ export function editorPermissions(connection: ConnectionSummary | null) {
 }
 
 export function gatewayError(error: unknown): string {
-  if (error instanceof MdbaseConnectError) {
-    if (error.problem.code === "connector_offline") return t`The computer holding this collection is offline.`;
-    if (error.problem.recovery === "reauthorize") {
-      return t`This collection needs authorization again. Choose the collection to continue.`;
-    }
-  }
   if (isMdbaseError(error) && error.recovery === "reauthorize") {
     return t`This collection needs authorization again. Choose the collection to continue.`;
   }
+  const described = isMdbaseError(error) ? describeError(error) : null;
+  if (described) return described.message;
   if (error instanceof Error) return error.message;
   return t`The collection could not be reached.`;
 }

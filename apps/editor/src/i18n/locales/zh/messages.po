@@ -5030,8 +5030,8 @@ msgid "The complete note source does not match its native revision. No source wa
 msgstr "完整的笔记源码与其原生修订版本不匹配。未重建或提交任何源码。"
 
 #: src/gateway.ts
-msgid "The computer holding this collection is offline."
-msgstr "存储此集合的计算机已离线。"
+#~ msgid "The computer holding this collection is offline."
+#~ msgstr "存储此集合的计算机已离线。"
 
 #: src/person-records.ts
 msgid "The contact needs a display name."

@@ -1,7 +1,8 @@
 import { t, plural } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { useRef, useState } from "react";
-import { MdbaseConnectError, type MdbaseFileProgress } from "@mdbase-dev/connect";
+import { type MdbaseFileProgress } from "./editor-types";
+import { MdbaseError } from "@mdbase-dev/sdk";
 import { trackMdbaseMarkProgress } from "@mdbase-dev/ui/mark-activity";
 import type { ActionMenuItem } from "./ContextMenu";
 import { FilePlusIcon as FilePlus } from "./icons";
@@ -19,11 +20,11 @@ export interface AttachmentUploadFailure {
 
 /** Translate transfer failures, never exposing provider/transport diagnostics in the note. */
 export function attachmentUploadFailure(name: string, error: unknown): AttachmentUploadFailure {
-  const sdk = error instanceof MdbaseConnectError ? error : undefined;
+  const sdk = error instanceof MdbaseError ? error : undefined;
   const failure = error instanceof Error || error instanceof DOMException ? error : undefined;
   const cause = error instanceof Error && error.cause instanceof Error ? error.cause : undefined;
   const diagnostic = [failure?.message ?? "", cause?.message ?? ""].join(" ");
-  const status = sdk?.status ?? Number(diagnostic.match(/\bHTTP\s+(\d{3})\b/iu)?.[1]);
+  const status = Number(diagnostic.match(/\bHTTP\s+(\d{3})\b/iu)?.[1]);
   const permanent = (message: string) => ({ message, retryable: false });
   if (status === 413 || /too large|per-file limit|exceed.*(?:size|limit)|size.*exceed/iu.test(diagnostic)) {
     // Current upload errors don't expose a typed byte limit. Use a limit only
@@ -36,16 +37,16 @@ export function attachmentUploadFailure(name: string, error: unknown): Attachmen
   if (status === 415 || /(?:unsupported|invalid) (?:media|file|content) type|file type.*not supported/iu.test(diagnostic)) {
     return permanent(t`${name} is a file type that can’t be uploaded.`);
   }
-  if (sdk?.problem.category === "authorization" || status === 401 || status === 403
+  if (sdk?.code === "forbidden" || sdk?.code === "unauthenticated" || status === 401 || status === 403
       || /permission|not authorized|access denied|forbidden/iu.test(diagnostic)) {
     return permanent(t`You don’t have permission to upload ${name}.`);
   }
   // An uncertain mutation outcome must be resolved, not uploaded again.
-  if (sdk?.outcomeUnknown) return permanent(t`Couldn’t confirm whether ${name} was uploaded. Check the collection’s files before uploading again.`);
-  const timedOut = sdk?.code === "timeout" || failure?.name === "TimeoutError"
+  if (sdk?.code === "outcome_unknown") return permanent(t`Couldn’t confirm whether ${name} was uploaded. Check the collection’s files before uploading again.`);
+  const timedOut = sdk?.reason === "timeout" || failure?.name === "TimeoutError"
     || /timed? out|timeout/iu.test(diagnostic);
   const network = /failed to fetch|network(?:error| request| connection| error)|connection (?:lost|reset)/iu.test(diagnostic);
-  const retryable = timedOut || network || status === 408 || status === 429 || status >= 500 && status < 600 || Boolean(sdk?.retryable);
+  const retryable = timedOut || network || status === 408 || status === 429 || status >= 500 && status < 600 || sdk?.recovery === "retry";
   if (timedOut) return { message: t`Uploading ${name} took too long. Try again.`, retryable };
   if (network) return { message: t`Couldn’t upload ${name}. Check your connection and try again.`, retryable };
   if (retryable) return { message: t`Couldn’t upload ${name} right now. Try again shortly.`, retryable };

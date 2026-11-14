@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import { fireEvent, render, screen, waitFor } from "./test/locale";
 import { expect, it, vi } from "vitest";
-import { MdbaseConnectError } from "@mdbase-dev/connect";
-import { connectProblem } from "@mdbase-dev/connect/advanced";
+import { MdbaseError } from "@mdbase-dev/sdk";
+import { mdbaseError } from "@mdbase-dev/sdk";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
 
@@ -19,7 +19,7 @@ vi.mock("@tanstack/react-virtual", () => ({
 
 it("offers unsent edits after a reload without writing them until the user restores", async () => {
   const gateway = new DemoCollectionGateway(3);
-  const update = vi.spyOn(gateway, "update").mockRejectedValue(new MdbaseConnectError(connectProblem("connector_offline", "Offline")));
+  const update = vi.spyOn(gateway, "update").mockRejectedValue(new MdbaseError(mdbaseError("unavailable", "Offline").toProblem()));
   const first = render(<App gateway={gateway} />);
   fireEvent.change(await screen.findByRole("textbox", { name: "Note body" }), { target: { value: "Recovered unsent writing" } });
   expect(Object.keys(localStorage).some((key) => key.startsWith("mdbase-editor:draft:v1:"))).toBe(true);
@@ -47,7 +47,7 @@ it("keeps Private collection text out of localStorage and erases older checkpoin
   const isDraft = (key: string) => key.startsWith("mdbase-editor:draft:v1:");
   // An older build's checkpoint of this collection, before it was known to be Private.
   const first = render(<App gateway={new DemoCollectionGateway(3)} />);
-  vi.spyOn(DemoCollectionGateway.prototype, "update").mockRejectedValue(new MdbaseConnectError(connectProblem("connector_offline", "Offline")));
+  vi.spyOn(DemoCollectionGateway.prototype, "update").mockRejectedValue(new MdbaseError(mdbaseError("unavailable", "Offline").toProblem()));
   fireEvent.change(await screen.findByRole("textbox", { name: "Note body" }), { target: { value: "Old plain checkpoint" } });
   expect(Object.keys(localStorage).some(isDraft)).toBe(true);
   first.unmount();
@@ -64,7 +64,7 @@ it("discards a recovered copy without changing the authoritative record", async 
   const first = render(<App gateway={gateway} />);
   fireEvent.change(await screen.findByRole("textbox", { name: "Note body" }), { target: { value: "Discard me" } });
   first.unmount();
-  const update = vi.spyOn(gateway, "update").mockRejectedValue(new MdbaseConnectError(connectProblem("connector_offline", "Offline")));
+  const update = vi.spyOn(gateway, "update").mockRejectedValue(new MdbaseError(mdbaseError("unavailable", "Offline").toProblem()));
   render(<App gateway={gateway} />);
   fireEvent.click(await screen.findByRole("button", { name: "Discard recovered edits" }));
   expect(screen.getByRole("textbox", { name: "Note body" })).not.toHaveValue("Discard me");

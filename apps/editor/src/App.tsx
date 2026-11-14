@@ -22,7 +22,8 @@ import {
   PushPinIcon as Pin,
   XIcon as X
 } from "./icons";
-import { MdbaseConnectError, type CollectionDescription, type CollectionTypeDescriptor, type MdbaseRecordSessionSnapshot } from "@mdbase-dev/connect";
+import type { CollectionDescription, CollectionTypeDescriptor } from "./editor-types";
+import { MdbaseConnectError, type MdbaseRecordSessionSnapshot } from "@mdbase-dev/connect";
 import {
   useCallback,
   useDeferredValue,
@@ -588,7 +589,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         try {
           if (current.dirty) draftRecovery?.write(collection, current.record.path, {
             body: current.body, baseBody: current.record.body ?? "",
-            patch: frontmatterPatch(current.record.frontmatter, current.frontmatter),
+            patch: frontmatterPatch(current.record.frontmatter, current.frontmatter as NoteDocument["frontmatter"]),
             baseFrontmatter: current.record.frontmatter
           });
           else draftRecovery?.remove(collection, current.record.path, current.record);

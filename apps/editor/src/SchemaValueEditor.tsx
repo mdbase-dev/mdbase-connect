@@ -4,7 +4,7 @@ import { t, plural } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { PlusIcon as Plus } from "./icons";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import type { JsonObject } from "@mdbase-dev/connect";
+import type { JsonObject, JsonValue } from "@mdbase-dev/sdk";
 import { DeferredCodeEditor as CodeEditor } from "./DeferredCodeEditor";
 import { humanizeName, isObject, resolveSchema } from "./field-reference";
 import { InlineRemoveButton } from "./InlineRemoveButton";
@@ -15,10 +15,10 @@ export function SchemaValueEditor({ name, schema, rootSchema, value, required = 
   name: string;
   schema?: JsonObject;
   rootSchema?: JsonObject;
-  value: unknown;
+  value: JsonValue | undefined;
   required?: boolean;
   hideLabel?: boolean;
-  onChange: (value: unknown) => void;
+  onChange: (value: JsonValue | undefined) => void;
   onValidityChange?: (valid: boolean) => void;
 }) {
   useLingui();
@@ -107,10 +107,10 @@ function ObjectValueEditor({ name, schema, rootSchema, value, required, hideLabe
   name: string;
   schema?: JsonObject;
   rootSchema?: JsonObject;
-  value: unknown;
+  value: JsonValue | undefined;
   required: boolean;
   hideLabel: boolean;
-  onChange: (value: unknown) => void;
+  onChange: (value: JsonValue | undefined) => void;
   onValidityChange?: (valid: boolean) => void;
 }) {
   useLingui();
@@ -126,8 +126,10 @@ function ObjectValueEditor({ name, schema, rootSchema, value, required, hideLabe
   ];
   const label = schemaLabel(name, required, hideLabel, schema);
 
-  function updateField(field: string, next: unknown) {
-    onChange({ ...objectValue, [field]: next });
+  function updateField(field: string, next: JsonValue | undefined) {
+    const updated = { ...objectValue };
+    if (next === undefined) delete updated[field]; else updated[field] = next;
+    onChange(updated);
   }
 
   function removeField(field: string) {
@@ -172,10 +174,10 @@ function ArrayValueEditor({ name, schema, rootSchema, value, required, hideLabel
   name: string;
   schema?: JsonObject;
   rootSchema?: JsonObject;
-  value: unknown;
+  value: JsonValue | undefined;
   required: boolean;
   hideLabel: boolean;
-  onChange: (value: unknown) => void;
+  onChange: (value: JsonValue | undefined) => void;
   onValidityChange?: (valid: boolean) => void;
 }) {
   useLingui();
@@ -184,8 +186,8 @@ function ArrayValueEditor({ name, schema, rootSchema, value, required, hideLabel
   const minimum = typeof schema?.minItems === "number" ? Math.max(0, Math.floor(schema.minItems)) : 0;
   const maximum = typeof schema?.maxItems === "number" ? Math.max(0, Math.floor(schema.maxItems)) : undefined;
   const label = schemaLabel(name, required, hideLabel, schema);
-  function updateItem(index: number, next: unknown) {
-    onChange(list.map((item, itemIndex) => itemIndex === index ? next : item));
+  function updateItem(index: number, next: JsonValue | undefined) {
+    onChange(list.map((item, itemIndex) => itemIndex === index ? next ?? null : item));
   }
   function removeItem(index: number) {
     onChange(list.filter((_, itemIndex) => itemIndex !== index));
@@ -214,10 +216,10 @@ function ObjectMapValueEditor({ name, schema, rootSchema, value, required, hideL
   name: string;
   schema?: JsonObject;
   rootSchema?: JsonObject;
-  value: unknown;
+  value: JsonValue | undefined;
   required: boolean;
   hideLabel: boolean;
-  onChange: (value: unknown) => void;
+  onChange: (value: JsonValue | undefined) => void;
   onValidityChange?: (valid: boolean) => void;
 }) {
   useLingui();
@@ -233,8 +235,10 @@ function ObjectMapValueEditor({ name, schema, rootSchema, value, required, hideL
     )));
   }
 
-  function updateEntry(entryName: string, next: unknown) {
-    onChange({ ...objectValue, [entryName]: next });
+  function updateEntry(entryName: string, next: JsonValue | undefined) {
+    const updated = { ...objectValue };
+    if (next === undefined) delete updated[entryName]; else updated[entryName] = next;
+    onChange(updated);
   }
 
   function removeEntry(entryName: string) {
@@ -286,8 +290,8 @@ function JsonSchemaValueEditor({ name, type, label, value, commitOnBlur = false,
   type: string | string[];
   commitOnBlur?: boolean;
   label: ReactNode;
-  value: unknown;
-  onChange: (value: unknown) => void;
+  value: JsonValue | undefined;
+  onChange: (value: JsonValue | undefined) => void;
   onValidityChange?: (valid: boolean) => void;
 }) {
   useLingui();
@@ -297,7 +301,7 @@ function JsonSchemaValueEditor({ name, type, label, value, commitOnBlur = false,
   function update(next: string, commit: boolean) {
     setText(next);
     try {
-      const parsed = JSON.parse(next) as unknown;
+      const parsed = JSON.parse(next) as JsonValue;
       const expectedType = Array.isArray(type) ? type.join(" | ") : type;
       if (!matchesType(type, parsed)) throw new Error(t`Enter a JSON ${expectedType}.`);
       onValidityChange?.(commit);
@@ -313,7 +317,7 @@ function JsonSchemaValueEditor({ name, type, label, value, commitOnBlur = false,
   />{error && <small className="schema-value-error" role="alert">{error}</small>}</label>;
 }
 
-function matchesType(type: string | string[], value: unknown): boolean {
+function matchesType(type: string | string[], value: JsonValue | undefined): boolean {
   if (Array.isArray(type)) return type.some((item) => matchesType(item, value));
   if (type === "array") return Array.isArray(value);
   if (type === "object") return isObject(value);
@@ -322,7 +326,7 @@ function matchesType(type: string | string[], value: unknown): boolean {
   return typeof value === type;
 }
 
-export function schemaInitialValue(schema?: JsonObject, rootSchema: JsonObject | undefined = schema): unknown {
+export function schemaInitialValue(schema?: JsonObject, rootSchema: JsonObject | undefined = schema): JsonValue {
   const resolved = resolveSchema(rootSchema, schema);
   const supplied = suppliedValue(resolved);
   if (supplied !== undefined) return supplied;
@@ -346,7 +350,7 @@ export function schemaInitialValue(schema?: JsonObject, rootSchema: JsonObject |
   return "";
 }
 
-export function schemaValueComplete(schema: JsonObject | undefined, value: unknown, rootSchema: JsonObject | undefined = schema): boolean {
+export function schemaValueComplete(schema: JsonObject | undefined, value: JsonValue | undefined, rootSchema: JsonObject | undefined = schema): boolean {
   const resolved = resolveSchema(rootSchema, schema);
   if (value === undefined || value === null) return false;
   const type = schemaType(resolved, value);
@@ -414,7 +418,7 @@ function canEditArray(schema?: JsonObject): boolean {
   return isObject(schema?.items);
 }
 
-function suppliedValue(schema?: JsonObject): unknown {
+function suppliedValue(schema?: JsonObject): JsonValue | undefined {
   if (!schema) return undefined;
   if ("const" in schema) return structuredClone(schema.const);
   if ("default" in schema) return structuredClone(schema.default);
@@ -429,10 +433,10 @@ function schemaLabel(name: string, required: boolean, hideLabel: boolean, schema
   </span>;
 }
 
-function formatValue(value: unknown): string {
+function formatValue(value: JsonValue | undefined): string {
   return typeof value === "string" ? value : JSON.stringify(value);
 }
 
-function choiceKey(value: unknown): string {
+function choiceKey(value: JsonValue | undefined): string {
   return value === undefined ? "" : `${typeof value}:${JSON.stringify(value)}`;
 }

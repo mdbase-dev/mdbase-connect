@@ -1,5 +1,6 @@
 import { t } from "@lingui/core/macro";
-import type { CollectionContractDescriptor, JsonObject } from "@mdbase-dev/connect";
+import type { JsonObject } from "@mdbase-dev/sdk";
+import type { CollectionContractDescriptor } from "./editor-types";
 import { Validator, type OutputUnit } from "@cfworker/json-schema";
 import { isMap, isSeq, parseDocument, type Document } from "yaml";
 import type { TypeFieldKind } from "./type-schema";

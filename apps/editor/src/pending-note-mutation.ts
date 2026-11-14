@@ -1,6 +1,7 @@
 import { t } from "@lingui/core/macro";
 import { i18n } from "@lingui/core";
-import { MdbaseConnectError, type PendingMutationSummary } from "@mdbase-dev/connect";
+import { type PendingMutationSummary } from "./editor-types";
+import { MdbaseError } from "@mdbase-dev/sdk";
 import type { CollectionGateway } from "./model";
 import type { NoteSession, NoteSessionStore } from "./note-session";
 import type { CollectionMutationScope } from "./collection-mutation-scope";
@@ -21,8 +22,7 @@ export interface PendingRenameRecovery {
 }
 
 export function pendingNoteRequestId(error: unknown): string | undefined {
-  return error instanceof MdbaseConnectError && error.problem.code === "operation_outcome_unknown"
-    ? error.problem.details.request_id : undefined;
+  return error instanceof MdbaseError && error.code === "outcome_unknown" ? error.mutationId : undefined;
 }
 
 function pendingMessage(operation: PendingMutationSummary): string {

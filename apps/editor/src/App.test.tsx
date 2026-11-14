@@ -2,8 +2,10 @@ import type { ReactNode } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "./test/locale";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { MdbaseConnectError, normalizeCollectionChange, type CollectionChange, type DirectAccessStatus, type WatchStatus } from "@mdbase-dev/connect";
+import { type DirectAccessStatus } from "./editor-types";
+import { MdbaseConnectError, normalizeCollectionChange, type CollectionChange, type WatchStatus } from "@mdbase-dev/connect";
 import { connectProblem } from "@mdbase-dev/connect/advanced";
+import { MdbaseError } from "@mdbase-dev/sdk";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
 import type {
@@ -1876,11 +1878,10 @@ class CancellableRenameGateway extends DemoCollectionGateway {
         estimate: { affectedRecords: updateRefs ? 1 : 0, totalUnits: updateRefs ? 2 : 1, warnings: 0 }
       });
       this.markStarted?.();
-      await new Promise<void>((_resolve, reject) => options.signal?.addEventListener("abort", () => reject(new MdbaseConnectError(connectProblem(
-        "operation_outcome_unknown",
-        "Waiting was cancelled after the mutation was sent. Resume the pending mutation to recover its authoritative result.",
-        { operationOutcome: "unknown", details: { request_id: "rename-request" } }
-      ))), { once: true }));
+      await new Promise<void>((_resolve, reject) => options.signal?.addEventListener("abort", () => reject(new MdbaseError({
+        code: "outcome_unknown", recovery: "resolve_outcome",
+        message: "Waiting was cancelled after the mutation was sent. Resume the pending mutation to recover its authoritative result."
+      }, { mutationId: "rename-request" })), { once: true }));
     }
     return super.rename(from, to, revision, updateRefs, options);
   }

@@ -1,4 +1,5 @@
-import type { CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
+import type { JsonObject } from "@mdbase-dev/sdk";
+import type { CollectionTypeDescriptor } from "./editor-types";
 import { describe, expect, it } from "vitest";
 import {
   collectionDisplayField,

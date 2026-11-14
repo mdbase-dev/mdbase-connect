@@ -5030,8 +5030,8 @@ msgid "The complete note source does not match its native revision. No source wa
 msgstr "전체 노트 원본이 네이티브 리비전과 일치하지 않습니다. 원본을 재구성하거나 제출하지 않았습니다."
 
 #: src/gateway.ts
-msgid "The computer holding this collection is offline."
-msgstr "이 컬렉션이 있는 컴퓨터가 오프라인입니다."
+#~ msgid "The computer holding this collection is offline."
+#~ msgstr "이 컬렉션이 있는 컴퓨터가 오프라인입니다."
 
 #: src/person-records.ts
 msgid "The contact needs a display name."

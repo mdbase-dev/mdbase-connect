@@ -4,6 +4,7 @@ import {
   isMdbaseError,
   MdbaseError,
   type Mdbase,
+  type UploadSource,
   type MdbaseApplicationConnection,
   type MdbaseApplicationDeclaration,
   type MdbaseClient,
@@ -11,17 +12,9 @@ import {
   type TypeSummary,
   type wire
 } from "@mdbase-dev/sdk";
-import type {
-  CollectionDescription,
-  DataContractSelector,
-  JsonObject,
-  MdbaseDiagnostic,
-  MdbaseFileSource,
-  PendingMutationSummary,
-  TypePackAssessment,
-  TypePackProvision
-} from "@mdbase-dev/connect";
-import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
+import type { JsonObject } from "@mdbase-dev/sdk";
+import type { CollectionDescription, DataContractSelector, MdbaseDiagnostic, PendingMutationSummary, TypePackAssessment, TypePackProvision } from "./editor-types";
+import type { NoteChange } from "./editor-types";
 import { NativeNoteObservation } from "./native-note-observation";
 import { downloadNativeFile, type NativeFileSelection } from "./native-file-download";
 import { fileAssetKey } from "./file-reference-resolution";
@@ -396,7 +389,7 @@ export class NativeEditorGateway implements CollectionGateway {
     }
   }
 
-  async uploadFile(path: string, source: MdbaseFileSource, { signal, onProgress, transferId }: FileUploadRequest = {}): Promise<CollectionFile> {
+  async uploadFile(path: string, source: UploadSource, { signal, onProgress, transferId }: FileUploadRequest = {}): Promise<CollectionFile> {
     await this.checkWritable();
     const current = this.signal(signal);
     // Unknown/older grants stay closed. The native replica checks folder scope
@@ -433,7 +426,7 @@ export class NativeEditorGateway implements CollectionGateway {
 
   async create(input: CreateNoteInput): Promise<NoteDocument> { await this.checkWritable(); return this.records.create(input); }
   async restore(document: NoteDocument, id?: string): Promise<NoteDocument> { await this.checkWritable(); return this.records.restore(document, id); }
-  async update(base: NoteDocument, change: MdbaseRecordChange): Promise<NoteDocument> { await this.checkWritable(); return this.records.update(base, change); }
+  async update(base: NoteDocument, change: NoteChange): Promise<NoteDocument> { await this.checkWritable(); return this.records.update(base, change); }
   async updateProperties(path: string, patch: JsonObject, revision: string): Promise<NoteDocument> { await this.checkWritable(); return this.records.updateProperties(path, patch, revision); }
   async updateDocument(path: string, document: string, revision: string): Promise<NoteDocument> { await this.checkWritable(); return this.records.updateDocument(path, document, revision); }
 

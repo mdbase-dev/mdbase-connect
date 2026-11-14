@@ -8,7 +8,7 @@ import {
   XIcon as X
 } from "./icons";
 import { useEffect, useMemo, useState } from "react";
-import type { JsonObject } from "@mdbase-dev/connect";
+import type { JsonObject, JsonValue } from "@mdbase-dev/sdk";
 import { DeferredCodeEditor as CodeEditor } from "./DeferredCodeEditor";
 import { InlineRemoveButton } from "./InlineRemoveButton";
 import { schemaInitialValue, SchemaValueEditor } from "./SchemaValueEditor";
@@ -24,7 +24,7 @@ const propertyKinds: ReadonlyArray<{ value: PropertyKind; label: string }> = [
   { value: "list", get label() { return t`List`; } },
   { value: "object", get label() { return t`Object`; } }
 ];
-type PropertyValue = unknown;
+type PropertyValue = JsonValue | undefined;
 
 export interface PropertyContract {
   properties: Record<string, JsonObject>;
@@ -98,7 +98,9 @@ export function StructuredPropertiesEditor({
   }, [onValidityChange, validityFingerprint]);
 
   function updateField(name: string, next: PropertyValue) {
-    onChange({ ...value, [name]: next });
+    const updated = { ...value };
+    if (next === undefined) delete updated[name]; else updated[name] = next;
+    onChange(updated);
   }
 
   function removeField(name: string) {
@@ -128,7 +130,7 @@ export function StructuredPropertiesEditor({
     setAdditionalOpen(true);
   }
 
-  const renderProperty = ([name, propertyValue]: [string, unknown]) => <PropertyRow
+  const renderProperty = ([name, propertyValue]: [string, JsonValue]) => <PropertyRow
     key={name}
     name={name}
     value={propertyValue}
@@ -272,7 +274,7 @@ function PropertyValue({ name, value, schema, recordPaths, onChange, onValidityC
   return <JsonValueEditor name={name} value={value} onChange={onChange} onValidityChange={onValidityChange} readOnly={readOnly} />;
 }
 
-function StringListEditor({ name, value, suggestions, onChange }: { name: string; value: string[]; suggestions: string[]; onChange: (value: unknown) => void }) {
+function StringListEditor({ name, value, suggestions, onChange }: { name: string; value: string[]; suggestions: string[]; onChange: (value: string[]) => void }) {
   useLingui();
   return <div className="property-string-list" role="group" aria-label={name}>
     {value.map((item, index) => <div key={index}>
@@ -310,7 +312,7 @@ function JsonValueEditor({ name, value, onChange, onValidityChange, readOnly }: 
       if (readOnly) return;
       setText(next);
       try {
-        onChange(JSON.parse(next) as unknown);
+        onChange(JSON.parse(next) as JsonValue);
         setInvalid(false);
         onValidityChange(true);
       } catch {
@@ -342,7 +344,7 @@ export function propertyValidationErrors(
   return errors;
 }
 
-function validateValue(schema: JsonObject | undefined, value: unknown, path: string): string | undefined {
+function validateValue(schema: JsonObject | undefined, value: JsonValue | undefined, path: string): string | undefined {
   if (!schema) return undefined;
   if (value === null) {
     const nullable = schema.type === "null" || (Array.isArray(schema.type) && schema.type.includes("null")) || (Array.isArray(schema.enum) && schema.enum.includes(null));
@@ -459,7 +461,7 @@ function schemaAllowsNull(schema?: JsonObject): boolean {
     || (Array.isArray(schema?.enum) && schema.enum.includes(null));
 }
 
-function isStringList(name: string, schema: JsonObject | undefined, value: unknown): boolean {
+function isStringList(name: string, schema: JsonObject | undefined, value: JsonValue | undefined): boolean {
   if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) return false;
   if (schema?.type && !(Array.isArray(schema.type) ? schema.type.includes("array") : schema.type === "array")) return false;
   if (name.toLocaleLowerCase() === "tags") return true;
@@ -469,11 +471,11 @@ function isStringList(name: string, schema: JsonObject | undefined, value: unkno
     && !Array.isArray((schema.items as JsonObject).enum);
 }
 
-function isObject(value: unknown): value is JsonObject {
+function isObject(value: JsonValue | undefined): value is JsonObject {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function formatValue(value: unknown): string {
+function formatValue(value: JsonValue | undefined): string {
   if (typeof value === "string") return value;
   return JSON.stringify(value);
 }

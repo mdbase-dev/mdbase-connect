@@ -1,6 +1,6 @@
 import { t } from "@lingui/core/macro";
 import { isMdbaseError, MdbaseError, type ChangesWatch, type ChangesWatchState, type MdbaseClient, type RecordView, type wire } from "@mdbase-dev/sdk";
-import type { QueryRecord } from "@mdbase-dev/connect";
+import type { QueryRecord } from "./editor-types";
 import type {
   EditorCollectionChange,
   NativeCollectionChange,

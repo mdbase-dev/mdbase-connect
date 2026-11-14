@@ -170,7 +170,7 @@ describe("contract catalog", () => {
       ...pack,
       digest: await sha256(document)
     };
-    const fetcher = vi.fn(async () => new Response(document, { status: 200 }));
+    const fetcher = vi.fn(async () => new Response(document));
 
     await expect(loadTypePackProvision(expectedPack, { fetcher })).resolves.toEqual(provision);
     expect(fetcher).toHaveBeenCalledWith(
@@ -185,7 +185,7 @@ describe("contract catalog", () => {
       "https://mdbase.dev/contracts/catalog.json"
     ).packs[0]!;
     await expect(loadTypePackProvision(pack, {
-      fetcher: vi.fn(async () => new Response("{}", { status: 200 }))
+      fetcher: vi.fn(async () => new Response("{}"))
     })).rejects.toThrow("catalog digest");
 
     expect(() => parseTypePackProvision({

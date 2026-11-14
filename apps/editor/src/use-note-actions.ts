@@ -1,6 +1,7 @@
 import { t, plural } from "@lingui/core/macro";
 import { useRef, useState, type RefObject } from "react";
-import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import type { CollectionTypeDescriptor } from "./editor-types";
+import type { JsonObject } from "@mdbase-dev/sdk";
 import { bulkFields, bulkFrontmatter, runNoteBatch, type BatchResult, type BulkPropertyChange } from "./bulk-note-actions";
 import type { CollectionIndexController } from "./collection-index-controller";
 import { StaleCollectionOperationError, type CollectionMutationScope, type CollectionScopeToken } from "./collection-mutation-scope";
@@ -389,7 +390,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
     if (session) setPathDraft(session.document.path);
   }
 
-  async function saveProperties(path: string, next: Record<string, unknown>) {
+  async function saveProperties(path: string, next: JsonObject) {
     if (mutationScope.current.isFrozen || !canEditNotes) return;
     const token = mutationScope.current.token();
     const session = noteSessions.current.get(path);

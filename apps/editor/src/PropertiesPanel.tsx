@@ -9,7 +9,8 @@ import {
   XIcon as X
 } from "./icons";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
+import type { JsonObject } from "@mdbase-dev/sdk";
+import type { CollectionTypeDescriptor } from "./editor-types";
 import { declaredFields } from "./field-reference";
 import { CodeEditor } from "./CodeEditor";
 import { Menu, useMenuTrigger } from "@mdbase-dev/ui/menu";

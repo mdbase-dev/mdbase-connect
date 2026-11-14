@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import type { CollectionTypeDescriptor } from "./editor-types";
 import {
   createdBody,
   editableNote,
@@ -168,7 +168,7 @@ describe("collection helpers", () => {
   });
 });
 
-function document(frontmatter: Record<string, unknown>, body: string, noteTypes: string[] = []): NoteDocument {
+function document(frontmatter: import("@mdbase-dev/sdk").JsonObject, body: string, noteTypes: string[] = []): NoteDocument {
   return {
     path: "Notes/note.md",
     frontmatter,
@@ -207,7 +207,7 @@ const contactType: CollectionTypeDescriptor = {
   extensions: {}
 };
 
-function summary(path: string, frontmatter: Record<string, unknown>, noteTypes: string[] = [], fileTags: string[] = []): NoteSummary {
+function summary(path: string, frontmatter: import("@mdbase-dev/sdk").JsonObject, noteTypes: string[] = [], fileTags: string[] = []): NoteSummary {
   return {
     path,
     frontmatter,

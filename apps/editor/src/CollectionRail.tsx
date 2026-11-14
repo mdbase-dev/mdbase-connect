@@ -3,7 +3,7 @@ import { Trans } from "@lingui/react/macro";
 import { t, plural } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import type { CollectionTypeDescriptor } from "./editor-types";
 import { defaultCollectionCopy } from "@mdbase-dev/ui/collections";
 import {
   CaretDownIcon as ChevronDown,

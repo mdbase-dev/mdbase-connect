@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "./test/locale";
 import userEvent from "@testing-library/user-event";
-import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import type { CollectionTypeDescriptor } from "./editor-types";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { NoteDocument } from "./model";
 import { PropertiesPanel } from "./PropertiesPanel";

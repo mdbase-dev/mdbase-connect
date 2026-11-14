@@ -1,20 +1,11 @@
 import { normalizeCollectionChange } from "@mdbase-dev/connect";
 import { observeDemo } from "./demo-observe";
-import type {
-  CollectionChange,
-  CollectionContractDescriptor,
-  CollectionDescription,
-  CollectionFileDescriptor,
-  CollectionTypeDescriptor,
-  CollectionTypeDocument,
-  JsonObject,
-  MdbaseDiagnostic,
-  TypePackAssessment,
-  TypePackProvision
-} from "@mdbase-dev/connect";
+import type { JsonObject } from "@mdbase-dev/sdk";
+import type { CollectionContractDescriptor, CollectionDescription, CollectionFileDescriptor, CollectionTypeDescriptor, CollectionTypeDocument, MdbaseDiagnostic, TypePackAssessment, TypePackProvision } from "./editor-types";
+import type { CollectionChange } from "@mdbase-dev/connect";
 import { parse } from "yaml";
 import { createdBody } from "./note";
-import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
+import type { NoteChange } from "./editor-types";
 import { composeRecordSource, parseRecordSource } from "./record-source";
 import type {
   CollectionGateway,
@@ -39,7 +30,7 @@ import type {
 } from "./model";
 
 export class DemoCollectionGateway implements CollectionGateway {
-  pendingNoteMutations(): readonly import("@mdbase-dev/connect").PendingMutationSummary[] { return []; }
+  pendingNoteMutations(): readonly import("./editor-types").PendingMutationSummary[] { return []; }
   async recoverNoteMutation(_requestId: string): Promise<NoteDocument> {
     throw new Error("No interrupted note operation is available.");
   }
@@ -233,7 +224,7 @@ export class DemoCollectionGateway implements CollectionGateway {
     return blob;
   }
 
-  async uploadFile(path: string, source: import("@mdbase-dev/connect").MdbaseFileSource, { signal, onProgress }: FileUploadRequest = {}): Promise<CollectionFile> {
+  async uploadFile(path: string, source: import("@mdbase-dev/sdk").UploadSource, { signal, onProgress }: FileUploadRequest = {}): Promise<CollectionFile> {
     signal?.throwIfAborted();
     if (this.files.some((file) => file.path.toLowerCase() === path.toLowerCase())) throw new Error("A file already uses that path.");
     const blob = source instanceof Blob
@@ -293,7 +284,7 @@ export class DemoCollectionGateway implements CollectionGateway {
     return clone(restored);
   }
 
-  async update(base: NoteDocument, change: MdbaseRecordChange): Promise<NoteDocument> {
+  async update(base: NoteDocument, change: NoteChange): Promise<NoteDocument> {
     const note = this.required(base.path);
     this.assertRevision(note, base.revision);
     if (change.body !== undefined) note.body = change.body;
@@ -846,7 +837,7 @@ function demoNote(index: number): NoteDocument {
 function demoDocument(path: string, title: string, body: string, sequence: number): NoteDocument {
   const persisted = `# ${title}\n\n${body}`.trimEnd() + "\n";
   const timestamp = new Date(Date.now() - sequence * 3_600_000).toISOString();
-  const frontmatter = sequence % 3 === 0 ? { tags: ["notes", "ideas"] } : {};
+  const frontmatter: import("@mdbase-dev/sdk").JsonObject = sequence % 3 === 0 ? { tags: ["notes", "ideas"] } : {};
   return {
     path,
     frontmatter,

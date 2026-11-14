@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import type { CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
+import type { JsonObject } from "@mdbase-dev/sdk";
+import type { CollectionTypeDescriptor } from "./editor-types";
 import { browserListItems, collectionBrowserEntries } from "./collection-browser";
 import type { CollectionFile, NoteSummary } from "./model";
 import {

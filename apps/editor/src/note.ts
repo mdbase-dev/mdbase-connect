@@ -1,6 +1,7 @@
 import { displayLocale } from "./i18n/format";
 import { t } from "@lingui/core/macro";
-import type { CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
+import type { JsonObject } from "@mdbase-dev/sdk";
+import type { CollectionTypeDescriptor } from "./editor-types";
 import type { EditableNote, NoteDocument, NoteSummary, TitleSource } from "./model";
 import {
   collectionDisplayField,

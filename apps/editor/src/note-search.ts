@@ -1,4 +1,4 @@
-import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import type { CollectionTypeDescriptor } from "./editor-types";
 import type { NoteSummary } from "./model";
 import { noteAliases } from "./links";
 import { basename, noteTags, noteTitle } from "./note";

@@ -1,5 +1,6 @@
 import { t } from "@lingui/core/macro";
-import { MdbaseConnectError, type QueryRecord } from "@mdbase-dev/connect";
+import { type QueryRecord } from "./editor-types";
+import { MdbaseConnectError } from "@mdbase-dev/connect";
 import type { CollectionGateway, EditorCollectionChange, NoteFrontmatter, NoteObservation, NoteObservationSnapshot, NoteSummary, ObservationProblem } from "./model";
 
 export interface CollectionIndexState {
