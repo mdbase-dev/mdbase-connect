@@ -14,6 +14,31 @@ The window defaults to 30 days and accepts 1–365. Output is JSON with counts
 and application names only: no account, collection, grant, or request
 identifier, email address, path, query, or record content.
 
+## Push to the operations ingest
+
+With `OPS_METRICS_INGEST_URL` (the full HTTPS `/v1/snapshots` address) and
+`OPS_METRICS_INGEST_TOKEN` set, the server posts this report for the 1, 7, 30
+and 90 day windows at 00:40, 06:40, 12:40 and 18:40 UTC, with the token as a
+bearer. The body is what the command prints, less `beta.recent_signups`: that
+is the report's only per-signup list, and the ingest discards it. Each snapshot
+stores hundreds of rollup rows, so the server does not push more often.
+
+The push is best effort and never stops the server starting. It stays off,
+with one startup warning naming the reason (never the URL or token), when only
+one variable is set, the URL is not HTTPS or carries credentials or a
+fragment, the token contains whitespace, or `MDBASE_CONNECT_ENVIRONMENT` is not
+`production`: the report carries no environment and the ingest files it under
+production.
+
+- One instance pushes each slot: it takes a PostgreSQL session advisory lock
+  and holds it until two minutes after the slot; an instance that gets the lock
+  later skips that slot.
+- Each request times out after 30 seconds. A network failure, 429 or 5xx is
+  retried once after five seconds; anything else waits for the next slot. A
+  missed slot is not made up.
+- Logs carry the window, HTTP status or error class, and the ingest host at
+  startup: never the token, the URL query, or a response body.
+
 ## Figures and sources
 
 | Figure | Source | Decision it informs |

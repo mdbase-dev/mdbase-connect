@@ -91,7 +91,8 @@ const { app } = await buildApp({
           : {})
       }
     : undefined,
-  ...(runtime.nextTimers ? { nextTimers: {} } : {})
+  ...(runtime.nextTimers ? { nextTimers: {} } : {}),
+  ...(runtime.opsMetricsPush ? { opsMetricsPush: runtime.opsMetricsPush } : {})
 });
 
 await app.listen({ port, host: runtime.host });
