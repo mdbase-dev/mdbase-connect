@@ -75,6 +75,29 @@ describe("mdbase ChatGPT plugin", () => {
   });
 });
 
+describe("mdbase Claude plugin", () => {
+  it("shares the ChatGPT package's identity and gateway, and meets the directory's file rules", async () => {
+    const read = async (path: string) => JSON.parse(await readFile(new URL(path, plugin), "utf8"));
+    const manifest = await read(".claude-plugin/plugin.json");
+    const portable = await read("plugin.json");
+    for (const field of ["name", "version", "author", "license"]) {
+      expect(manifest[field], field).toEqual(portable[field]);
+    }
+    expect((await read(".mcp.json")).mcpServers.mdbase).toEqual({
+      type: "http",
+      url: (await read("mcp.json")).mcpServers.mdbase.url
+    });
+
+    const packagedIcon = await readFile(new URL(manifest.icon, plugin));
+    expect(packagedIcon.equals(await readFile(new URL("assets/mdbase-app-icon-512.png", repository)))).toBe(true);
+    for (const field of ["documentationUrl", "supportUrl", "privacyPolicyUrl", "termsOfServiceUrl"]) {
+      expect(new URL(manifest[field]).protocol).toBe("https:");
+    }
+    const readme = (await readFile(new URL("README.md", plugin), "utf8")).replace(/```[\s\S]*?```/g, "");
+    expect(readme.split(/\s+/).filter(Boolean).length).toBeGreaterThanOrEqual(40);
+  });
+});
+
 async function skillFiles(): Promise<string[]> {
   const entries = await readdir(fileURLToPath(new URL("skills/", plugin)), { recursive: true, withFileTypes: true });
   return entries.filter((entry) => entry.isFile() && entry.name.endsWith(".md")).map((entry) => join(entry.parentPath, entry.name));
