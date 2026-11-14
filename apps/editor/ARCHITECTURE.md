@@ -50,13 +50,36 @@ mutation recovery remain covered by `native-gateway.test.ts` and
 `next-editor-records.test.ts`, using the SDK's `MemoryReplica`.
 
 The Editor still requires `@mdbase-dev/connect` for its live record session,
-error/outcome handling, model vocabulary, and demo observer. Removing the package
-is unfinished. In particular, the pinned SDK's public `RecordSession` has no
-exclusive-operation callback corresponding to the session's `run`, nor a
-base-aware draft restore corresponding to `restore`. `App.tsx` uses those for
-note operations and browser draft recovery. Replacing them needs a coordinated
-session migration; copying the old session or adding an adapter that recreates
-its methods would preserve the mechanism this cleanup is meant to remove.
+the outcomes/errors at that retained boundary, and the demo observer. Removing
+the package is unfinished. General JSON and Person types come from the SDK;
+`editor-types.ts` describes the Editor's existing gateway projections and
+presentation state. Attachment failures, explicit-mutation recovery, and
+identity-permission failures use SDK errors; general SDK problem copy comes
+from `describeError`.
+
+Exclusive note operations and base-aware draft restore are Editor concerns,
+not missing SDK methods. An Editor operation can flush the SDK session, refuse
+the action on `ok: false`, and use the flushed revision; overlapping explicit
+commands need only an Editor-owned per-note queue. A checkpoint can compare
+its base revision with the session's record, apply matching-base edits with
+the SDK setters, and require explicit review through the existing conflict UI
+before applying a moved-on draft.
+
+The attempted lease migration instead stopped on save-retry parity in the
+pinned SDK. After `MemoryReplica.failNextWrite(forbidden)`, the first flush
+reports `forbidden` but leaves the session in `recovery`. A deliberate second
+flush reads a receipt for the unsubmitted mutation and returns `not_found`
+("no such mutation"), still retaining that recovery identity and dirty draft.
+Neither `resolve` (which requires a settled conflict and remote) nor releasing
+and reopening the retained session permits a new save. The SDK must distinguish
+a definitively refused submission from an ambiguous outcome, preserve the
+draft, and allow a later deliberate retry without replacing ambiguous mutation
+identities. `node apps/editor/scripts/diagnose-record-session-retry.mjs` is the
+bounded reproduction against the pinned SDK; it exits 1 on the unmet retry
+assertion. No SDK repin, session shim, reset/retry loop, or SDK source change is
+included here. The legacy session and the still-unported demo remain intact
+instead of shipping the attempted behavior regressions.
+
 `demo-observe.ts` also still runs `MdbaseQueryObserver`; the demo and its test
 fixtures have not yet been ported to the SDK testing kit.
 
