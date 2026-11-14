@@ -1892,6 +1892,10 @@ msgstr "Impossible d’importer {name}. Les fichiers se terminant par .md sont d
 msgid "Create a note for yourself, starting from your account name."
 msgstr "Créez une note pour vous-même, à partir du nom de votre compte."
 
+#: src/App.tsx
+msgid "Create a note from what was shared?"
+msgstr "Créer une note à partir de ce qui a été partagé ?"
+
 #: src/TypeBrowser.tsx
 msgid "Create fields that already match an installed contract. You can rename and remap them later."
 msgstr "Créez des champs qui correspondent déjà à un contrat installé. Vous pourrez les renommer et les remapper plus tard."
@@ -1899,6 +1903,10 @@ msgstr "Créez des champs qui correspondent déjà à un contrat installé. Vous
 #: src/YourPersonPanel.tsx
 msgid "Create my person record"
 msgstr "Créer mon document de personne"
+
+#: src/App.tsx
+msgid "Create note"
+msgstr "Créer la note"
 
 #. placeholder {0}: query.trim()
 #: src/QuickOpen.tsx

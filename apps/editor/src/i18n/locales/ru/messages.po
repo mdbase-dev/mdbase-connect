@@ -1892,6 +1892,10 @@ msgstr "Не удалось загрузить {name}. Файлы с расши�
 msgid "Create a note for yourself, starting from your account name."
 msgstr "Создайте заметку о себе, начав с имени в вашей учётной записи."
 
+#: src/App.tsx
+msgid "Create a note from what was shared?"
+msgstr "Создать заметку из того, чем поделились?"
+
 #: src/TypeBrowser.tsx
 msgid "Create fields that already match an installed contract. You can rename and remap them later."
 msgstr "Создайте поля, уже соответствующие установленному контракту. Позже их можно переименовать и сопоставить заново."
@@ -1899,6 +1903,10 @@ msgstr "Создайте поля, уже соответствующие уст�
 #: src/YourPersonPanel.tsx
 msgid "Create my person record"
 msgstr "Создать мою запись о пользователе"
+
+#: src/App.tsx
+msgid "Create note"
+msgstr "Создать заметку"
 
 #. placeholder {0}: query.trim()
 #: src/QuickOpen.tsx
