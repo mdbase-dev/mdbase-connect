@@ -1,8 +1,8 @@
 # Claude plugin
 
 `plugins/mdbase` is also the mdbase plugin for Claude (chat, Cowork and Claude
-Code). It shares its skills, icons and README with the
-[ChatGPT and Codex package](./chatgpt-plugin.md) and adds two files Claude
+Code). It shares its skills and icons with the
+[ChatGPT and Codex package](./chatgpt-plugin.md) and adds three files Claude
 reads:
 
 | Path | Purpose |
@@ -40,7 +40,14 @@ Anthropic's directory takes two submissions, both from the developer portal
 at `https://claude.ai/directory/manage`: the gateway as an **MCP connector**,
 then this folder as a **Plugin bundle**. Submit both from the same Claude
 organization so the listings can be paired. The first organization to submit
-a repository folder holds that listing.
+a repository holds that listing.
+
+The directory cannot download this repository: its archive is far over the
+50 MiB validation limit. It follows the `claude-plugin` branch instead, whose
+tree is exactly `plugins/mdbase` on `main`. The **Claude plugin branch**
+workflow (`.github/workflows/claude-plugin-branch.yml`) adds a commit to that
+branch whenever a push to `main` changes `plugins/mdbase`. Never commit to the
+branch by hand.
 
 Submitting needs a paid Claude plan; on Team and Enterprise, an Owner. The
 plugin submission also needs a GitHub account connected to that Claude
@@ -64,8 +71,9 @@ Never put reviewer credentials in the portal. If the listing is escalated to
 Verified review, a reviewer asks for test access by email: give them a
 dedicated account with a sample collection.
 
-**Plugin bundle.** Enter repository `mdbase-dev/mdbase-connect` and plugin
-path `plugins/mdbase`, then select **Validate** and fix any blocking finding.
+**Plugin bundle.** Enter repository `mdbase-dev/mdbase-connect`, leave the
+plugin path empty and enter branch `claude-plugin`, then select **Validate**
+and fix any blocking finding.
 Listing details are read from `.claude-plugin/plugin.json` and `README.md`;
 change them in the repository, not the portal. Answer the data handling
 questions from the README's Data section, then complete the four
@@ -76,8 +84,9 @@ explicitly approve each final Submit action.
 
 ## After listing
 
-The directory tracks `main`. Every merged change under `plugins/mdbase` is
-scanned as a new version, and by default a reviewer publishes it after
+The directory tracks `claude-plugin`, so every merged change under
+`plugins/mdbase` reaches it through the workflow and is scanned as a new
+version, and by default a reviewer publishes it after
 **Publish** is selected in the portal. A version that fails the security scan
 holds later versions too, so run `claude plugin validate` before merging a
 change to this folder.

@@ -1,0 +1,39 @@
+name: Claude plugin branch
+
+# Anthropic's directory cannot download this repository (its archive is over
+# the 50 MiB limit), so it follows the claude-plugin branch instead. That
+# branch's tree is exactly plugins/mdbase on main. See docs/claude-plugin.md.
+on:
+  push:
+    branches: [main]
+    paths: ["plugins/mdbase/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: claude-plugin-branch
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+      - name: Point claude-plugin at plugins/mdbase
+        run: |
+          tree=$(git rev-parse HEAD:plugins/mdbase)
+          git fetch --depth=1 origin claude-plugin
+          parent=$(git rev-parse FETCH_HEAD)
+          if [ "$(git rev-parse "$parent^{tree}")" = "$tree" ]; then
+            echo "claude-plugin already matches plugins/mdbase at $GITHUB_SHA"
+            exit 0
+          fi
+          commit=$(git -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit-tree "$tree" -p "$parent" -m "plugins/mdbase from $GITHUB_SHA")
+          git push origin "$commit:refs/heads/claude-plugin"
