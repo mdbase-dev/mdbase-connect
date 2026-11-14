@@ -671,3 +671,69 @@ fn private_configuration_conflict_suppresses_all_operations() {
         "collection_setup_conflict"
     );
 }
+
+fn contract_pack(
+    application: &str,
+    major: u32,
+) -> mdbn_core::setup::envelope::CollectionSetupTypePack {
+    let contract = format!(
+        "---\nkind: mdbase.contract\nid: example.note\nversion: {major}.0.0\ncontract_type: record\nrecord_schema:\n  dialect: json-schema-2020-12\n  value: {{type: object}}\n---\n"
+    );
+    let manifest = format!(
+        "kind: mdbase.type-pack\nid: example.notes\nversion: {major}.0.0\nresources:\n  - kind: contract\n    mode: managed\n    source: contract.md\n    target: _contracts/example.note.md\n    digest: {}\n",
+        revision(&contract),
+    );
+    mdbn_core::setup::envelope::CollectionSetupTypePack {
+        pack: mdbn_core::packs::load_pack(&manifest, &|source| {
+            (source == "contract.md").then(|| contract.clone())
+        })
+        .unwrap(),
+        options: mdbn_core::packs::AssessOptions {
+            installed_by: application.into(),
+            ..Default::default()
+        },
+    }
+}
+
+/// A pack upgrade that replaces its managed contract in place would leave a
+/// collection's own type, still implementing the old version, invalid. Setup
+/// refuses, and the refusal names that cause and the type's definition
+/// instead of only reporting a conflict (#1518).
+#[test]
+fn a_refused_setup_plan_names_the_definition_it_would_break() {
+    let mut f = Fixture::new();
+    let c = clock();
+    let mut s = setup();
+    s.type_packs.push(contract_pack(&s.application_id, 1));
+    let a = assess_collection_setup(&f, &s, &c).unwrap();
+    let (_, ops) =
+        apply_collection_setup(&f, &s, &c, a.collection_revision, a.assessment_digest).unwrap();
+    apply_ops(&mut f, ops, &c);
+    f.state.insert_resource(
+        "_types/custom.md",
+        "---\nkind: mdbase.type\nname: custom\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value: {type: object}\nimplements:\n  - contract: example.note\n    version: ^1.0.0\n---\n",
+    );
+    assert!(assess_collection_setup(&f, &s, &c).unwrap().applicable);
+
+    s.type_packs = vec![contract_pack(&s.application_id, 2)];
+    let e = assess_collection_setup(&f, &s, &c).unwrap_err();
+    assert_eq!(e.code, "collection_setup_conflict");
+    assert_eq!(e.location.as_deref(), Some("_types/custom.md"));
+    assert!(
+        e.message.contains("data_contract_version_mismatch"),
+        "{}",
+        e.message
+    );
+    assert!(e.message.contains("_types/custom.md"), "{}", e.message);
+    assert_eq!(
+        e.details,
+        Some(Value::Map(
+            [(
+                "cause".into(),
+                Value::string("data_contract_version_mismatch")
+            )]
+            .into_iter()
+            .collect()
+        ))
+    );
+}

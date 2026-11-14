@@ -832,19 +832,43 @@ fn validate_setup_operations(
     if !operations.is_empty() {
         let mut request = mutation(operations[0].clone(), clock);
         request.ops = operations.to_vec();
-        let planned =
-            crate::plan(&request, state, &PlanOptions { stage: Stage::Head }).map_err(|_| {
-                issue(
-                    "collection_setup_conflict",
-                    "the complete atomic setup plan cannot be admitted",
-                )
-            })?;
+        let planned = crate::plan(&request, state, &PlanOptions { stage: Stage::Head })
+            .map_err(|r| inadmissible(&r))?;
         crate::plan::admission::RecordWriteAdmission::Synced
             .check_planned(&planned)
             .map_err(|_| limit())?;
         crate::plan::frontmatter_admission::check_planned(&planned).map_err(|_| limit())?;
     }
     Ok(())
+}
+/// The complete setup plan was refused. Keep the first blocking cause, where it
+/// is and which type it concerns, so the refusal names what setup would break
+/// instead of only that something would.
+fn inadmissible(rejection: &crate::plan::Rejection) -> Box<Issue> {
+    let blocking = rejection
+        .issues
+        .iter()
+        .find(|i| i.severity == Severity::Error)
+        .or_else(|| rejection.issues.first());
+    let cause = blocking
+        .map(|i| i.code.clone())
+        .or_else(|| rejection.reason.clone())
+        .unwrap_or_else(|| rejection.code.as_str().to_owned());
+    let detail = blocking.map_or(rejection.message.as_str(), |i| i.message.as_str());
+    let location = blocking.and_then(|i| i.location.clone());
+    let mut conflict = issue(
+        "collection_setup_conflict",
+        match &location {
+            Some(at) => format!(
+                "the complete atomic setup plan cannot be admitted: {cause} at {at}: {detail}"
+            ),
+            None => format!("the complete atomic setup plan cannot be admitted: {cause}: {detail}"),
+        },
+    );
+    conflict.details = Some(obj(vec![("cause", Value::string(cause))]));
+    conflict.type_name = blocking.and_then(|i| i.type_name.clone());
+    conflict.location = location;
+    conflict
 }
 /// Re-assess actual inputs/head; return ONLY the reviewed, applicable operations
 /// for one atomic mediated mutation. Applications must not install its parts.
