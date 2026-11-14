@@ -7,6 +7,9 @@ await rm("dist/main", { recursive: true, force: true });
 await build({
   entryPoints: [
     "src/main/entry.ts",
+    "src/main/background-update.ts",
+    "src/main/display-platform.ts",
+    "src/main/update-report.ts",
     "src/main/i18n.ts",
     "src/main/app-launcher.ts",
     "src/main/approval-url.ts",

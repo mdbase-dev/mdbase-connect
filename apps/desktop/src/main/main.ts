@@ -13,7 +13,6 @@ import {
   shell,
   Tray
 } from "electron";
-import { existsSync } from "node:fs";
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -21,7 +20,7 @@ import { hostname } from "node:os";
 import { launchUrl, linuxDefaultBrowser, openApp, startDetached, type DefaultBrowser } from "./app-launcher";
 import { checkApprovalUrl } from "./approval-url";
 import { BootGate } from "./boot-gate";
-import { DaemonCli, previousRuntimeBinary, type DaemonProfile } from "./daemon-cli";
+import { DaemonCli, type DaemonProfile } from "./daemon-cli";
 import { DaemonControlError } from "./daemon-client";
 import { resolveDaemonRuntime, type DaemonRuntime } from "./daemon-runtime";
 import { DaemonSession, healthLabel } from "./daemon-session";
@@ -30,11 +29,14 @@ import { buildEditorUrl } from "./editor-url";
 import { guardDesktopProcessOutput } from "./process-output";
 import { isTrustedSender } from "./ipc-trust";
 import { createTrayImage } from "./tray-image";
-import { ElectronUpdateBackend } from "./electron-update-backend";
-import { ensureNextDaemon, nextDaemonRunner } from "./next-daemon";
+import { appUpdateBackend, type ElectronUpdateBackend } from "./electron-update-backend";
+import { ensureBundledDaemon } from "./next-daemon";
 import { UpdateCoordinator } from "./update-coordinator";
 import { updateActions } from "./update-actions";
+import { reportUpdates } from "./update-report";
 import { removeOldRuntimeCopies, UpdateStateStore } from "./update-state";
+import { registerUpdateTimer } from "./background-update";
+import { UPDATE_SWITCH } from "./display-platform";
 
 guardDesktopProcessOutput();
 
@@ -51,9 +53,10 @@ let migrationRun: Promise<unknown> | null = null;
 let quitting = false;
 let updateStore: UpdateStateStore;
 let updater: UpdateCoordinator;
-
-const userDataOverride = process.env.MDBASE_CONNECT_USER_DATA_DIR;
-if (userDataOverride) app.setPath("userData", resolve(userDataOverride));
+let updateBackend: ElectronUpdateBackend;
+/** The background update timer is registered (`background-update.ts`). */
+let backgroundUpdates = false;
+let reportedCheck: string | undefined;
 
 const singleInstance = app.requestSingleInstanceLock();
 if (!singleInstance) app.quit();
@@ -165,7 +168,7 @@ async function initializeDaemon(): Promise<void> {
     profile,
     bundled: runtime,
     cli,
-    ensureInstalled: () => ensureBundledDaemon(runtime!, profile!)
+    ensureInstalled: () => ensureInstalledDaemon(runtime!, profile!)
   });
   let oldRuntimeCopiesRemoved = false;
   session.subscribe((state) => {
@@ -184,24 +187,8 @@ async function initializeDaemon(): Promise<void> {
  * it). A bundled version that does not become ready is rolled back to the previous
  * copy and held back until a later app update brings another version.
  */
-async function ensureBundledDaemon(bundled: DaemonRuntime, current: DaemonProfile): Promise<void> {
-  const held = (await updateStore.load()).daemon_held_back;
-  const previous = previousRuntimeBinary(current.stateDir);
-  const result = await ensureNextDaemon(nextDaemonRunner(bundled.binary), bundled.version, {
-    heldBack: held?.version,
-    rollback: existsSync(previous) ? nextDaemonRunner(previous) : null
-  });
-  if (result.outcome === "rolled_back") {
-    await updateStore.update((state) => {
-      state.daemon_held_back = { version: result.failed, reason: result.reason };
-    });
-  } else if (held && result.version === bundled.version) {
-    await updateStore.update((state) => {
-      delete state.daemon_held_back;
-    });
-  }
-  const holding = result.outcome === "rolled_back" ||
-    (held?.version === bundled.version && result.version !== bundled.version);
+async function ensureInstalledDaemon(bundled: DaemonRuntime, current: DaemonProfile): Promise<void> {
+  const { result, holding } = await ensureBundledDaemon(updateStore, bundled, current.stateDir);
   updater.setDaemonNotice(holding
     ? msg`mdbase ${bundled.version} did not start on this computer, so mdbase ${result.version} keeps running. The next app update tries again.`
     : null);
@@ -765,17 +752,22 @@ app.whenReady().then(async () => {
   // The updater works even when the daemon does not: an app update is how a broken
   // daemon gets fixed.
   updateStore = new UpdateStateStore(join(app.getPath("userData"), "updates", "state.json"));
-  updater = new UpdateCoordinator(updateStore, new ElectronUpdateBackend({
-    currentVersion: app.getVersion(),
-    packaged: app.isPackaged,
-    platform: process.platform,
-    arch: process.arch,
-    userDataDirectory: app.getPath("userData"),
-    executablePath: process.execPath
-  }));
+  updateBackend = appUpdateBackend("relaunch");
+  updater = new UpdateCoordinator(updateStore, updateBackend);
+  if (updateBackend.linuxAppDirectory) {
+    registerUpdateTimer(process.execPath, app.getPath("appData"))
+      .then(() => { backgroundUpdates = true; })
+      .catch((error) => console.warn("Could not register background updates:", error));
+  }
   updater.subscribe((status) => {
     mainWindow?.webContents.send("connect:update-status", status);
     refreshTrayMenu();
+    // What a finished check found, for `mdbase doctor`.
+    if (profile && status.checked_at !== reportedCheck && ["idle", "deferred", "ready", "external"].includes(status.phase)) {
+      reportedCheck = status.checked_at;
+      reportUpdates(profile.stateDir, status, backgroundUpdates)
+        .catch((error) => console.warn("Could not record the update check for mdbase doctor:", error));
+    }
   });
   // The window opens while the daemon's CLI is still being found: its
   // daemon-backed requests wait in the boot gate, so it shows "Checking connection".
@@ -824,6 +816,12 @@ app.whenReady().then(async () => {
 });
 
 app.on("second-instance", (_event, argv) => {
+  // The background update found the app running: the app owns its folder while it
+  // runs, so it checks (and offers Restart and update) itself.
+  if (argv.includes(UPDATE_SWITCH)) {
+    void bootGate?.check(() => updater.check(false)).catch(() => undefined);
+    return;
+  }
   mainWindow?.show();
   mainWindow?.focus();
   handleDeepLink(argv.find((value) => value.startsWith("mdbase-connect://")));
