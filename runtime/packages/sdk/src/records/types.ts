@@ -11,7 +11,9 @@ export type RecordSessionState =
     | "unsaved"
     | "saving"
     | "conflict"
+    /** A submitted write may have applied; settle its original mutation first. */
     | "recovery"
+    /** A definite refusal keeps the draft editable, without a recovery identity. */
     | "error"
     | "deleted";
 export interface RecordRecoveryRef {
@@ -22,7 +24,7 @@ export interface RecordRecoveryRef {
 }
 export interface RecordRecovery extends RecordRecoveryRef {
     readonly receipt: Receipt | null;
-    /** The genuine SDK Write, or null if submission failed before a response. */
+    /** The genuine SDK Write, or null if submission's outcome is uncertain. */
     readonly write: Write | null;
 }
 export interface RecordSessionSnapshot {
@@ -64,6 +66,7 @@ export interface RecordSession {
     ): void;
     /** Explicitly rebase a known settled CAS conflict. Native holds stay protected. */
     resolve(choice: RecordResolution): void;
+    /** Definite refusals retain the draft; uncertain outcomes retain recovery. */
     flush(options?: RecordFlushOptions): Promise<RecordFlushResult>;
 }
 export interface RecordLease {

@@ -1,6 +1,7 @@
 import { decode, encode, type CborValue } from "../cbor.js";
-import type { MdbaseClient, UpdateInput } from "../client.js";
+import type { MdbaseClient, UpdateInput, Write } from "../client.js";
 import { MdbaseError, mdbaseError } from "../errors.js";
+import { WriteRefusal } from "../session.js";
 import { toPlain, toValue, uuidv7, type PlainValue } from "../values.js";
 import type { JsonValue, Receipt, RecordView } from "../plain.js";
 import type { Problem } from "../wire.js";
@@ -482,11 +483,17 @@ export class RecordSessionImpl {
                 }
                 if (sets.size) changes.patch = sets;
                 if (unset.length) changes.unset = unset;
-                const write = await this.client.update(
-                    copy(this.base),
-                    changes,
-                    { mutationId, include, conflictMode: "reject", signal },
-                );
+                let write: Write;
+                try {
+                    write = await this.client.update(
+                        copy(this.base),
+                        changes,
+                        { mutationId, include, conflictMode: "reject", signal },
+                    );
+                } catch (error) {
+                    if (error instanceof WriteRefusal) this.captured = null;
+                    throw error;
+                }
                 signal.throwIfAborted();
                 if (write.mutationId !== mutationId)
                     throw refusal(
@@ -503,6 +510,16 @@ export class RecordSessionImpl {
             }
         } catch (error) {
             this.why = problem(error);
+            if (!this.captured && this.why.code === "conflict" && !this.remote) {
+                // A CAS can fail after the pre-check. Resolution needs the
+                // actual current source, never the stale pre-submit base.
+                try {
+                    const current = await this.read(signal);
+                    this.charge(this.body, this.patch, this.base, current);
+                    this.remote = copy(current);
+                }
+                catch (readError) { this.why = problem(readError); }
+            }
             this.state = this.captured
                 ? "recovery"
                 : this.why.code === "conflict"

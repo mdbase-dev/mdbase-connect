@@ -36,6 +36,17 @@ caller-owned recovery state and pass it as `open(..., {recovery})`, particularly
 when the receipt settled but readback failed. The helper adds no durable journal
 and does not infer ownership from a shared current pending record.
 
+A definite refusal that proves the write was not applied clears the capture and
+its retained recovery identity, while keeping the unsaved body and frontmatter
+patch dirty. A revision conflict enters `conflict` with current native `remote`
+readback for explicit `resolve`; `not_found` enters `deleted`; validation and
+permission refusals enter `error`. Correct the draft or restore access, then
+deliberately flush again. Release/reopen on the same client retains the draft
+without restoring a nonexistent mutation. A transport failure, timeout,
+cancellation after dispatch, uncertain storage failure or `outcome_unknown`
+retains the original recovery identity. A refusal after retrying a lost request
+also cannot prove that the earlier attempt applied nothing.
+
 Active leases share the UUID's draft/session and must agree on autosave/timeout
 policy. Releasing/aborting one lease unsubscribes it without closing the client
 or evicting another lease. Last release stops autosave/observation and aborts

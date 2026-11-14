@@ -2,18 +2,20 @@ import { describe, expect, it } from "vitest";
 import { isMdbaseError, MdbaseError, uuidv7 } from "../src/index.js";
 import { connect, type Connector, type FramePort } from "../src/thin-client.js";
 import { MemoryReplica } from "../src/testing/index.js";
+import { WriteRefusal } from "../src/session.js";
 import { clientFrame, submitParams, submitResult, type Problem } from "../src/wire.js";
 
 const app = { name: "mutation-error-test", version: "0.0.0" };
 
 /** A replica that answers `submit` requests itself and records the mutations sent. */
-function answeringSubmit(replica: MemoryReplica, answer: (mutationId: string) => { problem: Problem } | { result: ReturnType<typeof submitResult.enc> }) {
+function answeringSubmit(replica: MemoryReplica, answer: (mutationId: string) => { problem: Problem } | { result: ReturnType<typeof submitResult.enc> } | null) {
   const base = replica.connector();
   const sent: string[] = [];
   const connector: Connector = {
     description: base.description,
     async open(hello, signal) {
       const opened = await base.open(hello, signal);
+      const lost = new Set<number>();
       const port: FramePort = {
         onframe: null, onclose: null,
         close: () => opened.port.close(),
@@ -23,13 +25,18 @@ function answeringSubmit(replica: MemoryReplica, answer: (mutationId: string) =>
             const p = submitParams.dec(request.params);
             sent.push(p.mutationId!);
             const answered = answer(p.mutationId!);
+            if (answered === null) { lost.add(request.id); opened.port.send(frame); return; }
             queueMicrotask(() => port.onframe?.(clientFrame.enc({ kind: "response", id: request.id, ...answered })));
             return;
           }
           opened.port.send(frame);
         },
       };
-      opened.port.onframe = frame => port.onframe?.(frame);
+      opened.port.onframe = frame => {
+        const response = clientFrame.dec(frame);
+        if (response.kind === "response" && lost.delete(response.id)) { opened.port.close(); return; }
+        port.onframe?.(frame);
+      };
       opened.port.onclose = error => port.onclose?.(error);
       return { ...opened, port };
     },
@@ -49,6 +56,39 @@ async function failure(p: Promise<unknown>): Promise<MdbaseError> {
 }
 
 describe("native write errors carry the original mutation identity", () => {
+  it.each(["invalid_request", "invalid_record", "not_found", "conflict", "unauthenticated", "forbidden", "collection_invalid", "rate_limited", "too_large", "upgrade_required"])("distinguishes an authenticated %s submit refusal from ambiguous failure", async code => {
+    const { connector, sent } = refusingSubmit(new MemoryReplica({}), { code, recovery: "fix_request", message: "refused" });
+    const client = await connect({ connector, app });
+    try {
+      const error = await failure(client.create({ path: "refused.md" }));
+      expect(error).toBeInstanceOf(WriteRefusal);
+      expect(error.mutationId).toBe(sent[0]);
+    } finally { client.close(); }
+  });
+
+  it.each(["outcome_unknown", "unavailable", "cancelled", "internal", "quota_exceeded"])("retains ambiguous %s responses without refusal proof", async code => {
+    const { connector } = refusingSubmit(new MemoryReplica({}), { code, recovery: "resolve_outcome", message: "uncertain" });
+    const client = await connect({ connector, app });
+    try { expect(await failure(client.create({ path: "uncertain.md" }))).not.toBeInstanceOf(WriteRefusal); }
+    finally { client.close(); }
+  });
+
+  it("does not mistake a refusal after reconnect for proof that the lost first submit applied nothing", async () => {
+    const replica = new MemoryReplica({ confirmDelayMs: null });
+    let calls = 0;
+    const { connector, sent } = answeringSubmit(replica, () => ++calls === 1 ? null : {
+      problem: { code: "forbidden", recovery: "reauthorize", message: "grant revoked after capture" },
+    });
+    const client = await connect({ connector, app, reconnect: { minDelayMs: 1, maxDelayMs: 1 } });
+    try {
+      const error = await failure(client.create({ path: "captured.md", body: "captured" }));
+      expect(error).toMatchObject({ code: "forbidden", mutationId: sent[0] });
+      expect(error).not.toBeInstanceOf(WriteRefusal);
+      expect(sent).toEqual([sent[0], sent[0]]);
+      expect((await client.pendingWrites())[0]!.receipt.mutation).toBe(sent[0]);
+    } finally { client.close(); }
+  });
+
   it("a rejected outcome names the mutation it settles", async () => {
     const client = await connect({ connector: new MemoryReplica({ confirmDelayMs: null }).connector(), app });
     const write = await client.update(uuidv7(), { patch: { title: "x" } });

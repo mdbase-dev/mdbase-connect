@@ -154,6 +154,13 @@ Guides: [writes](../../../docs/sdk-writes.md),
 [values](../../../docs/sdk-values.md),
 [editing one record](../../../docs/sdk-record-editing.md).
 
+For editor drafts, `db.records.open(ref)` shares a record session with body and
+frontmatter setters, `flush`, and explicit conflict resolution. A definite save
+refusal keeps the draft dirty and allows a later deliberate save; a revision
+conflict requires `resolve` against the current remote record. An uncertain write
+keeps its original mutation identity for recovery, including after release/reopen
+on the same client. See the [record editing guide](../../../docs/sdk-record-editing.md).
+
 ## Status
 
 `snapshot.sync` is the one status to show for the open collection: saved,
