@@ -17,6 +17,7 @@ import { registerResendWebhookRoute } from "./features/email/email-provider-webh
 import { renderScheduledEmail } from "./features/email/beta-welcome-email.js";
 import { ScheduledEmailWorker } from "./features/email/scheduled-email.js";
 import { UsageRetentionWorker } from "./features/usage/usage-report.js";
+import { OpsMetricsPushWorker, type OpsMetricsPushConfig } from "./features/usage/ops-metrics-push.js";
 import type { GitHubAuthConfig } from "./features/auth/github-auth.js";
 import type { GoogleAuthConfig } from "./features/auth/google-auth.js";
 import { HostedAuthorityRegistry } from "./features/hosted/hosted.js";
@@ -157,6 +158,8 @@ interface BuildOptions {
     pollIntervalMs?: number;
     resolver?: TimerGrantResolver;
   };
+  /** Pushes the usage report to the operations ingest (OPS_METRICS_INGEST_URL). */
+  opsMetricsPush?: OpsMetricsPushConfig;
 }
 
 export async function buildApp(options: BuildOptions) {
@@ -240,6 +243,21 @@ export async function buildApp(options: BuildOptions) {
   const usageRetention = new UsageRetentionWorker(
     options.db,
     (error) => app.log.error({ err: error }, "usage retention worker failed")
+  );
+  const opsMetricsPush = options.opsMetricsPush
+    ? new OpsMetricsPushWorker({
+        db: options.db,
+        hostedProvider: options.hostedProvider,
+        config: options.opsMetricsPush,
+        log: app.log
+      })
+    : undefined;
+  // The host only: the token and any query string stay out of logs.
+  app.log.info(
+    options.opsMetricsPush
+      ? { ops_metrics_push: "enabled", host: new URL(options.opsMetricsPush.url).host }
+      : { ops_metrics_push: "disabled" },
+    "ops metrics push configuration"
   );
   const objectGc = options.nextControlPlane?.objectGc
     ? new ObjectGcWorker(
@@ -384,6 +402,7 @@ export async function buildApp(options: BuildOptions) {
   app.addHook("onClose", async () => {
     await scheduledEmails?.close();
     await usageRetention.close();
+    await opsMetricsPush?.close();
     await objectGc?.close();
     await fileQuota?.close();
     await applicationReconciliation.close();
@@ -762,6 +781,7 @@ export async function buildApp(options: BuildOptions) {
 
   scheduledEmails?.start();
   usageRetention.start();
+  opsMetricsPush?.start();
   objectGc?.start();
   fileQuota?.start();
 
