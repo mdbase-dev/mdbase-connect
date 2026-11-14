@@ -2,6 +2,17 @@
 
 use super::*;
 
+/// What a path named by the store or the watcher turned out to be.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum Found {
+    /// Nothing is there.
+    Gone,
+    /// A folder.
+    Folder,
+    /// A file, or anything else the check handled itself.
+    Other,
+}
+
 impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn emit(
@@ -178,7 +189,9 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
 
     /// Compare what `path` holds with what the store knows and report a
     /// difference. `listed`: what this pass's walk already has for it, in
-    /// place of a `stat` (the walk lists only supported names).
+    /// place of a `stat` (the walk lists only supported names). Returns what
+    /// the path turned out to be, so a folder named by an event can be
+    /// expanded to its files.
     pub(super) async fn check_path(
         &mut self,
         path: &str,
@@ -187,7 +200,7 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
         out: &mut Vec<Observation>,
         quiet_recheck: bool,
         listed: Option<FileMeta>,
-    ) -> StoreResult<()> {
+    ) -> StoreResult<Found> {
         let rp = Self::rel(path)?;
         let stat = match listed {
             Some(meta) => Ok(meta),
@@ -197,10 +210,16 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
                     && let Some(reason) = Self::unsupported_name(path)
                 {
                     self.stats.unsupported_paths.insert(path.into(), reason);
-                    return Ok(());
+                    return Ok(Found::Other);
                 }
                 stat
             }
+        };
+        let found = match &stat {
+            Ok(m) if m.kind == FileKind::Dir => Found::Folder,
+            Ok(_) => Found::Other,
+            Err(e) if e.is_not_found() => Found::Gone,
+            Err(_) => Found::Other,
         };
         let meta = match stat {
             Ok(m) if m.kind == FileKind::File => Some(m),
@@ -244,11 +263,11 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
                     },
                 );
             }
-            return Ok(());
+            return Ok(found);
         };
         // Left out like an excluded folder: never ingested, never deleted.
         if self.oversized(path, meta.size, settings) {
-            return Ok(());
+            return Ok(found);
         }
         if !known
             .as_ref()
@@ -285,10 +304,10 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
             && Self::meta_unchanged(k, &meta)
             && !revalidate_resource
         {
-            return Ok(());
+            return Ok(found);
         }
         let Some(seen) = self.read_seen(changes, path, &rp, &meta).await? else {
-            return Ok(());
+            return Ok(found);
         };
         let rev = seen.rev;
         match known {
@@ -306,7 +325,7 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
                     // look once more after a quiet window before believing it.
                     self.dirty
                         .insert(path.to_string(), self.now() + self.cfg.quiescence_ms.max(1));
-                    return Ok(());
+                    return Ok(found);
                 }
                 if !self.already_reported(path, Some(rev)) {
                     self.emit(changes, out, path, Some(k.rev), Some(seen), None, k.id)?;
@@ -314,7 +333,7 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
             }
             None => {
                 if self.already_reported(path, Some(rev)) {
-                    return Ok(());
+                    return Ok(found);
                 }
                 // Might be the far end of a move: if a known path has these
                 // bytes or this file ID, wait for the move window.
@@ -334,7 +353,7 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
                 }
             }
         }
-        Ok(())
+        Ok(found)
     }
 
     /// Read what `path` holds now: text read whole, anything else (or Markdown

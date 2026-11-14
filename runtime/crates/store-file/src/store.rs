@@ -7,9 +7,10 @@
 //!   inner transaction, then publishes with the platform's strategy
 //!   ([`crate::publish`]) and reports drifts;
 //! - [`Store::observe`] reports what changed on disk: watcher-queued paths after
-//!   a quiescence window, full scans, settled retained files with late writes,
-//!   and preserved user versions; with re-checks before a delete and move
-//!   pairing by content or file ID across a multi-second window;
+//!   a quiescence window (a queued folder that is gone, or new to the store, is
+//!   expanded to the files beneath it), full scans, settled retained files with
+//!   late writes, and preserved user versions; with re-checks before a delete
+//!   and move pairing by content or file ID across a multi-second window;
 //! - open runs crash recovery ([`crate::recover`]) for leftover intents.
 //!
 //! All I/O goes through [`FilePlatform`]. The store drives platform futures to
