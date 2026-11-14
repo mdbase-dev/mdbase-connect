@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Select } from "./Select.js";
-import "../test/dialog.js";
+import { finishingAnimation } from "../test/dialog.js";
 
 // jsdom has no Popover API.
 HTMLElement.prototype.showPopover = function showPopover(this: HTMLElement) { this.dataset.popoverOpen = ""; };
@@ -30,7 +30,7 @@ describe("Select", () => {
   });
 
   it("refocuses the retained list when reopening during its exit", () => {
-    vi.spyOn(HTMLElement.prototype, "getAnimations").mockReturnValue([{ finished: new Promise<void>(() => {}) }] as Animation[]);
+    vi.spyOn(HTMLElement.prototype, "getAnimations").mockReturnValue([finishingAnimation(new Promise<void>(() => {}))]);
     const host = document.body.appendChild(document.createElement("div"));
     const root = createRoot(host);
     act(() => root.render(<Labelled />));

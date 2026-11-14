@@ -104,10 +104,10 @@ describe("NextGateway", () => {
     }
 
     it("reads a created record back by the ID it minted", async () => {
-      const create = vi.fn(async () => writeOf([], undefined)), find = vi.fn(async () => record);
+      const create = vi.fn(async (_input: Parameters<MdbaseClient["create"]>[0]) => writeOf([], undefined)), find = vi.fn(async () => record);
       const setup = await writing({ create, find });
       await expect(setup.gateway.run(native, "access", "create", { path: "notes/a.md", body: "Body" }, "req-1")).resolves.toMatchObject({ path: "notes/a.md", revision: "rev1" });
-      const id = (create.mock.calls[0] as unknown as [{ id: string }])[0].id;
+      const id = create.mock.calls[0]![0].id;
       expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-/u);
       expect(find).toHaveBeenCalledWith(id, { include: { effective: true, body: true }, signal: undefined });
       setup.gateway.close();
@@ -142,7 +142,7 @@ describe("NextGateway", () => {
     const hostedRoute = { status: 200, body: { ...routed.body, authorization_grant: grantId } };
 
     it("waits out a session closed during the handshake on a connection's first open", async () => {
-      const sleep = vi.fn(async () => undefined);
+      const sleep = vi.fn(async (_ms: number) => undefined);
       const setup = await fixture([hostedRoute], 200, true, sleep);
       setup.open.mockRejectedValueOnce(handshakeClosed()).mockRejectedValueOnce(handshakeClosed());
       await expect(setup.gateway.run(native, "access", "query", {}, "req-1")).resolves.toEqual({ results: [], meta: { has_more: false } });
@@ -152,7 +152,7 @@ describe("NextGateway", () => {
     });
 
     it("gives up after the grace and never waits again for that connection", async () => {
-      const sleep = vi.fn(async () => undefined);
+      const sleep = vi.fn(async (_ms: number) => undefined);
       const setup = await fixture([hostedRoute, hostedRoute], 200, true, sleep);
       setup.open.mockRejectedValue(handshakeClosed());
       await expect(setup.gateway.run(native, "access", "query", {}, "req-1")).rejects.toMatchObject({ code: "unavailable" });
@@ -164,7 +164,7 @@ describe("NextGateway", () => {
     });
 
     it("waits again when a later open is closed during the handshake", async () => {
-      const sleep = vi.fn(async () => undefined);
+      const sleep = vi.fn(async (_ms: number) => undefined);
       const setup = await fixture([hostedRoute, hostedRoute], 200, true, sleep);
       await setup.gateway.run(native, "access", "query", {}, "req-1");
       setup.gateway.drop(native.id);
@@ -175,7 +175,7 @@ describe("NextGateway", () => {
     });
 
     it("waits again after a spent grace once the connection has opened", async () => {
-      const sleep = vi.fn(async () => undefined);
+      const sleep = vi.fn(async (_ms: number) => undefined);
       const setup = await fixture([hostedRoute, hostedRoute, hostedRoute], 200, true, sleep);
       for (let i = 0; i < 7; i++) setup.open.mockRejectedValueOnce(handshakeClosed());
       await expect(setup.gateway.run(native, "access", "query", {}, "req-1")).rejects.toMatchObject({ code: "unavailable" });
@@ -189,7 +189,7 @@ describe("NextGateway", () => {
     });
 
     it("does not wait when Connect refuses the route during the open, and reports what Connect said", async () => {
-      const sleep = vi.fn(async () => undefined);
+      const sleep = vi.fn(async (_ms: number) => undefined);
       const setup = await fixture([hostedRoute, { status: 409, body: {} }], 200, true, sleep);
       // As the SDK does: a route that cannot be resolved surfaces as an unreachable replica.
       setup.open.mockImplementationOnce(async ({ resolveRoute }) => {
@@ -215,7 +215,7 @@ describe("NextGateway", () => {
       { name: "a refusal that names its reason", targets: [{ kind: "hosted" }], error: mdbaseError("unavailable", "no device", "no_device_online"), code: "no_device_online" },
       { name: "an authentication failure", targets: [{ kind: "hosted" }], error: mdbaseError("unauthenticated", "handshake failed"), code: "unauthenticated" }
     ])("does not wait for $name", async ({ targets, error, code }) => {
-      const sleep = vi.fn(async () => undefined);
+      const sleep = vi.fn(async (_ms: number) => undefined);
       const setup = await fixture([{ status: 200, body: { ...hostedRoute.body, targets } }], 200, true, sleep);
       setup.open.mockRejectedValueOnce(error);
       await expect(setup.gateway.run(native, "access", "query", {}, "req-1")).rejects.toMatchObject({ code });
@@ -340,7 +340,7 @@ describe("NextGateway", () => {
     };
     const confirmed = () => ({ records: [], confirmed: Promise.resolve({ state: "confirmed" }) });
     async function sessions(clients: Array<Record<string, unknown>>, targets: unknown[] = [{ kind: "hosted" }]) {
-      const sleep = vi.fn(async () => undefined);
+      const sleep = vi.fn(async (_ms: number) => undefined);
       const setup = await fixture(clients.map(() => ({ status: 200, body: { ...hostedRoute.body, targets } })), 200, true, sleep);
       const closes = clients.map((client) => {
         const close = vi.fn();
@@ -409,7 +409,7 @@ describe("NextGateway", () => {
     it("does not start another attempt 30 s after the call began", async () => {
       let clock = 1_000_000;
       const query = vi.fn(async () => { clock += 31_000; throw sessionClosed(); });
-      const setup = await fixture([hostedRoute, hostedRoute], 200, true, vi.fn(async () => undefined), () => clock);
+      const setup = await fixture([hostedRoute, hostedRoute], 200, true, vi.fn(async (_ms: number) => undefined), () => clock);
       setup.open.mockResolvedValue({ query, close: vi.fn() } as unknown as MdbaseClient);
       await expect(setup.gateway.run(native, "access", "query", {}, "req-1")).rejects.toMatchObject({ code: "unavailable" });
       expect(query).toHaveBeenCalledTimes(1);

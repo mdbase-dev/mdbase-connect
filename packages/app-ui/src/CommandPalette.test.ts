@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import "../test/dialog.js";
+import { finishingAnimation } from "../test/dialog.js";
 import { readFileSync } from "node:fs";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -43,7 +43,7 @@ it("resets query and selection in the layout phase, before an exit can be reopen
 });
 
 it("resets a retained palette to the new initial query and first result on reopening", () => {
-  const animation = vi.spyOn(HTMLElement.prototype, "getAnimations").mockReturnValue([{ finished: new Promise<void>(() => {}) }] as Animation[]);
+  const animation = vi.spyOn(HTMLElement.prototype, "getAnimations").mockReturnValue([finishingAnimation(new Promise<void>(() => {}))]);
   const commands = [command("alpha", "app"), command("beta", "app")];
   const draw = (open: boolean, initialQuery: string) => createElement(CommandPalette, { open, initialQuery, commands, onClose: () => {} });
   act(() => root.render(draw(true, "")));

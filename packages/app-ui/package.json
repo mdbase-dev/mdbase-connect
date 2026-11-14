@@ -146,7 +146,7 @@
     "i18n:extract": "mdbase-i18n extract",
     "i18n:compile": "mdbase-i18n compile",
     "i18n:check": "mdbase-i18n check",
-    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && node scripts/compile-catalogues.mjs && tsc -p tsconfig.json && node scripts/compile-macros.mjs",
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && node scripts/compile-catalogues.mjs && tsc -p tsconfig.build.json && node scripts/compile-macros.mjs",
     "test": "node scripts/compile-catalogues.mjs && node ../../scripts/ci/vitest.mjs",
     "typecheck": "node scripts/compile-catalogues.mjs && tsc -p tsconfig.json --noEmit",
     "prepack": "pnpm --filter @mdbase-dev/i18n build && pnpm i18n:check && pnpm build"
@@ -185,6 +185,8 @@
     "@mdbase-dev/i18n": "workspace:*",
     "@mdbase-dev/sdk": "0.1.0-beta.188",
     "@rolldown/plugin-babel": "^0.2.4",
+    "@types/jsdom": "^30.0.0",
+    "@types/node": "^24.0.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "jsdom": "^29.1.1",
