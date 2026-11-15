@@ -8,6 +8,7 @@ export { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
 export { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 export { CheckIcon } from "@phosphor-icons/react/Check";
 export { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
+export { ColumnsIcon } from "@phosphor-icons/react/Columns";
 export { CopyIcon } from "@phosphor-icons/react/Copy";
 export { DesktopIcon } from "@phosphor-icons/react/Desktop";
 export { DotsThreeIcon } from "@phosphor-icons/react/DotsThree";

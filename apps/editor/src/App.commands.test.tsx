@@ -229,4 +229,27 @@ describe("workspace commands", () => {
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue(""));
     expect(document.querySelector(".note-path-pending")).toHaveAttribute("title", "Notes/Untitled.md");
   });
+
+  it("splits the editor onto the same note, keeps both panes in step, and closes the pane", async () => {
+    render(<App gateway={new DemoCollectionGateway(4)} />);
+    await screen.findByRole("textbox", { name: "Note body" });
+    await runCommand("Split right");
+    const focused = () => within(screen.getByRole("main", { name: "Note editor" })).getByRole("textbox", { name: "Note body" });
+    const other = () => within(screen.getByRole("region", { name: "Note editor" })).getByRole("textbox", { name: "Note body" });
+    await waitFor(() => expect(other()).toHaveValue((focused() as HTMLTextAreaElement).value));
+    expect(document.querySelector(".editor-split")).toHaveClass("is-split", "split-right");
+
+    fireEvent.change(focused(), { target: { value: "Written in one pane" } });
+    expect(other()).toHaveValue("Written in one pane");
+    await runCommand("Split down");
+    expect(document.querySelector(".editor-split")).toHaveClass("is-split", "split-down");
+    fireEvent.pointerDown(other());
+    fireEvent.change(focused(), { target: { value: "Written in the other" } });
+    expect(other()).toHaveValue("Written in the other");
+
+    await runCommand("Close pane");
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Note editor" })).not.toBeInTheDocument());
+    expect(focused()).toHaveValue("Written in the other");
+    expect(document.querySelector(".editor-split")).not.toHaveClass("is-split");
+  });
 });

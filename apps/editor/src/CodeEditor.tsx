@@ -47,7 +47,7 @@ import type { AttachmentUploader } from "./AttachmentUpload";
 import { noteEmbedPresentation, parsedNoteEmbeds } from "./code-editor-note-embeds";
 import type { ParsedEmbeds } from "./code-editor-embed-positions";
 import { MISSING_REFERENCE_CLASS, referenceDiagnostics } from "./code-editor-reference-diagnostics";
-import { writerInteractions } from "./code-editor-writer-interactions";
+import { writerInteractions, type LinkOpening } from "./code-editor-writer-interactions";
 import type { LinkTargets } from "./collection-links";
 import type { LinkSuggestion } from "./links";
 import type { ResolvedNoteEmbed } from "./note-embeds";
@@ -84,7 +84,7 @@ interface CodeEditorProps {
   linkSuggestions?: LinkSuggestion[];
   linkTypes?: string[];
   /** Opens a linked note, in a new tab when the click asked for one. */
-  onOpenLink?: (path: string, options?: { newTab?: boolean }) => void;
+  onOpenLink?: (path: string, options?: LinkOpening) => void;
   onCreateLink?: (target: string, label: string | undefined, format: "wikilink" | "markdown") => void;
   onPreviewLink?: (path: string, anchor: NotePreviewAnchor, source: NotePreviewSource) => void;
   onDismissLinkPreview?: () => void;

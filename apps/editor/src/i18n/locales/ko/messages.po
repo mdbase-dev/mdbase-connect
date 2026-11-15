@@ -1470,6 +1470,10 @@ msgstr "파일 미리보기 닫기"
 msgid "Close note peek"
 msgstr "노트 미리보기 닫기"
 
+#: src/editor-commands.ts
+msgid "Close pane"
+msgstr "창 닫기"
+
 #: src/PropertiesPanel.tsx
 msgid "Close properties"
 msgstr "속성 닫기"
@@ -2505,6 +2509,10 @@ msgstr "필드 편집기로 돌아가기 전에 YAML 원본을 수정하세요."
 #: src/editor-commands.ts
 msgid "Focus mode"
 msgstr "집중 모드"
+
+#: src/editor-commands.ts
+msgid "Focus other pane"
+msgstr "다른 창으로 이동"
 
 #: src/TypeBrowser.tsx
 msgid "Folder"
@@ -3791,6 +3799,10 @@ msgid "Open to find mentions."
 msgstr "언급을 찾으려면 여세요."
 
 #: src/editor-commands.ts
+msgid "Open to the side"
+msgstr "옆에 열기"
+
+#: src/editor-commands.ts
 msgid "Open Types"
 msgstr "유형 열기"
 
@@ -4904,6 +4916,14 @@ msgstr "편집기에서 포커스가 벗어나면 원본이 저장됩니다."
 msgctxt "settings view"
 msgid "Specification"
 msgstr "명세"
+
+#: src/editor-commands.ts
+msgid "Split down"
+msgstr "아래로 분할"
+
+#: src/editor-commands.ts
+msgid "Split right"
+msgstr "오른쪽으로 분할"
 
 #: src/code-editor-completions.ts
 msgid "Start a checkable task"

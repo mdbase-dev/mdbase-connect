@@ -13,6 +13,27 @@
 .editor-pane.file-workspace.has-tabs { grid-template-rows: auto 52px minmax(0, 1fr); }
 .editor-pane.has-tabs > .note-skeleton { grid-row: 2 / -1; }
 
+/* One pane fills the editor column as if unwrapped; two split it right or down. */
+.editor-split,
+.editor-slot { display: contents; }
+
+.editor-split.is-split {
+  grid-column: 3;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1px;
+  background: var(--line);
+}
+
+.editor-split.split-down {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.editor-split.is-split .editor-pane { grid-column: auto; }
+
 .note-tabs {
   min-width: 0;
   display: flex;
@@ -36,6 +57,8 @@
 
 .note-tab:hover { background: color-mix(in srgb, var(--canvas) 88%, var(--ink)); color: var(--ink); }
 .note-tab.is-active { background: var(--white); color: var(--ink); }
+/* The pane without the focus keeps its tab, quieter. */
+.editor-pane:not([data-focused]) .note-tab.is-active { color: var(--muted); }
 
 .note-tab [role="tab"] {
   min-width: 0;

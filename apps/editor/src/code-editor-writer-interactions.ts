@@ -6,10 +6,13 @@ import { markdownReferenceAt } from "./markdown-references";
 import type { CollectionFile, LinkTarget } from "./model";
 import type { NotePreviewAnchor, NotePreviewSource } from "./NotePreview";
 
+/** Where a followed note link opens: in a new tab, in the other pane, or (unset) in place. */
+export interface LinkOpening { where?: "tab" | "beside" }
+
 export function writerInteractions(
   linkTargets: () => LinkTargets | undefined,
   files: () => CollectionFile[],
-  onOpenLink: () => ((path: string, options?: { newTab?: boolean }) => void) | undefined,
+  onOpenLink: () => ((path: string, options?: LinkOpening) => void) | undefined,
   onOpenFileLink: () => ((file: CollectionFile) => void) | undefined,
   onCreateLink: () => ((target: string, label: string | undefined, format: "wikilink" | "markdown") => void) | undefined,
   onPreviewLink: () => ((path: string, anchor: NotePreviewAnchor, source: NotePreviewSource) => void) | undefined,
@@ -25,8 +28,8 @@ export function writerInteractions(
     view.dom.classList.remove("cm-hovering-link");
     onDismissLinkPreview()?.();
   };
-  /** Follows the link clicked at `position`: a note opens in a new tab when `newTab` asks for one. */
-  const follow = (event: MouseEvent, view: EditorView, position: number, newTab: boolean): boolean => {
+  /** Follows the link clicked at `position`: a note opens in place, or `where` asks. */
+  const follow = (event: MouseEvent, view: EditorView, position: number, where?: LinkOpening["where"]): boolean => {
     const link = markdownReferenceAt(view.state.doc.toString(), position, "link", syntaxTree(view.state));
     if (!link) return false;
     if (/^https?:\/\//i.test(link.target)) {
@@ -40,7 +43,7 @@ export function writerInteractions(
     event.preventDefault();
     dismissPreview(view);
     const open = (target: LinkTarget) => {
-      if (target.kind === "note") onOpenLink()?.(target.path, { newTab });
+      if (target.kind === "note") onOpenLink()?.(target.path, { where });
       else if (target.kind === "file") {
         const file = files().find(candidate => candidate.path === target.path);
         if (file) onOpenFileLink()?.(file);
@@ -63,7 +66,8 @@ export function writerInteractions(
       return true;
     },
     // A rendered link follows on a click, and opens in a new tab with Ctrl or ⌘. The source of a link
-    // follows only with Ctrl or ⌘, since a plain click there places the cursor.
+    // follows only with Ctrl or ⌘, since a plain click there places the cursor. Either opens to the side
+    // with Alt as well.
     click(event, view) {
       const rendered = renderedLink(event);
       const modifier = event.metaKey || event.ctrlKey;
@@ -73,12 +77,12 @@ export function writerInteractions(
         ? renderedFrom!
         : view.posAtCoords({ x: event.clientX, y: event.clientY });
       if (position === null) return false;
-      return follow(event, view, position, Boolean(rendered) && modifier);
+      return follow(event, view, position, modifier && event.altKey ? "beside" : rendered && modifier ? "tab" : undefined);
     },
     auxclick(event, view) {
       const position = Number(renderedLink(event)?.dataset.linkFrom);
       if (event.button !== 1 || !Number.isFinite(position)) return false;
-      return follow(event, view, position, true);
+      return follow(event, view, position, "tab");
     },
     mousemove(event, view) {
       const position = view.posAtCoords({ x: event.clientX, y: event.clientY });
