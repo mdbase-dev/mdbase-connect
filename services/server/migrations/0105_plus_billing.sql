@@ -1,7 +1,6 @@
--- The Plus plan, sold as a Stripe subscription. Its numbers are provisional until
--- the cost re-measure (due about 2026-11-17) and live only here: 100 GiB of files
--- (retained twice that, like free_v1), 10 synced collections, 250 MiB per file and
--- 5 member seats. Replicas, document size and files per collection match free_v1
+-- The Plus plan, sold as a Stripe subscription. Its numbers, confirmed by the
+-- 2026-11-15 cost re-measure, live only here: 100 GiB of files (retained twice
+-- that, like free_v1), 10 synced collections, 250 MiB per file and 5 member seats. Replicas, document size and files per collection match free_v1
 -- and operator_v1. Effective entitlements are the per-field maximum across grants,
 -- so a Plus grant only ever raises an account's limits.
 INSERT INTO entitlement_profiles
