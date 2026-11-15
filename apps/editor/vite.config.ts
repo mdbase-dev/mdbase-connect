@@ -49,6 +49,8 @@ export default defineConfig(({ mode }) => ({
     target: "es2022",
     sourcemap: true,
     reportCompressedSize: true,
+    // CSP allows fonts only from 'self', so never inline one (KaTeX has fonts under the 4 KB default) as a data: URL.
+    assetsInlineLimit: (file) => /\.(woff2?|ttf|otf)$/.test(file) ? false : undefined,
     rolldownOptions: {
       output: {
         entryFileNames: `assets/[name]-[hash]-${buildId}.js`,

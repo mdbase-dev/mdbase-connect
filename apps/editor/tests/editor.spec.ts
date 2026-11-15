@@ -584,6 +584,35 @@ test("edits a Markdown table in place as a grid", async ({ page }) => {
   await expect(page.getByRole("main", { name: "Note editor" })).toHaveAttribute("data-save-state", "saved");
 });
 
+test("renders math and Mermaid diagrams, and reveals their source to edit", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("?demo=12");
+  const body = page.getByRole("textbox", { name: "Note body" });
+  await replaceOpeningNoteBody(body, "Euler: $e^{i\\pi} + 1 = 0$ costs $5 and $10\n\n$$\n\\int_0^1 x\\,dx\n$$\n\n```mermaid\nflowchart LR\n  A[Write] --> B[Read]\n```\n\nEnd");
+
+  const lines = page.locator(".body-editor .cm-line");
+  await expect(page.locator(".body-editor .cm-lp-math-inline .katex")).toHaveCount(1);
+  await expect(page.locator(".body-editor .cm-lp-math-block .katex-display")).toBeVisible();
+  await expect(page.locator(".body-editor .cm-lp-diagram svg")).toBeVisible();
+  await expect(lines.filter({ hasText: "costs $5 and $10" })).toHaveCount(1);
+  await expect(lines.filter({ hasText: "$$" })).toHaveCount(0);
+  await expect(lines.filter({ hasText: "flowchart" })).toHaveCount(0);
+
+  // A press on a display formula reveals its source, with a rendered preview under it.
+  await page.locator(".body-editor .cm-lp-math-block").click();
+  await expect(lines.filter({ hasText: "\\int_0^1 x\\,dx" })).toBeVisible();
+  await expect(page.locator(".body-editor .cm-lp-math-preview .katex-display")).toBeVisible();
+
+  // Edit on a diagram reveals its source.
+  await page.locator(".body-editor .cm-lp-diagram").hover();
+  await page.locator(".body-editor .cm-lp-diagram-edit").click();
+  await expect(lines.filter({ hasText: "flowchart LR" })).toBeVisible();
+  await expect(page.locator(".body-editor .cm-lp-diagram")).toHaveCount(0);
+  await expect(page.getByRole("main", { name: "Note editor" })).toHaveAttribute("data-save-state", "saved");
+  expect(errors).toEqual([]);
+});
+
 test("restores each note's caret and undo history", async ({ page }) => {
   await page.goto("?demo=12");
   const body = page.getByRole("textbox", { name: "Note body" });

@@ -1,3 +1,6 @@
+// Loads with this lazy chunk: the live-preview and KaTeX styles only matter once a note editor
+// opens, and keeping them out of the first load holds the initial CSS within its budget.
+import "@mdbase-dev/ui/live-preview.css";
 import { useLingui } from "@lingui/react";
 import { isLocale } from "@mdbase-dev/i18n";
 import { englishCodeMirrorPhrases, loadCodeMirrorPhrases } from "@mdbase-dev/i18n/codemirror";
@@ -53,7 +56,7 @@ import type { CollectionFile, NoteSummary } from "./model";
 import { typewriterScrolling } from "./code-editor-typewriter";
 import { commentAnchorRange, commentAnchors, showCommentAnchors, type CommentAnchor, type CommentAnchorCard } from "@mdbase-dev/ui/comment-anchors";
 import { mdbasePopupTheme } from "@mdbase-dev/ui/codemirror";
-import { indentListItem, livePreview, outdentListItem } from "@mdbase-dev/ui/live-preview";
+import { indentListItem, livePreview, markdownMath, outdentListItem } from "@mdbase-dev/ui/live-preview";
 
 type EditorLanguage = "markdown" | "json" | "yaml" | "yaml-frontmatter" | "plain";
 type EditorVariant = "writer" | "source";
@@ -705,9 +708,9 @@ function contentAttributes(label: string, variant: EditorVariant, language: stri
 
 /** GitHub-flavoured Markdown (tables, strikethrough, autolinks, task lists),
  * matching the read-only renderer and the reference parser, with JSON and YAML
- * highlighting inside fenced code. */
+ * highlighting inside fenced code, and `$…$`/`$$…$$` math for the live preview. */
 function markdownSupport() {
-  return markdown({ base: markdownLanguage, codeLanguages: fencedCodeLanguages });
+  return markdown({ base: markdownLanguage, codeLanguages: fencedCodeLanguages, extensions: [markdownMath] });
 }
 
 const fencedCodeLanguages = [
