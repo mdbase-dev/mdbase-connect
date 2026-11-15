@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createPrivateKey, createPublicKey, sign } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 
-export async function destinationDenialCases({ base, token, transport, encode, decode, map, sha, h, restart }) {
+export async function destinationDenialCases({ base, token, transport, encode, decode, map, sha, h, restart, proxyFetch }) {
   const id = label => sha(Buffer.from(`destination-denial/${label}`)).subarray(0, 16);
   const c = id('collection'), deletion = id('deletion'), nil = Buffer.alloc(16);
   const epoch = (1n << 64n) - 1n;
@@ -82,8 +82,13 @@ export async function destinationDenialCases({ base, token, transport, encode, d
   }
   const oversized = await signed('collection_destination_close',close());
   assert.equal((await fetch(`${base}/v1/collection-destination-close`,{method:'POST',headers:oversized.headers,body:Buffer.alloc(1025)})).status,413);
+  // The 413 above answers before reading its body. Wrangler's dev ProxyWorker
+  // can then lose its pooled UserWorker connection on the next request, and it
+  // replays only GET/HEAD, so this POST would fail as a proxy 500 with no Worker
+  // response. proxyFetch replays it once only on that exact logged disconnect;
+  // every Worker status, including a genuine 500, is still asserted below.
   for (const [actorTarget,expectedForwarding] of [[undefined,0],[actor,0]]) {
-    const r = await fetch(`${base}/__test/ingress`,{method:'POST',body:JSON.stringify({
+    const r = await proxyFetch(`${base}/__test/ingress`,{method:'POST',body:JSON.stringify({
       actor:actorTarget,url:`https://worker/v1/collection-destination-close${actorTarget ? `?c=${actorTarget}` : ''}`,
       headers:oversized.headers,size:1024,errorAt:0,
     })});

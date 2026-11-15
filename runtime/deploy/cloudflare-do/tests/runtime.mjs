@@ -238,7 +238,8 @@ try {
   await collectionDeletionCases({ base, token, transport, encode, decode, map, sha, h,
     restart: async () => { await stop(); await start(); } });
   await destinationDenialCases({ base, token, transport, encode, decode, map, sha, h,
-    restart: async () => { await stop(); await start(); } });
+    restart: async () => { await stop(); await start(); },
+    proxyFetch: createProxyFetch({base,logPath:resolve(dir,'wrangler.log')}) });
   await collectionClosingCases({ base, token, transport, encode, decode, map, sha, h,
     restart: async () => { await stop(); await start(); } });
   await registryOffAppendCases({ base, token, transport, encode, decode, map, sha, h });
