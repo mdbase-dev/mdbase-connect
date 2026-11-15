@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { copyFile, lstat, mkdir, mkdtemp, readFile, readlink, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, lstat, mkdir, mkdtemp, readFile, readlink, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -71,6 +71,8 @@ test("the install script installs the app for the user, its launcher, commands a
 
   const first = install(prefix, "--deb", await deb(directory, "one", state));
   assert.equal(first.status, 0, first.stderr);
+  assert.match(first.stderr, /a package you supplied\. This script did not download or verify it/);
+  assert.doesNotMatch(first.stderr, /Verified/);
   assert.equal(await readFile(join(app, "VERSION"), "utf8"), "one");
   assert.equal(await readFile(join(directory, "runs.log"), "utf8"), "one --mdbase-update\n");
   const entry = await readFile(join(prefix, "share/applications/mdbase-connect.desktop"), "utf8");
@@ -124,4 +126,100 @@ test("the install script leaves a running app alone", { skip: !runnable }, async
   } finally {
     running.kill();
   }
+});
+
+const TOOLS = ["cat", "cp", "cut", "grep", "head", "id", "ln", "mkdir", "mktemp", "mv", "readlink", "rm",
+  "sed", "sha256sum", "tail", "tar", "tr", "wc", "zstd"];
+
+/**
+ * A PATH with only the tools the script needs, `uname` reporting Linux x86_64,
+ * a `curl` serving the release's files from `fixtures`, and `cosign` only when
+ * `cosignStatus` is given (its exit status). Calls go to `calls.log`.
+ */
+async function offlineRelease(directory, { cosignStatus } = {}) {
+  const bin = join(directory, "bin");
+  const fixtures = join(directory, "fixtures");
+  await mkdir(bin, { recursive: true });
+  await mkdir(fixtures, { recursive: true });
+  for (const tool of TOOLS) {
+    const path = execFileSync("sh", ["-c", `command -v ${tool}`], { encoding: "utf8" }).trim();
+    await symlink(path, join(bin, tool));
+  }
+  const log = join(directory, "calls.log");
+  await writeFile(join(bin, "uname"), `#!/bin/sh\n[ "$1" = -m ] && echo x86_64 || echo Linux\n`, { mode: 0o755 });
+  await writeFile(join(bin, "curl"), [
+    "#!/bin/sh",
+    "out=; prev=; url=",
+    "for arg; do [ \"$prev\" = -o ] && out=\"$arg\"; prev=\"$arg\"; url=\"$arg\"; done",
+    `echo "curl $url" >> "${log}"`,
+    `cp "${fixtures}/\${url##*/}" "$out"`,
+    ""
+  ].join("\n"), { mode: 0o755 });
+  if (cosignStatus !== undefined) {
+    await writeFile(join(bin, "cosign"), `#!/bin/sh\necho "cosign $*" >> "${log}"\nexit ${cosignStatus}\n`, { mode: 0o755 });
+  }
+  return { bin, fixtures, log };
+}
+
+async function publish(directory, fixtures, version, state) {
+  const name = `mdbase-connect-${version}-linux-x64.deb`;
+  const path = join(fixtures, name);
+  await copyFile(await deb(directory, version, state), path);
+  const digest = execFileSync("sha256sum", [name], { cwd: fixtures, encoding: "utf8" });
+  await writeFile(join(fixtures, "SHA256SUMS-linux-x64"), digest);
+  await writeFile(join(fixtures, `${name}.sigstore.json`), "{}");
+  return name;
+}
+
+function installOffline(bin, prefix, ...args) {
+  return spawnSync("/bin/sh", [script, "--prefix", prefix, "--no-update", ...args],
+    { encoding: "utf8", env: { HOME: dirname(prefix), PATH: bin } });
+}
+
+test("a downloaded release installs only after its signature verifies against the release workflow", { skip: !runnable }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mdbase-install-signed-"));
+  const { bin, fixtures, log } = await offlineRelease(directory, { cosignStatus: 0 });
+  const name = await publish(directory, fixtures, "0.1.0-beta.7", join(directory, "state"));
+  const prefix = join(directory, "home/.local");
+  const result = installOffline(bin, prefix, "--version", "v0.1.0-beta.7");
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /Verified the release's checksum and signature/);
+  const cosign = (await readFile(log, "utf8")).split("\n").find((line) => line.startsWith("cosign "));
+  const [, bundle, artifact] = /^cosign verify-blob --bundle (\S+) .* (\S+)$/.exec(cosign);
+  assert.equal(bundle, `${artifact}.sigstore.json`);
+  assert.ok(artifact.endsWith(`/${name}`), artifact);
+  assert.ok(cosign.includes(" --certificate-identity https://github.com/mdbase-dev/mdbase-connect/.github/workflows/desktop-release.yml@refs/tags/v0.1.0-beta.7 "));
+  assert.ok(cosign.includes(" --certificate-oidc-issuer https://token.actions.githubusercontent.com "));
+  assert.equal(await readFile(join(prefix, "opt/mdbase-connect/VERSION"), "utf8"), "0.1.0-beta.7");
+});
+
+test("a release whose signature does not verify is not installed", { skip: !runnable }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mdbase-install-bad-signature-"));
+  const { bin, fixtures } = await offlineRelease(directory, { cosignStatus: 1 });
+  await publish(directory, fixtures, "0.1.0-beta.7", join(directory, "state"));
+  const prefix = join(directory, "home/.local");
+  const result = installOffline(bin, prefix, "--version", "0.1.0-beta.7");
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /is not signed by the mdbase connect release workflow/);
+  await assert.rejects(stat(join(prefix, "opt/mdbase-connect")));
+});
+
+test("without cosign nothing is downloaded or installed unless the signature check is explicitly skipped", { skip: !runnable }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mdbase-install-no-cosign-"));
+  const { bin, fixtures, log } = await offlineRelease(directory);
+  await publish(directory, fixtures, "0.1.0-beta.7", join(directory, "state"));
+  const prefix = join(directory, "home/.local");
+
+  const refused = installOffline(bin, prefix, "--version", "0.1.0-beta.7");
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /this needs `cosign` to verify the release's signature/);
+  assert.match(refused.stderr, /--allow-unverified/);
+  await assert.rejects(readFile(log, "utf8"));
+  await assert.rejects(stat(join(prefix, "opt/mdbase-connect")));
+
+  const unverified = installOffline(bin, prefix, "--version", "0.1.0-beta.7", "--allow-unverified");
+  assert.equal(unverified.status, 0, unverified.stderr);
+  assert.match(unverified.stderr, /WARNING: --allow-unverified: the release's signature was NOT checked/);
+  assert.doesNotMatch(await readFile(log, "utf8"), /sigstore/);
+  assert.equal(await readFile(join(prefix, "opt/mdbase-connect/VERSION"), "utf8"), "0.1.0-beta.7");
 });

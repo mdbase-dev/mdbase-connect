@@ -133,8 +133,13 @@ before it. The run uses Chromium's headless platform, so it needs no display.
 `apps/desktop/scripts/install-linux.sh` is the first install for such a
 folder. It finds the newest release with a Linux package (one REST API
 request), downloads its `.deb`, checks it against the release's
-`SHA256SUMS-linux-x64` and, when `cosign` is installed, its Sigstore bundle
-against the release workflow identity. It unpacks the app with the same
+`SHA256SUMS-linux-x64` and verifies its Sigstore bundle with `cosign` against
+the release workflow identity (`desktop-release.yml` at the release's tag,
+GitHub Actions OIDC issuer). Without `cosign` it stops before downloading;
+`--allow-unverified` installs with only the checksum check and prints a
+warning. A package passed with `--deb` is the user's own file and is not
+verified. Each platform's `SHA256SUMS` file also has its own Sigstore bundle.
+It unpacks the app with the same
 `.next`/`.previous` swap the app uses, refuses while the app is running,
 installs a launcher entry (with the `mdbase-connect:` URL handler) and icon,
 links `mdbase-connect` and `mdbase` in `~/.local/bin` only when those names

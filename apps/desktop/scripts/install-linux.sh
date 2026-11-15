@@ -7,8 +7,10 @@
 # replaces itself from later releases (docs/desktop-updates.md). After the first
 # install, running the script again installs the newest release the same way.
 #
-# 1. The release's .deb is downloaded and checked against the release's
-#    SHA256SUMS, and against its Sigstore bundle when `cosign` is installed.
+# 1. The release's .deb is downloaded, checked against the release's SHA256SUMS
+#    and verified with `cosign` against its Sigstore bundle, which must come
+#    from this repository's desktop-release.yml at the release's tag. Without
+#    cosign the script stops; --allow-unverified skips only the signature.
 # 2. The app is unpacked from it beside the old one and swapped in; the old app
 #    is kept as mdbase-connect.previous.
 # 3. A launcher entry and icon are installed, and `mdbase-connect` and `mdbase`
@@ -18,7 +20,10 @@
 #
 # Options:
 #   --version VERSION  install this release (default: the newest one)
-#   --deb FILE         install this package instead of downloading one
+#   --deb FILE         install this local package instead of downloading one;
+#                      the script does not verify it
+#   --allow-unverified install a downloaded release without checking its
+#                      signature (not recommended; the checksum is still checked)
 #   --prefix DIR       install under DIR instead of ~/.local
 #   --no-update        skip step 4
 set -eu
@@ -35,12 +40,14 @@ version=
 deb=
 prefix="${HOME:?}/.local"
 update=true
+allow_unverified=false
 while [ $# -gt 0 ]; do
   case "$1" in
     --version) [ $# -ge 2 ] || fail "--version needs a value."; version="${2#v}"; shift 2 ;;
     --deb) [ $# -ge 2 ] || fail "--deb needs a file."; deb="$2"; shift 2 ;;
     --prefix) [ $# -ge 2 ] || fail "--prefix needs a directory."; prefix="$2"; shift 2 ;;
     --no-update) update=false; shift ;;
+    --allow-unverified) allow_unverified=true; shift ;;
     -h|--help) sed -n '2,/^set -eu/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
     *) fail "unknown option $1 (see --help)." ;;
   esac
@@ -61,6 +68,12 @@ trap 'rm -rf "$work"' EXIT INT TERM
 if [ -z "$deb" ]; then
   need curl
   need sha256sum
+  if [ "$allow_unverified" = false ] && ! command -v cosign >/dev/null 2>&1; then
+    fail "this needs \`cosign\` to verify the release's signature. Install it from
+https://docs.sigstore.dev/cosign/system_config/installation/ (or your package
+manager) and run this again. To install without checking the signature, run it
+with --allow-unverified."
+  fi
   [ "$(uname -m)" = x86_64 ] || fail "mdbase connect publishes Linux builds for x86_64 only."
   if [ -z "$version" ]; then
     # Newest first; the first release with a Linux package is the newest one.
@@ -78,7 +91,7 @@ if [ -z "$deb" ]; then
   grep " \*\{0,1\}$name\$" "$work/SHA256SUMS" | sed 's/ \*/  /' > "$work/SHA256SUMS.$name"
   [ -s "$work/SHA256SUMS.$name" ] || fail "the release's checksums do not list $name."
   (cd "$work" && sha256sum -c --quiet "SHA256SUMS.$name") || fail "$name does not match the release's checksum."
-  if command -v cosign >/dev/null 2>&1; then
+  if [ "$allow_unverified" = false ]; then
     curl -fsSL --proto '=https' -o "$work/$name.sigstore.json" "$base/$name.sigstore.json" \
       || fail "the release's signature could not be downloaded."
     cosign verify-blob --bundle "$work/$name.sigstore.json" \
@@ -87,12 +100,14 @@ if [ -z "$deb" ]; then
       || fail "$name is not signed by the mdbase connect release workflow."
     say "Verified the release's checksum and signature."
   else
-    say "Verified the release's checksum. Install cosign to also check its signature;"
-    say "mdbase connect checks the signature of every later update itself."
+    say "WARNING: --allow-unverified: the release's signature was NOT checked, only"
+    say "its checksum, which comes from the same place as the package."
   fi
   deb="$work/$name"
+else
+  [ -f "$deb" ] || fail "$deb is not a file."
+  say "Installing $deb, a package you supplied. This script did not download or verify it."
 fi
-[ -f "$deb" ] || fail "$deb is not a file."
 
 # A .deb is an ar archive: an 8-byte magic, then members with 60-byte headers
 # (name, 16 bytes; size, decimal at offset 48) and data padded to even length.
