@@ -1,6 +1,6 @@
 # Operations performance history
 
-Main-branch Server CI and Runtime CI retain informational size reports and
+Main-branch Server CI (a dedicated Editor-only build job, since main pushes otherwise reuse the merge-queue qualification) and Runtime CI retain informational size reports and
 post them to the bench-only ops endpoint. Runtime perf also retains calibrated
 scenario ratios. This adds history, not new size thresholds or release gates.
 
@@ -16,7 +16,7 @@ replace each other. Normalized runtime observations use `runtime-v1`.
 Untimed scenarios (`n: 0` and null timings in the existing report) are omitted,
 not converted to zero or allowed to discard other measured scenarios.
 
-Collection uses existing build outputs, not a second build. Uploads require
+Runtime collection uses existing build outputs. Editor sizes need their own main-push build because the full `node` job rarely runs on main. Uploads require
 `OPS_BENCHMARK_TOKEN`, the `bench` channel credential configured in Cloud Ops.
 Missing secrets warn; collection, artifact and bounded upload failures remain
 visible without changing product qualification.

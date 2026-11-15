@@ -59,6 +59,8 @@ export function selectSteps(requestedTiers, native) {
  * first command line. Each needs a reason a reviewer can check.
  */
 export const ciOnlySteps = [
+  { prefix: "pnpm install --frozen-lockfile --filter \"mdbase-editor...\"", reason: "main-push Editor size history job; ci:local's full install covers it" },
+  { prefix: "pnpm --filter \"mdbase-editor...\" build", reason: "main-push Editor size history job; ci:local's pnpm build covers the Editor" },
   { prefix: "node scripts/performance-report.mjs", reason: "main-only observations require Actions run provenance; collector regressions run in pnpm test" },
   { prefix: "node scripts/ci/prefetch-worker-tools.mjs", reason: "authenticated binary bootstrap for worker-build; local LAB uses the ops front door" },
   { prefix: "if [[ \"$GITHUB_EVENT_NAME\" == pull_request ]]", reason: "merge-queue qualification reuse" },
