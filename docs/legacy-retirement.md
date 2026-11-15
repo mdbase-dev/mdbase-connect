@@ -139,12 +139,19 @@ the provider and the tables below: the to-hosted expiry branch of
 
 Also removed ahead of the provider (2026-11-15): the `sync` system suite
 (`scripts/sync-e2e.mjs`, `pnpm e2e:sync` and its `server-ci` shard) and the
-`http` mode of the functional stress runner (`pnpm stress:http`, and the HTTP
-half of `stress:quick`). Both ran the legacy sync protocol against the
+functional stress runner for the `packages/sync` client (`scripts/stress/*`,
+`test-fixtures/stress-regressions/`, the `stress:*` and
+`test:stress-regressions` scripts and `docs/functional-stress-testing.md`). The
+suite and the runner's HTTP mode ran the legacy sync protocol against the
 development-only reference authority, which only loopback development
-authentication can enable, so no deployment runs it. The provider suite drives
-the same `packages/sync` client against the real provider, and `packages/sync`
-keeps its unit tests and in-memory stress runs.
+authentication can enable. No CI job ran the stress runner, and three of its
+entry points had failed on `main` since at least 2026-10-05: the HTTP half of
+`stress:quick` and the regression replay ("Replica 2 did not converge"), and
+`stress:functional` ("Resolve the record's existing sync issue before editing
+it again."). It was deleted rather than repaired because it stress-tested a
+legacy client that no shipped product uses. The provider suite remains the test
+of that client against the real provider, and `packages/sync` keeps its unit
+tests.
 
 The reference authority itself stays: `HostedAuthorityRegistry` in
 `features/hosted/hosted.ts`, `features/hosted/reference-sync-routes.ts`, the
@@ -160,7 +167,7 @@ map still pins the flag off, and that entry goes with the flag.
 | --- | --- | --- |
 | `crates/connect-hosted-provider` (also `mdbase-hosted-backup-admin`, `-key-admin` and `-projection-indexer`), `connect-runtime`, `connect-protocol` (generated Rust) | 86,922 | <ul><li>Render service `mdbase-connect-hosted-provider` and DB `mdbase-connect-hosted-db`, plus the staging and LAB services.</li><li>Connect env `MDBASE_CONNECT_HOSTED_PROVIDER_URL` and `MDBASE_CONNECT_HOSTED_COLLECTIONS`.</li><li>**cloud-ops:** `monitor-production.yml` probe; `validate_desired_state.rb`; the backup and recovery-drill profile `hosted-provider`; `bin/hosted-*` admin tools; `bin/lib/rollback_compat.py`; the provider digests in `ci.yml`.</li><li>Here: `Dockerfile.hosted-provider`, `Cargo.lock.hosted-provider` (also listed in `scripts/lib/release-version.mjs`), `config/release-components.json`, and the Rust outputs of `scripts/generate-{change-events,connect-problems,operation-catalog,application-capabilities}.mjs`, which must stop emitting Rust; also `CODEOWNERS`.</li></ul> |
 | `../mdbase-rs` path dependency | n/a | <ul><li>Root `Cargo.toml`.</li><li>`deploy/docker/mdbase-rs-revision`.</li><li>`pnpm check:mdbase-rs-pin` (`scripts/mdbase-rs-pin.mjs`).</li><li>Every `callumalpass/mdbase-rs` checkout in `server-ci` (two jobs), `flake-stress`, `performance-observations` and `rust-caches`, and the `Cargo.lock.hosted-provider` and `mdbase-rs-revision` inputs of `publish-images`.</li><li>cloud-ops `check-release-locks`, `verify-release-bundle` and the `RUNTIME_PATHS` in `continuous_deployment.py`.</li></ul>It goes when the last root crate goes, which ends the root Cargo workspace. Outside this repo, mdbase.dev `site-sources.json` still lists mdbase-rs as the "rust" implementation; that is a separate decision. |
-| `packages/sync` (`@mdbase-dev/connect-sync`, private; npm publishing stopped in #1290) | about 21,800 | Server imports in `features/hosted/hosted.ts`, `features/hosted/hosted-mirror-policy.ts`, `features/hosted/account-routes.ts`, `features/mirrors/pairing-routes.ts`, `features/authority-transfer/lifecycle.ts` and `platform/error-handler.ts` (`SyncError`). Also `Dockerfile.server:44`, the functional stress runner (`scripts/stress/*`) and `flake-stress`. |
+| `packages/sync` (`@mdbase-dev/connect-sync`, private; npm publishing stopped in #1290) | about 21,800 | Server imports in `features/hosted/hosted.ts`, `features/hosted/hosted-mirror-policy.ts`, `features/hosted/account-routes.ts`, `features/mirrors/pairing-routes.ts`, `features/authority-transfer/lifecycle.ts` and `platform/error-handler.ts` (`SyncError`). Also `Dockerfile.server:44` and `flake-stress`. |
 | Legacy hosted, mirror and authority server cluster: `features/hosted/hosted-provider*.ts`, `features/hosted/hosted.ts`, `features/hosted/hosted-mirror-policy.ts`, `features/hosted/hosted-replica-policy.ts`, `features/hosted/hosted-capability-lifecycle.ts`, `features/hosted/*` except `sharing-routes.ts`, `features/mirrors/*`, `features/authority-transfer/*` except `authority-proof.ts`, `features/authorizations/hosted-approval-service.ts` | about 6,640 prod and about 3.3k tests | `HostedProviderClient` is also used by `features/usage/usage-report.ts` (provider `protocolUsage`), account management and deletion, `auth-admin-entitlements`, notifications, `timers/hosted-import` and the migration provider. Each of these needs its provider branch removed. |
 | Legacy tables: `hosted_replicas`, `mirror_pairing_requests`, `authority_transfers`, `authority_adoption_requests`, `authority_import_abort_receipts`, `provider_collection_deletion_jobs`, `provider_revocation_jobs` | n/a | Drop them in a forward migration after the code above is gone. Keep the frozen bootstrap (see Keep). |
 | `deploy/postgres/*.sql` | 1,167 | cloud-ops `hosted-schema-admin` and `hosted-database-drain-admin` |

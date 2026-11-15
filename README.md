@@ -212,15 +212,6 @@ pnpm e2e:relay
 pnpm e2e:provider
 ```
 
-Seeded functional stress profiles cover concurrent replicas, lost responses,
-restarts, compaction, mirror convergence, scale, and soak behavior:
-
-```bash
-pnpm stress:quick
-pnpm stress:functional
-pnpm stress:soak:smoke
-```
-
 To run the local development environment:
 
 ```bash
@@ -232,7 +223,6 @@ The desktop app runs on an mdbn-daemon build:
 `MDBN_DAEMON_BIN=<absolute path to mdbase> pnpm dev:desktop:fresh`.
 
 See [Testing](docs/testing-environment.md),
-[Functional stress testing](docs/functional-stress-testing.md),
 [Maintainability](docs/maintainability.md), [Releasing](docs/releasing.md), and
 [Production self-hosting](docs/self-hosting.md) for the complete workflows.
 

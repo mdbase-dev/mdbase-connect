@@ -1,4 +1,4 @@
 ## Removed
 
-- The `sync` system suite (`pnpm e2e:sync`) and its Server CI shard. It ran the legacy sync protocol against the development-only reference authority, which no deployment can enable; the provider suite covers the same client against the real hosted provider.
-- The HTTP mode of the functional stress runner (`pnpm stress:http`, `--transport`). The stress profiles now run only against the in-memory authority, and regression fixtures no longer carry a `transport` field.
+- The `sync` system suite (`pnpm e2e:sync`) and its Server CI shard. It ran the legacy sync protocol against the development-only reference authority, which no deployment can enable; the provider suite tests the same client against the real hosted provider.
+- The functional stress runner for the legacy sync client (`pnpm stress:quick`, `stress:functional`, `stress:scale`, `stress:soak`, `stress:soak:smoke`, `stress:http` and `test:stress-regressions`). No CI job ran it, and three of its entry points had been failing on `main` since at least October 2026: the HTTP half of `stress:quick` and the regression replay with "Replica 2 did not converge", and `stress:functional` with "Resolve the record's existing sync issue before editing it again." It stress-tested a client that no shipped product uses, so it is deleted rather than repaired.
