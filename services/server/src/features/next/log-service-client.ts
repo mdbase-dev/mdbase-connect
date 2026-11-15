@@ -15,6 +15,8 @@ import { pitrLogUrl, type LabPitrConfig } from "./lab-pitr-config.js";
 
 export const LOG_TOKEN_LIFETIME_MS = 15 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 10_000;
+/** One `gc` batch archives up to 1000 objects to R2 one by one before deleting them. */
+const GC_REQUEST_TIMEOUT_MS = 5 * 60_000;
 
 /**
  * Inputs the log service chooses a new collection's storage region from
@@ -206,8 +208,8 @@ export class LogServiceClient {
     return this.cached.token;
   }
 
-  private async fetchBytes(path: string, init: RequestInit, limit?: number, base = this.baseUrl): Promise<Uint8Array> {
-    const response = await this.fetchImpl(`${base}${path}`, { ...init, ...(limit === undefined ? {} : {redirect:"manual"}), signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  private async fetchBytes(path: string, init: RequestInit, limit?: number, base = this.baseUrl, timeoutMs = REQUEST_TIMEOUT_MS): Promise<Uint8Array> {
+    const response = await this.fetchImpl(`${base}${path}`, { ...init, ...(limit === undefined ? {} : {redirect:"manual"}), signal: AbortSignal.timeout(timeoutMs) });
     if (limit !== undefined && response.status >= 300 && response.status < 400) {
       await response.body?.cancel();
       throw new LogServiceError("unavailable", "redirect");
@@ -255,7 +257,7 @@ export class LogServiceClient {
           "x-mdbase-sig": Buffer.from(sign(null, digest, this.transport)).toString("hex"),
         },
         body: Buffer.from(body),
-      }, deletion ? DELETION_REPLY_BYTES : undefined, base), deletion ? {canonicalStructs:true,maxDepth:12} : undefined);
+      }, deletion ? DELETION_REPLY_BYTES : undefined, base, method === "gc" ? GC_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS), deletion ? {canonicalStructs:true,maxDepth:12} : undefined);
       if (deletion && (!(frame instanceof Map) || frame.size !== 3 || field(frame,0) !== 1 || field(frame,1) !== requestId || (frame.has(2) === frame.has(3)))) return deletionUnavailable();
       const error = field(frame, 3);
       if (error !== undefined) {
