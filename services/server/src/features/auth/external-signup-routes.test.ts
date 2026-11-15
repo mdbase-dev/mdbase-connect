@@ -9,10 +9,10 @@ import { ExternalSignupService } from "./external-signup.js";
 const resources: Array<() => Promise<void>> = [];
 afterEach(async () => { while (resources.length) await resources.pop()?.(); });
 const origin = "https://connect.example";
-const payload = { name: "New Person", terms_version: "terms-v1", privacy_version: "privacy-v1", timezone: "Australia/Melbourne" };
+const payload = { name: "New Person", terms_version: "terms-v1", privacy_version: "privacy-v1" };
 
 describe("external public signup", () => {
-  it.each(["google", "github"] as const)("completes %s signup with consent, email, entitlement, welcome and starter setup", async (provider) => {
+  it.each(["google", "github"] as const)("completes %s signup with consent, email, entitlement and emails, without a starter collection", async (provider) => {
     const f = await fixture();
     const config = await f.app.inject({ url: "/v1/auth/config" });
     expect(config.json()).toMatchObject({ external_public_registration: true, agreements: { terms: { version: "terms-v1" } } });
@@ -34,12 +34,14 @@ describe("external public signup", () => {
     expect(complete.statusCode).toBe(200);
     expect(complete.json().redirect_to).toBe("/authorize/transaction?request=one");
     expect(cookies(complete).some((cookie) => cookie.startsWith("__Host-mdbase_session="))).toBe(true);
-    const rows = await f.db.query(`SELECT email.verified_at, entitlement.profile_code, onboarding.timezone, job.message_kind
-      FROM email_identities email JOIN account_entitlement_grants entitlement ON entitlement.user_id = email.user_id
-      JOIN account_onboarding onboarding ON onboarding.user_id = email.user_id
-      JOIN email_jobs job ON job.user_id = email.user_id`);
-    expect(rows.rows).toEqual([expect.objectContaining({ profile_code: "open_beta_v1", timezone: "Australia/Melbourne", message_kind: "open_beta_welcome" })]);
+    const rows = await f.db.query("SELECT verified_at FROM email_identities");
+    expect(rows.rows).toHaveLength(1);
     expect(rows.rows[0].verified_at).not.toBeNull();
+    expect((await f.db.query("SELECT user_id FROM account_onboarding")).rows).toHaveLength(0);
+    expect((await f.db.query("SELECT profile_code FROM account_entitlement_grants ORDER BY profile_code")).rows)
+      .toEqual([{ profile_code: "free_v1" }, { profile_code: "trial_v1" }]);
+    expect((await f.db.query("SELECT message_kind FROM email_jobs ORDER BY scheduled_for")).rows)
+      .toEqual([{ message_kind: "signup_welcome" }, { message_kind: "storage_trial_ending" }, { message_kind: "storage_trial_ended" }]);
     expect((await f.db.query("SELECT document, acceptance_method FROM account_agreements ORDER BY document")).rows).toEqual([
       { document: "privacy", acceptance_method: "external_identity" },
       { document: "terms", acceptance_method: "external_identity" }
@@ -50,13 +52,12 @@ describe("external public signup", () => {
     const login = await f.start(provider);
     expect(login.redirect).toBe("/");
     expect((await f.db.query("SELECT id FROM users")).rows).toHaveLength(1);
-    expect((await f.db.query("SELECT user_id FROM account_onboarding")).rows).toHaveLength(1);
   });
 
-  it.each(["https://evil.example/steal", "https://connect.example//evil.example/steal", "//evil.example/steal"])("routes default entry to getting started and rejects unsafe return target %s", async (returnTo) => {
+  it.each(["https://evil.example/steal", "https://connect.example//evil.example/steal", "//evil.example/steal"])("routes default entry to the portal and rejects unsafe return target %s", async (returnTo) => {
     const f = await fixture();
     const proof = await f.start("google", returnTo);
-    expect((await f.complete(proof.cookie)).json().redirect_to).toBe("/getting-started");
+    expect((await f.complete(proof.cookie)).json().redirect_to).toBe("/");
   });
 
   it("rejects missing proof, expiry, cross-origin completion and stale legal versions", async () => {
@@ -116,7 +117,7 @@ describe("external public signup", () => {
     const deconfigured = new ExternalSignupService(f.db, f.policy, new Set(["github"]));
     await expect(deconfigured.details(token)).rejects.toMatchObject({ name: "PublicSignupUnavailableError" });
     await expect(deconfigured.complete(token, {
-      proofId: tokenHash(token), name: "New Person", termsVersion: "terms-v1", privacyVersion: "privacy-v1", timezone: "UTC", clientName: "Test"
+      proofId: tokenHash(token), name: "New Person", termsVersion: "terms-v1", privacyVersion: "privacy-v1", clientName: "Test"
     })).rejects.toMatchObject({ name: "PublicSignupUnavailableError" });
     expect((await f.db.query("SELECT id FROM users")).rows).toHaveLength(0);
   });
@@ -166,8 +167,8 @@ describe("external public signup", () => {
     expect((await f.complete(first.cookie)).statusCode).toBe(200);
     expect((await f.complete(second.cookie)).statusCode).toBe(200);
     expect((await f.db.query("SELECT id FROM users")).rows).toHaveLength(1);
-    expect((await f.db.query("SELECT id FROM account_entitlement_grants")).rows).toHaveLength(1);
-    expect((await f.db.query("SELECT id FROM email_jobs")).rows).toHaveLength(1);
+    expect((await f.db.query("SELECT id FROM account_entitlement_grants")).rows).toHaveLength(2);
+    expect((await f.db.query("SELECT id FROM email_jobs")).rows).toHaveLength(3);
   });
 
   it("fails closed without the shared limiter or runtime legal documents", async () => {

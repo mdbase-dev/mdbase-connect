@@ -424,14 +424,21 @@ function SubscriptionStorage({ subscription, fallbackStorage }: {
   const percentage = liveStorageBytes !== null && limit > 0
     ? Math.min(100, liveStorageBytes / limit * 100)
     : 0;
-  const tier = subscription.kind === "beta" ? t(i18n)({ message: "Beta", context: "Account management" }) : t(i18n)({ message: "Included storage", context: "Account management" });
-  const permanence = subscription.permanent ? t(i18n)({ message: "Permanent allowance", context: "Account management" }) : t(i18n)({ message: "Current allowance", context: "Account management" });
+  const trial = subscription.trial ?? null;
+  const trialEnd = trial && formatters(i18n.locale).date(new Date(trial.ends_at), { dateStyle: "medium" });
+  const tier = trial
+    ? t(i18n)({ message: "Storage trial", context: "Account management" })
+    : subscription.kind === "beta" ? t(i18n)({ message: "Beta", context: "Account management" }) : t(i18n)({ message: "Included storage", context: "Account management" });
+  const permanence = trial
+    ? t(i18n)`Ends ${trialEnd}`
+    : subscription.permanent ? t(i18n)({ message: "Permanent allowance", context: "Account management" }) : t(i18n)({ message: "Current allowance", context: "Account management" });
   return <div className="connect-subscription-storage">
     <div className="connect-subscription-heading">
-      <div><strong>{tier}</strong><small>{permanence}</small></div>
+      <div><strong>{tier}</strong><small>{trial ? <time dateTime={trial.ends_at}>{permanence}</time> : permanence}</small></div>
       <span>{liveStorageBytes === null ? t(i18n)({ message: "Usage unavailable", context: "Account management" }) : t(i18n)`${formatBytes(liveStorageBytes)} of ${formatBytes(limit)}`}</span>
     </div>
     {liveStorageBytes !== null && <div className="connect-storage-progress" role="progressbar" aria-label={t(i18n)`${tier} hosted storage`} aria-valuemin={0} aria-valuemax={limit} aria-valuenow={liveStorageBytes} aria-valuetext={t(i18n)`${formatBytes(liveStorageBytes)} of ${formatBytes(limit)} used`}><span style={{ width: `${percentage}%` }} /></div>}
+    {trial && <p className="connect-subscription-trial">{t(i18n)`On ${trialEnd}, storage drops to ${formatBytes(trial.hosted_storage_bytes_after)}. Files you've already uploaded are kept. If they're over the limit, new uploads pause.`}</p>}
     {native
       ? <p><Trans>Counts uploaded files. Notes don't use storage.</Trans></p>
       : <p>{liveContentBytes === null || liveFileBytes === null

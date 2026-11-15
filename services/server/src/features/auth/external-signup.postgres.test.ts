@@ -16,7 +16,7 @@ let admin: pg.Pool;
 let db: DatabasePool;
 let service: ExternalSignupService;
 let schema: string;
-const input = { name: "New Person", termsVersion: "terms-v1", privacyVersion: "privacy-v1", timezone: "UTC", clientName: "Postgres test" };
+const input = { name: "New Person", termsVersion: "terms-v1", privacyVersion: "privacy-v1", clientName: "Postgres test" };
 function complete(proof: string, values = input) {
   return service.complete(proof, { ...values, proofId: tokenHash(proof) });
 }
@@ -69,8 +69,9 @@ describePostgres("external signup PostgreSQL transactions", () => {
     const sessions = await Promise.all([complete(first), complete(second)]);
     expect(new Set(sessions.map((session) => session.userId)).size).toBe(1);
     expect(sessions.filter((session) => session.createdAccount)).toHaveLength(1);
-    for (const table of ["account_onboarding", "account_entitlement_grants", "email_identities", "email_jobs"]) {
-      expect((await db.query(`SELECT user_id FROM ${table} WHERE user_id = $1`, [sessions[0].userId])).rows).toHaveLength(1);
+    // One account: a free and a trial grant, and the welcome plus two trial notices.
+    for (const [table, rows] of [["account_onboarding", 0], ["account_entitlement_grants", 2], ["email_identities", 1], ["email_jobs", 3]] as const) {
+      expect((await db.query(`SELECT user_id FROM ${table} WHERE user_id = $1`, [sessions[0].userId])).rows).toHaveLength(rows);
     }
   });
 
@@ -89,15 +90,16 @@ describePostgres("external signup PostgreSQL transactions", () => {
     const person = identity();
     const proof = await service.create(person, "/");
     const before = (await db.query("SELECT id FROM users")).rows.length;
-    await db.query("ALTER TABLE account_onboarding ADD CONSTRAINT test_signup_failure CHECK (timezone <> 'Etc/GMT+1')");
+    // Fails the last onboarding write, the trial-ended notice; earlier tests' rows stay unchecked.
+    await db.query("ALTER TABLE email_jobs ADD CONSTRAINT test_signup_failure CHECK (message_kind <> 'storage_trial_ended') NOT VALID");
     try {
-      await expect(complete(proof, { ...input, timezone: "Etc/GMT+1" })).rejects.toThrow();
+      await expect(complete(proof)).rejects.toThrow();
       expect((await db.query("SELECT id FROM users")).rows).toHaveLength(before);
       expect((await db.query("SELECT user_id FROM external_identities WHERE subject = $1", [person.subject])).rows).toHaveLength(0);
       expect((await db.query("SELECT user_id FROM account_creation_email_claims WHERE normalized_email = $1", [person.email])).rows).toHaveLength(0);
       expect((await db.query("SELECT token_hash FROM external_signup_challenges WHERE token_hash = $1", [tokenHash(proof)])).rows).toHaveLength(1);
     } finally {
-      await db.query("ALTER TABLE account_onboarding DROP CONSTRAINT test_signup_failure");
+      await db.query("ALTER TABLE email_jobs DROP CONSTRAINT test_signup_failure");
     }
     const retried = await complete(proof);
     expect(retried.createdAccount).toBe(true);

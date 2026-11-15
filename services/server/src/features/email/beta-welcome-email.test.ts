@@ -10,13 +10,11 @@ const APPROVED_TEXT = `Hi Person Example,
 
 Thanks for signing up for mdbase Connect.
 
-My name is Callum. I've been working on mdbase as a tool for doing more with markdown files, and as you are getting started with mdbase, I want to say a few words about its philosophy, how it works, and some precautions that you might need to take.
+My name is Callum. I've been working on mdbase as a tool for doing more with markdown files, and as you are getting started with mdbase, I want to say a few words about its philosophy and how it works.
 
 I think markdown files are great because they are human readable, work with ordinary text-editing tools, and they remain useful even as the software around them changes or disappears. mdbase Connect is designed to keep these qualities while making it easier to build applications on top of collections of markdown files and providing a secure way to connect to these files over the internet.
 
-A lot of the software that we use, especially SaaS software, puts your data in its own database. This can make it difficult to use elsewhere or leave with the data when the software becomes unsuitable to your needs. The goal of mdbase is to enable users to enjoy good software while maintaining control of their data, with or without mdbase.
-
-There is one important thing to keep in mind, though. By design, an application you connect may be able to read data from a collection. If you give it write access, it may also be able to create, change, move, or delete files in that collection, and, again by design, those changes can be synchronized back to your computer. mdbase checks that each application stays within the permissions you've granted, but you should still only connect applications you trust, especially when they ask for write access.
+A lot of the software that we use, especially SaaS software, puts your data in its own database. This can make it difficult to use elsewhere or to leave with your data when the software no longer suits your needs. The goal of mdbase is to enable users to enjoy good software while maintaining control of their data, with or without mdbase.
 
 You can also build applications using the mdbase SDK. This is a way to make your own tools that work with your data online or offline, without giving a third-party application access to it.
 
@@ -36,7 +34,7 @@ describe("Beta welcome email", () => {
     });
     expect(message).toMatchObject({
       to: "person@example.com",
-      subject: "A note about mdbase Connect",
+      subject: "Welcome to mdbase Connect",
       text: APPROVED_TEXT
     });
     expect(message.text).toMatch(/^[\x00-\x7f]*$/u);
@@ -61,6 +59,45 @@ describe("Beta welcome email", () => {
       templateVersion: 1,
       unsubscribeUrl: null
     })).toEqual(message);
+  });
+
+  it("describes the free plan and storage trial to new signups", () => {
+    const message = renderScheduledEmail({
+      userId: "user-1",
+      name: "Person Example",
+      email: "person@example.com",
+      messageKind: "signup_welcome",
+      templateVersion: 1,
+      unsubscribeUrl: null
+    });
+    expect(message.text).toContain(
+      "Your account is on the Free plan. It includes 1 synced collection, which you can share with one other person, and 250 MB of storage for the files you upload. For your first month, your account has a 5 GB storage trial, and I'll email you a week before it ends."
+    );
+    expect(message.text).not.toContain("paid plans");
+    expect(message.text).not.toContain("does not expire");
+    expect(message.text).not.toContain("starter collection");
+  });
+
+  it.each([
+    ["storage_trial_ending", "Your mdbase Connect storage trial ends in 7 days"],
+    ["storage_trial_ended", "Your mdbase Connect storage trial has ended"]
+  ])("renders the %s notice with the free allowance and kept files", (messageKind, subject) => {
+    // Essential account email: the scheduler issues no unsubscribe link.
+    const message = renderScheduledEmail({
+      userId: "user-1",
+      name: "Person Example",
+      email: "person@example.com",
+      messageKind,
+      templateVersion: 1,
+      unsubscribeUrl: null
+    });
+    expect(message.subject).toBe(subject);
+    expect(message.html).toContain(`<title>${subject}</title>`);
+    expect(message.text).toContain("250 MB");
+    expect(message.text).toContain("Your existing files are kept, and nothing is deleted.");
+    expect(message.text).toContain("new uploads will pause");
+    expect(message.text.endsWith("Best,\nCallum.")).toBe(true);
+    expect(message.html).not.toContain("Unsubscribe");
   });
 
   it("escapes recipient names in the matching HTML version", () => {

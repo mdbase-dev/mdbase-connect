@@ -659,6 +659,11 @@ section:has(> .connect-row:nth-child(8)) > .connect-row {
   margin: 0;
 }
 
+/* The trial's end is the one consequential fact in the card, so it reads at full strength. */
+.connect-subscription-storage p.connect-subscription-trial {
+  color: var(--ink);
+}
+
 .connect-account-row {
   min-height: 66px;
   display: grid;

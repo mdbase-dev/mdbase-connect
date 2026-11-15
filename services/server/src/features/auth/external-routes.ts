@@ -103,7 +103,10 @@ export function registerExternalAuthRoutes(
       name: z.string().transform((name) => name.normalize("NFC").trim()).pipe(z.string().min(1).max(100)),
       terms_version: z.string().min(1).max(100),
       privacy_version: z.string().min(1).max(100),
-      timezone: ianaTimezoneSchema,
+      // Ignored: public signups no longer get a starter collection. Accepted
+      // because portal pages loaded before that release send it; remove after
+      // the following release.
+      timezone: ianaTimezoneSchema.optional(),
       // Optional so a portal page loaded before this release can still
       // finish signup; absence means no consent.
       product_updates: z.boolean().default(false)
@@ -115,13 +118,12 @@ export function registerExternalAuthRoutes(
       name: input.name,
       termsVersion: input.terms_version,
       privacyVersion: input.privacy_version,
-      timezone: input.timezone,
       clientName: sessionClientName(request.headers["user-agent"]),
       productUpdates: input.product_updates
     });
     reply.clearCookie(signupCookieName(options.publicUrl), { path: "/", secure: options.publicUrl.startsWith("https:") });
     setSessionCookie(reply, session.token, options.publicUrl);
-    return { redirect_to: session.createdAccount && session.returnTo === "/" ? "/getting-started" : session.returnTo };
+    return { redirect_to: session.returnTo };
   });
 
   async function finishLogin(
