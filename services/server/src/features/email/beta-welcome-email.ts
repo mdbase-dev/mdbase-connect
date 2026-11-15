@@ -18,6 +18,12 @@ const SIGNUP_WELCOME_TEMPLATE_VERSION = 1;
 const STORAGE_TRIAL_ENDING_MESSAGE_KIND = "storage_trial_ending";
 const STORAGE_TRIAL_ENDED_MESSAGE_KIND = "storage_trial_ended";
 const STORAGE_TRIAL_TEMPLATE_VERSION = 1;
+// The November 2026 announcement of Plus and the apps, queued once by an
+// operator (`auth-admin announcements schedule`). The beta kind adds a line
+// about the beta allowance. Remove both once no queued job remains.
+export const PLUS_AND_APPS_MESSAGE_KIND = "plus_and_apps_announcement";
+export const PLUS_AND_APPS_BETA_MESSAGE_KIND = "plus_and_apps_announcement_beta";
+export const PLUS_AND_APPS_TEMPLATE_VERSION = 1;
 const DAY_MS = 24 * 60 * 60 * 1_000;
 const BETA_WELCOME_DELAY_MS = DAY_MS;
 
@@ -106,6 +112,16 @@ export function renderScheduledEmail(
     context.messageKind === STORAGE_TRIAL_ENDED_MESSAGE_KIND
     && context.templateVersion === STORAGE_TRIAL_TEMPLATE_VERSION
   ) return renderStorageTrialEndedEmail(context);
+  if (
+    (context.messageKind === PLUS_AND_APPS_MESSAGE_KIND
+      || context.messageKind === PLUS_AND_APPS_BETA_MESSAGE_KIND)
+    && context.templateVersion === PLUS_AND_APPS_TEMPLATE_VERSION
+  ) {
+    return renderPlusAndAppsEmail(
+      context,
+      context.messageKind === PLUS_AND_APPS_BETA_MESSAGE_KIND
+    );
+  }
   throw new TypeError("Scheduled email template is unavailable.");
 }
 
@@ -156,6 +172,30 @@ function renderStorageTrialEndedEmail(
     `Hi ${input.name},`,
     "Your mdbase Connect account's first-month storage trial ended today, so your storage has dropped from 5 GB to the Free plan's 250 MB.",
     ...STORAGE_TRIAL_AFTER
+  ]);
+}
+
+export function renderPlusAndAppsEmail(
+  input: Pick<EmailRenderContext, "name" | "email" | "unsubscribeUrl">,
+  beta: boolean
+): TransactionalEmail {
+  const plan = [
+    "First, there's now a paid plan. mdbase Plus is US$10 a month, or US$96 a year, and it gives you 100 GB of storage for the files you upload, up to 10 synced collections, and room to share your collections with up to 5 people. The Free plan isn't changing. On both plans, notes don't count towards storage; only uploaded files like PDFs and images do.",
+    ...beta
+      ? ["If you joined during the beta, your beta allowance stays with your account whether or not you upgrade."]
+      : [],
+    "You can upgrade from your account page: https://connect.mdbase.dev/account"
+  ].join(" ");
+  return renderAccountEmail(input, "mdbase Plus, and three apps you might not have seen", [
+    `Hi ${input.name},`,
+    "I wanted to send a quick update on mdbase, because a few things have changed since you signed up.",
+    plan,
+    "Second, I've been building a few apps on top of mdbase that I don't think many people know about. They all work with the same markdown files in your collections, so you can use them together, or open what they write in any other editor.",
+    "mdbase Reader is for reading and annotating PDFs, EPUBs and saved web pages. Each highlight and comment is saved as its own markdown file, and there's a Chrome extension for saving and highlighting pages as you read. https://reader.mdbase.dev",
+    "mdbase Writer is for writing longer things in markdown, like papers, theses and books. It has a typeset preview, citations from your Reader library, and export to PDF or Word. https://writer.mdbase.dev",
+    "mdbase Journal is much simpler. It opens to a blank page every time, and each entry becomes a markdown note in your collection. https://journal.mdbase.dev/",
+    "Reader and Writer are still early, and Journal is more of an experiment, so there will probably be some rough edges. As always, please let me know when something breaks, behaves unexpectedly, or is confusing. You can send an email to support@mdbase.dev or open an issue on GitHub. Feedback is super-helpful at this stage!",
+    "Best,\nCallum."
   ]);
 }
 

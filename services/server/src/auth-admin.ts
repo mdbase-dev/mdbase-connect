@@ -13,6 +13,10 @@ import {
   reconcileActiveHostedEntitlements
 } from "./features/instance-admin/auth-admin-entitlements.js";
 import {
+  previewPlusAndAppsAnnouncement,
+  schedulePlusAndAppsAnnouncement
+} from "./features/instance-admin/auth-admin-announcements.js";
+import {
   AuthenticationPolicyStore,
   type AuthenticationSettings
 } from "./features/auth/authentication-policy.js";
@@ -34,6 +38,7 @@ import {
 } from "./features/email/invitation-email.js";
 import {
   InstanceAdminService,
+  resolveUserId,
   type HostedReplicaRevoker,
   type ConnectorSessionFencer,
   type OperatorMutation
@@ -138,6 +143,9 @@ async function runCommand(
     const flags = parseFlags(rest, new Set(["operation-id", "actor", "reason", "limit"]));
     return backfillFreeEntitlement(context.db, { operationId: requiredFlag(flags, "operation-id"), actor: requiredFlag(flags, "actor"), reason: requiredFlag(flags, "reason"), limit: flags.get("limit") });
   }
+  if (area === "announcements" && (action === "preview" || action === "schedule")) {
+    return announce(action, rest, context);
+  }
   if (area === "users" && action === "list") {
     return listUsers(rest, context);
   }
@@ -220,6 +228,27 @@ async function grantEntitlements(
     ...result,
     reconciliation
   };
+}
+
+async function announce(
+  action: "preview" | "schedule",
+  argv: string[],
+  context: AuthAdminContext
+): Promise<unknown> {
+  const flags = parseFlags(argv, new Set(action === "preview"
+    ? ["announcement", "user", "all"]
+    : ["announcement", "user", "all", "operation-id", "actor", "reason"]));
+  if (requiredFlag(flags, "announcement") !== "plus-and-apps") {
+    throw new AuthAdminUsageError("--announcement must be plus-and-apps.");
+  }
+  const all = flags.has("all") && enabledFlag(requiredFlag(flags, "all"), "all");
+  if (Number(all) + Number(flags.has("user")) !== 1) {
+    throw new AuthAdminUsageError("Announcements require exactly one of --user or --all enabled.");
+  }
+  const userId = all ? null : await resolveUserId(context.db, requiredFlag(flags, "user"));
+  return action === "preview"
+    ? previewPlusAndAppsAnnouncement(context.db, userId)
+    : schedulePlusAndAppsAnnouncement(context.db, userId, mutationFlags(flags));
 }
 
 async function reconcileEntitlements(
