@@ -87,15 +87,15 @@ for (const width of [1440, 390]) for (const theme of ["light", "dark"] as const)
       await page.screenshot({ path: testInfo.outputPath("help.png") });
     });
 
-    test("paints the phone shell before scripts and keeps recovery honest", async ({ page }, testInfo) => {
+    test("paints the opening screen before scripts and keeps recovery honest", async ({ page }, testInfo) => {
       await page.emulateMedia({ colorScheme: theme, reducedMotion: motion });
       await page.route("**/assets/*.js", async route => {
         await new Promise(resolve => setTimeout(resolve, 500));
         await route.continue();
       });
       await page.goto("?demo=4", { waitUntil: "commit" });
-      await expect(page.locator(".opening-list-skeleton").first()).toBeVisible();
-      await expect(page.locator(".editor-opening .list-header").first()).toBeVisible();
+      await expect(page.locator("[data-opening-page] .mdbase-opening-mark")).toBeVisible();
+      await expect(page.getByRole("status")).toContainText("Opening collection");
       await page.screenshot({ path: testInfo.outputPath("opening.png") });
       await page.waitForLoadState("networkidle");
       await page.unrouteAll({ behavior: "wait" });

@@ -980,7 +980,6 @@ msgstr "显示此类型的记录时使用的提示标签和颜色。"
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/EditorRail.tsx
-#: src/LoadingScreens.tsx
 #: src/note-list-view.ts
 msgid "All notes"
 msgstr "所有笔记"
@@ -1156,7 +1155,6 @@ msgid "Back to mdbase Connect"
 msgstr "返回 mdbase Connect"
 
 #: src/App.tsx
-#: src/LoadingScreens.tsx
 msgid "Back to notes"
 msgstr "返回笔记"
 
@@ -3141,7 +3139,6 @@ msgid "More inferred rules in YAML"
 msgstr "YAML 中的更多推断规则"
 
 #: src/App.tsx
-#: src/LoadingScreens.tsx
 msgid "More note actions"
 msgstr "更多笔记操作"
 
@@ -3275,7 +3272,6 @@ msgstr "新建文件夹"
 
 #: src/App.tsx
 #: src/editor-commands.ts
-#: src/LoadingScreens.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
 msgid "New note"
@@ -4572,7 +4568,6 @@ msgstr "由架构管理的字段"
 msgid "Scope"
 msgstr "范围"
 
-#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search"
 msgstr "搜索"
@@ -4586,7 +4581,6 @@ msgid "Search is incomplete."
 msgstr "搜索结果不完整。"
 
 #: src/editor-commands.ts
-#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search notes and files"
 msgstr "搜索笔记和文件"

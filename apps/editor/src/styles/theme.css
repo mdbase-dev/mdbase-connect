@@ -30,6 +30,5 @@
   --warning-soft: var(--color-warning-surface);
   --danger: var(--color-danger);
   --danger-soft: var(--color-danger-soft);
-  --skeleton: var(--color-skeleton);
 }
 

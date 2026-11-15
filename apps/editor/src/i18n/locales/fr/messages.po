@@ -980,7 +980,6 @@ msgstr "Libellés indicatifs et couleur utilisés pour afficher les documents de
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/EditorRail.tsx
-#: src/LoadingScreens.tsx
 #: src/note-list-view.ts
 msgid "All notes"
 msgstr "Toutes les notes"
@@ -1156,7 +1155,6 @@ msgid "Back to mdbase Connect"
 msgstr "Retour à mdbase Connect"
 
 #: src/App.tsx
-#: src/LoadingScreens.tsx
 msgid "Back to notes"
 msgstr "Retour aux notes"
 
@@ -3141,7 +3139,6 @@ msgid "More inferred rules in YAML"
 msgstr "Autres règles déduites en YAML"
 
 #: src/App.tsx
-#: src/LoadingScreens.tsx
 msgid "More note actions"
 msgstr "Autres actions sur la note"
 
@@ -3275,7 +3272,6 @@ msgstr "Nouveau dossier"
 
 #: src/App.tsx
 #: src/editor-commands.ts
-#: src/LoadingScreens.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
 msgid "New note"
@@ -4572,7 +4568,6 @@ msgstr "Champs gérés par le schéma"
 msgid "Scope"
 msgstr "Portée"
 
-#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search"
 msgstr "Rechercher"
@@ -4586,7 +4581,6 @@ msgid "Search is incomplete."
 msgstr "La recherche est incomplète."
 
 #: src/editor-commands.ts
-#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search notes and files"
 msgstr "Rechercher des notes et des fichiers"

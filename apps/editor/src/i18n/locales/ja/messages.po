@@ -980,7 +980,6 @@ msgstr "この型のレコードを表示する際に使う補助的なラベル
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/EditorRail.tsx
-#: src/LoadingScreens.tsx
 #: src/note-list-view.ts
 msgid "All notes"
 msgstr "すべてのノート"
@@ -1156,7 +1155,6 @@ msgid "Back to mdbase Connect"
 msgstr "mdbase Connect に戻る"
 
 #: src/App.tsx
-#: src/LoadingScreens.tsx
 msgid "Back to notes"
 msgstr "ノート一覧に戻る"
 
@@ -3141,7 +3139,6 @@ msgid "More inferred rules in YAML"
 msgstr "その他の推論ルールを YAML で設定"
 
 #: src/App.tsx
-#: src/LoadingScreens.tsx
 msgid "More note actions"
 msgstr "その他のノート操作"
 
@@ -3275,7 +3272,6 @@ msgstr "新しいフォルダー"
 
 #: src/App.tsx
 #: src/editor-commands.ts
-#: src/LoadingScreens.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
 msgid "New note"
@@ -4572,7 +4568,6 @@ msgstr "スキーマで管理されるフィールド"
 msgid "Scope"
 msgstr "対象範囲"
 
-#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search"
 msgstr "検索"
@@ -4586,7 +4581,6 @@ msgid "Search is incomplete."
 msgstr "検索はまだ完了していません。"
 
 #: src/editor-commands.ts
-#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search notes and files"
 msgstr "ノートとファイルを検索"

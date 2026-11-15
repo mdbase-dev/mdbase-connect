@@ -185,28 +185,21 @@ test("target icon buttons advertise their actual keyboard activation", async ({ 
 });
 
 for (const colorScheme of ["light", "dark"] as const) {
-  test(`phone skeleton matches title, excerpt and divider rhythm in ${colorScheme}`, async ({ page }, testInfo) => {
+  test(`phone opening screen fills the first frame on the canvas in ${colorScheme}`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.emulateMedia({ colorScheme });
     await page.route("**/assets/*.js", route => route.abort());
     await page.goto("?demo=4");
-    await page.keyboard.press("Tab");
-    const opening = page.locator(".editor-opening");
-    const skeleton = opening.locator(".opening-list-skeleton");
-    const rows = skeleton.locator(":scope > div");
-    await expect(rows).toHaveCount(6);
-    const measurements = await rows.evaluateAll(elements => elements.map(element => ({ height: element.getBoundingClientRect().height, divider: getComputedStyle(element).borderBottomWidth, bars: [...element.children].map(child => child.getBoundingClientRect().height) })));
-    await testInfo.attach("skeleton-measurement", { contentType: "application/json", body: JSON.stringify(measurements) });
-    for (const row of measurements) {
-      expect(row.height).toBe(76);
-      expect(row.divider).toBe("1px");
-      expect(row.bars).toHaveLength(3);
-      expect(row.bars[0]).toBeCloseTo(16.9, 1);
-      expect(row.bars[1]).toBeCloseTo(18.2, 1);
-    }
-    await expect(opening).not.toContainText("Reading its notes and types");
+    const opening = page.locator("[data-opening-page]");
+    await expect(opening.locator(".mdbase-opening-mark")).toBeVisible();
     expect(await opening.boundingBox()).toMatchObject({ x: 0, y: 0, width: 390, height: 844 });
-    await opening.screenshot({ path: testInfo.outputPath(`skeleton-${colorScheme}.png`) });
+    const colors = await page.evaluate(() => ({
+      page: getComputedStyle(document.querySelector("[data-opening-page]")!).backgroundColor,
+      chrome: document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')!.content
+    }));
+    expect(colors.chrome).toBe(colorScheme === "dark" ? "#1b1d23" : "#fcfcfd");
+    await testInfo.attach("opening-colors", { contentType: "application/json", body: JSON.stringify(colors) });
+    await opening.screenshot({ path: testInfo.outputPath(`opening-${colorScheme}.png`) });
   });
 }
 

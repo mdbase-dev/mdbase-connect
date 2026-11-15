@@ -980,7 +980,6 @@ msgstr "이 유형의 레코드를 표시할 때 사용하는 참고용 레이�
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/EditorRail.tsx
-#: src/LoadingScreens.tsx
 #: src/note-list-view.ts
 msgid "All notes"
 msgstr "모든 노트"
@@ -1156,7 +1155,6 @@ msgid "Back to mdbase Connect"
 msgstr "mdbase Connect로 돌아가기"
 
 #: src/App.tsx
-#: src/LoadingScreens.tsx
 msgid "Back to notes"
 msgstr "노트로 돌아가기"
 
@@ -3141,7 +3139,6 @@ msgid "More inferred rules in YAML"
 msgstr "YAML에서 더 많은 추론 규칙"
 
 #: src/App.tsx
-#: src/LoadingScreens.tsx
 msgid "More note actions"
 msgstr "추가 노트 작업"
 
@@ -3275,7 +3272,6 @@ msgstr "새 폴더"
 
 #: src/App.tsx
 #: src/editor-commands.ts
-#: src/LoadingScreens.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
 msgid "New note"
@@ -4572,7 +4568,6 @@ msgstr "스키마 관리 필드"
 msgid "Scope"
 msgstr "범위"
 
-#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search"
 msgstr "검색"
@@ -4586,7 +4581,6 @@ msgid "Search is incomplete."
 msgstr "검색이 완료되지 않았습니다."
 
 #: src/editor-commands.ts
-#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search notes and files"
 msgstr "노트 및 파일 검색"
