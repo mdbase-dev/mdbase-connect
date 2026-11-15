@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { verifyPublicationSource, verifyProductionReadiness, verifyRemotePublicationTag } from "../verify-client-publication.mjs";
+import { readProductionRelease, verifyPublicationSource, verifyProductionReadiness, verifyRemotePublicationTag } from "../verify-client-publication.mjs";
 
 const sha = "a".repeat(40);
 const source = { event: "workflow_dispatch", ref: "refs/tags/v0.1.0-beta.96", sha, head: sha, version: "0.1.0-beta.96", verifiedCommit: sha };
@@ -63,6 +63,60 @@ test("HTTP, redirect, timeout and malformed JSON failures cannot qualify", async
   for (const message of ["redirect", "timeout", "invalid JSON"]) {
     await assert.rejects(verifyProductionReadiness(sha, source.version, async () => { throw new Error(message); }));
   }
+});
+// A rolling promotion: each observation round returns its own responses.
+function promotion(rounds) {
+  const calls = [];
+  let round = -1;
+  const fetchImpl = async (url) => {
+    calls.push(url);
+    const index = ["https://connect.mdbase.dev/health", "https://connect.mdbase.dev/ready", "https://sync.mdbase.dev/ready", "https://mcp.mdbase.dev/health"].indexOf(url);
+    if (index === 0) round++;
+    const value = rounds[Math.min(round, rounds.length - 1)][index];
+    return typeof value === "number" ? { ok: false, status: value } : { ok: true, json: async () => value };
+  };
+  let clock = 0;
+  const sleeps = [];
+  const options = { settleMs: 25 * 60_000, pollMs: 45_000, now: () => clock, sleep: async (ms) => { sleeps.push(ms); clock += ms; } };
+  return { fetchImpl, calls, sleeps, options };
+}
+const skewed = () => { const values = structuredClone(responses); values[3].revision = "b".repeat(40); return values; };
+test("an immediate consistent production identity makes no extra calls", async () => {
+  const fake = promotion([structuredClone(responses)]);
+  assert.deepEqual(await readProductionRelease(fake.fetchImpl, fake.options), { sha, version: source.version, providerSha: "c".repeat(40) });
+  assert.equal(fake.calls.length, 4);
+  assert.deepEqual(fake.sleeps, []);
+});
+test("a rolling promotion is re-observed until Connect and MCP agree", async () => {
+  const connectRestarting = structuredClone(responses);
+  connectRestarting[1] = 503;
+  const providerStarting = structuredClone(responses);
+  providerStarting[2].status = "starting";
+  const fake = promotion([skewed(), connectRestarting, providerStarting, skewed(), structuredClone(responses)]);
+  assert.deepEqual(await readProductionRelease(fake.fetchImpl, fake.options), { sha, version: source.version, providerSha: "c".repeat(40) });
+  assert.deepEqual(fake.sleeps, [45_000, 45_000, 45_000, 45_000]);
+});
+test("a promotion that never converges fails with the same message within the bound", async () => {
+  const fake = promotion([skewed()]);
+  await assert.rejects(readProductionRelease(fake.fetchImpl, fake.options), { message: "Canonical production MCP identity is absent or mismatched." });
+  assert.ok(fake.sleeps.reduce((total, ms) => total + ms, 0) <= 25 * 60_000);
+  assert.equal(fake.sleeps.length, Math.floor(25 * 60_000 / 45_000));
+});
+test("waiting never retries an identity that a promotion cannot explain", async () => {
+  for (const [index, change] of [
+    [0, { environment: "staging" }], [0, { capabilities: [] }], [1, { service: "other" }],
+    [2, { provider: undefined }], [2, { notifications: { recovery: "failed", consecutive_failures: 1 } }],
+    [3, { service: "mdbase-connect" }], [3, { revision: undefined }], [3, { ok: false }]
+  ]) {
+    const values = structuredClone(responses);
+    Object.assign(values[index], change);
+    const fake = promotion([values]);
+    await assert.rejects(readProductionRelease(fake.fetchImpl, fake.options));
+    assert.deepEqual(fake.sleeps, [], JSON.stringify(change));
+  }
+  const fake = promotion([skewed()]);
+  await assert.rejects(readProductionRelease(fake.fetchImpl), /MCP identity/);
+  assert.equal(fake.calls.length, 4, "without settleMs the observation stays single-shot");
 });
 const workflow = async (name) => readFile(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), "utf8");
 test("client publishers retain qualified source guards and cannot publish on an unqualified tag push", async () => {

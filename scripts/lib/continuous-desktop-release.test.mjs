@@ -164,5 +164,11 @@ test("automatic desktop jobs preserve tag-bound signing, full CI, e2e and notari
   assert.match(workflow, /minimum=.*config\/desktop-update-minimum\.json/);
   assert.match(workflow, /--blocked-versions "\$\{UPDATE_BLOCKED_VERSIONS:-\}"/);
   assert.match(workflow, /needs: \[build, headless-package-smoke, cross-platform-release-tests, windows-package-smoke\]/);
+  // One settled production observation gates every platform build.
+  assert.match(workflow, /compatibility:[\s\S]*timeout-minutes: 35[\s\S]*run: node scripts\/continuous-desktop-release\.mjs compatible\n/);
+  assert.match(workflow, /  build:\n    needs: \[release-policy-tests, compatibility\]/);
+  assert.equal(workflow.split("continuous-desktop-release.mjs compatible").length - 1, 2, "one build gate and one publish guard");
+  const source = readFileSync(new URL("../continuous-desktop-release.mjs", import.meta.url), "utf8");
+  assert.match(source, /verifyCompatibility\(env, \{ settleMs: promotionSettleMs \}\)/);
   assert.match(workflow, /if: github.event_name == 'workflow_dispatch' && startsWith\(github.ref, 'refs\/tags\/v'\) && inputs.operation == 'release'/);
 });
