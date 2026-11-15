@@ -2,7 +2,6 @@ import { Trans } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import "@mdbase-dev/ui/fonts.css";
-import "@mdbase-dev/ui/live-preview.css";
 import "@mdbase-dev/ui/tokens.css";
 import "@mdbase-dev/ui/brand.css";
 import "@mdbase-dev/ui/controls.css";

@@ -1,3 +1,6 @@
+// Loads with this lazy chunk: the live-preview and KaTeX styles only matter once a note editor
+// opens, and keeping them out of the first load holds the initial CSS within its budget.
+import "@mdbase-dev/ui/live-preview.css";
 import { useLingui } from "@lingui/react";
 import { isLocale } from "@mdbase-dev/i18n";
 import { englishCodeMirrorPhrases, loadCodeMirrorPhrases } from "@mdbase-dev/i18n/codemirror";
