@@ -25,8 +25,9 @@ function stateFor(doc: string, caret?: number, focused = false) {
     const effects = state.facet(EditorView.focusChangeEffect).map((effect) => effect(state, true)).filter((effect) => effect !== null);
     state = state.update({ effects }).state;
   }
+  // Finish the parse and hand it to the state, as the editor's background parse does.
   ensureSyntaxTree(state, state.doc.length, 5000);
-  return state;
+  return state.update({}).state;
 }
 
 function nodes(doc: string, name: string) {
@@ -72,6 +73,12 @@ it("parses display blocks, one-line blocks and a block interrupting a paragraph"
   // Unclosed, like a code fence: the rest of the container.
   expect(nodes("$$\nx\n\nmore", "MathBlock")).toEqual(["$$\nx\n\nmore"]);
   expect(nodes("> $$\n> x\n\nAfter $$", "MathBlock")).toEqual(["$$\n> x"]);
+});
+
+it("renders a formula past the first parse once the rest of a long note is parsed", () => {
+  const filler = "Prose that the first parse of a note covers, line after line.\n\n".repeat(80);
+  const block = "$$\nx^2\n$$";
+  expect(decorations(stateFor(`${filler}${block}\n`, 0))).toEqual([{ from: filler.length, to: filler.length + block.length, kind: "block", source: "x^2", block: true }]);
 });
 
 it("renders formulas where the selection is not", () => {
