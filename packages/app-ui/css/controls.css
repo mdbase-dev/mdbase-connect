@@ -33,6 +33,10 @@
   position: fixed;
   inset: auto;
   margin: 0;
+  /* Measured before placement at its static position beside the trigger;
+     without an intrinsic width it shrinks near the window edge and breaks
+     its label mid-word. */
+  width: max-content;
   display: flex;
   align-items: center;
   gap: 12px;

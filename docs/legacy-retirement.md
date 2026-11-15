@@ -5,6 +5,8 @@ workspace on `../mdbase-rs`, the legacy hosted provider at `sync.mdbase.dev`,
 `packages/sync`, and the server, deploy, test and docs code that exists only for
 them. Traced read-only on 2026-11-10 from `origin/main` fb59ee214, mdbase-cloud-ops
 `main`, and the other first-party repos. Line counts are `wc -l` over tracked files.
+The production facts were refreshed on 2026-11-15 from operations records; no
+production query was run for them.
 
 Tiers:
 
@@ -17,17 +19,32 @@ Production facts used (sources: agents-notes `docs/2026-10-29-mdbase-next-februa
 `docs/2026-10-30-retire-production-migration-worker-plan.md`, cloud-ops Render
 state and locks, public endpoints):
 
-- The bulk migration finished on 2026-10-29. One account, `a9bf357e`, stays on
-  `legacy` on purpose: it is suspended and has one hosted collection.
-- Retention: legacy data and rollback evidence are kept 90 days after each cutover,
-  until 2027-01-27 at the latest. Per-account recovery archives expire on 2027-02-22,
-  with removal verified by 2027-02-24. The close-out reminder is set for 2027-02-25.
-  No late legacy import is planned; any stragglers go through support by hand.
-- About 700 migrated collections are still served by the migration Worker
-  `mdbase-next-hosted-mig-production` until their hosting-move.
+- The bulk migration finished on 2026-10-29. Nine accounts created on
+  2026-10-24, after the bulk selection cutoff and before new accounts became
+  `next`, were missed; they migrated on 2026-11-14. Two accounts stay on `legacy`
+  on purpose: `a9bf357e`, which is suspended and has one hosted collection, and
+  an internal test baseline account. Nothing in mdbase-cloud-ops uses the
+  baseline account.
+- Retention: legacy data and rollback evidence are kept 90 days after each
+  cutover, so until about 2027-02-12 (inferred from the 2026-11-14 cutovers).
+  The last per-account recovery archive expires on 2027-03-10, with removal
+  verified by 2027-03-12. The close-out reminder was set for 2027-02-25 and has
+  to move to 2027-03-13 or later.
+- The hosting-move ran on 2026-11-02: all 699 collections migrated by then moved
+  to the control-plane hosted Worker. The 2026-11-14 wave linked three accounts'
+  collections to the migration Worker `mdbase-next-hosted-mig-production` again;
+  they need a second move before that Worker can be deleted.
 - The legacy provider `mdbase-connect-hosted-provider` (`sync.mdbase.dev`) is live:
   `/ready` returns 200. Every server CD rebuilds and redeploys it at the same
-  revision as Connect.
+  revision as Connect. It does not serve migrated collections, which come from
+  the next log. The control plane still depends on the service: Connect `/ready`
+  fails without it (and with it the production verification and the monitor),
+  and usage reporting, entitlement and account reconciliation, notification
+  grants, account deletion, the migration and rollback endpoints and the two
+  legacy accounts all call it.
+- The legacy tools in mdbase-cloud-ops (`staging-accept-extended`, the hosted
+  transfer and fixture rehearsals, the LAB legacy seed) run only by hand on LAB
+  or staging. No continuous-deployment gate runs them.
 - Production sets `MDBASE_NEW_ACCOUNT_BACKEND=next` (declared in `render.yaml`), which
   matches the code default (`services/server/src/platform/runtime-config.ts`).
 - `config/desktop-update-minimum.json` sets the desktop minimum to `0.1.0-beta.130`,
@@ -98,8 +115,8 @@ independent of each other. 2c is last.
 **Condition:**
 
 - the legacy account count is 0, or `a9bf357e` has been resolved (deleted, or moved by support);
-- the legacy retention window has passed (2027-01-27);
-- recovery archives have been removed and verified (2027-02-24);
+- the legacy retention window has passed (about 2027-02-12);
+- recovery archives have been removed and verified (2027-03-12);
 - the ops consumers of the provider are gone.
 
 | Unit | Lines | Consumers to remove first |
@@ -112,15 +129,17 @@ independent of each other. 2c is last.
 | `deploy/postgres/*.sql` | 1,167 | cloud-ops `hosted-schema-admin` and `hosted-database-drain-admin` |
 | Provider system suites: `scripts/hosted-provider-e2e.mjs`, `hosted-files-e2e.mjs`, `hosted-file-adversarial-e2e.mjs`, `hosted-projection-scale-e2e.mjs`, `sync-e2e.mjs`, `scripts/system/provider/*`; `server-ci` jobs `hosted-provider-rust` and the `hosted-provider-system` shards | about 6.9k | These guard the provider that every CD still deploys. Freezing the provider image digest would move them to Tier 1. Already removed: the opt-in `binary-transfer-benchmark` job, and the engine checkout and Cargo build in the `relay`, `sync` and `linux-packages` shards, which never started the provider, and the provider Rust stress on the macOS and Windows legs of `flake-stress`. |
 | Upgrade lanes: `test/upgrade/*`; `server-ci` jobs `previous-release-upgrade`, `current-provider-upgrade` (`--current-upgrade` against `.github/previous-release.env`) and `retained-v2-server-pending` (beta95) | about 1.7k | Same as above. `retained-v2-server-pending` also stays because it is the only lane that starts an older server on the candidate's migrated control-plane schema; it goes once a check against the merge-base server replaces it. Already removed, because both ends were published historical images or the workflow was not a gate: `previous-provider-upgrade` (beta94 `--legacy-prelude`), the beta95 `--retained-v2` step of the former `retained-v2-provider-upgrade`, and `rollback-read-compat.yml`. |
-| Self-host: `deploy/self-host/compose.yml`, `docs/self-hosting.md` | 877 | They run the legacy provider with no next log service, and new accounts default to `legacy`. Replace them with a next self-host, or withdraw self-hosting; that is a product decision. |
+| Self-host: `deploy/self-host/compose.yml`, `docs/self-hosting.md` | 877 | They run the legacy provider with no next log service, and new accounts are `legacy`. No shipped client can use such a stack: the legacy connector is gone, and installation sign-in refuses a `legacy` account (`installation_legacy_backend`). Replace them with a next self-host, or withdraw self-hosting; that is a product decision. |
 | Legacy-stack docs: `docs/sync.md`, `hosted-provider.md`, `lossless-opaque-sync-acceptance.md`, `docs/architecture/hosted-*` and `sdk-wave-b-*`, decisions 0003, 0005, 0006, 0010 and 0011, the legacy sections of `architecture.md`, `performance.md` and `encryption.md` | about 3.8k | Links only |
 
 ### 2b: migration Worker retired
 
 **Condition:** every collection served by `mdbase-next-hosted-mig-production` has
 completed its hosting-move (KMS ReEncrypt) and the Worker has been deleted, as in
-the 2026-10-30 retirement plan. 2a's retention window must also have passed,
-because the legacy-source connections read provider data.
+the 2026-10-30 retirement plan. The first move covered 699 collections on
+2026-11-02; the three accounts migrated on 2026-11-14 still need theirs. 2a's
+retention window must also have passed, because the legacy-source connections
+read provider data, and rolling an account back needs this machinery.
 
 | Unit | Lines |
 | --- | --- |
@@ -135,7 +154,9 @@ because the legacy-source connections read provider data.
 
 - no desktop build older than `0.1.0-beta.130` is still connecting;
 - the unmigrated local collection count is 0 (query Q3);
-- the old-SDK apps (Reader and Writer, which pin `@mdbase-dev/connect` beta.149; Reader PR #145 drops it) have been repinned or retired.
+- the old-SDK apps have been repinned or retired. This one is met: on 2026-11-15
+  neither Reader nor Writer depends on `@mdbase-dev/connect` any more (Writer is
+  on `@mdbase-dev/sdk`).
 
 | Unit | Lines |
 | --- | --- |
@@ -147,9 +168,16 @@ Tier 2 removes about 212k lines across 2a, 2b and 2c.
 
 ### Unknown production facts
 
-These could not be determined read-only. The operator (Callum, or the ops Release
-supervisor) should run them with the production read-only DB role. Do not run them
-from an agent session.
+These could not be determined read-only. Operations queries production only
+through fixed, read-only aggregate commands, never ad-hoc SQL, so the queries
+below describe what is needed and are not to be run as written:
+
+- Q1 to Q4 each need a new fixed aggregate command in mdbase-cloud-ops.
+- Q5 has one: `bin/release production hosting-move inventory`, which is also the
+  gate for deleting the migration Worker. It may create a production job.
+- Q6 is read from "Accounts by transport" on `usage.mdbase.dev`.
+
+Do not run any of them from an agent session.
 
 | # | Question | Command (database) |
 | --- | --- | --- |
