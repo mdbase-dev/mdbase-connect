@@ -1101,22 +1101,19 @@ impl<'a> CelLinks<'a> {
         let effective = self.catalog.effective_values(&rec.path, &types, fm);
         let mut m = CelMap::new().with_origin(&rec.path);
         let key = |s: &str| Key::String(std::sync::Arc::from(s));
-        for (k, v) in effective.iter() {
-            m.insert(key(k), CelValue::from_value(v));
-        }
         m.insert(
             key("record"),
-            CelValue::from_value(&Value::Map(effective.clone())),
+            crate::cel::record_map(&effective, Some(&rec.path)),
         );
         let values = self.catalog.record_values(&rec.path, &types, fm);
-        m.insert(
-            key("raw"),
-            CelValue::from_value(&Value::Map(values.clone())),
-        );
+        m.insert(key("raw"), crate::cel::record_map(&values, Some(&rec.path)));
         m.insert(
             key("file"),
             CelValue::from_value(&self.file_value(&rec.path, &values, doc.body())),
         );
+        for (k, v) in effective.iter() {
+            m.insert(key(k), CelValue::from_value(v));
+        }
         Some(CelValue::Map(std::sync::Arc::new(m)))
     }
 

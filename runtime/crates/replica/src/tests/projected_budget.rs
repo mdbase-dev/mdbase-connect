@@ -96,12 +96,12 @@ fn paths(result: &QueryResult) -> Vec<&str> {
 }
 
 #[test]
-fn context_without_selection_uses_the_context_path_and_link_origin() {
+fn context_namespaces_use_the_context_origin_and_override_frontmatter() {
     let store = seeded(vec![
         (
             1,
             "projects/alpha#draft|review.md".into(),
-            "---\nlead: '[Bob](people/bob.md)'\n---\n".into(),
+            "---\nlead: '[Bob](people/bob.md)'\nrecord: field-record\nraw: field-raw\nfile: field-file\n---\n".into(),
         ),
         (
             2,
@@ -117,8 +117,8 @@ fn context_without_selection_uses_the_context_path_and_link_origin() {
     let service = FakeLogService::new();
     let mut replica = node(&service, 1, store);
     settle(&mut [&mut replica]);
-    let context_query = |path: &str| {
-        Value::Map(vec![
+    let context_query = |path: &str, expression: &str, selection: bool| {
+        let mut fields = vec![
             (
                 "context".into(),
                 Value::Map(vec![(
@@ -126,26 +126,43 @@ fn context_without_selection_uses_the_context_path_and_link_origin() {
                     Value::Map(vec![("path".into(), Value::Text(path.into()))]),
                 )]),
             ),
-            (
-                "where".into(),
-                Value::Text(
-                    "file.path == 'annotations/n.md' && this.lead.asFile().name == 'Bob'".into(),
-                ),
-            ),
-        ])
+            ("where".into(), Value::Text(expression.into())),
+        ];
+        if selection {
+            fields.push((
+                "select".into(),
+                Value::List(vec![Value::Text("this.raw.lead".into())]),
+            ));
+        }
+        Value::Map(fields)
     };
-    let result = replica
+    for selection in [false, true] {
+        for namespace in ["this", "this.record", "this.raw"] {
+            let expression = format!(
+                "file.path == 'annotations/n.md' && {namespace}.lead.asFile().name == 'Bob' && this.file.path == 'projects/alpha#draft|review.md' && this.record.file == 'field-file' && this.raw.file == 'field-file' && this.record.raw == 'field-raw' && this.raw.record == 'field-record'"
+            );
+            let result = replica
+                .r
+                .query(
+                    replica.s,
+                    context_query("projects/alpha#draft|review.md", &expression, selection),
+                    include(),
+                )
+                .unwrap();
+            assert_eq!(
+                paths(&result),
+                ["annotations/n.md"],
+                "{namespace}, select={selection}"
+            );
+        }
+    }
+    let error = replica
         .r
         .query(
             replica.s,
-            context_query("projects/alpha#draft|review.md"),
+            context_query("missing.md", "true", false),
             include(),
         )
-        .unwrap();
-    assert_eq!(paths(&result), ["annotations/n.md"]);
-    let error = replica
-        .r
-        .query(replica.s, context_query("missing.md"), include())
         .unwrap_err();
     assert_eq!(error.problem().reason.as_deref(), Some("context_not_found"));
 }
