@@ -6,8 +6,10 @@
 //! membership SQL.
 use super::{EvaluationFailure, MAX_CAPTURE_ITEMS, WorkBudget};
 use crate::{doc::Document, value::Value};
+use blocks::{Blocks, Line, fence_open};
+mod blocks;
 /// Version to bind into derived raw-projection generations.
-pub const BASES_TAG_CAPTURE_VERSION: u8 = 5;
+pub const BASES_TAG_CAPTURE_VERSION: u8 = 6;
 /// A document's tags, or a bound on them. `spellings` always includes every tag
 /// the document has, so a name absent from it is a known non-match. When not
 /// exact, a spelling may be no tag at all, and matching one decides nothing.
@@ -115,24 +117,46 @@ pub fn capture_source_tags(
     };
     // `#` before this offset may be hidden or revealed by unmodelled Markdown.
     let mut unsure_until = 0;
-    let mut prose = false;
+    let mut blocks = Blocks::default();
+    // Ends found earlier hold for any later position in the same span, so a
+    // run of delimiters scans each paragraph or comment once.
+    let mut paragraph = 0..0;
+    let mut paragraph_at = |at: usize| {
+        if !paragraph.contains(&at) {
+            paragraph = at..at + paragraph_end(&body[at..]);
+        }
+        paragraph.end
+    };
+    let mut comment = 0..0;
+    let mut comment_at = |at: usize| {
+        if !comment.contains(&at) {
+            comment = at..body[at..]
+                .find("-->")
+                .map_or(body.len(), |end| at + end + 3);
+        }
+        comment.end
+    };
     // A run directly after a tag starts a tag without a space: `#a#b`.
     let mut last_tag = None;
     let mut cursor = 0;
     while cursor < body.len() {
         let tail = &body[cursor..];
         if cursor == 0 || body.as_bytes()[cursor - 1] == b'\n' {
-            if let Some(end) = fence_end(tail, budget)? {
-                cursor += end;
-                prose = false;
-                continue;
-            }
-            let line = line_shape(tail.split('\n').next().expect("line"), prose);
-            prose = line.prose;
-            unsure_until = unsure_until.max(match line.unsure {
+            let text = tail.split('\n').next().expect("line");
+            let unsure = match blocks.line(text) {
+                Line::Code => {
+                    scan_work(text.len(), budget)?;
+                    cursor += (text.len() + 1).min(tail.len());
+                    continue;
+                }
+                Line::Text(unsure) => unsure,
+                Line::Fallback { rest: true } => Unsure::Rest,
+                Line::Fallback { rest: false } => line_unsure(text),
+            };
+            unsure_until = unsure_until.max(match unsure {
                 Unsure::No => 0,
                 Unsure::Line => cursor + tail.find('\n').unwrap_or(tail.len()),
-                Unsure::Paragraph => cursor + paragraph_end(tail),
+                Unsure::Paragraph => paragraph_at(cursor),
                 Unsure::Rest => body.len(),
             });
         }
@@ -146,7 +170,7 @@ pub fn capture_source_tags(
                 continue;
             }
             // An unmatched run can still close on a later line of this paragraph.
-            unsure_until = unsure_until.max(cursor + paragraph_end(tail));
+            unsure_until = unsure_until.max(paragraph_at(cursor));
             cursor += tail.bytes().take_while(|c| *c == b'`').count();
             continue;
         }
@@ -160,16 +184,23 @@ pub fn capture_source_tags(
             continue;
         }
         let c = tail.chars().next().expect("nonempty tail");
-        if settled {
-            unsure_until = unsure_until.max(match c {
-                ']' if tail.starts_with("](") => link_tail_end(&tail[1..])
-                    .map_or(cursor + paragraph_end(tail), |end| cursor + 1 + end),
-                '<' => cursor + html_end(tail),
-                '$' if tail.starts_with("$$") => body.len(),
-                '$' if !tail[1..].starts_with(char::is_whitespace) => cursor + paragraph_end(tail),
-                _ => 0,
-            });
-        }
+        // These can reach past an unsure stretch, so they extend it too. A
+        // link destination is only read where it starts settled.
+        unsure_until = unsure_until.max(match c {
+            ']' if tail.starts_with("](") => match settled.then(|| link_tail_end(&tail[1..])) {
+                Some(Some(end)) => cursor + 1 + end,
+                _ => paragraph_at(cursor),
+            },
+            '<' => match html(tail) {
+                Html::No => 0,
+                Html::Block => paragraph_at(cursor),
+                Html::Comment => comment_at(cursor),
+                Html::Rest => body.len(),
+            },
+            '$' if tail.starts_with("$$") => body.len(),
+            '$' if !tail[1..].starts_with(char::is_whitespace) => paragraph_at(cursor),
+            _ => 0,
+        });
         if c != '#' {
             cursor += c.len_utf8();
             continue;
@@ -242,58 +273,42 @@ enum Unsure {
     Paragraph,
     Rest,
 }
-struct LineShape {
-    prose: bool,
-    unsure: Unsure,
-}
-// Indented code cannot interrupt a paragraph, so an indented line is only
-// settled directly after prose. Containers can also hold code and fences that
-// the line-start checks do not see.
-fn line_shape(line: &str, after_prose: bool) -> LineShape {
-    let line = line.trim_end_matches('\r');
-    let mut text = line;
+// Without the block model, an indented line may be code or text, and a fence
+// behind any container prefix may stay open to the end.
+fn line_unsure(line: &str) -> Unsure {
+    let mut text = line.trim_end_matches('\r');
     let mut contained = false;
-    let mut quoted = false;
     let mut indented = false;
     loop {
         let rest = text.trim_start_matches(' ');
-        let indent = text.len() - rest.len();
-        if rest.starts_with('\t') || indent >= 4 + usize::from(contained) {
-            if contained {
-                return LineShape {
-                    prose: false,
-                    unsure: Unsure::Line,
-                };
-            }
-            indented = true;
-        }
+        indented |= rest.starts_with('\t') || text.len() - rest.len() >= 4 + usize::from(contained);
         text = rest.trim_start();
         if let Some(rest) = text.strip_prefix('>') {
-            (contained, quoted) = (true, true);
             text = rest;
         } else if let Some(rest) = list_marker(text) {
-            contained = true;
-            text = rest;
+            let after = rest.trim_start();
+            text = checkbox(after).map_or(rest, |len| &after[len..]);
         } else {
             break;
         }
+        contained = true;
     }
-    let code = indented && !after_prose;
-    LineShape {
-        prose: !code
-            && !quoted
-            && !text.starts_with(['#', '|', '<'])
-            && text.chars().any(char::is_alphanumeric),
-        unsure: if contained && (text.starts_with("```") || text.starts_with("~~~")) {
-            Unsure::Rest
-        } else if text.starts_with('[') && text.contains("]:") {
-            Unsure::Paragraph
-        } else if code {
-            Unsure::Line
-        } else {
-            Unsure::No
-        },
+    if fence_open(text).is_some() {
+        Unsure::Rest
+    } else if text.starts_with('[') && text.contains("]:") {
+        Unsure::Paragraph
+    } else if indented {
+        Unsure::Line
+    } else {
+        Unsure::No
     }
+}
+/// Length of a task checkbox such as `[x]` that is followed by whitespace.
+fn checkbox(text: &str) -> Option<usize> {
+    let mut chars = text.strip_prefix('[')?.chars();
+    let mark = chars.next()?;
+    let rest = chars.as_str().strip_prefix(']')?;
+    rest.starts_with([' ', '\t']).then_some(2 + mark.len_utf8())
 }
 fn list_marker(text: &str) -> Option<&str> {
     let digits = text.bytes().take_while(u8::is_ascii_digit).count();
@@ -315,9 +330,18 @@ fn paragraph_end(tail: &str) -> usize {
     }
     offset
 }
-// Where raw HTML starting at `<` may stop hiding text, or 0 when it is not HTML.
-// Comments and raw blocks survive blank lines; other blocks end at one.
-fn html_end(tail: &str) -> usize {
+enum Html {
+    No,
+    /// Ends at a blank line.
+    Block,
+    /// Ends after `-->`.
+    Comment,
+    /// May run to the end.
+    Rest,
+}
+// How far raw HTML starting at `<` may hide text. Comments and raw blocks
+// survive blank lines; other blocks end at one.
+fn html(tail: &str) -> Html {
     let name = tail[1..].split(|c: char| !c.is_ascii_alphanumeric()).next();
     let raw = name.is_some_and(|name| {
         ["pre", "script", "style", "textarea"]
@@ -325,11 +349,11 @@ fn html_end(tail: &str) -> usize {
             .any(|raw| name.eq_ignore_ascii_case(raw))
     });
     match tail[1..].chars().next() {
-        Some('!') if tail.starts_with("<!--") => tail.find("-->").map_or(tail.len(), |end| end + 3),
-        Some('!' | '?') => tail.len(),
-        Some(_) if raw => tail.len(),
-        Some(c) if c.is_ascii_alphabetic() || c == '/' => paragraph_end(tail),
-        _ => 0,
+        Some('!') if tail.starts_with("<!--") => Html::Comment,
+        Some('!' | '?') => Html::Rest,
+        Some(_) if raw => Html::Rest,
+        Some(c) if c.is_ascii_alphabetic() || c == '/' => Html::Block,
+        _ => Html::No,
     }
 }
 fn scan_work(length: usize, budget: &mut WorkBudget) -> Result<(), EvaluationFailure> {
@@ -337,41 +361,6 @@ fn scan_work(length: usize, budget: &mut WorkBudget) -> Result<(), EvaluationFai
         return Err(budget.failure().expect("code scan"));
     }
     Ok(())
-}
-// CommonMark fences: up to three leading spaces, backticks or tildes,
-// optional info string, closing run at least as long. An unclosed fence
-// consumes the remainder; its contents are still code, not unknown tags.
-fn fence_end(tail: &str, budget: &mut WorkBudget) -> Result<Option<usize>, EvaluationFailure> {
-    let opening = tail
-        .split('\n')
-        .next()
-        .expect("line")
-        .trim_end_matches('\r');
-    let marker = opening.trim_start_matches(' ');
-    if opening.len() - marker.len() > 3 {
-        return Ok(None);
-    }
-    let Some(first @ (b'`' | b'~')) = marker.bytes().next() else {
-        return Ok(None);
-    };
-    let count = marker.bytes().take_while(|c| *c == first).count();
-    if count < 3 || (first == b'`' && marker[count..].contains('`')) {
-        return Ok(None);
-    }
-    let mut end = tail.find('\n').map_or(tail.len(), |n| n + 1);
-    for line in tail[end..].split_inclusive('\n') {
-        scan_work(line.len(), budget)?;
-        end += line.len();
-        let text = line.trim_end_matches(['\r', '\n']);
-        let trimmed = text.trim_start_matches(' ');
-        if text.len() - trimmed.len() <= 3 {
-            let run = trimmed.bytes().take_while(|c| *c == first).count();
-            if run >= count && trimmed[run..].bytes().all(|c| matches!(c, b' ' | b'\t')) {
-                return Ok(Some(end));
-            }
-        }
-    }
-    Ok(Some(tail.len()))
 }
 fn escaped(body: &str, cursor: usize) -> bool {
     body.as_bytes()[..cursor]

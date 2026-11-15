@@ -38,6 +38,31 @@ fn code_skip_is_complete_including_info_strings_and_tag_bearing_code() {
     }
 }
 #[test]
+fn native_nested_code_observations_are_bounded_and_exact_results_are_equal() {
+    let fixture = crate::yaml::parse_value(include_str!(
+        "../../../../../../conformance/oracle/obsidian-1.12.7/nested-code-tags.observed.json"
+    ))
+    .unwrap()
+    .unwrap();
+    let mut exact = 0;
+    let cases = fixture.get("cases").unwrap().as_list().unwrap();
+    for case in cases {
+        let source = case.get("source").unwrap().as_str().unwrap();
+        let want: Vec<&str> = case
+            .get("tags")
+            .unwrap()
+            .as_list()
+            .unwrap()
+            .iter()
+            .map(|tag| tag.as_str().unwrap())
+            .collect();
+        exact += usize::from(check_native(source, &want));
+    }
+    // Half of these are random nesting the scan bounds on purpose; the floor
+    // stops it quietly declining the shapes it qualifies today.
+    assert!(exact >= 300, "{exact}/{}", cases.len());
+}
+#[test]
 fn every_native_body_observation_is_bounded_and_exact_results_are_equal() {
     let fixture = crate::yaml::parse_value(include_str!(
         "../../../../../../conformance/oracle/obsidian-1.12.7/body-tags.observed.json"
@@ -155,14 +180,56 @@ fn unmodelled_positions_bound_their_spellings_without_claiming_them() {
         ("<div>\n#task\n</div>", bounded(&["#task"])),
         ("<!-- #task -->", bounded(&["#task"])),
         ("$x #task$", bounded(&["#task"])),
-        ("    #task", bounded(&["#task"])),
         ("[a]:\n#task", bounded(&["#task"])),
-        ("> ```\n> #task\n> ```", bounded(&["#task"])),
+        ("cost $x and `#task`", bounded(&["#task"])),
+        ("x\n\t\n    #task", bounded(&["#task"])),
+        ("- a\n  ```\n  #x\n```\n#task", bounded(&["#task"])),
         ("_x #task_ y", bounded(&["#task", "#task_"])),
     ] {
         assert_eq!(capture(body), want, "{body}");
     }
-    assert_eq!(BASES_TAG_CAPTURE_VERSION, 5);
+    assert_eq!(BASES_TAG_CAPTURE_VERSION, 6);
+}
+#[test]
+fn code_in_list_items_and_quotes_is_skipped_and_list_text_is_kept() {
+    for (body, want) in [
+        ("- step\n    ```\n    #archived\n    ```", exact(&[])),
+        ("> ```\n> #archived\n> ```", exact(&[])),
+        ("intro\n\n    #archived", exact(&[])),
+        (
+            "1. Install\n\n   ```sh\n   grep #archived notes/\n   ```\n2. Next #task",
+            exact(&["#task"]),
+        ),
+        ("1. step\n\t```\n\t#archived\n\t```", exact(&[])),
+        (
+            "> - item\n>   ```\n>   #archived\n>   ```\n> #task",
+            exact(&["#task"]),
+        ),
+        (
+            "- [ ] task\n\n  ```\n  #archived\n  ```\n#task",
+            exact(&["#task"]),
+        ),
+        ("- a\n  - b\n\n        #archived", exact(&[])),
+        ("> quote\n>\n>     #archived", exact(&[])),
+        ("- [x] # done\n      #archived", exact(&[])),
+        // Continuation text in an item is not indented code.
+        ("1. step\n\n    more #task", exact(&["#task"])),
+        ("- a\n  - b\n\n    more #task", exact(&["#task"])),
+    ] {
+        assert_eq!(capture(body), want, "{body}");
+    }
+}
+#[test]
+fn deep_nesting_and_delimiter_runs_scan_in_linear_time() {
+    let deep = format!("{}x #task{}", "- ".repeat(100_000), "\n".repeat(100_000));
+    assert!(capture(&deep).spellings().iter().any(|tag| tag == "#task"));
+    for run in ["$x ", "](x ", "<a ", "<!-- ", "` "] {
+        let body = format!("    x\n{}#task", run.repeat(100_000));
+        assert!(
+            capture(&body).spellings().iter().any(|tag| tag == "#task"),
+            "{run}"
+        );
+    }
 }
 #[test]
 fn unqualified_frontmatter_bounds_its_values_and_source_problems_stay_unavailable() {
