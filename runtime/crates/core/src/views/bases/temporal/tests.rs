@@ -386,3 +386,143 @@ fn helpers_compare_exact_values_to_unchanged_legacy_oracle() {
         assert_eq!(&value, expected, "{name}");
     }
 }
+
+#[test]
+fn minute_precision_local_datetimes_are_local_times_like_seconds() {
+    // TaskNotes writes `yyyy-MM-dd'T'HH:mm` for due and scheduled times; the
+    // starter Today view filters on `date(note["date_due"]).date() <= today()`.
+    for (zone, utc_ms) in [
+        ("UTC", 1_759_789_920_000),
+        ("Australia/Melbourne", 1_759_750_320_000),
+        ("America/New_York", 1_759_804_320_000),
+    ] {
+        for source in [
+            "2025-10-06T22:32",
+            "2025-10-06 22:32",
+            "2025-10-06T22:32:00",
+        ] {
+            let mut budget = WorkBudget::new();
+            let zone = BasesTimezone::capture(zone, &mut budget).unwrap();
+            let date = DateValue::parse(source, zone, &mut budget).unwrap();
+            assert_eq!(date.millis(), utc_ms, "{source}");
+            assert!(!date.is_date_only());
+            assert_eq!(date.plain(&mut budget).unwrap(), "2025-10-06T22:32:00");
+            assert_eq!(
+                date.date(&mut budget).unwrap().plain(&mut budget).unwrap(),
+                "2025-10-06"
+            );
+        }
+    }
+    let mut budget = WorkBudget::new();
+    let zone = BasesTimezone::capture("Australia/Melbourne", &mut budget).unwrap();
+    for source in ["2026-04-05T02:30", "2026-10-04 02:30"] {
+        assert!(matches!(
+            DateValue::parse(source, zone, &mut WorkBudget::new()),
+            Err(EvaluationFailure::UnsupportedConstruct(
+                "local_time_ambiguous" | "local_time_gap"
+            ))
+        ));
+    }
+    for (source, detail) in [
+        ("2025-10-06T22:60", "invalid_date"),
+        ("2025-10-06T24:00", "invalid_date"),
+        ("2025-10-06t22:32", "date_syntax"),
+        ("2025-10-06T22:32:15z", "date_syntax"),
+        ("2025-10-06T22:32.5", "date_syntax"),
+        ("2025-10-06T22:32+02", "date_syntax"),
+        ("2025-10-06T22:32:15.1234Z", "submillisecond_date"),
+    ] {
+        assert_eq!(
+            DateValue::parse(source, zone, &mut WorkBudget::new()).unwrap_err(),
+            EvaluationFailure::UnsupportedConstruct(detail),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn native_date_parse_observations_are_equal_or_refused() {
+    let fixture = crate::yaml::parse_value(include_str!(
+        "../../../../../../conformance/oracle/obsidian-1.12.7/date-parse.observed.json"
+    ))
+    .unwrap()
+    .unwrap();
+    let mut exact = 0;
+    let mut refused_dates = Vec::new();
+    for case in fixture.get("cases").unwrap().as_list().unwrap() {
+        let source = case.get("source").unwrap().as_str().unwrap();
+        let Some(Value::Map(results)) = case.get("results") else {
+            panic!("results")
+        };
+        for (zone_name, native) in results.iter() {
+            let mut budget = WorkBudget::new();
+            let zone = BasesTimezone::capture(zone_name, &mut budget).unwrap();
+            let parsed = DateValue::parse(source, zone, &mut budget);
+            let Some(&Value::Int(ms)) = native.get("ms") else {
+                // Native null or "Invalid date" must never become a date here.
+                assert!(
+                    matches!(parsed, Err(EvaluationFailure::UnsupportedConstruct(_))),
+                    "{zone_name} {source:?} is not a native date: {parsed:?}"
+                );
+                continue;
+            };
+            match parsed {
+                Ok(date) => {
+                    assert_eq!(date.millis(), ms, "{zone_name} {source:?}");
+                    assert_eq!(
+                        Some(date.is_date_only()),
+                        native.get("date_only").unwrap().as_bool(),
+                        "{zone_name} {source:?}"
+                    );
+                    assert_eq!(
+                        Some(date.plain(&mut budget).unwrap().as_str()),
+                        native.get("text").unwrap().as_str(),
+                        "{zone_name} {source:?}"
+                    );
+                    exact += 1;
+                }
+                Err(EvaluationFailure::UnsupportedConstruct(detail)) => {
+                    refused_dates.push(format!("{zone_name} {source} {detail}"));
+                }
+                Err(other) => panic!("{zone_name} {source:?}: {other:?}"),
+            }
+        }
+    }
+    refused_dates.sort();
+    // Native rolls these over, resolves the DST fold or gap, or truncates to
+    // milliseconds; each is refused rather than guessed.
+    let mut expected: Vec<String> = Vec::new();
+    for zone in ["America/New_York", "Australia/Melbourne", "UTC"] {
+        for (source, detail) in [
+            ("20251006", "date_syntax"),
+            ("2025-02-29T10:00", "invalid_date"),
+            ("2025-10-06T24:00", "invalid_date"),
+            ("2025-10-06T24:00:00", "invalid_date"),
+            ("2025-10-06T22:32:15.000000001Z", "submillisecond_date"),
+            ("2025-10-06T22:32:15.1234", "submillisecond_date"),
+            ("2025-10-06T22:32:15.1234+10:00", "submillisecond_date"),
+            ("2025-10-06T22:32:15.1234Z", "submillisecond_date"),
+            ("2025-10-06T22:32:15.123400", "submillisecond_date"),
+            ("2025-10-06T22:32:15.123400Z", "submillisecond_date"),
+            ("2025-10-06T22:32:15.123456Z", "submillisecond_date"),
+        ] {
+            expected.push(format!("{zone} {source} {detail}"));
+        }
+    }
+    // Valid local dates whose instant leaves Core's portable year range.
+    expected.push("America/New_York 9999-12-31T23:59 date_range".into());
+    expected.push("Australia/Melbourne 0001-01-01T00:00 date_range".into());
+    for source in [
+        "2026-04-05 02:30 local_time_ambiguous",
+        "2026-04-05T02:30 local_time_ambiguous",
+        "2026-04-05T02:30:00 local_time_ambiguous",
+        "2026-10-04 02:30 local_time_gap",
+        "2026-10-04T02:30 local_time_gap",
+        "2026-10-04T02:30:00 local_time_gap",
+    ] {
+        expected.push(format!("Australia/Melbourne {source}"));
+    }
+    expected.sort();
+    assert_eq!(refused_dates, expected);
+    assert_eq!(exact, 127);
+}
