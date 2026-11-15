@@ -239,9 +239,10 @@ try {
     restart: async () => { await stop(); await start(); } });
   await destinationDenialCases({ base, token, transport, encode, decode, map, sha, h,
     restart: async () => { await stop(); await start(); },
-    proxyFetch: createProxyFetch({base,logPath:resolve(dir,'wrangler.log')}) });
+    fetch: createProxyFetch({base,logPath:resolve(dir,'wrangler.log')}) });
   await collectionClosingCases({ base, token, transport, encode, decode, map, sha, h,
-    restart: async () => { await stop(); await start(); } });
+    restart: async () => { await stop(); await start(); },
+    fetch: createProxyFetch({base,logPath:resolve(dir,'wrangler.log')}) });
   await registryOffAppendCases({ base, token, transport, encode, decode, map, sha, h });
   await ingressCases({base,token,transport,c,cid,encode,map,sha,h});
   await backupCases({ base, token, transport, encode, decode, map, sha, h,
