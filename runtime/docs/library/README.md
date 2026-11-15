@@ -1,8 +1,9 @@
 # The standalone mdbase library (Rust + JS)
 
-Planned package shape: napi-rs for Node, WASM for the universal helpers, the five
-`mdbn-*` crates published alongside `mdbase` as implementation details, with versions
-starting at 0.5.0-rc.1. PR 1 (G6 helpers) is up; the Rust facade is next.
+The first npm release, `mdbase@0.5.0`, contains only the universal WebAssembly
+helpers. Native Node collections are planned work, not part of this archive.
+The Rust crates and Node source remain in this repository; their publication is
+independent of the npm helper version.
 
 This replaces the standalone use of the old engines (`@callumalpass/mdbase` on npm,
 `mdbase` 0.4.0-rc.4 on crates.io) with the new engine. Nothing here needs an
@@ -16,18 +17,59 @@ collection is a **local-only** replica (`SyncMode::LocalOnly`) over
 |---|---|---|---|
 | crate `mdbase` | `crates/mdbase` | crates.io (name is free) | core, wire, replica, store-file, platform-native |
 | crate `mdbase-wasm` → `mdbase-core.wasm` | `crates/mdbase-wasm` | never (ships inside the npm package) | core |
-| crate `mdbase-node` (napi addon) | `crates/mdbase-node` | never (ships inside the npm package) | mdbase |
-| npm `mdbase` | `packages/mdbase` | npm | nothing at runtime |
+| crate `mdbase-node` (napi addon) | `crates/mdbase-node` | not shipped in 0.5.0; future native release | mdbase |
+| npm `mdbase@0.5.0` | `packages/mdbase` | npm: universal helper JS, declarations and `wasm/mdbase-core.wasm` only | nothing at runtime |
 
-`mdbase` on npm has two entry points:
+`mdbase@0.5.0` on npm exports:
 
 - `mdbase` — **universal helpers** (browser, Node, workers) over `mdbase-core.wasm`:
   digests, JSON Schema, config/types/catalog loading, pack assess/apply, record
-  validation, query parsing. Pure functions over strings and JSON. This is gap **G6**
-  and is what mdbase-reader and mdbase-writer need before ship.
-- `mdbase/node` — the **engine**: `Collection.open/init`, typed CRUD, query, validate,
-  links, changes, batch, over the native addon. Plus filesystem flavours of the
-  helpers (`loadConfig(root)`, `loadTypes(root)`, `assessTypePack(root, …)`).
+  validation, query parsing. Pure functions over strings and JSON.
+- `mdbase/wasm/mdbase-core.wasm` — the matching asset for bundlers or explicit
+  `init({wasm})` loading.
+
+## Collections on Node (planned, not shipped)
+
+The source-only `mdbase/node` entry point implements `Collection.open/init`,
+typed CRUD, query, validate, links, changes and batch over a native napi addon.
+It is not exported or included in `mdbase@0.5.0`. Before releasing it, build and
+qualify prebuilt addons for Linux x64/arm64 (glibc), macOS x64/arm64 and Windows
+x64. There is currently no prebuild release workflow or consuming application.
+
+The intended collection API is:
+
+```ts
+import { Collection } from "mdbase/node";
+
+const col = await Collection.open("./notes");
+const task = await col.create({
+  path: "tasks/write-docs.md",
+  frontmatter: { type: "task", status: "open" },
+  body: "Write the docs.\n",
+});
+const open = await col.query({ types: ["task"], where: "status == 'open'", limit: 50 });
+await col.update(task, { set: { status: "done" }, ifRevision: task.revision });
+await col.rename("tasks/write-docs.md", "tasks/done/write-docs.md");
+await col.delete("tasks/done/write-docs.md");
+await col.batch([
+  { op: "create", path: "a.md", frontmatter: { title: "A" } },
+  { op: "update", target: "b.md", set: { done: true } },
+]);
+for (const { path, issues } of await col.validate()) console.log(path, issues);
+const { outgoing, backlinks } = await col.links("tasks/x.md");
+const since = await col.changes();
+await col.rescan();
+await col.close();
+```
+
+The addon runs the Rust engine on a thread per collection; its methods are
+async. Files stay Markdown and the index lives under `<root>/.mdbase/library/`.
+A folder already held by another native host refuses open with `already_hosted`.
+For development, `npm run build:native` builds the local addon;
+`cargo xtask mdbase` still builds it and runs the Node collection tests, helper
+tests, typecheck and helper-only distribution build. Node source is retained in
+that build/test path, not left untested. Apps sharing a running daemon use the
+SDK's existing connector rather than hosting the same folder themselves.
 
 ### Why napi-rs for Node and not `runtime.wasm` with a Node filesystem host
 
