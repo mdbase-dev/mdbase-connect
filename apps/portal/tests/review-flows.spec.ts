@@ -1185,6 +1185,28 @@ test("feedback sends to the local inbox without credentials", async ({ page }) =
   await expect(dialog).toHaveCount(0);
 });
 
+for (const viewport of [{ width: 1440, height: 640 }, { width: 390, height: 560 }]) test(`feedback keeps Send reachable and Close compact at ${viewport.width}px`, async ({ page }) => {
+  await page.setViewportSize(viewport);
+  await openScenario(page, "feedback");
+  const dialog = page.getByRole("dialog");
+  await dialog.getByText("What gets sent", { exact: true }).click();
+  const body = dialog.locator(".mdbase-feedback-body");
+  expect(await body.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+  expect(await dialog.boundingBox()).toMatchObject({ y: 0, height: viewport.height });
+  const send = (await dialog.getByRole("button", { name: "Send feedback", exact: true }).boundingBox())!;
+  expect(send.y + send.height).toBeLessThanOrEqual(viewport.height);
+  const close = dialog.getByRole("button", { name: "Close", exact: true });
+  await expect(close).toHaveCSS("border-top-width", "0px");
+  await close.hover();
+  const tooltip = page.getByRole("tooltip");
+  await expect(tooltip).toBeVisible();
+  expect(await tooltip.evaluate(element => {
+    const range = document.createRange();
+    range.selectNodeContents(element.firstChild!);
+    return range.getClientRects().length;
+  })).toBe(1);
+});
+
 for (const provider of ["Google", "GitHub"]) test(`${provider} sign-in never leaves the fake server`, async ({ page, baseURL }) => {
   const external: string[] = [];
   page.on("request", request => { if (new URL(request.url()).origin !== baseURL) external.push(request.url()); });
