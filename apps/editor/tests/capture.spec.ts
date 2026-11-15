@@ -125,3 +125,24 @@ test("writes nothing when a shared note is declined", async ({ page }) => {
   await expect(page.locator(".list-header p")).toContainText("4 notes");
   await expect(page.getByRole("alertdialog")).toHaveCount(0);
 });
+
+test("shows the whole shared text before a note is created from it", async ({ page }) => {
+  const text = `${"Opening line. ".repeat(250)}Closing words only past the old excerpt.`;
+  await page.goto(`?demo=4&new=Long+share&text=${encodeURIComponent(text)}`);
+  const dialog = page.getByRole("alertdialog", { name: "Create a note from what was shared?" });
+  const preview = dialog.getByRole("region", { name: "Shared text" });
+  await expect(preview).toHaveText(text);
+  // Long text scrolls inside the dialog rather than being cut.
+  expect(await preview.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+
+  await dialog.getByRole("button", { name: "Create note" }).click();
+  await expect(page.getByRole("textbox", { name: "Note body" })).toContainText("Closing words only past the old excerpt.");
+});
+
+test("refuses a shared text that is too long instead of cutting it", async ({ page }) => {
+  await page.goto(`?demo=4&new=Huge&text=${"a".repeat(10_001)}`);
+  await expect(page.getByText("What was shared is too long to create a note from.", { exact: false })).toBeVisible();
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  await expect(page).not.toHaveURL(/[?&](new|text|url)=/);
+  await expect(page.locator(".list-header p")).toContainText("4 notes");
+});

@@ -4690,6 +4690,10 @@ msgstr "需要设置"
 msgid "Several person records are linked to your account. Edit them so exactly one record represents you:"
 msgstr "多条人员记录关联到了你的账户。请编辑这些记录，确保只有一条记录代表你："
 
+#: src/App.tsx
+msgid "Shared text"
+msgstr "分享的文本"
+
 #: src/QuickOpen.tsx
 msgid "Shortcuts"
 msgstr "快捷键"
@@ -6015,6 +6019,10 @@ msgstr "正在等待你的电脑…"
 #: src/TypeBrowser.tsx
 msgid "What belongs in this field?"
 msgstr "此字段应填写什么？"
+
+#: src/App.tsx
+msgid "What was shared is too long to create a note from. Paste it into a new note instead."
+msgstr "分享的内容太长，无法创建笔记。请将其粘贴到新笔记中。"
 
 #: src/TypeBrowser.tsx
 msgid "Which notes use this type"

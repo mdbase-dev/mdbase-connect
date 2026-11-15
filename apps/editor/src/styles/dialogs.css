@@ -14,3 +14,5 @@
 .mdbase-command-copy:has(.search-result-context) { display: grid; gap: 2px; }
 .mdbase-command-copy .search-result-context.path { font-family: var(--mono); }
 
+/* A capture shows everything it will save: the whole shared text, scrolling when it is long. */
+.capture-preview { max-height: min(40vh, 320px); overflow: auto; margin: 0; padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--canvas); white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
