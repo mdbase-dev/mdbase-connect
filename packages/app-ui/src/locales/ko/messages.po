@@ -509,6 +509,15 @@ msgstr "드래그하여 표시하세요. 키보드: 화살표 키로 이동하�
 msgid "Draw"
 msgstr "그리기"
 
+#: src/live-preview/diagram.ts
+msgctxt "diagram"
+msgid "Edit"
+msgstr "편집"
+
+#: src/live-preview/diagram.ts
+msgid "Edit diagram source"
+msgstr "다이어그램 소스 편집"
+
 #: src/CommandPalette.tsx
 msgid "Esc"
 msgstr "Esc"
@@ -994,6 +1003,10 @@ msgctxt "Screenshot annotations"
 msgid "Reset"
 msgstr "초기화"
 
+#: src/live-preview/diagram.ts
+msgid "Reset zoom"
+msgstr "확대/축소 초기화"
+
 #: src/CommentsPanel.tsx
 msgid "Resolve"
 msgstr "해결"
@@ -1293,6 +1306,10 @@ msgstr "따뜻한 말씀 감사합니다."
 msgid "Thanks for the report."
 msgstr "신고해 주셔서 감사합니다."
 
+#: src/live-preview/diagram.ts
+msgid "The diagram could not be shown. Check your connection and reopen the note."
+msgstr "다이어그램을 표시하지 못했습니다. 연결을 확인하고 노트를 다시 여세요."
+
 #: src/Feedback.tsx
 msgid "The screenshot could not be captured."
 msgstr "스크린샷을 캡처하지 못했습니다."
@@ -1567,3 +1584,11 @@ msgstr "이제 작업이 {collection}에 있습니다."
 msgctxt "Collection access interface"
 msgid "Your work is now in {collection}. If it's still open in another tab, close it there, then bring it in again."
 msgstr "이제 작업이 {collection}에 있습니다. 다른 탭에서 아직 열려 있다면 그 탭을 닫은 후 다시 가져오세요."
+
+#: src/live-preview/diagram.ts
+msgid "Zoom in"
+msgstr "확대"
+
+#: src/live-preview/diagram.ts
+msgid "Zoom out"
+msgstr "축소"

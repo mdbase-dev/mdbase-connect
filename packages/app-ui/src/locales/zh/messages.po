@@ -509,6 +509,15 @@ msgstr "拖动以标记。键盘操作：使用方向键移动；按空格键开
 msgid "Draw"
 msgstr "绘制"
 
+#: src/live-preview/diagram.ts
+msgctxt "diagram"
+msgid "Edit"
+msgstr "编辑"
+
+#: src/live-preview/diagram.ts
+msgid "Edit diagram source"
+msgstr "编辑图表源代码"
+
 #: src/CommandPalette.tsx
 msgid "Esc"
 msgstr "Esc"
@@ -994,6 +1003,10 @@ msgctxt "Screenshot annotations"
 msgid "Reset"
 msgstr "重置"
 
+#: src/live-preview/diagram.ts
+msgid "Reset zoom"
+msgstr "重置缩放"
+
 #: src/CommentsPanel.tsx
 msgid "Resolve"
 msgstr "解决"
@@ -1293,6 +1306,10 @@ msgstr "感谢你的赞许。"
 msgid "Thanks for the report."
 msgstr "感谢你的反馈。"
 
+#: src/live-preview/diagram.ts
+msgid "The diagram could not be shown. Check your connection and reopen the note."
+msgstr "无法显示图表。请检查网络连接，然后重新打开笔记。"
+
 #: src/Feedback.tsx
 msgid "The screenshot could not be captured."
 msgstr "无法截取屏幕截图。"
@@ -1567,3 +1584,11 @@ msgstr "你的工作现已在 {collection} 中。"
 msgctxt "Collection access interface"
 msgid "Your work is now in {collection}. If it's still open in another tab, close it there, then bring it in again."
 msgstr "你的工作现已在 {collection} 中。如果它仍在其他标签页中打开，请先在那里关闭，然后再次导入。"
+
+#: src/live-preview/diagram.ts
+msgid "Zoom in"
+msgstr "放大"
+
+#: src/live-preview/diagram.ts
+msgid "Zoom out"
+msgstr "缩小"

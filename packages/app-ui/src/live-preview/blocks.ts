@@ -3,6 +3,7 @@ import { syntaxTree } from "@codemirror/language";
 import { StateEffect, StateField, type EditorState, type Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType, keymap, type DecorationSet } from "@codemirror/view";
 import { t } from "@lingui/core/macro";
+import { DiagramWidget, isDiagramLanguage } from "./diagram.js";
 import { isRevealed, revealField } from "./reveal.js";
 
 const toggleFold = StateEffect.define<{ from: number; folded: boolean }>({ map: (value, changes) => ({ ...value, from: changes.mapPos(value.from) }) });
@@ -126,6 +127,11 @@ function build(state: EditorState): DecorationSet {
       const codeFrom = fenced ? Math.min(first.to + 1, state.doc.length) : first.from;
       const codeTo = closed ? Math.max(codeFrom, last.from - 1) : last.to;
       const code = state.sliceDoc(codeFrom, codeTo);
+      // Quote and list markers would be part of a nested diagram's source, so only top-level fences render.
+      if (closed && isDiagramLanguage(opening[2]) && code.trim() && node.node.parent?.name === "Document" && !isRevealed(state, node.from, node.to)) {
+        ranges.push(Decoration.replace({ widget: new DiagramWidget(code), block: true }).range(first.from, last.to));
+        return false;
+      }
       for (let n = first.number; n <= last.number; n++) {
         const line = state.doc.line(n);
         const edge = `${n === first.number ? "cm-lp-code-first" : ""} ${n === last.number ? "cm-lp-code-last" : ""}`;

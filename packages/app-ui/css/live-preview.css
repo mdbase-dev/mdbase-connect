@@ -370,6 +370,39 @@
 .cm-lp-code-header button:hover, .cm-lp-callout-header button:hover { background: var(--color-surface); color: var(--color-text); }
 .cm-lp-code-header button:focus-visible, .cm-lp-callout-header button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
 
+.cm-lp-diagram {
+  --pele-bg: var(--color-surface);
+  --pele-fg: var(--color-text);
+  --pele-muted: var(--color-text-muted);
+  --pele-line: var(--color-text-soft);
+  --pele-surface: var(--color-surface-subtle);
+  --pele-surface-alt: var(--color-accent-soft);
+  --pele-border: var(--color-border-strong);
+  --pele-accent: var(--color-accent);
+  --pele-error: var(--color-danger);
+  --pele-font-mono: var(--mono);
+  --pele-radius: var(--radius-sm);
+  --pele-zoom-top: 44px;
+  position: relative;
+  margin: var(--space-2) 0;
+  padding: var(--space-3) var(--space-2);
+}
+.cm-lp-diagram-canvas { position: relative; }
+.cm-lp-diagram-canvas > svg { display: block; margin-inline: auto; }
+.cm-lp-diagram-failed { color: var(--color-text-muted); font-family: var(--sans); font-size: var(--font-size-caption); }
+.cm-lp-diagram-edit {
+  position: absolute; top: var(--space-2); right: var(--space-2);
+  min-width: 28px; min-height: 28px; padding: 0 var(--space-2);
+  border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm);
+  background: var(--color-surface); color: var(--color-text-muted);
+  font-family: var(--sans); font-size: var(--font-size-caption); cursor: pointer;
+  opacity: 0; transition: opacity 120ms;
+}
+.cm-lp-diagram:hover .cm-lp-diagram-edit, .cm-lp-diagram-edit:focus-visible { opacity: 1; }
+.cm-lp-diagram-edit:hover { color: var(--color-text); }
+.cm-lp-diagram-edit:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+@media (hover: none) { .cm-lp-diagram-edit { opacity: 1; } }
+
 .cm-lp-callout { background: var(--color-surface-subtle); padding-left: 1em !important; padding-right: 1em !important; }
 .cm-lp-callout-first { border-radius: var(--radius-md) var(--radius-md) 0 0; padding-top: 0.3em !important; font-weight: 600; }
 .cm-lp-callout-last { border-radius: 0 0 var(--radius-md) var(--radius-md); padding-bottom: 0.3em !important; }

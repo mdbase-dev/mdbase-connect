@@ -509,6 +509,15 @@ msgstr "Drag to mark. Keyboard: arrows move; Space starts or finishes. Blackout 
 msgid "Draw"
 msgstr "Draw"
 
+#: src/live-preview/diagram.ts
+msgctxt "diagram"
+msgid "Edit"
+msgstr "Edit"
+
+#: src/live-preview/diagram.ts
+msgid "Edit diagram source"
+msgstr "Edit diagram source"
+
 #: src/CommandPalette.tsx
 msgid "Esc"
 msgstr "Esc"
@@ -994,6 +1003,10 @@ msgctxt "Screenshot annotations"
 msgid "Reset"
 msgstr "Reset"
 
+#: src/live-preview/diagram.ts
+msgid "Reset zoom"
+msgstr "Reset zoom"
+
 #: src/CommentsPanel.tsx
 msgid "Resolve"
 msgstr "Resolve"
@@ -1293,6 +1306,10 @@ msgstr "Thanks for the kind words."
 msgid "Thanks for the report."
 msgstr "Thanks for the report."
 
+#: src/live-preview/diagram.ts
+msgid "The diagram could not be shown. Check your connection and reopen the note."
+msgstr "The diagram could not be shown. Check your connection and reopen the note."
+
 #: src/Feedback.tsx
 msgid "The screenshot could not be captured."
 msgstr "The screenshot could not be captured."
@@ -1567,3 +1584,11 @@ msgstr "Your work is now in {collection}."
 msgctxt "Collection access interface"
 msgid "Your work is now in {collection}. If it's still open in another tab, close it there, then bring it in again."
 msgstr "Your work is now in {collection}. If it's still open in another tab, close it there, then bring it in again."
+
+#: src/live-preview/diagram.ts
+msgid "Zoom in"
+msgstr "Zoom in"
+
+#: src/live-preview/diagram.ts
+msgid "Zoom out"
+msgstr "Zoom out"
