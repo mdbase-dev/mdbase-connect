@@ -187,7 +187,7 @@ function build(state: EditorState): DecorationSet {
     for (const match of line.text.matchAll(/(?<![\\!])\[\^([^\]\s]+)\]/g)) {
       const from = line.from + match.index!, to = from + match[0].length;
       const node = syntaxTree(state).resolveInner(from, 1);
-      if (["InlineCode", "FencedCode", "CodeBlock", "HTMLBlock"].some((name) => { for (let p: typeof node | null = node; p; p = p.parent) if (p.name === name) return true; return false; })) continue;
+      if (["InlineCode", "FencedCode", "CodeBlock", "HTMLBlock", "InlineMath", "MathBlock"].some((name) => { for (let p: typeof node | null = node; p; p = p.parent) if (p.name === name) return true; return false; })) continue;
       if (!isRevealed(state, from, to)) {
         const text = definitions.get(match[1].toLowerCase());
         ranges.push((text ? Decoration.mark({ class: "cm-lp-footnote-ref", attributes: { title: text } }) : footnote).range(from + 2, to - 1));

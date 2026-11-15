@@ -3,6 +3,9 @@
  * Scope it under the editor's own class if an app mixes source and preview editors.
  */
 
+/* Formulas (`markdownMath`): KaTeX's layout and fonts. Fonts load only when a formula uses them. */
+@import "katex/dist/katex.min.css";
+
 .cm-lp-mark {
   color: var(--color-text-faint);
 }
@@ -369,6 +372,14 @@
 .cm-lp-code-header button, .cm-lp-callout-header button { border: 0; border-radius: var(--radius-sm); background: transparent; color: inherit; cursor: pointer; min-width: 28px; min-height: 28px; font: inherit; }
 .cm-lp-code-header button:hover, .cm-lp-callout-header button:hover { background: var(--color-surface); color: var(--color-text); }
 .cm-lp-code-header button:focus-visible, .cm-lp-callout-header button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+
+.cm-lp-math-source { font-family: var(--mono); font-size: 0.92em; }
+.cm-lp-math-pending, .cm-lp-math-failed { color: var(--color-text-muted); font-family: var(--mono); font-size: 0.92em; white-space: pre-wrap; }
+.cm-lp-math-failed { text-decoration: underline dotted var(--color-danger); }
+.cm-lp-math-block, .cm-lp-math-preview { padding: var(--space-2) 0; overflow-x: auto; overflow-y: hidden; }
+.cm-lp-math-preview { margin-bottom: var(--space-2); padding-inline: var(--space-2); border-radius: var(--radius-md); background: var(--color-surface-subtle); }
+.cm-lp-math-block .katex-display, .cm-lp-math-preview .katex-display { margin: 0; }
+.cm-lp-math-display .katex-display { margin: 0.5em 0; overflow-x: auto; overflow-y: hidden; }
 
 .cm-lp-diagram {
   --pele-bg: var(--color-surface);

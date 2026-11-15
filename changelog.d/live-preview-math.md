@@ -1,0 +1,3 @@
+## Added
+
+- Render `$…$` and `$$…$$` math in the shared Markdown live preview (`@mdbase-dev/ui/live-preview`) with KaTeX. Add the new `markdownMath` extension to the `markdown()` language's `extensions`; formulas render where the selection is not, a revealed display block shows a live preview under its source, and invalid TeX shows in place. KaTeX loads only when a note has a formula, `\href` and other trusted commands stay off, and prices such as "$5 and $10" stay text. Apps that serve fonts under `font-src 'self'` should stop Vite inlining small fonts as `data:` URLs (`build.assetsInlineLimit`).

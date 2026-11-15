@@ -3,6 +3,7 @@ import { WidgetType } from "@codemirror/view";
 import { t } from "@lingui/core/macro";
 import type { MountOptions, Mounted } from "pele/lazy";
 import "../i18n.js";
+import { lazily } from "./lazy.js";
 
 /**
  * A Mermaid diagram, rendered by Pele in place of its fenced source while the
@@ -17,14 +18,7 @@ export function isDiagramLanguage(language: string): boolean {
   return language.toLowerCase() === "mermaid";
 }
 
-let renderer: Promise<typeof import("pele/lazy")> | undefined;
-function loadRenderer() {
-  // A failed chunk load is retried by the next diagram rather than cached.
-  return renderer ??= import("pele/lazy").catch((error: unknown) => {
-    renderer = undefined;
-    throw error;
-  });
-}
+const loadRenderer = lazily(() => import("pele/lazy"));
 
 /** Last rendered height per source, so a re-created widget reserves its space before rendering. */
 const heights = new Map<string, number>();
