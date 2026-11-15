@@ -1454,6 +1454,10 @@ msgstr "Effacer la sélection"
 msgid "Clear type search"
 msgstr "Effacer la recherche de type"
 
+#: src/NoteTabs.tsx
+msgid "Close {name}"
+msgstr "Fermer {name}"
+
 #: src/NoteCommentsPanel.tsx
 msgid "Close comments"
 msgstr "Fermer les commentaires"
@@ -1466,9 +1470,17 @@ msgstr "Fermer l’aperçu du fichier"
 msgid "Close note peek"
 msgstr "Fermer l’aperçu de la note"
 
+#: src/editor-commands.ts
+msgid "Close pane"
+msgstr "Fermer le volet"
+
 #: src/PropertiesPanel.tsx
 msgid "Close properties"
 msgstr "Fermer les propriétés"
+
+#: src/editor-commands.ts
+msgid "Close tab"
+msgstr "Fermer l’onglet"
 
 #: src/code-editor-completions.ts
 msgid "Code block"
@@ -2437,12 +2449,20 @@ msgid "Filter links by type"
 msgstr "Filtrer les liens par type"
 
 #: src/App.tsx
+msgid "Find a note by title or path"
+msgstr "Rechercher une note par titre ou chemin"
+
+#: src/App.tsx
 msgid "Find a note by title or path, or type > for actions"
 msgstr "Trouvez une note par titre ou chemin, ou saisissez > pour les actions"
 
 #: src/App.tsx
 msgid "Find a note or action"
 msgstr "Trouver une note ou une action"
+
+#: src/App.tsx
+msgid "Find a note to open in a new tab"
+msgstr "Rechercher une note à ouvrir dans un nouvel onglet"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Find a property"
@@ -2489,6 +2509,10 @@ msgstr "Corrigez la source YAML avant de revenir à l’éditeur de champs."
 #: src/editor-commands.ts
 msgid "Focus mode"
 msgstr "Mode focus"
+
+#: src/editor-commands.ts
+msgid "Focus other pane"
+msgstr "Passer à l’autre volet"
 
 #: src/TypeBrowser.tsx
 msgid "Folder"
@@ -3359,6 +3383,10 @@ msgstr "Note suivante"
 msgid "Next note in the list"
 msgstr "Note suivante dans la liste"
 
+#: src/editor-commands.ts
+msgid "Next tab"
+msgstr "Onglet suivant"
+
 #: src/NoteList.tsx
 msgid "No additional text"
 msgstr "Aucun texte supplémentaire"
@@ -3459,6 +3487,10 @@ msgstr "Aucune propriété de schéma correspondante."
 #: src/TypeBrowser.tsx
 msgid "No nested fields yet."
 msgstr "Aucun champ imbriqué pour le moment."
+
+#: src/App.tsx
+msgid "No note"
+msgstr "Aucune note"
 
 #. placeholder {0}: reference.target
 #: src/code-editor-reference-diagnostics.ts
@@ -3706,6 +3738,10 @@ msgstr "Ouvrir {name}"
 msgid "Open {primaryTypeLabel}"
 msgstr "Ouvrir {primaryTypeLabel}"
 
+#: src/editor-commands.ts
+msgid "Open a note in a new tab"
+msgstr "Ouvrir une note dans un nouvel onglet"
+
 #: src/use-note-comments.ts
 msgid "Open a note to comment on it."
 msgstr "Ouvrez une note pour la commenter."
@@ -3726,6 +3762,12 @@ msgstr "Ouvrir le document"
 msgid "open files"
 msgstr "ouvrir des fichiers"
 
+#: src/App.tsx
+#: src/editor-commands.ts
+#: src/QuickOpen.tsx
+msgid "Open in new tab"
+msgstr "Ouvrir dans un nouvel onglet"
+
 #: src/ConnectionScreens.tsx
 msgid "open notes"
 msgstr "ouvrir des notes"
@@ -3743,6 +3785,10 @@ msgstr "Ouvrir l’original"
 msgid "Open Settings"
 msgstr "Ouvrir les paramètres"
 
+#: src/NoteTabs.tsx
+msgid "Open tabs"
+msgstr "Onglets ouverts"
+
 #: src/main.tsx
 #: src/SdkEditorRoot.tsx
 msgid "Open the Editor configured for your mdbase environment from Collections."
@@ -3751,6 +3797,10 @@ msgstr "Depuis Collections, ouvrez l’Éditeur configuré pour votre environnem
 #: src/WorkspaceChrome.tsx
 msgid "Open to find mentions."
 msgstr "Ouvrez pour trouver les mentions."
+
+#: src/editor-commands.ts
+msgid "Open to the side"
+msgstr "Ouvrir sur le côté"
 
 #: src/editor-commands.ts
 msgid "Open Types"
@@ -4042,6 +4092,10 @@ msgstr "Note précédente"
 #: src/editor-commands.ts
 msgid "Previous note in the list"
 msgstr "Note précédente dans la liste"
+
+#: src/editor-commands.ts
+msgid "Previous tab"
+msgstr "Onglet précédent"
 
 #: src/ConnectionScreens.tsx
 msgid "Previously opened in mdbase editor"
@@ -4862,6 +4916,14 @@ msgstr "La source est enregistrée lorsque le focus quitte l’éditeur"
 msgctxt "settings view"
 msgid "Specification"
 msgstr "Spécification"
+
+#: src/editor-commands.ts
+msgid "Split down"
+msgstr "Diviser vers le bas"
+
+#: src/editor-commands.ts
+msgid "Split right"
+msgstr "Diviser à droite"
 
 #: src/code-editor-completions.ts
 msgid "Start a checkable task"

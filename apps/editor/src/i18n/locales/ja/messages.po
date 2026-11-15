@@ -1454,6 +1454,10 @@ msgstr "選択をクリア"
 msgid "Clear type search"
 msgstr "型の検索を消去"
 
+#: src/NoteTabs.tsx
+msgid "Close {name}"
+msgstr "{name} を閉じる"
+
 #: src/NoteCommentsPanel.tsx
 msgid "Close comments"
 msgstr "コメントを閉じる"
@@ -1466,9 +1470,17 @@ msgstr "ファイルのプレビューを閉じる"
 msgid "Close note peek"
 msgstr "ノートのプレビューを閉じる"
 
+#: src/editor-commands.ts
+msgid "Close pane"
+msgstr "ペインを閉じる"
+
 #: src/PropertiesPanel.tsx
 msgid "Close properties"
 msgstr "プロパティを閉じる"
+
+#: src/editor-commands.ts
+msgid "Close tab"
+msgstr "タブを閉じる"
 
 #: src/code-editor-completions.ts
 msgid "Code block"
@@ -2437,12 +2449,20 @@ msgid "Filter links by type"
 msgstr "型でリンクを絞り込む"
 
 #: src/App.tsx
+msgid "Find a note by title or path"
+msgstr "タイトルまたはパスでノートを検索"
+
+#: src/App.tsx
 msgid "Find a note by title or path, or type > for actions"
 msgstr "タイトルまたはパスでノートを探すか、> を入力して操作を表示"
 
 #: src/App.tsx
 msgid "Find a note or action"
 msgstr "ノートまたは操作を検索"
+
+#: src/App.tsx
+msgid "Find a note to open in a new tab"
+msgstr "新しいタブで開くノートを検索"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Find a property"
@@ -2489,6 +2509,10 @@ msgstr "フィールドエディターに戻る前に YAML ソースを修正し
 #: src/editor-commands.ts
 msgid "Focus mode"
 msgstr "集中モード"
+
+#: src/editor-commands.ts
+msgid "Focus other pane"
+msgstr "もう一方のペインに移動"
 
 #: src/TypeBrowser.tsx
 msgid "Folder"
@@ -3359,6 +3383,10 @@ msgstr "次のノート"
 msgid "Next note in the list"
 msgstr "リスト内の次のノート"
 
+#: src/editor-commands.ts
+msgid "Next tab"
+msgstr "次のタブ"
+
 #: src/NoteList.tsx
 msgid "No additional text"
 msgstr "追加のテキストはありません"
@@ -3459,6 +3487,10 @@ msgstr "一致するスキーマプロパティはありません。"
 #: src/TypeBrowser.tsx
 msgid "No nested fields yet."
 msgstr "入れ子のフィールドはまだありません。"
+
+#: src/App.tsx
+msgid "No note"
+msgstr "ノートなし"
 
 #. placeholder {0}: reference.target
 #: src/code-editor-reference-diagnostics.ts
@@ -3706,6 +3738,10 @@ msgstr "{name}を開く"
 msgid "Open {primaryTypeLabel}"
 msgstr "{primaryTypeLabel}を開く"
 
+#: src/editor-commands.ts
+msgid "Open a note in a new tab"
+msgstr "新しいタブでノートを開く"
+
 #: src/use-note-comments.ts
 msgid "Open a note to comment on it."
 msgstr "コメントするにはノートを開いてください。"
@@ -3726,6 +3762,12 @@ msgstr "文書を開く"
 msgid "open files"
 msgstr "ファイルを開く"
 
+#: src/App.tsx
+#: src/editor-commands.ts
+#: src/QuickOpen.tsx
+msgid "Open in new tab"
+msgstr "新しいタブで開く"
+
 #: src/ConnectionScreens.tsx
 msgid "open notes"
 msgstr "ノートを開く"
@@ -3743,6 +3785,10 @@ msgstr "元のファイルを開く"
 msgid "Open Settings"
 msgstr "設定を開く"
 
+#: src/NoteTabs.tsx
+msgid "Open tabs"
+msgstr "開いているタブ"
+
 #: src/main.tsx
 #: src/SdkEditorRoot.tsx
 msgid "Open the Editor configured for your mdbase environment from Collections."
@@ -3751,6 +3797,10 @@ msgstr "コレクションから、お使いのmdbase環境用に設定された
 #: src/WorkspaceChrome.tsx
 msgid "Open to find mentions."
 msgstr "メンションを探すために開きます。"
+
+#: src/editor-commands.ts
+msgid "Open to the side"
+msgstr "横に開く"
 
 #: src/editor-commands.ts
 msgid "Open Types"
@@ -4042,6 +4092,10 @@ msgstr "前のノート"
 #: src/editor-commands.ts
 msgid "Previous note in the list"
 msgstr "リスト内の前のノート"
+
+#: src/editor-commands.ts
+msgid "Previous tab"
+msgstr "前のタブ"
 
 #: src/ConnectionScreens.tsx
 msgid "Previously opened in mdbase editor"
@@ -4862,6 +4916,14 @@ msgstr "エディターからフォーカスが外れるとソースが保存さ
 msgctxt "settings view"
 msgid "Specification"
 msgstr "仕様"
+
+#: src/editor-commands.ts
+msgid "Split down"
+msgstr "下に分割"
+
+#: src/editor-commands.ts
+msgid "Split right"
+msgstr "右に分割"
 
 #: src/code-editor-completions.ts
 msgid "Start a checkable task"

@@ -13,9 +13,15 @@ import {
   reconcileActiveHostedEntitlements
 } from "./features/instance-admin/auth-admin-entitlements.js";
 import {
-  previewPlusAndAppsAnnouncement,
-  schedulePlusAndAppsAnnouncement
-} from "./features/instance-admin/auth-admin-announcements.js";
+  announcementContent,
+  announcementSlug,
+  createAnnouncement,
+  hasBetaGrant,
+  previewAnnouncement,
+  readAnnouncement,
+  scheduleAnnouncement,
+  testSendAnnouncement
+} from "./features/email/announcements.js";
 import {
   AuthenticationPolicyStore,
   type AuthenticationSettings
@@ -143,8 +149,41 @@ async function runCommand(
     const flags = parseFlags(rest, new Set(["operation-id", "actor", "reason", "limit"]));
     return backfillFreeEntitlement(context.db, { operationId: requiredFlag(flags, "operation-id"), actor: requiredFlag(flags, "actor"), reason: requiredFlag(flags, "reason"), limit: flags.get("limit") });
   }
-  if (area === "announcements" && (action === "preview" || action === "schedule")) {
-    return announce(action, rest, context);
+  if (area === "announcements" && action === "create") {
+    const flags = parseFlags(rest, new Set([
+      "announcement", "subject", "body", "beta-body", "operation-id", "actor", "reason"
+    ]));
+    return createAnnouncement(context.db, {
+      slug: requiredFlag(flags, "announcement"),
+      subject: requiredFlag(flags, "subject"),
+      body: requiredFlag(flags, "body"),
+      betaBody: flags.get("beta-body") ?? null
+    }, mutationFlags(flags));
+  }
+  if (area === "announcements" && action === "show") {
+    return showAnnouncement(rest, context);
+  }
+  if (area === "announcements" && action === "preview") {
+    const flags = parseFlags(rest, new Set(["announcement", "user", "all"]));
+    const all = flags.has("all") && enabledFlag(requiredFlag(flags, "all"), "all");
+    if (Number(all) + Number(flags.has("user")) !== 1) {
+      throw new AuthAdminUsageError("Announcement preview requires exactly one of --user or --all enabled.");
+    }
+    return previewAnnouncement(context.db, announcementSlug(requiredFlag(flags, "announcement")),
+      all ? null : await resolveUserId(context.db, requiredFlag(flags, "user")));
+  }
+  if (area === "announcements" && action === "test-send") {
+    const flags = parseFlags(rest, new Set(["announcement", "user", "operation-id", "actor", "reason"]));
+    return testSendAnnouncement(context.db, announcementSlug(requiredFlag(flags, "announcement")),
+      await resolveUserId(context.db, requiredFlag(flags, "user")), mutationFlags(flags));
+  }
+  if (area === "announcements" && action === "schedule") {
+    const flags = parseFlags(rest, new Set(["announcement", "all", "operation-id", "actor", "reason"]));
+    if (!enabledFlag(requiredFlag(flags, "all"), "all")) {
+      throw new AuthAdminUsageError("Announcement schedule requires --all enabled.");
+    }
+    return scheduleAnnouncement(context.db, announcementSlug(requiredFlag(flags, "announcement")),
+      null, mutationFlags(flags));
   }
   if (area === "users" && action === "list") {
     return listUsers(rest, context);
@@ -230,25 +269,26 @@ async function grantEntitlements(
   };
 }
 
-async function announce(
-  action: "preview" | "schedule",
-  argv: string[],
-  context: AuthAdminContext
-): Promise<unknown> {
-  const flags = parseFlags(argv, new Set(action === "preview"
-    ? ["announcement", "user", "all"]
-    : ["announcement", "user", "all", "operation-id", "actor", "reason"]));
-  if (requiredFlag(flags, "announcement") !== "plus-and-apps") {
-    throw new AuthAdminUsageError("--announcement must be plus-and-apps.");
-  }
-  const all = flags.has("all") && enabledFlag(requiredFlag(flags, "all"), "all");
-  if (Number(all) + Number(flags.has("user")) !== 1) {
-    throw new AuthAdminUsageError("Announcements require exactly one of --user or --all enabled.");
-  }
-  const userId = all ? null : await resolveUserId(context.db, requiredFlag(flags, "user"));
-  return action === "preview"
-    ? previewPlusAndAppsAnnouncement(context.db, userId)
-    : schedulePlusAndAppsAnnouncement(context.db, userId, mutationFlags(flags));
+/** A stored version, or with --user exactly what that account would receive. */
+async function showAnnouncement(argv: string[], context: AuthAdminContext): Promise<unknown> {
+  const flags = parseFlags(argv, new Set(["announcement", "version", "user"]));
+  const slug = announcementSlug(requiredFlag(flags, "announcement"));
+  const version = flags.has("version")
+    ? positiveInteger(requiredFlag(flags, "version"), "version")
+    : null;
+  const announcement = await readAnnouncement(context.db, slug, version);
+  if (!announcement) throw new AuthAdminUsageError(`No announcement named ${slug} at that version.`);
+  if (!flags.has("user")) return { announcement };
+  const userId = await resolveUserId(context.db, requiredFlag(flags, "user"));
+  const user = await context.db.query<{ name: string }>("SELECT name FROM users WHERE id = $1", [userId]);
+  const beta = await hasBetaGrant(context.db, userId);
+  const content = announcementContent(announcement, user.rows[0]!.name, beta);
+  return {
+    version: announcement.version,
+    variant: beta && announcement.beta_body !== null ? "beta" : "standard",
+    subject: content.subject,
+    text: content.paragraphs.join("\n\n")
+  };
 }
 
 async function reconcileEntitlements(

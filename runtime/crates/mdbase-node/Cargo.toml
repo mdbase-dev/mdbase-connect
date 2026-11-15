@@ -1,11 +1,11 @@
 [package]
 name = "mdbase-node"
-description = "The Node.js addon (napi-rs) behind `mdbase/node`: the mdbase crate's Collection on a dedicated thread, driven by JSON calls."
+description = "The Node.js addon (napi-rs) behind `@mdbase-dev/mdbase/node`: the mdbase crate's Collection on a dedicated thread, driven by JSON calls."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-# Ships inside the npm `mdbase` package as a prebuilt binary, never on crates.io.
+# Ships inside the npm `@mdbase-dev/mdbase` package as a prebuilt binary, never on crates.io.
 publish = false
 
 [lib]

@@ -60,8 +60,8 @@ could read it.
 changes (Cargo manifests and locks, the toolchain, or the pinned engine),
 weekly so unchanged entries do not expire, and on dispatch. Each matrix entry
 reproduces one consumer's toolchain, lock file and builds under a shared key:
-`hosted-provider` (Rust workspace job and every system shard),
-`connect-debug` (macOS/Windows nightly flake stress), and `mdbase-daemon-release` (Desktop Release
+`hosted-provider` (Rust workspace job and the system shards that build Rust)
+and `mdbase-daemon-release` (Desktop Release
 smoke builds of the daemon in `runtime/`, keyed on `runtime/Cargo.lock`). Every CI job restores with `save-if: false`; a contract test
 fails if a job restores a key the workflow does not write. rust-cache keeps
 dependencies only, so workspace crates always compile from source.
@@ -70,57 +70,20 @@ The hosted-provider upgrade job restores, read-only, the Docker Cargo cache
 mounts that `publish-images.yml` saves from `main` before building the
 candidate image.
 
-## Rust checks and binary transfer measurement
+## Rust checks
 
 The `hosted-provider-rust` job owns formatting, resolved feature validation,
 workspace Clippy, and workspace unit tests for the hosted-provider lockfile,
-pinned engine revision, and Linux toolchain configuration. System shards build
-that same configuration locally and run their own suites, without repeating
-those workspace checks. `Qualification` still requires both the Rust job and
-all shards. macOS/Windows coverage remains separate.
+pinned engine revision, and Linux toolchain configuration. System shards that
+start the provider binary or run its Cargo tests (`provider`, `files`,
+`files-adversarial`, `projection-scale`; `rust: true` in the matrix) build that
+same configuration locally and run their own suites, without repeating those
+workspace checks. The `relay`, `sync` and `linux-packages` shards are
+JavaScript and Docker only and skip the engine checkout, toolchain and Cargo
+build. `Qualification` still requires both the Rust job and all shards.
 
-To measure binary fan-out, label a PR `ci:benchmark-binaries`. This opts into
-full Server CI and adds a measurement-only upload of the CLI/provider runtime
-binaries, followed by six matching Linux runner downloads. The tar preserves
-executable permissions; each consumer extracts it and exercises both binaries.
-Artifacts expire after one day. This never replaces a shard build, contributes
-no qualification evidence, and is not a release artifact. Remove the label
-when the experiment is complete.
-
-Compare the archive/upload/download/extraction steps and producer readiness
-against the same run's per-shard `cargo build` steps using `CI timings`. Include
-producer dependency wait in wall-clock estimates and all six downloads in
-runner-minute estimates. Do not compare transfer time with the old combined
-Clippy/unit-test/build cost: those duplicate checks have already been removed.
-The `files-adversarial` suite invokes Cargo tests directly, so shipping only
-runtime binaries cannot remove its compilation requirements. A dedicated
-build-only producer would need its own end-to-end measurement before adoption.
-
-### Initial measurement (2026-09-16)
-
-[Run 35100242511](https://github.com/mdbase-dev/mdbase-connect/actions/runs/35100242511),
-source `dd7506cead8e98fe1da192dd2826669ba8add07b`, completed all six transfer
-probes successfully:
-
-- Compressed runtime artifact: 247,093,162 bytes (about 236 MiB).
-- Archive step: under the API's one-second timing resolution; upload including
-  compression: 12 seconds.
-- Download steps: 7, 7, 12, 9, 13, 19 seconds; extraction and both `--help`
-  probes: 0–1 seconds each.
-- Independent shard builds: desktop 179s, files 156s, local-relay 189s,
-  provider 175s, files-adversarial 181s, sync 132s (1,012 runner-seconds total).
-- The existing Rust qualification producer completed after 454 seconds;
-  consumers started two seconds later. Its unit tests and Clippy are on that
-  dependency path. Waiting for that job would delay runtime tests versus the
-  independent builds, despite cheap transfers.
-
-Decision: retain independent builds for now. Transfer is inexpensive enough to
-justify a future **build-first** producer experiment, not a dependency on the
-existing qualification job. This is one run, not a cold/warm-cache study or an
-end-to-end artifact-fed system-suite qualification. Runtime probes do not prove
-all suite dependencies portable, and files-adversarial still compiles tests.
-The run's two upgrade jobs failed on the then-existing mutable-newest-release
-policy; that failure does not invalidate the completed transfer measurements.
+The opt-in `ci:benchmark-binaries` transfer measurement was removed; it
+concluded that independent shard builds stay, and its record is in Git history.
 
 ## Publication
 

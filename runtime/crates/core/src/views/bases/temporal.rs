@@ -134,9 +134,14 @@ impl DateValue {
         Ok(value)
     }
 
-    /// Ported date-only, RFC3339 and local seconds-precision parsing.
-    /// Wider inputs, invalid dates and DST fold/gap behavior are unqualified
-    /// in this helper slice and visibly refuse pending real-oracle extension.
+    /// Parse the date text native Bases 1.12.7 reads as a date, as observed in
+    /// `conformance/oracle/obsidian-1.12.7/date-parse.observed.json`:
+    /// `YYYY-MM-DD`, optionally followed by `T` or one space, `HH:mm`, an
+    /// optional `:ss` with an optional fraction, and an optional `Z`, `±HH:MM`
+    /// or `±HHMM` offset. Text without an offset is local time in the captured
+    /// zone. Where native returns null, rolls a calendar or clock field over
+    /// (`24:00`, February 29 of a common year), truncates a sub-millisecond
+    /// fraction or resolves a DST fold or gap, this visibly refuses instead.
     pub fn parse(
         source: &str,
         timezone: BasesTimezone,
@@ -146,56 +151,33 @@ impl DateValue {
             return limit(budget, "date_source_bytes");
         }
         charge(budget, 1, 1024)?;
-        if !source.is_ascii() {
+        if !source.is_ascii()
+            || source.len() < 10
+            || source.len() > 10 && !matches!(source.as_bytes()[10], b'T' | b' ')
+        {
             return refuse(budget, "date_syntax");
         }
+        let Some((y, m, d)) = time::parse_date(&source[..10]) else {
+            return refuse(budget, "invalid_date");
+        };
+        let day = time::days_from_civil(y, m, d) * DAY_MS;
         if source.len() == 10 {
-            let Some((y, m, d)) = time::parse_date(source) else {
-                return refuse(budget, "invalid_date");
-            };
-            let local = time::days_from_civil(y, m, d) * DAY_MS;
             return Self::from_millis(
-                timezone.utc_from_local(local, budget)?,
+                timezone.utc_from_local(day, budget)?,
                 true,
                 timezone,
                 budget,
             );
         }
-        if source.len() == 19 && matches!(source.as_bytes()[10], b' ' | b'T') {
-            let Some((y, m, d)) = time::parse_date(&source[..10]) else {
-                return refuse(budget, "invalid_date");
-            };
-            let t = &source[11..];
-            if t.as_bytes()[2] != b':' || t.as_bytes()[5] != b':' {
-                return refuse(budget, "date_syntax");
-            }
-            let (Some(h), Some(mi), Some(s)) = (digits(&t[..2]), digits(&t[3..5]), digits(&t[6..]))
-            else {
-                return refuse(budget, "date_syntax");
-            };
-            if h > 23 || mi > 59 || s > 59 {
-                return refuse(budget, "invalid_date");
-            }
-            let local = time::days_from_civil(y, m, d) * DAY_MS + (h * 3600 + mi * 60 + s) * 1000;
-            return Self::from_millis(
-                timezone.utc_from_local(local, budget)?,
-                false,
-                timezone,
-                budget,
-            );
-        }
-        let Ok(t) = Timestamp::parse(source) else {
-            return refuse(budget, "date_syntax");
+        let (time, offset) = match time_of_day(&source[11..]) {
+            Ok(parsed) => parsed,
+            Err(detail) => return refuse(budget, detail),
         };
-        if t.nanos % 1_000_000 != 0 {
-            return refuse(budget, "submillisecond_date");
-        }
-        Self::from_millis(
-            t.seconds * 1000 + i64::from(t.nanos / 1_000_000),
-            false,
-            timezone,
-            budget,
-        )
+        let millis = match offset {
+            None => timezone.utc_from_local(day + time, budget)?,
+            Some(seconds) => day + time - seconds * 1000,
+        };
+        Self::from_millis(millis, false, timezone, budget)
     }
 
     pub(super) fn timezone_name(self) -> std::borrow::Cow<'static, str> {
@@ -531,6 +513,61 @@ fn digits(s: &str) -> Option<i64> {
     (!s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
         .then(|| s.parse().ok())
         .flatten()
+}
+/// `HH:mm[:ss[.fraction]][Z|±HH:MM|±HHMM]` as milliseconds into the day and
+/// an optional offset in seconds.
+fn time_of_day(t: &str) -> Result<(i64, Option<i64>), &'static str> {
+    let two = |at: usize| t.get(at..at + 2).and_then(digits);
+    let (Some(h), Some(mi)) = (two(0), two(3)) else {
+        return Err("date_syntax");
+    };
+    if t.as_bytes()[2] != b':' {
+        return Err("date_syntax");
+    }
+    let (mut s, mut ms, mut rest) = (0, 0, &t[5..]);
+    if let Some(after) = rest.strip_prefix(':') {
+        s = after.get(..2).and_then(digits).ok_or("date_syntax")?;
+        rest = &after[2..];
+        if let Some(fraction) = rest.strip_prefix('.') {
+            let n = fraction.bytes().take_while(u8::is_ascii_digit).count();
+            if n == 0 || n > 9 {
+                return Err("date_syntax");
+            }
+            if fraction[n.min(3)..n].bytes().any(|b| b != b'0') {
+                return Err("submillisecond_date");
+            }
+            ms = fraction[..n.min(3)]
+                .bytes()
+                .chain(std::iter::repeat(b'0'))
+                .take(3)
+                .fold(0, |ms, b| ms * 10 + i64::from(b - b'0'));
+            rest = &fraction[n..];
+        }
+    }
+    let offset = match rest.as_bytes() {
+        [] => None,
+        [b'Z'] => Some(0),
+        [sign @ (b'+' | b'-'), zone @ ..] => {
+            let (oh, om) = match zone {
+                [_, _, b':', _, _] => (digits(&rest[1..3]), digits(&rest[4..6])),
+                [_, _, _, _] => (digits(&rest[1..3]), digits(&rest[3..5])),
+                _ => return Err("date_syntax"),
+            };
+            let (Some(oh), Some(om)) = (oh, om) else {
+                return Err("date_syntax");
+            };
+            if oh > 23 || om > 59 {
+                return Err("invalid_date");
+            }
+            let seconds = oh * 3600 + om * 60;
+            Some(if *sign == b'-' { -seconds } else { seconds })
+        }
+        _ => return Err("date_syntax"),
+    };
+    if h > 23 || mi > 59 || s > 59 {
+        return Err("invalid_date");
+    }
+    Ok(((h * 3600 + mi * 60 + s) * 1000 + ms, offset))
 }
 fn checked_millis(millis: i64, budget: &mut WorkBudget) -> Result<i64, EvaluationFailure> {
     if Timestamp::from_millis(millis).is_err() {

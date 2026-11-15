@@ -1,8 +1,8 @@
 /**
- * `mdbase/node`: collections on disk.
+ * `@mdbase-dev/mdbase/node`: collections on disk.
  *
  * ```ts
- * import { Collection } from "mdbase/node";
+ * import { Collection } from "@mdbase-dev/mdbase/node";
  *
  * const col = await Collection.open("./notes");
  * const task = await col.create({ path: "tasks/a.md", frontmatter: { type: "task", status: "open" }, body: "…" });

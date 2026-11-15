@@ -20,6 +20,7 @@ import {
 import { forEachDiagnostic, lintGutter, setDiagnosticsEffect, linter, lintKeymap, type Diagnostic } from "@codemirror/lint";
 import { closeSearchPanel, highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
 import { registerActiveEditor, unregisterActiveEditor } from "./code-editor-reveal";
+import { changedSpan } from "./changed-span";
 import { Compartment, EditorSelection, EditorState, Prec, StateEffect, StateField, Transaction, type Extension } from "@codemirror/state";
 import {
   Decoration,
@@ -47,7 +48,7 @@ import type { AttachmentUploader } from "./AttachmentUpload";
 import { noteEmbedPresentation, parsedNoteEmbeds } from "./code-editor-note-embeds";
 import type { ParsedEmbeds } from "./code-editor-embed-positions";
 import { MISSING_REFERENCE_CLASS, referenceDiagnostics } from "./code-editor-reference-diagnostics";
-import { writerInteractions } from "./code-editor-writer-interactions";
+import { writerInteractions, type LinkOpening } from "./code-editor-writer-interactions";
 import type { LinkTargets } from "./collection-links";
 import type { LinkSuggestion } from "./links";
 import type { ResolvedNoteEmbed } from "./note-embeds";
@@ -83,7 +84,8 @@ interface CodeEditorProps {
   recentPaths?: string[];
   linkSuggestions?: LinkSuggestion[];
   linkTypes?: string[];
-  onOpenLink?: (path: string) => void;
+  /** Opens a linked note, in a new tab when the click asked for one. */
+  onOpenLink?: (path: string, options?: LinkOpening) => void;
   onCreateLink?: (target: string, label: string | undefined, format: "wikilink" | "markdown") => void;
   onPreviewLink?: (path: string, anchor: NotePreviewAnchor, source: NotePreviewSource) => void;
   onDismissLinkPreview?: () => void;
@@ -769,15 +771,6 @@ const mdbaseHighlightStyle = HighlightStyle.define([
   { tag: tags.monospace, fontFamily: "var(--mono)", fontSize: "0.9em" },
   { tag: tags.invalid, color: "var(--danger)" }
 ]);
-
-function changedSpan(before: string, after: string) {
-  let start = 0;
-  const shortest = Math.min(before.length, after.length);
-  while (start < shortest && before.charCodeAt(start) === after.charCodeAt(start)) start++;
-  let end = 0;
-  while (end < shortest - start && before.charCodeAt(before.length - 1 - end) === after.charCodeAt(after.length - 1 - end)) end++;
-  return { from: start, to: before.length - end, insert: after.slice(start, after.length - end) };
-}
 
 function writerPresentationFor(variant: EditorVariant, quietMarkdown: boolean): Extension {
   if (variant !== "writer") return [];

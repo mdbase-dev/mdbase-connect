@@ -3,7 +3,7 @@ name: Rust caches
 # Caches saved on a merge-queue or pull-request ref are invisible to every
 # other ref, and a push to main reuses the merge-queue qualification without
 # building. This workflow is therefore the only writer of the Rust dependency
-# caches that Server CI, Desktop Release and Flake stress restore; those jobs
+# caches that Server CI and Desktop Release restore; those jobs
 # never save.
 #
 # rust-cache keeps dependencies only, so a cache changes when its key inputs
@@ -49,11 +49,6 @@ jobs:
           # server-ci.yml: hosted-provider-rust and hosted-provider-system.
           - cache: hosted-provider
             os: ubuntu-latest
-          # flake-stress.yml.
-          - cache: connect-debug
-            os: macos-15
-          - cache: connect-debug
-            os: windows-2025
           # desktop-release.yml: headless-package-smoke, windows-package-smoke
           # (the daemon in runtime/, its own workspace and toolchain file).
           - cache: mdbase-daemon-release
@@ -84,12 +79,8 @@ jobs:
       - name: Install Rust
         if: matrix.cache != 'mdbase-daemon-release'
         run: |
-          if [[ ${{ matrix.cache }} == hosted-provider ]]; then
-            rustup toolchain install 1.94.0 --profile minimal --component rustfmt --component clippy
-            cp deploy/docker/Cargo.lock.hosted-provider Cargo.lock
-          else
-            rustup toolchain install 1.94.0 --profile minimal
-          fi
+          rustup toolchain install 1.94.0 --profile minimal --component rustfmt --component clippy
+          cp deploy/docker/Cargo.lock.hosted-provider Cargo.lock
           rustup override set 1.94.0
       - name: Install the runtime/ toolchain
         if: matrix.cache == 'mdbase-daemon-release'
@@ -116,9 +107,6 @@ jobs:
               cargo clippy --locked --workspace --all-targets
               cargo test --locked --workspace --no-run
               cargo build --locked --workspace
-              ;;
-            connect-debug)
-              cargo test --locked --no-run -p mdbase-connect-hosted-provider
               ;;
             mdbase-daemon-release)
               cd runtime

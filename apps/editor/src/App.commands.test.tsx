@@ -110,7 +110,7 @@ describe("workspace commands", () => {
     const original = await gateway.read("Journal/garden-notes-2.md");
     const source = await gateway.update(original, { body: "# Garden notes 2\n\nI like The shape of useful tools. And the shape of useful tools." });
     const read = vi.spyOn(gateway, "read"), update = vi.spyOn(gateway, "update");
-    localStorage.setItem("mdbase-editor:last-note:demo", "Notes/the-shape-of-useful-tools.md");
+    localStorage.setItem("mdbase-editor:tabs:demo", JSON.stringify({ tabs: [{ paths: ["Notes/the-shape-of-useful-tools.md"], index: 0 }], active: 0 }));
     render(<App gateway={gateway} />);
     await screen.findByRole("textbox", { name: "Note body" });
     const disclosure = await screen.findByText("Unlinked mentions (1)");
@@ -135,7 +135,7 @@ describe("workspace commands", () => {
     const gateway = new DemoCollectionGateway(3);
     const original = await gateway.read("Journal/garden-notes-2.md");
     const source = await gateway.update(original, { body: "# Garden notes 2\n\nThe shape of useful tools." });
-    localStorage.setItem("mdbase-editor:last-note:demo", "Notes/the-shape-of-useful-tools.md");
+    localStorage.setItem("mdbase-editor:tabs:demo", JSON.stringify({ tabs: [{ paths: ["Notes/the-shape-of-useful-tools.md"], index: 0 }], active: 0 }));
     render(<App gateway={gateway} />);
     await screen.findByRole("textbox", { name: "Note body" });
     await user.click(await screen.findByText("Unlinked mentions (1)"));
@@ -153,7 +153,7 @@ describe("workspace commands", () => {
     const original = await gateway.read("Journal/garden-notes-2.md");
     const source = await gateway.update(original, { body: "# Garden notes 2\n\nThe shape of useful tools." });
     const write = gateway.update.bind(gateway);
-    localStorage.setItem("mdbase-editor:last-note:demo", "Notes/the-shape-of-useful-tools.md");
+    localStorage.setItem("mdbase-editor:tabs:demo", JSON.stringify({ tabs: [{ paths: ["Notes/the-shape-of-useful-tools.md"], index: 0 }], active: 0 }));
     render(<App gateway={gateway} />);
     await screen.findByRole("textbox", { name: "Note body" });
     await user.click(await screen.findByText("Unlinked mentions (1)"));
@@ -174,7 +174,7 @@ describe("workspace commands", () => {
     const gateway = new DemoCollectionGateway(3);
     const original = await gateway.read("Journal/garden-notes-2.md");
     await gateway.update(original, { body: "# Garden notes 2\n\nThe shape of useful tools." });
-    localStorage.setItem("mdbase-editor:last-note:demo", "Notes/the-shape-of-useful-tools.md");
+    localStorage.setItem("mdbase-editor:tabs:demo", JSON.stringify({ tabs: [{ paths: ["Notes/the-shape-of-useful-tools.md"], index: 0 }], active: 0 }));
     render(<App gateway={gateway} />);
     await screen.findByRole("textbox", { name: "Note body" });
     await user.click(await screen.findByText("Unlinked mentions (1)"));
@@ -228,5 +228,28 @@ describe("workspace commands", () => {
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue(""));
     expect(document.querySelector(".note-path-pending")).toHaveAttribute("title", "Notes/Untitled.md");
+  });
+
+  it("splits the editor onto the same note, keeps both panes in step, and closes the pane", async () => {
+    render(<App gateway={new DemoCollectionGateway(4)} />);
+    await screen.findByRole("textbox", { name: "Note body" });
+    await runCommand("Split right");
+    const focused = () => within(screen.getByRole("main", { name: "Note editor" })).getByRole("textbox", { name: "Note body" });
+    const other = () => within(screen.getByRole("region", { name: "Note editor" })).getByRole("textbox", { name: "Note body" });
+    await waitFor(() => expect(other()).toHaveValue((focused() as HTMLTextAreaElement).value));
+    expect(document.querySelector(".editor-split")).toHaveClass("is-split", "split-right");
+
+    fireEvent.change(focused(), { target: { value: "Written in one pane" } });
+    expect(other()).toHaveValue("Written in one pane");
+    await runCommand("Split down");
+    expect(document.querySelector(".editor-split")).toHaveClass("is-split", "split-down");
+    fireEvent.pointerDown(other());
+    fireEvent.change(focused(), { target: { value: "Written in the other" } });
+    expect(other()).toHaveValue("Written in the other");
+
+    await runCommand("Close pane");
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Note editor" })).not.toBeInTheDocument());
+    expect(focused()).toHaveValue("Written in the other");
+    expect(document.querySelector(".editor-split")).not.toHaveClass("is-split");
   });
 });

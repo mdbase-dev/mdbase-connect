@@ -96,7 +96,7 @@ pub const RULES: &[(&str, &[&str])] = &[
     // its normalized policy pins, for the daemon and the app build step.
     ("mdbn-trust", &["mdbn-wire", "mdbn-replica"]),
     // mdbase-core.wasm: the pure helpers (digests, JSON Schema, catalog, packs)
-    // for the npm `mdbase` package. Ships inside that package only.
+    // for the npm `@mdbase-dev/mdbase` package. Ships inside that package only.
     ("mdbase-wasm", &["mdbn-core"]),
     // Old-format readers for migration: no internal deps, so they cannot
     // normalise old data through new semantics (legacy semantics boundary).
@@ -155,7 +155,7 @@ pub const RULES: &[(&str, &[&str])] = &[
             "mdbn-local-host",
         ],
     ),
-    // The Node.js addon behind `mdbase/node`: a thin JSON shell over `mdbase`.
+    // The Node.js addon behind `@mdbase-dev/mdbase/node`: a thin JSON shell over `mdbase`.
     ("mdbase-node", &["mdbase"]),
     // Composition point: wires the file store to replicas, hosts the embedded log.
     (

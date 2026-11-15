@@ -1,6 +1,6 @@
 [package]
 name = "mdbase-wasm"
-description = "mdbase-core.wasm: the pure mdbase helpers (digests, JSON Schema, catalog, packs) behind a JSON ABI for the npm `mdbase` package."
+description = "mdbase-core.wasm: the pure mdbase helpers (digests, JSON Schema, catalog, packs) behind a JSON ABI for the npm `@mdbase-dev/mdbase` package."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
