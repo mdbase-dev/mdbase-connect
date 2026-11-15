@@ -7,6 +7,7 @@ import { mdbaseOpeningPage, OPENING_MARKER, openingPageMarkup, openingPageScript
 import { OpeningScreen } from "./screens.js";
 
 const themeColor = { light: "#fcfcfd", dark: "#1b1d23" };
+const root = { path: "/index.html" };
 const index = `<!doctype html><html><head><meta charset="UTF-8" /><title>mdbase editor</title><link rel="stylesheet" href="/app.css"></head><body><div id="root">${OPENING_MARKER}</div></body></html>`;
 
 describe("opening page", () => {
@@ -28,7 +29,7 @@ describe("opening page", () => {
   });
 
   it("puts its styles and script right after the charset, ahead of the app's own CSS", () => {
-    const html = mdbaseOpeningPage({ app: "editor", title: "Opening collection", themeColor }).transformIndexHtml.handler(index);
+    const html = mdbaseOpeningPage({ app: "editor", title: "Opening collection", themeColor }).transformIndexHtml.handler(index, root);
     const order = ['<meta charset="UTF-8" />', '<meta name="theme-color" content="#fcfcfd" />', "<style>", "<script>", '<link rel="stylesheet"'].map((part) => html.indexOf(part));
     expect(order.every((at, position) => at >= 0 && (position === 0 || at > order[position - 1]!))).toBe(true);
     expect(html).not.toContain(OPENING_MARKER);
@@ -37,9 +38,12 @@ describe("opening page", () => {
 
   it("refuses an index.html it would have to guess about", () => {
     const plugin = mdbaseOpeningPage({ app: "reader", title: "Opening your library", themeColor });
-    expect(() => plugin.transformIndexHtml.handler(index.replace(OPENING_MARKER, ""))).toThrow(OPENING_MARKER);
-    expect(() => plugin.transformIndexHtml.handler(index.replace("<title>", '<meta name="theme-color" content="#fff" /><title>'))).toThrow("theme-color");
-    expect(() => plugin.transformIndexHtml.handler(index.replace('<meta charset="UTF-8" />', ""))).toThrow("charset");
+    expect(() => plugin.transformIndexHtml.handler(index.replace(OPENING_MARKER, ""), root)).toThrow(OPENING_MARKER);
+    expect(() => plugin.transformIndexHtml.handler(index.replace("<title>", '<meta name="theme-color" content="#fff" /><title>'), root)).toThrow("theme-color");
+    expect(() => plugin.transformIndexHtml.handler(index.replace('<meta charset="UTF-8" />', ""), root)).toThrow("charset");
+    // Other pages the app serves, such as test fixtures, are not the app's opening.
+    const fixture = "<!doctype html><html><head></head><body></body></html>";
+    expect(plugin.transformIndexHtml.handler(fixture, { path: "/test-fixtures/probe.html" })).toBe(fixture);
   });
 
   it("inlines only what draws the screen", () => {

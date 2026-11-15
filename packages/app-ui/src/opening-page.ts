@@ -115,10 +115,10 @@ export function openingPageStyles(): string {
     .replace(/\n\s*\n/gu, "\n");
 }
 
-/** Writes the opening page into index.html. */
+/** Writes the opening page into the app's root index.html, leaving any other page alone. */
 export function mdbaseOpeningPage(options: OpeningPageOptions): {
   name: string;
-  transformIndexHtml: { order: "post"; handler: (html: string) => string };
+  transformIndexHtml: { order: "post"; handler: (html: string, context: { readonly path: string }) => string };
 } {
   const styles = openingPageStyles();
   return {
@@ -126,7 +126,8 @@ export function mdbaseOpeningPage(options: OpeningPageOptions): {
     transformIndexHtml: {
       // After Vite's own tags are in, so the inline styles still come first and app CSS overrides them.
       order: "post",
-      handler(html) {
+      handler(html, { path }) {
+        if (path !== "/index.html") return html;
         if (!html.includes(OPENING_MARKER)) throw new Error(`index.html has no ${OPENING_MARKER} for the opening screen.`);
         if (/<meta\s+name="theme-color"/u.test(html)) throw new Error("index.html sets theme-color; mdbaseOpeningPage writes it from its themeColor option.");
         const charset = /<meta\s+charset=[^>]*>/iu.exec(html);
