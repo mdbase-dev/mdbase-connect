@@ -4,6 +4,7 @@ import { editorPermissions } from "./gateway";
 import { CollectionIndexController } from "./collection-index-controller";
 import type { EditorCollectionChange, NoteObservationSnapshot } from "./model";
 import { NativeEditorGateway } from "./native-gateway";
+import { summaryFromDocument } from "./note";
 import { outdatedPersonStarter } from "./person-setup";
 import { closeNativeFixtures, readyFixture } from "./test/native-fixture";
 import manifest from "../public/.well-known/mdbase-app.json";
@@ -359,9 +360,30 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
       const plan = index.getSnapshot().notes.find((note) => note.path === "notes/plan.md")!;
       const published: unknown[] = [];
       index.subscribe(() => published.push(index.getSnapshot().notes));
-      index.upsert({ ...plan, frontmatter: { title: "Renamed plan" } });
+      // A local row for a revision the index does not show yet, as a save produces.
+      index.upsert({ ...plan, revision: "saved-here", frontmatter: { title: "Renamed plan" } });
       expect(published).toHaveLength(1);
       expect(index.getSnapshot().notes.find((note) => note.path === "notes/plan.md")?.frontmatter).toEqual({ title: "Renamed plan" });
+    } finally { index.reset(); }
+  });
+
+  it("publishes nothing more when a save returns after the watch already showed it", async () => {
+    const f = await fixture({}, seedNotes);
+    const index = new CollectionIndexController(f.gateway);
+    try {
+      await index.reload();
+      const base = await f.gateway.read("notes/plan.md");
+      const saved = await f.gateway.updateDocument(base.path, `${base.document}\nA saved line.\n`, base.revision);
+      // A native save waits for its receipt and readback; the watch reread lands first.
+      for (let i = 0; i < 100 && index.getSnapshot().notes.find((note) => note.path === base.path)?.revision !== saved.revision; i++)
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      const { notes } = index.getSnapshot();
+      expect(notes.find((note) => note.path === base.path)?.revision).toBe(saved.revision);
+      const published = vi.fn();
+      index.subscribe(published);
+      index.upsert(summaryFromDocument(saved));
+      expect(published).not.toHaveBeenCalled();
+      expect(index.getSnapshot().notes).toBe(notes);
     } finally { index.reset(); }
   });
 
