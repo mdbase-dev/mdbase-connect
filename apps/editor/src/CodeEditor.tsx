@@ -53,7 +53,7 @@ import type { CollectionFile, NoteSummary } from "./model";
 import { typewriterScrolling } from "./code-editor-typewriter";
 import { commentAnchorRange, commentAnchors, showCommentAnchors, type CommentAnchor, type CommentAnchorCard } from "@mdbase-dev/ui/comment-anchors";
 import { mdbasePopupTheme } from "@mdbase-dev/ui/codemirror";
-import { indentListItem, livePreview, outdentListItem } from "@mdbase-dev/ui/live-preview";
+import { indentListItem, livePreview, markdownMath, outdentListItem } from "@mdbase-dev/ui/live-preview";
 
 type EditorLanguage = "markdown" | "json" | "yaml" | "yaml-frontmatter" | "plain";
 type EditorVariant = "writer" | "source";
@@ -705,9 +705,9 @@ function contentAttributes(label: string, variant: EditorVariant, language: stri
 
 /** GitHub-flavoured Markdown (tables, strikethrough, autolinks, task lists),
  * matching the read-only renderer and the reference parser, with JSON and YAML
- * highlighting inside fenced code. */
+ * highlighting inside fenced code, and `$…$`/`$$…$$` math for the live preview. */
 function markdownSupport() {
-  return markdown({ base: markdownLanguage, codeLanguages: fencedCodeLanguages });
+  return markdown({ base: markdownLanguage, codeLanguages: fencedCodeLanguages, extensions: [markdownMath] });
 }
 
 const fencedCodeLanguages = [
