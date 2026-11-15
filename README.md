@@ -1,5 +1,7 @@
 # mdbase connect
 
+[![What mdbase does, in two minutes](https://mdbase.dev/videos/mdbase-in-two-minutes.jpg)](https://mdbase.dev/videos/mdbase-in-two-minutes.mp4)
+
 > [!IMPORTANT]
 > **Beta:** The managed mdbase connect cloud service is transitioning from
 > invite-only access to public signup. Existing invitation links remain valid.
