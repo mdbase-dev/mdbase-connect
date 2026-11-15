@@ -1454,6 +1454,10 @@ msgstr "Limpiar la selección"
 msgid "Clear type search"
 msgstr "Borrar la búsqueda de tipos"
 
+#: src/NoteTabs.tsx
+msgid "Close {name}"
+msgstr "Cerrar {name}"
+
 #: src/NoteCommentsPanel.tsx
 msgid "Close comments"
 msgstr "Cerrar comentarios"
@@ -1466,9 +1470,17 @@ msgstr "Cerrar la vista previa del archivo"
 msgid "Close note peek"
 msgstr "Cerrar vista previa de la nota"
 
+#: src/editor-commands.ts
+msgid "Close pane"
+msgstr "Cerrar panel"
+
 #: src/PropertiesPanel.tsx
 msgid "Close properties"
 msgstr "Cerrar las propiedades"
+
+#: src/editor-commands.ts
+msgid "Close tab"
+msgstr "Cerrar pestaña"
 
 #: src/code-editor-completions.ts
 msgid "Code block"
@@ -2437,12 +2449,20 @@ msgid "Filter links by type"
 msgstr "Filtrar enlaces por tipo"
 
 #: src/App.tsx
+msgid "Find a note by title or path"
+msgstr "Buscar una nota por título o ruta"
+
+#: src/App.tsx
 msgid "Find a note by title or path, or type > for actions"
 msgstr "Busca una nota por título o ruta, o escribe > para ver acciones"
 
 #: src/App.tsx
 msgid "Find a note or action"
 msgstr "Buscar una nota o acción"
+
+#: src/App.tsx
+msgid "Find a note to open in a new tab"
+msgstr "Buscar una nota para abrirla en una pestaña nueva"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Find a property"
@@ -2489,6 +2509,10 @@ msgstr "Corrige el código YAML antes de volver al editor de campos."
 #: src/editor-commands.ts
 msgid "Focus mode"
 msgstr "Modo de enfoque"
+
+#: src/editor-commands.ts
+msgid "Focus other pane"
+msgstr "Ir al otro panel"
 
 #: src/TypeBrowser.tsx
 msgid "Folder"
@@ -3359,6 +3383,10 @@ msgstr "Nota siguiente"
 msgid "Next note in the list"
 msgstr "Nota siguiente de la lista"
 
+#: src/editor-commands.ts
+msgid "Next tab"
+msgstr "Pestaña siguiente"
+
 #: src/NoteList.tsx
 msgid "No additional text"
 msgstr "Sin texto adicional"
@@ -3459,6 +3487,10 @@ msgstr "No hay propiedades del esquema que coincidan."
 #: src/TypeBrowser.tsx
 msgid "No nested fields yet."
 msgstr "Aún no hay campos anidados."
+
+#: src/App.tsx
+msgid "No note"
+msgstr "Ninguna nota"
 
 #. placeholder {0}: reference.target
 #: src/code-editor-reference-diagnostics.ts
@@ -3706,6 +3738,10 @@ msgstr "Abrir {name}"
 msgid "Open {primaryTypeLabel}"
 msgstr "Abrir {primaryTypeLabel}"
 
+#: src/editor-commands.ts
+msgid "Open a note in a new tab"
+msgstr "Abrir una nota en una pestaña nueva"
+
 #: src/use-note-comments.ts
 msgid "Open a note to comment on it."
 msgstr "Abre una nota para comentarla."
@@ -3726,6 +3762,12 @@ msgstr "Abrir documento"
 msgid "open files"
 msgstr "abrir archivos"
 
+#: src/App.tsx
+#: src/editor-commands.ts
+#: src/QuickOpen.tsx
+msgid "Open in new tab"
+msgstr "Abrir en una pestaña nueva"
+
 #: src/ConnectionScreens.tsx
 msgid "open notes"
 msgstr "abrir notas"
@@ -3743,6 +3785,10 @@ msgstr "Abrir original"
 msgid "Open Settings"
 msgstr "Abrir Ajustes"
 
+#: src/NoteTabs.tsx
+msgid "Open tabs"
+msgstr "Pestañas abiertas"
+
 #: src/main.tsx
 #: src/SdkEditorRoot.tsx
 msgid "Open the Editor configured for your mdbase environment from Collections."
@@ -3751,6 +3797,10 @@ msgstr "Abra desde Colecciones el Editor configurado para su entorno de mdbase."
 #: src/WorkspaceChrome.tsx
 msgid "Open to find mentions."
 msgstr "Abre esta sección para buscar menciones."
+
+#: src/editor-commands.ts
+msgid "Open to the side"
+msgstr "Abrir al lado"
 
 #: src/editor-commands.ts
 msgid "Open Types"
@@ -4042,6 +4092,10 @@ msgstr "Nota anterior"
 #: src/editor-commands.ts
 msgid "Previous note in the list"
 msgstr "Nota anterior de la lista"
+
+#: src/editor-commands.ts
+msgid "Previous tab"
+msgstr "Pestaña anterior"
 
 #: src/ConnectionScreens.tsx
 msgid "Previously opened in mdbase editor"
@@ -4862,6 +4916,14 @@ msgstr "El código fuente se guarda cuando el editor pierde el foco"
 msgctxt "settings view"
 msgid "Specification"
 msgstr "Especificación"
+
+#: src/editor-commands.ts
+msgid "Split down"
+msgstr "Dividir hacia abajo"
+
+#: src/editor-commands.ts
+msgid "Split right"
+msgstr "Dividir a la derecha"
 
 #: src/code-editor-completions.ts
 msgid "Start a checkable task"

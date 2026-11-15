@@ -1,5 +1,5 @@
 /**
- * `mdbase`: the mdbase engine for JavaScript.
+ * `@mdbase-dev/mdbase`: the mdbase engine for JavaScript.
  *
  * This entry point is the **universal helpers**: pure functions over strings and
  * JSON that run anywhere WebAssembly runs (browsers, workers, Node, Deno, Bun).
@@ -21,7 +21,7 @@
  *
  * @example
  * ```ts
- * import { contractDigest, loadCatalog } from "mdbase";
+ * import { contractDigest, loadCatalog } from "@mdbase-dev/mdbase";
  *
  * const { digest } = await contractDigest(contractFileText);
  * const catalog = await loadCatalog({ "mdbase.yaml": config, "_types/task.md": task });
@@ -136,7 +136,7 @@ export async function implementationDigest(input: {
  * types folder and the contracts folder, keyed by resource path. Never throws
  * for invalid resources: `catalog.valid` is false and `catalog.issues` says why.
  *
- * On Node, `mdbase/node` has `loadCatalog(root)` that reads the files for you.
+ * On Node, `@mdbase-dev/mdbase/node` has `loadCatalog(root)` that reads the files for you.
  */
 export async function loadCatalog(resources: Resources): Promise<Catalog> {
   const c = await engine();

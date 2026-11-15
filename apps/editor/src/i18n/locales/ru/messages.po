@@ -1454,6 +1454,10 @@ msgstr "Снять выделение"
 msgid "Clear type search"
 msgstr "Очистить поиск типов"
 
+#: src/NoteTabs.tsx
+msgid "Close {name}"
+msgstr "Закрыть «{name}»"
+
 #: src/NoteCommentsPanel.tsx
 msgid "Close comments"
 msgstr "Закрыть комментарии"
@@ -1466,9 +1470,17 @@ msgstr "Закрыть предпросмотр файла"
 msgid "Close note peek"
 msgstr "Закрыть предпросмотр заметки"
 
+#: src/editor-commands.ts
+msgid "Close pane"
+msgstr "Закрыть панель"
+
 #: src/PropertiesPanel.tsx
 msgid "Close properties"
 msgstr "Закрыть свойства"
+
+#: src/editor-commands.ts
+msgid "Close tab"
+msgstr "Закрыть вкладку"
 
 #: src/code-editor-completions.ts
 msgid "Code block"
@@ -2437,12 +2449,20 @@ msgid "Filter links by type"
 msgstr "Фильтровать ссылки по типу"
 
 #: src/App.tsx
+msgid "Find a note by title or path"
+msgstr "Найти заметку по названию или пути"
+
+#: src/App.tsx
 msgid "Find a note by title or path, or type > for actions"
 msgstr "Найдите заметку по названию или пути либо введите > для действий"
 
 #: src/App.tsx
 msgid "Find a note or action"
 msgstr "Найдите заметку или действие"
+
+#: src/App.tsx
+msgid "Find a note to open in a new tab"
+msgstr "Найти заметку, чтобы открыть её в новой вкладке"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Find a property"
@@ -2489,6 +2509,10 @@ msgstr "Исправьте исходный YAML, прежде чем верну
 #: src/editor-commands.ts
 msgid "Focus mode"
 msgstr "Режим сосредоточения"
+
+#: src/editor-commands.ts
+msgid "Focus other pane"
+msgstr "Перейти к другой панели"
 
 #: src/TypeBrowser.tsx
 msgid "Folder"
@@ -3359,6 +3383,10 @@ msgstr "Следующая заметка"
 msgid "Next note in the list"
 msgstr "Следующая заметка в списке"
 
+#: src/editor-commands.ts
+msgid "Next tab"
+msgstr "Следующая вкладка"
+
 #: src/NoteList.tsx
 msgid "No additional text"
 msgstr "Нет дополнительного текста"
@@ -3459,6 +3487,10 @@ msgstr "Подходящих свойств схемы нет."
 #: src/TypeBrowser.tsx
 msgid "No nested fields yet."
 msgstr "Пока нет вложенных полей."
+
+#: src/App.tsx
+msgid "No note"
+msgstr "Нет заметки"
 
 #. placeholder {0}: reference.target
 #: src/code-editor-reference-diagnostics.ts
@@ -3706,6 +3738,10 @@ msgstr "Открыть {name}"
 msgid "Open {primaryTypeLabel}"
 msgstr "Открыть {primaryTypeLabel}"
 
+#: src/editor-commands.ts
+msgid "Open a note in a new tab"
+msgstr "Открыть заметку в новой вкладке"
+
 #: src/use-note-comments.ts
 msgid "Open a note to comment on it."
 msgstr "Откройте заметку, чтобы прокомментировать её."
@@ -3726,6 +3762,12 @@ msgstr "Открыть документ"
 msgid "open files"
 msgstr "открывать файлы"
 
+#: src/App.tsx
+#: src/editor-commands.ts
+#: src/QuickOpen.tsx
+msgid "Open in new tab"
+msgstr "Открыть в новой вкладке"
+
 #: src/ConnectionScreens.tsx
 msgid "open notes"
 msgstr "открывать заметки"
@@ -3743,6 +3785,10 @@ msgstr "Открыть оригинал"
 msgid "Open Settings"
 msgstr "Открыть настройки"
 
+#: src/NoteTabs.tsx
+msgid "Open tabs"
+msgstr "Открытые вкладки"
+
 #: src/main.tsx
 #: src/SdkEditorRoot.tsx
 msgid "Open the Editor configured for your mdbase environment from Collections."
@@ -3751,6 +3797,10 @@ msgstr "Откройте из раздела «Коллекции» редакт
 #: src/WorkspaceChrome.tsx
 msgid "Open to find mentions."
 msgstr "Откройте, чтобы найти упоминания."
+
+#: src/editor-commands.ts
+msgid "Open to the side"
+msgstr "Открыть сбоку"
 
 #: src/editor-commands.ts
 msgid "Open Types"
@@ -4042,6 +4092,10 @@ msgstr "Предыдущая заметка"
 #: src/editor-commands.ts
 msgid "Previous note in the list"
 msgstr "Предыдущая заметка в списке"
+
+#: src/editor-commands.ts
+msgid "Previous tab"
+msgstr "Предыдущая вкладка"
 
 #: src/ConnectionScreens.tsx
 msgid "Previously opened in mdbase editor"
@@ -4862,6 +4916,14 @@ msgstr "Исходный текст сохраняется при потере �
 msgctxt "settings view"
 msgid "Specification"
 msgstr "Спецификация"
+
+#: src/editor-commands.ts
+msgid "Split down"
+msgstr "Разделить вниз"
+
+#: src/editor-commands.ts
+msgid "Split right"
+msgstr "Разделить вправо"
 
 #: src/code-editor-completions.ts
 msgid "Start a checkable task"

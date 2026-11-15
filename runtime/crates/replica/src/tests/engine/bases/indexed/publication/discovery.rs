@@ -28,13 +28,44 @@ fn discovery_actor(source: &str) -> (Replica<ProjectionStore>, SessionId) {
         .unwrap();
     (r, session)
 }
-#[test]
-fn primary_inventory_empty_definition_page_makes_real_progress_before_eof() {
+/// A replica whose primary inventory is `records` (created in batches with
+/// the given IDs) plus a three-view Base at the largest identity.
+fn inventory_actor(records: &[(B16, String, String)]) -> (Replica<ProjectionStore>, SessionId) {
     let (svc, mut a, _) = configured();
-    for id in 1..=70 {
-        a.create(id, &format!("Tasks/{id}.md"), "---\ntags: [task]\n---\n");
+    // Batches stay within one mutation's bounds: 100 records or ~256 KiB.
+    let mut batches: Vec<&[(B16, String, String)]> = Vec::new();
+    let (mut start, mut bytes) = (0, 0);
+    for (i, (_, _, doc)) in records.iter().enumerate() {
+        if i > start && (i - start == 100 || bytes + doc.len() > 256 * 1024) {
+            batches.push(&records[start..i]);
+            (start, bytes) = (i, 0);
+        }
+        bytes += doc.len();
     }
-    a.create(200, "Views/late.base", THREE);
+    batches.push(&records[start..]);
+    for batch in batches {
+        a.r.submit(
+            a.s,
+            submission(
+                batch
+                    .iter()
+                    .map(|(id, path, doc)| {
+                        Op::Create(Create {
+                            id: *id,
+                            path: Some(path.clone()),
+                            type_name: None,
+                            frontmatter: None,
+                            body: None,
+                            document: Some(Text::Inline(doc.clone())),
+                        })
+                    })
+                    .collect(),
+            ),
+        )
+        .unwrap();
+        settle(&mut [&mut a]);
+    }
+    a.create(255, "Views/late.base", THREE);
     settle(&mut [&mut a]);
     let mut r = projected(&svc, a);
     r.store().armed.set(false);
@@ -50,33 +81,104 @@ fn primary_inventory_empty_definition_page_makes_real_progress_before_eof() {
             },
         )
         .unwrap();
-    let first = r
-        .encode_bases_discovery_page(session, Some("UTC"), 128, None, |_, page, _| {
-            Ok((page.views.len(), page.next))
+    (r, session)
+}
+fn task_id(n: u16) -> B16 {
+    let mut id = [0; 16];
+    id[..2].copy_from_slice(&n.to_be_bytes());
+    id[15] = 1;
+    B16(id)
+}
+type DiscoveredPage = (Vec<(B16, u32)>, Option<BasesDiscoveryHandle>);
+fn discovery_page(
+    r: &mut Replica<ProjectionStore>,
+    session: SessionId,
+    resume: Option<BasesDiscoveryHandle>,
+) -> DiscoveredPage {
+    r.encode_bases_discovery_page(session, Some("UTC"), 128, resume, |_, page, _| {
+        Ok((
+            page.views
+                .iter()
+                .map(|v| (v.record, v.index))
+                .collect::<Vec<_>>(),
+            page.next,
+        ))
+    })
+    .unwrap()
+}
+const LATE: [(B16, u32); 3] = [
+    (B16([255; 16]), 0),
+    (B16([255; 16]), 1),
+    (B16([255; 16]), 2),
+];
+#[test]
+fn a_few_hundred_records_are_discovered_in_one_page() {
+    // One relayed round trip per page: a typical collection must not need one
+    // page per 64 records (tasknotes-app#449, 13 pages for 773 records).
+    let records: Vec<_> = (0..300)
+        .map(|n| {
+            (
+                task_id(n),
+                format!("Tasks/{n}.md"),
+                format!(
+                    "---\ntags: [task]\nstatus: open\ntitle: task {n}\n---\nnotes for task {n}\n"
+                ),
+            )
         })
-        .unwrap();
-    assert_eq!(first.0, 0);
-    assert!(first.1.is_some());
-    let second = r
-        .encode_bases_discovery_page(session, Some("UTC"), 128, first.1, |_, page, _| {
-            Ok((
-                page.views
-                    .iter()
-                    .map(|v| (v.record, v.index))
-                    .collect::<Vec<_>>(),
-                page.next,
-            ))
+        .collect();
+    let (mut r, session) = inventory_actor(&records);
+    let (views, next) = discovery_page(&mut r, session, None);
+    assert_eq!(views, LATE.to_vec());
+    assert!(next.is_none());
+}
+#[test]
+fn record_bound_page_without_views_makes_real_progress_before_eof() {
+    let records: Vec<_> = (0..600)
+        .map(|n| {
+            (
+                task_id(n),
+                format!("Tasks/{n}.md"),
+                "---\ntags: [task]\n---\n".into(),
+            )
         })
-        .unwrap();
-    assert_eq!(
-        second.0,
-        vec![
-            (B16([200; 16]), 0),
-            (B16([200; 16]), 1),
-            (B16([200; 16]), 2)
-        ]
-    );
-    assert!(second.1.is_none());
+        .collect();
+    let (mut r, session) = inventory_actor(&records);
+    let (views, next) = discovery_page(&mut r, session, None);
+    assert!(views.is_empty());
+    assert!(next.is_some());
+    let (views, next) = discovery_page(&mut r, session, next);
+    assert_eq!(views, LATE.to_vec());
+    assert!(next.is_none());
+}
+#[test]
+fn source_bytes_bound_a_page_and_its_continuation_is_exact() {
+    // Each record is ~200 KiB, so a 512 KiB page holds two of them.
+    let body = "x".repeat(200 * 1024);
+    let records: Vec<_> = (0..5)
+        .map(|n| {
+            (
+                task_id(n),
+                format!("Tasks/{n}.md"),
+                format!("---\ntags: [task]\n---\n{body}\n"),
+            )
+        })
+        .collect();
+    let (mut r, session) = inventory_actor(&records);
+    let mut pages = 0;
+    let mut views = Vec::new();
+    let mut next = None;
+    loop {
+        let (page, token) = discovery_page(&mut r, session, next);
+        pages += 1;
+        views.extend(page);
+        next = token;
+        if next.is_none() {
+            break;
+        }
+        assert!(pages < 10);
+    }
+    assert_eq!(views, LATE.to_vec());
+    assert_eq!(pages, 3);
 }
 #[test]
 fn native_discovery_slots_are_globally_bounded_and_close_releases_only_residency() {

@@ -1454,6 +1454,10 @@ msgstr "Limpar seleção"
 msgid "Clear type search"
 msgstr "Limpar pesquisa de tipos"
 
+#: src/NoteTabs.tsx
+msgid "Close {name}"
+msgstr "Fechar {name}"
+
 #: src/NoteCommentsPanel.tsx
 msgid "Close comments"
 msgstr "Fechar comentários"
@@ -1466,9 +1470,17 @@ msgstr "Fechar prévia do arquivo"
 msgid "Close note peek"
 msgstr "Fechar prévia da nota"
 
+#: src/editor-commands.ts
+msgid "Close pane"
+msgstr "Fechar painel"
+
 #: src/PropertiesPanel.tsx
 msgid "Close properties"
 msgstr "Fechar propriedades"
+
+#: src/editor-commands.ts
+msgid "Close tab"
+msgstr "Fechar aba"
 
 #: src/code-editor-completions.ts
 msgid "Code block"
@@ -2437,12 +2449,20 @@ msgid "Filter links by type"
 msgstr "Filtrar links por tipo"
 
 #: src/App.tsx
+msgid "Find a note by title or path"
+msgstr "Encontrar uma nota por título ou caminho"
+
+#: src/App.tsx
 msgid "Find a note by title or path, or type > for actions"
 msgstr "Encontre uma nota pelo título ou caminho, ou digite > para ações"
 
 #: src/App.tsx
 msgid "Find a note or action"
 msgstr "Encontrar nota ou ação"
+
+#: src/App.tsx
+msgid "Find a note to open in a new tab"
+msgstr "Encontrar uma nota para abrir em uma nova aba"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Find a property"
@@ -2489,6 +2509,10 @@ msgstr "Corrija o código-fonte YAML antes de voltar ao editor de campos."
 #: src/editor-commands.ts
 msgid "Focus mode"
 msgstr "Modo de foco"
+
+#: src/editor-commands.ts
+msgid "Focus other pane"
+msgstr "Ir para o outro painel"
 
 #: src/TypeBrowser.tsx
 msgid "Folder"
@@ -3359,6 +3383,10 @@ msgstr "Próxima nota"
 msgid "Next note in the list"
 msgstr "Próxima nota na lista"
 
+#: src/editor-commands.ts
+msgid "Next tab"
+msgstr "Próxima aba"
+
 #: src/NoteList.tsx
 msgid "No additional text"
 msgstr "Sem texto adicional"
@@ -3459,6 +3487,10 @@ msgstr "Nenhuma propriedade de esquema correspondente."
 #: src/TypeBrowser.tsx
 msgid "No nested fields yet."
 msgstr "Ainda não há campos aninhados."
+
+#: src/App.tsx
+msgid "No note"
+msgstr "Nenhuma nota"
 
 #. placeholder {0}: reference.target
 #: src/code-editor-reference-diagnostics.ts
@@ -3706,6 +3738,10 @@ msgstr "Abrir {name}"
 msgid "Open {primaryTypeLabel}"
 msgstr "Abrir {primaryTypeLabel}"
 
+#: src/editor-commands.ts
+msgid "Open a note in a new tab"
+msgstr "Abrir uma nota em uma nova aba"
+
 #: src/use-note-comments.ts
 msgid "Open a note to comment on it."
 msgstr "Abra uma nota para comentá-la."
@@ -3726,6 +3762,12 @@ msgstr "Abrir documento"
 msgid "open files"
 msgstr "abrir arquivos"
 
+#: src/App.tsx
+#: src/editor-commands.ts
+#: src/QuickOpen.tsx
+msgid "Open in new tab"
+msgstr "Abrir em nova aba"
+
 #: src/ConnectionScreens.tsx
 msgid "open notes"
 msgstr "abrir notas"
@@ -3743,6 +3785,10 @@ msgstr "Abrir original"
 msgid "Open Settings"
 msgstr "Abrir Configurações"
 
+#: src/NoteTabs.tsx
+msgid "Open tabs"
+msgstr "Abas abertas"
+
 #: src/main.tsx
 #: src/SdkEditorRoot.tsx
 msgid "Open the Editor configured for your mdbase environment from Collections."
@@ -3751,6 +3797,10 @@ msgstr "Em Coleções, abra o Editor configurado para o seu ambiente mdbase."
 #: src/WorkspaceChrome.tsx
 msgid "Open to find mentions."
 msgstr "Abra para encontrar menções."
+
+#: src/editor-commands.ts
+msgid "Open to the side"
+msgstr "Abrir ao lado"
 
 #: src/editor-commands.ts
 msgid "Open Types"
@@ -4042,6 +4092,10 @@ msgstr "Nota anterior"
 #: src/editor-commands.ts
 msgid "Previous note in the list"
 msgstr "Nota anterior na lista"
+
+#: src/editor-commands.ts
+msgid "Previous tab"
+msgstr "Aba anterior"
 
 #: src/ConnectionScreens.tsx
 msgid "Previously opened in mdbase editor"
@@ -4862,6 +4916,14 @@ msgstr "O código-fonte é salvo quando o foco sai do editor"
 msgctxt "settings view"
 msgid "Specification"
 msgstr "Especificação"
+
+#: src/editor-commands.ts
+msgid "Split down"
+msgstr "Dividir para baixo"
+
+#: src/editor-commands.ts
+msgid "Split right"
+msgstr "Dividir à direita"
 
 #: src/code-editor-completions.ts
 msgid "Start a checkable task"

@@ -1,5 +1,5 @@
 {
-  "name": "mdbase",
+  "name": "@mdbase-dev/mdbase",
   "version": "0.5.0",
   "description": "Universal WebAssembly helpers for mdbase: contract digests, JSON Schema validation, catalog loading and type packs.",
   "license": "MIT",

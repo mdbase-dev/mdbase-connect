@@ -23,13 +23,13 @@ cargo xtask <command>
   wasm          build target/wasm/runtime.wasm (wasm-release profile + wasm-opt -Oz)
   wasm-size     report runtime.wasm raw/gzip/brotli sizes (no size gate)
   wasm-app      test/build app-runtime.wasm, report sizes, SQLite ABI smoke
-  mdbase-wasm   build target/wasm/mdbase-core.wasm (the npm `mdbase` helpers) and copy
+  mdbase-wasm   build target/wasm/mdbase-core.wasm (the npm `@mdbase-dev/mdbase` helpers) and copy
                 it to packages/mdbase/wasm/
   determinism   replay conformance/determinism/*.log natively and in WASM (Node);
                 outputs must match each other and the .expected.json golden
   sdk           the TS SDK in packages/sdk: npm ci, typecheck, test, build, bundle boundaries
   obsidian      the Obsidian runtime in packages/obsidian-runtime: npm ci, typecheck, test, build
-  mdbase        the npm `mdbase` package in packages/mdbase: npm ci, typecheck, test, build
+  mdbase        the npm `@mdbase-dev/mdbase` package in packages/mdbase: npm ci, typecheck, test, build
                 (run `mdbase-wasm` first)
   ci            everything CI runs, in CI order (needs cargo-deny and Node)
 ";
@@ -199,7 +199,7 @@ fn wasm_app() -> Result<()> {
     run(c)
 }
 
-/// `mdbase-core.wasm`: the pure helpers behind the npm `mdbase` package
+/// `mdbase-core.wasm`: the pure helpers behind the npm `@mdbase-dev/mdbase` package
 /// (`crates/mdbase-wasm`). Also copied into `packages/mdbase/wasm/` so the
 /// package's tests and build find it.
 fn mdbase_wasm() -> Result<PathBuf> {
@@ -384,7 +384,7 @@ fn obsidian() -> Result<()> {
     npm_package("packages/obsidian-runtime")
 }
 
-/// The npm `mdbase` package (`packages/mdbase`): the Node addon, then
+/// The npm `@mdbase-dev/mdbase` package (`packages/mdbase`): the Node addon, then
 /// typecheck, tests, build. Needs `cargo xtask mdbase-wasm` first.
 fn mdbase() -> Result<()> {
     let mut c = Command::new("node");

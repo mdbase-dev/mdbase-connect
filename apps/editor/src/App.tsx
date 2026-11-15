@@ -20,7 +20,8 @@ import {
   TrashIcon as Trash2,
   TagIcon as Tag,
   PushPinIcon as Pin,
-  XIcon as X
+  XIcon as X,
+  BrowsersIcon as Browsers, ColumnsIcon as Columns
 } from "./icons";
 import { MdbaseConnectError, type CollectionDescription, type CollectionTypeDescriptor, type MdbaseRecordSessionSnapshot } from "@mdbase-dev/connect";
 import {
@@ -44,7 +45,7 @@ import { MoveNoteDialog } from "./MoveNoteDialog";
 import { bulkFields, type BulkPropertyChange } from "./bulk-note-actions";
 import { useNoteActions } from "./use-note-actions";
 import { AttachmentTransfer, attachmentMenuItem, useAttachmentUpload } from "./AttachmentUpload";
-import { useCollectionBrowserEntries } from "./collection-browser";
+import { collectionFileTitle, useCollectionBrowserEntries } from "./collection-browser";
 import { CollectionRail, ConnectionStatus, connectWorkspaceUrl, type ShownConnectionState } from "./CollectionRail";
 import { folderChangeMoves, type FolderChangePlan, type FolderChangeProgress, type FolderChangeResult } from "./folder-change";
 import { useFeedback } from "@mdbase-dev/ui/feedback";
@@ -71,7 +72,6 @@ import { OpeningScreen, TypeWorkspaceLoading } from "./LoadingScreens";
 import { MarkdownNoteEditor } from "./MarkdownNoteEditor";
 import { linkSuggestions, unresolvedNoteTarget } from "./links";
 import { useNoteComments } from "./use-note-comments";
-import { useBacklinks, useLinkTargets } from "./collection-links";
 import {
   COLLECTION_WIDTH,
   INSPECTOR_WIDTH,
@@ -115,6 +115,7 @@ import { filterLabel, filterScopeLabel, loadPinnedNotes, savePinnedNotes, noteVi
 import { defaultNoteSort, loadNoteSort, resolveNoteSort, saveNoteSort, sortableFields, type NoteSortPreference } from "./note-sort";
 import { isObject } from "./field-reference";
 import { NoteList } from "./NoteList";
+import { NoteTabs } from "./NoteTabs";
 import {
   beginNewNote,
   changedNewNote,
@@ -159,12 +160,15 @@ import { signalMdbaseMark } from "@mdbase-dev/ui/mark-activity";
 import { useCollectionWatch } from "./use-collection-watch";
 import { useCollectionTransition } from "./use-collection-transition";
 import { useFileInventory } from "./use-file-inventory";
-import { useFileAssetStore } from "./use-file-assets";
+import { useFileAsset, useFileAssetStore } from "./use-file-assets";
 import { useFileWorkspace } from "./use-file-workspace";
-import { useEmbeddedNoteReferences } from "./note-embeds";
-import { useVisibleEmbedKeys } from "./use-visible-embed-keys";
+import { useNoteSurface } from "./use-note-surface";
 import { useSessionLifecycle } from "./use-session-lifecycle";
-import { emptyNoteHistory, historyStep, lastOpenNote, rememberOpenNote, renameInHistory, returnToNote, useNoteHistory, visitNote } from "./workspace";
+import {
+  activeTab, adjacentTab, changeActiveHistory, closePane, closeTab, emptyWorkspace, focusedPane, focusPane, historyStep, loadWorkspace, openBeside, openTab,
+  paneTab, renameInWorkspace, returnToNote, saveWorkspace, selectTab, splitPane, tabNote, useWorkspace, visitNote, type NoteTab, type Pane, type SplitDirection,
+  type Workspace
+} from "./workspace";
 import {
   BacklinksPanel,
   EmptyEditor,
@@ -287,7 +291,6 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [mutationsFrozen, setMutationsFrozen] = useState(false);
   const { canCreateNotes, canEditNotes, canRenameNotes, canDeleteNotes, canManageTypes, canInstallTypes, canAttachFiles } = editorPermissions(connectionSummary);
-  const [remoteApplyToken, setRemoteApplyToken] = useState(0);
   const [notice, setNoticeState] = useState<{ message: string; tone: ToastTone } | undefined>();
   const [inspector, setInspector] = useState<"properties" | "comments">();
   const [mentionsOpen, setMentionsOpen] = useState(false);
@@ -298,7 +301,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const [renamePlan, setRenamePlan] = useState<RenamePlan>();
   const [quickOpen, setQuickOpen] = useState(false);
   const [peekPath, setPeekPath] = useState<string>();
-  const [paletteMode, setPaletteMode] = useState<"notes" | "commands" | "new-note">("notes");
+  const [paletteMode, setPaletteMode] = useState<"notes" | "commands" | "new-note" | "tab">("notes");
   const [editorAutoFocus, setEditorAutoFocus] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const shortcutPrefix = useRef<{ key: string; at: number }>(undefined);
@@ -306,7 +309,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const paletteCommands = useRef<EditorCommand[]>([]);
   const [confirmation, setConfirmation] = useState<Confirmation>();
   const [recentPaths, setRecentPaths] = useRecentPaths(description?.collectionId);
-  const { history: noteHistoryState, latest: noteHistory, changeHistory: changeNoteHistory } = useNoteHistory();
+  const { workspace, latest: latestWorkspace, changeWorkspace } = useWorkspace();
   const [mobilePane, setMobilePane] = useState<MobilePane>("notes");
   const [preferences, setPreferences] = useState<EditorPreferences>(loadPreferences);
   // Labels and palette shortcuts follow this device's shortcuts as Settings changes them.
@@ -315,8 +318,6 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const [noteSortPreference, setNoteSortPreference] = useState<NoteSortPreference>({ key: defaultNoteSort.key, direction: defaultNoteSort.direction });
   const [resizingPane, setResizingPane] = useState<"collection" | "list" | "inspector">();
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
-  const { files: visibleFileEmbedKeys, notes: visibleNoteEmbedKeys,
-    updateFiles: updateVisibleFileEmbeds, updateNotes: updateVisibleNoteEmbeds } = useVisibleEmbedKeys(notePath);
   const [, setSessionTick] = useState(0);
   const documentGeneration = useRef(0);
   const navigationGeneration = useRef(0);
@@ -369,16 +370,29 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }, [loadTypeSource, phase, selectedTypeName, surface, typeCreating, typeDocument, typeError, typeLoading, typeWorkspace]);
 
   const notePreviewController = useNotePreview(gateway, allNotes, typeDescriptors);
-  const linkTargets = useLinkTargets(gateway, notePath, collectionRevision, fileInventory.files);
-  const fileWorkspace = useFileWorkspace(
-    fileAssetStore,
-    fileInventory.files,
-    noteBody,
-    linkTargets,
-    visibleFileEmbedKeys
-  );
+  // Each pane's editor has its own surface. The focused pane shows the editor's note; the other, its own tab's.
+  const backgroundPane = workspace.panes.length > 1 ? workspace.panes[1 - workspace.focused] : undefined;
+  const backgroundPath = backgroundPane && tabNote(paneTab(backgroundPane));
+  const backgroundSession = backgroundPath ? noteSessions.current.get(backgroundPath) : undefined;
+  const embedOwner = { collectionId: workspaceCollectionId.current, epoch: collectionEpoch.current };
+  const paneSurface = (focused: boolean) => focused
+    ? { path: notePath, source: noteBody }
+    : { path: backgroundSession?.document.path, source: backgroundSession?.draft.body ?? "" };
+  const surfaces = [
+    useNoteSurface({ gateway, assets: fileAssetStore, owner: embedOwner, ...paneSurface(workspace.focused === 0), revision: collectionRevision,
+      files: fileInventory.files, notes: allNotes, types: typeDescriptors }),
+    useNoteSurface({ gateway, assets: fileAssetStore, owner: embedOwner, ...paneSurface(workspace.focused === 1), revision: collectionRevision,
+      files: fileInventory.files, notes: allNotes, types: typeDescriptors })
+  ];
+  const fileWorkspace = useFileWorkspace(fileAssetStore, fileInventory.files, notePath);
   const { selectedFile: selectedCollectionFile, setSelectedFile: setSelectedCollectionFile, selectedAsset: selectedFileAsset,
-    pendingFilePath, setPendingFilePath, openAsset: openFileAsset, setOpenAsset: setOpenFileAsset, embeddedFiles } = fileWorkspace;
+    pendingFilePath, setPendingFilePath, openAsset: openFileAsset, setOpenAsset: setOpenFileAsset } = fileWorkspace;
+  /** The file the pane without the focus shows over its active tab, kept while the other pane has the focus. */
+  const [backgroundFile, setBackgroundFile] = useState<{ tab: string; file: CollectionFile }>();
+  const backgroundFileShown = backgroundPane && backgroundFile?.tab === backgroundPane.active
+    ? fileInventory.files.find((file) => file.fileId === backgroundFile.file.fileId) : undefined;
+  const backgroundFileAsset = useFileAsset(fileAssetStore, backgroundFileShown);
+  const [backgroundFailure, setBackgroundFailure] = useState<{ path: string; message: string }>();
   const attachments = useAttachmentUpload({ gateway, inventory: fileController, scope: mutationScope.current,
     activeSession: () => noteReadOnly ? undefined : noteSessions.current.active, setNotice });
   useEffect(() => { savePreferences(preferences); }, [preferences]);
@@ -496,10 +510,10 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     publishNewNotes({ notes: notes.filter((note) => note.id !== open || newNoteStarted(note) || newNoteWrites.current.has(note.id)) });
   }, [publishNewNotes]);
 
-  /** Records an opened note: a new visit, or the one Back or Forward was going to. */
+  /** Records a note opened in the active tab: a new visit, or the one Back, Forward or the tab itself was going to. */
   const recordNoteNavigation = useCallback((path: string, historyIndex?: number) => {
-    changeNoteHistory((history) => historyIndex === undefined ? visitNote(history, path) : returnToNote(history, historyIndex, path));
-  }, [changeNoteHistory]);
+    changeWorkspace((current) => changeActiveHistory(current, (history) => historyIndex === undefined ? visitNote(history, path) : returnToNote(history, historyIndex, path)));
+  }, [changeWorkspace]);
 
   const touchSession = useCallback((session: NoteSession) => {
     if (noteSessions.current.active === session) setSaveState(session.activity === "saving" ? "saving" : session.saveState);
@@ -521,10 +535,12 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       updateNoteSummary(snapshot.record);
       if (active) setDocument(snapshot.record);
     }
-    if (session.reproject() && active) {
-      setDraft(session.draft);
-      setPathDraft(snapshot.record.path);
-      setRemoteApplyToken((token) => token + 1);
+    if (session.reproject()) {
+      session.replaced += 1;
+      if (active) {
+        setDraft(session.draft);
+        setPathDraft(snapshot.record.path);
+      }
     }
     if (snapshot.remote && snapshot.remote !== previous.remote) {
       session.error = t`“${session.draft.title || session.document.path}” changed elsewhere. Your edits are still here.`;
@@ -589,13 +605,29 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     closeNewNote();
     setEditingPath(false);
     setNotice(session.error);
-    rememberOpenNote(mutationScope.current.token().collectionId!, session.document.path);
     setRecentPaths((current) => rememberRecentPath(current, session.document.path));
   }, [closeNewNote]);
 
   const adoptDocument = useCallback((next: NoteDocument) => {
     activateSession(createSession(next));
   }, [activateSession, createSession]);
+
+  // The pane without the focus reads its note itself; it becomes the editor's when the pane takes the focus.
+  const backgroundFailed = backgroundFailure?.path === backgroundPath;
+  useEffect(() => {
+    const path = backgroundPath;
+    if (phase !== "ready" || !path || backgroundFailed || noteSessions.current.has(path)) return;
+    const epoch = collectionEpoch.current;
+    let current = true;
+    gateway.read(path).then((next) => {
+      if (!current || epoch !== collectionEpoch.current) return;
+      if (!noteSessions.current.has(next.path)) createSession(next);
+      setSessionTick((value) => value + 1);
+    }, (error: unknown) => {
+      if (current && epoch === collectionEpoch.current) setBackgroundFailure({ path, message: t`Couldn’t open “${path}”. ${gatewayError(error)}` });
+    });
+    return () => { current = false; };
+  }, [backgroundFailed, backgroundPath, createSession, gateway, phase]);
 
   const refreshCachedNote = useCallback(async (path: string, revision?: string) => {
     const session = noteSessions.current.get(path);
@@ -695,8 +727,10 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     let descriptionLoaded = false;
     try {
       const descriptionLoad = refreshDescription(current);
-      const remembered = lastOpenNote(mutationScope.current.token().collectionId!);
-      // Open the remembered note alongside description; otherwise query the newest.
+      const restored = loadWorkspace(mutationScope.current.token().collectionId!);
+      changeWorkspace(() => restored);
+      const remembered = tabNote(activeTab(restored));
+      // Open the active tab's note alongside description; otherwise query the newest.
       const rememberedNote = remembered ? openNote(remembered, {}, descriptionLoad) : Promise.resolve(false);
       const [nextDescription, newestPath] = await Promise.all([
         descriptionLoad, remembered ? undefined : gateway.mostRecentNote().catch(() => undefined)
@@ -727,7 +761,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       if (!descriptionLoaded) ++documentGeneration.current;
       setPhase(descriptionLoaded && gateway.sessionSnapshot().status === "ready" ? "ready" : "disconnected");
     }
-  }, [fileController, gateway, indexController, openNote, refreshDescription]);
+  }, [changeWorkspace, fileController, gateway, indexController, openNote, refreshDescription]);
 
   const { transition: transitionCollection, authorize: authorizeCollection, acceptSnapshot } = useCollectionTransition({
     gateway, scope: mutationScope.current, currentOwner: () => mutationScope.current.token().collectionId,
@@ -776,15 +810,20 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }
 
   function changeActiveDraft(change: (current: Draft) => Draft) {
-    if (mutationScope.current.isFrozen || !canEditNotes) return;
     const session = noteSessions.current.active;
-    if (session?.recoveryDraft) return;
-    if (!session || session.deleted) return;
+    if (session) changeSessionDraft(session, change);
+  }
+
+  /** An edit to a saved note, from whichever pane shows it. */
+  function changeSessionDraft(session: NoteSession, change: (current: Draft) => Draft) {
+    if (mutationScope.current.isFrozen || !canEditNotes || session.recoveryDraft || session.deleted) return;
     const next = change(session.draft);
     session.edit(next);
     if (!session.remoteDocument) session.error = undefined;
-    setDraft(next);
-    setSaveState(session.saveState);
+    if (session === noteSessions.current.active) {
+      setDraft(next);
+      setSaveState(session.saveState);
+    }
     touchSession(session);
   }
 
@@ -814,7 +853,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       setPendingNotePath(undefined);
       if (!options.keepList) {
         setMobilePane("editor");
-        if (!matchMedia("(pointer: coarse)").matches || globalThis.document.querySelector(".app-shell[data-keyboard]")) requestAnimationFrame(() => globalThis.document.querySelector<HTMLElement>(".code-editor-writer .cm-content")?.focus());
+        if (!matchMedia("(pointer: coarse)").matches || globalThis.document.querySelector(".app-shell[data-keyboard]")) requestAnimationFrame(focusPaneEditor);
       }
       if (options.historyIndex !== undefined) recordNoteNavigation(path, options.historyIndex);
       return;
@@ -825,6 +864,11 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     void openNote(path, options).then((opened) => {
       if (generation === navigationGeneration.current && !opened) setPendingNotePath(undefined);
     });
+  }
+
+  /** Puts the caret in the focused pane's editor. */
+  function focusPaneEditor() {
+    globalThis.document.querySelector<HTMLElement>(".editor-pane[data-focused] .code-editor-writer .cm-content")?.focus();
   }
 
   /** Abandons the note being opened, if any: a read that arrives later is not shown. */
@@ -847,9 +891,107 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }
 
   function navigateNoteHistory(direction: -1 | 1) {
-    const step = historyStep(noteHistory.current, direction);
+    const step = historyStep(activeTab(latestWorkspace.current).history, direction);
     if (step) navigateToNote(step.path, { historyIndex: step.index });
   }
+
+  /** Puts away whatever the editor shows, for a tab with no note in it. */
+  function showNoNote() {
+    cancelNoteNavigation();
+    saveCurrentInBackground();
+    closeNewNote();
+    noteSessions.current.deactivate();
+    setDocument(undefined);
+    setDraft(undefined);
+    setSelectedCollectionFile(undefined);
+  }
+
+  /** Changes the tabs or panes, and shows what the focused pane's active tab holds if that changed. A file
+   * open in a pane stays there while the other pane has the focus. */
+  function changeTabs(change: (current: Workspace) => Workspace) {
+    const previous = latestWorkspace.current;
+    changeWorkspace(change);
+    const next = latestWorkspace.current;
+    const leaving = activeTab(previous), arriving = activeTab(next);
+    if (next.panes.length === 1) setBackgroundFile(undefined);
+    if (leaving.id === arriving.id) return;
+    const paneChanged = !focusedPane(previous).tabs.some((tab) => tab.id === arriving.id);
+    const restored = paneChanged && backgroundFile?.tab === arriving.id ? backgroundFile.file : undefined;
+    if (paneChanged && next.panes.length > 1) {
+      setBackgroundFile(selectedCollectionFile && paneTab(next.panes[1 - next.focused]!).id === leaving.id ? { tab: leaving.id, file: selectedCollectionFile } : undefined);
+    }
+    const path = tabNote(arriving);
+    const cached = path ? noteSessions.current.get(path) : undefined;
+    // A pane that gains the focus shows its own note, never the other pane's while its own loads.
+    if (!path || paneChanged && (!cached || cached.deleted)) showNoNote();
+    if (path) navigateToNote(path, { historyIndex: arriving.history.index, keepList: paneChanged });
+    if (restored) {
+      setSelectedCollectionFile(restored);
+      setPendingFilePath(restored.path);
+    }
+  }
+
+  function switchTab(tab: NoteTab) {
+    changeTabs((current) => selectTab(current, tab.id));
+  }
+
+  function closeNoteTab(tab: NoteTab) {
+    changeTabs((current) => closeTab(current, tab.id));
+  }
+
+  /** Phones show one note at a time, so a note asked for in a new tab opens in place there. */
+  function openInNewTab(path: string) {
+    if (mobileLayout) {
+      navigateToNote(path);
+      return;
+    }
+    changeTabs((current) => openTab(current, path));
+  }
+
+  /** Opens a note in the other pane, splitting the editor if it has one pane, and focuses it. */
+  function openNoteBeside(path: string) {
+    if (mobileLayout) {
+      navigateToNote(path);
+      return;
+    }
+    changeTabs((current) => openBeside(current, path));
+  }
+
+  /** A click or the keyboard reaching a pane gives it the focus. */
+  function focusEditorPane(index: number) {
+    if (index !== latestWorkspace.current.focused) changeTabs((current) => focusPane(current, index));
+  }
+
+  /** Tabs and panes are for notes, on screens wide enough to show them. */
+  function tabCommands(): Partial<Record<CommandId, () => void>> {
+    if (surface !== "notes" || mobileLayout) return {};
+    const { panes, focused, split } = latestWorkspace.current;
+    const splitTo = (direction: SplitDirection) => () => changeTabs((current) => splitPane(current, direction, tabNote(activeTab(current))));
+    return {
+      "new-tab": () => { setShortcutsOpen(false); setPaletteMode("tab"); setQuickOpen(true); },
+      ...(panes[focused]!.tabs.length > 1 || panes.length > 1 ? { "close-tab": () => closeNoteTab(activeTab(latestWorkspace.current)) } : {}),
+      ...(panes[focused]!.tabs.length > 1 ? {
+        "next-tab": () => switchTab(adjacentTab(latestWorkspace.current, 1)),
+        "previous-tab": () => switchTab(adjacentTab(latestWorkspace.current, -1))
+      } : {}),
+      ...(panes.length === 1 || split !== "right" ? { "split-right": splitTo("right") } : {}),
+      ...(panes.length === 1 || split !== "down" ? { "split-down": splitTo("down") } : {}),
+      ...(panes.length > 1 ? {
+        "focus-other-pane": () => {
+          focusEditorPane(1 - latestWorkspace.current.focused);
+          requestAnimationFrame(focusPaneEditor);
+        },
+        "close-pane": () => changeTabs((current) => closePane(current, current.focused))
+      } : {})
+    };
+  }
+
+  // This device reopens the collection's tabs where they stood. Leaving a collection clears its
+  // description with its tabs, so the empty tabs that follow are not saved over them.
+  const collectionDescribed = Boolean(description);
+  useEffect(() => {
+    if (collectionDescribed) saveWorkspace(mutationScope.current.token().collectionId!, workspace);
+  }, [collectionDescribed, workspace]);
 
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
@@ -913,21 +1055,12 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }, [allNotes, listSelection.paths, typeDescriptors, i18n.locale]);
   const linkTypeNames = useMemo(() => description?.types.map((type) => type.name) ?? [], [description, i18n.locale]);
   const linkOptions = useMemo(() => linkSuggestions(allNotes, linkTypeNames, typeDescriptors), [allNotes, linkTypeNames, typeDescriptors, i18n.locale]);
-  const embeddedNotes = useEmbeddedNoteReferences(
-    gateway,
-    { collectionId: workspaceCollectionId.current, epoch: collectionEpoch.current },
-    noteBody,
-    allNotes,
-    linkTargets,
-    visibleNoteEmbedKeys
-  );
-  const backlinks = useBacklinks(gateway, notePath, collectionRevision, allNotes, typeDescriptors);
   const takenPaths = useMemo(() => occupiedPaths([...allNotes.map((note) => note.path), ...fileInventory.files.map((file) => file.path)]), [allNotes, fileInventory.files]);
   const mentions = useMemo(() => document ? unlinkedMentions(searchIndex, document.path, draft?.title ?? noteTitle(document, typeDescriptors)) : [], [searchIndex, document, draft?.title, typeDescriptors, i18n.locale]);
   const noteComments = useNoteComments({ gateway, description, notes: allNotes, path: document?.path, draft, indexController, surface: {
     panelOpen: inspector === "comments", openPanel: () => showInspector("comments"),
     canWrite: canCreateNotes && !noteReadOnly && surface === "notes" && !openNew && !selectedCollectionFile,
-    selection: () => activeEditorSelection(noteSessions.current.active?.editorSessionKey),
+    selection: () => activeEditorSelection(paneDocumentId(focusedPane(latestWorkspace.current), noteSessions.current.active?.editorSessionKey)),
     applyBody: (body) => changeActiveDraft((current) => ({ ...current, body }))
   } });
   const focusMode = preferences.focusMode && surface === "notes" && Boolean(document || openNew) && !selectedCollectionFile;
@@ -977,7 +1110,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     noteOrder: visibleBrowserEntries.filter((entry) => entry.kind === "note").map((entry) => entry.path),
     typeDescriptors, document, pathDraft, canCreateNotes, canEditNotes, canRenameNotes, canDeleteNotes,
     createSession, flushSession, runNoteOperation, touchSession, updateNoteSummary, refreshCachedNote,
-    openNote, navigateToNote, changeNoteHistory, remapPin, setPin, pinnedPaths, onRestore: setArrivingNotePath,
+    openNote, navigateToNote, changeWorkspace, remapPin, setPin, pinnedPaths, onRestore: setArrivingNotePath,
     clearSelection: () => { setSelection(undefined); setBulkPropertyKind(undefined); },
     focusNoteList,
     setDocument, setDraft, setPathDraft, setEditingPath, setRenamePlan, setRecentPaths, setNotice
@@ -1039,7 +1172,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     navigationGeneration.current += 1;
     documentGeneration.current += 1;
     noteSessions.current.clear();
-    changeNoteHistory(() => emptyNoteHistory);
+    changeWorkspace(() => emptyWorkspace());
     linkCreations.current.clear();
     linkCreationIds.current.clear();
     typeDescriptorsRef.current = emptyTypeDescriptors;
@@ -1052,6 +1185,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     setSelectedCollectionFile(undefined);
     setPendingFilePath(undefined);
     setOpenFileAsset(undefined);
+    setBackgroundFile(undefined);
+    setBackgroundFailure(undefined);
     newNoteWrites.current.clear();
     publishNewNotes({ notes: [] });
     closeSidePanels();
@@ -1295,7 +1430,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       activateSession(session);
       recordNoteNavigation(created.path);
       // A title given while the create was on its way names the file once the title is left.
-      if (globalThis.document.activeElement?.id !== "note-title") nameUntitledNote();
+      if (globalThis.document.activeElement?.id !== paneIds(latestWorkspace.current.focused).title) nameUntitledNote();
     } catch (error) {
       if (!mutationScope.current.isCurrent(token)) return;
       newNoteWrites.current.set(id, "failed");
@@ -1436,10 +1571,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           updateNoteSummary(renamed, move.from);
           if (noteSessions.current.active === session) {
             setDocument(renamed); setPathDraft(renamed.path);
-            rememberOpenNote(token.collectionId!, renamed.path);
           }
           setRecentPaths((current) => rememberRecentPath(forgetRecentPath(current, move.from), renamed.path));
-          changeNoteHistory((history) => renameInHistory(history, move.from, renamed.path));
+          changeWorkspace((current) => renameInWorkspace(current, move.from, renamed.path));
           remapPin(move.from, renamed.path);
           touchSession(session);
           result.moved += 1;
@@ -1757,7 +1891,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           notes: () => selectSurface("notes"),
           types: () => selectSurface("types"),
           settings: () => selectSurface("settings"),
-          "focus-search": () => { selectSurface("notes"); requestAnimationFrame(() => globalThis.document.querySelector<HTMLInputElement>(".search-field input")?.focus()); }
+          "focus-search": () => { selectSurface("notes"); requestAnimationFrame(() => globalThis.document.querySelector<HTMLInputElement>(".search-field input")?.focus()); },
+          ...tabCommands()
         }).find(entry => matchesCommandShortcut(entry.id as CommandId, event, prefix));
         if (navigation) { event.preventDefault(); navigation.run(); return; }
         if (!typing && !chord && !event.shiftKey && sequencePrefixes().has(key)) { shortcutPrefix.current = { key, at: event.timeStamp }; return; }
@@ -1899,8 +2034,6 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   ));
   const collectionTrack = Math.min(preferredCollectionTrack, collectionResizeMax);
   const listTrack = Math.min(preferredListTrack, listResizeMax);
-  const historyBackPath = historyStep(noteHistoryState, -1)?.path;
-  const historyForwardPath = historyStep(noteHistoryState, 1)?.path;
   const activeRemoteDocument = noteSessions.current.active?.remoteDocument;
   const activeRemoteDraft = activeRemoteDocument ? editableNote(activeRemoteDocument, typeDescriptors) : undefined;
   const activePendingRename = pendingRenameRecovery?.plan.session === noteSessions.current.active ? pendingRenameRecovery : undefined;
@@ -1923,6 +2056,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     notes: () => selectSurface("notes"),
     connect: () => { location.href = connectWorkspaceUrl(description.collectionId); },
     "switch-collection": collectionSwitcher ? openCollectionSwitcher : undefined,
+    ...tabCommands(),
     ...(multipleSelected && !mutationsFrozen && !bulkBusy && !recoveryBusy ? {
       "move-selected": canRenameNotes ? () => setMovePaths(listSelection.paths) : undefined,
       "delete-selected": canDeleteNotes ? () => void deleteSelectedNotes(listSelection.paths) : undefined,
@@ -1933,6 +2067,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     ...(multipleSelected ? { "clear-selection": () => { setSelection({ ...listSelection, paths: [] }); setBulkPropertyKind(undefined); } } : {}),
     ...(document && draft && surface === "notes" && !openNew && !selectedCollectionFile ? {
       rename: canRenameNotes && !mutationsFrozen ? () => void renameNote(document.path) : undefined,
+      "open-in-new-tab": mobileLayout ? undefined : () => openInNewTab(document.path),
+      "open-beside": mobileLayout ? undefined : () => openNoteBeside(document.path),
       move: canRenameNotes && !mutationsFrozen && !multipleSelected ? () => setMovePaths([document.path]) : undefined,
       duplicate: canCreateNotes && !mutationsFrozen ? () => void duplicateNote(document.path) : undefined,
       delete: canDeleteNotes && !mutationsFrozen && !bulkBusy && !multipleSelected ? () => void requestDelete(document.path) : undefined,
@@ -1945,7 +2081,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       comments: noteComments.available ? () => showInspector("comments", true) : undefined,
       comment: noteComments.canWrite ? noteComments.start : undefined,
       outline: () => setOutlineOpen((value) => !value),
-      backlinks: () => { window.document.getElementById("linked-from")?.focus(); },
+      backlinks: () => { window.document.getElementById(paneIds(workspace.focused).backlinks)?.focus(); },
       "check-note": !mutationsFrozen ? () => void validateNote() : undefined
     } : {})
   }, { focus: focusMode ? t`Exit focus mode` : t`Focus mode`, "attach-file": attachFileAction.label }).concat(canCreateNotes && !mutationsFrozen ? newNoteTypes.slice(1).map(({ id, name, type, detail }) => ({
@@ -1954,7 +2090,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const activeToasts = buildToastItems({ notice, recoveryId: recoveryToastId, recoveryMessage, recoveryPending: recoveryAction?.kind === "delete" && recoveryAction.pending, recoveryBusy, onUndo: () => void undoRecovery(), hasPendingRename: Boolean(activePendingRename), onResumeRename: () => { if (activePendingRename) void performRename(activePendingRename.plan, activePendingRename.updateRefs, activePendingRename.requestId); } });
   const liveUndo = activeToasts.find(toast => toast.id === recoveryToastId)?.action;
   const commandContext = multipleSelected ? t`Selected notes` : document && !openNew ? noteTitle(document, typeDescriptors) : undefined;
-  const noteCommandIds = new Set(["rename", "move", "duplicate", "delete", "copy-link", "copy-path", "attach-file", "pin", "unpin", "focus", "properties", "comments", "comment", "outline", "backlinks", "check-note", "move-selected", "delete-selected", "add-tag", "remove-tag", "set-property", "clear-selection"]);
+  const noteCommandIds = new Set(["rename", "open-in-new-tab", "open-beside", "move", "duplicate", "delete", "copy-link", "copy-path", "attach-file", "pin", "unpin", "focus", "properties", "comments", "comment", "outline", "backlinks", "check-note", "move-selected", "delete-selected", "add-tag", "remove-tag", "set-property", "clear-selection"]);
   for (const entry of quickOpenCommands) if (noteCommandIds.has(entry.id)) entry.context = commandContext;
   paletteCommands.current = quickOpenCommands;
   if (liveUndo && !liveUndo.busy) quickOpenCommands.unshift({ ...command("undo", liveUndo.onAction, liveUndo.label), context: recoveryAction?.kind === "pin" ? recoveryAction.path : recoveryAction?.kind === "delete" ? noteTitle(recoveryAction.document, typeDescriptors) : recoveryMessage });
@@ -1971,7 +2107,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     <PaneControl pane="list" label={surface === "types" ? t`Show types sidebar` : t`Show notes sidebar`} visibility="show" onClick={() => setLayout((current) => ({ ...current, listCollapsed: false }))} />
   </> : undefined;
   const revealNoteTitle = () => {
-    const title = window.document.getElementById("note-title");
+    const title = window.document.getElementById(paneIds(workspace.focused).title);
     title?.closest(".cm-scroller")?.scrollTo({ top: 0 });
     title?.focus({ preventScroll: true });
   };
@@ -1981,6 +2117,18 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const editing = openNew && openNewForm
     ? { key: newNoteEditorKey(openNew), path: newNotePath(openNew, openNewForm, takenPaths), title: openNew.title, body: openNew.body }
     : document && draft ? { key: noteSessions.current.active?.editorSessionKey ?? document.path, path: document.path, title: draft.title, body: draft.body } : undefined;
+  /** A tab is named for its note; a pane's active one for whatever the pane shows instead, a file or a new note. */
+  const tabLabel = (pane: Pane, tab: NoteTab): string => {
+    const focused = pane === workspace.panes[workspace.focused];
+    if (tab.id === pane.active && focused && selectedCollectionFile) return collectionFileTitle(selectedCollectionFile);
+    if (tab.id === pane.active && focused && openNew) return openNew.title.trim() || t`New note`;
+    if (tab.id === pane.active && !focused && backgroundFileShown) return collectionFileTitle(backgroundFileShown);
+    const path = tabNote(tab);
+    if (!path) return t`No note`;
+    if (path === document?.path && draft?.title.trim()) return draft.title;
+    const note = allNotes.find((candidate) => candidate.path === path);
+    return note ? noteTitle(note, typeDescriptors) : path.split("/").at(-1)!.replace(/\.md$/i, "");
+  };
   const notePathControl = openNew ? <p className={mobileLayout ? "mobile-note-path" : "note-path-pending"} title={editing!.path}><PathLabel path={editing!.path} /></p> : document && (editingPath ? <form onSubmit={(event) => { event.preventDefault(); void requestRename(); }} onKeyDown={(event) => {
     if (event.key !== "Escape" || event.nativeEvent.isComposing) return;
     event.preventDefault();
@@ -2005,6 +2153,183 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     detail={noteSessions.current.active?.activityDetail}
     onCancel={noteSessions.current.active?.mutationCancellable ? cancelActiveMutation : undefined}
   /></>;
+  /** One editor pane. The focused one shows the editor's note, file or new note; the other, its own tab's note or file. */
+  const editorPane = (pane: Pane, index: number) => {
+    const focused = index === workspace.focused;
+    const session = focused ? noteSessions.current.active : backgroundSession;
+    const around = surfaces[index]!;
+    const ids = paneIds(index);
+    const isNew = focused ? openNew : undefined;
+    const { history } = paneTab(pane);
+    const historyBackPath = historyStep(history, -1)?.path, historyForwardPath = historyStep(history, 1)?.path;
+    const file = focused
+      ? selectedCollectionFile && selectedFileAsset && { file: selectedCollectionFile, asset: selectedFileAsset }
+      : backgroundFileShown && backgroundFileAsset && { file: backgroundFileShown, asset: backgroundFileAsset };
+    const shown = focused ? editing : session && !session.deleted
+      ? { key: session.editorSessionKey, path: session.document.path, title: session.draft.title, body: session.draft.body } : undefined;
+    const loading = focused ? noteLoading : Boolean(backgroundPath && !session && backgroundFailure?.path !== backgroundPath);
+    const readOnly = focused ? (openNew ? mutationsFrozen || !canCreateNotes : noteReadOnly) : mutationsFrozen || !canEditNotes || Boolean(session?.recoveryDraft);
+    const leadingActions = index === 0 ? editorLeadingActions : undefined;
+    const tabs = !mobileLayout && (workspace.panes.length > 1 || pane.tabs.length > 1)
+      ? <NoteTabs tabs={pane.tabs} active={pane.active} label={(tab) => tabLabel(pane, tab)} onSelect={switchTab} onClose={closeNoteTab} />
+      : undefined;
+    /** An edit reaches the note this pane shows, even one that arrives before the pane has the focus. */
+    const editPane = (change: Partial<Pick<Draft, "title" | "body">>) => {
+      if (focused) editNote(change);
+      else if (session) changeSessionDraft(session, (current) => ({ ...current, ...change }));
+    };
+    // A click or the keyboard reaching a pane gives it the focus first, so what follows acts in it.
+    return <div key={pane.id} className="editor-slot" onPointerDownCapture={() => focusEditorPane(index)} onFocusCapture={() => focusEditorPane(index)}>
+      {file ? <Suspense fallback={<PaneSkeleton label={t`Loading file viewer`} leadingActions={leadingActions} variant="canvas" />}><FileWorkspace
+        file={file.file}
+        asset={file.asset}
+        tabs={tabs}
+        background={!focused}
+        leadingActions={leadingActions}
+        onBack={() => returnToMobilePane("notes")}
+        onRetry={() => void fileAssetStore.retry(file.file)}
+      /></Suspense> : <section role={focused ? "main" : "region"} className={`editor-pane${tabs ? " has-tabs" : ""}`} data-focused={focused || undefined} aria-label={t`Note editor`}
+        data-save-state={isNew ? "saved" : focused ? saveState : session?.saveState ?? "saved"}>
+        {tabs}
+        {loading && !shown ? <NoteSkeleton leadingActions={leadingActions} /> : shown ? <>
+          <header className="editor-bar mdbase-settle-host">
+            <button className="mobile-back icon-button" aria-label={t`Back to notes`} onClick={() => { closeNewNote(); returnToMobilePane("notes"); }}><ArrowLeft aria-hidden="true" /></button>
+            {leadingActions}
+            <div className="note-history" role="group" aria-label={t`Note history`}>
+              <button
+                className="icon-button"
+                aria-label={t`Back in note history`}
+                title={historyBackPath ? t`Back to ${historyBackPath} · Alt+Left` : t`No earlier note`}
+                disabled={!historyBackPath}
+                onClick={() => navigateNoteHistory(-1)}
+              ><ArrowLeft aria-hidden="true" /></button>
+              <button
+                className="icon-button"
+                aria-label={t`Forward in note history`}
+                title={historyForwardPath ? t`Forward to ${historyForwardPath} · Alt+Right` : t`No later note`}
+                disabled={!historyForwardPath}
+                onClick={() => navigateNoteHistory(1)}
+              ><ArrowRight aria-hidden="true" /></button>
+            </div>
+            <button className={`note-bar-title${!focused || noteTitleVisible ? "" : " is-shown"}`} title={t`Go to note title`} onClick={revealNoteTitle}>{shown.title || t`Untitled`}</button>
+            {!mobileLayout && <div className="path-wrap">{focused ? notePathControl : <button className="path-button" disabled={!canRenameNotes || mutationsFrozen} onClick={() => setEditingPath(true)} title={t`Rename Markdown path`} aria-label={shown.path}><PathLabel path={shown.path} /><Pencil aria-hidden="true" /></button>}</div>}
+            {!mobileLayout && focused && noteLoading && <span role="status" className="note-opening-status" title={pendingNotePath}><Trans>Opening “{pendingNotePath}”…</Trans></span>}
+            {!mobileLayout && !isNew && !canEditNotes && <span className="connect-muted"><Trans>Read only</Trans></span>}
+            {!mobileLayout && (focused ? noteSaveIndicator : session && <SaveIndicator identity={session.editorSessionKey} state={session.activity === "saving" ? "saving" : session.saveState}
+              savedOnDevice={syncState === "saved_on_device"} activity={session.activity} detail={session.activityDetail} />)}
+            {mobileLayout && shownConnection !== "connected" && <div className="mobile-connection">
+              <ConnectionStatus state={shownConnection} issue={connectionIssue} onReconnect={() => void refreshAfterConnectionGap()} />
+            </div>}
+            {!mobileLayout && !isNew && <button className={`icon-button${focused && inspector === "properties" ? " active" : ""}`} aria-label={t`Note properties`} aria-keyshortcuts="Enter Space" aria-pressed={focused && inspector === "properties"} onClick={() => showInspector("properties", true)}><Info aria-hidden="true" /></button>}
+            {!mobileLayout && !isNew && noteComments.available && <button className={`icon-button comments-toggle${focused && inspector === "comments" ? " active" : ""}`} aria-label={t`Comments`} aria-keyshortcuts="Enter Space" aria-pressed={focused && inspector === "comments"} onClick={() => showInspector("comments", true)}><ChatText aria-hidden="true" />{focused && noteComments.openCount > 0 && <span className="comments-toggle-count">{noteComments.openCount}</span>}</button>}
+            {focused && focusMode && <button className="mdbase-button is-tertiary focus-exit" onClick={toggleFocus}><Trans>Exit focus mode</Trans></button>}
+            {mobileLayout && canCreateNotes && <button className="icon-button" aria-label={t`New note`} aria-keyshortcuts="C Control+Shift+N Meta+Shift+N" disabled={mutationsFrozen} onClick={() => openNewNote()}><FilePlus2 aria-hidden="true" /></button>}
+            <div className="note-actions">
+              {/* The pane takes the focus before the click arrives, so its button is the menu's by then. */}
+              <button {...(focused ? noteMenu.triggerProps : {})} className="icon-button" aria-label={t`More note actions`} aria-keyshortcuts="Enter Space ArrowDown ArrowUp"><MoreHorizontal aria-hidden="true" /></button>
+              {focused && <Menu open={noteMenu.open} id={noteMenu.id} label={t`More note actions`} triggerRef={noteMenu.trigger} onClose={noteMenu.close}>
+              {(isNew ? [
+              ...(mobileLayout ? [menuCommand("quick-open", <Search aria-hidden="true" />, () => { setPaletteMode("notes"); setQuickOpen(true); })] : []),
+              menuCommand("focus", <ListBullets aria-hidden="true" />, toggleFocus, false, focusMode ? t`Exit focus mode` : undefined),
+              menuCommand("shortcuts", <Keyboard aria-hidden="true" />, () => setShortcutsOpen(true)),
+              discardNewNoteItem(isNew.id, openNewWrite === "saving")
+              ] : [
+              ...(mobileLayout ? [menuCommand("quick-open", <Search aria-hidden="true" />, () => { setPaletteMode("notes"); setQuickOpen(true); })] : []),
+              ...noteActions(shown.path, mobileLayout ? t`Rename path` : undefined),
+              { ...menuCommand("outline", <ListBullets aria-hidden="true" />, () => setOutlineOpen(true)), separatorBefore: true },
+              menuCommand("backlinks", <Link2 aria-hidden="true" />, () => { window.document.getElementById(ids.backlinks)?.focus(); }),
+              menuCommand("focus", <ListBullets aria-hidden="true" />, toggleFocus, false, focusMode ? t`Exit focus mode` : undefined),
+              ...(mobileLayout ? [menuCommand("properties", <Info aria-hidden="true" />, () => showInspector("properties"))] : []),
+              ...(mobileLayout && noteComments.available ? [menuCommand("comments", <ChatText aria-hidden="true" />, () => showInspector("comments"))] : []),
+              { ...attachFileAction, separatorBefore: true },
+              { ...menuCommand("shortcuts", <Keyboard aria-hidden="true" />, () => setShortcutsOpen(true)), separatorBefore: true },
+              menuCommand("check-note", <Check aria-hidden="true" />, () => void validateNote(), mutationsFrozen)
+              ]).map(item => <Fragment key={item.label}>
+                {item.separatorBefore && <div role="separator" className="action-menu-separator" />}
+                <button role="menuitem" className={`mdbase-menu-item${item.tone === "danger" ? " is-danger" : ""}`} disabled={item.disabled} title={item.title} onClick={() => { noteMenu.close(true); item.onSelect(); }}>{item.icon}{item.label}</button>
+              </Fragment>)}
+              </Menu>}
+            </div>
+          </header>
+          {focused && connectionSummary?.role === "viewer" && <p role="status"><Trans>You have view access, so changes can't be saved.</Trans></p>}
+          {focused && !isNew && noteSessions.current.active?.recoveryError && <p role="alert">{noteSessions.current.active.recoveryError}</p>}
+          {focused && !isNew && noteSessions.current.active?.recoveryDraft && <section className="conflict-resolver" role="status" aria-label={t`Unsaved draft found`}>
+            <strong><Trans>Unsaved edits from an earlier session are available.</Trans></strong>
+            <p><Trans>Editing is paused until you restore or discard these edits. They stay in this browser for up to seven days, or until saved or discarded. Restoring does not overwrite a newer version without review.</Trans></p>
+            <details><summary><Trans>Review recovered text</Trans></summary><pre>{noteSessions.current.active.recoveryDraft.body}</pre>
+              {Object.keys(noteSessions.current.active.recoveryDraft.patch).length > 0 && <pre>{JSON.stringify(noteSessions.current.active.recoveryDraft.patch, null, 2)}</pre>}
+            </details>
+            <button disabled={!canEditNotes || mutationsFrozen || pendingNoteMutations.length > 0} onClick={() => {
+              const session = noteSessions.current.active!;
+              const recovered = session.recoveryDraft!;
+              session.recoveryDraft = undefined;
+              session.record.restore(recovered);
+              if (!sessionDirty(session)) {
+                try { draftRecovery?.remove(mutationScope.current.token().collectionId!, session.document.path, session.document); }
+                catch { setNotice(t`The recovery copy could not be removed from this browser.`); }
+              }
+              session.record.autosave();
+              touchSession(session);
+            }}><Trans>Restore unsaved edits</Trans></button>
+            <button onClick={() => {
+              const session = noteSessions.current.active!;
+              try {
+                draftRecovery?.remove(mutationScope.current.token().collectionId!, session.document.path);
+                session.recoveryDraft = undefined;
+                touchSession(session);
+              } catch { setNotice(t`The recovery copy could not be removed from this browser.`); }
+            }}><Trans>Discard recovered edits</Trans></button>
+          </section>}
+          {focused && <AttachmentTransfer controller={attachments} />}
+          {focused && !isNew && draft && activeRemoteDraft && <ConflictResolver local={draft} remote={activeRemoteDraft} onUseRemote={useRemoteVersion} onKeepLocal={keepLocalVersion} />}
+          {focused && !isNew && renamePlan && renamePlan.session === noteSessions.current.active && <div className="rename-confirm" role="alert">
+            <div><strong><Trans>Rename this note?</Trans></strong><span>{plural(renamePlan.affectedPaths.length, { one: "# note contains links that will change.", other: "# notes contain links that will change." })}{renamePlan.warnings.length > 0 ? plural(renamePlan.warnings.length, { one: ` # link needs attention and won’t be changed automatically.`, other: ` # links need attention and won’t be changed automatically.` }) : ""}</span></div>
+            <button onClick={cancelRename}><Trans>Cancel</Trans></button>
+            <button className="primary-confirm-action mdbase-button is-primary" onClick={() => void performRename(renamePlan, true)}><Trans>Rename and update links</Trans></button>
+          </div>}
+          {/* A new note and the saved note it becomes share this editor: same place, same key, so the caret stays where it is. */}
+          <MarkdownNoteEditor footer={<BacklinksPanel key={shown.path} id={ids.backlinks} mentions={isNew || !focused ? [] : mentions} onLinkMention={focused && !isNew && canEditNotes && !mutationsFrozen ? (mention) => void linkUnlinkedMention(mention) : undefined} linking={linkingMention} notes={around.backlinks.notes} types={typeDescriptors} loading={around.backlinks.loading} error={around.backlinks.error} onRetry={around.backlinks.retry} mentionsLoading={contentIndexing} mentionsError={contentError} onFindMentions={focused && !isNew && !contentComplete && !contentIndexing && !contentError ? () => setMentionsOpen(true) : undefined} onRetryMentions={() => void loadContentIndex()} onOpen={navigateToNote} />} editorKey={shown.key} titleId={ids.title}
+            draft={shown} preferences={preferences} documentId={paneDocumentId(pane, shown.key)} readOnly={readOnly}
+            provenance={mobileLayout ? <>
+              {notePathControl}
+              {!isNew && !canEditNotes && <span className="connect-muted"><Trans>Read only</Trans></span>}
+              {noteSaveIndicator}
+              {noteLoading && <span role="status" className="note-opening-status"><Trans>Opening “{pendingNotePath}”…</Trans></span>}
+            </> : undefined}
+            titlePlaceholder={isNew ? openNewForm?.titleLabel : undefined} focusTitle={isNew && !editorAutoFocus ? isNew.id : undefined}
+            titleProperties={isNew && openNewForm && openNewForm.required.length > 0 ? <section aria-label={t`Required properties`}>
+              <StructuredPropertiesEditor value={isNew.properties} contract={{ properties: openNewForm.properties, required: openNewForm.required }}
+                propertyNames={openNewForm.required} recordPaths={allNotes.map((note) => note.path)} initializeRequired allowAdd={false} allowCustom={false} emptyMessage=""
+                readOnly={mutationsFrozen}
+                onChange={(properties) => editNewNote(isNew.id, { properties })}
+                onValidityChange={(propertiesValid) => editNewNote(isNew.id, { propertiesValid })} />
+            </section> : undefined}
+            onTitleCommit={isNew ? () => void writeNewNote(isNew.id) : focused ? nameUntitledNote : undefined}
+            remoteApplyToken={session?.replaced} autoFocus={focused && editorAutoFocus}
+            currentPath={shown.path} linkTargets={around.linkTargets} recentPaths={recentPaths} linkSuggestions={linkOptions} linkTypes={linkTypeNames}
+            embeddedFiles={around.embeddedFiles} embeddedNotes={around.embeddedNotes} files={fileInventory.files} notes={allNotes}
+            onUploadAttachment={focused && !isNew && canAttachFiles && !attachments.disabled ? attachments.uploadReference : undefined}
+            insertion={focused && !isNew && attachments.insertion?.editorKey === shown.key ? attachments.insertion : undefined} onTitleVisibilityChange={focused ? setNoteTitleVisible : noop}
+            onTitleChange={(title) => editPane({ title })} onBodyChange={(body) => editPane({ body })}
+            onOpenLink={(path, options) => options?.where === "tab" ? openInNewTab(path) : options?.where === "beside" ? openNoteBeside(path) : navigateToNote(path)}
+            onCreateLink={createLinkedNote} onPreviewLink={notePreviewController.request}
+            onDismissLinkPreview={notePreviewController.dismiss} onOpenFile={setOpenFileAsset} onOpenFileLink={navigateToFile}
+            onVisibleFileEmbeds={around.updateVisibleFiles} onVisibleNoteEmbeds={around.updateVisibleNotes} {...(focused && !isNew ? noteComments.editor : {})} />
+          {focused && outlineOpen && <OutlinePanel headings={noteHeadings(shown.body)} onClose={() => setOutlineOpen(false)} onReveal={(line) => revealMarkdownLine(paneDocumentId(pane, shown.key), line)} />}
+        </> : focused ? <EmptyEditor
+          leadingActions={leadingActions}
+          notice={noteOpenFailure?.message ?? (activeRemoteDocument ? undefined : notice?.message)}
+          onCreate={canCreateNotes ? () => openNewNote() : undefined}
+          onRetry={() => noteOpenFailure ? navigateToNote(noteOpenFailure.path, noteOpenFailure.options) : void start()}
+        /> : <EmptyEditor
+          leadingActions={leadingActions}
+          notice={backgroundFailure?.path === backgroundPath ? backgroundFailure?.message : undefined}
+          onCreate={canCreateNotes ? () => openNewNote() : undefined}
+          onRetry={() => setBackgroundFailure(undefined)}
+        />}
+      </section>}
+    </div>;
+  };
   const noteStatuses = new Map<string, NoteRowStatus>();
   for (const session of noteSessions.current.values()) {
     const status = noteRowStatus(session);
@@ -2112,11 +2437,17 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           navigateToNote(path, { keepList: options?.keyboard });
         }}
         onSelectFile={navigateToFile}
+        onOpenInNewTab={mobileLayout ? undefined : openInNewTab}
         filter={noteFilter}
         tags={tagFacets}
         filterTypes={typeFacets}
         onFilter={setNoteFilter}
-        noteActions={(path) => listSelection.paths.length > 1 && listSelection.paths.includes(path) ? bulkActions(listSelection.paths) : noteActions(path)}
+        noteActions={(path) => listSelection.paths.length > 1 && listSelection.paths.includes(path) ? bulkActions(listSelection.paths)
+          : mobileLayout ? noteActions(path) : [
+            menuCommand("open-in-new-tab", <Browsers aria-hidden="true" />, () => openInNewTab(path)),
+            menuCommand("open-beside", <Columns aria-hidden="true" />, () => openNoteBeside(path)),
+            ...noteActions(path)
+          ]}
         onRename={(path) => void renameNote(path)}
         onPeek={(path) => { if (peekPath) closePeek(); else setPeekPath(path); }}
         onClosePeek={closePeek}
@@ -2132,142 +2463,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         leadingActions={layout.collectionCollapsed && <PaneControl pane="collections" label={t`Show collections sidebar`} visibility="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
         trailingActions={<PaneControl pane="list" label={t`Hide notes sidebar`} visibility="hide" onClick={() => setLayout((current) => ({ ...current, listCollapsed: true }))} />}
       />}
-      {selectedCollectionFile && selectedFileAsset ? <Suspense fallback={<PaneSkeleton label={t`Loading file viewer`} leadingActions={editorLeadingActions} variant="canvas" />}><FileWorkspace
-        file={selectedCollectionFile}
-        asset={selectedFileAsset}
-        leadingActions={editorLeadingActions}
-        onBack={() => returnToMobilePane("notes")}
-        onRetry={() => void fileAssetStore.retry(selectedCollectionFile)}
-      /></Suspense> : <main className="editor-pane" aria-label={t`Note editor`} data-save-state={openNew ? "saved" : saveState}>
-        {noteLoading && !editing ? <NoteSkeleton leadingActions={editorLeadingActions} /> : editing ? <>
-          <header className="editor-bar mdbase-settle-host">
-            <button className="mobile-back icon-button" aria-label={t`Back to notes`} onClick={() => { closeNewNote(); returnToMobilePane("notes"); }}><ArrowLeft aria-hidden="true" /></button>
-            {editorLeadingActions}
-            <div className="note-history" role="group" aria-label={t`Note history`}>
-              <button
-                className="icon-button"
-                aria-label={t`Back in note history`}
-                title={historyBackPath ? t`Back to ${historyBackPath} · Alt+Left` : t`No earlier note`}
-                disabled={!historyBackPath}
-                onClick={() => navigateNoteHistory(-1)}
-              ><ArrowLeft aria-hidden="true" /></button>
-              <button
-                className="icon-button"
-                aria-label={t`Forward in note history`}
-                title={historyForwardPath ? t`Forward to ${historyForwardPath} · Alt+Right` : t`No later note`}
-                disabled={!historyForwardPath}
-                onClick={() => navigateNoteHistory(1)}
-              ><ArrowRight aria-hidden="true" /></button>
-            </div>
-            <button className={`note-bar-title${noteTitleVisible ? "" : " is-shown"}`} title={t`Go to note title`} onClick={revealNoteTitle}>{editing.title || t`Untitled`}</button>
-            {!mobileLayout && <div className="path-wrap">{notePathControl}</div>}
-            {!mobileLayout && noteLoading && <span role="status" className="note-opening-status" title={pendingNotePath}><Trans>Opening “{pendingNotePath}”…</Trans></span>}
-            {!mobileLayout && !openNew && !canEditNotes && <span className="connect-muted"><Trans>Read only</Trans></span>}
-            {!mobileLayout && noteSaveIndicator}
-            {mobileLayout && shownConnection !== "connected" && <div className="mobile-connection">
-              <ConnectionStatus state={shownConnection} issue={connectionIssue} onReconnect={() => void refreshAfterConnectionGap()} />
-            </div>}
-            {!mobileLayout && !openNew && <button className={`icon-button${inspector === "properties" ? " active" : ""}`} aria-label={t`Note properties`} aria-keyshortcuts="Enter Space" aria-pressed={inspector === "properties"} onClick={() => showInspector("properties", true)}><Info aria-hidden="true" /></button>}
-            {!mobileLayout && !openNew && noteComments.available && <button className={`icon-button comments-toggle${inspector === "comments" ? " active" : ""}`} aria-label={t`Comments`} aria-keyshortcuts="Enter Space" aria-pressed={inspector === "comments"} onClick={() => showInspector("comments", true)}><ChatText aria-hidden="true" />{noteComments.openCount > 0 && <span className="comments-toggle-count">{noteComments.openCount}</span>}</button>}
-            {focusMode && <button className="mdbase-button is-tertiary focus-exit" onClick={toggleFocus}><Trans>Exit focus mode</Trans></button>}
-            {mobileLayout && canCreateNotes && <button className="icon-button" aria-label={t`New note`} aria-keyshortcuts="C Control+Shift+N Meta+Shift+N" disabled={mutationsFrozen} onClick={() => openNewNote()}><FilePlus2 aria-hidden="true" /></button>}
-            <div className="note-actions">
-              <button {...noteMenu.triggerProps} className="icon-button" aria-label={t`More note actions`} aria-keyshortcuts="Enter Space ArrowDown ArrowUp"><MoreHorizontal aria-hidden="true" /></button>
-              <Menu open={noteMenu.open} id={noteMenu.id} label={t`More note actions`} triggerRef={noteMenu.trigger} onClose={noteMenu.close}>
-              {(openNew ? [
-              ...(mobileLayout ? [menuCommand("quick-open", <Search aria-hidden="true" />, () => { setPaletteMode("notes"); setQuickOpen(true); })] : []),
-              menuCommand("focus", <ListBullets aria-hidden="true" />, toggleFocus, false, focusMode ? t`Exit focus mode` : undefined),
-              menuCommand("shortcuts", <Keyboard aria-hidden="true" />, () => setShortcutsOpen(true)),
-              discardNewNoteItem(openNew.id, openNewWrite === "saving")
-              ] : [
-              ...(mobileLayout ? [menuCommand("quick-open", <Search aria-hidden="true" />, () => { setPaletteMode("notes"); setQuickOpen(true); })] : []),
-              ...noteActions(editing.path, mobileLayout ? t`Rename path` : undefined),
-              { ...menuCommand("outline", <ListBullets aria-hidden="true" />, () => setOutlineOpen(true)), separatorBefore: true },
-              menuCommand("backlinks", <Link2 aria-hidden="true" />, () => { window.document.getElementById("linked-from")?.focus(); }),
-              menuCommand("focus", <ListBullets aria-hidden="true" />, toggleFocus, false, focusMode ? t`Exit focus mode` : undefined),
-              ...(mobileLayout ? [menuCommand("properties", <Info aria-hidden="true" />, () => showInspector("properties"))] : []),
-              ...(mobileLayout && noteComments.available ? [menuCommand("comments", <ChatText aria-hidden="true" />, () => showInspector("comments"))] : []),
-              { ...attachFileAction, separatorBefore: true },
-              { ...menuCommand("shortcuts", <Keyboard aria-hidden="true" />, () => setShortcutsOpen(true)), separatorBefore: true },
-              menuCommand("check-note", <Check aria-hidden="true" />, () => void validateNote(), mutationsFrozen)
-              ]).map(item => <Fragment key={item.label}>
-                {item.separatorBefore && <div role="separator" className="action-menu-separator" />}
-                <button role="menuitem" className={`mdbase-menu-item${item.tone === "danger" ? " is-danger" : ""}`} disabled={item.disabled} title={item.title} onClick={() => { noteMenu.close(true); item.onSelect(); }}>{item.icon}{item.label}</button>
-              </Fragment>)}
-              </Menu>
-            </div>
-          </header>
-          {connectionSummary?.role === "viewer" && <p role="status"><Trans>You have view access, so changes can't be saved.</Trans></p>}
-          {!openNew && noteSessions.current.active?.recoveryError && <p role="alert">{noteSessions.current.active.recoveryError}</p>}
-          {!openNew && noteSessions.current.active?.recoveryDraft && <section className="conflict-resolver" role="status" aria-label={t`Unsaved draft found`}>
-            <strong><Trans>Unsaved edits from an earlier session are available.</Trans></strong>
-            <p><Trans>Editing is paused until you restore or discard these edits. They stay in this browser for up to seven days, or until saved or discarded. Restoring does not overwrite a newer version without review.</Trans></p>
-            <details><summary><Trans>Review recovered text</Trans></summary><pre>{noteSessions.current.active.recoveryDraft.body}</pre>
-              {Object.keys(noteSessions.current.active.recoveryDraft.patch).length > 0 && <pre>{JSON.stringify(noteSessions.current.active.recoveryDraft.patch, null, 2)}</pre>}
-            </details>
-            <button disabled={!canEditNotes || mutationsFrozen || pendingNoteMutations.length > 0} onClick={() => {
-              const session = noteSessions.current.active!;
-              const recovered = session.recoveryDraft!;
-              session.recoveryDraft = undefined;
-              session.record.restore(recovered);
-              if (!sessionDirty(session)) {
-                try { draftRecovery?.remove(mutationScope.current.token().collectionId!, session.document.path, session.document); }
-                catch { setNotice(t`The recovery copy could not be removed from this browser.`); }
-              }
-              session.record.autosave();
-              touchSession(session);
-            }}><Trans>Restore unsaved edits</Trans></button>
-            <button onClick={() => {
-              const session = noteSessions.current.active!;
-              try {
-                draftRecovery?.remove(mutationScope.current.token().collectionId!, session.document.path);
-                session.recoveryDraft = undefined;
-                touchSession(session);
-              } catch { setNotice(t`The recovery copy could not be removed from this browser.`); }
-            }}><Trans>Discard recovered edits</Trans></button>
-          </section>}
-          <AttachmentTransfer controller={attachments} />
-          {!openNew && draft && activeRemoteDraft && <ConflictResolver local={draft} remote={activeRemoteDraft} onUseRemote={useRemoteVersion} onKeepLocal={keepLocalVersion} />}
-          {!openNew && renamePlan && renamePlan.session === noteSessions.current.active && <div className="rename-confirm" role="alert">
-            <div><strong><Trans>Rename this note?</Trans></strong><span>{plural(renamePlan.affectedPaths.length, { one: "# note contains links that will change.", other: "# notes contain links that will change." })}{renamePlan.warnings.length > 0 ? plural(renamePlan.warnings.length, { one: ` # link needs attention and won’t be changed automatically.`, other: ` # links need attention and won’t be changed automatically.` }) : ""}</span></div>
-            <button onClick={cancelRename}><Trans>Cancel</Trans></button>
-            <button className="primary-confirm-action mdbase-button is-primary" onClick={() => void performRename(renamePlan, true)}><Trans>Rename and update links</Trans></button>
-          </div>}
-          {/* A new note and the saved note it becomes share this editor: same place, same key, so the caret stays where it is. */}
-          <MarkdownNoteEditor footer={<BacklinksPanel key={editing.path} mentions={openNew ? [] : mentions} onLinkMention={!openNew && canEditNotes && !mutationsFrozen ? (mention) => void linkUnlinkedMention(mention) : undefined} linking={linkingMention} notes={backlinks.notes} types={typeDescriptors} loading={backlinks.loading} error={backlinks.error} onRetry={backlinks.retry} mentionsLoading={contentIndexing} mentionsError={contentError} onFindMentions={!openNew && !contentComplete && !contentIndexing && !contentError ? () => setMentionsOpen(true) : undefined} onRetryMentions={() => void loadContentIndex()} onOpen={navigateToNote} />} editorKey={editing.key}
-            draft={editing} preferences={preferences} documentId={editing.key} readOnly={openNew ? mutationsFrozen || !canCreateNotes : noteReadOnly}
-            provenance={mobileLayout ? <>
-              {notePathControl}
-              {!openNew && !canEditNotes && <span className="connect-muted"><Trans>Read only</Trans></span>}
-              {noteSaveIndicator}
-              {noteLoading && <span role="status" className="note-opening-status"><Trans>Opening “{pendingNotePath}”…</Trans></span>}
-            </> : undefined}
-            titlePlaceholder={openNewForm?.titleLabel} focusTitle={openNew && !editorAutoFocus ? openNew.id : undefined}
-            titleProperties={openNew && openNewForm && openNewForm.required.length > 0 ? <section aria-label={t`Required properties`}>
-              <StructuredPropertiesEditor value={openNew.properties} contract={{ properties: openNewForm.properties, required: openNewForm.required }}
-                propertyNames={openNewForm.required} recordPaths={allNotes.map((note) => note.path)} initializeRequired allowAdd={false} allowCustom={false} emptyMessage=""
-                readOnly={mutationsFrozen}
-                onChange={(properties) => editNewNote(openNew.id, { properties })}
-                onValidityChange={(propertiesValid) => editNewNote(openNew.id, { propertiesValid })} />
-            </section> : undefined}
-            onTitleCommit={openNew ? () => void writeNewNote(openNew.id) : nameUntitledNote}
-            remoteApplyToken={remoteApplyToken} autoFocus={editorAutoFocus}
-            currentPath={editing.path} linkTargets={linkTargets} recentPaths={recentPaths} linkSuggestions={linkOptions} linkTypes={linkTypeNames}
-            embeddedFiles={embeddedFiles} embeddedNotes={embeddedNotes} files={fileInventory.files} notes={allNotes}
-            onUploadAttachment={!openNew && canAttachFiles && !attachments.disabled ? attachments.uploadReference : undefined}
-            insertion={!openNew && attachments.insertion?.editorKey === editing.key ? attachments.insertion : undefined} onTitleVisibilityChange={setNoteTitleVisible} onTitleChange={(title) => editNote({ title })}
-            onBodyChange={(body) => editNote({ body })} onOpenLink={navigateToNote}
-            onCreateLink={createLinkedNote} onPreviewLink={notePreviewController.request}
-            onDismissLinkPreview={notePreviewController.dismiss} onOpenFile={setOpenFileAsset} onOpenFileLink={navigateToFile}
-            onVisibleFileEmbeds={updateVisibleFileEmbeds} onVisibleNoteEmbeds={updateVisibleNoteEmbeds} {...(openNew ? {} : noteComments.editor)} />
-          {outlineOpen && <OutlinePanel headings={noteHeadings(editing.body)} onClose={() => setOutlineOpen(false)} onReveal={(line) => revealMarkdownLine(editing.key, line)} />}
-        </> : <EmptyEditor
-          leadingActions={editorLeadingActions}
-          notice={noteOpenFailure?.message ?? (activeRemoteDocument ? undefined : notice?.message)}
-          onCreate={canCreateNotes ? () => openNewNote() : undefined}
-          onRetry={() => noteOpenFailure ? navigateToNote(noteOpenFailure.path, noteOpenFailure.options) : void start()}
-        />}
-      </main>}
+      <div className={`editor-split${!mobileLayout && workspace.panes.length > 1 ? ` is-split split-${workspace.split}` : ""}`}>
+        {workspace.panes.map((pane, index) => (!mobileLayout || index === workspace.focused) && editorPane(pane, index))}
+      </div>
       {inspectorVisible && <InspectorFrame overlay={inspectorOverlay} label={inspector === "comments" ? t`Comments` : t`Note properties`} width={inspectorTrack} onClose={() => setInspector(undefined)}>{document ? <Suspense fallback={<InspectorPanelLoading label={inspector === "comments" ? t`Comments` : t`Note properties`} />}>
         {inspector === "comments" ? <NoteCommentsPanel key={document.path} title={draft?.title || t`Untitled`} comments={noteComments}
           onOpenRecord={navigateToNote} onOpenSettings={() => selectSurface("settings")} onClose={() => setInspector(undefined)} /> : <PropertiesPanel
@@ -2394,12 +2592,16 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           .filter(({ name, type }) => !wanted || name.toLocaleLowerCase().includes(wanted) || type?.toLocaleLowerCase().includes(wanted))
           .map(({ id, name, type, detail }) => ({ id, label: name, detail, group: t`New note`, run: () => openNewNoteOfType(type) }));
       }} onClose={() => setQuickOpen(false)} /> : <CommandPalette open={quickOpen} commands={[]} key={paletteMode} initialQuery={paletteMode === "commands" ? ">" : ""}
-      label={t`Quick open`} inputLabel={t`Find a note or action`} placeholder={t`Find a note by title or path, or type > for actions`}
-      getResults={query => quickOpenResults({ index: searchIndex,
-        recentPaths, types: typeDescriptors, commands: quickOpenCommands,
-        onCreate: canCreateNotes && !mutationsFrozen ? title => openNewNote({ ...newNoteContext(noteFilter, typeDescriptors), title }) : undefined,
-        onSelect: path => { setSearch(""); setNoteFilter(undefined); setSurface("notes"); navigateToNote(path); }
-      }, query)} onClose={() => setQuickOpen(false)} />}
+      {...paletteMode === "tab" ? { label: t`Open in new tab`, inputLabel: t`Find a note to open in a new tab`, placeholder: t`Find a note by title or path` }
+        : { label: t`Quick open`, inputLabel: t`Find a note or action`, placeholder: t`Find a note by title or path, or type > for actions` }}
+      getResults={query => paletteMode === "tab"
+        ? quickOpenResults({ index: searchIndex, recentPaths, types: typeDescriptors, commands: [], onSelect: openInNewTab }, query)
+        : quickOpenResults({ index: searchIndex,
+          recentPaths, types: typeDescriptors, commands: quickOpenCommands,
+          onCreate: canCreateNotes && !mutationsFrozen ? title => openNewNote({ ...newNoteContext(noteFilter, typeDescriptors), title }) : undefined,
+          onSelect: path => { setSearch(""); setNoteFilter(undefined); setSurface("notes"); navigateToNote(path); },
+          onOpenInNewTab: mobileLayout ? undefined : path => { setSearch(""); setNoteFilter(undefined); setSurface("notes"); openInNewTab(path); }
+        }, query)} onClose={() => setQuickOpen(false)} />}
     {shortcutsOpen && <ShortcutHelp canRename={canRenameNotes && !mutationsFrozen && Boolean(selectedPath) && !selectedCollectionFile && !openNew} onClose={() => setShortcutsOpen(false)} onCustomize={() => {
       setShortcutsOpen(false);
       selectSurface("settings");
@@ -2417,4 +2619,14 @@ function collectionExplicitTypeKeys(configuration: unknown): string[] {
   const settings = isObject(configuration) ? configuration.settings : undefined;
   const configured = isObject(settings) ? settings.explicit_type_keys : undefined;
   return Array.isArray(configured) ? configured.filter((key): key is string => typeof key === "string") : ["type", "types"];
+}
+
+/** The ids of a pane's title field and backlinks, unique on the page. */
+function paneIds(index: number): { title: string; backlinks: string } {
+  return index === 0 ? { title: "note-title", backlinks: "linked-from" } : { title: `note-title-${index + 1}`, backlinks: `linked-from-${index + 1}` };
+}
+
+/** An editor's identity in its pane: the same note open in both panes keeps a place in each. */
+function paneDocumentId(pane: Pane, editorKey: string | undefined): string | undefined {
+  return editorKey && `${pane.id}/${editorKey}`;
 }

@@ -4,7 +4,14 @@ use crate::{api::SessionId, store::Head};
 use mdbn_core::views::bases::IncrementalBasesBudget;
 use std::collections::BTreeMap;
 
-const SOURCE_ROWS: u32 = 64;
+/// Identities per metadata read and per hydration call; the local source
+/// helpers accept at most 128.
+const METADATA_ROWS: u32 = 128;
+/// A page reads each selected source twice (classification, then the final
+/// CAS) under ONE ledger, so it selects at most half of the binding 1000-record
+/// / 1 MiB source profile. A page is bounded by this source work, not by a
+/// fixed record count, so a typical collection is one round trip.
+const PAGE_ROWS: usize = 500;
 const INITIAL_BYTES: u64 = 512 * 1024;
 const SLOT_BYTES: u64 = 4096;
 const MAX_SLOTS: usize = 64;
@@ -185,48 +192,58 @@ impl<S: Store> Replica<S> {
         if timezone.is_some_and(|zone| zone != entry.clock.tz) {
             return Err(invalid());
         }
-        let (steps, bytes) = self.bases_local_metadata_cost(SOURCE_ROWS)?;
-        ledger.retain(bytes).map_err(failure)?;
-        ledger
-            .admit(|work| {
-                if work.charge(steps, bytes) {
-                    Ok(())
-                } else {
-                    Err(work.failure().expect("local discovery metadata"))
-                }
-            })
-            .map_err(failure)?;
-        let metadata = self
-            .bases_local_sizes(
-                Page {
-                    after: entry.after,
-                    limit: SOURCE_ROWS,
-                },
-                entry.head,
-            )
-            .map_err(|_| unavailable())?;
-        if metadata.len() > SOURCE_ROWS as usize {
-            return Err(invalid());
-        }
+        // Select the longest identity-ordered prefix that fits the page's source
+        // work. Each metadata read is precharged before it runs.
+        let mut metadata = Vec::new();
+        let mut bytes = 0u64;
+        let mut exhausted = false;
         let mut previous = entry.after;
-        for row in &metadata {
-            if previous.is_some_and(|id| row.id <= id) {
+        'scan: while metadata.len() < PAGE_ROWS {
+            let (steps, cost) = self.bases_local_metadata_cost(METADATA_ROWS)?;
+            ledger.retain(cost).map_err(failure)?;
+            ledger
+                .admit(|work| {
+                    if work.charge(steps, cost) {
+                        Ok(())
+                    } else {
+                        Err(work.failure().expect("local discovery metadata"))
+                    }
+                })
+                .map_err(failure)?;
+            let chunk = self
+                .bases_local_sizes(
+                    Page {
+                        after: previous,
+                        limit: METADATA_ROWS,
+                    },
+                    entry.head,
+                )
+                .map_err(|_| unavailable())?;
+            if chunk.len() > METADATA_ROWS as usize {
                 return Err(invalid());
             }
-            previous = Some(row.id);
-        }
-        let mut bytes = 0u64;
-        let mut count = 0usize;
-        for row in &metadata {
-            let next = bytes.checked_add(row.encoded_bytes).ok_or_else(invalid)?;
-            if next > INITIAL_BYTES {
-                if count == 0 {
-                    return Err(budget("bases_discovery_source_bytes"));
+            let short = chunk.len() < METADATA_ROWS as usize;
+            for row in chunk {
+                if previous.is_some_and(|id| row.id <= id) {
+                    return Err(invalid());
                 }
+                previous = Some(row.id);
+                let next = bytes.checked_add(row.encoded_bytes).ok_or_else(invalid)?;
+                if next > INITIAL_BYTES || metadata.len() == PAGE_ROWS {
+                    if metadata.is_empty() {
+                        return Err(budget("bases_discovery_source_bytes"));
+                    }
+                    break 'scan;
+                }
+                bytes = next;
+                metadata.push(row);
+            }
+            // A short metadata read is the universe's end. A page that stops on
+            // its own bound needs a later page (possibly an empty EOF probe).
+            if short {
+                exhausted = true;
                 break;
             }
-            bytes = next;
-            count += 1;
         }
         if let Some((id, _, _)) = entry.unfinished
             && metadata.first().is_none_or(|row| row.id != id)
@@ -235,23 +252,18 @@ impl<S: Store> Replica<S> {
         }
         // The metadata bound and ONE shared source meter precede hydration.
         ledger
-            .retain(bytes + (count as u64) * 512)
+            .retain(bytes + (metadata.len() as u64) * 512)
             .map_err(failure)?;
-        let ids: Vec<_> = metadata[..count].iter().map(|row| row.id).collect();
-        let mut sources = QueryBudget::new(128, 1024 * 1024);
-        let rows = if ids.is_empty() {
-            Vec::new()
-        } else {
-            self.bases_local_hydrate(&ids, entry.head, &mut sources)
-                .map_err(source_error)?
-        };
-        if rows.len() != count {
+        let ids: Vec<_> = metadata.iter().map(|row| row.id).collect();
+        let mut sources = QueryBudget::new(2 * PAGE_ROWS as u32, 2 * INITIAL_BYTES);
+        let rows = self.discovery_hydrate(&ids, entry.head, &mut sources)?;
+        if rows.len() != metadata.len() {
             return Err(invalid());
         }
         self.recheck_discovery(session, &entry)?;
         let mut views = Vec::new();
         let mut processed = 0usize;
-        for (row, meta) in rows.iter().zip(&metadata[..count]) {
+        for (row, meta) in rows.iter().zip(&metadata) {
             self.check_discovery_source(row, meta.id, meta.encoded_bytes, &mut ledger)?;
             if entry
                 .unfinished
@@ -345,11 +357,9 @@ impl<S: Store> Replica<S> {
                 break;
             }
         }
-        // A full metadata chunk requires a bounded subsequent empty probe to
-        // establish EOF. Empty views with next are valid actual progress.
-        let more = entry.unfinished.is_some()
-            || processed < metadata.len()
-            || metadata.len() == SOURCE_ROWS as usize;
+        // Only a short metadata read establishes EOF. Empty views with next
+        // are valid actual progress.
+        let more = entry.unfinished.is_some() || processed < metadata.len() || !exhausted;
         self.host.entropy.fill(&mut entry.token.0);
         let page = BasesDiscoveryPage {
             views,
@@ -360,28 +370,17 @@ impl<S: Store> Replica<S> {
         self.recheck_discovery(session, &entry)?;
         let output = encode(self, &page, &mut ledger)?;
         self.recheck_discovery(session, &entry)?;
-        // FINAL source CAS uses the SAME 128-record/1MiB ledger after codec.
+        // FINAL source CAS uses the SAME 1000-record/1MiB ledger after codec.
         if !ids.is_empty() {
             ledger
-                .retain(bytes + (count as u64) * 512)
+                .retain(bytes + (metadata.len() as u64) * 512)
                 .map_err(failure)?;
-            let final_rows = self
-                .bases_local_hydrate(&ids, entry.head, &mut sources)
-                .map_err(source_error)?;
+            let final_rows = self.discovery_hydrate(&ids, entry.head, &mut sources)?;
             if final_rows.len() != rows.len() {
                 return Err(stale_discovery());
             }
-            for (actual, expected) in final_rows.iter().zip(&rows) {
-                self.check_discovery_source(
-                    actual,
-                    expected.id,
-                    metadata
-                        .iter()
-                        .find(|meta| meta.id == expected.id)
-                        .ok_or_else(invalid)?
-                        .encoded_bytes,
-                    &mut ledger,
-                )?;
+            for ((actual, expected), meta) in final_rows.iter().zip(&rows).zip(&metadata) {
+                self.check_discovery_source(actual, expected.id, meta.encoded_bytes, &mut ledger)?;
                 if actual.path != expected.path
                     || actual.path_key != expected.path_key
                     || actual.revision != expected.revision
@@ -542,6 +541,23 @@ impl<S: Store> Replica<S> {
         }
         self.recheck_discovery(session, &entry)?;
         Ok(output)
+    }
+    /// Hydrate one page's identities, in order, in store-sized calls that all
+    /// charge the page's ONE source ledger.
+    fn discovery_hydrate(
+        &self,
+        ids: &[Uuid],
+        head: Head,
+        sources: &mut QueryBudget,
+    ) -> ApiResult<Vec<LocalRecord>> {
+        let mut rows = Vec::with_capacity(ids.len());
+        for chunk in ids.chunks(METADATA_ROWS as usize) {
+            rows.extend(
+                self.bases_local_hydrate(chunk, head, sources)
+                    .map_err(source_error)?,
+            );
+        }
+        Ok(rows)
     }
     fn check_discovery_source(
         &self,
