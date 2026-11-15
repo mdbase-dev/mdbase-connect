@@ -4,12 +4,14 @@ import { StateEffect, StateField, type EditorState, type Range } from "@codemirr
 import { Decoration, EditorView, WidgetType, keymap, type DecorationSet } from "@codemirror/view";
 import { t } from "@lingui/core/macro";
 import { DiagramWidget, isDiagramLanguage } from "./diagram.js";
+import { parsedTree } from "./parsed.js";
 import { isRevealed, revealField } from "./reveal.js";
 
 const toggleFold = StateEffect.define<{ from: number; folded: boolean }>({ map: (value, changes) => ({ ...value, from: changes.mapPos(value.from) }) });
 const folds = StateField.define<ReadonlyMap<number, boolean>>({
   create: () => new Map(),
   update(value, tr) {
+    if (!tr.docChanged && !tr.effects.some((effect) => effect.is(toggleFold))) return value;
     const next = new Map<number, boolean>();
     for (const [pos, folded] of value) next.set(tr.changes.mapPos(pos), folded);
     for (const effect of tr.effects) if (effect.is(toggleFold)) next.set(effect.value.from, effect.value.folded);
@@ -96,7 +98,7 @@ class CalloutHeader extends WidgetType {
 }
 
 export function blockPreview() {
-  return [folds, EditorView.decorations.compute(["doc", revealField, folds], build), keymap.of([
+  return [folds, parsedTree, EditorView.decorations.compute(["doc", parsedTree, revealField, folds], build), keymap.of([
     { key: "Tab", run: (view) => inCode(view.state) && indentMore(view) },
     { key: "Shift-Tab", run: (view) => inCode(view.state) && indentLess(view) }
   ])];

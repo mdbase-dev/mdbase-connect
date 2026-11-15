@@ -5,6 +5,7 @@ import { t } from "@lingui/core/macro";
 import type { BlockContext, InlineContext, Line, MarkdownConfig } from "@lezer/markdown";
 import "../i18n.js";
 import { lazily } from "./lazy.js";
+import { parsedTree } from "./parsed.js";
 import { isRevealed, revealField } from "./reveal.js";
 
 const DOLLAR = 36, BACKSLASH = 92, NEWLINE = 10;
@@ -154,7 +155,7 @@ const sourceMark = Decoration.mark({ class: "cm-lp-math-source" });
 
 /** Renders `markdownMath` formulas where the selection is not, and shows a rendered preview under a revealed display block. */
 export function mathPreview() {
-  return EditorView.decorations.compute(["doc", revealField], build);
+  return [parsedTree, EditorView.decorations.compute(["doc", parsedTree, revealField], build)];
 }
 
 function build(state: EditorState): DecorationSet {
