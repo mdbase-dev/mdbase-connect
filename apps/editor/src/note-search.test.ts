@@ -196,6 +196,35 @@ describe("note search", () => {
     expect(searchNoteResults(index, "ada")[1].context).toMatchObject({ kind: "metadata", ranges: [expect.anything()] });
   });
 
+  it("reads a body again as a search is typed out only while it still holds the shorter term", () => {
+    const long = "quiet words ".repeat(400);
+    const index = new IncrementalNoteSearchIndex();
+    const entries = index.build([summary("A.md", {}, [], long), summary("B.md", {}, [], `${long} lantern`)]);
+    const indexOf = vi.spyOn(String.prototype, "indexOf");
+    const bodyReads = (query: string) => {
+      indexOf.mockClear();
+      const paths = searchNotes(entries, query).map((note) => note.path);
+      return { paths, reads: indexOf.mock.contexts.filter((value) => String(value).length >= long.length).length };
+    };
+    try {
+      expect(bodyReads("lant")).toEqual({ paths: ["B.md"], reads: 2 });
+      // A.md lacks "lant", so it cannot hold "lantern"; only B.md is read.
+      expect(bodyReads("lantern")).toEqual({ paths: ["B.md"], reads: 1 });
+      expect(bodyReads("lantern quiet")).toEqual({ paths: ["B.md"], reads: 2 });
+      expect(bodyReads("zeb")).toEqual({ paths: [], reads: 2 });
+    } finally {
+      indexOf.mockRestore();
+    }
+  });
+
+  it("forgets what a body lacked once its note changes", () => {
+    const index = new IncrementalNoteSearchIndex();
+    const before = summary("A.md", {}, [], "quiet words");
+    expect(searchNotes(index.build([before]), "lant")).toEqual([]);
+    const after = { ...before, body: "a lantern" };
+    expect(searchNotes(index.build([after]), "lantern")).toEqual([after]);
+  });
+
   it("lets a bonus decide between equally good matches without overriding a better one", () => {
     const index = buildNoteSearchIndex([
       summary("A/Plan.md", {}, [], ""),
