@@ -13,6 +13,7 @@ import { pendingNoteRequestId, type RenamePlan, type PendingRenameRecovery } fro
 import { composeRecordSource, replaceDocumentFrontmatter } from "./record-source";
 import { forgetRecentPath, rememberRecentPath } from "./recent-notes";
 import { linkMention, type UnlinkedMention } from "./unlinked-mentions";
+import { forgetInHistory, rememberOpenNote, renameInHistory, type NoteHistory } from "./workspace";
 
 interface Options {
   gateway: CollectionGateway;
@@ -37,8 +38,7 @@ interface Options {
   refreshCachedNote(path: string): Promise<void>;
   openNote(path: string): Promise<boolean>;
   navigateToNote(path: string): void;
-  replaceNoteHistoryPath(from: string, to: string): void;
-  forgetNoteHistoryPath(path: string): void;
+  changeNoteHistory(change: (current: NoteHistory) => NoteHistory): void;
   remapPin(from: string, to: string): void;
   setPin(path: string, pinned: boolean): void;
   pinnedPaths: string[];
@@ -47,7 +47,6 @@ interface Options {
   focusNoteList(): void;
   setDocument(document?: NoteDocument): void;
   setDraft(draft?: Draft): void;
-  setSelectedPath(path?: string): void;
   setPathDraft(path: string): void;
   setEditingPath(editing: boolean): void;
   setRenamePlan(plan?: RenamePlan): void;
@@ -83,8 +82,8 @@ function batchMessage<Value>(verb: BatchVerb, result: BatchResult<Value>): strin
 export function useNoteActions({ gateway, mutationScope, noteSessions, indexController, allNotes, noteOrder, files,
   typeDescriptors, document, pathDraft, canCreateNotes, canEditNotes, canRenameNotes, canDeleteNotes,
   createSession, flushSession, runNoteOperation, touchSession, updateNoteSummary, refreshCachedNote,
-  openNote, navigateToNote, replaceNoteHistoryPath, forgetNoteHistoryPath, remapPin, setPin, pinnedPaths, onRestore, clearSelection, focusNoteList,
-  setDocument, setDraft, setSelectedPath, setPathDraft, setEditingPath, setRenamePlan, setRecentPaths,
+  openNote, navigateToNote, changeNoteHistory, remapPin, setPin, pinnedPaths, onRestore, clearSelection, focusNoteList,
+  setDocument, setDraft, setPathDraft, setEditingPath, setRenamePlan, setRecentPaths,
   setNotice }: Options) {
   const [bulkBusy, setBulkBusy] = useState(false);
   const batchRunning = useRef(false);
@@ -342,12 +341,11 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
       updateNoteSummary(renamed, from);
       if (noteSessions.current.active === session) {
         setDocument(renamed);
-        setSelectedPath(renamed.path);
         setPathDraft(renamed.path);
-        localStorage.setItem(`mdbase-editor:last-note:${token.collectionId}`, renamed.path);
+        rememberOpenNote(token.collectionId!, renamed.path);
       }
       setRecentPaths((current) => rememberRecentPath(forgetRecentPath(current, from), renamed.path));
-      replaceNoteHistoryPath(from, renamed.path);
+      changeNoteHistory((history) => renameInHistory(history, from, renamed.path));
       if (reportUndo) setRecoveryAction({ kind: "rename", from, to: renamed.path });
       remapPin(from, renamed.path);
       touchSession(session);
@@ -504,12 +502,11 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
     const next = position < 0 ? undefined : noteOrder[position + 1] ?? noteOrder[position - 1];
     session.deleted = true;
     indexController.stageRemoval(path);
-    forgetNoteHistoryPath(path);
+    changeNoteHistory((history) => forgetInHistory(history, path));
     if (noteSessions.current.active === session) {
       noteSessions.current.deactivate(session);
       setDocument(undefined);
       setDraft(undefined);
-      setSelectedPath(undefined);
       clearSelection();
       if (next) void openNote(next);
     }
@@ -627,12 +624,11 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
           updateNoteSummary(restored, move.to);
           if (noteSessions.current.active === session) {
             setDocument(restored);
-            setSelectedPath(restored.path);
             setPathDraft(restored.path);
-            localStorage.setItem(`mdbase-editor:last-note:${token.collectionId}`, restored.path);
+            rememberOpenNote(token.collectionId!, restored.path);
           }
           setRecentPaths((current) => rememberRecentPath(forgetRecentPath(current, move.to), restored.path));
-          replaceNoteHistoryPath(move.to, restored.path);
+          changeNoteHistory((history) => renameInHistory(history, move.to, restored.path));
           remapPin(move.to, restored.path);
           touchSession(session);
           return move;

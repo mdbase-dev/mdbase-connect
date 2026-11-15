@@ -9,9 +9,6 @@ import { createHostedCollectionForUser, deleteHostedCollectionForUser, renameHos
 import { acceptCohortArchive, accountMigrationView, addToCohort, cohortArchiveBinding, createCohort, flipAccountBackend, flipEvidenceDigest, migrationCandidates, migrationsInProgress, recordCollectionCutover, releaseCohort, setCohortFrozen, setPaused, startAccountMigration } from "./migration-rollout.js";
 import { nextAccountsMigrationFrozen, requireAccountNotMigrationFrozen, requireNextAccountNotMigrationFrozen } from "./migration-topology.js";
 import { recoverExpiredAuthorityTransfers } from "../authority-transfer/lifecycle.js";
-import { recoverExpiredAuthorityAdoptions } from "../authority-adoption/adoption-store.js";
-import { recoverAccountImportCancellation } from "../authority-transfer/account-cancellation.js";
-import { audit } from "../../platform/audit-events.js";
 import { ProviderRevocationWorker, quarantineMissingHostedCollection, quarantineMissingHostedCollectionOnTransaction } from "../hosted/hosted-capability-lifecycle.js";
 import { HostedProviderClient, HostedProviderResponseError, HostedProviderUnavailableError } from "../hosted/hosted-provider.js";
 import { materializePublicSignupEntitlement, reconcileHostedAccountCollections } from "../account/entitlements.js";
@@ -508,38 +505,6 @@ describePg("migration topology freeze (isolated real PostgreSQL; synthetic refer
     // topology before the normal read reports the missing reference data.
     await expect(transport.openSession()).rejects.toMatchObject({ code: "hosted_collection_not_found" });
     expect((await db.query("SELECT authority_state FROM hosted_collections WHERE id=$1", [f.hosted])).rows[0].authority_state).toBe("active");
-  });
-
-  it("defers adoption expiry on GET/scheduler recovery through provider abort and cleanup", async () => {
-    const account = await user(), name = await batch([account]), hosted = randomUUID(), adoption = randomUUID();
-    await db.query("INSERT INTO hosted_collections(id,user_id,display_name,template,authority_state,authority_epoch) VALUES($1,$2,'Synthetic','mdbase','importing',2)", [hosted, account]);
-    await db.query("INSERT INTO authority_adoption_requests(id,secret_hash,collection_id,display_name,source_name,user_id,state,expires_at) VALUES($1,$2,$3,'Synthetic','Synthetic',$4,'prepared',now()-interval '1 hour')", [adoption, randomUUID(), hosted, account]);
-    const abort = vi.fn(async () => undefined), provider = { abortAuthorityImport: abort } as unknown as HostedProviderClient;
-    await setCohortFrozen(db, name, true, "capture", OP);
-    await recoverExpiredAuthorityAdoptions(db, provider);
-    expect(abort).not.toHaveBeenCalled();
-    expect((await db.query("SELECT state,cleanup_completed FROM authority_adoption_requests WHERE id=$1", [adoption])).rows[0]).toEqual({ state: "prepared", cleanup_completed: false });
-    await setCohortFrozen(db, name, false, "cancel before acceptance", OP);
-    await recoverExpiredAuthorityAdoptions(db, provider);
-    expect(abort).toHaveBeenCalledWith(adoption);
-    expect((await db.query("SELECT 1 FROM hosted_collections WHERE id=$1", [hosted])).rowCount).toBe(0);
-    expect((await db.query("SELECT state,cleanup_completed FROM authority_adoption_requests WHERE id=$1", [adoption])).rows[0]).toEqual({ state: "expired", cleanup_completed: true });
-  });
-
-  it("blocks account-cancellation recovery before provider fencing, including historical missing targets", async () => {
-    const f = await transferFixture("to_hosted");
-    await audit(db, f.account, "authority_transfer.requested", f.transfer, { connector_id: f.connector, collection_id: f.hosted, direction: "to_hosted", authority_epoch: 2 });
-    const fence = vi.fn(async () => undefined), provider = { reconcileAuthorityImportCancellation: fence } as unknown as HostedProviderClient;
-    await setCohortFrozen(db, f.name, true, "capture", OP);
-    const current = { id: f.connector, user_id: f.account };
-    await expect(recoverAccountImportCancellation(db, provider, current, f.transfer)).rejects.toMatchObject({ code: "migration_frozen" });
-    expect(fence).not.toHaveBeenCalled();
-    await setCohortFrozen(db, f.name, false, "cancel before acceptance", OP);
-    expect(await recoverAccountImportCancellation(db, provider, current, f.transfer)).toBe(true);
-    expect(fence).toHaveBeenCalledOnce();
-    await setCohortFrozen(db, f.name, true, "second capture", OP);
-    await expect(recoverAccountImportCancellation(db, provider, current, f.transfer)).rejects.toMatchObject({ code: "migration_frozen" });
-    expect(fence).toHaveBeenCalledOnce();
   });
 
   it("fences quarantine and preexisting provider deletion jobs for the actual frozen owner", async () => {

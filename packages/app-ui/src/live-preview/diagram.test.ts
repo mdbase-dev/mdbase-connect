@@ -32,8 +32,9 @@ function stateFor(doc: string, caret?: number, focused = false) {
     const effects = state.facet(EditorView.focusChangeEffect).map((effect) => effect(state, true)).filter((effect) => effect !== null);
     state = state.update({ effects }).state;
   }
+  // Finish the parse and hand it to the state, as the editor's background parse does.
   ensureSyntaxTree(state, state.doc.length, 5000);
-  return state;
+  return state.update({}).state;
 }
 
 function diagrams(state: EditorState) {
@@ -47,6 +48,12 @@ function diagrams(state: EditorState) {
   }
   return found;
 }
+
+it("renders a diagram past the first parse once the rest of a long note is parsed", () => {
+  const filler = "A paragraph of ordinary prose that the first parse of a note covers.\n\n".repeat(80);
+  const doc = `${filler}${diagram}\n`;
+  expect(diagrams(stateFor(doc, 0))).toEqual([{ from: filler.length, to: filler.length + diagram.length, source: "flowchart LR\n  A --> B" }]);
+});
 
 it("renders a closed top-level mermaid fence as one block", () => {
   const doc = `Intro\n\n${diagram}\n\nAfter`;

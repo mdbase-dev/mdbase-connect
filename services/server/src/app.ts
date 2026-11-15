@@ -76,9 +76,7 @@ import { registerExternalAuthRoutes } from "./features/auth/external-routes.js";
 import { registerPasswordAuthRoutes } from "./features/auth/password-routes.js";
 import { registerAuthorizationRoutes } from "./features/authorizations/routes.js";
 import { approveHostedAuthorization } from "./features/authorizations/hosted-approval-service.js";
-import { registerAuthorityAdoptionRoutes } from "./features/authority-adoption/routes.js";
 import { registerHostedToLocalTransferRoutes } from "./features/authority-transfer/hosted-to-local-routes.js";
-import { registerLocalToHostedTransferRoutes } from "./features/authority-transfer/local-to-hosted-routes.js";
 import { recoverExpiredAuthorityTransfers } from "./features/authority-transfer/lifecycle.js";
 import { AuthorityTransferRecoveryWorker } from "./features/authority-transfer/recovery-worker.js";
 import { registerLocalFileRoutes } from "./features/files/local-routes.js";
@@ -602,24 +600,10 @@ export async function buildApp(options: BuildOptions) {
   registerConnectorInventoryRoutes(app, { db: options.db });
   registerAuthorityConflictRoutes(app, { db: options.db, relay });
   registerConnectorControlRoutes(app, { db: options.db });
-  registerAuthorityAdoptionRoutes(app, {
-    db: options.db,
-    publicUrl,
-    tailscaleAuth: options.tailscaleAuth,
-    hostedCollections: options.hostedCollections,
-    hostedProvider: options.hostedProvider
-  });
   registerHostedToLocalTransferRoutes(app, {
     db: options.db,
     publicUrl,
     tailscaleAuth: options.tailscaleAuth,
-    hostedProvider: options.hostedProvider,
-    hostedReference,
-    relay
-  });
-  registerLocalToHostedTransferRoutes(app, {
-    db: options.db,
-    hostedCollections: options.hostedCollections,
     hostedProvider: options.hostedProvider,
     hostedReference,
     relay

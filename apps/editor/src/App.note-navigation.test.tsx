@@ -272,6 +272,29 @@ describe("note navigation ownership and recovery", () => {
     expect((await originalRead(first.path)).body).toContain("Typed during navigation");
   });
 
+  it("goes Back and Forward through opened notes, and a new note from Back drops Forward", async () => {
+    const { first, second, third, select } = await harness();
+    const historyButton = (name: string) => within(screen.getByRole("group", { name: "Note history" })).getByRole("button", { name });
+    select(/Garden notes 2/);
+    await screen.findByDisplayValue("Garden notes 2");
+    select(/A quiet interface 3/);
+    await screen.findByDisplayValue("A quiet interface 3");
+    fireEvent.click(historyButton("Back in note history"));
+    await screen.findByDisplayValue("Garden notes 2");
+    fireEvent.click(historyButton("Back in note history"));
+    await screen.findByDisplayValue("The shape of useful tools");
+    expect(historyButton("Back in note history")).toBeDisabled();
+    expect(historyButton("Forward in note history")).toHaveAttribute("title", expect.stringContaining(second.path));
+    fireEvent.click(historyButton("Forward in note history"));
+    await screen.findByDisplayValue("Garden notes 2");
+    expect(historyButton("Forward in note history")).toHaveAttribute("title", expect.stringContaining(third.path));
+    select(/The shape of useful tools/);
+    await screen.findByDisplayValue("The shape of useful tools");
+    expect(historyButton("Forward in note history")).toBeDisabled();
+    expect(historyButton("Back in note history")).toHaveAttribute("title", expect.stringContaining(second.path));
+    expect(localStorage.getItem(LAST_NOTE_KEY)).toBe(first.path);
+  });
+
   it("does not surface a stale read failure after a newer note has opened", async () => {
     const { gateway, read, select } = await harness();
     const originalRead = DemoCollectionGateway.prototype.read.bind(gateway);

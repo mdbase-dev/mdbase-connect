@@ -53,7 +53,7 @@ exercise an 11s create, a shared14s deadline followed by 11s compensation with a
 concurrent freeze refused, and two consecutive 11s reconciliation RPCs. These
 qualify lock lifetime and rollback, not a real provider deployment.
 
-Split import/adoption flows preserve their durable staged/activation intents.
+Split transfer flows preserve their durable staged/activation intents.
 After that intent commits, the provider/publication phase begins a fresh
 transaction and rechecks the guard and current intent before any effect. A
 freeze between phases therefore leaves a resumable intent without a provider
@@ -99,18 +99,19 @@ PostgreSQL execution qualifies locks, not real provider RPCs or cryptography.
 |---|---|---|
 | Account/connector create and onboarding | `features/hosted/service.ts` create + caller-client insert | `migration-topology-routes.postgres.test.ts` alias refusal/no effects; `migration-topology.postgres.test.ts` two creates vs freeze |
 | Rename/delete, including former account inline bypass | Shared hosted service uses actual collection owner before child lock/effects | Route aliases above; central rename/delete and unfreeze |
-| Local→hosted initial intent, prepare replay, complete/reservation, abort | `features/authority-transfer/local-to-hosted-routes.ts` | `features/authority-transfer/authority-import-abort.postgres.test.ts` frozen roots, provider wait vs freeze, durable/concurrent activation, inventory serialization |
 | Hosted→local request/approve/prepare/complete/abort | `features/authority-transfer/hosted-to-local-routes.ts` actual hosted + target owner | Route PG suite runs reference and synthetic provider branches; existing `features/authority-transfer/authority-transfer.test.ts` |
-| Adoption approve/exchange/replay/activation/abort | `features/authority-adoption/routes.ts` | Route PG suite: frozen phases, uncertain completion preserves activating intent, guarded resume; existing adoption tests |
-| Adoption expiry invoked by POST/GET/approve/exchange | `features/authority-adoption/adoption-store.ts` locked discovery, provider abort + cleanup | Central PG expiry; existing interrupted-expiry retry test |
 | Scheduler/GET transfer expiry and import-abort publication | `features/authority-transfer/lifecycle.ts` | Recovery PG races/currentness/bounded discovery, frozen page does not starve unrelated recovery; central frozen directions |
-| Account cancellation recovery, including missing historical target | `features/authority-transfer/account-cancellation.ts` before provider fence | Central PG frozen present/missing target; existing abort PG tests |
 | Reference reads restoring expired hosted transfer | `features/hosted/hosted.ts` actual guarded reference transaction | Central PG read cannot restore frozen expired transfer; existing reference transfer tests |
 | Quarantine and provider deletion delivery | `features/hosted/hosted-capability-lifecycle.ts` actual owner; same-client quarantine and deletion transaction | Central PG preexisting deletion job/no effect until unfreeze; existing lifecycle tests |
 | Provider account reconciliation/adoption of unassigned collection | `features/account/entitlements.ts` guarded transaction + `features/instance-admin/auth-admin-entitlements.ts` same-client missing callback | Central PG frozen refusal and no second-client quarantine deadlock; existing entitlement/operator tests |
 | Account terminal erasure | `features/account/account-management.ts` atomic terminal exclusion/revocation/request; shared readiness in `features/next/migration-topology.ts`, rollout and existing app poller | Central PG nonempty-hosted never-flip/unchanged archive coverage, last unfinished exclusion, all-terminal batch, late acceptance after final flip, restart interruption, idempotence and re-freeze refusal; source-witness PG proves no suspension bypass; account-management tests |
 | Cohort assignment into frozen batch / absent membership race | `features/next/migration-rollout.ts` account locks before cohort | Central PG assignment wait/frozen refusal and both-owner ordering |
 | Grant/contract-only setup | Hosted approval service creates no hosted collection or owner/authority transition | Existing authorization/setup tests; explicitly allowed by the product scope, not a topology exemption |
+
+Authority adoption and the local→hosted transfer were removed on 2026-11-15,
+with their routes, adoption expiry and account cancellation recovery. Expiry of
+transfer rows they left behind remains in `features/authority-transfer/lifecycle.ts`
+above.
 
 No direct legacy hosted owner-transfer update exists in the audited source.
 Any new owner-transfer path must supply both actual owners together; guarding

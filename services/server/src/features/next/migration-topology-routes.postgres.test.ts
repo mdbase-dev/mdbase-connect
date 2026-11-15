@@ -44,7 +44,6 @@ suite("topology freeze actual route aliases on isolated PostgreSQL", () => {
   async function freeze(cohort: string, value: boolean) {
     await setCohortFrozen(db, cohort, value, value ? "synthetic capture" : "cancel before acceptance", operator);
   }
-  const snapshot = { manifest_digest: "a".repeat(64), source_revision: `sha256:${"b".repeat(64)}`, source_head: 0 };
 
   it("fences account/connector create, rename, delete and onboarding before provider/compensation effects", async () => {
     const create = vi.fn(async () => undefined), rename = vi.fn(async () => undefined), erase = vi.fn(async () => undefined);
@@ -150,52 +149,5 @@ suite("topology freeze actual route aliases on isolated PostgreSQL", () => {
       expect(mode === "provider" ? complete : referenceComplete).toHaveBeenCalledOnce();
       expect((await db.query("SELECT authority_state FROM hosted_collections WHERE id=$1", [collection])).rows[0].authority_state).toBe("transferred");
     } finally { referencePrepare.mockRestore(); referenceComplete.mockRestore(); referenceAbort.mockRestore(); await app.close(); }
-  });
-
-  it("fences adoption approve/exchange/complete/abort including prepared replay and durable activation replay", async () => {
-    const prepare = vi.fn(async () => ({ state: "prepared", expires_at: new Date(Date.now() + 30 * 60_000).toISOString() }));
-    const abort = vi.fn(async () => undefined), complete = vi.fn(async (id: string) => {
-      const row = (await db.query<{ collection_id: string }>("SELECT collection_id FROM authority_adoption_requests WHERE id=$1", [id])).rows[0]!;
-      return { id, collection_id: row.collection_id, authority_epoch: 2, state: "completed", contracts: [], ...snapshot };
-    });
-    const { app } = await buildApp({ db, devAuth: true, hostedCollections: true, hostedProvider: {
-      url: "https://synthetic.example.test", upsertAccount: async () => ({}), prepareAuthorityImport: prepare, completeAuthorityImport: complete, abortAuthorityImport: abort
-    } as unknown as HostedProviderClient });
-    try {
-      const a = await account(app), collection = randomUUID();
-      const begun = await app.inject({ method: "POST", url: "/v1/authority-adoptions", payload: { collection_id: collection, display_name: "Synthetic", source_name: "Synthetic", retain_mirror: false } });
-      expect(begun.statusCode).toBe(201);
-      const id = begun.json().adoption_id as string, secret = begun.json().adoption_secret as string;
-      const headers = { authorization: `Bearer ${secret}` }, url = `/v1/authority-adoptions/${id}`;
-      const approve = () => app.inject({ method: "POST", url: `${url}/approve`, headers: { cookie: a.cookie }, payload: {} });
-      await freeze(a.cohort, true);
-      expect((await approve()).json().error.code).toBe("migration_frozen");
-      expect((await db.query("SELECT 1 FROM hosted_collections WHERE id=$1", [collection])).rowCount).toBe(0);
-      await freeze(a.cohort, false); expect((await approve()).statusCode).toBe(200);
-      await freeze(a.cohort, true);
-      for (const request of [{ method: "POST" as const, url: `${url}/exchange`, payload: {} }, { method: "DELETE" as const, url }]) {
-        const result = await app.inject({ ...request, headers }); expect(result.statusCode).toBe(409); expect(result.json().error.code).toBe("migration_frozen");
-      }
-      expect(prepare).not.toHaveBeenCalled(); expect(abort).not.toHaveBeenCalled();
-      await freeze(a.cohort, false);
-      expect((await app.inject({ method: "POST", url: `${url}/exchange`, headers, payload: {} })).statusCode).toBe(200);
-      await freeze(a.cohort, true);
-      for (const request of [{ method: "POST" as const, url: `${url}/exchange`, payload: {} }, { method: "POST" as const, url: `${url}/complete`, payload: snapshot }, { method: "DELETE" as const, url }]) {
-        const result = await app.inject({ ...request, headers }); expect(result.statusCode).toBe(409); expect(result.json().error.code).toBe("migration_frozen");
-      }
-      expect(prepare).toHaveBeenCalledOnce(); expect(complete).not.toHaveBeenCalled(); expect(abort).not.toHaveBeenCalled();
-      expect((await db.query("SELECT state FROM authority_adoption_requests WHERE id=$1", [id])).rows[0].state).toBe("prepared");
-      await freeze(a.cohort, false);
-      complete.mockRejectedValueOnce(new Error("synthetic uncertain provider completion"));
-      expect((await app.inject({ method: "POST", url: `${url}/complete`, headers, payload: snapshot })).statusCode).toBe(500);
-      expect((await db.query("SELECT state FROM authority_adoption_requests WHERE id=$1", [id])).rows[0].state).toBe("activating");
-      await freeze(a.cohort, true);
-      expect((await app.inject({ method: "POST", url: `${url}/complete`, headers, payload: snapshot })).json().error.code).toBe("migration_frozen");
-      expect(complete).toHaveBeenCalledOnce();
-      await freeze(a.cohort, false);
-      expect((await app.inject({ method: "POST", url: `${url}/complete`, headers, payload: snapshot })).statusCode).toBe(200);
-      expect(complete).toHaveBeenCalledTimes(2);
-      expect((await db.query("SELECT authority_state FROM hosted_collections WHERE id=$1", [collection])).rows[0].authority_state).toBe("active");
-    } finally { await app.close(); }
   });
 });

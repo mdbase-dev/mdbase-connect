@@ -1,0 +1,3 @@
+## Removed
+
+- The legacy authority adoption flow (`/v1/authority-adoptions`, the portal's `/adopt/:id` page and `@mdbase-dev/connect-sync/adoption`) and the legacy local-to-hosted authority transfer (`POST /v1/connectors/collections/:collectionId/authority-transfers`, `/v1/connectors/authority-transfers/:transferId/complete` and its cancellation route). Only legacy accounts could use them, through the legacy connector that was removed earlier; their routes now return 404. Transfers that a legacy connector staged before the removal still expire through background recovery, and the hosted-to-local transfer is unchanged.

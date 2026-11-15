@@ -39,25 +39,6 @@ export interface AuthorityTransferDetails extends AuthorityTransferRow {
   mirror_name?: string;
 }
 
-export interface AuthorityImportTransferRow {
-  id: string;
-  user_id: string;
-  hosted_collection_id: string;
-  local_collection_id: string;
-  state:
-    | "requested"
-    | "prepared"
-    | "activating"
-    | "completed"
-    | "cancelled"
-    | "expired";
-  final_head: string | number | null;
-  next_authority_epoch: string | number;
-  manifest_digest: string | null;
-  source_revision: string | null;
-  expires_at: string | Date;
-}
-
 export interface AuthorityPairing {
   pairing_id: string;
   user_id: string;
@@ -390,23 +371,5 @@ export function authorityTransferResponse(
         (new Date(transfer.expires_at).getTime() - Date.now()) / 1_000
       )
     )
-  };
-}
-
-export function authorityImportTransferView(
-  transfer: AuthorityImportTransferRow
-): Record<string, unknown> {
-  return {
-    id: transfer.id,
-    direction: "to_hosted",
-    collection_id: transfer.hosted_collection_id,
-    local_collection_id: transfer.local_collection_id,
-    state: transfer.state,
-    final_head:
-      transfer.final_head === null ? null : Number(transfer.final_head),
-    authority_epoch: Number(transfer.next_authority_epoch),
-    manifest_digest: transfer.manifest_digest,
-    source_revision: transfer.source_revision,
-    expires_at: new Date(transfer.expires_at).toISOString()
   };
 }

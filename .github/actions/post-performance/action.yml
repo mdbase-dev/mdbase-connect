@@ -1,0 +1,27 @@
+name: Post performance observations
+description: Best-effort main-only upload; never a release gate
+inputs:
+  report:
+    description: Locally generated JSON report
+    required: true
+  token:
+    description: The bench-only ingest credential
+    required: false
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        OPS_BENCHMARK_TOKEN: ${{ inputs.token }}
+        PERFORMANCE_REPORT: ${{ inputs.report }}
+      run: |
+        set -euo pipefail
+        test "$GITHUB_REF" = refs/heads/main
+        case "$GITHUB_EVENT_NAME" in push|schedule|workflow_dispatch) ;; *) exit 1 ;; esac
+        if [ -z "$OPS_BENCHMARK_TOKEN" ]; then
+          echo '::warning::Performance upload skipped: OPS_BENCHMARK_TOKEN is not configured.'
+          exit 0
+        fi
+        curl --fail --silent --show-error --max-time 20 --output /dev/null \
+          -H "Authorization: Bearer $OPS_BENCHMARK_TOKEN" -H 'Content-Type: application/json' \
+          --data-binary "@$PERFORMANCE_REPORT" https://ops-ingest.mdbase.dev/v1/benchmarks

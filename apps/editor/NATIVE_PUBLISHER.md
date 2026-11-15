@@ -105,8 +105,9 @@ approvals. UI repins change only the manifest and regenerated lock.
    dependency/CLI namespaces are ignored only if the archive owns no member in
    them. Bundled SDK dependencies remain included.
 3. The build runs once, with explicit target-specific public feedback URL and
-   Turnstile key. It checks bundle/CSP, target manifests, native bytes and hosting
-   controls, then writes the complete static inventory and artifact envelope.
+   Turnstile key. It checks bundle/CSP, target manifests, native bytes, hosting
+   controls and the source commit's identity in every HTML document, then writes
+   the complete static inventory and artifact envelope.
 4. The protected upload job never installs or builds application dependencies.
    It installs only the isolated official Wrangler lock. Before and after
    download it binds artifact ID/digest, repository, workflow/ref, exact run and
@@ -137,11 +138,14 @@ approvals. UI repins change only the manifest and regenerated lock.
    in the window. Failed attempts never count as success. The edge can revalidate
    an unchanged file and keep the previous build's headers, so the alias proves
    the document security headers on HTML; bytes, MIME and cache rules on every
-   file. The immutable URL proves the full policy on every file. A changed
-   `_headers` policy is the slow case: unchanged HTML such as `404.html` keeps
-   the previous policy on the alias (`cf-cache-status: REVALIDATED`) for longer
-   than five minutes. The alias is not cache-busted, because a fresh cache key
-   would prove only what the immutable URL already proved.
+   file. The immutable URL proves the full policy on every file. Every HTML
+   document carries `<meta name="mdbase-build" content="<sha12>">`, stamped by
+   the build and required by the inventory check, so each source commit changes
+   every document's bytes and a revalidating edge fetches the new headers.
+   Without it, unchanged HTML such as `404.html` kept the previous policy on the
+   alias (`cf-cache-status: REVALIDATED`) indefinitely. The alias is not
+   cache-busted, because a fresh cache key would prove only what the immutable
+   URL already proved.
 8. Upload and verification run in one job. Any failure there, including a
    timeout, a lost receipt or a cancelled run, goes to the recovery job in step 10.
    Staging does not roll back. No automatic rebuild or redispatch is performed.

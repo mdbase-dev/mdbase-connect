@@ -25,11 +25,6 @@ msgstr " (영향이 큼)"
 msgid " {0} does not verify its origin."
 msgstr " {0}만으로 출처를 확인할 수 없습니다."
 
-#. placeholder {0}: adoption.mirror_name ?? adoption.source_name
-#: src/authority-workflows.tsx
-msgid " {0} will continue as a synced folder, with edits syncing both ways."
-msgstr " {0}은(는) 양방향으로 편집 내용이 동기화되는 폴더로 계속 사용됩니다."
-
 #. placeholder {0}: request.user_code
 #: src/authorization-view.tsx
 msgid " and it shows <0>{0}</0>"
@@ -42,10 +37,6 @@ msgstr " 파일 작업은 위 컬렉션 권한에 포함됩니다."
 #: src/authorization-view.tsx
 msgid " Permissions this app does not already have are marked New."
 msgstr " 이 애플리케이션에 아직 없는 권한은 신규로 표시됩니다."
-
-#: src/authority-workflows.tsx
-msgid " The original local files are no longer the main copy."
-msgstr " 원래 로컬 파일은 더 이상 기본 사본이 아닙니다."
 
 #: src/authorization-review.tsx
 msgid " These actions are approved together."
@@ -163,11 +154,6 @@ msgstr "{0}을(를) 더 이상 사용할 수 없습니다. 다른 컬렉션을 �
 #: src/AccountManagement.tsx
 msgid "{0} is now connected."
 msgstr "{0}이(가) 연결되었습니다."
-
-#. placeholder {0}: literal(adoption.display_name)
-#: src/authority-workflows.tsx
-msgid "{0} is now hosted."
-msgstr "{0}이(가) 호스팅 컬렉션으로 전환되었습니다."
 
 #. placeholder {0}: connector.connector_name
 #: src/authorization-view.tsx
@@ -616,15 +602,6 @@ msgstr "승인된 추가 파일 작업: {0}"
 msgid "Adds {0} to the collection"
 msgstr "컬렉션에 {0} 추가"
 
-#. placeholder {0}: adoption.mirror_name ?? adoption.source_name
-#: src/authority-workflows.tsx
-msgid "After the move, {0} stays as a synced folder. It will not be a second main copy."
-msgstr "이동한 뒤에도 {0}은(는) 동기화된 폴더로 유지됩니다. 두 번째 기본 사본은 아닙니다."
-
-#: src/authority-workflows.tsx
-msgid "After the move, the original local files are no longer the main copy."
-msgstr "이동한 뒤에는 원래 로컬 파일이 기본 사본이 아닙니다."
-
 #. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
 msgid "All hosted data in {0} will be permanently deleted. This cannot be undone."
@@ -766,11 +743,6 @@ msgstr "컴퓨터 승인"
 #: src/authority-workflows.tsx
 msgid "Approve will create this collection and open it in {0}."
 msgstr "승인하면 이 컬렉션을 만들고 {0}에서 엽니다."
-
-#. placeholder {0}: literal(adoption.source_name)
-#: src/authority-workflows.tsx
-msgid "Approving uploads the complete collection from {0}, validates it as one snapshot, and then makes the hosted version the main copy."
-msgstr "승인하면 {0}에서 전체 컬렉션을 업로드해 단일 스냅샷으로 검증한 다음, 호스팅 버전을 기본 사본으로 만듭니다."
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
@@ -1747,11 +1719,6 @@ msgid "Finishing collection setup…"
 msgstr "컬렉션 설정 마무리하는 중…"
 
 #: src/authority-workflows.tsx
-msgctxt "Collection connection"
-msgid "Finishing the move"
-msgstr "이동 마무리하는 중"
-
-#: src/authority-workflows.tsx
 msgid "Folder"
 msgstr "폴더"
 
@@ -2067,10 +2034,6 @@ msgctxt "Connect interface"
 msgid "Main copy"
 msgstr "기본 사본"
 
-#: src/authority-workflows.tsx
-msgid "Main copy hosted by mdbase"
-msgstr "mdbase에서 호스팅하는 기본 사본"
-
 #: src/ConnectApp.tsx
 msgid "Main copy moved to a computer"
 msgstr "컴퓨터로 이동한 기본 사본"
@@ -2160,11 +2123,6 @@ msgstr "mdbase Connect 탐색"
 msgid "mdbase Connect needs to restart"
 msgstr "mdbase Connect를 다시 시작해야 합니다"
 
-#. placeholder {0}: literal(adoption.retain_mirror ? t(i18n)` ${adoption.mirror_name ?? adoption.source_name} will continue as a synced folder, with edits syncing both ways.` : t(i18n)({ message: " The original local files are no longer the main copy." }))
-#: src/authority-workflows.tsx
-msgid "mdbase now keeps the main copy of this collection.{0}"
-msgstr "이제 mdbase가 이 컬렉션의 기본 사본을 보관합니다.{0}"
-
 #: src/authority-workflows.tsx
 msgid "mdbase remembers your choice and {app} follows it. {app} keeps its copy of this collection either way."
 msgstr "mdbase가 선택을 기억하고 {app}에서 따릅니다. 어느 쪽을 선택해도 {app}에는 이 컬렉션의 사본이 유지됩니다."
@@ -2197,31 +2155,10 @@ msgstr "mdbase의 다른 앱"
 msgid "More regular updates about new features and improvements."
 msgstr "새 기능과 개선 사항에 관한 정기 소식을 더 자주 받습니다."
 
-#: src/authority-workflows.tsx
-msgid "Move a local collection to mdbase"
-msgstr "로컬 컬렉션을 mdbase로 이동"
-
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Move and rename files"
 msgstr "파일 이동 및 이름 변경"
-
-#: src/authority-workflows.tsx
-msgid "Move approved"
-msgstr "이동 승인됨"
-
-#: src/authority-workflows.tsx
-msgctxt "Collection connection"
-msgid "Move collection online"
-msgstr "컬렉션 온라인으로 이동"
-
-#: src/authority-workflows.tsx
-msgid "Move complete"
-msgstr "이동 완료"
-
-#: src/authority-workflows.tsx
-msgid "Move ended"
-msgstr "이동 종료됨"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
@@ -2231,11 +2168,6 @@ msgstr "기본 사본 이동"
 #: src/authority-workflows.tsx
 msgid "Move the main copy"
 msgstr "기본 사본 이동"
-
-#: src/authority-workflows.tsx
-msgctxt "Collection connection"
-msgid "Move this collection"
-msgstr "이 컬렉션 이동"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2931,7 +2863,6 @@ msgstr "Google 로그인 다시 시도"
 msgid "Return to {0}"
 msgstr "{0}(으)로 돌아가기"
 
-#. placeholder {0}: literal(adoption.source_name)
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Return to {0}."
@@ -3459,10 +3390,6 @@ msgctxt "Application access approval"
 msgid "the app"
 msgstr "애플리케이션"
 
-#: src/authority-workflows.tsx
-msgid "The app is uploading and checking a final collection snapshot. The main copy will move only after that exact snapshot is complete."
-msgstr "앱에서 컬렉션의 최종 스냅샷을 업로드하고 확인하고 있습니다. 해당 스냅샷이 정확히 완성된 뒤에만 기본 사본이 이동합니다."
-
 #: src/authorization-view.tsx
 msgid "The app will finish connecting with its one-time device code. You can close this window."
 msgstr "애플리케이션에서 일회용 기기 코드로 연결을 완료합니다. 이 창을 닫아도 됩니다."
@@ -3551,10 +3478,6 @@ msgstr "기본 사본이 컴퓨터로 이동했습니다."
 #: src/authority-workflows.tsx
 msgid "The main copy stayed hosted."
 msgstr "기본 사본이 호스팅 상태로 유지되었습니다."
-
-#: src/authority-workflows.tsx
-msgid "The main copy was not moved to mdbase."
-msgstr "기본 사본이 mdbase로 이동하지 않았습니다."
 
 #: src/portal-model.ts
 msgid "The mdbase Connect app on this computer needs to be updated before you can continue."
@@ -3973,11 +3896,6 @@ msgstr "mdbase Connect 기다리는 중"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
-msgid "Waiting for the app"
-msgstr "앱 기다리는 중"
-
-#: src/authority-workflows.tsx
-msgctxt "Collection connection"
 msgid "Waiting for the computer"
 msgstr "컴퓨터 기다리는 중"
 
@@ -4094,10 +4012,6 @@ msgstr "이메일이 확인되었습니다. 계정 설정을 마치려면 이름
 #: src/auth-view.tsx
 msgid "Your email is verified. Confirm your name to finish setting up your account. No password needed."
 msgstr "이메일이 확인되었습니다. 계정 설정을 마치려면 이름을 확인하세요. 비밀번호는 필요하지 않습니다."
-
-#: src/authority-workflows.tsx
-msgid "Your local collection was kept."
-msgstr "로컬 컬렉션은 그대로 유지되었습니다."
 
 #: src/portal-model.ts
 msgid "Your mdbase account hasn't been upgraded yet, so {app} can't use it. Email support@mdbase.dev and we'll upgrade it, or go back to {app} to sign in with a different account."

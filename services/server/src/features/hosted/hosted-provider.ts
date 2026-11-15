@@ -340,99 +340,6 @@ export class HostedProviderClient {
     options?: HostedProviderOperationOptions): Promise<LegacyMigrationRollbackReceipt> {
     return legacy.legacyMigrationRollback(this.legacyRequest(options), "rollback-receipt", collectionId, binding);
   }
-  async advanceProjection(
-    collectionId: string,
-    generationId: string,
-    options?: HostedProviderOperationOptions
-  ): Promise<HostedProjectionStatus> {
-    const operation = requiredOperation(options);
-    let retryDelay = 25;
-    for (;;) {
-      try {
-        const result = await this.request(
-          "POST",
-          `/internal/v1/collections/${encodeURIComponent(collectionId)}/projection/advance`,
-          { generation_id: generationId },
-          true,
-          operation
-        ) as { projection?: HostedProjectionStatus } | undefined;
-        return exactProjectionHandoff(
-          requiredProjectionStatus(result?.projection, collectionId),
-          generationId
-        );
-      } catch (error) {
-        // A bounded batch may commit while its HTTP response is lost. Reconcile
-        // only the requested generation in the requested collection. An old
-        // active A alongside requested building B is a valid Candidate B
-        // handoff, but A is never accepted as completion of B.
-        if (
-          error instanceof HostedProviderResponseError
-          && matchesProjectionHandoff(error.code)
-        ) {
-          const status = await this.projectionStatus(collectionId, operation);
-          if (
-            status.ready
-            && status.active_generation_id === generationId
-          ) return status;
-          if (status.latest_terminal_generation_id === generationId) {
-            throw new HostedProviderResponseError(
-              409,
-              status.latest_terminal_error_code ?? "projection_generation_not_building",
-              "The requested projection generation terminated before activation."
-            );
-          }
-          if (
-            error.code === "projection_lease_unavailable"
-            && status.building_generation?.generation_id === generationId
-          ) {
-            if (remainingMilliseconds(operation) <= 0) {
-              throw projectionActivationPending();
-            }
-            try {
-              await boundedDelay(retryDelay, operation);
-            } catch (delayError) {
-              if (operation.signal?.aborted) throw delayError;
-              if (remainingMilliseconds(operation) <= 0) {
-                throw projectionActivationPending();
-              }
-              throw delayError;
-            }
-            retryDelay = Math.min(retryDelay * 2, 200);
-            continue;
-          }
-        }
-        throw error;
-      }
-    }
-  }
-
-  private async completeProjection(
-    collectionId: string,
-    operation: RequiredOperationOptions
-  ): Promise<void> {
-    let status = await this.projectionStatus(collectionId, operation);
-    // All sixteen bounded batches share the authority operation's one absolute
-    // deadline and cancellation signal. Large imports resume only the exact
-    // fenced generation through the typed pending response.
-    for (let batch = 0; batch < 16; batch += 1) {
-      if (
-        status.ready
-        && status.active_generation_id
-        && status.building_generation === null
-      ) return;
-      const generationId = status.building_generation?.generation_id;
-      if (!generationId) {
-        throw new HostedProviderResponseError(
-          503,
-          "projection_activation_stalled",
-          "Candidate B activation has no building projection generation."
-        );
-      }
-      status = await this.advanceProjection(collectionId, generationId, operation);
-    }
-    throw projectionActivationPending();
-  }
-
   async renameCollection(collectionId: string, displayName: string): Promise<void> {
     await this.request(
       "PATCH",
@@ -750,51 +657,6 @@ export class HostedProviderClient {
       authority_epoch: z.literal(authorityEpoch), expired: z.literal(true) }).strict().parse(result);
   }
 
-  async prepareAuthorityImport(input: {
-    transferId: string;
-    accountId: string;
-    collectionId: string;
-    displayName: string;
-    token: string;
-    authorityEpoch: number;
-    ttlSeconds: number;
-  }): Promise<AuthorityImport> {
-    return await this.request("POST", "/internal/v1/authority-imports", {
-      transfer_id: input.transferId,
-      account_id: input.accountId,
-      collection_id: input.collectionId,
-      display_name: input.displayName,
-      token: input.token,
-      authority_epoch: input.authorityEpoch,
-      ttl_seconds: input.ttlSeconds
-    }) as AuthorityImport;
-  }
-
-  async completeAuthorityImport(transferId: string, manifestDigest: string, sourceRevision: string, options?: HostedProviderOperationOptions): Promise<AuthorityImport> {
-    const operation = requiredOperation(options);
-    const complete = () => this.request(
-      "POST",
-      `/internal/v1/authority-imports/${encodeURIComponent(transferId)}`,
-      { manifest_digest: manifestDigest, source_revision: sourceRevision },
-      true,
-      operation
-    ) as Promise<AuthorityImport>;
-    let completed = await complete();
-    if (completed.state === "completed") return completed;
-    await this.completeProjection(completed.collection_id, operation);
-    // Reconcile the same import row inside the original operation budget.
-    completed = await complete();
-    return completed;
-  }
-
-  async reconcileAuthorityImportCancellation(transferId: string, collectionId: string, authorityEpoch: number): Promise<void> {
-    const result = await this.request("POST", `/internal/v1/authority-imports/${encodeURIComponent(transferId)}/reconcile-cancellation`, {
-      collection_id: collectionId, authority_epoch: authorityEpoch
-    });
-    z.object({ transfer_id: z.literal(transferId), collection_id: z.literal(collectionId),
-      authority_epoch: z.literal(authorityEpoch), cancelled: z.literal(true) }).strict().parse(result);
-  }
-
   async abortAuthorityImport(transferId: string): Promise<AuthorityImport> {
     return await this.request("DELETE", `/internal/v1/authority-imports/${encodeURIComponent(transferId)}`) as AuthorityImport;
   }
@@ -870,39 +732,6 @@ function hostedContractSupportMatches(value: unknown): value is ConnectContractS
     && includes("authorization_binding", CONNECT_CONTRACT_SUPPORT.authorization_binding)
     && includes("semantic_capabilities", CONNECT_CONTRACT_SUPPORT.semantic_capabilities)
     && includes("durable_mutation", CONNECT_CONTRACT_SUPPORT.durable_mutation);
-}
-
-function projectionActivationPending(): HostedProviderResponseError {
-  return new HostedProviderResponseError(
-    409,
-    "projection_activation_pending",
-    "Candidate B activation is still building; resume the same fenced authority import."
-  );
-}
-
-function matchesProjectionHandoff(code: string): boolean {
-  return code === "projection_generation_not_building"
-    || code === "projection_lease_unavailable";
-}
-
-function exactProjectionHandoff(
-  status: HostedProjectionStatus,
-  generationId: string
-): HostedProjectionStatus {
-  if (status.ready && status.active_generation_id === generationId) return status;
-  if (status.latest_terminal_generation_id === generationId) {
-    throw new HostedProviderResponseError(
-      409,
-      status.latest_terminal_error_code ?? "projection_generation_not_building",
-      "The requested projection generation terminated before activation."
-    );
-  }
-  if (status.building_generation?.generation_id === generationId) return status;
-  throw new HostedProviderResponseError(
-    409,
-    "projection_generation_not_building",
-    "The requested projection generation is no longer building."
-  );
 }
 
 function requiredProjectionStatus(
