@@ -15,7 +15,7 @@ import { prepareInstall } from './install-inputs.mjs';
 import { capturePrevious, rollback } from './rollback.mjs';
 import { assertArtifactMetadata, assertArtifactRun, assertArtifactDirectory } from './artifact.mjs';
 import { inventoryDirectory } from './native-publish-bytes.mjs';
-import { sourcePolicy, assertHostingSource, verifyHosting, verifyPublication } from './hosting.mjs';
+import { sourcePolicy, assertHostingSource, verifyHosting, verifyPublication, DEPLOYMENT_VERIFY_MS, ALIAS_SETTLE_MS } from './hosting.mjs';
 import { assertBuiltManifest, captureDeployment, createReceipt } from './publisher.mjs';
 const repoRoot=fileURLToPath(new URL('../../../../',import.meta.url));
 const hashes={EDITOR_TRUST_ASSET_SHA256:'7912e40838213e60b65848350d319a48019021317b112e3326429b250f0133d7'};
@@ -429,37 +429,54 @@ it('runs main pushes as checks only and isolates build from protected upload dep
  assert.match(workflow.jobs.test.if,/github.event_name != 'workflow_dispatch'/);
  assert.equal(workflow.on.workflow_dispatch.inputs.source_sha.required,true);
  assert.ok(!commands.includes('rollback.mjs recover'));
+ // The verification step outlives the immutable bound plus the alias settle window, inside the job.
+ const verification=protectedJob.steps.find(s=>s.id==='verification');
+ assert.ok(verification['timeout-minutes']*60000>=DEPLOYMENT_VERIFY_MS+ALIAS_SETTLE_MS+60000);
  assert.doesNotMatch(JSON.stringify(workflow),/NATIVE_(SDK|PROTOCOL|TRUST|UI)_SHA256/);
 });
 it('re-verifies only the custom alias inside a bounded settle window after the immutable deployment passes',async()=>{
  const plan={sha:source,tree,target:'staging',origin,pagesBranch:'staging'};
- const report=ok=>({ok,verified:[],controls:[],unverified:[],probes:[],failures:ok?[]:[{path:'/',reason:'trusted-live-header-policy-failed'}]});
+ // The alias still serving the previous _headers policy on HTML whose bytes did not change.
+ const stale={path:'/404',reason:'trusted-live-header-policy-failed',detail:'Live source-owned header policy mismatch: Content-Security-Policy'};
+ const report=ok=>({ok,verified:[],controls:[],unverified:[],probes:[],failures:ok?[]:[stale]});
  const harness=outcomes=>{
   let clock=0;const calls=[],sleeps=[];
-  return {calls,sleeps,options:{plan,inventory:[],deployment,policy,now:()=>clock,sleep:async ms=>{sleeps.push(ms);clock+=ms;},
+  return {calls,sleeps,clock:()=>clock,options:{plan,inventory:[],deployment,policy,now:()=>clock,sleep:async ms=>{sleeps.push(ms);clock+=ms;},
    verify:async({origin:target,totalTimeoutMs,policy:used})=>{assert.equal(used,policy);calls.push({origin:target,totalTimeoutMs});clock+=1000;return report(outcomes(target,calls.length));}}};
  };
- // Alias still serving the previous deployment twice, then converged.
- const settling=harness((target,n)=>target===deployment.url || n>=4);
+ // The previous policy for 20 complete attempts (past the former five-minute window), then the candidate's.
+ const stalePolicyAttempts=20;
+ const settling=harness((target,n)=>target===deployment.url || n>stalePolicyAttempts+1);
  const settled=await verifyPublication(settling.options);
  assert.equal(settled.ok,true);
- assert.deepEqual(settling.calls.map(c=>c.origin),[deployment.url,origin,origin,origin]);
- assert.deepEqual(settling.sleeps,[15000,15000]);
- assert.deepEqual(settled.aliasAttempts.map(a=>a.ok),[false,false,true]);
- assert.equal(settled.aliasAttempts[0].failures[0].reason,'trusted-live-header-policy-failed');
+ assert.deepEqual(settling.calls.map(c=>c.origin),[deployment.url,...Array(stalePolicyAttempts+1).fill(origin)]);
+ assert.deepEqual(settling.sleeps,Array(stalePolicyAttempts).fill(30000));
+ assert.deepEqual(settled.aliasAttempts.map(a=>a.ok),[...Array(stalePolicyAttempts).fill(false),true]);
+ assert.ok(settled.aliasAttempts.at(-1).startedMs>300000 && settled.aliasAttempts.at(-1).startedMs<ALIAS_SETTLE_MS);
+ assert.deepEqual(settled.aliasAttempts[0].failures[0],stale);
  assert.deepEqual(settled.origins.map(r=>r.origin),[deployment.url,origin],'receipt needs exactly one final report per origin');
  assert.equal(settled.origin,origin);
  // A failing immutable deployment is terminal: one alias report, no settle wait.
  const broken=harness(()=>false);
  const failed=await verifyPublication(broken.options);
  assert.equal(failed.ok,false);assert.equal(broken.calls.length,2);assert.deepEqual(broken.sleeps,[]);
- // An alias that never converges stops inside the window and stays failed.
+ // An alias that never converges keeps making complete attempts up to the bound, then stays failed.
  const stuck=harness(target=>target===deployment.url);
  const never=await verifyPublication(stuck.options);
- assert.equal(never.ok,false);assert.equal(never.origins.length,2);assert.ok(never.aliasAttempts.length>2);
- assert.ok(stuck.sleeps.reduce((a,b)=>a+b,0)<=300000);
- assert.ok(stuck.calls.every(c=>c.totalTimeoutMs>0 && c.totalTimeoutMs<=180000));
- assert.ok(never.aliasAttempts.at(-1).startedMs<=300000);
+ assert.equal(never.ok,false);assert.equal(never.origins.length,2);assert.equal(never.origins[1].ok,false);
+ assert.ok(never.aliasAttempts.every(a=>a.ok===false));
+ // Immutable 0-1s, deadline at 901s; attempts every 31s stop once less than retry delay plus a minimum attempt remains.
+ assert.equal(never.aliasAttempts.length,29);
+ assert.equal(never.aliasAttempts.at(-1).startedMs,1000+28*31000);
+ assert.ok(stuck.clock()<=1000+ALIAS_SETTLE_MS && stuck.clock()>1000+ALIAS_SETTLE_MS-(30000+30000+1000));
+ assert.ok(stuck.calls.every(c=>c.totalTimeoutMs>0 && c.totalTimeoutMs<=DEPLOYMENT_VERIFY_MS));
+ // Each alias attempt is bounded by the remaining window: attempts that use their whole budget cannot overrun it.
+ let clock=0;const budgets=[];
+ const slow=await verifyPublication({plan,inventory:[],deployment,policy,now:()=>clock,sleep:async ms=>{clock+=ms;},
+  verify:async({origin:target,totalTimeoutMs})=>{if(target===deployment.url){clock+=1000;return report(true);}budgets.push(totalTimeoutMs);clock+=totalTimeoutMs;return report(false);}});
+ assert.equal(slow.ok,false);
+ assert.ok(budgets.every(ms=>ms>0 && ms<=DEPLOYMENT_VERIFY_MS));
+ assert.equal(clock,1000+ALIAS_SETTLE_MS);
  await assert.rejects(verifyPublication({...stuck.options,deployment:{...deployment,sourceSha:'c'.repeat(40)}}),/mismatch/);
 });
 
