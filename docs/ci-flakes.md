@@ -43,9 +43,9 @@ the registered destructive system suites retain their fail-on-first-error policy
 
 The curated inventory in `scripts/ci/stress.mjs` covers:
 
-- core/daemon/hosted-provider Rust names containing stress, concurrent, claim_recovery, durability,
-  lifecycle, recovery, restart, cancellation or replay (including the Windows
-  registry burst, claim-recovery and batch-settlement regressions);
+- hosted-provider Rust names containing stress, concurrent, claim_recovery, durability,
+  lifecycle, recovery, restart, cancellation or replay, on Linux only: the
+  provider ships only as a Linux container;
 - the CLI's full `unified_cli` lifecycle harness on Linux/macOS, including
   `direct_watch_streams_one_portable_event_and_exits_at_the_requested_count`
   under daemon/mirror startup contention (Unix-only; PR #559, run 37017183238),

@@ -32,7 +32,6 @@ const nativeFiles = new Set([
   "scripts/ci/hosted-provider-postgres-tests",
   "scripts/ci/provider-migration-rollback-gate",
   ".github/previous-release.env",
-  ".github/retained-v2-predecessor.env",
   ".github/workflows/server-ci.yml",
   ...Object.values(systemSuites).map((suite) => suite.command.at(-1))
 ]);
