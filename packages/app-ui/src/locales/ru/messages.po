@@ -509,6 +509,15 @@ msgstr "Перетаскивайте, чтобы сделать пометку. 
 msgid "Draw"
 msgstr "Рисовать"
 
+#: src/live-preview/diagram.ts
+msgctxt "diagram"
+msgid "Edit"
+msgstr "Изменить"
+
+#: src/live-preview/diagram.ts
+msgid "Edit diagram source"
+msgstr "Изменить исходный код диаграммы"
+
 #: src/CommandPalette.tsx
 msgid "Esc"
 msgstr "Esc"
@@ -990,6 +999,10 @@ msgctxt "Screenshot annotations"
 msgid "Reset"
 msgstr "Сбросить"
 
+#: src/live-preview/diagram.ts
+msgid "Reset zoom"
+msgstr "Сбросить масштаб"
+
 #: src/CommentsPanel.tsx
 msgid "Resolve"
 msgstr "Решить"
@@ -1285,6 +1298,10 @@ msgstr "Спасибо за добрые слова."
 msgid "Thanks for the report."
 msgstr "Спасибо, что сообщили о проблеме."
 
+#: src/live-preview/diagram.ts
+msgid "The diagram could not be shown. Check your connection and reopen the note."
+msgstr "Не удалось показать диаграмму. Проверьте подключение и снова откройте заметку."
+
 #: src/Feedback.tsx
 msgid "The screenshot could not be captured."
 msgstr "Не удалось сделать снимок экрана."
@@ -1559,3 +1576,11 @@ msgstr "Ваша работа теперь в коллекции «{collection}�
 msgctxt "Collection access interface"
 msgid "Your work is now in {collection}. If it's still open in another tab, close it there, then bring it in again."
 msgstr "Ваша работа теперь в коллекции «{collection}». Если она ещё открыта в другой вкладке, закройте её там и перенесите снова."
+
+#: src/live-preview/diagram.ts
+msgid "Zoom in"
+msgstr "Увеличить"
+
+#: src/live-preview/diagram.ts
+msgid "Zoom out"
+msgstr "Уменьшить"

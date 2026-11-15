@@ -509,6 +509,15 @@ msgstr "Ziehen Sie, um zu markieren. Tastatur: Pfeiltasten bewegen; Leertaste be
 msgid "Draw"
 msgstr "Zeichnen"
 
+#: src/live-preview/diagram.ts
+msgctxt "diagram"
+msgid "Edit"
+msgstr "Bearbeiten"
+
+#: src/live-preview/diagram.ts
+msgid "Edit diagram source"
+msgstr "Diagrammquelle bearbeiten"
+
 #: src/CommandPalette.tsx
 msgid "Esc"
 msgstr "Esc"
@@ -990,6 +999,10 @@ msgctxt "Screenshot annotations"
 msgid "Reset"
 msgstr "Zurücksetzen"
 
+#: src/live-preview/diagram.ts
+msgid "Reset zoom"
+msgstr "Zoom zurücksetzen"
+
 #: src/CommentsPanel.tsx
 msgid "Resolve"
 msgstr "Erledigen"
@@ -1285,6 +1298,10 @@ msgstr "Vielen Dank für Ihre freundlichen Worte."
 msgid "Thanks for the report."
 msgstr "Vielen Dank für Ihre Meldung."
 
+#: src/live-preview/diagram.ts
+msgid "The diagram could not be shown. Check your connection and reopen the note."
+msgstr "Das Diagramm konnte nicht angezeigt werden. Prüfen Sie Ihre Verbindung und öffnen Sie die Notiz erneut."
+
 #: src/Feedback.tsx
 msgid "The screenshot could not be captured."
 msgstr "Der Screenshot konnte nicht aufgenommen werden."
@@ -1559,3 +1576,11 @@ msgstr "Ihre Arbeit ist jetzt in {collection}."
 msgctxt "Collection access interface"
 msgid "Your work is now in {collection}. If it's still open in another tab, close it there, then bring it in again."
 msgstr "Ihre Arbeit ist jetzt in {collection}. Wenn sie noch in einem anderen Tab geöffnet ist, schließen Sie sie dort und übernehmen Sie sie dann erneut."
+
+#: src/live-preview/diagram.ts
+msgid "Zoom in"
+msgstr "Vergrößern"
+
+#: src/live-preview/diagram.ts
+msgid "Zoom out"
+msgstr "Verkleinern"

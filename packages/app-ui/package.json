@@ -153,7 +153,8 @@
   },
   "dependencies": {
     "@fontsource/azeret-mono": "^5.3.0",
-    "@fontsource/ibm-plex-sans": "^5.3.0"
+    "@fontsource/ibm-plex-sans": "^5.3.0",
+    "pele": "1.13.0"
   },
   "peerDependencies": {
     "@codemirror/language": "^6.0.0",
