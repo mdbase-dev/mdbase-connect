@@ -255,7 +255,7 @@ impl TypeDef {
         &self,
         path: &str,
         frontmatter: &Map,
-        clock: Option<&OpClock>,
+        timezone: Option<&str>,
         issues: &mut Vec<Issue>,
     ) -> bool {
         let Some(m) = &self.match_spec else {
@@ -281,13 +281,15 @@ impl TypeDef {
         if let Some(CelProgram(program)) = &m.program {
             let file = crate::cel::CelValue::from_value(&map([("path", Value::string(path))]));
             let mut act = crate::cel::record_activation(frontmatter, frontmatter, file);
-            if let Some(c) = clock {
-                act.with_clock(crate::lifecycle::cel_clock(
-                    c.instant_ms,
-                    &c.local_date,
-                    &c.tz,
-                ));
-            }
+            act.with_clock(crate::cel::Clock {
+                tz: timezone
+                    .and_then(|timezone| crate::cel::time::tzdb::NamedZone::get(timezone).ok())
+                    .map(|zone| {
+                        std::sync::Arc::new(zone)
+                            as std::sync::Arc<dyn crate::cel::time::TimeZoneRules>
+                    }),
+                ..crate::cel::Clock::default()
+            });
             match program.evaluate(&act) {
                 Ok(crate::cel::CelValue::Bool(true)) => {}
                 Ok(_) => return false,
@@ -358,7 +360,13 @@ impl Catalog {
         for (path, src) in &resources {
             if path.starts_with(&folder)
                 && path.ends_with(".md")
-                && let Some(t) = load_type(path, src, &resources, &mut cat.issues)
+                && let Some(t) = load_type(
+                    path,
+                    src,
+                    &resources,
+                    cat.settings.timezone.is_some(),
+                    &mut cat.issues,
+                )
             {
                 loaded.push(t);
             }
@@ -862,28 +870,19 @@ impl Catalog {
     }
 
     /// The types a record at `path` with persisted `frontmatter` matches
-    /// (spec 07 "Matching Decision Process"), with no captured time: a
-    /// `match.expr` calling `now()` or `today()` is an evaluation error and
-    /// does not match. See [`Catalog::membership_at`].
+    /// (spec 07 "Matching Decision Process"). Nondeterministic match expressions
+    /// invalidate their type at load and never participate in membership.
     pub fn membership(&self, path: &str, frontmatter: &Map) -> Membership {
         self.membership_at(path, frontmatter, None)
     }
 
-    /// [`Catalog::membership`] where `now()` and `today()` in `match.expr`
-    /// read `clock` (spec 07: "evaluated ... with `now()` and `today()`
-    /// reading the operation's captured instant").
-    ///
-    /// - The planner passes the mutation's clock, so a write and every
-    ///   re-plan of it see the same membership.
-    /// - Reads and queries pass the query's captured clock.
-    /// - Index maintenance (`record_meta`) passes none: membership that
-    ///   depends on time is reported (`nondeterministic_match`) and cannot be
-    ///   indexed stably.
+    /// [`Catalog::membership`] with the operation's captured clock. Matching
+    /// remains independent of this clock: time-dependent types are invalid.
     pub fn membership_at(
         &self,
         path: &str,
         frontmatter: &Map,
-        clock: Option<&OpClock>,
+        _clock: Option<&OpClock>,
     ) -> Membership {
         let mut out = Membership::default();
         let keys: Vec<&String> = self
@@ -939,7 +938,12 @@ impl Catalog {
         }
         // `types` is sorted by lower-case name, which is the inferred order.
         for t in &self.types {
-            if t.matches_inferred(path, frontmatter, clock, &mut out.issues) {
+            if t.matches_inferred(
+                path,
+                frontmatter,
+                self.settings.timezone.as_deref(),
+                &mut out.issues,
+            ) {
                 out.types.push(t.name.clone());
             }
         }
@@ -949,10 +953,8 @@ impl Catalog {
 
 /// The merge reads strategies through this (spec 07 "Merge Strategies").
 ///
-/// Membership is evaluated with no clock ([`Catalog::membership`]), so a type
-/// whose `match.expr` calls `now()`/`today()` never contributes strategies
-/// to a merge. That keeps merges replayable; such types already report
-/// `nondeterministic_match` at load.
+/// Membership uses only deterministic types ([`Catalog::membership`]). Types
+/// rejected with `nondeterministic_match` at load never contribute strategies.
 impl crate::merge::MergeTypes for Catalog {
     fn merge_facts(&self, path: &str, frontmatter: &Map) -> crate::merge::MergeFacts {
         let mut facts = crate::merge::MergeFacts::default();
@@ -1265,6 +1267,7 @@ fn load_type(
     path: &str,
     src: &str,
     resources: &BTreeMap<&str, &str>,
+    has_timezone: bool,
     issues: &mut Vec<Issue>,
 ) -> Option<TypeDef> {
     let doc = Document::parse(src, RecordFormat::Markdown);
@@ -1300,11 +1303,16 @@ fn load_type(
             .or_else(|| e.get("$expr").and_then(Value::as_str))
     }) && let Ok(program) = crate::cel::compile(src)
     {
-        for binding in program.references().nondeterministic() {
+        let references = program.references();
+        let mut bindings = references.nondeterministic();
+        if !has_timezone {
+            bindings.extend(references.timezone_functions.iter().map(String::as_str));
+        }
+        for binding in &bindings {
             issues.push(
                 Issue::new(
                     "nondeterministic_match",
-                    Severity::Warning,
+                    Severity::Error,
                     Tier::Request,
                     format!(
                         "`match.expr` of type `{name}` uses `{binding}`; membership can differ between replays"
@@ -1312,8 +1320,11 @@ fn load_type(
                 )
                 .at(path)
                 .with_type(name)
-                .with_details(map([("binding", Value::string(binding))])),
+                .with_details(map([("binding", Value::string(*binding))])),
             );
+        }
+        if !bindings.is_empty() {
+            return None;
         }
     }
     if let Some(Value::Map(policy)) = fm.get("collection").and_then(|c| c.get("path")) {
@@ -1944,7 +1955,7 @@ mod tests {
     }
 
     #[test]
-    fn match_expr_reads_the_captured_clock() {
+    fn nondeterministic_match_is_invalid_even_with_a_captured_clock() {
         let t = "---\nkind: mdbase.type\nname: overdue\nmatch:\n  expr: 'has(raw.due) && raw.due < today()'\nschema:\n  dialect: json-schema-2020-12\n  value: {type: object}\n---\n";
         let c = cat(&[("_types/overdue.md", t)]);
         let rec = fm("due: \"2026-01-01\"\n");
@@ -1953,13 +1964,14 @@ mod tests {
             tz: "UTC".into(),
             local_date: date.into(),
         };
-        // No clock: an evaluation error, reported, and no match.
         let m = c.membership("a.md", &rec);
         assert!(m.types.is_empty());
-        assert_eq!(m.issues[0].code, "expression_evaluation_error");
-        assert_eq!(
-            c.membership_at("a.md", &rec, Some(&at("2026-01-02"))).types,
-            ["overdue"]
+        assert!(m.issues.is_empty());
+        assert!(c.type_named("overdue").is_none());
+        assert!(
+            c.membership_at("a.md", &rec, Some(&at("2026-01-02")))
+                .types
+                .is_empty()
         );
         assert!(
             c.membership_at("a.md", &rec, Some(&at("2025-12-31")))
@@ -1967,6 +1979,7 @@ mod tests {
                 .is_empty()
         );
         assert_eq!(c.issues()[0].code, "nondeterministic_match");
+        assert_eq!(c.issues()[0].severity, Severity::Error);
     }
 
     #[test]

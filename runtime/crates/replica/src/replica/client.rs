@@ -595,7 +595,11 @@ impl<S: Store> Replica<S> {
         };
         // Link predicates need the same bounded original-state host as link
         // projections; the ordinary residual evaluator has no cross-record host.
-        if !q.select.is_empty() || !q.projections.is_empty() || plan.requirements.links {
+        if !q.select.is_empty()
+            || !q.projections.is_empty()
+            || plan.requirements.links
+            || plan.requirements.context
+        {
             return self.run_projected_query(&plan, &view, &lv, &env, include);
         }
         // Declined queries take the per-record path below, which is complete.

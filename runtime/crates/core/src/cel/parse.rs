@@ -205,6 +205,8 @@ pub struct References {
     pub functions: std::collections::BTreeSet<String>,
     /// Members selected from `file` (`mtime` for `file.mtime`).
     pub file_members: std::collections::BTreeSet<String>,
+    /// Calls whose match-context overload can read the effective timezone.
+    pub timezone_functions: std::collections::BTreeSet<String>,
 }
 
 impl References {
@@ -236,32 +238,47 @@ impl References {
 
 pub(crate) fn references(e: &Expr) -> References {
     let mut r = References::default();
-    let mut bound: Vec<String> = Vec::new();
+    let mut bound = Vec::new();
     walk(e, &mut bound, &mut r);
     r
 }
 
-fn walk(e: &Expr, bound: &mut Vec<String>, r: &mut References) {
+fn walk(e: &Expr, bound: &mut Vec<(String, bool)>, r: &mut References) {
     match e {
         Expr::Lit(_) => {}
         Expr::Ident(n) => {
-            if !bound.iter().any(|b| b == n) {
+            if !bound.iter().any(|(name, _)| name == n) {
                 r.identifiers.insert(n.clone());
             }
         }
         Expr::Select { operand, field, .. } => {
-            if matches!(operand.as_ref(), Expr::Ident(n) if n == "file" && !bound.iter().any(|b| b == "file"))
+            if matches!(operand.as_ref(), Expr::Ident(n) if n == "file" && !bound.iter().any(|(name, _)| name == "file"))
             {
                 r.file_members.insert(field.clone());
             }
             walk(operand, bound, r);
         }
         Expr::Index { operand, index, .. } => {
+            if matches!(operand.as_ref(), Expr::Ident(name) if name == "file" && !bound.iter().any(|(name, _)| name == "file"))
+            {
+                if let Expr::Lit(CelValue::String(member)) = index.as_ref() {
+                    r.file_members.insert(member.to_string());
+                } else {
+                    r.file_members
+                        .extend(["mtime", "ctime", "backlinks"].map(str::to_owned));
+                }
+            }
             walk(operand, bound, r);
             walk(index, bound, r);
         }
         Expr::Call { target, func, args } => {
             r.functions.insert(func.clone());
+            if target.is_none()
+                && (func == "startOfDay"
+                    || (func == "date" && args.iter().any(|arg| contains_timestamp(arg, bound))))
+            {
+                r.timezone_functions.insert(func.clone());
+            }
             if let Some(t) = target {
                 walk(t, bound, r);
             }
@@ -298,13 +315,88 @@ fn walk(e: &Expr, bound: &mut Vec<String>, r: &mut References) {
             ..
         } => {
             walk(range, bound, r);
-            bound.push(var.clone());
+            bound.push((var.clone(), contains_timestamp(range, bound)));
             walk(body, bound, r);
             if let Some(f) = filter {
                 walk(f, bound, r);
             }
             bound.pop();
         }
+    }
+}
+
+fn contains_timestamp(expr: &Expr, bound: &[(String, bool)]) -> bool {
+    match expr {
+        Expr::Lit(CelValue::Timestamp(_)) => true,
+        Expr::Ident(name) => bound
+            .iter()
+            .rev()
+            .find(|(key, _)| key == name)
+            .is_some_and(|(_, temporal)| *temporal),
+        Expr::Select {
+            operand,
+            field,
+            test: false,
+            ..
+        } => match operand.as_ref() {
+            Expr::Map(entries) => entries.iter().any(|(key, value)| {
+                matches!(key, Expr::Lit(CelValue::String(name)) if name.as_ref() == field)
+                    && contains_timestamp(value, bound)
+            }),
+            _ => contains_timestamp(operand, bound),
+        },
+        Expr::Index { operand, index, .. } => match (operand.as_ref(), index.as_ref()) {
+            (Expr::List(items), Expr::Lit(CelValue::Int(index))) => usize::try_from(*index)
+                .ok()
+                .and_then(|index| items.get(index))
+                .is_some_and(|value| contains_timestamp(value, bound)),
+            (Expr::Map(entries), Expr::Lit(CelValue::String(name))) => {
+                entries.iter().any(|(key, value)| {
+                    matches!(key, Expr::Lit(CelValue::String(key)) if key == name)
+                        && contains_timestamp(value, bound)
+                })
+            }
+            _ => contains_timestamp(operand, bound),
+        },
+        Expr::Call {
+            target: None, func, ..
+        } if matches!(func.as_str(), "timestamp" | "now") => true,
+        Expr::Call { target, func, args }
+            if matches!(
+                func.as_str(),
+                "dyn" | "optional.of" | "optional.ofNonZeroValue" | "value" | "orValue" | "or"
+            ) =>
+        {
+            target
+                .as_deref()
+                .is_some_and(|target| contains_timestamp(target, bound))
+                || args.iter().any(|arg| contains_timestamp(arg, bound))
+        }
+        Expr::List(items) => items.iter().any(|item| contains_timestamp(item, bound)),
+        Expr::Map(items) => items
+            .iter()
+            .any(|(_, value)| contains_timestamp(value, bound)),
+        Expr::Bin(BinOp::Add | BinOp::Sub, left, right) => {
+            contains_timestamp(left, bound) || contains_timestamp(right, bound)
+        }
+        Expr::Cond(_, yes, no) => contains_timestamp(yes, bound) || contains_timestamp(no, bound),
+        Expr::Macro {
+            kind: MacroKind::Map,
+            range,
+            var,
+            body,
+            ..
+        } => {
+            let mut scope = bound.to_vec();
+            scope.push((var.clone(), contains_timestamp(range, bound)));
+            contains_timestamp(body, &scope)
+        }
+        Expr::Macro {
+            kind: MacroKind::Filter,
+            range,
+            ..
+        } => contains_timestamp(range, bound),
+        _ => false,
     }
 }
 

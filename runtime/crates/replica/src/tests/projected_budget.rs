@@ -95,6 +95,61 @@ fn paths(result: &QueryResult) -> Vec<&str> {
     result.records.iter().map(|r| r.path.as_str()).collect()
 }
 
+#[test]
+fn context_without_selection_uses_the_context_path_and_link_origin() {
+    let store = seeded(vec![
+        (
+            1,
+            "projects/alpha#draft|review.md".into(),
+            "---\nlead: '[Bob](people/bob.md)'\n---\n".into(),
+        ),
+        (
+            2,
+            "projects/people/bob.md".into(),
+            "---\nname: Bob\n---\n".into(),
+        ),
+        (
+            3,
+            "annotations/n.md".into(),
+            "---\nthis: not-the-context\n---\n".into(),
+        ),
+    ]);
+    let service = FakeLogService::new();
+    let mut replica = node(&service, 1, store);
+    settle(&mut [&mut replica]);
+    let context_query = |path: &str| {
+        Value::Map(vec![
+            (
+                "context".into(),
+                Value::Map(vec![(
+                    "this".into(),
+                    Value::Map(vec![("path".into(), Value::Text(path.into()))]),
+                )]),
+            ),
+            (
+                "where".into(),
+                Value::Text(
+                    "file.path == 'annotations/n.md' && this.lead.asFile().name == 'Bob'".into(),
+                ),
+            ),
+        ])
+    };
+    let result = replica
+        .r
+        .query(
+            replica.s,
+            context_query("projects/alpha#draft|review.md"),
+            include(),
+        )
+        .unwrap();
+    assert_eq!(paths(&result), ["annotations/n.md"]);
+    let error = replica
+        .r
+        .query(replica.s, context_query("missing.md"), include())
+        .unwrap_err();
+    assert_eq!(error.problem().reason.as_deref(), Some("context_not_found"));
+}
+
 fn assert_exhausted(result: Result<QueryResult, crate::api::ApiError>) {
     let error = result.unwrap_err();
     assert_eq!(error.code(), Some(ErrorCode::TooLarge));
@@ -329,9 +384,7 @@ fn candidates_past_the_budget_still_fail_closed() {
 }
 
 #[test]
-fn clock_dependent_membership_keeps_the_complete_scan() {
-    // Stored membership is clock-free, so it never lists `overdue`; the
-    // query's own clock does. Narrowing on it would silently drop the match.
+fn clock_dependent_membership_is_excluded_from_projected_queries() {
     const OVERDUE: &str = "---\nkind: mdbase.type\nname: overdue\nmatch:\n  expr: 'has(raw.due) && raw.due < today()'\nschema:\n  dialect: json-schema-2020-12\n  value: {type: object}\n---\n";
     let mut store = MemStore::new();
     store
@@ -365,5 +418,5 @@ fn clock_dependent_membership_keeps_the_complete_scan() {
         ),
     ]);
     let result = a.r.query(a.s, query, include()).unwrap();
-    assert_eq!(paths(&result), ["tasks/late.md"]);
+    assert!(paths(&result).is_empty());
 }
