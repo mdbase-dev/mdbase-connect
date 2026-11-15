@@ -498,15 +498,22 @@ jobs:
           done
           "$found"
 
-      - name: Create release checksums
+      - name: Create and sign release checksums
         shell: bash
         run: |
           cd release-artifacts
+          sums="SHA256SUMS-${{ matrix.platform }}-${{ matrix.arch }}"
           if command -v shasum >/dev/null 2>&1; then
-            shasum -a 256 * > "SHA256SUMS-${{ matrix.platform }}-${{ matrix.arch }}"
+            shasum -a 256 * > "$sums"
           else
-            sha256sum * > "SHA256SUMS-${{ matrix.platform }}-${{ matrix.arch }}"
+            sha256sum * > "$sums"
           fi
+          cosign sign-blob --yes --bundle "$sums.sigstore.json" "$sums"
+          cosign verify-blob \
+            --bundle "$sums.sigstore.json" \
+            --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/desktop-release.yml@${GITHUB_REF}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$sums"
 
       - name: Describe platform update
         shell: bash
