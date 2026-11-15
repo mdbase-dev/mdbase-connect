@@ -119,7 +119,7 @@ impl HostedProvider {
                  ) version
                ), eligible AS (
                  SELECT record_id, sequence, revision, payload_ciphertext, deleted, created_at,
-                        sum(CASE WHEN deleted THEN 0 ELSE octet_length(payload_ciphertext) END)
+                        sum(CASE WHEN deleted THEN 0 ELSE coalesce(octet_length(payload_ciphertext), 0) END)
                           OVER (ORDER BY record_id) AS batch_bytes
                  FROM snapshot
                )

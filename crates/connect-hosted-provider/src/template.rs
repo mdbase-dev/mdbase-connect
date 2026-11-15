@@ -38,15 +38,20 @@ pub fn resources(template: &str, timezone: &str) -> ApiResult<CollectionTemplate
     }
 }
 
-fn mdbase(timezone: &str, records: Vec<StoredDocument>) -> CollectionTemplate {
+fn mdbase(timezone: &str, mut records: Vec<StoredDocument>) -> CollectionTemplate {
     // Keep this revision and configuration aligned with the TypeScript reference
     // authority's mdbaseResources; each authority must provision collections itself.
     let configuration = format!(
-        "spec_version: 0.3.0\nsettings:\n  types_folder: _types\n  validation: error\n  timezone: {timezone}\nx-obsidian:\n  bases:\n    include:\n      - views/**/*.base\n"
+        "spec_version: 0.3.0\nsettings:\n  types_folder: _mdbase/types\n  contracts_folder: _mdbase/contracts\n  validation: error\n  timezone: {timezone}\nx-obsidian:\n  bases:\n    include:\n      - views/**/*.base\n"
     );
+    records.push(starter_record(
+        "472c248d-e8c2-4fea-a3cf-85c965b5dd14",
+        "_mdbase/README.md",
+        include_str!("../../../templates/mdbase/README.md"),
+    ));
     CollectionTemplate {
         resources: SyncCollectionResources {
-            revision: "mdbase-template:3".to_string(),
+            revision: "mdbase-template:4".to_string(),
             spec_version: "0.3.0".to_string(),
             types: Vec::new(),
             contracts: Vec::new(),
@@ -122,10 +127,15 @@ mod tests {
     #[test]
     fn generic_mdbase_template_has_no_application_contracts() {
         let template = resources("mdbase", "Australia/Melbourne").unwrap();
-        assert_eq!(template.resources.revision, "mdbase-template:3");
+        assert_eq!(template.resources.revision, "mdbase-template:4");
         assert!(template.resources.types.is_empty());
         assert!(template.resources.contracts.is_empty());
-        assert!(template.records.is_empty());
+        assert_eq!(template.records.len(), 1);
+        assert_eq!(template.records[0].path, "_mdbase/README.md");
+        assert_eq!(
+            template.records[0].document,
+            include_str!("../../../templates/mdbase/README.md")
+        );
         assert_eq!(template.documents.len(), 1);
         assert_eq!(template.documents[0].path, "mdbase.yaml");
         assert_eq!(
@@ -147,7 +157,7 @@ mod tests {
     fn fresh_templates_allow_neutral_obsidian_base_paths() {
         for name in ["mdbase", "onboarding"] {
             let template = resources(name, "UTC").unwrap();
-            assert_eq!(template.resources.revision, "mdbase-template:3");
+            assert_eq!(template.resources.revision, "mdbase-template:4");
             let configuration: serde_json::Value =
                 serde_yaml::from_str(&template.documents[0].document).unwrap();
             assert_eq!(
@@ -155,7 +165,8 @@ mod tests {
                 serde_json::json!({
                     "spec_version": "0.3.0",
                     "settings": {
-                        "types_folder": "_types",
+                        "types_folder": "_mdbase/types",
+                        "contracts_folder": "_mdbase/contracts",
                         "validation": "error",
                         "timezone": "UTC"
                     },
@@ -172,7 +183,7 @@ mod tests {
     #[test]
     fn onboarding_template_contains_a_small_editable_start() {
         let template = resources("onboarding", "UTC").unwrap();
-        assert_eq!(template.records.len(), 4);
+        assert_eq!(template.records.len(), 5);
         assert_eq!(
             template
                 .records

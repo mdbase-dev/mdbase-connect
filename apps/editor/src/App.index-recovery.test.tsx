@@ -69,6 +69,6 @@ it("retries the failed inventory and starts full-text indexing only after all no
   gateway.fail = false;
   fireEvent.click(screen.getByRole("button", { name: "Retry notes" }));
   await waitFor(() => expect(hydrate).toHaveBeenCalledOnce());
-  expect(await screen.findByText("600 found · relevance")).toBeInTheDocument();
+  expect(await screen.findByText("601 found · relevance")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Retry notes" })).not.toBeInTheDocument();
 });

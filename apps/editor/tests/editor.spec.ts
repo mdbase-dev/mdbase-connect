@@ -799,7 +799,7 @@ for (const trigger of ["@", "[["] as const) {
 
 test("writes a new note when its title is finished, in the editor it was started in", async ({ page }) => {
   await page.goto("?demo=4");
-  await expect(page.locator(".list-header p")).toContainText("4 notes");
+  await expect(page.locator(".list-header p")).toContainText("5 notes");
   await page.getByRole("button", { name: "New note", exact: true }).click();
 
   const title = page.getByRole("textbox", { name: "Note title" });
@@ -813,7 +813,7 @@ test("writes a new note when its title is finished, in the editor it was started
   await expect(page.getByRole("button", { name: "Create note" })).toHaveCount(0);
   await page.keyboard.type("A useful note");
   await expect(pending).toHaveAttribute("title", "A useful note.md");
-  await expect(page.locator(".list-header p")).toContainText("4 notes");
+  await expect(page.locator(".list-header p")).toContainText("5 notes");
 
   const createStarted = Date.now();
   await page.keyboard.press("Enter");
@@ -822,7 +822,7 @@ test("writes a new note when its title is finished, in the editor it was started
   await expect(page.getByRole("button", { name: "A useful note.md" })).toBeVisible();
   expect(Date.now() - createStarted).toBeLessThan(500);
   await expect(unsaved).toBeHidden();
-  await expect(page.locator(".list-header p")).toContainText("5 notes");
+  await expect(page.locator(".list-header p")).toContainText("6 notes");
 
   await page.keyboard.type("The opening paragraph is already here.");
   await expect(body).toContainText("The opening paragraph is already here.");
@@ -833,7 +833,7 @@ test("writes a new note when its title is finished, in the editor it was started
 
 test("writes a note started in its body as Untitled, and names the file from its first title", async ({ page }) => {
   await page.goto("?demo=4");
-  await expect(page.locator(".list-header p")).toContainText("4 notes");
+  await expect(page.locator(".list-header p")).toContainText("5 notes");
   await page.locator(".note-scroll").focus();
   await page.keyboard.press("c");
   await expect(page.getByRole("textbox", { name: "Note title" })).toBeFocused();
@@ -855,7 +855,7 @@ test("writes a note started in its body as Untitled, and names the file from its
   await body.click();
   await expect(page.getByRole("main", { name: "Note editor" })).toHaveAttribute("data-save-state", "saved", { timeout: 2_000 });
   await expect(page.getByRole("button", { name: "Named later.md" })).toBeVisible();
-  await expect(page.locator(".list-header p")).toContainText("5 notes");
+  await expect(page.locator(".list-header p")).toContainText("6 notes");
 });
 
 test("starts a note of a chosen type from the picker", async ({ page }) => {
@@ -930,14 +930,14 @@ test("shows the matching note text in sidebar and quick-open search results", as
 
 test("sorts notes and clears the active scope from view options", async ({ page }) => {
   await page.goto("?demo=4");
-  await expect(page.locator(".list-header p")).toHaveText("4 notes · 2 files");
+  await expect(page.locator(".list-header p")).toHaveText("5 notes · 2 files");
 
   await page.getByRole("button", { name: "View options" }).click();
   const menu = page.getByRole("menu", { name: "Note view options" });
   await expect(menu.getByRole("menuitemradio", { name: "Modified" })).toHaveAttribute("aria-checked", "true");
   await menu.getByRole("menuitemradio", { name: "Title" }).click();
   await expect(page.locator(".note-row").first().locator(".note-title")).toHaveText("A quiet interface 3");
-  await expect(page.locator(".list-header p")).toHaveText("4 notes · 2 files · Title: A–Z");
+  await expect(page.locator(".list-header p")).toHaveText("5 notes · 2 files · Title: A–Z");
 
   await page.getByRole("combobox", { name: "Search notes and files" }).fill("quiet interface");
   await expect(page.locator(".list-header p")).toHaveText("1 found · relevance");
@@ -948,7 +948,7 @@ test("sorts notes and clears the active scope from view options", async ({ page 
   await page.getByRole("button", { name: "Remove folder filter Notes" }).click();
 
   await expect(page.getByRole("heading", { name: "All notes" })).toBeVisible();
-  await expect(page.locator(".note-row")).toHaveCount(6);
+  await expect(page.locator(".note-row")).toHaveCount(7);
 });
 
 test("names a new folder in the rail and opens its first note", async ({ page }) => {
@@ -1430,7 +1430,7 @@ test("keeps the current note inspector open and resizable between note switches"
 
 test("keeps dense collection counts and footer controls inside the minimum rail", async ({ page }) => {
   await page.goto("?demo=10000");
-  await expect(page.getByText("10,000 notes")).toBeVisible();
+  await expect(page.getByText("10,001 notes")).toBeVisible();
 
   const rail = page.getByRole("complementary", { name: "Collection navigation" });
   const wordmarkLabel = rail.locator(".wordmark-label");
@@ -1460,9 +1460,10 @@ test("keeps dense collection counts and footer controls inside the minimum rail"
   expect(markBox.x + markBox.width).toBeLessThanOrEqual(collapseBox.x);
 
   const counts = rail.locator(".rail-filter-items small");
-  await expect(counts.first()).toHaveCSS("opacity", "0");
-  await rail.getByRole("button", { name: /^Show notes in Archive,/ }).hover();
-  await expect(counts.first()).toHaveCSS("opacity", "1");
+  const archive = rail.getByRole("button", { name: /^Show notes in Archive,/ });
+  await expect(archive.locator("small")).toHaveCSS("opacity", "0");
+  await archive.hover();
+  await expect(archive.locator("small")).toHaveCSS("opacity", "1");
   expect(await counts.evaluateAll((elements) => elements.every((element) => {
     const count = element.getBoundingClientRect();
     const container = element.closest(".collection-rail")?.getBoundingClientRect();
@@ -1578,7 +1579,7 @@ test("keeps a ten-thousand-note collection responsive and virtualized", { tag: "
   await expect(page.getByRole("textbox", { name: "Note title" })).toBeVisible();
   const firstUsableMs = Date.now() - started;
   expect(firstUsableMs).toBeLessThan(2_000);
-  await expect(page.getByText("10,000 notes")).toBeVisible();
+  await expect(page.getByText("10,001 notes")).toBeVisible();
   const fullIndexMs = Date.now() - started;
   expect(fullIndexMs).toBeLessThan(2_500);
 
@@ -1587,7 +1588,7 @@ test("keeps a ten-thousand-note collection responsive and virtualized", { tag: "
 
   const searchStarted = Date.now();
   await page.getByRole("combobox", { name: "Search notes and files" }).fill("quiet interface 51");
-  await expect(page.locator(".list-header p")).not.toHaveText("10,000 notes");
+  await expect(page.locator(".list-header p")).not.toHaveText("10,001 notes");
   const searchReadyMs = Date.now() - searchStarted;
   expect(searchReadyMs).toBeLessThan(900);
 

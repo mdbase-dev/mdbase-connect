@@ -26,12 +26,14 @@ const PERSON_STARTER = { target: "_types/person.md", version: 3 } as const;
  * An older Person starter in place, offered for a reviewed upgrade before creating
  * a record. Any mdbase.person version counts: the Person v1 starter implements 1.0.0.
  */
-export function outdatedPersonStarter(description: Pick<EditorCollectionDescription, "contracts" | "typing">) {
+export function outdatedPersonStarter(description: Pick<EditorCollectionDescription, "contracts" | "typing" | "configuration">) {
   // Without native type versions there is no evidence an upgrade is needed.
   if (description.typing === "names_only") return undefined;
+  const settings = description.configuration?.settings as { types_folder?: string } | undefined;
+  const folder = settings?.types_folder ?? "_types";
   return description.contracts.filter((contract) => contract.id === PERSON_CONTRACT.id)
     .flatMap((contract) => contract.implementations)
-    .find((implementation) => implementation.typePath === PERSON_STARTER.target && implementation.typeVersion < PERSON_STARTER.version);
+    .find((implementation) => implementation.typePath === `${folder}/person.md` && implementation.typeVersion < PERSON_STARTER.version);
 }
 
 interface PersonStarterUpgrade {
@@ -42,7 +44,7 @@ interface PersonStarterUpgrade {
 
 /** A seed type the engine upgrades from one of the bundled provision's own reviewed baselines. */
 function starterUpgrade(provision: TypePackProvision, resource: TypePackResourceDiff): PersonStarterUpgrade | undefined {
-  const seed = provision.manifest.resources.find((candidate) => candidate.source === resource.source && candidate.target === resource.target);
+  const seed = provision.manifest.resources.find((candidate) => candidate.source === resource.source);
   if (resource.action !== "update" || resource.kind !== "type" || resource.mode !== "seed" || seed?.kind !== "type" || seed.mode !== "seed") return undefined;
   const baseline = resource.upgradeBaseline;
   if (!baseline || ![seed.upgrade_from ?? []].flat().some(({ digest }) => digest === baseline.digest)) return undefined;
@@ -59,7 +61,8 @@ export function requireGuidedPersonSetup(provision: TypePackProvision, assessmen
   if (!assessment.applicable || assessment.status === "downgrade" || unsafe) {
     throw new Error(unsafe?.reason ?? t`These definitions need review in Types. No files have been changed.`);
   }
-  const person = assessment.resources.find((resource) => resource.target === PERSON_STARTER.target);
+  const starter = provision.manifest.resources.find((resource) => resource.target === PERSON_STARTER.target);
+  const person = starter && assessment.resources.find((resource) => resource.source === starter.source);
   // The engine keeps a Person type it cannot trace to a declared starter, with a
   // reason. Retrying would only repeat that, so setup reports it and stops.
   if (person?.action === "preserve" && person.mode === "seed" && person.reason) return { kept: true };

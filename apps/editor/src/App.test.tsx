@@ -453,7 +453,7 @@ describe("mdbase editor", () => {
     render(<App gateway={new DemoCollectionGateway(4)} />);
 
     await within(await screen.findByRole("region", { name: "Notes and files" })).findByRole("heading", { name: "All notes" });
-    await screen.findByText("4 notes · 2 files");
+    await screen.findByText("5 notes · 2 files");
     const noteList = screen.getByRole("listbox", { name: "Collection notes and files" });
     await within(noteList).findByText("The shape of useful tools", { selector: ".note-title" });
     expect(within(noteList).getAllByRole("option")[0]).toHaveAccessibleName(/The shape of useful tools/);
@@ -465,7 +465,7 @@ describe("mdbase editor", () => {
     await user.click(within(menu).getByRole("menuitemradio", { name: "Title" }));
 
     expect(within(noteList).getAllByRole("option")[0]).toHaveAccessibleName(/A quiet interface 3/);
-    expect(screen.getByText("4 notes · 2 files · Title: A–Z")).toBeInTheDocument();
+    expect(screen.getByText("5 notes · 2 files · Title: A–Z")).toBeInTheDocument();
 
     const search = screen.getByRole("combobox", { name: "Search notes and files" });
     await user.type(search, "quiet interface");
@@ -479,7 +479,7 @@ describe("mdbase editor", () => {
     await user.click(screen.getByRole("button", { name: "Remove folder filter Notes" }));
 
     expect(screen.getByRole("heading", { name: "All notes" })).toBeInTheDocument();
-    expect(within(noteList).getAllByRole("option")).toHaveLength(6);
+    expect(within(noteList).getAllByRole("option")).toHaveLength(7);
     expect(within(noteList).getAllByRole("option")[0]).toHaveAccessibleName(/A quiet interface 3/);
   });
 
@@ -557,7 +557,7 @@ describe("mdbase editor", () => {
     render(<App gateway={gateway} />);
 
     expect(await screen.findByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
-    expect(screen.getByText("1 of 12 notes · 2 files")).toBeInTheDocument();
+    expect(screen.getByText("1 of 13 notes · 2 files")).toBeInTheDocument();
     const folderNavigation = screen.getByRole("group", { name: "Folders" });
     expect(folderNavigation).toHaveAttribute("aria-busy", "true");
     expect(within(folderNavigation).getByRole("status")).toHaveTextContent("Loading");
@@ -565,18 +565,18 @@ describe("mdbase editor", () => {
     expect(gateway.listCalls).toBe(1);
 
     gateway.releaseStructure();
-    expect(await screen.findByText("12 notes · 2 files")).toBeInTheDocument();
+    expect(await screen.findByText("13 notes · 2 files")).toBeInTheDocument();
     expect(folderNavigation).toHaveAttribute("aria-busy", "false");
     expect(within(folderNavigation).queryByRole("status")).not.toBeInTheDocument();
     expect(within(folderNavigation).getByLabelText("3 notes in Notes")).toHaveTextContent("3");
 
     await user.type(screen.getByRole("combobox", { name: "Search notes and files" }), "Record 3 remains");
-    expect(await screen.findByText(/searching 0 of 12/)).toBeInTheDocument();
+    expect(await screen.findByText(/searching 0 of 13/)).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /A quiet interface 3/ })).not.toBeInTheDocument();
     gateway.releaseContent();
     expect(await screen.findByRole("option", { name: /A quiet interface 3/ })).toBeInTheDocument();
     await user.clear(screen.getByRole("combobox", { name: "Search notes and files" }));
-    expect(await screen.findByText("12 notes · 2 files")).toBeInTheDocument();
+    expect(await screen.findByText("13 notes · 2 files")).toBeInTheDocument();
     expect(gateway.listCalls).toBe(1);
   });
 
@@ -585,12 +585,12 @@ describe("mdbase editor", () => {
     const user = userEvent.setup();
     render(<App gateway={gateway} />);
 
-    expect(await screen.findByText("3 notes · 2 files")).toBeInTheDocument();
+    expect(await screen.findByText("4 notes · 2 files")).toBeInTheDocument();
     expect(gateway.hydrateCalls).toBe(0);
     await user.type(screen.getByRole("combobox", { name: "Search notes and files" }), "Record 3 remains");
     await waitFor(() => expect(gateway.hydrateCalls).toBe(1));
 
-    expect(await screen.findByText(/searching 1 of 3/)).toBeInTheDocument();
+    expect(await screen.findByText(/searching 1 of 4/)).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /A quiet interface 3/ })).not.toBeInTheDocument();
     gateway.releaseContent();
 
@@ -602,7 +602,7 @@ describe("mdbase editor", () => {
     const gateway = new RetryingContentGateway();
     const user = userEvent.setup();
     render(<App gateway={gateway} />);
-    await screen.findByText("3 notes · 2 files");
+    await screen.findByText("4 notes · 2 files");
     await screen.findByRole("textbox", { name: "Note body" });
     const region = screen.getByRole("region", { name: "Linked from" });
     const linked = () => within(region.querySelector<HTMLElement>(".backlink-list")!).queryAllByRole("button");
@@ -627,7 +627,7 @@ describe("mdbase editor", () => {
     const user = userEvent.setup();
     render(<App gateway={gateway} />);
 
-    await screen.findByText("3 notes · 2 files");
+    await screen.findByText("4 notes · 2 files");
     await user.type(screen.getByRole("combobox", { name: "Search notes and files" }), "Record 3 remains");
     const retry = await screen.findByRole("button", { name: "Retry search" });
     expect(retry).toHaveAttribute("title", "The full-text index could not be read.");

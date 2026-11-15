@@ -24,6 +24,22 @@ interface CachedAuthority {
   version: number;
 }
 
+const MDBASE_README = `# mdbase
+
+This folder holds the setup for this collection: the types that describe your
+notes, the data contracts apps rely on, and each app's settings. Apps such as
+TaskNotes create and update these files for you.
+
+You can open and read anything here. Avoid deleting or renaming files unless you
+know what they're for: apps use them to understand your notes.
+
+- \`types/\`: what each kind of note looks like (for example, a task).
+- \`contracts/\` and \`schemas/\`: shared definitions apps agree on.
+- \`settings/\`: one file per app, holding settings everyone using that app here shares.
+
+Learn more at https://mdbase.dev.
+`;
+
 export type HostedTemplate = "mdbase" | "onboarding";
 
 export interface ReferenceAuthorityTransfer {
@@ -67,6 +83,14 @@ export class HostedAuthorityRegistry {
   ): Promise<void> {
     await this.schemaReady;
     const authority = new MemoryAuthority({ id: collectionId, ...authorityOptions(hostedResources(template, timezone)) });
+    authority.seed([{
+      record_id: "472c248d-e8c2-4fea-a3cf-85c965b5dd14",
+      path: "_mdbase/README.md",
+      types: [],
+      frontmatter: {},
+      body: MDBASE_README,
+      document: MDBASE_README
+    }]);
     await this.db.query(
       `INSERT INTO hosted_authority_states (collection_id, state, version)
        VALUES ($1, $2::jsonb, 1)`,
@@ -471,9 +495,9 @@ export function mdbaseResources(timezone = "UTC"): SyncCollectionResources {
   // Keep this revision and configuration aligned with the Rust hosted provider's
   // template; the in-process reference authority provisions collections independently.
   const configuration =
-    `spec_version: 0.3.0\nsettings:\n  types_folder: _types\n  validation: error\n  timezone: ${timezone}\nx-obsidian:\n  bases:\n    include:\n      - views/**/*.base\n`;
+    `spec_version: 0.3.0\nsettings:\n  types_folder: _mdbase/types\n  contracts_folder: _mdbase/contracts\n  validation: error\n  timezone: ${timezone}\nx-obsidian:\n  bases:\n    include:\n      - views/**/*.base\n`;
   return {
-    revision: "mdbase-template:3",
+    revision: "mdbase-template:4",
     spec_version: "0.3.0",
     types: [],
     contracts: [],

@@ -42,8 +42,8 @@ fn init(tag: &str) -> (PathBuf, Collection) {
         },
     )
     .unwrap();
-    std::fs::create_dir_all(root.join("_types")).unwrap();
-    std::fs::write(root.join("_types/task.md"), TASK_TYPE).unwrap();
+    std::fs::create_dir_all(root.join("_mdbase/types")).unwrap();
+    std::fs::write(root.join("_mdbase/types/task.md"), TASK_TYPE).unwrap();
     col.rescan().unwrap();
     (root, col)
 }
@@ -61,6 +61,47 @@ fn init_open_and_not_a_collection() {
     drop(col);
     let col = Collection::open(&root).unwrap();
     assert_eq!(col.types(), Vec::<String>::new());
+}
+
+#[test]
+fn init_writes_metadata_layout_only_for_new_configs_and_preserves_readmes() {
+    let root = dir("metadata-layout");
+    let col = Collection::init(
+        &root,
+        InitOptions {
+            name: Some("Notes".into()),
+            timezone: Some("UTC".into()),
+        },
+    )
+    .unwrap();
+    let config = std::fs::read_to_string(root.join("mdbase.yaml")).unwrap();
+    assert!(config.contains("name: \"Notes\""));
+    assert!(config.contains(
+        "types_folder: _mdbase/types\n  contracts_folder: _mdbase/contracts\n  timezone: \"UTC\""
+    ));
+    assert_eq!(
+        std::fs::read_to_string(root.join("_mdbase/README.md")).unwrap(),
+        include_str!("../../../../templates/mdbase/README.md")
+    );
+    drop(col);
+    std::fs::write(root.join("_mdbase/README.md"), "User documentation\n").unwrap();
+    std::fs::remove_file(root.join("mdbase.yaml")).unwrap();
+    drop(Collection::init(&root, InitOptions::default()).unwrap());
+    assert_eq!(
+        std::fs::read_to_string(root.join("_mdbase/README.md")).unwrap(),
+        "User documentation\n"
+    );
+
+    let root = dir("existing-layout");
+    std::fs::create_dir_all(&root).unwrap();
+    let original = "spec_version: '0.3.0'\nsettings:\n  timezone: UTC\n";
+    std::fs::write(root.join("mdbase.yaml"), original).unwrap();
+    drop(Collection::init(&root, InitOptions::default()).unwrap());
+    assert_eq!(
+        std::fs::read_to_string(root.join("mdbase.yaml")).unwrap(),
+        original
+    );
+    assert!(!root.join("_mdbase").exists());
 }
 
 #[test]

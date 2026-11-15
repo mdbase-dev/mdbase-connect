@@ -104,14 +104,14 @@ test("asks before a shared link or text becomes a note", async ({ page }) => {
   await expect(dialog).toContainText("Groceries");
   await expect(dialog).toContainText("Milk and eggs");
   await expect(page).not.toHaveURL(/[?&](new|text|url)=/);
-  await expect(page.locator(".list-header p")).toContainText("4 notes");
+  await expect(page.locator(".list-header p")).toContainText("5 notes");
 
   await dialog.getByRole("button", { name: "Create note" }).click();
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Groceries");
   const body = page.getByRole("textbox", { name: "Note body" });
   await expect(body).toContainText("Milk and eggs");
   await expect(body).toContainText("https://example.com/list");
-  await expect(page.locator(".list-header p")).toContainText("5 notes");
+  await expect(page.locator(".list-header p")).toContainText("6 notes");
 });
 
 test("writes nothing when a shared note is declined", async ({ page }) => {
@@ -120,8 +120,8 @@ test("writes nothing when a shared note is declined", async ({ page }) => {
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await expect(dialog).toBeHidden();
   await expect(page.getByRole("textbox", { name: "Note title" })).not.toHaveValue("Unwanted");
-  await expect(page.locator(".list-header p")).toContainText("4 notes");
+  await expect(page.locator(".list-header p")).toContainText("5 notes");
   await page.reload();
-  await expect(page.locator(".list-header p")).toContainText("4 notes");
+  await expect(page.locator(".list-header p")).toContainText("5 notes");
   await expect(page.getByRole("alertdialog")).toHaveCount(0);
 });

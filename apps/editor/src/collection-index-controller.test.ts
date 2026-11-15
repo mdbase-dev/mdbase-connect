@@ -22,10 +22,10 @@ describe("editor observe presentation", () => {
       counts.push([state.notes.length, state.total]);
     });
     const load = index.reload();
-    expect((await load).notes).toHaveLength(250);
+    expect((await load).notes).toHaveLength(251);
     expect(lengths).toContain(200);
-    expect(counts).toContainEqual([200, 250]);
-    expect(index.getSnapshot()).toMatchObject({ total: 250, structureComplete: true, contentComplete: true });
+    expect(counts).toContainEqual([200, 251]);
+    expect(index.getSnapshot()).toMatchObject({ total: 251, structureComplete: true, contentComplete: true });
     await index.hydrate();
     expect(observe).toHaveBeenCalledOnce();
     index.reset();

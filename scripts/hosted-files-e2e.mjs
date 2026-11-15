@@ -50,6 +50,7 @@ try {
     display_name: "Hosted files",
     timezone: "UTC"
   });
+  const initialHead = Number(await pg(`SELECT head FROM hosted_provider_collections WHERE id = '${collectionId}'`));
   const writer = { id: randomUUID(), token: `writer-${randomUUID()}-${randomUUID()}` };
   await internal(provider.url, `/internal/v1/collections/${collectionId}/replicas`, {
     replica_id: writer.id,
@@ -220,9 +221,9 @@ try {
   assert.deepEqual(changes.events.map((event) => event.type), ["file_put", "file_put", "file_put", "file_put", "file_remove"]);
 
   assert.equal((await mc("find", `local/${bucket}`)).trim().split("\n").filter((line) => line.includes("/v1/blobs/")).length, 3);
-  await internal(provider.url, `/internal/v1/collections/${collectionId}/compact`, { through: 4 });
+  await internal(provider.url, `/internal/v1/collections/${collectionId}/compact`, { through: initialHead + 4 });
   assert.equal((await mc("find", `local/${bucket}`)).trim().split("\n").filter((line) => line.includes("/v1/blobs/")).length, 3);
-  await internal(provider.url, `/internal/v1/collections/${collectionId}/compact`, { through: 5 });
+  await internal(provider.url, `/internal/v1/collections/${collectionId}/compact`, { through: initialHead + 5 });
   assert.equal((await mc("find", `local/${bucket}`)).trim().split("\n").filter((line) => line.includes("/v1/blobs/")).length, 2);
   const accounting = await pg(`SELECT file_count || ':' || file_bytes || ':' || stored_file_bytes FROM hosted_provider_collections WHERE id = '${collectionId}'`);
   assert.equal(accounting, `2:${small.length + large.length}:${small.length + large.length}`);

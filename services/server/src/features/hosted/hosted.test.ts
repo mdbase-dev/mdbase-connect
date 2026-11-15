@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { parse } from "yaml";
@@ -19,7 +20,7 @@ describe("hosted collection profiles", () => {
   it.each(["mdbase", "onboarding"])("allows neutral Base paths in fresh %s templates", (name) => {
     const resources = hostedResources(name);
     const configuration = resources.documents[0]!;
-    expect(resources.revision).toBe("mdbase-template:3");
+    expect(resources.revision).toBe("mdbase-template:4");
     expect(configuration).toMatchObject({
       path: "mdbase.yaml",
       kind: "configuration"
@@ -27,7 +28,8 @@ describe("hosted collection profiles", () => {
     expect(parse(configuration.document)).toEqual({
       spec_version: "0.3.0",
       settings: {
-        types_folder: "_types",
+        types_folder: "_mdbase/types",
+        contracts_folder: "_mdbase/contracts",
         validation: "error",
         timezone: "UTC"
       },
@@ -64,6 +66,11 @@ describe("persisted hosted authority", () => {
       allowedTypes: []
     });
     const transport = await registry.transport(collectionId, replicaId);
+    const session = await transport.openSession();
+    const snapshot = await transport.snapshot(session.snapshot_id);
+    expect(snapshot.records.find((record) => record.path === "_mdbase/README.md")?.document).toBe(
+      readFileSync(new URL("../../../../../templates/mdbase/README.md", import.meta.url), "utf8")
+    );
     const receipt = await transport.mutate({
       mutation_id: randomUUID(),
       replica_id: replicaId,
@@ -116,7 +123,7 @@ describe("persisted hosted authority", () => {
     });
     expect(replay).toMatchObject({ status: "previously_applied", record: { path: "records/one.md" } });
     const session = await transport.openSession();
-    const current = (await transport.snapshot(session.snapshot_id)).records[0]!;
+    const current = (await transport.snapshot(session.snapshot_id)).records.find((record) => record.path === "records/one.md")!;
     const updates = await Promise.all([
       transport.mutate({
         mutation_id: randomUUID(), replica_id: replicaId, scope_epoch: 1,
@@ -211,7 +218,7 @@ describe("persisted hosted authority", () => {
     });
 
     const snapshot = await reader.snapshot(pinned.snapshot_id);
-    expect(snapshot.records.map((record) => record.path)).toEqual(["records/one.md"]);
+    expect(snapshot.records.map((record) => record.path)).toEqual(["_mdbase/README.md", "records/one.md"]);
     const changes = await reader.changes(pinned.head);
     expect(changes.events).toEqual([
       expect.objectContaining({ type: "put", record: expect.objectContaining({ path: "records/two.md" }) })

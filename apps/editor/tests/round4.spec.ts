@@ -23,7 +23,7 @@ for (const width of [1440, 390]) for (const theme of ["light", "dark"] as const)
       await page.keyboard.type("gtscx");
       await expect(page.getByRole("combobox", { name: "Search notes and files" })).toHaveValue("gtscx");
       await page.getByRole("combobox", { name: "Search notes and files" }).fill("");
-      await expect(page.locator(".list-header p")).toHaveText("40 notes · 2 files");
+      await expect(page.locator(".list-header p")).toHaveText("41 notes · 2 files");
       await list.click({ position: { x: 20, y: 10 } });
       await expect(list).toBeFocused();
       await page.keyboard.press("g"); await page.keyboard.press("t");
