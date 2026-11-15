@@ -927,6 +927,10 @@ msgstr "Ablehnen"
 msgid "Rejected"
 msgstr "Abgelehnt"
 
+#: src/screens.tsx
+msgid "Reload"
+msgstr "Neu laden"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Reload"
@@ -1214,6 +1218,10 @@ msgstr "Absteigend sortieren"
 msgctxt "Collection access interface"
 msgid "Starting {app}…"
 msgstr "{app} wird gestartet…"
+
+#: src/screens.tsx
+msgid "Still opening? Check your connection."
+msgstr "Wird noch geöffnet? Prüfen Sie Ihre Verbindung."
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"

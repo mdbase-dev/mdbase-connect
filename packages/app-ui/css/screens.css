@@ -17,8 +17,13 @@
   .mdbase-page { padding: 2rem 1.25rem; }
 }
 
-/* Opening a collection: the wordmark, scanning, over one quiet line. */
+/*
+ * Opening: the app's mark scans over its name and one quiet line. Apps also paint this
+ * markup as static HTML before any script runs (`@mdbase-dev/ui/opening-page`), so these
+ * rules must hold with only tokens.css and brand.css beside them.
+ */
 .mdbase-opening {
+  box-sizing: border-box;
   width: 100%;
   height: 100%;
   min-height: 100%;
@@ -26,76 +31,133 @@
   place-items: center;
   overflow: hidden;
   background: var(--color-canvas);
+  color: var(--color-text-soft);
+  font-family: var(--sans);
+  font-size: var(--font-size-ui);
+  line-height: 1.5;
+  text-align: center;
+}
+
+/* A page-level opening fills the window, lifted a little above centre. */
+:is(body, body > *) > main.mdbase-opening {
+  min-height: 100dvh;
+  padding: 32px 24px calc(32px + 8vh);
+}
+
+body:has(> main.mdbase-opening, > * > main.mdbase-opening) {
+  margin: 0;
 }
 
 .mdbase-opening-message {
   display: grid;
   justify-items: center;
-  gap: 14px;
-  color: var(--color-text-soft);
-  text-align: center;
 }
 
-.mdbase-opening .wordmark-mark > .mdbase-mark {
+.mdbase-opening-mark {
+  display: block;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 20px;
+}
+
+.mdbase-opening-mark > svg {
   display: block;
   width: 100%;
   height: 100%;
 }
 
-.mdbase-opening-message p,
-.mdbase-opening-message small {
-  display: block;
+.mdbase-opening-name {
+  margin-bottom: 12px;
+  color: var(--color-text);
+  font-family: var(--mono);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+.mdbase-opening-name strong {
+  color: var(--color-text-muted);
+  font-weight: inherit;
+}
+
+/* Status, failure and the no-JavaScript notice share one line. */
+.mdbase-opening-text {
+  display: grid;
+  max-width: 46ch;
+}
+
+.mdbase-opening-text > * {
+  grid-column: 1;
   margin: 0;
 }
 
-.mdbase-opening-message p {
-  max-width: 44ch;
-  font-size: var(--font-size-ui);
+.mdbase-opening-text > :is([role="status"], [role="alert"], noscript) {
+  grid-row: 1;
 }
 
-.mdbase-opening-message small {
+.mdbase-opening-text p {
+  margin: 0;
+}
+
+.mdbase-opening-text small {
+  display: block;
   margin-top: 4px;
   color: var(--color-text-muted);
   font-size: var(--font-size-caption);
 }
 
-.mdbase-opening[data-loading-state="failed"] .mdbase-opening-message p {
+.mdbase-opening-text [role="alert"] {
   color: var(--color-danger);
 }
 
-/* The launch screen: the mark the flock flies onto, then the quiet line. */
-.mdbase-opening-launch-mark {
-  display: block;
-  width: 42px;
-  height: 42px;
-  margin-bottom: var(--space-2);
+.mdbase-opening-nojs {
+  color: var(--color-text);
 }
 
-.mdbase-opening-launch-mark .mdbase-mark {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-/* While the flock flies, the canvas draws the mark; the real one takes over when it lands. */
-.mdbase-opening-launch[data-entrance="flying"] .mdbase-opening-launch-mark {
+/* Help appears only once an open has taken long enough to be worth questioning. */
+.mdbase-opening-help {
+  margin: 6px 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
   visibility: hidden;
-}
-
-.mdbase-opening-launch-text {
-  transition: opacity var(--motion-slow) var(--ease-out);
-}
-
-.mdbase-opening-launch[data-entrance="flying"] .mdbase-opening-launch-text {
   opacity: 0;
+  animation: mdbase-opening-help 240ms cubic-bezier(0.22, 1, 0.36, 1) 8s forwards;
 }
 
-.mdbase-opening-flock {
-  position: fixed;
-  inset: 0;
-  width: 100vw;
-  height: 100vh;
-  pointer-events: none;
+@keyframes mdbase-opening-help {
+  to { visibility: visible; opacity: 1; }
+}
+
+.mdbase-opening a {
+  color: var(--color-text);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.mdbase-opening .mdbase-button {
+  margin-top: 14px;
+}
+
+/* Failed, or without JavaScript, nothing is being waited for: the scan and the help stop. */
+.mdbase-opening:is([data-loading-state="failed"], :has(.mdbase-opening-nojs)) :is(.mdbase-opening-text > [role="status"], .mdbase-opening-help) {
+  display: none;
+}
+
+.mdbase-opening:is([data-loading-state="failed"], :has(.mdbase-opening-nojs)) .mdbase-motion-scan :is(.mdbase-mark-fence, .mdbase-mark-row) {
+  animation: none;
+  opacity: 1;
+}
+
+.mdbase-opening[data-loading-state="failed"] .mdbase-mark-accent {
+  fill: var(--color-danger);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mdbase-opening-help {
+    animation-duration: 0s;
+  }
 }
 
 /* Before a collection is open. */

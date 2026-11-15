@@ -927,6 +927,10 @@ msgstr "Refuser"
 msgid "Rejected"
 msgstr "Refusé"
 
+#: src/screens.tsx
+msgid "Reload"
+msgstr "Recharger"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Reload"
@@ -1214,6 +1218,10 @@ msgstr "Tri décroissant"
 msgctxt "Collection access interface"
 msgid "Starting {app}…"
 msgstr "Démarrage de {app}…"
+
+#: src/screens.tsx
+msgid "Still opening? Check your connection."
+msgstr "Toujours en cours d’ouverture ? Vérifiez votre connexion."
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"

@@ -40,6 +40,51 @@ applyThemePreference(loadThemePreference());
   are omitted; shared metadata never falls back to production origins. The
   switcher's menu ends with a "Build your own" link to the SDK guide.
 
+## Opening screen
+
+Every app opens on the same screen: its mark scanning above `mdbase <app>`
+and a line saying what it is opening. Paint it from index.html, before any
+script runs, and render `OpeningScreen` from `@mdbase-dev/ui/screens` while
+the app loads after that. Both produce the same DOM, so the hand-over is
+invisible.
+
+```ts
+// vite.config.ts
+import { mdbaseOpeningPage } from "@mdbase-dev/ui/opening-page";
+
+plugins: [react(), mdbaseOpeningPage({
+  app: "reader",
+  title: "Opening your library",
+  themeColor: { light: "#fcfcfd", dark: "#1b1d23" },
+})];
+```
+
+```html
+<!-- index.html: keep <meta charset>; drop any theme-color meta and theme script -->
+<div id="root"><!--mdbase-opening--></div>
+```
+
+```tsx
+<Suspense fallback={<OpeningScreen app="reader" title={t`Opening your library`} />}>
+```
+
+- The plugin inlines `tokens.css`, `brand.css` and `screens.css` right after
+  `<meta charset>`, ahead of the app's own CSS, and writes the
+  `theme-color` meta. It refuses an index.html without the marker or charset,
+  or one that already sets theme-color.
+- Its one inline script applies the saved theme before first paint. Until
+  the app replaces the page, it also turns a failed bundle or startup error
+  into the screen's failure state, with a Reload link. An app with a script
+  CSP must allow that script's hash.
+- Without JavaScript the page shows that the app needs it. After eight
+  seconds, CSS alone shows "Still opening? Check your connection." with a
+  Reload link.
+- The static page is English: it paints before any catalogue loads. The
+  React screen takes over in the reader's language.
+- `OpeningScreen`'s `error` shows the failure state, and `onRetry` adds Try
+  again. `layout="panel"` renders a `div` without the reload hint, for a
+  screen inside the app's own chrome.
+
 ## Icon-button tooltips
 
 Import `Tooltip` from `@mdbase-dev/ui/tooltip` and include `controls.css`.

@@ -927,6 +927,10 @@ msgstr "Отклонить"
 msgid "Rejected"
 msgstr "Отклонено"
 
+#: src/screens.tsx
+msgid "Reload"
+msgstr "Перезагрузить"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Reload"
@@ -1214,6 +1218,10 @@ msgstr "По убыванию"
 msgctxt "Collection access interface"
 msgid "Starting {app}…"
 msgstr "Запуск {app}…"
+
+#: src/screens.tsx
+msgid "Still opening? Check your connection."
+msgstr "Всё ещё открывается? Проверьте подключение."
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
