@@ -71,6 +71,7 @@ async function desktop({ signedIn = true, collections = [], access = [], devices
       listAccess: async () => fixture.access,
       listApps: async () => ({ applications: fixture.apps }),
       openApp: record("openApp"),
+      openAccount: record("openAccount"),
       getSettings: async () => ({ require_grant_approval: fixture.requireApproval }),
       getLaunchAtLogin: async () => ({ enabled: false, available: false }),
       addCollection: record("addCollection"),
@@ -1212,6 +1213,21 @@ test("collection notices list skipped files and reuse the hold review list", asy
     await page.evaluate(() => { window.fixture.collections[0].notices.shift(); });
     await page.clock.runFor(5_000);
     assert.equal(await page.locator(".collection-notice").count(), 2);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("a refused upload points the collection card at the owner's plan", async () => {
+  const { page, errors, calls } = await desktop({ collections: [collection({ notices: [
+    { code: "quota_exceeded", path: "scans/big.pdf", message: "Server storage is full; this file has not synced." }
+  ] })] });
+  try {
+    await nav(page, "Collections").click();
+    const card = page.locator(".collection-card");
+    await card.getByText("Storage for this collection is full", { exact: false }).waitFor();
+    assert.equal(await card.locator(".collection-notice code").innerText(), "scans/big.pdf");
+    await card.getByRole("button", { name: "Manage in mdbase" }).click();
+    assert.deepEqual(await calls("openAccount"), [[]]);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });

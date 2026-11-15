@@ -1065,6 +1065,7 @@ msgctxt "Confirmation dialog"
 msgid "Make private"
 msgstr "プライベートにする"
 
+#: src/renderer/collections-view.tsx
 #: src/renderer/main.tsx
 msgid "Manage in mdbase"
 msgstr "mdbase で管理"
@@ -1793,6 +1794,11 @@ msgstr "{0} がこのコンピューター経由で {1} を利用するのを停
 #: src/renderer/daemon-view.mts
 msgid "Stopped"
 msgstr "停止しました"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "Storage for this collection is full, so some files haven't synced. Free up space to sync them. If it's your collection and you're on the Free plan, you can upgrade to Plus for more storage."
+msgstr "このコレクションのストレージがいっぱいのため、一部のファイルが同期されていません。同期するには空き容量を確保してください。自分のコレクションで Free プランをご利用の場合は、Plus にアップグレードするとストレージを増やせます。"
 
 #. placeholder {0}: /[.!?]$/.test(sentence) ? sentence : `${sentence}.`
 #: src/renderer/view-model.ts

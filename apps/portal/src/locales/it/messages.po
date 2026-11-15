@@ -1546,12 +1546,11 @@ msgid "Do not share"
 msgstr "Non condividere"
 
 #. placeholder {0}: formatBytes(subscription.limits.max_document_bytes)
-#. placeholder {1}: formatBytes(subscription.limits.max_single_file_bytes)
-#. placeholder {2}: countLabel(subscription.limits.max_mirror_replicas_per_collection, "folder")
-#. placeholder {3}: countLabel(subscription.limits.max_application_replicas_per_collection, "application-installation")
+#. placeholder {1}: countLabel(subscription.limits.max_mirror_replicas_per_collection, "folder")
+#. placeholder {2}: countLabel(subscription.limits.max_application_replicas_per_collection, "application-installation")
 #: src/AccountManagement.tsx
-msgid "Documents up to {0} · files up to {1} · {2} · {3} per collection"
-msgstr "Documenti fino a {0} · file fino a {1} · {2} · {3} per raccolta"
+msgid "Documents up to {0} · {1} · {2} per collection"
+msgstr "Documenti fino a {0} · {1} · {2} per raccolta"
 
 #: src/authority-workflows.tsx
 msgid "Don't allow"
@@ -1661,6 +1660,16 @@ msgstr "Ogni sessione del browser e metodo di accesso"
 #: src/authorization-review.tsx
 msgid "Every visible folder. Hidden folders are always excluded."
 msgstr "Ogni cartella visibile. Le cartelle nascoste sono sempre escluse."
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Everyone your plan allows has already joined your collections. People you invite can't join until you remove someone."
+msgstr "Tutte le persone consentite dal tuo piano si sono già unite alle tue raccolte. Le persone che inviti non potranno unirsi finché non rimuovi qualcuno."
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Everyone your plan allows has already joined your collections. People you invite can't join until you upgrade to Plus or remove someone."
+msgstr "Tutte le persone consentite dal tuo piano si sono già unite alle tue raccolte. Le persone che inviti non potranno unirsi finché non passi a Plus o rimuovi qualcuno."
 
 #: src/authority-workflows.tsx
 msgid "Existing access is revoked. Connect apps again to use the local collection."
@@ -2370,6 +2379,10 @@ msgstr "Nessun computer connesso"
 msgctxt "Connect interface"
 msgid "No computers match"
 msgstr "Nessun computer corrispondente"
+
+#: src/ConnectApp.tsx
+msgid "No member seats left"
+msgstr "Nessun posto membro disponibile"
 
 #: src/authorization-view.tsx
 msgid "No requesting origin is available. Continue only if you started this connection intentionally."
@@ -3848,9 +3861,13 @@ msgctxt "Connect interface"
 msgid "Updating access…"
 msgstr "Aggiornamento dell'accesso…"
 
+#: src/ConnectApp.tsx
+msgid "Upgrade to Plus"
+msgstr "Passa a Plus"
+
 #: src/AccountManagement.tsx
-msgid "Upgrade to Plus for {storage} of storage, {collections}, files up to {fileSize} and {people} per collection."
-msgstr "Passa a Plus per {storage} di spazio, {collections}, file fino a {fileSize} e {people} per raccolta."
+msgid "Upgrade to Plus for {storage} of storage, {collections} and {people} per collection."
+msgstr "Passa a Plus per {storage} di spazio, {collections} e {people} per raccolta."
 
 #: src/AccountManagement.tsx
 msgid "Upgrade to Plus for more storage, collections and people."
@@ -4047,8 +4064,8 @@ msgid "Your account has been deleted."
 msgstr "L'account è stato eliminato."
 
 #: src/collection-quota-copy.generated.ts
-msgid "Your account has reached its synced collection limit. Open an existing collection, delete one you own if Delete is available, or contact mdbase support to raise your limit."
-msgstr "Il tuo account ha raggiunto il limite di raccolte sincronizzate. Apri una raccolta esistente, eliminane una di tua proprietà se l’opzione Elimina è disponibile oppure contatta l’assistenza mdbase per aumentare il limite."
+msgid "Your account has reached its synced collection limit. Open an existing collection, delete one you own if Delete is available, or, if you're on the Free plan, upgrade to Plus from your mdbase account page."
+msgstr "Il tuo account ha raggiunto il limite di raccolte sincronizzate. Apri una raccolta esistente, eliminane una di tua proprietà se l’opzione Elimina è disponibile oppure, se hai il piano Free, passa a Plus dalla pagina del tuo account mdbase."
 
 #: src/onboarding-view.tsx
 msgid "Your account is ready. Create a collection now, or continue without one."

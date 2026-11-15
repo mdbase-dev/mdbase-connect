@@ -155,6 +155,7 @@ describe("account management", () => {
     expect(subscription.limits.retained_file_bytes).toBe(2_147_483_648);
     expect(subscription.usage).toEqual({
       hosted_collections: 1,
+      collection_member_seats: 0,
       live_content_bytes: 4_096,
       live_file_bytes: 1_024,
       live_storage_bytes: 5_120,

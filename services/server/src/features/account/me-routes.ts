@@ -29,6 +29,7 @@ import { nativeDevicesByCollection } from "../next/native-grant-target.js";
 import { nextFileBytes } from "../next/storage-usage.js";
 import { nativeCollectionQuotaUsage } from "../next/policy-outbox.js";
 import { currentPlusSubscription, PLUS_ENTITLEMENT_PROFILE } from "../billing/billing.js";
+import { collectionMemberSeatUsage } from "../collections/collection-invitations.js";
 
 /** The native replica's record source cap (`RECORD_SOURCE_CAP_BYTES`, pinned by
  * document-limit.test.ts). It bounds every next-backend document; an entitlement's
@@ -331,12 +332,14 @@ export function registerAccountOverviewRoute(
         // storage is `native_storage_bytes`, so the legacy byte figures are null.
         usage: creation.backend === "next" ? {
           hosted_collections: await nativeCollectionQuotaUsage(options.db, user.id),
+          collection_member_seats: await collectionMemberSeatUsage(options.db, user.id),
           live_content_bytes: null,
           live_file_bytes: null,
           live_storage_bytes: null,
           retained_file_bytes: null
         } : hostedUsage ? {
           hosted_collections: hostedUsage.collection_count,
+          collection_member_seats: await collectionMemberSeatUsage(options.db, user.id),
           live_content_bytes: hostedUsage.live_content_bytes,
           live_file_bytes: hostedUsage.live_file_bytes,
           live_storage_bytes:
