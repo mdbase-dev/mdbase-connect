@@ -460,7 +460,7 @@ impl CollectionAuthority {
             generation: entry.generation,
             authority_epoch: self.epoch,
             lease_generation: *state.setup_lease_generations.get(&collection)?,
-            setup: cached.declared_setup.as_ref()?.core_setup().ok()?,
+            setup: cached.declared_setup.as_ref()?.core_setup().ok()?.clone(),
         })
     }
 
