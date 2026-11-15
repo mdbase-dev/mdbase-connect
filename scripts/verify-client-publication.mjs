@@ -27,8 +27,29 @@ export async function verifyProductionReadiness(sha, version, fetchImpl = global
   }
 }
 
+// A rolling Server CD promotion briefly serves Connect and MCP from different
+// revisions, or restarts a service. Callers may wait out that window with
+// `settleMs`; every assertion is unchanged and a mismatched identity is never
+// accepted. Only readiness and the Connect/MCP revision pairing are re-observed.
+class ProductionInTransition extends Error {}
+
 // Shared observation, not publication permission: callers retain their own source gates.
-export async function readProductionRelease(fetchImpl = globalThis.fetch) {
+export async function readProductionRelease(fetchImpl = globalThis.fetch, {
+  settleMs = 0, pollMs = 45_000, now = Date.now, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+} = {}) {
+  const deadline = now() + settleMs;
+  for (;;) {
+    try {
+      return await observeProductionRelease(fetchImpl);
+    } catch (error) {
+      if (!(error instanceof ProductionInTransition) || now() + pollMs > deadline) throw error;
+      console.error(`${error.message} Re-observing in ${Math.round(pollMs / 1000)} s while a promotion settles.`);
+      await sleep(pollMs);
+    }
+  }
+}
+
+async function observeProductionRelease(fetchImpl) {
   async function get(origin, path) {
     const response = await fetchImpl(`${origin}${path}`, {
       redirect: "error",
@@ -36,7 +57,10 @@ export async function readProductionRelease(fetchImpl = globalThis.fetch) {
       headers: { accept: "application/json", "cache-control": "no-cache" },
       signal: AbortSignal.timeout(15_000)
     });
-    if (!response.ok) throw new Error(`${origin}${path}: HTTP ${response.status}`);
+    if (!response.ok) {
+      const Failure = path === "/ready" && response.status >= 500 ? ProductionInTransition : Error;
+      throw new Failure(`${origin}${path}: HTTP ${response.status}`);
+    }
     return response.json();
   }
   const connect = await get(connectOrigin, "/health");
@@ -50,7 +74,8 @@ export async function readProductionRelease(fetchImpl = globalThis.fetch) {
   }
   const ready = await get(connectOrigin, "/ready");
   if (ready?.ok !== true || ready.service !== "mdbase-connect") {
-    throw new Error("Canonical production Connect is not ready.");
+    const Failure = ready?.service === "mdbase-connect" ? ProductionInTransition : Error;
+    throw new Failure("Canonical production Connect is not ready.");
   }
   const provider = await get(providerOrigin, "/ready");
   if (provider?.status !== "ready" || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(provider.provider?.version ?? "") ||
@@ -59,11 +84,14 @@ export async function readProductionRelease(fetchImpl = globalThis.fetch) {
       !Array.isArray(provider.provider?.capabilities) ||
       !provider.provider.capabilities.every((item) => typeof item === "string") ||
       !provider.provider.capabilities.includes("application-authorization-v2-issuance")) {
-    throw new Error("Canonical production provider version, recovery or fresh-v2 issuance evidence is absent or mismatched.");
+    const Failure = typeof provider?.status === "string" && provider.status !== "ready" ? ProductionInTransition : Error;
+    throw new Failure("Canonical production provider version, recovery or fresh-v2 issuance evidence is absent or mismatched.");
   }
   const mcp = await get(mcpOrigin, "/health");
   if (mcp?.ok !== true || mcp.service !== "mdbase-mcp" || mcp.revision !== connect.revision) {
-    throw new Error("Canonical production MCP identity is absent or mismatched.");
+    const Failure = mcp?.ok === true && mcp.service === "mdbase-mcp" && /^[0-9a-f]{40}$/.test(mcp.revision ?? "")
+      ? ProductionInTransition : Error;
+    throw new Failure("Canonical production MCP identity is absent or mismatched.");
   }
   return { sha: connect.revision, version: provider.provider.version, providerSha: provider.provider.revision };
 }

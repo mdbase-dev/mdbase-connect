@@ -59,7 +59,7 @@ export function proveCompatibility(candidate, production, runGit = git) {
   return { candidate, production, reason: "unchanged-contract-axis" };
 }
 
-export async function verifyCompatibility(env = process.env) {
+export async function verifyCompatibility(env = process.env, { settleMs = 0 } = {}) {
   if (env.GITHUB_REPOSITORY !== repository) throw new Error("Unexpected publication repository.");
   const candidate = env.GITHUB_SHA;
   if (!/^[a-f0-9]{40}$/.test(candidate ?? "") || git("rev-parse", "HEAD") !== candidate) {
@@ -67,7 +67,7 @@ export async function verifyCompatibility(env = process.env) {
   }
   git("fetch", "--no-tags", "origin", "main:refs/remotes/origin/main");
   git("merge-base", "--is-ancestor", candidate, "origin/main");
-  const production = await readProductionRelease();
+  const production = await readProductionRelease(globalThis.fetch, { settleMs });
   const provider = production.providerSha;
   git("fetch", "--no-tags", "origin", production.sha);
   git("fetch", "--no-tags", "origin", provider);

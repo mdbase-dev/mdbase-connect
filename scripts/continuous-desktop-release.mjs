@@ -145,10 +145,15 @@ export function prepareDesktop(env = process.env) {
   if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `value=${tag.slice(1)}\n`);
 }
 
+// Server CD promotes Connect and MCP in sequence over about 15 minutes. A tag
+// run that overlaps it waits for one consistent production identity rather than
+// failing the attempt; the coordinator stays single-shot and retries on schedule.
+export const promotionSettleMs = 25 * 60_000;
+
 export async function compatible(env = process.env) {
   requireRunning(env.DESKTOP_RELEASE_STOPPED);
   assert.equal(api("actions/workflows/desktop-release.yml").state, "active", "Desktop publication workflow has been stopped.");
-  return verifyCompatibility(env);
+  return verifyCompatibility(env, { settleMs: promotionSettleMs });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

@@ -104,8 +104,29 @@ jobs:
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: node scripts/ci/desktop-test-plan.mjs "$BASE" "$HEAD"
 
-  build:
+  # One production observation gates every platform, so platform jobs cannot
+  # disagree about production. It waits out a rolling Server CD promotion.
+  compatibility:
     needs: release-policy-tests
+    if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v') && inputs.operation == 'release'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DESKTOP_RELEASE_STOPPED: ${{ vars.DESKTOP_RELEASE_STOPPED }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Require production-compatible client contracts
+        run: node scripts/continuous-desktop-release.mjs compatible
+
+  build:
+    needs: [release-policy-tests, compatibility]
     if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v') && inputs.operation == 'release'
     name: ${{ matrix.label }}
     environment: desktop-release
@@ -165,10 +186,6 @@ jobs:
       - id: version
         shell: bash
         run: node scripts/continuous-desktop-release.mjs prepare
-
-      - name: Require production-compatible client contracts
-        shell: bash
-        run: node scripts/continuous-desktop-release.mjs compatible
 
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
