@@ -2,6 +2,7 @@ import { verify, type Bundle } from "sigstore";
 import { randomUUID } from "node:crypto";
 import { rename, rm } from "node:fs/promises";
 import {
+  acceptsReleaseChannel,
   channelForVersion,
   compareVersions,
   parseUpdateManifest,
@@ -61,16 +62,17 @@ export interface ReleaseSourceOptions {
 }
 
 /**
- * The highest version on `channel` with valid signed update metadata. Tags are
- * tried newest first and the first one that verifies wins: the signed manifest's
- * version is its tag's, so no lower tag can beat it. A tag without a published
- * release is skipped; a release whose metadata fails is rejected without
- * preventing an older valid one from being found.
+ * The highest version that `channel` accepts (`acceptsReleaseChannel`) with
+ * valid signed update metadata. Tags are tried newest first and the first one
+ * that verifies wins: the signed manifest's version is its tag's, so no lower
+ * tag can beat it. A tag without a published release is skipped; a release
+ * whose metadata fails is rejected without preventing an older valid one from
+ * being found.
  */
 export async function findLatestRelease(options: ReleaseSourceOptions): Promise<ReleaseCandidate | null> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const tags = (await fetchReleaseTags(fetchImpl, options.signal))
-    .filter((tag) => channelForVersion(tag.slice(1)) === options.channel)
+    .filter((tag) => acceptsReleaseChannel(options.channel, channelForVersion(tag.slice(1))))
     .sort((left, right) => compareVersions(right.slice(1), left.slice(1)));
   const rejected: Error[] = [];
   const reject = (tag: string, error: unknown) => {
@@ -135,7 +137,10 @@ async function verifiedCandidate(
   if (manifest.release_url !== url) {
     throw new Error("Signed update manifest does not match its release page.");
   }
-  if (manifest.channel !== options.channel || channelForVersion(manifest.version) !== options.channel) {
+  if (
+    manifest.channel !== channelForVersion(manifest.version) ||
+    !acceptsReleaseChannel(options.channel, manifest.channel)
+  ) {
     throw new Error("Signed update manifest is published on the wrong channel.");
   }
   return { manifest, manifestBytes, release: { tag, url } };

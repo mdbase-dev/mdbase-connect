@@ -8,8 +8,15 @@ daemon on its own and never mixes binaries from different releases.
 
 The desktop checks the GitHub releases for its channel:
 
-- prerelease application versions use the `beta` channel;
-- versions without a prerelease suffix use the `stable` channel.
+- prerelease application versions use the `beta` channel and also take
+  `stable` releases, so the newest of the two by semver order wins and
+  `0.1.0` replaces every `0.1.0-beta.N`;
+- versions without a prerelease suffix use the `stable` channel and never take
+  a beta.
+
+A stable release found by a beta installation is verified exactly as a beta:
+its own tag's workflow identity, and a signed channel document whose channel
+matches its version.
 
 It does not use GitHub's REST API, whose unauthenticated limit of 60 requests
 an hour is shared by everything behind the same public IP. One git
