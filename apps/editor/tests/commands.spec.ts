@@ -277,3 +277,24 @@ test("typewriter scrolling centres the caret and stays opt-in", async ({ page })
   await page.keyboard.press("Escape");
   await expect(page.locator(".app-shell")).not.toHaveClass(/typewriter-mode/);
 });
+
+test("a shortcut changed in Settings formats note text and stays after a reload", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("?demo=12&surface=settings");
+  const section = page.getByRole("region", { name: "Keyboard shortcuts", exact: true });
+  await section.getByRole("searchbox", { name: "Filter commands", exact: true }).fill("bold");
+  const change = section.getByRole("button", { name: "Change shortcut for Bold", exact: true });
+  await change.click();
+  await page.keyboard.press("Control+Shift+B");
+  await expect(change).toHaveText("Ctrl+Shift+B");
+  await expect(change).toBeFocused();
+
+  await page.goto("?demo=12");
+  const body = page.getByRole("textbox", { name: "Note body" });
+  await replaceOpeningNoteBody(body, "alpha beta");
+  await page.keyboard.press("Control+a");
+  await page.keyboard.press("Control+b");
+  await expect(body).toHaveText("alpha beta");
+  await page.keyboard.press("Control+Shift+B");
+  await expect(body).toHaveText("**alpha beta**");
+});

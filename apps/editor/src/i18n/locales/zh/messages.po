@@ -223,6 +223,20 @@ msgstr "{0} 通过多个类型实现了 Person。关联前，请在“类型”�
 msgid "{0} is no longer a comment."
 msgstr "{0} 已不再是评论。"
 
+#. placeholder {0}: shortcutLabel(conflict.chord)
+#. placeholder {1}: label(conflict.owner)
+#: src/settings/ShortcutSettings.tsx
+msgctxt "shortcut settings"
+msgid "{0} is used by {1}, which can’t be changed."
+msgstr "{0} 已被“{1}”使用，且无法更改。"
+
+#. placeholder {0}: shortcutLabel(conflict.chord)
+#. placeholder {1}: label(conflict.owner)
+#: src/settings/ShortcutSettings.tsx
+msgctxt "shortcut settings"
+msgid "{0} is used by {1}."
+msgstr "{0} 已被“{1}”使用。"
+
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
 msgid "{0} link format"
@@ -883,6 +897,11 @@ msgstr "添加路径模式"
 msgid "Add property"
 msgstr "添加属性"
 
+#: src/settings/ShortcutSettings.tsx
+msgctxt "shortcut settings"
+msgid "Add shortcut"
+msgstr "添加快捷键"
+
 #: src/BulkNoteProperties.tsx
 #: src/editor-commands.ts
 #: src/StructuredPropertiesEditor.tsx
@@ -1221,6 +1240,7 @@ msgstr "无法打开此集合"
 #: src/FolderChangeDialog.tsx
 #: src/MoveNoteDialog.tsx
 #: src/SchemaValueEditor.tsx
+#: src/settings/ShortcutSettings.tsx
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
@@ -1248,6 +1268,16 @@ msgstr "资源目录不可用"
 msgctxt "settings view"
 msgid "Change note text without changing the surrounding interface."
 msgstr "调整笔记文字大小，不改变周围的界面。"
+
+#. placeholder {0}: label(id)
+#: src/settings/ShortcutSettings.tsx
+msgctxt "shortcut settings"
+msgid "Change shortcut for {0}"
+msgstr "更改“{0}”的快捷键"
+
+#: src/QuickOpen.tsx
+msgid "Change shortcuts"
+msgstr "更改快捷键"
 
 #: src/note-mutation-presentation.ts
 msgid "Changed elsewhere"
@@ -1560,12 +1590,12 @@ msgstr "舒适"
 msgid "Commands"
 msgstr "命令"
 
-#. placeholder {0}: shortcutLabel(commandDefinitions["command-palette"].shortcut)
+#. placeholder {0}: shortcutLabel(paletteChord)
 #: src/NoteSearchField.tsx
 msgid "Commands · {0}"
 msgstr "命令 · {0}"
 
-#. placeholder {0}: shortcutLabel(commandDefinitions["command-palette"].shortcut)
+#. placeholder {0}: shortcutLabel(paletteChord)
 #: src/NoteSearchField.tsx
 msgid "Commands · {0} outside text"
 msgstr "命令 · 在文本外按 {0}"
@@ -2399,6 +2429,11 @@ msgstr "按标签筛选"
 msgid "Filter by type"
 msgstr "按类型筛选"
 
+#: src/settings/ShortcutSettings.tsx
+msgctxt "shortcut settings"
+msgid "Filter commands"
+msgstr "筛选命令"
+
 #: src/code-editor-completions.ts
 msgid "Filter links by type"
 msgstr "按类型筛选链接"
@@ -2755,6 +2790,11 @@ msgid "Key"
 msgstr "键"
 
 #: src/editor-commands.ts
+msgid "Keyboard shortcuts"
+msgstr "键盘快捷键"
+
+#: src/settings/ShortcutSettings.tsx
+msgctxt "settings view"
 msgid "Keyboard shortcuts"
 msgstr "键盘快捷键"
 
@@ -3243,6 +3283,7 @@ msgid "Name of the new folder in {0}"
 msgstr "{0} 中新文件夹的名称"
 
 #: src/QuickOpen.tsx
+#: src/settings/ShortcutSettings.tsx
 msgid "Navigate"
 msgstr "导航"
 
@@ -3337,6 +3378,11 @@ msgstr "未安装应用契约"
 #: src/TypeBrowser.tsx
 msgid "No automatic matching rules"
 msgstr "没有自动匹配规则"
+
+#: src/settings/ShortcutSettings.tsx
+msgctxt "shortcut settings"
+msgid "No commands match."
+msgstr "没有匹配的命令。"
 
 #: src/TypeBrowser.tsx
 msgid "No connections"
@@ -3491,6 +3537,7 @@ msgid "Not saved yet"
 msgstr "尚未保存"
 
 #: src/QuickOpen.tsx
+#: src/settings/ShortcutSettings.tsx
 msgid "Note"
 msgstr "笔记"
 
@@ -3785,6 +3832,12 @@ msgstr "可选的正则表达式"
 msgid "Order"
 msgstr "顺序"
 
+#: src/QuickOpen.tsx
+#: src/settings/ShortcutSettings.tsx
+msgctxt "shortcut group"
+msgid "Other"
+msgstr "其他"
+
 #: src/type-schema.ts
 msgid "Other collection rules"
 msgstr "其他集合规则"
@@ -3948,6 +4001,11 @@ msgstr "正在准备类型列表…"
 #: src/LoadingScreens.tsx
 msgid "Preparing type workspace…"
 msgstr "正在准备类型工作区…"
+
+#: src/settings/ShortcutSettings.tsx
+msgctxt "shortcut settings"
+msgid "Press keys…"
+msgstr "请按键…"
 
 #: src/code-editor-file-embeds.ts
 #: src/FileViewer.tsx
@@ -4229,10 +4287,21 @@ msgstr "移除 {0} 的链接规则"
 msgid "Remove read default for {0}"
 msgstr "移除 {0} 的读取默认值"
 
+#: src/settings/ShortcutSettings.tsx
+msgctxt "shortcut settings"
+msgid "Remove shortcut"
+msgstr "移除快捷键"
+
 #: src/BulkNoteProperties.tsx
 #: src/editor-commands.ts
 msgid "Remove tag"
 msgstr "移除标签"
+
+#. placeholder {0}: label(id)
+#: src/settings/ShortcutSettings.tsx
+msgctxt "shortcut settings"
+msgid "Remove the shortcut for {0}"
+msgstr "移除“{0}”的快捷键"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -4334,6 +4403,11 @@ msgstr "匹配时必需的字段"
 msgid "Required properties"
 msgstr "必填属性"
 
+#: src/settings/ShortcutSettings.tsx
+msgctxt "shortcut settings"
+msgid "Reset all"
+msgstr "全部重置"
+
 #: src/App.tsx
 msgid "Resize collections sidebar"
 msgstr "调整集合侧边栏大小"
@@ -4361,6 +4435,17 @@ msgstr "资源"
 #: src/contract-catalog.ts
 msgid "resources[{index}].document is too large."
 msgstr "resources[{index}].document 过大。"
+
+#: src/settings/ShortcutSettings.tsx
+msgctxt "shortcut settings"
+msgid "Restore default"
+msgstr "恢复默认"
+
+#. placeholder {0}: label(id)
+#: src/settings/ShortcutSettings.tsx
+msgctxt "shortcut settings"
+msgid "Restore the default shortcut for {0}"
+msgstr "恢复“{0}”的默认快捷键"
 
 #: src/App.tsx
 msgid "Restore unsaved edits"
@@ -4698,6 +4783,11 @@ msgstr "分享的文本"
 msgid "Shortcuts"
 msgstr "快捷键"
 
+#: src/settings/ShortcutSettings.tsx
+msgctxt "settings view"
+msgid "Shortcuts stay in this browser. Keys without Ctrl, ⌘ or Alt work outside text fields."
+msgstr "快捷键保存在此浏览器中。不带 Ctrl、⌘ 或 Alt 的按键在文本框之外生效。"
+
 #: src/TypeBrowser.tsx
 msgid "Show affected notes"
 msgstr "显示受影响的笔记"
@@ -4903,6 +4993,7 @@ msgid "text"
 msgstr "文本"
 
 #: src/QuickOpen.tsx
+#: src/settings/ShortcutSettings.tsx
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 msgid "Text"
@@ -5941,6 +6032,11 @@ msgstr "请使用以 .md 结尾的集合相对路径。"
 #: src/TypeBrowser.tsx
 msgid "Use contract"
 msgstr "使用契约"
+
+#: src/settings/ShortcutSettings.tsx
+msgctxt "shortcut settings"
+msgid "Use it here instead"
+msgstr "改为在此使用"
 
 #: src/ConflictResolver.tsx
 msgid "Use latest"

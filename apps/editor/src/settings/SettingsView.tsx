@@ -1,6 +1,7 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { formatters } from "@mdbase-dev/i18n";
 import { LanguageSetting } from "../i18n/LanguageSetting";
+import { ShortcutSettings } from "./ShortcutSettings";
 import { ArrowLeftIcon as ArrowLeft, CaretRightIcon as ChevronRight, TrashIcon as Trash2 } from "../icons";
 import type { CollectionDescription } from "@mdbase-dev/connect";
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
@@ -64,6 +65,8 @@ export function SettingsView({ description, connection, noteCount, preferences, 
         </SettingRow>
         <LanguageSetting />
       </section>
+
+      <ShortcutSettings />
 
       <section>
         <div className="settings-intro"><h2><Trans context="settings view">Collection</Trans></h2></div>

@@ -223,6 +223,20 @@ msgstr "{0} implémente Personne via plusieurs types. Résolvez ses associations
 msgid "{0} is no longer a comment."
 msgstr "{0} n’est plus un commentaire."
 
+#. placeholder {0}: shortcutLabel(conflict.chord)
+#. placeholder {1}: label(conflict.owner)
+#: src/settings/ShortcutSettings.tsx
+msgctxt "shortcut settings"
+msgid "{0} is used by {1}, which can’t be changed."
+msgstr "{0} est utilisé par {1}, qui ne peut pas être modifié."
+
+#. placeholder {0}: shortcutLabel(conflict.chord)
+#. placeholder {1}: label(conflict.owner)
+#: src/settings/ShortcutSettings.tsx
+msgctxt "shortcut settings"
+msgid "{0} is used by {1}."
+msgstr "{0} est utilisé par {1}."
+
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
 msgid "{0} link format"
@@ -883,6 +897,11 @@ msgstr "Ajouter un modèle de chemin"
 msgid "Add property"
 msgstr "Ajouter une propriété"
 
+#: src/settings/ShortcutSettings.tsx
+msgctxt "shortcut settings"
+msgid "Add shortcut"
+msgstr "Ajouter un raccourci"
+
 #: src/BulkNoteProperties.tsx
 #: src/editor-commands.ts
 #: src/StructuredPropertiesEditor.tsx
@@ -1221,6 +1240,7 @@ msgstr "Impossible d’ouvrir cette collection"
 #: src/FolderChangeDialog.tsx
 #: src/MoveNoteDialog.tsx
 #: src/SchemaValueEditor.tsx
+#: src/settings/ShortcutSettings.tsx
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
@@ -1248,6 +1268,16 @@ msgstr "Catalogue indisponible"
 msgctxt "settings view"
 msgid "Change note text without changing the surrounding interface."
 msgstr "Modifiez le texte des notes sans changer le reste de l’interface."
+
+#. placeholder {0}: label(id)
+#: src/settings/ShortcutSettings.tsx
+msgctxt "shortcut settings"
+msgid "Change shortcut for {0}"
+msgstr "Modifier le raccourci de {0}"
+
+#: src/QuickOpen.tsx
+msgid "Change shortcuts"
+msgstr "Modifier les raccourcis"
 
 #: src/note-mutation-presentation.ts
 msgid "Changed elsewhere"
@@ -1560,12 +1590,12 @@ msgstr "Confortable"
 msgid "Commands"
 msgstr "Commandes"
 
-#. placeholder {0}: shortcutLabel(commandDefinitions["command-palette"].shortcut)
+#. placeholder {0}: shortcutLabel(paletteChord)
 #: src/NoteSearchField.tsx
 msgid "Commands · {0}"
 msgstr "Commandes · {0}"
 
-#. placeholder {0}: shortcutLabel(commandDefinitions["command-palette"].shortcut)
+#. placeholder {0}: shortcutLabel(paletteChord)
 #: src/NoteSearchField.tsx
 msgid "Commands · {0} outside text"
 msgstr "Commandes · {0} hors du texte"
@@ -2399,6 +2429,11 @@ msgstr "Filtrer par étiquette"
 msgid "Filter by type"
 msgstr "Filtrer par type"
 
+#: src/settings/ShortcutSettings.tsx
+msgctxt "shortcut settings"
+msgid "Filter commands"
+msgstr "Filtrer les commandes"
+
 #: src/code-editor-completions.ts
 msgid "Filter links by type"
 msgstr "Filtrer les liens par type"
@@ -2755,6 +2790,11 @@ msgid "Key"
 msgstr "Clé"
 
 #: src/editor-commands.ts
+msgid "Keyboard shortcuts"
+msgstr "Raccourcis clavier"
+
+#: src/settings/ShortcutSettings.tsx
+msgctxt "settings view"
 msgid "Keyboard shortcuts"
 msgstr "Raccourcis clavier"
 
@@ -3243,6 +3283,7 @@ msgid "Name of the new folder in {0}"
 msgstr "Nom du nouveau dossier dans {0}"
 
 #: src/QuickOpen.tsx
+#: src/settings/ShortcutSettings.tsx
 msgid "Navigate"
 msgstr "Naviguer"
 
@@ -3337,6 +3378,11 @@ msgstr "Aucun contrat d’application installé"
 #: src/TypeBrowser.tsx
 msgid "No automatic matching rules"
 msgstr "Aucune règle de correspondance automatique"
+
+#: src/settings/ShortcutSettings.tsx
+msgctxt "shortcut settings"
+msgid "No commands match."
+msgstr "Aucune commande ne correspond."
 
 #: src/TypeBrowser.tsx
 msgid "No connections"
@@ -3491,6 +3537,7 @@ msgid "Not saved yet"
 msgstr "Pas encore enregistrée"
 
 #: src/QuickOpen.tsx
+#: src/settings/ShortcutSettings.tsx
 msgid "Note"
 msgstr "Pour la note"
 
@@ -3785,6 +3832,12 @@ msgstr "Expression régulière facultative"
 msgid "Order"
 msgstr "Ordre"
 
+#: src/QuickOpen.tsx
+#: src/settings/ShortcutSettings.tsx
+msgctxt "shortcut group"
+msgid "Other"
+msgstr "Autres"
+
 #: src/type-schema.ts
 msgid "Other collection rules"
 msgstr "Autres règles de la collection"
@@ -3948,6 +4001,11 @@ msgstr "Préparation de la liste des types…"
 #: src/LoadingScreens.tsx
 msgid "Preparing type workspace…"
 msgstr "Préparation de l’espace de travail des types…"
+
+#: src/settings/ShortcutSettings.tsx
+msgctxt "shortcut settings"
+msgid "Press keys…"
+msgstr "Appuyez sur les touches…"
 
 #: src/code-editor-file-embeds.ts
 #: src/FileViewer.tsx
@@ -4229,10 +4287,21 @@ msgstr "Supprimer la règle de lien pour {0}"
 msgid "Remove read default for {0}"
 msgstr "Supprimer la valeur par défaut en lecture pour {0}"
 
+#: src/settings/ShortcutSettings.tsx
+msgctxt "shortcut settings"
+msgid "Remove shortcut"
+msgstr "Supprimer le raccourci"
+
 #: src/BulkNoteProperties.tsx
 #: src/editor-commands.ts
 msgid "Remove tag"
 msgstr "Supprimer l’étiquette"
+
+#. placeholder {0}: label(id)
+#: src/settings/ShortcutSettings.tsx
+msgctxt "shortcut settings"
+msgid "Remove the shortcut for {0}"
+msgstr "Supprimer le raccourci de {0}"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -4334,6 +4403,11 @@ msgstr "Champ de correspondance obligatoire"
 msgid "Required properties"
 msgstr "Propriétés obligatoires"
 
+#: src/settings/ShortcutSettings.tsx
+msgctxt "shortcut settings"
+msgid "Reset all"
+msgstr "Tout réinitialiser"
+
 #: src/App.tsx
 msgid "Resize collections sidebar"
 msgstr "Redimensionner la barre latérale des collections"
@@ -4361,6 +4435,17 @@ msgstr "ressources"
 #: src/contract-catalog.ts
 msgid "resources[{index}].document is too large."
 msgstr "resources[{index}].document est trop volumineux."
+
+#: src/settings/ShortcutSettings.tsx
+msgctxt "shortcut settings"
+msgid "Restore default"
+msgstr "Rétablir la valeur par défaut"
+
+#. placeholder {0}: label(id)
+#: src/settings/ShortcutSettings.tsx
+msgctxt "shortcut settings"
+msgid "Restore the default shortcut for {0}"
+msgstr "Rétablir le raccourci par défaut de {0}"
 
 #: src/App.tsx
 msgid "Restore unsaved edits"
@@ -4698,6 +4783,11 @@ msgstr "Texte partagé"
 msgid "Shortcuts"
 msgstr "Raccourcis"
 
+#: src/settings/ShortcutSettings.tsx
+msgctxt "settings view"
+msgid "Shortcuts stay in this browser. Keys without Ctrl, ⌘ or Alt work outside text fields."
+msgstr "Les raccourcis restent dans ce navigateur. Les touches sans Ctrl, ⌘ ou Alt fonctionnent hors des champs de texte."
+
 #: src/TypeBrowser.tsx
 msgid "Show affected notes"
 msgstr "Afficher les notes concernées"
@@ -4903,6 +4993,7 @@ msgid "text"
 msgstr "texte"
 
 #: src/QuickOpen.tsx
+#: src/settings/ShortcutSettings.tsx
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 msgid "Text"
@@ -5941,6 +6032,11 @@ msgstr "Utilisez un chemin relatif à la collection se terminant par .md."
 #: src/TypeBrowser.tsx
 msgid "Use contract"
 msgstr "Utiliser le contrat"
+
+#: src/settings/ShortcutSettings.tsx
+msgctxt "shortcut settings"
+msgid "Use it here instead"
+msgstr "L’utiliser ici à la place"
 
 #: src/ConflictResolver.tsx
 msgid "Use latest"
