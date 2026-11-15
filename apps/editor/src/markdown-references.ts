@@ -1,4 +1,6 @@
 import { markdownLanguage } from "@codemirror/lang-markdown";
+import { TreeFragment, type Tree } from "@lezer/common";
+import { changedSpan } from "./changed-span";
 
 export type MarkdownReferenceKind = "link" | "embed";
 export type MarkdownReferenceFormat = "wikilink" | "markdown";
@@ -14,14 +16,35 @@ export interface MarkdownReference {
   block: boolean;
 }
 
-type MarkdownTree = ReturnType<typeof markdownLanguage.parser.parse>;
+/** The latest parses: panes and hooks reading one note's text share its tree. */
+const parses: Array<{ source: string; tree: Tree }> = [];
+
+/**
+ * Parses `source`, reusing the tree of the text it was edited from. An edit
+ * reparses only around the changed span, so typing in a long note does not
+ * parse the whole note again.
+ */
+function parseMarkdown(source: string): Tree {
+  const index = parses.findIndex((parse) => parse.source === source);
+  const parse = index >= 0 ? parses.splice(index, 1)[0]! : { source, tree: reparse(source, parses[0]) };
+  parses.unshift(parse);
+  parses.length = Math.min(parses.length, 4);
+  return parse.tree;
+}
+
+function reparse(source: string, previous: { source: string; tree: Tree } | undefined): Tree {
+  if (!previous) return markdownLanguage.parser.parse(source);
+  const { from, to, insert } = changedSpan(previous.source, source);
+  const fragments = TreeFragment.applyChanges(TreeFragment.addTree(previous.tree), [{ fromA: from, toA: to, fromB: from, toB: from + insert.length }]);
+  return markdownLanguage.parser.parse(source, fragments);
+}
 
 /**
  * Extracts portable Markdown and wiki references from the Markdown syntax tree.
  * Code spans and fenced code are ignored because they never produce Link/Image
  * nodes. Wiki embeds are parsed as Image nodes by the common Markdown grammar.
  */
-export function markdownReferences(source: string, tree: MarkdownTree = markdownLanguage.parser.parse(source)): MarkdownReference[] {
+export function markdownReferences(source: string, tree: Tree = parseMarkdown(source)): MarkdownReference[] {
   const references: MarkdownReference[] = [];
   const cursor = tree.cursor();
   const visit = () => {
@@ -65,7 +88,7 @@ export function markdownReferenceAt(
   source: string,
   position: number,
   kind?: MarkdownReferenceKind,
-  tree?: MarkdownTree
+  tree?: Tree
 ): MarkdownReference | undefined {
   return markdownReferences(source, tree).find((reference) => (
     (!kind || reference.kind === kind)
@@ -91,7 +114,7 @@ function parseWikiReference(
 
 function parseMarkdownReference(
   source: string,
-  node: ReturnType<MarkdownTree["resolve"]>,
+  node: ReturnType<Tree["resolve"]>,
   kind: MarkdownReferenceKind
 ): Pick<MarkdownReference, "target" | "label" | "anchor" | "kind" | "format"> | undefined {
   const url = node.getChild("URL");
