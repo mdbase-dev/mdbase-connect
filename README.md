@@ -172,13 +172,7 @@ service operation and record commands.
 
 ## Self-hosting
 
-mdbase connect is open-source, and advanced operators can run the control
-plane, relay, hosted collection provider, and MCP gateway themselves.
-Self-hosters are responsible for authentication, TLS, signing, upgrades,
-monitoring, backups, and incident response.
-
-Use an immutable beta release tag rather than `main`, and follow the
-[production self-hosting guide](docs/self-hosting.md).
+Self-hosting is not currently supported.
 
 ## Contributing
 
@@ -234,8 +228,8 @@ The desktop app runs on an mdbn-daemon build:
 
 See [Testing](docs/testing-environment.md),
 [Functional stress testing](docs/functional-stress-testing.md),
-[Maintainability](docs/maintainability.md), [Releasing](docs/releasing.md), and
-[Production self-hosting](docs/self-hosting.md) for the complete workflows.
+[Maintainability](docs/maintainability.md), and [Releasing](docs/releasing.md)
+for the complete workflows.
 
 ## License
 

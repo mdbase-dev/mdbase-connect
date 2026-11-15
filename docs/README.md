@@ -82,13 +82,12 @@ Git history is the archive for finished phases, campaigns and superseded designs
 - [timer-operation-recovery.md](timer-operation-recovery.md) — timer operation recovery.
 - [shared-feedback.md](shared-feedback.md) — shared private feedback.
 
-## Desktop, CLI and self-hosting
+## Desktop, CLI and operations
 
 - [cli-daemon.md](cli-daemon.md) — the `mdbase` CLI and daemon: collection deletion and the desktop boundary.
 - [headless.md](headless.md) — headless installation.
 - [desktop-updates.md](desktop-updates.md) — desktop update architecture.
 - [windows-store.md](windows-store.md) — Microsoft Store distribution.
-- [self-hosting.md](self-hosting.md) — production self-hosting.
 - [instance-administration.md](instance-administration.md) — instance administration.
 - [control-plane-migrations.md](control-plane-migrations.md) — control-plane database migrations.
 - [hosted-provider-migrations.md](hosted-provider-migrations.md) — hosted-provider migrations, expand-then-contract and rollback-compatible marking.

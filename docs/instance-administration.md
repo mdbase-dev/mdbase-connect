@@ -1,7 +1,7 @@
 # Instance administration
 
 The server image includes a generic, database-backed administration command for
-self-hosters and managed deployments. It is intentionally a local command, not
+managed deployments. It is intentionally a local command, not
 an HTTP administration API. Run it only in a trusted shell or one-shot job with
 the same environment and `DATABASE_URL` as the Connect service:
 
@@ -194,8 +194,8 @@ fallback. The underlying invitation service also requires an explicit profile or
 JavaScript callers cannot silently omit the decision. No default profile is
 inferred from registration mode or email address.
 
-Self-hosters may omit delivery and receive the one-time invitation URL on
-standard output. Treat that output as a credential. Managed wrappers should
+Without delivery, the command prints the one-time invitation URL on standard
+output. Treat that output as a credential. Managed wrappers should
 force `--send-email enabled --token-output omitted`.
 
 Invitation delivery uses `invitation/<invitation-id>` as the provider
@@ -245,8 +245,8 @@ Read the audit with `audit list --event-type next_policy.unparked`.
 
 `/ready` continues to return HTTP 503 with `next_policy: "parked"` while any
 batch is parked, preserving the production monitor's incident signal. Use
-`/health` for process health and routing, as the self-hosted Compose and managed
-Render configurations do. A collection's policy refusal must not remove the
+`/health` for process health and routing, as the managed Render configurations
+do. A collection's policy refusal must not remove the
 whole Connect instance from rotation or block other services' startup.
 
 ## Audit and deployment properties

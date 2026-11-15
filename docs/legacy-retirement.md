@@ -137,6 +137,14 @@ the provider and the tables below: the to-hosted expiry branch of
 `auth-admin repairs authority-import-sources` command, adoption-row revocation in
 `instance-admin.ts` (with `abortAuthorityImport`), and the tables themselves.
 
+Withdrawn ahead of the provider (2026-11-15): **self-hosting**. The
+`deploy/self-host/` stack ran the legacy provider with no next log service and
+created `legacy` accounts. No shipped client could use it: the legacy connector
+is gone, and installation sign-in refuses a `legacy` account
+(`installation_legacy_backend`). Removed: `deploy/self-host/` (`compose.yml`,
+`.env.example` and `Caddyfile.example`), `docs/self-hosting.md` and their
+references. Self-hosting is not currently supported.
+
 | Unit | Lines | Consumers to remove first |
 | --- | --- | --- |
 | `crates/connect-hosted-provider` (also `mdbase-hosted-backup-admin`, `-key-admin` and `-projection-indexer`), `connect-runtime`, `connect-protocol` (generated Rust) | 86,922 | <ul><li>Render service `mdbase-connect-hosted-provider` and DB `mdbase-connect-hosted-db`, plus the staging and LAB services.</li><li>Connect env `MDBASE_CONNECT_HOSTED_PROVIDER_URL` and `MDBASE_CONNECT_HOSTED_COLLECTIONS`.</li><li>**cloud-ops:** `monitor-production.yml` probe; `validate_desired_state.rb`; the backup and recovery-drill profile `hosted-provider`; `bin/hosted-*` admin tools; `bin/lib/rollback_compat.py`; the provider digests in `ci.yml`.</li><li>Here: `Dockerfile.hosted-provider`, `Cargo.lock.hosted-provider` (also listed in `scripts/lib/release-version.mjs`), `config/release-components.json`, and the Rust outputs of `scripts/generate-{change-events,connect-problems,operation-catalog,application-capabilities}.mjs`, which must stop emitting Rust; also `CODEOWNERS`.</li></ul> |
@@ -147,7 +155,6 @@ the provider and the tables below: the to-hosted expiry branch of
 | `deploy/postgres/*.sql` | 1,167 | cloud-ops `hosted-schema-admin` and `hosted-database-drain-admin` |
 | Provider system suites: `scripts/hosted-provider-e2e.mjs`, `hosted-files-e2e.mjs`, `hosted-file-adversarial-e2e.mjs`, `hosted-projection-scale-e2e.mjs`, `sync-e2e.mjs`, `scripts/system/provider/*`; `server-ci` jobs `hosted-provider-rust`, the `hosted-provider-system` shards, `binary-transfer-benchmark` | about 6.2k | These guard the provider that every CD still deploys. Freezing the provider image digest would move them to Tier 1. |
 | Upgrade lanes: `test/upgrade/*`; `server-ci` jobs `previous-provider-upgrade` (beta94 `--legacy-prelude`), `retained-v2-provider-upgrade` and `retained-v2-server-pending` (beta95); and `rollback-read-compat.yml` | about 2.8k | Same as above. |
-| Self-host: `deploy/self-host/compose.yml`, `docs/self-hosting.md` | 877 | They run the legacy provider with no next log service, and new accounts are `legacy`. No shipped client can use such a stack: the legacy connector is gone, and installation sign-in refuses a `legacy` account (`installation_legacy_backend`). Replace them with a next self-host, or withdraw self-hosting; that is a product decision. |
 | Legacy-stack docs: `docs/sync.md`, `hosted-provider.md`, `lossless-opaque-sync-acceptance.md`, `docs/architecture/hosted-*` and `sdk-wave-b-*`, decisions 0003, 0005, 0006, 0010 and 0011, the legacy sections of `architecture.md`, `performance.md` and `encryption.md` | about 3.8k | Links only |
 
 ### 2b: migration Worker retired
@@ -223,8 +230,8 @@ Do not run any of them from an agent session.
 ## Risks that cross tiers
 
 - `MDBASE_NEW_ACCOUNT_BACKEND` now defaults to `next` in code, and the server refuses
-  to start with `next` but without `MDBASE_NEXT_CONTROL_PLANE=1`. The self-host and
-  local compose stacks, the tailnet stack and the server upgrade tests set `legacy`
+  to start with `next` but without `MDBASE_NEXT_CONTROL_PLANE=1`. The local
+  compose stack, the tailnet stack and the server upgrade tests set `legacy`
   explicitly. Retiring the legacy stack must also remove those settings.
 - Every server CD rebuilds the provider. `continuous_deployment.py` treats changes
   under `crates/**`, `Cargo.toml`, `config`, `mdbase-rs-revision` and

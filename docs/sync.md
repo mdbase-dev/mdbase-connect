@@ -24,8 +24,8 @@ This produces a small user-facing storage model:
   caching.
 - **Mirror to this computer** is an optional property of a cloud collection.
 
-An application uses the same mdbase operations whether the provider is local,
-hosted by mdbase cloud, or self-hosted. Provider and replication details stay
+An application uses the same mdbase operations whether the provider is local or
+hosted by mdbase cloud. Provider and replication details stay
 outside ordinary application workflows.
 
 ## Implemented vertical slice
@@ -585,8 +585,7 @@ collection file bytes:
 
 Free hosted collections can be constrained by record count, current stored
 bytes, R2 file bytes, file egress, and monthly mutation volume. Those limits
-map directly to provider cost and leave local and self-hosted collections
-unrestricted. Attachment/file metadata and quota accounting remain
+map directly to provider cost and leave local collections unrestricted. Attachment/file metadata and quota accounting remain
 transactional provider rows; the corresponding bytes are always R2 objects.
 
 PostgreSQL point-in-time recovery protects hosted metadata. R2 lifecycle,

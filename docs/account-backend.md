@@ -78,8 +78,8 @@ See [the topology-freeze procedure](migration-topology-freeze.md).
 backend of every account the control plane creates: OAuth sign-up, email
 sign-up and invitation acceptance. Any other value refuses to start, and so does
 `next` (including the default) without `MDBASE_NEXT_CONTROL_PLANE=1`.
-Deployments that run only the legacy stack, such as self-hosting and the local
-compose stack, set `legacy` explicitly. It never changes an existing account.
+Deployments that run only the legacy stack, such as the local compose stack, set
+`legacy` explicitly. It never changes an existing account.
 
 A `next` account is created flipped, in the creating transaction, by the same
 writes as the staged flip: the marker, a `next_migration_account_flips` row with
