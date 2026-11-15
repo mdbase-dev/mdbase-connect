@@ -59,8 +59,8 @@ test('current recovery records specific refusal without deleting migration or fe
 test('Server CI runs the current provider upgrade as a qualification lane', async () => {
   const workflow = await readFile(new URL('../../.github/workflows/server-ci.yml', import.meta.url), 'utf8');
   assert.match(workflow, /run: test\/upgrade\/provider-from-previous --current-upgrade/);
-  assert.doesNotMatch(workflow, /retained-v2|legacy-prelude|beta9[45]/);
+  assert.doesNotMatch(workflow, /provider-from-previous --(?:retained-v2|legacy-prelude)|retained-v2-provider-upgrade|historical-prelude/);
   assert.match(workflow, /- current-provider-upgrade/);
   assert.match(workflow, /PROVIDER_UPGRADE: \$\{\{ needs\.current-provider-upgrade\.result \}\}/);
-  assert.match(workflow, /"\$SERVER_UPGRADE" "\$PROVIDER_UPGRADE"/);
+  assert.match(workflow, /"\$SERVER_RETAINED_V2" "\$PROVIDER_UPGRADE"/);
 });

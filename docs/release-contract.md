@@ -97,7 +97,7 @@ an investigation boundary, never permission to replace assets or move a tag.
 Consumers still verify exact source identity, signatures, attestations and
 lockfile integrity; repository protections supplement those checks.
 
-## Upgrade predecessor
+## Upgrade predecessor and the beta95 server regression
 
 `.github/previous-release.env` identifies a versioned published upgrade fixture,
 not a live newest-release pointer. Advance its annotated tag, full commit and
@@ -115,6 +115,16 @@ and qualified by private release preparation and staging below. A fixture
 refresh itself neither publishes nor deploys a release.
 The current fixture is beta105 (`21d035cc31b9b16548c3a57b51ecdc3c1b8c9dde`),
 with server/provider images from verified publication run `35313866662`.
+
+The `retained-v2-server-pending` job (`test/upgrade/server-from-previous
+--retained-v2-pending`, `.github/retained-v2-predecessor.env`) is separate from
+fixture qualification. It builds the candidate server, runs the candidate's
+migrations, then starts the immutable beta95 server on the candidate-migrated
+database and re-upgrades. It is currently the only lane that starts an older
+server on the candidate's control-plane schema, so it stays required until a
+check against the merge-base server replaces it. Its release metadata, annotated
+origin tag and image identity are checked. It does not authorize restoring
+beta95 in production.
 
 The required `current-provider-upgrade` CI job runs
 `test/upgrade/provider-from-previous --current-upgrade` against
