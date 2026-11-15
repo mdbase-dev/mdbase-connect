@@ -618,26 +618,34 @@ fn live_doc(state: &dyn StateView, path: &str) -> Option<String> {
     state.resource(path).map(|s| s.to_string())
 }
 
-/// Target overrides that place a pack's canonical `_types/` and `_contracts/`
-/// targets in the collection's configured `types_folder` and
-/// `contracts_folder`. A caller decision input (spec 05A `target_overrides`):
-/// assessment is unchanged unless the caller passes the result. Other kinds and
-/// targets outside those folders are left as published.
+/// Target overrides for the collection's configured definition folders. Schemas
+/// follow the parent of `contracts_folder`, preserving relative contract refs.
+/// A caller decision input (spec 05A `target_overrides`): assessment is unchanged
+/// unless the caller passes the result.
 pub fn folder_target_overrides(state: &dyn StateView, pack: &Pack) -> BTreeMap<String, String> {
     let catalog = state.catalog();
     let settings = catalog.settings();
     let mut out = BTreeMap::new();
     for r in &pack.resources {
-        let (canonical, folder) = match r.kind.as_str() {
-            "type" => ("_types/", settings.types_folder.as_str()),
-            "contract" => ("_contracts/", settings.contracts_folder.as_str()),
-            _ => continue,
+        let target = match r.kind.as_str() {
+            "type" => r
+                .target
+                .strip_prefix("_types/")
+                .map(|rest| format!("{}/{rest}", settings.types_folder)),
+            "contract" => r
+                .target
+                .strip_prefix("_contracts/")
+                .map(|rest| format!("{}/{rest}", settings.contracts_folder)),
+            "schema" => settings
+                .contracts_folder
+                .rsplit_once('/')
+                .map(|(parent, _)| format!("{parent}/{}", r.target)),
+            _ => None,
         };
-        if let Some(rest) = r.target.strip_prefix(canonical) {
-            let target = format!("{folder}/{rest}");
-            if target != r.target {
-                out.insert(r.target.clone(), target);
-            }
+        if let Some(target) = target
+            && target != r.target
+        {
+            out.insert(r.target.clone(), target);
         }
     }
     out

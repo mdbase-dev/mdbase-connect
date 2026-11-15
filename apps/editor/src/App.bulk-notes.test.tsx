@@ -68,7 +68,7 @@ describe("bulk notes", () => {
     fireEvent.keyDown(list, { key: "ArrowUp", shiftKey: true });
     expect(screen.getByText("2 selected")).toBeInTheDocument();
     fireEvent.keyDown(list, { key: "a", metaKey: true });
-    expect(screen.getByText("5 selected")).toBeInTheDocument();
+    expect(screen.getByText("6 selected")).toBeInTheDocument();
     fireEvent.keyDown(list, { key: "Escape" });
     expect(screen.queryAllByRole("option", { selected: true })).toHaveLength(1);
     expect(screen.queryByText(/\d+ selected/)).not.toBeInTheDocument();
@@ -88,9 +88,9 @@ describe("bulk notes", () => {
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Delete" }));
     const undo = await screen.findByRole("button", { name: "Undo" });
     expect(undo.closest('[role="status"]')).toHaveTextContent("Deleted 2 notes");
-    expect((await gateway.list()).notes).toHaveLength(2);
+    expect((await gateway.list()).notes).toHaveLength(3);
     fireEvent.click(undo);
-    await waitFor(async () => expect((await gateway.list()).notes).toHaveLength(4));
+    await waitFor(async () => expect((await gateway.list()).notes).toHaveLength(5));
     for (const original of originals) {
       const restored = await gateway.read(original.path);
       expect(restored.frontmatter).toEqual(original.frontmatter);
@@ -181,7 +181,7 @@ describe("bulk notes", () => {
     await screen.findByText(/Restored 1 note. 1 couldn’t be changed/);
     fail = false;
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
-    await waitFor(async () => expect((await gateway.list()).notes).toHaveLength(4));
+    await waitFor(async () => expect((await gateway.list()).notes).toHaveLength(5));
     expect(spy.mock.calls.filter(([document]) => document.path === second)).toHaveLength(1);
   });
 

@@ -25,6 +25,9 @@ it("loads the exact SHA-pinned canonical People/Contact provision without a cata
   expect(outdatedPersonStarter(starter(version - 1))).toBeDefined();
   // The Person v1 starter implements mdbase.person 1.0.0 and is offered the same upgrade.
   expect(outdatedPersonStarter(starter(version - 2, "_types/person.md", "1.0.0"))).toMatchObject({ typeVersion: 1 });
+  expect(outdatedPersonStarter({ ...starter(version - 1, "_mdbase/types/person.md"), configuration: {
+    settings: { types_folder: "_mdbase/types" }
+  } })).toBeDefined();
   expect(outdatedPersonStarter(starter(version))).toBeUndefined();
   expect(outdatedPersonStarter(starter(version - 1, "_types/people.md"))).toBeUndefined();
   // Collections record a note's type under settings.explicit_type_keys, which need

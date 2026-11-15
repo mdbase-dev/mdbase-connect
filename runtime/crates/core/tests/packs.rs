@@ -334,6 +334,94 @@ fn folder_overrides_install_into_configured_definition_folders() {
 }
 
 #[test]
+fn schemas_follow_the_contracts_parent_and_relative_refs_resolve_after_install() {
+    let contract = CONTRACT.replace(
+        "value: {type: object, properties: {title: {type: string}}, required: [title]}",
+        "ref: ../../schemas/example.note/1.0.0.schema.json",
+    );
+    let schema =
+        r#"{"type":"object","properties":{"title":{"type":"string"}},"required":["title"]}"#;
+    let resources = [
+        ("type", "_types/note.md", SEED_V1),
+        (
+            "contract",
+            "_contracts/example.note/1.0.0.md",
+            contract.as_str(),
+        ),
+        ("schema", "schemas/example.note/1.0.0.schema.json", schema),
+        ("schema", "_schemas/tasknotes/settings.json", schema),
+    ];
+    let mut manifest =
+        "kind: mdbase.type-pack\nid: example.notes\nversion: 1.0.0\nresources:\n".to_owned();
+    for (kind, target, document) in resources {
+        manifest.push_str(&format!(
+            "  - kind: {kind}\n    mode: managed\n    source: {target}\n    target: {target}\n    digest: {}\n", revision(document)
+        ));
+    }
+    let pack = load_pack(&manifest, &|source| {
+        resources
+            .iter()
+            .find(|(_, path, _)| *path == source)
+            .map(|(_, _, document)| (*document).to_owned())
+    })
+    .unwrap();
+    for prefix in ["", "_mdbase/", "nested/metadata/"] {
+        let mut state = MemState::new();
+        let (types, contracts) = if prefix.is_empty() {
+            ("_types".to_owned(), "_contracts".to_owned())
+        } else {
+            (format!("{prefix}types"), format!("{prefix}contracts"))
+        };
+        state.insert_resource("mdbase.yaml", &format!(
+            "spec_version: '0.3.0'\nsettings:\n  types_folder: {types}\n  contracts_folder: {contracts}\n"
+        ));
+        let overrides = mdbn_core::packs::folder_target_overrides(&state, &pack);
+        if prefix.is_empty() {
+            assert!(overrides.is_empty());
+        } else {
+            assert_eq!(overrides.len(), 4);
+            assert_eq!(
+                overrides["schemas/example.note/1.0.0.schema.json"],
+                format!("{prefix}schemas/example.note/1.0.0.schema.json")
+            );
+            assert_eq!(
+                overrides["_schemas/tasknotes/settings.json"],
+                format!("{prefix}_schemas/tasknotes/settings.json")
+            );
+        }
+        let options = AssessOptions {
+            target_overrides: overrides,
+            ..opts()
+        };
+        let assessment = assess_type_pack(&state, &pack, &options).unwrap();
+        assert!(assessment.applicable(), "{prefix}: {:?}", assessment.issues);
+        let (_, ops) =
+            apply_type_pack(&state, &pack, &options, &assessment.assessment_digest).unwrap();
+        apply(&mut state, ops);
+        assert!(
+            state
+                .resource(&format!("{prefix}schemas/example.note/1.0.0.schema.json"))
+                .is_some()
+        );
+        assert!(
+            state
+                .resource(&format!("{prefix}_schemas/tasknotes/settings.json"))
+                .is_some()
+        );
+        assert_eq!(state.catalog().contracts().len(), 1);
+        assert!(
+            state.catalog().issues().is_empty(),
+            "{:?}",
+            state.catalog().issues()
+        );
+        assert_eq!(
+            assess_type_pack(&state, &pack, &options).unwrap().status,
+            PackStatus::Current
+        );
+    }
+}
+
+#[test]
 fn edited_seed_upgrades_keep_the_publishers_bytes_for_upgraded_entries() {
     let base = "---\nkind: mdbase.type\nname: note\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    required: [id, digest]\n    properties:\n      id: { type: string, minLength: 1 }\n      digest: { type: string, pattern: '^sha256:[0-9a-f]{64}$' }\ncollection:\n  path:\n    folder: notes\n---\n# Note\n";
     let desired = base

@@ -120,6 +120,8 @@ impl HostedProvider {
         .bind(input.display_name.trim())
         .fetch_optional(&mut *transaction)
         .await?;
+        // A fresh generic template now contains only its README at head 1.
+        // Any subsequent write or resource change still disqualifies the target.
         let collection = if collection.is_some() {
             collection
         } else {
@@ -127,12 +129,16 @@ impl HostedProvider {
                 r#"UPDATE hosted_provider_collections
                    SET state = 'importing', authority_epoch = $2,
                        display_name = $3, updated_at = now()
-                   WHERE id = $1 AND state = 'active' AND head = 0 AND record_count = 0
+                   WHERE id = $1 AND state = 'active'
+                     AND ((head = 0 AND record_count = 0)
+                       OR (head = 1 AND record_count = 1 AND template = 'mdbase'
+                         AND resource_revision = $4))
                    RETURNING id"#,
             )
             .bind(input.collection_id)
             .bind(to_i64(input.authority_epoch, "authority epoch")?)
             .bind(input.display_name.trim())
+            .bind(template::resources("mdbase", "UTC")?.resources.revision)
             .fetch_optional(&mut *transaction)
             .await?
         };

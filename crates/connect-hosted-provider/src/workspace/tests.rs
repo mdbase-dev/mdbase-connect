@@ -2,12 +2,11 @@ use super::*;
 use serde_json::{json, Map};
 
 pub(super) fn resources() -> Vec<(String, String)> {
-    let mut resources: Vec<(String, String)> = crate::template::resources("mdbase", "UTC")
-        .unwrap()
-        .documents
-        .into_iter()
-        .map(|resource| (resource.path.to_string(), resource.document.to_string()))
-        .collect();
+    // These existing-layout fixtures are independent of the new-collection template.
+    let mut resources = vec![(
+        "mdbase.yaml".to_string(),
+        "spec_version: 0.3.0\nsettings:\n  types_folder: _types\n  validation: error\n  timezone: UTC\nx-obsidian:\n  bases:\n    include:\n      - views/**/*.base\n".to_string(),
+    )];
     resources.push((
         "_types/task.md".to_string(),
         r#"---
@@ -33,6 +32,29 @@ schema:
         .to_string(),
     ));
     resources
+}
+
+#[test]
+fn fresh_templates_read_and_create_types_in_the_metadata_folder() {
+    let mut resources = resources();
+    resources[0].1 = crate::template::resources("mdbase", "UTC")
+        .unwrap()
+        .documents[0]
+        .document
+        .clone();
+    resources[1].0 = "_mdbase/types/task.md".to_string();
+    let workspace = AuthorityWorkspace::materialize(resources, []).unwrap();
+    let task = workspace
+        .read_operation("read_type", &json!({"name": "task"}))
+        .unwrap();
+    assert!(task.valid, "{:?}", task.diagnostics);
+    let created = workspace.type_operation("create_type", &json!({
+        "document": "---\nkind: mdbase.type\nname: project\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value: {type: object}\n---\n"
+    })).unwrap();
+    assert!(created.valid, "{:?}", created.diagnostics);
+    assert!(workspace
+        .resource_document("_mdbase/types/project.md")
+        .is_ok());
 }
 
 #[test]

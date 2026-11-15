@@ -1,4 +1,5 @@
 import { normalizeCollectionChange } from "@mdbase-dev/connect";
+import mdbaseReadme from "../../../templates/mdbase/README.md?raw";
 import { observeDemo } from "./demo-observe";
 import type {
   CollectionChange,
@@ -56,13 +57,16 @@ export class DemoCollectionGateway implements CollectionGateway {
   private readonly openingDelay: number;
   private typeDocuments: CollectionTypeDocument[] = [{
     name: "note",
-    path: "_types/note.md",
+    path: "_mdbase/types/note.md",
     revision: "demo-type-1",
     document: DEMO_TYPE_SOURCE
   }];
 
   constructor(count = 240, openingDelay = 0) {
     this.notes = Array.from({ length: Math.max(1, Math.min(count, 50_000)) }, (_, index) => demoNote(index));
+    const readme = demoDocument("_mdbase/README.md", "mdbase", mdbaseReadme.replace("# mdbase\n\n", ""), 1);
+    readme.file.mtime = "2020-08-01T00:00:00Z";
+    this.notes.push(readme);
     this.openingDelay = Math.max(0, Math.min(openingDelay, 10_000));
   }
 
@@ -115,7 +119,7 @@ export class DemoCollectionGateway implements CollectionGateway {
       contracts: clone(this.contractDescriptors),
       configuration: {
         spec_version: "0.3.0",
-        settings: { types_folder: "_types", validation: "error" }
+        settings: { types_folder: "_mdbase/types", contracts_folder: "_mdbase/contracts", validation: "error" }
       }
     };
   }
@@ -467,16 +471,20 @@ export class DemoCollectionGateway implements CollectionGateway {
     const resources = provision.manifest.resources.map((definition) => {
       const document = sources.get(definition.source);
       if (document === undefined) throw new Error(`Type pack resource “${definition.source}” is missing.`);
-      const existing = this.packResources.get(definition.target);
+      const target = definition.kind === "type" ? definition.target.replace(/^_types\//, "_mdbase/types/")
+        : definition.kind === "contract" ? definition.target.replace(/^_contracts\//, "_mdbase/contracts/")
+          : definition.kind === "schema" ? `_mdbase/${definition.target}` : definition.target;
+      const existing = this.packResources.get(target);
       return {
         ...definition,
+        target,
         action: existing === undefined
           ? "create" as const
           : existing === document
             ? "unchanged" as const
             : "conflict" as const,
         ...(existing !== undefined && existing !== document
-          ? { reason: `${definition.target} already exists with different content.` }
+          ? { reason: `${target} already exists with different content.` }
           : {})
       };
     });
@@ -486,7 +494,7 @@ export class DemoCollectionGateway implements CollectionGateway {
       version: provision.manifest.version,
       digest: packDigest,
       installedBy: "dev.mdbase.editor.demo",
-      resources: provision.manifest.resources.map(({ kind, mode, source, target, digest }) => ({
+      resources: resources.map(({ kind, mode, source, target, digest }) => ({
         kind, mode, source, target, digest
       }))
     };
@@ -516,7 +524,7 @@ export class DemoCollectionGateway implements CollectionGateway {
         ?? "This type pack conflicts with collection changes.");
     }
     const sources = new Map(provision.resources.map((resource) => [resource.source, resource.document]));
-    const planned = provision.manifest.resources.map((resource) => {
+    const planned = currentAssessment.resources.map((resource) => {
       const document = sources.get(resource.source);
       if (document === undefined) throw new Error(`Type pack resource “${resource.source}” is missing.`);
       const existing = this.packResources.get(resource.target);
@@ -571,19 +579,7 @@ export class DemoCollectionGateway implements CollectionGateway {
       else this.contractDescriptors[index] = contract;
     }
     const packDigest = provision.manifest.resources[0]?.digest ?? `sha256:${"0".repeat(64)}`;
-    const receipt = {
-      id: provision.manifest.id,
-      version: provision.manifest.version,
-      digest: packDigest,
-      installedBy: "dev.mdbase.editor.demo",
-      resources: provision.manifest.resources.map(({ kind, mode, source, target, digest }) => ({
-        kind,
-        mode,
-        source,
-        target,
-        digest
-      }))
-    };
+    const receipt = currentAssessment.desired;
     return {
       status: planned.every(({ action }) => action === "unchanged") ? "current" : "install",
       applicable: true,
@@ -708,7 +704,7 @@ function typeDocument(source: string, path: string | undefined, revision: string
   const definition = typeDefinition(source);
   const name = typeof definition.name === "string" ? definition.name.trim() : "";
   if (!name) throw new Error("A type definition needs a name.");
-  return { name, path: path ?? `_types/${name}.md`, revision, document: source };
+  return { name, path: path ?? `_mdbase/types/${name}.md`, revision, document: source };
 }
 
 function typeDescriptor(

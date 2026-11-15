@@ -1,6 +1,7 @@
 //! The collection handle.
 
 use std::cell::RefCell;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use mdbn_core::types::Catalog;
@@ -149,10 +150,25 @@ impl Collection {
             if let Some(name) = &options.name {
                 text.push_str(&format!("name: {}\n", yaml_quote(name)));
             }
+            text.push_str(
+                "settings:\n  types_folder: _mdbase/types\n  contracts_folder: _mdbase/contracts\n",
+            );
             if let Some(tz) = &options.timezone {
-                text.push_str(&format!("settings:\n  timezone: {}\n", yaml_quote(tz)));
+                text.push_str(&format!("  timezone: {}\n", yaml_quote(tz)));
             }
             std::fs::write(&config, text)?;
+            std::fs::create_dir_all(root.join("_mdbase"))?;
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(root.join("_mdbase/README.md"))
+            {
+                Ok(mut file) => {
+                    file.write_all(include_bytes!("../../../../templates/mdbase/README.md"))?
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(e) => return Err(e.into()),
+            }
         }
         Collection::open(root)
     }
