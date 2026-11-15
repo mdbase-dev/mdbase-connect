@@ -21,7 +21,7 @@ export const APP = "/Applications/mdbase connect.app";
 const EXECUTABLE = "mdbase-connect";
 const MINUTE = 60_000;
 
-/** `v0.1.0-beta.190` from `0.1.0-beta.190` or `v0.1.0-beta.190`; undefined when empty. */
+/** `v0.1.0` from `0.1.0` or `v0.1.0`; undefined when empty. */
 export function releaseTag(input) {
   const value = (input ?? "").trim();
   if (!value) return undefined;

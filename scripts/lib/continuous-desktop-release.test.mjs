@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { desktopChanged, desktopPlan } from "../continuous-desktop-release.mjs";
+import { desktopChanged, desktopPlan, semverPrepare } from "../continuous-desktop-release.mjs";
 
 const day = 86_400_000;
 const now = Date.parse("2026-11-03T12:00:00Z");
@@ -40,6 +40,28 @@ test("daily, diff and unfinished-attempt gates cannot be bypassed by repeated tr
   for (const published_at of ["bad-date", new Date(now + 1).toISOString()]) {
     assert.throws(() => plan({ latest: { ...latest, published_at } }), /Invalid desktop publication time/);
   }
+});
+
+test("semver reservations reconcile above the legacy beta line", () => {
+  const first = { tag: "v0.1.0", published: false };
+  assert.throws(() => plan({ reservations: [first], acknowledged: "v0.1.0-beta.215" }), /unfinished/, "0.1.0 orders above every beta");
+  assert.deepEqual(plan({ reservations: [{ tag: "v0.1.0-beta.216", published: false }, first], acknowledged: "v0.1.0" }), { operation: "release" });
+  assert.throws(() => plan({ reservations: [first, { tag: "v0.1.10", published: false }], acknowledged: "v0.1.9" }), /unfinished/, "numeric, not string, order");
+  assert.deepEqual(plan({ latest: { ...latest, tag_name: "v0.1.3" }, reservations: [{ tag: "v0.1.3", published: true }] }), { operation: "release" });
+});
+
+test("a commit whose tag worker accepts only beta tags waits instead of reserving a semver tag", () => {
+  assert.deepEqual(plan({ semver: false }), { operation: "wait", reason: "selected commit predates semver releases" });
+  assert.equal(plan({ semver: false, changed: false }).reason, "desktop tree unchanged");
+  const show = text => (...args) => {
+    assert.deepEqual(args, ["show", "c".repeat(40) + ":scripts/continuous-desktop-release.mjs"]);
+    return text;
+  };
+  const current = readFileSync(new URL("../continuous-desktop-release.mjs", import.meta.url), "utf8");
+  assert.equal(semverPrepare("c".repeat(40), show(current)), true);
+  assert.equal(semverPrepare("c".repeat(40), show("  assert.match(tag, /^v0\\.1\\.0-beta\\.[1-9][0-9]*$/);\n")), false);
+  assert.match(current, /const tag = `v\$\{allocateVersion\(versions, env\.GITHUB_SHA\)\}`;/);
+  assert.doesNotMatch(current, /package\.json", "utf8"\)\)\.version/, "source manifests are not release versions");
 });
 
 test("immutable release settings are neither queried nor changed and widening is removed", () => {

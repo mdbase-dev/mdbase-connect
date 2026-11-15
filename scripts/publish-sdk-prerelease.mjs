@@ -43,7 +43,7 @@ export async function publishSdkPrerelease({ directory, version, commit, publica
   const release = await json(await api("releases", "POST", {
     tag_name: tag, target_commitish: commit, name: `SDK ${version}: staging and LAB`,
     body: `Source: ${commit}. Packages and attached Sigstore bundles were produced by publish-sdk-npm.yml.`,
-    draft: true, prerelease: true, make_latest: "false",
+    draft: true, prerelease: false, make_latest: "false",
   }), 201);
   assert(Number.isSafeInteger(release.id) && release.id > 0);
   assert.deepEqual(release.assets, [], "refuse any release with existing assets");
@@ -59,11 +59,11 @@ export async function publishSdkPrerelease({ directory, version, commit, publica
   const currentRef = await json(await api(`git/ref/tags/${tag}`), 200);
   assert.equal(currentRef.object.sha, commit, "SDK tag changed before publication");
   const published = await json(await api(`releases/${release.id}`, "PATCH", {
-    draft: false, prerelease: true, make_latest: "false",
+    draft: false, prerelease: false, make_latest: "false",
   }), 200);
   assert.equal(published.tag_name, tag);
   assert.equal(published.draft, false);
-  assert.equal(published.prerelease, true);
+  assert.equal(published.prerelease, false);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

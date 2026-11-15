@@ -23,7 +23,7 @@ export async function fragments(root) {
 }
 
 export function assembleChangelog(changelog, entries, version) {
-  const marker = "## Unreleased\n\n<!-- Add release notes in changelog.d; assembled by pnpm version:set. -->";
+  const marker = "## Unreleased\n\n<!-- Add release notes in changelog.d; a Breaking fragment makes the next release a minor bump. -->";
   if (!changelog.startsWith(`# Changelog\n\n${marker}\n`) || (changelog.match(/^## Unreleased$/gm) ?? []).length !== 1) {
     throw new Error("CHANGELOG.md must have exactly one empty, fragment-managed Unreleased section.");
   }
