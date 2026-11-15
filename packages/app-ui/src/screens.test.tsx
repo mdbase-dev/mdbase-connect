@@ -10,7 +10,7 @@ describe("screens", () => {
     expect(opening).toContain("mdbase-app-mark is-reader mdbase-motion-scan");
     expect(opening).toContain("mdbase <strong>reader</strong>");
     expect(opening).toContain('<div role="status"><p>Opening collection</p><small>Reading its sources</small></div>');
-    expect(opening).toContain('<p role="alert"></p>');
+    expect(opening).not.toContain('role="alert"');
     const failed = renderToStaticMarkup(<OpeningScreen app="writer" title="Opening" error="Connect is unavailable" onRetry={() => {}} />);
     expect(failed).toContain('data-loading-state="failed"');
     expect(failed).toContain('<p role="alert">Connect is unavailable</p>');

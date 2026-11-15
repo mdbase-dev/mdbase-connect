@@ -63,7 +63,6 @@ export function openingPageMarkup({ app, title, detail }: Pick<OpeningPageOption
     + `<span class="mdbase-opening-name">mdbase <strong>${app}</strong></span>`
     + `<div class="mdbase-opening-text">`
     + `<div role="status"><p>${escape(title)}</p>${detail ? `<small>${escape(detail)}</small>` : ""}</div>`
-    + `<p role="alert"></p>`
     + `<noscript><p class="mdbase-opening-nojs">mdbase ${app} needs JavaScript to open.</p></noscript>`
     + `</div>`
     + `<p class="mdbase-opening-help">Still opening? Check your connection. <a href="">Reload</a></p>`
@@ -93,10 +92,13 @@ export function openingPageScript({ app, themeColor }: Pick<OpeningPageOptions, 
     if (page.dataset.loadingState === "failed") return;
     const reason = String(event.reason?.message || event.message || "the application files could not load.")
       .replace(/^Uncaught (?:Error:\\s*)?/, "");
+    const alert = document.createElement("p");
+    alert.setAttribute("role", "alert");
     const reload = document.createElement("a");
     reload.href = "";
     reload.textContent = "Reload";
-    page.querySelector('[role="alert"]').replaceChildren(${JSON.stringify(`mdbase ${app} could not start: `)} + reason + " ", reload);
+    alert.append(${JSON.stringify(`mdbase ${app} could not start: `)} + reason + " ", reload);
+    page.querySelector(".mdbase-opening-text").append(alert);
     page.dataset.loadingState = "failed";
     page.setAttribute("aria-busy", "false");
   };

@@ -44,7 +44,7 @@ export function OpeningScreen(props: {
       </span>
       <div className="mdbase-opening-text">
         <div role="status"><p>{title}</p>{detail && <small>{detail}</small>}</div>
-        <p role="alert">{error}</p>
+        {error && <p role="alert">{error}</p>}
       </div>
       {page && <p className="mdbase-opening-help">
         {t({ message: "Still opening? Check your connection." })} <a href="">{t({ message: "Reload" })}</a>
