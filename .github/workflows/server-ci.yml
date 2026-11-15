@@ -205,6 +205,51 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+  # Main pushes reuse the merge-queue qualification, so `node` rarely runs on
+  # main. Size history needs every main commit: build only the Editor and its
+  # workspace dependencies. Informational: not part of Qualification.
+  editor-sizes:
+    name: Editor size history
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 11.15.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Prefetch pinned Electron through authenticated release assets
+        uses: ./.github/actions/prefetch-electron
+        with:
+          token: ${{ github.token }}
+      - run: pnpm install --frozen-lockfile --filter "mdbase-editor..."
+      - run: pnpm --filter "mdbase-editor..." build
+      - name: Record Editor bundle sizes
+        id: performance_editor
+        continue-on-error: true
+        run: node scripts/performance-report.mjs --app apps/editor --out "$RUNNER_TEMP/editor-sizes.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.performance_editor.outcome == 'success'
+        continue-on-error: true
+        with:
+          name: performance-editor-sizes
+          path: ${{ runner.temp }}/editor-sizes.json
+          retention-days: 90
+          if-no-files-found: error
+      - name: Publish Editor size history
+        if: steps.performance_editor.outcome == 'success'
+        continue-on-error: true
+        uses: ./.github/actions/post-performance
+        with:
+          report: ${{ runner.temp }}/editor-sizes.json
+          token: ${{ secrets.OPS_BENCHMARK_TOKEN }}
+
   server-container-full:
     needs: classify
     if: needs.classify.outputs.run_full == 'true'

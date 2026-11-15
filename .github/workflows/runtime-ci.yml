@@ -80,6 +80,26 @@ jobs:
         env:
           RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=/source --remap-path-prefix=/home/runner/.cargo=/cargo
         run: cargo xtask wasm-app
+      - name: Record optimized WASM sizes
+        id: performance_wasm
+        continue-on-error: true
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: node ../scripts/performance-report.mjs --wasm runtime=target/wasm/runtime.wasm --wasm app-runtime=target/wasm/app-runtime.wasm --out "$RUNNER_TEMP/wasm-sizes.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.performance_wasm.outcome == 'success'
+        continue-on-error: true
+        with:
+          name: performance-wasm-sizes
+          path: ${{ runner.temp }}/wasm-sizes.json
+          retention-days: 90
+          if-no-files-found: error
+      - name: Publish WASM size history
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.performance_wasm.outcome == 'success'
+        continue-on-error: true
+        uses: ./.github/actions/post-performance
+        with:
+          report: ${{ runner.temp }}/wasm-sizes.json
+          token: ${{ secrets.OPS_BENCHMARK_TOKEN }}
       - name: Install isolated browser smoke tooling
         run: |
           npm ci --prefix tools/browser-smokes --no-audit --no-fund
@@ -148,6 +168,29 @@ jobs:
         run: npm run typecheck
       - name: build
         run: npm run build
+      - name: Record packed SDK size
+        id: performance_sdk
+        continue-on-error: true
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          mkdir -p "$RUNNER_TEMP/sdk-performance"
+          npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/sdk-performance"
+          node ../../../scripts/performance-report.mjs --sdk-package "$RUNNER_TEMP"/sdk-performance/*.tgz --out "$RUNNER_TEMP/sdk-sizes.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.performance_sdk.outcome == 'success'
+        continue-on-error: true
+        with:
+          name: performance-sdk-sizes
+          path: ${{ runner.temp }}/sdk-sizes.json
+          retention-days: 90
+          if-no-files-found: error
+      - name: Publish SDK size history
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.performance_sdk.outcome == 'success'
+        continue-on-error: true
+        uses: ./.github/actions/post-performance
+        with:
+          report: ${{ runner.temp }}/sdk-sizes.json
+          token: ${{ secrets.OPS_BENCHMARK_TOKEN }}
       - name: tests (incl. conformance/wire golden fixtures)
         run: npm test
       - name: Managed application packaging (real shared verifier; synthetic custody only)
