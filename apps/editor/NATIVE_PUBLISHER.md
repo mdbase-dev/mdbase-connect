@@ -125,22 +125,27 @@ approvals. UI repins change only the manifest and regenerated lock.
    Each run publishes once: a rerun of the upload job refuses, so retry with a new
    dispatch.
 6. Workflow-owned ancestry and inventory are rechecked immediately before
-   upload. Upload is bounded to seven minutes inside a 60-minute job; separate
-   step bounds reserve verification, recovery and receipt time. A timed-out
+   upload. Upload is bounded to seven minutes inside a 70-minute job; separate
+   step bounds reserve verification (20 minutes), recovery and receipt time. A timed-out
    upload is a possible deployment and follows the same verification/recovery. The actual deployment UUID
    is resolved from its exact URL, source and Pages channel, including repeated
    uploads of the same source. Only static assets are accepted; source-owned
    controls reject Pages Functions, Workers and additional routing controls.
 7. Verify all served bytes, headers and routes on the immutable deployment URL
    within three minutes, then on the custom alias. After immutable success, the
-   alias gets complete verification attempts every 15 seconds in a five-minute
-   settle window. Failed attempts never count as success. The edge can revalidate
+   alias gets complete verification attempts, 30 seconds apart, in a 15-minute
+   settle window; each attempt is bounded by three minutes and by the time left
+   in the window. Failed attempts never count as success. The edge can revalidate
    an unchanged file and keep the previous build's headers, so the alias proves
    the document security headers on HTML; bytes, MIME and cache rules on every
    file. The immutable URL proves the full policy on every file. Every HTML
    document carries `<meta name="mdbase-build" content="<sha12>">`, stamped by
    the build and required by the inventory check, so each source commit changes
    every document's bytes and a revalidating edge fetches the new headers.
+   Without it, unchanged HTML such as `404.html` kept the previous policy on the
+   alias (`cf-cache-status: REVALIDATED`) indefinitely. The alias is not
+   cache-busted, because a fresh cache key would prove only what the immutable
+   URL already proved.
 8. Upload and verification run in one job. Any failure there, including a
    timeout, a lost receipt or a cancelled run, goes to the recovery job in step 10.
    Staging does not roll back. No automatic rebuild or redispatch is performed.
