@@ -6,10 +6,25 @@ import {
   type TransactionalEmail
 } from "./email.js";
 import { randomToken, tokenHash } from "../../security.js";
+import {
+  FREE_ENTITLEMENT_PROFILE,
+  TRIAL_ENTITLEMENT_PROFILE
+} from "../account/entitlements.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 60_000;
 const MAX_ATTEMPTS = 8;
 const PROVIDER_IDEMPOTENCY_WINDOW_MS = 24 * 60 * 60 * 1_000;
+const DAY_MS = 24 * 60 * 60 * 1_000;
+
+/**
+ * The storage-trial notices, by kind, and how long before the trial's end each
+ * is sent. Each is checked again as it sends, because a plan bought or granted
+ * after signup can make it untrue.
+ */
+export const STORAGE_TRIAL_NOTICES: Readonly<Record<string, number>> = {
+  storage_trial_ending: 7 * DAY_MS,
+  storage_trial_ended: 0
+};
 
 // "onboarding" covers the welcome message and later announcements; it is sent
 // under the announcements preference. "product" is opt-in.
@@ -136,8 +151,13 @@ export class ScheduledEmailWorker {
   }
 
   private async performDrain(limit: number): Promise<number> {
-    const ready = await this.db.query<{ id: string }>(
-      `SELECT id FROM email_jobs
+    const ready = await this.db.query<{
+      id: string;
+      user_id: string;
+      message_kind: string;
+      scheduled_for: Date | string;
+    }>(
+      `SELECT id, user_id, message_kind, scheduled_for FROM email_jobs
        WHERE next_attempt_at <= now()
          AND (
            state = 'scheduled'
@@ -149,6 +169,11 @@ export class ScheduledEmailWorker {
     );
     let processed = 0;
     for (const candidate of ready.rows) {
+      if (!await storageTrialNoticeApplies(this.db, candidate)) {
+        await this.skip(candidate.id);
+        processed += 1;
+        continue;
+      }
       const claimed = await this.claim(candidate.id);
       if (!claimed) continue;
       processed += 1;
@@ -272,6 +297,22 @@ export class ScheduledEmailWorker {
     return result.rows[0] ?? null;
   }
 
+  /** Retires a job that no longer applies without attempting it, so it isn't a failure. */
+  private async skip(id: string): Promise<void> {
+    await this.db.query(
+      `UPDATE email_jobs SET state = 'cancelled', cancelled_at = now(),
+              last_error_code = 'skipped_not_applicable', lease_token = NULL,
+              lease_expires_at = NULL, updated_at = now()
+       WHERE id = $1
+         AND next_attempt_at <= now()
+         AND (
+           state = 'scheduled'
+           OR (state = 'sending' AND lease_expires_at <= now())
+         )`,
+      [id]
+    );
+  }
+
   private async cancel(job: EmailJobRow, reason: string): Promise<void> {
     await this.db.query(
       `UPDATE email_jobs SET state = 'cancelled', cancelled_at = now(),
@@ -325,6 +366,51 @@ export class ScheduledEmailWorker {
       [job.id, job.attempt_count, state, provider, providerMessageId, errorCode]
     );
   }
+}
+
+/**
+ * A storage-trial notice still applies when the account's trial still ends when
+ * the notice was scheduled for, and the storage the account keeps after it is no
+ * more than Free's: buying Plus or an operator grant during the trial makes
+ * "storage drops to 250 MB" untrue. Every other message always applies.
+ */
+async function storageTrialNoticeApplies(
+  db: DatabaseQueryable,
+  job: { user_id: string; message_kind: string; scheduled_for: Date | string }
+): Promise<boolean> {
+  const leadMs = STORAGE_TRIAL_NOTICES[job.message_kind];
+  if (leadMs === undefined) return true;
+  const trialEndsAt = new Date(new Date(job.scheduled_for).getTime() + leadMs);
+  // Timestamps lose sub-millisecond precision on the way through JavaScript.
+  const trial = await db.query(
+    `SELECT 1 FROM account_entitlement_grants
+     WHERE user_id = $1 AND profile_code = $2 AND revoked_at IS NULL
+       AND ends_at >= $3 AND ends_at <= $4`,
+    [
+      job.user_id,
+      TRIAL_ENTITLEMENT_PROFILE,
+      new Date(trialEndsAt.getTime() - 1_000),
+      new Date(trialEndsAt.getTime() + 1_000)
+    ]
+  );
+  if (!trial.rows[0]) return false;
+  const after = await db.query<{ hosted_storage_bytes: string | number }>(
+    `SELECT profile.hosted_storage_bytes
+     FROM account_entitlement_grants entitlement_grant
+     JOIN entitlement_profiles profile ON profile.code = entitlement_grant.profile_code
+     WHERE entitlement_grant.user_id = $1
+       AND entitlement_grant.profile_code <> $2
+       AND entitlement_grant.revoked_at IS NULL
+       AND entitlement_grant.starts_at <= $3
+       AND (entitlement_grant.ends_at IS NULL OR entitlement_grant.ends_at > $3)`,
+    [job.user_id, TRIAL_ENTITLEMENT_PROFILE, trialEndsAt]
+  );
+  const free = await db.query<{ hosted_storage_bytes: string | number }>(
+    "SELECT hosted_storage_bytes FROM entitlement_profiles WHERE code = $1",
+    [FREE_ENTITLEMENT_PROFILE]
+  );
+  const freeBytes = Number(free.rows[0]!.hosted_storage_bytes);
+  return after.rows.every((row) => Number(row.hosted_storage_bytes) <= freeBytes);
 }
 
 function eligible(category: EmailCategory, recipient: EmailRecipientRow): boolean {

@@ -28,6 +28,7 @@ import type { LogServiceClient } from "../next/log-service-client.js";
 import { nativeDevicesByCollection } from "../next/native-grant-target.js";
 import { nextFileBytes } from "../next/storage-usage.js";
 import { nativeCollectionQuotaUsage } from "../next/policy-outbox.js";
+import { currentPlusSubscription, PLUS_ENTITLEMENT_PROFILE } from "../billing/billing.js";
 
 /** The native replica's record source cap (`RECORD_SOURCE_CAP_BYTES`, pinned by
  * document-limit.test.ts). It bounds every next-backend document; an entitlement's
@@ -46,6 +47,8 @@ interface AccountOverviewRouteOptions {
   hostedProvider?: HostedProviderClient;
   nextLog?: Pick<LogServiceClient, "storageStatus">;
   hostedReference?: HostedAuthorityRegistry;
+  /** Whether this deployment sells Plus through Stripe. */
+  billingAvailable?: boolean;
 }
 
 export function registerAccountOverviewRoute(
@@ -275,8 +278,37 @@ export function registerAccountOverviewRoute(
         request.log.warn({ error }, "Native storage usage is unavailable");
       }
     }
+    // Plus is sold only to next accounts: the legacy provider caps storage at 1 GiB.
+    const billingAvailable = options.billingAvailable === true && creation.backend === "next";
+    const plus = billingAvailable ? await currentPlusSubscription(options.db, user.id) : null;
+    const plusLimits = billingAvailable ? (await options.db.query<{
+      hosted_storage_bytes: string | number;
+      max_hosted_collections: string | number;
+      max_single_file_bytes: string | number;
+      max_collection_member_seats: string | number;
+    }>(
+      `SELECT hosted_storage_bytes, max_hosted_collections, max_single_file_bytes,
+              max_collection_member_seats
+       FROM entitlement_profiles WHERE code = $1`,
+      [PLUS_ENTITLEMENT_PROFILE]
+    )).rows[0] : undefined;
     return {
       user,
+      billing: {
+        available: billingAvailable,
+        plus_limits: plusLimits ? {
+          hosted_storage_bytes: Number(plusLimits.hosted_storage_bytes),
+          max_hosted_collections: Number(plusLimits.max_hosted_collections),
+          max_single_file_bytes: Number(plusLimits.max_single_file_bytes),
+          max_collection_member_seats: Number(plusLimits.max_collection_member_seats)
+        } : null,
+        plus: plus ? {
+          status: plus.status,
+          current_period_end: plus.currentPeriodEnd.toISOString(),
+          cancels_at: plus.cancelsAt?.toISOString() ?? null,
+          access_ends_at: plus.grantEndsAt.toISOString()
+        } : null
+      },
       subscription: entitlement ? {
         kind: entitlement.profileCodes.includes("beta_v1") ? "beta" : "entitled",
         profiles: entitlement.profileCodes,

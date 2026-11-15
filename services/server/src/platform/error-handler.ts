@@ -4,6 +4,7 @@ import { CreateError } from "../features/next/bootstrap-common.js";
 import { ZodError } from "zod";
 import {
   AccountDeletionAuthorizationError,
+  AccountDeletionBillingError,
   ExternalIdentityConflictError,
   IdentityRemovalForbiddenError
 } from "../features/account/account-management.js";
@@ -218,6 +219,9 @@ export function registerErrorHandler(
     }
     if (error instanceof IdentityRemovalForbiddenError) {
       return reply.code(409).send(apiError(error.code, error.message));
+    }
+    if (error instanceof AccountDeletionBillingError) {
+      return reply.code(409).send(apiError("plus_subscription_renews", error.message));
     }
     if (error instanceof AccountDeletionAuthorizationError) {
       return reply.code(403).send(apiError(

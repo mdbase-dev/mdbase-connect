@@ -14,6 +14,8 @@ import { ApplicationReconciliationWorker } from "./features/applications/applica
 import type { DatabasePool } from "./db.js";
 import type { EmailTransport } from "./features/email/email.js";
 import { registerResendWebhookRoute } from "./features/email/email-provider-webhooks.js";
+import { registerBillingRoutes } from "./features/billing/billing-routes.js";
+import type { Billing } from "./features/billing/billing.js";
 import { renderScheduledEmail } from "./features/email/beta-welcome-email.js";
 import { ScheduledEmailWorker } from "./features/email/scheduled-email.js";
 import { UsageRetentionWorker } from "./features/usage/usage-report.js";
@@ -129,6 +131,8 @@ interface BuildOptions {
   authenticationLegalDocuments?: AuthenticationLegalDocuments;
   emailTransport?: EmailTransport;
   resendWebhookSecret?: string;
+  /** Plus checkout and the Stripe webhook; absent when the deployment doesn't sell plans. */
+  billing?: Billing;
   accountDeletionEnabled?: boolean;
   hostedCollections?: boolean;
   hostedSharing?: boolean;
@@ -496,6 +500,18 @@ export async function buildApp(options: BuildOptions) {
       signingSecret: options.resendWebhookSecret
     });
   }
+  if (options.billing) {
+    registerBillingRoutes(app, {
+      db: options.db,
+      billing: options.billing,
+      publicUrl,
+      managementOrigins: options.managementOrigins,
+      onEntitlementChanged: fileQuotaMode === "enforce"
+        ? (userId) => void fileQuota!.allocateOwner(userId).catch((error: unknown) =>
+            app.log.error({ err: error }, "file quota allocation failed"))
+        : undefined
+    });
+  }
   if (options.betaAccessOrigin) {
     registerBetaAccessRoutes(app, {
       allowedOrigin: options.betaAccessOrigin
@@ -743,7 +759,8 @@ export async function buildApp(options: BuildOptions) {
     hostedCollections: options.hostedCollections,
     hostedSharing: options.hostedSharing,
     hostedProvider: options.hostedProvider,
-    hostedReference
+    hostedReference,
+    billingAvailable: options.billing !== undefined
   });
   registerConnectorGrantRoutes(app, { db: options.db, relay });
   registerAuthorizationRoutes(app, {

@@ -327,6 +327,14 @@ msgid "{label} turned on."
 msgstr "{label} をオンにしました。"
 
 #: src/AccountManagement.tsx
+msgid "{monthly} a month"
+msgstr "月額 {monthly}"
+
+#: src/AccountManagement.tsx
+msgid "{seats, plural, one {# person} other {# people}}"
+msgstr "{seats, plural, other {# 人}}"
+
+#: src/AccountManagement.tsx
 msgid "{tier} hosted storage"
 msgstr "{tier} のホスト型ストレージ"
 
@@ -369,6 +377,10 @@ msgstr "{value, plural, other {# 件のレコード}}"
 #: src/count-label.ts
 msgid "{value, plural, one {# synced folder} other {# synced folders}}"
 msgstr "{value, plural, other {# 件の同期フォルダー}}"
+
+#: src/AccountManagement.tsx
+msgid "{yearly} a year"
+msgstr "年額 {yearly}"
 
 #: src/authorization-view.tsx
 msgid "<0/>Already connected"
@@ -544,6 +556,10 @@ msgstr "操作"
 #: src/ConnectApp.tsx
 msgid "Actions for {0}"
 msgstr "{0} の操作"
+
+#: src/AccountManagement.tsx
+msgid "Activating Plus…"
+msgstr "Plus を有効化しています…"
 
 #: src/AccountManagement.tsx
 msgid "Add a collection to get started."
@@ -956,6 +972,14 @@ msgstr "有効なセッションを確認中…"
 msgctxt "Application access approval"
 msgid "Checking…"
 msgstr "確認中…"
+
+#: src/AccountManagement.tsx
+msgid "Checkout cancelled. You haven't been charged."
+msgstr "購入手続きをキャンセルしました。料金は請求されていません。"
+
+#: src/AccountManagement.tsx
+msgid "Checkout finished, but Plus hasn't appeared yet. Reload this page in a minute."
+msgstr "購入手続きは完了しましたが、Plus はまだ反映されていません。1 分ほどしてからこのページを再読み込みしてください。"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
@@ -1583,6 +1607,10 @@ msgid "Email and password"
 msgstr "メールとパスワード"
 
 #: src/AccountManagement.tsx
+msgid "Ends {endDate}"
+msgstr "{endDate} に終了"
+
+#: src/AccountManagement.tsx
 msgid "Ends {trialEnd}"
 msgstr "{trialEnd} に終了"
 
@@ -1730,6 +1758,11 @@ msgstr "フォルダーの同期"
 #: src/auth-view.tsx
 msgid "Forgot your password?"
 msgstr "パスワードをお忘れですか？"
+
+#: src/AccountManagement.tsx
+msgctxt "Account plan"
+msgid "Free"
+msgstr "Free"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -2041,6 +2074,11 @@ msgstr "{mirrorName} 上の正本"
 msgctxt "Application access approval"
 msgid "Manage and delete files"
 msgstr "ファイルの管理と削除"
+
+#: src/AccountManagement.tsx
+msgctxt "Account plan"
+msgid "Manage billing"
+msgstr "請求を管理"
 
 #: src/AccountManagement.tsx
 msgid "Manage collections, sign-in methods, and browser sessions."
@@ -2526,6 +2564,11 @@ msgctxt "Connect interface"
 msgid "Opening mdbase Connect…"
 msgstr "mdbase Connect を開いています…"
 
+#: src/AccountManagement.tsx
+msgctxt "Account plan"
+msgid "Opening…"
+msgstr "開いています…"
+
 #: src/auth-view.tsx
 msgid "or"
 msgstr "または"
@@ -2574,6 +2617,10 @@ msgstr "パスワードが一致しません。"
 msgctxt "Connect interface"
 msgid "Paused"
 msgstr "一時停止中"
+
+#: src/AccountManagement.tsx
+msgid "Payment failed. Plus continues until {endDate}. Update your payment method in Manage billing."
+msgstr "支払いに失敗しました。Plus は {endDate} まで引き続き利用できます。「請求を管理」で支払い方法を更新してください。"
 
 #: src/ConnectApp.tsx
 msgid "Pending"
@@ -2624,6 +2671,20 @@ msgstr "権限"
 msgctxt "Connect interface"
 msgid "person@example.com"
 msgstr "taro@example.com"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Plan"
+msgstr "プラン"
+
+#: src/AccountManagement.tsx
+msgctxt "Account plan"
+msgid "Plus"
+msgstr "Plus"
+
+#: src/AccountManagement.tsx
+msgid "Plus is active."
+msgstr "Plus が有効になりました。"
 
 #: src/AccountManagement.tsx
 msgid "Preferences"
@@ -2781,6 +2842,10 @@ msgstr "{0} の名前を変更"
 #: src/ConnectApp.tsx
 msgid "Renamed {0} to {1}"
 msgstr "{0} を {1} に変更しました"
+
+#: src/AccountManagement.tsx
+msgid "Renews {renewal}"
+msgstr "{renewal} に更新"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
@@ -3782,6 +3847,14 @@ msgstr "{0} の {1} へのアクセス権を更新しました"
 msgctxt "Connect interface"
 msgid "Updating access…"
 msgstr "アクセスを更新中…"
+
+#: src/AccountManagement.tsx
+msgid "Upgrade to Plus for {storage} of storage, {collections}, files up to {fileSize} and {people} per collection."
+msgstr "Plus にアップグレードすると、ストレージ {storage}、{collections}、最大 {fileSize} のファイル、コレクションあたり {people} を利用できます。"
+
+#: src/AccountManagement.tsx
+msgid "Upgrade to Plus for more storage, collections and people."
+msgstr "Plus にアップグレードすると、より多くのストレージ、コレクション、ユーザーを利用できます。"
 
 #: src/authorization-view.tsx
 msgid "Upgrades starter types this app added earlier while keeping your customizations and notes. Types it cannot trace to one of those starters are left unchanged. Conflicts, or other types still using the old contract, stop the whole upgrade."

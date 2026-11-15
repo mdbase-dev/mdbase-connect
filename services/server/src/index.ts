@@ -11,6 +11,7 @@ import { FcmTransport } from "./features/notifications/fcm.js";
 import { retireLegacyContractScopedGrants } from "./legacy-backfills.js";
 import { SignedWebhookTransport } from "./features/notifications/webhook.js";
 import { ResendEmailTransport } from "./features/email/email.js";
+import { createBilling } from "./features/billing/billing.js";
 
 const port = Number(process.env.PORT ?? 8787);
 const runtime = runtimeConfigFromEnv(process.env);
@@ -58,6 +59,7 @@ const { app } = await buildApp({
     ? new ResendEmailTransport(runtime.transactionalEmail)
     : undefined,
   resendWebhookSecret: runtime.resendWebhookSecret ?? undefined,
+  billing: runtime.billing ? createBilling(runtime.billing) : undefined,
   accountDeletionEnabled: runtime.accountDeletionEnabled,
   hostedCollections: runtime.hostedCollections,
   hostedSharing: runtime.hostedSharing,

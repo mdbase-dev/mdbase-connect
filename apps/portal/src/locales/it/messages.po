@@ -327,6 +327,14 @@ msgid "{label} turned on."
 msgstr "{label} attivato."
 
 #: src/AccountManagement.tsx
+msgid "{monthly} a month"
+msgstr "{monthly} al mese"
+
+#: src/AccountManagement.tsx
+msgid "{seats, plural, one {# person} other {# people}}"
+msgstr "{seats, plural, one {# persona} other {# persone}}"
+
+#: src/AccountManagement.tsx
 msgid "{tier} hosted storage"
 msgstr "Spazio ospitato {tier}"
 
@@ -369,6 +377,10 @@ msgstr "{value, plural, one {# record} other {# record}}"
 #: src/count-label.ts
 msgid "{value, plural, one {# synced folder} other {# synced folders}}"
 msgstr "{value, plural, one {# cartella sincronizzata} other {# cartelle sincronizzate}}"
+
+#: src/AccountManagement.tsx
+msgid "{yearly} a year"
+msgstr "{yearly} all'anno"
 
 #: src/authorization-view.tsx
 msgid "<0/>Already connected"
@@ -544,6 +556,10 @@ msgstr "Azioni"
 #: src/ConnectApp.tsx
 msgid "Actions for {0}"
 msgstr "Azioni per {0}"
+
+#: src/AccountManagement.tsx
+msgid "Activating Plus…"
+msgstr "Attivazione di Plus in corso…"
 
 #: src/AccountManagement.tsx
 msgid "Add a collection to get started."
@@ -956,6 +972,14 @@ msgstr "Verifica delle sessioni attive…"
 msgctxt "Application access approval"
 msgid "Checking…"
 msgstr "Verifica in corso…"
+
+#: src/AccountManagement.tsx
+msgid "Checkout cancelled. You haven't been charged."
+msgstr "Pagamento annullato. Non ti è stato addebitato nulla."
+
+#: src/AccountManagement.tsx
+msgid "Checkout finished, but Plus hasn't appeared yet. Reload this page in a minute."
+msgstr "Il pagamento è stato completato, ma Plus non compare ancora. Ricarica questa pagina tra un minuto."
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
@@ -1583,6 +1607,10 @@ msgid "Email and password"
 msgstr "Email e password"
 
 #: src/AccountManagement.tsx
+msgid "Ends {endDate}"
+msgstr "Termina il {endDate}"
+
+#: src/AccountManagement.tsx
 msgid "Ends {trialEnd}"
 msgstr "Termina il {trialEnd}"
 
@@ -1730,6 +1758,11 @@ msgstr "Sincronizzazione della cartella"
 #: src/auth-view.tsx
 msgid "Forgot your password?"
 msgstr "Password dimenticata?"
+
+#: src/AccountManagement.tsx
+msgctxt "Account plan"
+msgid "Free"
+msgstr "Free"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -2041,6 +2074,11 @@ msgstr "Copia principale su {mirrorName}"
 msgctxt "Application access approval"
 msgid "Manage and delete files"
 msgstr "Gestisci ed elimina file"
+
+#: src/AccountManagement.tsx
+msgctxt "Account plan"
+msgid "Manage billing"
+msgstr "Gestisci fatturazione"
 
 #: src/AccountManagement.tsx
 msgid "Manage collections, sign-in methods, and browser sessions."
@@ -2526,6 +2564,11 @@ msgctxt "Connect interface"
 msgid "Opening mdbase Connect…"
 msgstr "Apertura di mdbase Connect…"
 
+#: src/AccountManagement.tsx
+msgctxt "Account plan"
+msgid "Opening…"
+msgstr "Apertura in corso…"
+
 #: src/auth-view.tsx
 msgid "or"
 msgstr "oppure"
@@ -2574,6 +2617,10 @@ msgstr "Le password non corrispondono."
 msgctxt "Connect interface"
 msgid "Paused"
 msgstr "In pausa"
+
+#: src/AccountManagement.tsx
+msgid "Payment failed. Plus continues until {endDate}. Update your payment method in Manage billing."
+msgstr "Pagamento non riuscito. Plus resta attivo fino al {endDate}. Aggiorna il metodo di pagamento in Gestisci fatturazione."
 
 #: src/ConnectApp.tsx
 msgid "Pending"
@@ -2624,6 +2671,20 @@ msgstr "Autorizzazioni"
 msgctxt "Connect interface"
 msgid "person@example.com"
 msgstr "person@example.com"
+
+#: src/AccountManagement.tsx
+msgctxt "Account management"
+msgid "Plan"
+msgstr "Piano"
+
+#: src/AccountManagement.tsx
+msgctxt "Account plan"
+msgid "Plus"
+msgstr "Plus"
+
+#: src/AccountManagement.tsx
+msgid "Plus is active."
+msgstr "Plus è attivo."
 
 #: src/AccountManagement.tsx
 msgid "Preferences"
@@ -2781,6 +2842,10 @@ msgstr "Rinomina {0}"
 #: src/ConnectApp.tsx
 msgid "Renamed {0} to {1}"
 msgstr "{0} rinominata in {1}"
+
+#: src/AccountManagement.tsx
+msgid "Renews {renewal}"
+msgstr "Si rinnova il {renewal}"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
@@ -3782,6 +3847,14 @@ msgstr "Accesso di {0} a {1} aggiornato"
 msgctxt "Connect interface"
 msgid "Updating access…"
 msgstr "Aggiornamento dell'accesso…"
+
+#: src/AccountManagement.tsx
+msgid "Upgrade to Plus for {storage} of storage, {collections}, files up to {fileSize} and {people} per collection."
+msgstr "Passa a Plus per {storage} di spazio, {collections}, file fino a {fileSize} e {people} per raccolta."
+
+#: src/AccountManagement.tsx
+msgid "Upgrade to Plus for more storage, collections and people."
+msgstr "Passa a Plus per più spazio, raccolte e persone."
 
 #: src/authorization-view.tsx
 msgid "Upgrades starter types this app added earlier while keeping your customizations and notes. Types it cannot trace to one of those starters are left unchanged. Conflicts, or other types still using the old contract, stop the whole upgrade."

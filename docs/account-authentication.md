@@ -175,9 +175,12 @@ raises hosted storage to 5 GiB and nothing else, so when it ends the
 effective limits fall back to `free_v1`; stored files are kept. The notices
 (`storage_trial_ending` seven days before the end and `storage_trial_ended` at
 the end) are scheduled once per account as essential account email, which
-cannot be turned off, because they warn that uploads may pause. They are not
-re-checked when sent, so an operator who changes a trial should expect them
-anyway.
+cannot be turned off, because they warn that uploads may pause. The email
+worker checks each notice again when it is due and retires it as
+`skipped_not_applicable`, not as a failure, unless the trial still ends then
+and the account's other grants leave it with no more than Free's hosted storage
+after it. Buying Plus or an operator grant during the trial therefore stops
+them, as does changing the trial's end.
 Accounts that signed up earlier keep their permanent `open_beta_v1` grant (1
 GiB live hosted storage, three hosted collections), and invitation-based
 `beta_v1` grants retain their existing ten-collection allowance.
@@ -297,6 +300,36 @@ Password recovery and public password registration additionally require
 runtime and `email_delivery_enabled` in the audited database policy. The portal
 does not advertise either capability unless its complete dependency set is
 active.
+
+## Plus billing
+
+Connect sells Plus through Stripe Checkout with Managed Payments. Billing is
+off unless all four of `MDBASE_CONNECT_STRIPE_SECRET_KEY`,
+`MDBASE_CONNECT_STRIPE_WEBHOOK_SECRET`,
+`MDBASE_CONNECT_STRIPE_PLUS_MONTHLY_PRICE_ID` and
+`MDBASE_CONNECT_STRIPE_PLUS_YEARLY_PRICE_ID` are set; some but not all of them
+refuses startup. With billing off, `/v1/billing/*` and `/v1/webhooks/stripe`
+are not registered and `/v1/me` reports `billing.available: false`.
+
+`POST /v1/billing/checkout` (same-origin, signed in, `{"interval":"month"|"year"}`)
+creates the account's Stripe customer on first use and returns a Checkout URL.
+It refuses legacy accounts and accounts that already have Plus that hasn't
+been cancelled. `POST /v1/billing/portal` returns a Stripe customer portal URL.
+Stripe receives the account's email address and its mdbase user ID, never
+collection paths or record content.
+
+The Stripe subscription is the grant. `POST /v1/webhooks/stripe` verifies the
+signature, then for `checkout.session.completed`,
+`customer.subscription.created|updated|deleted` and `invoice.paid` reads the
+subscription again from Stripe and writes one `plus_v1` grant with
+`source = 'subscription'` and `source_reference` set to the subscription ID.
+The grant ends seven days (`FAILED_PAYMENT_GRACE_MS`) after the end of the
+period the latest invoice paid for, or after a cancellation that came sooner,
+so Plus lapses on its own without a job. Because every event re-reads the
+subscription under the account's row lock, replays and out-of-order delivery
+converge on the same grant. A change bumps the entitlement revision and
+reallocates file quota like an operator grant. An account whose Plus will
+renew can't be deleted until Plus is cancelled in the customer portal.
 
 ## Instance administration
 

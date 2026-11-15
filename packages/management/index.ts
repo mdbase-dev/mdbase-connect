@@ -178,8 +178,33 @@ export interface CollectionModeStatus {
   change: CollectionModeChange | null;
 }
 
+export type PlusInterval = "month" | "year";
+
 export interface ManagementOverview {
   user: { id: string; name: string; email: string | null; login: string | null };
+  /** Plus checkout and the account's subscription. Absent on servers before Plus. */
+  billing?: {
+    /** Whether this account can buy Plus here; false when the server doesn't sell plans. */
+    available: boolean;
+    /** Plus's limits, for the upgrade offer; null when billing is unavailable. */
+    plus_limits: null | {
+      hosted_storage_bytes: number;
+      max_hosted_collections: number;
+      max_single_file_bytes: number;
+      max_collection_member_seats: number;
+    };
+    /** The subscription giving this account Plus, while its Plus lasts. */
+    plus: null | {
+      /** Stripe's subscription status, such as active, past_due or canceled. */
+      status: string;
+      /** When the subscription next renews. */
+      current_period_end: string;
+      /** When a scheduled cancellation ends it, normally the period end; null while it renews. */
+      cancels_at: string | null;
+      /** When Plus stops unless another payment goes through, including the grace for a failed payment. */
+      access_ends_at: string;
+    };
+  };
   subscription: null | {
     kind: "beta" | "entitled";
     profiles: string[];
@@ -422,6 +447,22 @@ export class ConnectManagementClient {
       method: "PATCH",
       body: JSON.stringify(changes)
     }, options);
+  }
+
+  /** A Stripe Checkout URL for Plus; the browser returns to /account?checkout=success or cancelled. */
+  startPlusCheckout(
+    interval: PlusInterval,
+    options?: ManagementRequestOptions
+  ): Promise<{ url: string }> {
+    return this.request("/v1/billing/checkout", {
+      method: "POST",
+      body: JSON.stringify({ interval })
+    }, options);
+  }
+
+  /** A Stripe customer portal URL for changing or cancelling Plus. */
+  openBillingPortal(options?: ManagementRequestOptions): Promise<{ url: string }> {
+    return this.request("/v1/billing/portal", { method: "POST" }, options);
   }
 
   deleteAccount(input: {

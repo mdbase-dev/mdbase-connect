@@ -207,7 +207,12 @@ export class FileQuotaWorker {
       "SELECT owner_user_id FROM next_collections WHERE collection_id = $1", [collectionId]
     );
     if (!owner.rows[0]) return;
-    this.onAllocation(await allocateFileQuotas(this.db, this.log, owner.rows[0].owner_user_id, this.mode));
+    await this.allocateOwner(owner.rows[0].owner_user_id);
+  }
+
+  /** Applies an owner's changed plan straight away, instead of at the next pass. */
+  async allocateOwner(owner: string): Promise<void> {
+    this.onAllocation(await allocateFileQuotas(this.db, this.log, owner, this.mode));
   }
 
   private sweepOnce(): void {

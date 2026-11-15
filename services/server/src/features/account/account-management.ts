@@ -8,6 +8,7 @@ import { queueAccountProviderCleanup } from "../hosted/hosted-capability-lifecyc
 import { recordCollectionDeletionIntent } from "../next/collection-deletion.js";
 import { completeMigrationBatch } from "../next/migration-topology.js";
 import { queueNextPolicy } from "../next/policy-outbox.js";
+import { currentPlusSubscription, plusWillRenew } from "../billing/billing.js";
 import type {
   ExternalProvider,
   VerifiedExternalIdentity
@@ -39,6 +40,13 @@ export class AccountDeletionAuthorizationError extends Error {
   constructor() {
     super("Confirm your identity again before deleting this account.");
     this.name = "AccountDeletionAuthorizationError";
+  }
+}
+
+export class AccountDeletionBillingError extends Error {
+  constructor() {
+    super("Cancel Plus in Manage billing before deleting this account, so it isn't charged again.");
+    this.name = "AccountDeletionBillingError";
   }
 }
 
@@ -84,6 +92,9 @@ export async function deleteAccountLocally(
       );
     }
     if (!authorized) throw new AccountDeletionAuthorizationError();
+    if (plusWillRenew(await currentPlusSubscription(connection, input.userId))) {
+      throw new AccountDeletionBillingError();
+    }
 
     const member = (await connection.query<{ cohort: string }>(
       "SELECT cohort FROM next_migration_cohort_members WHERE account_id=$1 FOR SHARE", [input.userId]
