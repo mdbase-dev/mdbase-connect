@@ -236,8 +236,12 @@ test("tags without a published release are skipped across probe batches", async 
   });
   assert.equal(result.manifest.version, "0.1.0-beta.21");
   const probed = calls.filter((url) => url.endsWith("/mdbase-connect-channel-v1.json"));
-  // Newest first, in batches of eight: beta.40 through beta.17. Nothing older.
-  assert.deepEqual(probed, Array.from({ length: 24 }, (_, i) => manifestUrl(`v0.1.0-beta.${40 - i}`)));
+  // Newest first, in batches of eight: the stable v0.1.0 (a beta installation
+  // takes stable releases too), then beta.40 through beta.18. Nothing older.
+  assert.deepEqual(probed, [
+    manifestUrl("v0.1.0"),
+    ...Array.from({ length: 23 }, (_, i) => manifestUrl(`v0.1.0-beta.${40 - i}`))
+  ]);
 });
 
 test("discovery reaches a stable release behind newer prerelease tags", async () => {
@@ -251,6 +255,113 @@ test("discovery reaches a stable release behind newer prerelease tags", async ()
   });
   assert.equal(result.manifest.version, "0.1.0");
   assert.deepEqual(calls, [tagIndexUrl, manifestUrl("v0.1.0"), bundleUrl("v0.1.0")]);
+});
+
+test("a beta installation finds a newer beta while no stable release is published", async () => {
+  const result = await findLatestRelease({
+    channel: "beta",
+    trustCacheDirectory: "/tmp/not-used",
+    fetchImpl: fetchMap(releases(
+      ["v0.1.0-beta.200", "v0.1.0-beta.201", "v0.1.0"],
+      ["0.1.0-beta.200", "0.1.0-beta.201"]
+    )),
+    async verifyBundle() {}
+  });
+  assert.equal(result.manifest.version, "0.1.0-beta.201");
+  assert.equal(result.manifest.channel, "beta");
+});
+
+test("a beta installation prefers the stable release over every beta, verified by its own tag", async () => {
+  const identities = [];
+  const result = await findLatestRelease({
+    channel: "beta",
+    trustCacheDirectory: "/tmp/not-used",
+    fetchImpl: fetchMap(releases(
+      ["v0.1.0-beta.200", "v0.1.0", "v0.1.0-beta.999"],
+      ["0.1.0-beta.200", "0.1.0", "0.1.0-beta.999"]
+    )),
+    async verifyBundle(_bundle, _payload, identity) {
+      identities.push(identity);
+    }
+  });
+  assert.equal(result.manifest.version, "0.1.0");
+  assert.equal(result.manifest.channel, "stable");
+  assert.deepEqual(result.release, {
+    tag: "v0.1.0",
+    url: "https://github.com/mdbase-dev/mdbase-connect/releases/tag/v0.1.0"
+  });
+  assert.deepEqual(identities, [
+    "https://github.com/mdbase-dev/mdbase-connect/.github/workflows/desktop-release.yml@refs/tags/v0.1.0"
+  ]);
+});
+
+test("a later beta outranks the stable release it follows on a beta installation", async () => {
+  const result = await findLatestRelease({
+    channel: "beta",
+    trustCacheDirectory: "/tmp/not-used",
+    fetchImpl: fetchMap(releases(["v0.1.0", "v0.1.1-beta.1"], ["0.1.0", "0.1.1-beta.1"])),
+    async verifyBundle() {}
+  });
+  assert.equal(result.manifest.version, "0.1.1-beta.1");
+});
+
+test("a stable installation ignores beta releases, however new", async () => {
+  const calls = [];
+  const result = await findLatestRelease({
+    channel: "stable",
+    trustCacheDirectory: "/tmp/not-used",
+    fetchImpl: fetchMap(releases(
+      ["v0.1.0-beta.200", "v0.1.0", "v0.1.1-beta.1"],
+      ["0.1.0-beta.200", "0.1.0", "0.1.1-beta.1"]
+    ), calls),
+    async verifyBundle() {}
+  });
+  assert.equal(result.manifest.version, "0.1.0");
+  assert.deepEqual(calls, [tagIndexUrl, manifestUrl("v0.1.0"), bundleUrl("v0.1.0")]);
+  assert.equal(await findLatestRelease({
+    channel: "stable",
+    trustCacheDirectory: "/tmp/not-used",
+    fetchImpl: fetchMap(releases(["v0.1.0-beta.200", "v0.1.1-beta.1"], ["0.1.0-beta.200", "0.1.1-beta.1"])),
+    async verifyBundle() { assert.fail("a stable installation must not verify a beta"); }
+  }), null);
+});
+
+test("a stable release a beta installation takes is checked exactly like a beta", async () => {
+  const tags = ["v0.1.0-beta.200", "v0.1.0"];
+  const released = ["0.1.0-beta.200", "0.1.0"];
+  const find = (overrides, verifyBundle = async () => {}) => findLatestRelease({
+    channel: "beta",
+    trustCacheDirectory: "/tmp/not-used",
+    fetchImpl: fetchMap(releases(tags, released, overrides)),
+    verifyBundle
+  });
+  // An unverifiable stable release is rejected and the newest valid beta is used.
+  const unsigned = await find({}, async (_bundle, payload) => {
+    if (JSON.parse(payload).version === "0.1.0") throw new Error("untrusted signer");
+  });
+  assert.equal(unsigned.manifest.version, "0.1.0-beta.200");
+  // A stable manifest that claims the beta channel, another tag or another
+  // release page, or has no signature bundle, is rejected the same way.
+  const wrongChannel = { ...manifest("0.1.0"), channel: "beta" };
+  const wrongTag = manifest("0.1.0-beta.201");
+  const wrongPage = { ...manifest("0.1.0"), release_url: manifest("0.1.0-beta.200").release_url };
+  for (const overrides of [
+    { [manifestUrl("v0.1.0")]: wrongChannel },
+    { [manifestUrl("v0.1.0")]: wrongTag },
+    { [manifestUrl("v0.1.0")]: wrongPage },
+    { [bundleUrl("v0.1.0")]: 404 }
+  ]) {
+    assert.equal((await find(overrides)).manifest.version, "0.1.0-beta.200");
+  }
+  await assert.rejects(
+    findLatestRelease({
+      channel: "beta",
+      trustCacheDirectory: "/tmp/not-used",
+      fetchImpl: fetchMap(releases(["v0.1.0"], ["0.1.0"], { [manifestUrl("v0.1.0")]: wrongChannel })),
+      async verifyBundle() {}
+    }),
+    /channel does not match/
+  );
 });
 
 test("a channel with no published release finds nothing", async () => {

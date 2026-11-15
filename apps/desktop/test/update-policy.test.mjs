@@ -202,3 +202,31 @@ test("replayed manifests and cross-channel releases fail closed", () => {
     "current"
   );
 });
+
+test("a beta installation takes a stable release; a stable installation never takes a beta", () => {
+  const stable = parseUpdateManifest(manifest({
+    version: "0.1.0",
+    tag: "v0.1.0",
+    channel: "stable",
+    release_url: "https://github.com/mdbase-dev/mdbase-connect/releases/tag/v0.1.0",
+    rollout: { percentage: 100, seed: "v0.1.0" }
+  }));
+  const decide = (target, currentVersion, channel, extra = {}) => decideUpdate({
+    manifest: target,
+    currentVersion,
+    channel,
+    platformKey: "darwin-arm64",
+    installationId: "installation-a",
+    ...extra
+  }).kind;
+  assert.equal(decide(stable, "0.1.0-beta.200", "beta"), "available");
+  // The bridge keeps every other guard: replay floor, withdrawal and version order.
+  assert.equal(decide(stable, "0.1.0-beta.200", "beta", { highestTrustedVersion: "0.1.1" }), "blocked");
+  assert.equal(
+    decide(parseUpdateManifest({ ...structuredClone(stable), blocked_versions: ["0.1.0"] }), "0.1.0-beta.200", "beta"),
+    "blocked"
+  );
+  assert.equal(decide(stable, "0.1.1-beta.1", "beta"), "current");
+  assert.equal(decide(parseUpdateManifest(manifest({ version: "0.1.1-beta.1", tag: "v0.1.1-beta.1",
+    release_url: "https://github.com/mdbase-dev/mdbase-connect/releases/tag/v0.1.1-beta.1" })), "0.1.0", "stable"), "current");
+});
