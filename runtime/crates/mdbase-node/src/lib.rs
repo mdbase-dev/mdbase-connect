@@ -1,4 +1,4 @@
-//! # mdbase-node: the Node.js addon behind `mdbase/node`
+//! # mdbase-node: the Node.js addon behind `@mdbase-dev/mdbase/node`
 //!
 //! **Responsibility.** Exposes [`mdbase::Collection`] to JavaScript through
 //! napi-rs. The addon is deliberately thin: one class, `Collection`, with

@@ -4,7 +4,7 @@
 //! outside a collection runtime, as pure functions over JSON: contract and
 //! implementation digests, JSON Schema compilation and validation, catalog
 //! (config, types, contracts) loading, record validation, query checking and
-//! type-pack assess/apply. The npm package `mdbase` (`packages/mdbase`) wraps
+//! type-pack assess/apply. The npm package `@mdbase-dev/mdbase` (`packages/mdbase`) wraps
 //! this module; `mdbase-reader`, `mdbase-writer` and app scripts call it where
 //! they called `@callumalpass/mdbase` before.
 //!
