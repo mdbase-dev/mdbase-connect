@@ -170,7 +170,7 @@ entitlement, and email scheduling commit in one transaction.
 Public signup assigns the permanent `free_v1` profile (250 MiB hosted
 storage, one synced collection, one member
 seat, 2 MiB per Markdown document, 100 MiB per file, 10,000 files per
-collection) and a `trial_v1` grant ending 30 days after signup. The trial
+collection; only the legacy hosted provider enforces the per-file figure) and a `trial_v1` grant ending 30 days after signup. The trial
 raises hosted storage to 5 GiB and nothing else, so when it ends the
 effective limits fall back to `free_v1`; stored files are kept. The notices
 (`storage_trial_ending` seven days before the end and `storage_trial_ended` at

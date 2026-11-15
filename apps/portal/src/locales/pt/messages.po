@@ -1546,12 +1546,11 @@ msgid "Do not share"
 msgstr "Não compartilhar"
 
 #. placeholder {0}: formatBytes(subscription.limits.max_document_bytes)
-#. placeholder {1}: formatBytes(subscription.limits.max_single_file_bytes)
-#. placeholder {2}: countLabel(subscription.limits.max_mirror_replicas_per_collection, "folder")
-#. placeholder {3}: countLabel(subscription.limits.max_application_replicas_per_collection, "application-installation")
+#. placeholder {1}: countLabel(subscription.limits.max_mirror_replicas_per_collection, "folder")
+#. placeholder {2}: countLabel(subscription.limits.max_application_replicas_per_collection, "application-installation")
 #: src/AccountManagement.tsx
-msgid "Documents up to {0} · files up to {1} · {2} · {3} per collection"
-msgstr "Documentos de até {0} · arquivos de até {1} · {2} · {3} por coleção"
+msgid "Documents up to {0} · {1} · {2} per collection"
+msgstr "Documentos de até {0} · {1} · {2} por coleção"
 
 #: src/authority-workflows.tsx
 msgid "Don't allow"
@@ -3867,8 +3866,8 @@ msgid "Upgrade to Plus"
 msgstr "Fazer upgrade para o Plus"
 
 #: src/AccountManagement.tsx
-msgid "Upgrade to Plus for {storage} of storage, {collections}, files up to {fileSize} and {people} per collection."
-msgstr "Faça upgrade para o Plus e tenha {storage} de armazenamento, {collections}, arquivos de até {fileSize} e {people} por coleção."
+msgid "Upgrade to Plus for {storage} of storage, {collections} and {people} per collection."
+msgstr "Faça upgrade para o Plus e tenha {storage} de armazenamento, {collections} e {people} por coleção."
 
 #: src/AccountManagement.tsx
 msgid "Upgrade to Plus for more storage, collections and people."

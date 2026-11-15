@@ -509,7 +509,7 @@ describe("ConnectApp", () => {
       const checkout = vi.spyOn(client, "startPlusCheckout").mockResolvedValue({ url: "https://checkout.stripe.com/c/pay/cs_test" });
       const card = await plan();
       expect(card.getByText("Free")).toBeInTheDocument();
-      expect(card.getByText("Upgrade to Plus for 100 GB of storage, 10 collections, files up to 250 MB and 5 people per collection.")).toBeInTheDocument();
+      expect(card.getByText("Upgrade to Plus for 100 GB of storage, 10 collections and 5 people per collection.")).toBeInTheDocument();
       expect(card.queryByRole("button", { name: "Manage billing" })).not.toBeInTheDocument();
       expect(card.getByRole("button", { name: "US$10 a month" })).toBeEnabled();
       await userEvent.setup().click(card.getByRole("button", { name: "US$96 a year" }));

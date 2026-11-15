@@ -523,10 +523,9 @@ function PlanRow({ billing, activation, busy, onUpgrade, onManage }: {
     if (limits) {
       const storage = formatBytes(limits.hosted_storage_bytes);
       const collections = countLabel(limits.max_hosted_collections, "collection");
-      const fileSize = formatBytes(limits.max_single_file_bytes);
       const seats = limits.max_collection_member_seats;
       const people = t(i18n)`${plural(seats, { one: "# person", other: "# people" })}`;
-      detail = t(i18n)`Upgrade to Plus for ${storage} of storage, ${collections}, files up to ${fileSize} and ${people} per collection.`;
+      detail = t(i18n)`Upgrade to Plus for ${storage} of storage, ${collections} and ${people} per collection.`;
     } else {
       detail = t(i18n)`Upgrade to Plus for more storage, collections and people.`;
     }
@@ -585,7 +584,7 @@ function SubscriptionStorage({ subscription, fallbackStorage }: {
     {!native && subscription.limits.retained_file_bytes > 0 && <p>{subscription.usage?.retained_file_bytes != null
       ? t(i18n)`${formatBytes(subscription.usage.retained_file_bytes)} of ${formatBytes(subscription.limits.retained_file_bytes)} retained file storage`
       : t(i18n)`${formatBytes(subscription.limits.retained_file_bytes)} retained file storage included`}</p>}
-    <p><Trans>Documents up to {formatBytes(subscription.limits.max_document_bytes)} · files up to {formatBytes(subscription.limits.max_single_file_bytes)} · {countLabel(subscription.limits.max_mirror_replicas_per_collection, "folder")} · {countLabel(subscription.limits.max_application_replicas_per_collection, "application-installation")} per collection</Trans></p>
+    <p><Trans>Documents up to {formatBytes(subscription.limits.max_document_bytes)} · {countLabel(subscription.limits.max_mirror_replicas_per_collection, "folder")} · {countLabel(subscription.limits.max_application_replicas_per_collection, "application-installation")} per collection</Trans></p>
   </div>;
 }
 

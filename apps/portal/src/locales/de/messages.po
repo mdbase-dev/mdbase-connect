@@ -1546,12 +1546,11 @@ msgid "Do not share"
 msgstr "Nicht teilen"
 
 #. placeholder {0}: formatBytes(subscription.limits.max_document_bytes)
-#. placeholder {1}: formatBytes(subscription.limits.max_single_file_bytes)
-#. placeholder {2}: countLabel(subscription.limits.max_mirror_replicas_per_collection, "folder")
-#. placeholder {3}: countLabel(subscription.limits.max_application_replicas_per_collection, "application-installation")
+#. placeholder {1}: countLabel(subscription.limits.max_mirror_replicas_per_collection, "folder")
+#. placeholder {2}: countLabel(subscription.limits.max_application_replicas_per_collection, "application-installation")
 #: src/AccountManagement.tsx
-msgid "Documents up to {0} · files up to {1} · {2} · {3} per collection"
-msgstr "Dokumente bis {0} · Dateien bis {1} · {2} · {3} pro Sammlung"
+msgid "Documents up to {0} · {1} · {2} per collection"
+msgstr "Dokumente bis {0} · {1} · {2} pro Sammlung"
 
 #: src/authority-workflows.tsx
 msgid "Don't allow"
@@ -3867,8 +3866,8 @@ msgid "Upgrade to Plus"
 msgstr "Zu Plus wechseln"
 
 #: src/AccountManagement.tsx
-msgid "Upgrade to Plus for {storage} of storage, {collections}, files up to {fileSize} and {people} per collection."
-msgstr "Mit Plus erhalten Sie {storage} Speicher, {collections}, Dateien bis {fileSize} und {people} pro Sammlung."
+msgid "Upgrade to Plus for {storage} of storage, {collections} and {people} per collection."
+msgstr "Mit Plus erhalten Sie {storage} Speicher, {collections} und {people} pro Sammlung."
 
 #: src/AccountManagement.tsx
 msgid "Upgrade to Plus for more storage, collections and people."
