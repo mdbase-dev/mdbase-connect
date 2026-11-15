@@ -83,6 +83,16 @@ export function channelForVersion(version: string): UpdateChannel {
   return parseVersion(version).prerelease.length === 0 ? "stable" : "beta";
 }
 
+/**
+ * Whether an installation on `installed` takes releases published on `release`.
+ * A beta installation also takes stable releases, so the newest of either wins
+ * by semver order and `0.1.0` supersedes every `0.1.0-beta.N`: this is how beta
+ * installations leave the beta line. A stable installation never takes a beta.
+ */
+export function acceptsReleaseChannel(installed: UpdateChannel, release: UpdateChannel): boolean {
+  return release === installed || (installed === "beta" && release === "stable");
+}
+
 export function rolloutBucket(installationId: string, seed: string): number {
   if (!installationId || !seed) throw new Error("Rollout identity and seed are required.");
   const digest = createHash("sha256").update(`${seed}\0${installationId}`, "utf8").digest();
@@ -108,7 +118,7 @@ export function decideUpdate(input: {
     manual = false
   } = input;
   parseVersion(currentVersion);
-  if (manifest.channel !== channel) return { kind: "current" };
+  if (!acceptsReleaseChannel(channel, manifest.channel)) return { kind: "current" };
   if (highestTrustedVersion && compareVersions(manifest.version, highestTrustedVersion) < 0) {
     return { kind: "blocked", reason: "The release manifest is older than the last trusted release." };
   }

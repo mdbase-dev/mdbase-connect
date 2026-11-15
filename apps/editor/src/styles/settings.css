@@ -214,3 +214,98 @@
   line-height: 1.5;
 }
 
+
+.shortcut-settings-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+}
+
+.shortcut-settings-tools .mdbase-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.shortcut-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.shortcut-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-1) var(--space-4);
+  min-height: 48px;
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.shortcut-row-label {
+  display: grid;
+  font-size: var(--font-size-ui);
+}
+
+.shortcut-row-label small {
+  color: var(--faint);
+  font-size: var(--font-size-caption);
+}
+
+.shortcut-row-keys {
+  display: flex;
+  align-items: center;
+  justify-content: end;
+  gap: var(--space-1);
+}
+
+.shortcut-change,
+.shortcut-recorder {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+}
+
+.shortcut-change:hover {
+  background: var(--hover);
+}
+
+.shortcut-change kbd {
+  min-width: 22px;
+  padding: var(--space-1) 6px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-subtle);
+  color: var(--muted);
+}
+
+.shortcut-unset {
+  color: var(--faint);
+  font-size: var(--font-size-caption);
+}
+
+.shortcut-conflict {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding-bottom: var(--space-2);
+}
+
+.shortcut-conflict p {
+  flex: 1 1 240px;
+  margin: 0;
+  color: var(--warning);
+  font-size: var(--font-size-caption);
+}
+
+.shortcut-group h3 {
+  margin: var(--space-6) 0 var(--space-1);
+  color: var(--muted);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
+}

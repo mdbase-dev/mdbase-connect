@@ -2,7 +2,7 @@ import { useLingui } from "@lingui/react";
 import { isLocale } from "@mdbase-dev/i18n";
 import { englishCodeMirrorPhrases, loadCodeMirrorPhrases } from "@mdbase-dev/i18n/codemirror";
 import { t } from "@lingui/core/macro";
-import { commandDefinitions } from "./editor-commands";
+import { commandShortcuts, matchesChord } from "./editor-commands";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyField, historyKeymap, indentLess, indentMore } from "@codemirror/commands";
 import { markdown, markdownKeymap, markdownLanguage, pasteURLAsLink } from "@codemirror/lang-markdown";
@@ -26,7 +26,8 @@ import {
   lineNumbers,
   placeholder as editorPlaceholder,
   scrollPastEnd,
-  type DecorationSet
+  type DecorationSet,
+  type KeyBinding
 } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -736,11 +737,17 @@ const editorSetup = (variant: EditorVariant, hasFooter = false): Extension => [
   ])
 ];
 
-const writerKeymap = [
-  ...([ ["bold", "bold"], ["italic", "italic"], ["command-palette", "link"], ["code", "code"] ] as const).map(([id, format]) => ({
-    key: commandDefinitions[id].shortcut.toLowerCase().replace("mod", "Mod").replace("shift", "Shift").replaceAll("+", "-"),
-    run: markdownFormatCommand(format)
-  })),
+// Formatting follows this device's shortcuts as they change. A link takes the palette's first
+// chord, which the palette leaves to text; its other chords open the palette from text too.
+const writerFormats = [["bold", "bold"], ["italic", "italic"], ["command-palette", "link"], ["code", "code"]] as const;
+const writerKeymap: KeyBinding[] = [
+  { any: (view, event) => {
+    const match = writerFormats.find(([id]) => {
+      const chord = commandShortcuts(id)[0];
+      return chord !== undefined && matchesChord(chord, event);
+    });
+    return match ? markdownFormatCommand(match[1])(view) : false;
+  } },
   { key: "Tab", run: indentListItem },
   { key: "Shift-Tab", run: outdentListItem },
   ...markdownKeymap

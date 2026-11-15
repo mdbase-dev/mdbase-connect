@@ -6,7 +6,7 @@ import { shortcutLabel, type Command } from "@mdbase-dev/ui/command-palette";
 import { noteTitle } from "./note";
 import { searchNoteResults, searchTextRanges, type NoteSearchEntry, type NoteSearchResult } from "./note-search";
 import { SearchMatchText } from "./SearchMatchText";
-import { commandDefinitions, filterCommands, rememberCommand, type CommandDefinition, type CommandId, type EditorCommand } from "./editor-commands";
+import { commandDefinitions, commandShortcuts, filterCommands, rememberCommand, useShortcuts, type CommandDefinition, type CommandId, type EditorCommand } from "./editor-commands";
 
 export function quickOpenResults({ index, recentPaths, types, commands, onSelect, onCreate }: {
   index: NoteSearchEntry[];
@@ -63,15 +63,23 @@ function recentNotes(index: NoteSearchEntry[], paths: string[]): NoteSearchResul
   }))];
 }
 
-export function ShortcutHelp({ onClose, canRename }: { onClose: () => void; canRename: boolean }) {
+export function ShortcutHelp({ onClose, onCustomize, canRename }: { onClose: () => void; onCustomize: () => void; canRename: boolean }) {
   useLingui();
-  const groups = { Navigate: t`Navigate`, Note: t`Note`, Text: t`Text` };
+  useShortcuts();
+  const groups = { Navigate: t`Navigate`, Note: t`Note`, Text: t`Text`, Other: t({ message: "Other", context: "shortcut group" }) };
+  const bound = (Object.entries(commandDefinitions) as [CommandId, CommandDefinition][])
+    .map(([id, entry]) => ({ id, entry, chords: commandShortcuts(id) }))
+    .filter(({ id, chords }) => chords.length > 0 && (id !== "rename" || canRename));
   return <Dialog open title={t`Shortcuts`} className="shortcut-help" onClose={onClose}>
-    <div className="shortcut-groups">{Object.entries(groups).map(([group, label]) => <section key={group}><h3>{label}</h3><dl>
-      {(Object.entries(commandDefinitions) as [CommandId, CommandDefinition][]).filter(([id, entry]) => entry.group === group && entry.shortcut && (id !== "rename" || canRename)).map(([, entry]) => <div key={entry.label}>
-        <dt>{entry.label}{entry.scope && <small>{entry.scope}</small>}</dt>
-        <dd>{[entry.shortcut!, ...(entry.aliases ?? [])].map(keys => <kbd key={keys}>{shortcutLabel(keys)}</kbd>)}</dd>
-      </div>)}
-    </dl></section>)}</div>
+    <div className="shortcut-groups">{Object.entries(groups).map(([group, label]) => {
+      const rows = bound.filter(({ entry }) => (entry.group ?? "Other") === group);
+      return rows.length > 0 && <section key={group}><h3>{label}</h3><dl>
+        {rows.map(({ id, entry, chords }) => <div key={id}>
+          <dt>{entry.label}{(entry.scope ?? entry.hint) && <small>{entry.scope ?? entry.hint}</small>}</dt>
+          <dd>{chords.map(keys => <kbd key={keys}>{shortcutLabel(keys)}</kbd>)}</dd>
+        </div>)}
+      </dl></section>;
+    })}</div>
+    <div className="shortcut-help-actions"><button className="mdbase-button is-tertiary" onClick={onCustomize}>{t`Change shortcuts`}</button></div>
   </Dialog>;
 }

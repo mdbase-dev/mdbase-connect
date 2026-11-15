@@ -7,7 +7,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { digestNames, loadOriginals, protectedHashes } from './originals.mjs';
 import { assertInventory, inventoryDirectory } from './native-publish-bytes.mjs';
 import { assertCheckout, assertDispatch, deploymentFor } from './refs.mjs';
-import { assertHostingSource } from './hosting.mjs';
+import { assertHostingSource, sourcePolicy } from './hosting.mjs';
 import { assertArtifactMetadata, assertArtifactRun } from './artifact.mjs';
 const need=(ok,message)=>{if(!ok)throw Error(`Editor publisher refusal: ${message}`);};
 export async function sourcePlan({env=process.env,cwd=env.EDITOR_SOURCE_ROOT??process.cwd(),installed=false}={}) {
@@ -37,7 +37,7 @@ export async function publicationInventory(directory,plan) {
  const inventory=await inventoryDirectory(directory,{maxFileBytes:25*1024*1024});
  assertBuiltManifest(JSON.parse(await readFile(join(directory,'.well-known/mdbase-app.json'),'utf8')),plan);
  assertCoverage(inventory,plan);
- await assertHostingSource(directory,inventory);
+ await assertHostingSource(directory,inventory,sourcePolicy(plan.sha));
  return inventory;
 }
 export function deploymentPrefix(output) {

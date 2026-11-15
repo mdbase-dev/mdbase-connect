@@ -1,4 +1,6 @@
 import { t } from "@lingui/core/macro";
+import { isApplePlatform } from "@mdbase-dev/ui/command-palette";
+import { useSyncExternalStore } from "react";
 export const commandDefinitions = {
   "sort-modified-desc": { get label() { return t`Modified newest`; } },
   "sort-modified-asc": { get label() { return t`Modified oldest`; } },
@@ -52,19 +54,24 @@ export const commandDefinitions = {
   "history-forward": { get label() { return t`Forward`; }, shortcut: "alt+ArrowRight", group: "Navigate" },
   "next-note": { get label() { return t`Next note`; }, shortcut: "alt+J", group: "Navigate" },
   "previous-note": { get label() { return t`Previous note`; }, shortcut: "alt+K", group: "Navigate" },
-  "find-text": { get label() { return t`Find in note`; }, shortcut: "mod+F", group: "Text" },
+  "find-text": { get label() { return t`Find in note`; }, shortcut: "mod+F", group: "Text", fixed: true },
   bold: { get label() { return t`Bold`; }, shortcut: "mod+B", group: "Text" },
   italic: { get label() { return t`Italic`; }, shortcut: "mod+I", group: "Text" },
   code: { get label() { return t`Inline code`; }, shortcut: "mod+shift+C", group: "Text" },
-  "markdown-commands": { get label() { return t`Markdown commands`; }, shortcut: "/", group: "Text" },
+  "markdown-commands": { get label() { return t`Markdown commands`; }, shortcut: "/", group: "Text", fixed: true },
   "check-note": { get label() { return t`Check note`; } }
 } satisfies Record<string, CommandDefinition>;
 
-export interface CommandDefinition { label: string; shortcut?: string; aliases?: readonly string[]; group?: "Navigate" | "Note" | "Text"; hint?: string; scope?: string }
+/** `fixed` commands are bound by the editor itself (search panel, slash menu), so their keys can't be changed. */
+export interface CommandDefinition { label: string; shortcut?: string; aliases?: readonly string[]; group?: "Navigate" | "Note" | "Text"; hint?: string; scope?: string; fixed?: boolean }
 export type CommandId = keyof typeof commandDefinitions;
 export interface EditorCommand extends CommandDefinition { id: string; context?: string; run: () => void }
+export function isCommandId(id: string): id is CommandId {
+  return Object.hasOwn(commandDefinitions, id);
+}
 export function command(id: CommandId, run: () => void, label?: string): EditorCommand {
-  return { id, ...commandDefinitions[id], ...(label ? { label } : {}), run };
+  const [shortcut, ...aliases] = commandShortcuts(id);
+  return { id, ...commandDefinitions[id], shortcut, aliases, ...(label ? { label } : {}), run };
 }
 export function buildEditorCommands(handlers: Partial<Record<CommandId, () => void>>, labels: Partial<Record<CommandId, string>> = {}): EditorCommand[] {
   return (Object.keys(commandDefinitions) as CommandId[]).flatMap((id) => {
@@ -72,20 +79,136 @@ export function buildEditorCommands(handlers: Partial<Record<CommandId, () => vo
     return run ? [command(id, run, labels[id])] : [];
   });
 }
-export function matchesCommandShortcut(id: CommandId, event: { key: string; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean }, prefix = ""): boolean {
+type KeyPress = { key: string; code?: string; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean };
+
+/** The pressed key, lower case. Option changes the character a Mac keyboard reports, so with Alt held a letter or digit goes by its physical key. */
+function pressedKey(event: KeyPress): string {
+  if (event.altKey && event.code && /^(Key[A-Z]|Digit\d)$/.test(event.code)) return event.code.slice(-1).toLowerCase();
+  return event.key === " " ? "space" : event.key.toLocaleLowerCase();
+}
+
+/** Whether a key press completes a chord such as `mod+shift+P`, or the second step of a sequence such as `g n` after `prefix`. */
+export function matchesChord(chord: string, event: KeyPress, prefix = ""): boolean {
+  const sequence = chord.toLocaleLowerCase().split(" ");
+  if (sequence.length > 1 && sequence[0] !== prefix) return false;
+  const parts = sequence.at(-1)!.split("+");
+  const key = pressedKey(event);
+  return key === parts.at(-1)
+    && Boolean(event.metaKey || event.ctrlKey) === (parts.includes("mod") || parts.includes("ctrl"))
+    && (!parts.includes("ctrl") || event.ctrlKey && !event.metaKey)
+    && event.altKey === parts.includes("alt")
+    // Shift is what produced a symbol such as `?`, so it only counts for letters and named keys.
+    && (isSymbol(key) || event.shiftKey === parts.includes("shift"));
+}
+
+function isSymbol(key: string): boolean {
+  return key.length === 1 && key.toLocaleLowerCase() === key.toLocaleUpperCase();
+}
+
+export function matchesCommandShortcut(id: CommandId, event: KeyPress, prefix = ""): boolean {
+  return commandShortcuts(id).some((chord) => matchesChord(chord, event, prefix));
+}
+
+/** The chord a key press makes, in the registry's spelling, or undefined while only modifiers are held. */
+export function chordFromEvent(event: KeyPress): string | undefined {
+  if (["Shift", "Control", "Alt", "Meta", "AltGraph", "CapsLock", "Dead", "Process", "Unidentified"].includes(event.key)) return undefined;
+  const key = pressedKey(event);
+  const name = key === "space" ? "Space" : key.length === 1 ? key.toLocaleUpperCase() : event.key;
+  const modifiers = isApplePlatform()
+    ? [event.metaKey ? "mod" : event.ctrlKey ? "ctrl" : ""]
+    : [event.metaKey || event.ctrlKey ? "mod" : ""];
+  if (event.altKey) modifiers.push("alt");
+  if (event.shiftKey && !isSymbol(key)) modifiers.push("shift");
+  return [...modifiers.filter(Boolean), name].join("+");
+}
+
+/** Each chord's modifiers in one order and its key in lower case, so equal chords compare equal. */
+function normalizeChord(chord: string): string {
+  return chord.toLocaleLowerCase().split(" ").map((step) => {
+    const parts = step.split("+");
+    const key = parts.pop()!;
+    return [...parts.sort(), key].join("+");
+  }).join(" ");
+}
+
+// Per-device shortcut overrides: each changed command's whole list of chords, empty when it has none.
+type ShortcutOverrides = Partial<Record<CommandId, readonly string[]>>;
+const shortcutsKey = "mdbase-editor:shortcuts";
+const shortcutListeners = new Set<() => void>();
+let shortcutOverrides: ShortcutOverrides | undefined;
+
+function loadShortcutOverrides(): ShortcutOverrides {
+  try {
+    const stored: unknown = JSON.parse(localStorage.getItem(shortcutsKey) ?? "{}");
+    if (!stored || typeof stored !== "object" || Array.isArray(stored)) return {};
+    return Object.fromEntries(Object.entries(stored).filter(([id, chords]) => isCommandId(id) && !(commandDefinitions[id] as CommandDefinition).fixed
+      && Array.isArray(chords) && chords.every((chord) => typeof chord === "string" && /^\S+( \S+)?$/.test(chord))));
+  } catch { return {}; }
+}
+
+function overrides(): ShortcutOverrides {
+  return shortcutOverrides ??= loadShortcutOverrides();
+}
+
+/** A command's chords on this device: its override, or else the registry's shortcut and aliases. */
+export function commandShortcuts(id: CommandId): readonly string[] {
   const definition: CommandDefinition = commandDefinitions[id];
-  return [definition.shortcut, ...(definition.aliases ?? [])].some((shortcut) => {
-    if (!shortcut) return false;
-    const sequence = shortcut.toLocaleLowerCase().split(" ");
-    if (sequence.length > 1 && sequence[0] !== prefix) return false;
-    const parts = sequence.at(-1)!.split("+");
-    const key = event.key === " " ? "space" : event.key.toLocaleLowerCase();
-    return key === parts.at(-1)
-      && Boolean(event.metaKey || event.ctrlKey) === (parts.includes("mod") || parts.includes("ctrl"))
-      && (!parts.includes("ctrl") || event.ctrlKey && !event.metaKey)
-      && event.altKey === parts.includes("alt")
-      && (key === "?" || event.shiftKey === parts.includes("shift"));
-  });
+  return overrides()[id] ?? (definition.shortcut ? [definition.shortcut, ...(definition.aliases ?? [])] : []);
+}
+
+export function isShortcutChanged(id: CommandId): boolean {
+  return Object.hasOwn(overrides(), id);
+}
+
+/** Replaces a command's chords on this device; `undefined` restores the registry's. */
+export function setCommandShortcuts(id: CommandId, chords: readonly string[] | undefined): void {
+  const definition: CommandDefinition = commandDefinitions[id];
+  const defaults = definition.shortcut ? [definition.shortcut, ...(definition.aliases ?? [])] : [];
+  const next = { ...overrides() };
+  if (!chords || chords.length === defaults.length && chords.every((chord, index) => normalizeChord(chord) === normalizeChord(defaults[index]))) delete next[id];
+  else next[id] = chords;
+  storeShortcutOverrides(next);
+}
+
+export function resetShortcuts(): void {
+  storeShortcutOverrides({});
+}
+
+function storeShortcutOverrides(next: ShortcutOverrides) {
+  shortcutOverrides = next;
+  if (Object.keys(next).length) localStorage.setItem(shortcutsKey, JSON.stringify(next));
+  else localStorage.removeItem(shortcutsKey);
+  for (const listener of shortcutListeners) listener();
+}
+
+/** Re-renders a component whenever this device's shortcuts change. */
+export function useShortcuts(): ShortcutOverrides {
+  return useSyncExternalStore(subscribeShortcuts, overrides);
+}
+function subscribeShortcuts(listener: () => void) {
+  shortcutListeners.add(listener);
+  return () => { shortcutListeners.delete(listener); };
+}
+
+/** The other command a chord already belongs to, including one that starts a sequence with it. */
+export function shortcutOwner(chord: string, except: CommandId): CommandId | undefined {
+  const wanted = normalizeChord(chord);
+  return (Object.keys(commandDefinitions) as CommandId[]).find((id) => id !== except
+    && commandShortcuts(id).some((other) => { const normal = normalizeChord(other); return normal === wanted || normal.startsWith(`${wanted} `); }));
+}
+
+/** Removes a chord from whichever command holds it. */
+export function releaseChord(owner: CommandId, chord: string): void {
+  const released = normalizeChord(chord);
+  setCommandShortcuts(owner, commandShortcuts(owner).filter((other) => { const normal = normalizeChord(other); return normal !== released && !normal.startsWith(`${released} `); }));
+}
+
+/** The first keys of every sequence on this device, such as `g` for `g n`. */
+export function sequencePrefixes(): Set<string> {
+  return new Set((Object.keys(commandDefinitions) as CommandId[]).flatMap((id) => commandShortcuts(id).flatMap((chord) => {
+    const [first, second] = chord.toLocaleLowerCase().split(" ");
+    return second ? [first] : [];
+  })));
 }
 
 const recentCommandKey = "mdbase-editor:recent-commands";

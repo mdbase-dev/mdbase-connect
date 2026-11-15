@@ -1,9 +1,10 @@
 import { fireEvent, render, screen, waitFor, within } from "./test/locale";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
+import { resetShortcuts } from "./editor-commands";
 
 vi.mock("./CodeEditor", () => ({ CodeEditor: ({ header, value, onChange, label, footer }: { header?: ReactNode; value: string; onChange?: (value: string) => void; label: string; footer?: ReactNode }) => <>{header}<textarea aria-label={label} value={value} onChange={(event) => onChange?.(event.target.value)} />{footer}</> }));
 vi.mock("@tanstack/react-virtual", () => ({ useVirtualizer: ({ count }: { count: number }) => ({ getTotalSize: () => count * 76, getVirtualItems: () => Array.from({ length: count }, (_, index) => ({ index, start: index * 76, size: 76 })) }) }));
@@ -17,6 +18,39 @@ async function runCommand(query: string) {
 }
 
 describe("workspace commands", () => {
+  afterEach(() => resetShortcuts());
+
+  it("records a shortcut in Settings, resolves a clash and runs the command with it", async () => {
+    vi.spyOn(navigator, "platform", "get").mockReturnValue("Linux x86_64");
+    const user = userEvent.setup();
+    render(<App gateway={new DemoCollectionGateway(4)} />);
+    await screen.findByRole("textbox", { name: "Note body" });
+    fireEvent.keyDown(window, { key: "?", shiftKey: true });
+    await user.click(within(screen.getByRole("dialog", { name: "Shortcuts" })).getByRole("button", { name: "Change shortcuts" }));
+    const section = await screen.findByRole("region", { name: "Keyboard shortcuts" });
+    await user.type(within(section).getByRole("searchbox", { name: "Filter commands" }), "vim");
+    await user.click(within(section).getByRole("button", { name: "Change shortcut for Toggle Vim key bindings" }));
+    // The recorder takes the palette's chord as the new shortcut instead of opening the palette.
+    fireEvent.keyDown(within(section).getByRole("button", { name: "Press keys…" }), { key: "k", ctrlKey: true });
+    expect(await within(section).findByRole("alert")).toHaveTextContent("Ctrl+K is used by Commands.");
+    expect(screen.queryByRole("combobox", { name: "Find a note or action" })).not.toBeInTheDocument();
+    await user.click(within(section).getByRole("button", { name: "Cancel" }));
+    await user.click(within(section).getByRole("button", { name: "Change shortcut for Toggle Vim key bindings" }));
+    fireEvent.keyDown(within(section).getByRole("button", { name: "Press keys…" }), { key: "b", ctrlKey: true });
+    await user.click(within(section).getByRole("button", { name: "Use it here instead" }));
+    expect(within(section).getByRole("button", { name: "Change shortcut for Toggle Vim key bindings" })).toHaveTextContent("Ctrl+B");
+    await user.clear(within(section).getByRole("searchbox", { name: "Filter commands" }));
+    await user.type(within(section).getByRole("searchbox", { name: "Filter commands" }), "bold");
+    expect(within(section).getByRole("button", { name: "Change shortcut for Bold" })).toHaveTextContent("Add shortcut");
+
+    fireEvent.keyDown(window, { key: "b", ctrlKey: true });
+    expect(JSON.parse(localStorage.getItem("mdbase-editor:preferences")!)).toMatchObject({ vim: true });
+    await user.click(within(section).getByRole("button", { name: "Reset all" }));
+    expect(within(section).getByRole("button", { name: "Change shortcut for Bold" })).toHaveTextContent("Ctrl+B");
+    fireEvent.keyDown(window, { key: "b", ctrlKey: true });
+    expect(JSON.parse(localStorage.getItem("mdbase-editor:preferences")!)).toMatchObject({ vim: true });
+  });
+
   it("uses the menu registry for sort and tag/type filters", async () => {
     render(<App gateway={new DemoCollectionGateway(12)} />);
     await screen.findByRole("textbox", { name: "Note body" });

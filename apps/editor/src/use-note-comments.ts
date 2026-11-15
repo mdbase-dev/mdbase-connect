@@ -26,6 +26,7 @@ import {
 import type { CommentResult, PendingComment } from "@mdbase-dev/ui/comments-panel";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CollectionIndexController } from "./collection-index-controller";
+import { matchesCommandShortcut } from "./editor-commands";
 import type { CollectionGateway, EditorCollectionDescription, NoteSummary } from "./model";
 import { persistedBody, summaryFromDocument } from "./note";
 import { collectionComments, commentImplementationOf, commentImplementations, commentPeople, localFields, storedOffset } from "./note-comments";
@@ -253,9 +254,8 @@ export function useNoteComments({ gateway, description, notes, path, draft, inde
   }, [canWrite]);
   useEffect(() => {
     if (!canWrite) return;
-    // Option changes the letter a Mac keyboard reports, so this goes by the key itself.
     const onKey = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || !event.altKey || event.shiftKey || event.code !== "KeyM") return;
+      if (!matchesCommandShortcut("comment", event)) return;
       event.preventDefault();
       start();
     };

@@ -45,7 +45,9 @@ test("profiles production first paint, note switching and Types", { tag: "@perfo
         typesChunk: performance.getEntriesByType("resource").filter(({ name }) => /TypeBrowser-.*\.js$/.test(name))
           .map((entry) => ({ startMs: entry.startTime, durationMs: entry.duration, bytes: (entry as PerformanceResourceTiming).transferSize }))
       }));
-      expect(timing.marks.shell).toBeLessThan(timing.marks.list);
+      // The opening screen (painted by index.html, checked by first-contentful-paint below) is the
+      // first paint. The workspace shell can commit together with its first rows, so it need only not trail them.
+      expect(timing.marks.shell).toBeLessThanOrEqual(timing.marks.list);
       expect(timing.paints.find(({ name }) => name === "first-contentful-paint")?.ms).toBeLessThan(timing.marks.list);
       samples.push({ surface, run, ...timing, switches });
       await context.close();
