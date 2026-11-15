@@ -8,6 +8,70 @@
   overflow: hidden;
 }
 
+/* Open tabs, when there is more than one, sit above the editor bar. */
+.editor-pane.has-tabs { grid-template-rows: auto 52px auto auto minmax(0, 1fr); }
+.editor-pane.file-workspace.has-tabs { grid-template-rows: auto 52px minmax(0, 1fr); }
+.editor-pane.has-tabs > .note-skeleton { grid-row: 2 / -1; }
+
+.note-tabs {
+  min-width: 0;
+  display: flex;
+  gap: 2px;
+  padding: 4px var(--space-2) 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: color-mix(in srgb, var(--canvas) 94%, var(--ink));
+  border-bottom: 1px solid var(--line);
+}
+
+.note-tab {
+  min-width: 72px;
+  max-width: 220px;
+  flex: 0 1 220px;
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  color: var(--muted);
+}
+
+.note-tab:hover { background: color-mix(in srgb, var(--canvas) 88%, var(--ink)); color: var(--ink); }
+.note-tab.is-active { background: var(--white); color: var(--ink); }
+
+.note-tab [role="tab"] {
+  min-width: 0;
+  flex: 1 1 auto;
+  height: 32px;
+  padding: 0 4px 0 10px;
+  text-align: left;
+  font-size: var(--font-size-ui);
+}
+
+.note-tab [role="tab"] span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-tab [role="tab"]:focus-visible { outline-offset: -2px; }
+
+.note-tab-close {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  margin-right: 5px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--faint);
+  opacity: 0;
+}
+
+.note-tab:hover .note-tab-close,
+.note-tab.is-active .note-tab-close { opacity: 1; }
+.note-tab-close:hover { background: var(--line); color: var(--ink); }
+.note-tab-close svg { width: 13px; height: 13px; }
+
 .editor-bar {
   min-width: 0;
   display: flex;

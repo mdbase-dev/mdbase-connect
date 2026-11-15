@@ -3,8 +3,14 @@ import { describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
 import type { CreateNoteInput } from "./model";
+import { activeTab, loadWorkspace, tabNote } from "./workspace";
 
-const LAST_NOTE_KEY = "mdbase-editor:last-note:demo";
+const TABS_KEY = "mdbase-editor:tabs:demo";
+/** Saves one tab on `path` as this device's tabs for the collection. */
+function rememberNote(path: string, collectionId = "demo") {
+  localStorage.setItem(`mdbase-editor:tabs:${collectionId}`, JSON.stringify({ tabs: [{ paths: [path], index: 0 }], active: 0 }));
+}
+const rememberedNote = (collectionId = "demo") => tabNote(activeTab(loadWorkspace(collectionId)));
 
 vi.mock("./CodeEditor", () => ({ CodeEditor: () => null }));
 vi.mock("./MarkdownNoteEditor", () => ({
@@ -70,8 +76,6 @@ describe("note navigation ownership and recovery", () => {
     const a = await collection("a", ["a-first.md", "a-second.md"]);
     const b = await collection("b", ["b.md"]);
     const readB = vi.spyOn(b, "read");
-    // The old unscoped preference has no known collection owner.
-    localStorage.setItem("mdbase-editor:last-note", "legacy.md");
     const view = render(<App key="a" gateway={a} />);
     await screen.findByDisplayValue("a-first.md");
     fireEvent.click(screen.getByRole("option", { name: /a-second.md/ }));
@@ -81,8 +85,8 @@ describe("note navigation ownership and recovery", () => {
     await screen.findByDisplayValue("b.md");
     expect(readB.mock.calls.map(([path]) => path)).toEqual(["b.md"]);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(localStorage.getItem("mdbase-editor:last-note:a")).toBe("a-second.md");
-    expect(localStorage.getItem("mdbase-editor:last-note:b")).toBe("b.md");
+    expect(rememberedNote("a")).toBe("a-second.md");
+    expect(rememberedNote("b")).toBe("b.md");
 
     view.rerender(<App key="a" gateway={a} />);
     await screen.findByDisplayValue("a-second.md");
@@ -118,8 +122,8 @@ describe("note navigation ownership and recovery", () => {
     expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("b.md");
     expect(screen.queryByText(/Obsolete selection/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Retry note" })).not.toBeInTheDocument();
-    expect(localStorage.getItem("mdbase-editor:last-note:a")).toBe("a-first.md");
-    expect(localStorage.getItem("mdbase-editor:last-note:b")).toBe("b.md");
+    expect(rememberedNote("a")).toBe("a-first.md");
+    expect(rememberedNote("b")).toBe("b.md");
   });
 
   it("opens the authority's newest note independently of the unordered observer's first page", async () => {
@@ -142,7 +146,7 @@ describe("note navigation ownership and recovery", () => {
   it.each([false, true])("keeps startup connected when newest-note selection fails (remembered: %s)", async remembered => {
     const gateway = new DemoCollectionGateway(1);
     if (remembered) {
-      localStorage.setItem(LAST_NOTE_KEY, "missing.md");
+      rememberNote("missing.md");
       vi.spyOn(gateway, "read").mockRejectedValueOnce(new Error("Remembered note missing"));
     }
     const newest = vi.spyOn(gateway, "mostRecentNote").mockRejectedValue(new Error("Newest query unavailable"));
@@ -174,7 +178,7 @@ describe("note navigation ownership and recovery", () => {
       document: "---\ntitle: Frontmatter title\n---\nNo Markdown heading\n"
     });
     const newest = vi.spyOn(gateway, "mostRecentNote");
-    localStorage.setItem(LAST_NOTE_KEY, path);
+    rememberNote(path);
     render(<App gateway={gateway} />);
 
     await waitFor(() => expect(read).toHaveBeenCalledWith(path));
@@ -201,15 +205,15 @@ describe("note navigation ownership and recovery", () => {
       await readGate.promise;
       return DemoCollectionGateway.prototype.read.call(gateway, path);
     });
-    localStorage.setItem(LAST_NOTE_KEY, path);
+    rememberNote(path);
     render(<App gateway={gateway} />);
     await waitFor(() => expect(read).toHaveBeenCalledWith(path));
-    localStorage.removeItem(LAST_NOTE_KEY);
+    localStorage.removeItem(TABS_KEY);
 
     await act(async () => descriptionGate.reject(new Error("Metadata unavailable")));
     await screen.findByText("Metadata unavailable");
     await act(async () => readGate.resolve());
-    expect(localStorage.getItem(LAST_NOTE_KEY)).toBeNull();
+    expect(localStorage.getItem(TABS_KEY)).toBeNull();
     expect(screen.queryByRole("textbox", { name: "Note title" })).not.toBeInTheDocument();
   });
 
@@ -245,7 +249,7 @@ describe("note navigation ownership and recovery", () => {
     expect(screen.getByRole("textbox", { name: "Note title" })).toBe(title);
     expect(screen.getByRole("option", { name: /The shape of useful tools/ })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("option", { name: /Garden notes 2/ })).toHaveAttribute("aria-selected", "false");
-    expect(localStorage.getItem(LAST_NOTE_KEY)).toBe(first.path);
+    expect(rememberedNote()).toBe(first.path);
     fireEvent.click(retry);
     await screen.findByDisplayValue("Garden notes 2");
     expect(read.mock.calls.map(([path]) => path)).toEqual([first.path, second.path, second.path]);
@@ -292,7 +296,46 @@ describe("note navigation ownership and recovery", () => {
     await screen.findByDisplayValue("The shape of useful tools");
     expect(historyButton("Forward in note history")).toBeDisabled();
     expect(historyButton("Back in note history")).toHaveAttribute("title", expect.stringContaining(second.path));
-    expect(localStorage.getItem(LAST_NOTE_KEY)).toBe(first.path);
+    expect(rememberedNote()).toBe(first.path);
+  });
+
+  it("opens notes in tabs that each keep their own history, and reopens them", async () => {
+    const { first, third, select } = await harness();
+    const historyButton = (name: string) => within(screen.getByRole("group", { name: "Note history" })).getByRole("button", { name });
+    const tabs = () => within(screen.getByRole("tablist", { name: "Open tabs" })).getAllByRole("tab");
+    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+    select(/Garden notes 2/);
+    await screen.findByDisplayValue("Garden notes 2");
+
+    fireEvent(screen.getByRole("option", { name: /A quiet interface 3/ }), new MouseEvent("auxclick", { bubbles: true, button: 1 }));
+    await screen.findByDisplayValue("A quiet interface 3");
+    expect(tabs().map((tab) => [tab.textContent, tab.getAttribute("aria-selected")])).toEqual([["Garden notes 2", "false"], ["A quiet interface 3", "true"]]);
+    expect(historyButton("Back in note history")).toBeDisabled();
+
+    fireEvent.click(tabs()[0]!);
+    await screen.findByDisplayValue("Garden notes 2");
+    expect(historyButton("Back in note history")).toHaveAttribute("title", expect.stringContaining(first.path));
+    fireEvent.keyDown(window, { key: "PageDown", altKey: true });
+    await screen.findByDisplayValue("A quiet interface 3");
+    expect(rememberedNote()).toBe(third.path);
+
+    fireEvent.contextMenu(screen.getByRole("option", { name: /The shape of useful tools/ }));
+    fireEvent.click(within(screen.getByRole("menu", { name: /note actions$/ })).getByRole("menuitem", { name: "Open in new tab" }));
+    await screen.findByDisplayValue("The shape of useful tools");
+    expect(tabs().map((tab) => tab.textContent)).toEqual(["Garden notes 2", "A quiet interface 3", "The shape of useful tools"]);
+    fireEvent.click(screen.getByRole("button", { name: "Close The shape of useful tools" }));
+    await screen.findByDisplayValue("A quiet interface 3");
+
+    // A background tab goes back past a deleted note, and closes once it showed no other.
+    const deleteRow = (name: RegExp) => {
+      fireEvent.contextMenu(screen.getByRole("option", { name }));
+      fireEvent.click(within(screen.getByRole("menu", { name: /note actions$/ })).getByRole("menuitem", { name: "Delete" }));
+    };
+    deleteRow(/Garden notes 2/);
+    await waitFor(() => expect(tabs().map((tab) => tab.textContent)).toEqual(["The shape of useful tools", "A quiet interface 3"]));
+    deleteRow(/The shape of useful tools/);
+    await waitFor(() => expect(screen.queryByRole("tablist")).not.toBeInTheDocument());
+    expect(JSON.parse(localStorage.getItem(TABS_KEY)!)).toEqual({ tabs: [{ paths: [third.path], index: 0 }], active: 0 });
   });
 
   it("does not surface a stale read failure after a newer note has opened", async () => {
@@ -374,6 +417,6 @@ describe("note navigation ownership and recovery", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create linked note" }));
     await screen.findByDisplayValue("Linked");
     expect(created).toHaveBeenCalledTimes(1);
-    expect(localStorage.getItem(LAST_NOTE_KEY)).toBe("Notes/Linked.md");
+    expect(rememberedNote()).toBe("Notes/Linked.md");
   });
 });

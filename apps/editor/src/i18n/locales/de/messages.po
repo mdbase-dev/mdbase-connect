@@ -1454,6 +1454,10 @@ msgstr "Auswahl aufheben"
 msgid "Clear type search"
 msgstr "Typsuche leeren"
 
+#: src/NoteTabs.tsx
+msgid "Close {name}"
+msgstr "{name} schließen"
+
 #: src/NoteCommentsPanel.tsx
 msgid "Close comments"
 msgstr "Kommentare schließen"
@@ -1469,6 +1473,10 @@ msgstr "Notizvorschau schließen"
 #: src/PropertiesPanel.tsx
 msgid "Close properties"
 msgstr "Eigenschaften schließen"
+
+#: src/editor-commands.ts
+msgid "Close tab"
+msgstr "Tab schließen"
 
 #: src/code-editor-completions.ts
 msgid "Code block"
@@ -2437,12 +2445,20 @@ msgid "Filter links by type"
 msgstr "Links nach Typ filtern"
 
 #: src/App.tsx
+msgid "Find a note by title or path"
+msgstr "Notiz nach Titel oder Pfad suchen"
+
+#: src/App.tsx
 msgid "Find a note by title or path, or type > for actions"
 msgstr "Notiz nach Titel oder Pfad suchen oder > für Aktionen eingeben"
 
 #: src/App.tsx
 msgid "Find a note or action"
 msgstr "Notiz oder Aktion suchen"
+
+#: src/App.tsx
+msgid "Find a note to open in a new tab"
+msgstr "Notiz zum Öffnen in einem neuen Tab suchen"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Find a property"
@@ -3359,6 +3375,10 @@ msgstr "Nächste Notiz"
 msgid "Next note in the list"
 msgstr "Nächste Notiz in der Liste"
 
+#: src/editor-commands.ts
+msgid "Next tab"
+msgstr "Nächster Tab"
+
 #: src/NoteList.tsx
 msgid "No additional text"
 msgstr "Kein weiterer Text"
@@ -3459,6 +3479,10 @@ msgstr "Keine passenden Schemaeigenschaften."
 #: src/TypeBrowser.tsx
 msgid "No nested fields yet."
 msgstr "Noch keine verschachtelten Felder."
+
+#: src/App.tsx
+msgid "No note"
+msgstr "Keine Notiz"
 
 #. placeholder {0}: reference.target
 #: src/code-editor-reference-diagnostics.ts
@@ -3706,6 +3730,10 @@ msgstr "{name} öffnen"
 msgid "Open {primaryTypeLabel}"
 msgstr "{primaryTypeLabel} öffnen"
 
+#: src/editor-commands.ts
+msgid "Open a note in a new tab"
+msgstr "Notiz in neuem Tab öffnen"
+
 #: src/use-note-comments.ts
 msgid "Open a note to comment on it."
 msgstr "Öffnen Sie eine Notiz, um sie zu kommentieren."
@@ -3726,6 +3754,12 @@ msgstr "Dokument öffnen"
 msgid "open files"
 msgstr "Dateien öffnen"
 
+#: src/App.tsx
+#: src/editor-commands.ts
+#: src/QuickOpen.tsx
+msgid "Open in new tab"
+msgstr "In neuem Tab öffnen"
+
 #: src/ConnectionScreens.tsx
 msgid "open notes"
 msgstr "Notizen öffnen"
@@ -3742,6 +3776,10 @@ msgstr "Original öffnen"
 #: src/NoteCommentsPanel.tsx
 msgid "Open Settings"
 msgstr "Einstellungen öffnen"
+
+#: src/NoteTabs.tsx
+msgid "Open tabs"
+msgstr "Geöffnete Tabs"
 
 #: src/main.tsx
 #: src/SdkEditorRoot.tsx
@@ -4042,6 +4080,10 @@ msgstr "Vorherige Notiz"
 #: src/editor-commands.ts
 msgid "Previous note in the list"
 msgstr "Vorherige Notiz in der Liste"
+
+#: src/editor-commands.ts
+msgid "Previous tab"
+msgstr "Vorheriger Tab"
 
 #: src/ConnectionScreens.tsx
 msgid "Previously opened in mdbase editor"

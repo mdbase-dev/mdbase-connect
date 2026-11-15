@@ -1454,6 +1454,10 @@ msgstr "選択をクリア"
 msgid "Clear type search"
 msgstr "型の検索を消去"
 
+#: src/NoteTabs.tsx
+msgid "Close {name}"
+msgstr "{name} を閉じる"
+
 #: src/NoteCommentsPanel.tsx
 msgid "Close comments"
 msgstr "コメントを閉じる"
@@ -1469,6 +1473,10 @@ msgstr "ノートのプレビューを閉じる"
 #: src/PropertiesPanel.tsx
 msgid "Close properties"
 msgstr "プロパティを閉じる"
+
+#: src/editor-commands.ts
+msgid "Close tab"
+msgstr "タブを閉じる"
 
 #: src/code-editor-completions.ts
 msgid "Code block"
@@ -2437,12 +2445,20 @@ msgid "Filter links by type"
 msgstr "型でリンクを絞り込む"
 
 #: src/App.tsx
+msgid "Find a note by title or path"
+msgstr "タイトルまたはパスでノートを検索"
+
+#: src/App.tsx
 msgid "Find a note by title or path, or type > for actions"
 msgstr "タイトルまたはパスでノートを探すか、> を入力して操作を表示"
 
 #: src/App.tsx
 msgid "Find a note or action"
 msgstr "ノートまたは操作を検索"
+
+#: src/App.tsx
+msgid "Find a note to open in a new tab"
+msgstr "新しいタブで開くノートを検索"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Find a property"
@@ -3359,6 +3375,10 @@ msgstr "次のノート"
 msgid "Next note in the list"
 msgstr "リスト内の次のノート"
 
+#: src/editor-commands.ts
+msgid "Next tab"
+msgstr "次のタブ"
+
 #: src/NoteList.tsx
 msgid "No additional text"
 msgstr "追加のテキストはありません"
@@ -3459,6 +3479,10 @@ msgstr "一致するスキーマプロパティはありません。"
 #: src/TypeBrowser.tsx
 msgid "No nested fields yet."
 msgstr "入れ子のフィールドはまだありません。"
+
+#: src/App.tsx
+msgid "No note"
+msgstr "ノートなし"
 
 #. placeholder {0}: reference.target
 #: src/code-editor-reference-diagnostics.ts
@@ -3706,6 +3730,10 @@ msgstr "{name}を開く"
 msgid "Open {primaryTypeLabel}"
 msgstr "{primaryTypeLabel}を開く"
 
+#: src/editor-commands.ts
+msgid "Open a note in a new tab"
+msgstr "新しいタブでノートを開く"
+
 #: src/use-note-comments.ts
 msgid "Open a note to comment on it."
 msgstr "コメントするにはノートを開いてください。"
@@ -3726,6 +3754,12 @@ msgstr "文書を開く"
 msgid "open files"
 msgstr "ファイルを開く"
 
+#: src/App.tsx
+#: src/editor-commands.ts
+#: src/QuickOpen.tsx
+msgid "Open in new tab"
+msgstr "新しいタブで開く"
+
 #: src/ConnectionScreens.tsx
 msgid "open notes"
 msgstr "ノートを開く"
@@ -3742,6 +3776,10 @@ msgstr "元のファイルを開く"
 #: src/NoteCommentsPanel.tsx
 msgid "Open Settings"
 msgstr "設定を開く"
+
+#: src/NoteTabs.tsx
+msgid "Open tabs"
+msgstr "開いているタブ"
 
 #: src/main.tsx
 #: src/SdkEditorRoot.tsx
@@ -4042,6 +4080,10 @@ msgstr "前のノート"
 #: src/editor-commands.ts
 msgid "Previous note in the list"
 msgstr "リスト内の前のノート"
+
+#: src/editor-commands.ts
+msgid "Previous tab"
+msgstr "前のタブ"
 
 #: src/ConnectionScreens.tsx
 msgid "Previously opened in mdbase editor"

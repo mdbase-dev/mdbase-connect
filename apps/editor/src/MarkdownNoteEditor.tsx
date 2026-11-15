@@ -38,7 +38,7 @@ interface MarkdownNoteEditorProps {
   onTitleChange: (title: string) => void;
   onTitleVisibilityChange: (visible: boolean) => void;
   onBodyChange: (body: string) => void;
-  onOpenLink: (path: string) => void;
+  onOpenLink: (path: string, options?: { newTab?: boolean }) => void;
   onCreateLink: (target: string, label: string | undefined, format: "wikilink" | "markdown") => void;
   onPreviewLink: (path: string, anchor: NotePreviewAnchor, source: NotePreviewSource) => void;
   onDismissLinkPreview: () => void;

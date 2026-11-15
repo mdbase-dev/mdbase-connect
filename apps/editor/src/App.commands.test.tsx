@@ -110,7 +110,7 @@ describe("workspace commands", () => {
     const original = await gateway.read("Journal/garden-notes-2.md");
     const source = await gateway.update(original, { body: "# Garden notes 2\n\nI like The shape of useful tools. And the shape of useful tools." });
     const read = vi.spyOn(gateway, "read"), update = vi.spyOn(gateway, "update");
-    localStorage.setItem("mdbase-editor:last-note:demo", "Notes/the-shape-of-useful-tools.md");
+    localStorage.setItem("mdbase-editor:tabs:demo", JSON.stringify({ tabs: [{ paths: ["Notes/the-shape-of-useful-tools.md"], index: 0 }], active: 0 }));
     render(<App gateway={gateway} />);
     await screen.findByRole("textbox", { name: "Note body" });
     const disclosure = await screen.findByText("Unlinked mentions (1)");
@@ -135,7 +135,7 @@ describe("workspace commands", () => {
     const gateway = new DemoCollectionGateway(3);
     const original = await gateway.read("Journal/garden-notes-2.md");
     const source = await gateway.update(original, { body: "# Garden notes 2\n\nThe shape of useful tools." });
-    localStorage.setItem("mdbase-editor:last-note:demo", "Notes/the-shape-of-useful-tools.md");
+    localStorage.setItem("mdbase-editor:tabs:demo", JSON.stringify({ tabs: [{ paths: ["Notes/the-shape-of-useful-tools.md"], index: 0 }], active: 0 }));
     render(<App gateway={gateway} />);
     await screen.findByRole("textbox", { name: "Note body" });
     await user.click(await screen.findByText("Unlinked mentions (1)"));
@@ -153,7 +153,7 @@ describe("workspace commands", () => {
     const original = await gateway.read("Journal/garden-notes-2.md");
     const source = await gateway.update(original, { body: "# Garden notes 2\n\nThe shape of useful tools." });
     const write = gateway.update.bind(gateway);
-    localStorage.setItem("mdbase-editor:last-note:demo", "Notes/the-shape-of-useful-tools.md");
+    localStorage.setItem("mdbase-editor:tabs:demo", JSON.stringify({ tabs: [{ paths: ["Notes/the-shape-of-useful-tools.md"], index: 0 }], active: 0 }));
     render(<App gateway={gateway} />);
     await screen.findByRole("textbox", { name: "Note body" });
     await user.click(await screen.findByText("Unlinked mentions (1)"));
@@ -174,7 +174,7 @@ describe("workspace commands", () => {
     const gateway = new DemoCollectionGateway(3);
     const original = await gateway.read("Journal/garden-notes-2.md");
     await gateway.update(original, { body: "# Garden notes 2\n\nThe shape of useful tools." });
-    localStorage.setItem("mdbase-editor:last-note:demo", "Notes/the-shape-of-useful-tools.md");
+    localStorage.setItem("mdbase-editor:tabs:demo", JSON.stringify({ tabs: [{ paths: ["Notes/the-shape-of-useful-tools.md"], index: 0 }], active: 0 }));
     render(<App gateway={gateway} />);
     await screen.findByRole("textbox", { name: "Note body" });
     await user.click(await screen.findByText("Unlinked mentions (1)"));
