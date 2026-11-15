@@ -17,6 +17,8 @@ export function usage(): string {
     "  auth-admin entitlements grant --user <uuid|email> --profile <code> --operation-id <uuid> --actor <id> --reason <text>",
     "  auth-admin entitlements backfill-free --operation-id <uuid> --actor <id> --reason <text> [--limit <n>]",
     "  auth-admin entitlements reconcile (--user <uuid|email> | --all enabled | --active-hosted enabled) --operation-id <uuid> --actor <id> --reason <text>",
+    "  auth-admin announcements preview --announcement plus-and-apps (--user <uuid|email> | --all enabled)",
+    "  auth-admin announcements schedule --announcement plus-and-apps (--user <uuid|email> | --all enabled) --operation-id <uuid> --actor <id> --reason <text>",
     "  auth-admin users list [--status active|suspended] [--limit <n>] [--cursor <cursor>]",
     "  auth-admin users show --user <uuid|email>",
     "  auth-admin collections diagnose --user <uuid|email> [--collection <uuid>] [--limit <1-25>] [--cursor <uuid>]",
