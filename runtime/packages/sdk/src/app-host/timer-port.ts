@@ -9,7 +9,7 @@ import type { ResolvedWebPushChannelOptions, FcmChannelOptions, TimerChannelRegi
 
 const NS=/^[A-Za-z0-9._-]{1,64}$/,ID=/^[A-Za-z0-9._:-]{1,128}$/;
 const MAX=2*1024*1024;
-const error=(code:"invalid_request"|"unauthenticated"|"unavailable"|"outcome_unknown"|"cancelled"|"upgrade_required",reason:string)=>mdbaseError(code,"Native timer request could not complete.",reason);
+const error=(code:"invalid_request"|"unauthenticated"|"unavailable"|"outcome_unknown"|"cancelled"|"upgrade_required",reason:string)=>mdbaseError(code,"Timer request could not complete.",reason);
 const key=(scope:Readonly<AppReplicaScope>)=>JSON.stringify([scope.account,scope.installation,scope.collection]);
 function segment(value:unknown,pattern:RegExp):string {
   if(typeof value!=="string" || !pattern.test(value)) throw error("invalid_request","timer_input");
@@ -148,11 +148,16 @@ export function attachAppTimerReceiver(port:MessagePort, options:{
           await options.journal!.write(null);check();ctrl.signal.throwIfAborted();port.postMessage([1,scopeKey,generation,id,true,undefined]);return;
         }
         if(!response.ok) {
-          if(response.status>=500) throw error("unavailable","timer_http");
+          // Connect's channel routes send a 503 problem only after rolling back
+          // (unconfigured transport or key, busy database): nothing was written,
+          // so it must not retire this grant. Other 5xx may follow a commit.
+          const unavailable=!!pending && response.status===503 && typeof value?.error?.code==="string";
+          if(response.status>=500 && !unavailable) throw error("unavailable","timer_http");
           if(value?.error?.operation_outcome==="unknown") throw error("outcome_unknown","timer_write_unknown");
           if(pending){await options.journal!.write(previousChannel);check();ctrl.signal.throwIfAborted();}
           dispatched=false;
-          throw mdbaseError(response.status===401||response.status===403?"unauthenticated":response.status===409?"conflict":response.status===404?"upgrade_required":response.status===429?"rate_limited":"invalid_request","Native timer request was refused.","timer_refused");
+          if(unavailable) throw error("unavailable","timer_http");
+          throw mdbaseError(response.status===401||response.status===403?"unauthenticated":response.status===409?"conflict":response.status===404?"upgrade_required":response.status===429?"rate_limited":"invalid_request","Timer request was refused.","timer_refused");
         }
         check();ctrl.signal.throwIfAborted();
         if(verb==="registerChannel") {
@@ -191,7 +196,7 @@ export function appTimerPortClient(port:MessagePort,binding:{scope:Readonly<AppR
     const pending=slot;
     if(!pending||frame[3]!==pending.id||!(frame.length===6&&frame[4]===true||frame.length===7&&frame[4]===false&&typeof frame[5]==="string"&&isErrorCode(frame[5]))){close();return;}
     slot=null;pending.signal?.removeEventListener("abort",pending.abort);
-    if(frame[4])pending.resolve(frame[5]);else pending.reject(mdbaseError(frame[5],"Native timer request could not complete.",typeof frame[6]==="string"?frame[6]:undefined));
+    if(frame[4])pending.resolve(frame[5]);else pending.reject(mdbaseError(frame[5],"Timer request could not complete.",typeof frame[6]==="string"?frame[6]:undefined));
   };
   const run=(verb:string,args:unknown[],request:TimerRequestOptions,channel=false):Promise<unknown>=>{
     if(closed||options.signal.aborted||request.signal?.aborted)return Promise.reject(error("cancelled","timer_port_closed"));
