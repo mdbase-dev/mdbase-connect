@@ -202,11 +202,11 @@ importers:
         specifier: workspace:*
         version: link:../../packages/i18n
       '@mdbase-dev/sdk':
-        specifier: file:vendor/sdk-b1825908-production-beta222.tgz
-        version: file:apps/editor/vendor/sdk-b1825908-production-beta222.tgz
+        specifier: file:vendor/sdk-fbcced8e-production-beta223.tgz
+        version: file:apps/editor/vendor/sdk-fbcced8e-production-beta223.tgz
       '@mdbase-dev/ui':
         specifier: 0.1.0-beta.218
-        version: 0.1.0-beta.218(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lezer/markdown@1.7.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-b1825908-production-beta222.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        version: 0.1.0-beta.218(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lezer/markdown@1.7.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-fbcced8e-production-beta223.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@mdbase/connect-ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -2326,9 +2326,9 @@ packages:
     bundledDependencies:
       - '@mdbase-dev/connect-protocol'
 
-  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-b1825908-production-beta222.tgz':
-    resolution: {integrity: sha512-k5mbfJhGsKcRNEkKYEZekDVfanevZpBKVu/yPa+2SH/6FivTVqTzL3ylXWMldy7uR3AygaFPB4eTPcCgSc8OlQ==, tarball: file:apps/editor/vendor/sdk-b1825908-production-beta222.tgz}
-    version: 0.1.0-beta.222
+  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-fbcced8e-production-beta223.tgz':
+    resolution: {integrity: sha512-bE0Txv1cJwBSCsg9uBd6uoJhh98NejG9pzEfLRWBr6cXTKK65HoB2DOGrf/Ow9KdWQ70DweYV9hxOBiTPAMxYg==, tarball: file:apps/editor/vendor/sdk-fbcced8e-production-beta223.tgz}
+    version: 0.1.0-beta.223
     engines: {node: '>=20'}
     bundledDependencies:
       - '@mdbase-dev/connect-protocol'
@@ -8213,13 +8213,13 @@ snapshots:
       '@noble/curves': 2.4.0
       '@noble/hashes': 2.4.0
 
-  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-b1825908-production-beta222.tgz':
+  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-fbcced8e-production-beta223.tgz':
     dependencies:
       '@noble/ciphers': 2.4.0
       '@noble/curves': 2.4.0
       '@noble/hashes': 2.4.0
 
-  '@mdbase-dev/ui@0.1.0-beta.218(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lezer/markdown@1.7.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-b1825908-production-beta222.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@mdbase-dev/ui@0.1.0-beta.218(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lezer/markdown@1.7.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-fbcced8e-production-beta223.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@fontsource/azeret-mono': 5.3.0
       '@fontsource/ibm-plex-sans': 5.3.0
@@ -8236,7 +8236,7 @@ snapshots:
       '@codemirror/view': 6.43.12
       '@lezer/common': 1.5.2
       '@lezer/markdown': 1.7.2
-      '@mdbase-dev/sdk': file:apps/editor/vendor/sdk-b1825908-production-beta222.tgz
+      '@mdbase-dev/sdk': file:apps/editor/vendor/sdk-fbcced8e-production-beta223.tgz
       react-dom: 19.3.0(react@19.3.0)
 
   '@messageformat/date-skeleton@1.1.0': {}
