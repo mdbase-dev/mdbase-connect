@@ -52,7 +52,7 @@ export interface EmailRenderContext {
 
 export type EmailRenderer = (
   context: EmailRenderContext
-) => TransactionalEmail;
+) => TransactionalEmail | Promise<TransactionalEmail>;
 
 interface EmailJobRow {
   id: string;
@@ -227,7 +227,7 @@ export class ScheduledEmailWorker {
     const unsubscribeUrl = links?.page ?? null;
     let message: TransactionalEmail;
     try {
-      message = this.render({
+      message = await this.render({
         userId: job.user_id,
         name: recipient.name,
         email: recipient.email,

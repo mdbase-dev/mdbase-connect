@@ -25,71 +25,56 @@ afterEach(async () => {
 });
 
 describe("authentication operator command", () => {
-  it("previews and queues the Plus and apps announcement once per account", async () => {
+  it("creates, shows, tests and schedules a stored announcement", async () => {
     const context = await fixture();
-    const account = async (
-      name: string,
-      options: { beta?: boolean; verified?: boolean; suspended?: boolean } = {}
-    ) => {
+    const account = async (name: string, beta = false) => {
       const id = randomUUID();
-      await context.db.query(
-        "INSERT INTO users (id, email, name, suspended_at) VALUES ($1, NULL, $2, $3)",
-        [id, name, options.suspended ? new Date() : null]
-      );
+      await context.db.query("INSERT INTO users (id, email, name) VALUES ($1, NULL, $2)", [id, name]);
       await context.db.query(
         `INSERT INTO email_identities
            (id, user_id, email, normalized_email, normalization_version, verified_at, is_primary)
-         VALUES ($1, $2, $3, $3, 1, $4, true)`,
-        [randomUUID(), id, `${name}@example.com`, options.verified === false ? null : new Date()]
+         VALUES ($1, $2, $3, $3, 1, now(), true)`,
+        [randomUUID(), id, `${name}@example.com`]
       );
-      if (options.beta) {
+      if (beta) {
         await context.db.query(
           `INSERT INTO account_entitlement_grants (id, user_id, profile_code, source, source_reference)
            VALUES ($1, $2, 'beta_v1', 'operator', 'test')`,
           [randomUUID(), id]
         );
       }
-      return id;
     };
-    const standard = await account("standard");
-    const beta = await account("beta", { beta: true });
-    await account("unverified", { verified: false });
-    await account("suspended", { suspended: true });
+    await account("standard");
+    await account("beta", true);
     const mutation = ["--operation-id", randomUUID(), "--actor", "operator:test", "--reason", "Announce Plus"];
-    const queued = async () => (await context.db.query(
-      "SELECT user_id, message_kind, category FROM email_jobs ORDER BY message_kind"
-    )).rows;
+    const run = (...argv: string[]) => runAuthAdminCommand(["announcements", ...argv], context);
 
-    expect(await runAuthAdminCommand(
-      ["announcements", "preview", "--announcement", "plus-and-apps", "--all", "enabled"], context
-    )).toEqual({ standard: 1, beta: 1, already_scheduled: 0 });
-    await expect(runAuthAdminCommand(
-      ["announcements", "schedule", "--announcement", "plus-and-apps", ...mutation], context
-    )).rejects.toThrow(/exactly one of --user or --all enabled/);
-    await expect(runAuthAdminCommand(
-      ["announcements", "preview", "--announcement", "welcome", "--all", "enabled"], context
-    )).rejects.toThrow(/plus-and-apps/);
+    await expect(run("preview", "--announcement", "plus", "--all", "enabled"))
+      .rejects.toThrow(/No announcement named plus/);
+    expect(await run("create", "--announcement", "plus", "--subject", "mdbase Plus",
+      "--body", "Hi {name},\n\nPlus is here.", "--beta-body", "Hi {name},\n\nYour beta allowance stays.",
+      ...mutation)).toMatchObject({ created: true, announcement: { version: 1 } });
+    expect(await run("show", "--announcement", "plus", "--user", "beta@example.com")).toEqual({
+      version: 1, variant: "beta", subject: "mdbase Plus", text: "Hi beta,\n\nYour beta allowance stays."
+    });
+    expect(await run("show", "--announcement", "plus", "--user", "standard@example.com"))
+      .toMatchObject({ variant: "standard", text: "Hi standard,\n\nPlus is here." });
+    await expect(run("show", "--announcement", "plus", "--version", "2"))
+      .rejects.toThrow(/at that version/);
 
-    expect(await runAuthAdminCommand(
-      ["announcements", "schedule", "--announcement", "plus-and-apps", "--user", "beta@example.com", ...mutation], context
-    )).toMatchObject({ standard: 0, beta: 1, already_scheduled: 0 });
-    expect(await queued()).toEqual([
-      { user_id: beta, message_kind: "plus_and_apps_announcement_beta", category: "onboarding" }
-    ]);
-
-    expect(await runAuthAdminCommand(
-      ["announcements", "schedule", "--announcement", "plus-and-apps", "--all", "enabled", ...mutation], context
-    )).toMatchObject({ standard: 1, beta: 0, already_scheduled: 1 });
-    expect(await queued()).toEqual([
-      { user_id: standard, message_kind: "plus_and_apps_announcement", category: "onboarding" },
-      { user_id: beta, message_kind: "plus_and_apps_announcement_beta", category: "onboarding" }
-    ]);
-    expect(await runAuthAdminCommand(
-      ["announcements", "schedule", "--announcement", "plus-and-apps", "--all", "enabled", ...mutation], context
-    )).toMatchObject({ standard: 0, beta: 0, already_scheduled: 2 });
+    expect(await run("test-send", "--announcement", "plus", "--user", "beta@example.com", ...mutation))
+      .toMatchObject({ version: 1, queued: true });
+    expect(await run("preview", "--announcement", "plus", "--all", "enabled"))
+      .toEqual({ version: 1, recipients: 2, already_scheduled: 0 });
+    await expect(run("schedule", "--announcement", "plus", ...mutation))
+      .rejects.toThrow(/--all/);
+    expect(await run("schedule", "--announcement", "plus", "--all", "enabled", ...mutation))
+      .toMatchObject({ version: 1, recipients: 2, already_scheduled: 0 });
+    expect(await run("preview", "--announcement", "plus", "--user", "standard@example.com"))
+      .toEqual({ version: 1, recipients: 0, already_scheduled: 1 });
     expect((await context.db.query(
-      "SELECT count(*)::int AS count FROM audit_events WHERE event_type = 'email.announcement_scheduled'"
-    )).rows).toEqual([{ count: 3 }]);
+      "SELECT message_kind, template_version, category FROM email_jobs GROUP BY message_kind, template_version, category"
+    )).rows).toEqual([{ message_kind: "announcement.plus", template_version: 1, category: "onboarding" }]);
   });
 
   it("admits an explicit LAB legacy fixture invitation and refuses it elsewhere", async () => {
