@@ -7,7 +7,7 @@ packages retain their own versions:
 | --- | --- | --- |
 | `@mdbase-dev/sdk` | CI-computed (first cut `0.1.0-beta.149`) | `runtime/packages/sdk` |
 | `@mdbase-dev/obsidian-runtime` | `0.0.0` | `runtime/packages/obsidian-runtime` |
-| `mdbase` | `0.5.0-rc.1` | `runtime/packages/mdbase` |
+| `mdbase` | `0.5.0` (universal WebAssembly helpers only) | `runtime/packages/mdbase` |
 
 The existing `publish-npm.yml` does not publish these packages. The SDK now uses
 the separate source-build `publish-sdk-npm.yml` workflow from the production-verified
@@ -25,9 +25,9 @@ claim that this job rebuilt the archive from source.
 
 ## Prepare an archive
 
-Build using the existing package build paths. The `mdbase` package needs both
-`mdbase-core.wasm` and the native addons for the platforms the release supports,
-not a browser-only pack.
+Build using the existing package build paths. The `mdbase@0.5.0` package contains
+the universal helper declarations and JavaScript plus `wasm/mdbase-core.wasm`.
+Do not include native addons or `dist/node`; collections on Node are deferred.
 Build Rust release assets with `--remap-path-prefix` for the checkout and Cargo
 home so compiler paths do not expose the builder's private directories.
 
@@ -46,7 +46,8 @@ multiple different archives at the same name/version: npm versions are immutable
 Publish the qualified SDK through its source-build workflow before its runtime
 peer. The SDK version and the Obsidian runtime's SDK peer/lock follow the
 Connect release version through `pnpm version:set`; the Obsidian runtime's own
-version stays independent. Keep `mdbase` on its documented `0.5.0-rc.N` line. Publish previews,
+version stays independent. `mdbase@0.5.0` is the first stable helpers release and
+uses `latest`. Publish previews,
 including the initial `0.0.0` versions, only to `next`. Reserve `latest` for an
 explicitly approved stable release with a stable version; the workflow's tag
 choice is an owner decision, not inferred from the archive filename.
@@ -61,9 +62,10 @@ choice is an owner decision, not inferred from the archive filename.
    ```sh
    npm login --registry=https://registry.npmjs.org/
    npm whoami --registry=https://registry.npmjs.org/
-   npm publish ./runtime/npm/<reviewed-archive>.tgz --ignore-scripts --access public --tag next
+   npm publish ./runtime/npm/<reviewed-archive>.tgz --ignore-scripts --access public --tag <approved-tag>
    ```
 
+   Use `latest` for the approved `mdbase@0.5.0` release, or `next` for previews.
    This first local publication has no GitHub provenance. Do not pretend OIDC
    can be configured on a nonexistent package. If npm offers creation of a
    trusted publisher before first publication, use that instead and publish

@@ -1,9 +1,8 @@
 /**
  * Loads `mdbase-core.wasm`. By default it is the file next to this package
  * (`wasm/mdbase-core.wasm`): read with `node:fs` on Node, fetched in browsers and
- * workers. Bundlers that understand `new URL(…, import.meta.url)` (Vite, esbuild,
- * webpack 5) copy the file as an asset. Call {@link init} to supply the module
- * yourself.
+ * workers. Bundled consumers can import the exported WASM asset and pass its
+ * URL or bytes to {@link init}.
  */
 
 import { Core } from "./abi.js";

@@ -19,9 +19,6 @@
  * {@link init} to control where `mdbase-core.wasm` comes from. Every failure is an
  * {@link MdbaseError} with a stable `code` and a `help` line.
  *
- * Collections on disk (`Collection.open`, CRUD, queries, changes) live in
- * `mdbase/node`.
- *
  * @example
  * ```ts
  * import { contractDigest, loadCatalog } from "mdbase";
@@ -58,7 +55,7 @@ export { MdbaseError, type ErrorCode } from "./errors.js";
 export type * from "./types.js";
 
 /** This package's version. */
-export const VERSION = "0.5.0-rc.1";
+export const VERSION = "0.5.0";
 
 /** What the loaded engine reports about itself. */
 export interface EngineInfo {
