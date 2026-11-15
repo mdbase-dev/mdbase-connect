@@ -45,7 +45,6 @@ pnpm test:accessibility
 pnpm e2e
 pnpm e2e:container
 pnpm e2e:relay
-pnpm e2e:sync
 pnpm e2e:provider
 MDBN_DAEMON_BIN=<absolute path to a release build of runtime/ mdbase> \
   pnpm --filter @mdbase/connect-desktop package

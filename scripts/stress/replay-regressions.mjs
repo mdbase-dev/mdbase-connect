@@ -22,7 +22,6 @@ for (const name of fixtureNames) {
     profile: fixture.profile ?? "quick",
     seed: fixture.seed,
     seeds: 1,
-    transport: fixture.transport,
     steps: fixture.steps,
     clients: fixture.clients,
     initialRecords: fixture.initialRecords,
@@ -31,17 +30,17 @@ for (const name of fixtureNames) {
     mirrorEvery: fixture.mirrorEvery
   });
   for (const result of campaign.results) {
-    const expected = fixture.expected?.[result.mode];
+    const expected = fixture.expected;
     if (!expected) continue;
-    assert.equal(result.recordDigest, expected.recordDigest, `${fixture.name} record digest changed for ${result.mode}`);
-    assert.equal(result.actionDigest, expected.actionDigest, `${fixture.name} action trace changed for ${result.mode}`);
+    assert.equal(result.recordDigest, expected.recordDigest, `${fixture.name} record digest changed`);
+    assert.equal(result.actionDigest, expected.actionDigest, `${fixture.name} action trace changed`);
   }
 }
 process.stdout.write(`stress regression replay passed (${fixtureNames.length} fixture${fixtureNames.length === 1 ? "" : "s"})\n`);
 
 function validateFixture(fixture, name) {
   if (!fixture || typeof fixture !== "object" || Array.isArray(fixture)) throw new Error(`${name} must contain an object`);
-  for (const field of ["name", "seed", "transport"]) {
+  for (const field of ["name", "seed"]) {
     if (typeof fixture[field] !== "string" || !fixture[field]) throw new Error(`${name} requires ${field}`);
   }
   for (const field of ["steps", "clients", "initialRecords", "checkpointEvery", "mirrorEvery"]) {
@@ -51,8 +50,5 @@ function validateFixture(fixture, name) {
   }
   if (typeof fixture.faultRate !== "number" || fixture.faultRate < 0 || fixture.faultRate > 1) {
     throw new Error(`${name} has invalid faultRate`);
-  }
-  if (!["memory", "http", "both"].includes(fixture.transport)) {
-    throw new Error(`${name} has invalid transport`);
   }
 }

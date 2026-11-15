@@ -24,8 +24,7 @@ const PROFILES = {
     faultRate: 0.05,
     checkpointEvery: 30,
     mirrorEvery: 60,
-    durationMs: 0,
-    transport: "both"
+    durationMs: 0
   },
   functional: {
     seeds: 20,
@@ -35,8 +34,7 @@ const PROFILES = {
     faultRate: 0.04,
     checkpointEvery: 100,
     mirrorEvery: 250,
-    durationMs: 0,
-    transport: "memory"
+    durationMs: 0
   },
   scale: {
     seeds: 1,
@@ -46,8 +44,7 @@ const PROFILES = {
     faultRate: 0.01,
     checkpointEvery: 500,
     mirrorEvery: 2_000,
-    durationMs: 0,
-    transport: "memory"
+    durationMs: 0
   },
   soak: {
     seeds: 1,
@@ -57,39 +54,20 @@ const PROFILES = {
     faultRate: 0.01,
     checkpointEvery: 250,
     mirrorEvery: 1_000,
-    durationMs: 8 * 60 * 60 * 1_000,
-    transport: "memory"
+    durationMs: 8 * 60 * 60 * 1_000
   }
 };
 
 export async function runStressCampaign(rawOptions = {}) {
   const options = resolveOptions(rawOptions);
-  const modes = options.transport === "both" ? ["memory", "http"] : [options.transport];
   const campaignStarted = performance.now();
   const results = [];
 
   for (let seedIndex = 0; seedIndex < options.seeds; seedIndex += 1) {
     const seed = options.seed ?? `${options.profile}-${seedIndex + 1}`;
-    const seedResults = [];
-    for (const mode of modes) {
-      const result = await runScenario({ ...options, seed, mode });
-      results.push(result);
-      seedResults.push(result);
-      process.stdout.write(formatResult(result));
-    }
-    if (seedResults.length === 2) {
-      assert.deepEqual(
-        seedResults[0].records,
-        seedResults[1].records,
-        `Seed ${seed} produced different final collections through memory and HTTP transports`
-      );
-      assert.equal(
-        seedResults[0].actionDigest,
-        seedResults[1].actionDigest,
-        `Seed ${seed} followed different semantic actions through memory and HTTP transports`
-      );
-      process.stdout.write(`stress differential seed=${seed} passed\n`);
-    }
+    const result = await runScenario({ ...options, seed });
+    results.push(result);
+    process.stdout.write(formatResult(result));
   }
 
   const summary = {
@@ -110,7 +88,7 @@ async function runScenario(options) {
   const started = performance.now();
   const random = new SeededRandom(options.seed);
   const collectionId = deterministicUuid(options.seed, "collection", 0);
-  const system = await createStressSystem(options.mode, { collectionId });
+  const system = await createStressSystem({ collectionId });
   const { MemoryReplicaStore, OfflineReplica } = await import(syncModuleUrl);
   const trace = [];
   const semanticActions = [];
@@ -226,7 +204,6 @@ async function runScenario(options) {
     const records = normalizeRecords(afterRestart);
     return {
       seed: options.seed,
-      mode: options.mode,
       records,
       recordDigest: digest(records),
       actionDigest: digest(semanticActions),
@@ -848,7 +825,7 @@ function sampleMemory(metrics) {
 
 async function writeFailureArtifact(value) {
   await mkdir(failureRoot, { recursive: true });
-  const name = `${safeName(value.options.seed)}-${value.options.mode}-${Date.now()}.json`;
+  const name = `${safeName(value.options.seed)}-${Date.now()}.json`;
   const path = join(failureRoot, name);
   await writeFile(path, `${JSON.stringify({
     ...value,
@@ -866,7 +843,7 @@ function safeName(value) {
 }
 
 function formatResult(result) {
-  return `stress ${result.mode} seed=${result.seed} passed steps=${result.metrics.steps} records=${result.records.length} faults=${result.metrics.injectedFaults} conflicts=${result.metrics.conflictsObserved} restarts=${result.metrics.restarts} compactions=${result.metrics.compactions} elapsed_ms=${result.elapsedMs} digest=${result.recordDigest.slice(0, 12)}\n`;
+  return `stress seed=${result.seed} passed steps=${result.metrics.steps} records=${result.records.length} faults=${result.metrics.injectedFaults} conflicts=${result.metrics.conflictsObserved} restarts=${result.metrics.restarts} compactions=${result.metrics.compactions} elapsed_ms=${result.elapsedMs} digest=${result.recordDigest.slice(0, 12)}\n`;
 }
 
 function resolveOptions(raw) {
@@ -882,9 +859,6 @@ function resolveOptions(raw) {
   }
   if (typeof options.faultRate !== "number" || options.faultRate < 0 || options.faultRate > 1) {
     throw new Error("faultRate must be between 0 and 1");
-  }
-  if (!["memory", "http", "both"].includes(options.transport)) {
-    throw new Error("transport must be memory, http, or both");
   }
   return options;
 }
@@ -903,7 +877,6 @@ function parseArguments(arguments_) {
     else if (argument === "--fault-rate") options.faultRate = Number.parseFloat(value);
     else if (argument === "--checkpoint-every") options.checkpointEvery = parsePositiveInteger(value, argument);
     else if (argument === "--mirror-every") options.mirrorEvery = Number.parseInt(value, 10);
-    else if (argument === "--transport") options.transport = value;
     else if (argument === "--duration") options.durationMs = parseDuration(value);
     else if (argument === "--no-mirror") {
       options.mirrorEvery = 0;
@@ -928,7 +901,6 @@ function parsePositiveInteger(value, name) {
 function help() {
   return `Usage: node scripts/stress/functional-stress.mjs [options]\n\n` +
     `  --profile quick|functional|scale|soak\n` +
-    `  --transport memory|http|both\n` +
     `  --seed VALUE             replay one exact seed\n` +
     `  --seeds N                number of independent scenarios\n` +
     `  --steps N                maximum randomized steps per scenario\n` +

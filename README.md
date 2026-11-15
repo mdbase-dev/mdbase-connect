@@ -204,12 +204,11 @@ See the [CI flake policy](docs/ci-flakes.md) for bounded, recorded per-test
 retries and the retry-free nightly stress workflow.
 
 The end-to-end suites cover the runtime daemon's request path, the encrypted
-relay, hosted replication, and the production hosted provider:
+relay, and the production hosted provider:
 
 ```bash
 pnpm e2e
 pnpm e2e:relay
-pnpm e2e:sync
 pnpm e2e:provider
 ```
 

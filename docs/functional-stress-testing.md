@@ -1,27 +1,24 @@
 # Functional stress testing
 
-The functional stress runner exercises synchronization and recovery through
-seeded, replayable sequences. It uses disposable in-memory state or a real
-Fastify HTTP server backed by the reference authority and `pg-mem`. It never
-opens an installed Connect profile or a user's collections.
+The functional stress runner exercises the `packages/sync` client's
+synchronization and recovery through seeded, replayable sequences against the
+package's in-memory authority. It uses disposable state only and never opens an
+installed Connect profile or a user's collections.
 
 ## Commands
 
 ```bash
 pnpm stress:quick
 pnpm stress:functional
-pnpm stress:http
 pnpm stress:scale
 pnpm stress:soak
 pnpm stress:soak:smoke
 pnpm test:stress-regressions
 ```
 
-`stress:quick` runs the same seeds through the direct in-process transport and
-the HTTP boundary, then requires identical final records and semantic action
-traces. `stress:functional` explores more seeds and interleavings without HTTP
-overhead. `stress:http` concentrates on server serialization and restart
-recovery. `stress:scale` increases replicas, records, and operation count.
+`stress:quick` runs a few short seeds. `stress:functional` explores more seeds
+and interleavings. `stress:scale` increases replicas, records, and operation
+count.
 `stress:soak` retains one growing system for eight hours; the smoke form proves
 the soak profile and duration handling in seconds.
 
@@ -36,7 +33,7 @@ On failure the runner writes the seed, recent action trace, metrics, and stack
 to `.tmp/stress-failures/`. Replay one seed with:
 
 ```bash
-pnpm stress:quick -- --seed SEED --transport memory
+pnpm stress:quick -- --seed SEED
 ```
 
 The runner checks these invariants:
@@ -48,16 +45,13 @@ The runner checks these invariants:
 - replicas converge after conflicts are resolved;
 - snapshots contain unique IDs and paths;
 - no-op pull, sync, and mirror passes do not change durable content;
-- the reference authority survives reconstruction from durable state;
-- revoked replicas cannot continue reading; and
-- direct and HTTP transports reach identical states for the same seed.
+- the authority survives reconstruction from its serialized state; and
+- revoked replicas cannot continue reading.
 
 ## Scope
 
-The runner is intentionally lightweight. The HTTP mode starts a real server but
-does not start Docker, PostgreSQL, NATS, Electron, or the Rust hosted provider.
-Use the existing `e2e:container`, `e2e:relay`, `e2e:provider`, and
-`e2e:provider:stress` commands for those boundaries.
-True OS process-kill testing and upgrade-from-previous-release fixtures remain
-separate future extensions; server reconstruction in this runner verifies the
-same durable reference-authority state transition without container overhead.
+The runner is intentionally lightweight: it starts no server, Docker,
+PostgreSQL, NATS, Electron, or Rust hosted provider. `e2e:provider` and
+`e2e:provider:stress` drive the same client over HTTP against the hosted
+provider; `e2e:container` and `e2e:relay` cover the packaged server and the
+relay.
