@@ -42,7 +42,6 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 20
     env:
-      GH_TOKEN: ${{ github.token }}
       ARCH: arm64
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -59,6 +58,7 @@ jobs:
       - name: Choose the releases
         id: plan
         env:
+          GH_TOKEN: ${{ github.token }}
           FROM: ${{ inputs.from }}
           TO: ${{ github.event.workflow_run.head_branch || inputs.to }}
         run: node scripts/ci/desktop-macos-update.mjs plan
@@ -66,6 +66,7 @@ jobs:
       - name: Install the older signed release
         if: steps.plan.outputs.skip == 'false'
         env:
+          GH_TOKEN: ${{ github.token }}
           FROM: ${{ steps.plan.outputs.from }}
           DMG: ${{ steps.plan.outputs.dmg }}
         run: |
