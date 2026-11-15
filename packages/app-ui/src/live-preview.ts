@@ -4,24 +4,27 @@ import { inlinePreview, type LivePreviewOptions } from "./live-preview/inline.js
 import { livePreviewKeys } from "./live-preview/keys.js";
 import { tablePreview } from "./live-preview/table.js";
 import { blockPreview } from "./live-preview/blocks.js";
+import { mathPreview } from "./live-preview/math.js";
 import { revealTracking } from "./live-preview/reveal.js";
 
 export type { LivePreviewLink, LivePreviewOptions } from "./live-preview/inline.js";
 export { isRevealed, revealField as livePreviewReveal } from "./live-preview/reveal.js";
 export { indentListItem, outdentListItem } from "./live-preview/keys.js";
+export { markdownMath } from "./live-preview/math.js";
 
 /**
  * Live preview for a CodeMirror Markdown editor: the note reads as rendered
  * text, and each element shows its Markdown only while the selection touches
  * it. Pair it with `@mdbase-dev/ui/live-preview.css` and the `markdown()`
- * language (GFM, for tasks, strikethrough and tables).
+ * language (GFM, for tasks, strikethrough and tables) with `markdownMath` in
+ * its `extensions`, for `$…$` and `$$…$$` formulas.
  *
  * Rendered links carry `data-link-from` (the link's source offset) and
  * `data-link-format`; opening them is the app's choice. App widgets, such as
  * embeds, should follow the same rule through `isRevealed`.
  */
 export function livePreview(options: LivePreviewOptions = {}): Extension {
-  return [revealTracking(), blockPreview(), inlinePreview(options), tablePreview(), livePreviewKeys, taskToggle];
+  return [revealTracking(), blockPreview(), mathPreview(), inlinePreview(options), tablePreview(), livePreviewKeys, taskToggle];
 }
 
 const taskToggle = EditorView.domEventHandlers({

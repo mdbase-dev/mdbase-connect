@@ -563,6 +563,10 @@ msgctxt "Collection storage mode"
 msgid "Finishing the switch. Keep the owner device connected."
 msgstr "Завершаем переключение. Не отключайте устройство владельца."
 
+#: src/live-preview/math.ts
+msgid "Formulas could not be shown. Check your connection and reopen the note."
+msgstr "Не удалось показать формулы. Проверьте подключение и снова откройте заметку."
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Give {app} a collection"
