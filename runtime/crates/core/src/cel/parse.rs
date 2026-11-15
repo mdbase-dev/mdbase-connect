@@ -457,9 +457,6 @@ fn walk(e: &Expr, bound: &mut Vec<(String, Provenance)>, r: &mut References) -> 
             let left = walk(left, bound, r);
             let right = walk(right, bound, r);
             match (operator, left, right) {
-                (BinOp::Add, Provenance::List(left), Provenance::List(right)) => {
-                    Provenance::List(left.iter().chain(right.iter()).cloned().collect())
-                }
                 (BinOp::Add, left, right) if left.list() || right.list() => {
                     Provenance::Sequence(Arc::new(Provenance::alternatives([
                         left.element(),

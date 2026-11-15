@@ -238,6 +238,20 @@ fn repeated_aliases_share_structural_provenance() {
         "{:?}",
         loaded.issues()
     );
+    let mut expression = "[[file]]".to_owned();
+    for _ in 0..24 {
+        expression.push_str(".map(meta, meta + meta)");
+    }
+    let loaded = catalog(&format!("has({expression}[0][0].ctime)"));
+    assert!(loaded.type_named("selected").is_none());
+    assert!(
+        loaded
+            .issues()
+            .iter()
+            .any(|issue| issue.code == "nondeterministic_match"),
+        "{:?}",
+        loaded.issues()
+    );
 }
 
 #[test]
