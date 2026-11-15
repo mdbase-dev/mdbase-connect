@@ -25,11 +25,6 @@ msgstr " (повышенный риск)"
 msgid " {0} does not verify its origin."
 msgstr " {0} не подтверждает его происхождение."
 
-#. placeholder {0}: adoption.mirror_name ?? adoption.source_name
-#: src/authority-workflows.tsx
-msgid " {0} will continue as a synced folder, with edits syncing both ways."
-msgstr " {0} останется синхронизируемой папкой; изменения будут передаваться в обе стороны."
-
 #. placeholder {0}: request.user_code
 #: src/authorization-view.tsx
 msgid " and it shows <0>{0}</0>"
@@ -42,10 +37,6 @@ msgstr " Действия с файлами входят в указанные �
 #: src/authorization-view.tsx
 msgid " Permissions this app does not already have are marked New."
 msgstr " Разрешения, которых у приложения ещё нет, помечены как новые."
-
-#: src/authority-workflows.tsx
-msgid " The original local files are no longer the main copy."
-msgstr " Исходные локальные файлы больше не являются основной копией."
 
 #: src/authorization-review.tsx
 msgid " These actions are approved together."
@@ -163,11 +154,6 @@ msgstr "{0} больше недоступна. Выберите другую к�
 #: src/AccountManagement.tsx
 msgid "{0} is now connected."
 msgstr "Соединение с {0} установлено."
-
-#. placeholder {0}: literal(adoption.display_name)
-#: src/authority-workflows.tsx
-msgid "{0} is now hosted."
-msgstr "{0} теперь размещена в mdbase."
 
 #. placeholder {0}: connector.connector_name
 #: src/authorization-view.tsx
@@ -616,15 +602,6 @@ msgstr "Одобрены дополнительные действия с фай
 msgid "Adds {0} to the collection"
 msgstr "Добавляет {0} в коллекцию"
 
-#. placeholder {0}: adoption.mirror_name ?? adoption.source_name
-#: src/authority-workflows.tsx
-msgid "After the move, {0} stays as a synced folder. It will not be a second main copy."
-msgstr "После переноса {0} останется синхронизируемой папкой, а не второй основной копией."
-
-#: src/authority-workflows.tsx
-msgid "After the move, the original local files are no longer the main copy."
-msgstr "После переноса исходные локальные файлы больше не будут основной копией."
-
 #. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
 msgid "All hosted data in {0} will be permanently deleted. This cannot be undone."
@@ -766,11 +743,6 @@ msgstr "Одобрить компьютер"
 #: src/authority-workflows.tsx
 msgid "Approve will create this collection and open it in {0}."
 msgstr "При одобрении коллекция будет создана и открыта в {0}."
-
-#. placeholder {0}: literal(adoption.source_name)
-#: src/authority-workflows.tsx
-msgid "Approving uploads the complete collection from {0}, validates it as one snapshot, and then makes the hosted version the main copy."
-msgstr "При одобрении вся коллекция будет загружена с {0}, проверена как единый снимок, после чего размещённая версия станет основной копией."
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
@@ -1747,11 +1719,6 @@ msgid "Finishing collection setup…"
 msgstr "Завершение настройки коллекции…"
 
 #: src/authority-workflows.tsx
-msgctxt "Collection connection"
-msgid "Finishing the move"
-msgstr "Завершение переноса"
-
-#: src/authority-workflows.tsx
 msgid "Folder"
 msgstr "Папка"
 
@@ -2067,10 +2034,6 @@ msgctxt "Connect interface"
 msgid "Main copy"
 msgstr "Основная копия"
 
-#: src/authority-workflows.tsx
-msgid "Main copy hosted by mdbase"
-msgstr "Основная копия размещена в mdbase"
-
 #: src/ConnectApp.tsx
 msgid "Main copy moved to a computer"
 msgstr "Основная копия перенесена на компьютер"
@@ -2160,11 +2123,6 @@ msgstr "Навигация mdbase Connect"
 msgid "mdbase Connect needs to restart"
 msgstr "Требуется перезапустить mdbase Connect"
 
-#. placeholder {0}: literal(adoption.retain_mirror ? t(i18n)` ${adoption.mirror_name ?? adoption.source_name} will continue as a synced folder, with edits syncing both ways.` : t(i18n)({ message: " The original local files are no longer the main copy." }))
-#: src/authority-workflows.tsx
-msgid "mdbase now keeps the main copy of this collection.{0}"
-msgstr "Теперь mdbase хранит основную копию этой коллекции.{0}"
-
 #: src/authority-workflows.tsx
 msgid "mdbase remembers your choice and {app} follows it. {app} keeps its copy of this collection either way."
 msgstr "mdbase запомнит ваш выбор, и {app} последует ему. В любом случае {app} сохранит свою копию коллекции."
@@ -2197,31 +2155,10 @@ msgstr "Другие приложения mdbase"
 msgid "More regular updates about new features and improvements."
 msgstr "Более частые сообщения о новых возможностях и улучшениях."
 
-#: src/authority-workflows.tsx
-msgid "Move a local collection to mdbase"
-msgstr "Перенести локальную коллекцию в mdbase"
-
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Move and rename files"
 msgstr "Перемещать и переименовывать файлы"
-
-#: src/authority-workflows.tsx
-msgid "Move approved"
-msgstr "Перенос одобрен"
-
-#: src/authority-workflows.tsx
-msgctxt "Collection connection"
-msgid "Move collection online"
-msgstr "Перенести коллекцию в сеть"
-
-#: src/authority-workflows.tsx
-msgid "Move complete"
-msgstr "Перенос завершён"
-
-#: src/authority-workflows.tsx
-msgid "Move ended"
-msgstr "Перенос остановлен"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
@@ -2231,11 +2168,6 @@ msgstr "Перенести основную копию"
 #: src/authority-workflows.tsx
 msgid "Move the main copy"
 msgstr "Перенести основную копию"
-
-#: src/authority-workflows.tsx
-msgctxt "Collection connection"
-msgid "Move this collection"
-msgstr "Перенести эту коллекцию"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2931,7 +2863,6 @@ msgstr "Повторить вход через Google"
 msgid "Return to {0}"
 msgstr "Вернуться в {0}"
 
-#. placeholder {0}: literal(adoption.source_name)
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Return to {0}."
@@ -3459,10 +3390,6 @@ msgctxt "Application access approval"
 msgid "the app"
 msgstr "приложение"
 
-#: src/authority-workflows.tsx
-msgid "The app is uploading and checking a final collection snapshot. The main copy will move only after that exact snapshot is complete."
-msgstr "Приложение загружает и проверяет окончательный снимок коллекции. Основная копия переместится только после завершения проверки именно этого снимка."
-
 #: src/authorization-view.tsx
 msgid "The app will finish connecting with its one-time device code. You can close this window."
 msgstr "Приложение завершит подключение с помощью своего одноразового кода устройства. Это окно можно закрыть."
@@ -3551,10 +3478,6 @@ msgstr "Основная копия перенесена на компьютер
 #: src/authority-workflows.tsx
 msgid "The main copy stayed hosted."
 msgstr "Основная копия осталась в хранилище mdbase."
-
-#: src/authority-workflows.tsx
-msgid "The main copy was not moved to mdbase."
-msgstr "Основная копия не была перенесена в mdbase."
 
 #: src/portal-model.ts
 msgid "The mdbase Connect app on this computer needs to be updated before you can continue."
@@ -3973,11 +3896,6 @@ msgstr "Ожидание mdbase Connect"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
-msgid "Waiting for the app"
-msgstr "Ожидание приложения"
-
-#: src/authority-workflows.tsx
-msgctxt "Collection connection"
 msgid "Waiting for the computer"
 msgstr "Ожидание компьютера"
 
@@ -4094,10 +4012,6 @@ msgstr "Ваш адрес электронной почты подтверждё
 #: src/auth-view.tsx
 msgid "Your email is verified. Confirm your name to finish setting up your account. No password needed."
 msgstr "Ваш адрес электронной почты подтверждён. Подтвердите имя, чтобы завершить настройку учётной записи. Пароль не нужен."
-
-#: src/authority-workflows.tsx
-msgid "Your local collection was kept."
-msgstr "Ваша локальная коллекция сохранена."
 
 #: src/portal-model.ts
 msgid "Your mdbase account hasn't been upgraded yet, so {app} can't use it. Email support@mdbase.dev and we'll upgrade it, or go back to {app} to sign in with a different account."

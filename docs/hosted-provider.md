@@ -334,23 +334,14 @@ current. Export is already available by enrolling a receive-only directory
 mirror, which reconstructs a complete ordinary directory. Authority transfer in
 either direction creates a new authority epoch only when the handoff completes.
 
-Local-to-hosted transfers stage the next epoch while keeping the exact source
-active at its previous control-plane epoch. An `importing` target is not yet a
-replacement authority. Connector inventory preserves that source binding;
-other computers with the same collection identity remain candidates. Activation
-reserves the exact fenced snapshot before contacting the provider, then retires
-the source and activates the target. Inventory and authority transitions share
-the account lock, acquired before collection or transfer locks.
-
-Retrying `transfer-authority --target remote` resumes the existing activating
-transfer or returns its completed receipt, including after a lost response and
-later inventory publication. Source conflicts return HTTP 409 with the transfer
-ID, phase, source state/epoch, and expected and staged epochs. A `preflight`
-conflict has not started provider activation and can be cancelled through
-`cancel-authority-transfer <collection-id> <transfer-id>`. Once activation starts,
-cancellation is refused: reconcile the same transfer and keep the local fence.
-The control plane still showing `importing` is not proof that the provider has
-not activated. Never clear a local fence by editing SQLite.
+Local-to-hosted transfers were removed on 2026-11-15; no new import can be
+staged. A transfer row a legacy connector staged earlier kept the exact source
+active at its previous control-plane epoch, and an `importing` target is not a
+replacement authority. Connector inventory still preserves that source binding,
+other computers with the same collection identity remain candidates, and the
+recovery worker expires the row through the provider. The control plane showing
+`importing` is not proof that the provider has not activated. Never clear a local
+fence by editing SQLite.
 
 Migration `0036_authority_import_source_repair` repairs the historical inventory
 bug only when a pending import's exact source was demoted to `candidate` at the

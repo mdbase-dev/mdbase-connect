@@ -70,22 +70,6 @@ describe("hosted provider control client", () => {
     await expect(provider.ready()).rejects.toBeInstanceOf(HostedProviderUnavailableError);
   });
 
-  it("requires an exact durable cancellation acknowledgement, never an absence response", async () => {
-    const provider = new HostedProviderClient({ url: "https://provider.example", internalToken: "test-internal" });
-    const expected = { transfer_id: "transfer", collection_id: "collection", authority_epoch: 2, cancelled: true };
-    const fetchMock = vi.spyOn(globalThis, "fetch");
-    for (const body of [{}, { ...expected, cancelled: false }, { ...expected, transfer_id: "other" },
-      { ...expected, collection_id: "other" }, { ...expected, authority_epoch: 3 }]) {
-      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(body)));
-      await expect(provider.reconcileAuthorityImportCancellation("transfer", "collection", 2)).rejects.toThrow();
-    }
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "not_found", message: "Absent" } }), { status: 404 }));
-    await expect(provider.reconcileAuthorityImportCancellation("transfer", "collection", 2)).rejects.toThrow();
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(expected)));
-    await expect(provider.reconcileAuthorityImportCancellation("transfer", "collection", 2)).resolves.toBeUndefined();
-    expect(fetchMock.mock.calls.at(-1)?.[1]?.body).toBe(JSON.stringify({ collection_id: "collection", authority_epoch: 2 }));
-  });
-
   it("requires new collections to return with a current projection", async () => {
     const active = {
       collection_id: "collection",
@@ -111,174 +95,6 @@ describe("hosted provider control client", () => {
     ]);
   });
 
-  it("reconciles an activation batch whose successful response was lost", async () => {
-    const active = {
-      collection_id: "collection",
-      ready: true,
-      head: 0,
-      resource_revision: "catalog-v1",
-      active_generation_id: "generation",
-      building_generation: null
-    };
-    vi.spyOn(globalThis, "fetch")
-      .mockRejectedValueOnce(new Error("response lost after commit"))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        error: {
-          code: "projection_generation_not_building",
-          message: "The generation completed."
-        }
-      }), { status: 409 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ projection: active })));
-    const provider = new HostedProviderClient({
-      url: "https://provider.example",
-      internalToken: "internal-secret"
-    });
-
-    await expect(provider.advanceProjection("collection", "generation"))
-      .resolves.toEqual(active);
-  });
-
-  it("yields to the exact projection worker lease and reconciles activation", async () => {
-    const building = {
-      collection_id: "collection",
-      ready: false,
-      head: 42,
-      resource_revision: "catalog-v1",
-      active_generation_id: null,
-      building_generation: {
-        collection_id: "collection",
-        generation_id: "generation",
-        source_head: 42,
-        phase: "projection",
-        status: "building"
-      }
-    };
-    const active = {
-      ...building,
-      ready: true,
-      active_generation_id: "generation",
-      building_generation: null
-    };
-    const leaseUnavailable = () => new Response(JSON.stringify({
-      error: {
-        code: "projection_lease_unavailable",
-        message: "The projection generation lease is unavailable or fenced."
-      }
-    }), { status: 409 });
-    const fetchMock = vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(leaseUnavailable())
-      .mockResolvedValueOnce(new Response(JSON.stringify({ projection: building })))
-      .mockResolvedValueOnce(leaseUnavailable())
-      .mockResolvedValueOnce(new Response(JSON.stringify({ projection: active })));
-    const provider = new HostedProviderClient({
-      url: "https://provider.example",
-      internalToken: "internal-secret"
-    });
-
-    await expect(provider.advanceProjection("collection", "generation"))
-      .resolves.toEqual(active);
-    expect(fetchMock.mock.calls.map(([url, init]) => [url, init?.method])).toEqual([
-      ["https://provider.example/internal/v1/collections/collection/projection/advance", "POST"],
-      ["https://provider.example/internal/v1/collections/collection/projection", "GET"],
-      ["https://provider.example/internal/v1/collections/collection/projection/advance", "POST"],
-      ["https://provider.example/internal/v1/collections/collection/projection", "GET"]
-    ]);
-  });
-
-  it.each([
-    ["wrong collection", {
-      collection_id: "other",
-      ready: false,
-      head: 42,
-      resource_revision: "catalog-v1",
-      active_generation_id: null,
-      building_generation: null
-    }, "invalid_provider_response"],
-    ["missing requested building generation", {
-      collection_id: "collection",
-      ready: false,
-      head: 42,
-      resource_revision: "catalog-v1",
-      active_generation_id: null,
-      building_generation: null
-    }, "projection_lease_unavailable"],
-    ["competing building generation", {
-      collection_id: "collection",
-      ready: false,
-      head: 42,
-      resource_revision: "catalog-v1",
-      active_generation_id: null,
-      building_generation: {
-        collection_id: "collection",
-        generation_id: "other-generation",
-        source_head: 42,
-        phase: "projection",
-        status: "building"
-      }
-    }, "projection_lease_unavailable"],
-    ["exact terminal generation", {
-      collection_id: "collection",
-      ready: false,
-      head: 42,
-      resource_revision: "catalog-v1",
-      active_generation_id: null,
-      building_generation: null,
-      latest_terminal_generation_id: "generation",
-      latest_terminal_error_code: "projection_authority_invalid"
-    }, "projection_authority_invalid"]
-  ])("fails closed for %s", async (_name, status, expectedCode) => {
-    vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        error: {
-          code: "projection_lease_unavailable",
-          message: "The generation is leased."
-        }
-      }), { status: 409 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ projection: status })));
-    const provider = new HostedProviderClient({
-      url: "https://provider.example",
-      internalToken: "internal-secret"
-    });
-
-    await expect(provider.advanceProjection("collection", "generation"))
-      .rejects.toMatchObject({ code: expectedCode });
-  });
-
-  it("preserves old active A while retrying requested Candidate B", async () => {
-    const candidateB = {
-      collection_id: "collection",
-      ready: true,
-      head: 42,
-      resource_revision: "catalog-v2",
-      active_generation_id: "generation-a",
-      building_generation: {
-        collection_id: "collection",
-        generation_id: "generation-b",
-        source_head: 42,
-        phase: "projection",
-        status: "building"
-      }
-    };
-    const activeB = {
-      ...candidateB,
-      active_generation_id: "generation-b",
-      building_generation: null
-    };
-    vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        error: { code: "projection_lease_unavailable", message: "leased" }
-      }), { status: 409 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ projection: candidateB })))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ projection: activeB })));
-    const provider = new HostedProviderClient({
-      url: "https://provider.example",
-      internalToken: "internal-secret"
-    });
-
-    await expect(provider.advanceProjection("collection", "generation-b"))
-      .resolves.toEqual(activeB);
-  });
-
   it("enforces one hard authority-operation wall across a hung fetch", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(10_000);
@@ -291,12 +107,7 @@ describe("hosted provider control client", () => {
       url: "https://provider.example",
       internalToken: "internal-secret"
     });
-    const completion = provider.completeAuthorityImport(
-      "transfer",
-      "sha256:manifest",
-      "source-v1",
-      { deadline: 11_000 }
-    );
+    const completion = provider.projectionStatus("collection", { deadline: 11_000 });
 
     const rejected = expect(completion).rejects.toBeInstanceOf(HostedProviderUnavailableError);
     await vi.advanceTimersByTimeAsync(999);
@@ -304,45 +115,6 @@ describe("hosted provider control client", () => {
     await vi.advanceTimersByTimeAsync(1);
     await rejected;
     expect(Date.now()).toBe(11_000);
-  });
-
-  it("returns typed pending at the shared wall for an exact persistent lease", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(20_000);
-    const building = {
-      collection_id: "collection",
-      ready: false,
-      head: 42,
-      resource_revision: "catalog-v1",
-      active_generation_id: null,
-      building_generation: {
-        collection_id: "collection",
-        generation_id: "generation",
-        source_head: 42,
-        phase: "projection",
-        status: "building"
-      }
-    };
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) =>
-      String(url).endsWith("/projection")
-        ? new Response(JSON.stringify({ projection: building }))
-        : new Response(JSON.stringify({
-            error: { code: "projection_lease_unavailable", message: "leased" }
-          }), { status: 409 })
-    );
-    const provider = new HostedProviderClient({
-      url: "https://provider.example",
-      internalToken: "internal-secret"
-    });
-    const advanced = provider.advanceProjection(
-      "collection", "generation", { deadline: 20_100 }
-    );
-    const rejected = expect(advanced).rejects.toMatchObject({
-      code: "projection_activation_pending"
-    });
-    await vi.advanceTimersByTimeAsync(100);
-    await rejected;
-    expect(Date.now()).toBe(20_100);
   });
 
   it("propagates caller abort during provider fetch", async () => {
@@ -357,9 +129,7 @@ describe("hosted provider control client", () => {
       url: "https://provider.example",
       internalToken: "internal-secret"
     });
-    const completion = provider.completeAuthorityImport(
-      "transfer", "sha256:manifest", "source-v1", { signal: controller.signal }
-    );
+    const completion = provider.projectionStatus("collection", { signal: controller.signal });
     controller.abort(reason);
     await expect(completion).rejects.toBe(reason);
   });
@@ -375,101 +145,11 @@ describe("hosted provider control client", () => {
       url: "https://provider.example",
       internalToken: "internal-secret"
     });
-    const completion = provider.completeAuthorityImport(
-      "transfer", "sha256:manifest", "source-v1", { signal: controller.signal }
-    );
+    const completion = provider.projectionStatus("collection", { signal: controller.signal });
     await vi.advanceTimersByTimeAsync(0);
     controller.abort(reason);
     await expect(completion).rejects.toBe(reason);
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
-  });
-
-  it("preserves an idempotent completed authority import without restarting projection work", async () => {
-    const completed = {
-      id: "transfer",
-      collection_id: "collection",
-      authority_epoch: 2,
-      state: "completed",
-      manifest_digest: "sha256:manifest",
-      source_revision: "source-v1",
-      source_head: 42,
-      contracts: [],
-      expires_at: "2026-08-18T00:00:00Z"
-    };
-    const fetchMock = vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(new Response(JSON.stringify(completed)));
-    const provider = new HostedProviderClient({
-      url: "https://provider.example",
-      internalToken: "internal-secret"
-    });
-
-    await expect(provider.completeAuthorityImport(
-      "transfer",
-      "sha256:manifest",
-      "source-v1"
-    )).resolves.toEqual(completed);
-    expect(fetchMock.mock.calls.map(([url, init]) => [url, init?.method])).toEqual([
-      ["https://provider.example/internal/v1/authority-imports/transfer", "POST"]
-    ]);
-  });
-
-  it("reconciles an indexed authority import after bounded Candidate B activation", async () => {
-    const indexing = {
-      id: "transfer",
-      collection_id: "collection",
-      authority_epoch: 2,
-      state: "indexing",
-      manifest_digest: "sha256:manifest",
-      source_revision: "source-v1",
-      source_head: 205,
-      contracts: [],
-      expires_at: "2026-08-18T00:00:00Z"
-    };
-    const completed = { ...indexing, state: "completed" };
-    const building = {
-      collection_id: "collection",
-      ready: false,
-      head: 1,
-      resource_revision: "catalog-v1",
-      active_generation_id: null,
-      building_generation: {
-        collection_id: "collection",
-        generation_id: "generation",
-        source_head: 1,
-        phase: "resolution",
-        status: "building"
-      }
-    };
-    const active = {
-      ...building,
-      ready: true,
-      active_generation_id: "generation",
-      building_generation: null
-    };
-    const fetchMock = vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(new Response(JSON.stringify(indexing)))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ projection: building })))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ projection: active })))
-      .mockResolvedValueOnce(new Response(JSON.stringify(completed)));
-    const provider = new HostedProviderClient({
-      url: "https://provider.example",
-      internalToken: "internal-secret"
-    });
-
-    await expect(provider.completeAuthorityImport(
-      "transfer",
-      "sha256:manifest",
-      "source-v1"
-    )).resolves.toEqual(completed);
-    expect(fetchMock.mock.calls.map(([url, init]) => [url, init?.method])).toEqual([
-      ["https://provider.example/internal/v1/authority-imports/transfer", "POST"],
-      ["https://provider.example/internal/v1/collections/collection/projection", "GET"],
-      [
-        "https://provider.example/internal/v1/collections/collection/projection/advance",
-        "POST"
-      ],
-      ["https://provider.example/internal/v1/authority-imports/transfer", "POST"]
-    ]);
   });
 
   it("uses only the internal bearer credential and expected provider document", async () => {
