@@ -4,21 +4,25 @@ import { describe, expect, it } from "vitest";
 import { ConnectLayout, OpeningScreen } from "./screens.js";
 
 describe("screens", () => {
-  it("opens with the app's wordmark and turns a failure into a retry", () => {
-    expect(renderToStaticMarkup(<OpeningScreen app="reader" title="Opening collection" detail="Reading its sources" />))
-      .toContain('aria-busy="true"');
+  it("opens with the app's mark and name and turns a failure into a retry", () => {
+    const opening = renderToStaticMarkup(<OpeningScreen app="reader" title="Opening collection" detail="Reading its sources" />);
+    expect(opening).toContain('aria-busy="true"');
+    expect(opening).toContain("mdbase-app-mark is-reader mdbase-motion-scan");
+    expect(opening).toContain("mdbase <strong>reader</strong>");
+    expect(opening).toContain('<div role="status"><p>Opening collection</p><small>Reading its sources</small></div>');
+    expect(opening).not.toContain('role="alert"');
     const failed = renderToStaticMarkup(<OpeningScreen app="writer" title="Opening" error="Connect is unavailable" onRetry={() => {}} />);
-    expect(failed).toContain('role="alert"');
+    expect(failed).toContain('data-loading-state="failed"');
+    expect(failed).toContain('<p role="alert">Connect is unavailable</p>');
     expect(failed).toContain("Try again");
   });
 
-  it("renders the launch screen with a large mark that scans once it has landed", () => {
-    const markup = renderToStaticMarkup(<OpeningScreen app="editor" title="Opening collection" detail="Reading its notes" entrance="flock" />);
-    expect(markup).toContain("mdbase-opening-launch-mark");
-    expect(markup).toContain('data-entrance="landed"');
-    expect(markup).toContain("mdbase-motion-scan");
-    expect(markup).toContain("Reading its notes");
-    expect(markup).not.toContain("mdbase-opening-flock");
+  it("leaves recovery to an embedding gate", () => {
+    const page = renderToStaticMarkup(<OpeningScreen app="editor" title="Opening collection" />);
+    expect(page).toContain("mdbase-opening-help");
+    const panel = renderToStaticMarkup(<OpeningScreen app="editor" layout="panel" title="Opening collection" />);
+    expect(panel).toMatch(/^<div class="mdbase-opening"/u);
+    expect(panel).not.toContain("mdbase-opening-help");
   });
 
   it("says a status once when the error repeats it", () => {

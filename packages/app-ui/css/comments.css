@@ -214,7 +214,8 @@ blockquote.mdbase-thread-quote::after { content: "”"; }
   border-radius: 50%;
   color: var(--color-text);
   background: color-mix(in oklch, var(--color-warning) 70%, transparent);
-  font-size: 9px;
+  /* A count digit inside a 12px mark: three quarters of the caption size. */
+  font-size: calc(var(--font-size-caption) * 0.75);
   line-height: 12px;
   cursor: pointer;
 }

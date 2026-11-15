@@ -94,3 +94,30 @@
     transform: translateX(-3px);
   }
 }
+
+/*
+ * Scan: a brightness band reads the record line by line. It is the one loop every app
+ * waits with, so it lives here rather than in motion.css: an opening page inlines this
+ * file and paints the scan before any bundle loads.
+ */
+.mdbase-motion-scan :is(.mdbase-mark-fence, .mdbase-mark-row) {
+  opacity: 0.35;
+  animation: mdbase-scan 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite both;
+}
+
+.mdbase-motion-scan .mdbase-mark-row-top { animation-delay: 0.14s; }
+.mdbase-motion-scan .mdbase-mark-row-bottom { animation-delay: 0.28s; }
+.mdbase-motion-scan .mdbase-mark-fence-bottom { animation-delay: 0.42s; }
+
+@keyframes mdbase-scan {
+  0% { opacity: 0.35; }
+  14% { opacity: 1; }
+  46%, 100% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mdbase-motion-scan :is(.mdbase-mark-fence, .mdbase-mark-row) {
+    animation: none;
+    opacity: 1;
+  }
+}

@@ -99,21 +99,7 @@
   to { transform: translateX(-28px); }
 }
 
-/* Scan: a brightness band reads the record line by line. */
-.mdbase-motion-scan :is(.mdbase-mark-fence, .mdbase-mark-row) {
-  opacity: 0.35;
-  animation: mdbase-scan 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite both;
-}
-
-.mdbase-motion-scan .mdbase-mark-row-top { animation-delay: 0.14s; }
-.mdbase-motion-scan .mdbase-mark-row-bottom { animation-delay: 0.28s; }
-.mdbase-motion-scan .mdbase-mark-fence-bottom { animation-delay: 0.42s; }
-
-@keyframes mdbase-scan {
-  0% { opacity: 0.35; }
-  14% { opacity: 1; }
-  46%, 100% { opacity: 0.35; }
-}
+/* Scan lives in brand.css: opening screens paint it before this file loads. */
 
 /* Bounce: the fence dashes hop like a typing indicator, the bottom fence mirrored. */
 .mdbase-motion-bounce .mdbase-mark-fence .mdbase-mark-segment {
@@ -306,6 +292,32 @@
 @keyframes mdbase-saved-dim {
   30% { opacity: 0.35; }
   to { opacity: 1; }
+}
+
+/* Error: the fields shake once and the highlight turns to danger before recovering. */
+.mdbase-signal-error .mdbase-mark-row {
+  animation: mdbase-shake 520ms cubic-bezier(0.36, 0.07, 0.19, 0.97) 1 both;
+}
+
+.mdbase-signal-error .mdbase-mark-row-bottom {
+  animation-delay: 40ms;
+}
+
+.mdbase-signal-error .mdbase-mark-accent {
+  animation: mdbase-danger 1.4s ease 1 both;
+}
+
+@keyframes mdbase-shake {
+  15% { transform: translateX(-4px); }
+  35% { transform: translateX(4px); }
+  55% { transform: translateX(-2.5px); }
+  75% { transform: translateX(1.5px); }
+  to { transform: none; }
+}
+
+@keyframes mdbase-danger {
+  0%, 60% { fill: var(--color-danger); }
+  to { fill: var(--mark-accent); }
 }
 
 /* ---------- Hover ---------- */

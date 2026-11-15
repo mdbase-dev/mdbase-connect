@@ -927,6 +927,10 @@ msgstr "拒绝"
 msgid "Rejected"
 msgstr "已拒绝"
 
+#: src/screens.tsx
+msgid "Reload"
+msgstr "重新加载"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Reload"
@@ -1214,6 +1218,10 @@ msgstr "降序排序"
 msgctxt "Collection access interface"
 msgid "Starting {app}…"
 msgstr "正在启动 {app}…"
+
+#: src/screens.tsx
+msgid "Still opening? Check your connection."
+msgstr "仍在打开？请检查网络连接。"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"

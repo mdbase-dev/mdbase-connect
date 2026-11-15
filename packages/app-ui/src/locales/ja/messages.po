@@ -927,6 +927,10 @@ msgstr "却下"
 msgid "Rejected"
 msgstr "却下済み"
 
+#: src/screens.tsx
+msgid "Reload"
+msgstr "再読み込み"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Reload"
@@ -1214,6 +1218,10 @@ msgstr "降順で並べ替え"
 msgctxt "Collection access interface"
 msgid "Starting {app}…"
 msgstr "{app}を起動しています…"
+
+#: src/screens.tsx
+msgid "Still opening? Check your connection."
+msgstr "まだ開いていますか？接続を確認してください。"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"

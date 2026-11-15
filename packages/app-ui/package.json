@@ -108,6 +108,10 @@
       "types": "./dist/screens.d.ts",
       "import": "./dist/screens.js"
     },
+    "./opening-page": {
+      "types": "./dist/opening-page.d.ts",
+      "import": "./dist/opening-page.js"
+    },
     "./select": {
       "types": "./dist/Select.d.ts",
       "import": "./dist/Select.js"
