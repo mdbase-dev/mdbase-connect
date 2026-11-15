@@ -125,11 +125,13 @@ export function NoteList({ entries, selection, onSelection, selecting = false, o
   const currentSelection = selection ?? { paths: selectedPath ? [selectedPath] : [], anchor: selectedPath, focus: selectedPath };
   const selectedPaths = new Set(currentSelection.paths);
   const focusedPath = currentSelection.focus ?? selectedPath;
-  const selectablePaths = entries.filter((entry) => entry.kind === "note" && !statuses.get(entry.path)?.disabled).map((entry) => entry.path);
+  // Read by handlers only: a render must not walk every entry.
+  const selectablePaths = () => entries.filter((entry) => entry.kind === "note" && !statuses.get(entry.path)?.disabled).map((entry) => entry.path);
   const chooseNote = (path: string, mode: "single" | "toggle" | "range", keyboard = false) => {
-    const next = selectNote(currentSelection, path, selectablePaths, mode);
+    const selectable = selectablePaths();
+    const next = selectNote(currentSelection, path, selectable, mode);
     onSelection?.(next);
-    if (mode === "single" || !currentSelection.anchor || !selectablePaths.includes(currentSelection.anchor)) onSelect(next.anchor!, { keyboard });
+    if (mode === "single" || !currentSelection.anchor || !selectable.includes(currentSelection.anchor)) onSelect(next.anchor!, { keyboard });
     if (mode !== "single" || keyboard) scrollRef.current?.focus({ preventScroll: true });
   };
   // Touch has no modifier keys; holding a note offers Select, which starts a selection with it.
@@ -224,8 +226,9 @@ export function NoteList({ entries, selection, onSelection, selecting = false, o
     if (event.defaultPrevented || event.nativeEvent.isComposing || event.target instanceof HTMLElement && event.target.closest("input, textarea, select, [contenteditable=true]")) return;
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "a") {
       event.preventDefault();
-      const anchor = currentSelection.anchor && selectablePaths.includes(currentSelection.anchor) ? currentSelection.anchor : selectablePaths[0];
-      onSelection?.({ paths: selectablePaths, anchor, focus: currentSelection.focus ?? anchor });
+      const selectable = selectablePaths();
+      const anchor = currentSelection.anchor && selectable.includes(currentSelection.anchor) ? currentSelection.anchor : selectable[0];
+      onSelection?.({ paths: selectable, anchor, focus: currentSelection.focus ?? anchor });
       if (anchor && anchor !== currentSelection.anchor) onSelect(anchor, { keyboard: true });
       return;
     }
@@ -321,7 +324,7 @@ export function NoteList({ entries, selection, onSelection, selecting = false, o
         const icon = typeIcons ? noteTypeIcon(note, types) : undefined;
         return <ContextMenu key={note.path} className="note-row-context" showTrigger={false} label={t`${title} note actions`} items={rowActions(note.path)} style={{ transform: `translateY(${virtualRow.start}px)`, height: virtualRow.size }}><button id={`note-entry-${virtualRow.index}`} tabIndex={-1} role="option" aria-selected={selectedPaths.has(note.path)} aria-busy={status?.busy || undefined} aria-disabled={status?.disabled || undefined} aria-describedby={!compact && secondLine?.kind === "excerpt" ? `note-excerpt-${virtualRow.index}` : undefined} className={`note-row${note.path === arrivingPath ? " note-row-arrival" : ""}${selectedPaths.has(note.path) ? " selected" : ""}${note.path === focusedPath ? " list-focused" : ""}${status ? ` ${status.tone}` : ""}`} draggable={!status?.disabled && !coarsePointer()} onDragStart={(event) => { event.dataTransfer.setData(NOTE_PATHS_MIME, JSON.stringify(selectedPaths.has(note.path) ? currentSelection.paths : [note.path])); event.dataTransfer.effectAllowed = "move"; }} onClick={(event) => {
             if (status?.disabled) return;
-            if (selecting) onSelection?.(selectNote(currentSelection, note.path, selectablePaths, "toggle"));
+            if (selecting) onSelection?.(selectNote(currentSelection, note.path, selectablePaths(), "toggle"));
             else chooseNote(note.path, event.shiftKey ? "range" : event.metaKey || event.ctrlKey ? "toggle" : "single");
           }} onMouseDown={(event) => { if (event.button === 1 && onOpenInNewTab) event.preventDefault(); }} onAuxClick={(event) => {
             if (event.button !== 1 || !onOpenInNewTab || status?.disabled) return;

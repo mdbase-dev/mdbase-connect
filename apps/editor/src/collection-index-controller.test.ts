@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { CollectionIndexController } from "./collection-index-controller";
 import { DemoCollectionGateway } from "./demo-gateway";
 import { gatewayError } from "./gateway";
+import { summaryFromDocument } from "./note";
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 10));
 async function until(check: () => boolean) {
@@ -41,6 +42,30 @@ describe("editor observe presentation", () => {
     const next = { ...changed, path: "renamed.md" };
     index.upsert(next, before.path);
     expect(index.getSnapshot().notes.some(note => note.path === before.path)).toBe(false);
+    index.reset();
+  });
+
+  it("keeps the shown notes when the watch confirms this editor's own save", async () => {
+    const source = new DemoCollectionGateway(3);
+    const index = new CollectionIndexController(source);
+    await index.reload();
+    const note = index.getSnapshot().notes[1]!;
+    const base = await source.read(note.path);
+    const saved = await source.updateDocument(note.path, `${base.document}\nA saved line.`, base.revision);
+    index.upsert(summaryFromDocument(saved));
+    const { notes, revision } = index.getSnapshot();
+    const published = vi.fn();
+    index.subscribe(published);
+    // The demo watch rereads the saved note; the reread confirms what is shown.
+    await until(() => published.mock.calls.length > 0);
+    await tick();
+    expect(index.getSnapshot().notes).toBe(notes);
+    expect(index.getSnapshot().revision).toBe(revision);
+    expect(notes[1]!.body).toContain("A saved line.");
+
+    const external = await source.updateProperties(note.path, { title: "Changed elsewhere" }, saved.revision);
+    await until(() => index.getSnapshot().notes[1]!.revision === external.revision);
+    expect(index.getSnapshot().notes).not.toBe(notes);
     index.reset();
   });
 

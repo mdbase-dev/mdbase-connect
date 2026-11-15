@@ -26,11 +26,8 @@ export function collectionDeclaresTypeIcons(types: CollectionTypeDescriptor[]): 
 }
 
 export function summaryFromDocument(document: NoteDocument): NoteSummary {
-  const { revision: _revision, ...summary } = document;
-  return {
-    ...summary,
-    file: { ...document.file, path: document.path }
-  };
+  // The revision lets the collection index recognise the confirming reread.
+  return { ...document, file: { ...document.file, path: document.path } };
 }
 
 export function editableNote(
@@ -159,13 +156,22 @@ export function noteTimestamp(note: NoteSummary): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   const now = new Date();
-  if (date.toDateString() === now.toDateString()) {
-    return new Intl.DateTimeFormat(displayLocale(), { hour: "numeric", minute: "2-digit" }).format(date);
-  }
-  if (date.getFullYear() === now.getFullYear()) {
-    return new Intl.DateTimeFormat(displayLocale(), { month: "short", day: "numeric" }).format(date);
-  }
-  return new Intl.DateTimeFormat(displayLocale(), { year: "numeric", month: "short", day: "numeric" }).format(date);
+  const formats = timestampFormats(displayLocale());
+  if (date.toDateString() === now.toDateString()) return formats.time.format(date);
+  if (date.getFullYear() === now.getFullYear()) return formats.day.format(date);
+  return formats.date.format(date);
+}
+
+/** Every visible row formats a timestamp on each render; building a formatter is the costly part. */
+let timestampFormatCache: { locale: string; time: Intl.DateTimeFormat; day: Intl.DateTimeFormat; date: Intl.DateTimeFormat } | undefined;
+function timestampFormats(locale: string) {
+  if (timestampFormatCache?.locale !== locale) timestampFormatCache = {
+    locale,
+    time: new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" }),
+    day: new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }),
+    date: new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric" })
+  };
+  return timestampFormatCache;
 }
 
 export function folder(path: string): string {

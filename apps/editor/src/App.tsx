@@ -2093,7 +2093,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   paletteCommands.current = quickOpenCommands;
   if (liveUndo && !liveUndo.busy) quickOpenCommands.unshift({ ...command("undo", liveUndo.onAction, liveUndo.label), context: recoveryAction?.kind === "pin" ? recoveryAction.path : recoveryAction?.kind === "delete" ? noteTitle(recoveryAction.document, typeDescriptors) : recoveryMessage });
   const pendingNoteMutations = gateway.pendingNoteMutations();
-  const peekNote = allNotes.find((note) => note.path === peekPath);
+  const peekNote = peekPath === undefined ? undefined : allNotes.find((note) => note.path === peekPath);
   const peekTitle = peekNote ? noteTitle(peekNote, typeDescriptors) : undefined;
   activeToasts.push(...pendingNoteToasts(pendingNoteMutations, activePendingRename?.requestId, recoveryBusy, recoverPendingNote));
   if (noteOpenFailure && document) activeToasts.push({
