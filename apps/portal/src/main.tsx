@@ -15,7 +15,6 @@ import {
   Unsubscribe
 } from "./auth-view";
 import {
-  AuthorityAdoption,
   AuthorityTransfer,
   MirrorPairing,
   Pairing
@@ -36,7 +35,6 @@ function Portal({ bootstrapSecrets }: { bootstrapSecrets: PortalBootstrapSecrets
   useLocaleRevision();
   const pairingId = location.pathname.match(/^\/pair\/([0-9a-f-]+)$/i)?.[1];
   const mirrorPairingId = location.pathname.match(/^\/mirror\/([0-9a-f-]+)$/i)?.[1];
-  const authorityAdoptionId = location.pathname.match(/^\/adopt\/([0-9a-f-]+)$/i)?.[1];
   const authorityTransferId = location.pathname.match(/^\/transfer\/([0-9a-f-]+)$/i)?.[1];
   const authorizationId = location.pathname.match(/^\/authorize\/([0-9a-f-]+)$/i)?.[1];
   if (location.pathname === "/login") return <Login />;
@@ -51,7 +49,6 @@ function Portal({ bootstrapSecrets }: { bootstrapSecrets: PortalBootstrapSecrets
   if (location.pathname === "/device") return <DeviceAuthorization />;
   if (pairingId) return <Pairing pairingId={pairingId} />;
   if (mirrorPairingId) return <MirrorPairing pairingId={mirrorPairingId} />;
-  if (authorityAdoptionId) return <AuthorityAdoption adoptionId={authorityAdoptionId} />;
   if (authorityTransferId) return <AuthorityTransfer transferId={authorityTransferId} />;
   if (authorizationId) return <Authorization requestId={authorizationId} />;
   return <ConnectApp />;

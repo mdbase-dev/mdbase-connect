@@ -26,13 +26,13 @@ Paths below are relative to `services/server/src/`. All original strict-guard ca
 | `features/hosted/hosted-capability-lifecycle.ts`: `quarantineMissingHostedCollectionOnTransaction`; deletion worker `deleteCollection` | **Retained strict**: legacy provider quarantine/deletion. Its `accountMigrating` early return deliberately includes next accounts, preventing legacy authority mutation after cutover. |
 | `features/hosted/service.ts`: `insertLegacyHostedCollection`; `createHostedCollectionForUser`; `renameHostedCollectionForUser`; `deleteHostedCollectionForUser` | **Retained strict**: all operate on legacy `hosted_collections`, not Native/cloud-copy next authority. Normal next creation/rename/delete use the changed next services above. |
 | `features/hosted/hosted.ts`: `upsertCollection` via Hosted collection guard | **Retained strict**: legacy connector catalog/topology registration. |
-| `features/authority-adoption/routes.ts`: account confirmation; Hosted prepare; ready/commit preflight and transaction; cancellation | **Retained strict** at every guard: legacy authority adoption, including its cleanup/cancellation. |
-| `features/authority-adoption/adoption-store.ts`: `recoverExpiredAuthorityAdoptions` | **Retained strict**: legacy adoption recovery must not rewrite an archived row. |
-| `features/authority-transfer/local-to-hosted-routes.ts`: account preparation; local-row preflight; prepare transaction; cancellation; abort preflight | **Retained strict** at all five guard calls: legacy local↔Hosted transfer topology, not Native cloud-copy creation. |
 | `features/authority-transfer/hosted-to-local-routes.ts`: pairing; preparation; transfer transaction; commit; cancellation | **Retained strict** at all five Hosted guard calls: legacy authority transfer. |
 | `features/authority-transfer/lifecycle.ts`: `recoverExpiredAuthorityTransfers` | **Retained strict**: legacy transfer recovery. |
-| `features/authority-transfer/account-cancellation.ts`: `recoverAccountImportCancellation` | **Retained strict**: legacy import cancellation/recovery. |
 | `features/next/migration-topology.ts`: `requireHostedCollectionNotMigrationFrozen` | **Retained strict** for every original/extra legacy owner, including completed accounts. The next exception is never called from this wrapper. |
+
+Authority adoption (`features/authority-adoption/`), the local↔Hosted import
+routes and account import-cancellation recovery were removed on 2026-11-15; their
+guard calls went with them.
 
 ## Other operation families and direct freeze consumers
 

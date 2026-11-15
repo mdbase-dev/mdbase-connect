@@ -197,88 +197,15 @@ provider installs its config and initial type resources before issuing the
 first empty snapshot. An application can provision its required contract types
 as part of the authorization flow.
 
-Moving an existing local collection to cloud authority is an explicit cutover:
-
-1. Connect reserves the same collection ID at the target and issues a
-   transfer-scoped, short-lived import capability.
-2. While the local collection remains authoritative, the agent uploads its
-   config, types, Markdown documents, stable record IDs, and revisions in
-   resumable pages.
-3. The agent fences local mutations, captures a final snapshot under the local
-   authority gate, and replaces any staged pages that changed during upload.
-4. The provider validates the complete canonical snapshot through `mdbase-rs`
-   and marks it ready without making it authoritative.
-5. The control plane durably records the exact final snapshot and enters
-   `activating` before asking the provider to activate the next authority epoch.
-6. The control plane atomically retires the local authority, activates the
-   hosted metadata, and revokes old local grants. The original folder becomes a
-   mirror of the same collection.
-
-Cancellation or expiry before activation leaves the local collection
-authoritative. Once activation starts, retries must use the exact persisted
-snapshot identity; Connect never guesses which authority won or reopens the
-source after an outcome-uncertain provider response. A collection transferred
-back to local can later reuse its retired hosted identity for another round
-trip.
-
-### Recovering an interrupted local-to-hosted move
-
-The local mutation fence survives a daemon restart. While it exists, disabling
-or removing the collection is rejected and its folder cannot be enrolled as a
-mirror of a different hosted collection. Revoking the computer does not clear
-this local state.
-
-Desktop collection management exposes **Resume move** and **Cancel move safely**.
-The CLI equivalents are `mdbase connect collection transfer-authority <collection-id>`
-and `mdbase connect collection cancel-authority-transfer <collection-id> <transfer-id>`;
-`mdbase connect collection list --json` exposes the durable `authority_transfer` ID.
-
-Cancellation clears the local fence only after the server confirms cancellation
-of that exact transfer. It can be retried if the response was lost or the daemon
-restarted before clearing its fence. Once activation has started or completed,
-resume the move instead. Authentication failures, unavailable servers, and
-uncertain outcomes leave the fence intact; do not edit the local state database
-to bypass it. Successful cancellation makes disable/remove available as separate
-actions; removing the registration does not delete the folder's files.
-
-The control plane retains connector-scoped abort receipts independently of the
-unused hosted collection and transfer rows. Explicit cancellation and automatic
-expiry write this receipt only after provider confirmation, in the same
-transaction as cleanup. Receipts remain until the connector is deleted. This
-also makes first-time imports recoverable after a lost cancellation response;
-retaining only the transfer's `cancelled` state is insufficient because deleting
-the unused hosted collection cascades to that transfer row.
-
-The same Cancel action also reconciles historical transfers and replacement
-computer registrations. It requires one surviving request binding the exact
-transfer, original connector, collection, next authority epoch and `to_hosted`
-direction to the authenticated account. Completion evidence, ambiguous history,
-and any mismatching cancellation event block recovery. Another registration may
-recover only after the original computer is revoked or deleted; revoked
-credentials themselves are never accepted. The account and registrations are
-rechecked under locks, and a surviving transfer is locked against activation.
-
-The provider must then confirm cancellation for that exact identity. An existing
-import is aborted only before indexing begins. If its historical rows are gone,
-the collection must also be absent (or still transferred at the prior epoch),
-with no conflicting import. In the same transaction the provider installs a
-permanent cancellation fence, independent of collection/account cleanup. Both
-preparation and a database insertion trigger honor this fence, including old
-preparation writers during rollout. Missing records alone never acknowledge
-cancellation. Lost responses retry the same fence; current authority is checked
-again before provider acknowledgement. The server then atomically cleans up the
-unused target and persists the abort receipt for the current registration.
-
-This replaces audit-only historical receipt reconstruction. It can recover old
-request-only/expiry cases without a local SQLite edit, but cannot recover missing
-identity evidence or cancel a move that has entered activation. Those folders
-remain fenced for exact activation reconciliation. No desktop update or new UI is
-required. Release the provider migration/API before the server recovery change;
-older providers fail closed. Retain migration 0042 and its insertion trigger
-through recovery: cancellation fences must never be discarded or bypassed.
-Beta99 refuses startup on the new ledger, so this transition requires qualified
-forward recovery rather than an image-only rollback to beta99. The release
-contract separates this current-pair evidence from historical rollback tests.
+Moving an existing local collection to legacy hosted authority (the
+local-to-hosted transfer, and authority adoption of a portable snapshot) was
+removed from the control plane on 2026-11-15. Both flows only served legacy
+accounts through the legacy connector, which was deleted on 2026-11-10; their
+routes now return 404. Transfer rows that a legacy connector staged before the
+removal keep their inventory binding and are still expired by the background
+recovery worker, which writes the connector-scoped abort receipt after the
+provider confirms. Migration `0036_authority_import_source_repair` and its
+operator command still repair such rows (see `docs/hosted-provider.md`).
 
 Moving back to local authority is implemented as an explicit, browser-confirmed
 handoff from a full writable mirror:
