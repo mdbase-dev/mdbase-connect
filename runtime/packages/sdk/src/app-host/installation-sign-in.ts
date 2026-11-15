@@ -826,7 +826,10 @@ export class AppProtectedInstallationSignIn {
       const nativeSelection = native ? this.parseNativeSelection(v.native_selection,r.requestId) : undefined;
       if (native && (picked || addedCollectionIds.length !== 0 || v.approved_create_collections !== false || v.timer_consent === true)) throw fail("response");
       if (v.timer_consent===true && !collectionSelection) throw fail("response");
-      const reminder=timerConsent(v,r.requestId,addedCollectionIds,confirmation.portalConfirmed===true,collectionSelection?.selectedCollectionId);
+      // Connect grants timers for this approval's collections: those it added plus
+      // the pick, which may be a collection already in scope (`added` is then empty).
+      const timerScope=collectionSelection?[...new Set([...addedCollectionIds,collectionSelection.selectedCollectionId])]:addedCollectionIds;
+      const reminder=timerConsent(v,r.requestId,timerScope,confirmation.portalConfirmed===true,collectionSelection?.selectedCollectionId);
       // A device-only receipt has no pick: an earlier request's pick is not this one's.
       await this.save({...s, collectionIds, privateDeviceCollectionIds: privateDeviceCollectionIds.length ? privateDeviceCollectionIds : undefined, nativeSelection, ...(nativeSelection || (!collectionSelection && addedPrivateIds.length > 0) ? {collectionSelection:undefined} : collectionSelection ? {collectionSelection} : {}), ...(reminder ? {timerConsent:reminder} : {}), createCollections: s.createCollections || v.approved_create_collections, consentRequest: {...r, ...confirmation, challenge, completed: true, addedCollectionIds, approvedCreateCollections: v.approved_create_collections}}); check();
       return this.collectionConsentView()!;

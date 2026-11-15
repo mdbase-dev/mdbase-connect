@@ -588,6 +588,36 @@ describe("original native timer consent receipts",()=>{
     const fresh="88888888-8888-4888-8888-888888888888"; await complete(true,fresh);
     expect(resumed.view().timerConsent?.grants).toEqual([{grantId:fresh,collectionId:collection,declarationDigest:digest}]);expect(resumed.originalTimerChannel(fresh)).toBeNull();expect(f.read().timerChannel).toEqual(pending); expect(f.read().proof).toEqual(custody); expect(f.read().token).toBe(token); await resumed.close();
   });
+  // Paired with the collection in scope, before reminders were asked for.
+  async function inScope() {
+    const f=await fixture(); await confirmed(f); await f.flow.attest(f); f.setApproved();
+    f.change(v=>{if(v.status==="paired") Object.assign(v,{collection_ids:[collection],create_collections:false});});
+    await f.flow.exchange(); expect(f.flow.view().timerConsent).toBeUndefined(); return f;
+  }
+  it("reconsent for a collection already in scope adopts its fresh grant though nothing was added",async()=>{
+    const f=await inScope(); const scope=f.read().collectionIds,fresh="88888888-8888-4888-8888-888888888888";
+    expect(scope).toContain(collection);
+    consentStart(f); await f.flow.startCollectionConsent(f.installation);
+    // Connect lists no added collection for a retained pick, but grants timers on it.
+    consentExchange(f,v=>{Object.assign(v,{added_collection_ids:[],account_email:"owner@example.test",account_selection_confirmed:true,selected_collection_id:collection,created_collection_ids:[],timer_consent:true,timer_grants:[{...publicGrant,grant_id:fresh}]});});
+    const view=await f.flow.exchangeCollectionConsent(f.installation);
+    expect(view).toMatchObject({state:"scope_updated",addedCollectionIds:[]});
+    expect(f.flow.view().timerConsent).toEqual({requestId:view.requestId,approved:true,grants:[{grantId:fresh,collectionId:collection,declarationDigest:digest}]});
+    expect(f.read().collectionIds).toEqual(scope); await f.flow.close();
+  });
+  it.each(["unselected_scope","foreign"])("reconsent still refuses a timer grant on an %s collection",async defect=>{
+    const f=await inScope(),other="99999999-9999-4999-8999-999999999999";
+    if(defect==="unselected_scope"){
+      // An earlier window put another collection in scope without reminders.
+      consentStart(f); await f.flow.startCollectionConsent(f.installation);
+      consentExchange(f,v=>{v.added_collection_ids=[other];}); await f.flow.exchangeCollectionConsent(f.installation);
+      expect(f.read().collectionIds).toContain(other);
+    }
+    consentStart(f); await f.flow.startCollectionConsent(f.installation); const before=f.read();
+    consentExchange(f,v=>{Object.assign(v,{added_collection_ids:[],account_email:"owner@example.test",account_selection_confirmed:true,selected_collection_id:collection,created_collection_ids:[],timer_consent:true,
+      timer_grants:[{...publicGrant},{grant_id:connector,collection_id:defect==="foreign"?account:other,declaration_digest:digest}]});});
+    await expect(f.flow.exchangeCollectionConsent(f.installation)).rejects.toMatchObject({reason:"response"}); expect(f.read()).toEqual(before); await f.flow.close();
+  });
 });
 describe("fresh scoped recovery receipt constraints", () => {
   const recoveryFor = {accountId: account, collectionId: collection};
