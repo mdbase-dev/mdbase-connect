@@ -164,6 +164,7 @@ import { useFileWorkspace } from "./use-file-workspace";
 import { useEmbeddedNoteReferences } from "./note-embeds";
 import { useVisibleEmbedKeys } from "./use-visible-embed-keys";
 import { useSessionLifecycle } from "./use-session-lifecycle";
+import { emptyNoteHistory, historyStep, lastOpenNote, rememberOpenNote, renameInHistory, returnToNote, useNoteHistory, visitNote } from "./workspace";
 import {
   BacklinksPanel,
   EmptyEditor,
@@ -198,11 +199,6 @@ interface Confirmation {
   onConfirm: () => void | Promise<void>;
   /** Called whenever the dialog closes, also after confirming. */
   onDismiss?: () => void;
-}
-
-interface NoteNavigationHistory {
-  paths: string[];
-  index: number;
 }
 
 interface NoteNavigationOptions {
@@ -248,13 +244,13 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   // The link can be up while the SDK can't sync: never say Connected then.
   const shownConnection: ShownConnectionState = connectionState === "connected" && syncState !== "synced" ? syncState : connectionState;
   const [directAccessBusy, setDirectAccessBusy] = useState(false);
-  const [selectedPath, setSelectedPath] = useState<string>();
   const [selection, setSelection] = useState<NoteSelection>();
   // Touch selection mode, started from a held note's Select action.
   const [selectingNotes, setSelectingNotes] = useState(false);
   const [pinnedPaths, setPinnedPaths] = useState<string[]>([]);
   const [bulkPropertyKind, setBulkPropertyKind] = useState<BulkPropertyChange["kind"]>();
   const [document, setDocument] = useState<NoteDocument>();
+  const selectedPath = document?.path;
   const [draft, setDraft] = useState<Draft>();
   const [noteLoading, setNoteLoading] = useState(false);
   const [noteTitleVisible, setNoteTitleVisible] = useState(true);
@@ -310,7 +306,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const paletteCommands = useRef<EditorCommand[]>([]);
   const [confirmation, setConfirmation] = useState<Confirmation>();
   const [recentPaths, setRecentPaths] = useRecentPaths(description?.collectionId);
-  const [noteHistoryState, setNoteHistoryState] = useState<NoteNavigationHistory>({ paths: [], index: -1 });
+  const { history: noteHistoryState, latest: noteHistory, changeHistory: changeNoteHistory } = useNoteHistory();
   const [mobilePane, setMobilePane] = useState<MobilePane>("notes");
   const [preferences, setPreferences] = useState<EditorPreferences>(loadPreferences);
   // Labels and palette shortcuts follow this device's shortcuts as Settings changes them.
@@ -332,7 +328,6 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const noteReadOnly = mutationsFrozen || !canEditNotes || Boolean(noteSessions.current.active?.recoveryDraft);
   const privateCollection = connectionSummary?.private === true;
   const draftRecovery = useDraftRecovery(connectServerUrl, privateCollection ? connectionSummary.collectionId : undefined);
-  const noteHistory = useRef<NoteNavigationHistory>({ paths: [], index: -1 });
   const linkCreations = useRef(new Set<string>());
   /** One record ID per link target until its create is confirmed: following the
    * same link after a lost reply reuses it as the intent, so the note lands once. */
@@ -489,11 +484,6 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const updateNoteSummary = useCallback((next: NoteDocument, previousPath = next.path) =>
     indexController.upsert(summaryFromDocument(next), previousPath), [indexController]);
 
-  const publishNoteHistory = useCallback((next: NoteNavigationHistory) => {
-    noteHistory.current = next;
-    setNoteHistoryState(next);
-  }, []);
-
   const publishNewNotes = useCallback((next: { notes: NewNote[]; open?: string }) => {
     newNoteState.current = next;
     setNewNotes(next);
@@ -506,38 +496,10 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     publishNewNotes({ notes: notes.filter((note) => note.id !== open || newNoteStarted(note) || newNoteWrites.current.has(note.id)) });
   }, [publishNewNotes]);
 
-  const recordNoteNavigation = useCallback((path: string) => {
-    const current = noteHistory.current;
-    if (current.paths[current.index] === path) return;
-    const paths = [...current.paths.slice(0, current.index + 1), path].slice(-100);
-    publishNoteHistory({ paths, index: paths.length - 1 });
-  }, [publishNoteHistory]);
-
-  const selectNoteHistoryIndex = useCallback((index: number, path: string) => {
-    const current = noteHistory.current;
-    if (index < 0 || index >= current.paths.length || current.paths[index] !== path) return;
-    publishNoteHistory({ paths: current.paths, index });
-  }, [publishNoteHistory]);
-
-  const replaceNoteHistoryPath = useCallback((from: string, to: string) => {
-    const current = noteHistory.current;
-    if (!current.paths.includes(from)) return;
-    publishNoteHistory({
-      paths: current.paths.map((path) => path === from ? to : path),
-      index: current.index
-    });
-  }, [publishNoteHistory]);
-
-  const forgetNoteHistoryPath = useCallback((path: string) => {
-    const current = noteHistory.current;
-    const paths = current.paths.filter((candidate) => candidate !== path);
-    const removedBeforeOrAtCurrent = current.paths.slice(0, current.index + 1)
-      .filter((candidate) => candidate === path).length;
-    publishNoteHistory({
-      paths,
-      index: Math.min(paths.length - 1, Math.max(-1, current.index - removedBeforeOrAtCurrent))
-    });
-  }, [publishNoteHistory]);
+  /** Records an opened note: a new visit, or the one Back or Forward was going to. */
+  const recordNoteNavigation = useCallback((path: string, historyIndex?: number) => {
+    changeNoteHistory((history) => historyIndex === undefined ? visitNote(history, path) : returnToNote(history, historyIndex, path));
+  }, [changeNoteHistory]);
 
   const touchSession = useCallback((session: NoteSession) => {
     if (noteSessions.current.active === session) setSaveState(session.activity === "saving" ? "saving" : session.saveState);
@@ -617,7 +579,6 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       void previous.record.save();
     }
     noteSessions.current.activate(session);
-    setSelectedPath(session.document.path);
     setDocument(session.document);
     setDraft(session.draft);
     setPathDraft(session.document.path);
@@ -628,7 +589,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     closeNewNote();
     setEditingPath(false);
     setNotice(session.error);
-    localStorage.setItem(`mdbase-editor:last-note:${mutationScope.current.token().collectionId}`, session.document.path);
+    rememberOpenNote(mutationScope.current.token().collectionId!, session.document.path);
     setRecentPaths((current) => rememberRecentPath(current, session.document.path));
   }, [closeNewNote]);
 
@@ -685,8 +646,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         if (descriptionReady) await descriptionReady;
         if (!current()) return false;
         activateSession(cached);
-        if (options.historyIndex === undefined) recordNoteNavigation(path);
-        else selectNoteHistoryIndex(options.historyIndex, path);
+        recordNoteNavigation(path, options.historyIndex);
         return true;
       }
       // Keep the active session (and its editor) until the next read succeeds.
@@ -696,8 +656,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       const [next] = await Promise.all([gateway.read(path), descriptionReady]);
       if (!current()) return false;
       adoptDocument(next);
-      if (options.historyIndex === undefined) recordNoteNavigation(next.path);
-      else selectNoteHistoryIndex(options.historyIndex, next.path);
+      recordNoteNavigation(next.path, options.historyIndex);
       return true;
     } catch (error) {
       if (current()) {
@@ -717,8 +676,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     closeNewNote,
     gateway,
     mobileLayout,
-    recordNoteNavigation,
-    selectNoteHistoryIndex
+    recordNoteNavigation
   ]);
 
   const start = useCallback(async () => {
@@ -737,7 +695,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     let descriptionLoaded = false;
     try {
       const descriptionLoad = refreshDescription(current);
-      const remembered = localStorage.getItem(`mdbase-editor:last-note:${mutationScope.current.token().collectionId}`);
+      const remembered = lastOpenNote(mutationScope.current.token().collectionId!);
       // Open the remembered note alongside description; otherwise query the newest.
       const rememberedNote = remembered ? openNote(remembered, {}, descriptionLoad) : Promise.resolve(false);
       const [nextDescription, newestPath] = await Promise.all([
@@ -858,7 +816,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         setMobilePane("editor");
         if (!matchMedia("(pointer: coarse)").matches || globalThis.document.querySelector(".app-shell[data-keyboard]")) requestAnimationFrame(() => globalThis.document.querySelector<HTMLElement>(".code-editor-writer .cm-content")?.focus());
       }
-      if (options.historyIndex !== undefined) selectNoteHistoryIndex(options.historyIndex, path);
+      if (options.historyIndex !== undefined) recordNoteNavigation(path, options.historyIndex);
       return;
     }
     saveCurrentInBackground();
@@ -869,25 +827,28 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     });
   }
 
-  function navigateToFile(file: CollectionFile) {
+  /** Abandons the note being opened, if any: a read that arrives later is not shown. */
+  function cancelNoteNavigation() {
     navigationGeneration.current += 1;
     setNoteLoading(false);
     setNoteOpenFailure(undefined);
+    setPendingNotePath(undefined);
+  }
+
+  function navigateToFile(file: CollectionFile) {
+    cancelNoteNavigation();
     saveCurrentInBackground();
     closeNewNote();
     closeSidePanels();
     setSelectedCollectionFile(file);
     setPendingFilePath(file.path);
-    setPendingNotePath(undefined);
     setMobilePane("editor");
     setNotice(undefined);
   }
 
   function navigateNoteHistory(direction: -1 | 1) {
-    const targetIndex = noteHistory.current.index + direction;
-    const path = noteHistory.current.paths[targetIndex];
-    if (!path) return;
-    navigateToNote(path, { historyIndex: targetIndex });
+    const step = historyStep(noteHistory.current, direction);
+    if (step) navigateToNote(step.path, { historyIndex: step.index });
   }
 
   useEffect(() => {
@@ -1016,10 +977,10 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     noteOrder: visibleBrowserEntries.filter((entry) => entry.kind === "note").map((entry) => entry.path),
     typeDescriptors, document, pathDraft, canCreateNotes, canEditNotes, canRenameNotes, canDeleteNotes,
     createSession, flushSession, runNoteOperation, touchSession, updateNoteSummary, refreshCachedNote,
-    openNote, navigateToNote, replaceNoteHistoryPath, forgetNoteHistoryPath, remapPin, setPin, pinnedPaths, onRestore: setArrivingNotePath,
+    openNote, navigateToNote, changeNoteHistory, remapPin, setPin, pinnedPaths, onRestore: setArrivingNotePath,
     clearSelection: () => { setSelection(undefined); setBulkPropertyKind(undefined); },
     focusNoteList,
-    setDocument, setDraft, setSelectedPath, setPathDraft, setEditingPath, setRenamePlan, setRecentPaths, setNotice
+    setDocument, setDraft, setPathDraft, setEditingPath, setRenamePlan, setRecentPaths, setNotice
   });
   const recoveryToastId = useMemo(() => `recovery:${recoveryAction?.kind === "pin" ? recoveryAction.id : crypto.randomUUID()}`, [recoveryAction]);
 
@@ -1078,7 +1039,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     navigationGeneration.current += 1;
     documentGeneration.current += 1;
     noteSessions.current.clear();
-    publishNoteHistory({ paths: [], index: -1 });
+    changeNoteHistory(() => emptyNoteHistory);
     linkCreations.current.clear();
     linkCreationIds.current.clear();
     typeDescriptorsRef.current = emptyTypeDescriptors;
@@ -1086,7 +1047,6 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     setDescription(undefined);
     setDocument(undefined);
     setDraft(undefined);
-    setSelectedPath(undefined);
     setPendingNotePath(undefined);
     setNoteOpenFailure(undefined);
     setSelectedCollectionFile(undefined);
@@ -1212,10 +1172,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   function showNewNote(note: NewNote) {
     if (newNoteState.current.open !== note.id) {
       closeNewNote();
-      navigationGeneration.current += 1;
-      setNoteLoading(false);
-      setNoteOpenFailure(undefined);
-      setPendingNotePath(undefined);
+      cancelNoteNavigation();
       setSelectedCollectionFile(undefined);
       setPendingFilePath(undefined);
       setNotice(undefined);
@@ -1375,9 +1332,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     }
     if (linkCreations.current.has(linked.path)) return;
     linkCreations.current.add(linked.path);
-    const navigation = ++navigationGeneration.current;
-    setNoteLoading(false);
-    setNoteOpenFailure(undefined);
+    cancelNoteNavigation();
+    const navigation = navigationGeneration.current;
     saveCurrentInBackground();
     setPendingNotePath(linked.path);
     setNotice(undefined);
@@ -1479,11 +1435,11 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           noteSessions.current.move(move.from, renamed.path, session);
           updateNoteSummary(renamed, move.from);
           if (noteSessions.current.active === session) {
-            setDocument(renamed); setSelectedPath(renamed.path); setPathDraft(renamed.path);
-            localStorage.setItem(`mdbase-editor:last-note:${token.collectionId}`, renamed.path);
+            setDocument(renamed); setPathDraft(renamed.path);
+            rememberOpenNote(token.collectionId!, renamed.path);
           }
           setRecentPaths((current) => rememberRecentPath(forgetRecentPath(current, move.from), renamed.path));
-          replaceNoteHistoryPath(move.from, renamed.path);
+          changeNoteHistory((history) => renameInHistory(history, move.from, renamed.path));
           remapPin(move.from, renamed.path);
           touchSession(session);
           result.moved += 1;
@@ -1675,10 +1631,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
 
   function selectSurface(next: Surface) {
     setPeekPath(undefined);
-    navigationGeneration.current += 1;
-    setNoteLoading(false);
-    setNoteOpenFailure(undefined);
-    setPendingNotePath(undefined);
+    cancelNoteNavigation();
     saveCurrentInBackground();
     setSurface(next);
     closeSidePanels();
@@ -1946,8 +1899,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   ));
   const collectionTrack = Math.min(preferredCollectionTrack, collectionResizeMax);
   const listTrack = Math.min(preferredListTrack, listResizeMax);
-  const historyBackPath = noteHistoryState.paths[noteHistoryState.index - 1];
-  const historyForwardPath = noteHistoryState.paths[noteHistoryState.index + 1];
+  const historyBackPath = historyStep(noteHistoryState, -1)?.path;
+  const historyForwardPath = historyStep(noteHistoryState, 1)?.path;
   const activeRemoteDocument = noteSessions.current.active?.remoteDocument;
   const activeRemoteDraft = activeRemoteDocument ? editableNote(activeRemoteDocument, typeDescriptors) : undefined;
   const activePendingRename = pendingRenameRecovery?.plan.session === noteSessions.current.active ? pendingRenameRecovery : undefined;
