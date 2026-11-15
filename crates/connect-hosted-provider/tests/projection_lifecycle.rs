@@ -60,10 +60,19 @@ async fn type_pack_provisioning_does_not_deadlock_a_projection_batch() {
     });
     wait_for_query_blocked(&fixture.pool, "hosted_provider_record_projections").await;
     let provision_provider = fixture.provider.clone();
-    let provision = serde_json::from_str(include_str!(
-        "../../../test/fixtures/packs/mdbase.view-1.0.0.json"
-    ))
+    let mut provision: mdbase_connect_protocol::TypePackProvision = serde_json::from_str(
+        include_str!("../../../test/fixtures/packs/mdbase.view-1.0.0.json"),
+    )
     .unwrap();
+    for resource in &mut provision.manifest.resources {
+        resource.target = resource
+            .target
+            .replace("_types/", "_mdbase/types/")
+            .replace("_contracts/", "_mdbase/contracts/");
+        if resource.kind == "schema" {
+            resource.target = format!("_mdbase/{}", resource.target);
+        }
+    }
     let provisioning = tokio::spawn(async move {
         provision_provider
             .provision_type_packs(
@@ -116,7 +125,7 @@ async fn type_pack_provisioning_does_not_deadlock_a_projection_batch() {
             .fetch_one(&fixture.pool)
             .await
             .unwrap();
-    assert_eq!(records, 1);
+    assert_eq!(records, 2);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -457,6 +466,29 @@ async fn empty_unindexed_collections_return_a_valid_empty_query_result() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
     let fixture = FileLifecycleFixture::new(&database_url).await;
+    // Remove the template README so the collection is actually empty.
+    let record = sqlx::query(
+        "SELECT record_id, revision FROM hosted_provider_records WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let replica = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    delete(
+        &fixture,
+        replica.get("id"),
+        u64::try_from(replica.get::<i64, _>("scope_epoch")).unwrap(),
+        record.get("record_id"),
+        record.get("revision"),
+    )
+    .await;
     make_collection_unindexed(&fixture).await;
     let (_, application_token) = register_query_application(&fixture, Vec::new()).await;
 
@@ -692,7 +724,10 @@ async fn a_predecessor_engine_projection_stays_available_until_the_online_upgrad
             .map(|row| row["path"].as_str().unwrap().to_string())
             .collect::<Vec<_>>()
     };
-    assert_eq!(query_paths().await, ["notes/before.md", "notes/during.md"]);
+    assert_eq!(
+        query_paths().await,
+        ["_mdbase/README.md", "notes/before.md", "notes/during.md"]
+    );
     let status = fixture
         .provider
         .projection_status(fixture.collection_id)
@@ -780,7 +815,10 @@ async fn a_predecessor_engine_projection_stays_available_until_the_online_upgrad
             mdbase::VERSION.to_string()
         )
     );
-    assert_eq!(query_paths().await, ["notes/before.md", "notes/during.md"]);
+    assert_eq!(
+        query_paths().await,
+        ["_mdbase/README.md", "notes/before.md", "notes/during.md"]
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2995,7 +3033,7 @@ async fn linked_projection_preparation_advances_before_relationship_rows_exist()
         .project_generation_batch(fixture.collection_id, generation_id, 200)
         .await
         .unwrap();
-    assert_eq!(prepared.records_projected, 2);
+    assert_eq!(prepared.records_projected, 3);
     assert_eq!(prepared.generation.phase, "projection");
     let resolution_keys: i64 = sqlx::query_scalar(
         r#"SELECT count(*) FROM hosted_provider_record_resolution_keys
@@ -3116,7 +3154,7 @@ async fn linked_projection_rebuild_restarts_preparation_then_completes_boundedly
         .project_generation_batch(fixture.collection_id, generation_id, 200)
         .await
         .unwrap();
-    assert_eq!(first.records_projected, 2);
+    assert_eq!(first.records_projected, 3);
 
     // Force the end-of-preparation verifier to restart the generation. This
     // models a concurrent/catalogue change after a batch without relying on a
@@ -3212,8 +3250,8 @@ async fn linked_projection_rebuild_restarts_preparation_then_completes_boundedly
     .fetch_one(&fixture.pool)
     .await
     .unwrap();
-    assert_eq!(final_progress.get::<i64, _>("projected_records"), 2);
-    assert_eq!(final_progress.get::<i64, _>("resolved_records"), 2);
+    assert_eq!(final_progress.get::<i64, _>("projected_records"), 3);
+    assert_eq!(final_progress.get::<i64, _>("resolved_records"), 3);
     let relationships: i64 = sqlx::query_scalar(
         r#"SELECT count(*) FROM hosted_provider_record_relationships
            WHERE collection_id = $1 AND generation_id = $2
@@ -3948,7 +3986,9 @@ async fn candidate_b_projection_recovery_quarantines_invalid_exact_authority_wit
     .fetch_one(&fixture.pool)
     .await
     .unwrap();
-    let record_id = Uuid::now_v7();
+    // Sort before the template README so missing ciphertext cannot disappear
+    // from the batch's cumulative byte calculation.
+    let record_id = Uuid::nil();
     put(
         &fixture,
         replica.get("id"),
@@ -4160,7 +4200,7 @@ async fn candidate_b_query_receipt_window_does_not_stall_long_pagination() {
     let mut cursor = None::<String>;
     let mut paths = Vec::new();
     let mut final_request = None;
-    for page in 0..70 {
+    for page in 0..71 {
         let mut input = json!({
             "pagination": "cursor",
             "limit": 1,
@@ -4191,12 +4231,12 @@ async fn candidate_b_query_receipt_window_does_not_stall_long_pagination() {
         cursor = result["result"]["meta"]["cursor"]
             .as_str()
             .map(str::to_string);
-        if page == 69 {
+        if page == 70 {
             final_request = Some((request_id, input, result));
         }
     }
     assert!(cursor.is_none());
-    assert_eq!(paths.first().unwrap(), "receipts/000.md");
+    assert_eq!(paths.first().unwrap(), "_mdbase/README.md");
     assert_eq!(paths.last().unwrap(), "receipts/069.md");
     let receipt_count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM hosted_provider_query_page_receipts WHERE replica_id = $1",
@@ -4292,7 +4332,7 @@ async fn candidate_b_query_cursor_proof_is_encrypted_bound_and_tamper_evident() 
         i64::try_from(ciphertext.len()).unwrap(),
         proof.get::<i64, _>("execution_proof_bytes")
     );
-    assert_eq!(proof.get::<i64, _>("snapshot_record_count"), 2);
+    assert_eq!(proof.get::<i64, _>("snapshot_record_count"), 3);
     assert_eq!(proof.get::<i64, _>("scan_budget_records"), 100_000);
     assert_eq!(
         proof.get::<i64, _>("scan_budget_ciphertext_bytes"),
@@ -4731,7 +4771,7 @@ async fn candidate_b_scalar_cursor_uses_canonical_collation_in_an_icu_database()
     let (_, application_token) = register_query_application(&fixture, Vec::new()).await;
     let mut cursor = None;
     let mut paths = Vec::new();
-    for _ in 0..3 {
+    for _ in 0..4 {
         let mut input = json!({
             "pagination": "cursor",
             "limit": 1,
@@ -4762,7 +4802,15 @@ async fn candidate_b_scalar_cursor_uses_canonical_collation_in_an_icu_database()
             .as_str()
             .map(ToString::to_string);
     }
-    assert_eq!(paths, ["notes/a.md", "notes/z.md", "notes/umlaut.md"]);
+    assert_eq!(
+        paths,
+        [
+            "notes/a.md",
+            "notes/z.md",
+            "notes/umlaut.md",
+            "_mdbase/README.md"
+        ]
+    );
     assert!(cursor.is_none());
 }
 
@@ -5909,14 +5957,14 @@ implements:
                         "kind": "contract",
                         "mode": "managed",
                         "source": "contracts/public-note.md",
-                        "target": "_contracts/public-note.md",
+                        "target": "_mdbase/contracts/public-note.md",
                         "digest": format!("sha256:{:x}", Sha256::digest(contract_document.as_bytes()))
                     },
                     {
                         "kind": "type",
                         "mode": "managed",
                         "source": "types/public-note.md",
-                        "target": "_types/public_note.md",
+                        "target": "_mdbase/types/public_note.md",
                         "digest": format!("sha256:{:x}", Sha256::digest(public_type_document.as_bytes()))
                     }
                 ]
@@ -6191,15 +6239,16 @@ async fn assert_full_collection_query(fixture: &FileLifecycleFixture, token: &st
         .await
         .unwrap();
     assert_eq!(result["valid"], true);
-    assert_eq!(result["result"]["meta"]["total_count"], 2);
-    assert_eq!(result["result"]["results"][0]["path"], "public/note.md");
-    assert_eq!(
-        result["result"]["results"][0]["effective_frontmatter"]["title"],
-        "Public exact"
-    );
-    assert_eq!(result["result"]["results"][1]["path"], "secret/note.md");
+    assert_eq!(result["result"]["results"][0]["path"], "_mdbase/README.md");
+    assert_eq!(result["result"]["meta"]["total_count"], 3);
+    assert_eq!(result["result"]["results"][1]["path"], "public/note.md");
     assert_eq!(
         result["result"]["results"][1]["effective_frontmatter"]["title"],
+        "Public exact"
+    );
+    assert_eq!(result["result"]["results"][2]["path"], "secret/note.md");
+    assert_eq!(
+        result["result"]["results"][2]["effective_frontmatter"]["title"],
         "Secret exact"
     );
 }
@@ -6445,6 +6494,22 @@ async fn exercise_candidate_b_projection_lifecycle() {
     .expect("fixture replica exists");
     let replica_id: Uuid = replica.get("id");
     let scope_epoch = u64::try_from(replica.get::<i64, _>("scope_epoch")).unwrap();
+    // This scenario pins a two-record, two-page snapshot below.
+    let template_record = sqlx::query(
+        "SELECT record_id, revision FROM hosted_provider_records WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    delete(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        template_record.get("record_id"),
+        template_record.get("revision"),
+    )
+    .await;
     let target_id = Uuid::now_v7();
     let source_id = Uuid::now_v7();
 
@@ -7995,7 +8060,7 @@ async fn exercise_candidate_b_definition_operations_without_record_decryption(
                     "kind": "type",
                     "mode": "managed",
                     "source": "types/project.md",
-                    "target": "_types/project.md",
+                    "target": "_mdbase/types/project.md",
                     "digest": format!("sha256:{:x}", Sha256::digest(project_type.as_bytes()))
                 }]
             },
@@ -10365,7 +10430,7 @@ async fn candidate_b_base_candidate_prunes_fixture(
              SELECT projection.* FROM hosted_provider_record_projections AS projection
              CROSS JOIN trusted_projection_write
              WHERE collection_id = $1 AND generation_id = $2
-             ORDER BY record_id LIMIT 1
+               AND canonical_path = 'tasks/selected.md'
            ), decoys AS (
              SELECT g,
                     format('decoys/%s.md', g) AS path,
@@ -10489,7 +10554,7 @@ async fn candidate_b_base_candidate_prunes_fixture(
         r#"WITH template AS (
              SELECT * FROM hosted_provider_record_projections
              WHERE collection_id = $1 AND generation_id = $2
-             ORDER BY record_id LIMIT 1
+               AND canonical_path = 'tasks/selected.md'
            )
            INSERT INTO hosted_provider_record_projections
              (collection_id, record_id, record_sequence, valid_from_sequence,
@@ -10750,7 +10815,7 @@ async fn candidate_b_base_candidate_prunes_fixture(
         .await;
     {
         let first = broad_base.unwrap();
-        assert_eq!(first["result"]["meta"]["total_count"], decoy_count + 1);
+        assert_eq!(first["result"]["meta"]["total_count"], decoy_count + 2);
         assert_eq!(first["result"]["results"].as_array().unwrap().len(), 200);
         let verify_complete_traversal = decoy_count == 9_999;
         let mut observed_paths = first["result"]["results"]
@@ -10789,7 +10854,10 @@ async fn candidate_b_base_candidate_prunes_fixture(
                     started.elapsed().as_millis()
                 );
             }
-            assert_eq!(page["result"]["results"].as_array().unwrap().len(), 200);
+            assert_eq!(
+                page["result"]["results"].as_array().unwrap().len(),
+                200.min((decoy_count + 2) as usize - observed_paths.len())
+            );
             observed_paths.extend(
                 page["result"]["results"]
                     .as_array()
@@ -10809,7 +10877,10 @@ async fn candidate_b_base_candidate_prunes_fixture(
         if verify_complete_traversal {
             let mut expected_paths = (1..=decoy_count)
                 .map(|index| format!("decoys/{index}.md"))
-                .chain(std::iter::once("tasks/selected.md".to_string()))
+                .chain([
+                    "_mdbase/README.md".to_string(),
+                    "tasks/selected.md".to_string(),
+                ])
                 .collect::<Vec<_>>();
             expected_paths.sort();
             assert_eq!(observed_paths, expected_paths);
@@ -11258,8 +11329,8 @@ async fn install_view_contract(fixture: &FileLifecycleFixture, token: &str) {
                 "id": "mdbase.view",
                 "version": "1.0.0",
                 "resources": [
-                    {"kind": "contract", "mode": "managed", "source": "contracts/mdbase.view.md", "target": "_contracts/mdbase.view.md", "digest": digest(contract)},
-                    {"kind": "type", "mode": "managed", "source": "types/view.md", "target": "_types/view.md", "digest": digest(view_type)}
+                    {"kind": "contract", "mode": "managed", "source": "contracts/mdbase.view.md", "target": "_mdbase/contracts/mdbase.view.md", "digest": digest(contract)},
+                    {"kind": "type", "mode": "managed", "source": "types/view.md", "target": "_mdbase/types/view.md", "digest": digest(view_type)}
                 ]
             },
             "resources": [

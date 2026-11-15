@@ -26,8 +26,9 @@ test("Italian editor picker loads its own chunk and renders singular/plural note
   await chooseItalian(page, page.getByRole("combobox", { name: "Interface language", exact: true }),
     "mdbase-editor:locale", "Le note non vengono tradotte.");
   await expect(page.getByText("Scegli la lingua dell'interfaccia in questo browser. Le note non vengono tradotte.")).toBeVisible();
-  for (const [count, label] of [[1, "1 nota"], [2, "2 note"]] as const) {
+  for (const [count, label] of [[1, "1 nota"], [2, "3 note"]] as const) {
     await page.goto(`?demo=${count}`);
+    if (count === 1) await page.getByRole("button", { name: /^Mostra note in Notes,/ }).click();
     await expect(page.locator(".list-header p")).toContainText(label);
     await expect(page.locator("html")).toHaveAttribute("lang", "it");
   }

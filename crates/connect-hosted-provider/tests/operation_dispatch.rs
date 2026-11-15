@@ -906,14 +906,14 @@ implements:
                         "kind": "contract",
                         "mode": "managed",
                         "source": "contracts/task.md",
-                        "target": "_contracts/malformed-link-task.md",
+                        "target": "_mdbase/contracts/malformed-link-task.md",
                         "digest": contract_digest
                     },
                     {
                         "kind": "type",
                         "mode": "managed",
                         "source": "types/task.md",
-                        "target": "_types/malformed_link_task.md",
+                        "target": "_mdbase/types/malformed_link_task.md",
                         "digest": type_digest
                     }
                 ]
@@ -1223,6 +1223,13 @@ async fn hosted_operation_mutations_replay_exactly_after_provider_recreation() {
         ),
     ];
 
+    let records_before: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM hosted_provider_records WHERE collection_id = $1")
+            .bind(fixture.collection_id)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+
     for (operation, input, effect) in operations {
         let request_id = Uuid::now_v7();
         let first = fixture
@@ -1278,7 +1285,7 @@ async fn hosted_operation_mutations_replay_exactly_after_provider_recreation() {
             .unwrap(),
             "type" => sqlx::query_scalar(
                 "SELECT count(*) FROM hosted_provider_resources \
-                 WHERE collection_id = $1 AND path = '_types/recovery_note.md'",
+                 WHERE collection_id = $1 AND path = '_mdbase/types/recovery_note.md'",
             )
             .bind(fixture.collection_id)
             .fetch_one(&fixture.pool)
@@ -1294,7 +1301,15 @@ async fn hosted_operation_mutations_replay_exactly_after_provider_recreation() {
             .unwrap(),
             _ => unreachable!(),
         };
-        assert_eq!(effect_count, i64::from(effect != "record"), "{operation}");
+        assert_eq!(
+            effect_count,
+            if effect == "record" {
+                records_before
+            } else {
+                1
+            },
+            "{operation}"
+        );
     }
 
     for path in ["controls/rename.md", "controls/delete.md"] {
@@ -1873,10 +1888,17 @@ async fn setup_turns_hosted_bases_into_records_that_list_run_and_edit() {
     .await;
     assert_eq!(existing["valid"], true, "{existing}");
 
-    let pack: Value = serde_json::from_str(include_str!(
+    let mut pack: Value = serde_json::from_str(include_str!(
         "../../../test/fixtures/packs/obsidian.base-1.0.0.json"
     ))
     .unwrap();
+    for resource in pack["manifest"]["resources"].as_array_mut().unwrap() {
+        resource["target"] = json!(resource["target"]
+            .as_str()
+            .unwrap()
+            .replace("_types/", "_mdbase/types/")
+            .replace("_contracts/", "_mdbase/contracts/"));
+    }
     let requirement = |id: &str, value: &str| json!({"id": id, "path": "/settings/record_extensions", "predicate": "contains", "value": value});
     let provision = |id: &str, value: &str| json!({"requirement": id, "operation": "set_add", "path": "/settings/record_extensions", "value": value});
     let mut setup = json!({

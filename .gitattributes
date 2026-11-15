@@ -9,3 +9,5 @@
 packages/client/public-api.json linguist-generated=true text eol=lf
 packages/protocol/src/*.generated.ts linguist-generated=true text eol=lf
 crates/connect-protocol/src/*_generated.rs linguist-generated=true text eol=lf
+# New collections copy this README byte for byte on every platform.
+templates/mdbase/README.md text eol=lf

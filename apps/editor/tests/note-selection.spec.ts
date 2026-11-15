@@ -16,7 +16,7 @@ test("selection preserves the anchor, keyboard range works, batch tag changes sh
   await page.keyboard.press("Shift+ArrowUp");
   await expect(page.getByText("2 selected", { exact: true })).toBeVisible();
   await page.keyboard.press("Control+a");
-  await expect(page.getByText("8 selected", { exact: true })).toBeVisible();
+  await expect(page.getByText("9 selected", { exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(list.locator('[aria-selected="true"]')).toHaveCount(1);
   await expect(list.locator(".note-row.list-focused")).toHaveAttribute("aria-selected", "true");

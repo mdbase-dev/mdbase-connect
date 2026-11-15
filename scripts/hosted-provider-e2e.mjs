@@ -1339,17 +1339,19 @@ schema:
   notificationCallbackServer = undefined;
 
   phase("enforcing durable collection, document, and replica quotas");
+  const templateBytes = Buffer.byteLength(await readFile(join(repoRoot, "templates/mdbase/README.md")));
+  const quotaStorageBytes = 2 * templateBytes + 500;
   const quotaProvider = await startProvider(databaseUrl, 0, masterKey, {
-    MDBASE_CONNECT_HOSTED_MAX_RECORDS_PER_COLLECTION: "1",
-    MDBASE_CONNECT_HOSTED_MAX_BYTES_PER_COLLECTION: "1024",
+    MDBASE_CONNECT_HOSTED_MAX_RECORDS_PER_COLLECTION: "2",
+    MDBASE_CONNECT_HOSTED_MAX_BYTES_PER_COLLECTION: String(quotaStorageBytes + 1024),
     MDBASE_CONNECT_HOSTED_MAX_BYTES_PER_DOCUMENT: "1024",
     MDBASE_CONNECT_HOSTED_MAX_MIRROR_REPLICAS_PER_COLLECTION: "1",
     MDBASE_CONNECT_HOSTED_MAX_APPLICATION_REPLICAS_PER_COLLECTION: "1"
   });
   const quotaCollectionId = crypto.randomUUID();
   const quotaAccountId = await provisionProviderAccount(quotaProvider.url, {
-    hosted_storage_bytes: 500,
-    retained_file_bytes: 1000,
+    hosted_storage_bytes: quotaStorageBytes,
+    retained_file_bytes: 2 * quotaStorageBytes,
     max_document_bytes: 1024,
     max_mirror_replicas_per_collection: 1,
     max_application_replicas_per_collection: 1,
@@ -1388,8 +1390,8 @@ schema:
     "hosted_collection_not_found"
   );
   const otherAccountId = await provisionProviderAccount(quotaProvider.url, {
-    hosted_storage_bytes: 500,
-    retained_file_bytes: 1000,
+    hosted_storage_bytes: quotaStorageBytes,
+    retained_file_bytes: 2 * quotaStorageBytes,
     max_document_bytes: 1024,
     max_mirror_replicas_per_collection: 1,
     max_application_replicas_per_collection: 1,
@@ -1532,12 +1534,6 @@ schema:
   });
   assert.equal(documentQuota.status, "rejected");
   assert.equal(documentQuota.error.code, "document_quota_exceeded");
-  const accountBeforeAggregateProbe = (
-    await internalRequest(
-      quotaProvider.url,
-      `/internal/v1/accounts/${quotaAccountId}`
-    )
-  ).account;
   const aggregateCollectionId = crypto.randomUUID();
   const aggregateReplicaId = crypto.randomUUID();
   const aggregateToken = `aggregate-${crypto.randomUUID()}-${crypto.randomUUID()}`;
@@ -1570,6 +1566,12 @@ schema:
     authoritySyncUrl(quotaProvider.url, aggregateCollectionId),
     aggregateToken
   );
+  const accountBeforeAggregateProbe = (
+    await internalRequest(
+      quotaProvider.url,
+      `/internal/v1/accounts/${quotaAccountId}`
+    )
+  ).account;
   const aggregateMutation = createMutation(
     aggregateReplicaId,
     crypto.randomUUID(),
@@ -1577,7 +1579,7 @@ schema:
     "Aggregate"
   );
   aggregateMutation.document += "x".repeat(
-    500 - accountBeforeAggregateProbe.live_content_bytes + 1
+    quotaStorageBytes - accountBeforeAggregateProbe.live_content_bytes + 1
   );
   await expectSyncError(
     () => aggregateTransport.mutate(aggregateMutation),
@@ -2020,7 +2022,7 @@ schema:
         id: "mdbase.view",
         version: "1.0.0",
         resources: [
-          { kind: "contract", mode: "managed", source: "contracts/mdbase.view.md", target: "_contracts/mdbase.view.md", digest: sha256(viewContract) }
+          { kind: "contract", mode: "managed", source: "contracts/mdbase.view.md", target: "_mdbase/contracts/mdbase.view.md", digest: sha256(viewContract) }
         ]
       },
       resources: [{ source: "contracts/mdbase.view.md", document: viewContract }],
@@ -2068,7 +2070,7 @@ schema:
   }));
   assert.deepEqual(
     executedView.results.map((record) => record.path),
-    ["Writing/Draft.md"]
+    ["Writing/Draft.md", "_mdbase/README.md"]
   );
   assert.equal(
     executedView.results[0].values.display_title,
@@ -2094,7 +2096,10 @@ schema:
     types: []
   });
   await offline.sync();
-  assert.equal((await offline.records())[0].frontmatter.title, "Created through application sync");
+  assert.equal(
+    (await offline.records()).find((record) => record.path === "Offline.md").frontmatter.title,
+    "Created through application sync"
+  );
   const offlinePlain = await offline.queueCreate({
     recordId: crypto.randomUUID(),
     path: "Offline plain.md",
@@ -2363,7 +2368,7 @@ schema:
   );
   assert.match(await readFile(join(mirrorRoot, "mdbase.yaml"), "utf8"), /spec_version: 0\.3\.0/);
   assert.match(
-    await readFile(join(mirrorRoot, "_types", "task.md"), "utf8"),
+    await readFile(join(mirrorRoot, "_mdbase", "types", "task.md"), "utf8"),
     /implements:\s+- contract: example\.work-item/
   );
   const directoryMirror = new DirectoryMirror(
@@ -2569,8 +2574,8 @@ schema:
   recordsAfterLocalCreate = await snapshotAll(writerTransport, await writerTransport.openSession());
   assert.equal(recordsAfterLocalCreate.some((record) => record.record_id === locallyCreated.record_id), false);
 
-  const resourceDocument = await readFile(join(writableMirrorRoot, "_types", "task.md"), "utf8");
-  await writeFile(join(writableMirrorRoot, "_types", "task.md"), `${resourceDocument}\nunsafe local schema edit\n`);
+  const resourceDocument = await readFile(join(writableMirrorRoot, "_mdbase", "types", "task.md"), "utf8");
+  await writeFile(join(writableMirrorRoot, "_mdbase", "types", "task.md"), `${resourceDocument}\nunsafe local schema edit\n`);
   const resourceSync = await execute(process.execPath, [mirrorCli, "sync", writableMirrorRoot]);
   assert.match(resourceSync.stdout, /Action needed/);
   const resourceStatus = JSON.parse(
@@ -2578,10 +2583,10 @@ schema:
   );
   assert.equal(resourceStatus.state, "attention");
   assert.equal(
-    await readFile(join(writableMirrorRoot, "_types", "task.md"), "utf8"),
+    await readFile(join(writableMirrorRoot, "_mdbase", "types", "task.md"), "utf8"),
     `${resourceDocument}\nunsafe local schema edit\n`
   );
-  await writeFile(join(writableMirrorRoot, "_types", "task.md"), resourceDocument);
+  await writeFile(join(writableMirrorRoot, "_mdbase", "types", "task.md"), resourceDocument);
 
   phase("fencing, proving, completing, and cancelling authority transfers");
   const authorityCollectionId = crypto.randomUUID();
@@ -2645,7 +2650,7 @@ schema:
       `SELECT acknowledged_sequence
        FROM hosted_provider_replicas WHERE id = '${authorityReplicaId}'`
     ),
-    "1"
+    String(authorityCreate.sequence)
   );
   const transferId = crypto.randomUUID();
   const preparedTransfer = await internalRequest(
@@ -2661,7 +2666,7 @@ schema:
     }
   );
   assert.equal(preparedTransfer.state, "prepared");
-  assert.equal(preparedTransfer.final_head, 1);
+  assert.equal(preparedTransfer.final_head, authorityCreate.sequence);
   assert.equal(preparedTransfer.authority_epoch, 2);
   assert.match(preparedTransfer.manifest_digest, /^[a-f0-9]{64}$/);
   const fencedMutation = await rawRequest(
@@ -2801,7 +2806,7 @@ schema:
       authoritySyncUrl(provider.url, cancelledCollectionId),
       cancelledToken
     ).openSession()).head,
-    0
+    1
   );
 
   phase("forcing pagination and validating a restart against durable state");
@@ -3701,10 +3706,10 @@ function portableAdoptionResources(collectionId) {
     {
       path: "mdbase.yaml",
       kind: "configuration",
-      document: `spec_version: 0.3.0\nx-mdbase-connect:\n  collection_id: ${collectionId}\nx-obsidian:\n  bases:\n    include:\n      - views/**/*.base\n`
+      document: `spec_version: 0.3.0\nsettings:\n  types_folder: _mdbase/types\n  contracts_folder: _mdbase/contracts\nx-mdbase-connect:\n  collection_id: ${collectionId}\nx-obsidian:\n  bases:\n    include:\n      - views/**/*.base\n`
     },
     ...WORK_ITEM_PROVISION.resources.map(({ source, document }) => ({
-      path: source,
+      path: WORK_ITEM_PROVISION.manifest.resources.find((resource) => resource.source === source).target,
       kind: source.startsWith("_contracts/") ? "contract" : "type",
       document: source.startsWith("_types/")
         ? document.replace("schema:\n", "match:\n  path_glob: tasks/**/*.md\nschema:\n")
@@ -4342,7 +4347,7 @@ implements:
         kind: source.startsWith("_contracts/") ? "contract" : "type",
         mode: source.startsWith("_contracts/") ? "managed" : "seed",
         source,
-        target: source,
+        target: source.replace("_contracts/", "_mdbase/contracts/").replace("_types/", "_mdbase/types/"),
         digest: `sha256:${createHash("sha256").update(document).digest("hex")}`
       }))
     },

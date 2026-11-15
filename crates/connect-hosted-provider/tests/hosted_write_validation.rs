@@ -127,7 +127,10 @@ async fn install_note_type(fixture: &FileLifecycleFixture) -> String {
         "installed_by": "test.hosted-write-validation",
         "adopt_resources": {},
         "preserve_seed_targets": [],
-        "target_overrides": {},
+        "target_overrides": {
+            "_types/note.md": "_mdbase/types/note.md",
+            "_types/page.md": "_mdbase/types/page.md"
+        },
         "contract_setups": []
     });
     let assessment = operation(fixture, &token, "assess_type_pack", pack.clone()).await;
@@ -506,7 +509,7 @@ async fn writes_without_a_current_projection_reject_duplicate_unique_values() {
     )
     .await;
     assert_eq!(own_value["valid"], true, "{own_value}");
-    assert_eq!(record_count(&fixture).await, 2);
+    assert_eq!(record_count(&fixture).await, 3);
 }
 
 #[tokio::test]
@@ -543,7 +546,7 @@ async fn writes_with_a_current_projection_reject_duplicate_unique_values() {
     assert_eq!(released["valid"], true, "{released}");
     let reused = create_note(&fixture, &token, "notes/e.md", "later").await;
     assert_eq!(reused["valid"], true, "{reused}");
-    assert_eq!(record_count(&fixture).await, 3);
+    assert_eq!(record_count(&fixture).await, 4);
 }
 
 /// Queue an actual batch before startup at the generation row. Under the old
@@ -605,7 +608,7 @@ async fn projection_batches_and_startup_use_collection_before_generation() {
                 .project_generation_batch(fixture.collection_id, generation.generation_id, 200)
                 .await
                 .unwrap();
-            assert_eq!(projected.records_projected, 1);
+            assert_eq!(projected.records_projected, 2);
             // The empty follow-up projection batch advances the phase.
             let advanced = batch_provider
                 .project_generation_batch(fixture.collection_id, generation.generation_id, 200)
@@ -651,10 +654,10 @@ async fn projection_batches_and_startup_use_collection_before_generation() {
         let startup = startup
             .unwrap()
             .expect("startup must not deadlock with batch");
-        assert_eq!(batch.records_projected + batch.records_resolved, 1);
+        assert_eq!(batch.records_projected + batch.records_resolved, 2);
         assert_ne!(batch.generation.generation_id, startup.generation_id);
         assert_eq!(head(&fixture).await, before);
-        assert_eq!(record_count(&fixture).await, 1);
+        assert_eq!(record_count(&fixture).await, 2);
     }
 }
 
