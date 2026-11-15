@@ -1071,6 +1071,16 @@ mod tests {
         let cached = to_cached(&declared_setup_grant()).unwrap();
         let evidence = cached.declared_setup.as_ref().unwrap();
         let setup = evidence.core_setup().unwrap();
+        assert!(
+            std::ptr::eq(setup, evidence.core_setup().unwrap()),
+            "the retained declaration is compiled once"
+        );
+        let reloaded: crate::declared_setup::DeclaredSetupEvidence =
+            serde_json::from_value(serde_json::to_value(evidence).unwrap()).unwrap();
+        assert_eq!(
+            &reloaded, evidence,
+            "the compiled setup is neither persisted nor compared"
+        );
         assert_eq!(setup.application_id, evidence.application_id());
         assert_eq!(setup.declaration_digest.to_string(), evidence.digest());
         assert_eq!(setup.type_packs.len(), 1);

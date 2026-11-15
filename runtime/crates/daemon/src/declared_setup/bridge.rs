@@ -6,7 +6,26 @@ use mdbn_core::{
     setup::envelope::{CollectionSetup, CollectionSetupTypePack},
     value::{Map, Value},
 };
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::OnceLock};
+
+/// Core's lift of one immutable evidence, compiled on first use. Setup capture
+/// rechecks the declaration for every captured file, so rebuilding it (several
+/// milliseconds of pack loading) on each read made reviews of large
+/// collections take tens of seconds. Derived from the evidence's other fields,
+/// so it takes no part in equality or persistence.
+#[derive(Clone, Default)]
+pub(super) struct Compiled(OnceLock<Result<CollectionSetup, AttestError>>);
+impl PartialEq for Compiled {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+impl Eq for Compiled {}
+impl std::fmt::Debug for Compiled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Compiled")
+    }
+}
 
 fn value(v: &serde_json::Value) -> Result<Value, AttestError> {
     Ok(match v {
@@ -30,7 +49,14 @@ fn value(v: &serde_json::Value) -> Result<Value, AttestError> {
 impl DeclaredSetupEvidence {
     /// Load only the retained declaration, through Core's strict setup/pack
     /// bridge. No request-provided manifest, source document, path or authority.
-    pub fn core_setup(&self) -> Result<CollectionSetup, AttestError> {
+    pub fn core_setup(&self) -> Result<&CollectionSetup, AttestError> {
+        self.compiled
+            .0
+            .get_or_init(|| self.compile_setup())
+            .as_ref()
+            .map_err(Clone::clone)
+    }
+    fn compile_setup(&self) -> Result<CollectionSetup, AttestError> {
         let mut projection = self.projection();
         let packs = projection["provisions"]["type_packs"]
             .as_array_mut()
@@ -151,6 +177,7 @@ mod tests {
                 "apply_collection_setup".into(),
             ],
             authorization_binding_digest: "synthetic pure installer test".into(),
+            compiled: Default::default(),
         };
         let setup = evidence.core_setup().unwrap();
         let clock = OpClock {
@@ -160,11 +187,11 @@ mod tests {
         };
         let empty = Empty(MemState::new());
         assert_eq!(setup.type_packs.len(), 2);
-        let assessed = assess_collection_setup(&empty, &setup, &clock).unwrap();
+        let assessed = assess_collection_setup(&empty, setup, &clock).unwrap();
         assert!(assessed.applicable, "fresh Reader must be provisionable");
         let (_, operations) = apply_collection_setup(
             &empty,
-            &setup,
+            setup,
             &clock,
             assessed.collection_revision,
             assessed.assessment_digest,

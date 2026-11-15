@@ -23,6 +23,8 @@ pub struct DeclaredSetupEvidence {
     // Includes original installation/request identity even if the same Noise key
     // and public declaration reappear. CachedGrant equality advances consent.
     authorization_binding_digest: String,
+    #[serde(skip)]
+    compiled: bridge::Compiled,
 }
 impl DeclaredSetupEvidence {
     /// Complete authenticated declaration, never reconstructed split metadata.
@@ -143,6 +145,7 @@ pub(crate) fn from_feed(
             "{:x}",
             Sha256::digest(serde_jcs::to_vec(binding).map_err(|_| invalid())?)
         ),
+        compiled: Default::default(),
     }))
 }
 fn string_array(value: &Value) -> bool {
