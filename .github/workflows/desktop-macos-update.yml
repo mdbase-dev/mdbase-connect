@@ -1,0 +1,112 @@
+name: Desktop macOS Update
+
+# After Desktop Release publishes, the previous signed macOS release installs,
+# finds the new one through its own update channel, installs it and relaunches
+# on it (scripts/ci/desktop-macos-update.mjs). It reads only public release
+# assets and never gates or changes the release.
+on:
+  workflow_run:
+    workflows: [Desktop Release]
+    types: [completed]
+    branches: ['v*']
+  workflow_dispatch:
+    inputs:
+      from:
+        description: Older release to install (default the one before the newest), e.g. 0.1.0-beta.190
+        type: string
+        default: ''
+      to:
+        description: Release it must update to; the app only updates to the newest (default the newest)
+        type: string
+        default: ''
+  pull_request:
+    paths:
+      - .github/workflows/desktop-macos-update.yml
+      - scripts/ci/desktop-macos-update.mjs
+      - scripts/ci/desktop-macos-update.test.mjs
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-macos-update-${{ github.event.workflow_run.head_branch || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  update:
+    # Only tagged release runs publish; coordinator and pull-request runs do not.
+    if: >-
+      github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'workflow_dispatch')
+    name: macOS arm64 update
+    runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ARCH: arm64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - run: node --test scripts/ci/desktop-macos-update.test.mjs
+
+      - name: Choose the releases
+        id: plan
+        env:
+          FROM: ${{ inputs.from }}
+          TO: ${{ github.event.workflow_run.head_branch || inputs.to }}
+        run: node scripts/ci/desktop-macos-update.mjs plan
+
+      - name: Install the older signed release
+        if: steps.plan.outputs.skip == 'false'
+        env:
+          FROM: ${{ steps.plan.outputs.from }}
+          DMG: ${{ steps.plan.outputs.dmg }}
+        run: |
+          app="/Applications/mdbase connect.app"
+          test ! -e "$app"
+          dir="$RUNNER_TEMP/older"
+          gh release download "$FROM" --repo "$GITHUB_REPOSITORY" --dir "$dir" \
+            --pattern "$DMG" --pattern "SHA256SUMS-macos-$ARCH"
+          (cd "$dir" && grep -F "  $DMG" "SHA256SUMS-macos-$ARCH" | shasum -a 256 -c -)
+          hdiutil attach -nobrowse -noautoopen -readonly -mountpoint "$dir/volume" "$dir/$DMG"
+          ditto "$dir/volume/mdbase connect.app" "$app"
+          hdiutil detach "$dir/volume"
+          codesign --verify --deep --strict "$app"
+          spctl --assess --type execute --verbose=2 "$app"
+
+      - name: Update to the newer release
+        if: steps.plan.outputs.skip == 'false'
+        timeout-minutes: 15
+        env:
+          FROM: ${{ steps.plan.outputs.from }}
+          TO: ${{ steps.plan.outputs.to }}
+        run: |
+          export LOG_DIR="$RUNNER_TEMP/logs"
+          mkdir -p "$LOG_DIR"
+          node scripts/ci/desktop-macos-update.mjs drive
+
+      - name: Collect logs
+        if: failure() && steps.plan.outputs.skip == 'false'
+        run: |
+          logs="$RUNNER_TEMP/logs"
+          mkdir -p "$logs"
+          log show --last 30m --style compact \
+            --predicate 'process == "ShipIt" OR process == "mdbase-connect" OR process == "mdbase"' > "$logs/unified.log" || true
+          cp -R "$HOME/Library/Caches/dev.mdbase.connect.ShipIt" "$logs/ShipIt" || true
+          rsync -a --exclude downloads "$HOME/Library/Application Support/mdbase connect/updates" "$logs/" || true
+          find "$HOME/Library/Logs/DiagnosticReports" -name 'mdbase*' -exec cp {} "$logs/" \; || true
+          plutil -p "/Applications/mdbase connect.app/Contents/Info.plist" > "$logs/Info.plist.txt" || true
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure() && steps.plan.outputs.skip == 'false'
+        with:
+          name: desktop-macos-update-logs
+          path: ${{ runner.temp }}/logs
+          retention-days: 14
