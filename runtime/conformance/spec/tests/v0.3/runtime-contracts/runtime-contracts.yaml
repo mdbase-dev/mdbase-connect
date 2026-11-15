@@ -1,0 +1,127 @@
+name: "runtime companion profile 0.2 conformance"
+spec_version: "0.3.0"
+fixture_set: runtime_profile
+category: runtime
+spec_ref: "runtime/0.2, interop/0.1"
+
+groups:
+  - name: "standard runtime pack artifacts"
+    tests:
+      - id: runtime.standard-pack-resources
+        name: "the standard pack is complete and every resource digest matches"
+        covers: [runtime/0.2.standard_runtime_pack]
+        operation: type_pack_resources_validate
+        input:
+          path: "standard-packs/mdbase-runtime/0.2.0/mdbase-pack.yaml"
+        expect:
+          valid: true
+
+      - id: runtime.standard-pack-schemas
+        name: "every standard runtime schema is valid JSON Schema 2020-12"
+        operation: json_schema_meta_validate
+        input:
+          paths:
+            - "standard-packs/mdbase-runtime/0.2.0/schemas/**/*.schema.json"
+        expect:
+          valid: true
+
+      - id: runtime.standard-record-types
+        name: "canonical runtime types are ordinary v0.3 type implementations"
+        covers: [runtime/0.2.ordinary_record_contract_implementations]
+        operation: markdown_frontmatter_schema_validate
+        input:
+          schema: "schemas/v0.3/type-file.schema.json"
+          paths:
+            - "standard-packs/mdbase-runtime/0.2.0/_types/*.md"
+        expect:
+          valid: true
+
+      - id: runtime.standard-contract-artifacts
+        name: "standard runtime record event and action artifacts use the common contract schema"
+        covers: [runtime/0.2.shared_interop_envelopes_and_declarations]
+        operation: markdown_frontmatter_schema_validate
+        input:
+          schema: "schemas/v0.3/data-contract.schema.json"
+          paths:
+            - "standard-packs/mdbase-runtime/0.2.0/_contracts/**/*.md"
+        expect:
+          valid: true
+
+      - id: runtime.standard-contract-registry
+        name: "standard artifacts have one deterministic identity and digest"
+        operation: data_contract_registry_validate
+        input:
+          paths:
+            - "standard-packs/mdbase-runtime/0.2.0/_contracts/**/*.md"
+        expect:
+          valid: true
+
+      - id: runtime.workflow-implementation
+        name: "the canonical workflow type validates its record-contract binding"
+        operation: data_contract_implementation_validate
+        input:
+          contract: "standard-packs/mdbase-runtime/0.2.0/_contracts/mdbase.runtime.workflow/1.0.0.md"
+          type: "standard-packs/mdbase-runtime/0.2.0/_types/workflow.md"
+        expect:
+          valid: true
+          contract: mdbase.runtime.workflow
+          version: 1.0.0
+
+  - name: "preflight and admission boundary"
+    tests:
+      - id: runtime.exact-admission
+        name: "admission pins exact contract source and provider evidence"
+        covers: [runtime/0.2.exact_contract_source_and_provider_admission]
+        operation: runtime_admit_workflow
+        input:
+          workflow_requirements:
+            event: { id: canvas.drop, version: "^1.0.0" }
+            action: { id: mdbase.record.patch, version: "^2.0.0" }
+          event_source_declaration: exact
+          action_provider_declaration: exact
+        expect:
+          valid: true
+          plan:
+            contract_digests: pinned
+            source_declaration_digest: pinned
+            provider_declaration_digest: pinned
+            handler_id: pinned
+
+      - id: runtime.provider-ambiguity
+        name: "two action providers require an explicit workflow or policy selection"
+        operation: runtime_preflight_workflow
+        input:
+          eligible_providers: [desktop, daemon]
+          explicit_selection: null
+        expect:
+          valid: false
+          diagnostics:
+            - code: ambiguous_provider
+
+      - id: runtime.authorization-separate
+        name: "a conforming provider remains ineligible without current capability authority"
+        covers: [runtime/0.2.independent_authorization]
+        operation: runtime_preflight_workflow
+        input:
+          provider_conformant: true
+          capability_policy: deny
+        expect:
+          valid: false
+          diagnostics:
+            - code: capability_denied
+
+      - id: runtime.legacy-parallel-contract
+        name: "the superseded provider-owned action record is rejected with migration guidance"
+        operation: runtime_validate_record
+        input:
+          value:
+            type: action
+            id: legacy.patch
+            version: 1
+            schemas:
+              dialect: json-schema-2020-12
+              input: { type: object }
+        expect:
+          valid: false
+          diagnostics:
+            - code: runtime_record_type_unknown

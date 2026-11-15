@@ -3,10 +3,45 @@
 # pass: must pass (failure = regression). pending: expected to fail (a pass
 # fails CI until blessed). skip: not run. See crates/conformance/src/spec.rs.
 
+# v0.3/cel/cel-profile.yaml
+cel.query_effective_values pass
+cel.presence_maps pass
+cel.explicit_null_not_defaulted pass
+cel.query_evaluation_error pass
+cel.missing_key_error pass
+cel.error_absorption pass
+cel.optional_selection pass
+cel.date_strings pass
+cel.date_month_clamp pass
+cel.text_case pass
+cel.standard_duration pass
+cel.invalid_date_receiver pass
+cel.date_timestamp_conversion pass
+cel.date_timestamp_mixing pass
+cel_query.filter_error_excludes_record pass
+cel.file_path_folder_helpers pass
+cel.file_tag_segment_prefix pass
+cel.query_body_filter pass
+cel_match.raw_candidate pass
+cel_match.false_result pass
+cel_match.combined_match pass
+cel.workflow_event_binding pass
+cel.record_type_membership pass
+cel.workflow_macros pass
+cel.workflow_step_binding pass
+cel.workflow_input_expression pass
+cel_query.context_links pass
+
 # v0.3/cel/match-determinism.yaml
 cel_match.nondeterministic_match_warning pass
 cel_match.match_deterministic_ok pass
 cel_match.query_today_allowed pass
+cel_match.configured_timezone_valid pass
+cel_match.configured_timezone_membership pass
+cel_match.invocation_timezone_utc_ignored pass
+cel_match.invocation_timezone_los_angeles_ignored pass
+cel_match.missing_timezone_error pass
+cel_match.missing_timezone_excluded pass
 
 # v0.3/cel/query-order.yaml
 query.order_kinds_ascending pass
@@ -149,7 +184,7 @@ paths.derived_create_suffix pass
 paths.derived_slash_rejected pass
 paths.case_only_rename pass
 paths.rename_conflict pass
-paths.discovered_collision pending
+paths.discovered_collision pass
 
 # v0.3/core/optional-membership.yaml
 v0.3/core/optional-membership.yaml@g0.t0 pass
@@ -256,7 +291,7 @@ collection.unique_enforce_write_level_off pass
 collection.unique_enforce_write_unrelated_edit pass
 collection.unique_type_scope pass
 collection.unique_no_coercion pass
-collection.unique_collection_scope pending
+collection.unique_collection_scope pass
 collection.unique_ungoverned_record pass
 collection.unique_path_glob_scope pass
 collection.unique_path_glob_duplicate pass
@@ -294,6 +329,25 @@ v0.3/data-contracts/data-contracts.yaml@g2.t0 pass
 v0.3/data-contracts/data-contracts.yaml@g2.t1 pass
 v0.3/data-contracts/data-contracts.yaml@g2.t2 pass
 v0.3/data-contracts/data-contracts.yaml@g2.t3 pass
+
+# v0.3/event-action-interop/event-action-interop.yaml
+interop-event-multicast pending # out of scope: event/action transport, provider registration and capability authorization are not Core engine features
+interop-event-invalid-data pending # out of scope: event/action transport, provider registration and capability authorization are not Core engine features
+v0.3/event-action-interop/event-action-interop.yaml@g0.t2 pending # out of scope: event/action transport, provider registration and capability authorization are not Core engine features
+interop-event-duplicate pending # out of scope: event/action transport, provider registration and capability authorization are not Core engine features
+interop-action-success pending # out of scope: event/action transport, provider registration and capability authorization are not Core engine features
+interop-action-ambiguous pending # out of scope: event/action transport, provider registration and capability authorization are not Core engine features
+v0.3/event-action-interop/event-action-interop.yaml@g1.t2 pending # out of scope: event/action transport, provider registration and capability authorization are not Core engine features
+v0.3/event-action-interop/event-action-interop.yaml@g1.t3 pending # out of scope: event/action transport, provider registration and capability authorization are not Core engine features
+interop-action-invalid-output pending # out of scope: event/action transport, provider registration and capability authorization are not Core engine features
+v0.3/event-action-interop/event-action-interop.yaml@g1.t5 pending # out of scope: event/action transport, provider registration and capability authorization are not Core engine features
+interop-authorization-default-deny pending # out of scope: event/action transport, provider registration and capability authorization are not Core engine features
+v0.3/event-action-interop/event-action-interop.yaml@g2.t1 pending # out of scope: event/action transport, provider registration and capability authorization are not Core engine features
+v0.3/event-action-interop/event-action-interop.yaml@g2.t2 pending # out of scope: event/action transport, provider registration and capability authorization are not Core engine features
+v0.3/event-action-interop/event-action-interop.yaml@g2.t3 pending # out of scope: event/action transport, provider registration and capability authorization are not Core engine features
+interop-action-cancellation pending # out of scope: event/action transport, provider registration and capability authorization are not Core engine features
+v0.3/event-action-interop/event-action-interop.yaml@g2.t5 pending # out of scope: event/action transport, provider registration and capability authorization are not Core engine features
+interop-transport-capabilities pending # out of scope: event/action transport, provider registration and capability authorization are not Core engine features
 
 # v0.3/lifecycle/lifecycle.yaml
 v0.3/lifecycle/lifecycle.yaml@g0.t0 pass
@@ -368,6 +422,65 @@ merge.declaration_type_conflict pass
 merge.declaration_coalesce pass
 merge.declaration_type_conflict_in_merge pass
 
+# v0.3/migration/pickle-collection-migration.yaml
+v0.3/migration/pickle-collection-migration.yaml@g0.t0 pending # out of scope: artifact requires JSON Schema keywords outside Core's declared profile
+v0.3/migration/pickle-collection-migration.yaml@g0.t1 pending # out of scope: Core implements a declared JSON Schema subset, not the full 2020-12 metaschema
+v0.3/migration/pickle-collection-migration.yaml@g0.t2 pass
+v0.3/migration/pickle-collection-migration.yaml@g0.t3 pass
+v0.3/migration/pickle-collection-migration.yaml@g0.t4 pass
+
+# v0.3/migration/tasknotes-type-migration.yaml
+v0.3/migration/tasknotes-type-migration.yaml@g0.t0 pending # out of scope: legacy type migration is not a Core collection operation
+v0.3/migration/tasknotes-type-migration.yaml@g0.t1 pending # out of scope: legacy type migration is not a Core collection operation
+v0.3/migration/tasknotes-type-migration.yaml@g0.t2 pending # out of scope: legacy type migration is not a Core collection operation
+v0.3/migration/tasknotes-type-migration.yaml@g0.t3 pending # out of scope: legacy type migration is not a Core collection operation
+v0.3/migration/tasknotes-type-migration.yaml@g0.t4 pending # out of scope: legacy type migration is not a Core collection operation
+v0.3/migration/tasknotes-type-migration.yaml@g0.t5 pending # out of scope: artifact requires JSON Schema keywords outside Core's declared profile
+v0.3/migration/tasknotes-type-migration.yaml@g0.t6 pending # out of scope: Core implements a declared JSON Schema subset, not the full 2020-12 metaschema
+v0.3/migration/tasknotes-type-migration.yaml@g0.t7 pass
+v0.3/migration/tasknotes-type-migration.yaml@g0.t8 pass
+
+# v0.3/runtime-contracts/runtime-contracts.yaml
+runtime.standard-pack-resources pass
+runtime.standard-pack-schemas pending # out of scope: Core implements a declared JSON Schema subset, not the full 2020-12 metaschema
+runtime.standard-record-types pending # out of scope: artifact requires JSON Schema keywords outside Core's declared profile
+runtime.standard-contract-artifacts pass
+runtime.standard-contract-registry pass
+runtime.workflow-implementation pass
+runtime.exact-admission pending # out of scope: runtime companion workflow admission, execution and journal transport are not engine features
+runtime.provider-ambiguity pending # out of scope: runtime companion workflow admission, execution and journal transport are not engine features
+runtime.authorization-separate pending # out of scope: runtime companion workflow admission, execution and journal transport are not engine features
+runtime.legacy-parallel-contract pending # out of scope: runtime companion legacy-record admission is not a Core collection operation
+
+# v0.3/schema/schema-artifacts.yaml
+v0.3/schema/schema-artifacts.yaml@g0.t0 pending # out of scope: Core implements a declared JSON Schema subset, not the full 2020-12 metaschema
+v0.3/schema/schema-artifacts.yaml@g0.t1 pending # out of scope: artifact requires JSON Schema keywords outside Core's declared profile
+v0.3/schema/schema-artifacts.yaml@g0.t2 pass
+v0.3/schema/schema-artifacts.yaml@g0.t3 pass
+v0.3/schema/schema-artifacts.yaml@g0.t4 pending # out of scope: artifact requires JSON Schema keywords outside Core's declared profile
+v0.3/schema/schema-artifacts.yaml@g0.t5 pending # out of scope: artifact requires JSON Schema keywords outside Core's declared profile
+v0.3/schema/schema-artifacts.yaml@g0.t6 pending # out of scope: artifact requires JSON Schema keywords outside Core's declared profile
+v0.3/schema/schema-artifacts.yaml@g0.t7 pending # out of scope: artifact requires JSON Schema keywords outside Core's declared profile
+v0.3/schema/schema-artifacts.yaml@g0.t8 pending # out of scope: artifact requires JSON Schema keywords outside Core's declared profile
+v0.3/schema/schema-artifacts.yaml@g0.t9 pass
+v0.3/schema/schema-artifacts.yaml@g0.t10 pending # out of scope: Core implements a declared JSON Schema subset, not the full 2020-12 metaschema
+v0.3/schema/schema-artifacts.yaml@g0.t11 pending # out of scope: artifact schema outside the Core JSON Schema profile
+v0.3/schema/schema-artifacts.yaml@g0.t12 pass
+v0.3/schema/schema-artifacts.yaml@g0.t13 pending # out of scope: artifact requires JSON Schema keywords outside Core's declared profile
+v0.3/schema/schema-artifacts.yaml@g0.t14 pending # out of scope: artifact requires JSON Schema keywords outside Core's declared profile
+v0.3/schema/schema-artifacts.yaml@g0.t15 pending # out of scope: artifact requires JSON Schema keywords outside Core's declared profile
+v0.3/schema/schema-artifacts.yaml@g0.t16 pass
+v0.3/schema/schema-artifacts.yaml@g0.t17 pending # out of scope: artifact requires JSON Schema keywords outside Core's declared profile
+v0.3/schema/schema-artifacts.yaml@g0.t18 pending # out of scope: artifact requires JSON Schema keywords outside Core's declared profile
+v0.3/schema/schema-artifacts.yaml@g0.t19 pending # out of scope: Core implements a declared JSON Schema subset, not the full 2020-12 metaschema
+v0.3/schema/schema-artifacts.yaml@g1.t0 pending # out of scope: Core implements a declared JSON Schema subset, not the full 2020-12 metaschema
+v0.3/schema/schema-artifacts.yaml@g1.t1 pending # out of scope: artifact requires JSON Schema keywords outside Core's declared profile
+v0.3/schema/schema-artifacts.yaml@g1.t2 pass
+v0.3/schema/schema-artifacts.yaml@g1.t3 pending # out of scope: artifact schema outside the Core JSON Schema profile
+v0.3/schema/schema-artifacts.yaml@g2.t0 pending # out of scope: Core implements a declared JSON Schema subset, not the full 2020-12 metaschema
+v0.3/schema/schema-artifacts.yaml@g2.t1 pending # out of scope: artifact requires JSON Schema keywords outside Core's declared profile
+v0.3/schema/schema-artifacts.yaml@g2.t2 pass
+
 # v0.3/type-packs/type-packs.yaml
 type-pack-install-idempotent pass
 type-pack-digest-failure-atomic pass
@@ -392,6 +505,28 @@ seed-upgrade-invalid-baseline-digest pass
 seed-upgrade-invalid-empty-baselines pass
 seed-upgrade-invalid-incomplete-baseline pass
 
+# v0.3/views/view-records.yaml
+v0.3/views/view-records.yaml@g0.t0 pending # out of scope: portable saved-view discovery and invocation are not implemented; Obsidian Bases is a different format
+views.explicit_context pending # out of scope: portable saved-view discovery and invocation are not implemented; Obsidian Bases is a different format
+views.grouping_summaries pending # out of scope: portable saved-view discovery and invocation are not implemented; Obsidian Bases is a different format
+v0.3/views/view-records.yaml@g0.t3 pending # out of scope: portable saved-view discovery and invocation are not implemented; Obsidian Bases is a different format
+v0.3/views/view-records.yaml@g0.t4 pending # out of scope: portable saved-view discovery and invocation are not implemented; Obsidian Bases is a different format
+v0.3/views/view-records.yaml@g0.t5 pending # out of scope: portable saved-view discovery and invocation are not implemented; Obsidian Bases is a different format
+v0.3/views/view-records.yaml@g0.t6 pending # out of scope: portable saved-view discovery and invocation are not implemented; Obsidian Bases is a different format
+views.context_shape pending # out of scope: portable saved-view discovery and invocation are not implemented; Obsidian Bases is a different format
+v0.3/views/view-records.yaml@g0.t8 pending # out of scope: portable saved-view discovery and invocation are not implemented; Obsidian Bases is a different format
+v0.3/views/view-records.yaml@g0.t9 pending # out of scope: portable saved-view discovery and invocation are not implemented; Obsidian Bases is a different format
+v0.3/views/view-records.yaml@g0.t10 pending # out of scope: portable saved-view discovery and invocation are not implemented; Obsidian Bases is a different format
+v0.3/views/view-records.yaml@g0.t11 pending # out of scope: portable saved-view discovery and invocation are not implemented; Obsidian Bases is a different format
+v0.3/views/view-records.yaml@g0.t12 pass
+v0.3/views/view-records.yaml@g0.t13 pass
+v0.3/views/view-records.yaml@g0.t14 pass
+v0.3/views/view-records.yaml@g0.t15 pass
+v0.3/views/view-records.yaml@g0.t16 pass
+views.contract_discovery pending # out of scope: portable saved-view discovery and invocation are not implemented; Obsidian Bases is a different format
+views.contract_execution pending # out of scope: portable saved-view discovery and invocation are not implemented; Obsidian Bases is a different format
+views.unclaimed_type_value pending # out of scope: portable saved-view discovery and invocation are not implemented; Obsidian Bases is a different format
+
 # v0.3/watch/move-detection.yaml
 watch.moves_rename_same_content pass
 watch.moves_rename_then_edit pass
@@ -403,3 +538,14 @@ watch.moves_identity_hint_pairs pass
 watch.moves_identity_hint_vetoes pass
 watch.moves_copies_pair_deterministically pass
 watch.moves_identical_bytes_beat_name pass
+
+# v0.3/workflow-execution/workflow-execution.yaml
+workflow.atomic-admission pending # out of scope: runtime companion workflow admission, execution and journal transport are not engine features
+workflow.deterministic-plan pending # out of scope: runtime companion workflow admission, execution and journal transport are not engine features
+workflow.executor-concurrency pending # out of scope: runtime companion workflow admission, execution and journal transport are not engine features
+workflow.dispatch-authorization pending # out of scope: runtime companion workflow admission, execution and journal transport are not engine features
+workflow.idempotent-recovery pending # out of scope: runtime companion workflow admission, execution and journal transport are not engine features
+workflow.non-idempotent-recovery pending # out of scope: runtime companion workflow admission, execution and journal transport are not engine features
+workflow.state-machine pending # out of scope: runtime companion workflow admission, execution and journal transport are not engine features
+workflow.one-shot-timer pending # out of scope: runtime companion workflow admission, execution and journal transport are not engine features
+workflow.journal-reset pending # out of scope: runtime companion workflow admission, execution and journal transport are not engine features

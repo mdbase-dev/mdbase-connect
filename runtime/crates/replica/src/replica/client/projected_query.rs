@@ -336,20 +336,27 @@ impl<S: Store> Replica<S> {
             hydrated: RefCell::new(BTreeMap::new()),
         };
         let catalog = state.catalog();
-        // Stored index entries follow the confirmed, clock-free catalogue. A
-        // layered catalogue or a time-dependent `match.expr` can change this
-        // query's membership, so those keep the complete scan.
-        let candidate = if self.layer.catalog_ref().is_some()
-            || catalog
-                .issues()
-                .iter()
-                .any(|issue| issue.code == "nondeterministic_match")
-        {
+        let candidate = if self.layer.catalog_ref().is_some() {
             &Candidate::All
         } else {
             &plan.candidate
         };
         let links = CelLinks::new(&state);
+        let context = if let Some(path) = &plan.query.context_path {
+            let context = links.candidate(path);
+            if let Some(error) = state.error.borrow_mut().take() {
+                return Err(error);
+            }
+            if context.is_none() {
+                return Err(ErrorCode::InvalidRequest.err_with_reason(
+                    "context_not_found",
+                    format!("context record `{path}` not found"),
+                ));
+            }
+            context
+        } else {
+            None
+        };
         let mut rows = Vec::new();
         let mut diagnostics = Vec::new();
         let mut retained_left = 1 << 20;
@@ -362,7 +369,7 @@ impl<S: Store> Replica<S> {
             let types = catalog
                 .membership_at(&record.path, fm, Some(&env.op_clock()))
                 .types;
-            let mut evaluated = plan.evaluate(
+            let mut evaluated = plan.evaluate_with_context(
                 &QueryRecord {
                     path: &record.path,
                     types: &types,
@@ -371,6 +378,7 @@ impl<S: Store> Replica<S> {
                 },
                 env,
                 Some(&links),
+                context.as_ref(),
             );
             if let Some(error) = state.error.borrow_mut().take() {
                 return Err(error);

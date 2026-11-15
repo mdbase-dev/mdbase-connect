@@ -70,11 +70,8 @@ pub fn build(setup: &Value) -> MemState {
 
 /// The record ID at `path` in `state`, if a record lives there.
 pub fn id_at(state: &MemState, path: &str) -> Option<Uuid> {
-    match state.at_path_key(&mdbn_core::paths::path_key(path)) {
-        Some(mdbn_core::state::PathHolder::Record(id)) => Some(id),
-        _ => state
-            .record_ids()
-            .into_iter()
-            .find(|id| state.record(id).is_some_and(|r| r.path == path)),
-    }
+    state
+        .record_ids()
+        .into_iter()
+        .find(|id| state.record(id).is_some_and(|r| r.path == path))
 }

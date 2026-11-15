@@ -160,6 +160,29 @@ pub fn cross_record_issues(state: &dyn StateView, id: crate::ids::RecordId) -> V
     let fm = doc.frontmatter();
     let types = catalog.membership(&rec.path, fm).types;
     let mut out = Vec::new();
+    let key = crate::paths::path_key(&rec.path);
+    let mut colliding: Vec<String> = state
+        .records_at_path_key(&key)
+        .into_iter()
+        .filter_map(|other_id| state.record(&other_id))
+        .filter(|other| crate::paths::path_key(&other.path) == key)
+        .map(|other| other.path.clone())
+        .collect();
+    if colliding.len() > 1 {
+        colliding.sort();
+        out.push(
+            Issue::new(
+                "path_collision",
+                Severity::Warning,
+                Tier::CrossRecord,
+                "several discovered records have the same path key",
+            )
+            .with_details(map1(
+                "paths",
+                Value::List(colliding.into_iter().map(Value::string).collect()),
+            )),
+        );
+    }
     // Declared link rules, by top-level field.
     let mut rules: Vec<(String, &crate::types::LinkField)> = Vec::new();
     for t in types.iter().filter_map(|n| catalog.type_named(n)) {

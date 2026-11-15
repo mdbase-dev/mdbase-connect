@@ -90,6 +90,15 @@ pub trait StateView {
     fn tombstone(&self, id: &Uuid) -> Option<Tombstone>;
     /// The live record or file holding `path_key`.
     fn at_path_key(&self, path_key: &str) -> Option<PathHolder>;
+    /// Live record IDs sharing a path key, sorted by ID. The default is for
+    /// stores with unique path keys; discovery views retaining collisions
+    /// must return every member without hydrating unrelated documents.
+    fn records_at_path_key(&self, path_key: &str) -> Vec<RecordId> {
+        match self.at_path_key(path_key) {
+            Some(PathHolder::Record(id)) => vec![id],
+            _ => Vec::new(),
+        }
+    }
     /// The record an old path key refers to (D9 aliases).
     fn alias(&self, path_key: &str) -> Option<RecordId>;
     /// A resource's exact source.
@@ -348,6 +357,13 @@ impl StateView for MemState {
     fn at_path_key(&self, key: &str) -> Option<PathHolder> {
         self.by_path.get(key).copied()
     }
+    fn records_at_path_key(&self, key: &str) -> Vec<RecordId> {
+        self.records
+            .values()
+            .filter(|record| path_key(&record.path) == key)
+            .map(|record| record.id)
+            .collect()
+    }
     fn alias(&self, key: &str) -> Option<RecordId> {
         self.aliases.get(key).copied()
     }
@@ -592,6 +608,22 @@ impl<'a> Overlay<'a> {
 }
 
 impl StateView for Overlay<'_> {
+    fn records_at_path_key(&self, key: &str) -> Vec<RecordId> {
+        let mut ids: BTreeSet<_> = self
+            .base
+            .records_at_path_key(key)
+            .into_iter()
+            .filter(|id| !self.records.contains_key(id))
+            .collect();
+        ids.extend(
+            self.records
+                .values()
+                .flatten()
+                .filter(|record| path_key(&record.path) == key)
+                .map(|record| record.id),
+        );
+        ids.into_iter().collect()
+    }
     fn catalog(&self) -> Arc<Catalog> {
         match &self.catalog {
             Some(compiled) => Arc::clone(compiled.get_or_init(|| {

@@ -1,67 +1,205 @@
 # Vendored by scripts/sync-spec-fixtures.sh. Do not edit the files by hand.
 repository: mdbase-dev/mdbase-spec (MIT License)
 branch: main
-commit: 47d257d6a56e34c7279e5ebb959af0b0f49744b2
+commit: 0f10c9eed906adf8312a33e91baa6e51744f6a03
 files:
-  0d0b63524ca4ea2ca09e329fdf528aef208333e8b10ed50de3e01a7a77900235  tests/v0.3/README.md
-  5a544492c4fd8c4b8a64daabdd6ad10f24300f64c085aafe1f04c4b64e7a6792  tests/v0.3/merge/merge.yaml
-  17e93066f3efb2194364e341427cb90c88fc03b8cb1ec8d95367caace5fa75b7  tests/v0.3/merge/body-edits.yaml
+  88e866070d6927764cb81a59d29d51e21e09b9b86b80c4ae0300fd735072adb1  _contracts/mdbase.view/1.0.0.md
+  ee9aa06cdf8458bf799733dae44229f99b30b94b6972293b22afe4aa8dcf53f0  _contracts/obsidian.base/1.0.0.md
+  ef558b38acfcbbc49c12fe4297b1b6fb58a361d96fbbf9c24803163ce6810671  _types/chapter.md
+  cd840dd58f20cddeed029b96e127a6e4ad0aff3e4eb0f8a2cb1b339436a15b9f  _types/view.md
+  92a61e5319a99846bcf2dd0ea57481ec8bcfe636f732d094220b23d258dfdefb  examples/v0.3/README.md
+  353f40dd30819a2e8da962124924b1da74a8977980b9ab7cad00df65fd1efa8a  examples/v0.3/canvas-runtime/README.md
+  528e7d396e56add6c85a77e254037d169fd49ad156f8e062e06fc0b83970db07  examples/v0.3/canvas-runtime/_contracts/canvas.drop/1.0.0.md
+  7747ac1f4847255e8cce84c5497788bf8d2bf804365407c7bdf0875477198b02  examples/v0.3/canvas-runtime/_contracts/mdbase.record.modified/1.0.0.md
+  86a9d72ce9d3b158437627cccdb9338ae3398887fe40fc882ffd030ee5429ada  examples/v0.3/canvas-runtime/_contracts/mdbase.record.patch/2.0.0.md
+  26118f6d94552387104ee7bc570fc72247ba04b23754f4e08ff0fbd835e61da6  examples/v0.3/canvas-runtime/_types/task.md
+  373efd637032673af4ad4ec40aa63f448ce06137bf0b94de1c0a54d6e96cd41c  examples/v0.3/canvas-runtime/boards/work.md
+  b78474ccf988928ebba95947c5dd4167cae35b5b0f43e494cc8c30f4faa4e31c  examples/v0.3/canvas-runtime/mdbase.yaml
+  566b3bbc4e07700dad582f031f97fa5c3ca85498e001e189a0496151618729d8  examples/v0.3/canvas-runtime/policies/local-runtime.md
+  f771a3c318735ba4ca3fc28ef11a2e6b6e0efa2ab35d01972de7f6d451ff95ef  examples/v0.3/canvas-runtime/runtime-events/sample-canvas-drop-event.json
+  e678ebe4bc2cead4dae3e63f8ac5280c8afbc7ca0f84edf743f640b78fcfba05  examples/v0.3/canvas-runtime/schemas/canvas.drop/1.0.0.schema.json
+  1ecda771bdeb4b6cea32b81ee344257005b49c4dcf71cdf95a1577a7459b74b0  examples/v0.3/canvas-runtime/schemas/mdbase.record.modified/1.0.0.schema.json
+  488538902ebf3aff44af162bcfb5badccf31eee3a9efa88c94bc5e8b7724f83a  examples/v0.3/canvas-runtime/schemas/mdbase.record.patch/2.0.0.output.schema.json
+  8a64170ba1bb012246bc4e03fd9dab3d043a9686c3c1e0174ee311ca1d0ba567  examples/v0.3/canvas-runtime/schemas/mdbase.record.patch/2.0.0.schema.json
+  798b5cb0e3eabe6a93cfd5e6209e147d07219cda62e7b0eb6ea52b4624909577  examples/v0.3/canvas-runtime/tasks/card-001.md
+  4bea9d001f5f5181958f9561a0ebc581be4916bc71c8035193ef262167f046ae  examples/v0.3/canvas-runtime/workflows/canvas-zone-set-status.md
+  e101c7b83bce7deb97cc5303f60245461596606b7d22859a61b1c3a157eb5d36  examples/v0.3/pickle-migration/README.md
+  09abd8d226416879a81a405f6bba2b87fea4c7b9ad54f5a5532d6ce76bcf028f  examples/v0.3/pickle-migration/current-v0.2/_types/pickle_request.md
+  552db63200fd700dc86c7c4b73f8bc79b8f731ea2aa48d0db6028cfddbb131b1  examples/v0.3/pickle-migration/current-v0.2/_types/pickle_response_ack.md
+  ad396e0ae7d31467cf4a50f8d83284cd980a56f9470d0cfa4792c4d08be1fad5  examples/v0.3/pickle-migration/current-v0.2/_types/pickle_response_approval.md
+  40eb325a6dd4f939129d303b7dd4f50aad4eabdc5f05c278962bc7bb1e8e0b5b  examples/v0.3/pickle-migration/current-v0.2/mdbase.yaml
+  d22c5559aad093f119a854d9c66c53729384dec9969b1b399c5a6227a743fcf8  examples/v0.3/pickle-migration/migration-report.json
+  7d370fdda3b357a9a66e7ca7e12f7cb2a6e4da1c4f3d50d906480dc55a662910  examples/v0.3/pickle-migration/v0.3/_types/pickle_request.md
+  7f49d67b71bb384c99383dde655104e21e09f6925db33d699e19bfc572b670ae  examples/v0.3/pickle-migration/v0.3/_types/pickle_response_ack.md
+  f10b0dfcd2853ef8aa16ce6ef694cf78f3e7efc594e12a7801e538cd33193d83  examples/v0.3/pickle-migration/v0.3/_types/pickle_response_approval.md
+  a1354b1a1268ce2f1d97815f9813605b39c20fc4ca384db36091a75ab0cc2d30  examples/v0.3/pickle-migration/v0.3/mdbase.yaml
+  f49dcd9e96b4a628592847c64a0099ad1cbd9ace38b4fd8afd5921afa1c98abc  examples/v0.3/seed-upgrades/README.md
+  57160cce297903e123f876d789d518ed83b1cf790edafae660f43f3d44744065  examples/v0.3/seed-upgrades/invalid-baseline-digest/_types/note.md
+  205efb830824248729e9141a0915dd25fe4606be74078a55e612dc0583bc156a  examples/v0.3/seed-upgrades/invalid-baseline-digest/mdbase-pack.yaml
+  57160cce297903e123f876d789d518ed83b1cf790edafae660f43f3d44744065  examples/v0.3/seed-upgrades/invalid-duplicate-baseline/_types/note.md
+  a8ca694d344df018d5e8d8425ced282d49b4b68a571b6a6fa9c5926736134dbe  examples/v0.3/seed-upgrades/invalid-duplicate-baseline/mdbase-pack.yaml
+  57160cce297903e123f876d789d518ed83b1cf790edafae660f43f3d44744065  examples/v0.3/seed-upgrades/invalid-empty-baselines/_types/note.md
+  021f2446c824eedf4ebb3a403699a16ac0c7ba700c642289a07bf71c0eed9829  examples/v0.3/seed-upgrades/invalid-empty-baselines/mdbase-pack.yaml
+  57160cce297903e123f876d789d518ed83b1cf790edafae660f43f3d44744065  examples/v0.3/seed-upgrades/invalid-incomplete-baseline/_types/note.md
+  66e1d428c6943db3cee8e3ec586515f6556e9f98d8f3af29b63e0307a9f942be  examples/v0.3/seed-upgrades/invalid-incomplete-baseline/mdbase-pack.yaml
+  57160cce297903e123f876d789d518ed83b1cf790edafae660f43f3d44744065  examples/v0.3/seed-upgrades/invalid-managed-upgrade/_types/note.md
+  673426a4ec22510ff9a1384c0129305bf59e333c38ecb53086969503455a8e5a  examples/v0.3/seed-upgrades/invalid-managed-upgrade/mdbase-pack.yaml
+  57160cce297903e123f876d789d518ed83b1cf790edafae660f43f3d44744065  examples/v0.3/seed-upgrades/invalid-name-mismatch/_types/note.md
+  e3cfe5a1a595987f8f85ed530fb604ffa229fddc25a2cb49ff63d3619544c981  examples/v0.3/seed-upgrades/invalid-name-mismatch/mdbase-pack.yaml
+  57160cce297903e123f876d789d518ed83b1cf790edafae660f43f3d44744065  examples/v0.3/seed-upgrades/invalid-self-baseline/_types/note.md
+  e931d989ab6cf8b69437c4ea8607670641083ad95851ca76b9b75b5754e64520  examples/v0.3/seed-upgrades/invalid-self-baseline/mdbase-pack.yaml
+  57160cce297903e123f876d789d518ed83b1cf790edafae660f43f3d44744065  examples/v0.3/seed-upgrades/invalid-version-mismatch/_types/note.md
+  18ebb95898d94d63a4aaa188c39d9d7575cd3523ade660e5f27ec4f63d913acd  examples/v0.3/seed-upgrades/invalid-version-mismatch/mdbase-pack.yaml
+  28887fbf68c97de99bc271209466bbf457a3635b3ed2ee93e6c5bf8213f53c10  examples/v0.3/seed-upgrades/v1.5-plain/_types/note.md
+  d1be1d3cd7d3d6c2ef4b190f95736962e0c7eb5a3283b8807618d91bbceb7b6a  examples/v0.3/seed-upgrades/v1.5-plain/mdbase-pack.yaml
+  9fcf75786fa90108e1d0183de472e589adce9a0883157b68c8aaf2f036b03c13  examples/v0.3/seed-upgrades/v1/_types/note.md
+  711d3d34475e62b1d6317811b8d1806f2e993fd52523f64045a7fd59e70f08b2  examples/v0.3/seed-upgrades/v1/mdbase-pack.yaml
+  28887fbf68c97de99bc271209466bbf457a3635b3ed2ee93e6c5bf8213f53c10  examples/v0.3/seed-upgrades/v2/_types/note.md
+  74844557d2df2753c671fccbd0230cb6345b2d39e8e9211d76f1ae532b4ae92c  examples/v0.3/seed-upgrades/v2/mdbase-pack.yaml
+  57160cce297903e123f876d789d518ed83b1cf790edafae660f43f3d44744065  examples/v0.3/seed-upgrades/v3-only-v2/_types/note.md
+  8c7bd94b88aadafc8bd3f50fe2cbb0dad161c59e744b54e8744299da5652b21b  examples/v0.3/seed-upgrades/v3-only-v2/mdbase-pack.yaml
+  57160cce297903e123f876d789d518ed83b1cf790edafae660f43f3d44744065  examples/v0.3/seed-upgrades/v3/_types/note.md
+  173eb3ee9431aa923f24ed12430f9db1beea93160534b4e94ba8e21c96d7071e  examples/v0.3/seed-upgrades/v3/mdbase-pack.yaml
+  2763e91a426edeb54636f29a2270ce8cc6c39af2d49eb2bc8266ad0fc6cf96b7  examples/v0.3/tasknotes-migration/README.md
+  7c717479f0af487b584dc021d66d873d90ad4a7ba790ddef39071f76ebf48a93  examples/v0.3/tasknotes-migration/current-v0.2/_types/task.md
+  51af2be46e369c9654eaa25183c66c508d3edf7e25bab369a7b382467aa2fed0  examples/v0.3/tasknotes-migration/current-v0.2/mdbase.yaml
+  7def5317e3cb79b1ec45d5947c85d473bebb9a3545b5aa813ab79c61237ae489  examples/v0.3/tasknotes-migration/migration-report.json
+  22a1e45daf5d78e5f6ee8c4c678b37a63d76c8190cfbf8e3cecc84481e5076f3  examples/v0.3/tasknotes-migration/v0.3/_contracts/tasknotes.task.md
+  f0c3b5efea780850f90be4e09e75c5413e88e475f8af7614759241988ada6a83  examples/v0.3/tasknotes-migration/v0.3/_types/meta.md
+  a514a968739b742a81a953d191cb92526a36a811573c9a84d7c2f8bd12c78e94  examples/v0.3/tasknotes-migration/v0.3/_types/task.md
+  1204c568b3b916b2f9633f63f6c8c2a967fe137cfec30c8bf37c2fceaa09b383  examples/v0.3/tasknotes-migration/v0.3/mdbase-pack.yaml
+  a21a82bb2c3e325e0ba9e1758207bb92c04dfd7b3de12898f5cd920a0a5799e8  examples/v0.3/tasknotes-migration/v0.3/mdbase.yaml
+  24d473c2bce09fcdeac0c687a7e88a950891128d5e1b1c4c125cc34958557f67  examples/v0.3/tasknotes-migration/v0.3/schemas/v0.3/type-file.schema.json
+  485e6119c4d53fe0ab824d8e84f69742c588a17b50cc85b8a99deef38e337fa4  schemas/testbed/v0.1/README.md
+  20e25a5be6820ddcf6304d3f81c328d160180f3f14dbeb261aa86beecb5e425e  schemas/testbed/v0.1/adapter-description.schema.json
+  40a34b8bbb33f0e63cfe94723d82814bdd9359c62f226724893a779e38284ee0  schemas/testbed/v0.1/evidence.schema.json
+  2f977d39d35db02f67a45508775fd2fc9b23916c08dbe8cc63d7bd6dbe2649ca  schemas/testbed/v0.1/fixture-catalog.schema.json
+  daae7806aa5f11ac7ef631150ebcfd47301e94ec426326d322f2933d916c5877  schemas/testbed/v0.1/run-request.schema.json
+  4c0b9ca28b0043c9eaaeeb90a1d514b50974e41f6f9675dfe0abeb7444144642  schemas/testbed/v0.1/scenario.schema.json
+  cf3067348acc785a87a8aa539ea68986d9b7544ce0957df1a65d7674b404424b  schemas/testbed/v0.1/transcript.schema.json
+  6d8b6199f64e499dfa0b041ae5e13f3aee8691651bdf84213a6c513bf6e76cce  schemas/v0.3/README.md
+  6a22603a049bdc1aa80cb9983c31e168c20d20191e4210042ed182faa99cf3e6  schemas/v0.3/config.schema.json
+  484b22b5d4f2c8ad1af8ea3d9bc109a3d5bfac6732b1ac77683e45f515a1b04c  schemas/v0.3/conformance-claim.schema.json
+  800d30942bac9f421732ae0ac1cc70544ae2638b60b148740d9c1727bbef16d1  schemas/v0.3/data-contract.schema.json
+  ea3c194492776e277ae99b2a369834a0986bac170171e2c41a5210928e684b78  schemas/v0.3/diagnostic.schema.json
+  7b3b916ebf98caa086e3343b04b9a83d5fdecbae8eae9598b0d5bef1e513251b  schemas/v0.3/operation-result.schema.json
+  722e9bf3ebb23695ba28f8a9c31177ee8721a0b65d33ad0c94b6f7802988bdba  schemas/v0.3/query-result.schema.json
+  9388f10b0cb5a5e8a210336e05103cd4380e1e4b4bb6775713e16951a03b592e  schemas/v0.3/query.schema.json
+  2d00cd9b819d06cc5e5a166348b0a0ec496b4425d1a422fbdfdcb7de75210214  schemas/v0.3/record-document.schema.json
+  615662681fe7e48beadc39a75299daed661c2f52f0f4bcac7758ab510e23bf9e  schemas/v0.3/type-file.schema.json
+  9e44a6657b97dc5d86a9826962b6f17cf51dc592cbe1700ab80a35979cff79f6  schemas/v0.3/type-pack-lock.schema.json
+  208be8f212e41ae4ca1cd6a462e3e198789fb551560d9044e3b953f52d135707  schemas/v0.3/type-pack.schema.json
+  d58b8b691c14d59f0575fc1cc93ab5b46363c485e4469bc58039ec0cece7ca36  schemas/v0.3/view.schema.json
+  4c157f94e63d1f4fb1a74da640e03264ccb6c78cfa9f88ddb71b09c8bd6d1d44  standard-packs/mdbase-runtime/0.2.0/_contracts/mdbase.record.created/1.0.0.md
+  cb4f4a09f9f9b1f7f5e2207de0074ce02fd89008c08386626fd964a29299f956  standard-packs/mdbase-runtime/0.2.0/_contracts/mdbase.record.deleted/1.0.0.md
+  2f670ef18bf7330fbba73861f41889ee946b33644074ca7366e88913f6e4d88a  standard-packs/mdbase-runtime/0.2.0/_contracts/mdbase.record.modified/1.0.0.md
+  b6c507198379ba48408c9b48161a1c22d46dad2d291691af449167618484bb4c  standard-packs/mdbase-runtime/0.2.0/_contracts/mdbase.record.renamed/1.0.0.md
+  04c1bf55580d0d280d2be645c56177da25c2d0129f8fa71def7d5f96cf0ea629  standard-packs/mdbase-runtime/0.2.0/_contracts/mdbase.runtime.action-attempt/1.0.0.md
+  1cd3a2ff5fdc9294f766e538c371ed278ad4c54452480ba6fcc2870be08b47a1  standard-packs/mdbase-runtime/0.2.0/_contracts/mdbase.runtime.capability-grant/1.0.0.md
+  6413676d7482a71b31cbe4abf8c5a543a54a530ef62f669f8ef8e21bcc6bc237  standard-packs/mdbase-runtime/0.2.0/_contracts/mdbase.runtime.checkpoint/1.0.0.md
+  737d08bad6662e087c3393f6f17d24374f258d60b41112a3f864cb5138af8edd  standard-packs/mdbase-runtime/0.2.0/_contracts/mdbase.runtime.dead-letter/1.0.0.md
+  2e7379de9ceefa6435e9c66a71f4292e4805e8038ed6496c83dad946900267f6  standard-packs/mdbase-runtime/0.2.0/_contracts/mdbase.runtime.diagnostic/1.0.0.md
+  319a9bd4ca62a246871ee52e0ef0250a82c240cb14a95f88e4a505ad04450300  standard-packs/mdbase-runtime/0.2.0/_contracts/mdbase.runtime.policy/1.0.0.md
+  97d157efaeb311745fc84e2cbe01e8147aaf44109384090c154527b68838d766  standard-packs/mdbase-runtime/0.2.0/_contracts/mdbase.runtime.provider-registration/1.0.0.md
+  949f039334cfc3f096beb870419baa08c3b40679b184e9849f9330a34a6f524d  standard-packs/mdbase-runtime/0.2.0/_contracts/mdbase.runtime.run.cancel/1.0.0.md
+  7e46270c951e6634fe25519dff10523652365f8adf30b034f01e29e1ca48cadb  standard-packs/mdbase-runtime/0.2.0/_contracts/mdbase.runtime.run/1.0.0.md
+  9381a2c6778a3268758ac235e3c3b66991a769fa8e19f7303d4404b1e7e62bc6  standard-packs/mdbase-runtime/0.2.0/_contracts/mdbase.runtime.timer.fired/1.0.0.md
+  0500a421e81eef09c37bc4ef559e3805843e87a6e1b2cf2a393da4d76d4384fc  standard-packs/mdbase-runtime/0.2.0/_contracts/mdbase.runtime.timer/1.0.0.md
+  7cf8ed016bf6232d9c1abc8d8bb9bb25fd2af1ffa6c6094317aa65baf3c31049  standard-packs/mdbase-runtime/0.2.0/_contracts/mdbase.runtime.workflow/1.0.0.md
+  96ed9f48adcc7e81118895351823a4db7eeba5d7e1fd35454394f072f0488b0e  standard-packs/mdbase-runtime/0.2.0/_types/action-attempt.md
+  bb2060851c08e28a0ee096da870398b519c90621e3bb7206082f59df85169340  standard-packs/mdbase-runtime/0.2.0/_types/capability-grant.md
+  da22fafe5975c53b1d3adab345194e74e8f03ea816386de04e91cbbc4ddbd0e3  standard-packs/mdbase-runtime/0.2.0/_types/checkpoint.md
+  b0d60190734983889d63400b2c9aa1c0b5fa668e37920ab5969575cea43aa1f3  standard-packs/mdbase-runtime/0.2.0/_types/dead-letter.md
+  5bca79bacfcfeae8bc573216bd09d00e6ec8807ffae7422571834350bf6e241a  standard-packs/mdbase-runtime/0.2.0/_types/diagnostic.md
+  0f14852150c7ad48c6f5457167333ff4d50ce272822fa4feca34aae09c539aa4  standard-packs/mdbase-runtime/0.2.0/_types/policy.md
+  3f8f1334b345ebc63236f499b7c1fadf09884bd3ef60c5e0df2216020e50f388  standard-packs/mdbase-runtime/0.2.0/_types/provider-registration.md
+  03a1236cfb4fd097904cf6ad3ff04c821ff3c485b6aea8bfec0568a3b1baec2e  standard-packs/mdbase-runtime/0.2.0/_types/run.md
+  4cfe2766837203bd277812e855aaa250efa613c465b2b9e2aec470b66d258851  standard-packs/mdbase-runtime/0.2.0/_types/timer.md
+  f0a848daa96fe0f92459e5157bb6cdee41c0679d49a4f581d585846a339c11c9  standard-packs/mdbase-runtime/0.2.0/_types/workflow.md
+  500bbae5ee7b7b4d20297b5b0a24a47455da8478868e0b7a36ed108f59dfcc18  standard-packs/mdbase-runtime/0.2.0/mdbase-pack.yaml
+  8d28a2a32083ab9a55f53ad1a619da47022fa3ef291191c6c2e5a9848ce59fcc  standard-packs/mdbase-runtime/0.2.0/schemas/mdbase.record.created/1.0.0.schema.json
+  b5a1fa20b6526ea8d857e03a2eebfc8b2ed126b1c4e7ca2d9735c59ddbeb7206  standard-packs/mdbase-runtime/0.2.0/schemas/mdbase.record.deleted/1.0.0.schema.json
+  1ecda771bdeb4b6cea32b81ee344257005b49c4dcf71cdf95a1577a7459b74b0  standard-packs/mdbase-runtime/0.2.0/schemas/mdbase.record.modified/1.0.0.schema.json
+  11546c9497c9700ed48b2f634be8001a009b7cea92f19584ed8b8aafc783e990  standard-packs/mdbase-runtime/0.2.0/schemas/mdbase.record.renamed/1.0.0.schema.json
+  71c8cb274daa63ed8b428f474ec07d0053e65e06f42354cb7f36072cb136506c  standard-packs/mdbase-runtime/0.2.0/schemas/mdbase.runtime.action-attempt/1.0.0.schema.json
+  14fcd3ad1fbe3d3c360024e869d8a52ec047aa8b2dd37755c63e2412535f50ca  standard-packs/mdbase-runtime/0.2.0/schemas/mdbase.runtime.capability-grant/1.0.0.schema.json
+  0c4a550356b974814690bb2e5db1902c6c3cff13be1ea69a139e2e43781ecf2c  standard-packs/mdbase-runtime/0.2.0/schemas/mdbase.runtime.checkpoint/1.0.0.schema.json
+  1f866b1dfca061571a8dc3a87748fd9deb6268a6674fe5eaf764e8701d32fee9  standard-packs/mdbase-runtime/0.2.0/schemas/mdbase.runtime.dead-letter/1.0.0.schema.json
+  b4d78f97b4feadc6c1e79b214fac20f0c305609e20f152f878d23d5d4e370935  standard-packs/mdbase-runtime/0.2.0/schemas/mdbase.runtime.diagnostic/1.0.0.schema.json
+  4d1d2cb59df9991dcc47e269b21dab9e71c1628b99f71e5d9ff5948ba6f7bc45  standard-packs/mdbase-runtime/0.2.0/schemas/mdbase.runtime.policy/1.0.0.schema.json
+  4cfd9649863835163baee7542b601991c18b21b75c63b48324383da674a1f797  standard-packs/mdbase-runtime/0.2.0/schemas/mdbase.runtime.provider-registration/1.0.0.schema.json
+  88cbccbfe0e4d087b67159a2cc36cc6ec92b1ea7e849a5c6a82e074f06b270bb  standard-packs/mdbase-runtime/0.2.0/schemas/mdbase.runtime.run.cancel/1.0.0.output.schema.json
+  21dce4d30fd9848e43610c26990fd208476cdb27c5b489439f632384b4a76675  standard-packs/mdbase-runtime/0.2.0/schemas/mdbase.runtime.run.cancel/1.0.0.schema.json
+  0add08b601ebd15b80dc14812fc7fbf9c1b5bd8415daed7b7d566e33741d91c3  standard-packs/mdbase-runtime/0.2.0/schemas/mdbase.runtime.run/1.0.0.schema.json
+  986cdde8c88a6ff363062d056101141c436271608e565d2a02f250cd74853f74  standard-packs/mdbase-runtime/0.2.0/schemas/mdbase.runtime.timer.fired/1.0.0.schema.json
+  fd6fa1b8fa7a3e782160d1b0e1399f15392230d1560393e840e7869c7d407aac  standard-packs/mdbase-runtime/0.2.0/schemas/mdbase.runtime.timer/1.0.0.schema.json
+  e8f413663a2911be5a51b1f7aefae80e9e42ea5c729f04d6ccfd0bc4eb1965ea  standard-packs/mdbase-runtime/0.2.0/schemas/mdbase.runtime.workflow/1.0.0.schema.json
+  6c8b1d22c2b368878a2e04f2bebf9542727f30ee71c64b37d2554932bab4aaeb  testbed/v0.1/fixtures/catalog.json
+  7f86b2798c4424b12372ed35b5430d0a8d074fd4243d9642a37eefa07a8628ac  testbed/v0.1/scenarios/core.shared-contract-consumers.json
+  3aa0da56b2657a32d8258a64be8af8670e4a60ef6e427b12b136c722ecd499f3  testbed/v0.1/scenarios/core.shared-type-contracts.json
+  3cde55082de0c262aec3cd554bdf347c12b29c5367bb23a142660195f66b48f6  testbed/v0.1/scenarios/interop.action-ambiguous.json
+  dc2719aeeed991c5c8d1581dc370c505c6bc375cdb81a17e142e7a614c4719c0  testbed/v0.1/scenarios/interop.action-explicit-provider.json
+  74c73860fd63c3435cf0fa23252b00af160be1a6898e26d56453e0762e3ac478  testbed/v0.1/scenarios/interop.action-single-provider.json
+  caecfed5bc028b36a73640c7d58709069dade2f74015a5820ea01bdba66b7dfd  testbed/v0.1/scenarios/interop.application-event-multicast.json
+  443690b6a5d99d9d055b45d13f9d9c12a0a903a0ec741ba829183c17ec971561  testbed/v0.1/scenarios/interop.application-provider-lifecycle.json
+  320a7a3fe9060e759aab142d5cc6f1d72e31b1801b0090df7a1bc5591bb5c7d0  testbed/v0.1/scenarios/interop.authority-boundary.json
+  e2ebdc11db5f58c958d86c4ce55fc9f13aba361b284aac509ef74560c562f207  testbed/v0.1/scenarios/interop.contract-digest-drift.json
+  5eaf7d882f6dbba52b4850dc09be7b640124c062107412570606ed7b09a48412  testbed/v0.1/scenarios/interop.event-multicast.json
+  3fc3e026ce1546dc8a13279735794650a1d6d39a81400c48b598ab27887e5f98  testbed/v0.1/scenarios/interop.invalid-payload.json
+  35b8cbae0aaabe5ac558a5e314cf8f0f30dabb51da9e3c0fbd50a991daac4fa7  testbed/v0.1/scenarios/interop.provider-disappearance.json
+  307e09ddd7fdd0b24af2f0d92cad20b646a0071ae55caedad298219785a62279  testbed/v0.1/scenarios/interop.request-replay.json
+  10d23b3b6979db595df76a4a9501a646ae8dcf844485764e5980f73f31ad13c9  testbed/v0.1/scenarios/runtime.application-execution.json
+  1d967352fa3e88d7e7509420ac4d8478cbced4e3c8186910296ca3406e9fe8e6  testbed/v0.1/scenarios/runtime.competing-workers.json
+  631e9b8be9c977cff82aefed98fa2fab0e74698f83c55a849edc88556d474e78  testbed/v0.1/scenarios/runtime.crash-recovery.json
+  7548a124831dd6e24bae8522e45bc7efafccb9ca678137789be5bdb5066d83fd  tests/v0.3/README.md
+  c9b339ed151e8d37921ae699a32a48becc272834c9240cfdc64cfe75ca7129e7  tests/v0.3/cel/cel-profile.yaml
+  b9d301c109116f6e8320159f29e502caddae6881313d1400d8bb47cecf191bf1  tests/v0.3/cel/match-determinism.yaml
+  8da08b3dd5e92831e47bda22c7861b1cb238e1820c67216505ab5980fe5b531f  tests/v0.3/cel/query-order.yaml
   ed4a1f968838bab41ff43be7d02a8ca1254cd569535c7b56b845577c6c015ba8  tests/v0.3/cel/regex-profile.yaml
-  c674bc29db027bee189a55453851e66c48b1e6ea58a332210a17680ecd8ee034  tests/v0.3/core/paths.yaml
-  fd2525f62af7b0418e5bd618310d7d941c3966044e50d59ceecb3105b67017d2  tests/v0.3/core/path-fields.yaml
-  83690fae688ddefbb4f2bbe5544534d80f7ff58b00a7b19c294ff7683c70ec99  tests/v0.3/core/link-ambiguity.yaml
-  81b0b6eee42d3b4cfe6a870a33e477a8aaeaa1002d70fcba6c2b7b36abdf1d70  tests/v0.3/core/rename-references.yaml
-  7f6bea9ebc3e97747d9e4366f24d85169dd004553cb014607b421cba17a1a933  tests/v0.3/core/links-and-discovery.yaml
+  0d4257eb9034e3f5d65cc455c1b9925ab72c88a518517e1468d32794faf2fdbc  tests/v0.3/core/body-edits-update.yaml
   6d1d3f1124a72c98482e7a4763ba2e3ed7b96fe5b5f7e7893edbcda47d5cc2d2  tests/v0.3/core/core-collection.yaml
   f61097b3fd8c39f12a5af2243d2d75af9a86a83c586f35a6cae335fdcfb71702  tests/v0.3/core/core-write.yaml
+  83690fae688ddefbb4f2bbe5544534d80f7ff58b00a7b19c294ff7683c70ec99  tests/v0.3/core/link-ambiguity.yaml
+  7f6bea9ebc3e97747d9e4366f24d85169dd004553cb014607b421cba17a1a933  tests/v0.3/core/links-and-discovery.yaml
   96bd61486b45d21345e39c2ab2628953ca5455cd1dd7acb164db78f844602d64  tests/v0.3/core/list-ops-and-fidelity.yaml
   e300bac6f68d348924b8edaa14ca81af1ce3b99e31a4567e81923d6df5ad6efa  tests/v0.3/core/optional-membership.yaml
+  fd2525f62af7b0418e5bd618310d7d941c3966044e50d59ceecb3105b67017d2  tests/v0.3/core/path-fields.yaml
+  c674bc29db027bee189a55453851e66c48b1e6ea58a332210a17680ecd8ee034  tests/v0.3/core/paths.yaml
+  81b0b6eee42d3b4cfe6a870a33e477a8aaeaa1002d70fcba6c2b7b36abdf1d70  tests/v0.3/core/rename-references.yaml
   999732d6d2e695b424ed4f24f707260db8a778f8f88134cbd5f914feb7528400  tests/v0.3/core/validation-tiers.yaml
-  0d4257eb9034e3f5d65cc455c1b9925ab72c88a518517e1468d32794faf2fdbc  tests/v0.3/core/body-edits-update.yaml
   b63a8680d700ea424c71f6ab6b55fa68bbb7d464381f9bab59d4fabfd21865b3  tests/v0.3/core/yaml-document-records.yaml
-  19cca19a1a5dd7075023e74322d3535f5353ae18bddc761718700abac39c721c  tests/v0.3/cel/match-determinism.yaml
-  8da08b3dd5e92831e47bda22c7861b1cb238e1820c67216505ab5980fe5b531f  tests/v0.3/cel/query-order.yaml
-  aebd948ca1231a69c35e19afccdc11946d0119cad1b58db8bb355e6c4aeb486f  tests/v0.3/lifecycle/lifecycle.yaml
   9ff8ce139c42f858a409ef187dc3dc24241a98240cf08f2ff72b90a037cddb16  tests/v0.3/data-contracts/data-contracts.yaml
-  79af9d83c9e2aea2491328b0840318f026743c818c69c04f0828004485aaeb19  tests/v0.3/type-packs/type-packs.yaml
-  1204c568b3b916b2f9633f63f6c8c2a967fe137cfec30c8bf37c2fceaa09b383  examples/v0.3/tasknotes-migration/v0.3/mdbase-pack.yaml
-  205efb830824248729e9141a0915dd25fe4606be74078a55e612dc0583bc156a  examples/v0.3/seed-upgrades/invalid-baseline-digest/mdbase-pack.yaml
-  57160cce297903e123f876d789d518ed83b1cf790edafae660f43f3d44744065  examples/v0.3/seed-upgrades/invalid-baseline-digest/_types/note.md
-  a8ca694d344df018d5e8d8425ced282d49b4b68a571b6a6fa9c5926736134dbe  examples/v0.3/seed-upgrades/invalid-duplicate-baseline/mdbase-pack.yaml
-  57160cce297903e123f876d789d518ed83b1cf790edafae660f43f3d44744065  examples/v0.3/seed-upgrades/invalid-duplicate-baseline/_types/note.md
-  021f2446c824eedf4ebb3a403699a16ac0c7ba700c642289a07bf71c0eed9829  examples/v0.3/seed-upgrades/invalid-empty-baselines/mdbase-pack.yaml
-  57160cce297903e123f876d789d518ed83b1cf790edafae660f43f3d44744065  examples/v0.3/seed-upgrades/invalid-empty-baselines/_types/note.md
-  66e1d428c6943db3cee8e3ec586515f6556e9f98d8f3af29b63e0307a9f942be  examples/v0.3/seed-upgrades/invalid-incomplete-baseline/mdbase-pack.yaml
-  57160cce297903e123f876d789d518ed83b1cf790edafae660f43f3d44744065  examples/v0.3/seed-upgrades/invalid-incomplete-baseline/_types/note.md
-  673426a4ec22510ff9a1384c0129305bf59e333c38ecb53086969503455a8e5a  examples/v0.3/seed-upgrades/invalid-managed-upgrade/mdbase-pack.yaml
-  57160cce297903e123f876d789d518ed83b1cf790edafae660f43f3d44744065  examples/v0.3/seed-upgrades/invalid-managed-upgrade/_types/note.md
-  e3cfe5a1a595987f8f85ed530fb604ffa229fddc25a2cb49ff63d3619544c981  examples/v0.3/seed-upgrades/invalid-name-mismatch/mdbase-pack.yaml
-  57160cce297903e123f876d789d518ed83b1cf790edafae660f43f3d44744065  examples/v0.3/seed-upgrades/invalid-name-mismatch/_types/note.md
-  e931d989ab6cf8b69437c4ea8607670641083ad95851ca76b9b75b5754e64520  examples/v0.3/seed-upgrades/invalid-self-baseline/mdbase-pack.yaml
-  57160cce297903e123f876d789d518ed83b1cf790edafae660f43f3d44744065  examples/v0.3/seed-upgrades/invalid-self-baseline/_types/note.md
-  18ebb95898d94d63a4aaa188c39d9d7575cd3523ade660e5f27ec4f63d913acd  examples/v0.3/seed-upgrades/invalid-version-mismatch/mdbase-pack.yaml
-  57160cce297903e123f876d789d518ed83b1cf790edafae660f43f3d44744065  examples/v0.3/seed-upgrades/invalid-version-mismatch/_types/note.md
-  d1be1d3cd7d3d6c2ef4b190f95736962e0c7eb5a3283b8807618d91bbceb7b6a  examples/v0.3/seed-upgrades/v1.5-plain/mdbase-pack.yaml
-  28887fbf68c97de99bc271209466bbf457a3635b3ed2ee93e6c5bf8213f53c10  examples/v0.3/seed-upgrades/v1.5-plain/_types/note.md
-  711d3d34475e62b1d6317811b8d1806f2e993fd52523f64045a7fd59e70f08b2  examples/v0.3/seed-upgrades/v1/mdbase-pack.yaml
-  9fcf75786fa90108e1d0183de472e589adce9a0883157b68c8aaf2f036b03c13  examples/v0.3/seed-upgrades/v1/_types/note.md
-  74844557d2df2753c671fccbd0230cb6345b2d39e8e9211d76f1ae532b4ae92c  examples/v0.3/seed-upgrades/v2/mdbase-pack.yaml
-  28887fbf68c97de99bc271209466bbf457a3635b3ed2ee93e6c5bf8213f53c10  examples/v0.3/seed-upgrades/v2/_types/note.md
-  173eb3ee9431aa923f24ed12430f9db1beea93160534b4e94ba8e21c96d7071e  examples/v0.3/seed-upgrades/v3/mdbase-pack.yaml
-  8c7bd94b88aadafc8bd3f50fe2cbb0dad161c59e744b54e8744299da5652b21b  examples/v0.3/seed-upgrades/v3-only-v2/mdbase-pack.yaml
-  57160cce297903e123f876d789d518ed83b1cf790edafae660f43f3d44744065  examples/v0.3/seed-upgrades/v3-only-v2/_types/note.md
-  57160cce297903e123f876d789d518ed83b1cf790edafae660f43f3d44744065  examples/v0.3/seed-upgrades/v3/_types/note.md
-  22a1e45daf5d78e5f6ee8c4c678b37a63d76c8190cfbf8e3cecc84481e5076f3  examples/v0.3/tasknotes-migration/v0.3/_contracts/tasknotes.task.md
-  a514a968739b742a81a953d191cb92526a36a811573c9a84d7c2f8bd12c78e94  examples/v0.3/tasknotes-migration/v0.3/_types/task.md
+  bbeb4b4a3e6535f0ed71f8eccd0a269e8e6eba647ce8183ef28c8eea2f5bd2bb  tests/v0.3/event-action-interop/event-action-interop.yaml
+  9383a552e944124213ac29f42628b86a91a412edc3ab2de6d123366bc1d8692f  tests/v0.3/fixtures/config-inferred-only.yml
+  c8432db41f9a9b4faa0e8a21eb62fb6bd6dec37d8ae70438580d9d77d588f200  tests/v0.3/fixtures/conformance/invalid-missing-dependencies.yml
+  2e35614b6d7fd648d2c90771a0d5bf6451803c2fa17c269d67141a03a8fc3e9a  tests/v0.3/fixtures/conformance/valid-all-profile-dependencies.yml
+  5afec24ae2aa6ed11d55bd5e4143720ebbae5776b3934cb0bfd9061eec74161e  tests/v0.3/fixtures/conformance/valid-core-read.yml
+  bbd33a8b358fff911444a2c721d51d7d1526b5cd6834a0ccac410a163302836d  tests/v0.3/fixtures/conformance/valid-testbed-evidence.yml
   0be43074157098d652a8a75b35d2b256e2ab15c5f8d147502f1a5c01f777dffd  tests/v0.3/fixtures/data-contracts/conflicting-tasknotes.task.md
   c59cb32c9c50c7f759176e694b2cb973d3a5b1c52a5f37f7cb54194c734b7bb0  tests/v0.3/fixtures/data-contracts/duplicate-implementation-type.md
   24c6c621b19c83091079c9d0b6a20783f0693abb57e8e703ba0cfcefc3dd2c2b  tests/v0.3/fixtures/data-contracts/invalid-binding-type.md
   cf6f825cac7b6423d21ebf8e097185956de85317d840287933efb900a33130e2  tests/v0.3/fixtures/data-contracts/invalid-task.yml
-  735207637b639bf89704581e63362b3c95b25da3f87e9b573312d9edc7339185  tests/v0.3/fixtures/data-contracts/json-pointer-contact.contract.md
   60180e1956fc1d1f730c94cd02f47819d90ec7301aadb10520ab783a28f74b5e  tests/v0.3/fixtures/data-contracts/json-pointer-contact-type.md
+  735207637b639bf89704581e63362b3c95b25da3f87e9b573312d9edc7339185  tests/v0.3/fixtures/data-contracts/json-pointer-contact.contract.md
   ffff8ae03adbf0e09870b41de1f6c4c31e52a7a2466f90a9952b3516f991f0a0  tests/v0.3/fixtures/data-contracts/json-pointer-contact.yml
   34aa0174fc8bffb4583011ef36748509cbacc675c13ff4bcaf74e890fe6744d9  tests/v0.3/fixtures/data-contracts/legacy-extension-type.md
   4e5817e936e2245bfdc9e16ae4afc899aa3de69455b0f814b332f59d4e73d203  tests/v0.3/fixtures/data-contracts/missing-required-map-type.md
   b111582f36da4564a5190f02423fc72d0c00a92147e625b9c322849481662f37  tests/v0.3/fixtures/data-contracts/unknown-record-field-type.md
   97772c6bef7f783dc9a6afd40ed8cce4e0146f6ceaaeae9e6662f89de42c7d40  tests/v0.3/fixtures/data-contracts/valid-task.yml
+  36c93b27ea7c780cafe76d7d5cedc08d3384ff61cbe6cbc14224a1ebb890ebc0  tests/v0.3/fixtures/valid-record-document.yml
+  20754cff44d6c24c991ca423133a94a94f794c0b4bc12f8cc76e60c00c262342  tests/v0.3/fixtures/views/invalid-query-context.yml
+  50f37419bb0be81c4a382cb393253448ae2160e7a9af46dca201e9096042b460  tests/v0.3/fixtures/views/invalid-view-unknown-member.md
+  7406c5087a3d1f6009a8ce2aadd32b7b612dce7bee2518a9db30d038970fec4d  tests/v0.3/fixtures/views/valid-query.yml
+  940771ea15c344e8afbde69e53fd1336bb34ea5f908baaf2a9f52164d4a37268  tests/v0.3/fixtures/views/valid-task-views.md
+  aebd948ca1231a69c35e19afccdc11946d0119cad1b58db8bb355e6c4aeb486f  tests/v0.3/lifecycle/lifecycle.yaml
+  01c3a102c5edde3daa9a85824232f0ce523c132d400e6d65557251baf1a22178  tests/v0.3/manifest.yaml
+  17e93066f3efb2194364e341427cb90c88fc03b8cb1ec8d95367caace5fa75b7  tests/v0.3/merge/body-edits.yaml
+  5a544492c4fd8c4b8a64daabdd6ad10f24300f64c085aafe1f04c4b64e7a6792  tests/v0.3/merge/merge.yaml
+  d8d74e453c193f77dd19475be0df2d01ab6e90bcaabb56ca8d6c27c484d577ba  tests/v0.3/migration/pickle-collection-migration.yaml
+  4d605edc6051ab17561c8f77fe1976e9438413f9a8e5f6338f0de23bc10fec29  tests/v0.3/migration/tasknotes-type-migration.yaml
+  1df0df890a9e27c40023b1c70470313ca22848e45e6ca5b6424416a45e403986  tests/v0.3/runtime-contracts/runtime-contracts.yaml
+  7b4dbfe32376816a8e4fba3bec470afeb3db2729cc6ecde02268527dc9e8700a  tests/v0.3/schema/schema-artifacts.yaml
+  79af9d83c9e2aea2491328b0840318f026743c818c69c04f0828004485aaeb19  tests/v0.3/type-packs/type-packs.yaml
+  e517c63585755c95baa3a1abca66d0bea9f86aade5c75872e2aed5fb65162ed6  tests/v0.3/views/view-records.yaml
   d13087447945461adf0c0a7f6f4eb88b87860ac5f6719d2df0e964d75ea93c50  tests/v0.3/watch/move-detection.yaml
+  f7287aac06d10dde9006fa6f32afa7fe77b4706c2e1db31c0dbe38ea927c3b3b  tests/v0.3/workflow-execution/workflow-execution.yaml

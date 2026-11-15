@@ -203,8 +203,10 @@ pub struct References {
     pub identifiers: std::collections::BTreeSet<String>,
     /// Functions and methods called.
     pub functions: std::collections::BTreeSet<String>,
-    /// Members selected from `file` (`mtime` for `file.mtime`).
+    /// Members selected from `file` (`mtime` for `file.mtime`, `*` for dynamic access).
     pub file_members: std::collections::BTreeSet<String>,
+    /// Calls whose match-context overload can read the effective timezone.
+    pub timezone_functions: std::collections::BTreeSet<String>,
 }
 
 impl References {
@@ -230,80 +232,271 @@ impl References {
         if self.functions.contains("hasLink") {
             out.push("file.hasLink");
         }
+        if self.file_members.contains("*") {
+            out.push("dynamic file access");
+        }
         out
     }
 }
 
 pub(crate) fn references(e: &Expr) -> References {
     let mut r = References::default();
-    let mut bound: Vec<String> = Vec::new();
+    let mut bound = Vec::new();
     walk(e, &mut bound, &mut r);
     r
 }
 
-fn walk(e: &Expr, bound: &mut Vec<String>, r: &mut References) {
-    match e {
-        Expr::Lit(_) => {}
-        Expr::Ident(n) => {
-            if !bound.iter().any(|b| b == n) {
-                r.identifiers.insert(n.clone());
+#[derive(Clone, Default)]
+enum Provenance {
+    #[default]
+    Plain,
+    Timestamp,
+    File,
+    List(Arc<[Provenance]>),
+    Sequence(Arc<Provenance>),
+    Map(Arc<[(Option<CelValue>, Provenance)]>),
+    Alternatives(Arc<[Provenance]>),
+}
+
+impl Provenance {
+    fn alternatives(values: impl IntoIterator<Item = Self>) -> Self {
+        let mut alternatives = Vec::new();
+        for value in values {
+            if !matches!(value, Self::Plain) && !alternatives.iter().any(|other| value.same(other))
+            {
+                alternatives.push(value);
             }
         }
-        Expr::Select { operand, field, .. } => {
-            if matches!(operand.as_ref(), Expr::Ident(n) if n == "file" && !bound.iter().any(|b| b == "file"))
-            {
+        if alternatives.len() <= 1 {
+            alternatives.pop().unwrap_or_default()
+        } else {
+            Self::Alternatives(alternatives.into())
+        }
+    }
+
+    fn same(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Plain, Self::Plain)
+            | (Self::Timestamp, Self::Timestamp)
+            | (Self::File, Self::File) => true,
+            (Self::List(left), Self::List(right))
+            | (Self::Alternatives(left), Self::Alternatives(right)) => Arc::ptr_eq(left, right),
+            (Self::Map(left), Self::Map(right)) => Arc::ptr_eq(left, right),
+            (Self::Sequence(left), Self::Sequence(right)) => Arc::ptr_eq(left, right),
+            _ => false,
+        }
+    }
+
+    fn timestamp(&self) -> bool {
+        match self {
+            Self::Timestamp => true,
+            Self::Alternatives(values) => values.iter().any(Self::timestamp),
+            _ => false,
+        }
+    }
+
+    fn file(&self) -> bool {
+        match self {
+            Self::File => true,
+            Self::Alternatives(values) => values.iter().any(Self::file),
+            _ => false,
+        }
+    }
+
+    fn select(&self, key: Option<&CelValue>) -> Self {
+        match self {
+            Self::Sequence(value) => (**value).clone(),
+            Self::List(values) => match key {
+                Some(CelValue::Int(index)) => usize::try_from(*index)
+                    .ok()
+                    .and_then(|index| values.get(index))
+                    .cloned()
+                    .unwrap_or_default(),
+                _ => Self::alternatives(values.iter().cloned()),
+            },
+            Self::Map(entries) => Self::alternatives(
+                entries
+                    .iter()
+                    .filter(|(entry, _)| match (entry, key) {
+                        (Some(entry), Some(key)) => entry.equals(key),
+                        _ => true,
+                    })
+                    .map(|(_, value)| value.clone()),
+            ),
+            Self::Alternatives(values) => {
+                Self::alternatives(values.iter().map(|value| value.select(key)))
+            }
+            _ => Self::Plain,
+        }
+    }
+
+    fn element(&self) -> Self {
+        match self {
+            Self::List(values) => Self::alternatives(values.iter().cloned()),
+            Self::Sequence(value) => (**value).clone(),
+            Self::Map(_) => Self::Plain,
+            Self::Alternatives(values) => Self::alternatives(values.iter().map(Self::element)),
+            _ => Self::Plain,
+        }
+    }
+
+    fn list(&self) -> bool {
+        match self {
+            Self::List(_) | Self::Sequence(_) => true,
+            Self::Alternatives(values) => values.iter().any(Self::list),
+            _ => false,
+        }
+    }
+}
+
+fn constant_index(expr: &Expr) -> Option<CelValue> {
+    match expr {
+        Expr::Lit(value) => Some(value.clone()),
+        Expr::Bin(BinOp::Add, left, right) => {
+            match (constant_index(left)?, constant_index(right)?) {
+                (CelValue::String(left), CelValue::String(right)) => {
+                    Some(CelValue::string(&format!("{left}{right}")))
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+fn walk(e: &Expr, bound: &mut Vec<(String, Provenance)>, r: &mut References) -> Provenance {
+    match e {
+        Expr::Lit(CelValue::Timestamp(_)) => Provenance::Timestamp,
+        Expr::Lit(_) => Provenance::Plain,
+        Expr::Ident(n) => {
+            if let Some((_, value)) = bound.iter().rev().find(|(name, _)| name == n) {
+                return value.clone();
+            }
+            r.identifiers.insert(n.clone());
+            if n == "file" {
+                Provenance::File
+            } else {
+                Provenance::Plain
+            }
+        }
+        Expr::Select {
+            operand,
+            field,
+            test,
+            ..
+        } => {
+            let operand = walk(operand, bound, r);
+            if operand.file() {
                 r.file_members.insert(field.clone());
             }
-            walk(operand, bound, r);
+            if *test {
+                Provenance::Plain
+            } else {
+                operand.select(Some(&CelValue::string(field)))
+            }
         }
         Expr::Index { operand, index, .. } => {
-            walk(operand, bound, r);
+            let operand = walk(operand, bound, r);
             walk(index, bound, r);
+            let key = constant_index(index);
+            if operand.file() {
+                if let Some(CelValue::String(member)) = &key {
+                    r.file_members.insert(member.to_string());
+                } else {
+                    r.file_members.insert("*".into());
+                }
+            }
+            operand.select(key.as_ref())
         }
         Expr::Call { target, func, args } => {
             r.functions.insert(func.clone());
-            if let Some(t) = target {
-                walk(t, bound, r);
+            let mut values = Vec::new();
+            if let Some(target) = target {
+                values.push(walk(target, bound, r));
             }
-            for a in args {
-                walk(a, bound, r);
+            values.extend(args.iter().map(|arg| walk(arg, bound, r)));
+            if target.is_none()
+                && (func == "startOfDay"
+                    || (func == "date" && values.iter().any(Provenance::timestamp)))
+            {
+                r.timezone_functions.insert(func.clone());
+            }
+            if target.is_none() && matches!(func.as_str(), "timestamp" | "now") {
+                Provenance::Timestamp
+            } else if matches!(
+                func.as_str(),
+                "dyn" | "optional.of" | "optional.ofNonZeroValue" | "value" | "orValue" | "or"
+            ) {
+                Provenance::alternatives(values)
+            } else {
+                Provenance::Plain
             }
         }
         Expr::MatchesLit { text, .. } => {
             r.functions.insert("matches".into());
             walk(text, bound, r);
+            Provenance::Plain
         }
-        Expr::List(items) => items.iter().for_each(|i| walk(i, bound, r)),
-        Expr::Map(entries) => {
-            for (k, v) in entries {
-                walk(k, bound, r);
-                walk(v, bound, r);
+        Expr::List(items) => {
+            Provenance::List(items.iter().map(|item| walk(item, bound, r)).collect())
+        }
+        Expr::Map(entries) => Provenance::Map(
+            entries
+                .iter()
+                .map(|(key, value)| {
+                    walk(key, bound, r);
+                    (constant_index(key), walk(value, bound, r))
+                })
+                .collect(),
+        ),
+        Expr::Not(value) | Expr::Neg(value) => {
+            walk(value, bound, r);
+            Provenance::Plain
+        }
+        Expr::Bin(operator, left, right) => {
+            let left = walk(left, bound, r);
+            let right = walk(right, bound, r);
+            match (operator, left, right) {
+                (BinOp::Add, left, right) if left.list() || right.list() => {
+                    Provenance::Sequence(Arc::new(Provenance::alternatives([
+                        left.element(),
+                        right.element(),
+                    ])))
+                }
+                (BinOp::Add | BinOp::Sub, left, right) => Provenance::alternatives([left, right]),
+                _ => Provenance::Plain,
             }
         }
-        Expr::Not(x) | Expr::Neg(x) => walk(x, bound, r),
-        Expr::Bin(_, a, b) | Expr::And(a, b) | Expr::Or(a, b) => {
-            walk(a, bound, r);
-            walk(b, bound, r);
+        Expr::And(left, right) | Expr::Or(left, right) => {
+            walk(left, bound, r);
+            walk(right, bound, r);
+            Provenance::Plain
         }
-        Expr::Cond(c, a, b) => {
-            walk(c, bound, r);
-            walk(a, bound, r);
-            walk(b, bound, r);
+        Expr::Cond(condition, yes, no) => {
+            walk(condition, bound, r);
+            Provenance::alternatives([walk(yes, bound, r), walk(no, bound, r)])
         }
         Expr::Macro {
+            kind,
             range,
             var,
             body,
             filter,
             ..
         } => {
-            walk(range, bound, r);
-            bound.push(var.clone());
-            walk(body, bound, r);
+            let range = walk(range, bound, r);
+            let element = range.element();
+            bound.push((var.clone(), element.clone()));
+            let body = walk(body, bound, r);
             if let Some(f) = filter {
                 walk(f, bound, r);
             }
             bound.pop();
+            match kind {
+                MacroKind::Map => Provenance::Sequence(Arc::new(body)),
+                MacroKind::Filter => Provenance::Sequence(Arc::new(element)),
+                _ => Provenance::Plain,
+            }
         }
     }
 }

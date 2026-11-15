@@ -10,6 +10,8 @@ const repoRoot=fileURLToPath(new URL('../../../../',import.meta.url));
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const controlNames=new Set(['_headers','_redirects','_routes.json']);
 const isControl=path=>controlNames.has(path.split('/').at(-1));
+// Bound on one complete verification of one origin.
+export const DEPLOYMENT_VERIFY_MS=180000;
 // The policy is the candidate commit's reviewed source, read as Git object data
 // (no filters, no candidate execution) after re-proving it is a main ancestor.
 // Main can move during a publication; its later copies never judge a candidate.
@@ -60,13 +62,13 @@ function checkHeaders(response,path,immutable,headersPolicy) {
  if(/\.(m?js)$/.test(path) && !['text/javascript','application/javascript'].includes(type))throw Error('Live JS MIME policy mismatch');
  if(path.endsWith('.json') && type!=='application/json')throw Error('Live JSON MIME policy mismatch');
 }
-export async function verifyHosting({origin,inventory,deployment,policy,fetchImpl=fetch,totalTimeoutMs=180000,...options}) {
+export async function verifyHosting({origin,inventory,deployment,policy,fetchImpl=fetch,totalTimeoutMs=DEPLOYMENT_VERIFY_MS,...options}) {
  if(!['https://editor-staging.mdbase.dev','https://editor.mdbase.dev'].includes(origin)
    && !(origin===deployment?.url && /^https:\/\/[a-f0-9]{8,32}\.mdbase-editor\.pages\.dev$/.test(origin)))throw Error('Nonapproved verification origin');
  if(!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(deployment?.id??''))throw Error('Actual deployment UUID required BEFORE served checks');
  assertPolicyInventory(inventory,policy);
  const headersPolicy=policy._headers.toString('utf8');
- const duration=Math.min(totalTimeoutMs,180000);
+ const duration=Math.min(totalTimeoutMs,DEPLOYMENT_VERIFY_MS);
  if(!Number.isFinite(duration) || duration<=0)throw Error('Invalid verification deadline');
  const deadline=performance.now()+duration;
  const remaining=()=>Math.max(0,Math.floor(deadline-performance.now()));
@@ -125,13 +127,19 @@ export async function verifyHosting({origin,inventory,deployment,policy,fetchImp
 // Only after it has fully proven the exact bytes and source-owned policy is the
 // custom alias re-verified, read-only, inside a bounded settle window, because
 // the alias can keep serving the previous deployment while Pages propagates.
+// A changed _headers policy is the slow case: the edge revalidates HTML whose
+// bytes did not change (404.html) and keeps the previous policy headers for
+// minutes, so five minutes was not enough (staging, November 15, 2026). The
+// alias is not cache-busted: a fresh cache key proves only what the immutable
+// URL already proved, not what the alias serves.
 // Every attempt is a complete verification; a failed attempt is never accepted,
 // and nothing is rebuilt or redeployed. The protected job handles recovery.
-const ALIAS_SETTLE_MS=300000,ALIAS_RETRY_DELAY_MS=15000,ALIAS_MIN_ATTEMPT_MS=30000;
+export const ALIAS_SETTLE_MS=900000;
+const ALIAS_RETRY_DELAY_MS=30000,ALIAS_MIN_ATTEMPT_MS=30000;
 const attemptSummary=(report,startedMs)=>({startedMs:Math.round(startedMs),ok:report.ok===true,
  failures:(report.failures??[]).slice(0,20),failureCount:report.failures?.length??0,unverifiedCount:report.unverified?.length??0});
 export async function verifyPublication({plan,inventory,deployment,policy,verify=verifyHosting,now=()=>performance.now(),
-  sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms)),deploymentTimeoutMs=180000,aliasSettleMs=ALIAS_SETTLE_MS,
+  sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms)),deploymentTimeoutMs=DEPLOYMENT_VERIFY_MS,aliasSettleMs=ALIAS_SETTLE_MS,
   aliasRetryDelayMs=ALIAS_RETRY_DELAY_MS,aliasMinAttemptMs=ALIAS_MIN_ATTEMPT_MS}) {
  if(deployment?.sourceSha!==plan?.sha || deployment?.pagesBranch!==plan?.pagesBranch)throw Error('Deployment/source/target mismatch');
  // One candidate policy for the immutable URL and every alias attempt.
@@ -144,7 +152,7 @@ export async function verifyPublication({plan,inventory,deployment,policy,verify
   let alias;
   for(;;) {
    const startedMs=now()-start;
-   alias={origin:plan.origin,...await verify({origin:plan.origin,inventory,deployment,policy,totalTimeoutMs:Math.min(180000,Math.max(1,deadline-now()))})};
+   alias={origin:plan.origin,...await verify({origin:plan.origin,inventory,deployment,policy,totalTimeoutMs:Math.min(DEPLOYMENT_VERIFY_MS,Math.max(1,deadline-now()))})};
    aliasAttempts.push(attemptSummary(alias,startedMs));
    // A failed immutable deployment is not waited out: record one alias report only.
    if(alias.ok===true || immutable.ok!==true || deadline-now()<aliasRetryDelayMs+aliasMinAttemptMs)break;

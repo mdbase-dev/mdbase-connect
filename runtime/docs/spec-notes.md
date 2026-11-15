@@ -1,4 +1,37 @@
-# Spec notes: gaps and interpretations in the rc.5 draft
+# Spec notes: gaps and interpretations
+
+## Stable 0.3.0 and semantics 1.3
+
+The current registry entry implements mdbase 0.3.0, with fixtures pinned to
+`mdbase-dev/mdbase-spec` merge commit
+`0f10c9eed906adf8312a33e91baa6e51744f6a03` (PR #69). See
+[the conformance audit](spec-0.3.0-conformance.md) for measured coverage and
+the explicit unsupported optional-profile cases. The rc notes below are
+historical context, not overrides of stable text.
+
+Chapter 10 now rejects nondeterministic type match expressions at load with
+`nondeterministic_match` errors; invalid types do not participate in membership.
+That includes clock and external-record dependencies and, without configured
+`settings.timezone`, calls that depend on the effective timezone. Matching uses
+only the collection's configured timezone, never the invocation clock or zone.
+Timezone-independent `date(string)` and timestamp accessors with UTC defaults
+or explicit zones remain valid. Macro bindings and indexed file dependencies
+are included in dependency analysis.
+
+This is a minor semantics bump, 1.2 to 1.3: old and new writers may interleave
+because entries carry their resolved planner results and replicas apply those
+recorded results. V7 path rules, path-key folding, request validity and wire
+formats are unchanged. Only the current semantics has a planner; no legacy
+planner or compatibility branch is added. Existing determinism goldens remain
+unchanged unless their recorded replay results actually change.
+
+Queries bind one immutable context candidate as reserved `this`, or null without
+context. Executors hydrate it once by its record path and preserve its origin
+for relative links. A missing context is rejected even on an empty candidate
+set. Discovered path-key collisions retain every record and warn for each
+member; normal uniqueness diagnostics remain independent.
+
+## Historical release-candidate notes
 
 **Errata.** A provisional rc.5 errata branch for mdbase-spec covers N1, N9,
 N15, N16, N18, N19, N20, N21, N26, N29, N32, N33, N34 and N37. The core

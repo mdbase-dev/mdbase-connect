@@ -125,16 +125,7 @@ pub fn load_types(group: Group<'_>, input: &Value, expect: &Value) -> Result<Val
         "types": catalog.types().iter().map(|t| t.name.clone()).collect::<Vec<_>>(),
         "diagnostics": diagnostics,
     });
-    // `diagnostics_contain` is a subset assertion: report the expected entries
-    // that some actual diagnostic satisfies.
-    if let Some(want) = expect.get("diagnostics_contain").and_then(Value::as_array) {
-        let found: Vec<Value> = want
-            .iter()
-            .filter(|w| diagnostics.iter().any(|d| matches(w, d)))
-            .cloned()
-            .collect();
-        out["diagnostics_contain"] = Value::Array(found);
-    }
+    assertions(expect, &mut out);
     Ok(out)
 }
 
@@ -189,9 +180,9 @@ pub fn validate(group: Group<'_>, input: &Value) -> Result<Value, Unsupported> {
             resolved.insert(field.clone(), path_of(&state, &t));
         }
     }
-    Ok(
-        json!({"valid": valid, "issues": list, "diagnostics": list, "types": types, "resolved_links": resolved}),
-    )
+    let mut out = json!({"valid": valid, "issues": list, "diagnostics": list, "types": types, "resolved_links": resolved});
+    assertions(group.expect, &mut out);
+    Ok(out)
 }
 
 // ------------------------------------------------------------------ writes
@@ -402,6 +393,21 @@ fn record_json(state: &dyn StateView, id: &Uuid) -> Value {
 
 /// Fill the subset-assertion keys of `expect` from `actual`.
 fn assertions(expect: &Value, out: &mut Value) {
+    for key in ["diagnostics", "issues"] {
+        let subset = format!("{key}_contain");
+        if let Some(want) = expect[&subset].as_array() {
+            let found = want
+                .iter()
+                .filter(|wanted| {
+                    out[key]
+                        .as_array()
+                        .is_some_and(|actual| actual.iter().any(|item| matches(wanted, item)))
+                })
+                .cloned()
+                .collect();
+            out[&subset] = Value::Array(found);
+        }
+    }
     let fm = out["frontmatter"].clone();
     if let Some(keys) = expect
         .get("frontmatter_not_contains")
@@ -658,13 +664,13 @@ pub fn query(group: Group<'_>, input: &Value) -> Result<Value, Unsupported> {
     let parsed = match q::Query::from_value(&crate::ops::to_core(input)) {
         Ok(p) => p,
         Err(e) => {
-            return Ok(json!({"valid": false, "error": {"code": e.code, "message": e.message}}));
+            return Ok(query_error(e, group.expect));
         }
     };
     let plan = match q::compile(&parsed, &state.catalog()) {
         Ok(p) => p,
         Err(e) => {
-            return Ok(json!({"valid": false, "error": {"code": e.code, "message": e.message}}));
+            return Ok(query_error(e, group.expect));
         }
     };
     let env = QueryEnv {
@@ -675,7 +681,7 @@ pub fn query(group: Group<'_>, input: &Value) -> Result<Value, Unsupported> {
     let page = match q::execute(&plan, &state, &env) {
         Ok(page) => page,
         Err(e) => {
-            return Ok(json!({"valid": false, "error": {"code": e.code, "message": e.message}}));
+            return Ok(query_error(e, group.expect));
         }
     };
     let mut meta = json!({"total_count": page.total_count, "has_more": page.has_more});
@@ -692,23 +698,41 @@ pub fn query(group: Group<'_>, input: &Value) -> Result<Value, Unsupported> {
         );
     }
     let paths: Vec<Value> = page.ids.iter().map(|id| path_of(&state, id)).collect();
-    Ok(json!({
+    let mut out = json!({
         "valid": true,
-        "results": paths
-            .iter()
+        "results": page.ids.iter()
             .zip(&page.values)
-            .map(|(p, v)| {
-                if plan.select.is_empty() {
-                    json!({"path": p})
+            .map(|(id, values)| {
+                let mut result = if plan.select.is_empty() {
+                    json!({"path": path_of(&state, id)})
                 } else {
-                    json!({"path": p, "values": from_core(&mdbn_core::value::Value::Map(v.clone()))})
+                    json!({"path": path_of(&state, id), "values": from_core(&mdbn_core::value::Value::Map(values.clone()))})
+                };
+                if plan.query.include_body {
+                    result["body"] = record_json(&state, id)["body"].clone();
                 }
+                result
             })
             .collect::<Vec<_>>(),
         "paths": paths,
         "meta": meta,
         "diagnostics": page.diagnostics.iter().map(issue_json).collect::<Vec<_>>(),
-    }))
+    });
+    out["body_returned"] = json!(
+        out["results"]
+            .as_array()
+            .is_some_and(|rows| rows.iter().any(|row| row.get("body").is_some()))
+    );
+    assertions(group.expect, &mut out);
+    Ok(out)
+}
+
+fn query_error(error: mdbn_core::query::QueryError, expect: &Value) -> Value {
+    let diagnostic =
+        json!({"code": error.code, "message": error.message, "location": error.location});
+    let mut result = json!({"valid": false, "error": diagnostic, "diagnostics": [diagnostic]});
+    assertions(expect, &mut result);
+    result
 }
 
 /// `get_type`: a type definition as loaded (its frontmatter).
@@ -734,15 +758,19 @@ fn spec_file(path: &str) -> String {
 }
 
 /// A contract and a type loaded together as a two-resource catalog.
-fn contract_and_type(input: &Value) -> mdbn_core::types::Catalog {
-    let mut resources: Vec<(String, String)> = Vec::new();
-    if let Some(c) = input["contract"].as_str() {
-        resources.push(("_contracts/contract.md".into(), spec_file(c)));
-    }
-    if let Some(t) = input["type"].as_str() {
-        resources.push(("_types/type.md".into(), spec_file(t)));
-    }
-    mdbn_core::types::Catalog::load(resources.iter().map(|(p, s)| (p.as_str(), s.as_str())))
+fn contract_and_type(input: &Value) -> Result<mdbn_core::types::Catalog, Unsupported> {
+    crate::ops_artifacts::catalog(
+        &input["contract"]
+            .as_str()
+            .map(str::to_owned)
+            .into_iter()
+            .collect::<Vec<_>>(),
+        &input["type"]
+            .as_str()
+            .map(str::to_owned)
+            .into_iter()
+            .collect::<Vec<_>>(),
+    )
 }
 
 fn error_text(issues: &[mdbn_core::validate::Issue]) -> String {
@@ -760,7 +788,7 @@ pub fn data_contract_implementation_validate(
     input: &Value,
     expect: &Value,
 ) -> Result<Value, Unsupported> {
-    let catalog = contract_and_type(input);
+    let catalog = contract_and_type(input)?;
     let mut problems = error_text(catalog.issues());
     let imps = catalog.implementations();
     if problems.is_empty() && imps.len() != 1 {
@@ -786,6 +814,10 @@ pub fn data_contract_implementation_validate(
         }
     }
     let mut out = json!({"valid": problems.is_empty()});
+    if let Some(implementation) = imps.first() {
+        out["contract"] = json!(implementation.contract);
+        out["version"] = json!(implementation.version.to_string());
+    }
     if let Some(want) = expect["error_contains"].as_str() {
         out["error_contains"] = json!(if problems.contains(want) {
             want
@@ -798,7 +830,7 @@ pub fn data_contract_implementation_validate(
 
 /// `data_contract_digest`.
 pub fn data_contract_digest(input: &Value) -> Result<Value, Unsupported> {
-    let catalog = contract_and_type(input);
+    let catalog = contract_and_type(input)?;
     Ok(match catalog.contracts().first() {
         Some(c) => json!({"digest": c.digest.to_string()}),
         None => json!({"valid": false, "error": error_text(catalog.issues())}),
@@ -807,7 +839,7 @@ pub fn data_contract_digest(input: &Value) -> Result<Value, Unsupported> {
 
 /// `data_contract_implementation_digest`.
 pub fn data_contract_implementation_digest(input: &Value) -> Result<Value, Unsupported> {
-    let catalog = contract_and_type(input);
+    let catalog = contract_and_type(input)?;
     Ok(match catalog.implementations().first() {
         Some(i) => json!({"digest": i.digest.to_string()}),
         None => json!({"valid": false, "error": error_text(catalog.issues())}),
@@ -819,18 +851,13 @@ pub fn data_contract_registry_validate(
     input: &Value,
     expect: &Value,
 ) -> Result<Value, Unsupported> {
-    let files: Vec<(String, String)> = input["paths"]
+    let paths: Vec<String> = input["paths"]
         .as_array()
         .into_iter()
         .flatten()
-        .enumerate()
-        .filter_map(|(i, p)| {
-            p.as_str()
-                .map(|p| (format!("_contracts/c{i}.md"), spec_file(p)))
-        })
+        .filter_map(|path| path.as_str().map(str::to_owned))
         .collect();
-    let catalog =
-        mdbn_core::types::Catalog::load(files.iter().map(|(p, s)| (p.as_str(), s.as_str())));
+    let catalog = crate::ops_artifacts::catalog(&paths, &[])?;
     let problems = error_text(catalog.issues());
     let mut out = json!({"valid": problems.is_empty()});
     if let Some(want) = expect["error_contains"].as_str() {

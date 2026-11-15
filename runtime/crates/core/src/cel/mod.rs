@@ -168,28 +168,27 @@ pub fn record_activation<'a>(raw: &Map, effective: &Map, file: CelValue) -> Acti
         },
         _ => None,
     };
-    // `record` and `raw` are record maps: links read from them resolve from
-    // the candidate's path.
-    let record_map = |m: &Map| {
-        let cm = value::map_from(m);
-        let cm = match &path {
-            Some(p) => cm.with_origin(p),
-            None => cm,
-        };
-        CelValue::Map(std::sync::Arc::new(cm))
-    };
     let mut act = Activation::new();
     for (k, v) in effective.iter() {
         act.bind(k, CelValue::from_value(v));
     }
-    act.bind("record", record_map(effective))
-        .bind("raw", record_map(raw))
+    act.bind("record", record_map(effective, path.as_deref()))
+        .bind("raw", record_map(raw, path.as_deref()))
         .bind("file", file)
         .unbound_as_null();
     if let Some(p) = &path {
         act.with_record_path(p);
     }
     act
+}
+
+pub(crate) fn record_map(fields: &Map, path: Option<&str>) -> CelValue {
+    let map = value::map_from(fields);
+    let map = match path {
+        Some(path) => map.with_origin(path),
+        None => map,
+    };
+    CelValue::Map(std::sync::Arc::new(map))
 }
 
 // Compiled programs are cached and shared across threads by hosts.

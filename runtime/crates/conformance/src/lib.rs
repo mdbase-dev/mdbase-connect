@@ -1,7 +1,7 @@
 //! # mdbn-conformance: conformance harnesses
 //!
 //! **Responsibility.** Native harnesses that run shared fixtures against the core:
-//! - [`spec`]: the spec conformance runner over the vendored rc.6 draft fixtures in
+//! - [`spec`]: the spec conformance runner over the full vendored 0.3.0 fixtures in
 //!   `conformance/spec/`, with a pending/pass ratchet in
 //!   `conformance/spec-expectations.txt`;
 //! - the `replay` binary: the native side of the native-vs-WASM determinism check
@@ -22,6 +22,7 @@ use std::path::PathBuf;
 
 pub mod collection;
 pub mod ops;
+mod ops_artifacts;
 pub mod ops_b;
 pub mod parser_performance;
 pub mod query_differential;

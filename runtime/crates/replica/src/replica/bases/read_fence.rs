@@ -125,8 +125,8 @@ impl<S: Store> Replica<S> {
         // (`device_can_write` above) stands in for the key not yet in memory,
         // so a warm start can show its views before the first log turn. A
         // rebuild that fails is no longer pending and stays refused.
-        let keyed = self.sealer.current_epoch() == Some(self.policy.epoch)
-            || self.keyring_reopen_pending();
+        let keyed =
+            self.sealer.current_epoch() == Some(self.policy.epoch) || self.keyring_reopen_pending();
         if self.serves_apps().is_err()
             || self.regressed_at.is_some()
             || self.policy.frozen

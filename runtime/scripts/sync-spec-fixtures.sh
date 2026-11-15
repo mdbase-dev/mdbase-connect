@@ -23,71 +23,9 @@ fi
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 DEST=$ROOT/conformance/spec
 
-# The vendored set: pure-function fixture files plus the format README.
-FILES=(
-  tests/v0.3/README.md
-  tests/v0.3/merge/merge.yaml
-  tests/v0.3/merge/body-edits.yaml
-  tests/v0.3/cel/regex-profile.yaml
-  tests/v0.3/core/paths.yaml
-  tests/v0.3/core/path-fields.yaml
-  tests/v0.3/core/link-ambiguity.yaml
-  tests/v0.3/core/rename-references.yaml
-  tests/v0.3/core/links-and-discovery.yaml
-  tests/v0.3/core/core-collection.yaml
-  tests/v0.3/core/core-write.yaml
-  tests/v0.3/core/list-ops-and-fidelity.yaml
-  tests/v0.3/core/optional-membership.yaml
-  tests/v0.3/core/validation-tiers.yaml
-  tests/v0.3/core/body-edits-update.yaml
-  tests/v0.3/core/yaml-document-records.yaml
-  tests/v0.3/cel/match-determinism.yaml
-  tests/v0.3/cel/query-order.yaml
-  tests/v0.3/lifecycle/lifecycle.yaml
-  tests/v0.3/data-contracts/data-contracts.yaml
-  tests/v0.3/type-packs/type-packs.yaml
-  examples/v0.3/tasknotes-migration/v0.3/mdbase-pack.yaml
-  examples/v0.3/seed-upgrades/invalid-baseline-digest/mdbase-pack.yaml
-  examples/v0.3/seed-upgrades/invalid-baseline-digest/_types/note.md
-  examples/v0.3/seed-upgrades/invalid-duplicate-baseline/mdbase-pack.yaml
-  examples/v0.3/seed-upgrades/invalid-duplicate-baseline/_types/note.md
-  examples/v0.3/seed-upgrades/invalid-empty-baselines/mdbase-pack.yaml
-  examples/v0.3/seed-upgrades/invalid-empty-baselines/_types/note.md
-  examples/v0.3/seed-upgrades/invalid-incomplete-baseline/mdbase-pack.yaml
-  examples/v0.3/seed-upgrades/invalid-incomplete-baseline/_types/note.md
-  examples/v0.3/seed-upgrades/invalid-managed-upgrade/mdbase-pack.yaml
-  examples/v0.3/seed-upgrades/invalid-managed-upgrade/_types/note.md
-  examples/v0.3/seed-upgrades/invalid-name-mismatch/mdbase-pack.yaml
-  examples/v0.3/seed-upgrades/invalid-name-mismatch/_types/note.md
-  examples/v0.3/seed-upgrades/invalid-self-baseline/mdbase-pack.yaml
-  examples/v0.3/seed-upgrades/invalid-self-baseline/_types/note.md
-  examples/v0.3/seed-upgrades/invalid-version-mismatch/mdbase-pack.yaml
-  examples/v0.3/seed-upgrades/invalid-version-mismatch/_types/note.md
-  examples/v0.3/seed-upgrades/v1.5-plain/mdbase-pack.yaml
-  examples/v0.3/seed-upgrades/v1.5-plain/_types/note.md
-  examples/v0.3/seed-upgrades/v1/mdbase-pack.yaml
-  examples/v0.3/seed-upgrades/v1/_types/note.md
-  examples/v0.3/seed-upgrades/v2/mdbase-pack.yaml
-  examples/v0.3/seed-upgrades/v2/_types/note.md
-  examples/v0.3/seed-upgrades/v3/mdbase-pack.yaml
-  examples/v0.3/seed-upgrades/v3-only-v2/mdbase-pack.yaml
-  examples/v0.3/seed-upgrades/v3-only-v2/_types/note.md
-  examples/v0.3/seed-upgrades/v3/_types/note.md
-  examples/v0.3/tasknotes-migration/v0.3/_contracts/tasknotes.task.md
-  examples/v0.3/tasknotes-migration/v0.3/_types/task.md
-  tests/v0.3/fixtures/data-contracts/conflicting-tasknotes.task.md
-  tests/v0.3/fixtures/data-contracts/duplicate-implementation-type.md
-  tests/v0.3/fixtures/data-contracts/invalid-binding-type.md
-  tests/v0.3/fixtures/data-contracts/invalid-task.yml
-  tests/v0.3/fixtures/data-contracts/json-pointer-contact.contract.md
-  tests/v0.3/fixtures/data-contracts/json-pointer-contact-type.md
-  tests/v0.3/fixtures/data-contracts/json-pointer-contact.yml
-  tests/v0.3/fixtures/data-contracts/legacy-extension-type.md
-  tests/v0.3/fixtures/data-contracts/missing-required-map-type.md
-  tests/v0.3/fixtures/data-contracts/unknown-record-field-type.md
-  tests/v0.3/fixtures/data-contracts/valid-task.yml
-  tests/v0.3/watch/move-detection.yaml
-)
+# Keep the entire v0.3 suite and its referenced artifacts at one revision.
+mapfile -t FILES < <(git -C "$SPEC" ls-files -- \
+  tests/v0.3 examples/v0.3 schemas/v0.3 schemas/testbed/v0.1 standard-packs _types _contracts testbed/v0.1/fixtures testbed/v0.1/scenarios)
 
 git -C "$SPEC" rev-parse --git-dir >/dev/null
 if [[ -z "$WORKING_TREE" && -n "$(git -C "$SPEC" status --porcelain -- "${FILES[@]}")" ]]; then
@@ -97,7 +35,7 @@ fi
 COMMIT=$(git -C "$SPEC" rev-parse HEAD)
 BRANCH=${SPEC_BRANCH:-$(git -C "$SPEC" rev-parse --abbrev-ref HEAD)}
 
-rm -rf "$DEST/tests" "$DEST/examples"
+rm -rf "$DEST/tests" "$DEST/examples" "$DEST/schemas" "$DEST/standard-packs" "$DEST/_types" "$DEST/_contracts" "$DEST/testbed"
 for f in "${FILES[@]}"; do
   mkdir -p "$DEST/$(dirname "$f")"
   if [[ "$WORKING_TREE" == "--working-tree" ]]; then

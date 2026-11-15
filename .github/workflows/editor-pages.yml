@@ -238,8 +238,9 @@ jobs:
     name: Protected immutable Editor upload
     needs: [native-inputs, native-build]
     runs-on: ubuntu-24.04
-    # Upload has a separate 7-minute bound; leave time for checks and recovery.
-    timeout-minutes: 60
+    # Upload has a separate 7-minute bound and verification a 20-minute one
+    # (alias settle window); leave time for checks and recovery.
+    timeout-minutes: 70
     defaults:
       run:
         working-directory: publisher
@@ -355,7 +356,8 @@ jobs:
         run: node apps/editor/scripts/native/publisher.mjs capture "$RUNNER_TEMP/editor-upload/wrangler-output.txt" > "$RUNNER_TEMP/editor-receipt/deployment.json"
       - name: All deployment URL AND alias bytes, source-owned headers and routes
         id: verification
-        timeout-minutes: 9
+        # Three minutes on the immutable URL, then the 15-minute alias settle window.
+        timeout-minutes: 20
         if: always() && steps.deployment.outcome == 'success'
         run: node apps/editor/scripts/native/hosting.mjs "$RUNNER_TEMP/editor-receipt/plan.json" "$RUNNER_TEMP/editor-receipt/inventory.json" "$RUNNER_TEMP/editor-receipt/deployment.json" > "$RUNNER_TEMP/editor-receipt/verification.json"
       - name: Preserve honest failure or complete static-publication receipt

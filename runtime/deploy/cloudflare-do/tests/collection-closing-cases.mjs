@@ -3,7 +3,15 @@ import assert from 'node:assert/strict';
 import { sign, createPrivateKey, createPublicKey } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 
-export async function collectionClosingCases({base,token,transport,encode,decode,map,sha,h,restart}) {
+// Over-the-wire requests use the runtime's evidence-gated `fetch`. This file
+// deliberately sends bodies the Worker refuses before reading (413), and under
+// load wrangler's dev ProxyWorker can then hand a later request a lost pooled
+// UserWorker connection. It replays only GET/HEAD, so a POST would fail as a
+// proxy 500 that no Worker produced. createProxyFetch replays such a request
+// once, only when wrangler.log names that exact request's disconnect.
+// A signed request that did reach the Worker fails its replay on the spent
+// nonce, so a replay cannot turn a real failure into a pass.
+export async function collectionClosingCases({base,token,transport,encode,decode,map,sha,h,restart,fetch=globalThis.fetch}) {
   const nil=Buffer.alloc(16), actor='00000000-0000-0000-0000-000000000000';
   const id=label => sha(Buffer.from(`nil-closing/${label}`)).subarray(0,16);
   const epoch=(1n<<64n)-1n;

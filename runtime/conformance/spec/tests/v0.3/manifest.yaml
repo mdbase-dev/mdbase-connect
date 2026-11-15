@@ -1,0 +1,301 @@
+spec_version: "0.3.0"
+suite_version: 1
+
+claim_profiles:
+  - id: core_read
+    status: coverage_complete
+    requires: []
+    requirements:
+      - collection_discovery
+      - forward_slash_record_scan
+      - v03_type_loading
+      - json_schema_profile
+      - json_schema_type
+      - json_schema_required
+      - json_schema_properties
+      - json_schema_additional_properties
+      - json_schema_items
+      - json_schema_enum
+      - json_schema_const
+      - json_schema_combinators
+      - json_schema_conditionals
+      - json_schema_numeric_constraints
+      - json_schema_string_constraints
+      - json_schema_array_constraints
+      - json_schema_defs_and_fragment_ref
+      - json_schema_annotations
+      - json_schema_formats
+      - local_schema_ref
+      - explicit_and_basic_matching
+      - builtin_exclusions
+      - portable_globs
+      - raw_schema_validation
+      - machine_readable_diagnostics
+      - invalid_records_reported  # since 0.3.0-rc.5
+      - regex_profile  # since 0.3.0-rc.5
+      - frontmatter_delimiters  # since 0.3.0-rc.6
+  - id: collection_semantics
+    status: coverage_complete
+    requires: [core_read]
+    requirements:
+      - effective_read_defaults
+      - uniqueness
+      - simple_path_policy
+      - display_metadata
+      - independent_multi_type_validation
+      - unique_enforcement_modes  # since 0.3.0-rc.5
+      - unique_scope  # since 0.3.0-rc.5
+      - cross_record_reporting  # since 0.3.0-rc.5
+      - merge_declarations  # since 0.3.0-rc.5
+      - path_stored_fields  # since 0.3.0-rc.6
+      - path_equivalence  # since 0.3.0-rc.5; core_read.path_equivalence before 0.3.0-rc.6
+  - id: data_contracts
+    status: coverage_complete
+    requires: [core_read]
+    requirements:
+      - data_contract_discovery
+      - data_contract_schema_validation
+      - data_contract_implementation_validation
+      - data_contract_projection
+      - data_contract_digest
+      - data_contract_implementation_digest
+      - data_contract_conflict
+  - id: cel
+    status: draft
+    requires: []
+    requirements:
+      - portable_evaluation
+      - context_bindings
+      - missing_and_null
+      - standard_error_semantics
+      - optional_types
+      - date_and_duration
+      - text_helpers
+      - operational_limits
+      - expression_diagnostics
+      - regex_profile  # since 0.3.0-rc.5
+  - id: cel_match
+    status: draft
+    requires: [core_read, cel]
+    requirements:
+      - expression_preflight
+      - raw_candidate_context
+      - combined_match_semantics
+      - boolean_match_result
+      - match_evaluation_diagnostics
+      - deterministic_match  # since 0.3.0-rc.5
+  - id: cel_query
+    status: draft
+    requires: [collection_semantics, cel]
+    requirements:
+      - query_context
+      - invocation_context
+      - query_filtering
+      - query_projections
+      - named_projections
+      - grouping_and_summaries
+      - query_evaluation_diagnostics
+      - value_order  # since 0.3.0-rc.6
+      - path_tiebreak  # since 0.3.0-rc.6
+  - id: links
+    status: draft
+    requires: [collection_semantics, cel]
+    requirements:
+      - filename_resolution
+      - configured_id_resolution
+      - frontmatter_wikilinks
+      - backlinks
+      - id_field_no_default  # since 0.3.0-rc.5
+      - ambiguous_id_link  # since 0.3.0-rc.5
+      - filename_tiebreakers  # since 0.3.0-rc.5
+      - path_key_matching  # since 0.3.0-rc.6
+      - markdown_destinations  # since 0.3.0-rc.6
+      - body_code_and_tags  # since 0.3.0-rc.6
+  - id: core_write
+    status: draft
+    requires: [collection_semantics]
+    requirements:
+      - null_and_unset
+      - batch_preflight
+      - validation_levels
+      - validation_tiers  # since 0.3.0-rc.5
+      - list_operations  # since 0.3.0-rc.5
+      - writer_format_fidelity  # since 0.3.0-rc.5
+      - path_collisions  # since 0.3.0-rc.5
+      - path_pattern_values  # since 0.3.0-rc.5
+      - rename_references  # since 0.3.0-rc.5
+      - body_edits  # since 0.3.0-rc.5
+      - path_stored_writes  # since 0.3.0-rc.6
+      - path_value_normalized  # since 0.3.0-rc.6
+      - create_membership_path  # since 0.3.0-rc.6
+  - id: merge/0.1  # since 0.3.0-rc.5; a companion profile since 0.3.0-rc.6
+    status: coverage_complete
+    requires: [core_write]
+    requirements:
+      - field_three_way
+      - default_strategies
+      - declared_strategies
+      - max_min_semantics
+      - union_semantics
+      - body_three_way
+      - append_append_union
+      - conflict_reporting
+      - invalid_merge_reported
+      - merge_format_fidelity
+      - path_merge
+      - body_edit_rebase  # since 0.3.0-rc.5
+  - id: type_packs/0.1
+    status: draft
+    requires: [data_contracts, core_write]
+    requirements:
+      - transactional_type_pack_preflight
+      - managed_type_pack_provenance
+      - managed_type_pack_assessment
+      - managed_type_pack_concurrency
+      - managed_type_pack_adoption
+      - exact_type_pack_diff
+      - idempotent_type_pack_apply
+      - type_pack_atomicity
+      - seed_type_upgrade
+      - seed_type_upgrade_validation
+  - id: lifecycle
+    status: draft
+    requires: [core_write, cel]
+    requirements:
+      - ordered_actions
+      - slugify  # since 0.3.0-rc.6
+  - id: event_action_interop/0.1
+    status: draft
+    requires: []
+    requirements:
+      - first_class_event_and_action_contracts
+      - cloudevents_event_envelope
+      - event_multicast_and_version_resolution
+      - action_request_admission_and_outcome
+      - exact_contract_and_provider_evidence
+      - explicit_provider_ambiguity
+      - boundary_validation
+      - independent_authorization
+      - duplicate_and_indeterminate_semantics
+      - cancellation_and_unload
+  - id: runtime/0.2
+    status: draft
+    requires: [data_contracts, event_action_interop/0.1, cel]
+    requirements:
+      - standard_runtime_pack
+      - ordinary_record_contract_implementations
+      - shared_interop_envelopes_and_declarations
+      - exact_contract_source_and_provider_admission
+      - independent_authorization
+      - durable_event_admission
+      - trigger_admission
+      - variables_and_conditions
+      - deterministic_steps_and_iteration
+      - dispatch_authorization
+      - execution_modes
+      - idempotency_and_concurrency
+      - run_state_machine
+      - durable_action_attempts
+      - lease_and_crash_recovery
+      - one_shot_timers
+  - id: watch
+    status: draft
+    requires: [collection_semantics]
+    requirements:
+      - notification_shape
+      - collection_scope
+      - logical_change_notifications
+      - effective_frontmatter_snapshots
+      - changed_fields
+      - consistent_state_delivery
+      - per_subject_ordering
+      - notification_coalescing
+      - listener_isolation
+  - id: move_detection/0.1  # since 0.3.0-rc.6; move_detection/0.1.move_pairing in rc.5
+    status: coverage_complete
+    requires: [watch]
+    requirements:
+      - move_pairing
+
+fixture_sets:
+  - id: schema_artifacts
+    description: Canonical JSON Schemas, v0.3 type files, and example records validate.
+    coverage_targets: []
+    files:
+      - schema/schema-artifacts.yaml
+  - id: migration
+    description: v0.2 type files can be migrated to v0.3 type wrappers and reports.
+    coverage_targets: []
+    files:
+      - migration/tasknotes-type-migration.yaml
+      - migration/pickle-collection-migration.yaml
+  - id: core_collection
+    description: v0.3 type wrappers, JSON Schema validation, matching, defaults, links, uniqueness, and paths.
+    coverage_targets: [core_read, collection_semantics, links, core_write, lifecycle]
+    files:
+      - core/core-collection.yaml
+      - core/optional-membership.yaml
+      - core/core-write.yaml
+      - core/links-and-discovery.yaml
+      - core/yaml-document-records.yaml
+      - core/validation-tiers.yaml
+      - core/list-ops-and-fidelity.yaml
+      - core/paths.yaml
+      - core/path-fields.yaml
+      - core/link-ambiguity.yaml
+      - core/rename-references.yaml
+      - core/body-edits-update.yaml
+  - id: data_contracts
+    description: Data contracts, type implementations, projections, stable digests, and conflicts.
+    coverage_targets: [data_contracts]
+    files:
+      - data-contracts/data-contracts.yaml
+  - id: type_packs
+    description: Complete type packs validate, report exact diffs, install atomically, reinstall idempotently, and upgrade seed types from their recorded origin.
+    coverage_targets: [type_packs/0.1]
+    files:
+      - type-packs/type-packs.yaml
+  - id: lifecycle
+    description: on_create/on_update managed field behavior replacing generated fields.
+    coverage_targets: [lifecycle]
+    files:
+      - lifecycle/lifecycle.yaml
+  - id: cel
+    description: mdbase CEL host bindings and missing/null behavior.
+    coverage_targets: [cel, cel_match, cel_query, links]
+    files:
+      - cel/cel-profile.yaml
+      - cel/match-determinism.yaml
+      - cel/regex-profile.yaml
+      - cel/query-order.yaml
+  - id: views
+    description: Ordinary view records resolve named queries, invocation context, and advisory presentation.
+    coverage_targets: [cel_query]
+    files:
+      - views/view-records.yaml
+  - id: runtime_profile
+    description: standard runtime records, interoperability-based admission, durable execution, recovery, cancellation, journals, and timers.
+    coverage_targets: [runtime/0.2]
+    files:
+      - runtime-contracts/runtime-contracts.yaml
+  - id: event_action_interop
+    description: CloudEvents multicast, action admission, exact provider selection, validation, authorization, duplicates, cancellation, and unload.
+    coverage_targets: [event_action_interop/0.1]
+    files:
+      - event-action-interop/event-action-interop.yaml
+  - id: workflow_execution
+    description: durable workflow execution, recovery, cancellation, journals, and timers.
+    coverage_targets: [runtime/0.2]
+    files:
+      - workflow-execution/workflow-execution.yaml
+  - id: merge
+    description: Three-way record merge and merge declarations, including the mdbase-next prototype merge fixtures (since 0.3.0-rc.5).
+    coverage_targets: [merge/0.1, collection_semantics]
+    files:
+      - merge/merge.yaml
+      - merge/body-edits.yaml
+  - id: move_detection
+    description: Move detection for externally moved files (since 0.3.0-rc.5).
+    coverage_targets: [move_detection/0.1]
+    files:
+      - watch/move-detection.yaml

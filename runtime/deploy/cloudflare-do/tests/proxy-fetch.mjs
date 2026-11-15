@@ -1,5 +1,5 @@
 // TEST HARNESS ONLY: not imported by Worker/deploy artifacts.
-// Correlate a single CORS fixture request, never retry an unexplained Worker500.
+// Correlate a single local fixture request, never retry an unexplained Worker500.
 import { randomUUID } from 'node:crypto';
 import { request } from 'node:http';
 import { Readable } from 'node:stream';
@@ -41,13 +41,13 @@ export function createProxyFetch({base,logPath,initialFetch=globalThis.fetch,fre
   const origin=new URL(base).origin;
   return async(input,init={})=>{
     const url=new URL(input);
-    if(url.protocol!=='http:'||url.hostname!=='127.0.0.1'||url.origin!==origin||url.searchParams.has(TAG))throw Error('local CORS test scope');
+    if(url.protocol!=='http:'||url.hostname!=='127.0.0.1'||url.origin!==origin||url.searchParams.has(TAG))throw Error('local test scope');
     // Only immutable/replayable fixture bytes, never a request stream or SDK
     // mutation lifecycle. Signed body/path stay byte-identical; query is a unique
     // TEST-only log correlation tag (the protocol signs pathname, not query).
     let body=init.body;
     if(body!==undefined&&body!==null&&typeof body!=='string'){
-      if(!(body instanceof Uint8Array))throw Error('nonreplayable CORS fixture');
+      if(!(body instanceof Uint8Array))throw Error('nonreplayable fixture');
       body=Buffer.from(body);
     }
     const id=randomUUID();url.searchParams.set(TAG,id);
