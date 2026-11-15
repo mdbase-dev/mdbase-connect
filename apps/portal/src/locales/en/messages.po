@@ -3529,7 +3529,6 @@ msgstr "Try a different computer name. Filtering does not revoke access."
 #: src/ConnectApp.tsx
 #: src/ConnectPrimitives.tsx
 #: src/onboarding-view.tsx
-#: src/portal-ui.tsx
 msgid "Try again"
 msgstr "Try again"
 

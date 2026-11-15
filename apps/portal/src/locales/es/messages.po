@@ -3529,7 +3529,6 @@ msgstr "Prueba otro nombre de ordenador. El filtrado no revoca el acceso."
 #: src/ConnectApp.tsx
 #: src/ConnectPrimitives.tsx
 #: src/onboarding-view.tsx
-#: src/portal-ui.tsx
 msgid "Try again"
 msgstr "Volver a intentarlo"
 

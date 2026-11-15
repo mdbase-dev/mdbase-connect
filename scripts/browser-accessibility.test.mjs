@@ -392,31 +392,29 @@ async function auditPortalRecovery() {
     assert.equal(await page.getByRole("alert").innerText(), "Something went wrong on mdbase. Try again.", "configuration failure remains visible");
     await page.close();
   }
-  for (const [path, endpoint, data, heading] of [
-    ["pair", "pairing-requests", { pairing: { connector_name: "Retry computer", approved_at: null } }, "Retry computer"]
-  ]) {
-    const page = await localPage();
-    let calls = 0;
-    let releaseRetry;
-    const retryResponse = new Promise((resolveRetry) => { releaseRetry = resolveRetry; });
-    await page.route(`**/v1/${endpoint}/*`, async (route) => {
-      calls += 1;
-      if (calls > 1) await retryResponse;
-      await route.fulfill(calls === 1 ? { status: 500, json: { error: "temporary_failure" } } : { json: data });
-    });
-    await page.goto(`${servers[0].origin}/${path}/11111111-1111-4111-8111-111111111111`);
-    await page.getByRole("alert").waitFor();
-    const retried = page.waitForRequest(`**/v1/${endpoint}/*`);
-    await page.getByRole("button", { name: "Try again" }).click();
-    await retried;
-    await page.locator('.request-shell[aria-busy="true"], main[aria-busy="true"]').waitFor();
-    assert.equal(await page.getByRole("button", { name: "Try again" }).count(), 0, `${path}: cannot retry during a pending request`);
-    releaseRetry();
-    await page.getByRole("heading", { name: heading }).waitFor();
-    assert.equal(calls, 2, `${path}: one guarded retry`);
-    assert.equal(await page.getByRole("alert").count(), 0);
-    await page.close();
-  }
+  const page = await localPage();
+  let calls = 0;
+  let releaseRetry;
+  const retryResponse = new Promise((resolveRetry) => { releaseRetry = resolveRetry; });
+  await page.route("**/v1/pairing-requests/*", async (route) => {
+    calls += 1;
+    if (calls > 1) await retryResponse;
+    await route.fulfill(calls === 1
+      ? { status: 500, json: { error: "temporary_failure" } }
+      : { json: { pairing: { connector_name: "Retry computer", approved_at: null } } });
+  });
+  await page.goto(`${servers[0].origin}/pair/11111111-1111-4111-8111-111111111111`);
+  await page.getByRole("alert").waitFor();
+  const retried = page.waitForRequest("**/v1/pairing-requests/*");
+  await page.getByRole("button", { name: "Try again" }).click();
+  await retried;
+  await page.locator('.request-shell[aria-busy="true"]').waitFor();
+  assert.equal(await page.getByRole("button", { name: "Try again" }).count(), 0, "pair: cannot retry during a pending request");
+  releaseRetry();
+  await page.getByRole("heading", { name: "Retry computer" }).waitFor();
+  assert.equal(calls, 2, "pair: one guarded retry");
+  assert.equal(await page.getByRole("alert").count(), 0);
+  await page.close();
 }
 
 async function auditPortalUnsubscribe() {

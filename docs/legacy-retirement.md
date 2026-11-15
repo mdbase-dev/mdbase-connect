@@ -140,9 +140,12 @@ the provider and the tables below: the to-hosted expiry branch of
 
 Also removed ahead of the provider (2026-11-15): the portal pages for **mirror
 pairing** (`/mirror/:id`) and the **hosted-to-local authority transfer**
-(`/transfer/:id`, "Move main copy"). Only the deleted legacy connector could
-start either flow. The pages, their styles and the portal's `AuthorityTransfer`
-type are gone, and an old link opens the portal app, as `/adopt/:id` does. The
+(`/transfer/:id`, "Move main copy"). No current app starts either flow.
+Obsidian plugin releases 0.4.2 and earlier and the `mdbase-mirror` CLI in
+`packages/sync` can still create a pairing request, which nothing can approve
+now. The pages, their styles and the portal's `AuthorityTransfer` type are gone,
+and an old link opens the portal app, as `/adopt/:id` does. Until the server
+routes go, the server keeps returning links to the removed page. The
 server routes (`features/mirrors/pairing-routes.ts` and
 `features/authority-transfer/hosted-to-local-routes.ts`) remain for a following
 change, so a rolled-back portal and the current server still work together. The

@@ -3529,7 +3529,6 @@ msgstr "请尝试其他电脑名称。筛选不会撤销访问权限。"
 #: src/ConnectApp.tsx
 #: src/ConnectPrimitives.tsx
 #: src/onboarding-view.tsx
-#: src/portal-ui.tsx
 msgid "Try again"
 msgstr "重试"
 

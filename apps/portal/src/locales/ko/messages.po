@@ -3529,7 +3529,6 @@ msgstr "다른 컴퓨터 이름을 입력하세요. 필터링은 접근 권한�
 #: src/ConnectApp.tsx
 #: src/ConnectPrimitives.tsx
 #: src/onboarding-view.tsx
-#: src/portal-ui.tsx
 msgid "Try again"
 msgstr "다시 시도"
 

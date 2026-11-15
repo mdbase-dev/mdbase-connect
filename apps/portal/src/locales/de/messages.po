@@ -3529,7 +3529,6 @@ msgstr "Versuchen Sie einen anderen Computernamen. Filtern widerruft keinen Zugr
 #: src/ConnectApp.tsx
 #: src/ConnectPrimitives.tsx
 #: src/onboarding-view.tsx
-#: src/portal-ui.tsx
 msgid "Try again"
 msgstr "Erneut versuchen"
 
