@@ -1236,13 +1236,14 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     if (phase !== "ready" || !description || noteLoading) return;
     const capture = takeQuickCapture();
     if (!capture) return;
+    if (capture === "too_long") { setNotice(t`What was shared is too long to create a note from. Paste it into a new note instead.`); return; }
     if (capture.title === undefined && capture.body === undefined) { openNewNote(); return; }
-    const excerpt = capture.body && capture.body.length > 280 ? `${capture.body.slice(0, 280)}…` : capture.body;
+    // The whole text, not an excerpt: the person sees everything the note will hold.
     setConfirmation({
       title: t`Create a note from what was shared?`,
       body: <>
         {capture.title && <p><strong>{capture.title}</strong></p>}
-        {excerpt && <p>{excerpt}</p>}
+        {capture.body && <pre className="capture-preview" role="region" tabIndex={0} aria-label={t`Shared text`}>{capture.body}</pre>}
       </>,
       confirmLabel: t`Create note`,
       onConfirm: () => openNewNote({ ...newNoteContext(noteFilter, typeDescriptors), ...capture })

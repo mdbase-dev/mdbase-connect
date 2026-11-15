@@ -4690,6 +4690,10 @@ msgstr "Configuração necessária"
 msgid "Several person records are linked to your account. Edit them so exactly one record represents you:"
 msgstr "Vários registros de pessoas estão vinculados à sua conta. Edite-os para que apenas um represente você:"
 
+#: src/App.tsx
+msgid "Shared text"
+msgstr "Texto compartilhado"
+
 #: src/QuickOpen.tsx
 msgid "Shortcuts"
 msgstr "Atalhos"
@@ -6015,6 +6019,10 @@ msgstr "Aguardando seu computador…"
 #: src/TypeBrowser.tsx
 msgid "What belongs in this field?"
 msgstr "O que pertence a este campo?"
+
+#: src/App.tsx
+msgid "What was shared is too long to create a note from. Paste it into a new note instead."
+msgstr "O conteúdo compartilhado é longo demais para criar uma nota. Cole-o em uma nova nota."
 
 #: src/TypeBrowser.tsx
 msgid "Which notes use this type"

@@ -4690,6 +4690,10 @@ msgstr "設定が必要です"
 msgid "Several person records are linked to your account. Edit them so exactly one record represents you:"
 msgstr "複数の人物レコードがアカウントにリンクされています。自分を表すレコードがちょうど1件になるよう編集してください："
 
+#: src/App.tsx
+msgid "Shared text"
+msgstr "共有されたテキスト"
+
 #: src/QuickOpen.tsx
 msgid "Shortcuts"
 msgstr "ショートカット"
@@ -6015,6 +6019,10 @@ msgstr "コンピューターを待機中…"
 #: src/TypeBrowser.tsx
 msgid "What belongs in this field?"
 msgstr "このフィールドには何を入力しますか？"
+
+#: src/App.tsx
+msgid "What was shared is too long to create a note from. Paste it into a new note instead."
+msgstr "共有された内容が長すぎるため、ノートを作成できません。新しいノートに貼り付けてください。"
 
 #: src/TypeBrowser.tsx
 msgid "Which notes use this type"

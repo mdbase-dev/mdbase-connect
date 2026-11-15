@@ -4690,6 +4690,10 @@ msgstr "설정 필요"
 msgid "Several person records are linked to your account. Edit them so exactly one record represents you:"
 msgstr "계정에 연결된 사람 레코드가 여러 개 있습니다. 정확히 하나만 나를 나타내도록 수정하세요:"
 
+#: src/App.tsx
+msgid "Shared text"
+msgstr "공유된 텍스트"
+
 #: src/QuickOpen.tsx
 msgid "Shortcuts"
 msgstr "단축키"
@@ -6015,6 +6019,10 @@ msgstr "컴퓨터 대기 중…"
 #: src/TypeBrowser.tsx
 msgid "What belongs in this field?"
 msgstr "이 필드에는 무엇을 입력하나요?"
+
+#: src/App.tsx
+msgid "What was shared is too long to create a note from. Paste it into a new note instead."
+msgstr "공유된 내용이 너무 길어 노트를 만들 수 없습니다. 대신 새 노트에 붙여 넣으세요."
 
 #: src/TypeBrowser.tsx
 msgid "Which notes use this type"
