@@ -396,7 +396,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
       {activeView === "storage" && selectedCollection && <Storage error={mutationError} editorOrigin={editorOrigin} collection={selectedCollection} busy={busy} perform={perform} />}
       {activeView === "access" && !refreshError && selectedCollection && <AppAccess error={mutationError} collectionName={selectedCollection.name} groups={selectedApplications} client={management} busy={busy} perform={perform}>
         <section><SectionTitle title={t(i18n)({ message: "Your person record", context: "Connect interface" })} /><div className="connect-row"><div><strong><Trans>Use an existing person or create a note</Trans></strong><small><Trans>Link your account to an editable record in this collection. Collection access is approved separately.</Trans></small></div>{editorOrigin && <a href={`${editorSurfaceUrls(selectedCollection.id, editorOrigin).settings}#your-person`}><Trans>Choose or create my person record</Trans></a>}</div></section>
-        {selectedCollection.kind !== "local" && selectedCollection.source.access.can_manage_members && <CollectionSharingPanel error={mutationError} key={selectedCollection.id} sharingAvailable={data.collection_sharing_available === true} collection={selectedCollection.source} busy={busy} perform={perform} />}
+        {selectedCollection.kind !== "local" && selectedCollection.source.access.can_manage_members && <CollectionSharingPanel error={mutationError} key={selectedCollection.id} sharingAvailable={data.collection_sharing_available === true} seatLimit={seatLimit(data, selectedCollection.source.access.relationship)} navigate={navigate} collection={selectedCollection.source} busy={busy} perform={perform} />}
       </AppAccess>}
       {activeView === "collections" && <Collections error={mutationError} key={data.user.id} editorOrigin={editorOrigin} data={data} busy={busy} perform={perform} navigate={navigate} />}
       {activeView === "applications" && !refreshError && <AppAccess error={mutationError} editorOrigin={editorOrigin} groups={applications} client={management} busy={busy} perform={perform} />}
@@ -458,8 +458,20 @@ function CollectionOverview({ collection, applications, editorOrigin }: {
   </Page>;
 }
 
-function CollectionSharingPanel({ error, collection, busy, perform, sharingAvailable }: {
+/** Whether the owner has used every member seat on their plan, and whether Plus would add more. */
+function seatLimit(data: ManagementOverview, relationship: "owner" | "member"): "upgrade" | "full" | null {
+  const used = data.subscription?.usage?.collection_member_seats;
+  const max = data.subscription?.limits.max_collection_member_seats;
+  if (relationship !== "owner" || used === undefined || max === undefined || used < max) return null;
+  const billing = data.billing;
+  const plusAddsSeats = Boolean(billing?.available && billing.plus_limits && billing.plus_limits.max_collection_member_seats > max && (!billing.plus || billing.plus.status === "canceled"));
+  return plusAddsSeats ? "upgrade" : "full";
+}
+
+function CollectionSharingPanel({ error, collection, busy, perform, sharingAvailable, seatLimit, navigate }: {
   sharingAvailable: boolean;
+  seatLimit: "upgrade" | "full" | null;
+  navigate(view: ConnectView, collectionId?: string): void;
   collection: { id: string; display_name: string | null };
   busy: BusyOperations;
   error?: string;
@@ -557,6 +569,7 @@ function CollectionSharingPanel({ error, collection, busy, perform, sharingAvail
       count={members?.length}
       action={sharingAvailable && <button className="mdbase-button is-tertiary" onClick={() => { setInviting(true); setShareLink(""); }}><Trans><Plus aria-hidden="true" />Invite person</Trans></button>}
     />
+    {sharingAvailable && seatLimit && <div className="connect-row"><div><strong><Trans>No member seats left</Trans></strong><small>{seatLimit === "upgrade" ? t(i18n)({ message: "Everyone your plan allows has already joined your collections. People you invite can't join until you upgrade to Plus or remove someone.", context: "Connect interface" }) : t(i18n)({ message: "Everyone your plan allows has already joined your collections. People you invite can't join until you remove someone.", context: "Connect interface" })}</small></div>{seatLimit === "upgrade" && <RouteLink className="mdbase-button is-tertiary" view="account" navigate={navigate}><Trans>Upgrade to Plus</Trans></RouteLink>}</div>}
     {loadError && <div className="connect-notice error" role="alert"><div>{loadError.conflict ? <p><Trans>Resolve the conflicting changes in the desktop app on the computers holding this collection, then return here to change access.</Trans></p> : loadError.message}</div>{!loadError.conflict && <button className="mdbase-button is-tertiary" onClick={() => void load()}><Trans>Try again</Trans></button>}</div>}
     {sharingAvailable && inviting && <form className="connect-inline-form connect-sharing-form" onSubmit={(event) => void invite(event)}>
       <label><span><Trans>Invite using</Trans></span><Select aria-label={t(i18n)({ message: "Invite using", context: "Connect interface" })} value={targetMode} options={[{ value: "email", label: t(i18n)`Verified email` }, { value: "invitee_code", label: t(i18n)`Sharing code` }]} onChange={(next) => { setTargetMode(next); setTarget(""); }} /></label>

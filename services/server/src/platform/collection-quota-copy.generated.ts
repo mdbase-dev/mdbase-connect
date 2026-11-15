@@ -1,1 +1,1 @@
-export const ACCOUNT_COLLECTION_QUOTA_MESSAGE = "Your account has reached its synced collection limit. Open an existing collection, delete one you own if Delete is available, or contact mdbase support to raise your limit.";
+export const ACCOUNT_COLLECTION_QUOTA_MESSAGE = "Your account has reached its synced collection limit. Open an existing collection, delete one you own if Delete is available, or, if you're on the Free plan, upgrade to Plus from your mdbase account page.";

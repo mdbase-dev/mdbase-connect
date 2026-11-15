@@ -285,6 +285,7 @@ describe("billing routes", () => {
     });
     expect(overview.subscription.limits).toMatchObject({ hosted_storage_bytes: 107_374_182_400, max_hosted_collections: 10 });
     expect(overview.subscription.trial).toBeNull();
+    expect(overview.subscription.usage).toMatchObject({ collection_member_seats: 0 });
 
     // The same state arriving again, by replay or another event type, changes nothing.
     await deliver(app, billing, "checkout.session.completed", {

@@ -1065,6 +1065,7 @@ msgctxt "Confirmation dialog"
 msgid "Make private"
 msgstr "비공개로 전환"
 
+#: src/renderer/collections-view.tsx
 #: src/renderer/main.tsx
 msgid "Manage in mdbase"
 msgstr "mdbase에서 관리"
@@ -1793,6 +1794,11 @@ msgstr "{0}이(가) 이 컴퓨터를 통해 {1}을(를) 사용하지 못하게 �
 #: src/renderer/daemon-view.mts
 msgid "Stopped"
 msgstr "중단됨"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "Storage for this collection is full, so some files haven't synced. Free up space to sync them. If it's your collection and you're on the Free plan, you can upgrade to Plus for more storage."
+msgstr "이 컬렉션의 스토리지가 가득 차서 일부 파일이 동기화되지 않았습니다. 동기화하려면 공간을 확보하세요. 내 컬렉션이고 Free 요금제를 사용 중이라면 Plus로 업그레이드해 스토리지를 늘릴 수 있습니다."
 
 #. placeholder {0}: /[.!?]$/.test(sentence) ? sentence : `${sentence}.`
 #: src/renderer/view-model.ts

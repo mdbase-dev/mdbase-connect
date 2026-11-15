@@ -1662,6 +1662,16 @@ msgstr "すべてのブラウザーセッションとログイン方法"
 msgid "Every visible folder. Hidden folders are always excluded."
 msgstr "表示されるすべてのフォルダー。隠しフォルダーは常に除外されます。"
 
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Everyone your plan allows has already joined your collections. People you invite can't join until you remove someone."
+msgstr "プランで利用できる人数分のユーザーがすでにコレクションに参加しています。誰かを削除するまで、招待したユーザーは参加できません。"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Everyone your plan allows has already joined your collections. People you invite can't join until you upgrade to Plus or remove someone."
+msgstr "プランで利用できる人数分のユーザーがすでにコレクションに参加しています。Plus にアップグレードするか誰かを削除するまで、招待したユーザーは参加できません。"
+
 #: src/authority-workflows.tsx
 msgid "Existing access is revoked. Connect apps again to use the local collection."
 msgstr "既存のアクセスを取り消しました。ローカルコレクションを使用するには、Connect アプリケーションを再接続してください。"
@@ -2370,6 +2380,10 @@ msgstr "接続済みコンピューターはありません"
 msgctxt "Connect interface"
 msgid "No computers match"
 msgstr "一致するコンピューターはありません"
+
+#: src/ConnectApp.tsx
+msgid "No member seats left"
+msgstr "メンバー枠が残っていません"
 
 #: src/authorization-view.tsx
 msgid "No requesting origin is available. Continue only if you started this connection intentionally."
@@ -3848,6 +3862,10 @@ msgctxt "Connect interface"
 msgid "Updating access…"
 msgstr "アクセスを更新中…"
 
+#: src/ConnectApp.tsx
+msgid "Upgrade to Plus"
+msgstr "Plus にアップグレード"
+
 #: src/AccountManagement.tsx
 msgid "Upgrade to Plus for {storage} of storage, {collections}, files up to {fileSize} and {people} per collection."
 msgstr "Plus にアップグレードすると、ストレージ {storage}、{collections}、最大 {fileSize} のファイル、コレクションあたり {people} を利用できます。"
@@ -4047,8 +4065,8 @@ msgid "Your account has been deleted."
 msgstr "アカウントを削除しました。"
 
 #: src/collection-quota-copy.generated.ts
-msgid "Your account has reached its synced collection limit. Open an existing collection, delete one you own if Delete is available, or contact mdbase support to raise your limit."
-msgstr "アカウントの同期済みコレクション数が上限に達しました。既存のコレクションを開くか、削除が利用できる場合は自分が所有するコレクションを削除するか、mdbase サポートに上限の引き上げをお問い合わせください。"
+msgid "Your account has reached its synced collection limit. Open an existing collection, delete one you own if Delete is available, or, if you're on the Free plan, upgrade to Plus from your mdbase account page."
+msgstr "アカウントの同期済みコレクション数が上限に達しました。既存のコレクションを開くか、削除が利用できる場合は自分が所有するコレクションを削除するか、Free プランをご利用の場合は mdbase のアカウントページから Plus にアップグレードしてください。"
 
 #: src/onboarding-view.tsx
 msgid "Your account is ready. Create a collection now, or continue without one."

@@ -1065,6 +1065,7 @@ msgctxt "Confirmation dialog"
 msgid "Make private"
 msgstr "设为私有"
 
+#: src/renderer/collections-view.tsx
 #: src/renderer/main.tsx
 msgid "Manage in mdbase"
 msgstr "在 mdbase 中管理"
@@ -1793,6 +1794,11 @@ msgstr "禁止 {0} 通过此电脑使用 {1}？"
 #: src/renderer/daemon-view.mts
 msgid "Stopped"
 msgstr "已停止"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "Storage for this collection is full, so some files haven't synced. Free up space to sync them. If it's your collection and you're on the Free plan, you can upgrade to Plus for more storage."
+msgstr "此集合的存储空间已满，部分文件尚未同步。请释放空间以同步这些文件。如果这是你的集合且你使用的是 Free 方案，可以升级到 Plus 获取更多存储空间。"
 
 #. placeholder {0}: /[.!?]$/.test(sentence) ? sentence : `${sentence}.`
 #: src/renderer/view-model.ts

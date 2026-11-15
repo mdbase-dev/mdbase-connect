@@ -11,6 +11,7 @@ import {
 import type { DatabaseConnection, DatabasePool, DatabaseQueryable } from "../../db.js";
 import { normalizeEmailAddress } from "../auth/email-identity.js";
 import { effectiveEntitlement } from "../account/entitlements.js";
+import { PLUS_ENTITLEMENT_PROFILE } from "../billing/billing.js";
 import { audit } from "../../platform/audit-events.js";
 import { canonicalUserCode, randomToken, randomUserCode, tokenHash } from "../../security.js";
 
@@ -249,18 +250,8 @@ export async function acceptHostedCollectionInvitation(
     if (!ownerAccount.rows[0]) throw seatUnavailable();
     const entitlement = await effectiveEntitlement(connection, collection.user_id);
     if (!entitlement) throw seatUnavailable();
-    const seatUsage = await connection.query<{ count: string | number }>(
-      `SELECT count(*) AS count FROM (
-         SELECT membership_id FROM account_collection_member_seats
-         WHERE owner_user_id = $1 AND released_at IS NULL
-         UNION
-         SELECT seat_membership_id AS membership_id FROM provider_revocation_jobs
-         WHERE seat_owner_user_id = $1 AND completed_at IS NULL
-       ) AS reservations`,
-      [collection.user_id]
-    );
-    if (Number(seatUsage.rows[0]?.count ?? 0) >= entitlement.maxCollectionMemberSeats) {
-      throw seatUnavailable();
+    if (await collectionMemberSeatUsage(connection, collection.user_id) >= entitlement.maxCollectionMemberSeats) {
+      throw seatUnavailable(entitlement.profileCodes.includes(PLUS_ENTITLEMENT_PROFILE));
     }
 
     let policy;
@@ -605,10 +596,30 @@ function invalidInvitationCode(): CollectionInvitationError {
   );
 }
 
-function seatUnavailable(): CollectionInvitationError {
+/** Member seats an owner holds across all their collections, including seats still being released. */
+export async function collectionMemberSeatUsage(db: DatabaseQueryable, ownerUserId: string): Promise<number> {
+  const usage = await db.query<{ count: string | number }>(
+    `SELECT count(*) AS count FROM (
+       SELECT membership_id FROM account_collection_member_seats
+       WHERE owner_user_id = $1 AND released_at IS NULL
+       UNION
+       SELECT seat_membership_id AS membership_id FROM provider_revocation_jobs
+       WHERE seat_owner_user_id = $1 AND completed_at IS NULL
+     ) AS reservations`,
+    [ownerUserId]
+  );
+  return Number(usage.rows[0]?.count ?? 0);
+}
+
+/** `ownerHasPlus` is known only when the owner's plan, rather than their account, is the obstacle. */
+function seatUnavailable(ownerHasPlus?: boolean): CollectionInvitationError {
   return new CollectionInvitationError(
     "collection_member_seat_unavailable",
-    "The collection owner does not have an available member seat."
+    ownerHasPlus === undefined
+      ? "The collection owner does not have an available member seat."
+      : ownerHasPlus
+        ? "The person who shared this collection can't add anyone else on their plan. Ask them to remove someone, then open this invitation again."
+        : "The person who shared this collection can't add anyone else on their current plan. Ask them to upgrade to Plus or remove someone, then open this invitation again."
   );
 }
 

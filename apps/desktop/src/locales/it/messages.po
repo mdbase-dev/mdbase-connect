@@ -1065,6 +1065,7 @@ msgctxt "Confirmation dialog"
 msgid "Make private"
 msgstr "Rendi privata"
 
+#: src/renderer/collections-view.tsx
 #: src/renderer/main.tsx
 msgid "Manage in mdbase"
 msgstr "Gestisci in mdbase"
@@ -1793,6 +1794,11 @@ msgstr "Impedire a {0} di usare {1} tramite questo computer?"
 #: src/renderer/daemon-view.mts
 msgid "Stopped"
 msgstr "Interrotta"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "Storage for this collection is full, so some files haven't synced. Free up space to sync them. If it's your collection and you're on the Free plan, you can upgrade to Plus for more storage."
+msgstr "Lo spazio di questa raccolta è pieno, quindi alcuni file non sono stati sincronizzati. Libera spazio per sincronizzarli. Se la raccolta è tua e hai il piano Free, puoi passare a Plus per avere più spazio."
 
 #. placeholder {0}: /[.!?]$/.test(sentence) ? sentence : `${sentence}.`
 #: src/renderer/view-model.ts

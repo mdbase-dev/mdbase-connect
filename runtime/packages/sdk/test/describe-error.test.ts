@@ -26,6 +26,7 @@ describe("describeError", () => {
       .toMatchObject({ key: "account_collection_quota_exceeded", message: ACCOUNT_COLLECTION_QUOTA_MESSAGE, action: "free_space", actionLabel: "Manage collections", transient: false });
     expect(ACCOUNT_COLLECTION_QUOTA_MESSAGE).toContain("delete one you own if Delete is available");
     expect(describeError("quota_exceeded")?.title).toBe("Out of storage");
+    expect(describeError("quota_exceeded")?.message).toContain("upgrade to Plus from your mdbase account page");
   });
   it("says plainly when a Private collection's access can't be restored in this app, without suggesting an update", () => {
     const server = {status: 403, code: "installation_private_device_not_allowed", reason: null, retryAfterMs: null, updateUrl: null};

@@ -1662,6 +1662,16 @@ msgstr "Все сеансы браузера и способы входа"
 msgid "Every visible folder. Hidden folders are always excluded."
 msgstr "Все видимые папки. Скрытые папки всегда исключены."
 
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Everyone your plan allows has already joined your collections. People you invite can't join until you remove someone."
+msgstr "К вашим коллекциям уже присоединилось столько участников, сколько позволяет тариф. Приглашённые не смогут присоединиться, пока вы не удалите кого-нибудь."
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Everyone your plan allows has already joined your collections. People you invite can't join until you upgrade to Plus or remove someone."
+msgstr "К вашим коллекциям уже присоединилось столько участников, сколько позволяет тариф. Приглашённые не смогут присоединиться, пока вы не перейдёте на Plus или не удалите кого-нибудь."
+
 #: src/authority-workflows.tsx
 msgid "Existing access is revoked. Connect apps again to use the local collection."
 msgstr "Ранее выданный доступ отозван. Чтобы использовать локальную коллекцию, подключите приложения заново."
@@ -2370,6 +2380,10 @@ msgstr "Нет подключённых компьютеров"
 msgctxt "Connect interface"
 msgid "No computers match"
 msgstr "Подходящих компьютеров нет"
+
+#: src/ConnectApp.tsx
+msgid "No member seats left"
+msgstr "Свободных мест для участников нет"
 
 #: src/authorization-view.tsx
 msgid "No requesting origin is available. Continue only if you started this connection intentionally."
@@ -3848,6 +3862,10 @@ msgctxt "Connect interface"
 msgid "Updating access…"
 msgstr "Обновление доступа…"
 
+#: src/ConnectApp.tsx
+msgid "Upgrade to Plus"
+msgstr "Перейти на Plus"
+
 #: src/AccountManagement.tsx
 msgid "Upgrade to Plus for {storage} of storage, {collections}, files up to {fileSize} and {people} per collection."
 msgstr "Перейдите на Plus: {storage} хранилища, {collections}, файлы до {fileSize} и {people} в каждой коллекции."
@@ -4047,8 +4065,8 @@ msgid "Your account has been deleted."
 msgstr "Ваша учётная запись удалена."
 
 #: src/collection-quota-copy.generated.ts
-msgid "Your account has reached its synced collection limit. Open an existing collection, delete one you own if Delete is available, or contact mdbase support to raise your limit."
-msgstr "Достигнут лимит синхронизируемых коллекций для вашей учётной записи. Откройте существующую коллекцию, удалите свою коллекцию, если доступно удаление, или обратитесь в поддержку mdbase для увеличения лимита."
+msgid "Your account has reached its synced collection limit. Open an existing collection, delete one you own if Delete is available, or, if you're on the Free plan, upgrade to Plus from your mdbase account page."
+msgstr "Достигнут лимит синхронизируемых коллекций для вашей учётной записи. Откройте существующую коллекцию, удалите свою коллекцию, если доступно удаление, или, если у вас тариф Free, перейдите на Plus на странице учётной записи mdbase."
 
 #: src/onboarding-view.tsx
 msgid "Your account is ready. Create a collection now, or continue without one."

@@ -1662,6 +1662,16 @@ msgstr "所有浏览器会话和登录方式"
 msgid "Every visible folder. Hidden folders are always excluded."
 msgstr "所有可见文件夹。隐藏文件夹始终排除在外。"
 
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Everyone your plan allows has already joined your collections. People you invite can't join until you remove someone."
+msgstr "你的方案允许的人数已全部加入你的集合。在你移除某人之前，你邀请的人无法加入。"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Everyone your plan allows has already joined your collections. People you invite can't join until you upgrade to Plus or remove someone."
+msgstr "你的方案允许的人数已全部加入你的集合。在你升级到 Plus 或移除某人之前，你邀请的人无法加入。"
+
 #: src/authority-workflows.tsx
 msgid "Existing access is revoked. Connect apps again to use the local collection."
 msgstr "现有访问权限已撤销。请重新连接 Connect 应用以使用本地集合。"
@@ -2370,6 +2380,10 @@ msgstr "没有已连接的电脑"
 msgctxt "Connect interface"
 msgid "No computers match"
 msgstr "没有匹配的电脑"
+
+#: src/ConnectApp.tsx
+msgid "No member seats left"
+msgstr "没有剩余的成员名额"
 
 #: src/authorization-view.tsx
 msgid "No requesting origin is available. Continue only if you started this connection intentionally."
@@ -3848,6 +3862,10 @@ msgctxt "Connect interface"
 msgid "Updating access…"
 msgstr "正在更新访问权限…"
 
+#: src/ConnectApp.tsx
+msgid "Upgrade to Plus"
+msgstr "升级到 Plus"
+
 #: src/AccountManagement.tsx
 msgid "Upgrade to Plus for {storage} of storage, {collections}, files up to {fileSize} and {people} per collection."
 msgstr "升级到 Plus，可获得 {storage} 存储空间、{collections}、单个文件最大 {fileSize}，每个集合可有 {people}。"
@@ -4047,8 +4065,8 @@ msgid "Your account has been deleted."
 msgstr "你的账户已删除。"
 
 #: src/collection-quota-copy.generated.ts
-msgid "Your account has reached its synced collection limit. Open an existing collection, delete one you own if Delete is available, or contact mdbase support to raise your limit."
-msgstr "你的账户已达到同步集合数量上限。请打开现有集合；如果有删除功能，可删除你拥有的集合；也可以联系 mdbase 支持以提高上限。"
+msgid "Your account has reached its synced collection limit. Open an existing collection, delete one you own if Delete is available, or, if you're on the Free plan, upgrade to Plus from your mdbase account page."
+msgstr "你的账户已达到同步集合数量上限。请打开现有集合；如果有删除功能，可删除你拥有的集合；如果你使用的是 Free 方案，也可以在 mdbase 账户页面升级到 Plus。"
 
 #: src/onboarding-view.tsx
 msgid "Your account is ready. Create a collection now, or continue without one."

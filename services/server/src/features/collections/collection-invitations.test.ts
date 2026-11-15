@@ -149,7 +149,29 @@ describe("hosted collection invitations", () => {
     await expect(acceptHostedCollectionInvitation(database, {
       userId: secondId,
       token: second.token
-    })).rejects.toMatchObject({ code: "collection_member_seat_unavailable" });
+    })).rejects.toMatchObject({
+      code: "collection_member_seat_unavailable",
+      message: expect.stringContaining("Ask them to upgrade to Plus or remove someone")
+    });
+    // Plus offers nothing more to an owner already on it.
+    await database.query(
+      "UPDATE entitlement_profiles SET max_collection_member_seats = 1 WHERE code = 'plus_v1'"
+    );
+    await database.query(
+      `INSERT INTO account_entitlement_grants
+         (id, user_id, profile_code, source, source_reference)
+       VALUES ($1, $2, 'plus_v1', 'operator', $3)`,
+      [randomUUID(), ownerId, `test-plus-${ownerId}`]
+    );
+    const refused = acceptHostedCollectionInvitation(database, {
+      userId: secondId,
+      token: second.token
+    });
+    await expect(refused).rejects.toMatchObject({
+      code: "collection_member_seat_unavailable",
+      message: expect.stringContaining("Ask them to remove someone")
+    });
+    await expect(refused).rejects.not.toMatchObject({ message: expect.stringContaining("upgrade") });
     const pending = await database.query<{ state: string }>(
       "SELECT state FROM collection_invitations WHERE id = $1",
       [second.id]

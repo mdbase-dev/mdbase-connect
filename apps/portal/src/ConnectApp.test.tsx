@@ -91,7 +91,7 @@ describe("ConnectApp", () => {
   it("offers deletion only where available alongside existing-collection and support recovery", async () => {
     vi.mocked(fetch).mockResolvedValue(Response.json({ error: { code: "account_collection_quota_exceeded", message: "Delete a synced collection before creating another." } }, { status: 429 }));
     render(<ConnectApp />);
-    expect(await screen.findByRole("alert")).toHaveTextContent("Open an existing collection, delete one you own if Delete is available, or contact mdbase support to raise your limit.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Open an existing collection, delete one you own if Delete is available, or, if you're on the Free plan, upgrade to Plus from your mdbase account page.");
   });
 
   it("names each collection launch link in the collection list", async () => {
@@ -1323,6 +1323,40 @@ describe("ConnectApp", () => {
       && init?.method === "PATCH"
       && init.body === JSON.stringify({ role: "editor" })
     )).toBe(true);
+  });
+
+  it("tells an owner with no member seats left that Plus adds more", async () => {
+    overview.collections = [];
+    overview.hosted_collections = [hostedCollection()];
+    overview.subscription!.limits.max_collection_member_seats = 1;
+    overview.subscription!.usage!.collection_member_seats = 1;
+    overview.billing = {
+      available: true,
+      plus_limits: { hosted_storage_bytes: 107_374_182_400, max_hosted_collections: 10, max_single_file_bytes: 262_144_000, max_collection_member_seats: 5 },
+      plus: null
+    };
+    history.replaceState(null, "", "/access?collection=hosted");
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith("/members")) return Response.json({ members: [] });
+      if (path.endsWith("/invitations")) return Response.json({ invitations: [] });
+      return originalFetch(input, init);
+    });
+    const user = userEvent.setup();
+    const { unmount } = render(<ConnectApp />);
+
+    expect(await screen.findByText("No member seats left")).toBeInTheDocument();
+    await user.click(screen.getByRole("link", { name: "Upgrade to Plus" }));
+    expect(location.pathname).toBe("/account");
+    unmount();
+
+    // Plus already held: removing someone is the only way to free a seat.
+    overview.billing.plus = { status: "active", current_period_end: new Date().toISOString(), cancels_at: null, access_ends_at: new Date().toISOString() };
+    history.replaceState(null, "", "/access?collection=hosted");
+    render(<ConnectApp />);
+    expect(await screen.findByText(/can't join until you remove someone/)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Upgrade to Plus" })).not.toBeInTheDocument();
   });
 
   it("hides owner-only and sharing controls from viewers", async () => {

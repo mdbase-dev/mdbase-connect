@@ -224,6 +224,8 @@ export interface ManagementOverview {
      * the collection limit enforces, with null byte figures (see `native_storage_bytes`). */
     usage: null | {
       hosted_collections: number;
+      /** Member seats the account holds across the collections it owns; absent on servers before seat counts. */
+      collection_member_seats?: number;
       live_content_bytes: number | null;
       live_file_bytes: number | null;
       live_storage_bytes: number | null;
