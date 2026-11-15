@@ -179,7 +179,7 @@ function renderWelcomeEmail(
     "A lot of the software that we use, especially SaaS software, puts your data in its own database. This can make it difficult to use elsewhere or to leave with your data when the software no longer suits your needs. The goal of mdbase is to enable users to enjoy good software while maintaining control of their data, with or without mdbase.",
     "You can also build applications using the mdbase SDK. This is a way to make your own tools that work with your data online or offline, without giving a third-party application access to it.",
     entitlement,
-    "There will probably be some rough edges, so please let me know when something breaks, behaves unexpectedly, or is confusing. You can send an email to support@mdbase.dev or open an issue on GitHub. mdbase is early in its development and so feedback is super-helpful!",
+    "If something breaks or is confusing, email support@mdbase.dev or open an issue on GitHub. Feedback is always welcome.",
     "Best,\nCallum."
   ]);
 }
