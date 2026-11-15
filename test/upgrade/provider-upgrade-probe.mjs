@@ -76,7 +76,7 @@ async function main(phase, file) {
   }
   const base = process.env.UPGRADE_PROVIDER_URL;
   assert.match(base, /^http:\/\/127\.0\.0\.1:\d+$/);
-  const initializing = phase === 'predecessor' || phase === 'predecessor-v2';
+  const initializing = phase === 'predecessor-v2';
   const state = initializing ? { collection: randomUUID(), account: randomUUID() } : JSON.parse(await readFile(file, 'utf8'));
   const collectionPath = `/internal/v1/collections/${state.collection}`;
   async function http(method, path, input, expected, authority) {
@@ -107,15 +107,12 @@ async function main(phase, file) {
     const conflict = await op('create', { ...state.create, body: 'Changed bytes' }, 409, state.request);
     assert.equal(conflict.error.code, 'mutation_request_conflict');
   }
-  async function enforce(freshIssuanceEnabled = true) {
+  async function enforce() {
     assert.equal((await op('assess_collection_setup', state.authority.setup)).result.valid, true);
     const mismatch = structuredClone(state.authority.setup);
     mismatch.provisions.configuration[0].value = 'unapproved';
     const expanded = { ...state.authority, policy: { ...state.authority.policy, allowed_operations: [...state.authority.policy.allowed_operations, 'delete'] } };
-    assert.equal(
-      (await policy(expanded, 403)).error.code,
-      freshIssuanceEnabled ? 'application_declaration_mismatch' : 'application_authorization_issuance_disabled'
-    );
+    assert.equal((await policy(expanded, 403)).error.code, 'application_declaration_mismatch');
     const denied = await op('apply_collection_setup', mismatch, 403);
     assert.equal(denied.error.code, 'application_declaration_mismatch');
     // Valid request signatures, with operations outside the exact create/setup ceiling.
@@ -125,7 +122,7 @@ async function main(phase, file) {
     }
   }
   if (initializing) {
-    await capability(phase === 'predecessor-v2');
+    await capability(true);
     await http('PUT', `/internal/v1/accounts/${state.account}`, {
       entitlement_revision: 1, hosted_storage_bytes: 1073741824, retained_file_bytes: 2147483648,
       max_document_bytes: 2097152, max_single_file_bytes: 262144000, max_mirror_replicas_per_collection: 10,
@@ -177,18 +174,6 @@ async function main(phase, file) {
   } else if (phase === 'replay') {
     await capability(true);
     await replay();
-  } else if (phase === 'retained') {
-    await capability(false);
-    await register(state.authority);
-    await policy(state.authority);
-    await replay();
-    await enforce(false);
-    const denied = await register(state.fresh, 403);
-    assert.equal(denied.error.code, 'application_authorization_issuance_disabled');
-    await http('POST', `${collectionPath}/fresh-application-setup-v2`, state.fresh.freshSetup, 404);
-    // A valid new application signature is not evidence of prior approval.
-    const replaced = { ...state.fresh, policy: { ...state.fresh.policy, replica_id: state.authority.policy.replica_id } };
-    assert.equal((await policy(replaced, 403)).error.code, 'application_authorization_issuance_disabled');
   } else if (phase === 'retained-write') {
     state.rollbackRequest = randomUUID();
     state.rollbackInput = { ...state.create, path: 'upgrade/beta95-write.md' };

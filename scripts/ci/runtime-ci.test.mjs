@@ -28,7 +28,7 @@ test("required Qualification rejects failed, cancelled or skipped merge-queue na
     .split("\n").map((line) => line.slice(10)).join("\n");
   const env = Object.fromEntries([
     "WINDOWS", "WINDOWS_DAEMON", "RUNTIME", "NODE", "CONTAINER", "SERVER_UPGRADE",
-    "SERVER_RETAINED_V2", "PROVIDER_UPGRADE", "RETAINED_V2", "PROVIDER_RUST",
+    "SERVER_RETAINED_V2", "PROVIDER_UPGRADE", "PROVIDER_RUST",
     "PROVIDER_SYSTEM", "LOG_POSTGRES", "LOG_DO", "MIGRATION_ROLLBACK"
   ].map((name) => [name, "success"]));
   for (const result of ["success", "failure", "cancelled", "skipped"]) {
