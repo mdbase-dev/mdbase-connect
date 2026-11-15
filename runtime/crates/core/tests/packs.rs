@@ -145,6 +145,20 @@ fn assessment_rechecks_public_pack_and_override_paths() {
 }
 
 #[test]
+fn assessment_refuses_overrides_that_merge_two_targets() {
+    let mut options = opts();
+    options
+        .target_overrides
+        .insert(SEED.into(), "_contracts/example.note.md".into());
+    assert_eq!(
+        assess_type_pack(&MemState::new(), &seed_pack(1), &options)
+            .unwrap_err()
+            .code,
+        "invalid_type_pack"
+    );
+}
+
+#[test]
 fn apply_rejects_desired_document_changed_after_review() {
     let mut pack = load_pack(&manifest(), &|s| (s == "note.md").then(|| TYPE.to_owned())).unwrap();
     let state = MemState::new();

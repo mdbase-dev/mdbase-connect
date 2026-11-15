@@ -719,6 +719,18 @@ pub fn assess_type_pack(
             .cloned()
             .unwrap_or_else(|| r.target.clone())
     };
+    // Overrides must not merge two resources into one path: both would be
+    // written there and the receipt would record the path twice.
+    let mut resolved_targets = BTreeSet::new();
+    if !pack
+        .resources
+        .iter()
+        .all(|r| resolved_targets.insert(crate::paths::path_key(&target_of(r))))
+    {
+        return Err(invalid(
+            "target overrides would place two pack resources at one path",
+        ));
+    }
     for t in &opts.preserve_seed_targets {
         if !pack
             .resources

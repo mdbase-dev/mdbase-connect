@@ -2,10 +2,12 @@
 use super::CollectionSetup;
 use crate::{
     packs::{Lock, folder_target_overrides},
+    paths::path_key,
     state::StateView,
     types::LOCK_PATH,
     validate::Issue,
 };
+use std::collections::BTreeSet;
 
 impl CollectionSetup {
     /// Resolve not-yet-installed packs into the collection's configured folders;
@@ -23,6 +25,15 @@ impl CollectionSetup {
             None => Lock::default(),
         };
         for entry in &mut self.type_packs {
+            // A path this version declares belongs to the resource that declares
+            // it: an earlier version's receipt never redirects another resource
+            // onto it (a contract moved aside when a newer one took its path).
+            let declared: BTreeSet<String> = entry
+                .pack
+                .resources
+                .iter()
+                .map(|resource| path_key(&resource.target))
+                .collect();
             entry.options.target_overrides = match lock.receipt(&entry.pack.id) {
                 None => folder_target_overrides(state, &entry.pack),
                 Some(receipt) => entry
@@ -37,6 +48,7 @@ impl CollectionSetup {
                                 installed.source == resource.source
                                     && installed.kind == resource.kind
                                     && installed.target != resource.target
+                                    && !declared.contains(&path_key(&installed.target))
                             })
                             .map(|installed| (resource.target.clone(), installed.target.clone()))
                     })
