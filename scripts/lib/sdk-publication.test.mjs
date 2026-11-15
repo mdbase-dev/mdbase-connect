@@ -120,19 +120,21 @@ test("canonical trust generator emits one fixed environment, never a runtime sel
   }
 });
 
-test("legacy archive publisher rejects SDKs and paths outside runtime/npm", async () => {
+test("legacy archive publisher accepts scoped runtime packages, rejects SDKs, unscoped names and paths outside runtime/npm", async () => {
   const { checkLegacyArchive } = await import("../sdk-publication.mjs");
   for (const file of ["../sdk.tgz", "/sdk.tgz", "runtime/npm/../sdk.tgz"]) {
     assert.throws(() => checkLegacyArchive(file));
   }
-  for (const packageName of Object.values(sdkPackages)) {
+  const runtimePackages = ["@mdbase-dev/mdbase", "@mdbase-dev/obsidian-runtime"];
+  for (const packageName of [...runtimePackages, "mdbase", ...Object.values(sdkPackages)]) {
     mkdirSync(join(root, "runtime/npm"), { recursive: true });
     const directory = mkdtempSync(join(root, "runtime/npm/.sdk-publication-test-"));
-    const archive = `runtime/npm/sdk-publication-test-${packageName.split("/")[1]}.tgz`;
+    const archive = `runtime/npm/sdk-publication-test-${packageName.replace(/^@/, "").replaceAll("/", "-")}.tgz`;
     try {
       writeFileSync(join(directory, "package.json"), JSON.stringify({ name: packageName }));
       execFileSync("tar", ["-czf", join(root, archive), "--transform=s,^,package/,", "-C", directory, "package.json"]);
-      assert.throws(() => checkLegacyArchive(archive), /SDK archives cannot use/);
+      if (runtimePackages.includes(packageName)) assert.doesNotThrow(() => checkLegacyArchive(archive));
+      else assert.throws(() => checkLegacyArchive(archive), /SDK archives cannot use/);
     } finally {
       rmSync(directory, { recursive: true, force: true });
       rmSync(join(root, archive), { force: true });

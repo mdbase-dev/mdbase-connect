@@ -132,7 +132,7 @@ async function packAllSdks(output) {
 export function checkLegacyArchive(archive) {
   assert.match(archive, /^runtime\/npm\/[A-Za-z0-9._-]+\.tgz$/);
   const manifest = JSON.parse(execFileSync("tar", ["-xOf", join(root, archive), "package/package.json"], { encoding: "utf8" }));
-  assert(["@mdbase-dev/obsidian-runtime", "mdbase"].includes(manifest.name),
+  assert(["@mdbase-dev/obsidian-runtime", "@mdbase-dev/mdbase"].includes(manifest.name),
     "SDK archives cannot use the legacy archive publisher; use publish-sdk-npm.yml");
 }
 

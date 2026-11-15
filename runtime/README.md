@@ -25,7 +25,7 @@ conformance/
 scripts/                sync-spec-fixtures.sh, wasm-replay.mjs, wasm-size.mjs, extract-cddl.sh, check-wire-cddl.sh,
                         gen-casefold-table.py
 packages/sdk/           the TS SDK (@mdbase-dev/sdk): client API, transports; `cargo xtask sdk`
-packages/mdbase/         the npm `mdbase` package: universal helpers over mdbase-core.wasm (`cargo xtask mdbase-wasm`)
+packages/mdbase/         the npm `@mdbase-dev/mdbase` package: universal helpers over mdbase-core.wasm (`cargo xtask mdbase-wasm`)
 packages/obsidian-runtime/  the Obsidian runtime host (vault platform, journal, index, fence, shared runtime); `cargo xtask obsidian`
 tools/wasm/             pinned binaryen (wasm-opt) and the WASM size budget
 fuzz/                   cargo-fuzz targets for mdbn-core (local only, not in CI)
@@ -57,10 +57,10 @@ Directories carry the role, packages carry the prefix: `crates/core` is package
 | `mdbn-bench` | Benchmarks for native, replicated and WASM runtime performance. | any library crate | no |
 | `mdbn-local-host` | The native composition of a collection folder: FileStore + SqlStore/SqliteIndex + NativePlatform, the folder host lock, identity, the local-only drive loop. For `mdbase` and the daemon. | core, wire, replica, store-file, platform-native | no |
 | `mdbase` | The public library: `Collection::open/init`, typed CRUD, CEL queries, validation, links, changes, batches over a local-only replica (`docs/library/README.md`). | core, wire, replica, store-file, platform-native, local-host | no |
-| `mdbase-node` | The Node.js addon (napi-rs) behind `mdbase/node`: `mdbase::Collection` on its own thread, JSON calls. Ships inside the npm package only. | mdbase | no |
+| `mdbase-node` | The Node.js addon (napi-rs) behind `@mdbase-dev/mdbase/node`: `mdbase::Collection` on its own thread, JSON calls. Ships inside the npm package only. | mdbase | no |
 | `mdbn-trust` | The one verifier of the release environment trust asset (payload v1) against its authenticated context, and the normalized policy-pin output (canonical CBOR); `mdbn-trust verify` for build steps. Library does no I/O. | wire, replica | no (not linked into runtime.wasm) |
 | `mdbn-daemon` | The desktop daemon and the `mdbase` CLI: one replica per collection, embedded local log, local IPC, control endpoint, keychain identity. | core, wire, replica, store-file, platform-native, local-host, log-service, legacy, noise, trust | no |
-| `mdbase-wasm` | `mdbase-core.wasm`: the pure helpers (digests, JSON Schema, catalog, packs) behind the npm `mdbase` package (`docs/library/README.md`). | core | yes |
+| `mdbase-wasm` | `mdbase-core.wasm`: the pure helpers (digests, JSON Schema, catalog, packs) behind the npm `@mdbase-dev/mdbase` package (`docs/library/README.md`). | core | yes |
 | `mdbn-conformance` | Spec fixture runner + ratchet; native side of the determinism replay. | core, wasm | no |
 | `mdbn-legacy` | Read-only readers for old Connect/mdbase-rs state (connector SQLite, mutation journal, receipts, engine journals, role markers, locks), for migration. | nothing | no |
 | `mdbn-migrate` | The migrator: hosted adoption (generation 0, re-seal, shadow verify), estimates, hosted rollback and the rehearsal oracle; re-exports the local takeover. A composition point. | migrate-portable, legacy, takeover, core, wire, replica, store-file, platform-native, store-pg | no |

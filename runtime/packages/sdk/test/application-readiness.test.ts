@@ -112,6 +112,27 @@ describe("SDK current aggregate readiness",()=>{
     set({checking:false,assessment:null,problem:{code:"configuration_unavailable"}});expect(f.assess.getSnapshot().problem?.code).toBe("configuration_unavailable");
     f.retire();expect(f.assess.getSnapshot().problem?.code).toBe("readiness_fenced");
   });
+  it("a first check cut short by a concurrent change still assesses the other facets, so its own re-check settles the collection",async()=>{
+    // Regression (TaskNotes browser extension on LAB, SDK beta.218): a page
+    // adopting an open collection saw a status push during the native check.
+    // Its re-check settled with configuration never assessed, which the runtime
+    // published as blocked/application_readiness_unavailable until another select.
+    let native:CollectionReadiness.AppCollectionReadinessSnapshot={checking:false,assessment:null,problem:null},retry=()=>{};const listeners=new Set<()=>void>();
+    const set=(next:typeof native)=>{native=next;for(const l of [...listeners])l();};
+    vi.spyOn(CollectionReadiness,"createAppCollectionReadiness").mockImplementation((_client,_declared,binding)=>{
+      retry=()=>set({checking:false,problem:null,assessment:{status:"ready",problem:null,witness:{collection:binding.collection,generation:binding.generation,resources:[]}}});
+      // Like the native facet: a concurrent change schedules its own re-check, then rejects.
+      return {start:async()=>{set({checking:true,assessment:null,problem:null});throw mdbaseError("unavailable","collection readiness unavailable","readiness_changed");},close:async()=>{},
+        subscribe:(l:()=>void)=>{listeners.add(l);return()=>{listeners.delete(l);};},getSnapshot:()=>native} as unknown as CollectionReadiness.AppCollectionReadiness;
+    });
+    const lazy=()=>{let value:MdbaseApplicationFacetSnapshot={checking:false,assessment:null,problem:null};return{getSnapshot:()=>value,subscribe:()=>()=>{},refresh:vi.fn(async()=>{value=ready;return value;}),close:()=>{}};};
+    const configuration=lazy(),files=lazy(),f=await fixture({configuration,files},{} as never);
+    await expect(f.assess.refresh()).rejects.toMatchObject({reason:"readiness_changed"});
+    expect(configuration.refresh).toHaveBeenCalledOnce();expect(files.refresh).toHaveBeenCalledOnce();
+    expect(f.assess.getSnapshot()).toMatchObject({checking:true,assessment:null,problem:null});
+    retry();
+    expect(f.assess.getSnapshot()).toMatchObject({checking:false,problem:null,assessment:{status:"ready"}});
+  });
   it.each([
     {name:"re-assesses a stale native setup_required once configuration applied setup",after:"ready",starts:2},
     {name:"re-assesses a genuine native setup_required only once",after:"setup_required",starts:2},

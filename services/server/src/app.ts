@@ -233,7 +233,7 @@ export async function buildApp(options: BuildOptions) {
     ? new ScheduledEmailWorker(
         options.db,
         options.emailTransport,
-        renderScheduledEmail,
+        (context) => renderScheduledEmail(options.db, context),
         publicUrl,
         undefined,
         (error) => app.log.error(

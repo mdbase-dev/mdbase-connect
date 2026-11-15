@@ -1454,6 +1454,10 @@ msgstr "Clear selection"
 msgid "Clear type search"
 msgstr "Clear type search"
 
+#: src/NoteTabs.tsx
+msgid "Close {name}"
+msgstr "Close {name}"
+
 #: src/NoteCommentsPanel.tsx
 msgid "Close comments"
 msgstr "Close comments"
@@ -1466,9 +1470,17 @@ msgstr "Close file preview"
 msgid "Close note peek"
 msgstr "Close note peek"
 
+#: src/editor-commands.ts
+msgid "Close pane"
+msgstr "Close pane"
+
 #: src/PropertiesPanel.tsx
 msgid "Close properties"
 msgstr "Close properties"
+
+#: src/editor-commands.ts
+msgid "Close tab"
+msgstr "Close tab"
 
 #: src/code-editor-completions.ts
 msgid "Code block"
@@ -2437,12 +2449,20 @@ msgid "Filter links by type"
 msgstr "Filter links by type"
 
 #: src/App.tsx
+msgid "Find a note by title or path"
+msgstr "Find a note by title or path"
+
+#: src/App.tsx
 msgid "Find a note by title or path, or type > for actions"
 msgstr "Find a note by title or path, or type > for actions"
 
 #: src/App.tsx
 msgid "Find a note or action"
 msgstr "Find a note or action"
+
+#: src/App.tsx
+msgid "Find a note to open in a new tab"
+msgstr "Find a note to open in a new tab"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Find a property"
@@ -2489,6 +2509,10 @@ msgstr "Fix the YAML source before returning to the field editor."
 #: src/editor-commands.ts
 msgid "Focus mode"
 msgstr "Focus mode"
+
+#: src/editor-commands.ts
+msgid "Focus other pane"
+msgstr "Focus other pane"
 
 #: src/TypeBrowser.tsx
 msgid "Folder"
@@ -3359,6 +3383,10 @@ msgstr "Next note"
 msgid "Next note in the list"
 msgstr "Next note in the list"
 
+#: src/editor-commands.ts
+msgid "Next tab"
+msgstr "Next tab"
+
 #: src/NoteList.tsx
 msgid "No additional text"
 msgstr "No additional text"
@@ -3459,6 +3487,10 @@ msgstr "No matching schema properties."
 #: src/TypeBrowser.tsx
 msgid "No nested fields yet."
 msgstr "No nested fields yet."
+
+#: src/App.tsx
+msgid "No note"
+msgstr "No note"
 
 #. placeholder {0}: reference.target
 #: src/code-editor-reference-diagnostics.ts
@@ -3706,6 +3738,10 @@ msgstr "Open {name}"
 msgid "Open {primaryTypeLabel}"
 msgstr "Open {primaryTypeLabel}"
 
+#: src/editor-commands.ts
+msgid "Open a note in a new tab"
+msgstr "Open a note in a new tab"
+
 #: src/use-note-comments.ts
 msgid "Open a note to comment on it."
 msgstr "Open a note to comment on it."
@@ -3726,6 +3762,12 @@ msgstr "Open document"
 msgid "open files"
 msgstr "open files"
 
+#: src/App.tsx
+#: src/editor-commands.ts
+#: src/QuickOpen.tsx
+msgid "Open in new tab"
+msgstr "Open in new tab"
+
 #: src/ConnectionScreens.tsx
 msgid "open notes"
 msgstr "open notes"
@@ -3743,6 +3785,10 @@ msgstr "Open original"
 msgid "Open Settings"
 msgstr "Open Settings"
 
+#: src/NoteTabs.tsx
+msgid "Open tabs"
+msgstr "Open tabs"
+
 #: src/main.tsx
 #: src/SdkEditorRoot.tsx
 msgid "Open the Editor configured for your mdbase environment from Collections."
@@ -3751,6 +3797,10 @@ msgstr "Open the Editor configured for your mdbase environment from Collections.
 #: src/WorkspaceChrome.tsx
 msgid "Open to find mentions."
 msgstr "Open to find mentions."
+
+#: src/editor-commands.ts
+msgid "Open to the side"
+msgstr "Open to the side"
 
 #: src/editor-commands.ts
 msgid "Open Types"
@@ -4042,6 +4092,10 @@ msgstr "Previous note"
 #: src/editor-commands.ts
 msgid "Previous note in the list"
 msgstr "Previous note in the list"
+
+#: src/editor-commands.ts
+msgid "Previous tab"
+msgstr "Previous tab"
 
 #: src/ConnectionScreens.tsx
 msgid "Previously opened in mdbase editor"
@@ -4862,6 +4916,14 @@ msgstr "Source saves when focus leaves the editor"
 msgctxt "settings view"
 msgid "Specification"
 msgstr "Specification"
+
+#: src/editor-commands.ts
+msgid "Split down"
+msgstr "Split down"
+
+#: src/editor-commands.ts
+msgid "Split right"
+msgstr "Split right"
 
 #: src/code-editor-completions.ts
 msgid "Start a checkable task"

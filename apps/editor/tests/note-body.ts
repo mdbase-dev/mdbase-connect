@@ -8,9 +8,13 @@ export async function openingNoteSettled(body: Locator): Promise<void> {
 }
 
 /** Replaces the body of the demo's opening note once it has settled. A redraw
- * between fill's select-all and its typing drops the selection, so the text
- * would be inserted instead of replacing the body. */
+ * between fill's select-all and its typing drops the selection, so the text is
+ * inserted instead of replacing the body. The opening note's image embed is gone
+ * only once the body was replaced, so fill again until it is. */
 export async function replaceOpeningNoteBody(body: Locator, text: string): Promise<void> {
   await openingNoteSettled(body);
-  await body.fill(text);
+  await expect(async () => {
+    await body.fill(text);
+    await expect(body.locator(".cm-file-embed")).toHaveCount(0, { timeout: 1_000 });
+  }).toPass();
 }

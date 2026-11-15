@@ -89,7 +89,6 @@ export const ciOnlySteps = [
   { prefix: "pnpm --filter @mdbase-dev/connect-protocol build", reason: "subset of pnpm build" },
   { prefix: "cp deploy/docker/Cargo.lock.hosted-provider Cargo.lock", reason: "release lock pins the engine by git revision; local builds use the sibling path and the development lock" },
   { prefix: "cargo build --locked --workspace", reason: "implied by cargo test --workspace" },
-  { prefix: "tar -", reason: "binary transfer between CI jobs" },
   { prefix: "node test/system/run.mjs --suite", reason: "system suites need PostgreSQL and services; run with pnpm test:system" },
   { prefix: "if [[ \"$RUN_FULL\" == true ]]", reason: "aggregates the CI lanes into one required check" },
   { prefix: "kind=fast", reason: "records qualification inputs" }

@@ -120,7 +120,7 @@ and their individually attested `sdk-v<computed-version>` immutable prerelease
 assets. All assets are uploaded to the draft before publication. The original
 trust roots, pins, policy keys and consumer admission rules are not modified.
 
-The reviewed prebuilt `runtime/npm` archives (`mdbase` and
+The reviewed prebuilt `runtime/npm` archives (`@mdbase-dev/mdbase` and
 `@mdbase-dev/obsidian-runtime`) are **not SDK source releases**. Their existing
 `publish-runtime-npm.yml` manual, unchanged-archive path is unchanged and still
 refuses SDK archives. Automating those independently versioned artifacts would

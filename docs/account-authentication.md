@@ -185,6 +185,17 @@ Accounts that signed up earlier keep their permanent `open_beta_v1` grant (1
 GiB live hosted storage, three hosted collections), and invitation-based
 `beta_v1` grants retain their existing ten-collection allowance.
 
+One-off announcements are stored copy, not code: `auth-admin announcements
+create` saves a subject and a body (paragraphs separated by blank lines, with
+`{name}` for the recipient's name, `[text](https://…)` for a link, and optionally
+a separate body for accounts with a beta grant) as the next immutable version in `email_announcements`.
+`show --user` prints exactly what one account would receive, and `test-send`
+queues the latest version for one account without using up its real send.
+`schedule --all enabled` queues the latest version once for every unsuspended
+account with a verified primary address. Each job renders the version it was
+queued with, under the announcements preference, so it carries the unsubscribe
+link and stops for unsubscribed, suppressed or suspended recipients.
+
 Password reset links use the same boundary:
 `/reset-password#reset=<token>`. The challenge expires after one hour.
 Requesting another link invalidates the previous active challenge before

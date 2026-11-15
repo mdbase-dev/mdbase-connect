@@ -10,17 +10,22 @@ import type { CollectionFile } from "./model";
 import { collectionFileTitle, formatFileSize } from "./collection-browser";
 import { EmbedPdfViewer } from "./EmbedPdfViewer";
 
-export function FileWorkspace({ file, asset, leadingActions, onBack, onRetry }: {
+export function FileWorkspace({ file, asset, tabs, background = false, leadingActions, onBack, onRetry }: {
   file: CollectionFile;
   asset: FileAssetSnapshot;
+  /** The open tabs, shown above the file's bar. */
+  tabs?: ReactNode;
+  /** In the editor pane without the focus: the focused pane is the page's main content. */
+  background?: boolean;
   leadingActions?: ReactNode;
   onBack: () => void;
   onRetry: () => void;
 }) {
   useLingui();
   const filename = collectionFileTitle(file);
-  return <main className="editor-pane file-workspace" aria-label={t`File viewer, ${filename}`}>
+  return <section role={background ? "region" : "main"} className={`editor-pane file-workspace${tabs ? " has-tabs" : ""}`} data-focused={background ? undefined : true} aria-label={t`File viewer, ${filename}`}>
     <h1 className="sr-only">{filename}</h1>
+    {tabs}
     <header className="editor-bar">
       <button className="mobile-back icon-button" aria-label={t`Back to notes and files`} onClick={onBack}><ArrowLeft aria-hidden="true" /></button>
       {leadingActions}
@@ -34,7 +39,7 @@ export function FileWorkspace({ file, asset, leadingActions, onBack, onRetry }: 
           ? <div className="file-workspace-message"><File aria-hidden="true" /><strong><Trans>Couldn’t preview {filename}</Trans></strong><span>{asset.error}</span>{asset.status === "error" && <button onClick={onRetry}><Trans>Try again</Trans></button>}</div>
           : <div className="file-workspace-message" role="status" aria-busy="true"><strong><Trans>Opening {filename}</Trans></strong><span><Trans>Reading file content…</Trans></span></div>}
     </div>
-  </main>;
+  </section>;
 }
 
 export function FileViewer({ asset, onClose }: {

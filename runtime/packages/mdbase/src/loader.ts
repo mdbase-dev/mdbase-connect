@@ -59,7 +59,7 @@ async function instantiate(src: WasmSource): Promise<Core> {
  *
  * @example
  * ```ts
- * import { init } from "mdbase";
+ * import { init } from "@mdbase-dev/mdbase";
  * await init({ wasm: fetch("/assets/mdbase-core.wasm") });
  * ```
  */

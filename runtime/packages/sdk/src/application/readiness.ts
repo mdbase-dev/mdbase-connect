@@ -141,15 +141,29 @@ export class ApplicationReadiness {
       if(!this.current())return this.getSnapshot();
       // Advisory facets from the previous refresh still hold the control slot.
       await this.advisory;
-      if(this.native)await this.native.start();
+      // A facet a concurrent change cut short re-checks by itself and still
+      // reads checking. The other gating facets are assessed meanwhile, so its
+      // re-check settles the collection; skipping them would leave it settled
+      // with no assessment and no problem. Any other failure ends the pass.
+      const retrying:unknown[]=[];
+      const step=async(facet:{getSnapshot():{readonly checking:boolean}},run:()=>Promise<unknown>)=>{
+        try{await run();}catch(error){
+          let checking=false;try{checking=facet.getSnapshot().checking===true;}catch{/* read() reports it */}
+          if(!checking||!this.current())throw error;
+          retrying.push(error);
+        }
+      };
+      const native=this.native;
+      if(native)await step(native,()=>native.start());
       // Gating facets one at a time (one native control slot); advisory facets
       // (people, notifications) after them, outside `checking` (P5).
       for(const name of GATING){
         const source=this.sources[name];
         if(!this.current())break;
-        if(source)await source.refresh(); // original lifetime READ, no caller cancellation loan
+        if(source)await step(source,()=>source.refresh()); // original lifetime READ, no caller cancellation loan
       }
       await this.reassessAfterSetup();
+      if(retrying.length)throw retrying[0];
       return this.getSnapshot();
     }).finally(()=>{
       if(this.pending!==pending)return;
