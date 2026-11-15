@@ -980,7 +980,6 @@ msgstr "Описательные метки и цвет для отображе�
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/EditorRail.tsx
-#: src/LoadingScreens.tsx
 #: src/note-list-view.ts
 msgid "All notes"
 msgstr "Все заметки"
@@ -1156,7 +1155,6 @@ msgid "Back to mdbase Connect"
 msgstr "Вернуться в mdbase Connect"
 
 #: src/App.tsx
-#: src/LoadingScreens.tsx
 msgid "Back to notes"
 msgstr "Назад к заметкам"
 
@@ -3141,7 +3139,6 @@ msgid "More inferred rules in YAML"
 msgstr "Дополнительные правила определения типа в YAML"
 
 #: src/App.tsx
-#: src/LoadingScreens.tsx
 msgid "More note actions"
 msgstr "Другие действия с заметкой"
 
@@ -3275,7 +3272,6 @@ msgstr "Новая папка"
 
 #: src/App.tsx
 #: src/editor-commands.ts
-#: src/LoadingScreens.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
 msgid "New note"
@@ -4572,7 +4568,6 @@ msgstr "Поля под управлением схемы"
 msgid "Scope"
 msgstr "Область действия"
 
-#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search"
 msgstr "Поиск"
@@ -4586,7 +4581,6 @@ msgid "Search is incomplete."
 msgstr "Поиск не завершён."
 
 #: src/editor-commands.ts
-#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search notes and files"
 msgstr "Поиск заметок и файлов"

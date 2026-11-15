@@ -980,7 +980,6 @@ msgstr "Advisory labels and colour used when records of this type are shown."
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/EditorRail.tsx
-#: src/LoadingScreens.tsx
 #: src/note-list-view.ts
 msgid "All notes"
 msgstr "All notes"
@@ -1156,7 +1155,6 @@ msgid "Back to mdbase Connect"
 msgstr "Back to mdbase Connect"
 
 #: src/App.tsx
-#: src/LoadingScreens.tsx
 msgid "Back to notes"
 msgstr "Back to notes"
 
@@ -3141,7 +3139,6 @@ msgid "More inferred rules in YAML"
 msgstr "More inferred rules in YAML"
 
 #: src/App.tsx
-#: src/LoadingScreens.tsx
 msgid "More note actions"
 msgstr "More note actions"
 
@@ -3275,7 +3272,6 @@ msgstr "New folder"
 
 #: src/App.tsx
 #: src/editor-commands.ts
-#: src/LoadingScreens.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
 msgid "New note"
@@ -4572,7 +4568,6 @@ msgstr "Schema-managed fields"
 msgid "Scope"
 msgstr "Scope"
 
-#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search"
 msgstr "Search"
@@ -4586,7 +4581,6 @@ msgid "Search is incomplete."
 msgstr "Search is incomplete."
 
 #: src/editor-commands.ts
-#: src/LoadingScreens.tsx
 #: src/NoteSearchField.tsx
 msgid "Search notes and files"
 msgstr "Search notes and files"

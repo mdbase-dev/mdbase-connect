@@ -262,7 +262,7 @@ test("shows an explicit status while a collection opens", async ({ page }) => {
   await expect(opening).toHaveAttribute("aria-busy", "true");
   await expect(opening).toHaveAttribute("data-loading-state", "opening");
   await expect(page.getByText("Reading notes and files")).toBeVisible();
-  await expect(opening.locator(".collection-rail")).toBeVisible();
+  await expect(opening.locator(".mdbase-opening-mark")).toBeVisible();
   await page.clock.resume();
   await expect(page.getByRole("heading", { name: "All notes" })).toBeVisible();
   await expect(opening).not.toBeAttached();

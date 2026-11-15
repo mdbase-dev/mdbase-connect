@@ -70,34 +70,23 @@ for (const colorScheme of ["light", "dark"] as const) {
       await expect(page.locator(".code-editor-writer .cm-content")).toContainText("round-seven.txt");
     });
 
-    test("phone initial HTML has the toolbar, header and note-row rhythm", async ({ browser }, testInfo) => {
+    test("phone initial HTML is the opening screen the app continues", async ({ browser }, testInfo) => {
       const context = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme, isMobile: true, hasTouch: true });
       try {
         const page = await context.newPage();
         await page.route("**/assets/*.js", (route) => route.abort());
         await page.goto("?demo=40");
-        const opening = page.locator(".editor-opening");
-        await expect(opening.locator("h1")).toHaveText("All notes");
-        for (const label of ["Back to notes", "New note", "More note actions"]) {
-          const button = opening.locator(`button[aria-label="${label}"]`);
-          await expect(button).toBeVisible();
-          await expect(button).toBeDisabled();
-          const bounds = (await button.boundingBox())!;
-          expect(bounds.width).toBeGreaterThanOrEqual(44);
-          expect(bounds.height).toBeGreaterThanOrEqual(44);
-        }
-        await expect(opening.locator(".search-field")).toBeVisible();
-        const bars = opening.locator(".opening-list-skeleton > div");
-        await expect(bars).toHaveCount(6);
-        const positions = await bars.evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().top));
-        for (let index = 1; index < positions.length; index++) expect(positions[index] - positions[index - 1]).toBe(76);
+        const painted = page.locator("[data-opening-page]");
+        await expect(painted.locator(".mdbase-opening-mark")).toBeVisible();
+        await expect(painted.locator(".mdbase-opening-name")).toHaveText("mdbase editor");
+        expect(await painted.boundingBox()).toMatchObject({ x: 0, y: 0, width: 390, height: 844 });
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         await page.screenshot({ path: testInfo.outputPath("phone-first-frame.png") });
         await page.unroute("**/assets/*.js");
         await page.goto("?demo=40&delay=3000");
-        await expect(page.getByRole("main", { name: "Opening collection" })).toHaveAttribute("aria-busy", "true");
-        await expect(opening.getByRole("heading", { name: "All notes" })).toBeVisible();
-        for (const label of ["Back to notes", "New note", "More note actions"]) await expect(opening.getByRole("button", { name: label, exact: true })).toBeVisible();
+        const opening = page.getByRole("main", { name: "Opening collection" });
+        await expect(opening).toHaveAttribute("aria-busy", "true");
+        await expect(opening.getByRole("status")).toContainText("Reading notes and files");
         await page.screenshot({ path: testInfo.outputPath("phone-loading-frame.png") });
         await expect(opening).toHaveCount(0);
       } finally { await context.close(); }

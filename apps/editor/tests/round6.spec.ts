@@ -114,17 +114,16 @@ for (const theme of ["light", "dark"] as const) for (const reducedMotion of ["no
   });
 }
 
-test("phone HTML and loading shell include search; touch opens without body focus", async ({ browser }, testInfo) => {
+test("phone HTML says in place when scripts fail; touch opens without body focus", async ({ browser }, testInfo) => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
   const page = await context.newPage();
   try {
     await page.route("**/assets/*.js", (route) => route.abort());
     await page.goto("?demo=40");
-    await expect(page.locator(".editor-opening .list-header")).toBeVisible();
-    await expect(page.locator(".editor-opening .search-field")).toBeVisible();
-    await expect(page.locator(".opening-list-skeleton > div")).toHaveCount(6);
-    await expect(page.locator(".opening-list-skeleton span")).toHaveCount(18);
-    await page.locator(".editor-opening").screenshot({ path: testInfo.outputPath("phone-first-frame.png") });
+    const opening = page.locator("[data-opening-page]");
+    await expect(opening.locator(".mdbase-opening-mark")).toBeVisible();
+    await expect(opening.getByRole("alert")).toContainText("mdbase editor could not start");
+    await opening.screenshot({ path: testInfo.outputPath("phone-first-frame.png") });
     await page.unroute("**/assets/*.js");
     await page.goto("?demo=40");
     await page.getByRole("button", { name: "Back to notes" }).tap();
