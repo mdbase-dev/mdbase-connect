@@ -5,6 +5,7 @@ import { lingui, linguiTransformerBabelPreset } from "@lingui/vite-plugin";
 import babel from "@rolldown/plugin-babel";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { buildIdentity, buildIdentityPlugin } from "./scripts/build-identity.mjs";
 
 execFileSync(process.execPath, [
   fileURLToPath(new URL("../../packages/app-ui/scripts/compile-catalogues.mjs", import.meta.url)),
@@ -14,9 +15,7 @@ import { defineConfig } from "vitest/config";
 
 const basePath = `/${(process.env.MDBASE_EDITOR_BASE_PATH ?? "/").replace(/^\/+|\/+$/g, "")}/`
   .replace(/^\/\/$/, "/");
-const buildId = (process.env.MDBASE_EDITOR_BUILD_ID ?? process.env.GITHUB_SHA ?? "local")
-  .slice(0, 12)
-  .replace(/[^a-zA-Z0-9_-]/gu, "-");
+const buildId = buildIdentity(process.env.MDBASE_EDITOR_BUILD_ID ?? process.env.GITHUB_SHA);
 
 export default defineConfig(({ mode }) => ({
   // Explicit public fixture configuration; remote builds deliberately exclude .env files.
@@ -36,6 +35,9 @@ export default defineConfig(({ mode }) => ({
       detail: "Reading notes and files",
       themeColor: { light: "#fcfcfd", dark: "#1b1d23" }
     }),
+    // Every shipped HTML document changes bytes per source commit, so an edge that
+    // revalidates it cannot keep the previous build's headers.
+    buildIdentityPlugin(buildId),
     offlineShellPlugin({ register: false })
   ],
   // hoistingLimits gives each workspace package its own copies; @mdbase-dev/ui must use the app's
