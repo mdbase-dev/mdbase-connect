@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   OPEN_BETA_WELCOME_MESSAGE_KIND,
+  PLUS_AND_APPS_BETA_MESSAGE_KIND,
+  PLUS_AND_APPS_MESSAGE_KIND,
   renderBetaWelcomeEmail,
   renderOpenBetaWelcomeEmail,
   renderScheduledEmail
@@ -135,5 +137,49 @@ describe("Beta welcome email", () => {
       templateVersion: 1,
       unsubscribeUrl: null
     })).toThrow("Scheduled email template is unavailable.");
+  });
+});
+
+const PLUS_AND_APPS_TEXT = (beta: boolean) => `Hi Person Example,
+
+I wanted to send a quick update on mdbase, because a few things have changed since you signed up.
+
+First, there's now a paid plan. mdbase Plus is US$10 a month, or US$96 a year, and it gives you 100 GB of storage for the files you upload, up to 10 synced collections, and room to share your collections with up to 5 people. The Free plan isn't changing. On both plans, notes don't count towards storage; only uploaded files like PDFs and images do. ${beta ? "If you joined during the beta, your beta allowance stays with your account whether or not you upgrade. " : ""}You can upgrade from your account page: https://connect.mdbase.dev/account
+
+Second, I've been building a few apps on top of mdbase that I don't think many people know about. They all work with the same markdown files in your collections, so you can use them together, or open what they write in any other editor.
+
+mdbase Reader is for reading and annotating PDFs, EPUBs and saved web pages. Each highlight and comment is saved as its own markdown file, and there's a Chrome extension for saving and highlighting pages as you read. https://reader.mdbase.dev
+
+mdbase Writer is for writing longer things in markdown, like papers, theses and books. It has a typeset preview, citations from your Reader library, and export to PDF or Word. https://writer.mdbase.dev
+
+mdbase Journal is much simpler. It opens to a blank page every time, and each entry becomes a markdown note in your collection. https://journal.mdbase.dev/
+
+Reader and Writer are still early, and Journal is more of an experiment, so there will probably be some rough edges. As always, please let me know when something breaks, behaves unexpectedly, or is confusing. You can send an email to support@mdbase.dev or open an issue on GitHub. Feedback is super-helpful at this stage!
+
+Best,
+Callum.
+
+You're receiving this because you created an mdbase Connect account. To stop announcements like this one, unsubscribe: https://connect.example/unsubscribe#unsubscribe=uns_a`;
+
+describe("Plus and apps announcement", () => {
+  it.each([
+    [PLUS_AND_APPS_MESSAGE_KIND, false],
+    [PLUS_AND_APPS_BETA_MESSAGE_KIND, true]
+  ])("renders the approved copy for %s", (messageKind, beta) => {
+    const message = renderScheduledEmail({
+      userId: "user-1",
+      name: "Person Example",
+      email: "person@example.com",
+      messageKind,
+      templateVersion: 1,
+      unsubscribeUrl: "https://connect.example/unsubscribe#unsubscribe=uns_a"
+    });
+    expect(message).toMatchObject({
+      to: "person@example.com",
+      subject: "mdbase Plus, and three apps you might not have seen",
+      text: PLUS_AND_APPS_TEXT(beta)
+    });
+    expect(message.text).toMatch(/^[\x00-\x7f]*$/u);
+    expect(message.html.includes("beta allowance")).toBe(beta);
   });
 });
